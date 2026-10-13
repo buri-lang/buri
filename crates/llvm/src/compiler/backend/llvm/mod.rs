@@ -148,7 +148,10 @@ impl Backend for Llvm {
         // same `None` `select` refuses them by.
         for platform in Platform::ALL {
             for arch in [Arch::Arm64, Arch::X86_64] {
-                if let Some(triple) = triple_text(Target { platform, arch: Some(arch) }) {
+                if let Some(triple) = triple_text(Target {
+                    platform,
+                    arch: Some(arch),
+                }) {
                     id.push(' ');
                     id.push_str(&triple);
                 }
@@ -227,7 +230,16 @@ impl Backend for Llvm {
         let lowered = self.take_lowering(program, tables);
         let counted = classifier(program);
         let root = root_of(program);
-        emit_selected(&lowered, tables, opts, root, units, &counted, For::Linker, &target::object)
+        emit_selected(
+            &lowered,
+            tables,
+            opts,
+            root,
+            units,
+            &counted,
+            For::Linker,
+            &target::object,
+        )
     }
 }
 
@@ -281,7 +293,11 @@ impl Llvm {
             For::Reader,
             &text,
         )?;
-        let bytes = emitted.into_iter().next().map(|e| e.bytes).unwrap_or_default();
+        let bytes = emitted
+            .into_iter()
+            .next()
+            .map(|e| e.bytes)
+            .unwrap_or_default();
         Ok(String::from_utf8_lossy(&bytes).into_owned())
     }
 }
@@ -310,7 +326,10 @@ enum Root {
 /// Whether `unit` is the one the entry point belongs in.
 fn owns(program: &ir::Program, root: &Root, unit: u32) -> bool {
     let here = |f: FuncIdx| {
-        program.funcs.get(f.index()).is_some_and(|x| x.unit == unit && x.code().is_some())
+        program
+            .funcs
+            .get(f.index())
+            .is_some_and(|x| x.unit == unit && x.code().is_some())
     };
     match root {
         Root::Main(e) => here(*e),
@@ -404,7 +423,10 @@ struct Shared<'p> {
 ///
 /// `render` turns each optimized module into the bytes returned for it: an
 /// object file for the build, the IR text for [`Llvm::emit_ir_text`].
-#[allow(clippy::too_many_arguments, reason = "the whole-program answers every unit reads")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the whole-program answers every unit reads"
+)]
 fn emit_selected(
     program: &ir::Program,
     tables: &Tables,
@@ -445,7 +467,9 @@ fn emit_selected(
     };
     let with_roots = |mut named: Vec<bool>| {
         for r in roots {
-            *named.get_mut(r.index()).or_ice("a root is one of the program's functions") = true;
+            *named
+                .get_mut(r.index())
+                .or_ice("a root is one of the program's functions") = true;
         }
         named
     };
@@ -466,8 +490,9 @@ fn emit_selected(
         named,
     };
 
-    let mut wanted: Vec<usize> =
-        (0..program.units.len()).filter(|i| units.wants(*i as u32)).collect();
+    let mut wanted: Vec<usize> = (0..program.units.len())
+        .filter(|i| units.wants(*i as u32))
+        .collect();
     // Largest first, by member count, with the unit index breaking ties so that
     // the order is a function of the program alone.
     let size = |i: usize| shared.by_unit.get(i).map_or(0, Vec::len);
@@ -483,7 +508,11 @@ fn emit_selected(
                     let machine = machine_for(&shared.triple, opts)?;
                     let data_layout = machine.get_target_data().get_data_layout();
                     let counted = Rc::new(RefCell::new(counted.clone()));
-                    worker.insert(Worker { machine, data_layout, counted })
+                    worker.insert(Worker {
+                        machine,
+                        data_layout,
+                        counted,
+                    })
                 }
             };
             emit_unit(&shared, worker, index, render)
@@ -519,9 +548,10 @@ fn machine_for(
 ) -> Result<inkwell::targets::TargetMachine, Diagnostics> {
     target::machine(triple, opts.profile).map_err(|message| {
         let mut diags = Diagnostics::new();
-        diags.push(Diagnostic::error(Span::NONE, message).with_fix(
-            "install LLVM 21 and rebuild the toolchain, or build with `--output=js`",
-        ));
+        diags
+            .push(Diagnostic::error(Span::NONE, message).with_fix(
+                "install LLVM 21 and rebuild the toolchain, or build with `--output=js`",
+            ));
         diags
     })
 }
@@ -587,7 +617,9 @@ fn emit_unit(
         std::sync::Arc::clone(&shared.cycles),
         Rc::clone(&worker.counted),
     );
-    emitter.module.set_triple(&inkwell::targets::TargetTriple::create(&shared.triple));
+    emitter
+        .module
+        .set_triple(&inkwell::targets::TargetTriple::create(&shared.triple));
     emitter.module.set_data_layout(&worker.data_layout);
     for member in &members {
         emitter.define(FuncIdx(*member as u32));
@@ -651,7 +683,10 @@ fn optimize(
     profile: crate::compiler::backend::Profile,
 ) {
     if cfg!(debug_assertions) {
-        module.verify().map_err(|e| e.to_string()).or_ice("the LLVM backend emits valid IR");
+        module
+            .verify()
+            .map_err(|e| e.to_string())
+            .or_ice("the LLVM backend emits valid IR");
     }
     target::optimize(module, machine, profile).or_ice("LLVM runs its own pipeline");
 }
@@ -659,7 +694,6 @@ fn optimize(
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     /// The identity names the library rather than the feature flag, so a
     /// toolchain built against a different LLVM produces a different key.
@@ -681,9 +715,15 @@ mod tests {
             "aarch64-unknown-linux-musl",
             "x86_64-unknown-linux-musl",
         ] {
-            assert!(id.contains(triple), "the identity does not name {triple}: {id}");
+            assert!(
+                id.contains(triple),
+                "the identity does not name {triple}: {id}"
+            );
         }
-        assert!(!id.contains("linux-gnu"), "a glibc triple is in the identity: {id}");
+        assert!(
+            !id.contains("linux-gnu"),
+            "a glibc triple is in the identity: {id}"
+        );
     }
 
     /// Four targets, and the one that is not this backend's.
@@ -692,8 +732,14 @@ mod tests {
         use crate::build::buildfile::{Arch, Platform};
         use crate::compiler::backend::Target;
         let t = |platform, arch| target::triple(Target { platform, arch });
-        assert_eq!(t(Platform::Macos, Some(Arch::Arm64)).as_deref(), Ok("aarch64-apple-darwin"));
-        assert_eq!(t(Platform::Macos, Some(Arch::X86_64)).as_deref(), Ok("x86_64-apple-darwin"));
+        assert_eq!(
+            t(Platform::Macos, Some(Arch::Arm64)).as_deref(),
+            Ok("aarch64-apple-darwin")
+        );
+        assert_eq!(
+            t(Platform::Macos, Some(Arch::X86_64)).as_deref(),
+            Ok("x86_64-apple-darwin")
+        );
         assert_eq!(
             t(Platform::Linux, Some(Arch::Arm64)).as_deref(),
             Ok("aarch64-unknown-linux-musl")

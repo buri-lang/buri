@@ -64,11 +64,11 @@ mod sweep;
 mod symbols;
 mod syntax;
 
-use convert::Position;
 use crate::build::session::Session;
 use crate::build::workspace::TargetId;
 use crate::commands::arguments;
 use crate::json::{self, Value};
+use convert::Position;
 use state::{State, Trace};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -106,23 +106,25 @@ pub fn command_language_server(_args: &arguments::Args) -> i32 {
     let mut output = stdout.lock();
     let (sender, events) = std::sync::mpsc::channel::<Event>();
     state.sweeps.knock_on(sender.clone());
-    let reading = std::thread::Builder::new().name("buri-lsp-read".to_string()).spawn(move || {
-        let stdin = std::io::stdin();
-        let mut input = stdin.lock();
-        loop {
-            let event = match read_message(&mut input) {
-                Ok(None) => Event::Ended,
-                Ok(Some(text)) => Event::Message(text),
-                Err(e) => Event::Broke(e),
-            };
-            let over = !matches!(event, Event::Message(_));
-            // `|`, not `||`, so this is one decision: whether the send fails
-            // races the server's own exit, and coverage must not hang on it.
-            if sender.send(event).is_err() | over {
-                return;
+    let reading = std::thread::Builder::new()
+        .name("buri-lsp-read".to_string())
+        .spawn(move || {
+            let stdin = std::io::stdin();
+            let mut input = stdin.lock();
+            loop {
+                let event = match read_message(&mut input) {
+                    Ok(None) => Event::Ended,
+                    Ok(Some(text)) => Event::Message(text),
+                    Err(e) => Event::Broke(e),
+                };
+                let over = !matches!(event, Event::Message(_));
+                // `|`, not `||`, so this is one decision: whether the send fails
+                // races the server's own exit, and coverage must not hang on it.
+                if sender.send(event).is_err() | over {
+                    return;
+                }
             }
-        }
-    });
+        });
     if reading.is_err() {
         // Nothing can be read, so there is nothing to serve.
         return 1;
@@ -221,7 +223,9 @@ fn swept_publishes(state: &mut State, reports: Vec<Published>) -> Vec<Value> {
         if !build_files::is_build_file(&path) {
             continue;
         }
-        let Some(text) = state.text_of(&path) else { continue };
+        let Some(text) = state.text_of(&path) else {
+            continue;
+        };
         let uri = convert::uri_of(&path);
         let lines = convert::Lines::new(&text);
         let items = build_files::diagnostics(&path, &text)
@@ -311,7 +315,9 @@ fn read_message(input: &mut impl Read) -> Result<Option<String>, String> {
             body.len()
         ));
     }
-    String::from_utf8(body).map(Some).map_err(|e| format!("a message is not UTF-8: {e}"))
+    String::from_utf8(body)
+        .map(Some)
+        .map_err(|e| format!("a message is not UTF-8: {e}"))
 }
 
 /// Byte at a time, because the body that follows the headers must not be
@@ -363,7 +369,10 @@ fn error(id: &Value, code: i64, message: &str) -> Value {
         ("id", id.clone()),
         (
             "error",
-            Value::object(vec![("code", Value::number(code)), ("message", Value::str(message))]),
+            Value::object(vec![
+                ("code", Value::number(code)),
+                ("message", Value::str(message)),
+            ]),
         ),
     ])
 }
@@ -399,7 +408,10 @@ pub(super) const INFO: i64 = 3;
 pub(super) fn message(method: &str, kind: i64, text: &str) -> Value {
     notification(
         method,
-        Value::object(vec![("type", Value::number(kind)), ("message", Value::str(text))]),
+        Value::object(vec![
+            ("type", Value::number(kind)),
+            ("message", Value::str(text)),
+        ]),
     )
 }
 
@@ -443,7 +455,10 @@ const APPLY_EDIT: &str = "buri/applyEdit";
 /// A refresh may go out many times, so each one is numbered — an id still in
 /// flight must not be reused. The stems are what the golden sessions record.
 const REFRESH_FAMILIES: [(&str, &str); 4] = [
-    ("workspace/semanticTokens/refresh", "buri/semanticTokensRefresh"),
+    (
+        "workspace/semanticTokens/refresh",
+        "buri/semanticTokensRefresh",
+    ),
     ("workspace/inlayHint/refresh", "buri/inlayHintRefresh"),
     ("workspace/codeLens/refresh", "buri/codeLensRefresh"),
     ("workspace/diagnostic/refresh", "buri/diagnosticRefresh"),
@@ -636,7 +651,11 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
     match (method, &id) {
         ("initialize" | "initialized" | "shutdown" | "exit", _) => {}
         (_, Some(id)) if !state.lifecycle.is_running() => {
-            return vec![error(id, NOT_INITIALIZED, "the server has not been initialized")];
+            return vec![error(
+                id,
+                NOT_INITIALIZED,
+                "the server has not been initialized",
+            )];
         }
         (_, None) if !state.lifecycle.is_running() => return vec![],
         _ => {}
@@ -647,7 +666,11 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
     // would leave the session in a state neither side can get out of.
     if let Some(id) = &id {
         if !matches!(method, "initialize" | "shutdown") && state.was_cancelled(id) {
-            return vec![error(id, REQUEST_CANCELLED, "the client cancelled this request")];
+            return vec![error(
+                id,
+                REQUEST_CANCELLED,
+                "the client cancelled this request",
+            )];
         }
     }
 
@@ -661,7 +684,10 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             let mut named = folders(params.get("workspaceFolders"));
             if named.is_empty() {
                 named.extend(
-                    params.get("rootUri").and_then(|u| u.as_str()).and_then(convert::path_of),
+                    params
+                        .get("rootUri")
+                        .and_then(|u| u.as_str())
+                        .and_then(convert::path_of),
                 );
             }
             for folder in &named {
@@ -709,8 +735,9 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             // required `location` the tree does not carry. A client that did
             // not claim the tree is entitled to read the reply as the list.
             state.hierarchical_symbols = matches!(
-                params
-                    .at("capabilities.textDocument.documentSymbol.hierarchicalDocumentSymbolSupport"),
+                params.at(
+                    "capabilities.textDocument.documentSymbol.hierarchicalDocumentSymbolSupport"
+                ),
                 Some(&Value::Bool(true))
             );
             // `contentFormat` is the client's `MarkupKind`s, best first. Naming
@@ -743,7 +770,10 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             state.must_ask_for_folders = named.is_empty() && client_has_folders;
             // The level a client can set before it is able to send a
             // `$/setTrace`, which is every message up to this reply.
-            if let Some(level) = params.get("trace").and_then(|t| t.as_str()).and_then(Trace::named)
+            if let Some(level) = params
+                .get("trace")
+                .and_then(|t| t.as_str())
+                .and_then(Trace::named)
             {
                 state.trace = level;
             }
@@ -803,8 +833,10 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
         // three levels leaves it where it was: the protocol has no error reply
         // for a notification, and guessing would be worse than ignoring.
         ("$/setTrace", _) => {
-            if let Some(level) =
-                params.get("value").and_then(|v| v.as_str()).and_then(Trace::named)
+            if let Some(level) = params
+                .get("value")
+                .and_then(|v| v.as_str())
+                .and_then(Trace::named)
             {
                 state.trace = level;
             }
@@ -812,7 +844,9 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
         }
 
         ("textDocument/didOpen", _) => {
-            let Some((path, text)) = opened(&params) else { return vec![] };
+            let Some((path, text)) = opened(&params) else {
+                return vec![];
+            };
             state.set_buffer(path.clone(), text);
             let published = full_diagnostics(state, &path);
             // The state the client's colours and hints are about to be computed
@@ -821,7 +855,9 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             published
         }
         ("textDocument/didChange", _) => {
-            let Some(path) = uri_param(&params) else { return vec![] };
+            let Some(path) = uri_param(&params) else {
+                return vec![];
+            };
             // Full sync: the last content change is the whole buffer.
             let Some(text) = params
                 .at("contentChanges")
@@ -836,7 +872,9 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             parse_diagnostics(state, &path, text)
         }
         ("textDocument/didSave", _) => {
-            let Some(path) = uri_param(&params) else { return vec![] };
+            let Some(path) = uri_param(&params) else {
+                return vec![];
+            };
             let mut out = full_diagnostics(state, &path);
             out.extend(refreshes(state));
             out
@@ -954,7 +992,12 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                 let from =
                     convert::offset_of(&text, Position::from_json(params.at("range.start")?)?);
                 let to = convert::offset_of(&text, Position::from_json(params.at("range.end")?)?);
-                Some(formatting::ranged(&text, formatting::formatted(state, &path, &text), from, to))
+                Some(formatting::ranged(
+                    &text,
+                    formatting::formatted(state, &path, &text),
+                    from,
+                    to,
+                ))
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
@@ -970,9 +1013,15 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                     return None;
                 }
                 let text = state.text_of(&path)?;
-                let offset = convert::offset_of(&text, Position::from_json(params.get("position")?)?);
+                let offset =
+                    convert::offset_of(&text, Position::from_json(params.get("position")?)?);
                 let (from, to) = formatting::enclosing_item(&text, offset)?;
-                Some(formatting::ranged(&text, formatting::formatted(state, &path, &text), from, to))
+                Some(formatting::ranged(
+                    &text,
+                    formatting::formatted(state, &path, &text),
+                    from,
+                    to,
+                ))
             })();
             vec![response(&id, result.unwrap_or(Value::Array(Vec::new())))]
         }
@@ -1028,7 +1077,10 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
         // define it in another; Buri has one place, so answering differently
         // would mean inventing a difference.
         ("textDocument/definition" | "textDocument/declaration", Some(id)) => {
-            vec![response(&id, definition(state, &params).unwrap_or(Value::Null))]
+            vec![response(
+                &id,
+                definition(state, &params).unwrap_or(Value::Null),
+            )]
         }
 
         ("textDocument/typeDefinition", Some(id)) => {
@@ -1155,7 +1207,11 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
         // Every open repository, in the order the client named them: the
         // request asks about the workspace and the workspace is all of them.
         ("workspace/symbol", Some(id)) => {
-            let query = params.get("query").and_then(|q| q.as_str()).unwrap_or("").to_string();
+            let query = params
+                .get("query")
+                .and_then(|q| q.as_str())
+                .unwrap_or("")
+                .to_string();
             let roots = state.roots.clone();
             // The one request whose work is a loop the client can be told the
             // length of: a repository analysed is a step, and there are as many
@@ -1188,8 +1244,10 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             //
             // The protocol makes the declaration opt-in, and clients ask both
             // ways: excluded is "where else is this used".
-            let include =
-                matches!(params.at("context.includeDeclaration"), Some(&Value::Bool(true)));
+            let include = matches!(
+                params.at("context.includeDeclaration"),
+                Some(&Value::Bool(true))
+            );
             // The whole-repository analysis is the most expensive thing this
             // server does, and it is what the client asked to be told about.
             let mut out = progress_begin(&params, "Finding references");
@@ -1219,8 +1277,10 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
         // `data` it carries.
         ("completionItem/resolve", Some(id)) => {
             let result = (|| {
-                let path =
-                    params.at("data.uri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
+                let path = params
+                    .at("data.uri")
+                    .and_then(|u| u.as_str())
+                    .and_then(convert::path_of)?;
                 let analyzed = state.analyze_for_query(&path)?;
                 Some(completion::resolve_completion(&analyzed, &params))
             })();
@@ -1285,7 +1345,8 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             let result = (|| {
                 let path = uri_param(&params)?;
                 let text = state.text_of(&path)?;
-                let from = convert::offset_of(&text, Position::from_json(params.at("range.start")?)?);
+                let from =
+                    convert::offset_of(&text, Position::from_json(params.at("range.start")?)?);
                 let to = convert::offset_of(&text, Position::from_json(params.at("range.end")?)?);
                 let data = if build_files::is_build_file(&path) {
                     Vec::new()
@@ -1293,7 +1354,10 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                     let analyzed = state.analyze_for_query(&path);
                     semantic_tokens::encoded_range(analyzed.as_deref(), &path, &text, from, to)
                 };
-                Some(Value::object(vec![("data", semantic_tokens::numbers(&data))]))
+                Some(Value::object(vec![(
+                    "data",
+                    semantic_tokens::numbers(&data),
+                )]))
             })();
             vec![response(&id, result.unwrap_or(Value::Null))]
         }
@@ -1340,7 +1404,8 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                     return None;
                 }
                 let text = state.text_of(&path)?;
-                let from = convert::offset_of(&text, Position::from_json(params.at("range.start")?)?);
+                let from =
+                    convert::offset_of(&text, Position::from_json(params.at("range.start")?)?);
                 let to = convert::offset_of(&text, Position::from_json(params.at("range.end")?)?);
                 let analyzed = state.analyze_for_query(&path)?;
                 inlay_hints::hints(&analyzed, &path, &text, from, to)
@@ -1355,7 +1420,10 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
         // produced would hold a table nothing removes an entry from.
         ("inlayHint/resolve", Some(id)) => {
             let result = (|| {
-                let path = params.at("data.uri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
+                let path = params
+                    .at("data.uri")
+                    .and_then(|u| u.as_str())
+                    .and_then(convert::path_of)?;
                 let text = state.text_of(&path)?;
                 let analyzed = state.analyze_for_query(&path)?;
                 Some(inlay_hints::resolve(&analyzed, &path, &text, &params))
@@ -1388,7 +1456,10 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
         // name is used wherever it is imported.
         ("codeLens/resolve", Some(id)) => {
             let result = (|| {
-                let path = params.at("data.uri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
+                let path = params
+                    .at("data.uri")
+                    .and_then(|u| u.as_str())
+                    .and_then(convert::path_of)?;
                 let text = state.text_of(&path)?;
                 let root = state.root_of(&path)?;
                 let analyzed = state.analyze_workspace(&root)?;
@@ -1488,7 +1559,11 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
         // still a reply, which is what matters: a client that got nothing back
         // waits forever.
         (_, Some(id)) => {
-            vec![error(&id, METHOD_NOT_FOUND, &format!("`{method}` is not implemented"))]
+            vec![error(
+                &id,
+                METHOD_NOT_FOUND,
+                &format!("`{method}` is not implemented"),
+            )]
         }
         (_, None) => vec![],
     }
@@ -1521,11 +1596,16 @@ fn semantic_tokens_of(state: &mut State, path: &std::path::Path, text: &str) -> 
 /// anything by not being told. So there is no `create` in this server: the
 /// requests that report progress report it to whoever asked for it.
 fn progress_of(params: &Value, kind: &str, mut fields: Vec<(&str, Value)>) -> Vec<Value> {
-    let Some(token) = params.get("workDoneToken") else { return Vec::new() };
+    let Some(token) = params.get("workDoneToken") else {
+        return Vec::new();
+    };
     fields.insert(0, ("kind", Value::str(kind)));
     vec![notification(
         "$/progress",
-        Value::object(vec![("token", token.clone()), ("value", Value::object(fields))]),
+        Value::object(vec![
+            ("token", token.clone()),
+            ("value", Value::object(fields)),
+        ]),
     )]
 }
 
@@ -1540,7 +1620,10 @@ fn progress_begin(params: &Value, title: &str) -> Vec<Value> {
     progress_of(
         params,
         "begin",
-        vec![("title", Value::str(title)), ("cancellable", Value::Bool(false))],
+        vec![
+            ("title", Value::str(title)),
+            ("cancellable", Value::Bool(false)),
+        ],
     )
 }
 
@@ -1550,7 +1633,10 @@ fn progress_report(params: &Value, text: &str, percentage: u32) -> Vec<Value> {
     progress_of(
         params,
         "report",
-        vec![("message", Value::str(text)), ("percentage", Value::number(percentage))],
+        vec![
+            ("message", Value::str(text)),
+            ("percentage", Value::number(percentage)),
+        ],
     )
 }
 
@@ -1558,8 +1644,11 @@ fn progress_report(params: &Value, text: &str, percentage: u32) -> Vec<Value> {
 /// the ones that answer nothing: a report left open is a spinner that never
 /// stops.
 fn progress_end(params: &Value, text: &str) -> Vec<Value> {
-    let fields =
-        if text.is_empty() { Vec::new() } else { vec![("message", Value::str(text))] };
+    let fields = if text.is_empty() {
+        Vec::new()
+    } else {
+        vec![("message", Value::str(text))]
+    };
     progress_of(params, "end", fields)
 }
 
@@ -1604,7 +1693,11 @@ fn refreshes(state: &mut State) -> Vec<Value> {
             continue;
         }
         family.sent = family.sent.saturating_add(1);
-        out.push(request(&format!("{stem}/{}", family.sent), method, Value::Null));
+        out.push(request(
+            &format!("{stem}/{}", family.sent),
+            method,
+            Value::Null,
+        ));
     }
     out
 }
@@ -1731,7 +1824,10 @@ fn capabilities() -> Value {
                     Value::object(vec![(
                         "commands",
                         Value::Array(
-                            execute_command::COMMANDS.iter().map(|c| Value::str(*c)).collect(),
+                            execute_command::COMMANDS
+                                .iter()
+                                .map(|c| Value::str(*c))
+                                .collect(),
                         ),
                     )]),
                 ),
@@ -1927,7 +2023,9 @@ fn client_response(state: &mut State, msg: &Value) -> Vec<Value> {
 /// params, a `didChangeWorkspaceFolders` event, or the answer to the server's
 /// own question.
 fn folders(value: Option<&Value>) -> Vec<PathBuf> {
-    let Some(items) = value.and_then(|v| v.as_array()) else { return Vec::new() };
+    let Some(items) = value.and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
     items
         .iter()
         .filter_map(|f| f.get("uri"))
@@ -1937,7 +2035,10 @@ fn folders(value: Option<&Value>) -> Vec<PathBuf> {
 }
 
 pub(super) fn uri_param(params: &Value) -> Option<PathBuf> {
-    params.at("textDocument.uri").and_then(|u| u.as_str()).and_then(convert::path_of)
+    params
+        .at("textDocument.uri")
+        .and_then(|u| u.as_str())
+        .and_then(convert::path_of)
 }
 
 fn opened(params: &Value) -> Option<(PathBuf, String)> {
@@ -1949,7 +2050,14 @@ fn opened(params: &Value) -> Option<(PathBuf, String)> {
 /// The range covering a whole file, for the edits that replace one.
 fn whole(text: &str) -> Value {
     Value::object(vec![
-        ("start", Position { line: 0, character: 0 }.to_json()),
+        (
+            "start",
+            Position {
+                line: 0,
+                character: 0,
+            }
+            .to_json(),
+        ),
         (
             "end",
             convert::position_of(text, u32::try_from(text.len()).unwrap_or(u32::MAX)).to_json(),
@@ -1963,7 +2071,10 @@ fn whole_file_format(state: &mut State, params: &Value) -> Value {
     (|| {
         let path = uri_param(params)?;
         let text = state.text_of(&path)?;
-        Some(formatting::whole_file(&text, formatting::formatted(state, &path, &text)))
+        Some(formatting::whole_file(
+            &text,
+            formatting::formatted(state, &path, &text),
+        ))
     })()
     .unwrap_or(Value::Array(Vec::new()))
 }
@@ -2061,7 +2172,10 @@ fn hierarchy_symbol(
     state: &mut State,
     params: &Value,
 ) -> Option<(std::rc::Rc<state::Analyzed>, symbols::Symbol)> {
-    let path = params.at("item.data.uri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
+    let path = params
+        .at("item.data.uri")
+        .and_then(|u| u.as_str())
+        .and_then(convert::path_of)?;
     let position = Position::from_json(params.at("item.data.position")?)?;
     let text = state.text_of(&path)?;
     let root = state.root_of(&path)?;
@@ -2113,7 +2227,10 @@ fn parse_diagnostics(state: &mut State, path: &std::path::Path, text: &str) -> V
     }
     state.showing_parse_errors.insert(uri.clone());
     let lines = convert::Lines::new(text);
-    let items: Vec<Value> = errors.iter().map(|d| convert::diagnostic(&lines, d, &uri)).collect();
+    let items: Vec<Value> = errors
+        .iter()
+        .map(|d| convert::diagnostic(&lines, d, &uri))
+        .collect();
     vec![publish(&uri, items)]
 }
 
@@ -2131,7 +2248,9 @@ fn language_findings(state: &mut State, path: &std::path::Path, text: &str) -> O
     languages.of(&rel)?;
     let referenced = workspace.targets().into_iter().any(|t| {
         let dir = &workspace.package(t.package).dir;
-        crate::build::generators::inputs(workspace, t).iter().any(|i| dir.join(i) == path)
+        crate::build::generators::inputs(workspace, t)
+            .iter()
+            .any(|i| dir.join(i) == path)
     });
     if !referenced {
         return Some(Vec::new());
@@ -2140,9 +2259,10 @@ fn language_findings(state: &mut State, path: &std::path::Path, text: &str) -> O
     let read = |r: &str| state.text_of(&root.join(r));
     let flags = crate::commands::arguments::Flags::default();
     let contract = crate::build::generators::contract_for(workspace, &rel);
-    let findings = crate::build::tools::check_file(&session, &rel, text, contract.as_ref(), &read, &flags)
-        .map(|c| c.findings)
-        .unwrap_or_default();
+    let findings =
+        crate::build::tools::check_file(&session, &rel, text, contract.as_ref(), &read, &flags)
+            .map(|c| c.findings)
+            .unwrap_or_default();
     let uri = convert::uri_of(path);
     let file = crate::diagnostics::FileId(0);
     let lines = convert::Lines::new(text);
@@ -2434,8 +2554,8 @@ fn dedup_findings(published: &mut Published) {
 fn remember(state: &mut State, published: Published) -> Vec<Value> {
     let mut out = Vec::new();
     for (uri, items) in published {
-        let held = state.published.get(&uri) == Some(&items)
-            && !state.showing_parse_errors.contains(&uri);
+        let held =
+            state.published.get(&uri) == Some(&items) && !state.showing_parse_errors.contains(&uri);
         if !held {
             out.push(publish(&uri, items.clone()));
         }
@@ -2450,13 +2570,19 @@ fn remember(state: &mut State, published: Published) -> Vec<Value> {
 /// Equal keys are equal values, because an object writes its keys in order and
 /// neither a message nor a range holds a float.
 fn finding_key(item: &Value) -> (Option<String>, Option<String>) {
-    (item.get("message").map(Value::to_string), item.get("range").map(Value::to_string))
+    (
+        item.get("message").map(Value::to_string),
+        item.get("range").map(Value::to_string),
+    )
 }
 
 fn publish(uri: &str, items: Vec<Value>) -> Value {
     notification(
         "textDocument/publishDiagnostics",
-        Value::object(vec![("uri", Value::str(uri)), ("diagnostics", Value::Array(items))]),
+        Value::object(vec![
+            ("uri", Value::str(uri)),
+            ("diagnostics", Value::Array(items)),
+        ]),
     )
 }
 
@@ -2471,7 +2597,10 @@ mod tests {
     #[test]
     fn framing_reads_one_message_and_stops_at_the_end() {
         let mut input = std::io::Cursor::new(framed(r#"{"a":1}"#));
-        assert_eq!(read_message(&mut input).unwrap().as_deref(), Some(r#"{"a":1}"#));
+        assert_eq!(
+            read_message(&mut input).unwrap().as_deref(),
+            Some(r#"{"a":1}"#)
+        );
         assert_eq!(read_message(&mut input).unwrap(), None);
     }
 
@@ -2488,8 +2617,14 @@ mod tests {
         let mut bytes = framed(r#"{"a":1}"#);
         bytes.extend(framed(r#"{"b":2}"#));
         let mut input = std::io::Cursor::new(bytes);
-        assert_eq!(read_message(&mut input).unwrap().as_deref(), Some(r#"{"a":1}"#));
-        assert_eq!(read_message(&mut input).unwrap().as_deref(), Some(r#"{"b":2}"#));
+        assert_eq!(
+            read_message(&mut input).unwrap().as_deref(),
+            Some(r#"{"a":1}"#)
+        );
+        assert_eq!(
+            read_message(&mut input).unwrap().as_deref(),
+            Some(r#"{"b":2}"#)
+        );
         assert_eq!(read_message(&mut input).unwrap(), None);
     }
 
@@ -2538,7 +2673,10 @@ mod tests {
 
         let request = json::parse(r#"{"id":7,"method":"textDocument/hover"}"#).unwrap();
         let out = handle(&mut state, &request);
-        assert_eq!(out[0].at("error.code"), Some(&Value::Int(REQUEST_CANCELLED)));
+        assert_eq!(
+            out[0].at("error.code"),
+            Some(&Value::Int(REQUEST_CANCELLED))
+        );
 
         // Answered, then cancelled: the cancel has nothing to withdraw.
         let out = handle(&mut state, &request);
@@ -2560,11 +2698,20 @@ mod tests {
         let on = json::parse(r#"{"method":"$/setTrace","params":{"value":"messages"}}"#).unwrap();
         let out = handle(&mut state, &on);
         assert_eq!(out.len(), 1, "answered, not received");
-        assert_eq!(out[0].get("method").and_then(|m| m.as_str()), Some("$/logTrace"));
+        assert_eq!(
+            out[0].get("method").and_then(|m| m.as_str()),
+            Some("$/logTrace")
+        );
         let out = handle(&mut state, &request);
         assert_eq!(out.len(), 3, "a line on the way in and one on the way out");
-        assert_eq!(out[0].get("method").and_then(|m| m.as_str()), Some("$/logTrace"));
-        assert_eq!(out[2].get("method").and_then(|m| m.as_str()), Some("$/logTrace"));
+        assert_eq!(
+            out[0].get("method").and_then(|m| m.as_str()),
+            Some("$/logTrace")
+        );
+        assert_eq!(
+            out[2].get("method").and_then(|m| m.as_str()),
+            Some("$/logTrace")
+        );
 
         // A word that is not a level leaves the level where it was.
         let bad = json::parse(r#"{"method":"$/setTrace","params":{"value":"shout"}}"#).unwrap();

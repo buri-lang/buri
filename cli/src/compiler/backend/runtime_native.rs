@@ -257,7 +257,10 @@ mod tests {
     /// produced.
     #[test]
     fn networking_implies_an_archive() {
-        assert!(!net() || AVAILABLE, "the features file names `net` and there is no archive");
+        assert!(
+            !net() || AVAILABLE,
+            "the features file names `net` and there is no archive"
+        );
     }
 
     /// `net-h3` implies `net`, in the manifest and therefore in the file.
@@ -269,8 +272,14 @@ mod tests {
     /// toolchain.
     #[test]
     fn http3_implies_networking() {
-        assert!(!h3() || net(), "the features file names `net-h3` without `net`");
-        assert!(!h3() || AVAILABLE, "the features file names `net-h3` and there is no archive");
+        assert!(
+            !h3() || net(),
+            "the features file names `net-h3` without `net`"
+        );
+        assert!(
+            !h3() || AVAILABLE,
+            "the features file names `net-h3` and there is no archive"
+        );
     }
 
     /// Whole lines, and nothing else: `net-h3` is the next feature this file
@@ -280,9 +289,18 @@ mod tests {
         assert!(declares_in("net", "net"));
         assert!(declares_in("net\nnet-h3", "net"));
         assert!(declares_in("net\nnet-h3", "net-h3"));
-        assert!(!declares_in("net-h3", "net"), "a prefix of a feature is not that feature");
-        assert!(!declares_in("supernet", "net"), "a suffix of a feature is not that feature");
-        assert!(!declares_in("", "net"), "an archive with no features declares none");
+        assert!(
+            !declares_in("net-h3", "net"),
+            "a prefix of a feature is not that feature"
+        );
+        assert!(
+            !declares_in("supernet", "net"),
+            "a suffix of a feature is not that feature"
+        );
+        assert!(
+            !declares_in("", "net"),
+            "an archive with no features declares none"
+        );
         assert!(!declares_in("net", ""), "the empty string is not a feature");
         // And the toolchain's own file is read by the same rule.
         assert_eq!(net(), declares_in(FEATURES, "net"));
@@ -304,7 +322,11 @@ mod tests {
             Libc::MuslSystem,
             "a musl archive with no baked sysroot links against the machine's musl"
         );
-        assert_eq!(libc_in("gnu", true), Libc::Glibc, "a gnu archive is gnu whatever was baked");
+        assert_eq!(
+            libc_in("gnu", true),
+            Libc::Glibc,
+            "a gnu archive is gnu whatever was baked"
+        );
         assert_eq!(libc_in("gnu", false), Libc::Glibc);
         assert_eq!(
             libc_in("", true),
@@ -339,7 +361,10 @@ mod tests {
         // is the point — the check is that this build is the macOS one.
         #[allow(clippy::assertions_on_constants)]
         {
-            assert!(!musl::BAKED, "there is no Linux link to bake a sysroot for on macOS");
+            assert!(
+                !musl::BAKED,
+                "there is no Linux link to bake a sysroot for on macOS"
+            );
         }
         for (name, bytes) in musl::FILES {
             assert!(bytes.is_empty(), "{name} should be baked empty on macOS");
@@ -356,7 +381,8 @@ mod tests {
         let hash = musl::sysroot_hash();
         assert_eq!(hash.len(), 64, "{hash} is not a SHA-256 in hex");
         assert!(
-            hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            hash.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
             "{hash} is not lowercase hex — no newline to trim, the convention ARCHIVE_SHA256 sets"
         );
     }

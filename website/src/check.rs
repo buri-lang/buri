@@ -20,8 +20,11 @@ use std::path::Path;
 pub fn problems(site: &Site, built: &[PageLinks], out: &Path) -> Vec<String> {
     let mut found = Vec::new();
     for page in built {
-        let where_ =
-            if page.route.is_empty() { "the front page" } else { page.route.as_str() };
+        let where_ = if page.route.is_empty() {
+            "the front page"
+        } else {
+            page.route.as_str()
+        };
         check_source(site, page, where_, &mut found);
         for target in &page.targets {
             check_target(site, built, out, page, target, where_, &mut found);
@@ -34,9 +37,17 @@ pub fn problems(site: &Site, built: &[PageLinks], out: &Path) -> Vec<String> {
 /// and that file has to exist.
 fn check_source(site: &Site, page: &PageLinks, where_: &str, found: &mut Vec<String>) {
     let path = site.root.join(&page.source.path);
-    let exists = if page.source.directory { path.is_dir() } else { path.is_file() };
+    let exists = if page.source.directory {
+        path.is_dir()
+    } else {
+        path.is_file()
+    };
     if !exists {
-        let kind = if page.source.directory { "directory" } else { "file" };
+        let kind = if page.source.directory {
+            "directory"
+        } else {
+            "file"
+        };
         found.push(format!(
             "{where_}: its \"edit on GitHub\" link names {}, which is not a {kind} in the tree",
             page.source.path
@@ -60,20 +71,30 @@ fn check_target(
         }
         Target::SameDocument { anchor } => {
             if !page.anchors.contains(anchor) {
-                found.push(format!("{where_}: `#{anchor}` is not a heading on this page"));
+                found.push(format!(
+                    "{where_}: `#{anchor}` is not a heading on this page"
+                ));
             }
         }
         Target::Repository { path, directory } => {
             let full = site.root.join(path);
-            let exists = if *directory { full.is_dir() } else { full.exists() };
+            let exists = if *directory {
+                full.is_dir()
+            } else {
+                full.exists()
+            };
             if !exists {
-                found.push(format!("{where_}: links to `{path}`, which is not in the tree"));
+                found.push(format!(
+                    "{where_}: links to `{path}`, which is not in the tree"
+                ));
             }
         }
         Target::Page { route, anchor } => {
             // Resolved through the href rather than through the route, so a
             // wrong number of `..` is a failure rather than a near miss.
-            let Some(href) = href_from(&page.route, target) else { return };
+            let Some(href) = href_from(&page.route, target) else {
+                return;
+            };
             let Some(resolved) = route_of_href(&page.route, &href) else {
                 found.push(format!("{where_}: `{href}` climbs out of the site"));
                 return;
@@ -86,13 +107,19 @@ fn check_target(
             }
             let file = out.join(&resolved).join("index.html");
             if !file.is_file() {
-                found.push(format!("{where_}: `{href}` names a page that was not written"));
+                found.push(format!(
+                    "{where_}: `{href}` names a page that was not written"
+                ));
                 return;
             }
             let Some(anchor) = anchor else { return };
-            let Some(other) = built.iter().find(|other| &other.route == route) else { return };
+            let Some(other) = built.iter().find(|other| &other.route == route) else {
+                return;
+            };
             if !other.anchors.contains(anchor) {
-                found.push(format!("{where_}: `#{anchor}` is not a heading on `{route}`"));
+                found.push(format!(
+                    "{where_}: `#{anchor}` is not a heading on `{route}`"
+                ));
             }
         }
     }

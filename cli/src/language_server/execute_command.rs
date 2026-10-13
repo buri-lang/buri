@@ -28,7 +28,10 @@ pub const COMMANDS: [&str; 3] = [code_lens::RUN_TEST, REGENERATE, code_lens::SHO
 pub fn execute(state: &mut State, id: &Value, params: &Value) -> Vec<Value> {
     let command = params.get("command").and_then(|c| c.as_str()).unwrap_or("");
     let empty: &[Value] = &[];
-    let arguments = params.get("arguments").and_then(|a| a.as_array()).unwrap_or(empty);
+    let arguments = params
+        .get("arguments")
+        .and_then(|a| a.as_array())
+        .unwrap_or(empty);
     match command {
         code_lens::RUN_TEST => run_test(state, id, arguments),
         REGENERATE => regenerate_build_file(state, id, arguments),
@@ -64,7 +67,10 @@ pub fn execute(state: &mut State, id: &Value, params: &Value) -> Vec<Value> {
 /// to this process's standard error, and the squiggles for that file are
 /// already on screen from the analysis.
 fn run_test(state: &mut State, id: &Value, arguments: &[Value]) -> Vec<Value> {
-    let path = arguments.first().and_then(|v| v.as_str()).and_then(convert::path_of);
+    let path = arguments
+        .first()
+        .and_then(|v| v.as_str())
+        .and_then(convert::path_of);
     let name = arguments.get(1).and_then(|v| v.as_str());
     let (Some(path), Some(name)) = (path, name) else {
         return vec![super::error(
@@ -120,7 +126,10 @@ fn run_test(state: &mut State, id: &Value, arguments: &[Value]) -> Vec<Value> {
 /// "regenerated" means the editor wrote it rather than that the server asked.
 /// See `client_response` in `mod.rs` for the other half.
 fn regenerate_build_file(state: &mut State, id: &Value, arguments: &[Value]) -> Vec<Value> {
-    let path = arguments.first().and_then(|v| v.as_str()).and_then(convert::path_of);
+    let path = arguments
+        .first()
+        .and_then(|v| v.as_str())
+        .and_then(convert::path_of);
     let label = arguments.get(1).and_then(|v| v.as_str());
     let (Some(path), Some(label)) = (path, label) else {
         return vec![super::error(
@@ -136,7 +145,10 @@ fn regenerate_build_file(state: &mut State, id: &Value, arguments: &[Value]) -> 
     let Some(mut session) = state.overlaid_session(&root) else {
         return failed("that repository would not load");
     };
-    let Some(package) = session.workspace.package_by_path(label.trim_start_matches('/')) else {
+    let Some(package) = session
+        .workspace
+        .package_by_path(label.trim_start_matches('/'))
+    else {
         return failed(&format!("`{label}` names no package in that repository"));
     };
     let build = session.workspace.package(package).build_path.clone();
@@ -171,7 +183,10 @@ fn regenerate_build_file(state: &mut State, id: &Value, arguments: &[Value]) -> 
         &edit_id,
         "workspace/applyEdit",
         Value::object(vec![
-            ("label", Value::str(format!("buri gen {label}: {}", update.summary.join(", ")))),
+            (
+                "label",
+                Value::str(format!("buri gen {label}: {}", update.summary.join(", "))),
+            ),
             (
                 "edit",
                 Value::object(vec![(

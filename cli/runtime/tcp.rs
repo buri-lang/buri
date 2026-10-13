@@ -37,14 +37,14 @@
 //! already closed — `IoError.NotFound` from a read or a write, and nothing at
 //! all from a close — which is what `platform/effect` promises.
 
-use crate::value::{list_of_bytes, str_of, BuriList, BuriStr};
 use crate::BURI_OK;
+use crate::sync::Mutex;
+use crate::value::{BuriList, BuriStr, list_of_bytes, str_of};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
-use crate::sync::Mutex;
 use std::time::Duration;
 
 /// How long a dial may take, all of it: the name lookup and the connect.
@@ -123,18 +123,25 @@ fn resolve(host: &str, port: u16) -> Result<Vec<SocketAddr>, (i32, String)> {
                 .map_err(|e| e.to_string());
             let _ = answer.send(found);
         })
-        .map_err(|e| (6, format!("a name lookup needs a thread, and one could not start: {e}")))?;
+        .map_err(|e| {
+            (
+                6,
+                format!("a name lookup needs a thread, and one could not start: {e}"),
+            )
+        })?;
     match wait.recv_timeout(DIAL) {
         Ok(Ok(addrs)) => Ok(addrs),
         Ok(Err(e)) => Err((0, format!("could not resolve {host}: {e}"))),
-        Err(RecvTimeoutError::Timeout) => {
-            Err((6, format!("the name lookup for {host} did not answer in {DIAL:?}")))
-        }
+        Err(RecvTimeoutError::Timeout) => Err((
+            6,
+            format!("the name lookup for {host} did not answer in {DIAL:?}"),
+        )),
         // The thread ended without sending, which for a closure that cannot
         // return early means it panicked; its own message is already printed.
-        Err(RecvTimeoutError::Disconnected) => {
-            Err((6, format!("the name lookup for {host} ended without an answer")))
-        }
+        Err(RecvTimeoutError::Disconnected) => Err((
+            6,
+            format!("the name lookup for {host} ended without an answer"),
+        )),
     }
 }
 
@@ -207,7 +214,9 @@ pub unsafe extern "C" fn buri_rt_host_tcp_connect(
     let handle = NEXT.fetch_add(1, Ordering::SeqCst);
     match STREAMS.lock() {
         Ok(mut table) => {
-            table.get_or_insert_with(HashMap::new).insert(handle, stream);
+            table
+                .get_or_insert_with(HashMap::new)
+                .insert(handle, stream);
         }
         // SAFETY: as above.
         Err(_) => return unsafe { refuse(6, "the stream table is poisoned", out_err) },
@@ -286,7 +295,9 @@ pub unsafe extern "C" fn buri_rt_host_tcp_write(
         // one, so the payload is the octets themselves.
         unsafe { std::slice::from_raw_parts(ptr, len as usize) }
     };
-    match with_stream(handle, |stream| stream.write_all(body).and_then(|()| stream.flush())) {
+    match with_stream(handle, |stream| {
+        stream.write_all(body).and_then(|()| stream.flush())
+    }) {
         Some(Ok(())) => BURI_OK,
         // SAFETY: the caller promises a writable destination.
         Some(Err(e)) => unsafe { fail(&e, out_err) },
@@ -303,7 +314,9 @@ pub unsafe extern "C" fn buri_rt_host_tcp_write(
 /// nothing at all.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_tcp_close(handle: i64) {
-    let Ok(mut table) = STREAMS.lock() else { return };
+    let Ok(mut table) = STREAMS.lock() else {
+        return;
+    };
     if let Some(map) = table.as_mut() {
         map.remove(&handle);
     }
@@ -358,12 +371,21 @@ mod tests {
         let wrote = unsafe {
             buri_rt_host_tcp_write(handle, body.as_ptr(), body.len() as u64, &raw mut error)
         };
-        assert_eq!(wrote, BURI_OK, "the write failed: {}", unsafe { error.as_str() }.into_owned());
+        assert_eq!(
+            wrote,
+            BURI_OK,
+            "the write failed: {}",
+            unsafe { error.as_str() }.into_owned()
+        );
 
         let mut got = list_of_bytes(&[]);
-        let read =
-            unsafe { buri_rt_host_tcp_read(handle, 64, &raw mut got, &raw mut error) };
-        assert_eq!(read, BURI_OK, "the read failed: {}", unsafe { error.as_str() }.into_owned());
+        let read = unsafe { buri_rt_host_tcp_read(handle, 64, &raw mut got, &raw mut error) };
+        assert_eq!(
+            read,
+            BURI_OK,
+            "the read failed: {}",
+            unsafe { error.as_str() }.into_owned()
+        );
         // SAFETY: the entry answered a live `[U8]`.
         let answer = unsafe { std::slice::from_raw_parts(got.ptr, got.len as usize) };
         assert_eq!(answer, body);
@@ -383,9 +405,7 @@ mod tests {
         assert_eq!(read, 0, "a made-up handle read something");
 
         let body = b"x";
-        let wrote = unsafe {
-            buri_rt_host_tcp_write(0, body.as_ptr(), 1, &raw mut error)
-        };
+        let wrote = unsafe { buri_rt_host_tcp_write(0, body.as_ptr(), 1, &raw mut error) };
         assert_eq!(wrote, 0, "a made-up handle was written to");
 
         // And closing one is nothing happening rather than a failure.
@@ -418,7 +438,10 @@ mod tests {
     fn a_port_that_is_not_one_is_refused_by_number() {
         let (tag, _, message) = dial("127.0.0.1", 70000);
         assert_eq!(tag, 6, "70000 was accepted as a port");
-        assert!(message.contains("70000"), "{message} does not name the port");
+        assert!(
+            message.contains("70000"),
+            "{message} does not name the port"
+        );
     }
 
     /// Nothing listens on a port this test holds, so the dial is refused

@@ -169,7 +169,11 @@ const NATIVES: &[Native] = &[
     // No `partial` note: this backend compiles every executable row, so a
     // refusal here is a failure rather than a skip.
     #[cfg(feature = "backend-stencil")]
-    Native { name: "stencil", profile: Profile::Debug, partial: None },
+    Native {
+        name: "stencil",
+        profile: Profile::Debug,
+        partial: None,
+    },
     #[cfg(feature = "backend-llvm")]
     Native {
         name: "llvm",
@@ -220,8 +224,16 @@ pub(crate) fn llvm(build: &str) -> Box<dyn Backend> {
 
 fn host_target() -> Target {
     Target {
-        platform: if cfg!(target_os = "macos") { Platform::Macos } else { Platform::Linux },
-        arch: Some(if cfg!(target_arch = "aarch64") { Arch::Arm64 } else { Arch::X86_64 }),
+        platform: if cfg!(target_os = "macos") {
+            Platform::Macos
+        } else {
+            Platform::Linux
+        },
+        arch: Some(if cfg!(target_arch = "aarch64") {
+            Arch::Arm64
+        } else {
+            Arch::X86_64
+        }),
     }
 }
 
@@ -260,7 +272,10 @@ pub(crate) fn natives(row: &str) -> Vec<Native> {
     for native in NATIVES {
         match backend_unavailable(*native) {
             Some(why) => {
-                eprintln!("backend agreement: {row} not asked of `{}` ({why})", native.name)
+                eprintln!(
+                    "backend agreement: {row} not asked of `{}` ({why})",
+                    native.name
+                )
             }
             None => usable.push(*native),
         }
@@ -346,7 +361,10 @@ fn workspace(name: &str) -> PathBuf {
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("backend-agreement-{}", std::process::id()))
-        .join(format!("{}-{n}", name.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "-")));
+        .join(format!(
+            "{}-{n}",
+            name.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "-")
+        ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -360,9 +378,20 @@ pub(crate) fn analyze(row: &str, source: &str) -> (Checked, Vec<String>) {
     assert!(
         !analysis.diagnostics.has_errors(),
         "{row}: the program does not compile:\n{}",
-        analysis.diagnostics.items.iter().map(|d| map.render(d, false)).collect::<Vec<_>>().join("\n")
+        analysis
+            .diagnostics
+            .items
+            .iter()
+            .map(|d| map.render(d, false))
+            .collect::<Vec<_>>()
+            .join("\n")
     );
-    let paths = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let paths = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     (analysis.checked, paths)
 }
 
@@ -389,7 +418,12 @@ fn prepared(
 }
 
 fn messages(diagnostics: &Diagnostics) -> String {
-    diagnostics.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("; ")
+    diagnostics
+        .items
+        .iter()
+        .map(|d| d.message.clone())
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// Compile through the JavaScript backend and run the artifact.
@@ -406,14 +440,24 @@ pub(crate) fn run_js(row: &str, checked: &Checked, paths: &[String]) -> Ran {
 
 /// Compile through the JavaScript backend, and answer where the artifact is.
 pub(crate) fn emit_js(row: &str, checked: &Checked, paths: &[String]) -> PathBuf {
-    let target = Target { platform: Platform::Js, arch: None };
+    let target = Target {
+        platform: Platform::Js,
+        arch: None,
+    };
     let program = prepared(row, checked, paths, target);
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "",
+    };
     let mut backend = backend::select(target, Profile::Debug).expect("the JavaScript backend");
     let units = match backend.emit(&program, &checked.tables, &opts) {
         Ok(units) => units,
         Err(d) => {
-            panic!("{row}: the JavaScript backend refused the program: {}", messages(&d))
+            panic!(
+                "{row}: the JavaScript backend refused the program: {}",
+                messages(&d)
+            )
         }
     };
     let dir = workspace(&format!("{row}-js"));
@@ -425,7 +469,11 @@ pub(crate) fn emit_js(row: &str, checked: &Checked, paths: &[String]) -> PathBuf
 /// Monomorphize and run the middle end for this host, once for every native
 /// backend: `actions::prepare` reads the target alone, and every native
 /// backend here builds for the host.
-pub(crate) fn prepared_native(row: &str, checked: &Checked, paths: &[String]) -> monomorphize::Program {
+pub(crate) fn prepared_native(
+    row: &str,
+    checked: &Checked,
+    paths: &[String],
+) -> monomorphize::Program {
     prepared(row, checked, paths, host_target())
 }
 
@@ -446,13 +494,19 @@ pub(crate) fn emitted(
     program: &monomorphize::Program,
     checked: &Checked,
 ) -> Result<Vec<backend::Emitted>, String> {
-    let opts = Options { profile: native.profile, target: host_target(), unit_prefix: "" };
+    let opts = Options {
+        profile: native.profile,
+        target: host_target(),
+        unit_prefix: "",
+    };
     let mut backend = native.backend();
     let missing = backend.missing_intrinsics(program, &checked.tables);
     if !missing.is_empty() {
         return Err(missing.join("; "));
     }
-    backend.emit(program, &checked.tables, &opts).map_err(|d| messages(&d))
+    backend
+        .emit(program, &checked.tables, &opts)
+        .map_err(|d| messages(&d))
 }
 
 /// Compile through one native backend, link, and run the executable.
@@ -461,7 +515,12 @@ pub(crate) fn emitted(
 /// reason is printed and the row is not asked of it. A backend with no
 /// `partial` note refusing is a failure, which is what makes the tolerance
 /// specific rather than general.
-fn run_native(row: &str, native: Native, program: &monomorphize::Program, checked: &Checked) -> Option<Ran> {
+fn run_native(
+    row: &str,
+    native: Native,
+    program: &monomorphize::Program,
+    checked: &Checked,
+) -> Option<Ran> {
     let units = match emitted(native, program, checked) {
         Ok(units) => units,
         Err(why_not) => {
@@ -473,7 +532,10 @@ fn run_native(row: &str, native: Native, program: &monomorphize::Program, checke
                     native.name
                 )
             });
-            eprintln!("backend agreement: {row} not asked of `{}` ({why_not}); it is {why}", native.name);
+            eprintln!(
+                "backend agreement: {row} not asked of `{}` ({why_not}); it is {why}",
+                native.name
+            );
             return None;
         }
     };
@@ -482,7 +544,11 @@ fn run_native(row: &str, native: Native, program: &monomorphize::Program, checke
 
 /// Link one native backend's units and run the executable.
 pub(crate) fn link_and_run(row: &str, native: Native, units: &[backend::Emitted]) -> Ran {
-    assert!(!units.is_empty(), "{row}: the `{}` backend emitted no unit", native.name);
+    assert!(
+        !units.is_empty(),
+        "{row}: the `{}` backend emitted no unit",
+        native.name
+    );
 
     let dir = workspace(&format!("{row}-{}", native.name));
     let mut objects = Vec::new();
@@ -513,9 +579,17 @@ pub(crate) fn link_and_run(row: &str, native: Native, units: &[backend::Emitted]
     // with agreement about what was *freed*, and the rows pay nothing for it
     // (`shared::ran_checked`, and `cli/runtime/memory.rs`'s heap-check
     // section).
-    let profile = if matches!(native.profile, Profile::Release) { "release" } else { "debug" };
+    let profile = if matches!(native.profile, Profile::Release) {
+        "release"
+    } else {
+        "debug"
+    };
     let ran = crate::shared::ran_built(&binary, &format!("{} {profile}", native.name));
-    Ran { status: ran.status, stdout: ran.stdout, stderr: ran.stderr }
+    Ran {
+        status: ran.status,
+        stdout: ran.stdout,
+        stderr: ran.stderr,
+    }
 }
 
 // -------------------------------------------------------------------
@@ -567,7 +641,10 @@ pub(crate) fn agree(row: &str, source: &str, expected: &str) {
     let (js, natives) = both(row, source);
     assert_eq!(js.stderr, "", "{row}: JavaScript printed to standard error");
     assert_eq!(js.status, 0, "{row}: JavaScript exited {}", js.status);
-    assert_eq!(js.stdout, expected, "{row}: JavaScript printed something else");
+    assert_eq!(
+        js.stdout, expected,
+        "{row}: JavaScript printed something else"
+    );
     for (name, ran) in &natives {
         if let Some(n) = crate::shared::leaked_blocks(ran.status, &ran.stderr) {
             panic!(
@@ -597,7 +674,10 @@ fn diverge(row: &str, source: &str, javascript: &str, native: &str) {
         "{row}: a divergence row whose two sides are equal is not a divergence"
     );
     let (js, natives) = both(row, source);
-    assert_eq!(js.stdout, javascript, "{row}: JavaScript's documented answer moved");
+    assert_eq!(
+        js.stdout, javascript,
+        "{row}: JavaScript's documented answer moved"
+    );
     for (name, ran) in &natives {
         assert_eq!(
             ran.stdout, native,
@@ -612,17 +692,31 @@ fn diverge(row: &str, source: &str, javascript: &str, native: &str) {
 /// printed is flushed above the reason it stopped, on both backends.
 fn abort_agrees(row: &str, source: &str, stdout: &str, message: &str) {
     let (js, natives) = both(row, source);
-    assert_eq!(js.stdout, stdout, "{row}: JavaScript printed something else before aborting");
-    assert_eq!(js.first_error_line(), message, "{row}: JavaScript's abort message moved");
+    assert_eq!(
+        js.stdout, stdout,
+        "{row}: JavaScript printed something else before aborting"
+    );
+    assert_eq!(
+        js.first_error_line(),
+        message,
+        "{row}: JavaScript's abort message moved"
+    );
     assert_eq!(js.status, 1, "{row}: JavaScript exited {}", js.status);
     for (name, ran) in &natives {
-        assert_eq!(ran.stdout, js.stdout, "{row}: `{name}` printed something else");
+        assert_eq!(
+            ran.stdout, js.stdout,
+            "{row}: `{name}` printed something else"
+        );
         assert_eq!(
             ran.first_error_line(),
             js.first_error_line(),
             "{row}: `{name}` and JavaScript disagree about the abort message"
         );
-        assert_eq!(ran.status, js.status, "{row}: `{name}` exited {}", ran.status);
+        assert_eq!(
+            ran.status, js.status,
+            "{row}: `{name}` exited {}",
+            ran.status
+        );
     }
 }
 
@@ -1726,7 +1820,9 @@ export fn main(host: NativeHost): Result<(), Str> {{
         expected.push_str(&format!("{want} {want} {want} {want}\n"));
     }
     for (call, want) in by_constant {
-        source.push_str(&format!("  let _ = io.println(host.stdout, \"${{wide({call})}}\").ignore();\n"));
+        source.push_str(&format!(
+            "  let _ = io.println(host.stdout, \"${{wide({call})}}\").ignore();\n"
+        ));
         expected.push_str(&format!("{want}\n"));
     }
     source.push_str("  .Ok(())\n}\n");
@@ -1995,7 +2091,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 #[test]
 fn a_derived_ord_over_a_list() {
     rows_or_skip!();
-    agree("derived ord over a list", ORD_A_LIST, "lt gt eq lt gt lt gt\n");
+    agree(
+        "derived ord over a list",
+        ORD_A_LIST,
+        "lt gt eq lt gt lt gt\n",
+    );
 }
 
 const ORD_A_LIST: &str = r#"
@@ -2039,7 +2139,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 #[test]
 fn a_derive_over_a_hand_written_impl_calls_it_on_both_backends() {
     rows_or_skip!();
-    agree("derive over a hand-written impl", DERIVE_OVER_IMPL, "lt lt\n");
+    agree(
+        "derive over a hand-written impl",
+        DERIVE_OVER_IMPL,
+        "lt lt\n",
+    );
 }
 
 const DERIVE_OVER_IMPL: &str = r#"
@@ -2362,9 +2466,19 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(js.stderr, "it did not work\n");
     assert_eq!(js.status, 1);
     for (name, ran) in &natives {
-        assert_eq!(ran.stdout, js.stdout, "row 14: `{name}` printed something else");
-        assert_eq!(ran.stderr, js.stderr, "row 14: `{name}`'s error text differs");
-        assert_eq!(ran.status, js.status, "row 14: `{name}` exited {}", ran.status);
+        assert_eq!(
+            ran.stdout, js.stdout,
+            "row 14: `{name}` printed something else"
+        );
+        assert_eq!(
+            ran.stderr, js.stderr,
+            "row 14: `{name}`'s error text differs"
+        );
+        assert_eq!(
+            ran.status, js.status,
+            "row 14: `{name}` exited {}",
+            ran.status
+        );
     }
 }
 
@@ -5758,9 +5872,21 @@ fn sort_key(shape: i64, n: i64, i: i64) -> i64 {
         3 => (n - i) / 3,
         4 => i / 3,
         5 => i % 5,
-        6 => if i < n / 2 { i } else { n - i },
+        6 => {
+            if i < n / 2 {
+                i
+            } else {
+                n - i
+            }
+        }
         7 => (i * 7919) % 13,
-        8 => if i == n - 1 { 0 } else { i },
+        8 => {
+            if i == n - 1 {
+                0
+            } else {
+                i
+            }
+        }
         _ => i % (n / 2 + 1),
     }
 }
@@ -5775,8 +5901,12 @@ fn sort_key(shape: i64, n: i64, i: i64) -> i64 {
 #[test]
 fn sorting_agrees_on_every_input_shape() {
     rows_or_skip!();
-    let lens: [i64; 19] = [0, 1, 2, 3, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 100, 257];
-    let digest = |xs: &mut dyn Iterator<Item = i64>| xs.fold(0i64, |acc, x| (acc * 1_000_003 + x + 1) % 1_000_000_007);
+    let lens: [i64; 19] = [
+        0, 1, 2, 3, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 100, 257,
+    ];
+    let digest = |xs: &mut dyn Iterator<Item = i64>| {
+        xs.fold(0i64, |acc, x| (acc * 1_000_003 + x + 1) % 1_000_000_007)
+    };
     let mut expected = String::new();
     for shape in 0..10 {
         for n in lens {
@@ -6575,7 +6705,9 @@ fn every_row_of_the_table_names_a_test_that_exists() {
     let mut rows = 0usize;
     for line in doc.lines() {
         let cells: Vec<&str> = line.trim().trim_matches('|').split('|').collect();
-        let [number, .., pinned] = cells.as_slice() else { continue };
+        let [number, .., pinned] = cells.as_slice() else {
+            continue;
+        };
         if number.trim().parse::<u32>().is_err() {
             continue;
         }
@@ -6597,5 +6729,8 @@ fn every_row_of_the_table_names_a_test_that_exists() {
     }
     // A table this failed to find would "pass" having checked nothing,
     // which is the failure a self-checking document has.
-    assert_eq!(rows, 17, "§12 has {rows} numbered rows rather than seventeen");
+    assert_eq!(
+        rows, 17,
+        "§12 has {rows} numbered rows rather than seventeen"
+    );
 }

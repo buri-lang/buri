@@ -84,18 +84,28 @@ pub fn resolve(workspace: &Workspace, name: &str) -> Result<Tool, Unresolved> {
     let package = workspace.package_by_path(path).ok_or(Unresolved::Nothing)?;
     let p = workspace.package(package);
     if p.has_tool() {
-        return Ok(Tool::Repo(TargetId { package, kind: RuleKind::Tool }));
+        return Ok(Tool::Repo(TargetId {
+            package,
+            kind: RuleKind::Tool,
+        }));
     }
-    Err(if p.has_binary() { Unresolved::Binary } else { Unresolved::Nothing })
+    Err(if p.has_binary() {
+        Unresolved::Binary
+    } else {
+        Unresolved::Nothing
+    })
 }
 
 impl Tool {
     /// Whether the tool has the entry point `entry`.
     pub fn provides(self, workspace: &Workspace, entry: &str) -> bool {
         match self {
-            Tool::Repo(t) => {
-                workspace.package(t.package).build.tool.as_ref().is_some_and(|r| r.block(entry).is_some())
-            }
+            Tool::Repo(t) => workspace
+                .package(t.package)
+                .build
+                .tool
+                .as_ref()
+                .is_some_and(|r| r.block(entry).is_some()),
             Tool::Json | Tool::Proto | Tool::Textproto => ENTRY_POINTS.contains(&entry),
         }
     }
@@ -132,7 +142,9 @@ pub fn validate(workspace: &Workspace) -> Vec<Diagnostic> {
         }
     }
     for language in &workspace.repo.languages.all {
-        let Some(tools) = language.tools() else { continue };
+        let Some(tools) = language.tools() else {
+            continue;
+        };
         for entry in ENTRY_POINTS {
             if let Some(named) = tools.named(entry) {
                 refer(workspace, named, entry, false, &mut out);
@@ -142,7 +154,15 @@ pub fn validate(workspace: &Workspace) -> Vec<Diagnostic> {
             out.push(
                 Diagnostic::templated("json-generate-unsupported", named.span)
                     .with_bind("language", language.name.as_str())
-                    .with_bind("extensions", language.extensions.iter().map(|e| format!("`{}`", e.value)).collect::<Vec<_>>().join(", ")),
+                    .with_bind(
+                        "extensions",
+                        language
+                            .extensions
+                            .iter()
+                            .map(|e| format!("`{}`", e.value))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
             );
         }
     }
@@ -152,21 +172,37 @@ pub fn validate(workspace: &Workspace) -> Vec<Diagnostic> {
 /// Every input of a `generators` entry whose tool has a contract is in a
 /// language the contract lists.
 fn accepted(workspace: &Workspace, g: &buildfile::Generator, out: &mut Vec<Diagnostic>) {
-    let Ok(Tool::Repo(t)) = resolve(workspace, &g.tool.value) else { return };
+    let Ok(Tool::Repo(t)) = resolve(workspace, &g.tool.value) else {
+        return;
+    };
     let accepts = rule_of(workspace, t).accepts("generate");
     if accepts.is_empty() {
         return;
     }
-    let listed = accepts.iter().map(|a| format!("`{}`", a.language.value)).collect::<Vec<_>>().join(", ");
+    let listed = accepts
+        .iter()
+        .map(|a| format!("`{}`", a.language.value))
+        .collect::<Vec<_>>()
+        .join(", ");
     for input in &g.inputs {
-        let language = workspace.repo.languages.of(&input.value).map(|l| l.name.clone());
-        if accepts.iter().any(|a| Some(&a.language.value) == language.as_ref()) {
+        let language = workspace
+            .repo
+            .languages
+            .of(&input.value)
+            .map(|l| l.name.clone());
+        if accepts
+            .iter()
+            .any(|a| Some(&a.language.value) == language.as_ref())
+        {
             continue;
         }
         out.push(
             Diagnostic::templated("input-not-accepted", input.span)
                 .with_bind("input", input.value.as_str())
-                .with_bind("language", language.map_or("no language".to_string(), |l| format!("`{l}`")))
+                .with_bind(
+                    "language",
+                    language.map_or("no language".to_string(), |l| format!("`{l}`")),
+                )
                 .with_bind("tool", g.tool.value.as_str())
                 .with_bind("accepted", listed.as_str()),
         );
@@ -182,15 +218,25 @@ fn contracts(workspace: &Workspace, rule: &buildfile::Tool, out: &mut Vec<Diagno
         for a in rule.accepts(entry) {
             let name = a.language.value.as_str();
             let twice = !here.insert(name)
-                || seen.iter().any(|b| b.language.value == name && b.type_schema.value != a.type_schema.value);
+                || seen.iter().any(|b| {
+                    b.language.value == name && b.type_schema.value != a.type_schema.value
+                });
             if twice {
-                out.push(Diagnostic::templated("accepts-duplicate-language", a.language.span).with_bind("language", name));
+                out.push(
+                    Diagnostic::templated("accepts-duplicate-language", a.language.span)
+                        .with_bind("language", name),
+                );
                 continue;
             }
             seen.push(a);
             match languages.named(name) {
                 None => {
-                    let known = languages.all.iter().map(|l| format!("`{}`", l.name)).collect::<Vec<_>>().join(", ");
+                    let known = languages
+                        .all
+                        .iter()
+                        .map(|l| format!("`{}`", l.name))
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     out.push(
                         Diagnostic::templated("accepts-unknown-language", a.language.span)
                             .with_bind("language", name)
@@ -198,10 +244,12 @@ fn contracts(workspace: &Workspace, rule: &buildfile::Tool, out: &mut Vec<Diagno
                     );
                 }
                 Some(l) if matches!(l.kind, Kind::Proto) => out.push(
-                    Diagnostic::templated("proto-contract-unsupported", a.language.span).with_bind("tool_entry", entry),
+                    Diagnostic::templated("proto-contract-unsupported", a.language.span)
+                        .with_bind("tool_entry", entry),
                 ),
                 Some(l) if l.tools().is_some_and(|t| t.generate.is_none()) => out.push(
-                    Diagnostic::templated("accepts-missing-generate", a.language.span).with_bind("language", name),
+                    Diagnostic::templated("accepts-missing-generate", a.language.span)
+                        .with_bind("language", name),
                 ),
                 Some(_) => {}
             }
@@ -209,7 +257,13 @@ fn contracts(workspace: &Workspace, rule: &buildfile::Tool, out: &mut Vec<Diagno
     }
 }
 
-fn refer(workspace: &Workspace, named: &Spanned<String>, entry: &str, generator: bool, out: &mut Vec<Diagnostic>) {
+fn refer(
+    workspace: &Workspace,
+    named: &Spanned<String>,
+    entry: &str,
+    generator: bool,
+    out: &mut Vec<Diagnostic>,
+) {
     match resolve(workspace, &named.value) {
         Ok(tool) if tool.provides(workspace, entry) => {}
         Ok(_) => out.push(
@@ -218,9 +272,13 @@ fn refer(workspace: &Workspace, named: &Spanned<String>, entry: &str, generator:
                 .with_bind("entry", entry),
         ),
         Err(Unresolved::Binary) if generator => out.push(
-            Diagnostic::templated("generator-not-tool", named.span).with_bind("tool", named.value.as_str()),
+            Diagnostic::templated("generator-not-tool", named.span)
+                .with_bind("tool", named.value.as_str()),
         ),
-        Err(_) => out.push(Diagnostic::templated("unknown-tool", named.span).with_bind("tool", named.value.as_str())),
+        Err(_) => out.push(
+            Diagnostic::templated("unknown-tool", named.span)
+                .with_bind("tool", named.value.as_str()),
+        ),
     }
 }
 
@@ -251,12 +309,13 @@ pub fn contract(
         .collect();
     for entry in ENTRY_POINTS {
         match (tool.block(entry), exported.get(entry)) {
-            (Some(block), None) => {
-                out.push(Diagnostic::templated("tool-entry-point-not-exported", block).with_bind("entry", entry))
-            }
-            (None, Some(f)) => {
-                out.push(Diagnostic::templated("tool-missing-block", f.name.span).with_bind("entry", entry))
-            }
+            (Some(block), None) => out.push(
+                Diagnostic::templated("tool-entry-point-not-exported", block)
+                    .with_bind("entry", entry),
+            ),
+            (None, Some(f)) => out.push(
+                Diagnostic::templated("tool-missing-block", f.name.span).with_bind("entry", entry),
+            ),
             _ => {}
         }
     }
@@ -266,9 +325,24 @@ pub fn contract(
         }
     }
     for (entry, f) in &exported {
-        let ctx = tree.list(f.params).iter().find(|p| p.kind == ParamKind::CtxParam).or(tree.list(f.params).first());
-        let Some(head) = ctx.and_then(|p| p.written_type()).and_then(|t| tree.type_head(t)) else { continue };
-        let Some(generic) = tree.list(f.generics).iter().find(|g| tree.name(g.name) == head) else { continue };
+        let ctx = tree
+            .list(f.params)
+            .iter()
+            .find(|p| p.kind == ParamKind::CtxParam)
+            .or(tree.list(f.params).first());
+        let Some(head) = ctx
+            .and_then(|p| p.written_type())
+            .and_then(|t| tree.type_head(t))
+        else {
+            continue;
+        };
+        let Some(generic) = tree
+            .list(f.generics)
+            .iter()
+            .find(|g| tree.name(g.name) == head)
+        else {
+            continue;
+        };
         for bound in tree.type_list(generic.bounds) {
             let effect = tree.type_head(*bound).unwrap_or_default();
             if effect != "Allocator" {
@@ -319,22 +393,33 @@ fn request_type(
         })
     };
     let names_root = |arg| match tree.ty(arg) {
-        TypeView::Named { path: segments, args: [], .. } => {
+        TypeView::Named {
+            path: segments,
+            args: [],
+            ..
+        } => {
             let segments: Vec<&str> = segments.iter().map(|s| tree.text(*s)).collect();
             wanted.iter().any(|(root, path)| {
-                imports().filter(|i| &i.path == path).any(|i| match (&i.clause, segments.as_slice()) {
-                    (ImportClause::Named(specs), [name]) => {
-                        tree.list(*specs).iter().any(|s| tree.name(s.local()) == *name && tree.name(s.name) == root)
+                imports().filter(|i| &i.path == path).any(|i| {
+                    match (&i.clause, segments.as_slice()) {
+                        (ImportClause::Named(specs), [name]) => tree
+                            .list(*specs)
+                            .iter()
+                            .any(|s| tree.name(s.local()) == *name && tree.name(s.name) == root),
+                        (ImportClause::Namespace(ns), [q, name]) => {
+                            tree.name(*ns) == *q && name == root
+                        }
+                        _ => false,
                     }
-                    (ImportClause::Namespace(ns), [q, name]) => tree.name(*ns) == *q && name == root,
-                    _ => false,
                 })
             })
         }
         _ => false,
     };
     let ok = match tree.ty(request) {
-        TypeView::Named { args: [arg], .. } => tree.type_head(request) == Some(head) && names_root(*arg),
+        TypeView::Named { args: [arg], .. } => {
+            tree.type_head(request) == Some(head) && names_root(*arg)
+        }
         _ => false,
     };
     if ok {
@@ -383,8 +468,14 @@ impl Contract {
         let Tool::Repo(t) = tool else { return None };
         let package = workspace.package(t.package);
         let rule = package.build.tool.as_ref()?;
-        let a = rule.accepts(entry).iter().find(|a| a.language.value == language)?;
-        Some(Contract { package: package.path.clone(), type_schema: a.type_schema.value.clone() })
+        let a = rule
+            .accepts(entry)
+            .iter()
+            .find(|a| a.language.value == language)?;
+        Some(Contract {
+            package: package.path.clone(),
+            type_schema: a.type_schema.value.clone(),
+        })
     }
 
     /// `type_schema` as a JSON Schema's repository path: relative to the
@@ -403,10 +494,14 @@ impl Contract {
     pub fn identity(&self, kind: &Kind) -> String {
         let named = match kind {
             Kind::BuiltIn(_) => self.json_path().map(|path| format!("//{path}")),
-            Kind::Textproto => self.type_schema.rsplit_once(':').and_then(|(file, message)| {
-                let path = crate::languages::json::schema::local_path(&self.build_file(), file)?;
-                Some(format!("//{path}:{message}"))
-            }),
+            Kind::Textproto => self
+                .type_schema
+                .rsplit_once(':')
+                .and_then(|(file, message)| {
+                    let path =
+                        crate::languages::json::schema::local_path(&self.build_file(), file)?;
+                    Some(format!("//{path}:{message}"))
+                }),
             Kind::Proto | Kind::Custom(_) => None,
         };
         named.unwrap_or_else(|| format!("{}:{}", self.package, self.type_schema))
@@ -421,7 +516,10 @@ impl Contract {
     }
 
     pub fn value(&self) -> Value {
-        Value::object(vec![("text", Value::str(&self.type_schema)), ("package", Value::str(&self.package))])
+        Value::object(vec![
+            ("text", Value::str(&self.type_schema)),
+            ("package", Value::str(&self.package)),
+        ])
     }
 }
 
@@ -432,7 +530,12 @@ fn typed(workspace: &Workspace, t: TargetId, entry: &str) -> Vec<(String, String
     rule_of(workspace, t)
         .accepts(entry)
         .iter()
-        .map(|a| (a.language.value.clone(), package.module_path(&a.language.value)))
+        .map(|a| {
+            (
+                a.language.value.clone(),
+                package.module_path(&a.language.value),
+            )
+        })
         .collect()
 }
 
@@ -499,8 +602,11 @@ pub fn harness(
         };
         fields.push_str(&format!("        {entry}: {value},\n"));
     }
-    let typed_imports: String =
-        imports.iter().enumerate().map(|(i, p)| format!("from \"{p}\" import * as typed{i};\n")).collect();
+    let typed_imports: String = imports
+        .iter()
+        .enumerate()
+        .map(|(i, p)| format!("from \"{p}\" import * as typed{i};\n"))
+        .collect();
     format!(
         "from \"platform/effect\" import {{ Allocator, Stdin, Stdout }};\n\
          from \"core/tool\" import * as tool;\n\
@@ -526,12 +632,16 @@ fn source(workspace: &Workspace, tool: Tool) -> Option<Source> {
         Tool::Repo(t) => Some(repo_source(workspace, t)),
         // `format` is in-tree, so the program serves the other two. Each is the
         // standard library module of its name under `std/`.
-        Tool::Proto => {
-            Some((None, "(std/proto main)".to_string(), harness("std/proto", &|e| e != "format", &|_| Vec::new())))
-        }
-        Tool::Textproto => {
-            Some((None, "(std/textproto main)".to_string(), harness("std/textproto", &|e| e != "format", &|_| Vec::new())))
-        }
+        Tool::Proto => Some((
+            None,
+            "(std/proto main)".to_string(),
+            harness("std/proto", &|e| e != "format", &|_| Vec::new()),
+        )),
+        Tool::Textproto => Some((
+            None,
+            "(std/textproto main)".to_string(),
+            harness("std/textproto", &|e| e != "format", &|_| Vec::new()),
+        )),
         Tool::Json => None,
     }
 }
@@ -540,7 +650,9 @@ fn source(workspace: &Workspace, tool: Tool) -> Option<Source> {
 fn repo_source(workspace: &Workspace, t: TargetId) -> Source {
     let package = workspace.package(t.package);
     let module = package.module_path("tool.buri");
-    let main = harness(&module, &|e| Tool::Repo(t).provides(workspace, e), &|e| typed(workspace, t, e));
+    let main = harness(&module, &|e| Tool::Repo(t).provides(workspace, e), &|e| {
+        typed(workspace, t, e)
+    });
     (Some(t.package), package.module_path("(tool main)"), main)
 }
 
@@ -549,7 +661,12 @@ type Source = (Option<crate::build::workspace::PackageId>, String, String);
 
 /// The `tool` rule of a tool target.
 pub fn rule_of(workspace: &Workspace, t: TargetId) -> &buildfile::Tool {
-    workspace.package(t.package).build.tool.as_ref().or_ice("a tool target's package has a `tool` rule")
+    workspace
+        .package(t.package)
+        .build
+        .tool
+        .as_ref()
+        .or_ice("a tool target's package has a `tool` rule")
 }
 
 /// The key of the program a tool is: its `main`, and — for a tool of this
@@ -567,16 +684,26 @@ pub fn program_key(session: &Session, tool: Tool, flags: &Flags) -> ActionKey {
     let dir = session.root.join(".buri/out/tools");
     let cache = crate::build::cache::Cache::open(&session.root);
     let kept = ActionKey::of(format!("tool reads\n{}", base.as_str()).as_bytes());
-    if let Some((reads, _)) = cache.get(&kept).as_deref().and_then(|r| crate::build::actions::held_record(&session.root, r)) {
+    if let Some((reads, _)) = cache
+        .get(&kept)
+        .as_deref()
+        .and_then(|r| crate::build::actions::held_record(&session.root, r))
+    {
         return finished(&base, &reads);
     }
-    let Ok((js, read)) = compile(session, tool, repo_source(&session.workspace, t)) else { return base };
+    let Ok((js, read)) = compile(session, tool, repo_source(&session.workspace, t)) else {
+        return base;
+    };
     let reads = crate::build::actions::encode_reads(
         session,
         &crate::build::actions::tool_unkeyed_reads(session, t, read.iter().map(PathBuf::as_path)),
     );
     let key = finished(&base, &reads);
-    let _ = place(&dir, &dir.join(format!("{}.mjs", key.as_str())), js.as_bytes());
+    let _ = place(
+        &dir,
+        &dir.join(format!("{}.mjs", key.as_str())),
+        js.as_bytes(),
+    );
     cache.put(&kept, &crate::build::actions::with_reads(&reads, b""));
     key
 }
@@ -591,7 +718,13 @@ fn base_key(session: &Session, tool: Tool, flags: &Flags) -> ActionKey {
         k.input("main", main.as_bytes());
     }
     if let Tool::Repo(t) = tool {
-        k.dependency(&crate::build::actions::action_key(session, t, &Output::js(Span::NONE), flags, Action::Link));
+        k.dependency(&crate::build::actions::action_key(
+            session,
+            t,
+            &Output::js(Span::NONE),
+            flags,
+            Action::Link,
+        ));
     }
     k.finish()
 }
@@ -616,15 +749,25 @@ fn place(dir: &Path, path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Compiles a tool's program: the JavaScript, and every file it read.
-fn compile(session: &Session, tool: Tool, (package, main_name, main): Source) -> Result<(String, Vec<PathBuf>), String> {
+fn compile(
+    session: &Session,
+    tool: Tool,
+    (package, main_name, main): Source,
+) -> Result<(String, Vec<PathBuf>), String> {
     let name = tool.name(&session.workspace);
     if let Some(why) = broken_contract(&session.workspace, tool) {
         return Err(format!("the tool does not build: {why}"));
     }
     if let Tool::Repo(t) = tool {
-        let failed = session.workspace.generated.outcome(t).is_some_and(|o| !o.diagnostics.is_empty() || !o.findings.is_empty());
+        let failed = session
+            .workspace
+            .generated
+            .outcome(t)
+            .is_some_and(|o| !o.diagnostics.is_empty() || !o.findings.is_empty());
         if failed {
-            return Err(format!("its contract's types did not generate; `buri build {name}` says why"));
+            return Err(format!(
+                "its contract's types did not generate; `buri build {name}` says why"
+            ));
         }
     }
     let mut map = crate::diagnostics::SourceMap::new();
@@ -668,8 +811,15 @@ fn broken_contract(workspace: &Workspace, tool: Tool) -> Option<String> {
     let rule = package.build.tool.as_ref()?;
     let text = std::fs::read_to_string(package.dir.join("tool.buri")).ok()?;
     let parsed = crate::parsing::parser::parse(&text, crate::diagnostics::FileId(0));
-    let roots = |path: &str| workspace.generated.module(path).and_then(|m| root_of(&m.text));
-    contract(&parsed.module, rule, &package.label(), &roots).first().map(|d| d.message.clone())
+    let roots = |path: &str| {
+        workspace
+            .generated
+            .module(path)
+            .and_then(|m| root_of(&m.text))
+    };
+    contract(&parsed.module, rule, &package.label(), &roots)
+        .first()
+        .map(|d| d.message.clone())
 }
 
 // ---------------------------------------------------------------------------
@@ -699,16 +849,27 @@ pub struct Answer {
 
 /// One `{path, language, value}` input.
 pub fn input(path: &str, language: &str, text: &str) -> Value {
-    Value::object(vec![("path", Value::str(path)), ("language", Value::str(language)), ("value", Value::str(text))])
+    Value::object(vec![
+        ("path", Value::str(path)),
+        ("language", Value::str(language)),
+        ("value", Value::str(text)),
+    ])
 }
 
 /// One input under a contract: its `typeSchema`, and its value as the
 /// language's `decode` reads it. For the JSON languages that is the value as
 /// strict JSON, so JSON5 and comments never reach a decoder.
-pub fn typed_input(languages: &crate::languages::Languages, path: &str, text: &str, contract: &Contract) -> Value {
+pub fn typed_input(
+    languages: &crate::languages::Languages,
+    path: &str,
+    text: &str,
+    contract: &Contract,
+) -> Value {
     let language = languages.of(path);
     let value = match language.and_then(Language::dialect) {
-        Some(dialect) => crate::languages::json::strict(text, dialect).unwrap_or_else(|| text.to_string()),
+        Some(dialect) => {
+            crate::languages::json::strict(text, dialect).unwrap_or_else(|| text.to_string())
+        }
         None => text.to_string(),
     };
     Value::object(vec![
@@ -737,9 +898,10 @@ pub fn exchange(
     for _round in 0..64 {
         let mut fields = vec![("entry", Value::str(ask.entry))];
         fields.extend(ask.fields.iter().map(|(k, v)| (*k, v.clone())));
-        let present = files
-            .iter()
-            .filter_map(|(p, t)| t.as_ref().map(|t| Value::Array(vec![Value::str(p), Value::str(t)])));
+        let present = files.iter().filter_map(|(p, t)| {
+            t.as_ref()
+                .map(|t| Value::Array(vec![Value::str(p), Value::str(t)]))
+        });
         fields.push(("files", Value::Array(present.collect())));
         let request = Value::object(fields).to_string();
         let action = match ask.entry {
@@ -759,14 +921,22 @@ pub fn exchange(
         let ran = cached.is_none();
         let line = match cached {
             Some(line) => line,
-            None => crate::build::generators::run_artifact(&artifact(session, ask.tool, flags)?, &request)?,
+            None => crate::build::generators::run_artifact(
+                &artifact(session, ask.tool, flags)?,
+                &request,
+            )?,
         };
-        let value = crate::json::parse(&line).map_err(|e| format!("the tool's answer is not JSON: {e}"))?;
+        let value =
+            crate::json::parse(&line).map_err(|e| format!("the tool's answer is not JSON: {e}"))?;
         if ran {
             cache.put(&key, line.as_bytes());
         }
         let mut fresh = false;
-        for need in value.get("needs").and_then(Value::as_array).unwrap_or_default() {
+        for need in value
+            .get("needs")
+            .and_then(Value::as_array)
+            .unwrap_or_default()
+        {
             let Some(need) = need.as_str() else { continue };
             if files.contains_key(need) || outside.iter().any(|o| o == need) {
                 continue;
@@ -781,7 +951,12 @@ pub fn exchange(
         }
         if !fresh {
             let asked = files.into_keys().collect();
-            return Ok(Answer { key, value, asked, outside });
+            return Ok(Answer {
+                key,
+                value,
+                asked,
+                outside,
+            });
         }
     }
     Err("the tool kept asking for more files".to_string())
@@ -835,25 +1010,42 @@ pub fn check_file(
     let languages = &session.workspace.repo.languages;
     let language = languages.of(rel)?;
     let (tool, name) = match &language.kind {
-        Kind::BuiltIn(_) => return Some(check_json(session, language, rel, text, contract, read, flags)),
+        Kind::BuiltIn(_) => {
+            return Some(check_json(
+                session, language, rel, text, contract, read, flags,
+            ))
+        }
         Kind::Proto => (Tool::Proto, PROTO.to_string()),
         Kind::Textproto => (Tool::Textproto, TEXTPROTO.to_string()),
         Kind::Custom(tools) => {
             let named = tools.check.as_ref()?;
-            (resolve(&session.workspace, &named.value).ok()?, named.value.clone())
+            (
+                resolve(&session.workspace, &named.value).ok()?,
+                named.value.clone(),
+            )
         }
     };
     if tool == Tool::Json {
-        return Some(check_json(session, language, rel, text, contract, read, flags));
+        return Some(check_json(
+            session, language, rel, text, contract, read, flags,
+        ));
     }
     // A check reads the file's own text, and the contract beside it.
-    let mut fields = vec![("path", Value::str(rel)), ("language", Value::str(&language.name))];
+    let mut fields = vec![
+        ("path", Value::str(rel)),
+        ("language", Value::str(&language.name)),
+    ];
     if let Some(c) = contract {
         fields.push(("typeSchema", c.value()));
     }
     fields.push(("value", Value::str(text)));
     let one = Value::object(fields);
-    let ask = Ask { tool, entry: "check", fields: vec![("inputs", Value::Array(vec![one]))], label: rel };
+    let ask = Ask {
+        tool,
+        entry: "check",
+        fields: vec![("inputs", Value::Array(vec![one]))],
+        label: rel,
+    };
     let answer = exchange(session, &ask, read, flags)
         .and_then(|a| Ok((crate::build::generators::diagnostics(&a.value)?, a)));
     Some(match answer {
@@ -861,27 +1053,51 @@ pub fn check_file(
             let mut findings: Vec<Finding> = diagnostics
                 .into_iter()
                 .map(|d| {
-                    let (file, span) = d.origin.map_or((rel.to_string(), (0, 0)), |o| (o.file, o.span));
+                    let (file, span) = d
+                        .origin
+                        .map_or((rel.to_string(), (0, 0)), |o| (o.file, o.span));
                     Finding {
                         code: d.code,
                         file,
                         span,
                         binds: Vec::new(),
-                        said: Some(Box::new(Said { message: d.message, note: d.note, fix: d.fix })),
+                        said: Some(Box::new(Said {
+                            message: d.message,
+                            note: d.note,
+                            fix: d.fix,
+                        })),
                     }
                 })
                 .collect();
-            findings.extend(
-                answer.outside.iter().map(|p| Finding::new("needs-outside-repository", rel, (0, 0), vec![("path", p.clone())])),
-            );
-            Checked { key: answer.key, findings, asked: answer.asked }
+            findings.extend(answer.outside.iter().map(|p| {
+                Finding::new(
+                    "needs-outside-repository",
+                    rel,
+                    (0, 0),
+                    vec![("path", p.clone())],
+                )
+            }));
+            Checked {
+                key: answer.key,
+                findings,
+                asked: answer.asked,
+            }
         }
         Err(why) => {
             let mut k = KeyBuilder::new(Action::Check, flags.mode);
             k.rule_identity(rel, "failed", &[]);
             k.input(rel, text.as_bytes());
-            let failed = Finding::new("tool-failed", rel, (0, 0), vec![("tool", name), ("why", why)]);
-            Checked { key: k.finish(), findings: vec![failed], asked: BTreeSet::new() }
+            let failed = Finding::new(
+                "tool-failed",
+                rel,
+                (0, 0),
+                vec![("tool", name), ("why", why)],
+            );
+            Checked {
+                key: k.finish(),
+                findings: vec![failed],
+                asked: BTreeSet::new(),
+            }
         }
     })
 }
@@ -907,8 +1123,17 @@ fn check_json(
     let schema = match schema {
         Some(None) => {
             let written = contract.map(|c| c.type_schema.clone()).unwrap_or_default();
-            let finding = Finding::new("schema-outside-repository", rel, (0, 0), vec![("schema", written)]);
-            return Checked { key: k.finish(), findings: vec![finding], asked: BTreeSet::new() };
+            let finding = Finding::new(
+                "schema-outside-repository",
+                rel,
+                (0, 0),
+                vec![("schema", written)],
+            );
+            return Checked {
+                key: k.finish(),
+                findings: vec![finding],
+                asked: BTreeSet::new(),
+            };
         }
         Some(Some(schema)) => Some(schema),
         None => None,
@@ -918,7 +1143,10 @@ fn check_json(
     // decide rather than its bytes (buri-lang/buri#281).
     for (path, contents) in &check.reads {
         k.input(path, contents.as_bytes());
-        k.input(&format!("{path} dialect"), format!("{:?}", languages.dialect_of(path)).as_bytes());
+        k.input(
+            &format!("{path} dialect"),
+            format!("{:?}", languages.dialect_of(path)).as_bytes(),
+        );
     }
     let key = k.finish();
     let cache = Cache::open(&session.root);
@@ -937,7 +1165,11 @@ fn check_json(
             found
         }
     };
-    Checked { key, findings, asked: check.asked }
+    Checked {
+        key,
+        findings,
+        asked: check.asked,
+    }
 }
 
 /// What formatting one file comes to.
@@ -981,16 +1213,34 @@ pub fn format_file(session: &Session, rel: &str, text: &str, flags: &Flags) -> F
         kind => return format_in_process(kind, text).unwrap_or(Formatted::Unformatted),
     };
     let tool = match resolve(&session.workspace, &named.value) {
-        Ok(Tool::Json) => return refused(crate::languages::json::format(text, crate::languages::json::Dialect::Json)),
+        Ok(Tool::Json) => {
+            return refused(crate::languages::json::format(
+                text,
+                crate::languages::json::Dialect::Json,
+            ))
+        }
         Ok(Tool::Proto) => return refused(crate::languages::proto::format(text)),
         Ok(Tool::Textproto) => return refused(crate::languages::textproto::format(text)),
         Ok(tool) => tool,
         Err(_) => return Formatted::Unformatted,
     };
-    let ask = Ask { tool, entry: "format", fields: vec![("input", input(rel, &language.name, text))], label: rel };
+    let ask = Ask {
+        tool,
+        entry: "format",
+        fields: vec![("input", input(rel, &language.name, text))],
+        label: rel,
+    };
     let read = |_: &str| None;
-    let Ok(answer) = exchange(session, &ask, &read, flags) else { return Formatted::Refused };
-    refused(answer.value.get("doc").and_then(doc).map(|d| crate::layout::render(&d)))
+    let Ok(answer) = exchange(session, &ask, &read, flags) else {
+        return Formatted::Refused;
+    };
+    refused(
+        answer
+            .value
+            .get("doc")
+            .and_then(doc)
+            .map(|d| crate::layout::render(&d)),
+    )
 }
 
 /// A `core/format` doc, from the tagged arrays `serve` writes.
@@ -999,7 +1249,8 @@ fn doc(value: &Value) -> Option<crate::layout::Doc> {
     let items = value.as_array()?;
     let (tag, rest) = items.split_first()?;
     let text = |i: usize| rest.get(i).and_then(Value::as_str).map(str::to_string);
-    let docs = |i: usize| -> Option<Vec<Doc>> { rest.get(i)?.as_array()?.iter().map(doc).collect() };
+    let docs =
+        |i: usize| -> Option<Vec<Doc>> { rest.get(i)?.as_array()?.iter().map(doc).collect() };
     Some(match tag.as_str()? {
         "text" => Doc::Text(text(0)?),
         "concat" => Doc::Concat(docs(0)?),
@@ -1022,9 +1273,21 @@ mod tests {
     #[test]
     fn a_needed_path_stays_in_the_repository() {
         assert_eq!(local("schemas/a.json").as_deref(), Some("schemas/a.json"));
-        assert_eq!(local("//schemas/./a.json").as_deref(), Some("schemas/a.json"));
-        assert_eq!(local("lib/../schemas/a.json").as_deref(), Some("schemas/a.json"));
-        for outside in ["../a.json", "/etc/passwd", "https://example.com/a.json", "", "lib/.."] {
+        assert_eq!(
+            local("//schemas/./a.json").as_deref(),
+            Some("schemas/a.json")
+        );
+        assert_eq!(
+            local("lib/../schemas/a.json").as_deref(),
+            Some("schemas/a.json")
+        );
+        for outside in [
+            "../a.json",
+            "/etc/passwd",
+            "https://example.com/a.json",
+            "",
+            "lib/..",
+        ] {
             assert_eq!(local(outside), None, "{outside}");
         }
     }
@@ -1042,9 +1305,17 @@ mod tests {
 
     #[test]
     fn the_harness_calls_only_what_the_tool_has() {
-        let main = harness("//tools/lines/tool.buri", &|e| e == "check", &|_| Vec::new());
-        assert!(main.contains("check: .Some(fn(c, request) => entry.check(c, request))"), "{main}");
+        let main = harness("//tools/lines/tool.buri", &|e| e == "check", &|_| {
+            Vec::new()
+        });
+        assert!(
+            main.contains("check: .Some(fn(c, request) => entry.check(c, request))"),
+            "{main}"
+        );
         assert!(main.contains("format: .None"), "{main}");
-        assert!(main.contains("from \"//tools/lines/tool.buri\" import * as entry;"), "{main}");
+        assert!(
+            main.contains("from \"//tools/lines/tool.buri\" import * as entry;"),
+            "{main}"
+        );
     }
 }

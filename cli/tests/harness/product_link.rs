@@ -21,7 +21,10 @@ use std::process::{Command, Output};
 /// The host's driver, or `None` on a host that cannot link at all: no `cc`, or
 /// the hermetic refusal.
 fn host_driver() -> Option<(Target, CDriver)> {
-    let target = Target { platform: link::host_platform()?, arch: link::host_arch() };
+    let target = Target {
+        platform: link::host_platform()?,
+        arch: link::host_arch(),
+    };
     link::select(target).ok().map(|cc| (target, cc))
 }
 
@@ -37,7 +40,9 @@ fn host_driver() -> Option<(Target, CDriver)> {
 /// product can't link there either, and the harness's own driver invocation is
 /// about to fail for the same reason.
 pub fn args(dir: &Path) -> Vec<String> {
-    let Some((_, cc)) = host_driver() else { return Vec::new() };
+    let Some((_, cc)) = host_driver() else {
+        return Vec::new();
+    };
     if cc.libc() == LibcMode::MuslBaked {
         let _ = link::stage_sysroot(dir, None);
     }
@@ -62,7 +67,9 @@ pub fn driver() -> Option<PathBuf> {
 /// `BURI_MUSL=off` and on macOS, the compile and the link already name one
 /// target, and a flag here would be the divergence rather than the fix.
 pub fn compile_args() -> Vec<String> {
-    let Some((target, cc)) = host_driver() else { return Vec::new() };
+    let Some((target, cc)) = host_driver() else {
+        return Vec::new();
+    };
     if cc.libc() != LibcMode::MuslBaked {
         return Vec::new();
     }
@@ -87,11 +94,17 @@ pub fn compile_args() -> Vec<String> {
 pub fn run(dir: &Path, objects: &[PathBuf], out: &Path) -> std::io::Result<Output> {
     let platform = link::host_platform()
         .ok_or_else(|| std::io::Error::other("this machine has no native platform to link for"))?;
-    let cc = link::select(Target { platform, arch: link::host_arch() })
-        .map_err(|refusal| std::io::Error::other(refusal.message))?
-        .in_dir(dir.to_path_buf());
+    let cc = link::select(Target {
+        platform,
+        arch: link::host_arch(),
+    })
+    .map_err(|refusal| std::io::Error::other(refusal.message))?
+    .in_dir(dir.to_path_buf());
     let runtime = RuntimeArchive::Linked;
-    let names: Vec<String> = objects.iter().map(|o| o.to_string_lossy().into_owned()).collect();
+    let names: Vec<String> = objects
+        .iter()
+        .map(|o| o.to_string_lossy().into_owned())
+        .collect();
     let args = cc.driver_args(&names, runtime);
     let replay = cc.replay(&args, &names, runtime, true);
     if let Some(replay) = &replay {
@@ -140,7 +153,9 @@ pub fn manifest(dir: &Path) -> Option<Vec<link::Row>> {
     let text = std::fs::read_to_string(dir.join("manifest")).ok()?;
     let rows = text.lines().filter_map(|line| {
         let fields: Vec<&str> = line.split_whitespace().collect();
-        let [unit, key, status] = fields.as_slice() else { return None };
+        let [unit, key, status] = fields.as_slice() else {
+            return None;
+        };
         Some(link::Row {
             unit: (*unit).to_string(),
             key: (*key).to_string(),

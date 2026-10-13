@@ -66,7 +66,12 @@ fn require_bounds(
 /// A slot in a shape that names none: a function type's parameter, or one of a
 /// tuple constructor's values.
 fn unnamed_slot(ty: &Ty, span: Span) -> ParamInfo {
-    ParamInfo { name: String::new(), ty: *ty, role: ParamRole::Normal, span }
+    ParamInfo {
+        name: String::new(),
+        ty: *ty,
+        role: ParamRole::Normal,
+        span,
+    }
 }
 
 /// `2` as "second". A fix names a position in prose where the thing at that
@@ -145,13 +150,16 @@ impl<'a, 'b> Infer<'a, 'b> {
                     };
                     let e = self.check_expr(ExprId(s.value), None);
                     let ty = self.resolve(&e.ty);
-                    let dropped_result = self.is_known_result(&ty).then(result_discard_fix).flatten();
+                    let dropped_result =
+                        self.is_known_result(&ty).then(result_discard_fix).flatten();
                     // A type nothing has pinned yet is pinned here, to `()`.
                     if self.is_unsolved(&ty) {
                         self.unify_at(span, &ty, &Ty::UNIT, "a statement");
                     } else if !matches!(ty.kind(), TyKind::Unit | TyKind::Error) {
                         let shown = self.show_ty(&ty);
-                        let d = self.templated("statement-not-unit", span).bind("type", shown);
+                        let d = self
+                            .templated("statement-not-unit", span)
+                            .bind("type", shown);
                         if let Some(fix) = dropped_result {
                             d.fix(fix);
                         }
@@ -164,7 +172,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // program prints a line with now that `println` answers a
                     // `Result`.
                     if let (true, Some(at)) = (dropped_result.is_some(), slot) {
-                        let d = self.c.diags.items.get_mut(at).or_ice("the slot is the diagnostic this statement drew");
+                        let d = self
+                            .c
+                            .diags
+                            .items
+                            .get_mut(at)
+                            .or_ice("the slot is the diagnostic this statement drew");
                         d.fix(
                             "consume it and bind what is left: `let _ = ....ignore();` — or \
                              `?` to propagate, `match` to handle both cases",
@@ -188,7 +201,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         // the writer meant it to answer, and `Ty::Error` unifies with
         // everything, so the declared return type above reports nothing.
         let ty = if block.broken { Ty::ERROR } else { ty };
-        typed::Expr::new(typed::ExprKind::Block { stmts, tail }, ty, t.span_of(block.span))
+        typed::Expr::new(
+            typed::ExprKind::Block { stmts, tail },
+            ty,
+            t.span_of(block.span),
+        )
     }
 
     fn check_let(
@@ -252,7 +269,11 @@ impl<'a, 'b> Infer<'a, 'b> {
             let risk = self.capture_risk(&ty);
             pat.each_bind(&mut |l| self.mark_capture_risk(l, risk));
         }
-        typed::Stmt::Let { pattern: pat, value: value_hir, span }
+        typed::Stmt::Let {
+            pattern: pat,
+            value: value_hir,
+            span,
+        }
     }
 
     pub(crate) fn may_build_context(&self) -> bool {
@@ -387,7 +408,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                     ty,
                     span,
                 });
-                typed::Expr::new(typed::ExprKind::Int(typed::Magnitude::new(value), false), ty, span)
+                typed::Expr::new(
+                    typed::ExprKind::Int(typed::Magnitude::new(value), false),
+                    ty,
+                    span,
+                )
             }
             V::Float { value, span, .. } => {
                 let ty = self.subst.fresh_num(NumClass::Float, span);
@@ -433,9 +458,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     self.error_expr(span)
                 }
             },
-            V::DotVariant { name, span, .. } => {
-                self.check_dot_variant(name, &[], span, expected)
-            }
+            V::DotVariant { name, span, .. } => self.check_dot_variant(name, &[], span, expected),
             V::Array { elems, span } => self.check_array(elems, span, expected),
             V::Tuple { elems, span } => {
                 let want: Vec<Option<Ty>> = match expected.map(|t| self.resolve(t).kind()) {
@@ -453,7 +476,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 typed::Expr::new(typed::ExprKind::Tuple(checked), ty, span)
             }
             V::Block { block, .. } => self.check_block(block, expected),
-            V::If { cond, then, else_, span } => {
+            V::If {
+                cond,
+                then,
+                else_,
+                span,
+            } => {
                 let bool_ty = self.prim(Prim::Bool);
                 let c = self.check_expr(cond, Some(&bool_ty));
                 // The condition must have type `Bool`. There is no truthiness.
@@ -466,14 +494,20 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.unify_at(else_span, &f.ty, &t.ty, "the other branch");
                 let ty = t.ty;
                 typed::Expr::new(
-                    typed::ExprKind::If { cond: Box::new(c), then: Box::new(t), else_: Box::new(f) },
+                    typed::ExprKind::If {
+                        cond: Box::new(c),
+                        then: Box::new(t),
+                        else_: Box::new(f),
+                    },
                     ty,
                     span,
                 )
             }
-            V::Match { scrutinee, arms, span } => {
-                self.check_match(scrutinee, arms, span, expected)
-            }
+            V::Match {
+                scrutinee,
+                arms,
+                span,
+            } => self.check_match(scrutinee, arms, span, expected),
             V::ContextExpr { body, span } => {
                 // A `context` declaration's placement is resolution's to
                 // report, so only the literal is checked here.
@@ -482,23 +516,41 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 self.check_context_body(body, span).0
             }
-            V::Lambda { params, ret, body, span } => {
-                self.check_lambda(params, ret, body, span, expected)
-            }
+            V::Lambda {
+                params,
+                ret,
+                body,
+                span,
+            } => self.check_lambda(params, ret, body, span, expected),
             V::Unary { op, operand, span } => self.check_unary(op, operand, span, expected),
-            V::Binary { op, lhs, rhs, op_span, span } => {
-                self.check_binary(op, lhs, rhs, op_span, span, expected)
-            }
-            V::Field { base, name, name_span, span } => {
-                self.check_field(base, name, name_span, span, expected)
-            }
-            V::TupleIndex { base, index, index_span, span } => {
+            V::Binary {
+                op,
+                lhs,
+                rhs,
+                op_span,
+                span,
+            } => self.check_binary(op, lhs, rhs, op_span, span, expected),
+            V::Field {
+                base,
+                name,
+                name_span,
+                span,
+            } => self.check_field(base, name, name_span, span, expected),
+            V::TupleIndex {
+                base,
+                index,
+                index_span,
+                span,
+            } => {
                 let b = self.check_expr(base, None);
                 let bty = self.resolve(&b.ty);
                 match bty.kind() {
                     TyKind::Tuple(elems) => match elems.get(index as usize) {
                         Some(t) => typed::Expr::new(
-                            typed::ExprKind::TupleIndex { base: Box::new(b), index: index as usize },
+                            typed::ExprKind::TupleIndex {
+                                base: Box::new(b),
+                                index: index as usize,
+                            },
                             *t,
                             span,
                         ),
@@ -519,7 +571,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                                 self.check_field_visible(*con, index as usize, index_span);
                                 let ty = substitute(&f.ty, args, None);
                                 typed::Expr::new(
-                                    typed::ExprKind::Field { base: Box::new(b), index: index as usize },
+                                    typed::ExprKind::Field {
+                                        base: Box::new(b),
+                                        index: index as usize,
+                                    },
                                     ty,
                                     span,
                                 )
@@ -566,7 +621,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // bounds and no way to panic by indexing.
                 let ty = self.option_of(elem);
                 typed::Expr::new(
-                    typed::ExprKind::Index { base: Box::new(b), index: Box::new(i), elem },
+                    typed::ExprKind::Index {
+                        base: Box::new(b),
+                        index: Box::new(i),
+                        elem,
+                    },
                     ty,
                     span,
                 )
@@ -580,19 +639,25 @@ impl<'a, 'b> Infer<'a, 'b> {
                     Some(Static::Fn(f)) => self.fn_ref(f, Some(targs), span),
                     _ => {
                         let function = self.written_name(base);
-                        self.templated("type-arguments-on-value", span).bind("function", function);
+                        self.templated("type-arguments-on-value", span)
+                            .bind("function", function);
                         self.error_expr(span)
                     }
                 }
             }
-            V::StructLit { head, spread, fields, span } => {
-                self.check_struct_lit(head, spread, fields, span, expected)
-            }
+            V::StructLit {
+                head,
+                spread,
+                fields,
+                span,
+            } => self.check_struct_lit(head, spread, fields, span, expected),
         }
     }
 
     fn elaborate_all(&mut self, args: &'b [TypeId]) -> Vec<Ty> {
-        args.iter().map(|a| self.c.elaborate(self.module, &self.generics, *a)).collect()
+        args.iter()
+            .map(|a| self.c.elaborate(self.module, &self.generics, *a))
+            .collect()
     }
 
     fn option_of(&self, t: Ty) -> Ty {
@@ -618,7 +683,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 typed::Expr::new(typed::ExprKind::Const(cid), ty, span)
             }
             Some(Sym::Context(cid)) => {
-                self.templated("context-not-called", span).bind("name", name);
+                self.templated("context-not-called", span)
+                    .bind("name", name);
                 let _ = cid;
                 self.error_expr(span)
             }
@@ -636,7 +702,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let note;
                 let fix;
                 if self.c.scope(self.module).namespaces.contains_key(name) {
-                    note = Some(format!("`{name}` is a module namespace; name a member of it"));
+                    note = Some(format!(
+                        "`{name}` is a module namespace; name a member of it"
+                    ));
                     fix = "correct the spelling, or declare it".to_string();
                 } else if let Some(near) = self.nearest_value(name) {
                     note = Some(format!("did you mean `{near}`?"));
@@ -662,7 +730,11 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn nearest_value(&self, name: &str) -> Option<String> {
-        let mut refs: Vec<&str> = self.scopes.iter().map(|(_, id)| self.local(*id).name.as_str()).collect();
+        let mut refs: Vec<&str> = self
+            .scopes
+            .iter()
+            .map(|(_, id)| self.local(*id).name.as_str())
+            .collect();
         refs.extend(self.c.scope(self.module).visible().map(|(k, _)| k));
         nearest(name, &refs).map(|s| s.to_string())
     }
@@ -675,19 +747,33 @@ impl<'a, 'b> Infer<'a, 'b> {
             return;
         }
         let name = info.name.clone();
-        let platform = self.c.module(info.module).path.trim_end_matches("/platform.buri").to_string();
-        self.templated("platform-declaration-called", span).bind("name", name).bind("platform", platform);
+        let platform = self
+            .c
+            .module(info.module)
+            .path
+            .trim_end_matches("/platform.buri")
+            .to_string();
+        self.templated("platform-declaration-called", span)
+            .bind("name", name)
+            .bind("platform", platform);
     }
 
     fn fn_ref(&mut self, f: FnId, explicit: Option<Vec<Ty>>, span: Span) -> typed::Expr {
         self.refuse_platform_declaration(f, span);
         let targs = self.instantiate_fn(f, explicit, span);
         let info = self.c.tables.fn_info(f);
-        let params: Vec<Ty> =
-            info.params.iter().map(|p| substitute(&p.ty, &targs, None)).collect();
+        let params: Vec<Ty> = info
+            .params
+            .iter()
+            .map(|p| substitute(&p.ty, &targs, None))
+            .collect();
         let ret = substitute(&info.ret, &targs, None);
         let ty = Ty::func(params, ret);
-        typed::Expr::new(typed::ExprKind::FnRef(typed::Callee::Decl { id: f, targs }), ty, span)
+        typed::Expr::new(
+            typed::ExprKind::FnRef(typed::Callee::Decl { id: f, targs }),
+            ty,
+            span,
+        )
     }
 
     /// Fresh variables for a generic item's parameters, with each bound
@@ -806,7 +892,9 @@ impl<'a, 'b> Infer<'a, 'b> {
             let index = self.c.tables.variant_index(con, name)?;
             return Some(Static::Variant(con, index));
         }
-        let V::Ident { name: head, .. } = self.tree().expr(base) else { return None };
+        let V::Ident { name: head, .. } = self.tree().expr(base) else {
+            return None;
+        };
         if self.lookup_local(head).is_some() {
             return None;
         }
@@ -834,8 +922,12 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// expression is instead, and `namespace_member_missing` reports the
     /// member.
     fn namespaced_tycon(&mut self, e: ExprId) -> Option<TyConId> {
-        let V::Field { base, name, .. } = self.tree().expr(e) else { return None };
-        let V::Ident { name: head, .. } = self.tree().expr(base) else { return None };
+        let V::Field { base, name, .. } = self.tree().expr(e) else {
+            return None;
+        };
+        let V::Ident { name: head, .. } = self.tree().expr(base) else {
+            return None;
+        };
         if self.lookup_local(head).is_some() {
             return None;
         }
@@ -871,8 +963,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         for i in 0..fields.len() {
             self.check_field_visible(con, i, span);
         }
-        let param_types: Vec<Ty> =
-            fields.iter().map(|f| substitute(&f.ty, &targs, None)).collect();
+        let param_types: Vec<Ty> = fields
+            .iter()
+            .map(|f| substitute(&f.ty, &targs, None))
+            .collect();
         let checked = if args.len() == param_types.len() {
             self.check_args(args, &param_types)
         } else {
@@ -880,8 +974,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             let shape = shape_of_struct(self.c, con);
             // A tuple struct's fields are numbered, not named, so there is
             // nothing here for a fix to quote.
-            let fill: Vec<ParamInfo> =
-                param_types.iter().map(|t| unnamed_slot(t, span)).collect();
+            let fill: Vec<ParamInfo> = param_types.iter().map(|t| unnamed_slot(t, span)).collect();
             let checked = self.check_unpaired(args);
             let call = Miscounted {
                 fill: &fill,
@@ -893,7 +986,15 @@ impl<'a, 'b> Infer<'a, 'b> {
             checked
         };
         let ty = Ty::con(con, targs.clone());
-        typed::Expr::new(typed::ExprKind::StructLit { con, targs, fields: checked }, ty, span)
+        typed::Expr::new(
+            typed::ExprKind::StructLit {
+                con,
+                targs,
+                fields: checked,
+            },
+            ty,
+            span,
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -908,7 +1009,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         expected: Option<&Ty>,
     ) -> typed::Expr {
         // `.Some(x)` — the inferred-type dot form as a constructor.
-        if let V::DotVariant { name, span: dspan, .. } = self.tree().expr(callee) {
+        if let V::DotVariant {
+            name, span: dspan, ..
+        } = self.tree().expr(callee)
+        {
             return self.check_dot_variant_call(name, args, dspan, span, expected);
         }
 
@@ -924,8 +1028,15 @@ impl<'a, 'b> Infer<'a, 'b> {
         let statically = self.static_ref(callee);
         if statically.is_none() {
             let bare = self.tree().strip_type_args(callee);
-            if let V::Field { base, name, name_span, .. } = self.tree().expr(bare) {
-                return self.check_method_call(base, name, name_span, args, explicit, span, expected);
+            if let V::Field {
+                base,
+                name,
+                name_span,
+                ..
+            } = self.tree().expr(bare)
+            {
+                return self
+                    .check_method_call(base, name, name_span, args, explicit, span, expected);
             }
         }
 
@@ -970,7 +1081,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                     TyKind::Fn(params, ret) => {
                         let checked = self.check_value_args(params, ret, args, span);
                         typed::Expr::new(
-                            typed::ExprKind::CallValue { callee: Box::new(c), args: checked },
+                            typed::ExprKind::CallValue {
+                                callee: Box::new(c),
+                                args: checked,
+                            },
                             *ret,
                             span,
                         )
@@ -979,7 +1093,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                     _ => {
                         let shown = self.show_ty(&cty);
                         let callee_span = self.tree().span(callee);
-                        self.templated("not-callable", callee_span).bind("type", shown);
+                        self.templated("not-callable", callee_span)
+                            .bind("type", shown);
                         self.error_expr(span)
                     }
                 }
@@ -991,14 +1106,25 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// checked against its parameter's type so that a literal is pinned by it.
     /// The arguments of a call through a value of type `fn(params) => ret`,
     /// with a wrong count reported against the type.
-    fn check_value_args(&mut self, params: &[Ty], ret: &Ty, args: &[ExprId], span: Span) -> Vec<typed::Expr> {
+    fn check_value_args(
+        &mut self,
+        params: &[Ty],
+        ret: &Ty,
+        args: &[ExprId],
+        span: Span,
+    ) -> Vec<typed::Expr> {
         if params.len() == args.len() {
             return self.check_args(args, params);
         }
         let shown = self.show_ty(&Ty::func(params.iter().copied(), *ret));
         let fill: Vec<ParamInfo> = params.iter().map(|t| unnamed_slot(t, span)).collect();
         let checked = self.check_unpaired(args);
-        let call = Miscounted { fill: &fill, types: params, args, checked: &checked };
+        let call = Miscounted {
+            fill: &fill,
+            types: params,
+            args,
+            checked: &checked,
+        };
         self.report_argument_count_mismatch(span, &shown, &call);
         checked
     }
@@ -1013,7 +1139,9 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// receiver.
     fn check_args_into(&mut self, args: &[ExprId], params: &[Ty], out: &mut Vec<typed::Expr>) {
         for (i, a) in args.iter().enumerate() {
-            let want = params.get(i).or_ice("every caller pairs the arguments with as many parameters");
+            let want = params
+                .get(i)
+                .or_ice("every caller pairs the arguments with as many parameters");
             let checked = self.check_expr(*a, Some(want));
             let aspan = self.tree().span(*a);
             self.unify_at(aspan, &checked.ty, want, "the parameter type");
@@ -1053,7 +1181,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         let mut params = self.ty_lists.pop().unwrap_or_default();
         let ret = {
             let info = self.c.tables.fn_info(f);
-            params.extend(info.params.iter().map(|p| substitute(&p.ty, &targs, self_ty.as_ref())));
+            params.extend(
+                info.params
+                    .iter()
+                    .map(|p| substitute(&p.ty, &targs, self_ty.as_ref())),
+            );
             substitute(&info.ret, &targs, self_ty.as_ref())
         };
 
@@ -1069,8 +1201,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         // a method with no `self` at all, and an `impl` of it is still reached
         // through the method table, so the subtraction is saturating rather
         // than a claim about the declaration.
-        let expected_args =
-            if receiver.is_some() { params.len().saturating_sub(1) } else { params.len() };
+        let expected_args = if receiver.is_some() {
+            params.len().saturating_sub(1)
+        } else {
+            params.len()
+        };
 
         let mut hir_args = Vec::with_capacity(args.len().saturating_add(1));
         // The receiver takes the first slot and the arguments are checked
@@ -1078,7 +1213,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         // list with its head removed.
         let mut param_types: &[Ty] = &params;
         if let Some(r) = receiver {
-            let (want, rest) = params.split_first().or_ice("a method takes its receiver first");
+            let (want, rest) = params
+                .split_first()
+                .or_ice("a method takes its receiver first");
             self.unify_at(r.span, &r.ty, want, "the receiver");
             param_types = rest;
             hir_args.push(r);
@@ -1097,7 +1234,12 @@ impl<'a, 'b> Infer<'a, 'b> {
             let fill: Vec<ParamInfo> = declared.into_iter().skip(taken).collect();
             let types = param_types.to_vec();
             let checked = self.check_unpaired(args);
-            let call = Miscounted { fill: &fill, types: &types, args, checked: &checked };
+            let call = Miscounted {
+                fill: &fill,
+                types: &types,
+                args,
+                checked: &checked,
+            };
             self.report_wrong_argument_count(span, &name, &signature, &call);
             hir_args.extend(checked);
         }
@@ -1145,19 +1287,16 @@ impl<'a, 'b> Infer<'a, 'b> {
             .with_mismatch(call.types.len().to_string(), call.checked.len().to_string());
         if let Some(at) = self.missing_slot(call) {
             let missing = call.fill.get(at).map_or(String::new(), |p| p.name.clone());
-            d = d.with_fix(format!("`{name}` requires a `{missing}` parameter: {signature}"));
+            d = d.with_fix(format!(
+                "`{name}` requires a `{missing}` parameter: {signature}"
+            ));
         }
         self.c.diags.push(d);
     }
 
     /// The same for a call through a value, whose type has parameters and no
     /// names for them: what is missing is named by its position.
-    fn report_argument_count_mismatch(
-        &mut self,
-        span: Span,
-        shown: &str,
-        call: &Miscounted<'_>,
-    ) {
+    fn report_argument_count_mismatch(&mut self, span: Span, shown: &str, call: &Miscounted<'_>) {
         let mut d = Diagnostic::templated("argument-count", span)
             .with_bind("callee", "this function")
             .with_bind("expected", counted(call.types.len(), "argument"))
@@ -1200,7 +1339,13 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// it forgot, and a guess would send the reader to the wrong end of the
     /// line. Then the fix prints the shape and names nothing.
     fn missing_slot(&self, call: &Miscounted<'_>) -> Option<usize> {
-        let Miscounted { fill, types, args, checked, .. } = *call;
+        let Miscounted {
+            fill,
+            types,
+            args,
+            checked,
+            ..
+        } = *call;
         if checked.len().saturating_add(1) != types.len() {
             return None;
         }
@@ -1243,7 +1388,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         probe: &mut Subst,
     ) -> bool {
         if let Some(variant) = self.dot_form(arg) {
-            let TyKind::Con(con, _) = probe.shallow(want).kind() else { return false };
+            let TyKind::Con(con, _) = probe.shallow(want).kind() else {
+                return false;
+            };
             return self.c.tables.variant_index(*con, &variant).is_some();
         }
         let resolved = probe.shallow(ty);
@@ -1282,13 +1429,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// span is. That pass answers a `load` it cannot split by splitting
     /// nothing, which is the right answer for a program this has already
     /// refused.
-    fn check_lazy_load(
-        &mut self,
-        f: FnId,
-        checked: &[typed::Expr],
-        args: &[ExprId],
-        span: Span,
-    ) {
+    fn check_lazy_load(&mut self, f: FnId, checked: &[typed::Expr], args: &[ExprId], span: Span) {
         {
             let info = self.c.tables.fn_info(f);
             if !info.intrinsic || info.name != "load" {
@@ -1319,9 +1460,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
             }
         };
-        self.c.diags.push(
-            Diagnostic::templated("load-not-function", at).with_bind("got", described),
-        );
+        self.c
+            .diags
+            .push(Diagnostic::templated("load-not-function", at).with_bind("got", described));
     }
 
     // -----------------------------------------------------------------------
@@ -1332,7 +1473,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// production of its own, and taking the one id rather than the receiver
     /// and the name separately keeps the receiver, the name and the name's
     /// span from being able to disagree.
-    #[allow(clippy::too_many_arguments, reason = "the receiver's field access, taken apart by the caller")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the receiver's field access, taken apart by the caller"
+    )]
     fn check_method_call(
         &mut self,
         base: ExprId,
@@ -1356,19 +1500,30 @@ impl<'a, 'b> Infer<'a, 'b> {
 
         // A field of function type is called as `(x.f)(...)`.
         if let TyKind::Con(con, targs) = recv_ty.kind() {
-            let found = self.c.tables.field_index(*con, name).and_then(|i| {
-                self.c.tables.tycon(*con).fields().get(i).map(|f| (i, f.ty))
-            });
+            let found = self
+                .c
+                .tables
+                .field_index(*con, name)
+                .and_then(|i| self.c.tables.tycon(*con).fields().get(i).map(|f| (i, f.ty)));
             if let Some((i, decl_ty)) = found {
                 self.check_field_visible(*con, i, name_span);
                 let fty = substitute(&decl_ty, targs, None);
-                let base_hir =
-                    typed::Expr::new(typed::ExprKind::Field { base: Box::new(recv), index: i }, fty, span);
+                let base_hir = typed::Expr::new(
+                    typed::ExprKind::Field {
+                        base: Box::new(recv),
+                        index: i,
+                    },
+                    fty,
+                    span,
+                );
                 return match self.resolve(&fty).kind() {
                     TyKind::Fn(params, ret) => {
                         let checked = self.check_value_args(params, ret, args, span);
                         typed::Expr::new(
-                            typed::ExprKind::CallValue { callee: Box::new(base_hir), args: checked },
+                            typed::ExprKind::CallValue {
+                                callee: Box::new(base_hir),
+                                args: checked,
+                            },
                             *ret,
                             span,
                         )
@@ -1403,8 +1558,12 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// applies.
     fn default_numeric_receiver(&mut self, ty: &Ty) -> Ty {
         let resolved = self.resolve(ty);
-        let TyKind::Var(id) = resolved.kind() else { return resolved };
-        let Some(class) = self.subst.class_of(*id) else { return resolved };
+        let TyKind::Var(id) = resolved.kind() else {
+            return resolved;
+        };
+        let Some(class) = self.subst.class_of(*id) else {
+            return resolved;
+        };
         let default = match class {
             NumClass::Int => self.prim(Prim::I64),
             NumClass::Float => self.prim(Prim::F64),
@@ -1459,8 +1618,14 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             // A context value satisfies exactly the effects it binds.
             TyKind::Ctx(id) => {
-                let bounds: Vec<TraitId> =
-                    self.c.tables.ctx_type(*id).bindings.iter().map(|(t, _)| *t).collect();
+                let bounds: Vec<TraitId> = self
+                    .c
+                    .tables
+                    .ctx_type(*id)
+                    .bindings
+                    .iter()
+                    .map(|(t, _)| *t)
+                    .collect();
                 self.find_in_bounds(&bounds, name, span)
             }
             TyKind::SelfTy => {
@@ -1490,7 +1655,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                         .bind("method", name.to_string())
                         .bind("first_trait", a.clone())
                         .bind("second_trait", c)
-                        .fix(format!("call it as a function to say which: `{a}.{name}(x, y)`"));
+                        .fix(format!(
+                            "call it as a function to say which: `{a}.{name}(x, y)`"
+                        ));
                     self.report_effect_method(prev, name, span);
                     return Some(MethodTarget::Bound(prev, prev_index));
                 }
@@ -1646,7 +1813,9 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn implementing_ty(&self, recv: &Ty, tid: TraitId) -> Ty {
         let mut ty = *recv;
         for _ in 0..8 {
-            let TyKind::Ctx(id) = ty.kind() else { return ty };
+            let TyKind::Ctx(id) = ty.kind() else {
+                return ty;
+            };
             // An unbound effect is diagnosed at monomorphization, where the
             // whole context is known; there is nothing better to say here than
             // the receiver.
@@ -1714,12 +1883,23 @@ impl<'a, 'b> Infer<'a, 'b> {
             let fill: Vec<ParamInfo> = method.params.iter().skip(1).cloned().collect();
             let types = rest.to_vec();
             let checked = self.check_unpaired(args);
-            let call = Miscounted { fill: &fill, types: &types, args, checked: &checked };
+            let call = Miscounted {
+                fill: &fill,
+                types: &types,
+                args,
+                checked: &checked,
+            };
             self.report_wrong_argument_count(span, &name, &signature, &call);
             hir_args.extend(checked);
         }
         typed::Expr::new(
-            typed::ExprKind::CallTrait { trait_id: tid, method: index, recv: recv_ty, targs, args: hir_args },
+            typed::ExprKind::CallTrait {
+                trait_id: tid,
+                method: index,
+                recv: recv_ty,
+                targs,
+                args: hir_args,
+            },
             ret,
             span,
         )
@@ -1749,26 +1929,38 @@ impl<'a, 'b> Infer<'a, 'b> {
             let name = self.c.tables.fn_info(f).name.clone();
             self.templated("private-to-module", span)
                 .bind("declaration", format!("`{name}`"))
-                .fix(format!("add `export` to `{name}`'s declaration, if it is meant to be part of the API"));
+                .fix(format!(
+                    "add `export` to `{name}`'s declaration, if it is meant to be part of the API"
+                ));
             return;
         }
-        let (Some(here), Some(there)) =
-            (self.c.module(self.module).pkg, self.c.module(module).pkg)
+        let (Some(here), Some(there)) = (self.c.module(self.module).pkg, self.c.module(module).pkg)
         else {
             return;
         };
         if here == there {
             return;
         }
-        let ws = self.c.ws.or_ice("a module has a package only where a workspace was read");
+        let ws = self
+            .c
+            .ws
+            .or_ice("a module has a package only where a workspace was read");
         let package = ws.package(there);
         // A package has two surfaces, and a method answers to the one in front
         // of the directory it is declared in: `testing/lib.buri` for a method
         // under `testing/`, `lib.buri` for every other. Which surfaces the
         // caller imported does not enter into it.
-        let testing = self.c.module(module).path.starts_with(&package.module_path("testing/"));
+        let testing = self
+            .c
+            .module(module)
+            .path
+            .starts_with(&package.module_path("testing/"));
         let (surfaces, label, file) = match testing {
-            true => (&self.c.testing_surfaces, package.module_path("testing"), "testing/lib.buri"),
+            true => (
+                &self.c.testing_surfaces,
+                package.module_path("testing"),
+                "testing/lib.buri",
+            ),
             false => (&self.c.surfaces, package.label(), "lib.buri"),
         };
         if let Some(surface) = surfaces.get(&there) {
@@ -1777,7 +1969,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.templated("not-on-surface", span)
                     .bind("name", name.clone())
                     .bind("owner", label)
-                    .fix(format!("re-export `{name}` from that library's {file}, if it is part of the API"));
+                    .fix(format!(
+                        "re-export `{name}` from that library's {file}, if it is part of the API"
+                    ));
             }
         }
     }
@@ -1790,7 +1984,13 @@ impl<'a, 'b> Infer<'a, 'b> {
         if owner == self.module {
             return;
         }
-        let f = self.c.tables.tycon(con).fields().get(index).or_ice("the index is one of this struct's fields");
+        let f = self
+            .c
+            .tables
+            .tycon(con)
+            .fields()
+            .get(index)
+            .or_ice("the index is one of this struct's fields");
         if f.exported {
             return;
         }
@@ -1798,7 +1998,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         let ty = self.c.tables.tycon(con).name.clone();
         self.templated("private-to-module", span)
             .bind("declaration", format!("field `{name}` of `{ty}`"))
-            .fix(format!("add `export` to the field, or go through a method `{ty}` provides"))
+            .fix(format!(
+                "add `export` to the field, or go through a method `{ty}` provides"
+            ))
             .notes
             .push(
                 "a struct with any private field cannot be constructed or destructured \
@@ -1867,7 +2069,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             _ => {}
         }
         let fix = match &near {
-            Some(n) => crate::diagnostics::candidate_fix(n, &Self::where_the_methods_are(home.as_ref(), &shown)),
+            Some(n) => crate::diagnostics::candidate_fix(
+                n,
+                &Self::where_the_methods_are(home.as_ref(), &shown),
+            ),
             None => self.no_method_fix(recv, &shown, name),
         };
         let d = self
@@ -1881,7 +2086,8 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     /// Whether a type has no module to declare a method in (SPEC 6.7.3).
     fn has_no_module(&self, ty: &Ty) -> bool {
-        matches!(ty.kind(), TyKind::Unit | TyKind::Tuple(_) | TyKind::Fn(..)) || self.as_prim(ty) == Some(Prim::Template)
+        matches!(ty.kind(), TyKind::Unit | TyKind::Tuple(_) | TyKind::Fn(..))
+            || self.as_prim(ty) == Some(Prim::Template)
     }
 
     /// Where a receiver's methods live: its defining module, that module's
@@ -1899,9 +2105,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
         let info = self.c.tables.tycon(*con);
         match &info.def {
-            TyDef::Prim(p) => {
-                Some((standard_library::defining_module(*p).to_string(), Role::Std, None))
-            }
+            TyDef::Prim(p) => Some((
+                standard_library::defining_module(*p).to_string(),
+                Role::Std,
+                None,
+            )),
             _ => {
                 let module = self.c.module(info.module);
                 let params: Vec<&str> = info.generics.iter().map(|g| g.name.as_str()).collect();
@@ -1917,10 +2125,7 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     /// Where to look when the candidate is not the one: a page for a type the
     /// toolchain ships, the `impl` block for a type of your own.
-    fn where_the_methods_are(
-        home: Option<&(String, Role, Option<String>)>,
-        shown: &str,
-    ) -> String {
+    fn where_the_methods_are(home: Option<&(String, Role, Option<String>)>, shown: &str) -> String {
         match home {
             Some((path, Role::Std | Role::Platform, _)) | Some((path, _, None)) => {
                 format!("`buri docs {path}` lists every method `{shown}` has")
@@ -1947,11 +2152,16 @@ impl<'a, 'b> Infer<'a, 'b> {
                  the value, or wrap it in a struct of yours and give that the method"
             ),
             _ => match self.method_home(recv) {
-                Some((path, role, Some(header))) if !matches!(role, Role::Std | Role::Platform) => format!(
-                    "check the spelling, or declare it in `{header} {{ ... }}` in \
+                Some((path, role, Some(header))) if !matches!(role, Role::Std | Role::Platform) => {
+                    format!(
+                        "check the spelling, or declare it in `{header} {{ ... }}` in \
                      `{path}`, where the type is declared"
+                    )
+                }
+                home => format!(
+                    "check the spelling — {}",
+                    Self::where_the_methods_are(home.as_ref(), shown)
                 ),
-                home => format!("check the spelling — {}", Self::where_the_methods_are(home.as_ref(), shown)),
             },
         }
     }
@@ -1980,7 +2190,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                     self.construct_variant(con, index, &[], span, expected, span)
                 }
                 Static::Context(_) => {
-                    self.templated("context-not-called", span).bind("name", name);
+                    self.templated("context-not-called", span)
+                        .bind("name", name);
                     self.error_expr(span)
                 }
                 Static::TupleStruct(_) => {
@@ -2003,14 +2214,19 @@ impl<'a, 'b> Infer<'a, 'b> {
         let bty = self.resolve(&b.ty);
         match bty.kind() {
             TyKind::Con(con, targs) => {
-                let found = self.c.tables.field_index(*con, name).and_then(|i| {
-                    self.c.tables.tycon(*con).fields().get(i).map(|f| (i, f.ty))
-                });
+                let found = self
+                    .c
+                    .tables
+                    .field_index(*con, name)
+                    .and_then(|i| self.c.tables.tycon(*con).fields().get(i).map(|f| (i, f.ty)));
                 if let Some((i, decl_ty)) = found {
                     self.check_field_visible(*con, i, name_span);
                     let ty = substitute(&decl_ty, targs, None);
                     return typed::Expr::new(
-                        typed::ExprKind::Field { base: Box::new(b), index: i },
+                        typed::ExprKind::Field {
+                            base: Box::new(b),
+                            index: i,
+                        },
                         ty,
                         span,
                     );
@@ -2039,7 +2255,9 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// value: checking it reports the base as an unresolved name and never
     /// says which member was missing, which is the whole of the question.
     fn namespace_member_missing(&mut self, base: ExprId, name: &str, name_span: Span) -> bool {
-        let V::Ident { name: head, .. } = self.tree().expr(base) else { return false };
+        let V::Ident { name: head, .. } = self.tree().expr(base) else {
+            return false;
+        };
         if self.lookup_local(head).is_some() {
             return false;
         }
@@ -2052,7 +2270,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             // would check `json` as a value and call it unknown.
             Some(Sym::Ty(_) | Sym::Trait(_) | Sym::Alias(..)) => {
                 let written = format!("{head}.{name}");
-                self.templated("type-not-value", name_span).bind("name", written);
+                self.templated("type-not-value", name_span)
+                    .bind("name", written);
             }
             // `str.trim`: the module exports `trim` only as a method of `Str`,
             // which a receiver reaches, not the namespace.
@@ -2068,10 +2287,12 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// Reports naming a method, written as `written`, where a value or a
     /// function belongs.
     fn report_method_not_value(&mut self, written: &str, name: &str, owner: &str, span: Span) {
-        self.templated("method-not-value", span).bind("name", written).fix(format!(
-            "call it on a receiver: `x.{name}(...)`, where `x` is a `{owner}`; to \
+        self.templated("method-not-value", span)
+            .bind("name", written)
+            .fix(format!(
+                "call it on a receiver: `x.{name}(...)`, where `x` is a `{owner}`; to \
              pass it on, wrap it in a lambda"
-        ));
+            ));
     }
 
     /// The derivable trait that declares `name`, or `None` when no such trait
@@ -2079,11 +2300,13 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// doesn't implement the trait: a method from an `impl` would have
     /// resolved.
     fn derivable_trait_declaring(&self, name: &str) -> Option<String> {
-        crate::compiler::semantics::resolve::DERIVABLE.iter().find_map(|t| {
-            let info = self.c.tables.traits.iter().find(|info| info.name == **t)?;
-            info.method_index(name)?;
-            Some(info.name.clone())
-        })
+        crate::compiler::semantics::resolve::DERIVABLE
+            .iter()
+            .find_map(|t| {
+                let info = self.c.tables.traits.iter().find(|info| info.name == **t)?;
+                info.method_index(name)?;
+                Some(info.name.clone())
+            })
     }
 
     fn report_no_field(&mut self, ty: &Ty, name: &str, span: Span) {
@@ -2093,8 +2316,14 @@ impl<'a, 'b> Infer<'a, 'b> {
         let shown = self.show_ty(ty);
         let mut near = None;
         if let TyKind::Con(con, _) = ty.kind() {
-            let names: Vec<String> =
-                self.c.tables.tycon(*con).fields().iter().map(|f| f.name.clone()).collect();
+            let names: Vec<String> = self
+                .c
+                .tables
+                .tycon(*con)
+                .fields()
+                .iter()
+                .map(|f| f.name.clone())
+                .collect();
             let refs: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
             near = nearest(name, &refs).map(str::to_string);
         }
@@ -2127,18 +2356,28 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn host_field_elsewhere(&self, ty: &Ty, name: &str) -> Option<(String, String)> {
         use crate::build::buildfile::PlatformName;
         use crate::compiler::standard_library as stdlib;
-        let TyKind::Con(con, _) = ty.kind() else { return None };
+        let TyKind::Con(con, _) = ty.kind() else {
+            return None;
+        };
         let tycon = self.c.tables.tycon(*con);
         // A built-in type has no module, and is no host.
-        let module = self.c.loaded.modules.get(tycon.module.index())?.path.as_str();
+        let module = self
+            .c
+            .loaded
+            .modules
+            .get(tycon.module.index())?
+            .path
+            .as_str();
         let (platform, _) = stdlib::host_type_of(module).filter(|(_, h)| *h == tycon.name)?;
         let offered: Vec<(&str, &str)> = PlatformName::BUNDLED
             .iter()
             .filter_map(|p| stdlib::host_field(p.name(), name).map(|t| (p.name(), t)))
             .collect();
         let (_, field_ty) = offered.first()?;
-        let effects: Vec<String> =
-            stdlib::effects_of_host_struct(field_ty).iter().map(|e| format!("`{e}`")).collect();
+        let effects: Vec<String> = stdlib::effects_of_host_struct(field_ty)
+            .iter()
+            .map(|e| format!("`{e}`"))
+            .collect();
         let effects = effects.join(" or ");
         let names: Vec<&str> = offered.iter().map(|(p, _)| *p).collect();
         let (does, either) = match names.split_last() {
@@ -2194,12 +2433,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
         let Some(index) = self.c.tables.variant_index(*con, name) else {
             let ty = self.c.tables.tycon(*con).name.clone();
-            let (note, fix) = crate::compiler::semantics::patterns::no_variant_advice(
-                &self.c.tables,
-                *con,
-                name,
-            );
-            let d = self.templated("unknown-variant", dot_span)
+            let (note, fix) =
+                crate::compiler::semantics::patterns::no_variant_advice(&self.c.tables, *con, name);
+            let d = self
+                .templated("unknown-variant", dot_span)
                 .bind("type", ty)
                 .bind("variant", name.to_string());
             d.notes.extend(note);
@@ -2254,8 +2491,11 @@ impl<'a, 'b> Infer<'a, 'b> {
             _ => (0..arity).map(|_| self.fresh(span)).collect(),
         };
 
-        let param_types: Vec<Ty> =
-            variant.fields.iter().map(|f| substitute(&f.ty, &targs, None)).collect();
+        let param_types: Vec<Ty> = variant
+            .fields
+            .iter()
+            .map(|f| substitute(&f.ty, &targs, None))
+            .collect();
         let checked = if args.len() == param_types.len() {
             self.check_args(args, &param_types)
         } else {
@@ -2265,7 +2505,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .fields
                 .iter()
                 .map(|f| ParamInfo {
-                    name: if variant.record { f.name.clone() } else { String::new() },
+                    name: if variant.record {
+                        f.name.clone()
+                    } else {
+                        String::new()
+                    },
                     ty: f.ty,
                     role: ParamRole::Normal,
                     span: f.span,
@@ -2283,18 +2527,18 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
         let ty = Ty::con(con, targs.clone());
         typed::Expr::new(
-            typed::ExprKind::EnumLit { con, targs, variant: index, args: checked },
+            typed::ExprKind::EnumLit {
+                con,
+                targs,
+                variant: index,
+                args: checked,
+            },
             ty,
             span,
         )
     }
 
-    fn check_array(
-        &mut self,
-        elems: &[ExprId],
-        span: Span,
-        expected: Option<&Ty>,
-    ) -> typed::Expr {
+    fn check_array(&mut self, elems: &[ExprId], span: Span, expected: Option<&Ty>) -> typed::Expr {
         // Literals take their type from context, so `let c: [F32] = [1.5]`
         // makes every element an F32.
         let elem_ty = match expected.map(|t| self.resolve(t).kind()) {
@@ -2426,7 +2670,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     c
                 }
             };
-            *values.get_mut(i).or_ice("the index is one of the declaration's fields") = Some(value);
+            *values
+                .get_mut(i)
+                .or_ice("the index is one of the declaration's fields") = Some(value);
         }
 
         match spread {
@@ -2442,7 +2688,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .filter_map(|(i, v)| v.map(|e| (i, e)))
                     .collect();
                 typed::Expr::new(
-                    typed::ExprKind::StructUpdate { con, base: Box::new(b), updates },
+                    typed::ExprKind::StructUpdate {
+                        con,
+                        base: Box::new(b),
+                        updates,
+                    },
                     ty,
                     span,
                 )
@@ -2477,7 +2727,15 @@ impl<'a, 'b> Infer<'a, 'b> {
                              or start from an existing one with `{t} {{ ..base, field: value }}`"
                         ));
                 }
-                typed::Expr::new(typed::ExprKind::StructLit { con, targs, fields: filled }, ty, span)
+                typed::Expr::new(
+                    typed::ExprKind::StructLit {
+                        con,
+                        targs,
+                        fields: filled,
+                    },
+                    ty,
+                    span,
+                )
             }
         }
     }
@@ -2497,7 +2755,12 @@ impl<'a, 'b> Infer<'a, 'b> {
             _ => return None,
         };
         Some(typed::Expr::new(
-            typed::ExprKind::EnumLit { con, targs, variant, args: Vec::new() },
+            typed::ExprKind::EnumLit {
+                con,
+                targs,
+                variant,
+                args: Vec::new(),
+            },
             *want,
             span,
         ))
@@ -2583,15 +2846,15 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn struct_lit_head(&mut self, head: ExprId) -> Option<TyConId> {
         match self.tree().expr(head) {
-            V::Ident { name, .. } => {
-                match self.c.scope(self.module).name(name)? {
-                    Sym::Ty(c) => Some(*c),
-                    _ => None,
-                }
-            }
+            V::Ident { name, .. } => match self.c.scope(self.module).name(name)? {
+                Sym::Ty(c) => Some(*c),
+                _ => None,
+            },
             V::Generic { base, .. } => self.struct_lit_head(base),
             V::Field { base, name, .. } => {
-                let V::Ident { name: head, .. } = self.tree().expr(base) else { return None };
+                let V::Ident { name: head, .. } = self.tree().expr(base) else {
+                    return None;
+                };
                 let ns = self.c.scope(self.module).namespaces.get(head).copied()?;
                 match self.c.lookup_export(ns, name)? {
                     Sym::Ty(c) => Some(c),
@@ -2609,7 +2872,9 @@ impl<'a, 'b> Infer<'a, 'b> {
     ) -> Option<(TyConId, usize)> {
         match self.tree().expr(head) {
             V::DotVariant { name, .. } => {
-                let TyKind::Con(con, _) = self.resolve(expected?).kind() else { return None };
+                let TyKind::Con(con, _) = self.resolve(expected?).kind() else {
+                    return None;
+                };
                 let index = self.c.tables.variant_index(*con, name)?;
                 Some((*con, index))
             }
@@ -2686,7 +2951,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     c
                 }
             };
-            *values.get_mut(i).or_ice("the index is one of the declaration's fields") = Some(value);
+            *values
+                .get_mut(i)
+                .or_ice("the index is one of the declaration's fields") = Some(value);
         }
         let missing: Vec<String> = variant
             .fields
@@ -2718,7 +2985,12 @@ impl<'a, 'b> Infer<'a, 'b> {
             .collect();
         let ty = Ty::con(con, targs.clone());
         typed::Expr::new(
-            typed::ExprKind::EnumLit { con, targs, variant: index, args: filled },
+            typed::ExprKind::EnumLit {
+                con,
+                targs,
+                variant: index,
+                args: filled,
+            },
             ty,
             span,
         )
@@ -2751,9 +3023,16 @@ impl<'a, 'b> Infer<'a, 'b> {
                     ty,
                     span,
                 });
-                return typed::Expr::new(typed::ExprKind::Int(typed::Magnitude::new(value), true), ty, span);
+                return typed::Expr::new(
+                    typed::ExprKind::Int(typed::Magnitude::new(value), true),
+                    ty,
+                    span,
+                );
             }
-            if let V::Float { value, span: fspan, .. } = self.tree().expr(operand) {
+            if let V::Float {
+                value, span: fspan, ..
+            } = self.tree().expr(operand)
+            {
                 let ty = self.subst.fresh_num(NumClass::Float, fspan);
                 if let Some(exp) = expected {
                     let _ = self.subst.unify(&self.c.tables, &ty, exp);
@@ -2768,7 +3047,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let ospan = self.tree().span(operand);
                 self.unify_at(ospan, &e.ty, &b, "`!` takes a `Bool`");
                 return typed::Expr::new(
-                    typed::ExprKind::Prim { op: typed::PrimOp::Not, prim: Prim::Bool, args: vec![e] },
+                    typed::ExprKind::Prim {
+                        op: typed::PrimOp::Not,
+                        prim: Prim::Bool,
+                        args: vec![e],
+                    },
                     b,
                     span,
                 );
@@ -2781,7 +3064,11 @@ impl<'a, 'b> Infer<'a, 'b> {
             tree::UnOp::Neg => {
                 if let Some(p) = prim.filter(|p| p.is_signed() || p.is_float()) {
                     typed::Expr::new(
-                        typed::ExprKind::Prim { op: typed::PrimOp::Neg, prim: p, args: vec![e] },
+                        typed::ExprKind::Prim {
+                            op: typed::PrimOp::Neg,
+                            prim: p,
+                            args: vec![e],
+                        },
                         ty,
                         span,
                     )
@@ -2792,7 +3079,11 @@ impl<'a, 'b> Infer<'a, 'b> {
             tree::UnOp::BitNot => {
                 if let Some(p) = prim.filter(|p| p.is_integer()) {
                     typed::Expr::new(
-                        typed::ExprKind::Prim { op: typed::PrimOp::BitNot, prim: p, args: vec![e] },
+                        typed::ExprKind::Prim {
+                            op: typed::PrimOp::BitNot,
+                            prim: p,
+                            args: vec![e],
+                        },
                         ty,
                         span,
                     )
@@ -2832,9 +3123,15 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let rspan = self.tree().span(rhs);
                 self.unify_at(rspan, &r.ty, &b, "a logical operand");
                 let kind = if op == B::And {
-                    typed::ExprKind::And { lhs: Box::new(l), rhs: Box::new(r) }
+                    typed::ExprKind::And {
+                        lhs: Box::new(l),
+                        rhs: Box::new(r),
+                    }
                 } else {
-                    typed::ExprKind::Or { lhs: Box::new(l), rhs: Box::new(r) }
+                    typed::ExprKind::Or {
+                        lhs: Box::new(l),
+                        rhs: Box::new(r),
+                    }
                 };
                 return typed::Expr::new(kind, b, span);
             }
@@ -2883,12 +3180,15 @@ impl<'a, 'b> Infer<'a, 'b> {
 
         if let Some(prim_op) = arith(op) {
             let bitwise = matches!(op, B::BitAnd | B::BitOr | B::BitXor);
-            let usable = prim.filter(|p| {
-                (p.is_integer() || p.is_float()) && (!bitwise || p.is_integer())
-            });
+            let usable =
+                prim.filter(|p| (p.is_integer() || p.is_float()) && (!bitwise || p.is_integer()));
             if let Some(p) = usable {
                 return typed::Expr::new(
-                    typed::ExprKind::Prim { op: prim_op, prim: p, args: vec![l, r] },
+                    typed::ExprKind::Prim {
+                        op: prim_op,
+                        prim: p,
+                        args: vec![l, r],
+                    },
                     ty,
                     span,
                 );
@@ -2903,7 +3203,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 return self.error_expr(span);
             }
-            let (tr, method) = op.trait_method().or_ice("every arithmetic operator names a trait method");
+            let (tr, method) = op
+                .trait_method()
+                .or_ice("every arithmetic operator names a trait method");
             return self.operator_trait_call(tr, method, l, Some(r), span);
         }
 
@@ -2912,9 +3214,17 @@ impl<'a, 'b> Infer<'a, 'b> {
         match op {
             B::Eq | B::Ne => {
                 if let Some(pr) = prim {
-                    let p = if op == B::Eq { typed::PrimOp::Eq } else { typed::PrimOp::Ne };
+                    let p = if op == B::Eq {
+                        typed::PrimOp::Eq
+                    } else {
+                        typed::PrimOp::Ne
+                    };
                     return typed::Expr::new(
-                        typed::ExprKind::Prim { op: p, prim: pr, args: vec![l, r] },
+                        typed::ExprKind::Prim {
+                            op: p,
+                            prim: pr,
+                            args: vec![l, r],
+                        },
                         bool_ty,
                         span,
                     );
@@ -2943,7 +3253,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                         _ => typed::PrimOp::Ge,
                     };
                     return typed::Expr::new(
-                        typed::ExprKind::Prim { op: p, prim: pr, args: vec![l, r] },
+                        typed::ExprKind::Prim {
+                            op: p,
+                            prim: pr,
+                            args: vec![l, r],
+                        },
                         bool_ty,
                         span,
                     );
@@ -2967,7 +3281,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         rhs: Option<typed::Expr>,
         span: Span,
     ) -> typed::Expr {
-        let tid = *self.c.known_traits.get(trait_name).or_ice("an operator's trait is in the prelude");
+        let tid = *self
+            .c
+            .known_traits
+            .get(trait_name)
+            .or_ice("an operator's trait is in the prelude");
         let ty = self.resolve(&lhs.ty);
         if ty.is_error() {
             return self.error_expr(span);
@@ -3044,7 +3362,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         let arms = vec![
             typed::Arm {
                 pattern: typed::Pattern {
-                    kind: typed::PatKind::Variant { con: order, variant: index, fields: Vec::new() },
+                    kind: typed::PatKind::Variant {
+                        con: order,
+                        variant: index,
+                        fields: Vec::new(),
+                    },
                     ty: order_ty,
                     span,
                 },
@@ -3053,14 +3375,21 @@ impl<'a, 'b> Infer<'a, 'b> {
                 span,
             },
             typed::Arm {
-                pattern: typed::Pattern { kind: typed::PatKind::Wild, ty: order_ty, span },
+                pattern: typed::Pattern {
+                    kind: typed::PatKind::Wild,
+                    ty: order_ty,
+                    span,
+                },
                 guard: None,
                 body: typed::Expr::new(typed::ExprKind::Bool(!when_match), bool_ty, span),
                 span,
             },
         ];
         typed::Expr::new(
-            typed::ExprKind::Match { scrutinee: Box::new(cmp), arms },
+            typed::ExprKind::Match {
+                scrutinee: Box::new(cmp),
+                arms,
+            },
             bool_ty,
             span,
         )
@@ -3118,7 +3447,14 @@ impl<'a, 'b> Infer<'a, 'b> {
                 return self.error_expr(span);
             }
         };
-        typed::Expr::new(typed::ExprKind::Try { base: Box::new(b), kind }, inner, span)
+        typed::Expr::new(
+            typed::ExprKind::Try {
+                base: Box::new(b),
+                kind,
+            },
+            inner,
+            span,
+        )
     }
 
     /// Hole expressions must have type `Int` (any width), `Float` (any width),
@@ -3284,7 +3620,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         for c in &captures {
             if self.effect_locals.contains(c) {
                 let name = self.local(*c).name.to_string();
-                self.templated("lambda-captures-effect", span).bind("name", name);
+                self.templated("lambda-captures-effect", span)
+                    .bind("name", name);
                 break;
             }
             if self.poly_locals.contains(c) {
@@ -3299,7 +3636,11 @@ impl<'a, 'b> Infer<'a, 'b> {
 
         let ty = Ty::func(ptypes, ret_ty);
         typed::Expr::new(
-            typed::ExprKind::Lambda { params: locals, body: Box::new(body_hir), captures },
+            typed::ExprKind::Lambda {
+                params: locals,
+                body: Box::new(body_hir),
+                captures,
+            },
             ty,
             span,
         )
@@ -3339,7 +3680,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                     let base_bindings = self.c.tables.ctx_type(*id).bindings.clone();
                     for (tr, impl_ty) in base_bindings {
                         let e = typed::Expr::new(
-                            typed::ExprKind::CtxGet { base: Box::new(b.clone()), trait_id: tr },
+                            typed::ExprKind::CtxGet {
+                                base: Box::new(b.clone()),
+                                trait_id: tr,
+                            },
                             impl_ty,
                             base_span,
                         );
@@ -3349,7 +3693,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                 TyKind::Error => {}
                 _ => {
                     let shown = self.show_ty(&self.resolve(&b.ty));
-                    self.templated("context-spread-operand", base_span).bind("type", shown);
+                    self.templated("context-spread-operand", base_span)
+                        .bind("type", shown);
                 }
             }
         }
@@ -3386,7 +3731,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                         match self.private_effect(&shown) {
                             Some(module) => self.c.report_private(&shown, &module, effect_span),
                             None => {
-                                self.templated("unknown-effect", effect_span).bind("name", shown);
+                                self.templated("unknown-effect", effect_span)
+                                    .bind("name", shown);
                             }
                         }
                         continue;
@@ -3412,7 +3758,9 @@ impl<'a, 'b> Infer<'a, 'b> {
             // `Out { t: 1 }` meets `impl Stdout for Out<Str>` as an `Out<I64>`
             // and `Guarded<StaticFs>` meets `impl<C: FileSystemWrite>` with
             // `StaticFs` in hand.
-            let has_impl = vty.head().is_some_and(|con| self.c.tables.impls.contains_key(&(tid, con)));
+            let has_impl = vty
+                .head()
+                .is_some_and(|con| self.c.tables.impls.contains_key(&(tid, con)));
             if !has_impl && !self.satisfies(&vty, tid) {
                 let shown = self.show_ty(&vty);
                 let eff = self.c.tables.trait_(tid).name.clone();
@@ -3430,7 +3778,8 @@ impl<'a, 'b> Infer<'a, 'b> {
             // it; two explicit bindings of one effect is an error.
             if explicit.contains(&tid) {
                 let eff = self.c.tables.trait_(tid).name.clone();
-                self.templated("duplicate-context-binding", binding_span).bind("effect", eff);
+                self.templated("duplicate-context-binding", binding_span)
+                    .bind("effect", eff);
             }
             explicit.push(tid);
             if let Some(slot) = bindings.iter_mut().find(|(t, _)| *t == tid) {
@@ -3443,10 +3792,16 @@ impl<'a, 'b> Infer<'a, 'b> {
         // The constructed value satisfies exactly the effects bound and
         // nothing else.
         let ctx_ty = CtxType {
-            bindings: bindings.iter().map(|(t, e)| (*t, self.subst.resolve(&e.ty))).collect(),
+            bindings: bindings
+                .iter()
+                .map(|(t, e)| (*t, self.subst.resolve(&e.ty)))
+                .collect(),
         };
         let id = self.c.tables.intern_ctx_type(ctx_ty);
-        (typed::Expr::new(typed::ExprKind::CtxLit { bindings }, Ty::ctx(id), span), id)
+        (
+            typed::Expr::new(typed::ExprKind::CtxLit { bindings }, Ty::ctx(id), span),
+            id,
+        )
     }
 
     /// The effect a loaded module exports under `name`, and the path a file
@@ -3460,18 +3815,18 @@ impl<'a, 'b> Infer<'a, 'b> {
             .iter()
             .enumerate()
             .find(|(_, tr)| tr.is_effect && tr.exported && tr.name == name)?;
-        Some((TraitId(u32::try_from(index).ok()?), self.c.import_path(info.module)))
+        Some((
+            TraitId(u32::try_from(index).ok()?),
+            self.c.import_path(info.module),
+        ))
     }
 
     /// The path of a module other than this one that declares an effect named
     /// `name` without `export`.
     fn private_effect(&self, name: &str) -> Option<String> {
-        let info = self
-            .c
-            .tables
-            .traits
-            .iter()
-            .find(|tr| tr.is_effect && !tr.exported && tr.name == name && tr.module != self.module)?;
+        let info = self.c.tables.traits.iter().find(|tr| {
+            tr.is_effect && !tr.exported && tr.name == name && tr.module != self.module
+        })?;
         Some(self.c.import_path(info.module))
     }
 
@@ -3505,7 +3860,12 @@ impl<'a, 'b> Infer<'a, 'b> {
             let body_span = t.span(ExprId(arm.body));
             self.unify_at(body_span, &body.ty, &result, "the other arms");
             self.pop_scope();
-            checked.push(typed::Arm { pattern: pat, guard, body, span: t.span_of(arm.span) });
+            checked.push(typed::Arm {
+                pattern: pat,
+                guard,
+                body,
+                span: t.span_of(arm.span),
+            });
         }
         // The match must be exhaustive, and no arm may be unreachable. The
         // algorithm reads the scrutinee's type all the way down — a tuple
@@ -3516,7 +3876,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         let whole = self.subst.resolve(&sty);
         crate::compiler::semantics::exhaustiveness::check(self, &whole, &checked, span);
         typed::Expr::new(
-            typed::ExprKind::Match { scrutinee: Box::new(s), arms: checked },
+            typed::ExprKind::Match {
+                scrutinee: Box::new(s),
+                arms: checked,
+            },
             result,
             span,
         )
@@ -3541,7 +3904,11 @@ fn signature_of_fn(c: &Checker, id: FnId) -> String {
             (AstRef::Method { sub, .. }, Some(tree::Item::Trait(d))) => (sub, d.methods),
             _ => crate::ice!("a function's syntax is the item or method its reference names"),
         };
-        let d = c.tree(module).list(methods.1).get(methods.0 as usize).or_ice("the method is in its block");
+        let d = c
+            .tree(module)
+            .list(methods.1)
+            .get(methods.0 as usize)
+            .or_ice("the method is in its block");
         return crate::formatting::call_signature(c.tree(module), d);
     }
     call_signature(&c.tables, &info.name, &info.generics, &info.params)
@@ -3575,7 +3942,8 @@ fn shape_of_variant(c: &Checker, con: TyConId, index: usize) -> String {
         .iter()
         .find_map(|item| match item {
             tree::Item::Enum(d) if d.name.span == info.span => c
-                .tree(info.module).list(d.variants)
+                .tree(info.module)
+                .list(d.variants)
                 .get(index)
                 .map(|v| crate::formatting::variant(c.tree(info.module), v)),
             _ => None,
@@ -3587,10 +3955,17 @@ fn shape_of_variant(c: &Checker, con: TyConId, index: usize) -> String {
 /// trait's — including one nobody wrote, which `derive` supplies.
 fn signature_of_trait_method(c: &Checker, tid: TraitId, index: usize) -> String {
     let info = c.tables.trait_(tid);
-    let declared = c.module(info.module).ast.items.iter().find_map(|item| match item {
-        tree::Item::Trait(d) if d.name.span == info.span => c.tree(info.module).list(d.methods).get(index),
-        _ => None,
-    });
+    let declared = c
+        .module(info.module)
+        .ast
+        .items
+        .iter()
+        .find_map(|item| match item {
+            tree::Item::Trait(d) if d.name.span == info.span => {
+                c.tree(info.module).list(d.methods).get(index)
+            }
+            _ => None,
+        });
     match (declared, info.methods.get(index)) {
         (Some(d), _) => crate::formatting::call_signature(c.tree(info.module), d),
         (None, Some(m)) => call_signature(&c.tables, &m.name, &m.generics, &m.params),

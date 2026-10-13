@@ -40,7 +40,7 @@
               and offsets into buffers sized to hold them"
 )]
 
-use crate::value::{str_of, BuriStr, BURI_RT_STR_LEN_MASK};
+use crate::value::{BURI_RT_STR_LEN_MASK, BuriStr, str_of};
 
 // ---------------------------------------------------------------------------
 // ECMA-262 §6.1.6.1.20 — Number::toString(x, 10)
@@ -59,7 +59,10 @@ impl Buf {
     const CAP: usize = 64;
 
     pub(crate) const fn new() -> Buf {
-        Buf { bytes: [0; Buf::CAP], len: 0 }
+        Buf {
+            bytes: [0; Buf::CAP],
+            len: 0,
+        }
     }
 
     pub(crate) fn as_bytes(&self) -> &[u8] {
@@ -128,7 +131,10 @@ const PAIRS: &[u8; 200] = b"\
 
 /// How many decimal digits `v` has.
 pub(crate) fn decimal_len(v: u64) -> usize {
-    #[expect(clippy::indexing_slicing, reason = "`i` counts from 1 to 19, inside the table")]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "`i` counts from 1 to 19, inside the table"
+    )]
     const POW10: [u64; 20] = {
         let mut p = [1u64; 20];
         let mut i = 1;
@@ -378,7 +384,9 @@ pub unsafe extern "C" fn buri_rt_show_u128(lo: u64, hi: u64, out: *mut BuriStr) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_char_to_str(c: u32, out: *mut BuriStr) {
     let mut buf = [0u8; 4];
-    let text = char::from_u32(c).unwrap_or(char::REPLACEMENT_CHARACTER).encode_utf8(&mut buf);
+    let text = char::from_u32(c)
+        .unwrap_or(char::REPLACEMENT_CHARACTER)
+        .encode_utf8(&mut buf);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(str_of(text)) }
 }
@@ -433,7 +441,10 @@ pub unsafe extern "C" fn buri_rt_show_list(xs: *const u8, count: u64, out: *mut 
             built.extend_from_slice(b", ");
         }
         // SAFETY: the caller promises `count` elements at `xs`.
-        let element = unsafe { &*xs.add((i as usize).saturating_mul(stride)).cast::<BuriStr>() };
+        let element = unsafe {
+            &*xs.add((i as usize).saturating_mul(stride))
+                .cast::<BuriStr>()
+        };
         // SAFETY: an element of a live `[Str]` is a live view.
         built.extend_from_slice(unsafe { element.bytes() });
     }
@@ -558,7 +569,11 @@ mod tests {
             }
             let text = ecma_number(x);
             let back: f64 = text.parse().unwrap_or(f64::NAN);
-            assert_eq!(back.to_bits(), x.to_bits(), "{text} did not read back as {x:?}");
+            assert_eq!(
+                back.to_bits(),
+                x.to_bits(),
+                "{text} did not read back as {x:?}"
+            );
         }
     }
 
@@ -602,8 +617,16 @@ mod tests {
             } else {
                 let e = n - 1;
                 let (head, tail) = digits.split_at(1);
-                let point = if tail.is_empty() { String::new() } else { format!(".{tail}") };
-                format!("{head}{point}e{}{}", if e < 0 { '-' } else { '+' }, e.unsigned_abs())
+                let point = if tail.is_empty() {
+                    String::new()
+                } else {
+                    format!(".{tail}")
+                };
+                format!(
+                    "{head}{point}e{}{}",
+                    if e < 0 { '-' } else { '+' },
+                    e.unsigned_abs()
+                )
             }
         }
         if x.is_nan() {
@@ -613,7 +636,11 @@ mod tests {
             return String::from(if x > 0.0 { "inf" } else { "-inf" });
         }
         if x.fract() == 0.0 && x.abs() < 1e21 {
-            let sign = if x == 0.0 && x.is_sign_negative() { "-" } else { "" };
+            let sign = if x == 0.0 && x.is_sign_negative() {
+                "-"
+            } else {
+                ""
+            };
             return format!("{sign}{}.0", ecma(x));
         }
         ecma(x)
@@ -641,9 +668,22 @@ mod tests {
             let p: f64 = format!("1e{e}").parse().unwrap();
             inputs.extend([p, -p, p * 3.0, p.next_up(), p.next_down()]);
         }
-        inputs.extend([0.0, -0.0, f64::MAX, f64::MIN, f64::MIN_POSITIVE, f64::NAN, f64::INFINITY]);
+        inputs.extend([
+            0.0,
+            -0.0,
+            f64::MAX,
+            f64::MIN,
+            f64::MIN_POSITIVE,
+            f64::NAN,
+            f64::INFINITY,
+        ]);
         for x in inputs {
-            assert_eq!(show_f64(x), show_f64_by_strings(x), "show({x:?}), bits {:#x}", x.to_bits());
+            assert_eq!(
+                show_f64(x),
+                show_f64_by_strings(x),
+                "show({x:?}), bits {:#x}",
+                x.to_bits()
+            );
         }
     }
 
@@ -663,7 +703,19 @@ mod tests {
             // SAFETY: the block the rendering allocated, held alone.
             unsafe { crate::memory::buri_rt_free(out.base) };
         };
-        for v in [0, 1, -1, 9, 10, 99, 100, 101, i64::MAX, i64::MIN, i64::MIN + 1] {
+        for v in [
+            0,
+            1,
+            -1,
+            9,
+            10,
+            99,
+            100,
+            101,
+            i64::MAX,
+            i64::MIN,
+            i64::MIN + 1,
+        ] {
             check(v);
         }
         for _ in 0..200_000 {
@@ -687,8 +739,10 @@ mod tests {
     #[test]
     fn a_list_renders_the_way_the_javascript_runner_renders_one() {
         let render = |items: &[&str]| {
-            let strs: Vec<BuriStr> =
-                items.iter().map(|s| BuriStr::copy_from(s.as_bytes())).collect();
+            let strs: Vec<BuriStr> = items
+                .iter()
+                .map(|s| BuriStr::copy_from(s.as_bytes()))
+                .collect();
             let mut out = BuriStr::empty();
             // SAFETY: `strs` is a live block of `BuriStr`s and `out` is a live
             // local. Every block here is this closure's, and each is given

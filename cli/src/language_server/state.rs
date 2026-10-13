@@ -428,7 +428,9 @@ impl Work {
             files_hashed: self.files_hashed.saturating_sub(before.files_hashed),
             published: self.published.saturating_sub(before.published),
             bytes_written: self.bytes_written.saturating_sub(before.bytes_written),
-            sweeps_superseded: self.sweeps_superseded.saturating_sub(before.sweeps_superseded),
+            sweeps_superseded: self
+                .sweeps_superseded
+                .saturating_sub(before.sweeps_superseded),
         }
     }
 
@@ -624,8 +626,9 @@ impl State {
             work.sessions_opened = work.sessions_opened.saturating_add(sources.reads.opened);
             work.files_hashed = work.files_hashed.saturating_add(sources.reads.hashed);
         }
-        work.sweeps_superseded =
-            work.sweeps_superseded.saturating_add(self.sweeps.counters.superseded);
+        work.sweeps_superseded = work
+            .sweeps_superseded
+            .saturating_add(self.sweeps.counters.superseded);
         work
     }
 
@@ -683,7 +686,9 @@ impl State {
     /// Whether this request was cancelled before its turn came, and takes the
     /// id — one cancel refuses one request.
     pub fn was_cancelled(&mut self, id: &Value) -> bool {
-        let Some(at) = self.cancelled.iter().position(|c| c == id) else { return false };
+        let Some(at) = self.cancelled.iter().position(|c| c == id) else {
+            return false;
+        };
         self.cancelled.remove(at);
         true
     }
@@ -756,7 +761,8 @@ impl State {
             return;
         }
         self.announced.insert(root.to_path_buf(), now);
-        self.outgoing.push(super::message("window/showMessage", super::ERROR, said));
+        self.outgoing
+            .push(super::message("window/showMessage", super::ERROR, said));
     }
 
     /// The repository root that owns `path`, if the client has it open.
@@ -791,7 +797,9 @@ impl State {
     /// above it — so what is kept is always a root, and a folder in no
     /// repository is not kept at all.
     pub fn add_root(&mut self, folder: &Path) {
-        let Some(root) = crate::build::workspace::find_root(folder) else { return };
+        let Some(root) = crate::build::workspace::find_root(folder) else {
+            return;
+        };
         if !self.roots.contains(&root) {
             self.roots.push(root);
         }
@@ -799,7 +807,9 @@ impl State {
 
     /// Drops a folder, by the same normalisation [`State::add_root`] applied.
     pub fn remove_root(&mut self, folder: &Path) {
-        let Some(root) = crate::build::workspace::find_root(folder) else { return };
+        let Some(root) = crate::build::workspace::find_root(folder) else {
+            return;
+        };
         self.roots.retain(|r| *r != root);
     }
 
@@ -827,7 +837,9 @@ impl State {
         if let Some(known) = self.package_keys.get(&at) {
             return *known;
         }
-        let Some(session) = self.graph(root) else { return 0 };
+        let Some(session) = self.graph(root) else {
+            return 0;
+        };
         let (names, files) = crate::commands::lint::package_reads(&session, package);
         let mut hasher = crate::hash::FxHasher::default();
         hasher.write_u64(names);
@@ -881,7 +893,12 @@ impl State {
             let one = self.fingerprint(&root);
             hasher.write_u64(one);
             let packages: BTreeSet<PackageId> = match self.graph(&root) {
-                Some(session) => session.workspace.targets().iter().map(|t| t.package).collect(),
+                Some(session) => session
+                    .workspace
+                    .targets()
+                    .iter()
+                    .map(|t| t.package)
+                    .collect(),
                 None => BTreeSet::new(),
             };
             for package in packages {
@@ -968,7 +985,9 @@ impl State {
         }
         self.diagnostic_results.count = self.diagnostic_results.count.saturating_add(1);
         let id = self.diagnostic_results.count.to_string();
-        self.diagnostic_results.documents.insert(key, (now, id.clone()));
+        self.diagnostic_results
+            .documents
+            .insert(key, (now, id.clone()));
         id
     }
 
@@ -996,7 +1015,9 @@ impl State {
     pub fn record_semantic_tokens(&mut self, path: &Path, data: Vec<u32>) -> String {
         self.semantic_tokens.issued = self.semantic_tokens.issued.saturating_add(1);
         let id = self.semantic_tokens.issued.to_string();
-        self.semantic_tokens.results.insert(path.to_path_buf(), (id.clone(), data));
+        self.semantic_tokens
+            .results
+            .insert(path.to_path_buf(), (id.clone(), data));
         id
     }
 
@@ -1157,7 +1178,12 @@ impl State {
         }
 
         let mut session = self.overlaid_session(&root)?;
-        let unit = Unit { target, platform: None, entry: None, with_tests: true };
+        let unit = Unit {
+            target,
+            platform: None,
+            entry: None,
+            with_tests: true,
+        };
         // The file as the loader will name it. A file the editor has open is
         // already in the map, layered over the disk by `overlaid_session`; one
         // it does not is seeded here with the same bytes the loader would have
@@ -1166,7 +1192,9 @@ impl State {
         let name = session.workspace.rel_of(path);
         let file = match session.map.find(&name) {
             Some(file) => file,
-            None => session.map.add(name, path.to_path_buf(), self.text_of(path)?),
+            None => session
+                .map
+                .add(name, path.to_path_buf(), self.text_of(path)?),
         };
         self.work.analyses = self.work.analyses.saturating_add(1);
         let analysis = crate::compiler::driver::analyze_bodies_in(
@@ -1228,7 +1256,12 @@ impl State {
             .workspace
             .targets()
             .into_iter()
-            .map(|target| Unit { target: Some(target), platform: None, entry: None, with_tests: true })
+            .map(|target| Unit {
+                target: Some(target),
+                platform: None,
+                entry: None,
+                with_tests: true,
+            })
             .collect();
         self.work.analyses = self.work.analyses.saturating_add(1);
         let analysis = crate::compiler::driver::analyze_all(
@@ -1276,9 +1309,11 @@ impl State {
             target,
             &analyzed.analysis,
         );
-        let closure =
-            Rc::new(closure_of(&analyzed.session.workspace, &analyzed.analysis));
-        let linted = Rc::new(Linted { analyzed, diagnostics });
+        let closure = Rc::new(closure_of(&analyzed.session.workspace, &analyzed.analysis));
+        let linted = Rc::new(Linted {
+            analyzed,
+            diagnostics,
+        });
         let key = self.closure_key(root, Some(target), &closure);
         remember(
             &mut self.cache.lints,
@@ -1371,7 +1406,11 @@ impl State {
             let key = self.closure_key(root, Some(target), &closure);
             self.target_findings.insert(
                 (root.to_path_buf(), target),
-                TargetFindings { key, closure, found: found.clone() },
+                TargetFindings {
+                    key,
+                    closure,
+                    found: found.clone(),
+                },
             );
             merge_findings(&mut merged, &found);
         }
@@ -1472,7 +1511,11 @@ impl State {
         for (target, key, closure, found) in swept.targets {
             self.target_findings.insert(
                 (swept.root.clone(), target),
-                TargetFindings { key, closure: Rc::new(closure), found },
+                TargetFindings {
+                    key,
+                    closure: Rc::new(closure),
+                    found,
+                },
             );
         }
         self.work = self.work.plus(swept.work);
@@ -1489,7 +1532,12 @@ impl State {
             .iter()
             .filter(|((at, _), _)| at == root)
             .map(|((_, target), known)| {
-                (*target, known.key, (*known.closure).clone(), known.found.clone())
+                (
+                    *target,
+                    known.key,
+                    (*known.closure).clone(),
+                    known.found.clone(),
+                )
             })
             .collect()
     }
@@ -1527,21 +1575,35 @@ impl State {
     /// The files the target owning `path` last published findings on, whether
     /// or not its closure has moved since.
     pub fn published_on(&mut self, path: &Path) -> Vec<String> {
-        let Some((root, target)) = self.target_key(path) else { return Vec::new() };
-        let Some(filed) = self.publish_findings.get(&(root, target)) else { return Vec::new() };
+        let Some((root, target)) = self.target_key(path) else {
+            return Vec::new();
+        };
+        let Some(filed) = self.publish_findings.get(&(root, target)) else {
+            return Vec::new();
+        };
         filed.found.keys().cloned().collect()
     }
 
     /// Files what the two passes just found, under the closure they read.
     pub fn keep_publish(&mut self, path: &Path, found: &super::Published) {
-        let Some(root) = self.root_of(path) else { return };
+        let Some(root) = self.root_of(path) else {
+            return;
+        };
         let target = self.target_of(&root, path);
         // A target nothing has analysed has no closure to key on, so there is
         // nothing here that a later question could safely be answered from.
-        let Some(closure) = self.known_closure(&root, target) else { return };
+        let Some(closure) = self.known_closure(&root, target) else {
+            return;
+        };
         let key = self.closure_key(&root, target, &closure);
-        self.publish_findings
-            .insert((root, target), TargetFindings { key, closure, found: found.clone() });
+        self.publish_findings.insert(
+            (root, target),
+            TargetFindings {
+                key,
+                closure,
+                found: found.clone(),
+            },
+        );
     }
 
     /// What was last said about this target, if the closure it was said about
@@ -1582,8 +1644,16 @@ impl State {
     /// The cost of asking is a hash of that closure and nothing else — which
     /// is the point: the files an edit did not touch are not read at all.
     fn cached_analysis(&mut self, root: &Path, target: Option<TargetId>) -> Option<Rc<Analyzed>> {
-        let filed = self.cache.analyses.iter().find(|c| c.root == root && c.target == target)?;
-        let (was, closure, value) = (filed.key, Rc::clone(&filed.closure), Rc::clone(&filed.value));
+        let filed = self
+            .cache
+            .analyses
+            .iter()
+            .find(|c| c.root == root && c.target == target)?;
+        let (was, closure, value) = (
+            filed.key,
+            Rc::clone(&filed.closure),
+            Rc::clone(&filed.value),
+        );
         let now = self.closure_key(root, target, &closure);
         (was == now).then_some(value)
     }
@@ -1597,9 +1667,17 @@ impl State {
     /// full analysis standing.
     fn cached_query(&mut self, root: &Path, path: &Path) -> Option<Rc<Analyzed>> {
         let scope = Some(path.to_path_buf());
-        let filed = self.cache.queries.iter().find(|c| c.root == root && c.scope == scope)?;
-        let (was, target, closure, value) =
-            (filed.key, filed.target, Rc::clone(&filed.closure), Rc::clone(&filed.value));
+        let filed = self
+            .cache
+            .queries
+            .iter()
+            .find(|c| c.root == root && c.scope == scope)?;
+        let (was, target, closure, value) = (
+            filed.key,
+            filed.target,
+            Rc::clone(&filed.closure),
+            Rc::clone(&filed.value),
+        );
         let now = self.closure_key(root, target, &closure);
         (was == now).then_some(value)
     }
@@ -1607,8 +1685,16 @@ impl State {
     /// The same lookup for the lint pass.
     fn cached_lint(&mut self, root: &Path, target: TargetId) -> Option<Rc<Linted>> {
         let wanted = Some(target);
-        let filed = self.cache.lints.iter().find(|c| c.root == root && c.target == wanted)?;
-        let (was, closure, value) = (filed.key, Rc::clone(&filed.closure), Rc::clone(&filed.value));
+        let filed = self
+            .cache
+            .lints
+            .iter()
+            .find(|c| c.root == root && c.target == wanted)?;
+        let (was, closure, value) = (
+            filed.key,
+            Rc::clone(&filed.closure),
+            Rc::clone(&filed.value),
+        );
         let now = self.closure_key(root, wanted, &closure);
         (was == now).then_some(value)
     }
@@ -1633,7 +1719,8 @@ struct TargetFindings {
 pub(super) fn merge_findings(into: &mut super::Published, from: &super::Published) {
     for (uri, items) in from {
         let bucket = into.entry(uri.clone()).or_default();
-        let mut seen: std::collections::HashSet<_> = bucket.iter().map(super::finding_key).collect();
+        let mut seen: std::collections::HashSet<_> =
+            bucket.iter().map(super::finding_key).collect();
         for item in items {
             if seen.insert(super::finding_key(item)) {
                 bucket.push(item.clone());
@@ -1648,7 +1735,11 @@ pub(super) fn merge_findings(into: &mut super::Published, from: &super::Publishe
 /// A repository reads its `REPO.buri` and every `BUILD.buri` before anything is
 /// compiled, so a failure there is the one that makes every later answer empty.
 fn first_error(session: &Session) -> Option<String> {
-    let d = session.diagnostics.items.iter().find(|d| d.is_error() && !d.span.is_none())?;
+    let d = session
+        .diagnostics
+        .items
+        .iter()
+        .find(|d| d.is_error() && !d.span.is_none())?;
     let name = &session.map.get(d.span.file).name;
     Some(format!(
         "{name}: {}. That file is the repository's own, so no analysis publishes the finding — and the lint pass does not run until it is fixed.",

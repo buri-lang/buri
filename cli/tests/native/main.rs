@@ -194,10 +194,10 @@ mod started;
 mod cross;
 // Two cold builds of one program, through the `buri` binary, write the same
 // executable — on each native backend built in.
-#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
-mod reproducible;
 #[cfg(feature = "backend-stencil")]
 mod conformance;
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod reproducible;
 // The conformance corpus under `--coverage` and `--coverage=mcdc` gives every
 // test the verdict it gets without, on JavaScript and every backend built in.
 #[cfg(feature = "backend-stencil")]
@@ -254,9 +254,9 @@ mod map_keys;
 // a match arm's guard owes: the pushes counted rather than timed, and the heap
 // checked, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
-mod ownership;
-#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod matches;
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod ownership;
 // A context the runtime supplies to a walk it drives: a test context holding a
 // heap value through `buri test`, under the heap check, on every backend built
 // in.
@@ -307,9 +307,9 @@ mod growth;
 // `core/secret`: what a `Secret` shows, what `reveal` and `map` answer, the
 // keyed `core/crypto` functions over one, and buri-lang/buri#226's example.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
-mod secret;
-#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod from_json;
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod secret;
 // What a `derive Flags` value costs: the bytes a list of a thousand allocates,
 // read off the runtime's heap statistics, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
@@ -332,5 +332,8 @@ mod collection_costs;
 mod at_scale;
 // A crash's core dump holds what the program used, not the 32 GiB its heap
 // reserved. Linux only: macOS writes no cores unless asked.
-#[cfg(all(target_os = "linux", any(feature = "backend-llvm", feature = "backend-stencil")))]
+#[cfg(all(
+    target_os = "linux",
+    any(feature = "backend-llvm", feature = "backend-stencil")
+))]
 mod core_dump;

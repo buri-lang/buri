@@ -16,6 +16,9 @@
 //! What a hint does *not* carry is its tooltip. That is `inlayHint/resolve`,
 //! and it is where the one `symbols::at` per hovered hint is paid.
 
+use super::convert::{self, Position};
+use super::state::Analyzed;
+use super::symbols::{self, Symbol};
 use crate::compiler::modules::ModuleData;
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{self, ParamInfo, ParamRole, Tables};
@@ -24,9 +27,6 @@ use crate::json::Value;
 use crate::parsing::flat::{self, ExprId, ExprView, PatId, PatView, StmtKind};
 use std::collections::BTreeSet;
 use std::path::Path;
-use super::convert::{self, Position};
-use super::state::Analyzed;
-use super::symbols::{self, Symbol};
 
 /// An inferred type, written after the name that did not say it.
 const TYPE: i64 = 1;
@@ -59,15 +59,17 @@ struct Hint {
 /// The range is what the client can see, and the filter is on the hint's own
 /// position: a hint has no extent in the buffer, so "intersects" and "is
 /// inside" are the same test for one.
-pub fn hints(
-    analyzed: &Analyzed,
-    path: &Path,
-    text: &str,
-    from: u32,
-    to: u32,
-) -> Option<Value> {
-    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
-    let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
+pub fn hints(analyzed: &Analyzed, path: &Path, text: &str, from: u32, to: u32) -> Option<Value> {
+    let file = analyzed
+        .session
+        .map
+        .find(&analyzed.session.workspace.rel_of(path))?;
+    let module = analyzed
+        .analysis
+        .loaded
+        .modules
+        .iter()
+        .find(|m| m.file == file)?;
     let unwritten = names_with_no_written_type(module);
 
     let tables = &analyzed.analysis.checked.tables;
@@ -84,7 +86,13 @@ pub fn hints(
     // what its value binds and calls.
     for (id, expr) in &checked.consts {
         if tables.const_(id).span.file == file {
-            type_hints(tables, file, &unwritten, symbols::const_locals(checked, id), &mut found);
+            type_hints(
+                tables,
+                file,
+                &unwritten,
+                symbols::const_locals(checked, id),
+                &mut found,
+            );
             parameter_hints(analyzed, file, text, expr, &mut found);
         }
     }
@@ -177,7 +185,10 @@ fn about(analyzed: &Analyzed, hint: &Hint) -> Option<Value> {
     }
     let mut fields = vec![
         ("uri", Value::str(convert::uri_of(&file.abs_path))),
-        ("position", convert::position_of(&file.text, span.start).to_json()),
+        (
+            "position",
+            convert::position_of(&file.text, span.start).to_json(),
+        ),
         ("part", Value::number(hint.part as i64)),
     ];
     if let Some(index) = hint.parameter {
@@ -200,14 +211,19 @@ pub fn resolve(analyzed: &Analyzed, path: &Path, text: &str, hint: &Value) -> Va
     };
     let part = hint.at("data.part").and_then(|p| p.as_u32()).unwrap_or(0) as usize;
     let offset = convert::offset_of(text, position);
-    let Some(found) = symbols::at(analyzed, path, text, offset) else { return resolved };
+    let Some(found) = symbols::at(analyzed, path, text, offset) else {
+        return resolved;
+    };
     let (signature, docs) = symbols::describe(analyzed, &found.symbol);
     let mut markdown = format!("```buri\n{signature}\n```");
     if !docs.is_empty() {
         markdown.push_str("\n\n");
         markdown.push_str(&docs.join("\n"));
     }
-    let parameter = hint.at("data.parameter").and_then(|p| p.as_u32()).map(|i| i as usize);
+    let parameter = hint
+        .at("data.parameter")
+        .and_then(|p| p.as_u32())
+        .map(|i| i as usize);
     let location = navigation(analyzed, &found.symbol, parameter);
 
     let fields = match &mut resolved {
@@ -240,9 +256,13 @@ fn navigation(analyzed: &Analyzed, symbol: &Symbol, parameter: Option<usize>) ->
     let tables = &analyzed.analysis.checked.tables;
     let declared = parameter.and_then(|index| match symbol {
         Symbol::Function(id) => tables.fn_info(*id).params.get(index).map(|p| p.span),
-        Symbol::TraitMethod { trait_id, method } => {
-            tables.trait_(*trait_id).methods.get(*method)?.params.get(index).map(|p| p.span)
-        }
+        Symbol::TraitMethod { trait_id, method } => tables
+            .trait_(*trait_id)
+            .methods
+            .get(*method)?
+            .params
+            .get(index)
+            .map(|p| p.span),
         _ => None,
     });
     let span = declared
@@ -280,16 +300,22 @@ fn parameter_hints(
                 Some(id) => (&tables.fn_info(id).params, args, Symbol::Function(id)),
                 None => return,
             },
-            ExprKind::CallTrait { trait_id, method, args, .. } => {
-                match tables.trait_(*trait_id).methods.get(*method) {
-                    Some(declared) => (
-                        &declared.params,
-                        args,
-                        Symbol::TraitMethod { trait_id: *trait_id, method: *method },
-                    ),
-                    None => return,
-                }
-            }
+            ExprKind::CallTrait {
+                trait_id,
+                method,
+                args,
+                ..
+            } => match tables.trait_(*trait_id).methods.get(*method) {
+                Some(declared) => (
+                    &declared.params,
+                    args,
+                    Symbol::TraitMethod {
+                        trait_id: *trait_id,
+                        method: *method,
+                    },
+                ),
+                None => return,
+            },
             _ => return,
         };
         for (index, (param, arg)) in params.iter().zip(args).enumerate() {
@@ -335,7 +361,9 @@ fn parameter_hints(
 fn opens_an_argument(text: &str, start: u32) -> bool {
     let before = text.get(..start as usize).unwrap_or("").trim_end();
     before.ends_with(',')
-        || before.strip_suffix('(').is_some_and(|rest| !rest.trim_end().ends_with(['(', ',']))
+        || before
+            .strip_suffix('(')
+            .is_some_and(|rest| !rest.trim_end().ends_with(['(', ',']))
 }
 
 /// Whether naming this argument tells the reader anything.
@@ -362,7 +390,9 @@ fn worth_naming(text: &str, param: &ParamInfo, arg: &typed::Expr) -> bool {
     };
     let bare = !written.is_empty()
         && written.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-        && written.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.');
+        && written
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.');
     // The last segment, because `order.count` filling `count` reads as labelled
     // already even though the whole path is longer than the name.
     bare && written.rsplit('.').next() != Some(param.name.as_str())
@@ -395,7 +425,9 @@ fn names_with_no_written_type(module: &ModuleData) -> BTreeSet<(u32, u32)> {
             if stmt.kind != StmtKind::Let || stmt.is_ctx || stmt.ty != flat::NONE {
                 continue;
             }
-            let pattern = tree.opt_pat(stmt.pattern).or_ice("the parser writes a pattern into every `let`");
+            let pattern = tree
+                .opt_pat(stmt.pattern)
+                .or_ice("the parser writes a pattern into every `let`");
             bound_names(tree, pattern, &mut out);
         }
     }
@@ -412,12 +444,17 @@ fn bound_names(tree: &flat::Tree, pattern: PatId, out: &mut BTreeSet<(u32, u32)>
                 bound_names(tree, sub, out);
             }
         }
-        PatView::Tuple { elems, .. } | PatView::Array { elems, .. } | PatView::Or { alts: elems, .. } => {
+        PatView::Tuple { elems, .. }
+        | PatView::Array { elems, .. }
+        | PatView::Or { alts: elems, .. } => {
             for elem in elems {
                 bound_names(tree, *elem, out);
             }
         }
-        PatView::Path { payload: Some(payload), .. } => {
+        PatView::Path {
+            payload: Some(payload),
+            ..
+        } => {
             if payload.record {
                 for field in tree.fpats_at(payload.start, payload.len) {
                     match tree.opt_pat(field.pattern) {
@@ -454,7 +491,11 @@ mod tests {
     }
 
     fn argument(text: &str, kind: ExprKind) -> typed::Expr {
-        let span = Span { file: FileId(0), start: 0, end: text.len() as u32 };
+        let span = Span {
+            file: FileId(0),
+            start: 0,
+            end: text.len() as u32,
+        };
         typed::Expr::new(kind, Ty::UNIT, span)
     }
 

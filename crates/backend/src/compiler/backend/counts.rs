@@ -65,14 +65,23 @@ pub struct Arm {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Site {
     /// A nullable counted block pointer.
-    Block { offset: u32, glue: Glue },
+    Block {
+        offset: u32,
+        glue: Glue,
+    },
     Field(Field),
     /// Switch on the tag at offset zero, then walk only the live arm.
-    Tagged { tag: Scalar, arms: Box<[Arm]> },
+    Tagged {
+        tag: Scalar,
+        arms: Box<[Arm]>,
+    },
     /// A niche `Option`: walk the payload, in place, only where the pointer at
     /// `null_at` is not null. A `.None` writes that null and nothing else, so
     /// the rest of the payload is garbage.
-    Guarded { null_at: u32, ty: Ty },
+    Guarded {
+        null_at: u32,
+        ty: Ty,
+    },
 }
 
 /// The memoised answers, one table per unit or worker.
@@ -106,8 +115,16 @@ impl Counts {
         answer
     }
 
-    fn any(&mut self, tables: &Tables, layouts: &mut Layouts<'_>, owner: &Ty, fields: &[Ty]) -> bool {
-        fields.iter().any(|f| layouts.boxes(owner, f) || self.counted(tables, layouts, f))
+    fn any(
+        &mut self,
+        tables: &Tables,
+        layouts: &mut Layouts<'_>,
+        owner: &Ty,
+        fields: &[Ty],
+    ) -> bool {
+        fields
+            .iter()
+            .any(|f| layouts.boxes(owner, f) || self.counted(tables, layouts, f))
     }
 
     /// Every place a count lives inside one value of this type.
@@ -162,7 +179,10 @@ impl Counts {
         let l = layouts.shared(ty);
         match &l.repr {
             Repr::Zero | Repr::Scalar(_) => Vec::new(),
-            Repr::Str => vec![Site::Block { offset: l.field(layout::STR_BASE), glue: Glue::Str }],
+            Repr::Str => vec![Site::Block {
+                offset: l.field(layout::STR_BASE),
+                glue: Glue::Str,
+            }],
             Repr::List => match ty.kind() {
                 TyKind::Array(elem) => vec![Site::Block {
                     offset: l.field(layout::LIST_PTR),
@@ -171,7 +191,10 @@ impl Counts {
                 _ => Vec::new(),
             },
             Repr::Closure => {
-                vec![Site::Block { offset: l.field(layout::CLOSURE_ENV), glue: Glue::Env }]
+                vec![Site::Block {
+                    offset: l.field(layout::CLOSURE_ENV),
+                    glue: Glue::Env,
+                }]
             }
             Repr::Aggregate => self
                 .fields(tables, layouts, ty, &field_types(tables, ty), &l.fields)
@@ -185,7 +208,10 @@ impl Counts {
                 // something counted, a `Str`'s, a closure's, or a box's.
                 EnumRepr::Niche { null_at } => variant_types(tables, ty, 0)
                     .into_iter()
-                    .map(|payload| Site::Guarded { null_at, ty: payload })
+                    .map(|payload| Site::Guarded {
+                        null_at,
+                        ty: payload,
+                    })
                     .collect(),
                 EnumRepr::Tagged { tag, .. } => {
                     let arms: Box<[Arm]> = variants
@@ -224,7 +250,11 @@ impl Counts {
             let boxed = layouts.boxes(owner, f);
             if boxed || self.counted(tables, layouts, f) {
                 let offset = offsets.get(i).copied().unwrap_or(0);
-                out.push(Field { offset, boxed, ty: *f });
+                out.push(Field {
+                    offset,
+                    boxed,
+                    ty: *f,
+                });
             }
         }
         out

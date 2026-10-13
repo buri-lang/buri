@@ -12,24 +12,19 @@
 //! never spelled. Neither is in the answer, which is what makes the panel a
 //! list of call sites a reader can go and look at.
 
-use crate::diagnostics::{Invariant as _, Span};
-use crate::json::Value;
-use std::path::Path;
 use super::convert::{self, Position};
 use super::state::Analyzed;
 use super::symbols::{self, Symbol};
+use crate::diagnostics::{Invariant as _, Span};
+use crate::json::Value;
+use std::path::Path;
 
 /// The symbol under the cursor as the root of a call hierarchy.
 ///
 /// A function and a trait method are the two things a call names, so they are
 /// the two that are a node in one. Everything else answers `null`, and the
 /// editor does not open a panel with nothing to put in it.
-pub fn prepare(
-    analyzed: &Analyzed,
-    path: &Path,
-    text: &str,
-    position: Position,
-) -> Option<Value> {
+pub fn prepare(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -> Option<Value> {
     let offset = convert::offset_of(text, position);
     let found = symbols::at(analyzed, path, text, offset)?;
     match found.symbol {
@@ -60,11 +55,16 @@ pub fn incoming(analyzed: &Analyzed, symbol: &Symbol) -> Value {
     }
     for (id, expr) in &checked.consts {
         let mut sites = Vec::new();
-        symbols::call_names(analyzed, symbols::const_locals(checked, id), expr, &mut |span, called| {
-            if symbols::same(&called, symbol) {
-                sites.push(span);
-            }
-        });
+        symbols::call_names(
+            analyzed,
+            symbols::const_locals(checked, id),
+            expr,
+            &mut |span, called| {
+                if symbols::same(&called, symbol) {
+                    sites.push(span);
+                }
+            },
+        );
         if !sites.is_empty() {
             callers.push((Symbol::Const(id), sites));
         }
@@ -80,11 +80,12 @@ pub fn incoming(analyzed: &Analyzed, symbol: &Symbol) -> Value {
 pub fn outgoing(analyzed: &Analyzed, symbol: &Symbol) -> Value {
     let checked = &analyzed.analysis.checked;
     let mut callees: Vec<(Symbol, Vec<Span>)> = Vec::new();
-    let mut take = |span: Span, called: Symbol| {
-        match callees.iter_mut().find(|(seen, _)| symbols::same(seen, &called)) {
-            Some((_, sites)) => sites.push(span),
-            None => callees.push((called, vec![span])),
-        }
+    let mut take = |span: Span, called: Symbol| match callees
+        .iter_mut()
+        .find(|(seen, _)| symbols::same(seen, &called))
+    {
+        Some((_, sites)) => sites.push(span),
+        None => callees.push((called, vec![span])),
     };
     match symbol {
         Symbol::Function(id) => {
@@ -94,7 +95,12 @@ pub fn outgoing(analyzed: &Analyzed, symbol: &Symbol) -> Value {
         }
         Symbol::Const(id) => {
             let expr = checked.consts.get(id).or_ice("every constant was checked");
-            symbols::call_names(analyzed, symbols::const_locals(checked, *id), expr, &mut take);
+            symbols::call_names(
+                analyzed,
+                symbols::const_locals(checked, *id),
+                expr,
+                &mut take,
+            );
         }
         _ => {}
     }
@@ -155,12 +161,16 @@ fn item(analyzed: &Analyzed, symbol: &Symbol) -> Option<Value> {
                 (kind, info.name.clone(), info.span)
             }
         },
-        Symbol::TraitMethod { .. } => {
-            (6, symbols::name(analyzed, symbol)?, symbols::declaration_name(analyzed, symbol))
-        }
-        Symbol::Const(_) => {
-            (14, symbols::name(analyzed, symbol)?, symbols::declaration(analyzed, symbol))
-        }
+        Symbol::TraitMethod { .. } => (
+            6,
+            symbols::name(analyzed, symbol)?,
+            symbols::declaration_name(analyzed, symbol),
+        ),
+        Symbol::Const(_) => (
+            14,
+            symbols::name(analyzed, symbol)?,
+            symbols::declaration(analyzed, symbol),
+        ),
         _ => return None,
     };
     if selection.is_none() {
@@ -178,13 +188,19 @@ fn item(analyzed: &Analyzed, symbol: &Symbol) -> Option<Value> {
         ("uri", Value::str(&uri)),
         // The whole declaration, with the name inside it: the protocol asks
         // for both, and for a function they differ.
-        ("range", convert::range(&file.text, symbols::declaration_extent(analyzed, symbol))),
+        (
+            "range",
+            convert::range(&file.text, symbols::declaration_extent(analyzed, symbol)),
+        ),
         ("selectionRange", convert::range(&file.text, selection)),
         // What the two walking requests resolve the item back from, since the
         // protocol hands them the item rather than a position.
         (
             "data",
-            Value::object(vec![("uri", Value::str(&uri)), ("position", position.to_json())]),
+            Value::object(vec![
+                ("uri", Value::str(&uri)),
+                ("position", position.to_json()),
+            ]),
         ),
     ];
     if let Some(module) = module_of(analyzed, symbol) {
@@ -204,5 +220,10 @@ fn module_of<'a>(analyzed: &'a Analyzed, symbol: &Symbol) -> Option<&'a str> {
         Symbol::Const(id) => tables.const_(*id).module,
         _ => return None,
     };
-    analyzed.analysis.loaded.modules.get(module.index()).map(|m| m.path.as_str())
+    analyzed
+        .analysis
+        .loaded
+        .modules
+        .get(module.index())
+        .map(|m| m.path.as_str())
 }

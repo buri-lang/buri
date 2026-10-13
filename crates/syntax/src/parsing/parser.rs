@@ -21,10 +21,9 @@
 
 use crate::diagnostics::{invariant, Diagnostic, FileId, Invariant, Span};
 use crate::parsing::flat::{
-    ArmData, BlockData, BlockId, CtxBindData, CtxBodyData, CtxBodyId, Docs, ExprId,
-    FieldPatData, InitData, Kind, List, LambdaParamData, Location, PartData, PatId, PatPayloadData, PatternKind,
-    StmtData,
-    StmtKind, TypeKind, Tree, TypeId, TypeList, NONE,
+    ArmData, BlockData, BlockId, CtxBindData, CtxBodyData, CtxBodyId, Docs, ExprId, FieldPatData,
+    InitData, Kind, LambdaParamData, List, Location, PartData, PatId, PatPayloadData, PatternKind,
+    StmtData, StmtKind, Tree, TypeId, TypeKind, TypeList, NONE,
 };
 use crate::parsing::lexer::{lex, Keyword, Punctuation, TokenKind, Tokens, Trivia};
 use crate::parsing::tree::*;
@@ -81,7 +80,10 @@ impl Cache {
             return hit.clone();
         }
         let parsed = parse_with(text, file, allow_bodyless);
-        let entry = (std::sync::Arc::new(parsed.module), std::sync::Arc::new(parsed.errors));
+        let entry = (
+            std::sync::Arc::new(parsed.module),
+            std::sync::Arc::new(parsed.errors),
+        );
         self.entries.insert(file, entry.clone());
         entry
     }
@@ -93,7 +95,10 @@ impl Cache {
         file: FileId,
         parsed: Parsed,
     ) -> (std::sync::Arc<Module>, std::sync::Arc<Vec<Diagnostic>>) {
-        let entry = (std::sync::Arc::new(parsed.module), std::sync::Arc::new(parsed.errors));
+        let entry = (
+            std::sync::Arc::new(parsed.module),
+            std::sync::Arc::new(parsed.errors),
+        );
         self.entries.insert(file, entry.clone());
         entry
     }
@@ -160,7 +165,11 @@ fn parse_inner(text: &str, file: FileId, allow_bodyless: bool) -> (Parsed, Kept<
         tokens: lexed.tokens,
         trivia: lexed.trivia,
         pos: 0,
-        reported: lexed.errors.iter().map(|e| (e.span.start, e.span.end)).collect(),
+        reported: lexed
+            .errors
+            .iter()
+            .map(|e| (e.span.start, e.span.end))
+            .collect(),
         errors: lexed.errors,
         discarded: Diagnostic::error(Span::NONE, String::new()),
         allow_bodyless,
@@ -176,15 +185,30 @@ fn parse_inner(text: &str, file: FileId, allow_bodyless: bool) -> (Parsed, Kept<
     // appears later is almost always a mistyped `///`, and silently attaching
     // it to the module would publish a comment somebody wrote about a
     // declaration.
-    let kept = lexed.module_docs.iter().take_while(|(_, span)| span.start <= first_item).count();
+    let kept = lexed
+        .module_docs
+        .iter()
+        .take_while(|(_, span)| span.start <= first_item)
+        .count();
     let (kept, late) = lexed.module_docs.split_at(kept);
     let lines: Vec<Location> = kept.iter().map(|(at, _)| *at).collect();
     module.docs = module.tree.push_docs(&lines);
     for (_, span) in late {
-        p.errors.push(Diagnostic::templated("module-doc-not-first", *span));
+        p.errors
+            .push(Diagnostic::templated("module-doc-not-first", *span));
     }
-    let kept = Kept { tokens: p.tokens, trivia: p.trivia, module_docs: lexed.module_docs };
-    (Parsed { module, errors: p.errors }, kept)
+    let kept = Kept {
+        tokens: p.tokens,
+        trivia: p.trivia,
+        module_docs: lexed.module_docs,
+    };
+    (
+        Parsed {
+            module,
+            errors: p.errors,
+        },
+        kept,
+    )
 }
 
 /// Whether a token can begin an expression.
@@ -321,7 +345,10 @@ fn starts_field(t: TokenKind) -> bool {
 
 /// Whether a token can begin a function parameter, `self` and `ctx` included.
 fn starts_param(t: TokenKind) -> bool {
-    matches!(t, TokenKind::Ident | TokenKind::KeywordSelfValue | TokenKind::KeywordCtx)
+    matches!(
+        t,
+        TokenKind::Ident | TokenKind::KeywordSelfValue | TokenKind::KeywordCtx
+    )
 }
 
 /// Whether a token can begin a *statement*.
@@ -685,11 +712,19 @@ impl<'a> Parser<'a> {
     }
 
     fn span(&self) -> Span {
-        Span { file: self.file, start: self.here.start, end: self.here.end }
+        Span {
+            file: self.file,
+            start: self.here.start,
+            end: self.here.end,
+        }
     }
 
     fn prev_span(&self) -> Span {
-        Span { file: self.file, start: self.before.start, end: self.before.end }
+        Span {
+            file: self.file,
+            start: self.before.start,
+            end: self.before.end,
+        }
     }
 
     /// The doc lines attached to the token about to be read, taken out of the
@@ -707,7 +742,9 @@ impl<'a> Parser<'a> {
         let Ok(i) = self.trivia.binary_search_by_key(&at, |(a, _)| *a) else {
             return Docs::default();
         };
-        self.trivia.get(i).map_or_else(Docs::default, |(_, t)| t.docs)
+        self.trivia
+            .get(i)
+            .map_or_else(Docs::default, |(_, t)| t.docs)
     }
 
     /// The source under a span, empty if it does not describe one.
@@ -717,7 +754,9 @@ impl<'a> Parser<'a> {
     /// bytes where it is wrong, and a total accessor makes that a short
     /// message rather than a crash.
     fn slice(&self, span: Span) -> &'a str {
-        self.src.get(span.start as usize..span.end as usize).unwrap_or("")
+        self.src
+            .get(span.start as usize..span.end as usize)
+            .unwrap_or("")
     }
 
     /// What was written where the parser is standing.
@@ -766,7 +805,10 @@ impl<'a> Parser<'a> {
     /// token the parser read.
     fn bump(&mut self) -> Span {
         let span = self.span();
-        invariant(self.pos < self.last, "nothing reads past the end of the file");
+        invariant(
+            self.pos < self.last,
+            "nothing reads past the end of the file",
+        );
         self.pos = self.pos.saturating_add(1);
         self.before = self.here;
         (self.cur, self.here) = self.tokens.record(self.pos);
@@ -823,7 +865,9 @@ impl<'a> Parser<'a> {
     /// that was written. The construct is closed as though it were there, and
     /// the unterminated string stays the whole of what went wrong.
     fn after_an_unterminated_string(&self) -> bool {
-        self.pos.checked_sub(1).is_some_and(|p| self.tokens.is_unterminated(self.at(p)))
+        self.pos
+            .checked_sub(1)
+            .is_some_and(|p| self.tokens.is_unterminated(self.at(p)))
     }
 
     fn is(&self, p: Punctuation) -> bool {
@@ -990,7 +1034,9 @@ impl<'a> Parser<'a> {
     fn separator_missing(&mut self, construct: &str) {
         let prev = self.prev_span();
         let at = Span::point(prev.file, prev.end as usize);
-        self.templated("missing-comma", at).bind("construct", construct).edit(at, ",");
+        self.templated("missing-comma", at)
+            .bind("construct", construct)
+            .edit(at, ",");
     }
 
     /// A leaf standing for a region that did not parse.
@@ -1037,7 +1083,9 @@ impl<'a> Parser<'a> {
             _ => return,
         };
         let span = self.span();
-        self.templated("postfix-on-block", span).bind("construct", what).bind("token", token);
+        self.templated("postfix-on-block", span)
+            .bind("construct", what)
+            .bind("token", token);
     }
 
     /// Whether what the parser is standing on could begin the next declaration,
@@ -1061,12 +1109,7 @@ impl<'a> Parser<'a> {
     /// for the rest of the file. A trial bails instead: a speculative reading
     /// that repaired itself would always win.
     #[inline]
-    fn expect_close(
-        &mut self,
-        close: Punctuation,
-        construct: &str,
-        opened: Span,
-    ) -> PResult<Span> {
+    fn expect_close(&mut self, close: Punctuation, construct: &str, opened: Span) -> PResult<Span> {
         if self.is(close) {
             self.closed = Closed::Read;
             return Ok(self.bump());
@@ -1130,8 +1173,7 @@ impl<'a> Parser<'a> {
                 TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => {
                     depth = depth.saturating_add(1);
                 }
-                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket
-                | TokenKind::Semi
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket | TokenKind::Semi
                     if depth == 0 =>
                 {
                     return None;
@@ -1169,14 +1211,18 @@ impl<'a> Parser<'a> {
         }
         i = i.saturating_add(1);
         match self.kind_at(i) {
-            TokenKind::LParen => i = match self.past_group(i, TokenKind::RParen) {
-                Some(j) => j,
-                None => return false,
-            },
-            TokenKind::LBrace => i = match self.past_group(i, TokenKind::RBrace) {
-                Some(j) => j,
-                None => return false,
-            },
+            TokenKind::LParen => {
+                i = match self.past_group(i, TokenKind::RParen) {
+                    Some(j) => j,
+                    None => return false,
+                }
+            }
+            TokenKind::LBrace => {
+                i = match self.past_group(i, TokenKind::RBrace) {
+                    Some(j) => j,
+                    None => return false,
+                }
+            }
             _ => {}
         }
         match self.kind_at(i) {
@@ -1304,7 +1350,9 @@ impl<'a> Parser<'a> {
         }
         let prev = self.prev_span();
         let at = Span::point(prev.file, prev.end as usize);
-        self.templated("missing-semicolon", at).bind("construct", construct).edit(at, ";");
+        self.templated("missing-semicolon", at)
+            .bind("construct", construct)
+            .edit(at, ";");
         Ok(prev)
     }
 
@@ -1373,7 +1421,10 @@ impl<'a> Parser<'a> {
         // `export` before a keyword starts the next declaration, after a
         // missing closer.
         if self.is_keyword(Keyword::Export)
-            && self.kind_at(self.pos.saturating_add(1)).as_keyword().is_none()
+            && self
+                .kind_at(self.pos.saturating_add(1))
+                .as_keyword()
+                .is_none()
         {
             return Ok(self.bump());
         }
@@ -1398,7 +1449,10 @@ impl<'a> Parser<'a> {
     /// the construct *ending* — stepping over either turns a mistake about the
     /// shape into a mistake about the token behind it.
     fn stray_token(&self) -> bool {
-        matches!(self.peek(), TokenKind::At | TokenKind::Question | TokenKind::KeywordExport)
+        matches!(
+            self.peek(),
+            TokenKind::At | TokenKind::Question | TokenKind::KeywordExport
+        )
     }
 
     /// The token [`Parser::early`] holds, if it is the kind this production
@@ -1446,7 +1500,10 @@ impl<'a> Parser<'a> {
     fn exchanged_binding(&mut self) -> bool {
         if !matches!(self.peek(), TokenKind::Ident | TokenKind::KeywordCtx)
             || self.kind_at(self.pos.saturating_add(1)) != TokenKind::of_keyword(Keyword::Let)
-            || !matches!(self.kind_at(self.pos.saturating_add(2)), TokenKind::Colon | TokenKind::Eq)
+            || !matches!(
+                self.kind_at(self.pos.saturating_add(2)),
+                TokenKind::Colon | TokenKind::Eq
+            )
         {
             return false;
         }
@@ -1456,7 +1513,8 @@ impl<'a> Parser<'a> {
         let found = self.found();
         let fix = format!("write `let` first: `let {written}`");
         let repaired = format!("let {written}");
-        self.expected(name, "`let`", &found, fix).edit(name.to(keyword), &repaired);
+        self.expected(name, "`let`", &found, fix)
+            .edit(name.to(keyword), &repaired);
         self.early = Some(self.at(self.pos));
         self.bump();
         true
@@ -1510,14 +1568,21 @@ impl<'a> Parser<'a> {
         }
         let found = self.found();
         let span = self.span();
-        self.expected(span, "a string literal", &found, "quote it, as in `\"core/list\"`");
+        self.expected(
+            span,
+            "a string literal",
+            &found,
+            "quote it, as in `\"core/list\"`",
+        );
         // A stray token in front of the path, stepped over: the import still
         // names what it imports, so the names it binds stay in scope. Not onto
         // a string with no closing quote, which holds the rest of its line
         // rather than a path.
         if self.stray_token()
             && self.kind_at(self.pos.saturating_add(1)) == TokenKind::Str
-            && !self.tokens.is_unterminated(self.at(self.pos.saturating_add(1)))
+            && !self
+                .tokens
+                .is_unterminated(self.at(self.pos.saturating_add(1)))
         {
             self.bump();
             let s = self.text_here().to_string();
@@ -1701,12 +1766,19 @@ impl<'a> Parser<'a> {
                     items.push(Item::Error(from.to(self.prev_span())));
                 }
             }
-            invariant(self.pos != before, "a declaration, or the recovery from one, reads a token");
+            invariant(
+                self.pos != before,
+                "a declaration, or the recovery from one, reads a token",
+            );
             // A token held for a production that never asked for it belongs to
             // the declaration it was written in and to nothing after it.
             self.early = None;
         }
-        Module { items, docs: Docs::default(), tree: std::mem::take(&mut self.tree) }
+        Module {
+            items,
+            docs: Docs::default(),
+            tree: std::mem::take(&mut self.tree),
+        }
     }
 
     fn item(&mut self) -> PResult<Option<Item>> {
@@ -1736,30 +1808,21 @@ impl<'a> Parser<'a> {
         let keyword = self.peek().as_keyword();
         let item = match keyword {
             Some(Keyword::Fn) => Item::Fn(self.fn_decl(exported, docs, start)?),
-            Some(Keyword::Struct) => {
-                Item::Struct(self.struct_decl(exported, docs, start)?)
-            }
+            Some(Keyword::Struct) => Item::Struct(self.struct_decl(exported, docs, start)?),
             Some(Keyword::Enum) => Item::Enum(self.enum_decl(exported, docs, start)?),
-            Some(Keyword::Type) => {
-                Item::TypeAlias(self.type_alias(exported, docs, start)?)
-            }
+            Some(Keyword::Type) => Item::TypeAlias(self.type_alias(exported, docs, start)?),
             Some(Keyword::Let) => Item::Let(self.let_decl(exported, docs, start)?),
             // The old spelling: reported at the keyword with the edit that
             // replaces it, then read on, so one error names the whole mistake.
             Some(Keyword::Const) => {
                 let keyword = self.bump();
-                self.templated("const-declaration", keyword).edit(keyword, "let");
+                self.templated("const-declaration", keyword)
+                    .edit(keyword, "let");
                 Item::Let(self.let_decl_tail(exported, docs, start)?)
             }
-            Some(Keyword::Trait) => {
-                Item::Trait(self.trait_decl(exported, docs, start, false)?)
-            }
-            Some(Keyword::Effect) => {
-                Item::Trait(self.trait_decl(exported, docs, start, true)?)
-            }
-            Some(Keyword::Context) => {
-                Item::Context(self.context_decl(exported, docs, start)?)
-            }
+            Some(Keyword::Trait) => Item::Trait(self.trait_decl(exported, docs, start, false)?),
+            Some(Keyword::Effect) => Item::Trait(self.trait_decl(exported, docs, start, true)?),
+            Some(Keyword::Context) => Item::Context(self.context_decl(exported, docs, start)?),
             // `from "..." export { ... }` after a stray `export`: an unexported
             // `from` was read as an import before the `export` was looked for.
             Some(Keyword::From) => {
@@ -1821,7 +1884,10 @@ impl<'a> Parser<'a> {
         }
         let early = self.span();
         let at = self.tokens.span(self.at(self.pos.saturating_add(1)));
-        if self.src.get(early.end as usize..at.start as usize).is_none_or(|gap| gap.contains('\n'))
+        if self
+            .src
+            .get(early.end as usize..at.start as usize)
+            .is_none_or(|gap| gap.contains('\n'))
         {
             return false;
         }
@@ -1830,7 +1896,8 @@ impl<'a> Parser<'a> {
         let want = format!("`{written}`");
         let fix = format!("write {want} first: `{written} {}`", self.slice(early));
         let repaired = format!("{written} {}", self.slice(early));
-        self.expected(early, &want, &found, fix).edit(early.to(at), &repaired);
+        self.expected(early, &want, &found, fix)
+            .edit(early.to(at), &repaired);
         self.early = Some(self.at(self.pos));
         self.bump();
         true
@@ -1849,7 +1916,8 @@ impl<'a> Parser<'a> {
         let found = self.tokens.describe(self.at(self.pos.saturating_add(1)));
         let fix = format!("write `export` before `{written}`");
         let repaired = format!("export {written}");
-        self.expected(export, "an identifier", &found, fix).edit(keyword.to(export), &repaired);
+        self.expected(export, "an identifier", &found, fix)
+            .edit(keyword.to(export), &repaired);
         true
     }
 
@@ -1865,7 +1933,12 @@ impl<'a> Parser<'a> {
             let specs = self.import_specs(Punctuation::RBrace)?;
             self.expect_close(Punctuation::RBrace, "re-export list", open)?;
             let end = self.expect_terminator("a re-export declaration")?;
-            return Ok(Item::ReExport(ReExport { path, path_span, specs, span: start.to(end) }));
+            return Ok(Item::ReExport(ReExport {
+                path,
+                path_span,
+                specs,
+                span: start.to(end),
+            }));
         }
 
         self.expect_keyword(Keyword::Import)?;
@@ -1886,16 +1959,26 @@ impl<'a> Parser<'a> {
             ImportClause::Named(specs)
         };
         let end = self.expect_terminator("an import declaration")?;
-        Ok(Item::Import(Import { path, path_span, clause, span: start.to(end) }))
+        Ok(Item::Import(Import {
+            path,
+            path_span,
+            clause,
+            span: start.to(end),
+        }))
     }
 
     fn import_specs(&mut self, close: Punctuation) -> PResult<List<ImportSpec>> {
         let start = self.tree.len_of::<ImportSpec>();
         while !self.list_ended(close) {
             let name = self.expect_ident()?;
-            let alias =
-                if self.eat_keyword(Keyword::As) { Some(self.expect_ident()?) } else { None };
-            let span = name.span.to(alias.as_ref().map(|a| a.span).unwrap_or(name.span));
+            let alias = if self.eat_keyword(Keyword::As) {
+                Some(self.expect_ident()?)
+            } else {
+                None
+            };
+            let span = name
+                .span
+                .to(alias.as_ref().map(|a| a.span).unwrap_or(name.span));
             self.tree.add(ImportSpec { name, alias, span });
             if !self.more_elements(close, "an import name", starts_name) {
                 break;
@@ -1968,7 +2051,12 @@ impl<'a> Parser<'a> {
                 let ty = self.ty()?;
                 (ty.0, start.to(self.tree.type_span(ty)))
             };
-            self.tree.add(Param { kind, name, ty, span });
+            self.tree.add(Param {
+                kind,
+                name,
+                ty,
+                span,
+            });
             first = false;
             if !self.more_elements(Punctuation::RParen, "a function parameter", starts_param) {
                 break;
@@ -1998,8 +2086,8 @@ impl<'a> Parser<'a> {
         let parsed = self.ty();
         self.trial = self.trial.saturating_sub(1);
         self.depth = depth;
-        let annotated = parsed.is_ok()
-            && (self.is(Punctuation::Comma) || self.is(Punctuation::RParen));
+        let annotated =
+            parsed.is_ok() && (self.is(Punctuation::Comma) || self.is(Punctuation::RParen));
         self.restore(save);
         self.seek(pos);
         if !annotated {
@@ -2008,7 +2096,10 @@ impl<'a> Parser<'a> {
         let colon = self.bump();
         // The trial read this type with every closer required, and the real
         // reading only repairs more, so it reads it too.
-        let ty = self.ty().ok().or_ice("the trial read this annotation as a type");
+        let ty = self
+            .ty()
+            .ok()
+            .or_ice("the trial read this annotation as a type");
         let end = self.tree.type_span(ty);
         self.templated("typed-self", colon.to(end))
             .edit(keyword.to(end), "self");
@@ -2018,8 +2109,13 @@ impl<'a> Parser<'a> {
     /// The old per-variant `export`. The edit reaches from the keyword to the
     /// name, so the space after `export` goes with it however wide it was.
     fn variant_export(&mut self, keyword: Span, name: Span) {
-        let through_the_gap = Span { file: keyword.file, start: keyword.start, end: name.start };
-        self.templated("variant-export", keyword).edit(through_the_gap, "");
+        let through_the_gap = Span {
+            file: keyword.file,
+            start: keyword.start,
+            end: name.start,
+        };
+        self.templated("variant-export", keyword)
+            .edit(through_the_gap, "");
     }
 
     fn fn_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<FnDecl> {
@@ -2047,11 +2143,25 @@ impl<'a> Parser<'a> {
         } else {
             let found = self.found();
             let span = self.span();
-            self.expected(span, "a function body", &found, "write `{ ... }` after the return type");
+            self.expected(
+                span,
+                "a function body",
+                &found,
+                "write `{ ... }` after the return type",
+            );
             return Err(Bail);
         };
         let span = start.to(self.prev_span());
-        Ok(FnDecl { name, generics, params, ret, body, exported, span, docs })
+        Ok(FnDecl {
+            name,
+            generics,
+            params,
+            ret,
+            body,
+            exported,
+            span,
+            docs,
+        })
     }
 
     /// `MethodSig` inside a trait or effect: no body, terminated with `;`.
@@ -2092,8 +2202,16 @@ impl<'a> Parser<'a> {
                 let fstart = self.span();
                 let fexported = self.eat_keyword(Keyword::Export);
                 let ty = self.ty()?;
-                self.tree.add(TupleField { exported: fexported, ty, span: fstart.to(self.prev_span()) });
-                if !self.more_elements(Punctuation::RParen, "a tuple-struct field", starts_tuple_field) {
+                self.tree.add(TupleField {
+                    exported: fexported,
+                    ty,
+                    span: fstart.to(self.prev_span()),
+                });
+                if !self.more_elements(
+                    Punctuation::RParen,
+                    "a tuple-struct field",
+                    starts_tuple_field,
+                ) {
                     break;
                 }
             }
@@ -2109,7 +2227,14 @@ impl<'a> Parser<'a> {
             StructBody::Record(fields)
         };
         let span = start.to(self.prev_span());
-        Ok(StructDecl { name, generics, body, exported, span, docs })
+        Ok(StructDecl {
+            name,
+            generics,
+            body,
+            exported,
+            span,
+            docs,
+        })
     }
 
     /// A struct's fields carry their own `export`; a variant's payload fields
@@ -2123,7 +2248,11 @@ impl<'a> Parser<'a> {
         while !self.list_ended(close) {
             let docs = self.docs();
             let start = self.span();
-            let keyword = if self.is_keyword(Keyword::Export) { Some(self.bump()) } else { None };
+            let keyword = if self.is_keyword(Keyword::Export) {
+                Some(self.bump())
+            } else {
+                None
+            };
             let name_start = self.span();
             let name = self.expect_ident()?;
             let exported = match keyword {
@@ -2135,8 +2264,22 @@ impl<'a> Parser<'a> {
             };
             self.expect(Punctuation::Colon)?;
             let ty = self.ty()?;
-            self.tree.add(FieldDecl { exported, name, ty, span: start.to(self.prev_span()), docs });
-            if !self.more_elements(close, if per_field_export { "a record field" } else { "a variant payload field" }, starts_field) {
+            self.tree.add(FieldDecl {
+                exported,
+                name,
+                ty,
+                span: start.to(self.prev_span()),
+                docs,
+            });
+            if !self.more_elements(
+                close,
+                if per_field_export {
+                    "a record field"
+                } else {
+                    "a variant payload field"
+                },
+                starts_field,
+            ) {
                 break;
             }
         }
@@ -2186,14 +2329,26 @@ impl<'a> Parser<'a> {
         }
         let span = start.to(self.prev_span());
         let variants = self.tree.since(at);
-        Ok(EnumDecl { name, generics, variants, exported, span, docs, recovered })
+        Ok(EnumDecl {
+            name,
+            generics,
+            variants,
+            exported,
+            span,
+            docs,
+            recovered,
+        })
     }
 
     /// One variant: its name, and the payload it carries.
     fn variant(&mut self) -> PResult<Variant> {
         let vdocs = self.docs();
         let vstart = self.span();
-        let keyword = if self.is_keyword(Keyword::Export) { Some(self.bump()) } else { None };
+        let keyword = if self.is_keyword(Keyword::Export) {
+            Some(self.bump())
+        } else {
+            None
+        };
         let name_start = self.span();
         let vname = self.expect_ident()?;
         if let Some(keyword) = keyword {
@@ -2205,7 +2360,8 @@ impl<'a> Parser<'a> {
             while !self.list_ended(Punctuation::RParen) {
                 let t = self.ty()?;
                 self.scratch.tys.push(t);
-                if !self.more_elements(Punctuation::RParen, "a variant payload field", starts_type) {
+                if !self.more_elements(Punctuation::RParen, "a variant payload field", starts_type)
+                {
                     break;
                 }
             }
@@ -2221,7 +2377,12 @@ impl<'a> Parser<'a> {
         } else {
             VariantPayload::None
         };
-        Ok(Variant { name: vname, payload, span: vstart.to(self.prev_span()), docs: vdocs })
+        Ok(Variant {
+            name: vname,
+            payload,
+            span: vstart.to(self.prev_span()),
+            docs: vdocs,
+        })
     }
 
     fn type_alias(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<TypeAliasDecl> {
@@ -2231,7 +2392,14 @@ impl<'a> Parser<'a> {
         self.expect(Punctuation::Eq)?;
         let ty = self.ty()?;
         let end = self.expect_terminator("a type alias")?;
-        Ok(TypeAliasDecl { name, generics, ty, exported, span: start.to(end), docs })
+        Ok(TypeAliasDecl {
+            name,
+            generics,
+            ty,
+            exported,
+            span: start.to(end),
+            docs,
+        })
     }
 
     fn let_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<LetDecl> {
@@ -2248,7 +2416,14 @@ impl<'a> Parser<'a> {
         self.expect(Punctuation::Eq)?;
         let value = self.expr()?;
         let end = self.expect_terminator("a `let` declaration")?;
-        Ok(LetDecl { name, ty, value, exported, span: start.to(end), docs })
+        Ok(LetDecl {
+            name,
+            ty,
+            value,
+            exported,
+            span: start.to(end),
+            docs,
+        })
     }
 
     fn trait_decl(
@@ -2277,11 +2452,23 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        let what = if is_effect { "`effect` body" } else { "`trait` body" };
+        let what = if is_effect {
+            "`effect` body"
+        } else {
+            "`trait` body"
+        };
         self.expect_close(Punctuation::RBrace, what, open)?;
         let span = start.to(self.prev_span());
         let methods = self.tree.since(at);
-        Ok(TraitDecl { name, generics, methods, is_effect, exported, span, docs })
+        Ok(TraitDecl {
+            name,
+            generics,
+            methods,
+            is_effect,
+            exported,
+            span,
+            docs,
+        })
     }
 
     fn impl_decl(&mut self, docs: Docs) -> PResult<ImplDecl> {
@@ -2344,7 +2531,14 @@ impl<'a> Parser<'a> {
         }
         self.expect_close(Punctuation::RBrace, "`impl` body", open)?;
         let methods = self.tree.since(at);
-        Ok(ImplDecl { docs, generics, trait_ty, self_ty, methods, span: start.to(self.prev_span()) })
+        Ok(ImplDecl {
+            docs,
+            generics,
+            trait_ty,
+            self_ty,
+            methods,
+            span: start.to(self.prev_span()),
+        })
     }
 
     fn derive_decl(&mut self) -> PResult<DeriveDecl> {
@@ -2381,7 +2575,11 @@ impl<'a> Parser<'a> {
         self.expect_keyword(Keyword::For)?;
         let self_ty = self.named_type()?;
         let end = self.expect_terminator("a `derive` declaration")?;
-        Ok(DeriveDecl { traits, self_ty, span: start.to(end) })
+        Ok(DeriveDecl {
+            traits,
+            self_ty,
+            span: start.to(end),
+        })
     }
 
     fn context_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<ContextDecl> {
@@ -2389,7 +2587,13 @@ impl<'a> Parser<'a> {
         let name = self.expect_ident()?;
         let body = self.context_body()?;
         let span = start.to(self.prev_span());
-        Ok(ContextDecl { name, body, exported, span, docs })
+        Ok(ContextDecl {
+            name,
+            body,
+            exported,
+            span,
+            docs,
+        })
     }
 
     fn context_body(&mut self) -> PResult<CtxBodyId> {
@@ -2409,7 +2613,11 @@ impl<'a> Parser<'a> {
             self.expect(Punctuation::Colon)?;
             let value = self.expr()?;
             let span = Location::of(bstart.to(self.prev_span()));
-            self.scratch.binds.push(CtxBindData { effect: effect.0, value: value.0, span });
+            self.scratch.binds.push(CtxBindData {
+                effect: effect.0,
+                value: value.0,
+                span,
+            });
             if !self.more_elements(Punctuation::RBrace, "a context binding", starts_name) {
                 break;
             }
@@ -2432,7 +2640,13 @@ impl<'a> Parser<'a> {
         let start = early.unwrap_or(self.expect_keyword(Keyword::Test)?);
         let (name, name_span) = self.expect_string()?;
         let body = self.block("`test` body")?;
-        Ok(TestDecl { name, name_span, body, span: start.to(self.prev_span()), docs })
+        Ok(TestDecl {
+            name,
+            name_span,
+            body,
+            span: start.to(self.prev_span()),
+            docs,
+        })
     }
 
     // -- types --------------------------------------------------------------
@@ -2456,7 +2670,9 @@ impl<'a> Parser<'a> {
         self.scratch.names.truncate(nbase);
         let args = self.type_args()?;
         let span = start.to(self.prev_span());
-        Ok(self.tree.push_type(TypeKind::Named, [ps, pl, args.start, args.len], span))
+        Ok(self
+            .tree
+            .push_type(TypeKind::Named, [ps, pl, args.start, args.len], span))
     }
 
     /// A type-argument list, appended to the tree. No `<` is the empty list,
@@ -2593,7 +2809,10 @@ impl<'a> Parser<'a> {
         // where `enter` would not refuse.
         if self.cur == TokenKind::Ident
             && self.depth < MAX_DEPTH
-            && !matches!(self.kind_at(self.pos.saturating_add(1)), TokenKind::Dot | TokenKind::Lt)
+            && !matches!(
+                self.kind_at(self.pos.saturating_add(1)),
+                TokenKind::Dot | TokenKind::Lt
+            )
         {
             let span = self.bump();
             let name = self.tree.push_name(Location::of(span));
@@ -2616,7 +2835,11 @@ impl<'a> Parser<'a> {
             while !self.list_ended(Punctuation::RParen) {
                 let t = self.ty()?;
                 self.scratch.tys.push(t);
-                if !self.more_elements(Punctuation::RParen, "a function-type parameter", starts_type) {
+                if !self.more_elements(
+                    Punctuation::RParen,
+                    "a function-type parameter",
+                    starts_type,
+                ) {
                     break;
                 }
             }
@@ -2640,7 +2863,9 @@ impl<'a> Parser<'a> {
             let elem = self.ty()?;
             self.expect_close(Punctuation::RBracket, "array type", open)?;
             let span = start.to(self.prev_span());
-            return Ok(self.tree.push_type(TypeKind::Array, [elem.0, 0, 0, 0], span));
+            return Ok(self
+                .tree
+                .push_type(TypeKind::Array, [elem.0, 0, 0, 0], span));
         }
 
         if self.is(Punctuation::LParen) {
@@ -2670,10 +2895,13 @@ impl<'a> Parser<'a> {
             self.scratch.tys.truncate(base);
             if n < 2 {
                 let span = start.to(self.prev_span());
-                self.templated("tuple-element-count", span).bind("tuple", "tuple type");
+                self.templated("tuple-element-count", span)
+                    .bind("tuple", "tuple type");
             }
             let span = start.to(self.prev_span());
-            return Ok(self.tree.push_type(TypeKind::Tuple, [elems.start, elems.len, 0, 0], span));
+            return Ok(self
+                .tree
+                .push_type(TypeKind::Tuple, [elems.start, elems.len, 0, 0], span));
         }
 
         match self.peek() {
@@ -2684,7 +2912,12 @@ impl<'a> Parser<'a> {
             _ => {
                 let found = self.found();
                 let span = self.span();
-                self.expected(span, "a type", &found, "name a type here, as in `Int` or `[Str]`");
+                self.expected(
+                    span,
+                    "a type",
+                    &found,
+                    "name a type here, as in `Int` or `[Str]`",
+                );
                 Err(Bail)
             }
         }
@@ -2764,8 +2997,7 @@ impl<'a> Parser<'a> {
                             let span = estart.to(self.prev_span());
                             self.restore(save);
                             broken = self.error_expr(span).0;
-                        } else if !self.is_keyword(Keyword::Let) && !starts_statement(self.peek())
-                        {
+                        } else if !self.is_keyword(Keyword::Let) && !starts_statement(self.peek()) {
                             if self.is(Punctuation::RBrace) || self.at_eof() {
                                 // The block ends here, so this expression is
                                 // its value.
@@ -2797,9 +3029,7 @@ impl<'a> Parser<'a> {
                         } else {
                             // Something follows, so this was a statement and
                             // its `;` is missing rather than the block's `}`.
-                            let end = self.expect_terminator(statement_kind(
-                                self.tree.kind(e),
-                            ))?;
+                            let end = self.expect_terminator(statement_kind(self.tree.kind(e)))?;
                             self.scratch.stmts.push(StmtData {
                                 kind: StmtKind::Expr,
                                 is_ctx: false,
@@ -2819,7 +3049,10 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
-            invariant(self.pos != before, "a statement, or the recovery from one, reads a token");
+            invariant(
+                self.pos != before,
+                "a statement, or the recovery from one, reads a token",
+            );
             self.early = None;
         }
 
@@ -2963,7 +3196,11 @@ impl<'a> Parser<'a> {
         let base = self.scratch.lparams.len();
         while !self.list_ended(Punctuation::RParen) {
             let name = self.expect_name()?;
-            let ty = if self.eat(Punctuation::Colon) { self.ty()?.0 } else { NONE };
+            let ty = if self.eat(Punctuation::Colon) {
+                self.ty()?.0
+            } else {
+                NONE
+            };
             let span = name.to(self.prev_span());
             self.scratch.lparams.push(LambdaParamData {
                 name: Location::of(name),
@@ -2985,7 +3222,9 @@ impl<'a> Parser<'a> {
         let span = start.to(self.tree.span(body));
         let (ps, pl) = self.tree.push_lparams(since(&self.scratch.lparams, base));
         self.scratch.lparams.truncate(base);
-        Ok(self.tree.push(Kind::Lambda, [ps, pl, ret, body.0], span, at))
+        Ok(self
+            .tree
+            .push(Kind::Lambda, [ps, pl, ret, body.0], span, at))
     }
 
     /// Precedence climbing over the binary operators.
@@ -3015,7 +3254,9 @@ impl<'a> Parser<'a> {
         let mut links = 0u32;
         let mut rung = usize::MAX;
         loop {
-            let Some((op, lbp, rbp, level)) = binding_power(self.peek()) else { return Ok(lhs) };
+            let Some((op, lbp, rbp, level)) = binding_power(self.peek()) else {
+                return Ok(lhs);
+            };
             if lbp < min_bp {
                 return Ok(lhs);
             }
@@ -3163,7 +3404,9 @@ impl<'a> Parser<'a> {
             let start = self.bump();
             let operand = self.unary_expr()?;
             let span = start.to(self.tree.span(operand));
-            return Ok(self.tree.push(Kind::of_unop(op), [operand.0, 0, 0, 0], span, at));
+            return Ok(self
+                .tree
+                .push(Kind::of_unop(op), [operand.0, 0, 0, 0], span, at));
         }
 
         // Block-like expressions are operands but never postfix-chain heads,
@@ -3205,7 +3448,9 @@ impl<'a> Parser<'a> {
             let start = self.bump();
             let body = self.context_body()?;
             let span = start.to(self.tree.span_of(self.tree.ctx_body(body).span));
-            return Ok(self.tree.push(Kind::ContextExpr, [body.0, 0, 0, 0], span, at));
+            return Ok(self
+                .tree
+                .push(Kind::ContextExpr, [body.0, 0, 0, 0], span, at));
         }
 
         let primary = self.primary_expr()?;
@@ -3232,7 +3477,12 @@ impl<'a> Parser<'a> {
             if self.kind_at(self.pos.saturating_add(1)) == TokenKind::KeywordElse {
                 let found = self.found();
                 let span = self.span();
-                self.expected(span, "`else`", &found, "delete it — the `else` branch follows");
+                self.expected(
+                    span,
+                    "`else`",
+                    &found,
+                    "delete it — the `else` branch follows",
+                );
             } else if !branch_recovered {
                 // A branch whose own `}` was reported missing has already said
                 // what went wrong. Its `else` was consumed by that recovery or
@@ -3259,7 +3509,9 @@ impl<'a> Parser<'a> {
             self.tree.push(Kind::Block, [b.0, 0, 0, 0], span, bat)
         };
         let span = start.to(self.tree.span(else_));
-        Ok(self.tree.push(Kind::If, [cond.0, then.0, else_.0, 0], span, at))
+        Ok(self
+            .tree
+            .push(Kind::If, [cond.0, then.0, else_.0, 0], span, at))
     }
 
     fn match_expr(&mut self) -> PResult<ExprId> {
@@ -3303,12 +3555,17 @@ impl<'a> Parser<'a> {
             if !self.more_elements(Punctuation::RBrace, "a match arm", starts_pattern) {
                 break;
             }
-            invariant(self.pos != before, "a match arm, or the recovery from one, reads a token");
+            invariant(
+                self.pos != before,
+                "a match arm, or the recovery from one, reads a token",
+            );
         }
         let end = self.expect_close(Punctuation::RBrace, "`match`", open)?;
         let (as_, al) = self.tree.push_arms(since(&self.scratch.arms, base));
         self.scratch.arms.truncate(base);
-        Ok(self.tree.push(Kind::Match, [scrutinee.0, as_, al, 0], start.to(end), at))
+        Ok(self
+            .tree
+            .push(Kind::Match, [scrutinee.0, as_, al, 0], start.to(end), at))
     }
 
     /// One arm. A method rather than the closure it used to be, because the
@@ -3374,13 +3631,17 @@ impl<'a> Parser<'a> {
                 let value = self.int_value();
                 let span = self.bump();
                 let ix = self.tree.push_int(value);
-                Ok(self.tree.push(Kind::Int, [ix, span.start, span.end, 0], span, at))
+                Ok(self
+                    .tree
+                    .push(Kind::Int, [ix, span.start, span.end, 0], span, at))
             }
             TokenKind::Float => {
                 let value = self.float_value();
                 let span = self.bump();
                 let ix = self.tree.push_float(value);
-                Ok(self.tree.push(Kind::Float, [ix, span.start, span.end, 0], span, at))
+                Ok(self
+                    .tree
+                    .push(Kind::Float, [ix, span.start, span.end, 0], span, at))
             }
             // A string with no closing quote holds the rest of the line rather
             // than a value, so it stands as the region it is. The checker gives
@@ -3429,7 +3690,9 @@ impl<'a> Parser<'a> {
                 self.bump();
                 let name = self.expect_name()?;
                 let span = start.to(name);
-                Ok(self.tree.push(Kind::DotVariant, [name.start, name.end, 0, 0], span, at))
+                Ok(self
+                    .tree
+                    .push(Kind::DotVariant, [name.start, name.end, 0, 0], span, at))
             }
             TokenKind::LBracket => {
                 self.bump();
@@ -3444,7 +3707,9 @@ impl<'a> Parser<'a> {
                 let end = self.expect_close(Punctuation::RBracket, "array", start)?;
                 let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, base));
                 self.scratch.exprs.truncate(base);
-                Ok(self.tree.push(Kind::Array, [ks, kl, 0, 0], start.to(end), at))
+                Ok(self
+                    .tree
+                    .push(Kind::Array, [ks, kl, 0, 0], start.to(end), at))
             }
             TokenKind::LParen => {
                 self.bump();
@@ -3481,11 +3746,14 @@ impl<'a> Parser<'a> {
                     return Ok(self.error_expr(start.to(end)));
                 }
                 if self.scratch.exprs.len().saturating_sub(base) < 2 {
-                    self.templated("tuple-element-count", start.to(end)).bind("tuple", "tuple");
+                    self.templated("tuple-element-count", start.to(end))
+                        .bind("tuple", "tuple");
                 }
                 let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, base));
                 self.scratch.exprs.truncate(base);
-                Ok(self.tree.push(Kind::Tuple, [ks, kl, 0, 0], start.to(end), at))
+                Ok(self
+                    .tree
+                    .push(Kind::Tuple, [ks, kl, 0, 0], start.to(end), at))
             }
             _ => {
                 let found = self.found();
@@ -3503,16 +3771,25 @@ impl<'a> Parser<'a> {
         self.bump();
         let base = self.scratch.parts.len();
         if let Some(ix) = head {
-            self.scratch.parts.push(PartData { text: ix, hole: NONE });
+            self.scratch.parts.push(PartData {
+                text: ix,
+                hole: NONE,
+            });
         }
         loop {
             let hole = self.expr()?;
-            self.scratch.parts.push(PartData { text: NONE, hole: hole.0 });
+            self.scratch.parts.push(PartData {
+                text: NONE,
+                hole: hole.0,
+            });
             match self.peek() {
                 TokenKind::TemplateSpan => {
                     if !self.text_here().is_empty() {
                         let ix = self.text_into_tree();
-                        self.scratch.parts.push(PartData { text: ix, hole: NONE });
+                        self.scratch.parts.push(PartData {
+                            text: ix,
+                            hole: NONE,
+                        });
                     }
                     self.bump();
                 }
@@ -3527,17 +3804,17 @@ impl<'a> Parser<'a> {
                 TokenKind::TemplateTail => {
                     if !self.text_here().is_empty() {
                         let ix = self.text_into_tree();
-                        self.scratch.parts.push(PartData { text: ix, hole: NONE });
+                        self.scratch.parts.push(PartData {
+                            text: ix,
+                            hole: NONE,
+                        });
                     }
                     let end = self.bump();
                     let (ps, pl) = self.tree.push_parts(since(&self.scratch.parts, base));
                     self.scratch.parts.truncate(base);
-                    return Ok(self.tree.push(
-                        Kind::Template,
-                        [ps, pl, 0, 0],
-                        start.to(end),
-                        at,
-                    ));
+                    return Ok(self
+                        .tree
+                        .push(Kind::Template, [ps, pl, 0, 0], start.to(end), at));
                 }
                 _ => {
                     let found = self.found();
@@ -3595,12 +3872,9 @@ impl<'a> Parser<'a> {
                                 self.templated("invalid-tuple-index", index_span)
                                     .bind("literal", raw);
                                 self.bump();
-                                base = self.tree.push(
-                                    Kind::Error,
-                                    [0; 4],
-                                    start.to(index_span),
-                                    at,
-                                );
+                                base =
+                                    self.tree
+                                        .push(Kind::Error, [0; 4], start.to(index_span), at);
                                 continue;
                             };
                             self.bump();
@@ -3636,30 +3910,31 @@ impl<'a> Parser<'a> {
                     while !self.list_ended(Punctuation::RParen) {
                         let e = self.expr()?;
                         self.scratch.exprs.push(e);
-                        if !self.more_elements(Punctuation::RParen, "a call argument", starts_expr) {
+                        if !self.more_elements(Punctuation::RParen, "a call argument", starts_expr)
+                        {
                             break;
                         }
                     }
                     let end = self.expect_close(Punctuation::RParen, "call", open)?;
                     let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, abase));
                     self.scratch.exprs.truncate(abase);
-                    base =
-                        self.tree.push(Kind::Call, [base.0, ks, kl, 0], start.to(end), at);
+                    base = self
+                        .tree
+                        .push(Kind::Call, [base.0, ks, kl, 0], start.to(end), at);
                 }
                 TokenKind::LBracket => {
                     let open = self.bump();
                     let index = self.expr()?;
                     let end = self.expect_close(Punctuation::RBracket, "index", open)?;
-                    base = self.tree.push(
-                        Kind::Index,
-                        [base.0, index.0, 0, 0],
-                        start.to(end),
-                        at,
-                    );
+                    base = self
+                        .tree
+                        .push(Kind::Index, [base.0, index.0, 0, 0], start.to(end), at);
                 }
                 TokenKind::Question => {
                     let end = self.bump();
-                    base = self.tree.push(Kind::Try, [base.0, 0, 0, 0], start.to(end), at);
+                    base = self
+                        .tree
+                        .push(Kind::Try, [base.0, 0, 0, 0], start.to(end), at);
                 }
                 // Type arguments, or the comparison operator that is spelled
                 // the same. `type_args_in_expr` decides and rewinds if it is
@@ -3746,7 +4021,11 @@ impl<'a> Parser<'a> {
         let fbase = self.scratch.inits.len();
         while !self.list_ended(Punctuation::RBrace) {
             let fname = self.expect_name()?;
-            let value = if self.eat(Punctuation::Colon) { self.expr()?.0 } else { NONE };
+            let value = if self.eat(Punctuation::Colon) {
+                self.expr()?.0
+            } else {
+                NONE
+            };
             let fspan = fname.to(self.prev_span());
             self.scratch.inits.push(InitData {
                 name: Location::of(fname),
@@ -3760,7 +4039,9 @@ impl<'a> Parser<'a> {
         let end = self.expect_close(Punctuation::RBrace, "struct literal", open)?;
         let (is, il) = self.tree.push_inits(since(&self.scratch.inits, fbase));
         self.scratch.inits.truncate(fbase);
-        Ok(self.tree.push(Kind::StructLit, [head, spread, is, il], start.to(end), at))
+        Ok(self
+            .tree
+            .push(Kind::StructLit, [head, spread, is, il], start.to(end), at))
     }
 
     /// Whether the `{` the parser is standing on opens an anonymous struct
@@ -3814,12 +4095,21 @@ impl<'a> Parser<'a> {
             && self.depth < MAX_DEPTH
             && !matches!(
                 self.kind_at(self.pos.saturating_add(1)),
-                TokenKind::Dot | TokenKind::LParen | TokenKind::LBrace | TokenKind::At | TokenKind::Or
+                TokenKind::Dot
+                    | TokenKind::LParen
+                    | TokenKind::LBrace
+                    | TokenKind::At
+                    | TokenKind::Or
             )
         {
             let at = self.tree.next_pat();
             let span = self.bump();
-            return Ok(self.tree.ppush(PatternKind::Bind, [span.start, span.end, NONE, 0], span, at));
+            return Ok(self.tree.ppush(
+                PatternKind::Bind,
+                [span.start, span.end, NONE, 0],
+                span,
+                at,
+            ));
         }
         self.enter()?;
         let r = self.pattern_or();
@@ -3844,7 +4134,9 @@ impl<'a> Parser<'a> {
         let end = last.map_or(start, |p| self.tree.pspan(p));
         let (ks, kl) = self.tree.push_pkids(since(&self.scratch.pats, base));
         self.scratch.pats.truncate(base);
-        Ok(self.tree.ppush(PatternKind::Or, [ks, kl, 0, 0], start.to(end), at))
+        Ok(self
+            .tree
+            .ppush(PatternKind::Or, [ks, kl, 0, 0], start.to(end), at))
     }
 
     fn pattern_primary(&mut self) -> PResult<PatId> {
@@ -3902,23 +4194,34 @@ impl<'a> Parser<'a> {
                 let value = self.int_value();
                 let span = self.bump();
                 let ix = self.tree.push_int(value);
-                Ok(self.tree.ppush(PatternKind::LitInt, [ix, span.start, span.end, 0], span, at))
+                Ok(self
+                    .tree
+                    .ppush(PatternKind::LitInt, [ix, span.start, span.end, 0], span, at))
             }
             TokenKind::Float => {
                 let value = self.float_value();
                 let span = self.bump();
                 let ix = self.tree.push_float(value);
-                Ok(self.tree.ppush(PatternKind::LitFloat, [ix, span.start, span.end, 0], span, at))
+                Ok(self.tree.ppush(
+                    PatternKind::LitFloat,
+                    [ix, span.start, span.end, 0],
+                    span,
+                    at,
+                ))
             }
             TokenKind::Str => {
                 let ix = self.text_into_tree();
                 let span = self.bump();
-                Ok(self.tree.ppush(PatternKind::LitStr, [ix, 0, 0, 0], span, at))
+                Ok(self
+                    .tree
+                    .ppush(PatternKind::LitStr, [ix, 0, 0, 0], span, at))
             }
             TokenKind::Char => {
                 let value = self.char_value();
                 let span = self.bump();
-                Ok(self.tree.ppush(PatternKind::LitChar, [value, 0, 0, 0], span, at))
+                Ok(self
+                    .tree
+                    .ppush(PatternKind::LitChar, [value, 0, 0, 0], span, at))
             }
             TokenKind::KeywordTrue => {
                 let span = self.bump();
@@ -3946,7 +4249,9 @@ impl<'a> Parser<'a> {
                 self.bump();
                 if self.is(Punctuation::RParen) {
                     let end = self.bump();
-                    return Ok(self.tree.ppush(PatternKind::Unit, [0; 4], start.to(end), at));
+                    return Ok(self
+                        .tree
+                        .ppush(PatternKind::Unit, [0; 4], start.to(end), at));
                 }
                 let first = self.pattern()?;
                 if self.is(Punctuation::RParen) {
@@ -3969,7 +4274,9 @@ impl<'a> Parser<'a> {
                 let end = self.expect_close(Punctuation::RParen, "tuple pattern", start)?;
                 let (ks, kl) = self.tree.push_pkids(since(&self.scratch.pats, base));
                 self.scratch.pats.truncate(base);
-                Ok(self.tree.ppush(PatternKind::Tuple, [ks, kl, 0, 0], start.to(end), at))
+                Ok(self
+                    .tree
+                    .ppush(PatternKind::Tuple, [ks, kl, 0, 0], start.to(end), at))
             }
             TokenKind::Ident => {
                 let first = self.expect_name()?;
@@ -4003,9 +4310,18 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 // A bare identifier is ALWAYS a binding.
-                let sub = if self.eat(Punctuation::At) { self.pattern_primary()?.0 } else { NONE };
+                let sub = if self.eat(Punctuation::At) {
+                    self.pattern_primary()?.0
+                } else {
+                    NONE
+                };
                 let span = start.to(self.prev_span());
-                Ok(self.tree.ppush(PatternKind::Bind, [first.start, first.end, sub, 0], span, at))
+                Ok(self.tree.ppush(
+                    PatternKind::Bind,
+                    [first.start, first.end, sub, 0],
+                    span,
+                    at,
+                ))
             }
             _ => {
                 // The name written in front of the `let` that binds it. A bare
@@ -4040,7 +4356,11 @@ impl<'a> Parser<'a> {
             while !self.list_ended(Punctuation::RParen) {
                 let p = self.pattern()?;
                 self.scratch.pats.push(p);
-                if !self.more_elements(Punctuation::RParen, "a variant-pattern field", starts_pattern) {
+                if !self.more_elements(
+                    Punctuation::RParen,
+                    "a variant-pattern field",
+                    starts_pattern,
+                ) {
                     break;
                 }
             }
@@ -4066,7 +4386,11 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 let name = self.expect_name()?;
-                let pattern = if self.eat(Punctuation::Colon) { self.pattern()?.0 } else { NONE };
+                let pattern = if self.eat(Punctuation::Colon) {
+                    self.pattern()?.0
+                } else {
+                    NONE
+                };
                 let span = name.to(self.prev_span());
                 self.scratch.fpats.push(FieldPatData {
                     name: Location::of(name),
@@ -4127,14 +4451,23 @@ impl<'a> Parser<'a> {
             }
             let p = self.pattern()?;
             self.scratch.pats.push(p);
-            if !self.more_elements(Punctuation::RBracket, "an array-pattern element", starts_pattern) {
+            if !self.more_elements(
+                Punctuation::RBracket,
+                "an array-pattern element",
+                starts_pattern,
+            ) {
                 break;
             }
         }
         let end = self.expect_close(Punctuation::RBracket, "array pattern", start)?;
         let (ks, kl) = self.tree.push_pkids(since(&self.scratch.pats, base));
         self.scratch.pats.truncate(base);
-        Ok(self.tree.ppush(PatternKind::Array, [ks, kl, rest_kind, rest_name], start.to(end), at))
+        Ok(self.tree.ppush(
+            PatternKind::Array,
+            [ks, kl, rest_kind, rest_name],
+            start.to(end),
+            at,
+        ))
     }
 }
 
@@ -4144,7 +4477,11 @@ mod tests {
 
     fn ok(src: &str) -> Module {
         let p = parse(src, FileId(0));
-        assert!(p.errors.is_empty(), "unexpected errors in {src:?}: {:#?}", p.errors);
+        assert!(
+            p.errors.is_empty(),
+            "unexpected errors in {src:?}: {:#?}",
+            p.errors
+        );
         p.module
     }
 
@@ -4271,7 +4608,11 @@ mod tests {
         // `>` closes a plausible list, but what follows can begin an operand,
         // so the comparison reading stands — and it is a chained one.
         let e = bad("fn f(): Bool { a < b > c }");
-        assert!(e[0].message.contains("non-associative"), "{:?}", e[0].message);
+        assert!(
+            e[0].message.contains("non-associative"),
+            "{:?}",
+            e[0].message
+        );
         // The same, one argument list deeper: `f(a < b, c > d)` is two
         // comparisons, not `f<a, c>` applied to `d`.
         ok("fn f(): Bool { h(a < b, c > d) }");
@@ -4324,7 +4665,10 @@ mod tests {
         assert_eq!(e[0].edits.len(), 1);
         assert_eq!(e[0].edits[0].replacement, "self");
         let at = e[0].edits[0].at;
-        assert_eq!(src.get(at.start as usize..at.end as usize), Some("self: Square"));
+        assert_eq!(
+            src.get(at.start as usize..at.end as usize),
+            Some("self: Square")
+        );
     }
 
     #[test]
@@ -4377,7 +4721,11 @@ mod tests {
     #[test]
     fn colon_colon_is_not_an_operator() {
         let e = bad("fn f(): Int { list::empty() }");
-        assert!(e[0].message.contains("`::` is not an operator"), "{:?}", e[0].message);
+        assert!(
+            e[0].message.contains("`::` is not an operator"),
+            "{:?}",
+            e[0].message
+        );
     }
 
     #[test]
@@ -4468,15 +4816,36 @@ mod tests {
         on_the_toolchain_stack(|| {
             let n = 10_000;
             for (what, src) in [
-                ("parentheses", format!("fn f(): I32 {{ {}1{} }}", "(".repeat(n), ")".repeat(n))),
-                ("arrays", format!("fn f(): I32 {{ {}1{} }}", "[".repeat(n), "]".repeat(n))),
-                ("blocks", format!("fn f(): I32 {{ {}1{} }}", "{".repeat(n), "}".repeat(n))),
-                ("types", format!("fn f(): {}I32{} {{ 1 }}", "List<".repeat(n), ">".repeat(n))),
-                ("patterns", format!("fn f(): I32 {{ match (1) {{ {}a{} => 1, _ => 0 }} }}", "[".repeat(n), "]".repeat(n))),
+                (
+                    "parentheses",
+                    format!("fn f(): I32 {{ {}1{} }}", "(".repeat(n), ")".repeat(n)),
+                ),
+                (
+                    "arrays",
+                    format!("fn f(): I32 {{ {}1{} }}", "[".repeat(n), "]".repeat(n)),
+                ),
+                (
+                    "blocks",
+                    format!("fn f(): I32 {{ {}1{} }}", "{".repeat(n), "}".repeat(n)),
+                ),
+                (
+                    "types",
+                    format!("fn f(): {}I32{} {{ 1 }}", "List<".repeat(n), ">".repeat(n)),
+                ),
+                (
+                    "patterns",
+                    format!(
+                        "fn f(): I32 {{ match (1) {{ {}a{} => 1, _ => 0 }} }}",
+                        "[".repeat(n),
+                        "]".repeat(n)
+                    ),
+                ),
             ] {
                 let errors = bad(&src);
                 assert!(
-                    errors.iter().any(|e| e.message.contains("nests too deeply")),
+                    errors
+                        .iter()
+                        .any(|e| e.message.contains("nests too deeply")),
                     "{what}: {:?}",
                     errors.iter().map(|e| &e.message).collect::<Vec<_>>()
                 );
@@ -4493,7 +4862,9 @@ mod tests {
             for op in ["!", "-", "~"] {
                 let errors = bad(&format!("fn f(): I32 {{ {}1 }}", op.repeat(100_000)));
                 assert!(
-                    errors.iter().any(|e| e.message.contains("nests too deeply")),
+                    errors
+                        .iter()
+                        .any(|e| e.message.contains("nests too deeply")),
                     "a chain of `{op}` was accepted"
                 );
             }
@@ -4508,9 +4879,18 @@ mod tests {
         on_the_toolchain_stack(|| {
             let n = MAX_CHAIN as usize + 10;
             for (what, src) in [
-                ("addition", format!("fn f(): I32 {{ 1{} }}", " + 1".repeat(n))),
-                ("conjunction", format!("fn f(): Bool {{ true{} }}", " && true".repeat(n))),
-                ("method calls", format!("fn f(): I32 {{ 1{} }}", ".abs()".repeat(n))),
+                (
+                    "addition",
+                    format!("fn f(): I32 {{ 1{} }}", " + 1".repeat(n)),
+                ),
+                (
+                    "conjunction",
+                    format!("fn f(): Bool {{ true{} }}", " && true".repeat(n)),
+                ),
+                (
+                    "method calls",
+                    format!("fn f(): I32 {{ 1{} }}", ".abs()".repeat(n)),
+                ),
                 (
                     "else-if",
                     format!(
@@ -4521,7 +4901,9 @@ mod tests {
             ] {
                 let errors = bad(&src);
                 assert!(
-                    errors.iter().any(|e| e.message.contains("chain is too long")),
+                    errors
+                        .iter()
+                        .any(|e| e.message.contains("chain is too long")),
                     "{what}: {:?}",
                     errors.iter().map(|e| &e.message).collect::<Vec<_>>()
                 );
@@ -4535,8 +4917,9 @@ mod tests {
     #[test]
     fn a_chain_the_length_generated_code_reaches_parses() {
         on_the_toolchain_stack(|| {
-            let chain: String =
-                (0..1_000).map(|i| format!("if (x == {i}) {{ {i} }} else ")).collect();
+            let chain: String = (0..1_000)
+                .map(|i| format!("if (x == {i}) {{ {i} }} else "))
+                .collect();
             ok(&format!("fn f(x: I32): I32 {{ {chain}{{ -1 }} }}"));
             ok(&format!("fn g(): I32 {{ 1{} }}", " + 1".repeat(1_000)));
         });
@@ -4558,8 +4941,13 @@ mod tests {
             for _ in 0..3 {
                 let before = buri_diagnostics::profile::thread_instructions();
                 let p = parse(&src, FileId(0));
-                fewest = fewest.min(buri_diagnostics::profile::thread_instructions().saturating_sub(before));
-                assert!(p.errors.len() >= n, "{n} broken declarations reported {} errors", p.errors.len());
+                fewest = fewest
+                    .min(buri_diagnostics::profile::thread_instructions().saturating_sub(before));
+                assert!(
+                    p.errors.len() >= n,
+                    "{n} broken declarations reported {} errors",
+                    p.errors.len()
+                );
             }
             fewest
         };

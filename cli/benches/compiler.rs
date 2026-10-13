@@ -392,20 +392,47 @@ fn fail(message: &str) -> ! {
 /// for want of a stencil library, and it is not among them.
 fn default_targets() -> Vec<Target> {
     vec![
-        Target { platform: Platform::Js, arch: None },
-        Target { platform: Platform::Macos, arch: Some(Arch::Arm64) },
-        Target { platform: Platform::Linux, arch: Some(Arch::X86_64) },
-        Target { platform: Platform::Linux, arch: Some(Arch::Arm64) },
+        Target {
+            platform: Platform::Js,
+            arch: None,
+        },
+        Target {
+            platform: Platform::Macos,
+            arch: Some(Arch::Arm64),
+        },
+        Target {
+            platform: Platform::Linux,
+            arch: Some(Arch::X86_64),
+        },
+        Target {
+            platform: Platform::Linux,
+            arch: Some(Arch::Arm64),
+        },
     ]
 }
 
 fn parse_target(name: &str) -> Option<Target> {
     Some(match name {
-        "js" => Target { platform: Platform::Js, arch: None },
-        "macos-arm64" => Target { platform: Platform::Macos, arch: Some(Arch::Arm64) },
-        "macos-x86_64" => Target { platform: Platform::Macos, arch: Some(Arch::X86_64) },
-        "linux-x86_64" => Target { platform: Platform::Linux, arch: Some(Arch::X86_64) },
-        "linux-arm64" => Target { platform: Platform::Linux, arch: Some(Arch::Arm64) },
+        "js" => Target {
+            platform: Platform::Js,
+            arch: None,
+        },
+        "macos-arm64" => Target {
+            platform: Platform::Macos,
+            arch: Some(Arch::Arm64),
+        },
+        "macos-x86_64" => Target {
+            platform: Platform::Macos,
+            arch: Some(Arch::X86_64),
+        },
+        "linux-x86_64" => Target {
+            platform: Platform::Linux,
+            arch: Some(Arch::X86_64),
+        },
+        "linux-arm64" => Target {
+            platform: Platform::Linux,
+            arch: Some(Arch::Arm64),
+        },
         _ => return None,
     })
 }
@@ -589,7 +616,10 @@ fn build_work(set: Set, scales: &[usize], stress_scale: usize, seed: u64) -> Vec
             for &n in scales {
                 work.push(generated("mixed", n, seed, true));
             }
-            for name in family_profiles(Family::Realistic).into_iter().filter(|n| *n != "mixed") {
+            for name in family_profiles(Family::Realistic)
+                .into_iter()
+                .filter(|n| *n != "mixed")
+            {
                 work.push(generated(name, stress_scale, seed, false));
             }
             for name in family_profiles(Family::Stress) {
@@ -607,11 +637,9 @@ fn build_work(set: Set, scales: &[usize], stress_scale: usize, seed: u64) -> Vec
             // the generated and the saved reading of `mixed`, and the two
             // deltas are compared. When the compiler changes both move; when
             // the *generator* changes only the generated one does.
-            work.extend(
-                saved_plans(false)
-                    .into_iter()
-                    .filter(|p| p.label.starts_with("saved:mixed-1k") || p.label.starts_with("saved:mixed-10k")),
-            );
+            work.extend(saved_plans(false).into_iter().filter(|p| {
+                p.label.starts_with("saved:mixed-1k") || p.label.starts_with("saved:mixed-10k")
+            }));
         }
         Set::Realistic => {
             for name in family_profiles(Family::Realistic) {
@@ -702,7 +730,12 @@ fn run() {
     }
 
     if let Some(phase) = &args.goals_child {
-        goals::child(phase, args.from.as_deref().unwrap_or_else(|| fail("--goals-child needs --from")));
+        goals::child(
+            phase,
+            args.from
+                .as_deref()
+                .unwrap_or_else(|| fail("--goals-child needs --from")),
+        );
         return;
     }
     if let Some(mode) = &args.goals {
@@ -737,8 +770,11 @@ fn run() {
         reduced: false,
     };
 
-    let scales: Vec<usize> =
-        if args.quick { vec![1_000] } else { vec![1_000, 10_000, 100_000] };
+    let scales: Vec<usize> = if args.quick {
+        vec![1_000]
+    } else {
+        vec![1_000, 10_000, 100_000]
+    };
     let stress_scale = if args.quick { 1_000 } else { 10_000 };
 
     // `--shape` and `--set` are exclusive: one profile ad hoc, or a set.
@@ -812,8 +848,11 @@ fn run() {
     }
 
     // The floor, first, because every later row's net figure is relative to it.
-    let floor =
-        if args.validate_only || args.rss_child.is_some() { Floor::zero() } else { floor_costs() };
+    let floor = if args.validate_only || args.rss_child.is_some() {
+        Floor::zero()
+    } else {
+        floor_costs()
+    };
     if !args.json && !args.validate_only && args.rss_child.is_none() {
         println!(
             "  prelude floor  lex {:.3} ms   parse {:.3} ms   sema {:.3} ms   lower {:.3} ms",
@@ -959,8 +998,15 @@ fn run() {
         }
         let cfg = protocol_for(&cfg, program.lines());
         let before = rows.len();
-        let (new_rows, new_skips) =
-            measure(&program, plan, source_kind, revision, &cfg, &floor, &targets);
+        let (new_rows, new_skips) = measure(
+            &program,
+            plan,
+            source_kind,
+            revision,
+            &cfg,
+            &floor,
+            &targets,
+        );
         rows.extend(new_rows);
         skipped.extend(new_skips);
         if !args.json {
@@ -968,7 +1014,10 @@ fn run() {
                 print_row(row);
             }
             for skip in skipped.iter().filter(|s| s.label == *label) {
-                println!("  {:<22} {:<20} skipped: {}", skip.label, skip.phase, skip.reason);
+                println!(
+                    "  {:<22} {:<20} skipped: {}",
+                    skip.label, skip.phase, skip.reason
+                );
             }
         }
         if args.want_split {
@@ -1005,7 +1054,14 @@ fn run() {
     }
 
     if args.json {
-        print_json(&rows, &skipped, &floor, &calibrations, &alloc_rows, &memory_rows);
+        print_json(
+            &rows,
+            &skipped,
+            &floor,
+            &calibrations,
+            &alloc_rows,
+            &memory_rows,
+        );
     } else {
         footer(&rows, &skipped);
     }
@@ -1058,16 +1114,30 @@ fn check_flat_tree(program: &Program) -> Result<usize, String> {
     for (i, m) in program.modules.iter().enumerate() {
         let parsed = parser::parse(&m.text, FileId(i as u32));
         let t = &parsed.module.tree;
-        let exprs: Vec<(u32, u32)> =
-            t.nodes().iter().enumerate().map(|(j, n)| (j as u32, n.subtree)).collect();
-        let pats: Vec<(u32, u32)> =
-            t.pat_nodes().iter().enumerate().map(|(j, n)| (j as u32, n.subtree)).collect();
+        let exprs: Vec<(u32, u32)> = t
+            .nodes()
+            .iter()
+            .enumerate()
+            .map(|(j, n)| (j as u32, n.subtree))
+            .collect();
+        let pats: Vec<(u32, u32)> = t
+            .pat_nodes()
+            .iter()
+            .enumerate()
+            .map(|(j, n)| (j as u32, n.subtree))
+            .collect();
         total += exprs.len() + pats.len();
         if !well_formed(&exprs) {
-            return Err(format!("{}: the expression arena is not a post-order forest", m.path));
+            return Err(format!(
+                "{}: the expression arena is not a post-order forest",
+                m.path
+            ));
         }
         if !well_formed(&pats) {
-            return Err(format!("{}: the pattern arena is not a post-order forest", m.path));
+            return Err(format!(
+                "{}: the pattern arena is not a post-order forest",
+                m.path
+            ));
         }
     }
     Ok(total)
@@ -1077,9 +1147,17 @@ fn check_flat_tree(program: &Program) -> Result<usize, String> {
 /// rows use, and the same token count, counted by lexing for real.
 fn calibration_corpus(program: &Program) -> calibrate::Corpus<'_> {
     let texts: Vec<&str> = program.modules.iter().map(|m| m.text.as_str()).collect();
-    let tokens: usize =
-        program.modules.iter().map(|m| lexer::lex(&m.text, FileId(0)).tokens.len()).sum();
-    calibrate::Corpus { texts, lines: program.lines(), bytes: program.bytes(), tokens }
+    let tokens: usize = program
+        .modules
+        .iter()
+        .map(|m| lexer::lex(&m.text, FileId(0)).tokens.len())
+        .sum();
+    calibrate::Corpus {
+        texts,
+        lines: program.lines(),
+        bytes: program.bytes(),
+        tokens,
+    }
 }
 
 fn print_calibration(label: &str, c: &calibrate::Corpus<'_>, rows: &[calibrate::Ceiling]) {
@@ -1117,7 +1195,11 @@ fn print_calibration(label: &str, c: &calibrate::Corpus<'_>, rows: &[calibrate::
         );
     }
     let (sum, verdict) = calibrate::verdict(rows, c.lines);
-    println!("  {:<22} front-end ceiling {sum:.1} ns/line ({:.2} M lines/s)", "", 1e9 / sum / 1e6);
+    println!(
+        "  {:<22} front-end ceiling {sum:.1} ns/line ({:.2} M lines/s)",
+        "",
+        1e9 / sum / 1e6
+    );
     println!("  {:<22} {verdict}", "");
 }
 
@@ -1195,8 +1277,11 @@ fn allocations_of(_f: impl FnOnce()) -> u64 {
 
 fn alloc_row(program: &Program, label: &str) -> AllocRow {
     let lines = program.lines();
-    let tokens: usize =
-        program.modules.iter().map(|m| lexer::lex(&m.text, FileId(0)).tokens.len()).sum();
+    let tokens: usize = program
+        .modules
+        .iter()
+        .map(|m| lexer::lex(&m.text, FileId(0)).tokens.len())
+        .sum();
     let mut phases = Vec::new();
     if cfg!(feature = "alloc-counter") {
         let texts: Vec<&str> = program.modules.iter().map(|m| m.text.as_str()).collect();
@@ -1228,7 +1313,12 @@ fn alloc_row(program: &Program, label: &str) -> AllocRow {
             }),
         ));
     }
-    AllocRow { label: label.to_string(), lines, tokens, phases }
+    AllocRow {
+        label: label.to_string(),
+        lines,
+        tokens,
+        phases,
+    }
 }
 
 fn print_alloc(row: &AllocRow) {
@@ -1278,14 +1368,18 @@ fn peak_rss_of_child(label: &str, phase: &str) -> Option<(u64, Option<u64>)> {
     let exe = std::env::current_exe().ok()?;
     let mut argv: Vec<String> = vec![exe.to_string_lossy().into_owned()];
     argv.extend(
-        std::env::args()
-            .skip(1)
-            .filter(|a| a != "--rss" && !a.starts_with("--only=") && !a.starts_with("--rss-child=")),
+        std::env::args().skip(1).filter(|a| {
+            a != "--rss" && !a.starts_with("--only=") && !a.starts_with("--rss-child=")
+        }),
     );
     argv.push(format!("--only={label}"));
     argv.push(format!("--rss-child={phase}"));
 
-    let out = std::process::Command::new("/usr/bin/time").arg("-l").args(&argv).output().ok()?;
+    let out = std::process::Command::new("/usr/bin/time")
+        .arg("-l")
+        .args(&argv)
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }
@@ -1323,15 +1417,23 @@ struct MemoryRow {
 /// The phases an `--rss` pass takes a child process for.
 fn memory_row(label: &str, lines: usize, targets: &[(Target, Profile)]) -> MemoryRow {
     let mut phases: Vec<(String, u64, Option<u64>)> = Vec::new();
-    let mut names: Vec<String> =
-        vec!["corpus".to_string(), "lex".to_string(), "lex+parse".to_string(), "sema".to_string()];
+    let mut names: Vec<String> = vec![
+        "corpus".to_string(),
+        "lex".to_string(),
+        "lex+parse".to_string(),
+        "sema".to_string(),
+    ];
     names.extend(targets.iter().map(|&(t, p)| phase_name(t, p)));
     for name in names {
         if let Some((peak, instructions)) = peak_rss_of_child(label, &name) {
             phases.push((name, peak, instructions));
         }
     }
-    MemoryRow { label: label.to_string(), lines, phases }
+    MemoryRow {
+        label: label.to_string(),
+        lines,
+        phases,
+    }
 }
 
 /// One phase, once, in a child process whose peak somebody else is watching.
@@ -1390,8 +1492,14 @@ fn run_one_phase(program: &Program, phase: &str, targets: &[(Target, Profile)]) 
             std::hint::black_box(&out);
         } else {
             actions::prepare(&mut prog, target);
-            let Ok(mut b) = backend::select(target, profile) else { return };
-            let opts = Options { profile, target, unit_prefix: "" };
+            let Ok(mut b) = backend::select(target, profile) else {
+                return;
+            };
+            let opts = Options {
+                profile,
+                target,
+                unit_prefix: "",
+            };
             let out = b.emit(&prog, &checked.tables, &opts);
             std::hint::black_box(out.is_ok());
         }
@@ -1414,7 +1522,9 @@ fn print_memory(row: &MemoryRow) {
     let (base, base_instructions) = row.phases.first().map_or((0, None), |(_, n, i)| (*n, *i));
     for (phase, peak, instructions) in &row.phases {
         let over = match (instructions, base_instructions) {
-            (Some(i), Some(b)) => format!("   {:>+10.1} M instructions", (*i as f64 - b as f64) / 1e6),
+            (Some(i), Some(b)) => {
+                format!("   {:>+10.1} M instructions", (*i as f64 - b as f64) / 1e6)
+            }
             _ => String::new(),
         };
         println!(
@@ -1466,7 +1576,10 @@ fn host_target() -> Option<Target> {
         "x86_64" => Arch::X86_64,
         _ => return None,
     };
-    Some(Target { platform, arch: Some(arch) })
+    Some(Target {
+        platform,
+        arch: Some(arch),
+    })
 }
 
 fn lowering_targets(args: &Args, plan: &Plan, lines: usize) -> Vec<(Target, Profile)> {
@@ -1490,7 +1603,11 @@ fn lowering_targets(args: &Args, plan: &Plan, lines: usize) -> Vec<(Target, Prof
 }
 
 fn do_record(args: &Args, name: &str, seed: u64, pinned: bool) {
-    let root = if pinned { corpus::pinned_root() } else { corpus::root() };
+    let root = if pinned {
+        corpus::pinned_root()
+    } else {
+        corpus::root()
+    };
     if let Err(e) = std::fs::create_dir_all(&root) {
         eprintln!("{}: {e}", root.display());
         std::process::exit(1);
@@ -1501,9 +1618,7 @@ fn do_record(args: &Args, name: &str, seed: u64, pinned: bool) {
         // `mixed-many-files` profile rather than `mixed`.
         let mut best: Option<&str> = None;
         for p in generate::PROFILES {
-            if name.starts_with(&format!("{p}-"))
-                && best.is_none_or(|b: &str| p.len() > b.len())
-            {
+            if name.starts_with(&format!("{p}-")) && best.is_none_or(|b: &str| p.len() > b.len()) {
                 best = Some(p);
             }
         }
@@ -1575,12 +1690,21 @@ fn do_record(args: &Args, name: &str, seed: u64, pinned: bool) {
 fn print_profiles() {
     println!("profiles (design/PERFORMANCE.md §4)");
     println!();
-    println!("  {:<18} {:<10} parameters moved from the default", "profile", "family");
+    println!(
+        "  {:<18} {:<10} parameters moved from the default",
+        "profile", "family"
+    );
     println!("  {}", "-".repeat(94));
     for name in generate::PROFILES {
-        let Some((family, params)) = generate::profile(name) else { continue };
+        let Some((family, params)) = generate::profile(name) else {
+            continue;
+        };
         let delta = params.delta();
-        let delta = if delta.is_empty() { "—".to_string() } else { delta };
+        let delta = if delta.is_empty() {
+            "—".to_string()
+        } else {
+            delta
+        };
         println!("  {:<18} {:<10} {}", name, family.name(), delta);
     }
     println!();
@@ -1591,7 +1715,11 @@ fn print_profiles() {
     let saved = corpus::discover(&root);
     if !saved.is_empty() {
         println!();
-        println!("checked-in corpora ({} KiB of {} KiB):", corpus::total_bytes(&root) / 1024, corpus::MAX_TOTAL_BYTES / 1024);
+        println!(
+            "checked-in corpora ({} KiB of {} KiB):",
+            corpus::total_bytes(&root) / 1024,
+            corpus::MAX_TOTAL_BYTES / 1024
+        );
         for dir in saved {
             match corpus::load(&dir) {
                 Ok((m, _)) => println!(
@@ -1649,7 +1777,11 @@ fn validate_targets(targets: &[Target]) {
                     b.name(),
                     b.identity()
                 ),
-                Err(e) => println!("  {:<22} {:<8} skipped: {e}", target_name(t), profile.name()),
+                Err(e) => println!(
+                    "  {:<22} {:<8} skipped: {e}",
+                    target_name(t),
+                    profile.name()
+                ),
             }
         }
     }
@@ -1835,14 +1967,14 @@ fn bench<F: FnMut()>(cfg: &Config, mut f: F) -> (Duration, f64, Duration, usize)
 
     samples.sort_unstable();
     let median = samples[samples.len() / 2];
-    let mut devs: Vec<Duration> = samples
-        .iter()
-        .map(|s| s.abs_diff(median))
-        .collect();
+    let mut devs: Vec<Duration> = samples.iter().map(|s| s.abs_diff(median)).collect();
     devs.sort_unstable();
     let mad = devs[devs.len() / 2];
-    let dispersion =
-        if median.as_secs_f64() > 0.0 { mad.as_secs_f64() / median.as_secs_f64() } else { 0.0 };
+    let dispersion = if median.as_secs_f64() > 0.0 {
+        mad.as_secs_f64() / median.as_secs_f64()
+    } else {
+        0.0
+    };
     (median, dispersion, samples[0], samples.len())
 }
 
@@ -1861,8 +1993,11 @@ fn measure(
     let bytes = program.bytes();
     let modules = program.modules.len();
     // Counted by lexing for real, outside any timer, rather than estimated.
-    let tokens: usize =
-        program.modules.iter().map(|m| lexer::lex(&m.text, FileId(0)).tokens.len()).sum();
+    let tokens: usize = program
+        .modules
+        .iter()
+        .map(|m| lexer::lex(&m.text, FileId(0)).tokens.len())
+        .sum();
     let mut rows = Vec::new();
     let mut skips = Vec::new();
 
@@ -1971,7 +2106,15 @@ fn measure(
                 let out = actions::emit(&mut prog, &checked.tables, target, &flags, &mut d);
                 std::hint::black_box(&out);
             });
-            rows.push(row(phase, median, dispersion, fastest, reps, floor.lower, TARGET_LOWER));
+            rows.push(row(
+                phase,
+                median,
+                dispersion,
+                fastest,
+                reps,
+                floor.lower,
+                TARGET_LOWER,
+            ));
             continue;
         }
 
@@ -1986,7 +2129,11 @@ fn measure(
         let mut selected = match backend::select(target, profile) {
             Ok(b) => b,
             Err(reason) => {
-                skips.push(Skipped { label: label.clone(), phase, reason });
+                skips.push(Skipped {
+                    label: label.clone(),
+                    phase,
+                    reason,
+                });
                 continue;
             }
         };
@@ -1999,13 +2146,21 @@ fn measure(
             });
             continue;
         }
-        let opts = Options { profile, target, unit_prefix: "" };
+        let opts = Options {
+            profile,
+            target,
+            unit_prefix: "",
+        };
         if let Err(diagnostics) = selected.emit(&probe, &checked.tables, &opts) {
             let reason = diagnostics
                 .items
                 .first()
                 .map_or_else(|| String::from("emission failed"), |d| d.message.clone());
-            skips.push(Skipped { label: label.clone(), phase, reason });
+            skips.push(Skipped {
+                label: label.clone(),
+                phase,
+                reason,
+            });
             continue;
         }
         drop(probe);
@@ -2021,11 +2176,23 @@ fn measure(
                 monomorphize::run(&checked, module_paths.clone(), &mut d, Roots::Main(entry));
             actions::prepare(&mut prog, target);
             let mut b = backend::select(target, profile).expect("checked above");
-            let opts = Options { profile, target, unit_prefix: "" };
+            let opts = Options {
+                profile,
+                target,
+                unit_prefix: "",
+            };
             let out = b.emit(&prog, &checked.tables, &opts);
             std::hint::black_box(&out);
         });
-        rows.push(row(phase, median, dispersion, fastest, reps, Duration::ZERO, TARGET_LOWER));
+        rows.push(row(
+            phase,
+            median,
+            dispersion,
+            fastest,
+            reps,
+            Duration::ZERO,
+            TARGET_LOWER,
+        ));
     }
 
     (rows, skips)
@@ -2097,12 +2264,18 @@ fn split_lowering(program: &Program, label: &str, cfg: &Config, targets: &[(Targ
             middle::native(&mut p);
             std::hint::black_box(lower::run(&p, &checked.tables));
         });
-        let Ok(_) = backend::select(target, profile) else { continue };
+        let Ok(_) = backend::select(target, profile) else {
+            continue;
+        };
         let (all, _, _, _) = bench(cfg, || {
             let mut p = build();
             actions::prepare(&mut p, target);
             let mut b = backend::select(target, profile).expect("checked above");
-            let opts = Options { profile, target, unit_prefix: "" };
+            let opts = Options {
+                profile,
+                target,
+                unit_prefix: "",
+            };
             std::hint::black_box(b.emit(&p, &checked.tables, &opts).is_ok());
         });
         eprintln!(
@@ -2196,12 +2369,17 @@ fn reach(program: &Program) -> (usize, usize) {
     let mut diagnostics = Diagnostics::new();
     let loaded = load(program, &mut map, &mut cache, &mut diagnostics);
     let checked = check(&loaded, &mut diagnostics);
-    let Some(entry) = checked.entry else { return (0, 0) };
+    let Some(entry) = checked.entry else {
+        return (0, 0);
+    };
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
     let mut prog = monomorphize::run(&checked, module_paths, &mut diagnostics, Roots::Main(entry));
     let funcs = prog.funcs.len();
     let flags = Flags::default();
-    let target = Target { platform: Platform::Js, arch: None };
+    let target = Target {
+        platform: Platform::Js,
+        arch: None,
+    };
     let emitted = actions::emit(&mut prog, &checked.tables, target, &flags, &mut diagnostics)
         .map(|s| s.len())
         .unwrap_or(0);
@@ -2265,7 +2443,10 @@ fn floor_costs() -> Floor {
     let checked = check(&loaded, &mut d);
     let module_paths: Vec<String> = loaded.modules.iter().map(|m| m.path.clone()).collect();
     let flags = Flags::default();
-    let target = Target { platform: Platform::Js, arch: None };
+    let target = Target {
+        platform: Platform::Js,
+        arch: None,
+    };
     let lower = match checked.entry {
         Some(entry) => {
             let (t, ..) = bench(&cfg, || {
@@ -2284,7 +2465,13 @@ fn floor_costs() -> Floor {
         std::hint::black_box(snapshot::build(Opening::Builtin, true));
     });
 
-    Floor { lex, parse, sema, lower, snapshot }
+    Floor {
+        lex,
+        parse,
+        sema,
+        lower,
+        snapshot,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2322,10 +2509,16 @@ fn header(cfg: &Config, scales: &[usize], set: Set, targets: &[Target]) {
     println!("buri compiler throughput");
     println!("========================");
     println!();
-    println!("  host        {} {}", std::env::consts::OS, std::env::consts::ARCH);
+    println!(
+        "  host        {} {}",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
     println!(
         "  cores       {}",
-        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0)
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(0)
     );
     println!("  toolchain   buri {}", env!("CARGO_PKG_VERSION"));
     println!(
@@ -2367,12 +2560,20 @@ fn header(cfg: &Config, scales: &[usize], set: Set, targets: &[Target]) {
     } else {
         println!(
             "  scales      {}",
-            scales.iter().map(|s| human(*s)).collect::<Vec<_>>().join(", ")
+            scales
+                .iter()
+                .map(|s| human(*s))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
     }
     println!(
         "  targets     {}",
-        targets.iter().map(|t| target_name(*t)).collect::<Vec<_>>().join(", ")
+        targets
+            .iter()
+            .map(|t| target_name(*t))
+            .collect::<Vec<_>>()
+            .join(", ")
     );
     println!("  a line      a non-blank line of source, comments included");
     println!();
@@ -2396,7 +2597,11 @@ fn print_row(row: &Row) {
     // The deviation rides on the row it applies to, not in a footnote: §2's
     // ten-repetition rule is what the dispersion column is trustworthy under,
     // and a row taken over three has to carry that with it.
-    let protocol = if row.reduced { format!("  [{} reps — reduced protocol]", row.reps) } else { String::new() };
+    let protocol = if row.reduced {
+        format!("  [{} reps — reduced protocol]", row.reps)
+    } else {
+        String::new()
+    };
     println!(
         "  {:<22} {:<20} {:>7} {:>9.2} ms {} {} {:>8} {:>6.1}%{protocol}",
         row.label,
@@ -2457,7 +2662,10 @@ fn footer(rows: &[Row], skipped: &[Skipped]) {
     }
     println!();
     println!("token rate, where the line rate is the misleading one (lex and parse):");
-    for row in rows.iter().filter(|r| r.phase == "lex" || r.phase == "lex+parse") {
+    for row in rows
+        .iter()
+        .filter(|r| r.phase == "lex" || r.phase == "lex+parse")
+    {
         println!(
             "  {:<22} {:<20} {} over {} tokens",
             row.label,
@@ -2516,10 +2724,17 @@ fn print_json(
     memory: &[MemoryRow],
 ) {
     println!("{{");
-    println!("  \"host\": \"{}-{}\",", std::env::consts::OS, std::env::consts::ARCH);
+    println!(
+        "  \"host\": \"{}-{}\",",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
     println!("  \"toolchain\": \"{}\",", env!("CARGO_PKG_VERSION"));
     println!("  \"seed\": \"{SEED:#018x}\",");
-    println!("  \"generator_revision\": {},", generate::GENERATOR_REVISION);
+    println!(
+        "  \"generator_revision\": {},",
+        generate::GENERATOR_REVISION
+    );
     println!("  \"debug_build\": {},", cfg!(debug_assertions));
     println!(
         "  \"floor_ms\": {{ \"lex\": {:.4}, \"parse\": {:.4}, \"sema\": {:.4}, \"lower\": {:.4}, \"snapshot\": {:.4} }},",
@@ -2553,7 +2768,11 @@ fn print_json(
             row.reps,
             row.dispersion,
             row.rate(),
-            if row.net_rate().is_finite() { row.net_rate() } else { 0.0 },
+            if row.net_rate().is_finite() {
+                row.net_rate()
+            } else {
+                0.0
+            },
             row.bytes_rate(),
             row.tokens_rate(),
             row.target,
@@ -2605,7 +2824,10 @@ fn print_json(
     println!("  \"allocations\": [");
     for (i, a) in allocs.iter().enumerate() {
         let comma = if i + 1 == allocs.len() { "" } else { "," };
-        print!("    {{ \"corpus\": \"{}\", \"lines\": {}, \"tokens\": {}, \"phases\": [", a.label, a.lines, a.tokens);
+        print!(
+            "    {{ \"corpus\": \"{}\", \"lines\": {}, \"tokens\": {}, \"phases\": [",
+            a.label, a.lines, a.tokens
+        );
         for (j, (phase, n)) in a.phases.iter().enumerate() {
             let c = if j + 1 == a.phases.len() { "" } else { ", " };
             print!(

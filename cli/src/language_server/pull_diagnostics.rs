@@ -50,7 +50,10 @@ pub fn document(state: &mut State, id: &Value, params: &Value) -> Vec<Value> {
     // the server knows nothing about it — and it carries no `resultId`, because
     // there is no analysis behind it for a later request to quote.
     if state.root_of(&path).is_none() {
-        return vec![super::response(id, full(None, Vec::new(), Published::new()))];
+        return vec![super::response(
+            id,
+            full(None, Vec::new(), Published::new()),
+        )];
     }
     // The id this document's last report went out with, when what that report
     // was computed from — this file's closure, and nothing else in the
@@ -77,7 +80,11 @@ pub fn document(state: &mut State, id: &Value, params: &Value) -> Vec<Value> {
     // Everything else the analysis of this file's closure had to say. The
     // protocol's own field for it, and a client that did not claim it gets
     // nothing extra — `workspace/diagnostic` is the answer for that client.
-    let mut related = if state.related_documents_supported { found } else { Published::new() };
+    let mut related = if state.related_documents_supported {
+        found
+    } else {
+        Published::new()
+    };
     if state.related_documents_supported {
         retract(state, &uri, &mut related);
     }
@@ -85,7 +92,10 @@ pub fn document(state: &mut State, id: &Value, params: &Value) -> Vec<Value> {
     // is the one this analysis just read, and on the first pull about a file
     // there was no analysis to read it from yet.
     let result_id = state.issue_result_id(&path);
-    vec![super::response(id, full(result_id.as_deref(), items, related))]
+    vec![super::response(
+        id,
+        full(result_id.as_deref(), items, related),
+    )]
 }
 
 /// Names again, with empty `items`, every related document the last report for
@@ -96,7 +106,12 @@ pub fn document(state: &mut State, id: &Value, params: &Value) -> Vec<Value> {
 /// A related file that simply vanished from the map told the client nothing, so
 /// the squiggle stayed on screen after the fix.
 fn retract(state: &mut State, asked: &str, related: &mut Published) {
-    for uri in state.related_reported.get(asked).cloned().unwrap_or_default() {
+    for uri in state
+        .related_reported
+        .get(asked)
+        .cloned()
+        .unwrap_or_default()
+    {
         if uri != asked {
             related.entry(uri).or_default();
         }
@@ -104,8 +119,11 @@ fn retract(state: &mut State, asked: &str, related: &mut Published) {
     // Only the ones with findings are worth remembering: an empty entry has
     // just been sent, and sending it forever would be reporting on files this
     // document has nothing to say about.
-    let named =
-        related.iter().filter(|(_, items)| !items.is_empty()).map(|(uri, _)| uri.clone()).collect();
+    let named = related
+        .iter()
+        .filter(|(_, items)| !items.is_empty())
+        .map(|(uri, _)| uri.clone())
+        .collect();
     state.related_reported.insert(asked.to_string(), named);
 }
 
@@ -184,7 +202,9 @@ fn build_file_findings(state: &State, path: &std::path::Path, uri: &str) -> Vec<
     if !super::build_files::is_build_file(path) {
         return Vec::new();
     }
-    let Some(text) = state.text_of(path) else { return Vec::new() };
+    let Some(text) = state.text_of(path) else {
+        return Vec::new();
+    };
     let lines = convert::Lines::new(&text);
     super::build_files::diagnostics(path, &text)
         .iter()

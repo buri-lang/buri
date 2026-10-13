@@ -193,7 +193,12 @@ const MAX_DEPTH: u32 = 128;
 
 /// Parses one complete value. Trailing data is an error, not a stopping point.
 pub fn parse(text: &str) -> Result<Value, String> {
-    let mut p = Parser { text, b: text.as_bytes(), i: 0, depth: 0 };
+    let mut p = Parser {
+        text,
+        b: text.as_bytes(),
+        i: 0,
+        depth: 0,
+    };
     p.skip_whitespace();
     let v = p.value()?;
     p.skip_whitespace();
@@ -213,7 +218,11 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn skip_whitespace(&mut self) {
-        while self.b.get(self.i).is_some_and(|c| matches!(c, b' ' | b'\t' | b'\n' | b'\r')) {
+        while self
+            .b
+            .get(self.i)
+            .is_some_and(|c| matches!(c, b' ' | b'\t' | b'\n' | b'\r'))
+        {
             self.bump();
         }
     }
@@ -234,7 +243,11 @@ impl<'a> Parser<'a> {
     }
 
     fn literal(&mut self, word: &str, v: Value) -> Result<Value, String> {
-        if self.b.get(self.i..).is_some_and(|rest| rest.starts_with(word.as_bytes())) {
+        if self
+            .b
+            .get(self.i..)
+            .is_some_and(|rest| rest.starts_with(word.as_bytes()))
+        {
             self.i = self.i.saturating_add(word.len());
             Ok(v)
         } else {
@@ -263,7 +276,10 @@ impl<'a> Parser<'a> {
     ) -> Result<Value, String> {
         self.depth = self.depth.saturating_add(1);
         if self.depth > MAX_DEPTH {
-            return Err(format!("nested more than {MAX_DEPTH} deep, at byte {}", self.i));
+            return Err(format!(
+                "nested more than {MAX_DEPTH} deep, at byte {}",
+                self.i
+            ));
         }
         let v = read(self);
         self.depth = self.depth.saturating_sub(1);
@@ -354,7 +370,11 @@ impl<'a> Parser<'a> {
                 // first byte, so this byte starts one.
                 _ => {
                     let start = self.i.saturating_sub(1);
-                    let c = self.text.get(start..).and_then(|rest| rest.chars().next()).unwrap_or('\u{fffd}');
+                    let c = self
+                        .text
+                        .get(start..)
+                        .and_then(|rest| rest.chars().next())
+                        .unwrap_or('\u{fffd}');
                     self.i = start.saturating_add(c.len_utf8());
                     out.push(c);
                 }
@@ -371,8 +391,7 @@ impl<'a> Parser<'a> {
         if !(0xD800..0xDC00).contains(&hi) {
             return Ok(char::from_u32(hi).unwrap_or('\u{fffd}'));
         }
-        if self.b.get(self.i) == Some(&b'\\')
-            && self.b.get(self.i.saturating_add(1)) == Some(&b'u')
+        if self.b.get(self.i) == Some(&b'\\') && self.b.get(self.i.saturating_add(1)) == Some(&b'u')
         {
             let next = self.i;
             self.i = self.i.saturating_add(2);
@@ -395,8 +414,15 @@ impl<'a> Parser<'a> {
 
     fn hex4(&mut self) -> Result<u32, String> {
         let end = self.i.saturating_add(4);
-        let Some(s) = self.b.get(self.i..end).and_then(|b| std::str::from_utf8(b).ok()) else {
-            return Err(format!("a \\u escape needs four digits, at byte {}", self.i));
+        let Some(s) = self
+            .b
+            .get(self.i..end)
+            .and_then(|b| std::str::from_utf8(b).ok())
+        else {
+            return Err(format!(
+                "a \\u escape needs four digits, at byte {}",
+                self.i
+            ));
         };
         let n = u32::from_str_radix(s, 16)
             .map_err(|_| format!("`{s}` is not four hex digits, at byte {}", self.i))?;
@@ -416,7 +442,11 @@ impl<'a> Parser<'a> {
         {
             self.bump();
         }
-        let s = self.b.get(start..self.i).and_then(|b| std::str::from_utf8(b).ok()).unwrap_or("");
+        let s = self
+            .b
+            .get(start..self.i)
+            .and_then(|b| std::str::from_utf8(b).ok())
+            .unwrap_or("");
         // A number spelled without a point or an exponent is an integer, which
         // is what every number in this protocol is. Anything else is a float,
         // and one that overflows `f64` to infinity — `1e999` — is rejected here
@@ -426,7 +456,9 @@ impl<'a> Parser<'a> {
                 return Ok(Value::Int(n));
             }
         }
-        let n = s.parse::<f64>().map_err(|_| format!("`{s}` is not a number"))?;
+        let n = s
+            .parse::<f64>()
+            .map_err(|_| format!("`{s}` is not a number"))?;
         Value::float(n).ok_or_else(|| format!("`{s}` is not a finite number"))
     }
 }
@@ -439,8 +471,14 @@ mod tests {
     fn round_trips_the_shapes_the_protocol_uses() {
         let text = r#"{"id":1,"method":"textDocument/hover","params":{"position":{"line":3,"character":7}}}"#;
         let v = parse(text).expect("parses");
-        assert_eq!(v.at("params.position.line").and_then(|v| v.as_u32()), Some(3));
-        assert_eq!(v.get("method").and_then(|v| v.as_str()), Some("textDocument/hover"));
+        assert_eq!(
+            v.at("params.position.line").and_then(|v| v.as_u32()),
+            Some(3)
+        );
+        assert_eq!(
+            v.get("method").and_then(|v| v.as_str()),
+            Some("textDocument/hover")
+        );
         // Objects are ordered, so writing is deterministic and recordable.
         assert_eq!(parse(&v.to_string()).unwrap(), v);
     }
@@ -460,7 +498,10 @@ mod tests {
         assert_eq!(Value::float(f64::NAN), None);
         assert_eq!(Value::float(f64::INFINITY), None);
         assert_eq!(Value::float(f64::NEG_INFINITY), None);
-        assert_eq!(Value::float(1.5).map(|v| v.to_string()), Some("1.5".to_string()));
+        assert_eq!(
+            Value::float(1.5).map(|v| v.to_string()),
+            Some("1.5".to_string())
+        );
         // And a literal that overflows to infinity is refused at the reader.
         assert!(parse("1e999").is_err());
     }

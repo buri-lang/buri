@@ -67,8 +67,14 @@ const IGNORE_FILE: &str = ".gitignore";
 /// escaped constant. The ignore file is stored without its leading dot because
 /// a `.gitignore` inside the toolchain's own tree would be read by git as one.
 pub const SCAFFOLD: &[ScaffoldFile] = &[
-    ScaffoldFile { path: "REPO.buri", text: crate::documentation::embedded::init::REPO },
-    ScaffoldFile { path: ".gitignore", text: crate::documentation::embedded::init::GITIGNORE },
+    ScaffoldFile {
+        path: "REPO.buri",
+        text: crate::documentation::embedded::init::REPO,
+    },
+    ScaffoldFile {
+        path: ".gitignore",
+        text: crate::documentation::embedded::init::GITIGNORE,
+    },
     ScaffoldFile {
         path: "libs/greeting/BUILD.buri",
         text: crate::documentation::embedded::init::GREETING_BUILD,
@@ -150,8 +156,7 @@ pub fn generate(root: &Path) -> Result<Vec<(Outcome, PathBuf)>, String> {
         }
     }
 
-    std::fs::create_dir_all(root)
-        .map_err(|e| format!("cannot create {}: {e}", root.display()))?;
+    std::fs::create_dir_all(root).map_err(|e| format!("cannot create {}: {e}", root.display()))?;
     let mut done = Vec::new();
     for file in SCAFFOLD {
         let path = root.join(file.path);
@@ -160,8 +165,11 @@ pub fn generate(root: &Path) -> Result<Vec<(Outcome, PathBuf)>, String> {
                 .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
         }
         if file.path == IGNORE_FILE && path.exists() {
-            let outcome =
-                if merge_ignore(&path, file.text)? { Outcome::Updated } else { Outcome::Kept };
+            let outcome = if merge_ignore(&path, file.text)? {
+                Outcome::Updated
+            } else {
+                Outcome::Kept
+            };
             done.push((outcome, path));
             continue;
         }
@@ -189,13 +197,19 @@ pub fn generate(root: &Path) -> Result<Vec<(Outcome, PathBuf)>, String> {
 fn merge_ignore(path: &Path, scaffold: &str) -> Result<bool, String> {
     let existing = std::fs::read_to_string(path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    let have: std::collections::HashSet<String> =
-        existing.lines().map(|line| line.trim().to_string()).collect();
+    let have: std::collections::HashSet<String> = existing
+        .lines()
+        .map(|line| line.trim().to_string())
+        .collect();
     let is_entry = |line: &&str| {
         let line = line.trim();
         !line.is_empty() && !line.starts_with('#')
     };
-    if scaffold.lines().filter(is_entry).all(|line| have.contains(line.trim())) {
+    if scaffold
+        .lines()
+        .filter(is_entry)
+        .all(|line| have.contains(line.trim()))
+    {
         return Ok(false);
     }
     let mut merged = existing;
@@ -297,13 +311,17 @@ mod tests {
                 file.path
             );
             assert!(
-                done.iter().any(|(outcome, at)| *outcome == Outcome::Wrote && *at == path),
+                done.iter()
+                    .any(|(outcome, at)| *outcome == Outcome::Wrote && *at == path),
                 "{} was written but not reported",
                 file.path
             );
         }
         // The ignore file is the one whose name changes on the way out.
-        assert!(root.join(".gitignore").is_file(), "the ignore file keeps its leading dot");
+        assert!(
+            root.join(".gitignore").is_file(),
+            "the ignore file keeps its leading dot"
+        );
 
         for skill in skills::SKILLS {
             let path = root.join(".agent/skills").join(skill.name).join("SKILL.md");
@@ -349,9 +367,18 @@ mod tests {
         std::fs::write(root.join("apps/hello/main.buri"), "// somebody's own\n").unwrap();
 
         let refused = generate(&root).unwrap_err();
-        assert!(refused.contains("apps/hello/main.buri"), "the collision must be named: {refused}");
-        assert!(!root.join(REPOSITORY_FILE).exists(), "nothing is written before the check");
-        assert!(!root.join("libs").exists(), "nothing is written before the check");
+        assert!(
+            refused.contains("apps/hello/main.buri"),
+            "the collision must be named: {refused}"
+        );
+        assert!(
+            !root.join(REPOSITORY_FILE).exists(),
+            "nothing is written before the check"
+        );
+        assert!(
+            !root.join("libs").exists(),
+            "nothing is written before the check"
+        );
         assert_eq!(
             std::fs::read_to_string(root.join("apps/hello/main.buri")).unwrap(),
             "// somebody's own\n"
@@ -371,16 +398,25 @@ mod tests {
 
         let done = generate(&root).unwrap();
         let merged = std::fs::read_to_string(root.join(IGNORE_FILE)).unwrap();
-        assert!(merged.starts_with(theirs), "the user's lines stay first and untouched");
-        assert!(merged.contains("\n.buri/\n"), "the build's entries are appended: {merged}");
-        assert!(merged.contains("\nout\n"), "the build's entries are appended: {merged}");
+        assert!(
+            merged.starts_with(theirs),
+            "the user's lines stay first and untouched"
+        );
+        assert!(
+            merged.contains("\n.buri/\n"),
+            "the build's entries are appended: {merged}"
+        );
+        assert!(
+            merged.contains("\nout\n"),
+            "the build's entries are appended: {merged}"
+        );
         assert!(
             merged.contains("\n*.diff.png\n"),
             "a failed snapshot's picture is one of them: {merged}"
         );
         assert!(
-            done.iter().any(|(outcome, at)| *outcome == Outcome::Updated
-                && *at == root.join(IGNORE_FILE)),
+            done.iter()
+                .any(|(outcome, at)| *outcome == Outcome::Updated && *at == root.join(IGNORE_FILE)),
             "a merge is reported as an update, not a write"
         );
         // The rest of the scaffold landed as it does in an empty directory.
@@ -425,10 +461,23 @@ mod tests {
 
         generate(&root).unwrap();
         let merged = std::fs::read_to_string(root.join(IGNORE_FILE)).unwrap();
-        assert_eq!(merged.matches("out").count(), 1, "an entry already there is not repeated");
-        assert!(merged.starts_with("out\n"), "the unterminated last line is closed, not glued to");
-        assert!(merged.contains(".buri/\n"), "the missing entry is what lands: {merged}");
-        assert!(merged.contains("*.diff.png\n"), "and so is the snapshot picture: {merged}");
+        assert_eq!(
+            merged.matches("out").count(),
+            1,
+            "an entry already there is not repeated"
+        );
+        assert!(
+            merged.starts_with("out\n"),
+            "the unterminated last line is closed, not glued to"
+        );
+        assert!(
+            merged.contains(".buri/\n"),
+            "the missing entry is what lands: {merged}"
+        );
+        assert!(
+            merged.contains("*.diff.png\n"),
+            "and so is the snapshot picture: {merged}"
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -449,13 +498,21 @@ mod tests {
             refused.contains("is inside the Buri repository at"),
             "the enclosing root must be named as the reason: {refused}"
         );
-        assert!(!inner.exists(), "a refused run does not even create the directory");
-        assert!(!outer.join("packages").exists(), "nor any part of the path to it");
+        assert!(
+            !inner.exists(),
+            "a refused run does not even create the directory"
+        );
+        assert!(
+            !outer.join("packages").exists(),
+            "nor any part of the path to it"
+        );
 
         // The same target spelled with a `..` climb: a lexical walk would have
         // gone up out of the repository and missed it.
         let sideways = outer.join("packages/../greeting");
-        assert!(generate(&sideways).unwrap_err().contains("is inside the Buri repository at"));
+        assert!(generate(&sideways)
+            .unwrap_err()
+            .contains("is inside the Buri repository at"));
 
         std::fs::remove_dir_all(&outer).unwrap();
     }
@@ -475,11 +532,18 @@ mod tests {
             "apps/hello/BUILD.buri",
             "apps/hello/main.buri",
         ] {
-            assert!(paths.contains(&wanted), "the scaffold no longer ships {wanted}");
+            assert!(
+                paths.contains(&wanted),
+                "the scaffold no longer ships {wanted}"
+            );
         }
         for file in SCAFFOLD {
             assert!(!file.text.is_empty(), "{} is empty", file.path);
-            assert!(file.text.ends_with('\n'), "{} does not end in a newline", file.path);
+            assert!(
+                file.text.ends_with('\n'),
+                "{} does not end in a newline",
+                file.path
+            );
             assert!(!file.path.starts_with('/'), "{} is not relative", file.path);
         }
     }

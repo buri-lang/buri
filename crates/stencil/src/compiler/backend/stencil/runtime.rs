@@ -85,15 +85,27 @@ impl OptRepr {
             .copied()
             .unwrap_or(0);
         Some(match repr {
-            EnumRepr::Bare { tag } => {
-                OptRepr { tag: (0, tag.size()), niche: false, payload: 0, some, none }
-            }
-            EnumRepr::Tagged { tag, .. } => {
-                OptRepr { tag: (0, tag.size()), niche: false, payload, some, none }
-            }
-            EnumRepr::Niche { null_at } => {
-                OptRepr { tag: (*null_at, 8), niche: true, payload, some, none }
-            }
+            EnumRepr::Bare { tag } => OptRepr {
+                tag: (0, tag.size()),
+                niche: false,
+                payload: 0,
+                some,
+                none,
+            },
+            EnumRepr::Tagged { tag, .. } => OptRepr {
+                tag: (0, tag.size()),
+                niche: false,
+                payload,
+                some,
+                none,
+            },
+            EnumRepr::Niche { null_at } => OptRepr {
+                tag: (*null_at, 8),
+                niche: true,
+                payload,
+                some,
+                none,
+            },
         })
     }
 }

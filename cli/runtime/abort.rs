@@ -106,7 +106,10 @@ struct Digits {
 
 impl Digits {
     fn of(mut n: u64) -> Digits {
-        let mut d = Digits { buf: [b'0'; 20], at: 20 };
+        let mut d = Digits {
+            buf: [b'0'; 20],
+            at: 20,
+        };
         for (at, slot) in d.buf.iter_mut().enumerate().rev() {
             // `b'0'` is 0x30, so or-ing in a digit is adding it.
             *slot = b'0' | (n % 10) as u8;
@@ -234,5 +237,9 @@ pub extern "C" fn buri_rt_abort_alloc_budget(requested: i64, budget: i64) -> ! {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_abort_oom(bytes: u64) -> ! {
     let n = Digits::of(bytes);
-    die(&[b"out of memory: could not allocate ", n.as_bytes(), b" bytes"])
+    die(&[
+        b"out of memory: could not allocate ",
+        n.as_bytes(),
+        b" bytes",
+    ])
 }

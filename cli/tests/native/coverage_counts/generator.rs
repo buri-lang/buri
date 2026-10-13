@@ -105,7 +105,11 @@ impl Expect {
     }
 
     fn numbered(&mut self, line: usize, counts: &[u64], suffix: &str) {
-        let branches = counts.iter().enumerate().map(|(i, n)| (format!("{i}{suffix}"), *n)).collect();
+        let branches = counts
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (format!("{i}{suffix}"), *n))
+            .collect();
         self.decisions.push(Decision { line, branches });
     }
 
@@ -145,7 +149,13 @@ struct Suite {
 impl Suite {
     fn new(package: &str, imports: &[String]) -> Suite {
         let text: String = imports.iter().map(|i| format!("{i}\n")).collect();
-        Suite { package: package.to_string(), line: imports.len(), text, passed: 0, failures: Vec::new() }
+        Suite {
+            package: package.to_string(),
+            line: imports.len(),
+            text,
+            passed: 0,
+            failures: Vec::new(),
+        }
     }
 
     /// Writes a test, and answers the line it starts on.
@@ -281,23 +291,41 @@ fn package(rng: &mut Rng, index: usize) -> Package {
     for (f, shape) in &shapes {
         let (mut here, mut there) = (Vec::new(), Vec::new());
         for call in &shape.calls {
-            if shared && rng.bool() { there.push(call.clone()) } else { here.push(call.clone()) }
+            if shared && rng.bool() {
+                there.push(call.clone())
+            } else {
+                here.push(call.clone())
+            }
         }
         mine.passing(f, &here);
         theirs.passing(f, &there);
         for (k, (call, message)) in shape.aborts.iter().enumerate() {
-            let suite = if shared && rng.bool() { &mut theirs } else { &mut mine };
+            let suite = if shared && rng.bool() {
+                &mut theirs
+            } else {
+                &mut mine
+            };
             suite.aborting(&format!("{f} aborts {k}"), call, message);
         }
     }
     if let Some(d) = &derived {
-        let suite = if shared && rng.bool() { &mut theirs } else { &mut mine };
+        let suite = if shared && rng.bool() {
+            &mut theirs
+        } else {
+            &mut mine
+        };
         suite.passing("derived", &d.calls());
     }
 
     exports.sort_by_key(|e| e.to_lowercase());
-    let lib = format!("from \"//lib/{name}/g.buri\" export {{ {} }};\n", exports.join(", "));
-    assert!(lib.len() <= 100, "{name}: an export list the formatter would wrap: {lib}");
+    let lib = format!(
+        "from \"//lib/{name}/g.buri\" export {{ {} }};\n",
+        exports.join(", ")
+    );
+    assert!(
+        lib.len() <= 100,
+        "{name}: an export list the formatter would wrap: {lib}"
+    );
     let mut files = vec![
         (format!("lib/{name}/lib.buri"), lib),
         (format!("lib/{name}/g.buri"), source),
@@ -307,18 +335,32 @@ fn package(rng: &mut Rng, index: usize) -> Package {
     let (mut passed, mut failures) = (mine.passed, mine.failures);
     if !shared {
         files.push((format!("lib/{name}/BUILD.buri"), BUILD.to_string()));
-        return Package { files, counted, passed, failures };
+        return Package {
+            files,
+            counted,
+            passed,
+            failures,
+        };
     }
     files.push((
         format!("lib/{name}/BUILD.buri"),
-        BUILD.replace("[\"g.buri\"]\n", &format!("[\"g.buri\"]\n    visibility: [\"//lib/{other}\"]\n")),
+        BUILD.replace(
+            "[\"g.buri\"]\n",
+            &format!("[\"g.buri\"]\n    visibility: [\"//lib/{other}\"]\n"),
+        ),
     ));
 
     // The other package's own function, which its suite calls too.
     let picks: Vec<bool> = (0..calls(rng)).map(|_| rng.bool()).collect();
-    let body: Vec<String> = picks.iter().map(|&a| assert(format!("t.pick({a})"), u8::from(a))).collect();
+    let body: Vec<String> = picks
+        .iter()
+        .map(|&a| assert(format!("t.pick({a})"), u8::from(a)))
+        .collect();
     theirs.passing("pick", &body);
-    let (n, yes) = (picks.len() as u64, picks.iter().filter(|a| **a).count() as u64);
+    let (n, yes) = (
+        picks.len() as u64,
+        picks.iter().filter(|a| **a).count() as u64,
+    );
     let expect = [false, true].map(|_| {
         let mut e = Expect::default();
         e.line(1, n);
@@ -332,13 +374,24 @@ fn package(rng: &mut Rng, index: usize) -> Package {
     );
     files.extend([
         (format!("lib/{other}/BUILD.buri"), build),
-        (format!("lib/{other}/lib.buri"), format!("from \"//lib/{other}/t.buri\" export {{ pick }};\n")),
-        (format!("lib/{other}/t.buri"), "export fn pick(a: Bool): Int {\n    if (a) { 1 } else { 0 }\n}\n".to_string()),
+        (
+            format!("lib/{other}/lib.buri"),
+            format!("from \"//lib/{other}/t.buri\" export {{ pick }};\n"),
+        ),
+        (
+            format!("lib/{other}/t.buri"),
+            "export fn pick(a: Bool): Int {\n    if (a) { 1 } else { 0 }\n}\n".to_string(),
+        ),
         (format!("lib/{other}/test/t.buri"), theirs.text),
     ]);
     passed += theirs.passed;
     failures.extend(theirs.failures);
-    Package { files, counted, passed, failures }
+    Package {
+        files,
+        counted,
+        passed,
+        failures,
+    }
 }
 
 /// `assert.equal(<call>, <answer>);`
@@ -349,7 +402,11 @@ fn assert(call: String, answer: impl std::fmt::Display) -> String {
 /// How many calls a shape gets: sometimes none, so its lines read 0 and its
 /// decisions `-`.
 fn calls(rng: &mut Rng) -> usize {
-    if rng.chance(8) { 0 } else { 1 + rng.below(6) }
+    if rng.chance(8) {
+        0
+    } else {
+        1 + rng.below(6)
+    }
 }
 
 // ---- `if` over a chain ----
@@ -369,9 +426,20 @@ fn tree(rng: &mut Rng, lo: usize, hi: usize, top: bool) -> Node {
         return Node::Leaf(lo, rng.chance(3));
     }
     let split = lo + 1 + rng.below(hi - lo - 1);
-    let (l, r) = (Box::new(tree(rng, lo, split, false)), Box::new(tree(rng, split, hi, false)));
-    let node = if rng.bool() { Node::And(l, r) } else { Node::Or(l, r) };
-    if !top && rng.chance(5) || top && rng.chance(8) { Node::Not(Box::new(node)) } else { node }
+    let (l, r) = (
+        Box::new(tree(rng, lo, split, false)),
+        Box::new(tree(rng, split, hi, false)),
+    );
+    let node = if rng.bool() {
+        Node::And(l, r)
+    } else {
+        Node::Or(l, r)
+    };
+    if !top && rng.chance(5) || top && rng.chance(8) {
+        Node::Not(Box::new(node))
+    } else {
+        node
+    }
 }
 
 impl Node {
@@ -394,7 +462,11 @@ impl Node {
                     Node::And(..) => and && right,
                     _ => false,
                 };
-                let side = |out: &mut String, n: &Node, right: bool, sides: &mut Vec<(usize, usize)>, next: &mut usize| {
+                let side = |out: &mut String,
+                            n: &Node,
+                            right: bool,
+                            sides: &mut Vec<(usize, usize)>,
+                            next: &mut usize| {
                     if right {
                         sides.push((id, out.len()));
                     }
@@ -421,11 +493,18 @@ impl Node {
     /// The text the report names the decision by: the fewest parentheses.
     fn text(&self) -> (String, u8) {
         match self {
-            Node::Leaf(i, negated) => (format!("{}{}", if *negated { "!" } else { "" }, NAMES[*i]), 2),
+            Node::Leaf(i, negated) => (
+                format!("{}{}", if *negated { "!" } else { "" }, NAMES[*i]),
+                2,
+            ),
             Node::And(l, r) => {
                 let side = |n: &Node| {
                     let (t, b) = n.text();
-                    if b < 1 { format!("({t})") } else { t }
+                    if b < 1 {
+                        format!("({t})")
+                    } else {
+                        t
+                    }
                 };
                 (format!("{} && {}", side(l), side(r)), 1)
             }
@@ -447,7 +526,14 @@ impl Node {
 
     /// Evaluates, short-circuiting: each leaf's value where it ran, and each
     /// `&&`/`||`'s right side, in node order, `[ran, didn't]`.
-    fn eval(&self, args: &[bool], values: &mut Vec<Option<bool>>, sides: &mut [[u64; 2]], next: &mut usize, leaf: &mut usize) -> bool {
+    fn eval(
+        &self,
+        args: &[bool],
+        values: &mut Vec<Option<bool>>,
+        sides: &mut [[u64; 2]],
+        next: &mut usize,
+        leaf: &mut usize,
+    ) -> bool {
         match self {
             Node::Leaf(i, negated) => {
                 let v = args[*i] != *negated;
@@ -524,12 +610,23 @@ fn run(node: &Node, calls: &[Vec<bool>]) -> Ran {
             paths.push((values, out));
         }
     }
-    Ran { outcomes, sides, paths }
+    Ran {
+        outcomes,
+        sides,
+        paths,
+    }
 }
 
 /// The `&&`/`||` decisions and the MC/DC record of `node` on `line`, after
 /// whatever the line already has. `sides` are the right sides' offsets.
-fn record(e: &mut Expect, line: usize, node: &Node, ran: &Ran, offsets: &[(usize, usize)], mcdc: bool) {
+fn record(
+    e: &mut Expect,
+    line: usize,
+    node: &Node,
+    ran: &Ran,
+    offsets: &[(usize, usize)],
+    mcdc: bool,
+) {
     let mut order: Vec<(usize, usize)> = offsets.to_vec();
     order.sort_by_key(|&(_, at)| at);
     for (id, _) in order {
@@ -538,8 +635,17 @@ fn record(e: &mut Expect, line: usize, node: &Node, ran: &Ran, offsets: &[(usize
     if mcdc && node.count() >= 2 {
         let mut leaves = Vec::new();
         node.leaves(&mut leaves);
-        let conditions = leaves.into_iter().enumerate().map(|(c, t)| (t, shown(&ran.paths, c))).collect();
-        e.trees.push(Tree { line, whole: node.text().0, suffix: String::new(), conditions });
+        let conditions = leaves
+            .into_iter()
+            .enumerate()
+            .map(|(c, t)| (t, shown(&ran.paths, c)))
+            .collect();
+        e.trees.push(Tree {
+            line,
+            whole: node.text().0,
+            suffix: String::new(),
+            conditions,
+        });
     }
 }
 
@@ -566,7 +672,9 @@ fn chain(rng: &mut Rng, f: &str) -> Shape {
         ]);
     }
     decl.push("}".into());
-    let inputs: Vec<Vec<bool>> = (0..calls(rng)).map(|_| (0..k).map(|_| rng.bool()).collect()).collect();
+    let inputs: Vec<Vec<bool>> = (0..calls(rng))
+        .map(|_| (0..k).map(|_| rng.bool()).collect())
+        .collect();
     let ran = run(&node, &inputs);
     let calls = inputs
         .iter()
@@ -604,12 +712,18 @@ fn chain(rng: &mut Rng, f: &str) -> Shape {
 /// Steps from `n` down to 1, and how many take the `if`.
 fn steps(ns: &[i64], m: i64, r: i64) -> (u64, u64) {
     let total = ns.iter().sum::<i64>() as u64;
-    let taken = ns.iter().map(|&n| (1..=n).filter(|k| k % m == r).count() as u64).sum();
+    let taken = ns
+        .iter()
+        .map(|&n| (1..=n).filter(|k| k % m == r).count() as u64)
+        .sum();
     (total, taken)
 }
 
 fn recursion(rng: &mut Rng, f: &str) -> Shape {
-    let (m, ns) = (rng.int(2, 5), (0..calls(rng)).map(|_| rng.int(0, 30)).collect::<Vec<_>>());
+    let (m, ns) = (
+        rng.int(2, 5),
+        (0..calls(rng)).map(|_| rng.int(0, 30)).collect::<Vec<_>>(),
+    );
     let r = rng.int(0, m - 1);
     let decl = vec![
         format!("export fn {f}(n: Int): Int {{"),
@@ -621,7 +735,10 @@ fn recursion(rng: &mut Rng, f: &str) -> Shape {
         "    }".into(),
         "}".into(),
     ];
-    let calls = ns.iter().map(|&n| assert(format!("g.{f}({n})"), steps(&[n], m, r).1)).collect();
+    let calls = ns
+        .iter()
+        .map(|&n| assert(format!("g.{f}({n})"), steps(&[n], m, r).1))
+        .collect();
     let (total, taken) = steps(&ns, m, r);
     let entered = total + ns.len() as u64;
     let n = ns.len() as u64;
@@ -630,7 +747,14 @@ fn recursion(rng: &mut Rng, f: &str) -> Shape {
         calls,
         aborts: Vec::new(),
         model: Box::new(move |at, mcdc, e| {
-            for (l, count) in [(0, entered), (1, entered), (2, n), (3, total), (4, total), (5, total)] {
+            for (l, count) in [
+                (0, entered),
+                (1, entered),
+                (2, n),
+                (3, total),
+                (4, total),
+                (5, total),
+            ] {
                 e.line(at + l, count);
             }
             e.numbered(at + 1, &[n, total], "");
@@ -643,7 +767,12 @@ fn recursion(rng: &mut Rng, f: &str) -> Shape {
 }
 
 fn tail_recursion(rng: &mut Rng, f: &str) -> Shape {
-    let (m, ns) = (rng.int(2, 5), (0..calls(rng)).map(|_| rng.int(0, 5000)).collect::<Vec<_>>());
+    let (m, ns) = (
+        rng.int(2, 5),
+        (0..calls(rng))
+            .map(|_| rng.int(0, 5000))
+            .collect::<Vec<_>>(),
+    );
     let r = rng.int(0, m - 1);
     let decl = vec![
         format!("export fn {f}(n: Int, acc: Int): Int {{"),
@@ -655,7 +784,10 @@ fn tail_recursion(rng: &mut Rng, f: &str) -> Shape {
         "    }".into(),
         "}".into(),
     ];
-    let calls = ns.iter().map(|&n| assert(format!("g.{f}({n}, 0)"), steps(&[n], m, r).1)).collect();
+    let calls = ns
+        .iter()
+        .map(|&n| assert(format!("g.{f}({n}, 0)"), steps(&[n], m, r).1))
+        .collect();
     let (total, taken) = steps(&ns, m, r);
     let entered = total + ns.len() as u64;
     let n = ns.len() as u64;
@@ -664,7 +796,14 @@ fn tail_recursion(rng: &mut Rng, f: &str) -> Shape {
         calls,
         aborts: Vec::new(),
         model: Box::new(move |at, mcdc, e| {
-            for (l, count) in [(0, entered), (1, entered), (2, n), (3, total), (4, total), (5, total)] {
+            for (l, count) in [
+                (0, entered),
+                (1, entered),
+                (2, n),
+                (3, total),
+                (4, total),
+                (5, total),
+            ] {
                 e.line(at + l, count);
             }
             e.numbered(at + 1, &[n, total], "");
@@ -680,9 +819,20 @@ fn tail_recursion(rng: &mut Rng, f: &str) -> Shape {
 
 fn matching(rng: &mut Rng, f: &str) -> Shape {
     let literals = 1 + rng.below(3) as i64;
-    let guarded = if rng.bool() { Some(rng.int(0, literals - 1)) } else { None };
-    let range = if rng.bool() { Some(rng.int(3, 8)) } else { None };
-    let mut decl = vec![format!("export fn {f}(n: Int, flag: Bool): Int {{"), "    match (n) {".into()];
+    let guarded = if rng.bool() {
+        Some(rng.int(0, literals - 1))
+    } else {
+        None
+    };
+    let range = if rng.bool() {
+        Some(rng.int(3, 8))
+    } else {
+        None
+    };
+    let mut decl = vec![
+        format!("export fn {f}(n: Int, flag: Bool): Int {{"),
+        "    match (n) {".into(),
+    ];
     for i in 0..literals {
         let guard = if guarded == Some(i) { " if flag" } else { "" };
         decl.push(format!("        {i}{guard} => {},", 10 + i));
@@ -732,7 +882,13 @@ fn matching(rng: &mut Rng, f: &str) -> Shape {
         }
         let arm = arm.unwrap_or(arms - 1);
         taken[arm] += 1;
-        let answer = if arm < literals as usize { 10 + arm } else if arm == arms - 1 { 99 } else { 100 };
+        let answer = if arm < literals as usize {
+            10 + arm
+        } else if arm == arms - 1 {
+            99
+        } else {
+            100
+        };
         calls.push(assert(format!("g.{f}({n}, {flag})"), answer));
     }
     let n = calls.len() as u64;
@@ -755,9 +911,16 @@ fn matching(rng: &mut Rng, f: &str) -> Shape {
                     e.numbered(line, &side, "");
                     if mcdc {
                         let t = range.unwrap_or_default();
-                        let conditions =
-                            vec![(format!("k > {t}"), shown(&paths, 0)), ("!flag".to_string(), shown(&paths, 1))];
-                        e.trees.push(Tree { line, whole: format!("k > {t} && !flag"), suffix: String::new(), conditions });
+                        let conditions = vec![
+                            (format!("k > {t}"), shown(&paths, 0)),
+                            ("!flag".to_string(), shown(&paths, 1)),
+                        ];
+                        e.trees.push(Tree {
+                            line,
+                            whole: format!("k > {t} && !flag"),
+                            suffix: String::new(),
+                            conditions,
+                        });
                     }
                 }
             }
@@ -780,11 +943,17 @@ fn tried(rng: &mut Rng, f: &str) -> Shape {
         "    .Ok(x + y)".into(),
         "}".into(),
     ];
-    let inputs: Vec<(i64, i64)> = (0..calls(rng)).map(|_| (rng.int(-3, 9), rng.int(-3, 9))).collect();
+    let inputs: Vec<(i64, i64)> = (0..calls(rng))
+        .map(|_| (rng.int(-3, 9), rng.int(-3, 9)))
+        .collect();
     let calls = inputs
         .iter()
         .map(|&(a, b)| {
-            let answer = if a < 0 || b < 0 { ".Err(\"negative\")".to_string() } else { format!(".Ok({})", a + b) };
+            let answer = if a < 0 || b < 0 {
+                ".Err(\"negative\")".to_string()
+            } else {
+                format!(".Ok({})", a + b)
+            };
             assert(format!("g.{f}({a}, {b})"), answer)
         })
         .collect();
@@ -792,7 +961,10 @@ fn tried(rng: &mut Rng, f: &str) -> Shape {
     let first = inputs.iter().filter(|(a, _)| *a >= 0).count() as u64;
     let both = inputs.iter().filter(|(a, b)| *a >= 0 && *b >= 0).count() as u64;
     let checked = n + first;
-    let negative = inputs.iter().map(|&(a, b)| u64::from(a < 0) + u64::from(a >= 0 && b < 0)).sum::<u64>();
+    let negative = inputs
+        .iter()
+        .map(|&(a, b)| u64::from(a < 0) + u64::from(a >= 0 && b < 0))
+        .sum::<u64>();
     Shape {
         decl,
         calls,
@@ -831,8 +1003,16 @@ fn generic(rng: &mut Rng, f: &str) -> Shape {
         let flag = rng.bool();
         let (label, x, y) = match rng.below(3) {
             0 => ("T = Bool", "true".to_string(), "false".to_string()),
-            1 => ("T = I64", rng.int(-9, 9).to_string(), rng.int(-9, 9).to_string()),
-            _ => ("T = Str", format!("\"{}\"", rng.int(0, 9)), format!("\"{}\"", rng.int(0, 9))),
+            1 => (
+                "T = I64",
+                rng.int(-9, 9).to_string(),
+                rng.int(-9, 9).to_string(),
+            ),
+            _ => (
+                "T = Str",
+                format!("\"{}\"", rng.int(0, 9)),
+                format!("\"{}\"", rng.int(0, 9)),
+            ),
         };
         at_type.entry(label).or_default()[usize::from(!flag)] += 1;
         let answer = if flag { &x } else { &y };
@@ -845,7 +1025,15 @@ fn generic(rng: &mut Rng, f: &str) -> Shape {
         calls,
         aborts: Vec::new(),
         model: Box::new(move |at, mcdc, e| {
-            for (l, count) in [(0, n), (1, n), (2, yes), (3, yes), (4, n - yes), (5, n - yes), (6, n - yes)] {
+            for (l, count) in [
+                (0, n),
+                (1, n),
+                (2, yes),
+                (3, yes),
+                (4, n - yes),
+                (5, n - yes),
+                (6, n - yes),
+            ] {
                 e.line(at + l, count);
             }
             if !mcdc {
@@ -870,12 +1058,17 @@ fn lambda(rng: &mut Rng, f: &str) -> Shape {
         format!("    items.fold(fn(acc, x) => if (x > {t}) {{ acc + x }} else {{ acc }}, 0)"),
         "}".into(),
     ];
-    let lists: Vec<Vec<i64>> = (0..calls(rng)).map(|_| (0..rng.below(5)).map(|_| rng.int(0, 9)).collect()).collect();
+    let lists: Vec<Vec<i64>> = (0..calls(rng))
+        .map(|_| (0..rng.below(5)).map(|_| rng.int(0, 9)).collect())
+        .collect();
     let calls = lists
         .iter()
         .map(|l| {
             let items: Vec<String> = l.iter().map(i64::to_string).collect();
-            assert(format!("g.{f}([{}])", items.join(", ")), l.iter().filter(|&&x| x > t).sum::<i64>())
+            assert(
+                format!("g.{f}([{}])", items.join(", ")),
+                l.iter().filter(|&&x| x > t).sum::<i64>(),
+            )
         })
         .collect();
     let n = lists.len() as u64;
@@ -908,8 +1101,13 @@ fn tail_call(rng: &mut Rng, f: &str) -> Shape {
         format!("    n > {t}"),
         "}".into(),
     ];
-    let inputs: Vec<(bool, i64)> = (0..calls(rng)).map(|_| (rng.bool(), rng.int(0, 12))).collect();
-    let calls = inputs.iter().map(|&(a, n)| assert(format!("g.{f}({a}, {n})"), a && n > t)).collect();
+    let inputs: Vec<(bool, i64)> = (0..calls(rng))
+        .map(|_| (rng.bool(), rng.int(0, 12)))
+        .collect();
+    let calls = inputs
+        .iter()
+        .map(|&(a, n)| assert(format!("g.{f}({a}, {n})"), a && n > t))
+        .collect();
     let n = inputs.len() as u64;
     let ran = inputs.iter().filter(|(a, _)| *a).count() as u64;
     Shape {
@@ -937,8 +1135,14 @@ fn tail_chain(rng: &mut Rng, f: &str) -> Shape {
     let mut offsets = Vec::new();
     node.source(&mut expr, &mut offsets, &mut 0);
     let params: Vec<String> = NAMES[..k].iter().map(|n| format!("{n}: Bool")).collect();
-    let decl = vec![format!("export fn {f}({}): Bool {{", params.join(", ")), format!("    {expr}"), "}".into()];
-    let inputs: Vec<Vec<bool>> = (0..calls(rng)).map(|_| (0..k).map(|_| rng.bool()).collect()).collect();
+    let decl = vec![
+        format!("export fn {f}({}): Bool {{", params.join(", ")),
+        format!("    {expr}"),
+        "}".into(),
+    ];
+    let inputs: Vec<Vec<bool>> = (0..calls(rng))
+        .map(|_| (0..k).map(|_| rng.bool()).collect())
+        .collect();
     let ran = run(&node, &inputs);
     let calls = inputs
         .iter()
@@ -966,18 +1170,37 @@ fn tail_chain(rng: &mut Rng, f: &str) -> Shape {
 /// `a && n / d > t`, where a zero `d` aborts partway through the decision.
 fn guarded_divide(rng: &mut Rng, f: &str) -> Shape {
     let t = rng.int(0, 4);
-    let decl = vec![format!("export fn {f}(a: Bool, n: Int, d: Int): Bool {{"), format!("    a && n / d > {t}"), "}".into()];
-    let inputs: Vec<(bool, i64, i64)> = (0..calls(rng)).map(|_| (rng.bool(), rng.int(0, 20), rng.int(1, 4))).collect();
-    let calls = inputs.iter().map(|&(a, n, d)| assert(format!("g.{f}({a}, {n}, {d})"), a && n / d > t)).collect();
-    let aborts: Vec<(String, &'static str)> =
-        (0..rng.below(3)).map(|_| (assert(format!("g.{f}(true, {}, 0)", rng.int(0, 9)), false), "division by zero")).collect();
+    let decl = vec![
+        format!("export fn {f}(a: Bool, n: Int, d: Int): Bool {{"),
+        format!("    a && n / d > {t}"),
+        "}".into(),
+    ];
+    let inputs: Vec<(bool, i64, i64)> = (0..calls(rng))
+        .map(|_| (rng.bool(), rng.int(0, 20), rng.int(1, 4)))
+        .collect();
+    let calls = inputs
+        .iter()
+        .map(|&(a, n, d)| assert(format!("g.{f}({a}, {n}, {d})"), a && n / d > t))
+        .collect();
+    let aborts: Vec<(String, &'static str)> = (0..rng.below(3))
+        .map(|_| {
+            (
+                assert(format!("g.{f}(true, {}, 0)", rng.int(0, 9)), false),
+                "division by zero",
+            )
+        })
+        .collect();
     let n = inputs.len() as u64;
     let aborted = aborts.len() as u64;
     // An abort reaches the right side and stops there, so it counts no path.
     let ran = inputs.iter().filter(|(a, ..)| *a).count() as u64;
     let mut paths: Vec<(Vec<Option<bool>>, bool)> = Vec::new();
     for &(a, n, d) in &inputs {
-        let path = if a { (vec![Some(true), Some(n / d > t)], n / d > t) } else { (vec![Some(false), None], false) };
+        let path = if a {
+            (vec![Some(true), Some(n / d > t)], n / d > t)
+        } else {
+            (vec![Some(false), None], false)
+        };
         if !paths.contains(&path) {
             paths.push(path);
         }
@@ -992,8 +1215,16 @@ fn guarded_divide(rng: &mut Rng, f: &str) -> Shape {
             e.numbered(at + 1, &[ran + aborted, n - ran], "");
             if mcdc {
                 e.numbered(at + 1, &[ran, aborted], "");
-                let conditions = vec![("a".to_string(), shown(&paths, 0)), (format!("n / d > {t}"), shown(&paths, 1))];
-                e.trees.push(Tree { line: at + 1, whole: format!("a && n / d > {t}"), suffix: String::new(), conditions });
+                let conditions = vec![
+                    ("a".to_string(), shown(&paths, 0)),
+                    (format!("n / d > {t}"), shown(&paths, 1)),
+                ];
+                e.trees.push(Tree {
+                    line: at + 1,
+                    whole: format!("a && n / d > {t}"),
+                    suffix: String::new(),
+                    conditions,
+                });
             }
         }),
     }
@@ -1004,12 +1235,27 @@ fn guarded_divide(rng: &mut Rng, f: &str) -> Shape {
 /// `a / b` at `Int`, or in a function generic over `Divide` called at `Int`.
 fn divide(rng: &mut Rng, f: &str) -> Shape {
     let generic = rng.bool();
-    let head = if generic { format!("export fn {f}<T: Divide>(a: T, b: T): T {{") } else { format!("export fn {f}(a: Int, b: Int): Int {{") };
+    let head = if generic {
+        format!("export fn {f}<T: Divide>(a: T, b: T): T {{")
+    } else {
+        format!("export fn {f}(a: Int, b: Int): Int {{")
+    };
     let decl = vec![head, "    a / b".into(), "}".into()];
-    let inputs: Vec<(i64, i64)> = (0..calls(rng)).map(|_| (rng.int(0, 30), rng.int(1, 5))).collect();
-    let calls = inputs.iter().map(|&(a, b)| assert(format!("g.{f}({a}, {b})"), a / b)).collect();
-    let aborts: Vec<(String, &'static str)> =
-        (0..rng.below(3)).map(|_| (assert(format!("g.{f}({}, 0)", rng.int(0, 9)), 0), "division by zero")).collect();
+    let inputs: Vec<(i64, i64)> = (0..calls(rng))
+        .map(|_| (rng.int(0, 30), rng.int(1, 5)))
+        .collect();
+    let calls = inputs
+        .iter()
+        .map(|&(a, b)| assert(format!("g.{f}({a}, {b})"), a / b))
+        .collect();
+    let aborts: Vec<(String, &'static str)> = (0..rng.below(3))
+        .map(|_| {
+            (
+                assert(format!("g.{f}({}, 0)", rng.int(0, 9)), 0),
+                "division by zero",
+            )
+        })
+        .collect();
     // A generic one nothing calls is no abort: its `/` is on a `T`.
     let built = !inputs.is_empty() || !aborts.is_empty();
     let instance = match (generic, built) {
@@ -1021,17 +1267,36 @@ fn divide(rng: &mut Rng, f: &str) -> Shape {
 }
 
 fn shift(rng: &mut Rng, f: &str) -> Shape {
-    let decl = vec![format!("export fn {f}(n: Int): Int {{"), "    bits.shiftLeft(1, n)".into(), "}".into()];
+    let decl = vec![
+        format!("export fn {f}(n: Int): Int {{"),
+        "    bits.shiftLeft(1, n)".into(),
+        "}".into(),
+    ];
     let inputs: Vec<i64> = (0..calls(rng)).map(|_| rng.int(0, 10)).collect();
-    let calls = inputs.iter().map(|&n| assert(format!("g.{f}({n})"), 1i64 << n)).collect();
-    let aborts: Vec<(String, &'static str)> =
-        (0..rng.below(3)).map(|_| (assert(format!("g.{f}({})", rng.int(-3, -1)), 0), "shift out of range")).collect();
+    let calls = inputs
+        .iter()
+        .map(|&n| assert(format!("g.{f}({n})"), 1i64 << n))
+        .collect();
+    let aborts: Vec<(String, &'static str)> = (0..rng.below(3))
+        .map(|_| {
+            (
+                assert(format!("g.{f}({})", rng.int(-3, -1)), 0),
+                "shift out of range",
+            )
+        })
+        .collect();
     trap(decl, calls, aborts, inputs.len() as u64, Some(""))
 }
 
 /// A one-line function that can abort, called `n` times without and once
 /// more for each abort. Under MC/DC, an abort decision with `suffix`, if any.
-fn trap(decl: Vec<String>, calls: Vec<String>, aborts: Vec<(String, &'static str)>, n: u64, suffix: Option<&'static str>) -> Shape {
+fn trap(
+    decl: Vec<String>,
+    calls: Vec<String>,
+    aborts: Vec<(String, &'static str)>,
+    n: u64,
+    suffix: Option<&'static str>,
+) -> Shape {
     let aborted = aborts.len() as u64;
     Shape {
         decl,
@@ -1089,8 +1354,14 @@ struct Op {
     outcomes: [&'static str; 2],
 }
 
-const EQUAL: Op = Op { name: "Equal", outcomes: ["same", "differs"] };
-const ORDERED: Op = Op { name: "Ordered", outcomes: ["equal", "decides"] };
+const EQUAL: Op = Op {
+    name: "Equal",
+    outcomes: ["same", "differs"],
+};
+const ORDERED: Op = Op {
+    name: "Ordered",
+    outcomes: ["equal", "decides"],
+};
 
 /// A call of the `&&` ending in an `==`: `a`, `p` and `q`.
 type Same = (bool, Vec<Value>, Vec<Value>);
@@ -1131,7 +1402,13 @@ impl Walks {
         &mut self
             .decisions
             .entry((group.to_string(), order))
-            .or_insert_with(|| (format!("{group}, {what}"), names.iter().map(|s| s.to_string()).collect(), vec![0; names.len()]))
+            .or_insert_with(|| {
+                (
+                    format!("{group}, {what}"),
+                    names.iter().map(|s| s.to_string()).collect(),
+                    vec![0; names.len()],
+                )
+            })
             .2
     }
 }
@@ -1140,7 +1417,9 @@ const OTHER: [&str; 2] = ["same variant", "another variant"];
 
 impl Derived {
     fn new(rng: &mut Rng) -> Derived {
-        let fields = (0..1 + rng.below(3)).map(|_| [Field::Int, Field::Bool, Field::E][rng.below(3)]).collect();
+        let fields = (0..1 + rng.below(3))
+            .map(|_| [Field::Int, Field::Bool, Field::E][rng.below(3)])
+            .collect();
         let mut d = Derived {
             fields,
             orders_r: rng.bool(),
@@ -1197,7 +1476,11 @@ impl Derived {
 
     fn pair_e(&self, rng: &mut Rng) -> (Value, Value) {
         let a = self.value(rng, Field::E);
-        let b = if rng.bool() { a.clone() } else { self.value(rng, Field::E) };
+        let b = if rng.bool() {
+            a.clone()
+        } else {
+            self.value(rng, Field::E)
+        };
         (a, b)
     }
 
@@ -1253,13 +1536,21 @@ impl Derived {
     }
 
     fn r_source(&self, r: &[Value]) -> String {
-        let fields: Vec<String> = r.iter().enumerate().map(|(i, v)| format!("f{i}: {}", v.source())).collect();
+        let fields: Vec<String> = r
+            .iter()
+            .enumerate()
+            .map(|(i, v)| format!("f{i}: {}", v.source()))
+            .collect();
         format!("R {{ {} }}", fields.join(", "))
     }
 
     /// `export fn f(a: Bool, p: R, q: R): Bool { a && p == q }`.
     fn same(&self, rng: &mut Rng, f: &str) -> Shape {
-        let decl = vec![format!("export fn {f}(a: Bool, p: R, q: R): Bool {{"), "    a && p == q".into(), "}".into()];
+        let decl = vec![
+            format!("export fn {f}(a: Bool, p: R, q: R): Bool {{"),
+            "    a && p == q".into(),
+            "}".into(),
+        ];
         let mut inputs = Vec::new();
         for _ in 0..calls(rng) {
             let (p, q) = self.pair_r(rng);
@@ -1283,7 +1574,11 @@ impl Derived {
         let ran = inputs.iter().filter(|(a, ..)| *a).count() as u64;
         let mut paths: Vec<(Vec<Option<bool>>, bool)> = Vec::new();
         for (a, p, q) in &inputs {
-            let path = if *a { (vec![Some(true), Some(p == q)], p == q) } else { (vec![Some(false), None], false) };
+            let path = if *a {
+                (vec![Some(true), Some(p == q)], p == q)
+            } else {
+                (vec![Some(false), None], false)
+            };
             if !paths.contains(&path) {
                 paths.push(path);
             }
@@ -1299,8 +1594,16 @@ impl Derived {
                 // A function nothing built is judged on its checked body,
                 // where `==` is a trait call in tail position.
                 if mcdc && n > 0 {
-                    let conditions = vec![("a".to_string(), shown(&paths, 0)), ("p == q".to_string(), shown(&paths, 1))];
-                    e.trees.push(Tree { line: at + 1, whole: "a && p == q".into(), suffix: String::new(), conditions });
+                    let conditions = vec![
+                        ("a".to_string(), shown(&paths, 0)),
+                        ("p == q".to_string(), shown(&paths, 1)),
+                    ];
+                    e.trees.push(Tree {
+                        line: at + 1,
+                        whole: "a && p == q".into(),
+                        suffix: String::new(),
+                        conditions,
+                    });
                 }
             }),
         }
@@ -1311,7 +1614,10 @@ impl Derived {
     fn calls(&self) -> Vec<String> {
         let mut out = Vec::new();
         for (a, b) in &self.eq_e {
-            out.push(assert(format!("E{} == E{}", a.source(), b.source()), a == b));
+            out.push(assert(
+                format!("E{} == E{}", a.source(), b.source()),
+                a == b,
+            ));
         }
         for (i, (a, b)) in self.eq_r.iter().enumerate() {
             out.push(format!("let a{i} = {};", self.r_source(a)));
@@ -1330,11 +1636,17 @@ impl Derived {
             out.push("let ctx = context {\n        Allocator: alloc(),\n    };".into());
         }
         for v in &self.show_e {
-            out.push(assert(format!("E{}.show(ctx)", v.source()), format!("\"{}\"", v.source())));
+            out.push(assert(
+                format!("E{}.show(ctx)", v.source()),
+                format!("\"{}\"", v.source()),
+            ));
         }
         for (i, r) in self.show_r.iter().enumerate() {
             out.push(format!("let r{i} = {};", self.r_source(r)));
-            out.push(assert(format!("r{i}.show(ctx)"), format!("\"{}\"", self.r_source(r))));
+            out.push(assert(
+                format!("r{i}.show(ctx)"),
+                format!("\"{}\"", self.r_source(r)),
+            ));
         }
         out
     }
@@ -1353,11 +1665,19 @@ impl Derived {
 
     /// `op` on two `E`s, through the shadow: answers whether they're equal.
     fn walk_e(w: &mut Walks, op: Op, a: &Value, b: &Value) -> bool {
-        let (Value::E(va, xa), Value::E(vb, xb)) = (a, b) else { panic!("compared two values that aren't `E`s") };
+        let (Value::E(va, xa), Value::E(vb, xb)) = (a, b) else {
+            panic!("compared two values that aren't `E`s")
+        };
         let group = format!("{} E", op.name);
         Self::declare_e(w, op);
         w.hit(&group, 0, "variant", &VARIANTS, *va);
-        w.hit(&group, va + 1, &format!("{}, the other", VARIANTS[*va]), &OTHER, usize::from(va != vb));
+        w.hit(
+            &group,
+            va + 1,
+            &format!("{}, the other", VARIANTS[*va]),
+            &OTHER,
+            usize::from(va != vb),
+        );
         if va != vb {
             return false;
         }
@@ -1374,7 +1694,12 @@ impl Derived {
     /// last.
     fn declare_r(&self, w: &mut Walks, op: Op) {
         for i in 1..self.fields.len() {
-            w.declare(&format!("{} R", op.name), i - 1, &format!("f{}", i - 1), &op.outcomes);
+            w.declare(
+                &format!("{} R", op.name),
+                i - 1,
+                &format!("f{}", i - 1),
+                &op.outcomes,
+            );
         }
     }
 
@@ -1388,7 +1713,13 @@ impl Derived {
             if i == last {
                 return same;
             }
-            w.hit(&format!("{} R", op.name), i, &format!("f{i}"), &op.outcomes, usize::from(!same));
+            w.hit(
+                &format!("{} R", op.name),
+                i,
+                &format!("f{i}"),
+                &op.outcomes,
+                usize::from(!same),
+            );
             if !same {
                 return false;
             }
@@ -1397,7 +1728,9 @@ impl Derived {
     }
 
     fn walk_show_e(w: &mut Walks, v: &Value) {
-        let Value::E(variant, _) = v else { panic!("showed a value that isn't an `E`") };
+        let Value::E(variant, _) = v else {
+            panic!("showed a value that isn't an `E`")
+        };
         w.hit("Show E", 0, "variant", &VARIANTS, *variant);
     }
 
@@ -1407,7 +1740,14 @@ impl Derived {
         let same_calls = self.same.borrow().clone();
         // A shadow exists for each operation the program calls, and for each
         // its walk reaches.
-        for (op, on_e, on_r) in [(EQUAL, !self.eq_e.is_empty(), !self.eq_r.is_empty() || !same_calls.is_empty()), (ORDERED, !self.lt_e.is_empty(), !self.lt_r.is_empty())] {
+        for (op, on_e, on_r) in [
+            (
+                EQUAL,
+                !self.eq_e.is_empty(),
+                !self.eq_r.is_empty() || !same_calls.is_empty(),
+            ),
+            (ORDERED, !self.lt_e.is_empty(), !self.lt_r.is_empty()),
+        ] {
             if on_e || on_r && has_e {
                 Self::declare_e(&mut w, op);
             }
@@ -1448,7 +1788,11 @@ impl Derived {
         // `E` is declared on `at`, `R` seven lines below.
         for ((group, _), (label, names, counts)) in &w.decisions {
             let line = if group.ends_with(" E") { at } else { at + 7 };
-            let branches = names.iter().zip(counts).map(|(name, n)| (format!("{label}: {name}"), *n)).collect();
+            let branches = names
+                .iter()
+                .zip(counts)
+                .map(|(name, n)| (format!("{label}: {name}"), *n))
+                .collect();
             e.decisions.push(Decision { line, branches });
         }
     }
@@ -1491,13 +1835,21 @@ pub fn lcov(file: &str, e: &Expect, mcdc: bool) -> (String, [(usize, usize); 3])
             decisions.1 += 1;
             decisions.0 += usize::from(t.conditions.iter().all(|c| c.1));
             for (c, s) in &t.conditions {
-                by_line.entry(t.line).or_default().push((format!("'{c}' in '{}'{}", t.whole, t.suffix), *s));
+                by_line
+                    .entry(t.line)
+                    .or_default()
+                    .push((format!("'{c}' in '{}'{}", t.whole, t.suffix), *s));
             }
         }
         for (line, group) in &by_line {
             for (index, (expression, s)) in group.iter().enumerate() {
                 for sense in ["t", "f"] {
-                    let _ = writeln!(out, "MCDC:{line},{},{sense},{},{index},{expression}", group.len(), u8::from(*s));
+                    let _ = writeln!(
+                        out,
+                        "MCDC:{line},{},{sense},{},{index},{expression}",
+                        group.len(),
+                        u8::from(*s)
+                    );
                 }
                 conditions.1 += 1;
                 conditions.0 += usize::from(*s);
@@ -1508,7 +1860,12 @@ pub fn lcov(file: &str, e: &Expect, mcdc: bool) -> (String, [(usize, usize); 3])
     for (line, n) in &lines {
         let _ = writeln!(out, "DA:{line},{n}");
     }
-    let _ = write!(out, "LF:{}\nLH:{}\nend_of_record\n", lines.len(), lines.values().filter(|n| **n > 0).count());
+    let _ = write!(
+        out,
+        "LF:{}\nLH:{}\nend_of_record\n",
+        lines.len(),
+        lines.values().filter(|n| **n > 0).count()
+    );
     (out, [(hit, total), conditions, decisions])
 }
 
@@ -1525,16 +1882,29 @@ pub fn summary(rows: &[(String, [(usize, usize); 3])], mcdc: bool) -> String {
     rows.push(("total".into(), total));
     let columns = if mcdc { 3 } else { 1 };
     let cell = |(c, t): (usize, usize)| {
-        let percent = if t == 0 { "-".to_string() } else { format!("{:.1}%", c as f64 * 100.0 / t as f64) };
+        let percent = if t == 0 {
+            "-".to_string()
+        } else {
+            format!("{:.1}%", c as f64 * 100.0 / t as f64)
+        };
         format!("{c}/{t}  {percent:>6}")
     };
-    let cells: Vec<Vec<String>> = rows.iter().map(|(_, r)| r[..columns].iter().map(|c| cell(*c)).collect()).collect();
-    let title = if mcdc { "mc/dc coverage" } else { "branch coverage" };
+    let cells: Vec<Vec<String>> = rows
+        .iter()
+        .map(|(_, r)| r[..columns].iter().map(|c| cell(*c)).collect())
+        .collect();
+    let title = if mcdc {
+        "mc/dc coverage"
+    } else {
+        "branch coverage"
+    };
     let mut width = rows.iter().map(|r| r.0.len()).max().unwrap_or(0);
     if mcdc {
         width = width.max(title.len() - 2);
     }
-    let widths: Vec<usize> = (0..columns).map(|i| cells.iter().map(|c| c[i].len()).max().unwrap_or(0)).collect();
+    let widths: Vec<usize> = (0..columns)
+        .map(|i| cells.iter().map(|c| c[i].len()).max().unwrap_or(0))
+        .collect();
     let mut out = String::from("\n");
     if mcdc {
         let mut head = format!("{title:<w$}", w = width + 2);

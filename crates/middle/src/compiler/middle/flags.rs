@@ -55,12 +55,28 @@ impl Word {
 
     /// An operation on the word, answering another word.
     pub fn op(&self, op: PrimOp, args: Vec<Expr>) -> Expr {
-        Expr::new(ExprKind::Prim { op, prim: self.prim, args }, self.ty, self.span)
+        Expr::new(
+            ExprKind::Prim {
+                op,
+                prim: self.prim,
+                args,
+            },
+            self.ty,
+            self.span,
+        )
     }
 
     /// A comparison of two words.
     pub fn test(&self, op: PrimOp, a: Expr, b: Expr) -> Expr {
-        Expr::new(ExprKind::Prim { op, prim: self.prim, args: vec![a, b] }, self.bool_ty, self.span)
+        Expr::new(
+            ExprKind::Prim {
+                op,
+                prim: self.prim,
+                args: vec![a, b],
+            },
+            self.bool_ty,
+            self.span,
+        )
     }
 
     /// `x.f`: whether field `i`'s bit is set.

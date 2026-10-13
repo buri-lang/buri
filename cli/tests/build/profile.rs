@@ -3,7 +3,10 @@ use crate::harness::*;
 
 fn repo() -> Scratch {
     let scratch = Scratch::repo("profile");
-    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n  test { sources: [\"test/a.buri\"] }\n}\n",
+    );
     scratch.write("lib/a/lib.buri", "export fn answer(): I64 { 42 }\n");
     scratch.write(
         "lib/a/test/a.buri",
@@ -20,32 +23,63 @@ fn a_profiled_test_run_names_every_phase_it_went_through() {
     let scratch = repo();
     let run = scratch.run_with_env(&["test", "//..."], &[("BURI_PROFILE", "1")]);
     run.ok().says("buri profile");
-    for phase in ["lex+parse", "check", "monomorphize", "middle", "emit", "link", "run", "all phases"] {
+    for phase in [
+        "lex+parse",
+        "check",
+        "monomorphize",
+        "middle",
+        "emit",
+        "link",
+        "run",
+        "all phases",
+    ] {
         run.says(&format!("\n  {phase} "));
     }
-    assert_eq!(run.tests_passed(), 1, "the suite did not run:\n{}", indent(&run.all()));
+    assert_eq!(
+        run.tests_passed(),
+        1,
+        "the suite did not run:\n{}",
+        indent(&run.all())
+    );
 }
 
 #[test]
 fn an_unprofiled_run_prints_no_profile() {
     let scratch = repo();
-    scratch.run(&["test", "//..."]).ok().silent_about("buri profile").silent_about("suites built");
-    scratch.run_with_env(&["test", "//..."], &[("BURI_PROFILE", "0")]).ok().silent_about("buri profile");
+    scratch
+        .run(&["test", "//..."])
+        .ok()
+        .silent_about("buri profile")
+        .silent_about("suites built");
+    scratch
+        .run_with_env(&["test", "//..."], &[("BURI_PROFILE", "0")])
+        .ok()
+        .silent_about("buri profile");
 }
 
 /// The instructions one phase took, in millions, off a `BURI_PROFILE=1`
 /// report, or `None` where the platform has no per-thread counter (Linux, and
 /// CI's macOS virtual machines, read `-` or 0).
 fn phase_instructions(report: &str, phase: &str) -> Option<f64> {
-    let line = report.lines().find(|l| l.trim_start().starts_with(&format!("{phase} ")))?;
+    let line = report
+        .lines()
+        .find(|l| l.trim_start().starts_with(&format!("{phase} ")))?;
     let count = line.split_whitespace().nth(1)?.parse::<f64>().ok()?;
     (count > 0.0).then_some(count)
 }
 
 /// This machine's `variant` for a native output.
 fn host_variant() -> String {
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     format!("{os}-{arch}")
 }
 
@@ -54,11 +88,21 @@ fn host_variant() -> String {
 fn large_shape(platform: &str, items: &str, body: &str) -> Scratch {
     let scratch = Scratch::repo("profile-large-shape");
     let output = match platform {
-        "native" => format!("{{ platform: \"native\", variant: \"{}\" }}", host_variant()),
+        "native" => format!(
+            "{{ platform: \"native\", variant: \"{}\" }}",
+            host_variant()
+        ),
         _ => format!("{{ platform: \"{platform}\" }}"),
     };
-    let host = if platform == "native" { "NativeHost" } else { "NodeHost" };
-    scratch.write("app/BUILD.buri", &format!("binary {{\n    outputs: [\n        {output},\n    ]\n}}\n"));
+    let host = if platform == "native" {
+        "NativeHost"
+    } else {
+        "NodeHost"
+    };
+    scratch.write(
+        "app/BUILD.buri",
+        &format!("binary {{\n    outputs: [\n        {output},\n    ]\n}}\n"),
+    );
     scratch.write(
         "app/main.buri",
         &format!(
@@ -78,7 +122,10 @@ fn large_shape(platform: &str, items: &str, body: &str) -> Scratch {
 /// load that added up to a fifth to a phase's count from run to run.
 fn profiled(platform: &str, items: &str, body: &str, phase: &str) -> Option<f64> {
     let scratch = large_shape(platform, items, body);
-    let run = scratch.run_with_env(&["build", "//app"], &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")]);
+    let run = scratch.run_with_env(
+        &["build", "//app"],
+        &[("BURI_PROFILE", "1"), ("BURI_THREADS", "1")],
+    );
     run.ok();
     phase_instructions(&run.all(), phase)
 }
@@ -94,12 +141,18 @@ fn a_build_on_one_thread_writes_the_same_binary() {
     let (items, body) = many_lambdas(50);
     let scratch = large_shape("native", &items, &body);
     let built = |env: &[(&str, &str)]| {
-        scratch.run_with_env(&["build", "//app", "--force"], env).ok();
-        std::fs::read(scratch.path(&format!(".buri/out/native/{}/app/app", host_variant()))).unwrap()
+        scratch
+            .run_with_env(&["build", "//app", "--force"], env)
+            .ok();
+        std::fs::read(scratch.path(&format!(".buri/out/native/{}/app/app", host_variant())))
+            .unwrap()
     };
     let (every_core, one_thread) = (built(&[]), built(&[("BURI_THREADS", "1")]));
     assert!(!every_core.is_empty());
-    assert!(every_core == one_thread, "one thread built a different binary from every core");
+    assert!(
+        every_core == one_thread,
+        "one thread built a different binary from every core"
+    );
 }
 
 /// Asserts that `work(2n)` is at most 2.3 times `work(n)`. Where the platform
@@ -118,12 +171,27 @@ fn grows_linearly(what: &str, work: impl Fn(usize) -> Option<f64>, n: usize) {
 
 /// Builds tuples of `n` elements, takes one apart and compares two.
 fn long_tuple(n: usize) -> (String, String) {
-    let types: Vec<&str> = (0..n).map(|i| if i % 2 == 0 { "Int" } else { "Str" }).collect();
-    let values: Vec<String> =
-        (0..n).map(|i| if i % 2 == 0 { format!("k + {i}") } else { String::from("s") }).collect();
+    let types: Vec<&str> = (0..n)
+        .map(|i| if i % 2 == 0 { "Int" } else { "Str" })
+        .collect();
+    let values: Vec<String> = (0..n)
+        .map(|i| {
+            if i % 2 == 0 {
+                format!("k + {i}")
+            } else {
+                String::from("s")
+            }
+        })
+        .collect();
     let names: Vec<String> = (0..n).map(|i| format!("a{i}")).collect();
     let summed: Vec<String> = (0..n)
-        .map(|i| if i % 2 == 0 { format!("a{i}") } else { format!("a{i}.length()") })
+        .map(|i| {
+            if i % 2 == 0 {
+                format!("a{i}")
+            } else {
+                format!("a{i}.length()")
+            }
+        })
         .collect();
     let items = format!(
         "fn make<C: Allocator>(ctx: C, k: Int): ({types}) {{\n    \
@@ -146,10 +214,16 @@ fn long_tuple(n: usize) -> (String, String) {
 /// are the diagonal.
 fn long_matches(n: usize, pairs: bool) -> (String, String) {
     let variants: String = (0..n).map(|i| format!("    V{i},\n")).collect();
-    let from_int: String = (0..n - 1).map(|i| format!("        {i} => .V{i},\n")).collect();
+    let from_int: String = (0..n - 1)
+        .map(|i| format!("        {i} => .V{i},\n"))
+        .collect();
     let to_int: String = (0..n).map(|i| format!("        .V{i} => {i},\n")).collect();
-    let words: String = (0..n).map(|i| format!("        \"w{i}\" => {i},\n")).collect();
-    let diagonal: String = (0..n).map(|i| format!("        (.V{i}, .V{i}) => {i},\n")).collect();
+    let words: String = (0..n)
+        .map(|i| format!("        \"w{i}\" => {i},\n"))
+        .collect();
+    let diagonal: String = (0..n)
+        .map(|i| format!("        (.V{i}, .V{i}) => {i},\n"))
+        .collect();
     let mut items = format!(
         "enum E {{\n{variants}}}\n\n\
          fn nth(i: Int): E {{\n    match (i) {{\n{from_int}        _ => .V{},\n    }}\n}}\n\n\
@@ -246,7 +320,9 @@ fn long_branching(n: usize) -> (String, String) {
     let made = vec!["s"; n].join(", ");
     let left: Vec<String> = (0..n).map(|i| format!("a{i}")).collect();
     let right: Vec<String> = (0..n).map(|i| format!("b{i}")).collect();
-    let chain: Vec<String> = (0..n).map(|i| format!("if (a{i} != b{i}) {{ {i} }}")).collect();
+    let chain: Vec<String> = (0..n)
+        .map(|i| format!("if (a{i} != b{i}) {{ {i} }}"))
+        .collect();
     let items = format!(
         "enum W {{\n    T({types}),\n    Empty,\n}}\n\n\
          fn make<C: Allocator>(ctx: C, k: Int): W {{\n    \
@@ -288,9 +364,18 @@ fn reference_counting_is_linear_in_a_long_branching_expression() {
 /// A struct of `n` fields, alternately `Int` and `Str`, that derives `Hash`
 /// and is hashed.
 fn wide_hashed_struct(n: usize) -> (String, String) {
-    let types: Vec<&str> = (0..n).map(|i| if i % 2 == 0 { "Int" } else { "Str" }).collect();
-    let values: Vec<String> =
-        (0..n).map(|i| if i % 2 == 0 { format!("k + {i}") } else { String::from("s") }).collect();
+    let types: Vec<&str> = (0..n)
+        .map(|i| if i % 2 == 0 { "Int" } else { "Str" })
+        .collect();
+    let values: Vec<String> = (0..n)
+        .map(|i| {
+            if i % 2 == 0 {
+                format!("k + {i}")
+            } else {
+                String::from("s")
+            }
+        })
+        .collect();
     let items = format!(
         "struct W({types});\n\nderive Hash for W;\n\n\
          fn make<C: Allocator>(ctx: C, k: Int): W {{\n    \
@@ -326,12 +411,27 @@ fn deriving_hash_is_linear_in_a_structs_fields() {
 
 /// A variant of `n` fields, alternately `Int` and `Str`, built and taken apart.
 fn wide_variant(n: usize) -> (String, String) {
-    let types: Vec<&str> = (0..n).map(|i| if i % 2 == 0 { "Int" } else { "Str" }).collect();
-    let values: Vec<String> =
-        (0..n).map(|i| if i % 2 == 0 { format!("k + {i}") } else { String::from("s") }).collect();
+    let types: Vec<&str> = (0..n)
+        .map(|i| if i % 2 == 0 { "Int" } else { "Str" })
+        .collect();
+    let values: Vec<String> = (0..n)
+        .map(|i| {
+            if i % 2 == 0 {
+                format!("k + {i}")
+            } else {
+                String::from("s")
+            }
+        })
+        .collect();
     let names: Vec<String> = (0..n).map(|i| format!("a{i}")).collect();
     let summed: Vec<String> = (0..n)
-        .map(|i| if i % 2 == 0 { format!("a{i}") } else { format!("a{i}.length()") })
+        .map(|i| {
+            if i % 2 == 0 {
+                format!("a{i}")
+            } else {
+                format!("a{i}.length()")
+            }
+        })
         .collect();
     let items = format!(
         "enum W {{\n    T({types}),\n    Empty,\n}}\n\n\
@@ -375,7 +475,9 @@ fn a_debug_builds_emission_is_linear_in_a_variants_fields() {
 
 /// A body of `n` `let`s, each calling a function by a name no local has.
 fn many_lets(n: usize) -> (String, String) {
-    let lets: String = (0..n).map(|i| format!("    let t{} = step(t{i}, {i});\n", i + 1)).collect();
+    let lets: String = (0..n)
+        .map(|i| format!("    let t{} = step(t{i}, {i});\n", i + 1))
+        .collect();
     let items = format!(
         "fn step(a: Int, b: Int): Int {{\n    (a + b) % 1013\n}}\n\n\
          fn long(x: Int): Int {{\n    let t0 = x;\n{lets}    t{n}\n}}\n"
@@ -429,14 +531,19 @@ fn field_lets(n: usize) -> (String, String) {
     let lets: String = (0..n)
         .map(|i| {
             let field = if i % 2 == 0 { "b" } else { "a" };
-            format!("    let v{i} = p.{field};\n    let t{} = (t{i} + v{i} * {}) % 1013;\n", i + 1, i % 7 + 1)
+            format!(
+                "    let v{i} = p.{field};\n    let t{} = (t{i} + v{i} * {}) % 1013;\n",
+                i + 1,
+                i % 7 + 1
+            )
         })
         .collect();
     let items = format!(
         "struct P {{\n    a: Int,\n    b: Int,\n}}\n\n\
          fn long(p: P): Int {{\n    let t0 = 0;\n{lets}    t{n}\n}}\n"
     );
-    let body = String::from("    let _ = io.println(ctx, \"${long(P { a: 3, b: 4 })}\").ignore();\n");
+    let body =
+        String::from("    let _ = io.println(ctx, \"${long(P { a: 3, b: 4 })}\").ignore();\n");
     (items, body)
 }
 
@@ -463,10 +570,15 @@ fn forwarding_field_reads_is_linear_in_a_bodys_lets() {
 /// One function of `n` capturing lambdas, each called.
 fn many_lambdas(n: usize) -> (String, String) {
     let lambdas: String = (0..n)
-        .map(|i| format!("    let k{i} = x + {i};\n    let f{i} = fn(y: Int): Int => (y * k{i}) % 1013;\n"))
+        .map(|i| {
+            format!(
+                "    let k{i} = x + {i};\n    let f{i} = fn(y: Int): Int => (y * k{i}) % 1013;\n"
+            )
+        })
         .collect();
-    let sums: String =
-        (0..n).map(|i| format!("    let t{} = (t{i} + f{i}({i})) % 100003;\n", i + 1)).collect();
+    let sums: String = (0..n)
+        .map(|i| format!("    let t{} = (t{i} + f{i}({i})) % 100003;\n", i + 1))
+        .collect();
     let items = format!("fn many(x: Int): Int {{\n{lambdas}    let t0 = 0;\n{sums}    t{n}\n}}\n");
     let body = String::from("    let _ = io.println(ctx, \"${many(2)}\").ignore();\n");
     (items, body)
@@ -513,7 +625,10 @@ fn library_chain(scratch: &Scratch, n: usize) {
                      export fn total(): Int {{\n    before.total() + 1\n}}\n"
                 ),
             ),
-            None => (String::new(), String::from("export fn total(): Int {\n    1\n}\n")),
+            None => (
+                String::new(),
+                String::from("export fn total(): Int {\n    1\n}\n"),
+            ),
         };
         scratch.write(
             &format!("lib/p{i}/BUILD.buri"),
@@ -551,7 +666,11 @@ fn graph_work(name: &str, n: usize, args: &[&str]) -> Option<f64> {
         run.ok();
         let all = run.all();
         let line = all.lines().find(|l| l.starts_with("graph work "))?;
-        total += line.trim_start_matches("graph work ").trim().parse::<f64>().ok()?;
+        total += line
+            .trim_start_matches("graph work ")
+            .trim()
+            .parse::<f64>()
+            .ok()?;
     }
     (total > 0.0).then_some(total)
 }
@@ -599,10 +718,21 @@ fn a_cold_build_of_a_chain_of_libraries_checks_each_once() {
     };
     let loaded = |all: &str| {
         let line = all.lines().find(|l| l.starts_with("modules loaded "))?;
-        line.trim_start_matches("modules loaded ").trim().parse::<f64>().ok()
+        line.trim_start_matches("modules loaded ")
+            .trim()
+            .parse::<f64>()
+            .ok()
     };
-    grows_linearly("a cold build of a chain of libraries, loading", |n| loaded(&cold(n)), 100);
-    grows_linearly("a cold build of a chain of libraries, checking", |n| phase_instructions(&cold(n), "check"), 100);
+    grows_linearly(
+        "a cold build of a chain of libraries, loading",
+        |n| loaded(&cold(n)),
+        100,
+    );
+    grows_linearly(
+        "a cold build of a chain of libraries, checking",
+        |n| phase_instructions(&cold(n), "check"),
+        100,
+    );
 }
 
 /// A library of `n` types, each with a method and a function that builds one.
@@ -616,7 +746,10 @@ fn many_declarations(scratch: &Scratch, n: usize) {
             )
         })
         .collect();
-    scratch.write("lib/big/BUILD.buri", "library {\n    visibility: [\"//visibility:public\"]\n}\n");
+    scratch.write(
+        "lib/big/BUILD.buri",
+        "library {\n    visibility: [\"//visibility:public\"]\n}\n",
+    );
     scratch.write("lib/big/lib.buri", &items);
 }
 
@@ -628,7 +761,13 @@ fn many_declarations(scratch: &Scratch, n: usize) {
 fn the_lint_rules_are_linear_in_a_files_length() {
     grows_linearly(
         "the lint rules over one long file",
-        |n| linted("profile-lint-long-file", |s| many_declarations(s, n), "other"),
+        |n| {
+            linted(
+                "profile-lint-long-file",
+                |s| many_declarations(s, n),
+                "other",
+            )
+        },
         400,
     );
 }
@@ -640,10 +779,14 @@ fn the_lint_rules_are_linear_in_a_files_length() {
 fn unused_context_is_linear_in_its_findings() {
     let linted = |n: usize| {
         let scratch = Scratch::repo("profile-lint-unused-contexts");
-        let items: String =
-            (0..n).map(|i| format!("fn p{i}<C: Allocator>(ctx: C, x: Int): Int {{\n    x * {i}\n}}\n\n")).collect();
+        let items: String = (0..n)
+            .map(|i| format!("fn p{i}<C: Allocator>(ctx: C, x: Int): Int {{\n    x * {i}\n}}\n\n"))
+            .collect();
         let calls: Vec<String> = (0..n).map(|i| format!("p{i}(ctx, {i})")).collect();
-        scratch.write("app/BUILD.buri", "binary {\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n");
+        scratch.write(
+            "app/BUILD.buri",
+            "binary {\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n",
+        );
         scratch.write(
             "app/main.buri",
             &format!(
@@ -659,7 +802,12 @@ fn unused_context_is_linear_in_its_findings() {
         );
         let run = scratch.run_with_env(&["lint", "//..."], &[("BURI_PROFILE", "1")]);
         run.exits(1);
-        assert_eq!(run.all().matches("[unused-context]").count(), n, "{}", indent(&run.all()));
+        assert_eq!(
+            run.all().matches("[unused-context]").count(),
+            n,
+            "{}",
+            indent(&run.all())
+        );
         phase_instructions(&run.all(), "other")
     };
     grows_linearly("unused-context over one file", linted, 500);
@@ -670,8 +818,14 @@ fn unused_bounds(scratch: &Scratch, n: usize) {
     let items: String = (0..n)
         .map(|i| format!("export fn p{i}<C: Allocator>(ctx: C, x: Int): Int {{\n    let _ = ctx;\n    x * {i}\n}}\n\n"))
         .collect();
-    scratch.write("lib/big/BUILD.buri", "library {\n    visibility: [\"//visibility:public\"]\n}\n");
-    scratch.write("lib/big/lib.buri", &format!("from \"platform/effect\" import {{ Allocator }};\n\n{items}"));
+    scratch.write(
+        "lib/big/BUILD.buri",
+        "library {\n    visibility: [\"//visibility:public\"]\n}\n",
+    );
+    scratch.write(
+        "lib/big/lib.buri",
+        &format!("from \"platform/effect\" import {{ Allocator }};\n\n{items}"),
+    );
 }
 
 /// **The language server publishes a file's findings in time linear in how
@@ -695,8 +849,16 @@ fn publishing_a_files_findings_is_linear_in_how_many_it_has() {
         .iter()
         .map(|m| format!("Content-Length: {}\r\n\r\n{m}", m.len()))
         .collect();
-        let run = scratch.run_with_stdin_and_env(&["lsp"], session.as_bytes(), &[("BURI_PROFILE", "1")]);
-        assert_eq!(run.stdout.matches("\"code\":\"unused-context-bound\"").count(), n, "{}", indent(&run.stdout));
+        let run =
+            scratch.run_with_stdin_and_env(&["lsp"], session.as_bytes(), &[("BURI_PROFILE", "1")]);
+        assert_eq!(
+            run.stdout
+                .matches("\"code\":\"unused-context-bound\"")
+                .count(),
+            n,
+            "{}",
+            indent(&run.stdout)
+        );
         phase_instructions(&run.stderr, "other")
     };
     grows_linearly("publishing one file's findings", published, 200);
@@ -709,10 +871,16 @@ fn publishing_a_files_findings_is_linear_in_how_many_it_has() {
 fn a_second_format_check_formats_no_file() {
     let scratch = Scratch::repo("profile-format-check");
     library_chain(&scratch, 20);
-    scratch.write("README.md", "# Notes\n\n```buri\nfn three(): Int {\n    3\n}\n```\n");
+    scratch.write(
+        "README.md",
+        "# Notes\n\n```buri\nfn three(): Int {\n    3\n}\n```\n",
+    );
     let formatted = |all: &str| -> Option<u64> {
         let line = all.lines().find(|l| l.starts_with("files formatted "))?;
-        line.trim_start_matches("files formatted ").trim().parse().ok()
+        line.trim_start_matches("files formatted ")
+            .trim()
+            .parse()
+            .ok()
     };
     let check = || scratch.run_with_env(&["format", "--check"], &[("BURI_PROFILE", "1")]);
     let cold = check();
@@ -726,7 +894,10 @@ fn a_second_format_check_formats_no_file() {
 /// The modules a `BURI_PROFILE=1` run loaded (`modules loaded` in the report).
 fn modules_loaded(all: &str) -> Option<u64> {
     let line = all.lines().find(|l| l.starts_with("modules loaded "))?;
-    line.trim_start_matches("modules loaded ").trim().parse().ok()
+    line.trim_start_matches("modules loaded ")
+        .trim()
+        .parse()
+        .ok()
 }
 
 /// **A native build with nothing to do loads nothing.** It used to check,
@@ -757,17 +928,31 @@ fn a_warm_native_build_loads_no_module() {
     let build = || scratch.run_with_env(&["build", "//app"], &[("BURI_PROFILE", "1")]);
     let cold = build();
     cold.ok();
-    assert!(modules_loaded(&cold.all()).is_some_and(|n| n > 0), "{}", indent(&cold.all()));
+    assert!(
+        modules_loaded(&cold.all()).is_some_and(|n| n > 0),
+        "{}",
+        indent(&cold.all())
+    );
     let warm = build();
     warm.ok().says("cached");
-    assert_eq!(modules_loaded(&warm.all()), Some(0), "{}", indent(&warm.all()));
+    assert_eq!(
+        modules_loaded(&warm.all()),
+        Some(0),
+        "{}",
+        indent(&warm.all())
+    );
 }
 
 /// The build files a `BURI_PROFILE=1` run of `buri gen` worked out rather than
 /// recalled (`build files worked out` in the report).
 fn build_files_worked_out(all: &str) -> Option<u64> {
-    let line = all.lines().find(|l| l.starts_with("build files worked out "))?;
-    line.trim_start_matches("build files worked out ").trim().parse().ok()
+    let line = all
+        .lines()
+        .find(|l| l.starts_with("build files worked out "))?;
+    line.trim_start_matches("build files worked out ")
+        .trim()
+        .parse()
+        .ok()
 }
 
 /// **A `gen --check` of an unchanged tree works out no build file.** It
@@ -781,19 +966,41 @@ fn a_second_gen_check_works_out_no_build_file() {
     let check = || scratch.run_with_env(&["gen", "--check"], &[("BURI_PROFILE", "1")]);
     let cold = check();
     cold.ok();
-    assert_eq!(build_files_worked_out(&cold.all()), Some(20), "{}", indent(&cold.all()));
-    assert!(modules_loaded(&cold.all()).is_some_and(|n| n > 0), "{}", indent(&cold.all()));
+    assert_eq!(
+        build_files_worked_out(&cold.all()),
+        Some(20),
+        "{}",
+        indent(&cold.all())
+    );
+    assert!(
+        modules_loaded(&cold.all()).is_some_and(|n| n > 0),
+        "{}",
+        indent(&cold.all())
+    );
     let warm = check();
     warm.ok();
-    assert_eq!(build_files_worked_out(&warm.all()), Some(0), "{}", indent(&warm.all()));
-    assert_eq!(modules_loaded(&warm.all()), Some(0), "{}", indent(&warm.all()));
+    assert_eq!(
+        build_files_worked_out(&warm.all()),
+        Some(0),
+        "{}",
+        indent(&warm.all())
+    );
+    assert_eq!(
+        modules_loaded(&warm.all()),
+        Some(0),
+        "{}",
+        indent(&warm.all())
+    );
 }
 
 /// The targets a `BURI_PROFILE=1` run of `buri lint` analysed rather than
 /// recalled (`targets linted` in the report).
 fn targets_linted(all: &str) -> Option<u64> {
     let line = all.lines().find(|l| l.starts_with("targets linted "))?;
-    line.trim_start_matches("targets linted ").trim().parse().ok()
+    line.trim_start_matches("targets linted ")
+        .trim()
+        .parse()
+        .ok()
 }
 
 /// **A second lint analyses no target, and neither does a stray file.**
@@ -813,26 +1020,51 @@ fn a_second_lint_analyses_no_target_and_a_stray_file_none_either() {
         "lib/shapes/square.schema.json",
         "{\n    \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n    \"title\": \"Square\",\n    \"type\": \"object\"\n}\n",
     );
-    scratch.write("lib/shapes/lib.buri", "from \"//lib/shapes/square.schema.json\" export { Square };\n");
+    scratch.write(
+        "lib/shapes/lib.buri",
+        "from \"//lib/shapes/square.schema.json\" export { Square };\n",
+    );
     let lint = || scratch.run_with_env(&["lint", "//..."], &[("BURI_PROFILE", "1")]);
     let counts = |all: &str| (targets_linted(all), modules_loaded(all));
 
     let cold = lint();
     cold.ok();
-    assert_eq!(targets_linted(&cold.all()), Some(21), "{}", indent(&cold.all()));
+    assert_eq!(
+        targets_linted(&cold.all()),
+        Some(21),
+        "{}",
+        indent(&cold.all())
+    );
     let warm = lint();
     warm.ok();
-    assert_eq!(counts(&warm.all()), (Some(0), Some(0)), "{}", indent(&warm.all()));
+    assert_eq!(
+        counts(&warm.all()),
+        (Some(0), Some(0)),
+        "{}",
+        indent(&warm.all())
+    );
 
     scratch.write("lib/shapes/stray.json", "{}\n");
     let stray = lint();
-    stray.exits(1).says("lib/shapes/stray.json belongs to no library or binary");
-    assert_eq!(counts(&stray.all()), (Some(0), Some(0)), "{}", indent(&stray.all()));
+    stray
+        .exits(1)
+        .says("lib/shapes/stray.json belongs to no library or binary");
+    assert_eq!(
+        counts(&stray.all()),
+        (Some(0), Some(0)),
+        "{}",
+        indent(&stray.all())
+    );
 
     let _ = std::fs::remove_file(scratch.path("lib/shapes/stray.json"));
     let gone = lint();
     gone.ok();
-    assert_eq!(counts(&gone.all()), (Some(0), Some(0)), "{}", indent(&gone.all()));
+    assert_eq!(
+        counts(&gone.all()),
+        (Some(0), Some(0)),
+        "{}",
+        indent(&gone.all())
+    );
 }
 
 /// The same with a generator: a warm check runs no tool and works out
@@ -844,15 +1076,39 @@ fn a_second_gen_check_runs_no_generator() {
     let check = || scratch.run_with_env(&["gen", "--check"], &[("BURI_PROFILE", "1")]);
     let cold = check();
     cold.ok();
-    assert_eq!(build_files_worked_out(&cold.all()), Some(5), "{}", indent(&cold.all()));
+    assert_eq!(
+        build_files_worked_out(&cold.all()),
+        Some(5),
+        "{}",
+        indent(&cold.all())
+    );
     let warm = check();
     warm.ok();
     // Only where the platform counts a process's children.
-    if let Some(children) = warm.all().lines().find(|l| l.starts_with("child processes: ")) {
-        assert_eq!(children, "child processes: 0.000 s cpu", "{}", indent(&warm.all()));
+    if let Some(children) = warm
+        .all()
+        .lines()
+        .find(|l| l.starts_with("child processes: "))
+    {
+        assert_eq!(
+            children,
+            "child processes: 0.000 s cpu",
+            "{}",
+            indent(&warm.all())
+        );
     }
-    assert_eq!(build_files_worked_out(&warm.all()), Some(0), "{}", indent(&warm.all()));
-    assert_eq!(modules_loaded(&warm.all()), Some(0), "{}", indent(&warm.all()));
+    assert_eq!(
+        build_files_worked_out(&warm.all()),
+        Some(0),
+        "{}",
+        indent(&warm.all())
+    );
+    assert_eq!(
+        modules_loaded(&warm.all()),
+        Some(0),
+        "{}",
+        indent(&warm.all())
+    );
 }
 
 /// **A cold `gen --check` loads each library once.** It analysed every
@@ -867,5 +1123,9 @@ fn a_cold_gen_check_of_a_chain_of_libraries_loads_each_once() {
         run.ok();
         modules_loaded(&run.all()).map(|m| m as f64)
     };
-    grows_linearly("a cold gen --check of a chain of libraries, loading", loaded, 100);
+    grows_linearly(
+        "a cold gen --check of a chain of libraries, loading",
+        loaded,
+        100,
+    );
 }

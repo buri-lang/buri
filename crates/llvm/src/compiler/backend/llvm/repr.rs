@@ -55,7 +55,6 @@ use inkwell::context::Context;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{ArrayValue, BasicValue, BasicValueEnum, IntValue, PointerValue};
 
-
 use crate::compiler::backend::counts::{Counted, Counts, Site};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{
@@ -131,7 +130,6 @@ impl Repr {
     pub fn field_range(&self, index: usize) -> (usize, usize) {
         self.fields.get(index).copied().unwrap_or((0, 0))
     }
-
 }
 
 /// The flattening table, one per unit. Memoised on the interned
@@ -232,15 +230,24 @@ impl<'a> Reprs<'a> {
         match &layout.repr {
             LayoutRepr::Zero => {}
             LayoutRepr::Scalar(s) => {
-                slots.push(Slot { offset: 0, ty: SlotTy::Scalar(*s) });
+                slots.push(Slot {
+                    offset: 0,
+                    ty: SlotTy::Scalar(*s),
+                });
                 counted.push(None);
             }
             // `{ base, ptr, len }`. `base` is the count — `ptr` is a view into
             // it and is not a payload start (VALUE-MODEL.md §3) — and `base` is
             // null for a literal, which is why it is `Nullable`.
             LayoutRepr::Str => {
-                slots.push(Slot { offset: layout.field(layout::STR_BASE), ty: ptr() });
-                slots.push(Slot { offset: layout.field(layout::STR_PTR), ty: ptr() });
+                slots.push(Slot {
+                    offset: layout.field(layout::STR_BASE),
+                    ty: ptr(),
+                });
+                slots.push(Slot {
+                    offset: layout.field(layout::STR_PTR),
+                    ty: ptr(),
+                });
                 slots.push(Slot {
                     offset: layout.field(layout::STR_LEN),
                     ty: SlotTy::Scalar(Scalar::I64),
@@ -270,7 +277,10 @@ impl<'a> Reprs<'a> {
             // have to be repeated in the debug backend, where the same runtime
             // answers the same null.
             LayoutRepr::List => {
-                slots.push(Slot { offset: layout.field(layout::LIST_PTR), ty: ptr() });
+                slots.push(Slot {
+                    offset: layout.field(layout::LIST_PTR),
+                    ty: ptr(),
+                });
                 slots.push(Slot {
                     offset: layout.field(layout::LIST_LEN),
                     ty: SlotTy::Scalar(Scalar::I64),
@@ -281,8 +291,14 @@ impl<'a> Reprs<'a> {
             // `{ code, env }`. `code` is a function pointer and never counted;
             // `env` is null when nothing was captured (§7).
             LayoutRepr::Closure => {
-                slots.push(Slot { offset: layout.field(layout::CLOSURE_CODE), ty: ptr() });
-                slots.push(Slot { offset: layout.field(layout::CLOSURE_ENV), ty: ptr() });
+                slots.push(Slot {
+                    offset: layout.field(layout::CLOSURE_CODE),
+                    ty: ptr(),
+                });
+                slots.push(Slot {
+                    offset: layout.field(layout::CLOSURE_ENV),
+                    ty: ptr(),
+                });
                 counted.extend([None, Some(Counted::Nullable)]);
                 fields.extend([(0, 1), (1, 2)]);
             }
@@ -299,7 +315,10 @@ impl<'a> Reprs<'a> {
                 // The value *is* the tag, so there is nothing to flatten and
                 // nothing to count (§6, first niche).
                 EnumRepr::Bare { tag } => {
-                    slots.push(Slot { offset: 0, ty: SlotTy::Scalar(*tag) });
+                    slots.push(Slot {
+                        offset: 0,
+                        ty: SlotTy::Scalar(*tag),
+                    });
                     counted.push(None);
                 }
                 // The value *is* the payload, with null for `.None` (§6,
@@ -321,15 +340,27 @@ impl<'a> Reprs<'a> {
                 // slot walk, which is why every slot here is `None`. An enum
                 // with no payload bytes is `Bare`.
                 EnumRepr::Tagged { tag, payload } => {
-                    slots.push(Slot { offset: 0, ty: SlotTy::Scalar(*tag) });
+                    slots.push(Slot {
+                        offset: 0,
+                        ty: SlotTy::Scalar(*tag),
+                    });
                     counted.push(None);
                     let bytes = layout.size.saturating_sub(*payload);
-                    slots.push(Slot { offset: *payload, ty: SlotTy::Blob(bytes) });
+                    slots.push(Slot {
+                        offset: *payload,
+                        ty: SlotTy::Blob(bytes),
+                    });
                     counted.push(None);
                 }
             },
         }
-        Repr { layout, slots, fields, counted, ty: *ty }
+        Repr {
+            layout,
+            slots,
+            fields,
+            counted,
+            ty: *ty,
+        }
     }
 
     /// Places one member's slots inside its owner, at `at`.
@@ -347,7 +378,10 @@ impl<'a> Reprs<'a> {
         counted: &mut Vec<Option<Counted>>,
     ) {
         if self.layouts.boxes(owner, member) {
-            slots.push(Slot { offset: at, ty: ptr() });
+            slots.push(Slot {
+                offset: at,
+                ty: ptr(),
+            });
             counted.push(Some(Counted::NonNull));
             return;
         }
@@ -355,7 +389,10 @@ impl<'a> Reprs<'a> {
         let inner_slots = inner.slots.clone();
         let inner_counted = inner.counted.clone();
         for (slot, count) in inner_slots.into_iter().zip(inner_counted) {
-            slots.push(Slot { offset: at.saturating_add(slot.offset), ty: slot.ty });
+            slots.push(Slot {
+                offset: at.saturating_add(slot.offset),
+                ty: slot.ty,
+            });
             counted.push(count);
         }
     }
@@ -420,7 +457,6 @@ fn ptr() -> SlotTy {
     SlotTy::Scalar(Scalar::Ptr)
 }
 
-
 /// What is inside a struct, a tuple, a context or one enum variant.
 ///
 /// `semantics::types` owns the walk; it is re-exported here because `repr::`
@@ -464,7 +500,10 @@ pub fn blob_elements(bytes: u32) -> Option<(u32, u32)> {
     if bytes <= WIDEST_INT_BLOB {
         return None;
     }
-    let each = [8, 4, 2, 1].into_iter().find(|e| bytes.is_multiple_of(*e)).unwrap_or(1);
+    let each = [8, 4, 2, 1]
+        .into_iter()
+        .find(|e| bytes.is_multiple_of(*e))
+        .unwrap_or(1);
     Some((each, bytes.checked_div(each).unwrap_or(bytes)))
 }
 
@@ -485,7 +524,9 @@ pub fn blob_type(ctx: &Context, bytes: u32) -> BasicTypeEnum<'_> {
 /// ever were.
 pub fn int_type(ctx: &Context, bytes: u32) -> inkwell::types::IntType<'_> {
     match std::num::NonZeroU32::new(bytes.saturating_mul(8)) {
-        Some(bits) => ctx.custom_width_int_type(bits).unwrap_or_else(|_| ctx.i8_type()),
+        Some(bits) => ctx
+            .custom_width_int_type(bits)
+            .unwrap_or_else(|_| ctx.i8_type()),
         None => ctx.i8_type(),
     }
 }
@@ -500,8 +541,7 @@ pub fn register_type<'ctx>(ctx: &'ctx Context, slots: &[Slot]) -> BasicTypeEnum<
         [] => ctx.struct_type(&[], false).into(),
         [one] => slot_type(ctx, one.ty),
         many => {
-            let tys: Vec<BasicTypeEnum<'ctx>> =
-                many.iter().map(|s| slot_type(ctx, s.ty)).collect();
+            let tys: Vec<BasicTypeEnum<'ctx>> = many.iter().map(|s| slot_type(ctx, s.ty)).collect();
             ctx.struct_type(&tys, false).into()
         }
     }
@@ -535,7 +575,12 @@ pub fn ir_type<'ctx>(
 /// The slots of an [`ir::Type`]: one for a scalar, none for `()`, the
 /// aggregate's own for an [`ir::Type::Agg`].
 pub fn ir_slots(reprs: &mut Reprs<'_>, program: &ir::Program, ty: ir::Type) -> Vec<Slot> {
-    let scalar = |s: Scalar| vec![Slot { offset: 0, ty: SlotTy::Scalar(s) }];
+    let scalar = |s: Scalar| {
+        vec![Slot {
+            offset: 0,
+            ty: SlotTy::Scalar(s),
+        }]
+    };
     match ty {
         ir::Type::I1 => scalar(Scalar::Bool),
         ir::Type::I8 => scalar(Scalar::I8),
@@ -567,7 +612,11 @@ pub const WIDEST_IN_REGISTERS: u32 = 256;
 
 /// The bytes a value's slots reach: its layout size less trailing padding.
 pub fn extent(slots: &[Slot]) -> u32 {
-    slots.iter().map(|s| s.offset.saturating_add(s.ty.size())).max().unwrap_or(0)
+    slots
+        .iter()
+        .map(|s| s.offset.saturating_add(s.ty.size()))
+        .max()
+        .unwrap_or(0)
 }
 
 /// The bytes a value of these slots occupies in memory: its [`extent`] rounded
@@ -637,7 +686,10 @@ impl Machine {
         let mut out = Machine::default();
         for slots in params {
             if in_memory(slots) {
-                out.params.push(Slot { offset: 0, ty: ptr() });
+                out.params.push(Slot {
+                    offset: 0,
+                    ty: ptr(),
+                });
                 out.indirect.push(true);
             } else {
                 out.indirect.extend(slots.iter().map(|_| false));
@@ -667,7 +719,11 @@ impl Machine {
 /// slot sits. A slot at an odd offset inside an 8-aligned value is 1-aligned,
 /// and claiming more would be a lie LLVM is entitled to act on.
 pub fn access_align(container_align: u32, slot: Slot) -> u32 {
-    let from_offset = if slot.offset == 0 { container_align } else { 1 << slot.offset.trailing_zeros() };
+    let from_offset = if slot.offset == 0 {
+        container_align
+    } else {
+        1 << slot.offset.trailing_zeros()
+    };
     slot.ty.align().min(container_align).min(from_offset).max(1)
 }
 
@@ -751,9 +807,9 @@ pub fn disassemble_range<'ctx>(
         1 => range.map(|_| value).collect(),
         _ => range
             .map(|i| match value {
-                BasicValueEnum::StructValue(s) => {
-                    builder.build_extract_value(s, i as u32, "slot").unwrap_or(value)
-                }
+                BasicValueEnum::StructValue(s) => builder
+                    .build_extract_value(s, i as u32, "slot")
+                    .unwrap_or(value),
                 other => other,
             })
             .collect(),
@@ -770,11 +826,13 @@ pub fn slot_to_bits<'ctx>(
     let bits = slot.ty.size().saturating_mul(8);
     let int = int_type(ctx, slot.ty.size());
     match value {
-        BasicValueEnum::PointerValue(p) => {
-            builder.build_ptr_to_int(p, ctx.i64_type(), "p2i").unwrap_or_else(|_| int.const_zero())
-        }
+        BasicValueEnum::PointerValue(p) => builder
+            .build_ptr_to_int(p, ctx.i64_type(), "p2i")
+            .unwrap_or_else(|_| int.const_zero()),
         BasicValueEnum::FloatValue(f) => {
-            let as_int = builder.build_bit_cast(f, int, "f2i").unwrap_or_else(|_| int.const_zero().into());
+            let as_int = builder
+                .build_bit_cast(f, int, "f2i")
+                .unwrap_or_else(|_| int.const_zero().into());
             as_int.try_into().unwrap_or_else(|_| int.const_zero())
         }
         BasicValueEnum::IntValue(i) => {
@@ -984,8 +1042,14 @@ fn take_int<'ctx>(
     let whole = int_type(ctx, bytes);
     let mut acc = whole.const_zero();
     for offset in (0..bytes).step_by(each as usize) {
-        let piece =
-            take_piece(ctx, builder, blob, each, at.saturating_add(offset), each.min(bytes.saturating_sub(offset)));
+        let piece = take_piece(
+            ctx,
+            builder,
+            blob,
+            each,
+            at.saturating_add(offset),
+            each.min(bytes.saturating_sub(offset)),
+        );
         let wide = builder
             .build_int_z_extend_or_bit_cast(piece, whole, "blob.w")
             .unwrap_or_else(|_| whole.const_zero());
@@ -1019,7 +1083,9 @@ fn take_piece<'ctx>(
         bits = builder.build_or(bits, high, "blob.or").unwrap_or(bits);
     }
     let narrow = int_type(ctx, bytes);
-    builder.build_int_truncate_or_bit_cast(bits, narrow, "blob.cut").unwrap_or(bits)
+    builder
+        .build_int_truncate_or_bit_cast(bits, narrow, "blob.cut")
+        .unwrap_or(bits)
 }
 
 /// `bits << bytes * 8`, or `bits` itself for no shift.
@@ -1031,8 +1097,12 @@ fn shift_left<'ctx>(
     if bytes == 0 {
         return bits;
     }
-    let by = bits.get_type().const_int(u64::from(bytes).saturating_mul(8), false);
-    builder.build_left_shift(bits, by, "blob.shl").unwrap_or(bits)
+    let by = bits
+        .get_type()
+        .const_int(u64::from(bytes).saturating_mul(8), false);
+    builder
+        .build_left_shift(bits, by, "blob.shl")
+        .unwrap_or(bits)
 }
 
 /// `bits >> bytes * 8`, logical, or `bits` itself for no shift.
@@ -1044,8 +1114,12 @@ fn shift_right<'ctx>(
     if bytes == 0 {
         return bits;
     }
-    let by = bits.get_type().const_int(u64::from(bytes).saturating_mul(8), false);
-    builder.build_right_shift(bits, by, false, "blob.shr").unwrap_or(bits)
+    let by = bits
+        .get_type()
+        .const_int(u64::from(bytes).saturating_mul(8), false);
+    builder
+        .build_right_shift(bits, by, false, "blob.shr")
+        .unwrap_or(bits)
 }
 
 /// Element `index` of a wide payload area.

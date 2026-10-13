@@ -79,11 +79,11 @@
 //!   substitution [`ir::Inst::Structural`] stands for.
 
 use crate::compiler::middle::ir::{
-    self, BinOp, BlockId, Body, Code, Const, Facts, Func, Inst, Ownership, Signature,
-    StructuralOp, Target, Term, Type, TypeId, TypeInfo, UnOp, ValueId,
+    self, BinOp, BlockId, Body, Code, Const, Facts, Func, Inst, Ownership, Signature, StructuralOp,
+    Target, Term, Type, TypeId, TypeInfo, UnOp, ValueId,
 };
-use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::layout;
+use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{
     self, Arm, ArrayRest, Expr, ExprKind, FieldPat, Magnitude, OptionOrResult, PatKind, Pattern,
@@ -138,7 +138,11 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // another function knows whether to pass a dispatch index. Computed for
     // the whole program first because a forwarder is lowered before the merged
     // function it names.
-    let entries: Vec<usize> = program.funcs.iter().map(|f| loop_entries(f.body())).collect();
+    let entries: Vec<usize> = program
+        .funcs
+        .iter()
+        .map(|f| loop_entries(f.body()))
+        .collect();
     let counts = lists::Counts::new(program);
     let cycles = layout::Cycles::new(tables);
 
@@ -148,8 +152,9 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // so `funcs` is the same vector the serial loop built.
     let lowered: Vec<(Func, Vec<TypeInfo>)> = crate::parallel::map(program.funcs.len(), |i| {
         let mut types = Types::default();
-        let func =
-            lower_one(program, tables, plan, &counts, &cycles, &entries, &units, &mut types, i);
+        let func = lower_one(
+            program, tables, plan, &counts, &cycles, &entries, &units, &mut types, i,
+        );
         (func, types.list)
     });
 
@@ -161,7 +166,10 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     let mut types = Types::default();
     let mut funcs = Vec::with_capacity(lowered.len());
     for (mut func, local) in lowered {
-        let remap: Vec<TypeId> = local.into_iter().map(|info| types.adopt(tables, info.ty)).collect();
+        let remap: Vec<TypeId> = local
+            .into_iter()
+            .map(|info| types.adopt(tables, info.ty))
+            .collect();
         remap_func_types(&mut func, &remap);
         funcs.push(func);
     }
@@ -180,7 +188,10 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
 /// Pure in `i`: it reads the program, the plan and the two whole-program tables,
 /// and writes only its own `types`. That is what lets [`run_with`] run it over
 /// the cores; the `TypeId`s it mints are local to `types` and remapped there.
-#[allow(clippy::too_many_arguments, reason = "the whole-program tables one lowering reads")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the whole-program tables one lowering reads"
+)]
 fn lower_one(
     program: &Program,
     tables: &Tables,
@@ -192,9 +203,15 @@ fn lower_one(
     types: &mut Types,
     i: usize,
 ) -> Func {
-    let f = program.funcs.get(i).or_ice("`parallel::map` ranges over `program.funcs`");
+    let f = program
+        .funcs
+        .get(i)
+        .or_ice("`parallel::map` ranges over `program.funcs`");
     let dispatch = entries.get(i).copied().unwrap_or(0) > 1;
-    let mut sig = Signature { params: Vec::new(), rets: Vec::new() };
+    let mut sig = Signature {
+        params: Vec::new(),
+        rets: Vec::new(),
+    };
     if dispatch {
         sig.params.push(Type::I32);
     }
@@ -261,7 +278,9 @@ fn lower_one(
 fn remap_func_types(func: &mut Func, remap: &[TypeId]) {
     for t in func.sig.params.iter_mut().chain(func.sig.rets.iter_mut()) {
         if let Type::Agg(id) = t {
-            *id = *remap.get(id.index()).or_ice("the remap covers every local type id");
+            *id = *remap
+                .get(id.index())
+                .or_ice("the remap covers every local type id");
         }
     }
     if let Body::Code(code) = &mut func.body {
@@ -284,7 +303,11 @@ fn facts(plan: &rc::FuncPlan, dispatch: bool) -> Facts {
     if dispatch {
         params.insert(0, Ownership::Own);
     }
-    Facts { params, purity: plan.purity, can_abort: plan.can_abort }
+    Facts {
+        params,
+        purity: plan.purity,
+        can_abort: plan.can_abort,
+    }
 }
 
 /// What a function returns.
@@ -295,9 +318,7 @@ fn facts(plan: &rc::FuncPlan, dispatch: bool) -> Facts {
 fn returns(f: &crate::compiler::middle::monomorphize::Func) -> Ty {
     let Some(body) = f.body() else { return f.ret };
     match &body.kind {
-        ExprKind::Loop { entries } => {
-            entries.first().map(|e| e.ty).unwrap_or_else(|| body.ty)
-        }
+        ExprKind::Loop { entries } => entries.first().map(|e| e.ty).unwrap_or_else(|| body.ty),
         _ => body.ty,
     }
 }
@@ -330,7 +351,11 @@ impl Units {
     /// the same on two builds of one commit.
     fn assign(program: &Program) -> Units {
         let mut units = Units::default();
-        let by_func = program.funcs.iter().map(|f| units.intern(&f.debug_name)).collect();
+        let by_func = program
+            .funcs
+            .iter()
+            .map(|f| units.intern(&f.debug_name))
+            .collect();
         units.by_func = by_func;
         units
     }
@@ -386,7 +411,10 @@ impl Types {
         let id = TypeId(self.list.len() as u32);
         // Named in [`Types::adopt`], once per program rather than once per
         // function that meets the type: nothing reads a function's own names.
-        self.list.push(TypeInfo { name: String::new(), ty: *ty });
+        self.list.push(TypeInfo {
+            name: String::new(),
+            ty: *ty,
+        });
         self.index.insert(*ty, id);
         id
     }
@@ -445,7 +473,11 @@ impl Types {
             return Type::Unit;
         }
         // A `derive Flags` struct is its word (`middle::flags`).
-        match tables.as_prim(ty).or_else(|| tables.flags_word_of(ty)).and_then(Type::of_prim) {
+        match tables
+            .as_prim(ty)
+            .or_else(|| tables.flags_word_of(ty))
+            .and_then(Type::of_prim)
+        {
             Some(t) => t,
             None => Type::Agg(self.intern(tables, ty)),
         }
@@ -478,11 +510,16 @@ struct Sites {
 
 impl Sites {
     fn of(plan: Option<&rc::FuncPlan>, body: Option<&Expr>) -> Sites {
-        let (Some(plan), Some(body)) = (plan, body) else { return Sites::default() };
+        let (Some(plan), Some(body)) = (plan, body) else {
+            return Sites::default();
+        };
         if plan.sites.is_empty() && plan.moved.is_empty() {
             return Sites::default();
         }
-        let mut sites = Sites { moved: plan.moved.clone(), ..Sites::default() };
+        let mut sites = Sites {
+            moved: plan.moved.clone(),
+            ..Sites::default()
+        };
         // Only a node the plan names needs its id: every other one has no
         // sites, isn't a site's target and moved nothing.
         let mut wanted: Vec<u32> = Vec::with_capacity(plan.sites.len().saturating_mul(2));
@@ -506,7 +543,11 @@ impl Sites {
             }
         });
         for site in &plan.sites {
-            sites.at.entry((site.node.0, site.at)).or_default().push(*site);
+            sites
+                .at
+                .entry((site.node.0, site.at))
+                .or_default()
+                .push(*site);
         }
         sites
     }
@@ -521,7 +562,10 @@ impl Sites {
     }
 
     fn get(&self, node: rc::NodeId, at: rc::Position) -> &[rc::Site] {
-        self.at.get(&(node.0, at)).map(Vec::as_slice).unwrap_or_default()
+        self.at
+            .get(&(node.0, at))
+            .map(Vec::as_slice)
+            .unwrap_or_default()
     }
 }
 
@@ -632,7 +676,11 @@ impl FnLower<'_> {
         let join = self.code.block(&[result]);
 
         let mut header_params = self.code.get(header).params.clone();
-        let header_dispatch = if multi { Some(header_params.remove(0)) } else { None };
+        let header_dispatch = if multi {
+            Some(header_params.remove(0))
+        } else {
+            None
+        };
 
         // Into the loop, with the parameters the function was called with —
         // and, for a merged group, the entry its caller chose.
@@ -640,7 +688,13 @@ impl FnLower<'_> {
         if multi {
             let d = match dispatch {
                 Some(d) => d,
-                None => self.constant(Type::I32, Const::Int { bits: Magnitude::new(0), negative: false }),
+                None => self.constant(
+                    Type::I32,
+                    Const::Int {
+                        bits: Magnitude::new(0),
+                        negative: false,
+                    },
+                ),
             };
             first.push(d);
         }
@@ -661,8 +715,10 @@ impl FnLower<'_> {
         // The header selects an entry. One entry is a jump; a merged group is
         // a switch over the dispatch parameter, total by construction because
         // the only producer of an index is this pass.
-        let entry_blocks: Vec<BlockId> =
-            entries.iter().map(|_| self.code.block(&[])).collect::<Vec<_>>();
+        let entry_blocks: Vec<BlockId> = entries
+            .iter()
+            .map(|_| self.code.block(&[]))
+            .collect::<Vec<_>>();
         self.cur = header;
         match (header_dispatch, entry_blocks.as_slice()) {
             (_, [only]) => self.set_term(Term::Jump(Target::to(*only))),
@@ -672,7 +728,11 @@ impl FnLower<'_> {
                     .enumerate()
                     .map(|(i, b)| (i as u64, Target::to(*b)))
                     .collect();
-                self.set_term(Term::Switch { on: d, cases, default: None });
+                self.set_term(Term::Switch {
+                    on: d,
+                    cases,
+                    default: None,
+                });
             }
             (None, _) => self.set_term(Term::Unreachable),
         }
@@ -685,7 +745,12 @@ impl FnLower<'_> {
         self.loops.pop();
 
         self.cur = join;
-        *self.code.get(join).params.first().or_ice("the join block was built with one parameter")
+        *self
+            .code
+            .get(join)
+            .params
+            .first()
+            .or_ice("the join block was built with one parameter")
     }
 
     // -- the builder --------------------------------------------------------
@@ -700,10 +765,28 @@ impl FnLower<'_> {
         let n = self.tables.tycon(con).fields().len();
         let ty = Type::of_prim(prim).unwrap_or(Type::I64);
         let shift = n.saturating_sub(1).saturating_sub(index);
-        let mask = self.constant(ty, Const::Int { bits: Magnitude::new(1u128 << shift), negative: false });
-        let bit = self.emit(ty, |dest| Inst::Binary { dest, op: BinOp::BitAnd, prim, lhs: val, rhs: mask });
+        let mask = self.constant(
+            ty,
+            Const::Int {
+                bits: Magnitude::new(1u128 << shift),
+                negative: false,
+            },
+        );
+        let bit = self.emit(ty, |dest| Inst::Binary {
+            dest,
+            op: BinOp::BitAnd,
+            prim,
+            lhs: val,
+            rhs: mask,
+        });
         let zero = self.int(ty, 0);
-        self.emit(Type::I1, |dest| Inst::Binary { dest, op: BinOp::Ne, prim, lhs: bit, rhs: zero })
+        self.emit(Type::I1, |dest| Inst::Binary {
+            dest,
+            op: BinOp::Ne,
+            prim,
+            lhs: bit,
+            rhs: zero,
+        })
     }
 
     fn type_id(&mut self, ty: &Ty) -> TypeId {
@@ -716,7 +799,10 @@ impl FnLower<'_> {
     }
 
     fn bind(&mut self, l: LocalId, v: ValueId) {
-        *self.env.get_mut(l.index()).or_ice("`env` has a slot per local") = Some(v);
+        *self
+            .env
+            .get_mut(l.index())
+            .or_ice("`env` has a slot per local") = Some(v);
     }
 
     fn read(&mut self, l: LocalId) -> ValueId {
@@ -758,14 +844,22 @@ impl FnLower<'_> {
     }
 
     fn int(&mut self, ty: Type, n: usize) -> ValueId {
-        self.constant(ty, Const::Int { bits: Magnitude::new(n as u128), negative: false })
+        self.constant(
+            ty,
+            Const::Int {
+                bits: Magnitude::new(n as u128),
+                negative: false,
+            },
+        )
     }
 
     /// Ends the current block with an abort and continues in a block nothing
     /// reaches, so that the caller still has a value and the dead code is
     /// deleted with the block.
     fn abort(&mut self, message: &str) -> ValueId {
-        self.push(Inst::Abort { message: message.into() });
+        self.push(Inst::Abort {
+            message: message.into(),
+        });
         self.set_term(Term::Unreachable);
         let ret = self.ret;
         let ty = self.type_of(&ret);
@@ -777,7 +871,12 @@ impl FnLower<'_> {
     fn dead(&mut self, ty: Type) -> ValueId {
         let b = self.block(&[ty]);
         self.cur = b;
-        *self.code.get(b).params.first().or_ice("the block was built with one parameter")
+        *self
+            .code
+            .get(b)
+            .params
+            .first()
+            .or_ice("the block was built with one parameter")
     }
 
     /// The block a refutable pattern falls off the end into.
@@ -793,7 +892,9 @@ impl FnLower<'_> {
         let here = self.cur;
         let b = self.block(&[]);
         self.cur = b;
-        self.push(Inst::Abort { message: "no arm of this match applied".into() });
+        self.push(Inst::Abort {
+            message: "no arm of this match applied".into(),
+        });
         self.set_term(Term::Unreachable);
         self.cur = here;
         self.unmatched = Some(b);
@@ -895,7 +996,12 @@ impl FnLower<'_> {
     /// names ([`rc::Target::LocalExcept`]), the way a functional update
     /// releases the fields it replaces.
     fn release_except(&mut self, l: LocalId, moved: u64) {
-        let agg = self.env.get(l.index()).copied().flatten().or_ice("a local `rc` releases is bound");
+        let agg = self
+            .env
+            .get(l.index())
+            .copied()
+            .flatten()
+            .or_ice("a local `rc` releases is bound");
         let ty = self.locals.get(l.index()).map(|x| x.ty).unwrap_or(Ty::UNIT);
         let arity = ty.head().map_or(0, |c| self.tables.tycon(c).fields().len());
         for i in 0..arity {
@@ -903,7 +1009,11 @@ impl FnLower<'_> {
                 continue;
             }
             let f = self.field_type(&ty, i);
-            let value = self.emit(f, |dest| Inst::GetField { dest, agg, index: i as u32 });
+            let value = self.emit(f, |dest| Inst::GetField {
+                dest,
+                agg,
+                index: i as u32,
+            });
             self.push(Inst::DecRef { value, drop: None });
         }
     }
@@ -975,9 +1085,13 @@ impl FnLower<'_> {
     fn expr_inner(&mut self, e: &Expr) -> ValueId {
         let ty = self.type_of(&e.ty);
         match &e.kind {
-            ExprKind::Int(v, negative) => {
-                self.constant(ty, Const::Int { bits: *v, negative: *negative })
-            }
+            ExprKind::Int(v, negative) => self.constant(
+                ty,
+                Const::Int {
+                    bits: *v,
+                    negative: *negative,
+                },
+            ),
             ExprKind::Float(v) => {
                 // A literal takes its type from context, so an `F32` one is
                 // the binary32 value it denotes — the same narrowing the
@@ -1005,7 +1119,11 @@ impl FnLower<'_> {
             ExprKind::Error => self.abort("this expression did not check"),
 
             ExprKind::FnRef(callee) => match callee.func() {
-                Some(f) => self.emit(ty, |dest| Inst::MakeClosure { dest, func: f, env: None }),
+                Some(f) => self.emit(ty, |dest| Inst::MakeClosure {
+                    dest,
+                    func: f,
+                    env: None,
+                }),
                 None => self.abort("this function reference was not monomorphized"),
             },
             ExprKind::CallFn { func, args } => match func.func() {
@@ -1018,14 +1136,22 @@ impl FnLower<'_> {
                         }
                     }
                     let args = self.exprs(args);
-                    self.emit(ty, |dest| Inst::Call { dest, func: f, args })
+                    self.emit(ty, |dest| Inst::Call {
+                        dest,
+                        func: f,
+                        args,
+                    })
                 }
                 None => self.abort("this call was not monomorphized"),
             },
             ExprKind::CallValue { callee, args } => {
                 let c = self.expr(callee);
                 let args = self.exprs(args);
-                self.emit(ty, |dest| Inst::CallIndirect { dest, callee: c, args })
+                self.emit(ty, |dest| Inst::CallIndirect {
+                    dest,
+                    callee: c,
+                    args,
+                })
             }
             ExprKind::Intrinsic { name, args, .. } if lists::handles(name) => {
                 self.list_call(name, args, &e.ty)
@@ -1094,26 +1220,31 @@ impl FnLower<'_> {
                         }
                         None => {
                             let f = self.field_type(&base.ty, i);
-                            fields.push(
-                                self.emit(f, |dest| Inst::GetField {
-                                    dest,
-                                    agg: b,
-                                    index: i as u32,
-                                }),
-                            );
+                            fields.push(self.emit(f, |dest| Inst::GetField {
+                                dest,
+                                agg: b,
+                                index: i as u32,
+                            }));
                         }
                     }
                 }
                 let out = self.emit(ty, |dest| Inst::MakeStruct { dest, fields });
                 for old in replaced {
-                    self.push(Inst::DecRef { value: old, drop: None });
+                    self.push(Inst::DecRef {
+                        value: old,
+                        drop: None,
+                    });
                 }
                 out
             }
             ExprKind::EnumLit { variant, args, .. } => {
                 let fields = self.exprs(args);
                 let variant = *variant as u32;
-                self.emit(ty, |dest| Inst::MakeEnum { dest, variant, fields })
+                self.emit(ty, |dest| Inst::MakeEnum {
+                    dest,
+                    variant,
+                    fields,
+                })
             }
             ExprKind::Tuple(xs) => {
                 let fields = self.exprs(xs);
@@ -1127,7 +1258,11 @@ impl FnLower<'_> {
             ExprKind::Field { base, index } | ExprKind::TupleIndex { base, index } => {
                 let b = self.expr(base);
                 let index = *index as u32;
-                self.emit(ty, |dest| Inst::GetField { dest, agg: b, index })
+                self.emit(ty, |dest| Inst::GetField {
+                    dest,
+                    agg: b,
+                    index,
+                })
             }
             ExprKind::Index { base, index, elem } => self.index(ty, base, index, elem),
 
@@ -1156,7 +1291,12 @@ impl FnLower<'_> {
                     self.set_term(Term::Jump(Target::new(join, vec![v])));
                 }
                 self.cur = join;
-                *self.code.get(join).params.first().or_ice("the join takes one parameter")
+                *self
+                    .code
+                    .get(join)
+                    .params
+                    .first()
+                    .or_ice("the join takes one parameter")
             }
             ExprKind::Match { scrutinee, arms } => self.match_(ty, scrutinee, arms),
 
@@ -1171,7 +1311,11 @@ impl FnLower<'_> {
                 } else {
                     (Target::to(short_b), Target::to(rhs_b))
                 };
-                self.set_term(Term::Branch { cond: l, then, else_ });
+                self.set_term(Term::Branch {
+                    cond: l,
+                    then,
+                    else_,
+                });
 
                 self.cur = short_b;
                 let short = self.constant(Type::I1, Const::Bool(!is_and));
@@ -1182,7 +1326,12 @@ impl FnLower<'_> {
                 self.set_term(Term::Jump(Target::new(join, vec![r])));
 
                 self.cur = join;
-                *self.code.get(join).params.first().or_ice("the join takes one parameter")
+                *self
+                    .code
+                    .get(join)
+                    .params
+                    .first()
+                    .or_ice("the join takes one parameter")
             }
             ExprKind::Try { base, kind } => {
                 let node = self.sites.id_of(e);
@@ -1209,7 +1358,11 @@ impl FnLower<'_> {
                     _ => 0,
                 };
                 let index = slot as u32;
-                self.emit(ty, |dest| Inst::GetField { dest, agg: b, index })
+                self.emit(ty, |dest| Inst::GetField {
+                    dest,
+                    agg: b,
+                    index,
+                })
             }
 
             // What `middle::closures` leaves in a lambda's place: a code
@@ -1226,7 +1379,11 @@ impl FnLower<'_> {
                 // reference instead, so a closure always carries something.
                 let record = self.type_of(&env_ty);
                 let env = self.emit(record, |dest| Inst::MakeStruct { dest, fields });
-                self.emit(ty, |dest| Inst::MakeClosure { dest, func, env: Some(env) })
+                self.emit(ty, |dest| Inst::MakeClosure {
+                    dest,
+                    func,
+                    env: Some(env),
+                })
             }
             // A lambda `middle::closures` did not lift. Lifting it here would
             // be closure conversion written a second time, in the file that
@@ -1290,16 +1447,33 @@ impl FnLower<'_> {
 
         self.cur = some_b;
         let elem_ty = self.type_of(elem);
-        let v = self.emit(elem_ty, |dest| Inst::ArrayGet { dest, array: xs, index: i });
-        let some = self.emit(ty, |dest| Inst::MakeEnum { dest, variant: 0, fields: vec![v] });
+        let v = self.emit(elem_ty, |dest| Inst::ArrayGet {
+            dest,
+            array: xs,
+            index: i,
+        });
+        let some = self.emit(ty, |dest| Inst::MakeEnum {
+            dest,
+            variant: 0,
+            fields: vec![v],
+        });
         self.set_term(Term::Jump(Target::new(join, vec![some])));
 
         self.cur = none_b;
-        let none = self.emit(ty, |dest| Inst::MakeEnum { dest, variant: 1, fields: Vec::new() });
+        let none = self.emit(ty, |dest| Inst::MakeEnum {
+            dest,
+            variant: 1,
+            fields: Vec::new(),
+        });
         self.set_term(Term::Jump(Target::new(join, vec![none])));
 
         self.cur = join;
-        *self.code.get(join).params.first().or_ice("the join takes one parameter")
+        *self
+            .code
+            .get(join)
+            .params
+            .first()
+            .or_ice("the join takes one parameter")
     }
 
     /// `?`, the only early exit in the language (SPEC 6.8).
@@ -1343,7 +1517,11 @@ impl FnLower<'_> {
         let out = match kind {
             OptionOrResult::Option => {
                 let variant = self.variant_of(&ret, "None", 1);
-                self.emit(ret_ty, |dest| Inst::MakeEnum { dest, variant, fields: Vec::new() })
+                self.emit(ret_ty, |dest| Inst::MakeEnum {
+                    dest,
+                    variant,
+                    fields: Vec::new(),
+                })
             }
             OptionOrResult::Result => {
                 let from = self.variant_of(&base.ty, "Err", 1);
@@ -1355,7 +1533,11 @@ impl FnLower<'_> {
                     index: 0,
                 });
                 let variant = self.variant_of(&ret, "Err", 1);
-                self.emit(ret_ty, |dest| Inst::MakeEnum { dest, variant, fields: vec![e] })
+                self.emit(ret_ty, |dest| Inst::MakeEnum {
+                    dest,
+                    variant,
+                    fields: vec![e],
+                })
             }
         };
         if let Some(n) = node {
@@ -1364,7 +1546,12 @@ impl FnLower<'_> {
         self.set_term(Term::Return(vec![out]));
 
         self.cur = held_b;
-        self.emit(ty, |dest| Inst::GetPayload { dest, agg: v, variant: held, index: 0 })
+        self.emit(ty, |dest| Inst::GetPayload {
+            dest,
+            agg: v,
+            variant: held,
+            index: 0,
+        })
     }
 
     fn prim(&mut self, ty: Type, op: PrimOp, prim: Prim, args: &[Expr]) -> ValueId {
@@ -1376,8 +1563,15 @@ impl FnLower<'_> {
             _ => None,
         };
         if let Some(op) = unary {
-            let arg = *vs.first().or_ice("the checker gives a unary operation its operand");
-            return self.emit(ty, |dest| Inst::Unary { dest, op, prim, arg });
+            let arg = *vs
+                .first()
+                .or_ice("the checker gives a unary operation its operand");
+            return self.emit(ty, |dest| Inst::Unary {
+                dest,
+                op,
+                prim,
+                arg,
+            });
         }
         let op = match op {
             PrimOp::Add => BinOp::Add,
@@ -1396,16 +1590,31 @@ impl FnLower<'_> {
             PrimOp::Ge => BinOp::Ge,
             PrimOp::Neg | PrimOp::Not | PrimOp::BitNot => BinOp::Add,
         };
-        let lhs = *vs.first().or_ice("the checker gives a binary operation two operands");
-        let rhs = *vs.get(1).or_ice("the checker gives a binary operation two operands");
-        self.emit(ty, |dest| Inst::Binary { dest, op, prim, lhs, rhs })
+        let lhs = *vs
+            .first()
+            .or_ice("the checker gives a binary operation two operands");
+        let rhs = *vs
+            .get(1)
+            .or_ice("the checker gives a binary operation two operands");
+        self.emit(ty, |dest| Inst::Binary {
+            dest,
+            op,
+            prim,
+            lhs,
+            rhs,
+        })
     }
 
     fn structural(&mut self, ty: Type, op: StructuralOp, args: &[Expr]) -> ValueId {
         let at = args.first().map(|a| a.ty).unwrap_or(Ty::UNIT);
         let at = self.type_id(&at);
         let args = self.exprs(args);
-        self.emit(ty, |dest| Inst::Structural { dest, op, ty: at, args })
+        self.emit(ty, |dest| Inst::Structural {
+            dest,
+            op,
+            ty: at,
+            args,
+        })
     }
 
     /// An operation the runtime supplies.
@@ -1482,10 +1691,16 @@ impl FnLower<'_> {
             // way the operand is dead the instant the join has run, and a
             // `str.concat` chain of *k* parts ends holding exactly one block.
             if next_is_mine {
-                self.push(Inst::DecRef { value: next, drop: None });
+                self.push(Inst::DecRef {
+                    value: next,
+                    drop: None,
+                });
             }
             if acc_is_mine {
-                self.push(Inst::DecRef { value: acc, drop: None });
+                self.push(Inst::DecRef {
+                    value: acc,
+                    drop: None,
+                });
             }
             acc = joined;
             acc_is_mine = true;
@@ -1593,12 +1808,7 @@ impl FnLower<'_> {
     }
 
     /// `rendered` into one `[Str]`, joined by the runtime.
-    fn join_parts(
-        &mut self,
-        ty: Type,
-        rendered: &[(ValueId, bool)],
-        literal: &[bool],
-    ) -> ValueId {
+    fn join_parts(&mut self, ty: Type, rendered: &[(ValueId, bool)], literal: &[bool]) -> ValueId {
         let list_t = self.type_of(&Ty::array(self.tables.prim(Prim::Str)));
         for ((v, mine), literal) in rendered.iter().zip(literal) {
             if !mine && !literal {
@@ -1616,7 +1826,10 @@ impl FnLower<'_> {
             key: "list.join".into(),
             args: Box::new([list, ctx, separator]),
         });
-        self.push(Inst::DecRef { value: list, drop: None });
+        self.push(Inst::DecRef {
+            value: list,
+            drop: None,
+        });
         joined
     }
 
@@ -1634,9 +1847,11 @@ impl FnLower<'_> {
             // Into the enclosing loop: rebind and jump. This is the whole of
             // tail-call elimination at this layer.
             None => {
-                let frame = self.loops.last().or_ice("`tail_calls` writes a back edge only inside its loop");
-                let (header, dispatch, vars) =
-                    (frame.header, frame.dispatch, frame.vars.clone());
+                let frame = self
+                    .loops
+                    .last()
+                    .or_ice("`tail_calls` writes a back edge only inside its loop");
+                let (header, dispatch, vars) = (frame.header, frame.dispatch, frame.vars.clone());
                 let mut jump_args: Vec<ValueId> = Vec::new();
                 if dispatch.is_some() {
                     jump_args.push(self.int(Type::I32, entry));
@@ -1658,8 +1873,11 @@ impl FnLower<'_> {
                 // member forwarding into the merged function has only its own
                 // parameters and the function has the widest member's.
                 call_args.extend(self.pad_to(&vs, f));
-                let v =
-                    self.emit(ty, |dest| Inst::Call { dest, func: f, args: call_args });
+                let v = self.emit(ty, |dest| Inst::Call {
+                    dest,
+                    func: f,
+                    args: call_args,
+                });
                 self.set_term(Term::Return(vec![v]));
                 self.dead(ty)
             }
@@ -1669,11 +1887,21 @@ impl FnLower<'_> {
     /// The same, for a call into another function's loop, where the slots are
     /// that function's parameters rather than a block's.
     fn pad_to(&mut self, args: &[ValueId], func: FuncIdx) -> Vec<ValueId> {
-        let callee = self.program.funcs.get(func.index()).or_ice("a merged group is a function of the program");
+        let callee = self
+            .program
+            .funcs
+            .get(func.index())
+            .or_ice("a merged group is a function of the program");
         let slots: Vec<Ty> = callee
             .params
             .iter()
-            .map(|p| callee.locals.get(p.index()).map(|l| l.ty).unwrap_or(Ty::UNIT))
+            .map(|p| {
+                callee
+                    .locals
+                    .get(p.index())
+                    .map(|l| l.ty)
+                    .unwrap_or(Ty::UNIT)
+            })
             .collect();
         slots
             .iter()
@@ -1719,7 +1947,12 @@ impl FnLower<'_> {
             self.chain(s, arms, join);
         }
         self.cur = join;
-        *self.code.get(join).params.first().or_ice("the join takes one parameter")
+        *self
+            .code
+            .get(join)
+            .params
+            .first()
+            .or_ice("the join takes one parameter")
     }
 
     /// The one-`switch` form: an enum match whose arms discriminate on the
@@ -1747,9 +1980,9 @@ impl FnLower<'_> {
                 return false;
             }
             match &arm.pattern.kind {
-                PatKind::Variant { variant, fields, .. }
-                    if fields.iter().all(|f| f.pattern.is_irrefutable(self.tables)) =>
-                {
+                PatKind::Variant {
+                    variant, fields, ..
+                } if fields.iter().all(|f| f.pattern.is_irrefutable(self.tables)) => {
                     cases.push((*variant as u32, fields, &arm.body));
                 }
                 PatKind::Wild | PatKind::Bind { sub: None, .. } => default = Some(arm),
@@ -1827,7 +2060,10 @@ impl FnLower<'_> {
             self.matched(s, &arm.pattern, next);
             if let Some(g) = &arm.guard {
                 let later = arms.get(i.saturating_add(1)..).unwrap_or_default();
-                let skip = later.iter().take_while(|a| disjoint(&arm.pattern, &a.pattern)).count();
+                let skip = later
+                    .iter()
+                    .take_while(|a| disjoint(&arm.pattern, &a.pattern))
+                    .count();
                 let next = self.arm_entry(&mut entries, i.saturating_add(1).saturating_add(skip));
                 let c = self.expr(g);
                 let body_b = self.block(&[]);
@@ -1837,7 +2073,11 @@ impl FnLower<'_> {
                     .sites
                     .id_of(g)
                     .filter(|n| !self.sites.get(*n, rc::Position::Rejected).is_empty());
-                let else_b = if rejected.is_some() { self.block(&[]) } else { next };
+                let else_b = if rejected.is_some() {
+                    self.block(&[])
+                } else {
+                    next
+                };
                 self.set_term(Term::Branch {
                     cond: c,
                     then: Target::to(body_b),
@@ -1858,7 +2098,9 @@ impl FnLower<'_> {
 
     /// Arm `i`'s entry block in [`FnLower::chain`], or the abort past the last.
     fn arm_entry(&mut self, entries: &mut [Option<BlockId>], i: usize) -> BlockId {
-        let Some(slot) = entries.get_mut(i) else { return self.unmatched() };
+        let Some(slot) = entries.get_mut(i) else {
+            return self.unmatched();
+        };
         *slot.get_or_insert_with(|| self.block(&[]))
     }
 
@@ -1894,7 +2136,13 @@ impl FnLower<'_> {
             }
             PatKind::Int(v, negative) => {
                 let ty = self.type_of(&pat.ty);
-                let c = self.constant(ty, Const::Int { bits: *v, negative: *negative });
+                let c = self.constant(
+                    ty,
+                    Const::Int {
+                        bits: *v,
+                        negative: *negative,
+                    },
+                );
                 self.test_eq(val, c, &pat.ty, fail);
             }
             PatKind::Float(v) => {
@@ -1942,7 +2190,11 @@ impl FnLower<'_> {
                     self.pattern(v, &f.pattern, fail);
                 }
             }
-            PatKind::Variant { con, variant, fields } => {
+            PatKind::Variant {
+                con,
+                variant,
+                fields,
+            } => {
                 let variant = *variant as u32;
                 // A single-variant enum has nothing to fall through to, so
                 // there is no tag to test — only projections.
@@ -2006,7 +2258,9 @@ impl FnLower<'_> {
             // line of `Target` here.
             PatKind::Or(alts) => {
                 let mut binds: Vec<LocalId> = Vec::new();
-                alts.first().or_ice("an or-pattern has alternatives").binds(&mut binds);
+                alts.first()
+                    .or_ice("an or-pattern has alternatives")
+                    .binds(&mut binds);
                 // The merge takes the first alternative's locals, so one that
                 // bound locals of its own would jump carrying a value defined
                 // in a block that does not dominate the read. The checker
@@ -2019,7 +2273,10 @@ impl FnLower<'_> {
                     let mut theirs: Vec<LocalId> = Vec::new();
                     alt.binds(&mut theirs);
                     theirs.sort_unstable();
-                    crate::diagnostics::invariant(theirs == want, "an or-pattern's alternatives bind different locals");
+                    crate::diagnostics::invariant(
+                        theirs == want,
+                        "an or-pattern's alternatives bind different locals",
+                    );
                 }
                 let types: Vec<Type> = binds.iter().map(|b| self.local_type(*b)).collect();
                 let merge = self.block(&types);
@@ -2149,7 +2406,11 @@ impl FnLower<'_> {
         for (i, _) in updates {
             if self.sites.moved(node, *i) {
                 let f = self.field_type(&base_ty, *i);
-                let old = self.emit(f, |dest| Inst::GetField { dest, agg: b, index: *i as u32 });
+                let old = self.emit(f, |dest| Inst::GetField {
+                    dest,
+                    agg: b,
+                    index: *i as u32,
+                });
                 self.push(Inst::IncRef { value: old });
             }
         }
@@ -2162,15 +2423,21 @@ impl FnLower<'_> {
                 }
                 None => {
                     let f = self.field_type(&base_ty, i);
-                    let kept =
-                        self.emit(f, |dest| Inst::GetField { dest, agg: b, index: i as u32 });
+                    let kept = self.emit(f, |dest| Inst::GetField {
+                        dest,
+                        agg: b,
+                        index: i as u32,
+                    });
                     self.push(Inst::IncRef { value: kept });
                     fields.push(kept);
                 }
             }
         }
         let out = self.emit(ty, |dest| Inst::MakeStruct { dest, fields });
-        self.push(Inst::DecRef { value: b, drop: None });
+        self.push(Inst::DecRef {
+            value: b,
+            drop: None,
+        });
         out
     }
 
@@ -2209,7 +2476,8 @@ impl FnLower<'_> {
 fn disjoint(p: &Pattern, q: &Pattern) -> bool {
     let same_fields = |a: &[FieldPat], b: &[FieldPat]| {
         a.iter().any(|f| {
-            b.iter().any(|g| g.index == f.index && disjoint(&f.pattern, &g.pattern))
+            b.iter()
+                .any(|g| g.index == f.index && disjoint(&f.pattern, &g.pattern))
         })
     };
     match (&p.kind, &q.kind) {
@@ -2219,15 +2487,19 @@ fn disjoint(p: &Pattern, q: &Pattern) -> bool {
         (_, PatKind::Or(alts)) => alts.iter().all(|a| disjoint(p, a)),
         // Two patterns on one scrutinee name the same enum.
         (
-            PatKind::Variant { variant: v, fields: f, .. },
-            PatKind::Variant { variant: w, fields: g, .. },
+            PatKind::Variant {
+                variant: v,
+                fields: f,
+                ..
+            },
+            PatKind::Variant {
+                variant: w,
+                fields: g,
+                ..
+            },
         ) => v != w || same_fields(f, g),
-        (PatKind::Struct { fields: f, .. }, PatKind::Struct { fields: g, .. }) => {
-            same_fields(f, g)
-        }
-        (PatKind::Tuple(a), PatKind::Tuple(b)) => {
-            a.iter().zip(b).any(|(x, y)| disjoint(x, y))
-        }
+        (PatKind::Struct { fields: f, .. }, PatKind::Struct { fields: g, .. }) => same_fields(f, g),
+        (PatKind::Tuple(a), PatKind::Tuple(b)) => a.iter().zip(b).any(|(x, y)| disjoint(x, y)),
         // `-0` is `0`.
         (PatKind::Int(a, m), PatKind::Int(b, n)) => a != b || (m != n && a.get() != 0),
         (PatKind::Str(a), PatKind::Str(b)) => a != b,
@@ -2289,7 +2561,11 @@ fn qualified_key(tables: &Tables, name: &str, args: &[Expr]) -> Box<str> {
         _ => return name.into(),
     };
     // A `derive Flags` word is hashed as the primitive it is stored in.
-    match operand.and_then(|a| tables.as_prim(&a.ty).or_else(|| tables.flags_word_of(&a.ty))) {
+    match operand.and_then(|a| {
+        tables
+            .as_prim(&a.ty)
+            .or_else(|| tables.flags_word_of(&a.ty))
+    }) {
         Some(p) => format!("{name}.{}", p.name()).into(),
         // A `derivePrim*` at something that is not a primitive is a bug in
         // `derives.rs` rather than in the program, and the unqualified key is

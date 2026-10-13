@@ -71,23 +71,23 @@ use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, IntType};
 use inkwell::values::{
-    BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue, InstructionValue,
-    IntValue, PointerValue,
+    BasicMetadataValueEnum, BasicValue, BasicValueEnum, FloatValue, FunctionValue,
+    InstructionValue, IntValue, PointerValue,
 };
 use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::compiler::backend::intrinsic_keys::{
-    checked_kind, conversion_target, derive_key, json_arm, json_variant, native_body, prim_trait_op,
-    step_call, CheckedKind, JsonArm,
+    checked_kind, conversion_target, derive_key, json_arm, json_variant, native_body,
+    prim_trait_op, step_call, CheckedKind, JsonArm,
 };
-use crate::compiler::backend::task_thread;
 use crate::compiler::backend::runtime_native;
+use crate::compiler::backend::task_thread;
 use crate::compiler::middle::ir;
-use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::middle::layout::{
     self, EnumRepr, Layouts, Repr as LayoutRepr, Scalar, CAP_MASK, CAP_SHARED_FLAG,
     HEADER_CAP_OFFSET, HEADER_RC_OFFSET, IMMORTAL, STR_ASCII_FLAG, STR_LEN_MASK,
 };
+use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::semantics::builtins::conversion_is_exact;
 use crate::compiler::semantics::types::{self as types, FuncIdx, Prim, Tables, Ty, TyKind};
 use crate::diagnostics::{Diagnostic, Diagnostics, Invariant, Span};
@@ -222,7 +222,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             helpers: 0,
             rc,
             diags: Diagnostics::new(),
-
         }
     }
 
@@ -248,7 +247,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     fn error(&mut self, span: Span, message: String, fix: &str) {
-        self.diags.push(Diagnostic::error(span, message).with_fix(fix.to_string()));
+        self.diags
+            .push(Diagnostic::error(span, message).with_fix(fix.to_string()));
     }
 
     // -----------------------------------------------------------------------
@@ -281,7 +281,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // declaration in unit B claiming `memory(none)` for a function unit A
         // defined as allocating is a miscompile the linker will not notice.
         // [`observe`] is a whole-program answer for exactly that reason.
-        let observed = self.observed.get(idx.index()).copied().unwrap_or_else(Observed::opaque);
+        let observed = self
+            .observed
+            .get(idx.index())
+            .copied()
+            .unwrap_or_else(Observed::opaque);
         attrs::decorate(self.ctx, f, &func.facts, observed, &sig, HEAP_ALIGN);
         self.funcs.insert(idx.index(), f);
         f
@@ -292,9 +296,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn runtime_body(&mut self, idx: FuncIdx, func: &ir::Func) -> FunctionValue<'ctx> {
         let sig = self.machine_of(&func.sig);
         let ty = self.machine_type(&sig, 0);
-        let f = self.module.add_function(&func.symbol, ty, Some(Linkage::Private));
+        let f = self
+            .module
+            .add_function(&func.symbol, ty, Some(Linkage::Private));
         attrs::set_convention(f, attrs::FAST);
-        let observed = self.observed.get(idx.index()).copied().unwrap_or_else(Observed::opaque);
+        let observed = self
+            .observed
+            .get(idx.index())
+            .copied()
+            .unwrap_or_else(Observed::opaque);
         attrs::decorate(self.ctx, f, &func.facts, observed, &sig, HEAP_ALIGN);
         self.funcs.insert(idx.index(), f);
         self.bodies.push((f, idx));
@@ -305,14 +315,22 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// intrinsic, and the intrinsic's answer returned.
     fn define_runtime_body(&mut self, value: FunctionValue<'ctx>, idx: FuncIdx) {
         let func = self.func(idx);
-        let [ret]: [ir::Type; 1] =
-            func.sig.rets.as_slice().try_into().or_ice("a function value answers one value");
+        let [ret]: [ir::Type; 1] = func
+            .sig
+            .rets
+            .as_slice()
+            .try_into()
+            .or_ice("a function value answers one value");
         let mut code = ir::Code::new();
         let entry = code.block(&func.sig.params);
         let args = code.get(entry).params.clone();
         let dest = code.value(ret);
         let block = code.get_mut(entry);
-        block.insts.push(ir::Inst::Call { dest, func: idx, args });
+        block.insts.push(ir::Inst::Call {
+            dest,
+            func: idx,
+            args,
+        });
         block.term = ir::Term::Return(vec![dest]);
         self.define_code(idx, func, &code, value);
     }
@@ -336,7 +354,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             Some(t) => t.fn_type(params, false),
             None => self.ctx.void_type().fn_type(params, false),
         };
-        let f = self.module.add_function(symbol, ty, Some(Linkage::External));
+        let f = self
+            .module
+            .add_function(symbol, ty, Some(Linkage::External));
         self.platform_abi(f);
         self.runtime.insert(symbol.to_string(), f);
         f
@@ -389,7 +409,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// The block the builder is in. The emitter positions it before it builds
     /// anything.
     fn here(&self) -> BasicBlock<'ctx> {
-        self.builder.get_insert_block().or_ice("the emitter positions the builder")
+        self.builder
+            .get_insert_block()
+            .or_ice("the emitter positions the builder")
     }
 
     fn ptr_ty(&self) -> inkwell::types::PointerType<'ctx> {
@@ -404,7 +426,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         rhs: IntValue<'ctx>,
         name: &str,
     ) -> IntValue<'ctx> {
-        self.builder.build_int_compare(op, lhs, rhs, name).or_ice(BUILT)
+        self.builder
+            .build_int_compare(op, lhs, rhs, name)
+            .or_ice(BUILT)
     }
 
     fn rt_abort(&mut self) -> FunctionValue<'ctx> {
@@ -487,9 +511,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.ctx.i64_type().const_int(len, false).into(),
         ];
         let slots = [
-            Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) },
-            Slot { offset: 8, ty: SlotTy::Scalar(Scalar::Ptr) },
-            Slot { offset: 16, ty: SlotTy::Scalar(Scalar::I64) },
+            Slot {
+                offset: 0,
+                ty: SlotTy::Scalar(Scalar::Ptr),
+            },
+            Slot {
+                offset: 8,
+                ty: SlotTy::Scalar(Scalar::Ptr),
+            },
+            Slot {
+                offset: 16,
+                ty: SlotTy::Scalar(Scalar::I64),
+            },
         ];
         self.assemble(&slots, &values)
     }
@@ -551,7 +584,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// Defines one function's body.
     pub fn define(&mut self, idx: FuncIdx) {
         let func = self.func(idx);
-        let code = func.code().or_ice("a unit defines only functions with bodies");
+        let code = func
+            .code()
+            .or_ice("a unit defines only functions with bodies");
         let value = self.declare(idx);
         value.set_linkage(Linkage::External);
         self.define_code(idx, func, code, value);
@@ -615,7 +650,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         continue;
                     }
                     let ty = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(*p));
-                    let phi = self.builder.build_phi(ty, &format!("v{}", p.0)).or_ice(BUILT);
+                    let phi = self
+                        .builder
+                        .build_phi(ty, &format!("v{}", p.0))
+                        .or_ice(BUILT);
                     self.set(&mut state, *p, phi.as_basic_value());
                     row.push(Some(phi));
                 }
@@ -655,7 +693,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // a body that found more than the pre-pass predicted is a bug in
         // `observe`, and the safe direction is to widen.
         let sig = self.machine_of(&func.sig);
-        let mut observed = self.observed.get(idx.index()).copied().unwrap_or_else(Observed::opaque);
+        let mut observed = self
+            .observed
+            .get(idx.index())
+            .copied()
+            .unwrap_or_else(Observed::opaque);
         observed.join(state.observed);
         attrs::decorate(self.ctx, value, &func.facts, observed, &sig, HEAP_ALIGN);
     }
@@ -668,7 +710,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let mut next = sig.first();
         let param = |next: &mut u32| {
-            let arg = state.value.get_nth_param(*next).or_ice("a function takes its parameters");
+            let arg = state
+                .value
+                .get_nth_param(*next)
+                .or_ice("a function takes its parameters");
             *next = next.saturating_add(1);
             arg
         };
@@ -691,10 +736,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     fn fill_phis(&mut self, state: &mut Function<'ctx>, code: &ir::Code) {
         for (i, block) in code.blocks.iter().enumerate() {
-            let end = state.ends.get(i).copied().flatten().or_ice("every block was emitted");
+            let end = state
+                .ends
+                .get(i)
+                .copied()
+                .flatten()
+                .or_ice("every block was emitted");
             for (k, target) in block.term.targets().enumerate() {
                 let from = state.edges.get(&(i, k)).copied().unwrap_or(end);
-                let row = state.phis.get(target.block.index()).or_ice("every block has its phis");
+                let row = state
+                    .phis
+                    .get(target.block.index())
+                    .or_ice("every block has its phis");
                 for (phi, arg) in row.iter().zip(target.args.iter()) {
                     let Some(phi) = phi else { continue };
                     // Every one of `from`'s edges is a real predecessor of the
@@ -730,18 +783,30 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     fn set(&self, state: &mut Function<'ctx>, v: ir::ValueId, value: BasicValueEnum<'ctx>) {
-        *state.values.get_mut(v.index()).or_ice("a value indexes its body's values") = Some(value);
+        *state
+            .values
+            .get_mut(v.index())
+            .or_ice("a value indexes its body's values") = Some(value);
     }
 
     // -----------------------------------------------------------------------
     // Terminators — CODEGEN-LLVM.md §2.1's table
     // -----------------------------------------------------------------------
 
-    fn terminator(&mut self, state: &mut Function<'ctx>, code: &ir::Code, from: usize, term: &ir::Term) {
+    fn terminator(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        from: usize,
+        term: &ir::Term,
+    ) {
         match term {
             ir::Term::Jump(t) => {
                 self.edge_copies(state, code, t);
-                let bb = *state.blocks.get(t.block.index()).or_ice("a jump names a block");
+                let bb = *state
+                    .blocks
+                    .get(t.block.index())
+                    .or_ice("a jump names a block");
                 self.builder.build_unconditional_branch(bb).or_ice(BUILT);
             }
             ir::Term::Branch { cond, then, else_ } => {
@@ -784,7 +849,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             Some(t) => self.edge_block(state, code, from, cases.len(), t),
             None => self.total_switch_default(state),
         };
-        self.builder.build_switch(subject, fallback, &arms).or_ice(BUILT);
+        self.builder
+            .build_switch(subject, fallback, &arms)
+            .or_ice(BUILT);
     }
 
     /// Where the `k`th edge out of block `from` jumps: the target itself, or a
@@ -800,9 +867,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         k: usize,
         target: &ir::Target,
     ) -> BasicBlock<'ctx> {
-        let bb = *state.blocks.get(target.block.index()).or_ice("an edge names a block");
+        let bb = *state
+            .blocks
+            .get(target.block.index())
+            .or_ice("an edge names a block");
         let copies = code.get(target.block).params.iter().any(|p| {
-            repr::in_memory(&repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*p)))
+            repr::in_memory(&repr::ir_slots(
+                &mut self.reprs,
+                self.program,
+                code.ty_of(*p),
+            ))
         });
         if !copies {
             return bb;
@@ -840,9 +914,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
         }
         if let [(dst, src, slots)] = moves.as_slice() {
-            let bytes = self.ctx.i64_type().const_int(u64::from(repr::padded(slots)), false);
+            let bytes = self
+                .ctx
+                .i64_type()
+                .const_int(u64::from(repr::padded(slots)), false);
             let align = repr::memory_align(slots);
-            let _ = self.builder.build_memmove(*dst, HEAP_ALIGN, *src, align, bytes);
+            let _ = self
+                .builder
+                .build_memmove(*dst, HEAP_ALIGN, *src, align, bytes);
             return;
         }
         let mut staged = Vec::with_capacity(moves.len());
@@ -886,7 +965,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             0 => self.builder.build_return(None),
             _ => {
                 let value = self.assemble(&slots, &pieces);
-                self.builder.build_return(Some(&value as &dyn BasicValue<'ctx>))
+                self.builder
+                    .build_return(Some(&value as &dyn BasicValue<'ctx>))
             }
         }
         .or_ice(BUILT);
@@ -902,24 +982,35 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let v = self.constant(code.ty_of(*dest), value);
                 self.set(state, *dest, v);
             }
-            ir::Inst::Unary { dest, op, prim, arg } => {
+            ir::Inst::Unary {
+                dest,
+                op,
+                prim,
+                arg,
+            } => {
                 let a = self.get(state, *arg);
                 let v = self.unary(*op, *prim, a);
                 self.set(state, *dest, v);
             }
-            ir::Inst::Binary { dest, op, prim, lhs, rhs } => {
+            ir::Inst::Binary {
+                dest,
+                op,
+                prim,
+                lhs,
+                rhs,
+            } => {
                 let l = self.get(state, *lhs);
                 let r = self.get(state, *rhs);
                 let operand = code.ty_of(*lhs);
                 let v = self.binary(state, *op, *prim, operand, l, r);
                 self.set(state, *dest, v);
             }
-            ir::Inst::MakeStruct { dest, fields } => {
-                self.make_record(state, code, *dest, fields)
-            }
-            ir::Inst::MakeEnum { dest, variant, fields } => {
-                self.make_enum(state, code, *dest, *variant, fields)
-            }
+            ir::Inst::MakeStruct { dest, fields } => self.make_record(state, code, *dest, fields),
+            ir::Inst::MakeEnum {
+                dest,
+                variant,
+                fields,
+            } => self.make_enum(state, code, *dest, *variant, fields),
             ir::Inst::MakeArray { dest, elems } => self.make_array(state, code, *dest, elems),
             ir::Inst::MakeClosure { dest, func, env } => {
                 self.make_closure(state, code, *dest, *func, *env)
@@ -927,9 +1018,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Inst::GetField { dest, agg, index } => {
                 self.get_field(state, code, *dest, *agg, *index as usize)
             }
-            ir::Inst::GetPayload { dest, agg, variant, index } => {
-                self.get_payload(state, code, *dest, *agg, *variant as usize, *index as usize)
-            }
+            ir::Inst::GetPayload {
+                dest,
+                agg,
+                variant,
+                index,
+            } => self.get_payload(state, code, *dest, *agg, *variant as usize, *index as usize),
             ir::Inst::GetTag { dest, agg } => self.get_tag(state, code, *dest, *agg),
             ir::Inst::ArrayLen { dest, array } => {
                 let list = self.get(state, *array);
@@ -945,9 +1039,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.array_slice(state, code, *dest, *array, *from)
             }
             ir::Inst::ArrayAlloc { dest, len } => self.array_alloc(state, code, *dest, *len),
-            ir::Inst::ArraySet { array, index, value } => {
-                self.array_set(state, code, *array, *index, *value)
-            }
+            ir::Inst::ArraySet {
+                array,
+                index,
+                value,
+            } => self.array_set(state, code, *array, *index, *value),
             ir::Inst::ArrayPrefix { dest, array, len } => {
                 self.array_prefix(state, code, *dest, *array, *len)
             }
@@ -993,7 +1089,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 _ => crate::diagnostics::ice("the verified IR types a float constant as a float"),
             },
             ir::Const::Str(s) => self.str_literal(s),
-            ir::Const::Char(c) => self.ctx.i32_type().const_int(u64::from(*c as u32), false).into(),
+            ir::Const::Char(c) => self
+                .ctx
+                .i32_type()
+                .const_int(u64::from(*c as u32), false)
+                .into(),
             ir::Const::Null => llvm.const_zero(),
             // "A value nothing reads, at the type of its result" — LLVM spells
             // it `poison`, which is exactly the claim: nothing observes it.
@@ -1148,9 +1248,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         r: FloatValue<'ctx>,
     ) -> Option<BasicValueEnum<'ctx>> {
         let b = &self.builder;
-        let equal = b.build_float_compare(FloatPredicate::OEQ, l, r, "feq").ok()?;
-        let l_nan = b.build_float_compare(FloatPredicate::UNO, l, l, "feq.lnan").ok()?;
-        let r_nan = b.build_float_compare(FloatPredicate::UNO, r, r, "feq.rnan").ok()?;
+        let equal = b
+            .build_float_compare(FloatPredicate::OEQ, l, r, "feq")
+            .ok()?;
+        let l_nan = b
+            .build_float_compare(FloatPredicate::UNO, l, l, "feq.lnan")
+            .ok()?;
+        let r_nan = b
+            .build_float_compare(FloatPredicate::UNO, r, r, "feq.rnan")
+            .ok()?;
         let both = b.build_and(l_nan, r_nan, "feq.nan").ok()?;
         let same = b.build_or(equal, both, "feq.same").ok()?;
         if matches!(op, ir::BinOp::Ne) {
@@ -1209,7 +1315,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         out.map(Into::into).unwrap_or_else(|_| l.into())
     }
 
-    fn divmod_buffers(&mut self, state: &mut Function<'ctx>) -> (PointerValue<'ctx>, PointerValue<'ctx>) {
+    fn divmod_buffers(
+        &mut self,
+        state: &mut Function<'ctx>,
+    ) -> (PointerValue<'ctx>, PointerValue<'ctx>) {
         if let Some(pair) = state.divmod {
             return pair;
         }
@@ -1229,7 +1338,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .builder
             .build_array_alloca(word, word.const_int(2, false), "divmod.r")
             .unwrap_or_else(|_| self.ptr_ty().const_null());
-        self.builder.position_at_end(here.or_ice("a division is inside a block"));
+        self.builder
+            .position_at_end(here.or_ice("a division is inside a block"));
         state.divmod = Some((quot, rem));
         (quot, rem)
     }
@@ -1260,12 +1370,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             None,
         );
         let halves = |b: &Builder<'ctx>, v: IntValue<'ctx>| {
-            let lo = b.build_int_truncate(v, word, "lo").unwrap_or_else(|_| word.const_zero());
+            let lo = b
+                .build_int_truncate(v, word, "lo")
+                .unwrap_or_else(|_| word.const_zero());
             let shifted = b
                 .build_right_shift(v, v.get_type().const_int(64, false), false, "hi.sh")
                 .unwrap_or(v);
-            let hi =
-                b.build_int_truncate(shifted, word, "hi").unwrap_or_else(|_| word.const_zero());
+            let hi = b
+                .build_int_truncate(shifted, word, "hi")
+                .unwrap_or_else(|_| word.const_zero());
             (lo, hi)
         };
         let (a_lo, a_hi) = halves(&self.builder, l);
@@ -1281,7 +1394,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             rem.into(),
         ];
         self.call_c(f, &args);
-        let out = if matches!(op, ir::BinOp::Div) { quot } else { rem };
+        let out = if matches!(op, ir::BinOp::Div) {
+            quot
+        } else {
+            rem
+        };
         let i128 = self.ctx.i128_type();
         let lo = self
             .builder
@@ -1305,7 +1422,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .builder
             .build_left_shift(hi, i128.const_int(64, false), "hi.sh")
             .unwrap_or(hi);
-        self.builder.build_or(lo, hi, "i128").map(Into::into).unwrap_or_else(|_| lo.into())
+        self.builder
+            .build_or(lo, hi, "i128")
+            .map(Into::into)
+            .unwrap_or_else(|_| lo.into())
     }
 
     // -- aggregates ---------------------------------------------------------
@@ -1373,7 +1493,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 state.observed.allocates = true;
                 let (_, size, falign) = self.dest_shape(code, *f);
                 let block = self.block_with(size, falign, &fs, value);
-                let slot = [Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) }];
+                let slot = [Slot {
+                    offset: 0,
+                    ty: SlotTy::Scalar(Scalar::Ptr),
+                }];
                 self.store_slots(into, &slot, align, &[block.into()]);
                 continue;
             }
@@ -1509,7 +1632,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let whole = self.get(state, agg);
         if let (true, BasicValueEnum::PointerValue(base)) = (repr::in_memory(&slots), whole) {
             let at = self.reprs.of(self.program, id).layout.field(index);
-            let boxed = self.boxed_fields(code.ty_of(agg)).get(index).copied().unwrap_or(false);
+            let boxed = self
+                .boxed_fields(code.ty_of(agg))
+                .get(index)
+                .copied()
+                .unwrap_or(false);
             let value = self.field_in_memory(code, dest, base, at, boxed);
             self.set(state, dest, value);
             return;
@@ -1518,7 +1645,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let want = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         // A boxed field holds the block's pointer, so the value is the bytes it
         // names — one load per slot, `stencil/emit.rs`'s `unbox_from`.
-        if self.boxed_fields(code.ty_of(agg)).get(index).copied().unwrap_or(false) {
+        if self
+            .boxed_fields(code.ty_of(agg))
+            .get(index)
+            .copied()
+            .unwrap_or(false)
+        {
             let taken = self.pieces_range(&slots, whole, start..start.saturating_add(1));
             let block = ptr(*taken.first().or_ice("a boxed field is one pointer"));
             let (_, _, align) = self.dest_shape(code, dest);
@@ -1576,7 +1708,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             },
         }
         let value = read(self);
-        self.builder.position_at_end(here.or_ice("a read is inside a block"));
+        self.builder
+            .position_at_end(here.or_ice("a read is inside a block"));
         state.reads.insert(key, value);
         value
     }
@@ -1599,8 +1732,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let (want, _, align) = self.dest_shape(code, dest);
         let p = repr::byte_offset(self.ctx, &self.builder, base, i64::from(at), "fld");
         if boxed {
-            let slot = [Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) }];
-            let block = ptr(*self.load_slots(p, &slot, 8).first().or_ice("one slot loads one piece"));
+            let slot = [Slot {
+                offset: 0,
+                ty: SlotTy::Scalar(Scalar::Ptr),
+            }];
+            let block = ptr(*self
+                .load_slots(p, &slot, 8)
+                .first()
+                .or_ice("one slot loads one piece"));
             return self.load_value(block, &want, align);
         }
         if repr::in_memory(&want) {
@@ -1622,7 +1761,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let (some_variant, none_variant) = self.option_variants(id);
         let (slots, enum_repr) = {
             let r = self.reprs.of(self.program, id);
-            (r.slots.clone(), r.enum_repr().cloned().or_ice("a tag is an enum's"))
+            (
+                r.slots.clone(),
+                r.enum_repr().cloned().or_ice("a tag is an enum's"),
+            )
         };
         let whole = self.get(state, of);
         let tag = if repr::in_memory(&slots) {
@@ -1668,8 +1810,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // is (`ir::Inst::GetTag`), and the width it is *stored* at stays
             // the layout table's answer.
             EnumRepr::Bare { .. } | EnumRepr::Tagged { .. } => {
-                let tag = int(*self.pieces_range(slots, whole, 0..1).first().or_ice("a tag leads"));
-                self.builder.build_int_z_extend_or_bit_cast(tag, i32t, "tag").or_ice(BUILT).into()
+                let tag = int(*self
+                    .pieces_range(slots, whole, 0..1)
+                    .first()
+                    .or_ice("a tag leads"));
+                self.builder
+                    .build_int_z_extend_or_bit_cast(tag, i32t, "tag")
+                    .or_ice(BUILT)
+                    .into()
             }
             // The niche: `.None` is the pointer at `null_at` set to null, so
             // the tag is a null test and a `select` between the two variant
@@ -1680,11 +1828,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     .position(|s| s.offset == null_at && s.ty.is_pointer())
                     .or_ice("a niche is a pointer slot");
                 let one = i..i.saturating_add(1);
-                let p = ptr(*self.pieces_range(slots, whole, one).first().or_ice("one slot"));
+                let p = ptr(*self
+                    .pieces_range(slots, whole, one)
+                    .first()
+                    .or_ice("one slot"));
                 let is_null = self.builder.build_is_null(p, "isnone").or_ice(BUILT);
                 let some = i32t.const_int(some_variant as u64, false);
                 let none = i32t.const_int(none_variant as u64, false);
-                self.builder.build_select(is_null, none, some, "tag").or_ice(BUILT)
+                self.builder
+                    .build_select(is_null, none, some, "tag")
+                    .or_ice(BUILT)
             }
         }
     }
@@ -1704,13 +1857,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let fs = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*f));
                 let value = self.get(state, *f);
                 // A field held in memory travels as its address.
-                let pieces =
-                    if repr::in_memory(&fs) { vec![value] } else { self.pieces(&fs, value) };
+                let pieces = if repr::in_memory(&fs) {
+                    vec![value]
+                } else {
+                    self.pieces(&fs, value)
+                };
                 (fs, pieces)
             })
             .collect();
         // A boxed payload is a block, so a variant that has one allocates.
-        if self.boxed_payload(id, variant as usize).iter().any(|(boxed, _, _)| *boxed) {
+        if self
+            .boxed_payload(id, variant as usize)
+            .iter()
+            .any(|(boxed, _, _)| *boxed)
+        {
             state.observed.allocates = true;
         }
         let value = self.build_variant(id, variant as usize, &parts);
@@ -1735,7 +1895,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let (slots, enum_repr, offsets, size) = {
             let r = self.reprs.of(self.program, id);
             let offsets = r.layout.variant(variant).to_vec();
-            let enum_repr = r.enum_repr().cloned().or_ice("a variant belongs to an enum");
+            let enum_repr = r
+                .enum_repr()
+                .cloned()
+                .or_ice("a variant belongs to an enum");
             (r.slots.clone(), enum_repr, offsets, r.layout.size)
         };
         if repr::in_memory(&slots) {
@@ -1775,7 +1938,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         Some((true, size, align)) => {
                             let block = self.block_of_part(size, align, fs, pieces);
                             owned.push((
-                                vec![Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) }],
+                                vec![Slot {
+                                    offset: 0,
+                                    ty: SlotTy::Scalar(Scalar::Ptr),
+                                }],
                                 vec![block.into()],
                             ));
                         }
@@ -1788,7 +1954,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         let within = at.saturating_sub(payload);
                         for (slot, piece) in fs.iter().zip(pieces) {
                             let to = within.saturating_add(slot.offset);
-                            blob = repr::put_in_blob(self.ctx, &self.builder, blob, to, *slot, *piece);
+                            blob =
+                                repr::put_in_blob(self.ctx, &self.builder, blob, to, *slot, *piece);
                         }
                     }
                     let values = [tag_value, blob.into()];
@@ -1804,8 +1971,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                             .builder
                             .build_int_z_extend_or_bit_cast(bits, blob_ty, "pay.w")
                             .or_ice(BUILT);
-                        let shift = u64::from(within.saturating_add(slot.offset))
-                            .saturating_mul(8);
+                        let shift = u64::from(within.saturating_add(slot.offset)).saturating_mul(8);
                         let placed = self
                             .builder
                             .build_left_shift(widened, blob_ty.const_int(shift, false), "pay.sh")
@@ -1855,15 +2021,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let at = repr::byte_offset(self.ctx, &self.builder, buf, i64::from(payload), "pay.p");
         let bytes = self.ctx.i64_type().const_int(u64::from(area), false);
         let zero = self.ctx.i8_type().const_zero();
-        let _ = self.builder.build_memset(at, within(HEAP_ALIGN, payload), zero, bytes);
+        let _ = self
+            .builder
+            .build_memset(at, within(HEAP_ALIGN, payload), zero, bytes);
         let boxes = self.boxed_payload(id, variant);
         for (i, ((fs, pieces), &at)) in fields.iter().zip(offsets).enumerate() {
             let into = repr::byte_offset(self.ctx, &self.builder, buf, i64::from(at), "pay.f");
             let align = within(HEAP_ALIGN, at);
-            match (boxes.get(i).copied(), repr::in_memory(fs), pieces.as_slice()) {
+            match (
+                boxes.get(i).copied(),
+                repr::in_memory(fs),
+                pieces.as_slice(),
+            ) {
                 (Some((true, size, falign)), _, _) => {
                     let block = self.block_of_part(size, falign, fs, pieces);
-                    let slot = [Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) }];
+                    let slot = [Slot {
+                        offset: 0,
+                        ty: SlotTy::Scalar(Scalar::Ptr),
+                    }];
                     self.store_slots(into, &slot, align, &[block.into()]);
                 }
                 (_, true, [one]) => self.store_value(into, fs, align, *one),
@@ -1886,7 +2061,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let (slots, enum_repr, offsets) = {
             let r = self.reprs.of(self.program, id);
             let enum_repr = r.enum_repr().cloned().or_ice("a payload is an enum's");
-            (r.slots.clone(), enum_repr, r.layout.variant(variant).to_vec())
+            (
+                r.slots.clone(),
+                enum_repr,
+                r.layout.variant(variant).to_vec(),
+            )
         };
         let whole = self.get(state, of);
         let want = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
@@ -1911,7 +2090,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // bytes it names: take the pointer the way any other payload field is
         // taken, then load through it (`stencil/emit.rs`'s `unbox_from`).
         let read = if boxed {
-            vec![Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) }]
+            vec![Slot {
+                offset: 0,
+                ty: SlotTy::Scalar(Scalar::Ptr),
+            }]
         } else {
             want.clone()
         };
@@ -1947,7 +2129,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             EnumRepr::Niche { .. } => whole,
             EnumRepr::Tagged { payload, .. } => {
                 let pieces = self.pieces(slots, whole);
-                let within = offsets.get(index).copied().unwrap_or(0).saturating_sub(payload);
+                let within = offsets
+                    .get(index)
+                    .copied()
+                    .unwrap_or(0)
+                    .saturating_sub(payload);
                 if let Some(BasicValueEnum::ArrayValue(blob)) = pieces.get(1).copied() {
                     let taken: Vec<_> = want
                         .iter()
@@ -1961,8 +2147,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let blob = int(*pieces.get(1).or_ice("a payload follows its tag"));
                 let mut taken = Vec::with_capacity(want.len());
                 for slot in want {
-                    let shift =
-                        u64::from(within.saturating_add(slot.offset)).saturating_mul(8);
+                    let shift = u64::from(within.saturating_add(slot.offset)).saturating_mul(8);
                     let moved = self
                         .builder
                         .build_right_shift(
@@ -2004,8 +2189,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `cli/tests/fuzz.rs`'s ownership search compares.
     fn empty_list(&mut self, id: ir::TypeId) -> BasicValueEnum<'ctx> {
         let slots = self.reprs.of(self.program, id).slots.clone();
-        let values =
-            [self.ptr_ty().const_null().into(), self.ctx.i64_type().const_zero().into()];
+        let values = [
+            self.ptr_ty().const_null().into(),
+            self.ctx.i64_type().const_zero().into(),
+        ];
         self.assemble(&slots, &values)
     }
 
@@ -2099,13 +2286,22 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let slots = repr::ir_slots(&mut self.reprs, self.program, list_ty);
         let value = self.get(state, array);
         let pieces = self.pieces(&slots, value);
-        let base = ptr(*pieces.get(layout::LIST_PTR).or_ice("a list has its elements"));
+        let base = ptr(*pieces
+            .get(layout::LIST_PTR)
+            .or_ice("a list has its elements"));
         let len = int(*pieces.get(layout::LIST_LEN).or_ice("a list has its length"));
         let start = int(self.get(state, from));
-        let count = self.builder.build_int_sub(len, start, "slice.n").or_ice(BUILT);
+        let count = self
+            .builder
+            .build_int_sub(len, start, "slice.n")
+            .or_ice(BUILT);
         let bytes = self
             .builder
-            .build_int_mul(count, word.const_int(u64::from(stride), false), "slice.bytes")
+            .build_int_mul(
+                count,
+                word.const_int(u64::from(stride), false),
+                "slice.bytes",
+            )
             .unwrap_or(count);
         let block = self.heap(state, bytes, "slice");
         let src = self.elem_at(base, start, stride, "slice.from");
@@ -2220,12 +2416,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
         let source = self.get(state, array);
         let pieces = self.pieces(&slots, source);
-        let scratch = ptr(*pieces.get(layout::LIST_PTR).or_ice("a list has its elements"));
+        let scratch = ptr(*pieces
+            .get(layout::LIST_PTR)
+            .or_ice("a list has its elements"));
         let kept = int(self.get(state, len));
         let word = self.ctx.i64_type();
         let bytes = self
             .builder
-            .build_int_mul(kept, word.const_int(u64::from(stride), false), "prefix.bytes")
+            .build_int_mul(
+                kept,
+                word.const_int(u64::from(stride), false),
+                "prefix.bytes",
+            )
             .unwrap_or(kept);
         let out = self.heap(state, bytes, "prefix");
         let _ = self.builder.build_memcpy(out, align, scratch, align, bytes);
@@ -2248,9 +2450,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let list_slots = repr::ir_slots(&mut self.reprs, self.program, list_ty);
         let list = self.get(state, array);
         let pieces = self.pieces(&list_slots, list);
-        let base = ptr(*pieces.get(layout::LIST_PTR).or_ice("a list has its elements"));
+        let base = ptr(*pieces
+            .get(layout::LIST_PTR)
+            .or_ice("a list has its elements"));
         let i = int(self.get(state, index));
-        ElementRead { base, index: i, element }
+        ElementRead {
+            base,
+            index: i,
+            element,
+        }
     }
 
     /// The element type of a list.
@@ -2335,10 +2543,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let bytes = u64::from(size.saturating_add(ENV_FIELDS));
         let alloc = self.rt_alloc();
         state.observed.allocates = true;
-        let block = match self
-            .builder
-            .build_call(alloc, &[self.ctx.i64_type().const_int(bytes, false).into()], "env")
-        {
+        let block = match self.builder.build_call(
+            alloc,
+            &[self.ctx.i64_type().const_int(bytes, false).into()],
+            "env",
+        ) {
             Ok(call) => {
                 attrs::set_call_convention(call, attrs::C);
                 call.try_as_basic_value()
@@ -2353,7 +2562,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .and_then(|t| self.glue(Op::Release, &t))
             .map(function_pointer)
             .unwrap_or_else(|| self.ptr_ty().const_null());
-        let _ = self.builder.build_store(block, glue).or_ice(BUILT).set_alignment(8);
+        let _ = self
+            .builder
+            .build_store(block, glue)
+            .or_ice(BUILT)
+            .set_alignment(8);
         // The second word: what copies the record, for the same reason the
         // first exists (`ENV_FIELDS`).
         let copy = captured
@@ -2367,9 +2580,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             i64::from(ENV_COPY_WORD),
             "env.copy",
         );
-        let _ = self.builder.build_store(copy_at, copy).or_ice(BUILT).set_alignment(8);
-        let record =
-            repr::byte_offset(self.ctx, &self.builder, block, i64::from(ENV_FIELDS), "env.rec");
+        let _ = self
+            .builder
+            .build_store(copy_at, copy)
+            .or_ice(BUILT)
+            .set_alignment(8);
+        let record = repr::byte_offset(
+            self.ctx,
+            &self.builder,
+            block,
+            i64::from(ENV_FIELDS),
+            "env.rec",
+        );
         let value = self.get(state, env);
         self.store_value(record, &slots, align, value);
         block
@@ -2401,7 +2623,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) {
         let mut all_slots = Vec::new();
         for d in dests {
-            all_slots.extend(repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*d)));
+            all_slots.extend(repr::ir_slots(
+                &mut self.reprs,
+                self.program,
+                code.ty_of(*d),
+            ));
         }
         // A result held in memory is already the buffer the call wrote.
         if let ([d], true, Some(v)) = (dests, repr::in_memory(&all_slots), result) {
@@ -2462,7 +2688,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn slots_of(&mut self, code: &ir::Code, values: &[ir::ValueId]) -> Vec<Slot> {
         let mut out = Vec::new();
         for v in values {
-            out.extend(repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*v)));
+            out.extend(repr::ir_slots(
+                &mut self.reprs,
+                self.program,
+                code.ty_of(*v),
+            ));
         }
         out
     }
@@ -2484,8 +2714,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let closure_slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(callee));
         let value = self.get(state, callee);
         let pieces = self.pieces(&closure_slots, value);
-        let target = ptr(*pieces.get(layout::CLOSURE_CODE).or_ice("a closure has its code"));
-        let env = ptr(*pieces.get(layout::CLOSURE_ENV).or_ice("a closure has its environment"));
+        let target = ptr(*pieces
+            .get(layout::CLOSURE_CODE)
+            .or_ice("a closure has its code"));
+        let env = ptr(*pieces
+            .get(layout::CLOSURE_ENV)
+            .or_ice("a closure has its environment"));
         let params: Vec<Vec<Slot>> = args
             .iter()
             .map(|a| repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*a)))
@@ -2537,9 +2771,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return self.refused(state, code, dests);
         };
         let source = self.generic_element(code, dests, entry, args);
-        let bare =
-            if source.is_none() { self.bare_carrier(code, dests, entry, args) } else { None };
-        let elements = Elements { source, bare, answer: self.answer_element(code, dests) };
+        let bare = if source.is_none() {
+            self.bare_carrier(code, dests, entry, args)
+        } else {
+            None
+        };
+        let elements = Elements {
+            source,
+            bare,
+            answer: self.answer_element(code, dests),
+        };
         let Some(argv) = self.entry_args(state, code, entry, args, elements, span) else {
             return self.refused(state, code, dests);
         };
@@ -2593,7 +2834,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             return Some(self.element_of(code.ty_of(arg(args, at))));
         }
-        let out = dests.first().copied().and_then(|d| self.type_of(code.ty_of(d)))?;
+        let out = dests
+            .first()
+            .copied()
+            .and_then(|d| self.type_of(code.ty_of(d)))?;
         self.reprs.element(&out)
     }
 
@@ -2652,7 +2896,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// element is a second question and is asked separately rather than by
     /// changing what the first one means.
     fn answer_element(&mut self, code: &ir::Code, dests: &[ir::ValueId]) -> Option<Ty> {
-        let out = dests.first().copied().and_then(|d| self.type_of(code.ty_of(d)))?;
+        let out = dests
+            .first()
+            .copied()
+            .and_then(|d| self.type_of(code.ty_of(d)))?;
         self.reprs.element(&out)
     }
 
@@ -2685,11 +2932,19 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // A bare `T` with no `Ty` behind it answers the stride and
                 // nothing else: it is a scalar, and a scalar holds no counted
                 // pointer, so the retain beside it is null.
-                let bare = if element.is_none() { elements.bare } else { None };
+                let bare = if element.is_none() {
+                    elements.bare
+                } else {
+                    None
+                };
                 if let Some((stride, glue_ty)) = bare {
                     match mode {
-                        runtime::Arg::Stride => argv
-                            .push(self.ctx.i64_type().const_int(u64::from(stride), false).into()),
+                        runtime::Arg::Stride => argv.push(
+                            self.ctx
+                                .i64_type()
+                                .const_int(u64::from(stride), false)
+                                .into(),
+                        ),
                         runtime::Arg::Release => {
                             let glue = glue_ty
                                 .and_then(|t| self.glue(Op::Release, &t))
@@ -2718,7 +2973,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 match mode {
                     runtime::Arg::Stride => {
                         let stride = self.reprs.of_ty(&elem).layout.stride;
-                        argv.push(self.ctx.i64_type().const_int(u64::from(stride), false).into());
+                        argv.push(
+                            self.ctx
+                                .i64_type()
+                                .const_int(u64::from(stride), false)
+                                .into(),
+                        );
                     }
                     runtime::Arg::Release => {
                         let glue = self
@@ -2751,8 +3011,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let value = self.get(state, a);
             // A value held in memory crosses only as a spilled argument, which
             // copies it whole; every other mode takes a scalar or a `Str`.
-            let pieces =
-                if repr::in_memory(&slots) { Vec::new() } else { self.pieces(&slots, value) };
+            let pieces = if repr::in_memory(&slots) {
+                Vec::new()
+            } else {
+                self.pieces(&slots, value)
+            };
             match mode {
                 // **Dropped whatever it weighs.** The obvious reading of
                 // VALUE-MODEL.md §8 — "a context of zero-sized implementations
@@ -3028,7 +3291,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // The two out-pointer shapes append a buffer to the argument list and
         // then take the result out of it, so they are handled before the
         // declaration is written — the buffer is a parameter.
-        let dest = || *dests.first().or_ice("an entry answering through memory has a destination");
+        let dest = || {
+            *dests
+                .first()
+                .or_ice("an entry answering through memory has a destination")
+        };
         match entry.ret {
             runtime::Ret::Out => {
                 self.call_out(state, code, dest(), &entry.symbol(), &mut argv);
@@ -3044,8 +3311,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             _ => {}
         }
-        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
-            argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
+        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> = argv
+            .iter()
+            .map(|a| metadata_type_of(self.ctx, *a))
+            .collect();
         let ret_type = match entry.ret {
             runtime::Ret::Void
             | runtime::Ret::NoReturn
@@ -3077,9 +3346,19 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // narrowing happens here rather than in the declaration, because the
         // declaration is what has to agree with the archive.
         if let runtime::Ret::Int(_) = entry.ret {
-            let dest = *dests.first().or_ice("an entry answering a number has a destination");
-            let want = int_ty(repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest)));
-            let value = call.try_as_basic_value().basic().or_ice("the entry answers a number");
+            let dest = *dests
+                .first()
+                .or_ice("an entry answering a number has a destination");
+            let want = int_ty(repr::ir_type(
+                self.ctx,
+                &mut self.reprs,
+                self.program,
+                code.ty_of(dest),
+            ));
+            let value = call
+                .try_as_basic_value()
+                .basic()
+                .or_ice("the entry answers a number");
             let narrowed = self.narrow_int(value, want);
             self.set(state, dest, narrowed);
             return;
@@ -3231,7 +3510,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) -> Vec<bool> {
         let mut out = vec![false; insts.len()];
         for (i, inst) in insts.iter().enumerate() {
-            let ir::Inst::IncRef { value: x } = inst else { continue };
+            let ir::Inst::IncRef { value: x } = inst else {
+                continue;
+            };
             let after = i.saturating_add(1);
             let Some((k, w)) = insts
                 .iter()
@@ -3265,7 +3546,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         w: ir::ValueId,
         projections: &Map<usize, (ir::ValueId, Option<u32>, u32)>,
     ) -> bool {
-        let Some(&(agg, variant, index)) = projections.get(&x.index()) else { return false };
+        let Some(&(agg, variant, index)) = projections.get(&x.index()) else {
+            return false;
+        };
         if agg != w {
             return false;
         }
@@ -3294,7 +3577,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     fn rc(&mut self, state: &mut Function<'ctx>, code: &ir::Code, v: ir::ValueId, op: Op) {
-        let Some(ty) = self.type_of(code.ty_of(v)) else { return };
+        let Some(ty) = self.type_of(code.ty_of(v)) else {
+            return;
+        };
         if !self.reprs.counted_type(&ty) {
             return;
         }
@@ -3306,7 +3591,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             if self.reprs.rc_weight(&ty) > OPEN_CODED_RC {
                 self.call_glue(op, &ty, base);
             } else {
-                let place = Place::Memory { base, align: repr::memory_align(&slots) };
+                let place = Place::Memory {
+                    base,
+                    align: repr::memory_align(&slots),
+                };
                 self.walk_rc(state, &ty, &place, 0, op);
             }
             self.rc_observed(state, v, op);
@@ -3379,7 +3667,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         }
                         continue;
                     }
-                    let p = self.place_pointer(place, at).or_ice("a count is a pointer slot");
+                    let p = self
+                        .place_pointer(place, at)
+                        .or_ice("a count is a pointer slot");
                     if op == Op::Retain {
                         self.incref_pointer(state, p, Counted::Nullable);
                     } else {
@@ -3392,7 +3682,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // anything counted in it. The default is the join, not an
                 // `unreachable`: a variant with nothing counted has no arm.
                 Site::Tagged { tag, arms } => {
-                    let raw = self.place_int(place, base, *tag).or_ice("a tag leads its enum");
+                    let raw = self
+                        .place_int(place, base, *tag)
+                        .or_ice("a tag leads its enum");
                     let i32t = self.ctx.i32_type();
                     let key = self
                         .builder
@@ -3424,7 +3716,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // tag to read.
                 Site::Guarded { null_at, ty } => {
                     let at = base.saturating_add(*null_at);
-                    let p = self.place_pointer(place, at).or_ice("a niche is a pointer slot");
+                    let p = self
+                        .place_pointer(place, at)
+                        .or_ice("a niche is a pointer slot");
                     let is_null = self.builder.build_is_null(p, "rc.isnone").or_ice(BUILT);
                     let live = self.ctx.append_basic_block(state.value, "rc.some");
                     let done = self.ctx.append_basic_block(state.value, "rc.done");
@@ -3496,9 +3790,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         at: u32,
     ) -> Option<PointerValue<'ctx>> {
         match place {
-            Place::Memory { base, .. } => {
-                Some(repr::byte_offset(ctx, builder, *base, i64::from(at), "rc.at"))
-            }
+            Place::Memory { base, .. } => Some(repr::byte_offset(
+                ctx,
+                builder,
+                *base,
+                i64::from(at),
+                "rc.at",
+            )),
             Place::Registers { .. } => None,
         }
     }
@@ -3521,7 +3819,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let p = repr::byte_offset(self.ctx, &self.builder, *base, i64::from(at), "rc.p");
                 let ty = repr::slot_type(self.ctx, want);
                 let v = self.builder.build_load(ty, p, "rc.v").or_ice(BUILT);
-                aligned(v, repr::access_align(*align, Slot { offset: at, ty: want }));
+                aligned(
+                    v,
+                    repr::access_align(
+                        *align,
+                        Slot {
+                            offset: at,
+                            ty: want,
+                        },
+                    ),
+                );
                 Some(v)
             }
             Place::Registers { slots, pieces } => {
@@ -3537,8 +3844,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     }
                     let within = at.saturating_sub(slot.offset);
                     if let Some(BasicValueEnum::ArrayValue(blob)) = pieces.get(i).copied() {
-                        let want = Slot { offset: at, ty: want };
-                        return Some(repr::take_from_blob(self.ctx, &self.builder, blob, within, want));
+                        let want = Slot {
+                            offset: at,
+                            ty: want,
+                        };
+                        return Some(repr::take_from_blob(
+                            self.ctx,
+                            &self.builder,
+                            blob,
+                            within,
+                            want,
+                        ));
                     }
                     let blob = int(*pieces.get(i).or_ice("a slot has its piece"));
                     let shift = u64::from(within).saturating_mul(8);
@@ -3552,12 +3868,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         )
                         .ok()?;
                     let narrow = repr::int_type(self.ctx, want.size());
-                    let cut =
-                        self.builder.build_int_truncate_or_bit_cast(moved, narrow, "rc.cut").ok()?;
+                    let cut = self
+                        .builder
+                        .build_int_truncate_or_bit_cast(moved, narrow, "rc.cut")
+                        .ok()?;
                     return Some(repr::slot_from_bits(
                         self.ctx,
                         &self.builder,
-                        Slot { offset: at, ty: want },
+                        Slot {
+                            offset: at,
+                            ty: want,
+                        },
                         cut,
                     ));
                 }
@@ -3586,12 +3907,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// branchless after the null test. `IMMORTAL` is `u64::MAX` and saturation
     /// keeps it there without a branch, which is what makes a literal `Str` and
     /// an interned constant free.
-    fn incref_pointer(
-        &mut self,
-        state: &mut Function<'ctx>,
-        p: PointerValue<'ctx>,
-        kind: Counted,
-    ) {
+    fn incref_pointer(&mut self, state: &mut Function<'ctx>, p: PointerValue<'ctx>, kind: Counted) {
         let (body, join) = match kind {
             // Null checks are eliminated wherever the layout says the pointer
             // is non-null, which is only the indirection a recursive type's
@@ -3607,8 +3923,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
         };
         let word = self.ctx.i64_type();
-        let header =
-            repr::byte_offset(self.ctx, &self.builder, p, i64::from(HEADER_RC_OFFSET), "rc.p");
+        let header = repr::byte_offset(
+            self.ctx,
+            &self.builder,
+            p,
+            i64::from(HEADER_RC_OFFSET),
+            "rc.p",
+        );
 
         // === G2 begin: the shared fork (MEMORY.md §5.1, VALUE-MODEL.md §2.1) =
         // `cap`'s bit 63 says the block may be reached from more than one
@@ -3633,7 +3954,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .builder
             .build_select(is_immortal, immortal, bumped, "rc.sat")
             .unwrap_or_else(|_| bumped.into());
-        let _ = self.builder.build_store(header, next).or_ice(BUILT).set_alignment(8);
+        let _ = self
+            .builder
+            .build_store(header, next)
+            .or_ice(BUILT)
+            .set_alignment(8);
         let _ = self.builder.build_unconditional_branch(meet);
 
         // === G2 begin: the atomic increment =================================
@@ -3690,8 +4015,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         tag: &str,
     ) -> BasicBlock<'ctx> {
         let word = self.ctx.i64_type();
-        let plain = self.ctx.append_basic_block(state.value, &format!("{tag}.plain"));
-        let shared = self.ctx.append_basic_block(state.value, &format!("{tag}.shared"));
+        let plain = self
+            .ctx
+            .append_basic_block(state.value, &format!("{tag}.plain"));
+        let shared = self
+            .ctx
+            .append_basic_block(state.value, &format!("{tag}.shared"));
         let capp = repr::byte_offset(
             self.ctx,
             &self.builder,
@@ -3704,9 +4033,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 aligned(cap, 8);
                 let bit = self
                     .builder
-                    .build_and(cap, word.const_int(CAP_SHARED_FLAG, false), &format!("{tag}.mt"))
+                    .build_and(
+                        cap,
+                        word.const_int(CAP_SHARED_FLAG, false),
+                        &format!("{tag}.mt"),
+                    )
                     .unwrap_or_else(|_| word.const_zero());
-                self.icmp(IntPredicate::NE, bit, word.const_zero(), &format!("{tag}.isshared"))
+                self.icmp(
+                    IntPredicate::NE,
+                    bit,
+                    word.const_zero(),
+                    &format!("{tag}.isshared"),
+                )
             }
             // A load that cannot be built leaves the fork unanswerable, and
             // the unshared arm is the answer that matches every block the
@@ -3716,17 +4054,31 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // A block without the bit is still shared once the mask is set. Asked
         // second, so a block marked after sharing began never loads it.
         let unmarked = if self.shares {
-            self.ctx.append_basic_block(state.value, &format!("{tag}.unmarked"))
+            self.ctx
+                .append_basic_block(state.value, &format!("{tag}.unmarked"))
         } else {
             plain
         };
-        let br = self.builder.build_conditional_branch(is_shared, shared, unmarked).or_ice(BUILT);
+        let br = self
+            .builder
+            .build_conditional_branch(is_shared, shared, unmarked)
+            .or_ice(BUILT);
         self.unlikely(br);
         if unmarked != plain {
             self.builder.position_at_end(unmarked);
-            let mask = self.shared_mask(tag).or_ice("a program that shares has the mask");
-            let set = self.icmp(IntPredicate::NE, mask, word.const_zero(), &format!("{tag}.late"));
-            let br = self.builder.build_conditional_branch(set, shared, plain).or_ice(BUILT);
+            let mask = self
+                .shared_mask(tag)
+                .or_ice("a program that shares has the mask");
+            let set = self.icmp(
+                IntPredicate::NE,
+                mask,
+                word.const_zero(),
+                &format!("{tag}.late"),
+            );
+            let br = self
+                .builder
+                .build_conditional_branch(set, shared, plain)
+                .or_ice(BUILT);
             self.unlikely(br);
         }
         self.builder.position_at_end(plain);
@@ -3767,7 +4119,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .builder
             .build_load(word, global.as_pointer_value(), &format!("{tag}.mask"))
             .or_ice(BUILT);
-        let load = mask.as_instruction_value().or_ice("a load is an instruction");
+        let load = mask
+            .as_instruction_value()
+            .or_ice("a load is an instruction");
         let _ = load.set_alignment(8);
         let _ = load.set_atomic_ordering(inkwell::AtomicOrdering::Monotonic);
         Some(int(mask))
@@ -3826,8 +4180,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.builder.position_at_end(live);
         }
         let word = self.ctx.i64_type();
-        let header =
-            repr::byte_offset(self.ctx, &self.builder, p, i64::from(HEADER_RC_OFFSET), "rc.p");
+        let header = repr::byte_offset(
+            self.ctx,
+            &self.builder,
+            p,
+            i64::from(HEADER_RC_OFFSET),
+            "rc.p",
+        );
 
         // === G2 begin: the shared fork ======================================
         // The same fork the increment takes, and for the same reason. The two
@@ -3843,14 +4202,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let immortal = word.const_int(IMMORTAL, false);
         let counted_block = self.ctx.append_basic_block(state.value, "dec.counted");
         let is_immortal = self.icmp(IntPredicate::EQ, rc, immortal, "rc.imm");
-        let _ = self.builder.build_conditional_branch(is_immortal, join, counted_block);
+        let _ = self
+            .builder
+            .build_conditional_branch(is_immortal, join, counted_block);
 
         self.builder.position_at_end(counted_block);
         let one = word.const_int(1, false);
         let last = self.icmp(IntPredicate::EQ, rc, one, "rc.last");
         let free_block = self.ctx.append_basic_block(state.value, "dec.free");
         let live_block = self.ctx.append_basic_block(state.value, "dec.live");
-        let _ = self.builder.build_conditional_branch(last, free_block, live_block);
+        let _ = self
+            .builder
+            .build_conditional_branch(last, free_block, live_block);
 
         // === G2 begin: the atomic decrement =================================
         // A cold call to `buri_rt_decref`, for `incref`'s reasons, and it
@@ -3873,7 +4236,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.builder.position_at_end(free_block);
         if let Some(glue) = glue {
             let ty = self.ctx.void_type().fn_type(&[self.ptr_ty().into()], false);
-            let call = self.builder.build_indirect_call(ty, glue, &[p.into()], "").or_ice(BUILT);
+            let call = self
+                .builder
+                .build_indirect_call(ty, glue, &[p.into()], "")
+                .or_ice(BUILT);
             attrs::set_call_convention(call, attrs::C);
             attrs::cold_call(self.ctx, call);
         }
@@ -3883,7 +4249,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
         self.builder.position_at_end(live_block);
         let next = self.builder.build_int_sub(rc, one, "rc.dec").or_ice(BUILT);
-        let _ = self.builder.build_store(header, next).or_ice(BUILT).set_alignment(8);
+        let _ = self
+            .builder
+            .build_store(header, next)
+            .or_ice(BUILT)
+            .set_alignment(8);
         let _ = self.builder.build_unconditional_branch(join);
 
         self.builder.position_at_end(join);
@@ -3908,9 +4278,15 @@ enum Place<'ctx> {
     /// An SSA value: its slots, and the piece for each. There is no address
     /// (CODEGEN-LLVM.md §2.2), so a pointer at a byte offset is found by
     /// matching the offset against a slot rather than by loading one.
-    Registers { slots: Vec<Slot>, pieces: Vec<BasicValueEnum<'ctx>> },
+    Registers {
+        slots: Vec<Slot>,
+        pieces: Vec<BasicValueEnum<'ctx>>,
+    },
     /// A heap block or a stack aggregate, at the alignment its layout claims.
-    Memory { base: PointerValue<'ctx>, align: u32 },
+    Memory {
+        base: PointerValue<'ctx>,
+        align: u32,
+    },
 }
 
 /// The largest walk, by `Counts::weight`, that a reference operation writes
@@ -3941,18 +4317,35 @@ struct Wide<'o, 'ctx> {
 enum Job<'ctx> {
     /// A closure's `code`: converts an environment *pointer* into the
     /// environment *leaves* the lifted lambda declares.
-    Thunk { value: FunctionValue<'ctx>, func: FuncIdx, env: bool },
+    Thunk {
+        value: FunctionValue<'ctx>,
+        func: FuncIdx,
+        env: bool,
+    },
     /// Run `op` over one value of `ty`, or over every element of a `[T]`
     /// block of them.
-    Glue { value: FunctionValue<'ctx>, op: Op, elems: bool, ty: Ty },
+    Glue {
+        value: FunctionValue<'ctx>,
+        op: Op,
+        elems: bool,
+        ty: Ty,
+    },
     /// Read a function pointer out of the block's word at `word` and call it
     /// on the rest: the glue every closure environment shares.
-    Env { value: FunctionValue<'ctx>, word: u32 },
+    Env {
+        value: FunctionValue<'ctx>,
+        word: u32,
+    },
     /// The C-ABI entry thunk a **runtime-driven step** is reached through:
     /// `void(state, index, arg, out)`, which runs one closure once on one
     /// element. `params` and `ret` are that closure's own signature, and
     /// `index` is which of `params` the runtime's loop counter goes into.
-    Entry { value: FunctionValue<'ctx>, params: Vec<Ty>, ret: Ty, index: Option<usize> },
+    Entry {
+        value: FunctionValue<'ctx>,
+        params: Vec<Ty>,
+        ret: Ty,
+        index: Option<usize>,
+    },
     /// The C-ABI **equality thunk** the reactive graph compares a write
     /// through: `void(frame, a, b, out)`, which runs `middle::derives`'s
     /// generated `Equal` for `ty` on the two values it is handed and writes the
@@ -3964,7 +4357,11 @@ enum Job<'ctx> {
     /// is generated where the type is known. `frame` is the Buri frame the
     /// runtime acquired and this backend ignores it, exactly as its
     /// `Arg::Compute` passes `frame_at` as `-1`.
-    Equal { value: FunctionValue<'ctx>, func: FuncIdx, ty: Ty },
+    Equal {
+        value: FunctionValue<'ctx>,
+        func: FuncIdx,
+        ty: Ty,
+    },
 }
 
 /// The element types one runtime entry's generic parameters are read at.
@@ -4044,18 +4441,24 @@ fn fn_parts(ty: Ty) -> (&'static [Ty], &'static Ty) {
 
 /// Aligns a load or an `alloca` the builder just made.
 fn aligned<'ctx>(v: impl BasicValue<'ctx>, align: u32) {
-    let made = v.as_instruction_value().or_ice("a load or an `alloca` is an instruction");
+    let made = v
+        .as_instruction_value()
+        .or_ice("a load or an `alloca` is an instruction");
     let _ = made.set_alignment(align);
 }
 
 /// An intrinsic's `at`th argument.
 fn arg(args: &[ir::ValueId], at: usize) -> ir::ValueId {
-    *args.get(at).or_ice("the checker passes an intrinsic every argument it declares")
+    *args
+        .get(at)
+        .or_ice("the checker passes an intrinsic every argument it declares")
 }
 
 /// An intrinsic's destination.
 fn dest_of(dests: &[ir::ValueId]) -> ir::ValueId {
-    *dests.first().or_ice("an intrinsic answers into one destination")
+    *dests
+        .first()
+        .or_ice("an intrinsic answers into one destination")
 }
 
 /// A value the IR types as an integer, a `Bool` or a tag.
@@ -4117,7 +4520,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             while let Some(f) = next {
                 next = f.get_next_function();
                 if f.count_basic_blocks() > 0
-                    && f.as_global_value().as_pointer_value().get_first_use().is_none()
+                    && f.as_global_value()
+                        .as_pointer_value()
+                        .get_first_use()
+                        .is_none()
                     && f.get_name().to_str().is_ok_and(|n| droppable.contains(n))
                 {
                     unused.push(f);
@@ -4164,7 +4570,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         while let Some(f) = function {
             let mut block = f.get_first_basic_block();
             while let Some(b) = block {
-                b.get_terminator().or_ice("the emitter ends every block in a terminator");
+                b.get_terminator()
+                    .or_ice("the emitter ends every block in a terminator");
                 block = b.get_next_basic_block();
             }
             function = f.get_next_function();
@@ -4184,10 +4591,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return (f, false);
         }
         let ty = self.ctx.void_type().fn_type(&[self.ptr_ty().into()], false);
-        let f = self.module.add_function(&name, ty, Some(Linkage::LinkOnceODR));
+        let f = self
+            .module
+            .add_function(&name, ty, Some(Linkage::LinkOnceODR));
         let global = f.as_global_value();
         global.set_visibility(inkwell::GlobalVisibility::Hidden);
-        let elf = self.module.get_triple().as_str().to_str().is_ok_and(|t| t.contains("linux"));
+        let elf = self
+            .module
+            .get_triple()
+            .as_str()
+            .to_str()
+            .is_ok_and(|t| t.contains("linux"));
         if elf {
             global.set_comdat(self.module.get_or_insert_comdat(&name));
         }
@@ -4227,14 +4641,28 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             (Op::Copy, false) => (4, "copy"),
             (Op::Copy, true) => (5, "copy_elems"),
         };
-        if let Some(f) = self.glues.get(ty).and_then(|row| row.get(slot).copied().flatten()) {
+        if let Some(f) = self
+            .glues
+            .get(ty)
+            .and_then(|row| row.get(slot).copied().flatten())
+        {
             return Some(f);
         }
         let key = self.reprs.glue_key(ty);
         let (f, fresh) = self.glue_function(what, &key);
-        *self.glues.entry(*ty).or_default().get_mut(slot).or_ice("six kinds of glue") = Some(f);
+        *self
+            .glues
+            .entry(*ty)
+            .or_default()
+            .get_mut(slot)
+            .or_ice("six kinds of glue") = Some(f);
         if fresh {
-            self.pending.push(Job::Glue { value: f, op, elems, ty: *ty });
+            self.pending.push(Job::Glue {
+                value: f,
+                op,
+                elems,
+                ty: *ty,
+            });
         }
         Some(f)
     }
@@ -4252,7 +4680,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return Some(*f);
         }
         let p = self.ptr_ty();
-        let fty = self.ctx.void_type().fn_type(&[p.into(), p.into(), p.into(), p.into()], false);
+        let fty = self
+            .ctx
+            .void_type()
+            .fn_type(&[p.into(), p.into(), p.into(), p.into()], false);
         let name = format!("buri.equal.{}", self.helpers);
         self.helpers = self.helpers.saturating_add(1);
         let f = self.module.add_function(&name, fty, Some(Linkage::Private));
@@ -4260,7 +4691,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // as it holds the retain and the release beside it.
         attrs::set_convention(f, attrs::C);
         self.equals.insert(*ty, f);
-        self.pending.push(Job::Equal { value: f, func, ty: *ty });
+        self.pending.push(Job::Equal {
+            value: f,
+            func,
+            ty: *ty,
+        });
         Some(f)
     }
 
@@ -4276,7 +4711,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// which is [`Unit::build_thunk`]'s reconciliation at a call with one
     /// caller.
     fn build_equal(&mut self, state: &mut Function<'ctx>, func: FuncIdx, ty: &Ty) {
-        let param = |at| ptr(state.value.get_nth_param(at).or_ice("an equality thunk takes 3 pointers"));
+        let param = |at| {
+            ptr(state
+                .value
+                .get_nth_param(at)
+                .or_ice("an equality thunk takes 3 pointers"))
+        };
         let (a, b, out) = (param(1), param(2), param(3));
         let callee = self.declare(func);
         let own = self.func(func).facts.params.clone();
@@ -4286,10 +4726,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         for (i, at) in [a, b].into_iter().enumerate() {
             if repr::in_memory(&slots) {
                 let value = self.load_value(at, &slots, align);
-                if let (true, BasicValueEnum::PointerValue(base)) =
-                    (own.get(i) == Some(&ir::Ownership::Own) && self.rc_counted(ty), value)
-                {
-                    let place = Place::Memory { base, align: repr::memory_align(&slots) };
+                if let (true, BasicValueEnum::PointerValue(base)) = (
+                    own.get(i) == Some(&ir::Ownership::Own) && self.rc_counted(ty),
+                    value,
+                ) {
+                    let place = Place::Memory {
+                        base,
+                        align: repr::memory_align(&slots),
+                    };
                     self.walk_rc(state, ty, &place, 0, Op::Retain);
                 }
                 argv.push(value.into());
@@ -4297,7 +4741,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             let pieces = self.load_slots(at, &slots, align);
             if own.get(i) == Some(&ir::Ownership::Own) && self.rc_counted(ty) {
-                let place = Place::Registers { slots: slots.clone(), pieces: pieces.clone() };
+                let place = Place::Registers {
+                    slots: slots.clone(),
+                    pieces: pieces.clone(),
+                };
                 self.walk_rc(state, ty, &place, 0, Op::Retain);
             }
             argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
@@ -4345,7 +4792,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let p = self.ptr_ty();
         let word = self.ctx.i64_type();
-        let ty = self.ctx.void_type().fn_type(&[p.into(), word.into(), p.into(), p.into()], false);
+        let ty = self
+            .ctx
+            .void_type()
+            .fn_type(&[p.into(), word.into(), p.into(), p.into()], false);
         let name = format!("buri.entry.{}", self.helpers);
         self.helpers = self.helpers.saturating_add(1);
         let f = self.module.add_function(&name, ty, Some(Linkage::Private));
@@ -4396,7 +4846,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) {
         let ptr_t = self.ptr_ty();
         // `(record, counter, arg, out)`.
-        let param = |at| state.value.get_nth_param(at).or_ice("an entry thunk takes four words");
+        let param = |at| {
+            state
+                .value
+                .get_nth_param(at)
+                .or_ice("an entry thunk takes four words")
+        };
         let (record, counter, arg, out) = (ptr(param(0)), param(1), ptr(param(2)), ptr(param(3)));
         let ptr = ptr_t;
         // `{ code, env }`, which is the closure's own two words in the order
@@ -4411,8 +4866,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             _ => ptr.const_null(),
         };
 
-        let param_slots: Vec<Vec<Slot>> =
-            params.iter().map(|t| self.reprs.of_ty(t).slots.clone()).collect();
+        let param_slots: Vec<Vec<Slot>> = params
+            .iter()
+            .map(|t| self.reprs.of_ty(t).slots.clone())
+            .collect();
         let ret_slots: Vec<Slot> = self.reprs.of_ty(ret).slots.clone();
         let sig = repr::Machine::of(&param_slots, ret_slots.clone());
         let fty = self.machine_type(&sig, 1);
@@ -4426,7 +4883,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .filter(|i| index != Some(*i))
             .collect();
         let mut from_record = record_params.into_iter().zip(ctx_at);
-        for (i, t) in params.iter().enumerate().take(params.len().saturating_sub(1)) {
+        for (i, t) in params
+            .iter()
+            .enumerate()
+            .take(params.len().saturating_sub(1))
+        {
             if index == Some(i) {
                 // The counter, at its declared width. `Int` is `i64` and the
                 // C argument already is one, so this is a move.
@@ -4456,14 +4917,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if repr::in_memory(&slots) {
             let value = self.load_value(arg, &slots, align);
             if let (true, BasicValueEnum::PointerValue(base)) = (self.rc_counted(elem), value) {
-                let place = Place::Memory { base, align: repr::memory_align(&slots) };
+                let place = Place::Memory {
+                    base,
+                    align: repr::memory_align(&slots),
+                };
                 self.walk_rc(state, elem, &place, 0, Op::Retain);
             }
             argv.push(value.into());
         } else {
             let pieces = self.load_slots(arg, &slots, align);
             if self.rc_counted(elem) {
-                let place = Place::Registers { slots, pieces: pieces.clone() };
+                let place = Place::Registers {
+                    slots,
+                    pieces: pieces.clone(),
+                };
                 self.walk_rc(state, elem, &place, 0, Op::Retain);
             }
             argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
@@ -4491,7 +4958,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn step_ctx_offsets(&mut self, params: &[Ty], index: Option<usize>) -> Vec<u32> {
         let mut at = STEP_CTX;
         let mut out = Vec::new();
-        for (i, t) in params.iter().enumerate().take(params.len().saturating_sub(1)) {
+        for (i, t) in params
+            .iter()
+            .enumerate()
+            .take(params.len().saturating_sub(1))
+        {
             if index == Some(i) {
                 continue;
             }
@@ -4510,7 +4981,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// that holds no count.
     fn clear_ctx(&mut self, record: PointerValue<'ctx>, bytes: u32) {
         let len = bytes.saturating_sub(STEP_CTX);
-        let at = repr::byte_offset(self.ctx, &self.builder, record, i64::from(STEP_CTX), "ctx.p");
+        let at = repr::byte_offset(
+            self.ctx,
+            &self.builder,
+            record,
+            i64::from(STEP_CTX),
+            "ctx.p",
+        );
         let zero = self.ctx.i8_type().const_zero();
         let len = self.ctx.i64_type().const_int(u64::from(len), false);
         let _ = self.builder.build_memset(at, 8, zero, len);
@@ -4519,7 +4996,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// The size of a step's state record: `{ code, env, ctx... }`.
     fn step_state_bytes(&mut self, params: &[Ty], index: Option<usize>) -> u32 {
         let mut at = STEP_CTX;
-        for (i, t) in params.iter().enumerate().take(params.len().saturating_sub(1)) {
+        for (i, t) in params
+            .iter()
+            .enumerate()
+            .take(params.len().saturating_sub(1))
+        {
             if index == Some(i) {
                 continue;
             }
@@ -4542,7 +5023,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         // Fresh: only this table makes the two.
         let (f, _) = self.glue_function(what, "any");
-        *self.env_glues.get_mut(at).or_ice("two kinds of environment glue") = Some(f);
+        *self
+            .env_glues
+            .get_mut(at)
+            .or_ice("two kinds of environment glue") = Some(f);
         self.pending.push(Job::Env { value: f, word });
         f
     }
@@ -4566,7 +5050,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let f = self.func(func);
         let sig = ir::Signature {
-            params: f.sig.params.iter().skip(usize::from(env)).copied().collect(),
+            params: f
+                .sig
+                .params
+                .iter()
+                .skip(usize::from(env))
+                .copied()
+                .collect(),
             rets: f.sig.rets.clone(),
         };
         let machine = self.machine_of(&sig);
@@ -4582,7 +5072,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // convention on both sides (`attrs::set_call_convention`).
         attrs::set_convention(f, attrs::FAST);
         self.thunks.insert(key, f);
-        self.pending.push(Job::Thunk { value: f, func, env });
+        self.pending.push(Job::Thunk {
+            value: f,
+            func,
+            env,
+        });
         f
     }
 
@@ -4619,7 +5113,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.build_thunk(&mut state, func, env, first);
                 return;
             }
-            Job::Entry { params, ret, index, .. } => {
+            Job::Entry {
+                params, ret, index, ..
+            } => {
                 self.build_entry(&mut state, &params, &ret, index);
                 return;
             }
@@ -4627,7 +5123,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.build_equal(&mut state, func, &ty);
                 return;
             }
-            Job::Glue { op, elems: false, ty, .. } => {
+            Job::Glue {
+                op,
+                elems: false,
+                ty,
+                ..
+            } => {
                 let align = self.reprs.of_ty(&ty).layout.align;
                 let place = Place::Memory { base: first, align };
                 self.walk_rc(&mut state, &ty, &place, 0, op);
@@ -4639,7 +5140,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // off before the divide: a set bit would make this walk 2^60
             // elements of a block that holds a handful. Headroom past the last
             // element is zeroed and skipped (`Unit::unless_spare`).
-            Job::Glue { op, elems: true, ty, .. } => {
+            Job::Glue {
+                op,
+                elems: true,
+                ty,
+                ..
+            } => {
                 let stride = self.reprs.stride_of(&ty);
                 let count = self.block_element_count(first, stride);
                 self.each_element(&mut state, first, count, stride, &ty, op);
@@ -4685,11 +5191,19 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         if env {
             // The environment record, an aggregate.
-            let first = *full.params.first().or_ice("a closure's callee takes its environment");
+            let first = *full
+                .params
+                .first()
+                .or_ice("a closure's callee takes its environment");
             let slots = repr::ir_slots(&mut self.reprs, self.program, first);
             let align = self.reprs.of(self.program, agg(first)).layout.align;
-            let record =
-                repr::byte_offset(self.ctx, &self.builder, env_ptr, i64::from(ENV_FIELDS), "env.rec");
+            let record = repr::byte_offset(
+                self.ctx,
+                &self.builder,
+                env_ptr,
+                i64::from(ENV_FIELDS),
+                "env.rec",
+            );
             // The callee *owns* its environment record, so it drops what
             // the record holds — and the block still holds it too, because
             // the block's own glue releases the record when the closure
@@ -4699,7 +5213,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             if own.first() == Some(&ir::Ownership::Own) {
                 let ty = self.agg_ty(first);
                 if self.rc_counted(&ty) {
-                    let place = Place::Memory { base: record, align };
+                    let place = Place::Memory {
+                        base: record,
+                        align,
+                    };
                     self.walk_rc(state, &ty, &place, 0, Op::Retain);
                 }
             }
@@ -4720,19 +5237,36 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let slots = repr::ir_slots(&mut self.reprs, self.program, *p);
             // A value held in memory is the caller's address, passed on.
             if repr::in_memory(&slots) {
-                let arg = state.value.get_nth_param(at).or_ice("a thunk takes its callee's arguments");
+                let arg = state
+                    .value
+                    .get_nth_param(at)
+                    .or_ice("a thunk takes its callee's arguments");
                 at = at.saturating_add(1);
                 argv.push(arg.into());
-                if let (Some(&ir::Ownership::Borrow), Some(ty), BasicValueEnum::PointerValue(base)) =
-                    (own.get(j), self.type_of(*p), arg)
+                if let (
+                    Some(&ir::Ownership::Borrow),
+                    Some(ty),
+                    BasicValueEnum::PointerValue(base),
+                ) = (own.get(j), self.type_of(*p), arg)
                 {
-                    borrowed.push((ty, Place::Memory { base, align: repr::memory_align(&slots) }));
+                    borrowed.push((
+                        ty,
+                        Place::Memory {
+                            base,
+                            align: repr::memory_align(&slots),
+                        },
+                    ));
                 }
                 continue;
             }
             let mut taken = Vec::with_capacity(slots.len());
             for _ in 0..slots.len() {
-                taken.push(state.value.get_nth_param(at).or_ice("a thunk takes its callee's arguments"));
+                taken.push(
+                    state
+                        .value
+                        .get_nth_param(at)
+                        .or_ice("a thunk takes its callee's arguments"),
+                );
                 at = at.saturating_add(1);
             }
             argv.extend(taken.iter().map(|v| BasicMetadataValueEnum::from(*v)));
@@ -4741,7 +5275,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             // Only a counted value is borrowed, and only an aggregate is counted.
             let ty = self.agg_ty(*p);
-            borrowed.push((ty, Place::Registers { slots, pieces: taken }));
+            borrowed.push((
+                ty,
+                Place::Registers {
+                    slots,
+                    pieces: taken,
+                },
+            ));
         }
         let call = self.builder.build_call(callee, &argv, "").or_ice(BUILT);
         attrs::set_call_convention(call, attrs::FAST);
@@ -4778,18 +5318,34 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         block: PointerValue<'ctx>,
         word_at: u32,
     ) {
-        let slot =
-            repr::byte_offset(self.ctx, &self.builder, block, i64::from(word_at), "env.slot");
-        let f = ptr(self.builder.build_load(self.ptr_ty(), slot, "env.glue").or_ice(BUILT));
+        let slot = repr::byte_offset(
+            self.ctx,
+            &self.builder,
+            block,
+            i64::from(word_at),
+            "env.slot",
+        );
+        let f = ptr(self
+            .builder
+            .build_load(self.ptr_ty(), slot, "env.glue")
+            .or_ice(BUILT));
         let none = self.builder.build_is_null(f, "env.none").or_ice(BUILT);
         let live = self.ctx.append_basic_block(state.value, "env.some");
         let done = self.ctx.append_basic_block(state.value, "env.done");
         let _ = self.builder.build_conditional_branch(none, done, live);
         self.builder.position_at_end(live);
-        let record =
-            repr::byte_offset(self.ctx, &self.builder, block, i64::from(ENV_FIELDS), "env.rec");
+        let record = repr::byte_offset(
+            self.ctx,
+            &self.builder,
+            block,
+            i64::from(ENV_FIELDS),
+            "env.rec",
+        );
         let ty = self.ctx.void_type().fn_type(&[self.ptr_ty().into()], false);
-        let call = self.builder.build_indirect_call(ty, f, &[record.into()], "").or_ice(BUILT);
+        let call = self
+            .builder
+            .build_indirect_call(ty, f, &[record.into()], "")
+            .or_ice(BUILT);
         attrs::set_call_convention(call, attrs::C);
         let _ = self.builder.build_unconditional_branch(done);
         self.builder.position_at_end(done);
@@ -4802,11 +5358,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// (`layout::CAP_SHARED_FLAG`), so the load is masked with [`CAP_MASK`]
     /// before the divide: a set bit would turn a walk over a handful of
     /// elements into one over 2^60.
-    fn block_element_count(
-        &mut self,
-        block: PointerValue<'ctx>,
-        stride: u32,
-    ) -> IntValue<'ctx> {
+    fn block_element_count(&mut self, block: PointerValue<'ctx>, stride: u32) -> IntValue<'ctx> {
         let word = self.ctx.i64_type();
         let cap_at = repr::byte_offset(
             self.ctx,
@@ -4830,7 +5382,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// `*p = buri_rt_copy_block(*p, glue)`.
     fn replace_with_copy(&mut self, p: PointerValue<'ctx>, glue: Option<PointerValue<'ctx>>) {
-        let old = self.builder.build_load(self.ptr_ty(), p, "cp.old").or_ice(BUILT);
+        let old = self
+            .builder
+            .build_load(self.ptr_ty(), p, "cp.old")
+            .or_ice(BUILT);
         let f = self.declare_rt(
             runtime::COPY_BLOCK,
             &[self.ptr_ty().into(), self.ptr_ty().into()],
@@ -4838,8 +5393,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         );
         let g = glue.unwrap_or_else(|| self.ptr_ty().const_null());
         let call = self.call_c(f, &[old.into(), g.into()]);
-        let fresh = call.try_as_basic_value().basic().or_ice("the copy answers its block");
-        let _ = self.builder.build_store(p, fresh).or_ice(BUILT).set_alignment(8);
+        let fresh = call
+            .try_as_basic_value()
+            .basic()
+            .or_ice("the copy answers its block");
+        let _ = self
+            .builder
+            .build_store(p, fresh)
+            .or_ice(BUILT)
+            .set_alignment(8);
     }
 
     /// `buri_rt_copy_str(p)` — a `Str`'s block, and the rebase of the `ptr`
@@ -4979,7 +5541,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// An `alloca` of `size` bytes at the top of `entry`, leaving the builder
     /// where it was.
-    fn entry_alloca(&mut self, entry: BasicBlock<'ctx>, size: u32, align: u32) -> PointerValue<'ctx> {
+    fn entry_alloca(
+        &mut self,
+        entry: BasicBlock<'ctx>,
+        size: u32,
+        align: u32,
+    ) -> PointerValue<'ctx> {
         let here = self.builder.get_insert_block();
         match entry.get_first_instruction() {
             Some(first) => self.builder.position_before(&first),
@@ -4989,9 +5556,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // A zero-byte buffer is legal and useless; one byte keeps the pointer
         // distinct from every other object, which is what the C side assumes.
         let count = self.ctx.i64_type().const_int(u64::from(size.max(1)), false);
-        let buf = self.builder.build_array_alloca(byte, count, "out").or_ice(BUILT);
+        let buf = self
+            .builder
+            .build_array_alloca(byte, count, "out")
+            .or_ice(BUILT);
         aligned(buf, align.max(1));
-        self.builder.position_at_end(here.or_ice("a buffer is asked for inside a block"));
+        self.builder
+            .position_at_end(here.or_ice("a buffer is asked for inside a block"));
         buf
     }
 
@@ -5041,7 +5612,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// A value from its slot values: `repr::assemble`, or for a value held in
     /// memory a fresh buffer with each slot stored into it.
-    fn assemble(&mut self, slots: &[Slot], pieces: &[BasicValueEnum<'ctx>]) -> BasicValueEnum<'ctx> {
+    fn assemble(
+        &mut self,
+        slots: &[Slot],
+        pieces: &[BasicValueEnum<'ctx>],
+    ) -> BasicValueEnum<'ctx> {
         repr::assemble(self.ctx, &self.builder, slots, pieces)
     }
 
@@ -5070,9 +5645,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         src: PointerValue<'ctx>,
         slots: &[Slot],
     ) {
-        let bytes = self.ctx.i64_type().const_int(u64::from(repr::padded(slots)), false);
+        let bytes = self
+            .ctx
+            .i64_type()
+            .const_int(u64::from(repr::padded(slots)), false);
         let src_align = repr::memory_align(slots);
-        let _ = self.builder.build_memcpy(dst, dst_align.max(1), src, src_align, bytes);
+        let _ = self
+            .builder
+            .build_memcpy(dst, dst_align.max(1), src, src_align, bytes);
     }
 
     /// The value at `src`, which something else owns — a heap block, a
@@ -5086,8 +5666,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) -> BasicValueEnum<'ctx> {
         if repr::in_memory(slots) {
             let buf = self.value_buffer(slots);
-            let bytes = self.ctx.i64_type().const_int(u64::from(repr::padded(slots)), false);
-            let _ = self.builder.build_memcpy(buf, HEAP_ALIGN, src, align.max(1), bytes);
+            let bytes = self
+                .ctx
+                .i64_type()
+                .const_int(u64::from(repr::padded(slots)), false);
+            let _ = self
+                .builder
+                .build_memcpy(buf, HEAP_ALIGN, src, align.max(1), bytes);
             return buf.into();
         }
         let pieces = self.load_slots(src, slots, align);
@@ -5096,7 +5681,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// The value in `buf`, a buffer this call site owns ([`Unit::scratch`]):
     /// for one held in memory, the buffer *is* the value.
-    fn adopt(&mut self, buf: PointerValue<'ctx>, slots: &[Slot], align: u32) -> BasicValueEnum<'ctx> {
+    fn adopt(
+        &mut self,
+        buf: PointerValue<'ctx>,
+        slots: &[Slot],
+        align: u32,
+    ) -> BasicValueEnum<'ctx> {
         if repr::in_memory(slots) {
             return buf.into();
         }
@@ -5108,8 +5698,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// set to zero.
     fn zeroed(&mut self, slots: &[Slot]) -> BasicValueEnum<'ctx> {
         let buf = self.value_buffer(slots);
-        let bytes = self.ctx.i64_type().const_int(u64::from(repr::padded(slots)), false);
-        let _ = self.builder.build_memset(buf, HEAP_ALIGN, self.ctx.i8_type().const_zero(), bytes);
+        let bytes = self
+            .ctx
+            .i64_type()
+            .const_int(u64::from(repr::padded(slots)), false);
+        let _ = self
+            .builder
+            .build_memset(buf, HEAP_ALIGN, self.ctx.i8_type().const_zero(), bytes);
         buf.into()
     }
 
@@ -5127,8 +5722,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// not fit in registers; above it the spill was the slot-by-slot copy
     /// `llc` is quadratic in (PERFORMANCE.md §6.31).
     fn machine_of(&mut self, sig: &ir::Signature) -> repr::Machine {
-        let params: Vec<Vec<Slot>> =
-            sig.params.iter().map(|t| repr::ir_slots(&mut self.reprs, self.program, *t)).collect();
+        let params: Vec<Vec<Slot>> = sig
+            .params
+            .iter()
+            .map(|t| repr::ir_slots(&mut self.reprs, self.program, *t))
+            .collect();
         let mut ret = Vec::new();
         for t in &sig.rets {
             ret.extend(repr::ir_slots(&mut self.reprs, self.program, *t));
@@ -5149,9 +5747,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ps.push(self.ptr_ty().into());
         }
         ps.extend((0..lead).map(|_| -> BasicMetadataTypeEnum<'ctx> { self.ptr_ty().into() }));
-        ps.extend(sig.params.iter().map(|s| -> BasicMetadataTypeEnum<'ctx> {
-            repr::slot_type(self.ctx, s.ty).into()
-        }));
+        ps.extend(
+            sig.params
+                .iter()
+                .map(|s| -> BasicMetadataTypeEnum<'ctx> { repr::slot_type(self.ctx, s.ty).into() }),
+        );
         match sig.rets.as_slice() {
             [] => self.ctx.void_type().fn_type(&ps, false),
             rets => repr::register_type(self.ctx, rets).fn_type(&ps, false),
@@ -5186,7 +5786,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         argv: Vec<BasicMetadataValueEnum<'ctx>>,
     ) -> Option<BasicValueEnum<'ctx>> {
         let out = sig.sret.map(|_| self.value_buffer(ret));
-        let mut all: Vec<BasicMetadataValueEnum<'ctx>> = Vec::with_capacity(argv.len().saturating_add(1));
+        let mut all: Vec<BasicMetadataValueEnum<'ctx>> =
+            Vec::with_capacity(argv.len().saturating_add(1));
         if let Some(out) = out {
             all.push(out.into());
         }
@@ -5217,7 +5818,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) -> Vec<BasicValueEnum<'ctx>> {
         let mut out = Vec::with_capacity(slots.len());
         for slot in slots {
-            let p = repr::byte_offset(self.ctx, &self.builder, buf, i64::from(slot.offset), "out.p");
+            let p = repr::byte_offset(
+                self.ctx,
+                &self.builder,
+                buf,
+                i64::from(slot.offset),
+                "out.p",
+            );
             let ty = repr::slot_type(self.ctx, slot.ty);
             let v = self.builder.build_load(ty, p, "out.v").or_ice(BUILT);
             aligned(v, repr::access_align(align, *slot));
@@ -5267,7 +5874,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 });
                 if let Some(w) = wide {
                     let t = repr::int_type(self.ctx, w);
-                    let v = self.builder.build_int_z_extend(v, t, "in.wide").or_ice(BUILT);
+                    let v = self
+                        .builder
+                        .build_int_z_extend(v, t, "in.wide")
+                        .or_ice(BUILT);
                     let store = self.builder.build_store(p, v).or_ice(BUILT);
                     let _ = store.set_alignment(within(align, slot.offset).min(w));
                     gap.0 = slot.offset.saturating_add(w);
@@ -5366,8 +5976,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let (slots, size, align) = self.dest_shape(code, dest);
         let buf = self.scratch(state, size, align);
         argv.push(buf.into());
-        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
-            argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
+        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> = argv
+            .iter()
+            .map(|a| metadata_type_of(self.ctx, *a))
+            .collect();
         let f = self.declare_rt(symbol, &param_types, None);
         self.call_c(f, argv);
         // Every one of these produces an owned block (`cli/runtime/lib.rs` §3),
@@ -5417,21 +6029,32 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let buf = self.scratch(state, size, align);
         let out = repr::byte_offset(self.ctx, &self.builder, buf, i64::from(payload_at), "sum.p");
         argv.push(out.into());
-        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
-            argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
+        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> = argv
+            .iter()
+            .map(|a| metadata_type_of(self.ctx, *a))
+            .collect();
         let i32t = self.ctx.i32_type();
-        let f = self.declare_rt(&entry.symbol(), &param_types, Some(i32t.as_basic_type_enum()));
+        let f = self.declare_rt(
+            &entry.symbol(),
+            &param_types,
+            Some(i32t.as_basic_type_enum()),
+        );
         let call = self.call_c(f, &argv);
         state.observed.allocates = true;
         state.observed.opaque = true;
-        let disc = int(call.try_as_basic_value().basic().or_ice("the entry answers a status"));
+        let disc = int(call
+            .try_as_basic_value()
+            .basic()
+            .or_ice("the entry answers a status"));
         // `BURI_OK` is `-1`, sign-extended into the `i32` the C side returns.
         let ok = i32t.const_int(runtime::BURI_OK as u64, true);
         let is_ok = self.icmp(IntPredicate::EQ, disc, ok, "sum.ok");
         let some_bb = self.ctx.append_basic_block(state.value, "sum.some");
         let none_bb = self.ctx.append_basic_block(state.value, "sum.none");
         let join = self.ctx.append_basic_block(state.value, "sum.done");
-        let _ = self.builder.build_conditional_branch(is_ok, some_bb, none_bb);
+        let _ = self
+            .builder
+            .build_conditional_branch(is_ok, some_bb, none_bb);
 
         self.builder.position_at_end(some_bb);
         let some_value = self.sum_arm(buf, &slots, &enum_repr, align, some_at, true);
@@ -5467,13 +6090,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         variant: usize,
         loaded: bool,
     ) -> BasicValueEnum<'ctx> {
-        let tag_const = |ctx: &'ctx Context, tag: Scalar| match repr::slot_type(
-            ctx,
-            SlotTy::Scalar(tag),
-        ) {
-            BasicTypeEnum::IntType(t) => t.const_int(variant as u64, false).as_basic_value_enum(),
-            other => other.const_zero(),
-        };
+        let tag_const =
+            |ctx: &'ctx Context, tag: Scalar| match repr::slot_type(ctx, SlotTy::Scalar(tag)) {
+                BasicTypeEnum::IntType(t) => {
+                    t.const_int(variant as u64, false).as_basic_value_enum()
+                }
+                other => other.const_zero(),
+            };
         match enum_repr {
             EnumRepr::Bare { tag } => tag_const(self.ctx, *tag),
             EnumRepr::Niche { .. } => {
@@ -5489,9 +6112,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             EnumRepr::Tagged { tag, .. } => {
                 let tag_value = tag_const(self.ctx, *tag);
-                let slot = *slots.get(1).or_ice("a tagged enum's payload follows its tag");
+                let slot = *slots
+                    .get(1)
+                    .or_ice("a tagged enum's payload follows its tag");
                 let blob = if loaded {
-                    *self.load_slots(buf, &[slot], align).first().or_ice("one slot loads one piece")
+                    *self
+                        .load_slots(buf, &[slot], align)
+                        .first()
+                        .or_ice("one slot loads one piece")
                 } else {
                     repr::slot_type(self.ctx, slot.ty).const_zero()
                 };
@@ -5574,19 +6202,35 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // A `Str` is three words, so the area is too.
             let word = self.ctx.i64_type();
             for off in (at..err_layout.size).step_by(8) {
-                let slot =
-                    Slot { offset: err_at.saturating_add(off), ty: SlotTy::Scalar(Scalar::I64) };
-                self.store_slots(buf, &[slot], align, &[word.const_zero().as_basic_value_enum()]);
+                let slot = Slot {
+                    offset: err_at.saturating_add(off),
+                    ty: SlotTy::Scalar(Scalar::I64),
+                };
+                self.store_slots(
+                    buf,
+                    &[slot],
+                    align,
+                    &[word.const_zero().as_basic_value_enum()],
+                );
             }
         }
-        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
-            argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
+        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> = argv
+            .iter()
+            .map(|a| metadata_type_of(self.ctx, *a))
+            .collect();
         let i32t = self.ctx.i32_type();
-        let f = self.declare_rt(&entry.symbol(), &param_types, Some(i32t.as_basic_type_enum()));
+        let f = self.declare_rt(
+            &entry.symbol(),
+            &param_types,
+            Some(i32t.as_basic_type_enum()),
+        );
         let call = self.call_c(f, &argv);
         state.observed.allocates = true;
         state.observed.opaque = true;
-        let disc = int(call.try_as_basic_value().basic().or_ice("the entry answers a status"));
+        let disc = int(call
+            .try_as_basic_value()
+            .basic()
+            .or_ice("the entry answers a status"));
         let is_ok = self.icmp(
             IntPredicate::EQ,
             disc,
@@ -5634,7 +6278,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             TyKind::Con(_, args) => args,
             _ => crate::diagnostics::ice("a `Result` is a constructor applied to its arguments"),
         };
-        let ok_bytes = self.reprs.of_ty(args.get(ok).or_ice("`Result` takes `T`")).layout.size;
+        let ok_bytes = self
+            .reprs
+            .of_ty(args.get(ok).or_ice("`Result` takes `T`"))
+            .layout
+            .size;
         (ok, err, ok_bytes, err_ty)
     }
 
@@ -5655,7 +6303,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) {
         match enum_repr {
             EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => {
-                let slot = Slot { offset: 0, ty: SlotTy::Scalar(*tag) };
+                let slot = Slot {
+                    offset: 0,
+                    ty: SlotTy::Scalar(*tag),
+                };
                 let value = match repr::slot_type(self.ctx, slot.ty) {
                     BasicTypeEnum::IntType(t) => {
                         t.const_int(variant as u64, false).as_basic_value_enum()
@@ -5665,8 +6316,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.store_discriminant(buf, 0, *tag, payload_at(enum_repr, *tag), align, value);
             }
             EnumRepr::Niche { null_at } => {
-                let slot = Slot { offset: *null_at, ty: SlotTy::Scalar(Scalar::Ptr) };
-                let zero = self.ctx.ptr_type(inkwell::AddressSpace::default()).const_null();
+                let slot = Slot {
+                    offset: *null_at,
+                    ty: SlotTy::Scalar(Scalar::Ptr),
+                };
+                let zero = self
+                    .ctx
+                    .ptr_type(inkwell::AddressSpace::default())
+                    .const_null();
                 self.store_slots(buf, &[slot], align, &[zero.as_basic_value_enum()]);
             }
         }
@@ -5685,7 +6342,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         value: BasicValueEnum<'ctx>,
     ) {
         let into = repr::byte_offset(self.ctx, &self.builder, buf, i64::from(at), "tag.p");
-        let slot = Slot { offset: 0, ty: SlotTy::Scalar(tag) };
+        let slot = Slot {
+            offset: 0,
+            ty: SlotTy::Scalar(tag),
+        };
         let padding = vec![(tag.size(), payload)];
         self.store_padded(into, &[slot], within(align, at), &[value], padding);
     }
@@ -5716,7 +6376,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let want = int_ty(repr::slot_type(self.ctx, SlotTy::Scalar(tag)));
         let narrowed = self.narrow_int(index.as_basic_value_enum(), want);
         self.store_discriminant(buf, at, tag, payload_at(enum_repr, tag), align, narrowed);
-        if let LayoutRepr::Enum { repr: EnumRepr::Tagged { payload, .. }, .. } = &l.repr {
+        if let LayoutRepr::Enum {
+            repr: EnumRepr::Tagged { payload, .. },
+            ..
+        } = &l.repr
+        {
             let mut off = *payload;
             // §2.1's message shape: the entry wrote `E`'s one `Str` at
             // `message_at`, so the zeroing stops in front of it rather than
@@ -5724,14 +6388,30 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let until = message_at.unwrap_or(l.size);
             let word = self.ctx.i64_type();
             while off.saturating_add(8) <= until {
-                let slot = Slot { offset: at.saturating_add(off), ty: SlotTy::Scalar(Scalar::I64) };
-                self.store_slots(buf, &[slot], align, &[word.const_zero().as_basic_value_enum()]);
+                let slot = Slot {
+                    offset: at.saturating_add(off),
+                    ty: SlotTy::Scalar(Scalar::I64),
+                };
+                self.store_slots(
+                    buf,
+                    &[slot],
+                    align,
+                    &[word.const_zero().as_basic_value_enum()],
+                );
                 off = off.saturating_add(8);
             }
             let byte = self.ctx.i8_type();
             while off < until {
-                let slot = Slot { offset: at.saturating_add(off), ty: SlotTy::Scalar(Scalar::I8) };
-                self.store_slots(buf, &[slot], align, &[byte.const_zero().as_basic_value_enum()]);
+                let slot = Slot {
+                    offset: at.saturating_add(off),
+                    ty: SlotTy::Scalar(Scalar::I8),
+                };
+                self.store_slots(
+                    buf,
+                    &[slot],
+                    align,
+                    &[byte.const_zero().as_basic_value_enum()],
+                );
                 off = off.saturating_add(1);
             }
         }
@@ -5754,7 +6434,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// carries a handle; one of those in this position spread to a leaf and
     /// `pieces` was read off by one from there on.
     const fn concat_ctx(argc: usize) -> Option<usize> {
-        if argc == 3 { Some(1) } else { None }
+        if argc == 3 {
+            Some(1)
+        } else {
+            None
+        }
     }
 
     /// The source type of an aggregate.
@@ -5764,7 +6448,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// One of the program's functions.
     fn func(&self, idx: FuncIdx) -> &'a ir::Func {
-        self.program.funcs.get(idx.index()).or_ice("a `FuncIdx` names a function of the program")
+        self.program
+            .funcs
+            .get(idx.index())
+            .or_ice("a `FuncIdx` names a function of the program")
     }
 
     /// The source type behind an [`ir::Type`], where there is one.
@@ -5799,7 +6486,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// construction.
     fn narrow_int(&self, value: BasicValueEnum<'ctx>, want: IntType<'ctx>) -> BasicValueEnum<'ctx> {
         let v = int(value);
-        self.builder.build_int_truncate_or_bit_cast(v, want, "narrow").or_ice(BUILT).into()
+        self.builder
+            .build_int_truncate_or_bit_cast(v, want, "narrow")
+            .or_ice(BUILT)
+            .into()
     }
 }
 
@@ -5838,14 +6528,23 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ("buri_rt_str_compare", 32)
         };
         let ret = self.int_of_width(width);
-        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
-            argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
+        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> = argv
+            .iter()
+            .map(|a| metadata_type_of(self.ctx, *a))
+            .collect();
         let f = self.declare_rt(symbol, &param_types, Some(ret.as_basic_type_enum()));
         let call = self.call_c(f, &argv);
         state.observed.opaque = true;
-        let answer = int(call.try_as_basic_value().basic().or_ice("the comparison answers"));
+        let answer = int(call
+            .try_as_basic_value()
+            .basic()
+            .or_ice("the comparison answers"));
         let (predicate, against) = if equality {
-            let p = if matches!(op, ir::BinOp::Eq) { IntPredicate::NE } else { IntPredicate::EQ };
+            let p = if matches!(op, ir::BinOp::Eq) {
+                IntPredicate::NE
+            } else {
+                IntPredicate::EQ
+            };
             (p, ret.const_zero())
         } else {
             // `Order::Equal` is `1`, so the signed comparison of the tag
@@ -5867,22 +6566,23 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// Unlike [`Unit::derived`] this has the source type in hand — an
     /// `Inst::Structural` carries an interned `TypeId` — so every primitive is
     /// reachable here, including the ones a bare register shape cannot name.
-    fn structural(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        inst: &ir::Inst,
-    ) {
+    fn structural(&mut self, state: &mut Function<'ctx>, code: &ir::Code, inst: &ir::Inst) {
         // `middle::native` replaces every structural operation but a
         // primitive's `Show`, a template's hole.
         let (dest, ty, arg) = match inst {
-            ir::Inst::Structural { dest, op: ir::StructuralOp::Show, ty, args } => {
-                (*dest, *ty, *args.first().or_ice("`Show` takes its value"))
-            }
+            ir::Inst::Structural {
+                dest,
+                op: ir::StructuralOp::Show,
+                ty,
+                args,
+            } => (*dest, *ty, *args.first().or_ice("`Show` takes its value")),
             _ => crate::diagnostics::ice("`middle::native` derived this structural operation"),
         };
         let source = self.program.type_info(ty).ty;
-        let prim = self.tables.as_prim(&source).or_ice("`middle::native` derives `Show` but a primitive's");
+        let prim = self
+            .tables
+            .as_prim(&source)
+            .or_ice("`middle::native` derives `Show` but a primitive's");
         self.show_prim(state, code, dest, prim, arg, false);
     }
 
@@ -5958,16 +6658,25 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             Prim::Bool => {
                 let yes = self.str_literal("true");
                 let no = self.str_literal("false");
-                self.builder.build_select(int(value), yes, no, "show.bool").or_ice(BUILT)
+                self.builder
+                    .build_select(int(value), yes, no, "show.bool")
+                    .or_ice(BUILT)
             }
             Prim::Char => {
-                let symbol = if quoted { runtime::SHOW_CHAR } else { runtime::CHAR_TO_STR };
+                let symbol = if quoted {
+                    runtime::SHOW_CHAR
+                } else {
+                    runtime::CHAR_TO_STR
+                };
                 let mut argv = vec![value.into()];
                 self.call_out_str(state, symbol, &mut argv)
             }
             Prim::F32 | Prim::F64 => {
-                let symbol =
-                    if matches!(prim, Prim::F32) { runtime::SHOW_F32 } else { runtime::SHOW_F64 };
+                let symbol = if matches!(prim, Prim::F32) {
+                    runtime::SHOW_F32
+                } else {
+                    runtime::SHOW_F64
+                };
                 let mut argv = vec![value.into()];
                 self.call_out_str(state, symbol, &mut argv)
             }
@@ -5977,8 +6686,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // is classified.
             Prim::I128 | Prim::U128 => {
                 let (lo, hi) = self.halves(int(value));
-                let symbol =
-                    if matches!(prim, Prim::I128) { runtime::SHOW_I128 } else { runtime::SHOW_U128 };
+                let symbol = if matches!(prim, Prim::I128) {
+                    runtime::SHOW_I128
+                } else {
+                    runtime::SHOW_U128
+                };
                 let mut argv = vec![lo.into(), hi.into()];
                 self.call_out_str(state, symbol, &mut argv)
             }
@@ -6003,9 +6715,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // getting that backwards presents as `255` printing as `-1`.
                 let word = self.ctx.i64_type();
                 let wide = if prim.is_signed() {
-                    self.builder.build_int_s_extend_or_bit_cast(v, word, "show.w")
+                    self.builder
+                        .build_int_s_extend_or_bit_cast(v, word, "show.w")
                 } else {
-                    self.builder.build_int_z_extend_or_bit_cast(v, word, "show.w")
+                    self.builder
+                        .build_int_z_extend_or_bit_cast(v, word, "show.w")
                 }
                 .or_ice(BUILT);
                 let mut argv = vec![wide.into()];
@@ -6030,8 +6744,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         let buf = self.scratch(state, size, align);
         argv.push(buf.into());
-        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
-            argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
+        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> = argv
+            .iter()
+            .map(|a| metadata_type_of(self.ctx, *a))
+            .collect();
         let f = self.declare_rt(symbol, &param_types, None);
         self.call_c(f, argv);
         // A fresh block, so the caller allocates and is not `memory(none)` —
@@ -6079,9 +6795,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         key: &str,
         args: &[ir::ValueId],
     ) -> bool {
-        let Some((name, prim)) = derive_key(key) else { return false };
+        let Some((name, prim)) = derive_key(key) else {
+            return false;
+        };
         let dest = *dests.first().or_ice("a derived operation answers");
-        let arg = |at: usize| *args.get(at).or_ice("a derived operation takes its operands");
+        let arg = |at: usize| {
+            *args
+                .get(at)
+                .or_ice("a derived operation takes its operands")
+        };
         match name {
             // Quoted: `$show`'s primitive arm, where a `Str` is
             // `JSON.stringify` and a `Char` is `'c'` (`runtime.js:200-210`).
@@ -6131,9 +6853,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             (r.slots.clone(), r.layout.size, r.layout.align)
         };
         let pieces = match arm {
-            JsonArm::Bool => {
-                self.pieces(&slots, self.get(state, arg))
-            }
+            JsonArm::Bool => self.pieces(&slots, self.get(state, arg)),
             JsonArm::Num => {
                 let want = self.ctx.f64_type().as_basic_type_enum();
                 let x = self.cast(self.get(state, arg), prim, Prim::F64, want);
@@ -6151,8 +6871,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let buf = self.scratch(state, size, align);
                 let value = self.get(state, arg);
                 let argv: Vec<BasicMetadataValueEnum<'ctx>> = vec![value.into(), buf.into()];
-                let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
-                    argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
+                let param_types: Vec<BasicMetadataTypeEnum<'ctx>> = argv
+                    .iter()
+                    .map(|a| metadata_type_of(self.ctx, *a))
+                    .collect();
                 let f = self.declare_rt(runtime::CHAR_TO_STR, &param_types, None);
                 self.call_c(f, &argv);
                 // The block it writes is fresh, so this caller allocates and is
@@ -6210,18 +6932,29 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             Prim::F32 => {
                 // Promoted, not reinterpreted: on JavaScript there is one
                 // number type, so `1.5f32` and `1.5f64` must hash alike.
-                let wide = self.builder.build_float_ext(float(value), f64t, "hash.w").or_ice(BUILT);
+                let wide = self
+                    .builder
+                    .build_float_ext(float(value), f64t, "hash.w")
+                    .or_ice(BUILT);
                 (runtime::HASH_F64, vec![wide.into()])
             }
             Prim::F64 => (runtime::HASH_F64, vec![value.into()]),
             // Wider than 32 bits, every word goes across, so every bit is mixed.
             Prim::I64 | Prim::U64 => {
-                let symbol = if prim == Prim::I64 { runtime::HASH_I64 } else { runtime::HASH_U64 };
+                let symbol = if prim == Prim::I64 {
+                    runtime::HASH_I64
+                } else {
+                    runtime::HASH_U64
+                };
                 (symbol, vec![value.into()])
             }
             Prim::I128 | Prim::U128 => {
                 let (lo, hi) = self.halves(int(value));
-                let symbol = if prim == Prim::I128 { runtime::HASH_I128 } else { runtime::HASH_U128 };
+                let symbol = if prim == Prim::I128 {
+                    runtime::HASH_I128
+                } else {
+                    runtime::HASH_U128
+                };
                 (symbol, vec![lo.into(), hi.into()])
             }
             Prim::Bool | Prim::I8 | Prim::I16 | Prim::I32 | Prim::U8 | Prim::U16 | Prim::U32 => {
@@ -6229,17 +6962,23 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let narrowed = if v.get_type().get_bit_width() == 32 {
                     v
                 } else if prim.is_signed() {
-                    self.builder.build_int_s_extend(v, i32t, "hash.s").or_ice(BUILT)
+                    self.builder
+                        .build_int_s_extend(v, i32t, "hash.s")
+                        .or_ice(BUILT)
                 } else {
-                    self.builder.build_int_z_extend(v, i32t, "hash.z").or_ice(BUILT)
+                    self.builder
+                        .build_int_z_extend(v, i32t, "hash.z")
+                        .or_ice(BUILT)
                 };
                 (runtime::MIX, vec![narrowed.into()])
             }
         };
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = vec![acc.into()];
         argv.extend(tail);
-        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
-            argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
+        let param_types: Vec<BasicMetadataTypeEnum<'ctx>> = argv
+            .iter()
+            .map(|a| metadata_type_of(self.ctx, *a))
+            .collect();
         let f = self.declare_rt(symbol, &param_types, Some(word.as_basic_type_enum()));
         let call = self.call_c(f, &argv);
         let out = call.try_as_basic_value().basic().or_ice("the hash answers");
@@ -6276,7 +7015,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let (dest, arg) = (dest_of(dests), arg(args, 0));
         let value = self.get(state, arg);
-        let counted = self.type_of(code.ty_of(arg)).filter(|t| self.reprs.counted_type(t));
+        let counted = self
+            .type_of(code.ty_of(arg))
+            .filter(|t| self.reprs.counted_type(t));
         let Some(ty) = counted else {
             self.set(state, dest, value);
             return true;
@@ -6447,8 +7188,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // merges into a block whose parameter is that `()`. An
                 // unbound destination is an edge the phi has no entry for,
                 // which the verifier reads before it learns the edge is dead.
-                let want =
-                    repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
+                let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
                 self.set(state, dest, want.const_zero());
                 true
             }
@@ -6456,8 +7196,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let (kind, shown) = (arg(args, 0), arg(args, 1));
                 self.abort_strs(state, code, &[kind, shown], runtime::TEST_FAIL_EXPECTED);
                 self.after_abort(state);
-                let want =
-                    repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
+                let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
                 self.set(state, dest, want.const_zero());
                 true
             }
@@ -6488,8 +7227,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             "testing_assert.failExpected" => {
                 self.abort_assert(state, code, arg(args, 0));
                 self.after_abort(state);
-                let want =
-                    repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
+                let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
                 self.set(state, dest, want.const_zero());
                 true
             }
@@ -6540,7 +7278,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             Some(word.as_basic_type_enum()),
         );
         let call = self.call_c(f, &[ptr.into(), bytes.into()]);
-        let scanned = call.try_as_basic_value().basic().or_ice("the scan answers a count");
+        let scanned = call
+            .try_as_basic_value()
+            .basic()
+            .or_ice("the scan answers a count");
         let slow_end = self.here();
         let _ = self.builder.build_unconditional_branch(join);
 
@@ -6576,7 +7317,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         op: &str,
         args: &[ir::ValueId],
     ) -> bool {
-        let x = int(self.get(state, *args.first().or_ice("a `bits` operation takes a word")));
+        let x = int(self.get(
+            state,
+            *args.first().or_ice("a `bits` operation takes a word"),
+        ));
         // `llvm.ctpop`, `llvm.ctlz` and `llvm.cttz` answer at the operand's own
         // width, which here is `Int`'s, so nothing is converted. `false` for
         // the zero-is-poison flag: `$bits_leadingZeros(0)` is `64` and
@@ -6584,9 +7328,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let zero_defined = self.ctx.bool_type().const_zero().into();
         let counted = match op {
             "popCount" | "popCountU64" => Some(("llvm.ctpop", vec![x.into()])),
-            "leadingZeros" | "leadingZerosU64" => {
-                Some(("llvm.ctlz", vec![x.into(), zero_defined]))
-            }
+            "leadingZeros" | "leadingZerosU64" => Some(("llvm.ctlz", vec![x.into(), zero_defined])),
             "trailingZeros" | "trailingZerosU64" => {
                 Some(("llvm.cttz", vec![x.into(), zero_defined]))
             }
@@ -6614,25 +7356,30 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .build_int_truncate_or_bit_cast(n, want, "sh.n")
             .unwrap_or(n);
         let value = match op {
-            "shiftLeft" | "shiftLeftU8" | "shiftLeftU32" | "shiftLeftU64" => {
-                self.builder.build_left_shift(x, count, "sh").map(Into::into)
-            }
+            "shiftLeft" | "shiftLeftU8" | "shiftLeftU32" | "shiftLeftU64" => self
+                .builder
+                .build_left_shift(x, count, "sh")
+                .map(Into::into),
             // Logical, at every width: `shiftRight` reinterprets as unsigned and the
             // `U*` families are unsigned already.
-            "shiftRight" | "shiftRightU8" | "shiftRightU32" | "shiftRightU64" => {
-                self.builder.build_right_shift(x, count, false, "sh").map(Into::into)
-            }
-            "shiftRightArithmetic" => {
-                self.builder.build_right_shift(x, count, true, "sar").map(Into::into)
-            }
+            "shiftRight" | "shiftRightU8" | "shiftRightU32" | "shiftRightU64" => self
+                .builder
+                .build_right_shift(x, count, false, "sh")
+                .map(Into::into),
+            "shiftRightArithmetic" => self
+                .builder
+                .build_right_shift(x, count, true, "sar")
+                .map(Into::into),
             // `llvm.fshl(x, x, n)` *is* a rotate, and it is defined for every
             // count — unlike `(x << n) | (x >> (w - n))`, whose second shift is
             // poison at `n == 0`. The range check has already ruled out `n >= w`.
-            "rotateLeft" | "rotateRight" | "rotateLeftU8" | "rotateRightU8"
-            | "rotateLeftU32" | "rotateRightU32" | "rotateLeftU64"
-            | "rotateRightU64" => {
-                let name =
-                    if op.starts_with("rotateLeft") { "llvm.fshl" } else { "llvm.fshr" };
+            "rotateLeft" | "rotateRight" | "rotateLeftU8" | "rotateRightU8" | "rotateLeftU32"
+            | "rotateRightU32" | "rotateLeftU64" | "rotateRightU64" => {
+                let name = if op.starts_with("rotateLeft") {
+                    "llvm.fshl"
+                } else {
+                    "llvm.fshr"
+                };
                 let ty = want.as_basic_type_enum();
                 let v = self.llvm_intrinsic(name, &[ty], &[x.into(), x.into(), count.into()]);
                 self.set(state, dest, v);
@@ -6649,7 +7396,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let t = n.get_type();
         let below = self.icmp(IntPredicate::SLT, n, t.const_zero(), "sh.lo");
         let above = self.icmp(IntPredicate::SGE, n, t.const_int(bits, false), "sh.hi");
-        let bad = self.builder.build_or(below, above, "sh.bad").unwrap_or(above);
+        let bad = self
+            .builder
+            .build_or(below, above, "sh.bad")
+            .unwrap_or(above);
         let abort = self.ctx.append_basic_block(state.value, "sh.abort");
         let ok = self.ctx.append_basic_block(state.value, "sh.ok");
         let _ = self.builder.build_conditional_branch(bad, abort, ok);
@@ -6668,10 +7418,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         overloads: &[BasicTypeEnum<'ctx>],
         args: &[BasicMetadataValueEnum<'ctx>],
     ) -> BasicValueEnum<'ctx> {
-        let intrinsic = inkwell::intrinsics::Intrinsic::find(name).or_ice("LLVM 21 has the intrinsic");
-        let f = intrinsic.get_declaration(&self.module, overloads).or_ice("its overloads fit");
+        let intrinsic =
+            inkwell::intrinsics::Intrinsic::find(name).or_ice("LLVM 21 has the intrinsic");
+        let f = intrinsic
+            .get_declaration(&self.module, overloads)
+            .or_ice("its overloads fit");
         let call = self.builder.build_call(f, args, "int").or_ice(BUILT);
-        call.try_as_basic_value().basic().or_ice("the intrinsics this backend calls answer")
+        call.try_as_basic_value()
+            .basic()
+            .or_ice("the intrinsics this backend calls answer")
     }
 
     /// `str.concat`, with MEMORY.md §5.3's in-place growth.
@@ -6740,9 +7495,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let b_raw = int(piece(3usize.saturating_add(layout::STR_LEN)));
         let word = self.ctx.i64_type();
         let mask = word.const_int(STR_LEN_MASK, false);
-        let a_len = self.builder.build_and(a_raw, mask, "cat.alen").unwrap_or(a_raw);
-        let b_len = self.builder.build_and(b_raw, mask, "cat.blen").unwrap_or(b_raw);
-        let total = self.builder.build_int_add(a_len, b_len, "cat.len").unwrap_or(a_len);
+        let a_len = self
+            .builder
+            .build_and(a_raw, mask, "cat.alen")
+            .unwrap_or(a_raw);
+        let b_len = self
+            .builder
+            .build_and(b_raw, mask, "cat.blen")
+            .unwrap_or(b_raw);
+        let total = self
+            .builder
+            .build_int_add(a_len, b_len, "cat.len")
+            .unwrap_or(a_len);
 
         let probe = self.ctx.append_basic_block(state.value, "cat.probe");
         let check = self.ctx.append_basic_block(state.value, "cat.check");
@@ -6753,12 +7517,20 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // The header load stays behind the null test: a literal and a static
         // have no base, and `base == 0` is how a `Str` says so.
         let entry = self.here();
-        let no_base = self.builder.build_is_null(a_base, "cat.nobase").or_ice(BUILT);
+        let no_base = self
+            .builder
+            .build_is_null(a_base, "cat.nobase")
+            .or_ice(BUILT);
         let _ = self.builder.build_conditional_branch(no_base, check, probe);
 
         self.builder.position_at_end(probe);
-        let rc_at =
-            repr::byte_offset(self.ctx, &self.builder, a_base, i64::from(HEADER_RC_OFFSET), "cat.rcp");
+        let rc_at = repr::byte_offset(
+            self.ctx,
+            &self.builder,
+            a_base,
+            i64::from(HEADER_RC_OFFSET),
+            "cat.rcp",
+        );
         let cap_at = repr::byte_offset(
             self.ctx,
             &self.builder,
@@ -6801,7 +7573,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // A few instructions on a probe that already branches twice and calls
         // `memmove` is not where this operation's time goes.
         let marked = match self.shared_mask("cat") {
-            Some(mask) => self.builder.build_or(cap_raw, mask, "cat.marked").unwrap_or(cap_raw),
+            Some(mask) => self
+                .builder
+                .build_or(cap_raw, mask, "cat.marked")
+                .unwrap_or(cap_raw),
             None => cap_raw,
         };
         let unmarked = self.icmp(
@@ -6812,7 +7587,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             word.const_zero(),
             "cat.unmarked",
         );
-        let is_one = self.builder.build_and(is_one, unmarked, "cat.sole").unwrap_or(is_one);
+        let is_one = self
+            .builder
+            .build_and(is_one, unmarked, "cat.sole")
+            .unwrap_or(is_one);
         // === G3 end =========================================================
         let _ = self.builder.build_unconditional_branch(check);
 
@@ -6834,12 +7612,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         // What has to fit is the offset of the view inside the block plus the
         // whole result, because a `Str` may start in the middle of one.
-        let a_at = self.builder.build_ptr_to_int(a_ptr, word, "cat.at").unwrap_or(total);
-        let base_at = self.builder.build_ptr_to_int(a_base, word, "cat.base").unwrap_or(total);
-        let offset = self.builder.build_int_sub(a_at, base_at, "cat.off").unwrap_or(total);
-        let end = self.builder.build_int_add(offset, total, "cat.end").unwrap_or(total);
+        let a_at = self
+            .builder
+            .build_ptr_to_int(a_ptr, word, "cat.at")
+            .unwrap_or(total);
+        let base_at = self
+            .builder
+            .build_ptr_to_int(a_base, word, "cat.base")
+            .unwrap_or(total);
+        let offset = self
+            .builder
+            .build_int_sub(a_at, base_at, "cat.off")
+            .unwrap_or(total);
+        let end = self
+            .builder
+            .build_int_add(offset, total, "cat.end")
+            .unwrap_or(total);
         let fits = self.icmp(IntPredicate::ULE, end, room, "cat.fits");
-        let take = self.builder.build_and(unique, fits, "cat.take").unwrap_or(fits);
+        let take = self
+            .builder
+            .build_and(unique, fits, "cat.take")
+            .unwrap_or(fits);
         let _ = self.builder.build_conditional_branch(take, inplace, fresh);
 
         self.builder.position_at_end(inplace);
@@ -6876,7 +7669,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let _ = self.builder.build_unconditional_branch(join);
 
         self.builder.position_at_end(fresh);
-        let doubled = self.builder.build_int_add(total, total, "cat.x2").unwrap_or(total);
+        let doubled = self
+            .builder
+            .build_int_add(total, total, "cat.x2")
+            .unwrap_or(total);
         let floor = word.const_int(layout::GROWTH_FLOOR, false);
         let over = self.icmp(IntPredicate::UGT, doubled, floor, "cat.big");
         let wanted = self
@@ -6933,12 +7729,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             Err(_) => block,
         };
 
-        let both = self.builder.build_and(a_raw, b_raw, "cat.both").unwrap_or(a_raw);
+        let both = self
+            .builder
+            .build_and(a_raw, b_raw, "cat.both")
+            .unwrap_or(a_raw);
         let ascii = self
             .builder
             .build_and(both, word.const_int(STR_ASCII_FLAG, false), "cat.ascii")
             .unwrap_or(both);
-        let stored = self.builder.build_or(total, ascii, "cat.raw").unwrap_or(total);
+        let stored = self
+            .builder
+            .build_or(total, ascii, "cat.raw")
+            .unwrap_or(total);
 
         let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         let values = [base.into(), start.into(), stored.into()];
@@ -7126,7 +7928,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let zero = x.get_type().const_zero();
                 let flipped = self.builder.build_int_neg(x, "abs.neg").or_ice(BUILT);
                 let below = self.icmp(IntPredicate::SLT, x, zero, "abs.lt");
-                self.builder.build_select(below, flipped, x, "abs").or_ice(BUILT)
+                self.builder
+                    .build_select(below, flipped, x, "abs")
+                    .or_ice(BUILT)
             }
             ("signum", Some(x), _) => self.signum(x, signed),
             // The three structural leaves declared on every primitive
@@ -7139,7 +7943,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // copying `0x811c9dc5` into a backend is the one thing
             // VALUE-MODEL.md §12 most wants stated once.
             ("equal", Some(x), Some(y)) => {
-                let operand = args.first().copied().map_or(ir::Type::I64, |v| code.ty_of(v));
+                let operand = args
+                    .first()
+                    .copied()
+                    .map_or(ir::Type::I64, |v| code.ty_of(v));
                 self.binary(state, ir::BinOp::Eq, from, operand, x, y)
             }
             ("compare", Some(x), Some(y)) => self.order(x, y, signed, int_ty(want)),
@@ -7160,7 +7967,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 Some(BasicValueEnum::IntValue(x)),
                 Some(BasicValueEnum::IntValue(y)),
             ) => {
-                let task = Wide { op, prim: from, x, y };
+                let task = Wide {
+                    op,
+                    prim: from,
+                    x,
+                    y,
+                };
                 return self.checked(state, code, dest, &task);
             }
             // `0 - x`, tested against the type's range: the minimum of a signed
@@ -7168,10 +7980,19 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // unsigned one.
             ("checkedNegate", Some(BasicValueEnum::IntValue(x)), _) => {
                 let zero = x.get_type().const_zero();
-                let task = Wide { op, prim: from, x: zero, y: x };
+                let task = Wide {
+                    op,
+                    prim: from,
+                    x: zero,
+                    y: x,
+                };
                 return self.checked(state, code, dest, &task);
             }
-            ("checkedPower", Some(BasicValueEnum::IntValue(x)), Some(BasicValueEnum::IntValue(e))) => {
+            (
+                "checkedPower",
+                Some(BasicValueEnum::IntValue(x)),
+                Some(BasicValueEnum::IntValue(e)),
+            ) => {
                 return self.checked_power(state, code, dest, from, x, e);
             }
             (
@@ -7179,7 +8000,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 Some(BasicValueEnum::IntValue(x)),
                 Some(BasicValueEnum::IntValue(y)),
             ) => {
-                let task = Wide { op, prim: from, x, y };
+                let task = Wide {
+                    op,
+                    prim: from,
+                    x,
+                    y,
+                };
                 return self.saturating(state, code, dest, &task);
             }
             // `x.hash()` is `$hashInto(SEED, x)`: the same body a derived
@@ -7274,9 +8100,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     .and_then(|v| v.try_into().ok())
                     .unwrap_or(b);
                 if signed {
-                    self.builder.build_int_signed_rem(a, safe, "ck.rem").unwrap_or(a)
+                    self.builder
+                        .build_int_signed_rem(a, safe, "ck.rem")
+                        .unwrap_or(a)
                 } else {
-                    self.builder.build_int_unsigned_rem(a, safe, "ck.rem").unwrap_or(a)
+                    self.builder
+                        .build_int_unsigned_rem(a, safe, "ck.rem")
+                        .unwrap_or(a)
                 }
             }
             _ => {
@@ -7294,9 +8124,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     .and_then(|v| v.try_into().ok())
                     .unwrap_or(b);
                 if signed {
-                    self.builder.build_int_signed_div(a, safe, "ck.div").unwrap_or(a)
+                    self.builder
+                        .build_int_signed_div(a, safe, "ck.div")
+                        .unwrap_or(a)
                 } else {
-                    self.builder.build_int_unsigned_div(a, safe, "ck.div").unwrap_or(a)
+                    self.builder
+                        .build_int_unsigned_div(a, safe, "ck.div")
+                        .unwrap_or(a)
                 }
             }
         };
@@ -7304,9 +8138,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let high = self.int_constant(wide.as_basic_type_enum(), hi, false);
         // Signed comparisons at 128 bits for a signed *and* an unsigned type:
         // every bound of every type of 64 bits or fewer is exactly an `i128`.
-        for (predicate, bound) in
-            [(IntPredicate::SGE, low), (IntPredicate::SLE, high)]
-        {
+        for (predicate, bound) in [(IntPredicate::SGE, low), (IntPredicate::SLE, high)] {
             let inside = self.icmp(predicate, value, int(bound), "ck.in");
             ok = self.builder.build_and(ok, inside, "ck.ok").or_ice(BUILT);
         }
@@ -7351,7 +8183,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let wide = self.ctx.i128_type();
         if prim.bits() == 128 {
             let exponent = self.widen(e, wide, true);
-            let task = Wide { op: "checkedPower", prim, x, y: exponent };
+            let task = Wide {
+                op: "checkedPower",
+                prim,
+                x,
+                y: exponent,
+            };
             return self.checked_128(state, code, dest, &task);
         }
         let (lo, hi) = prim.int_range().or_ice("`Checked` is an integer trait");
@@ -7389,7 +8226,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .build_and(n, count_ty.const_int(1, false), "pw.bit")
             .unwrap_or(n);
         let odd = self.icmp(IntPredicate::NE, bit, count_ty.const_zero(), "pw.odd");
-        let product = self.builder.build_int_mul(acc, base, "pw.mul").unwrap_or(acc);
+        let product = self
+            .builder
+            .build_int_mul(acc, base, "pw.mul")
+            .unwrap_or(acc);
         let folded: IntValue<'ctx> = self
             .builder
             .build_select(odd, product, acc, "pw.fold")
@@ -7409,7 +8249,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let _ = self.builder.build_conditional_branch(again, square, head);
 
         self.builder.position_at_end(square);
-        let squared = self.builder.build_int_mul(base, base, "pw.sq").unwrap_or(base);
+        let squared = self
+            .builder
+            .build_int_mul(base, base, "pw.sq")
+            .unwrap_or(base);
         let fits = self.inside_range(squared, low, high, "pw.sqin");
         let _ = self.builder.build_conditional_branch(fits, head, done);
 
@@ -7583,21 +8426,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             (
                 r.slots.clone(),
                 r.enum_repr().cloned().or_ice("an `Option` is an enum"),
-                (some_at, none_at, r.layout.variant(some_at).first().copied().unwrap_or(0)),
+                (
+                    some_at,
+                    none_at,
+                    r.layout.variant(some_at).first().copied().unwrap_or(0),
+                ),
                 r.layout.size,
             )
         };
         let (some_at, none_at, payload_at) = offsets;
-        let tag_const = |ctx: &'ctx Context, tag: Scalar, v: usize| {
-            match repr::slot_type(ctx, SlotTy::Scalar(tag)) {
-                BasicTypeEnum::IntType(t) => t.const_int(v as u64, false).as_basic_value_enum(),
-                other => other.const_zero(),
-            }
+        let tag_const = |ctx: &'ctx Context, tag: Scalar, v: usize| match repr::slot_type(
+            ctx,
+            SlotTy::Scalar(tag),
+        ) {
+            BasicTypeEnum::IntType(t) => t.const_int(v as u64, false).as_basic_value_enum(),
+            other => other.const_zero(),
         };
         let (some, none) = match enum_repr {
-            EnumRepr::Bare { tag } => {
-                (tag_const(self.ctx, tag, some_at), tag_const(self.ctx, tag, none_at))
-            }
+            EnumRepr::Bare { tag } => (
+                tag_const(self.ctx, tag, some_at),
+                tag_const(self.ctx, tag, none_at),
+            ),
             // No `Option` of an integer takes the niche — it needs a pointer to
             // spend — but the arm is written rather than refused, because which
             // encoding a type got is `middle::layout`'s answer and not this
@@ -7606,7 +8455,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 payload.as_basic_value_enum(),
                 repr::register_type(self.ctx, &slots).const_zero(),
             ),
-            EnumRepr::Tagged { tag, payload: payload_start } => {
+            EnumRepr::Tagged {
+                tag,
+                payload: payload_start,
+            } => {
                 let bytes = size.saturating_sub(payload_start);
                 // An `Option` of one integer has a payload area of one integer,
                 // so this is never wider than `repr::WIDEST_INT_BLOB`.
@@ -7615,28 +8467,32 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let bits = repr::slot_to_bits(
                     self.ctx,
                     &self.builder,
-                    Slot { offset: 0, ty: SlotTy::Blob(width) },
+                    Slot {
+                        offset: 0,
+                        ty: SlotTy::Blob(width),
+                    },
                     payload.as_basic_value_enum(),
                 );
                 let widened = self
                     .builder
                     .build_int_z_extend_or_bit_cast(bits, blob_ty, "opt.w")
                     .unwrap_or_else(|_| blob_ty.const_zero());
-                let shift =
-                    u64::from(payload_at.saturating_sub(payload_start)).saturating_mul(8);
+                let shift = u64::from(payload_at.saturating_sub(payload_start)).saturating_mul(8);
                 let placed = self
                     .builder
                     .build_left_shift(widened, blob_ty.const_int(shift, false), "opt.sh")
                     .unwrap_or(widened);
                 let some = [tag_const(self.ctx, tag, some_at), placed.into()];
-                let none = [tag_const(self.ctx, tag, none_at), blob_ty.const_zero().into()];
-                (
-                    self.assemble(&slots, &some),
-                    self.assemble(&slots, &none),
-                )
+                let none = [
+                    tag_const(self.ctx, tag, none_at),
+                    blob_ty.const_zero().into(),
+                ];
+                (self.assemble(&slots, &some), self.assemble(&slots, &none))
             }
         };
-        self.builder.build_select(ok, some, none, "opt").or_ice(BUILT)
+        self.builder
+            .build_select(ok, some, none, "opt")
+            .or_ice(BUILT)
     }
 
     /// A narrowing conversion's `Result<T, RangeError>` (SPEC 6.2.1), built
@@ -7665,7 +8521,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let kind = checked_kind(from, to);
         let owner = self.program.type_info(id).ty;
         let variant = |at| {
-            types::variant_types(self.tables, &owner, at).into_iter().next().or_ice("`Result`'s arms carry a value")
+            types::variant_types(self.tables, &owner, at)
+                .into_iter()
+                .next()
+                .or_ice("`Result`'s arms carry a value")
         };
         let (ok_ty, err_ty) = (variant(0), variant(1));
         let [value_ty, target_ty]: [Ty; 2] = types::field_types(self.tables, &err_ty)
@@ -7711,8 +8570,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // The `RangeError`'s slots and their values, disassembled — one payload
         // field of the `.Err` variant, which [`Unit::build_variant`] then
         // places (or boxes) as a whole.
-        let range_error =
-            self.record_pieces(state, &err_ty, &[(value_ty, value_str), (target_ty, target_str)]);
+        let range_error = self.record_pieces(
+            state,
+            &err_ty,
+            &[(value_ty, value_str), (target_ty, target_str)],
+        );
         let err_value = self.build_variant(id, 1, &[range_error]);
         let err_end = self.builder.get_insert_block().unwrap_or(err_bb);
         let _ = self.builder.build_unconditional_branch(join);
@@ -7768,11 +8630,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let ty = wide.as_basic_type_enum();
         let mut fits = bool_ty.const_int(1, false);
         for (predicate, bound) in [
-            (IntPredicate::SGE, self.int_constant(ty, lo.unsigned_abs(), lo < 0)),
+            (
+                IntPredicate::SGE,
+                self.int_constant(ty, lo.unsigned_abs(), lo < 0),
+            ),
             (IntPredicate::SLE, self.int_constant(ty, hi, false)),
         ] {
             let inside = self.icmp(predicate, a, int(bound), "cvt.in");
-            fits = self.builder.build_and(fits, inside, "cvt.fits").unwrap_or(fits);
+            fits = self
+                .builder
+                .build_and(fits, inside, "cvt.fits")
+                .unwrap_or(fits);
         }
         (fits, self.cast(v, from, to, want))
     }
@@ -7793,9 +8661,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let in_max = cmp(self, IntPredicate::ULE, 0x0010_ffff, "cvt.max");
         let below = cmp(self, IntPredicate::ULT, 0xd800, "cvt.lo");
         let above = cmp(self, IntPredicate::UGT, 0xdfff, "cvt.hi");
-        let not_surrogate =
-            self.builder.build_or(below, above, "cvt.scalar").unwrap_or(below);
-        let fits = self.builder.build_and(in_max, not_surrogate, "cvt.fits").unwrap_or(in_max);
+        let not_surrogate = self
+            .builder
+            .build_or(below, above, "cvt.scalar")
+            .unwrap_or(below);
+        let fits = self
+            .builder
+            .build_and(in_max, not_surrogate, "cvt.fits")
+            .unwrap_or(in_max);
         (fits, self.cast(v, from, Prim::Char, want))
     }
 
@@ -7817,7 +8690,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let xf = if x.get_type() == f64t {
             x
         } else {
-            self.builder.build_float_ext(x, f64t, "cvt.ext").unwrap_or(x)
+            self.builder
+                .build_float_ext(x, f64t, "cvt.ext")
+                .unwrap_or(x)
         };
         let (lo_i, hi_i) = to.int_range().unwrap_or((0, 0));
         #[allow(
@@ -7835,7 +8710,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .builder
             .build_float_compare(FloatPredicate::OLT, xf, f64t.const_float(over), "cvt.hi")
             .unwrap_or_else(|_| bool_ty.const_zero());
-        let in_range = self.builder.build_and(ge_lo, lt_over, "cvt.range").unwrap_or(ge_lo);
+        let in_range = self
+            .builder
+            .build_and(ge_lo, lt_over, "cvt.range")
+            .unwrap_or(ge_lo);
         // Saturating (`Unit::cast`'s `llvm.fpto*.sat`), so the value is defined
         // on the failing path too; the round trip back to a double is what
         // catches a fraction that was in range.
@@ -7845,7 +8723,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .builder
             .build_float_compare(FloatPredicate::OEQ, float(back), xf, "cvt.int")
             .or_ice(BUILT);
-        let fits = self.builder.build_and(in_range, integral, "cvt.fits").unwrap_or(in_range);
+        let fits = self
+            .builder
+            .build_and(in_range, integral, "cvt.fits")
+            .unwrap_or(in_range);
         (fits, narrowed)
     }
 
@@ -7862,17 +8743,30 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let _ = want;
         let f32t = self.ctx.f32_type();
         let f64t = self.ctx.f64_type();
-        let narrowed = self.builder.build_float_trunc(x, f32t, "cvt.f32").unwrap_or(x);
-        let back = self.builder.build_float_ext(narrowed, f64t, "cvt.back").unwrap_or(x);
+        let narrowed = self
+            .builder
+            .build_float_trunc(x, f32t, "cvt.f32")
+            .unwrap_or(x);
+        let back = self
+            .builder
+            .build_float_ext(narrowed, f64t, "cvt.back")
+            .unwrap_or(x);
         let inf = f64t.const_float(f64::INFINITY);
         let is_inf = |s: &Self, f: FloatValue<'ctx>, name| {
             let mag = float(s.fabs(f));
-            s.builder.build_float_compare(FloatPredicate::OEQ, mag, inf, name).or_ice(BUILT)
+            s.builder
+                .build_float_compare(FloatPredicate::OEQ, mag, inf, name)
+                .or_ice(BUILT)
         };
         let back_inf = is_inf(self, back, "cvt.binf");
-        let src_finite =
-            self.builder.build_not(is_inf(self, x, "cvt.sinf"), "cvt.fin").or_ice(BUILT);
-        let overflowed = self.builder.build_and(back_inf, src_finite, "cvt.of").or_ice(BUILT);
+        let src_finite = self
+            .builder
+            .build_not(is_inf(self, x, "cvt.sinf"), "cvt.fin")
+            .or_ice(BUILT);
+        let overflowed = self
+            .builder
+            .build_and(back_inf, src_finite, "cvt.of")
+            .or_ice(BUILT);
         let fits = self.builder.build_not(overflowed, "cvt.fits").or_ice(BUILT);
         (fits, narrowed.into())
     }
@@ -7911,7 +8805,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// first because `-0 < 0` is false, and the second because every comparison
     /// with `NaN` is false and the sign would survive.
     fn fabs(&self, x: FloatValue<'ctx>) -> BasicValueEnum<'ctx> {
-        let bits = if x.get_type() == self.ctx.f32_type() { 32 } else { 64 };
+        let bits = if x.get_type() == self.ctx.f32_type() {
+            32
+        } else {
+            64
+        };
         let int_t = self.int_of_width(bits);
         let as_int = int(self.builder.build_bit_cast(x, int_t, "abs.i").or_ice(BUILT));
         let int = int_t;
@@ -7921,7 +8819,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .builder
             .build_right_shift(mask, int.const_int(1, false), false, "abs.m")
             .unwrap_or(mask);
-        let cleared = self.builder.build_and(as_int, mask, "abs.b").unwrap_or(as_int);
+        let cleared = self
+            .builder
+            .build_and(as_int, mask, "abs.b")
+            .unwrap_or(as_int);
         self.builder
             .build_bit_cast(cleared, x.get_type(), "abs.f")
             .unwrap_or_else(|_| x.into())
@@ -7945,8 +8846,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let b = &self.builder;
         match (x, y) {
             (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => (
-                b.build_float_compare(FloatPredicate::OGT, l, r, "gt").or_ice(BUILT),
-                b.build_float_compare(FloatPredicate::OLT, l, r, "lt").or_ice(BUILT),
+                b.build_float_compare(FloatPredicate::OGT, l, r, "gt")
+                    .or_ice(BUILT),
+                b.build_float_compare(FloatPredicate::OLT, l, r, "lt")
+                    .or_ice(BUILT),
             ),
             _ => {
                 let (gt, lt) = if signed {
@@ -7954,7 +8857,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 } else {
                     (IntPredicate::UGT, IntPredicate::ULT)
                 };
-                (self.icmp(gt, int(x), int(y), "gt"), self.icmp(lt, int(x), int(y), "lt"))
+                (
+                    self.icmp(gt, int(x), int(y), "gt"),
+                    self.icmp(lt, int(x), int(y), "lt"),
+                )
             }
         }
     }
@@ -7979,20 +8885,31 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let int = self.int_of_width(bits);
         let b = &self.builder;
         let key = |v: FloatValue<'ctx>| -> IntValue<'ctx> {
-            let is_nan = b.build_float_compare(FloatPredicate::UNO, v, v, "ord.nan").or_ice(BUILT);
-            let raw = b.build_bit_cast(v, int, "ord.bits").or_ice(BUILT).into_int_value();
+            let is_nan = b
+                .build_float_compare(FloatPredicate::UNO, v, v, "ord.nan")
+                .or_ice(BUILT);
+            let raw = b
+                .build_bit_cast(v, int, "ord.bits")
+                .or_ice(BUILT)
+                .into_int_value();
             let canon = b
                 .build_select(is_nan, int.const_int(nan, false), raw, "ord.canon")
                 .or_ice(BUILT)
                 .into_int_value();
             let at = int.const_int(sign_at, false);
-            let sign = b.build_right_shift(canon, at, true, "ord.sign").or_ice(BUILT);
-            let mask =
-                b.build_right_shift(sign, int.const_int(1, false), false, "ord.mask").or_ice(BUILT);
+            let sign = b
+                .build_right_shift(canon, at, true, "ord.sign")
+                .or_ice(BUILT);
+            let mask = b
+                .build_right_shift(sign, int.const_int(1, false), false, "ord.mask")
+                .or_ice(BUILT);
             b.build_xor(canon, mask, "ord.key").or_ice(BUILT)
         };
         let (l, r) = (key(x), key(y));
-        (self.icmp(IntPredicate::SGT, l, r, "gt"), self.icmp(IntPredicate::SLT, l, r, "lt"))
+        (
+            self.icmp(IntPredicate::SGT, l, r, "gt"),
+            self.icmp(IntPredicate::SLT, l, r, "lt"),
+        )
     }
 
     /// `x < 0 ? -1 : (x > 0 ? 1 : 0)`, which is `js/intrinsics.rs`'s spelling
@@ -8020,8 +8937,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             _ => crate::diagnostics::ice("`signum` is a number's"),
         };
-        let lower = self.builder.build_select(below, minus, zero, "sgn.lo").unwrap_or(zero);
-        self.builder.build_select(above, one, lower, "sgn").unwrap_or(lower)
+        let lower = self
+            .builder
+            .build_select(below, minus, zero, "sgn.lo")
+            .unwrap_or(zero);
+        self.builder
+            .build_select(above, one, lower, "sgn")
+            .unwrap_or(lower)
     }
 
     /// `compare(x, y)` as an `Order`.
@@ -8038,14 +8960,21 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         tag: IntType<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let (above, below) = match (x, y) {
-            (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => self.float_order(l, r),
+            (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+                self.float_order(l, r)
+            }
             _ => self.cmp_pair(x, y, signed),
         };
         let less = tag.const_zero().as_basic_value_enum();
         let equal = tag.const_int(1, false).as_basic_value_enum();
         let greater = tag.const_int(2, false).as_basic_value_enum();
-        let lower = self.builder.build_select(below, less, equal, "ord.lo").unwrap_or(equal);
-        self.builder.build_select(above, greater, lower, "ord").unwrap_or(lower)
+        let lower = self
+            .builder
+            .build_select(below, less, equal, "ord.lo")
+            .unwrap_or(equal);
+        self.builder
+            .build_select(above, greater, lower, "ord")
+            .unwrap_or(lower)
     }
 
     /// One numeric value at one register shape, at another.
@@ -8068,22 +8997,30 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     return v;
                 }
                 if to.bits() > from.bits() {
-                    self.builder.build_float_ext(x, t, "fpext").map(Into::into).unwrap_or(v)
+                    self.builder
+                        .build_float_ext(x, t, "fpext")
+                        .map(Into::into)
+                        .unwrap_or(v)
                 } else {
-                    self.builder.build_float_trunc(x, t, "fptrunc").map(Into::into).unwrap_or(v)
+                    self.builder
+                        .build_float_trunc(x, t, "fptrunc")
+                        .map(Into::into)
+                        .unwrap_or(v)
                 }
             }
             (BasicValueEnum::FloatValue(x), BasicTypeEnum::IntType(t)) => {
                 self.float_to_int(x, t, to.is_signed())
             }
-            (BasicValueEnum::IntValue(x), BasicTypeEnum::FloatType(t)) => {
-                if from.is_signed() {
-                    self.builder.build_signed_int_to_float(x, t, "sitofp").map(Into::into)
-                } else {
-                    self.builder.build_unsigned_int_to_float(x, t, "uitofp").map(Into::into)
-                }
-                .unwrap_or(v)
+            (BasicValueEnum::IntValue(x), BasicTypeEnum::FloatType(t)) => if from.is_signed() {
+                self.builder
+                    .build_signed_int_to_float(x, t, "sitofp")
+                    .map(Into::into)
+            } else {
+                self.builder
+                    .build_unsigned_int_to_float(x, t, "uitofp")
+                    .map(Into::into)
             }
+            .unwrap_or(v),
             (BasicValueEnum::IntValue(x), BasicTypeEnum::IntType(t)) => {
                 let have = x.get_type().get_bit_width();
                 if have == t.get_bit_width() {
@@ -8091,12 +9028,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 }
                 if t.get_bit_width() > have {
                     if from.is_signed() {
-                        self.builder.build_int_s_extend(x, t, "sext").map(Into::into)
+                        self.builder
+                            .build_int_s_extend(x, t, "sext")
+                            .map(Into::into)
                     } else {
-                        self.builder.build_int_z_extend(x, t, "zext").map(Into::into)
+                        self.builder
+                            .build_int_z_extend(x, t, "zext")
+                            .map(Into::into)
                     }
                 } else {
-                    self.builder.build_int_truncate(x, t, "trunc").map(Into::into)
+                    self.builder
+                        .build_int_truncate(x, t, "trunc")
+                        .map(Into::into)
                 }
                 .unwrap_or(v)
             }
@@ -8124,7 +9067,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let x = if x.get_type() == f64t {
             x
         } else {
-            self.builder.build_float_ext(x, f64t, "wrap.ext").unwrap_or(x)
+            self.builder
+                .build_float_ext(x, f64t, "wrap.ext")
+                .unwrap_or(x)
         };
         let wide = want.get_bit_width() > 64;
         let (bits, word, top) = if wide {
@@ -8162,7 +9107,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if want.get_bit_width() == bits {
             return whole.as_basic_value_enum();
         }
-        self.builder.build_int_truncate(whole, want, "wrap.trunc").or_ice(BUILT).into()
+        self.builder
+            .build_int_truncate(whole, want, "wrap.trunc")
+            .or_ice(BUILT)
+            .into()
     }
 }
 
@@ -8336,9 +9284,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// decision, and there is no call site yet to make it.
     pub fn thread_door(&mut self, root: FuncIdx, symbol: &str) {
         let func = self.func(root);
-        let sig = ir::Signature { params: Vec::new(), rets: func.sig.rets.clone() };
+        let sig = ir::Signature {
+            params: Vec::new(),
+            rets: func.sig.rets.clone(),
+        };
         let callee = self.declare(root);
-        let door = self.module.add_function(symbol, thread_fn_type(self.ctx), Some(Linkage::External));
+        let door =
+            self.module
+                .add_function(symbol, thread_fn_type(self.ctx), Some(Linkage::External));
         self.platform_abi(door);
         let block = self.ctx.append_basic_block(door, "entry");
         self.builder.position_at_end(block);
@@ -8354,7 +9307,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // returns it in — the same `store_value` the step entry thunk writes
         // its answer with, because it is the same question.
         if let Some(answer) = answer {
-            let out = door.get_nth_param(task_thread::OUT as u32).or_ice("a door takes `out`");
+            let out = door
+                .get_nth_param(task_thread::OUT as u32)
+                .or_ice("a door takes `out`");
             let align = self.ret_align(&sig);
             self.store_value(ptr(out), &rets, align, answer);
         }
@@ -8378,7 +9333,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let callee = self.declare(main);
         let i32t = self.ctx.i32_type();
         let ty = i32t.fn_type(&[i32t.into(), self.ptr_ty().into()], false);
-        let shim = self.module.add_function("main", ty, Some(Linkage::External));
+        let shim = self
+            .module
+            .add_function("main", ty, Some(Linkage::External));
         attrs::set_convention(shim, attrs::C);
         let block = self.ctx.append_basic_block(shim, "entry");
         self.builder.position_at_end(block);
@@ -8398,7 +9355,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // layout table like every other enum's, so a change to the encoding
         // moves this with it.
         let returned = self.declare_rt(runtime::RETURNED, &[], None);
-        let id = agg(*func.sig.rets.first().or_ice("the checker gives `main` a `Result`"));
+        let id = agg(*func
+            .sig
+            .rets
+            .first()
+            .or_ice("the checker gives `main` a `Result`"));
         let (slots, enum_repr, err_offsets, payload_at, size) = {
             let r = self.reprs.of(self.program, id);
             let offsets = r.layout.variant(1).to_vec();
@@ -8412,11 +9373,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let ok = self.ctx.append_basic_block(shim, "ok");
         let err = self.ctx.append_basic_block(shim, "err");
         let is_ok = match (&enum_repr, pieces.first().copied()) {
-            (Some(EnumRepr::Bare { .. } | EnumRepr::Tagged { .. }), Some(BasicValueEnum::IntValue(tag))) => {
-                self.builder
-                    .build_int_compare(IntPredicate::EQ, tag, tag.get_type().const_zero(), "isok")
-                    .ok()
-            }
+            (
+                Some(EnumRepr::Bare { .. } | EnumRepr::Tagged { .. }),
+                Some(BasicValueEnum::IntValue(tag)),
+            ) => self
+                .builder
+                .build_int_compare(IntPredicate::EQ, tag, tag.get_type().const_zero(), "isok")
+                .ok(),
             _ => None,
         };
         match is_ok {
@@ -8430,12 +9393,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
         self.builder.position_at_end(err);
         // `.Err`'s message: a `Str` inside the payload, which is held as one integer.
-        let blob = int(*pieces.get(1).or_ice("a `Result<(), Str>` carries its payload after its tag"));
-        let within = err_offsets.first().copied().unwrap_or(0).saturating_sub(payload_at);
+        let blob = int(*pieces
+            .get(1)
+            .or_ice("a `Result<(), Str>` carries its payload after its tag"));
+        let within = err_offsets
+            .first()
+            .copied()
+            .unwrap_or(0)
+            .saturating_sub(payload_at);
         let str_slots = [
-            Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) },
-            Slot { offset: 8, ty: SlotTy::Scalar(Scalar::Ptr) },
-            Slot { offset: 16, ty: SlotTy::Scalar(Scalar::I64) },
+            Slot {
+                offset: 0,
+                ty: SlotTy::Scalar(Scalar::Ptr),
+            },
+            Slot {
+                offset: 8,
+                ty: SlotTy::Scalar(Scalar::Ptr),
+            },
+            Slot {
+                offset: 16,
+                ty: SlotTy::Scalar(Scalar::I64),
+            },
         ];
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
         for slot in &str_slots {
@@ -8451,8 +9429,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 .unwrap_or(moved);
             argv.push(repr::slot_from_bits(self.ctx, &self.builder, *slot, cut).into());
         }
-        let types: Vec<BasicMetadataTypeEnum<'ctx>> =
-            argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
+        let types: Vec<BasicMetadataTypeEnum<'ctx>> = argv
+            .iter()
+            .map(|a| metadata_type_of(self.ctx, *a))
+            .collect();
         let eprintln = self.declare_rt("buri_rt_host_stderr_eprintln", &types, None);
         self.call_c(eprintln, &argv);
         self.call_c(flush, &[]);
@@ -8480,8 +9460,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// Hands the process's arguments to the runtime, from `main`'s shim.
     fn argv_init(&mut self, shim: FunctionValue<'ctx>) {
         let i32t = self.ctx.i32_type();
-        let argv_init =
-            self.declare_rt(runtime::ARGV_INIT, &[i32t.into(), self.ptr_ty().into()], None);
+        let argv_init = self.declare_rt(
+            runtime::ARGV_INIT,
+            &[i32t.into(), self.ptr_ty().into()],
+            None,
+        );
         let argc = shim.get_nth_param(0).or_ice("`main` takes `argc`");
         let argv = shim.get_nth_param(1).or_ice("`main` takes `argv`");
         self.call_c(argv_init, &[argc.into(), argv.into()]);
@@ -8490,7 +9473,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     pub fn test_entry_point(&mut self, tests: &[FuncIdx]) {
         let i32t = self.ctx.i32_type();
         let ty = i32t.fn_type(&[i32t.into(), self.ptr_ty().into()], false);
-        let shim = self.module.add_function("main", ty, Some(Linkage::External));
+        let shim = self
+            .module
+            .add_function("main", ty, Some(Linkage::External));
         attrs::set_convention(shim, attrs::C);
         let block = self.ctx.append_basic_block(shim, "entry");
         self.builder.position_at_end(block);
@@ -8504,7 +9489,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let enter = self.declare_rt(runtime::TEST_ENTER, &[word.into()], Some(i32t.into()));
             let index = word.const_int(i as u64, false);
             let answer = self.call_c(enter, &[index.into()]);
-            let run = int(answer.try_as_basic_value().basic().or_ice("`test_enter` answers"));
+            let run = int(answer
+                .try_as_basic_value()
+                .basic()
+                .or_ice("`test_enter` answers"));
             let cond = self.icmp(IntPredicate::NE, run, i32t.const_zero(), "asked");
             let body = self.ctx.append_basic_block(shim, "test.run");
             let next = self.ctx.append_basic_block(shim, "test.next");
@@ -8651,7 +9639,10 @@ fn reaches_a_cycle_in(successors: &[Vec<usize>]) -> Vec<bool> {
         mine.sort_unstable();
         mine.dedup();
         for s in &mine {
-            preds.get_mut(*s).or_ice("a successor below `n` is a node").push(i);
+            preds
+                .get_mut(*s)
+                .or_ice("a successor below `n` is a node")
+                .push(i);
         }
         remaining.push(mine.len());
     }
@@ -8697,7 +9688,9 @@ fn reaches_a_cycle(program: &ir::Program) -> Vec<bool> {
                 for inst in &block.insts {
                     match inst {
                         ir::Inst::Call { func, .. } => mine.push(func.index()),
-                        ir::Inst::DecRef { drop: Some(func), .. } => mine.push(func.index()),
+                        ir::Inst::DecRef {
+                            drop: Some(func), ..
+                        } => mine.push(func.index()),
                         _ => {}
                     }
                 }
@@ -8742,7 +9735,9 @@ fn reaches_a_cycle(program: &ir::Program) -> Vec<bool> {
 fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> Vec<bool> {
     let mut based = vec![true; code.values()];
     let set = |based: &mut Vec<bool>, v: ir::ValueId, to: bool, changed: &mut bool| {
-        let slot = based.get_mut(v.index()).or_ice("a value indexes its body's values");
+        let slot = based
+            .get_mut(v.index())
+            .or_ice("a value indexes its body's values");
         if *slot && !to {
             *slot = false;
             *changed = true;
@@ -8816,7 +9811,10 @@ fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> Vec<bool> {
                         if t.block.index() != i {
                             continue;
                         }
-                        let a = t.args.get(k).or_ice("an edge passes each parameter one argument");
+                        let a = t
+                            .args
+                            .get(k)
+                            .or_ice("an edge passes each parameter one argument");
                         all &= based.get(a.index()).copied().unwrap_or(false);
                     }
                 }
@@ -8840,7 +9838,11 @@ pub struct Boxes<'a> {
 
 impl<'a> Boxes<'a> {
     pub fn new(program: &'a ir::Program, tables: &'a Tables, layouts: &'a Layouts<'a>) -> Self {
-        Boxes { program, tables, layouts }
+        Boxes {
+            program,
+            tables,
+            layouts,
+        }
     }
 
     /// Whether a `MakeStruct` or `MakeEnum` puts a member in a box.
@@ -8866,7 +9868,12 @@ impl<'a> Boxes<'a> {
     fn unboxes(&self, code: &ir::Code, inst: &ir::Inst) -> bool {
         let (agg, variant, index) = match inst {
             ir::Inst::GetField { agg, index, .. } => (*agg, None, *index),
-            ir::Inst::GetPayload { agg, variant, index, .. } => (*agg, Some(*variant), *index),
+            ir::Inst::GetPayload {
+                agg,
+                variant,
+                index,
+                ..
+            } => (*agg, Some(*variant), *index),
             _ => return false,
         };
         let owner = self.owner(code, agg);
@@ -8874,7 +9881,9 @@ impl<'a> Boxes<'a> {
             None => types::field_types(self.tables, &owner),
             Some(v) => types::variant_types(self.tables, &owner, v as usize),
         };
-        fields.get(index as usize).is_some_and(|f| self.layouts.boxes(&owner, f))
+        fields
+            .get(index as usize)
+            .is_some_and(|f| self.layouts.boxes(&owner, f))
     }
 
     /// The type of `v`, a struct or an enum: what a projection reads and what
@@ -8894,7 +9903,12 @@ fn projections(code: &ir::Code) -> Map<usize, (ir::ValueId, Option<u32>, u32)> {
             ir::Inst::GetField { dest, agg, index } => {
                 out.insert(dest.index(), (*agg, None, *index));
             }
-            ir::Inst::GetPayload { dest, agg, variant, index } => {
+            ir::Inst::GetPayload {
+                dest,
+                agg,
+                variant,
+                index,
+            } => {
                 out.insert(dest.index(), (*agg, Some(*variant), *index));
             }
             _ => {}
@@ -8964,7 +9978,11 @@ fn local(code: &ir::Code, boxes: &Boxes<'_>) -> Observed {
                 ir::Inst::Abort { .. } => o.aborts = true,
                 // SPEC 6.2: integer division by zero aborts. Float division is
                 // an infinity and does not.
-                ir::Inst::Binary { op: ir::BinOp::Div | ir::BinOp::Rem, prim, .. } => {
+                ir::Inst::Binary {
+                    op: ir::BinOp::Div | ir::BinOp::Rem,
+                    prim,
+                    ..
+                } => {
                     if !prim.is_float() {
                         o.aborts = true;
                     }
@@ -8979,7 +9997,10 @@ fn local(code: &ir::Code, boxes: &Boxes<'_>) -> Observed {
                 }
                 // Both are runtime calls once emitted — `Unit::string_binary`
                 // and `Unit::show_prim` — and are the world for the same reason.
-                ir::Inst::Binary { prim: Prim::Str | Prim::Template, .. }
+                ir::Inst::Binary {
+                    prim: Prim::Str | Prim::Template,
+                    ..
+                }
                 | ir::Inst::Structural { .. } => o.join(Observed::opaque()),
                 // A count is memory, and *which* memory decides the attribute
                 // — see [`argument_based`]. `decref` keeps `opaque` on top of
@@ -9123,7 +10144,10 @@ mod tests {
     fn the_thread_door_is_two_pointers_and_no_answer() {
         let ctx = Context::create();
         let printed = thread_fn_type(&ctx).print_to_string().to_string();
-        assert_eq!(printed.split_whitespace().collect::<String>(), "void(ptr,ptr)");
+        assert_eq!(
+            printed.split_whitespace().collect::<String>(),
+            "void(ptr,ptr)"
+        );
     }
 }
 
@@ -9158,7 +10182,10 @@ mod cycles {
                 ir::Func {
                     symbol: format!("f{i}"),
                     debug_name: format!("f{i}"),
-                    sig: ir::Signature { params: Vec::new(), rets: Vec::new() },
+                    sig: ir::Signature {
+                        params: Vec::new(),
+                        rets: Vec::new(),
+                    },
                     facts: ir::Facts {
                         params: Vec::new(),
                         purity: ir::Purity::Pure,
@@ -9183,7 +10210,10 @@ mod cycles {
     /// anything that can reach one that does.
     #[test]
     fn a_chain_peels_and_a_cycle_does_not() {
-        assert_eq!(reaches_a_cycle(&call_graph(&[&[1], &[2], &[]])), vec![false, false, false]);
+        assert_eq!(
+            reaches_a_cycle(&call_graph(&[&[1], &[2], &[]])),
+            vec![false, false, false]
+        );
         assert_eq!(reaches_a_cycle(&call_graph(&[&[0]])), vec![true]);
         // `0` and `1` are the cycle, `2` calls into it, `3` is off to the side.
         assert_eq!(
@@ -9197,7 +10227,10 @@ mod cycles {
     /// report a cycle and lose `willreturn` everywhere.
     #[test]
     fn a_repeated_call_is_one_edge() {
-        assert_eq!(reaches_a_cycle(&call_graph(&[&[1, 1, 1], &[]])), vec![false, false]);
+        assert_eq!(
+            reaches_a_cycle(&call_graph(&[&[1, 1, 1], &[]])),
+            vec![false, false]
+        );
     }
 
     /// The two shapes a **back-edge** rule gets wrong, which is why this is a
@@ -9209,7 +10242,10 @@ mod cycles {
     fn an_edge_that_points_backwards_is_not_a_cycle() {
         // `0 -> 2 -> 1`, and nothing returns. A rule that called every edge
         // into a lower index a loop would call `0 -> 2`'s sibling one.
-        assert_eq!(reaches_a_cycle_in(&[vec![2], vec![], vec![1]]), vec![false, false, false]);
+        assert_eq!(
+            reaches_a_cycle_in(&[vec![2], vec![], vec![1]]),
+            vec![false, false, false]
+        );
         // A diamond — a nested `if` and its join — with the join *before* one
         // of its predecessors.
         assert_eq!(

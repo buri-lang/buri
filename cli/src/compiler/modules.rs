@@ -13,8 +13,8 @@ use crate::build::workspace::{
 use crate::compiler::semantics::types::ModuleId;
 use crate::compiler::standard_library;
 use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, SourceMap, Span};
-use crate::parsing::tree;
 use crate::hash::Map as HashMap;
+use crate::parsing::tree;
 use std::path::PathBuf;
 
 // The data a compilation is made of is `buri-semantics`'s; loading it is here.
@@ -135,7 +135,9 @@ impl<'a> Loader<'a> {
         // import, and nothing pays to parse `core/crypto` to compile a program
         // that has never heard of it.
         self.load_builtin_modules();
-        let (Some(ws), Some(target)) = (self.ws, unit.target) else { return };
+        let (Some(ws), Some(target)) = (self.ws, unit.target) else {
+            return;
+        };
         let pkg = ws.package(target.package);
         match target.kind {
             RuleKind::Library => {
@@ -145,12 +147,18 @@ impl<'a> Loader<'a> {
                 self.check_testing_surface_declared(target);
                 self.load_path(&pkg.module_path("lib.buri"), Role::Source, Span::NONE);
                 self.load_closure_generators(target);
-                let Some(lib) = &pkg.build.library else { return };
+                let Some(lib) = &pkg.build.library else {
+                    return;
+                };
                 for src in &lib.sources {
                     self.load_package_source(target, &src.value, Role::Source, src.span);
                 }
                 if let Some(testing) = &lib.testing {
-                    self.load_path(&pkg.module_path("testing/lib.buri"), Role::TestOnly, Span::NONE);
+                    self.load_path(
+                        &pkg.module_path("testing/lib.buri"),
+                        Role::TestOnly,
+                        Span::NONE,
+                    );
                     for src in &testing.sources {
                         self.load_package_source(target, &src.value, Role::TestOnly, src.span);
                     }
@@ -181,7 +189,9 @@ impl<'a> Loader<'a> {
                 let Some(bin) = &pkg.build.binary else { return };
                 // The output being built, when it names a repository platform:
                 // its entry is checked against that platform's declaration.
-                if let (Some(platform), Some(entry), None) = (unit.platform, &unit.entry, &self.custom) {
+                if let (Some(platform), Some(entry), None) =
+                    (unit.platform, &unit.entry, &self.custom)
+                {
                     self.custom = ws
                         .declared_entries(target)
                         .into_iter()
@@ -215,13 +225,22 @@ impl<'a> Loader<'a> {
                 // builds no context. The toolchain writes the `main` that calls
                 // it, when it runs the tool.
                 let root = self.load_path(&pkg.module_path("tool.buri"), Role::Source, Span::NONE);
-                let ast = root.and_then(|r| self.modules.get(r.index())).map(|m| std::sync::Arc::clone(&m.ast));
+                let ast = root
+                    .and_then(|r| self.modules.get(r.index()))
+                    .map(|m| std::sync::Arc::clone(&m.ast));
                 if let Some(ast) = ast {
                     if self.checked_tools.insert(target) {
                         let roots = |path: &str| {
-                            ws.generated.module(path).and_then(|m| crate::build::tools::root_of(&m.text))
+                            ws.generated
+                                .module(path)
+                                .and_then(|m| crate::build::tools::root_of(&m.text))
                         };
-                        self.diags.extend(crate::build::tools::contract(&ast, tool, &pkg.label(), &roots));
+                        self.diags.extend(crate::build::tools::contract(
+                            &ast,
+                            tool,
+                            &pkg.label(),
+                            &roots,
+                        ));
                     }
                 }
                 for src in &tool.sources {
@@ -281,12 +300,7 @@ impl<'a> Loader<'a> {
     /// `Role::Std` parses with bodyless declarations allowed, which is how a
     /// document can show a signature without inventing an implementation for
     /// it.
-    pub fn load_source(
-        &mut self,
-        path: &str,
-        role: Role,
-        text: String,
-    ) -> Option<ModuleId> {
+    pub fn load_source(&mut self, path: &str, role: Role, text: String) -> Option<ModuleId> {
         self.load_source_in(path, role, text, None)
     }
 
@@ -361,13 +375,21 @@ impl<'a> Loader<'a> {
         if ws.owning_package(&dir.join("x")) != Some(target.package) {
             return;
         }
-        if pkg.build.library.as_ref().is_some_and(|l| l.testing.is_some()) {
+        if pkg
+            .build
+            .library
+            .as_ref()
+            .is_some_and(|l| l.testing.is_some())
+        {
             return;
         }
         self.diags.push(
-            Diagnostic::templated("undeclared-testing-surface", Span::point(pkg.build_file_id, 0))
-                .with_bind("package", pkg.label())
-                .with_bind("build_file", ws.file_in(target.package, "BUILD.buri")),
+            Diagnostic::templated(
+                "undeclared-testing-surface",
+                Span::point(pkg.build_file_id, 0),
+            )
+            .with_bind("package", pkg.label())
+            .with_bind("build_file", ws.file_in(target.package, "BUILD.buri")),
         );
     }
 
@@ -387,9 +409,8 @@ impl<'a> Loader<'a> {
         // written without it — which is not a state the build system wants to
         // have a diagnostic for.
         if is_entry_point(rel) {
-            self.diags.push(
-                Diagnostic::templated("entry-point-listed", span).with_bind("source", rel),
-            );
+            self.diags
+                .push(Diagnostic::templated("entry-point-listed", span).with_bind("source", rel));
             return None;
         }
         let disk = pkg.dir.join(rel);
@@ -450,13 +471,18 @@ impl<'a> Loader<'a> {
             );
             return;
         }
-        let Some(outcome) = ws.generated.outcome(target) else { return };
+        let Some(outcome) = ws.generated.outcome(target) else {
+            return;
+        };
         for (d, span) in &outcome.diagnostics {
             let reported = self.generator_diagnostic(d, *span);
             self.diags.push(reported);
         }
         for (finding, entry) in &outcome.findings {
-            let origin = crate::build::generators::Origin { file: finding.file.clone(), span: finding.span };
+            let origin = crate::build::generators::Origin {
+                file: finding.file.clone(),
+                span: finding.span,
+            };
             let span = self.generator_origin(Some(&origin)).unwrap_or(*entry);
             self.diags.push(finding.diagnostic(span));
         }
@@ -587,7 +613,11 @@ impl<'a> Loader<'a> {
         let file = self.map.standard(index);
         let (ast, errors) = self.cache.parse(self.map.text(file), file, true);
         self.diags.extend(errors.iter().cloned());
-        let role = if standard_library::is_platform_module(path) { Role::Platform } else { Role::Std };
+        let role = if standard_library::is_platform_module(path) {
+            Role::Platform
+        } else {
+            Role::Std
+        };
         let id = ModuleId(self.modules.len() as u32);
         self.by_path.insert(path.to_string(), id);
         self.modules.push(ModuleData {
@@ -614,12 +644,17 @@ impl<'a> Loader<'a> {
     /// strings have to land on the same module or the types they carry are
     /// not the same types.
     /// [`Workspace::resolve_module`], once per path for this load.
-    fn resolve(&mut self, ws: &Workspace, path: &str) -> std::rc::Rc<Result<ModuleLocation, String>> {
+    fn resolve(
+        &mut self,
+        ws: &Workspace,
+        path: &str,
+    ) -> std::rc::Rc<Result<ModuleLocation, String>> {
         if let Some(hit) = self.resolved.get(path) {
             return std::rc::Rc::clone(hit);
         }
         let found = std::rc::Rc::new(ws.resolve_module(path));
-        self.resolved.insert(path.to_string(), std::rc::Rc::clone(&found));
+        self.resolved
+            .insert(path.to_string(), std::rc::Rc::clone(&found));
         found
     }
 
@@ -681,13 +716,7 @@ impl<'a> Loader<'a> {
         }
     }
 
-    fn load_file(
-        &mut self,
-        path: &str,
-        disk: PathBuf,
-        role: Role,
-        span: Span,
-    ) -> Option<ModuleId> {
+    fn load_file(&mut self, path: &str, disk: PathBuf, role: Role, span: Span) -> Option<ModuleId> {
         if let Some(id) = self.by_path.get(path) {
             return Some(*id);
         }
@@ -777,9 +806,11 @@ impl<'a> Loader<'a> {
             .filter_map(|item| match item {
                 tree::Item::Import(i) => {
                     let names = match &i.clause {
-                        tree::ImportClause::Named(specs) => {
-                            t.list(*specs).iter().map(|s| t.name(s.name).to_string()).collect()
-                        }
+                        tree::ImportClause::Named(specs) => t
+                            .list(*specs)
+                            .iter()
+                            .map(|s| t.name(s.name).to_string())
+                            .collect(),
                         tree::ImportClause::Namespace(_) => Vec::new(),
                     };
                     Some((i.path.clone(), i.path_span, names))
@@ -787,7 +818,10 @@ impl<'a> Loader<'a> {
                 tree::Item::ReExport(r) => Some((
                     r.path.clone(),
                     r.path_span,
-                    t.list(r.specs).iter().map(|s| t.name(s.name).to_string()).collect(),
+                    t.list(r.specs)
+                        .iter()
+                        .map(|s| t.name(s.name).to_string())
+                        .collect(),
                 )),
                 _ => None,
             })
@@ -833,7 +867,9 @@ impl<'a> Loader<'a> {
                 continue;
             }
             let resolved = self.resolve(ws, path);
-            let Ok(ModuleLocation::InPackage(m)) = &*resolved else { continue };
+            let Ok(ModuleLocation::InPackage(m)) = &*resolved else {
+                continue;
+            };
             if m.kind == ModuleKind::Generated
                 || self.by_path.contains_key(&m.path)
                 || self.prefetched.contains_key(&m.file)
@@ -867,7 +903,10 @@ impl<'a> Loader<'a> {
         // doesn't leave one lane running long after the rest.
         let lanes = (crate::parallel::cores() / 3).clamp(1, wanted.len());
         let done = crate::parallel::map(lanes, |lane| {
-            (lane..wanted.len()).step_by(lanes).map(|i| (i, one(i))).collect::<Vec<_>>()
+            (lane..wanted.len())
+                .step_by(lanes)
+                .map(|i| (i, one(i)))
+                .collect::<Vec<_>>()
         });
         for (i, ahead) in done.into_iter().flatten() {
             if let (Some((disk, _)), Some(ahead)) = (wanted.get(i), ahead) {
@@ -892,7 +931,11 @@ impl<'a> Loader<'a> {
     /// package, reaches it here first.
     fn role_for(&mut self, path: &str) -> Role {
         if standard_library::is_std_path(path) {
-            return if standard_library::is_platform_module(path) { Role::Platform } else { Role::Std };
+            return if standard_library::is_platform_module(path) {
+                Role::Platform
+            } else {
+                Role::Std
+            };
         }
         if is_test_only_path(path) {
             return Role::TestOnly;
@@ -912,8 +955,14 @@ impl<'a> Loader<'a> {
 
     /// Whether a test-only module stands in an effect package: an effect's
     /// testing surface whose path does not say so, as a documented example's.
-    fn effect_testing_module(&self, role: Role, pkg: Option<crate::build::workspace::PackageId>) -> bool {
-        let (Some(ws), Some(pkg)) = (self.ws, pkg) else { return false };
+    fn effect_testing_module(
+        &self,
+        role: Role,
+        pkg: Option<crate::build::workspace::PackageId>,
+    ) -> bool {
+        let (Some(ws), Some(pkg)) = (self.ws, pkg) else {
+            return false;
+        };
         role == Role::TestOnly && ws.package(pkg).path.starts_with("platform/effect/")
     }
 
@@ -983,10 +1032,7 @@ impl<'a> Loader<'a> {
         // and is the module that needed this. It grants nothing new: a module
         // with a `testing` segment is already out of reach of a library source,
         // so what it may import is a question about test sources only.
-        if is_test_only_path(path)
-            && !role.is_test_context()
-            && !is_test_only_path(importer_path)
-        {
+        if is_test_only_path(path) && !role.is_test_context() && !is_test_only_path(importer_path) {
             // The second note names the importer, which the page cannot.
             self.diags.push(
                 Diagnostic::templated("test-only-import", span)
@@ -1156,20 +1202,16 @@ impl<'a> Loader<'a> {
                                     .with_bind("importer_file", importer_file)
                                     .with_bind("rule", from.name())
                             }
-                            RuleKind::Binary => {
-                                Diagnostic::templated("binary-source-import", span)
-                                    .with_bind("path", path)
-                                    .with_bind("owner", owner.as_str())
-                                    .with_bind("importer_file", importer_file)
-                                    .with_bind("rule", from.name())
-                            }
-                            RuleKind::Tool => {
-                                Diagnostic::templated("tool-source-import", span)
-                                    .with_bind("path", path)
-                                    .with_bind("owner", owner.as_str())
-                                    .with_bind("importer_file", importer_file)
-                                    .with_bind("rule", from.name())
-                            }
+                            RuleKind::Binary => Diagnostic::templated("binary-source-import", span)
+                                .with_bind("path", path)
+                                .with_bind("owner", owner.as_str())
+                                .with_bind("importer_file", importer_file)
+                                .with_bind("rule", from.name()),
+                            RuleKind::Tool => Diagnostic::templated("tool-source-import", span)
+                                .with_bind("path", path)
+                                .with_bind("owner", owner.as_str())
+                                .with_bind("importer_file", importer_file)
+                                .with_bind("rule", from.name()),
                         };
                         self.diags.push(d);
                         return false;
@@ -1241,13 +1283,22 @@ fn is_declared_test_source(
     path: &str,
 ) -> bool {
     let Some(pkg_id) = pkg else { return false };
-    let Some(rel) = package_relative_source(ws, pkg_id, path) else { return false };
-    let build = &ws.package(pkg_id).build;
-    let listed = |suite: &crate::build::buildfile::TestSuite| {
-        suite.sources.iter().any(|s| s.value == rel)
+    let Some(rel) = package_relative_source(ws, pkg_id, path) else {
+        return false;
     };
-    build.library.as_ref().and_then(|l| l.test.as_ref()).is_some_and(listed)
-        || build.binary.as_ref().and_then(|b| b.test.as_ref()).is_some_and(listed)
+    let build = &ws.package(pkg_id).build;
+    let listed =
+        |suite: &crate::build::buildfile::TestSuite| suite.sources.iter().any(|s| s.value == rel);
+    build
+        .library
+        .as_ref()
+        .and_then(|l| l.test.as_ref())
+        .is_some_and(listed)
+        || build
+            .binary
+            .as_ref()
+            .and_then(|b| b.test.as_ref())
+            .is_some_and(listed)
 }
 
 /// How many repository modules this process's loaders read in, counting a

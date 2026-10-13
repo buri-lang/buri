@@ -52,10 +52,8 @@
 )]
 
 use super::elfobj as elf;
+use super::library::{ConstRef, Hole, HoleKind, Site, SiteKind, Stencil};
 use super::names::{refuse_hole_name, refuse_stencil_name};
-use super::library::{
-    ConstRef, Hole, HoleKind, Site, SiteKind, Stencil,
-};
 
 /// `jmp rel32`.
 const JMP_REL32: u8 = 0xe9;
@@ -114,7 +112,10 @@ pub struct Dropped {
 /// naming each one where it cannot say what it was for.
 pub fn extract_elf_x86(obj: &elf::Obj) -> Result<(Vec<Stencil>, Vec<Dropped>), String> {
     if obj.machine != elf::EM_X86_64 {
-        return Err(format!("expected an x86-64 ELF object, got machine {}", obj.machine));
+        return Err(format!(
+            "expected an x86-64 ELF object, got machine {}",
+            obj.machine
+        ));
     }
     // `extract_elf_arm64`'s spill check, narrowed to the sections that can be
     // one: this reader *must* accept a non-`.text` section, because that is
@@ -186,7 +187,11 @@ fn spilled(
     sym: &elf::Sym,
     addend: i64,
 ) -> Result<u32, Refusal> {
-    let named = if sym.name.is_empty() { "an unnamed section constant" } else { &sym.name };
+    let named = if sym.name.is_empty() {
+        "an unnamed section constant"
+    } else {
+        &sym.name
+    };
     if !(WIDEST_ADDEND..=PCREL_ADDEND).contains(&addend) {
         return Err(Refusal::Drop(format!(
             "it reaches {named} with addend {addend}, which is not a distance to an \
@@ -200,7 +205,9 @@ fn spilled(
         )));
     };
     if section.data.is_empty() {
-        return Err(Refusal::Drop(format!("it reaches {named}, in a section with no bytes")));
+        return Err(Refusal::Drop(format!(
+            "it reaches {named}, in a section with no bytes"
+        )));
     }
     if let Some((_, at)) = consts.at.iter().find(|(i, _)| *i == sym.sect) {
         return Ok(at + u32::try_from(sym.value).unwrap_or(0));
@@ -248,7 +255,10 @@ fn one(
     let mut holes: Vec<Hole> = Vec::new();
     let mut consts = Spilled::default();
     let mut const_refs: Vec<ConstRef> = Vec::new();
-    for r in obj.text_relocs.iter().filter(|r| (r.addr as usize) >= start && (r.addr as usize) < end)
+    for r in obj
+        .text_relocs
+        .iter()
+        .filter(|r| (r.addr as usize) >= start && (r.addr as usize) < end)
     {
         let off = r.addr - start as u32;
         let sym = obj.syms.get(r.symbolnum as usize).ok_or_else(|| {
@@ -282,7 +292,11 @@ fn one(
         // every other one.
         if sym.defined {
             let at = spilled(&mut consts, sname, obj, sym, r.addend)?;
-            const_refs.push(ConstRef { field: off, insn_end: off + (-r.addend) as u32, at });
+            const_refs.push(ConstRef {
+                field: off,
+                insn_end: off + (-r.addend) as u32,
+                at,
+            });
             continue;
         }
 
@@ -348,7 +362,12 @@ fn one(
                         r.addend
                     )));
                 }
-                (HoleKind::Imm32, SiteKind::LeaPc32, Some((insn_end, off)), Branch::None)
+                (
+                    HoleKind::Imm32,
+                    SiteKind::LeaPc32,
+                    Some((insn_end, off)),
+                    Branch::None,
+                )
             }
             // A continuation, or a call into the runtime archive. Three
             // shapes, and the third is the interesting one:
@@ -366,7 +385,12 @@ fn one(
                 if op == JMP_REL32 || op == CALL_REL32 {
                     (HoleKind::Branch, SiteKind::Rel32, None, Branch::Uncond(off))
                 } else if at >= 2 && byte(at - 2) == 0x0f && (0x80..=0x8f).contains(&op) {
-                    (HoleKind::Branch, SiteKind::CondRel32, None, Branch::Cond(off))
+                    (
+                        HoleKind::Branch,
+                        SiteKind::CondRel32,
+                        None,
+                        Branch::Cond(off),
+                    )
                 } else {
                     return Err(Refusal::Fatal(format!(
                         "{sname}+{off:#x}: PLT32 site against {} is not jmp/call/jcc rel32 \
@@ -396,7 +420,12 @@ fn one(
                         byte(at - 1)
                     )));
                 }
-                (HoleKind::Imm64, SiteKind::GotPc32, Some((insn_end, off)), Branch::None)
+                (
+                    HoleKind::Imm64,
+                    SiteKind::GotPc32,
+                    Some((insn_end, off)),
+                    Branch::None,
+                )
             }
             other => {
                 return Err(Refusal::Fatal(format!(
@@ -408,7 +437,9 @@ fn one(
         let slot = match holes.iter_mut().find(|h| h.name == hname) {
             Some(h) => {
                 if h.kind != hk {
-                    return Err(Refusal::Fatal(format!("{sname}: hole {hname} has two kinds")));
+                    return Err(Refusal::Fatal(format!(
+                        "{sname}: hole {hname} has two kinds"
+                    )));
                 }
                 h
             }

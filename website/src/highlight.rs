@@ -22,8 +22,15 @@ use buri::parsing::lexer::{self, TokenKind};
 /// The classes a snippet can carry. They are the lexer's distinctions, not a
 /// theme's: a theme decides what `keyword` looks like, and this decides what
 /// is one.
-pub const CLASSES: &[&str] =
-    &["keyword", "string", "number", "comment", "operator", "identifier", "type"];
+pub const CLASSES: &[&str] = &[
+    "keyword",
+    "string",
+    "number",
+    "comment",
+    "operator",
+    "identifier",
+    "type",
+];
 
 /// One highlighted block's inner HTML — what goes inside `<code>`.
 pub fn block(language: &str, body: &str) -> String {
@@ -196,7 +203,11 @@ fn collect_value(value: &textproto::Value, spans: &mut Vec<(usize, usize, &'stat
         textproto::Value::Str(_, span) => push_span(*span, "string", spans),
         textproto::Value::Int(_, span) => push_span(*span, "number", spans),
         textproto::Value::Ident(written, span) => {
-            let class = if written == "true" || written == "false" { "keyword" } else { "type" };
+            let class = if written == "true" || written == "false" {
+                "keyword"
+            } else {
+                "type"
+            };
             push_span(*span, class, spans);
         }
         textproto::Value::Message(message, _) => collect_fields(&message.fields, spans),
@@ -279,8 +290,12 @@ mod tests {
         let mut rest = html;
         while let Some(at) = rest.find("<span class=\"") {
             rest = rest.get(at + 13..).unwrap_or("");
-            let Some((class, tail)) = rest.split_once("\">") else { break };
-            let Some((text, tail)) = tail.split_once("</span>") else { break };
+            let Some((class, tail)) = rest.split_once("\">") else {
+                break;
+            };
+            let Some((text, tail)) = tail.split_once("</span>") else {
+                break;
+            };
             found.push((class.to_string(), text.to_string()));
             rest = tail;
         }
@@ -349,7 +364,10 @@ mod tests {
     #[test]
     fn an_enum_value_in_a_build_file_reads_as_a_type() {
         let html = block("textproto", "library { backends: [NATIVE] }\n");
-        assert!(classes(&html).contains(&("type".to_string(), "NATIVE".to_string())), "{html}");
+        assert!(
+            classes(&html).contains(&("type".to_string(), "NATIVE".to_string())),
+            "{html}"
+        );
     }
 
     #[test]

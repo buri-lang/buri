@@ -41,11 +41,26 @@ const OFFICIAL: &str = "buri-";
 const SKILLS_DIRECTORY: &str = ".agent/skills";
 
 pub const SKILLS: &[Skill] = &[
-    Skill { name: "buri-language", text: crate::documentation::embedded::skills::BURI_LANGUAGE },
-    Skill { name: "buri-types", text: crate::documentation::embedded::skills::BURI_TYPES },
-    Skill { name: "buri-build", text: crate::documentation::embedded::skills::BURI_BUILD },
-    Skill { name: "buri-testing", text: crate::documentation::embedded::skills::BURI_TESTING },
-    Skill { name: "buri-cli", text: crate::documentation::embedded::skills::BURI_CLI },
+    Skill {
+        name: "buri-language",
+        text: crate::documentation::embedded::skills::BURI_LANGUAGE,
+    },
+    Skill {
+        name: "buri-types",
+        text: crate::documentation::embedded::skills::BURI_TYPES,
+    },
+    Skill {
+        name: "buri-build",
+        text: crate::documentation::embedded::skills::BURI_BUILD,
+    },
+    Skill {
+        name: "buri-testing",
+        text: crate::documentation::embedded::skills::BURI_TESTING,
+    },
+    Skill {
+        name: "buri-cli",
+        text: crate::documentation::embedded::skills::BURI_CLI,
+    },
 ];
 
 /// What happened to one path, in the word the command prints for it.
@@ -125,7 +140,14 @@ pub fn install(root: &Path) -> Result<Vec<(Outcome, PathBuf)>, String> {
             .map_err(|e| format!("cannot create {}: {e}", directory.display()))?;
         std::fs::write(&path, skill.text)
             .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
-        done.push((if existed { Outcome::Overwrote } else { Outcome::Wrote }, path));
+        done.push((
+            if existed {
+                Outcome::Overwrote
+            } else {
+                Outcome::Wrote
+            },
+            path,
+        ));
     }
     Ok(done)
 }
@@ -180,8 +202,12 @@ mod tests {
 
     /// The `name` and `description` a skill's own frontmatter declares.
     fn frontmatter(text: &str) -> (String, String) {
-        let rest = text.strip_prefix("---\n").expect("a skill opens with `---`");
-        let (block, _) = rest.split_once("\n---\n").expect("the frontmatter is closed by `---`");
+        let rest = text
+            .strip_prefix("---\n")
+            .expect("a skill opens with `---`");
+        let (block, _) = rest
+            .split_once("\n---\n")
+            .expect("the frontmatter is closed by `---`");
         let field = |key: &str| {
             block
                 .lines()
@@ -196,9 +222,14 @@ mod tests {
     fn a_run_writes_every_skill() {
         let root = scratch("fresh");
         let done = install(&root).unwrap();
-        assert_eq!(done.len(), SKILLS.len(), "one line per skill and nothing else");
+        assert_eq!(
+            done.len(),
+            SKILLS.len(),
+            "one line per skill and nothing else"
+        );
         for skill in SKILLS {
-            assert!(done.iter().any(|(o, p)| *o == Outcome::Wrote && p.ends_with("SKILL.md")
+            assert!(done.iter().any(|(o, p)| *o == Outcome::Wrote
+                && p.ends_with("SKILL.md")
                 && p.parent().is_some_and(|d| d.ends_with(skill.name))));
             assert_eq!(read(&root, skill.name), skill.text);
         }
@@ -211,12 +242,16 @@ mod tests {
     fn a_rerun_overwrites_a_modified_skill() {
         let root = scratch("rerun");
         install(&root).unwrap();
-        let edited = root.join(SKILLS_DIRECTORY).join("buri-cli").join("SKILL.md");
+        let edited = root
+            .join(SKILLS_DIRECTORY)
+            .join("buri-cli")
+            .join("SKILL.md");
         std::fs::write(&edited, "stale\n").unwrap();
 
         let done = install(&root).unwrap();
         assert!(
-            done.iter().all(|(outcome, _)| *outcome == Outcome::Overwrote),
+            done.iter()
+                .all(|(outcome, _)| *outcome == Outcome::Overwrote),
             "a second run overwrites every skill the first one wrote"
         );
         assert_eq!(std::fs::read_to_string(&edited).unwrap(), SKILLS[4].text);
@@ -240,8 +275,14 @@ mod tests {
             "mine\n",
             "a skill that is not ours is left exactly as it was"
         );
-        assert!(!skills.join("buri-retired").exists(), "a `buri-` skill we no longer ship goes");
-        assert_eq!(done.first().map(|(outcome, _)| *outcome), Some(Outcome::Removed));
+        assert!(
+            !skills.join("buri-retired").exists(),
+            "a `buri-` skill we no longer ship goes"
+        );
+        assert_eq!(
+            done.first().map(|(outcome, _)| *outcome),
+            Some(Outcome::Removed)
+        );
         std::fs::remove_dir_all(&root).unwrap();
     }
 
@@ -252,7 +293,11 @@ mod tests {
     fn every_skill_fits_in_a_page() {
         for skill in SKILLS {
             let lines = skill.text.lines().count();
-            assert!(lines <= 300, "{} is {lines} lines; the ceiling is 300", skill.name);
+            assert!(
+                lines <= 300,
+                "{} is {lines} lines; the ceiling is 300",
+                skill.name
+            );
         }
     }
 
@@ -263,11 +308,27 @@ mod tests {
     fn every_skill_agrees_with_its_own_frontmatter() {
         let mut seen = HashSet::new();
         for skill in SKILLS {
-            assert!(seen.insert(skill.name), "`{}` is registered twice", skill.name);
-            assert!(skill.name.starts_with(OFFICIAL), "`{}` is not marked ours", skill.name);
+            assert!(
+                seen.insert(skill.name),
+                "`{}` is registered twice",
+                skill.name
+            );
+            assert!(
+                skill.name.starts_with(OFFICIAL),
+                "`{}` is not marked ours",
+                skill.name
+            );
             let (name, description) = frontmatter(skill.text);
-            assert_eq!(name, skill.name, "`{}` declares a different name", skill.name);
-            assert!(!description.is_empty(), "`{}` has no description", skill.name);
+            assert_eq!(
+                name, skill.name,
+                "`{}` declares a different name",
+                skill.name
+            );
+            assert!(
+                !description.is_empty(),
+                "`{}` has no description",
+                skill.name
+            );
             assert!(
                 !description.contains('\n'),
                 "`{}`'s description is more than one line",

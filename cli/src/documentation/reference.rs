@@ -97,16 +97,30 @@ pub struct Member {
 /// depending on a field three lines up and had to be empty for the rest.
 #[derive(Clone)]
 pub enum Api {
-    Struct { fields: Vec<Member> },
-    Enum { variants: Vec<Member> },
+    Struct {
+        fields: Vec<Member>,
+    },
+    Enum {
+        variants: Vec<Member>,
+    },
     TypeAlias,
-    Trait { methods: Vec<Member> },
-    Effect { methods: Vec<Member> },
+    Trait {
+        methods: Vec<Member>,
+    },
+    Effect {
+        methods: Vec<Member>,
+    },
     Const,
     Context,
     /// A method: the type it hangs off, and the trait it satisfies if any.
-    Method { owner: String, via: Option<Via>, effects: Vec<String> },
-    Function { effects: Vec<String> },
+    Method {
+        owner: String,
+        via: Option<Via>,
+        effects: Vec<String>,
+    },
+    Function {
+        effects: Vec<String>,
+    },
 }
 
 /// A trait a method satisfies, and how the type opted in.
@@ -250,7 +264,11 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
     fn own_items<'o>((m, cached): &'o Owned, traits: &Traits) -> &'o [ApiItem] {
         cached.get_or_init(|| items_of(&m.ast, &m.path, traits))
     }
-    let owned: Vec<Owned> = loaded.modules.iter().map(|m| (m, std::cell::OnceCell::new())).collect();
+    let owned: Vec<Owned> = loaded
+        .modules
+        .iter()
+        .map(|m| (m, std::cell::OnceCell::new()))
+        .collect();
     let items = |entry| own_items(entry, &traits);
 
     let mut out: Vec<ApiModule> = Vec::new();
@@ -259,7 +277,9 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
         let mut mine = items(entry).to_vec();
         for item in &m.ast.items {
             let Item::ReExport(r) = item else { continue };
-            let Some(from) = owned.iter().find(|(m, _)| m.path == r.path) else { continue };
+            let Some(from) = owned.iter().find(|(m, _)| m.path == r.path) else {
+                continue;
+            };
             let from = items(from);
             for spec in m.ast.tree.list(r.specs) {
                 let wanted = m.ast.tree.name(spec.name);
@@ -268,8 +288,15 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
                     // Exported `as` another name, it is called by that name,
                     // so the signature says it. The name is the first word
                     // after the keyword in every signature.
-                    let signature = found.signature.replacen(&format!(" {wanted}"), &format!(" {shown}"), 1);
-                    mine.push(ApiItem { name: shown.clone(), signature, ..found.clone() });
+                    let signature =
+                        found
+                            .signature
+                            .replacen(&format!(" {wanted}"), &format!(" {shown}"), 1);
+                    mine.push(ApiItem {
+                        name: shown.clone(),
+                        signature,
+                        ..found.clone()
+                    });
                 }
                 // A method is *not* pulled in just because its type was. The
                 // re-export list is the surface, exactly: `toCents` is exported
@@ -280,7 +307,11 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
         }
         mine.sort_by(|a, b| sort_key(a).cmp(&sort_key(b)));
         mine.dedup_by(|a, b| sort_key(a) == sort_key(b));
-        out.push(ApiModule { path: m.path.clone(), docs: m.ast.tree.docs(m.ast.docs), items: mine });
+        out.push(ApiModule {
+            path: m.path.clone(),
+            docs: m.ast.tree.docs(m.ast.docs),
+            items: mine,
+        });
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
     out
@@ -289,7 +320,8 @@ pub fn from_loaded(loaded: &Loaded, keep: &dyn Fn(&ModuleData) -> bool) -> Vec<A
 /// The standard library's modules, but not the compiler's internal ones. What
 /// it filters is a load of the standard library alone, so the role says it.
 pub fn std_filter(m: &ModuleData) -> bool {
-    matches!(m.role, Role::Std | Role::Platform) && !crate::compiler::standard_library::is_internal(&m.path)
+    matches!(m.role, Role::Std | Role::Platform)
+        && !crate::compiler::standard_library::is_internal(&m.path)
 }
 
 /// Every `trait` declared anywhere in a compilation, so a `derive` can be
@@ -357,7 +389,11 @@ fn items_of(module: &tree::Module, path: &str, traits: &Traits) -> Vec<ApiItem> 
             Item::TypeAlias(d) if d.exported => out.push(ApiItem {
                 api: Api::TypeAlias,
                 name: t.name(d.name).to_string(),
-                signature: format!("type {} = {}", t.name(d.name), formatting::type_text(t, d.ty)),
+                signature: format!(
+                    "type {} = {}",
+                    t.name(d.name),
+                    formatting::type_text(t, d.ty)
+                ),
                 docs: t.docs(d.docs),
                 config: None,
             }),
@@ -395,16 +431,27 @@ fn items_of(module: &tree::Module, path: &str, traits: &Traits) -> Vec<ApiItem> 
             // type looked like a type that satisfied nothing — which is a
             // reader planning a hand-written `impl` they do not need.
             Item::Derive(d) => {
-                let Some(owner) = derived_owner(module, d.self_ty) else { continue };
+                let Some(owner) = derived_owner(module, d.self_ty) else {
+                    continue;
+                };
                 for ty in t.type_list(d.traits) {
                     let written = formatting::type_text(t, *ty);
                     // `Equal` and `order.Eq` name the same trait, and only the
                     // last segment is the name.
                     let name = written.rsplit('.').next().unwrap_or(written.as_str());
-                    let Some(found) = traits.find(path, name) else { continue };
-                    let via = Via { trait_name: name.to_string(), derived: true };
+                    let Some(found) = traits.find(path, name) else {
+                        continue;
+                    };
+                    let via = Via {
+                        trait_name: name.to_string(),
+                        derived: true,
+                    };
                     for m in found.tree.list(found.decl.methods) {
-                        out.push(function(found.tree, m, Some((owner.clone(), Some(via.clone())))));
+                        out.push(function(
+                            found.tree,
+                            m,
+                            Some((owner.clone(), Some(via.clone()))),
+                        ));
                     }
                 }
             }
@@ -471,7 +518,11 @@ fn function(
     let effects = effects_of(t, d);
     ApiItem {
         api: match receiver {
-            Some((owner, via)) => Api::Method { owner, via, effects },
+            Some((owner, via)) => Api::Method {
+                owner,
+                via,
+                effects,
+            },
             None => Api::Function { effects },
         },
         name: t.name(d.name).to_string(),
@@ -485,15 +536,26 @@ fn function(
 /// may do to the world. Reading them off the signature is the point: purity is
 /// the absence of this list, not an annotation somebody had to remember.
 fn effects_of(t: &crate::parsing::flat::Tree, d: &tree::FnDecl) -> Vec<String> {
-    let Some(ctx) = t.list(d.params).iter().find(|p| p.kind == ParamKind::CtxParam) else {
+    let Some(ctx) = t
+        .list(d.params)
+        .iter()
+        .find(|p| p.kind == ParamKind::CtxParam)
+    else {
         return Vec::new();
     };
-    let ty = ctx.written_type().or_ice("only `self` is written without a type");
+    let ty = ctx
+        .written_type()
+        .or_ice("only `self` is written without a type");
     let name = formatting::type_text(t, ty);
     t.list(d.generics)
         .iter()
         .find(|g| t.name(g.name) == name)
-        .map(|g| t.type_list(g.bounds).iter().map(|b| formatting::type_text(t, *b)).collect())
+        .map(|g| {
+            t.type_list(g.bounds)
+                .iter()
+                .map(|b| formatting::type_text(t, *b))
+                .collect()
+        })
         .unwrap_or_else(|| vec![name])
 }
 
@@ -510,7 +572,8 @@ fn strip_export(sig: &str) -> String {
 /// so the two cannot describe one field two ways.
 fn fields_of(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> Vec<Member> {
     match &d.body {
-        tree::StructBody::Record(fields) => t.list(*fields)
+        tree::StructBody::Record(fields) => t
+            .list(*fields)
             .iter()
             .filter(|f| f.exported)
             .map(|f| Member {
@@ -519,7 +582,8 @@ fn fields_of(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> Vec<Member
                 docs: t.docs(f.docs),
             })
             .collect(),
-        tree::StructBody::Tuple(fields) => t.list(*fields)
+        tree::StructBody::Tuple(fields) => t
+            .list(*fields)
             .iter()
             .enumerate()
             .filter(|(_, f)| f.exported)
@@ -534,9 +598,15 @@ fn fields_of(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> Vec<Member
 
 fn structure(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> ApiItem {
     ApiItem {
-        api: Api::Struct { fields: fields_of(t, d) },
+        api: Api::Struct {
+            fields: fields_of(t, d),
+        },
         name: t.name(d.name).to_string(),
-        signature: format!("struct {}{}", t.name(d.name), formatting::generics(t, t.list(d.generics))),
+        signature: format!(
+            "struct {}{}",
+            t.name(d.name),
+            formatting::generics(t, t.list(d.generics))
+        ),
         docs: t.docs(d.docs),
         config: None,
     }
@@ -552,8 +622,14 @@ fn structure(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> ApiItem {
 /// page, and a reader can go to it rather than read it twice.
 fn config_of(module: &tree::Module, d: &tree::FnDecl) -> Option<Config> {
     let t = &module.tree;
-    for p in t.list(d.params).iter().filter(|p| p.kind == ParamKind::Normal) {
-        let ty = p.written_type().or_ice("only `self` is written without a type");
+    for p in t
+        .list(d.params)
+        .iter()
+        .filter(|p| p.kind == ParamKind::Normal)
+    {
+        let ty = p
+            .written_type()
+            .or_ice("only `self` is written without a type");
         let written = formatting::type_text(t, ty);
         let head = written.split('<').next().unwrap_or(&written).trim();
         let head = head.rsplit('.').next().unwrap_or(head);
@@ -588,7 +664,11 @@ fn enumeration(t: &crate::parsing::flat::Tree, d: &tree::EnumDecl) -> ApiItem {
                 .collect(),
         },
         name: t.name(d.name).to_string(),
-        signature: format!("enum {}{}", t.name(d.name), formatting::generics(t, t.list(d.generics))),
+        signature: format!(
+            "enum {}{}",
+            t.name(d.name),
+            formatting::generics(t, t.list(d.generics))
+        ),
         docs: t.docs(d.docs),
         config: None,
     }
@@ -605,7 +685,11 @@ fn trait_or_effect(t: &crate::parsing::flat::Tree, d: &tree::TraitDecl) -> ApiIt
         })
         .collect();
     ApiItem {
-        api: if d.is_effect { Api::Effect { methods } } else { Api::Trait { methods } },
+        api: if d.is_effect {
+            Api::Effect { methods }
+        } else {
+            Api::Trait { methods }
+        },
         name: t.name(d.name).to_string(),
         signature: format!(
             "{} {}{}",
@@ -661,10 +745,16 @@ pub fn render(m: &ApiModule) -> String {
 
 fn write_item(out: &mut String, item: &ApiItem) {
     let title = match &item.api {
-        Api::Method { owner, via: Some(via), .. } => {
+        Api::Method {
+            owner,
+            via: Some(via),
+            ..
+        } => {
             format!("{owner}.{} — via {}", item.name, via.trait_name)
         }
-        Api::Method { owner, via: None, .. } => format!("{owner}.{}", item.name),
+        Api::Method {
+            owner, via: None, ..
+        } => format!("{owner}.{}", item.name),
         _ => item.name.clone(),
     };
     let _ = writeln!(out, "### {title}\n");
@@ -753,14 +843,19 @@ mod tests {
     fn stdlib() -> Vec<ApiModule> {
         let mut map = SourceMap::new();
         let analysis = crate::compiler::driver::analyze_stdlib(&mut map);
-        assert!(!analysis.diagnostics.has_errors(), "the standard library must check");
+        assert!(
+            !analysis.diagnostics.has_errors(),
+            "the standard library must check"
+        );
         from_loaded(&analysis.loaded, &std_filter)
     }
 
     #[test]
     fn every_std_module_renders_something() {
         let modules = stdlib();
-        let public = crate::compiler::standard_library::MODULES.iter().filter(|m| !m.internal);
+        let public = crate::compiler::standard_library::MODULES
+            .iter()
+            .filter(|m| !m.internal);
         assert_eq!(modules.len(), public.count());
         for m in &modules {
             let page = render(m);
@@ -779,13 +874,22 @@ mod tests {
     fn the_signatures_are_the_real_ones() {
         let modules = stdlib();
         let (_, map_fn) = find_item(&modules, "core/list.map").expect("core/list.map");
-        assert!(map_fn.signature.contains("map<B, C: Allocator>"), "{}", map_fn.signature);
-        assert_eq!(map_fn.api.effects(), ["Allocator".to_string()], "map allocates and says so");
+        assert!(
+            map_fn.signature.contains("map<B, C: Allocator>"),
+            "{}",
+            map_fn.signature
+        );
+        assert_eq!(
+            map_fn.api.effects(),
+            ["Allocator".to_string()],
+            "map allocates and says so"
+        );
 
         let (_, len) = find_item(&modules, "core/list.length").expect("core/list.length");
         assert!(len.api.effects().is_empty(), "len is pure");
 
-        let (_, alloc) = find_item(&modules, "platform/effect.Allocator").expect("platform/effect.Allocator");
+        let (_, alloc) =
+            find_item(&modules, "platform/effect.Allocator").expect("platform/effect.Allocator");
         assert_eq!(alloc.kind(), ItemKind::Effect);
         assert!(alloc.api.members().iter().any(|m| m.name == "allocate"));
     }

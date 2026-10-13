@@ -131,14 +131,24 @@ fn run() -> MutexGuard<'static, Option<Run>> {
 /// (buri-lang/buri#302). A killed run's directory goes once its process has.
 pub fn begin(root: &Path, mcdc: bool) -> Result<(), String> {
     let runs = root.join(RAW);
-    for left in std::fs::read_dir(&runs).into_iter().flatten().flatten().filter(|e| !running(&e.file_name())) {
+    for left in std::fs::read_dir(&runs)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| !running(&e.file_name()))
+    {
         let _ = std::fs::remove_dir_all(left.path()).or_else(|_| std::fs::remove_file(left.path()));
     }
     let raw = runs.join(std::process::id().to_string());
     let _ = std::fs::remove_dir_all(&raw);
     std::fs::create_dir_all(&raw).map_err(|e| format!("cannot create {}: {e}", raw.display()))?;
     let std = std::env::var_os(STD).is_some_and(|v| v == "1");
-    *run() = Some(Run { raw, mcdc, std, files: BTreeMap::new() });
+    *run() = Some(Run {
+        raw,
+        mcdc,
+        std,
+        files: BTreeMap::new(),
+    });
     Ok(())
 }
 
@@ -149,7 +159,10 @@ fn running(name: &std::ffi::OsStr) -> bool {
         fn kill(pid: i32, sig: i32) -> i32;
     }
     // SAFETY: signal 0 is no signal, only the check that the process exists.
-    let pid = name.to_str().and_then(|n| n.parse::<u32>().ok()).and_then(|n| i32::try_from(n).ok());
+    let pid = name
+        .to_str()
+        .and_then(|n| n.parse::<u32>().ok())
+        .and_then(|n| i32::try_from(n).ok());
     pid.is_some_and(|pid| unsafe { kill(pid, 0) } == 0)
 }
 
@@ -161,7 +174,9 @@ pub fn raw_dir() -> Option<PathBuf> {
 /// Text from the source, on one line, for an lcov record.
 fn text(map: &SourceMap, span: Span) -> String {
     let source = &map.get(span.file).text;
-    let raw = source.get(span.start as usize..span.end as usize).unwrap_or("");
+    let raw = source
+        .get(span.start as usize..span.end as usize)
+        .unwrap_or("");
     raw.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
@@ -176,11 +191,18 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
         .loaded
         .modules
         .iter()
-        .filter(|m| (matches!(m.role, Role::Source | Role::Entry) && m.disk.is_some()) || (std && m.role == Role::Std))
+        .filter(|m| {
+            (matches!(m.role, Role::Source | Role::Entry) && m.disk.is_some())
+                || (std && m.role == Role::Std)
+        })
         .map(|m| m.file)
         .collect();
-    let name_of = |span: Span| user.contains(&span.file).then(|| map.get(span.file).name.as_str());
-    let line_of = |span: Span| name_of(span).map(|name| (name, map.get(span.file).line_col(span.start).0));
+    let name_of = |span: Span| {
+        user.contains(&span.file)
+            .then(|| map.get(span.file).name.as_str())
+    };
+    let line_of =
+        |span: Span| name_of(span).map(|name| (name, map.get(span.file).line_col(span.start).0));
     let tables = &analysis.checked.tables;
     let mut files: BTreeMap<String, Universe> = BTreeMap::new();
     let mut lines: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
@@ -211,35 +233,69 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
             instances.insert(slot, label.join(", "));
         }
     }
-    let mut note = |body: &typed::Expr, instance: Instance, traps: Option<&dyn Fn(&typed::Expr) -> bool>| {
-        coverage::decisions(body, traps, &mut |d| {
-            let at = Span { start: d.at, ..d.span };
-            let (name, line) = line_of(at).or_ice(INSIDE);
-            let id = (d.kind, d.span.start, d.span.end, instance.clone());
-            let decision = Decision { line, at: d.at, branches: d.branches, names: Vec::new(), group: Default::default() };
-            files.entry(name.to_string()).or_default().decisions.insert(id, decision);
-        });
-        if traps.is_some() {
-            coverage::trees(body, &mut |tree| {
-                let span = tree.span();
-                let (name, line) = line_of(span).or_ice(INSIDE);
-                let mut spans = Vec::new();
-                tree.conditions(&mut spans);
-                let conditions: Vec<String> = spans.iter().map(|s| text(map, *s)).collect();
-                let id = (span.start, span.end, instance.clone());
-                let whole = render(&tree, &conditions, &mut 0).0;
-                let t = Tree { line, tree, text: whole, conditions };
-                files.entry(name.to_string()).or_default().trees.insert(id, t);
+    let mut note =
+        |body: &typed::Expr, instance: Instance, traps: Option<&dyn Fn(&typed::Expr) -> bool>| {
+            coverage::decisions(body, traps, &mut |d| {
+                let at = Span {
+                    start: d.at,
+                    ..d.span
+                };
+                let (name, line) = line_of(at).or_ice(INSIDE);
+                let id = (d.kind, d.span.start, d.span.end, instance.clone());
+                let decision = Decision {
+                    line,
+                    at: d.at,
+                    branches: d.branches,
+                    names: Vec::new(),
+                    group: Default::default(),
+                };
+                files
+                    .entry(name.to_string())
+                    .or_default()
+                    .decisions
+                    .insert(id, decision);
             });
-        }
-    };
+            if traps.is_some() {
+                coverage::trees(body, &mut |tree| {
+                    let span = tree.span();
+                    let (name, line) = line_of(span).or_ice(INSIDE);
+                    let mut spans = Vec::new();
+                    tree.conditions(&mut spans);
+                    let conditions: Vec<String> = spans.iter().map(|s| text(map, *s)).collect();
+                    let id = (span.start, span.end, instance.clone());
+                    let whole = render(&tree, &conditions, &mut 0).0;
+                    let t = Tree {
+                        line,
+                        tree,
+                        text: whole,
+                        conditions,
+                    };
+                    files
+                        .entry(name.to_string())
+                        .or_default()
+                        .trees
+                        .insert(id, t);
+                });
+            }
+        };
     // As `coverage::aborts` judges a built call: a `core/bits` shift, or an
     // integer type's `divide` or `remainder`.
     let checked_traps = |e: &typed::Expr| match &e.kind {
-        typed::ExprKind::CallFn { func: typed::Callee::Decl { id, .. }, .. } => {
+        typed::ExprKind::CallFn {
+            func: typed::Callee::Decl { id, .. },
+            ..
+        } => {
             let info = tables.fn_info(*id);
-            let module = analysis.loaded.modules.get(info.module.index()).map(|m| m.path.as_str());
-            let integer = info.self_ty.is_some_and(|c| Prim::all().iter().any(|p| p.is_integer() && tables.prim_id(*p) == c));
+            let module = analysis
+                .loaded
+                .modules
+                .get(info.module.index())
+                .map(|m| m.path.as_str());
+            let integer = info.self_ty.is_some_and(|c| {
+                Prim::all()
+                    .iter()
+                    .any(|p| p.is_integer() && tables.prim_id(*p) == c)
+            });
             info.intrinsic
                 && (module == Some("core/bits") && info.name.starts_with("shift")
                     || integer && matches!(info.name.as_str(), "divide" | "remainder"))
@@ -266,7 +322,10 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
     }
     if mcdc {
         let mono_traps = |e: &typed::Expr| match &e.kind {
-            typed::ExprKind::CallFn { func: typed::Callee::Func(f), .. } => program
+            typed::ExprKind::CallFn {
+                func: typed::Callee::Func(f),
+                ..
+            } => program
                 .funcs
                 .get(f.0 as usize)
                 .is_some_and(|f| name_of(f.span).is_none() && coverage::aborts(f)),
@@ -281,7 +340,9 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
 
     let i64_ty = tables.prim(Prim::I64);
     let bool_ty = tables.prim(Prim::Bool);
-    coverage::instrument(program, &i64_ty, &|span| line_of(span).map(|(n, l)| coverage::key(n, l)));
+    coverage::instrument(program, &i64_ty, &|span| {
+        line_of(span).map(|(n, l)| coverage::key(n, l))
+    });
     let file_of = |span: Span| name_of(span).map(str::to_string);
     let options = coverage::Options {
         i64_ty,
@@ -293,10 +354,25 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
     for d in coverage::branches(program, &options) {
         let (name, line) =
             line_of(d.span).or_ice("a derived decision is built only in a file `file_of` names");
-        let id = (coverage::Kind::Derived, d.span.start, d.span.end, Some(d.label));
+        let id = (
+            coverage::Kind::Derived,
+            d.span.start,
+            d.span.end,
+            Some(d.label),
+        );
         let group = (d.group, d.order);
-        let decision = Decision { line, at: d.span.start, branches: d.branches.len(), names: d.branches, group };
-        files.entry(name.to_string()).or_default().decisions.insert(id, decision);
+        let decision = Decision {
+            line,
+            at: d.span.start,
+            branches: d.branches.len(),
+            names: d.branches,
+            group,
+        };
+        files
+            .entry(name.to_string())
+            .or_default()
+            .decisions
+            .insert(id, decision);
     }
     for (file, set) in lines {
         files.entry(file).or_default().lines = set;
@@ -316,7 +392,11 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
 fn render(tree: &coverage::Tree, conditions: &[String], next: &mut usize) -> (String, u8) {
     let operand = |t: &coverage::Tree, at_least: u8, next: &mut usize| {
         let (text, binds) = render(t, conditions, next);
-        if binds < at_least { format!("({text})") } else { text }
+        if binds < at_least {
+            format!("({text})")
+        } else {
+            text
+        }
     };
     match tree {
         coverage::Tree::Condition(_) => {
@@ -339,7 +419,12 @@ fn render(tree: &coverage::Tree, conditions: &[String], next: &mut usize) -> (St
 /// Every count the processes wrote, summed by key.
 fn counts(raw: &Path) -> HashMap<u64, u64> {
     let mut counts: HashMap<u64, u64> = HashMap::new();
-    for text in std::fs::read_dir(raw).into_iter().flatten().flatten().filter_map(|e| std::fs::read_to_string(e.path()).ok()) {
+    for text in std::fs::read_dir(raw)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+    {
         for (key, count) in text.lines().filter_map(record) {
             let n = counts.entry(key).or_insert(0);
             *n = n.saturating_add(count);
@@ -385,7 +470,12 @@ static MERGING: crate::hold::Point = crate::hold::Point::new("merging");
 /// Every count the processes wrote, added up and put against the lines and
 /// decisions the suites hold: a row per file through `out`, and [`LCOV`].
 pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
-    let Run { raw, mcdc, mut files, .. } = run().take().or_ice(BEGUN);
+    let Run {
+        raw,
+        mcdc,
+        mut files,
+        ..
+    } = run().take().or_ice(BEGUN);
     #[cfg(feature = "test-hooks")]
     MERGING.raised();
     let counts = counts(&raw);
@@ -397,12 +487,22 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
     // A generic function one suite instantiated and another didn't is only the
     // first suite's instantiations.
     for u in files.values_mut() {
-        let named: HashSet<(coverage::Kind, u32, u32)> =
-            u.decisions.keys().filter(|id| id.3.as_deref().is_some_and(|l| !l.is_empty())).map(|id| (id.0, id.1, id.2)).collect();
-        u.decisions.retain(|id, _| id.3.as_deref() != Some("") || !named.contains(&(id.0, id.1, id.2)));
-        let named: HashSet<(u32, u32)> =
-            u.trees.keys().filter(|id| id.2.as_deref().is_some_and(|l| !l.is_empty())).map(|id| (id.0, id.1)).collect();
-        u.trees.retain(|id, _| id.2.as_deref() != Some("") || !named.contains(&(id.0, id.1)));
+        let named: HashSet<(coverage::Kind, u32, u32)> = u
+            .decisions
+            .keys()
+            .filter(|id| id.3.as_deref().is_some_and(|l| !l.is_empty()))
+            .map(|id| (id.0, id.1, id.2))
+            .collect();
+        u.decisions
+            .retain(|id, _| id.3.as_deref() != Some("") || !named.contains(&(id.0, id.1, id.2)));
+        let named: HashSet<(u32, u32)> = u
+            .trees
+            .keys()
+            .filter(|id| id.2.as_deref().is_some_and(|l| !l.is_empty()))
+            .map(|id| (id.0, id.1))
+            .collect();
+        u.trees
+            .retain(|id, _| id.2.as_deref() != Some("") || !named.contains(&(id.0, id.1)));
     }
 
     // Each MC/DC decision's paths count at its first key plus the path.
@@ -418,9 +518,13 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
     let mut ran: HashMap<(&str, &TreeId), Vec<u64>> = HashMap::new();
     for &key in counts.keys() {
         let at = bases.partition_point(|b| b.0 <= key);
-        let Some(&(base, file, id, paths)) = at.checked_sub(1).and_then(|i| bases.get(i)) else { continue };
+        let Some(&(base, file, id, paths)) = at.checked_sub(1).and_then(|i| bases.get(i)) else {
+            continue;
+        };
         if key.saturating_sub(base) < paths {
-            ran.entry((file, id)).or_default().push(key.saturating_sub(base));
+            ran.entry((file, id))
+                .or_default()
+                .push(key.saturating_sub(base));
         }
     }
     // In path order, not `counts`' hash order, so the report runs the same way
@@ -432,39 +536,81 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
     let mut report: BTreeMap<&str, File> = BTreeMap::new();
     for (file, u) in &files {
         let f = report.entry(file.as_str()).or_default();
-        f.lines = u.lines.iter().map(|&line| (line, count(coverage::key(file, line)))).collect();
+        f.lines = u
+            .lines
+            .iter()
+            .map(|&line| (line, count(coverage::key(file, line))))
+            .collect();
 
         let mut ordered: Vec<(&TreeId, &Tree)> = u.trees.iter().collect();
         ordered.sort_by_key(|(id, t)| (t.line, id.0, id.1, id.2.clone()));
         for (id, t) in ordered {
-            let paths: Vec<coverage::Path> =
-                ran.get(&(file.as_str(), id)).map(|v| v.iter().map(|&p| t.tree.decode(p)).collect()).unwrap_or_default();
-            let shown: Vec<bool> = (0..t.conditions.len()).map(|c| independent(&paths, c)).collect();
+            let paths: Vec<coverage::Path> = ran
+                .get(&(file.as_str(), id))
+                .map(|v| v.iter().map(|&p| t.tree.decode(p)).collect())
+                .unwrap_or_default();
+            let shown: Vec<bool> = (0..t.conditions.len())
+                .map(|c| independent(&paths, c))
+                .collect();
             f.decisions.0 = f.decisions.0.saturating_add(1);
             if shown.iter().all(|s| *s) {
                 f.decisions.1 = f.decisions.1.saturating_add(1);
             }
             let suffix = instance_suffix(&id.2);
             for (c, s) in t.conditions.iter().zip(shown) {
-                f.conditions.push((t.line, format!("'{c}' in '{}'{suffix}", t.text), s));
+                f.conditions
+                    .push((t.line, format!("'{c}' in '{}'{suffix}", t.text), s));
             }
         }
 
         let mut ordered: Vec<(&DecisionId, &Decision)> = u.decisions.iter().collect();
-        ordered.sort_by_key(|(id, d)| (d.line, d.at, id.1, id.2, id.0, d.group.clone(), id.3.clone()));
+        ordered.sort_by_key(|(id, d)| {
+            (
+                d.line,
+                d.at,
+                id.1,
+                id.2,
+                id.0,
+                d.group.clone(),
+                id.3.clone(),
+            )
+        });
         let mut block: usize = 0;
         let mut last_line = 0;
         for ((kind, start, end, instance), d) in ordered {
-            block = if d.line == last_line { block.saturating_add(1) } else { 0 };
+            block = if d.line == last_line {
+                block.saturating_add(1)
+            } else {
+                0
+            };
             last_line = d.line;
-            let slot = |i| count(coverage::branch_key(file, *kind, (*start, *end), i, instance.as_deref()));
+            let slot = |i| {
+                count(coverage::branch_key(
+                    file,
+                    *kind,
+                    (*start, *end),
+                    i,
+                    instance.as_deref(),
+                ))
+            };
             let taken: Vec<u64> = match kind {
                 // How often it was reached, less how often execution went on,
                 // is how often `?` returned early, or the operation aborted.
-                coverage::Kind::Try | coverage::Kind::Trap => vec![slot(0), slot(1).saturating_sub(slot(0))],
+                coverage::Kind::Try | coverage::Kind::Trap => {
+                    vec![slot(0), slot(1).saturating_sub(slot(0))]
+                }
                 coverage::Kind::Derived => {
                     let label = instance.as_deref().unwrap_or_default();
-                    (0..d.branches).map(|i| count(coverage::derived::derived_key(file, (*start, *end), label, i))).collect()
+                    (0..d.branches)
+                        .map(|i| {
+                            count(coverage::derived::derived_key(
+                                file,
+                                (*start, *end),
+                                label,
+                                i,
+                            ))
+                        })
+                        .collect()
                 }
                 _ => (0..d.branches).map(slot).collect(),
             };
@@ -482,7 +628,8 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
                     (Some(name), Some(label)) => format!("{label}: {name}"),
                     _ => format!("{i}{suffix}"),
                 };
-                f.branches.push((d.line, block, branch, reached.then_some(n)));
+                f.branches
+                    .push((d.line, block, branch, reached.then_some(n)));
             }
         }
     }
@@ -495,18 +642,31 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
             let taken = taken.map_or("-".to_string(), |n| n.to_string());
             lcov.push_str(&format!("BRDA:{line},{block},{branch},{taken}\n"));
         }
-        let hit = f.branches.iter().filter(|b| b.3.is_some_and(|n| n > 0)).count();
+        let hit = f
+            .branches
+            .iter()
+            .filter(|b| b.3.is_some_and(|n| n > 0))
+            .count();
         lcov.push_str(&format!("BRF:{}\nBRH:{hit}\n", f.branches.len()));
         let shown = f.conditions.iter().filter(|c| c.2).count();
         if mcdc {
             // One group a line: lcov tells groups on a line apart by size alone.
             let mut i = 0;
             while let Some(&(line, _, _)) = f.conditions.get(i) {
-                let group: Vec<&(usize, String, bool)> =
-                    f.conditions.get(i..).unwrap_or_default().iter().take_while(|c| c.0 == line).collect();
+                let group: Vec<&(usize, String, bool)> = f
+                    .conditions
+                    .get(i..)
+                    .unwrap_or_default()
+                    .iter()
+                    .take_while(|c| c.0 == line)
+                    .collect();
                 for (index, (_, expression, s)) in group.iter().enumerate() {
                     for sense in ["t", "f"] {
-                        lcov.push_str(&format!("MCDC:{line},{},{sense},{},{index},{expression}\n", group.len(), u8::from(*s)));
+                        lcov.push_str(&format!(
+                            "MCDC:{line},{},{sense},{},{index},{expression}\n",
+                            group.len(),
+                            u8::from(*s)
+                        ));
                     }
                 }
                 i = i.saturating_add(group.len());
@@ -518,7 +678,10 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
             lcov.push_str(&format!("DA:{line},{n}\n"));
         }
         let lines_hit = f.lines.values().filter(|n| **n > 0).count();
-        lcov.push_str(&format!("LF:{}\nLH:{lines_hit}\nend_of_record\n", f.lines.len()));
+        lcov.push_str(&format!(
+            "LF:{}\nLH:{lines_hit}\nend_of_record\n",
+            f.lines.len()
+        ));
         rows.push(Row {
             name: file.to_string(),
             branches: (hit, f.branches.len()),
@@ -537,24 +700,52 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
         out("coverage: no suite loaded any of this repository's own source");
         return;
     }
-    let sum = |a: (usize, usize), b: (usize, usize)| (a.0.saturating_add(b.0), a.1.saturating_add(b.1));
-    let total = rows.iter().fold(Row { name: "total".to_string(), ..Row::default() }, |t, r| Row {
-        name: t.name,
-        branches: sum(t.branches, r.branches),
-        conditions: sum(t.conditions, r.conditions),
-        decisions: sum(t.decisions, r.decisions),
-    });
+    let sum =
+        |a: (usize, usize), b: (usize, usize)| (a.0.saturating_add(b.0), a.1.saturating_add(b.1));
+    let total = rows.iter().fold(
+        Row {
+            name: "total".to_string(),
+            ..Row::default()
+        },
+        |t, r| Row {
+            name: t.name,
+            branches: sum(t.branches, r.branches),
+            conditions: sum(t.conditions, r.conditions),
+            decisions: sum(t.decisions, r.decisions),
+        },
+    );
     rows.push(total);
-    let columns: Vec<Column> =
-        if mcdc { vec![|r| r.branches, |r| r.conditions, |r| r.decisions] } else { vec![|r| r.branches] };
-    let cells: Vec<Vec<String>> =
-        rows.iter().map(|r| columns.iter().map(|c| cell(c(r))).collect()).collect();
+    let columns: Vec<Column> = if mcdc {
+        vec![|r| r.branches, |r| r.conditions, |r| r.decisions]
+    } else {
+        vec![|r| r.branches]
+    };
+    let cells: Vec<Vec<String>> = rows
+        .iter()
+        .map(|r| columns.iter().map(|c| cell(c(r))).collect())
+        .collect();
     let name_width = rows.iter().map(|r| r.name.len()).max().unwrap_or(0);
-    let widths: Vec<usize> =
-        (0..columns.len()).map(|i| cells.iter().filter_map(|c| c.get(i)).map(String::len).max().unwrap_or(0)).collect();
-    let title = if mcdc { "mc/dc coverage" } else { "branch coverage" };
+    let widths: Vec<usize> = (0..columns.len())
+        .map(|i| {
+            cells
+                .iter()
+                .filter_map(|c| c.get(i))
+                .map(String::len)
+                .max()
+                .unwrap_or(0)
+        })
+        .collect();
+    let title = if mcdc {
+        "mc/dc coverage"
+    } else {
+        "branch coverage"
+    };
     // The title heads the names, so under MC/DC they're as wide as it.
-    let name_width = if mcdc { name_width.max(title.len().saturating_sub(2)) } else { name_width };
+    let name_width = if mcdc {
+        name_width.max(title.len().saturating_sub(2))
+    } else {
+        name_width
+    };
     if mcdc {
         let mut head = format!("{title:<w$}", w = name_width.saturating_add(2));
         for (column, w) in ["branches", "conditions", "decisions"].iter().zip(&widths) {
@@ -589,7 +780,11 @@ struct Row {
 /// `covered/total` and the share, or `-` for a share of nothing.
 fn cell((covered, total): (usize, usize)) -> String {
     let fraction = format!("{covered}/{total}");
-    let percent = if total == 0 { "-".to_string() } else { format!("{:.1}%", covered as f64 * 100.0 / total as f64) };
+    let percent = if total == 0 {
+        "-".to_string()
+    } else {
+        format!("{:.1}%", covered as f64 * 100.0 / total as f64)
+    };
     format!("{fraction}  {percent:>6}")
 }
 
@@ -600,12 +795,16 @@ fn cell((covered, total): (usize, usize)) -> String {
 fn independent(paths: &[coverage::Path], c: usize) -> bool {
     paths.iter().enumerate().any(|(i, a)| {
         paths.iter().skip(i.saturating_add(1)).any(|b| {
-            let (Some(Some(x)), Some(Some(y))) = (a.values.get(c), b.values.get(c)) else { return false };
+            let (Some(Some(x)), Some(Some(y))) = (a.values.get(c), b.values.get(c)) else {
+                return false;
+            };
             x != y
                 && a.outcome != b.outcome
-                && a.values.iter().zip(&b.values).enumerate().all(|(k, (p, q))| {
-                    k == c || p.is_none() || q.is_none() || p == q
-                })
+                && a.values
+                    .iter()
+                    .zip(&b.values)
+                    .enumerate()
+                    .all(|(k, (p, q))| k == c || p.is_none() || q.is_none() || p == q)
         })
     })
 }

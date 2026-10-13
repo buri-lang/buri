@@ -80,7 +80,10 @@ pub(crate) fn shortest(x: f64) -> (u64, i32) {
     let (e2, m2) = if ieee_exponent == 0 {
         (1 - BIAS - MANTISSA_BITS as i32 - 2, ieee_mantissa)
     } else {
-        (ieee_exponent - BIAS - MANTISSA_BITS as i32 - 2, (1u64 << MANTISSA_BITS) | ieee_mantissa)
+        (
+            ieee_exponent - BIAS - MANTISSA_BITS as i32 - 2,
+            (1u64 << MANTISSA_BITS) | ieee_mantissa,
+        )
     };
     // An even mantissa reads back from its interval's ends too: ties go to it.
     let accept_bounds = m2 & 1 == 0;
@@ -97,7 +100,10 @@ pub(crate) fn shortest(x: f64) -> (u64, i32) {
         e10 = q as i32;
         let k = POW5_INV_BITCOUNT + pow5_bits(q as i32) - 1;
         let i = -e2 + q as i32 + k;
-        #[expect(clippy::indexing_slicing, reason = "an `f64`'s largest exponent bounds `q` inside the table")]
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "an `f64`'s largest exponent bounds `q` inside the table"
+        )]
         let mul = POW5_INV_SPLIT[q as usize];
         vr = mul_shift(4 * m2, mul, i);
         vp = mul_shift(4 * m2 + 2, mul, i);
@@ -118,7 +124,10 @@ pub(crate) fn shortest(x: f64) -> (u64, i32) {
         let i = -e2 - q as i32;
         let k = pow5_bits(i) - POW5_BITCOUNT;
         let j = q as i32 - k;
-        #[expect(clippy::indexing_slicing, reason = "an `f64`'s smallest exponent bounds `i` inside the table")]
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "an `f64`'s smallest exponent bounds `i` inside the table"
+        )]
         let mul = POW5_SPLIT[i as usize];
         vr = mul_shift(4 * m2, mul, j);
         vp = mul_shift(4 * m2 + 2, mul, j);
@@ -915,7 +924,10 @@ mod tests {
         fn ge(&self, other: &Big) -> bool {
             let n = self.0.len().max(other.0.len());
             for i in (0..n).rev() {
-                let (a, b) = (self.0.get(i).copied().unwrap_or(0), other.0.get(i).copied().unwrap_or(0));
+                let (a, b) = (
+                    self.0.get(i).copied().unwrap_or(0),
+                    other.0.get(i).copied().unwrap_or(0),
+                );
                 if a != b {
                     return a > b;
                 }
@@ -982,6 +994,9 @@ mod tests {
         assert_eq!(shortest(123.456), (123_456, -3));
         assert_eq!(shortest(5e-324), (5, -324));
         assert_eq!(shortest(f64::MAX), (17_976_931_348_623_157, 292));
-        assert_eq!(shortest(f64::from_bits(0x431f_003b_d0f7_0bad)), (21_814_952_967_380_272, -1));
+        assert_eq!(
+            shortest(f64::from_bits(0x431f_003b_d0f7_0bad)),
+            (21_814_952_967_380_272, -1)
+        );
     }
 }

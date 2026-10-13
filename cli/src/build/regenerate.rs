@@ -54,7 +54,11 @@ pub fn regenerate_in(
 ) -> Result<Worked, Diagnostic> {
     let mut read = Read::default();
     let update = regenerate_reading(session, package, batch, &mut read)?;
-    Ok(Worked { update, reads: read.files, generated: read.generated })
+    Ok(Worked {
+        update,
+        reads: read.files,
+        generated: read.generated,
+    })
 }
 
 /// What one package's regeneration read.
@@ -202,9 +206,7 @@ fn regenerate_reading(
                 // would silently move code across a boundary that exists to be
                 // explicit.
                 (true, true) => unplaceable.push(Unplaceable::ReachableFromBoth(f.clone())),
-                (false, false) => {
-                    unplaceable.push(Unplaceable::ReachableFromNeither(f.clone()))
-                }
+                (false, false) => unplaceable.push(Unplaceable::ReachableFromNeither(f.clone())),
             },
             (false, false) => {}
         }
@@ -215,10 +217,12 @@ fn regenerate_reading(
             Unplaceable::ReachableFromBoth(f) => (f, "both `lib.buri` and `main.buri`"),
             Unplaceable::ReachableFromNeither(f) => (f, "neither `lib.buri` nor `main.buri`"),
         };
-        return Err(Diagnostic::templated("ambiguous-source", Span::point(file_id, 0))
-            .with_bind("source", file.clone())
-            .with_bind("reached", reached)
-            .with_bind("field", "sources"));
+        return Err(
+            Diagnostic::templated("ambiguous-source", Span::point(file_id, 0))
+                .with_bind("source", file.clone())
+                .with_bind("reached", reached)
+                .with_bind("field", "sources"),
+        );
     }
 
     let deps = derive_dependencies(session, package, &dir, &lib_tests, &bin_tests, batch, read);
@@ -262,7 +266,14 @@ fn regenerate_reading(
         if !present {
             continue;
         }
-        set_list(&mut document, rule, &["sources"], sources, &mut summary, &name(rule, "sources"));
+        set_list(
+            &mut document,
+            rule,
+            &["sources"],
+            sources,
+            &mut summary,
+            &name(rule, "sources"),
+        );
         if let Some((production, _)) = rule_deps {
             set_list(
                 &mut document,
@@ -296,7 +307,12 @@ fn regenerate_reading(
         // A `testing/` directory is a surface only because a rule says so, so
         // this is the one managed field that waits to be asked for: `gen`
         // fills the block in and never decides the package has one.
-        if rule == "library" && p.build.library.as_ref().is_some_and(|l| l.testing.is_some()) {
+        if rule == "library"
+            && p.build
+                .library
+                .as_ref()
+                .is_some_and(|l| l.testing.is_some())
+        {
             set_list(
                 &mut document,
                 rule,
@@ -428,7 +444,14 @@ fn derive_dependencies(
         // that lands in another library counts even though no import names it.
         // The role of the module the call sits in decides which field it
         // belongs to, exactly as the import loop below does.
-        resolved_by_role(session, &seen, package, &mut production, &mut test, &mut testing);
+        resolved_by_role(
+            session,
+            &seen,
+            package,
+            &mut production,
+            &mut test,
+            &mut testing,
+        );
         for m in seen.package_modules(package) {
             let into = match m.role {
                 Role::TestSource => &mut test,
@@ -456,18 +479,30 @@ fn derive_dependencies(
             RuleKind::Library => lib_tests,
             RuleKind::Binary | RuleKind::Tool => bin_tests,
         };
-        test.extend(imported_labels(session, package, dir, on_disk, &mut read.files));
+        test.extend(imported_labels(
+            session,
+            package,
+            dir,
+            on_disk,
+            &mut read.files,
+        ));
         // `test.dependencies` is what the suite adds: the target under test is
         // this package and is already excluded, and its `dependencies` reach
         // the suite through it, so naming them again would be two claims about
         // one edge.
-        let test: Vec<String> =
-            test.into_iter().filter(|l| !production.contains(l)).collect();
+        let test: Vec<String> = test
+            .into_iter()
+            .filter(|l| !production.contains(l))
+            .collect();
         let testing: Vec<String> = testing.into_iter().collect();
         let production: Vec<String> = production.into_iter().collect();
         match kind {
             RuleKind::Library => {
-                out.library = Some(LibraryDeps { production, test, testing });
+                out.library = Some(LibraryDeps {
+                    production,
+                    test,
+                    testing,
+                });
             }
             RuleKind::Binary => {
                 out.binary = Some(BinaryDeps { production, test });
@@ -547,7 +582,12 @@ impl Batch {
     pub fn of(session: &mut Session, targets: &[TargetId]) -> Option<Batch> {
         let units: Vec<crate::compiler::modules::Unit> = targets
             .iter()
-            .map(|t| crate::compiler::modules::Unit { target: Some(*t), platform: None, entry: None, with_tests: true })
+            .map(|t| crate::compiler::modules::Unit {
+                target: Some(*t),
+                platform: None,
+                entry: None,
+                with_tests: true,
+            })
             .collect();
         let shared = crate::compiler::driver::shared(
             &session.workspace,
@@ -563,7 +603,10 @@ impl Batch {
         Batch::new(analysis, BTreeMap::new())
     }
 
-    fn new(analysis: Analysis, shares: BTreeMap<TargetId, crate::compiler::driver::Share>) -> Batch {
+    fn new(
+        analysis: Analysis,
+        shares: BTreeMap<TargetId, crate::compiler::driver::Share>,
+    ) -> Batch {
         let mut by_package: BTreeMap<PackageId, Vec<ModuleId>> = BTreeMap::new();
         for m in &analysis.loaded.modules {
             if let Some(pkg) = m.pkg {
@@ -577,7 +620,12 @@ impl Batch {
                 .or_ice("`bodies` has one list per module, and a body's module is one of them")
                 .push(fid);
         }
-        Batch { analysis, shares, bodies, by_package }
+        Batch {
+            analysis,
+            shares,
+            bodies,
+            by_package,
+        }
     }
 
     fn seen(&self, target: TargetId) -> Option<Seen<'_>> {
@@ -614,7 +662,8 @@ struct Seen<'a> {
 
 impl<'a> Seen<'a> {
     fn holds(&self, module: ModuleId) -> bool {
-        self.holds.is_none_or(|holds| holds.get(module.index()).copied().unwrap_or(false))
+        self.holds
+            .is_none_or(|holds| holds.get(module.index()).copied().unwrap_or(false))
     }
 
     /// The modules of `own` this target's compilation holds, in load order.
@@ -630,12 +679,19 @@ impl<'a> Seen<'a> {
     }
 
     /// The checked bodies declared in those modules, each with its module.
-    fn package_bodies(&self, own: PackageId) -> Vec<(&'a ModuleData, &'a std::sync::Arc<typed::Body>)> {
+    fn package_bodies(
+        &self,
+        own: PackageId,
+    ) -> Vec<(&'a ModuleData, &'a std::sync::Arc<typed::Body>)> {
         let analysis = self.analysis;
         let mut out = Vec::new();
         for m in self.package_modules(own) {
             for fid in self.batch.bodies.get(m.id.index()).into_iter().flatten() {
-                let body = analysis.checked.bodies.get(fid).or_ice("`bodies` lists only the ids of checked bodies");
+                let body = analysis
+                    .checked
+                    .bodies
+                    .get(fid)
+                    .or_ice("`bodies` lists only the ids of checked bodies");
                 out.push((m, body));
             }
         }
@@ -646,11 +702,22 @@ impl<'a> Seen<'a> {
     /// ([`crate::build::sources::closure_over`]) and whose generated code it
     /// loaded.
     fn reads(&self, workspace: &crate::build::workspace::Workspace, read: &mut Read) {
-        let modules = self.analysis.loaded.modules.iter().filter(|m| self.holds(m.id));
-        read.files.extend(crate::build::sources::closure_over(workspace, self.generated_rules, modules.clone()));
+        let modules = self
+            .analysis
+            .loaded
+            .modules
+            .iter()
+            .filter(|m| self.holds(m.id));
+        read.files.extend(crate::build::sources::closure_over(
+            workspace,
+            self.generated_rules,
+            modules.clone(),
+        ));
         read.generated.extend(self.generated_rules);
         read.generated.extend(
-            modules.filter(|m| m.disk.is_none()).filter_map(|m| workspace.generated.owner(&m.path)),
+            modules
+                .filter(|m| m.disk.is_none())
+                .filter_map(|m| workspace.generated.owner(&m.path)),
         );
     }
 }
@@ -669,16 +736,25 @@ fn is_entry_point(rel: &str) -> bool {
 /// every other path is another target's business. Read off the syntax rather than
 /// off a checked analysis, because the file being placed is a file no rule
 /// lists yet — the loader would not have it, so there is nothing to ask.
-fn reachable(dir: &Path, package_path: &str, entry: &str, read: &mut Vec<PathBuf>) -> BTreeSet<String> {
+fn reachable(
+    dir: &Path,
+    package_path: &str,
+    entry: &str,
+    read: &mut Vec<PathBuf>,
+) -> BTreeSet<String> {
     let mut seen = BTreeSet::new();
     let mut queue = vec![entry.to_string()];
     while let Some(f) = queue.pop() {
         for path in imports_read(dir, &f, read) {
-            let Some(rest) = path.strip_prefix("//") else { continue };
+            let Some(rest) = path.strip_prefix("//") else {
+                continue;
+            };
             // Every path is inside the root package.
             let rel = match package_path.is_empty() {
                 true => Some(rest),
-                false => rest.strip_prefix(package_path).and_then(|r| r.strip_prefix('/')),
+                false => rest
+                    .strip_prefix(package_path)
+                    .and_then(|r| r.strip_prefix('/')),
             };
             let Some(rel) = rel else { continue };
             // The path is the file, so there is nothing to derive: what
@@ -738,7 +814,9 @@ fn imports_read(dir: &Path, file: &str, read: &mut Vec<PathBuf>) -> Vec<String> 
 /// does not compile still says where it thinks its imports come from, and that
 /// is the whole of what is being asked.
 pub(crate) fn imports_of(dir: &Path, file: &str) -> Vec<String> {
-    let Ok(text) = std::fs::read_to_string(dir.join(file)) else { return Vec::new() };
+    let Ok(text) = std::fs::read_to_string(dir.join(file)) else {
+        return Vec::new();
+    };
     let parsed = crate::parsing::parser::parse(&text, crate::diagnostics::FileId(0));
     parsed
         .module
@@ -767,17 +845,24 @@ pub(crate) fn is_configuration(name: &str) -> bool {
 /// list when a `sources` entry is being typed — one walk, so what `gen` writes
 /// and what completion offers cannot disagree.
 pub(crate) fn collect(root: &Path, dir: &Path, out: &mut Vec<String>, schemas: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut items: Vec<_> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
     items.sort();
     for p in items {
-        let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         if name.starts_with('.') {
             continue;
         }
         let rel = || {
             p.strip_prefix(root)
-                .or_ice("this walk started at `root` and only ever descends, so every path is under it")
+                .or_ice(
+                    "this walk started at `root` and only ever descends, so every path is under it",
+                )
                 .display()
                 .to_string()
                 .replace('\\', "/")
@@ -811,7 +896,9 @@ fn listed(document: &Document, rule: &str, field: &str) -> BTreeSet<String> {
 
 /// The same, for a field inside a block: `test.sources`.
 pub(crate) fn listed_at(document: &Document, rule: &str, path: &[&str]) -> BTreeSet<String> {
-    let (leaf, blocks) = path.split_last().or_ice("every caller names a field, so the path is never empty");
+    let (leaf, blocks) = path
+        .split_last()
+        .or_ice("every caller names a field, so the path is never empty");
     let Some(Value::Message(mut m, _)) = document.get(rule).map(|f| f.value.clone()) else {
         return BTreeSet::new();
     };
@@ -849,8 +936,14 @@ fn set_list(
     summary: &mut Vec<String>,
     label: &str,
 ) {
-    let (leaf, blocks) = path.split_last().or_ice("every caller names a field, so the path is never empty");
-    let Some(Value::Message(message, _)) = document.fields.iter_mut().find(|f| f.name == rule).map(|f| &mut f.value)
+    let (leaf, blocks) = path
+        .split_last()
+        .or_ice("every caller names a field, so the path is never empty");
+    let Some(Value::Message(message, _)) = document
+        .fields
+        .iter_mut()
+        .find(|f| f.name == rule)
+        .map(|f| &mut f.value)
     else {
         return;
     };
@@ -882,8 +975,10 @@ fn set_list(
             _ => return,
         }
     }
-    let items: Vec<Value> =
-        values.iter().map(|v| Value::Str(v.clone(), Span::NONE)).collect();
+    let items: Vec<Value> = values
+        .iter()
+        .map(|v| Value::Str(v.clone(), Span::NONE))
+        .collect();
     let before = listed_from(target, leaf);
     let after: BTreeSet<String> = values.iter().cloned().collect();
 
@@ -918,13 +1013,21 @@ fn set_list(
     if !added.is_empty() {
         summary.push(format!(
             "+ {label}: {}",
-            added.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            added
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
     if !removed.is_empty() {
         summary.push(format!(
             "- {label}: {}",
-            removed.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+            removed
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
 }

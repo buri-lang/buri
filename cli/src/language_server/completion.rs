@@ -21,6 +21,9 @@
 //! type, and ordinary code. A `BUILD.buri` has an eighth, which is
 //! [`super::build_files`]'s answer rather than this one's.
 
+use super::convert::{self, Position};
+use super::state::Analyzed;
+use super::symbols::{self, Symbol};
 use crate::compiler::modules::ModuleData;
 use crate::compiler::semantics::resolve::{ModuleScope, Sym};
 use crate::compiler::semantics::typed;
@@ -31,9 +34,6 @@ use crate::json::Value;
 use crate::parsing::flat::{ExprId, ExprView, Tree, TypeId, TypeView};
 use crate::parsing::lexer::Keyword;
 use std::path::Path;
-use super::convert::{self, Position};
-use super::state::Analyzed;
-use super::symbols::{self, Symbol};
 
 /// Everything the cursor could be completing.
 ///
@@ -42,8 +42,9 @@ use super::symbols::{self, Symbol};
 /// what is left over.
 pub fn completion(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -> Value {
     let offset = convert::offset_of(text, position) as usize;
-    let before_cursor =
-        text.get(..offset).or_ice("`offset_of` clamps into the text and onto a character boundary");
+    let before_cursor = text
+        .get(..offset)
+        .or_ice("`offset_of` clamps into the text and onto a character boundary");
     let line = before_cursor.rsplit('\n').next().unwrap_or(before_cursor);
     let cursor = offset as u32;
 
@@ -169,21 +170,42 @@ fn in_source(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Vec<V
             .visible()
             .filter_map(|(name, sym)| Some((name.to_string(), symbols::symbol_of(sym)?)))
             .filter(|(_, symbol)| {
-                matches!(symbol, Symbol::Type(_) | Symbol::Trait(_) | Symbol::Module(_))
+                matches!(
+                    symbol,
+                    Symbol::Type(_) | Symbol::Trait(_) | Symbol::Module(_)
+                )
             })
             .chain(primitives(analyzed))
             .chain(namespaces(scope))
             .collect();
-        let items = rendered(analyzed, named, prefix, text, replacing, &uri, Some(module_path));
+        let items = rendered(
+            analyzed,
+            named,
+            prefix,
+            text,
+            replacing,
+            &uri,
+            Some(module_path),
+        );
         return or_lexical(items, text, prefix, replacing, &uri);
     }
 
     let mut candidates = locals_at(analyzed, path, cursor);
     candidates.extend(
-        scope.visible().filter_map(|(name, sym)| Some((name.to_string(), symbols::symbol_of(sym)?))),
+        scope
+            .visible()
+            .filter_map(|(name, sym)| Some((name.to_string(), symbols::symbol_of(sym)?))),
     );
     candidates.extend(namespaces(scope));
-    let mut items = rendered(analyzed, candidates, prefix, text, replacing, &uri, Some(module_path));
+    let mut items = rendered(
+        analyzed,
+        candidates,
+        prefix,
+        text,
+        replacing,
+        &uri,
+        Some(module_path),
+    );
     items.extend(keywords(prefix, text, replacing));
     or_lexical(items, text, prefix, replacing, &uri)
 }
@@ -232,7 +254,10 @@ fn receiver_symbol(
     }
     // The innermost binding of the name wins, which for a shadowed one is the
     // last the body recorded.
-    if let Some((_, symbol)) = locals_at(analyzed, path, dot).into_iter().rev().find(|(n, _)| n == name)
+    if let Some((_, symbol)) = locals_at(analyzed, path, dot)
+        .into_iter()
+        .rev()
+        .find(|(n, _)| n == name)
     {
         return Some(symbol);
     }
@@ -246,12 +271,16 @@ fn receiver_symbol(
             return Some(Symbol::Module(*id));
         }
     }
-    symbols::Resolver::of(analyzed, path, text)?.at(at).map(|f| f.symbol)
+    symbols::Resolver::of(analyzed, path, text)?
+        .at(at)
+        .map(|f| f.symbol)
 }
 
 /// The run of `[A-Za-z0-9_]` ending at `at`, and where it starts.
 fn word_before(text: &str, at: u32) -> (&str, u32) {
-    let before = text.get(..at as usize).or_ice("every offset asked about is the cursor's or a word's start before it");
+    let before = text
+        .get(..at as usize)
+        .or_ice("every offset asked about is the cursor's or a word's start before it");
     let start = before
         .char_indices()
         .rev()
@@ -274,15 +303,35 @@ fn dot_before(text: &str, at: u32) -> Option<u32> {
 
 /// The module the file holds, if the analysis loaded one.
 fn module_id(analyzed: &Analyzed, path: &Path) -> Option<ModuleId> {
-    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
-    analyzed.analysis.loaded.modules.iter().find(|m| m.file == file).map(|m| m.id)
+    let file = analyzed
+        .session
+        .map
+        .find(&analyzed.session.workspace.rel_of(path))?;
+    analyzed
+        .analysis
+        .loaded
+        .modules
+        .iter()
+        .find(|m| m.file == file)
+        .map(|m| m.id)
 }
 
 /// The path and the scope of the module the file holds, if the analysis loaded
 /// one.
-fn module_scope<'a>(analyzed: &'a Analyzed, path: &Path) -> Option<(&'a ModuleData, &'a ModuleScope)> {
-    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
-    let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
+fn module_scope<'a>(
+    analyzed: &'a Analyzed,
+    path: &Path,
+) -> Option<(&'a ModuleData, &'a ModuleScope)> {
+    let file = analyzed
+        .session
+        .map
+        .find(&analyzed.session.workspace.rel_of(path))?;
+    let module = analyzed
+        .analysis
+        .loaded
+        .modules
+        .iter()
+        .find(|m| m.file == file)?;
     let scope = analyzed.analysis.checked.scopes.get(module.id.index())?;
     Some((module, scope))
 }
@@ -296,7 +345,9 @@ fn in_a_type(module: &ModuleData, cursor: u32) -> bool {
     let tree = &module.ast.tree;
     (0..tree.type_nodes().len()).any(|index| {
         // The module's own tree holds only spans in its own file.
-        let TypeView::Named { span, .. } = tree.ty(TypeId(index as u32)) else { return false };
+        let TypeView::Named { span, .. } = tree.ty(TypeId(index as u32)) else {
+            return false;
+        };
         covers(span, cursor)
     })
 }
@@ -310,7 +361,11 @@ fn in_a_type(module: &ModuleData, cursor: u32) -> bool {
 /// reader ignores; leaving out the one they are about to type is the failure
 /// this request has.
 fn locals_at(analyzed: &Analyzed, path: &Path, cursor: u32) -> Vec<(String, Symbol)> {
-    let Some(file) = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path)) else {
+    let Some(file) = analyzed
+        .session
+        .map
+        .find(&analyzed.session.workspace.rel_of(path))
+    else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -388,16 +443,29 @@ fn annotated_enum(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> 
     // that would hold the annotation was never built.
     let annotated = line.rsplit_once(':')?.1;
     let written = annotated.trim_start();
-    let name: String =
-        written.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-    let Some(Sym::Ty(con)) = scope.name(&name) else { return None };
-    let has_variants = !analyzed.analysis.checked.tables.tycon(*con).variants().is_empty();
+    let name: String = written
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    let Some(Sym::Ty(con)) = scope.name(&name) else {
+        return None;
+    };
+    let has_variants = !analyzed
+        .analysis
+        .checked
+        .tables
+        .tycon(*con)
+        .variants()
+        .is_empty();
     has_variants.then_some(*con)
 }
 
 /// The enum the checker expects here, where it checked this far.
 fn checked_enum(analyzed: &Analyzed, path: &Path, cursor: u32) -> Option<TyConId> {
-    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
+    let file = analyzed
+        .session
+        .map
+        .find(&analyzed.session.workspace.rel_of(path))?;
     let tables = &analyzed.analysis.checked.tables;
     let mut offered: Vec<(Span, Ty)> = Vec::new();
     for body in analyzed.analysis.checked.bodies.values() {
@@ -467,12 +535,26 @@ struct Literal {
 /// Innermost by span width, so `Outer { inner: Inner { … } }` answers about
 /// `Inner` — the same rule [`checked_enum`] picks an expected type by.
 fn literal_at(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Option<Literal> {
-    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
-    let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
+    let file = analyzed
+        .session
+        .map
+        .find(&analyzed.session.workspace.rel_of(path))?;
+    let module = analyzed
+        .analysis
+        .loaded
+        .modules
+        .iter()
+        .find(|m| m.file == file)?;
     let tree = &module.ast.tree;
     let mut best = None;
     for index in 0..tree.nodes().len() {
-        let ExprView::StructLit { span, head, spread, fields } = tree.expr(ExprId(index as u32)) else {
+        let ExprView::StructLit {
+            span,
+            head,
+            spread,
+            fields,
+        } = tree.expr(ExprId(index as u32))
+        else {
             continue;
         };
         // The module's own tree holds only spans in its own file.
@@ -511,7 +593,9 @@ fn literal_at(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Opti
     let mut variant_of = None;
     for init in fields {
         let name = tree.span_of(init.name);
-        let written = text.get(name.start as usize..name.end as usize).unwrap_or("");
+        let written = text
+            .get(name.start as usize..name.end as usize)
+            .unwrap_or("");
         if covers(name, cursor) {
             continue;
         }
@@ -525,7 +609,13 @@ fn literal_at(analyzed: &Analyzed, path: &Path, text: &str, cursor: u32) -> Opti
         }
         given.push(written.to_string());
     }
-    Some(Literal { con, variant, given, naming, variant_of })
+    Some(Literal {
+        con,
+        variant,
+        given,
+        naming,
+        variant_of,
+    })
 }
 
 /// The type a literal's head names, and the variant of it where the head names
@@ -559,7 +649,9 @@ fn head_type(
         // Two shapes share this one: `catalog.Item { … }` through a namespace
         // import, and `Stock.OnHand { … }`, an enum's record variant.
         ExprView::Field { base, name, .. } => {
-            let ExprView::Ident { name: outer, .. } = tree.expr(base) else { return None };
+            let ExprView::Ident { name: outer, .. } = tree.expr(base) else {
+                return None;
+            };
             if let Some(id) = scope.namespaces.get(outer) {
                 let exports = &analyzed.analysis.checked.scopes.get(id.index())?.exports;
                 return match exports.get(name) {
@@ -567,7 +659,9 @@ fn head_type(
                     _ => None,
                 };
             }
-            let Some(Sym::Ty(con)) = scope.name(outer) else { return None };
+            let Some(Sym::Ty(con)) = scope.name(outer) else {
+                return None;
+            };
             let index = analyzed
                 .analysis
                 .checked
@@ -608,7 +702,16 @@ fn unwritten_fields(
         .enumerate()
         .filter(|(_, f)| f.exported || from == Some(declaring))
         .filter(|(_, f)| !literal.given.contains(&f.name))
-        .map(|(index, f)| (f.name.clone(), Symbol::Field { con, variant, index }))
+        .map(|(index, f)| {
+            (
+                f.name.clone(),
+                Symbol::Field {
+                    con,
+                    variant,
+                    index,
+                },
+            )
+        })
         .collect()
 }
 
@@ -620,7 +723,11 @@ fn declared_fields(
     variant: Option<usize>,
 ) -> &[types::FieldInfo] {
     match variant {
-        Some(v) => tables.tycon(con).variants().get(v).map_or(&[], |v| v.fields.as_slice()),
+        Some(v) => tables
+            .tycon(con)
+            .variants()
+            .get(v)
+            .map_or(&[], |v| v.fields.as_slice()),
         None => tables.tycon(con).fields(),
     }
 }
@@ -644,7 +751,16 @@ fn members_of(analyzed: &Analyzed, con: TyConId, from: Option<ModuleId>) -> Vec<
         .iter()
         .enumerate()
         .filter(|(_, f)| f.exported || from == Some(declaring))
-        .map(|(index, f)| (f.name.clone(), Symbol::Field { con, variant: None, index }))
+        .map(|(index, f)| {
+            (
+                f.name.clone(),
+                Symbol::Field {
+                    con,
+                    variant: None,
+                    index,
+                },
+            )
+        })
         .collect();
     // An effect's methods are not offered, because they are not callable here:
     // an effect is performed by handing the context to a function
@@ -656,8 +772,14 @@ fn members_of(analyzed: &Analyzed, con: TyConId, from: Option<ModuleId>) -> Vec<
     let effectful = |trait_id: types::TraitId| tables.trait_(trait_id).is_effect;
     let names: Vec<String> = tables.method_names(con).map(str::to_string).collect();
     for name in names {
-        let id = tables.method(con, &name).or_ice("`method_names` lists the names the method table holds");
-        if tables.fn_info(id).impl_of.is_some_and(|(t, _)| effectful(t)) {
+        let id = tables
+            .method(con, &name)
+            .or_ice("`method_names` lists the names the method table holds");
+        if tables
+            .fn_info(id)
+            .impl_of
+            .is_some_and(|(t, _)| effectful(t))
+        {
             continue;
         }
         out.push((name, Symbol::Function(id)));
@@ -669,7 +791,13 @@ fn members_of(analyzed: &Analyzed, con: TyConId, from: Option<ModuleId>) -> Vec<
             continue;
         }
         for (method, m) in tables.trait_(*trait_id).methods.iter().enumerate() {
-            out.push((m.name.clone(), Symbol::TraitMethod { trait_id: *trait_id, method }));
+            out.push((
+                m.name.clone(),
+                Symbol::TraitMethod {
+                    trait_id: *trait_id,
+                    method,
+                },
+            ));
         }
     }
     out
@@ -679,7 +807,10 @@ fn members_of(analyzed: &Analyzed, con: TyConId, from: Option<ModuleId>) -> Vec<
 /// resolver, because nothing may be written under one unqualified — but the
 /// alias itself is a name a reader types, and `list.` is what follows it.
 fn namespaces(scope: &ModuleScope) -> impl Iterator<Item = (String, Symbol)> + '_ {
-    scope.namespaces.iter().map(|(name, id)| (name.clone(), Symbol::Module(*id)))
+    scope
+        .namespaces
+        .iter()
+        .map(|(name, id)| (name.clone(), Symbol::Module(*id)))
 }
 
 /// The primitives, by every name the language spells them with.
@@ -693,9 +824,7 @@ fn primitives(analyzed: &Analyzed) -> impl Iterator<Item = (String, Symbol)> + '
         .iter()
         .map(|p| p.name())
         .chain(["Int", "Float", "Uint", "Byte"])
-        .filter_map(|name| {
-            Some((name.to_string(), Symbol::Type(builtin(tables, name)?)))
-        })
+        .filter_map(|name| Some((name.to_string(), Symbol::Type(builtin(tables, name)?))))
 }
 
 /// The type constructor a primitive's name stands for. The same table
@@ -727,7 +856,12 @@ fn variants(analyzed: &Analyzed, con: TyConId) -> Vec<(String, Symbol)> {
 
 /// What a namespace import publishes.
 fn module_members(analyzed: &Analyzed, module: ModuleId) -> Vec<(String, Symbol)> {
-    let scope = analyzed.analysis.checked.scopes.get(module.index()).or_ice(symbols::SCOPED);
+    let scope = analyzed
+        .analysis
+        .checked
+        .scopes
+        .get(module.index())
+        .or_ice(symbols::SCOPED);
     scope
         .exports
         .iter()
@@ -821,7 +955,17 @@ fn lexical(text: &str, prefix: &str, replacing: (u32, u32), uri: &str) -> Vec<Va
     let mut items: Vec<Value> = words
         .iter()
         // 1 text: a word written here, and nothing more claimed about it.
-        .map(|w| item(w, 1, "", '7', text, replacing, Value::object(vec![("uri", Value::str(uri))])))
+        .map(|w| {
+            item(
+                w,
+                1,
+                "",
+                '7',
+                text,
+                replacing,
+                Value::object(vec![("uri", Value::str(uri))]),
+            )
+        })
         .collect();
     items.extend(keywords(prefix, text, replacing));
     items
@@ -878,7 +1022,10 @@ fn module_paths(
                 // to work out: `//lib/ledger` and `//lib/ledger/testing` are
                 // both a declared dependency and a module path, and they are
                 // the same string in both namespaces.
-                out.push((d.value.trim_end_matches('/').to_string(), Origin::Dependency));
+                out.push((
+                    d.value.trim_end_matches('/').to_string(),
+                    Origin::Dependency,
+                ));
             }
         }
         let own = ws.package(package);
@@ -886,8 +1033,11 @@ fn module_paths(
         let mut schemas = Vec::new();
         crate::build::regenerate::collect(&ws.root, &own.dir, &mut sources, &mut schemas);
         let own_rel = ws.rel_of(path);
-        let package_prefix =
-            if own.path.is_empty() { String::new() } else { format!("{}/", own.path) };
+        let package_prefix = if own.path.is_empty() {
+            String::new()
+        } else {
+            format!("{}/", own.path)
+        };
         // This package's own surfaces, as modules. `lib.buri` and
         // `testing/lib.buri` are dropped from the file list below and offered
         // here instead, because a surface is named as a module from inside the
@@ -993,7 +1143,12 @@ fn exported_names(
     let Some(&id) = analyzed.analysis.loaded.by_path.get(module_path) else {
         return Value::Array(Vec::new());
     };
-    let scope = analyzed.analysis.checked.scopes.get(id.index()).or_ice(symbols::SCOPED);
+    let scope = analyzed
+        .analysis
+        .checked
+        .scopes
+        .get(id.index())
+        .or_ice(symbols::SCOPED);
     let mut names: Vec<&String> = scope.exports.keys().collect();
     names.sort();
     let uri = convert::uri_of(file);
@@ -1004,9 +1159,11 @@ fn exported_names(
                 let sym = scope.exports.get(n.as_str());
                 let symbol = sym.and_then(symbols::symbol_of);
                 let (kind, rank, detail) = match (&symbol, sym) {
-                    (Some(s), _) => {
-                        (completion_kind(analyzed, s), imported(s), symbols::describe(analyzed, s).0)
-                    }
+                    (Some(s), _) => (
+                        completion_kind(analyzed, s),
+                        imported(s),
+                        symbols::describe(analyzed, s).0,
+                    ),
                     // A method a module put on its surface so that a library's
                     // `lib.buri` can re-export it. It has no entry of its own
                     // to describe — the receiver it hangs off is the whole of
@@ -1044,7 +1201,14 @@ pub(super) fn completion_kind(analyzed: &Analyzed, symbol: &Symbol) -> i64 {
     match symbol {
         // 13 enum, 22 struct — the two shapes a type declaration has.
         Symbol::Type(id) => {
-            if analyzed.analysis.checked.tables.tycon(*id).variants().is_empty() {
+            if analyzed
+                .analysis
+                .checked
+                .tables
+                .tycon(*id)
+                .variants()
+                .is_empty()
+            {
                 22
             } else {
                 13
@@ -1176,10 +1340,15 @@ pub fn resolve_completion(analyzed: &Analyzed, item: &Value) -> Value {
         let (_, docs) = symbols::describe(analyzed, &symbol);
         (!docs.is_empty()).then(|| docs.join("\n"))
     })();
-    let (Some(docs), Value::Object(fields)) = (docs, &mut resolved) else { return resolved };
+    let (Some(docs), Value::Object(fields)) = (docs, &mut resolved) else {
+        return resolved;
+    };
     fields.insert(
         "documentation".to_string(),
-        Value::object(vec![("kind", Value::str("markdown")), ("value", Value::str(docs))]),
+        Value::object(vec![
+            ("kind", Value::str("markdown")),
+            ("value", Value::str(docs)),
+        ]),
     );
     resolved
 }

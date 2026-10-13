@@ -105,7 +105,6 @@ impl Keyword {
             Keyword::Type => "type",
         }
     }
-
 }
 
 /// What an identifier-shaped word is, when it is not an identifier: a token
@@ -210,7 +209,10 @@ const WORD_TABLE: [(u64, Option<Word>); WORD_SLOTS] = {
         let slot = word_slot(key);
         match table.split_at_mut_checked(slot) {
             Some((_, [entry, ..])) => {
-                assert!(entry.1.is_none(), "two words share a slot: find a new WORD_HASH");
+                assert!(
+                    entry.1.is_none(),
+                    "two words share a slot: find a new WORD_HASH"
+                );
                 *entry = (key, Some(*kind));
             }
             _ => panic!("a slot past the table"),
@@ -597,7 +599,8 @@ pub struct Comment {
 impl Comment {
     /// The comment's text, out of the source it was lexed from.
     pub fn text<'s>(&self, src: &'s str) -> &'s str {
-        src.get(self.at.start as usize..self.at.end as usize).unwrap_or("")
+        src.get(self.at.start as usize..self.at.end as usize)
+            .unwrap_or("")
     }
 }
 
@@ -751,7 +754,11 @@ impl<'a> Tokens<'a> {
             word = WIDE;
         }
         let [a, b, c, _] = word.to_le_bytes();
-        self.records.push(Record { loc, kind, pay: [a, b, c] });
+        self.records.push(Record {
+            loc,
+            kind,
+            pay: [a, b, c],
+        });
     }
 
     pub fn len(&self) -> usize {
@@ -786,7 +793,9 @@ impl<'a> Tokens<'a> {
     /// The kind and location of the token at `i`: `Eof` and an empty
     /// location past the end, as [`Tokens::kind`] and [`Tokens::loc`] read.
     pub fn record(&self, i: usize) -> (TokenKind, Location) {
-        self.records.get(i).map_or((TokenKind::Eof, Location::default()), |r| (r.kind, r.loc))
+        self.records
+            .get(i)
+            .map_or((TokenKind::Eof, Location::default()), |r| (r.kind, r.loc))
     }
 
     pub fn loc(&self, i: usize) -> Location {
@@ -795,7 +804,11 @@ impl<'a> Tokens<'a> {
 
     pub fn span(&self, i: usize) -> Span {
         let l = self.loc(i);
-        Span { file: self.file, start: l.start, end: l.end }
+        Span {
+            file: self.file,
+            start: l.start,
+            end: l.end,
+        }
     }
 
     /// The source under the token at `i`: an identifier's text, and a numeric
@@ -806,7 +819,11 @@ impl<'a> Tokens<'a> {
     }
 
     fn pay(&self, i: usize) -> usize {
-        let [a, b, c] = self.records.get(i).or_ice("a literal is read at a token the lexer wrote").pay;
+        let [a, b, c] = self
+            .records
+            .get(i)
+            .or_ice("a literal is read at a token the lexer wrote")
+            .pay;
         let word = u32::from_le_bytes([a, b, c, 0]);
         if word != WIDE {
             return word as usize;
@@ -933,13 +950,19 @@ pub struct Lexed<'a> {
 impl<'a> Lexed<'a> {
     /// The text of a doc line.
     pub fn doc(&self, at: Location) -> &'a str {
-        self.tokens.src.get(at.start as usize..at.end as usize).unwrap_or("")
+        self.tokens
+            .src
+            .get(at.start as usize..at.end as usize)
+            .unwrap_or("")
     }
 
     /// The text of a token's doc lines.
     pub fn doc_lines(&self, d: Docs) -> impl Iterator<Item = &'a str> + '_ {
         let a = d.start as usize;
-        let lines = self.docs.get(a..a.saturating_add(d.len as usize)).unwrap_or(&[]);
+        let lines = self
+            .docs
+            .get(a..a.saturating_add(d.len as usize))
+            .unwrap_or(&[]);
         lines.iter().map(|at| self.doc(*at))
     }
 }
@@ -974,7 +997,11 @@ pub fn program_text(text: &str) -> Option<Vec<u8>> {
         // The first token and the end of the file have no token on the line before.
         let gap = text.get(previous_end..loc.start as usize).unwrap_or("");
         let edge = i == 0 || tokens.kind(i) == TokenKind::Eof;
-        out.push(if edge || gap.contains('\n') { b'\n' } else { b' ' });
+        out.push(if edge || gap.contains('\n') {
+            b'\n'
+        } else {
+            b' '
+        });
         out.push(tokens.kind(i) as u8);
         // Length-prefixed, so two token streams can't spell the same bytes.
         let spelling = tokens.text(i).as_bytes();
@@ -1055,7 +1082,9 @@ impl<'a> Lexer<'a> {
     /// Hands the diagnostic back so a caller can add what varies.
     fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
         self.errors.push(Diagnostic::templated(code, span));
-        self.errors.last_mut().or_ice("the diagnostic just pushed is still there")
+        self.errors
+            .last_mut()
+            .or_ice("the diagnostic just pushed is still there")
     }
 
     /// Append one token, from `start` to the cursor.
@@ -1066,9 +1095,15 @@ impl<'a> Lexer<'a> {
     #[inline]
     fn push(&mut self, kind: TokenKind, pay: u32, start: usize) {
         debug_assert!(!self.has_trivia, "a token pushed without `gap` before it");
-        self.tokens.push(kind, pay, Location { start: start as u32, end: self.pos as u32 });
+        self.tokens.push(
+            kind,
+            pay,
+            Location {
+                start: start as u32,
+                end: self.pos as u32,
+            },
+        );
     }
-
 
     /// Hand what was written above the next token to the trivia table.
     ///
@@ -1126,7 +1161,9 @@ impl<'a> Lexer<'a> {
     fn push_text(&mut self, kind: TokenKind, from: usize, start: usize) {
         let at = self.tokens.strs.len() as u32;
         let end = u32::try_from(self.tokens.cooked.len()).unwrap_or(u32::MAX);
-        self.tokens.strs.push((u32::try_from(from).unwrap_or(u32::MAX), end));
+        self.tokens
+            .strs
+            .push((u32::try_from(from).unwrap_or(u32::MAX), end));
         self.push(kind, at, start);
     }
 
@@ -1365,7 +1402,10 @@ impl<'a> Lexer<'a> {
 
     /// The column `at` sits at, counting from zero.
     fn column(&self, at: usize) -> u32 {
-        let line = self.slice(0, at).rfind('\n').map_or(0, |i| i.saturating_add(1));
+        let line = self
+            .slice(0, at)
+            .rfind('\n')
+            .map_or(0, |i| i.saturating_add(1));
         self.slice(line, at).chars().count() as u32
     }
 
@@ -1411,7 +1451,10 @@ impl<'a> Lexer<'a> {
             let end = start.saturating_add(trimmed_end(raw).len());
             let column = self.column(start);
             self.pending_comments.push(Comment {
-                at: Location { start: start as u32, end: end as u32 },
+                at: Location {
+                    start: start as u32,
+                    end: end as u32,
+                },
                 blank_before: blank,
                 column,
                 offset: start as u32,
@@ -1445,7 +1488,10 @@ impl<'a> Lexer<'a> {
 
         let column = self.column(start);
         self.pending_comments.push(Comment {
-            at: Location { start: start as u32, end: self.pos as u32 },
+            at: Location {
+                start: start as u32,
+                end: self.pos as u32,
+            },
             blank_before: blank,
             column,
             offset: start as u32,
@@ -1477,7 +1523,8 @@ impl<'a> Lexer<'a> {
             let digits = without_underscores(self.slice(digits_start, self.pos));
             if digits.is_empty() {
                 let span = self.span(start);
-                self.templated("integer-missing-digits", span).bind("literal", raw);
+                self.templated("integer-missing-digits", span)
+                    .bind("literal", raw);
                 self.push_int(0, start);
                 return;
             }
@@ -1540,7 +1587,8 @@ impl<'a> Lexer<'a> {
                 Ok(v) => self.push_int(v, start),
                 Err(_) => {
                     let span = self.span(start);
-                    self.templated("integer-too-wide", span).bind("literal", raw);
+                    self.templated("integer-too-wide", span)
+                        .bind("literal", raw);
                     self.push_int(0, start);
                 }
             }
@@ -1611,7 +1659,11 @@ impl<'a> Lexer<'a> {
     }
 
     fn next_char(&mut self) -> char {
-        let ch = self.text.get(self.pos..).and_then(|s| s.chars().next()).unwrap_or('\0');
+        let ch = self
+            .text
+            .get(self.pos..)
+            .and_then(|s| s.chars().next())
+            .unwrap_or('\0');
         self.pos = self.pos.saturating_add(ch.len_utf8());
         ch
     }
@@ -1646,11 +1698,15 @@ impl<'a> Lexer<'a> {
                     return None;
                 }
                 self.pos = self.pos.saturating_add(1);
-                match u32::from_str_radix(&digits, 16).ok().and_then(char::from_u32) {
+                match u32::from_str_radix(&digits, 16)
+                    .ok()
+                    .and_then(char::from_u32)
+                {
                     Some(c) => c,
                     None => {
                         let span = self.span(start);
-                        self.templated("invalid-unicode-escape", span).bind("digits", digits);
+                        self.templated("invalid-unicode-escape", span)
+                            .bind("digits", digits);
                         return None;
                     }
                 }
@@ -1789,9 +1845,8 @@ const CLASSES: [Class; 256] = {
             b'\'' => Class::Apostrophe,
             b'{' => Class::LBrace,
             b'}' => Class::RBrace,
-            b'(' | b')' | b'[' | b']' | b',' | b';' | b'@' | b'+' | b'-' | b'*' | b'%' | b'^' | b'~' => {
-                Class::One
-            }
+            b'(' | b')' | b'[' | b']' | b',' | b';' | b'@' | b'+' | b'-' | b'*' | b'%' | b'^'
+            | b'~' => Class::One,
             b':' => Class::Colon,
             b'.' => Class::Dot,
             b'=' => Class::Equals,
@@ -1840,8 +1895,15 @@ fn one_byte(c: u8) -> TokenKind {
 /// Append a token with no payload: a word or a punctuator, nine tokens in ten.
 #[inline]
 fn push_plain(records: &mut Vec<Record>, kind: TokenKind, start: usize, end: usize) {
-    let loc = Location { start: start as u32, end: end as u32 };
-    records.push(Record { loc, kind, pay: [0; 3] });
+    let loc = Location {
+        start: start as u32,
+        end: end as u32,
+    };
+    records.push(Record {
+        loc,
+        kind,
+        pay: [0; 3],
+    });
 }
 
 /// The byte at `at`, or 0 past the end.
@@ -1910,7 +1972,10 @@ fn scan_word_at_the_end(src: &[u8], start: usize) -> (usize, u64) {
     while src.get(at).is_some_and(|c| is_ident_continue(*c)) {
         at = at.wrapping_add(1);
     }
-    (at.wrapping_sub(start), word_key(src.get(start..at).unwrap_or(&[])))
+    (
+        at.wrapping_sub(start),
+        word_key(src.get(start..at).unwrap_or(&[])),
+    )
 }
 
 /// The integer literal at `start` and where it ends, when it is the common
@@ -1925,7 +1990,9 @@ fn plain_decimal(src: &[u8], start: usize) -> Option<(u64, usize)> {
         if at.wrapping_sub(start) == 19 {
             return None;
         }
-        value = value.wrapping_mul(10).wrapping_add(u64::from(d.wrapping_sub(b'0')));
+        value = value
+            .wrapping_mul(10)
+            .wrapping_add(u64::from(d.wrapping_sub(b'0')));
         at = at.wrapping_add(1);
     }
     // A separator, a fraction, an exponent or a radix prefix: the general path.
@@ -2050,7 +2117,11 @@ mod keyword_tests {
         texts.dedup();
         assert_eq!(texts.len(), Keyword::ALL.len(), "`ALL` repeats a keyword");
         // `self` and `Self` differ only in case, so the count is the guard.
-        assert_eq!(Keyword::ALL.len(), 25, "a keyword was added without updating `ALL`");
+        assert_eq!(
+            Keyword::ALL.len(),
+            25,
+            "a keyword was added without updating `ALL`"
+        );
     }
 
     /// The lexer finds a keyword through its own table, [`super::WORDS`], so
@@ -2125,7 +2196,10 @@ mod tests {
         t.push(TokenKind::Int, super::WIDE, at);
         t.push(TokenKind::Int, u32::MAX, at);
         t.push(TokenKind::Char, 0x1F642, at);
-        assert_eq!([t.pay(0), t.pay(1), t.pay(2)], [7, super::WIDE as usize, u32::MAX as usize]);
+        assert_eq!(
+            [t.pay(0), t.pay(1), t.pay(2)],
+            [7, super::WIDE as usize, u32::MAX as usize]
+        );
         assert_eq!(t.ch(3), '🙂');
     }
 
@@ -2147,7 +2221,10 @@ mod tests {
     #[test]
     fn nested_generics_close_with_two_gt() {
         let t = tokens("Foo<Bar<Int>>");
-        let shifted = [Token::Punctuation(Punctuation::Gt), Token::Punctuation(Punctuation::Gt)];
+        let shifted = [
+            Token::Punctuation(Punctuation::Gt),
+            Token::Punctuation(Punctuation::Gt),
+        ];
         assert_eq!(t[t.len() - 3..t.len() - 1], shifted);
     }
 
@@ -2160,7 +2237,10 @@ mod tests {
 
     #[test]
     fn block_comments_nest() {
-        assert_eq!(tokens("/* a /* b */ c */ x"), vec![Token::Ident("x"), Token::Eof]);
+        assert_eq!(
+            tokens("/* a /* b */ c */ x"),
+            vec![Token::Ident("x"), Token::Eof]
+        );
     }
 
     #[test]
@@ -2200,14 +2280,20 @@ mod tests {
 
     #[test]
     fn escaped_dollar_is_not_a_hole() {
-        assert_eq!(tokens(r#""\$19.05""#), vec![Token::Str("$19.05".into()), Token::Eof]);
+        assert_eq!(
+            tokens(r#""\$19.05""#),
+            vec![Token::Str("$19.05".into()), Token::Eof]
+        );
     }
 
     #[test]
     fn radix_and_separators() {
         assert_eq!(tokens("0xFF"), vec![Token::Int(255), Token::Eof]);
         assert_eq!(tokens("0o755"), vec![Token::Int(0o755), Token::Eof]);
-        assert_eq!(tokens("0b1010_0110"), vec![Token::Int(0b1010_0110), Token::Eof]);
+        assert_eq!(
+            tokens("0b1010_0110"),
+            vec![Token::Int(0b1010_0110), Token::Eof]
+        );
         assert_eq!(tokens("1_000_000"), vec![Token::Int(1_000_000), Token::Eof]);
     }
 
@@ -2225,7 +2311,10 @@ mod tests {
 
     #[test]
     fn underscore_is_its_own_token() {
-        assert_eq!(tokens("_"), vec![Token::Punctuation(Punctuation::Underscore), Token::Eof]);
+        assert_eq!(
+            tokens("_"),
+            vec![Token::Punctuation(Punctuation::Underscore), Token::Eof]
+        );
         assert_eq!(tokens("_x"), vec![Token::Ident("_x"), Token::Eof]);
     }
 
@@ -2251,7 +2340,10 @@ fn doc_at(start: usize, raw: &str) -> Location {
     let body = after.strip_prefix(' ').unwrap_or(after);
     let from = start.saturating_add(raw.len().saturating_sub(body.len()));
     let to = from.saturating_add(trimmed_end(body).len());
-    Location { start: from as u32, end: to as u32 }
+    Location {
+        start: from as u32,
+        end: to as u32,
+    }
 }
 
 /// The text of a `///` or `//!` line, after the marker.

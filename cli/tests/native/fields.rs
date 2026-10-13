@@ -91,14 +91,21 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
     for (backend, r) in run_each("field-push-loop", source) {
-        assert_eq!(r.stdout, "2000 2000 2000 1999 2000 2000\n", "{backend}: {}", r.stderr);
+        assert_eq!(
+            r.stdout, "2000 2000 2000 1999 2000 2000\n",
+            "{backend}: {}",
+            r.stderr
+        );
         let (blocks, live) = probed(&r.stderr);
         assert!(
             blocks < 100,
             "{backend}: eight thousand pushes through record fields allocated {blocks} blocks: \
              the update kept a second count on the list, so every push copied it"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -150,14 +157,21 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
     for (backend, r) in run_each("field-push-named-branched", source) {
-        assert_eq!(r.stdout, "2000 2000 7 2000 2000 8\n", "{backend}: {}", r.stderr);
+        assert_eq!(
+            r.stdout, "2000 2000 7 2000 2000 8\n",
+            "{backend}: {}",
+            r.stderr
+        );
         let (blocks, live) = probed(&r.stderr);
         assert!(
             blocks < 60,
             "{backend}: four thousand pushes through record fields allocated {blocks} blocks: \
              the field kept a second count while it grew, so every push copied it"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -206,7 +220,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: two thousand pushes allocated {blocks} blocks: the inner update was \
              written over a field path rather than a dying local, so every push copied"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -272,7 +289,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
     for (backend, r) in run_each("field-push-failing-helper", source) {
-        assert_eq!(r.stdout, "1000 1000 t-1 o-2, stopped at 1000\n", "{backend}: {}", r.stderr);
+        assert_eq!(
+            r.stdout, "1000 1000 t-1 o-2, stopped at 1000\n",
+            "{backend}: {}",
+            r.stderr
+        );
         assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
         let (blocks, live) = probed(&r.stderr);
         assert!(
@@ -280,7 +301,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: two thousand pushes allocated {blocks} blocks: the `?` in the update kept \
              the field counted twice, so every push copied it"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -321,7 +345,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: four thousand pushes allocated {blocks} blocks: the record still held \
              the field its first push grew, so the second copied it"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -372,7 +399,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: six thousand pushes allocated {blocks} blocks: reading a number out of \
              the record kept it alive, so the call it was handed to got a second reference"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -421,7 +451,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: two thousand folds allocated {blocks} blocks: the fold lent its seed to \
              the first step, so the step's first push copied the list"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 

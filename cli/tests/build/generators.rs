@@ -39,8 +39,16 @@ use crate::harness::{ci, indent, tests_dir, Run, Scratch};
 /// outputs builds for JavaScript, and a JavaScript artifact would take the
 /// generated module nowhere near a backend or a linker.
 fn host_platform() -> String {
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     format!("\"native\", variant: \"{os}-{arch}\"")
 }
 
@@ -209,7 +217,8 @@ fn a_generated_module_links_into_a_release_artifact_or_is_refused_by_name() {
         return;
     }
     assert_ne!(
-        run.code, 0,
+        run.code,
+        0,
         "a release artifact ran and printed nothing the schema decided:\n{}",
         run.all()
     );
@@ -252,12 +261,24 @@ fn the_toolchain_generator_is_compiled_once_per_repository() {
 
     // A second build, of a second target, on two more platforms. Same file,
     // same bytes, no second compile.
-    let before = std::fs::metadata(&after_first[0]).expect("the generator's module").modified().ok();
+    let before = std::fs::metadata(&after_first[0])
+        .expect("the generator's module")
+        .modified()
+        .ok();
     scratch.run(&["build", "//cmd/twice"]).ok();
     let after_second = toolchain_artifacts(&scratch);
-    assert_eq!(after_second, after_first, "a second build compiled the toolchain generator again");
-    let after = std::fs::metadata(&after_second[0]).expect("the generator's module").modified().ok();
-    assert_eq!(before, after, "the generator's module was rewritten by a build that had one");
+    assert_eq!(
+        after_second, after_first,
+        "a second build compiled the toolchain generator again"
+    );
+    let after = std::fs::metadata(&after_second[0])
+        .expect("the generator's module")
+        .modified()
+        .ok();
+    assert_eq!(
+        before, after,
+        "the generator's module was rewritten by a build that had one"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -284,8 +305,11 @@ fn an_input_that_is_not_text_is_reported_as_unreadable_rather_than_absent() {
     );
     scratch.write("lib/wire/lib.buri", "export fn here(): Int { 1 }\n");
     scratch.write("lib/wire/beside.buri", "export fn beside(): Int { 2 }\n");
-    std::fs::write(scratch.path("lib/wire/point.proto"), b"edition = \"2026\";\n\xff\xfe\n")
-        .expect("a schema that is not UTF-8");
+    std::fs::write(
+        scratch.path("lib/wire/point.proto"),
+        b"edition = \"2026\";\n\xff\xfe\n",
+    )
+    .expect("a schema that is not UTF-8");
 
     let run = scratch.run(&["build", "//lib/wire"]);
     run.exits(1)
@@ -300,8 +324,11 @@ fn an_input_that_is_not_text_is_reported_as_unreadable_rather_than_absent() {
     // The same bytes under `sources`, which is the wording this one now
     // matches. A generator's input and a rule's source are the same question
     // about the same file, and two answers to it would be two bugs to fix.
-    std::fs::write(scratch.path("lib/wire/beside.buri"), b"export fn beside(): Int { \xff\xfe }\n")
-        .expect("a source that is not UTF-8");
+    std::fs::write(
+        scratch.path("lib/wire/beside.buri"),
+        b"export fn beside(): Int { \xff\xfe }\n",
+    )
+    .expect("a source that is not UTF-8");
     scratch.write(
         "lib/wire/BUILD.buri",
         "library {\n    sources: [\"beside.buri\"]\n}\n",
@@ -358,7 +385,10 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
          }\n",
     );
 
-    scratch.run(&["run", "//cmd/app"]).ok().says(&format!("size={SIZE} echoed={SIZE}"));
+    scratch
+        .run(&["run", "//cmd/app"])
+        .ok()
+        .says(&format!("size={SIZE} echoed={SIZE}"));
 }
 
 /// A generator that answers with the bytes it was handed and how many there
@@ -410,14 +440,20 @@ fn the_printers_text_is_the_file_beside_it_byte_for_byte() {
     scratch.run(&["build", "//lib/wire"]).ok();
 
     let tool = toolchain_artifacts(&scratch);
-    let [tool] = tool.as_slice() else { panic!("one tool was compiled: {tool:?}") };
-    let line = buri::build::generators::run_artifact(tool, r#"{"entry":"generate","inputs":[],"files":[]}"#)
-        .expect("the generator answers");
+    let [tool] = tool.as_slice() else {
+        panic!("one tool was compiled: {tool:?}")
+    };
+    let line = buri::build::generators::run_artifact(
+        tool,
+        r#"{"entry":"generate","inputs":[],"files":[]}"#,
+    )
+    .expect("the generator answers");
     let response = buri::build::generators::Response::decode(&line).expect("an answer");
     let printed = &response.modules.first().expect("one module").text;
     let twin = std::fs::read_to_string(fixture.join("lib/wire/twin.buri")).expect("the twin");
     assert_eq!(
-        printed, &twin,
+        printed,
+        &twin,
         "`print` and `buri format` disagree about the same module; the first \
          difference is at byte {:?}",
         printed.bytes().zip(twin.bytes()).position(|(a, b)| a != b)
@@ -427,7 +463,9 @@ fn the_printers_text_is_the_file_beside_it_byte_for_byte() {
 /// Every `.mjs` under `.buri/out/tools/`, sorted.
 fn toolchain_artifacts(scratch: &Scratch) -> Vec<std::path::PathBuf> {
     let dir = scratch.path(".buri/out/tools");
-    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
     let mut out: Vec<std::path::PathBuf> = entries
         .filter_map(Result::ok)
         .map(|e| e.path())
@@ -531,7 +569,9 @@ fn counting_runtime(scratch: &Scratch) -> String {
 
 /// How many times a tool process was started.
 fn tool_starts(scratch: &Scratch) -> usize {
-    std::fs::read_to_string(scratch.path("starts.txt")).map(|t| t.lines().count()).unwrap_or(0)
+    std::fs::read_to_string(scratch.path("starts.txt"))
+        .map(|t| t.lines().count())
+        .unwrap_or(0)
 }
 
 /// **One tool process answers every request a pass makes of it in turn.**
@@ -547,8 +587,17 @@ fn one_tool_process_answers_both_entries_of_a_rule() {
     let runtime = counting_runtime(&scratch);
     let run = scratch.run_with_env(&["run", "//cmd/app"], &[("BURI_JS", &runtime)]);
     run.ok();
-    assert_eq!(run.stdout.trim(), "150", "the two generated modules did not hold 100 and 50:\n{}", indent(&run.all()));
-    assert_eq!(tool_starts(&scratch), 1, "two requests of one tool started more than one process");
+    assert_eq!(
+        run.stdout.trim(),
+        "150",
+        "the two generated modules did not hold 100 and 50:\n{}",
+        indent(&run.all())
+    );
+    assert_eq!(
+        tool_starts(&scratch),
+        1,
+        "two requests of one tool started more than one process"
+    );
 }
 
 /// **A request that stops a kept process is reported as if it had a process of
@@ -563,7 +612,11 @@ fn a_tool_that_stops_partway_through_a_pass_is_reported_in_its_own_words() {
     let run = scratch.run_with_env(&["build", "//cmd/app"], &[("BURI_JS", &runtime)]);
     run.exits(1);
     let want = "error: `//tools/gen` did not answer [tool-failed]\n --> lib/wire/BUILD.buri:4:9\n  |\n4 |         { tool: \"//tools/gen\", inputs: [\"beta.txt\"] },\n  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  |\n  = the tool exited with 1\n    division by zero\n";
-    assert!(run.stderr.contains(want), "the stopped tool was not reported in its own words:\n{}", indent(&run.all()));
+    assert!(
+        run.stderr.contains(want),
+        "the stopped tool was not reported in its own words:\n{}",
+        indent(&run.all())
+    );
     assert!(
         !run.stderr.contains("\"//lib/wire/alpha\" names no file"),
         "the entry answered before the stop lost its module:\n{}",
@@ -583,8 +636,14 @@ fn many_rules(name: &str, rules: usize) -> Scratch {
             &format!("lib/w{i}/BUILD.buri"),
             "library {\n    generators: [\n        { tool: \"//tools/gen\", inputs: [\"alpha.txt\"] },\n    ]\n}\n",
         );
-        scratch.write(&format!("lib/w{i}/alpha.txt"), &format!("alpha {}\n", i + 1));
-        scratch.write(&format!("lib/w{i}/lib.buri"), &format!("from \"//lib/w{i}/alpha\" export {{ alpha }};\n"));
+        scratch.write(
+            &format!("lib/w{i}/alpha.txt"),
+            &format!("alpha {}\n", i + 1),
+        );
+        scratch.write(
+            &format!("lib/w{i}/lib.buri"),
+            &format!("from \"//lib/w{i}/alpha\" export {{ alpha }};\n"),
+        );
     }
     scratch
 }
@@ -630,18 +689,35 @@ fn a_tool_process_inherits_no_other_process_pipe() {
         .stderr(std::process::Stdio::piped())
         .output()
         .expect("the stand-in runs");
-    let alone: Vec<String> = String::from_utf8_lossy(&alone.stdout).split_whitespace().map(str::to_string).collect();
+    let alone: Vec<String> = String::from_utf8_lossy(&alone.stdout)
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
     for _ in 0..BUILDS {
-        scratch.run_with_env(&["build", "--force", "//..."], &[("BURI_JS", &runtime)]).ok();
+        scratch
+            .run_with_env(&["build", "--force", "//..."], &[("BURI_JS", &runtime)])
+            .ok();
     }
     let noted = std::fs::read_to_string(scratch.path("descriptors.txt")).unwrap_or_default();
     // A process a rule let go of may answer a rule that starts after it, so
     // a build starts at most one per rule, and at least one.
     let starts = noted.lines().count();
-    assert!((BUILDS..=RULES * BUILDS).contains(&starts), "{starts} tools were started in {BUILDS} builds");
-    let extra: Vec<&str> =
-        noted.lines().filter(|line| line.split_whitespace().any(|fd| !alone.iter().any(|a| a == fd))).collect();
-    assert!(extra.is_empty(), "a tool was started holding more than {alone:?}:\n{}", indent(&extra.join("\n")));
+    assert!(
+        (BUILDS..=RULES * BUILDS).contains(&starts),
+        "{starts} tools were started in {BUILDS} builds"
+    );
+    let extra: Vec<&str> = noted
+        .lines()
+        .filter(|line| {
+            line.split_whitespace()
+                .any(|fd| !alone.iter().any(|a| a == fd))
+        })
+        .collect();
+    assert!(
+        extra.is_empty(),
+        "a tool was started holding more than {alone:?}:\n{}",
+        indent(&extra.join("\n"))
+    );
 }
 
 /// What prints each bundled well-known schema the way the generator writes it.
@@ -699,5 +775,10 @@ fn the_well_known_modules_are_what_the_generator_writes() {
         );
         seen += 1;
     }
-    assert_eq!(seen, 7, "the generator printed {seen} modules:\n{}", run.all());
+    assert_eq!(
+        seen,
+        7,
+        "the generator printed {seen} modules:\n{}",
+        run.all()
+    );
 }

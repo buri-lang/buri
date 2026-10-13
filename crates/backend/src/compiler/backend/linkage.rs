@@ -27,7 +27,10 @@ pub fn named_anywhere(program: &Program) -> Vec<bool> {
 fn named_from(program: &Program, own_unit: bool) -> Vec<bool> {
     let mut named = vec![false; program.funcs.len()];
     let mut mark = |at: usize| {
-        #[expect(clippy::indexing_slicing, reason = "`at` names one of the program's functions, and `named` has one slot per function")]
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "`at` names one of the program's functions, and `named` has one slot per function"
+        )]
         let slot = &mut named[at];
         *slot = true;
     };
@@ -36,10 +39,16 @@ fn named_from(program: &Program, own_unit: bool) -> Vec<bool> {
         for inst in code.blocks.iter().flat_map(|b| &b.insts) {
             let callee = match inst {
                 Inst::Call { func, .. } | Inst::MakeClosure { func, .. } => *func,
-                Inst::DecRef { drop: Some(func), .. } => *func,
+                Inst::DecRef {
+                    drop: Some(func), ..
+                } => *func,
                 _ => continue,
             };
-            if program.funcs.get(callee.index()).is_some_and(|c| own_unit || c.unit != f.unit) {
+            if program
+                .funcs
+                .get(callee.index())
+                .is_some_and(|c| own_unit || c.unit != f.unit)
+            {
                 mark(callee.index());
             }
         }
@@ -65,14 +74,25 @@ mod tests {
         let entry = code.block(&[]);
         for c in calls {
             let dest = code.value(Type::I64);
-            code.get_mut(entry).insts.push(Inst::Call { dest, func: FuncIdx(*c), args: Vec::new() });
+            code.get_mut(entry).insts.push(Inst::Call {
+                dest,
+                func: FuncIdx(*c),
+                args: Vec::new(),
+            });
         }
         code.get_mut(entry).term = Term::Return(Vec::new());
         Func {
             symbol: String::new(),
             debug_name: String::new(),
-            sig: Signature { params: Vec::new(), rets: Vec::new() },
-            facts: Facts { params: Vec::new(), purity: Purity::Pure, can_abort: false },
+            sig: Signature {
+                params: Vec::new(),
+                rets: Vec::new(),
+            },
+            facts: Facts {
+                params: Vec::new(),
+                purity: Purity::Pure,
+                can_abort: false,
+            },
             unit,
             body: Body::Code(code),
             span: Span::NONE,

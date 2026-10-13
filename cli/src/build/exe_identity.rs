@@ -131,16 +131,24 @@ fn elf_build_id(file: &mut File, head: &[u8]) -> Option<Vec<u8>> {
         2 => Endian::Big,
         _ => return None,
     };
-    let (table, entry, count) =
-        (uint_at(head, 32, 8, endian)?, uint_at(head, 54, 2, endian)?, uint_at(head, 56, 2, endian)?);
+    let (table, entry, count) = (
+        uint_at(head, 32, 8, endian)?,
+        uint_at(head, 54, 2, endian)?,
+        uint_at(head, 56, 2, endian)?,
+    );
     let headers = read_vec(file, table, entry.checked_mul(count)?)?;
     for segment in headers.chunks_exact(usize::try_from(entry).ok()?.max(1)) {
         if u32_at(segment, 0, endian)? != PT_NOTE {
             continue;
         }
-        let (offset, size, align) =
-            (uint_at(segment, 8, 8, endian)?, uint_at(segment, 32, 8, endian)?, uint_at(segment, 48, 8, endian)?);
-        let Some(notes) = read_vec(file, offset, size) else { continue };
+        let (offset, size, align) = (
+            uint_at(segment, 8, 8, endian)?,
+            uint_at(segment, 32, 8, endian)?,
+            uint_at(segment, 48, 8, endian)?,
+        );
+        let Some(notes) = read_vec(file, offset, size) else {
+            continue;
+        };
         if let Some(id) = gnu_build_id(&notes, endian, if align == 8 { 8 } else { 4 }) {
             return Some(id.to_vec());
         }
@@ -190,14 +198,21 @@ fn cache_dir() -> Option<PathBuf> {
 fn hashed(path: &Path, cache: Option<&Path>) -> Option<String> {
     let meta = std::fs::metadata(path).ok()?;
     let record = cache.and_then(|dir| {
-        let stamp = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+        let stamp = meta
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?;
         let mut key = Sha256::new();
         key.text(&path.to_string_lossy());
         key.field(&meta.len().to_le_bytes());
         key.field(&stamp.as_nanos().to_le_bytes());
         Some(dir.join(key.finish()))
     });
-    if let Some(found) = record.as_ref().and_then(|r| std::fs::read_to_string(r).ok()) {
+    if let Some(found) = record
+        .as_ref()
+        .and_then(|r| std::fs::read_to_string(r).ok())
+    {
         let digest = found.strip_prefix("sha256:").unwrap_or_default();
         if digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()) {
             return Some(found);
@@ -222,8 +237,8 @@ mod tests {
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("buri-exe-identity-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("buri-exe-identity-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -302,7 +317,10 @@ mod tests {
         let (a, b) = (dir.join("a"), dir.join("b"));
         std::fs::write(&a, elf(&[0xab; 20])).unwrap();
         std::fs::write(&b, elf(&[0xcd; 20])).unwrap();
-        assert_eq!(linker_identity(&a).as_deref(), Some(&*format!("elf-build-id:{}", "ab".repeat(20))));
+        assert_eq!(
+            linker_identity(&a).as_deref(),
+            Some(&*format!("elf-build-id:{}", "ab".repeat(20)))
+        );
         assert_eq!(linker_identity(&a), linker_identity(&a));
         assert_ne!(linker_identity(&a), linker_identity(&b));
         let _ = std::fs::remove_dir_all(&dir);
@@ -321,7 +339,11 @@ mod tests {
         assert_eq!(linker_identity(&a), None);
         let first = hashed(&a, Some(&cache)).unwrap();
         assert_eq!(first, format!("sha256:{}", hash_bytes(b"one program")));
-        assert_eq!(std::fs::read_dir(&cache).unwrap().count(), 1, "the hash was not remembered");
+        assert_eq!(
+            std::fs::read_dir(&cache).unwrap().count(),
+            1,
+            "the hash was not remembered"
+        );
         assert_eq!(hashed(&a, Some(&cache)).unwrap(), first);
         assert_ne!(hashed(&b, Some(&cache)).unwrap(), first);
 

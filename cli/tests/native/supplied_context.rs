@@ -152,7 +152,10 @@ test "pressing with the repository effect in the context" {
 
     for (backend, flags) in crate::e2e::build_modes() {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-        cmd.current_dir(&repo).arg("test").args(flags).arg("//lib/page");
+        cmd.current_dir(&repo)
+            .arg("test")
+            .args(flags)
+            .arg("//lib/page");
         let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
         assert!(
             ran.status == 0 && ran.stdout.contains("2 passed, 0 failed"),
@@ -310,7 +313,10 @@ test "rows, a region and a press call the context's effect" {
     modes.push(("js", &["--output=js"]));
     for (backend, flags) in modes {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-        cmd.current_dir(&repo).arg("test").args(flags).arg("//lib/page");
+        cmd.current_dir(&repo)
+            .arg("test")
+            .args(flags)
+            .arg("//lib/page");
         let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
         assert!(
             ran.status == 0 && ran.stdout.contains("1 passed, 0 failed"),
@@ -446,7 +452,10 @@ test "a press reads the file through the context it was rendered with" {
     modes.push(("js", &["--output=js"]));
     for (backend, flags) in modes {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-        cmd.current_dir(&repo).arg("test").args(flags).arg("//lib/page");
+        cmd.current_dir(&repo)
+            .arg("test")
+            .args(flags)
+            .arg("//lib/page");
         let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
         assert!(
             ran.status == 0 && ran.stdout.contains("3 passed, 0 failed"),

@@ -80,17 +80,37 @@ fn a_moving_window_allocates_the_same_bytes_wherever_it_is() {
             cmd.args([start, steps]);
             let ran = ran_command(heap_checked(&mut cmd));
             assert_eq!(ran.status, 0, "{backend} {start} {steps}: {}", ran.stderr);
-            assert_eq!(ran.stdout, "128\n", "{backend} {start} {steps}: {}", ran.stderr);
-            assert_eq!(probed(&ran.stderr).1, 0, "{backend} {start} {steps}: blocks still live at exit");
+            assert_eq!(
+                ran.stdout, "128\n",
+                "{backend} {start} {steps}: {}",
+                ran.stderr
+            );
+            assert_eq!(
+                probed(&ran.stderr).1,
+                0,
+                "{backend} {start} {steps}: blocks still live at exit"
+            );
             (probed(&ran.stderr).0, bytes(&ran.stderr))
         };
         let blocks = ["0640", "1280", "1920"].map(|steps| {
-            let (near, far) = (run("0000000000000000000", steps), run("4611686018427387904", steps));
-            assert_eq!(near, far, "{backend}, {steps} steps: {near:?} blocks and bytes near zero, {far:?} near 2^62");
+            let (near, far) = (
+                run("0000000000000000000", steps),
+                run("4611686018427387904", steps),
+            );
+            assert_eq!(
+                near, far,
+                "{backend}, {steps} steps: {near:?} blocks and bytes near zero, {far:?} near 2^62"
+            );
             near.0
         });
         let [a, b, c] = blocks;
-        assert_eq!((b - a, c - b), (20, 20), "{backend}: 640 steps took {} blocks, then {}", b - a, c - b);
+        assert_eq!(
+            (b - a, c - b),
+            (20, 20),
+            "{backend}: 640 steps took {} blocks, then {}",
+            b - a,
+            c - b
+        );
     }
 }
 
@@ -159,29 +179,61 @@ fn has_is_constant_and_set_operations_are_linear_in_words() {
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("indexset-costs", COSTS);
         // The probes that land on an even number, which are the members.
-        let hits = |n: u64| (0..LOOKUPS).filter(|i| (i * 7 % (n * 2)).is_multiple_of(2)).count();
+        let hits = |n: u64| {
+            (0..LOOKUPS)
+                .filter(|i| (i * 7 % (n * 2)).is_multiple_of(2))
+                .count()
+        };
         let mut cost = std::collections::BTreeMap::new();
         for size in [small, large] {
             let at = size.to_string();
             let lookups = LOOKUPS.to_string();
-            let (has, has_blocks) =
-                per_op(backend, &binary, "has", &[&at, &lookups], LOOKUPS, &format!("{}\n", hits(size)));
+            let (has, has_blocks) = per_op(
+                backend,
+                &binary,
+                "has",
+                &[&at, &lookups],
+                LOOKUPS,
+                &format!("{}\n", hits(size)),
+            );
             assert_eq!(has_blocks, 0, "{backend}, {size}: `has` allocated");
             cost.insert(("has", size), has);
             // `size` evens over twice the span is `size / 32` words.
             let ops = WORDS * 32 / size;
-            for (mode, blocks) in [("union", 1), ("intersect", 1), ("difference", 1), ("isSubsetOf", 0)] {
-                let (n, got) = per_op(backend, &binary, mode, &[&at, &ops.to_string()], ops, &format!("{ops}\n"));
+            for (mode, blocks) in [
+                ("union", 1),
+                ("intersect", 1),
+                ("difference", 1),
+                ("isSubsetOf", 0),
+            ] {
+                let (n, got) = per_op(
+                    backend,
+                    &binary,
+                    mode,
+                    &[&at, &ops.to_string()],
+                    ops,
+                    &format!("{ops}\n"),
+                );
                 // The one block over is the closure `main` hands `times`.
-                assert_eq!(got / ops, blocks, "{backend}, {size}: {ops} of `{mode}` took {got} blocks");
+                assert_eq!(
+                    got / ops,
+                    blocks,
+                    "{backend}, {size}: {ops} of `{mode}` took {got} blocks"
+                );
                 cost.insert((mode, size), n.map(|n| n * 32 / size));
             }
         }
         for mode in ["has", "union", "intersect", "difference", "isSubsetOf"] {
-            let (Some(Some(a)), Some(Some(b))) = (cost.get(&(mode, small)), cost.get(&(mode, large))) else { continue };
+            let (Some(Some(a)), Some(Some(b))) =
+                (cost.get(&(mode, small)), cost.get(&(mode, large)))
+            else {
+                continue;
+            };
             eprintln!("{backend}, {mode}: {a} then {b} instructions");
             if b * 10 > a * 12 + 20 {
-                failures.push(format!("{backend}: `{mode}` costs {a} at {small} members and {b} at {large}"));
+                failures.push(format!(
+                    "{backend}: `{mode}` costs {a} at {small} members and {b} at {large}"
+                ));
             }
         }
     }
@@ -233,7 +285,10 @@ fn a_failing_assert_prints_a_set_as_its_members_on_every_backend() {
         assert_eq!(status, 1, "{context}");
         assert!(stdout.contains("0 passed, 3 failed"), "{context}");
         for line in expected {
-            assert!(stdout.contains(line), "{backend}: missing\n{line}\nin\n{stdout}\n{stderr}");
+            assert!(
+                stdout.contains(line),
+                "{backend}: missing\n{line}\nin\n{stdout}\n{stderr}"
+            );
         }
     }
 }

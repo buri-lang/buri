@@ -226,7 +226,10 @@ impl Default for Asm {
 
 impl Asm {
     pub fn new() -> Asm {
-        Asm { bytes: Vec::new(), relocs: Vec::new() }
+        Asm {
+            bytes: Vec::new(),
+            relocs: Vec::new(),
+        }
     }
 
     /// The offset the next instruction will occupy.
@@ -363,14 +366,20 @@ impl Asm {
     fn cond(&mut self, op: u32, rt: u32) -> Patch {
         let at = self.at();
         self.word(op | (rt & 31));
-        Patch { at, kind: PatchKind::Cond19 }
+        Patch {
+            at,
+            kind: PatchKind::Cond19,
+        }
     }
 
     /// `b <later>`.
     pub fn b(&mut self) -> Patch {
         let at = self.at();
         self.word(B);
-        Patch { at, kind: PatchKind::Uncond26 }
+        Patch {
+            at,
+            kind: PatchKind::Uncond26,
+        }
     }
 
     /// Resolves a forward branch to the instruction that comes next.
@@ -388,7 +397,11 @@ impl Asm {
     pub fn bl_symbol(&mut self, name: &str) {
         let at = self.at();
         self.word(BL);
-        self.relocs.push((at, RelKind::Branch26, Target::Symbol(name.to_string().into())));
+        self.relocs.push((
+            at,
+            RelKind::Branch26,
+            Target::Symbol(name.to_string().into()),
+        ));
     }
 
     /// `adrp xd, name` + `add xd, xd, #:lo12:name` — the address of a symbol in
@@ -402,8 +415,16 @@ impl Asm {
         self.word(ADRP | (rd & 31));
         let off = self.at();
         self.word(ADD_X_IMM | ((rd & 31) << 5) | (rd & 31));
-        self.relocs.push((page, RelKind::Page21, Target::Symbol(name.to_string().into())));
-        self.relocs.push((off, RelKind::PageOff12, Target::Symbol(name.to_string().into())));
+        self.relocs.push((
+            page,
+            RelKind::Page21,
+            Target::Symbol(name.to_string().into()),
+        ));
+        self.relocs.push((
+            off,
+            RelKind::PageOff12,
+            Target::Symbol(name.to_string().into()),
+        ));
     }
 
     pub fn ret(&mut self) {
@@ -426,7 +447,10 @@ impl Asm {
 
     fn word_at(&self, at: u64) -> u32 {
         let o = at as usize;
-        let b = self.bytes.get(o..o.saturating_add(4)).unwrap_or(&[0, 0, 0, 0]);
+        let b = self
+            .bytes
+            .get(o..o.saturating_add(4))
+            .unwrap_or(&[0, 0, 0, 0]);
         u32::from_le_bytes([
             *b.first().unwrap_or(&0),
             *b.get(1).unwrap_or(&0),
@@ -438,7 +462,8 @@ impl Asm {
     fn set_word(&mut self, at: u64, w: u32) {
         let o = at as usize;
         let slot = self.bytes.get_mut(o..o.saturating_add(4));
-        slot.or_ice("a branch patches a word already emitted").copy_from_slice(&w.to_le_bytes());
+        slot.or_ice("a branch patches a word already emitted")
+            .copy_from_slice(&w.to_le_bytes());
     }
 
     pub fn finish(self) -> (Vec<u8>, Vec<(u64, RelKind, Target)>) {
@@ -450,7 +475,11 @@ impl Asm {
     fn into_shim(self) -> Shim {
         Shim {
             bytes: self.bytes,
-            relocs: self.relocs.into_iter().map(|(at, k, t)| (at, k, t, 0)).collect(),
+            relocs: self
+                .relocs
+                .into_iter()
+                .map(|(at, k, t)| (at, k, t, 0))
+                .collect(),
         }
     }
 }
@@ -506,7 +535,10 @@ impl Default for X86 {
 
 impl X86 {
     pub fn new() -> X86 {
-        X86 { bytes: Vec::new(), relocs: Vec::new() }
+        X86 {
+            bytes: Vec::new(),
+            relocs: Vec::new(),
+        }
     }
 
     fn at(&self) -> u64 {
@@ -679,7 +711,8 @@ impl X86 {
         let delta = self.at() as i64 - (p.at as i64 + 4);
         let o = p.at as usize;
         let slot = self.bytes.get_mut(o..o.saturating_add(4));
-        slot.or_ice("a branch patches a field already emitted").copy_from_slice(&(delta as i32).to_le_bytes());
+        slot.or_ice("a branch patches a field already emitted")
+            .copy_from_slice(&(delta as i32).to_le_bytes());
     }
 
     /// `call name`, with the displacement left to the linker.
@@ -701,7 +734,8 @@ impl X86 {
     fn pcrel(&mut self, kind: RelKind, name: &str) {
         let at = self.at();
         self.put(&[0, 0, 0, 0]);
-        self.relocs.push((at, kind, Target::Symbol(name.to_string().into()), -4));
+        self.relocs
+            .push((at, kind, Target::Symbol(name.to_string().into()), -4));
     }
 
     /// `call .+bytes` — a call to a place this many bytes past the end of this
@@ -724,7 +758,10 @@ impl X86 {
     }
 
     fn into_shim(self) -> Shim {
-        Shim { bytes: self.bytes, relocs: self.relocs }
+        Shim {
+            bytes: self.bytes,
+            relocs: self.relocs,
+        }
     }
 }
 
@@ -847,7 +884,9 @@ impl Marking {
     fn symbols(self) -> &'static [&'static str] {
         match self {
             Marking::None => &[],
-            Marking::ValuesMayCrossTasks => &[runtime::VALUES_MAY_CROSS_TASKS, runtime::FRAMES_PER_THREAD],
+            Marking::ValuesMayCrossTasks => {
+                &[runtime::VALUES_MAY_CROSS_TASKS, runtime::FRAMES_PER_THREAD]
+            }
         }
     }
 }
@@ -1233,7 +1272,11 @@ mod tests {
     use super::*;
 
     /// A `main` whose `Result` keeps its tag in the first word.
-    const TAGGED: MainResult = MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) };
+    const TAGGED: MainResult = MainResult {
+        tag: (0, 4),
+        niche: None,
+        message: (8, 16, 24),
+    };
 
     /// **The thread stack is the size the runtime maps.**
     ///
@@ -1270,7 +1313,14 @@ mod tests {
                 other => format!("{other:?}"),
             })
             .collect();
-        assert_eq!(named, vec![task_thread::STACK_ACQUIRE, "body", task_thread::STACK_RELEASE]);
+        assert_eq!(
+            named,
+            vec![
+                task_thread::STACK_ACQUIRE,
+                "body",
+                task_thread::STACK_RELEASE
+            ]
+        );
     }
 
     /// The same, for SysV x86-64. One emitter per machine and the same three
@@ -1287,7 +1337,14 @@ mod tests {
                 other => format!("{other:?}"),
             })
             .collect();
-        assert_eq!(named, vec![task_thread::STACK_ACQUIRE, "body", task_thread::STACK_RELEASE]);
+        assert_eq!(
+            named,
+            vec![
+                task_thread::STACK_ACQUIRE,
+                "body",
+                task_thread::STACK_RELEASE
+            ]
+        );
     }
 
     /// **A wider return area is a longer copy.**
@@ -1321,12 +1378,21 @@ mod tests {
         // stores: `str x1, [sp, #0]`.
         let got = words(thread_entry_arm64("body", 0));
         let store = got.get(3).copied().unwrap_or(0);
-        assert_eq!(store & 31, arg_reg_a64(task_thread::OUT), "the door saved the wrong register");
+        assert_eq!(
+            store & 31,
+            arg_reg_a64(task_thread::OUT),
+            "the door saved the wrong register"
+        );
     }
 
     fn words(a: Asm) -> Vec<u32> {
         let (bytes, _) = a.finish();
-        bytes.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)).collect()
+        bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| u32::from_le_bytes(*c))
+            .collect()
     }
 
     /// `movz x0, #5`, one instruction: every halfword above the first is zero
@@ -1366,7 +1432,13 @@ mod tests {
         a.mov_reg(0, 9);
         assert_eq!(
             words(a),
-            vec![0xd65f_03c0, 0xa9bf_7bfd, 0x9100_03fd, 0xa8c1_7bfd, 0xaa09_03e0]
+            vec![
+                0xd65f_03c0,
+                0xa9bf_7bfd,
+                0x9100_03fd,
+                0xa8c1_7bfd,
+                0xaa09_03e0
+            ]
         );
     }
 
@@ -1432,7 +1504,11 @@ mod tests {
     /// symbol after the pair that forms its argument.
     #[test]
     fn the_test_shim_relocates_what_it_calls_in_order() {
-        let a = test_entry(ARM64, &[String::from("t0"), String::from("t1")], Marking::None);
+        let a = test_entry(
+            ARM64,
+            &[String::from("t0"), String::from("t1")],
+            Marking::None,
+        );
         assert_eq!(
             names(a),
             vec![
@@ -1531,7 +1607,10 @@ mod tests {
                     "the statements don't follow the runtime's initialisation: {loud:?}"
                 );
                 // The two calls are the whole of the difference.
-                let without: Vec<&String> = loud.iter().filter(|n| !said.contains(&n.as_str())).collect();
+                let without: Vec<&String> = loud
+                    .iter()
+                    .filter(|n| !said.contains(&n.as_str()))
+                    .collect();
                 assert_eq!(
                     without,
                     quiet.iter().collect::<Vec<&String>>(),
@@ -1555,7 +1634,11 @@ mod tests {
         let a = program_entry(
             ARM64,
             "buri$main",
-            MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) },
+            MainResult {
+                tag: (0, 4),
+                niche: None,
+                message: (8, 16, 24),
+            },
             Marking::None,
         );
         assert_eq!(
@@ -1583,12 +1666,20 @@ mod tests {
     fn the_niche_test_is_the_opposite_of_the_tag_test() {
         let niche = program_entry_arm64(
             "m",
-            MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) },
+            MainResult {
+                tag: (0, 8),
+                niche: Some(8),
+                message: (0, 8, 16),
+            },
             Marking::None,
         );
         let tagged = program_entry_arm64(
             "m",
-            MainResult { tag: (0, 8), niche: None, message: (8, 16, 24) },
+            MainResult {
+                tag: (0, 8),
+                niche: None,
+                message: (8, 16, 24),
+            },
             Marking::None,
         );
         // The only compare-and-branch in either shim is the one being asked
@@ -1746,7 +1837,11 @@ mod tests {
     /// each test's own symbol behind the address of the stack.
     #[test]
     fn the_x86_64_test_shim_relocates_what_it_calls_in_order() {
-        let a = test_entry(X86_64, &[String::from("t0"), String::from("t1")], Marking::None);
+        let a = test_entry(
+            X86_64,
+            &[String::from("t0"), String::from("t1")],
+            Marking::None,
+        );
         assert_eq!(
             names(a),
             vec![
@@ -1772,8 +1867,16 @@ mod tests {
     #[test]
     fn the_two_machines_shims_call_the_same_symbols_in_the_same_order() {
         for r in [
-            MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) },
-            MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) },
+            MainResult {
+                tag: (0, 4),
+                niche: None,
+                message: (8, 16, 24),
+            },
+            MainResult {
+                tag: (0, 8),
+                niche: Some(8),
+                message: (0, 8, 16),
+            },
         ] {
             let arm = names(program_entry(ARM64, "m", r.clone(), Marking::None));
             let x86 = names(program_entry(X86_64, "m", r, Marking::None));
@@ -1799,7 +1902,10 @@ mod tests {
         assert!(!s.relocs.is_empty());
         for (at, _, _, addend) in &s.relocs {
             assert_eq!(*addend, -4);
-            assert!(at + 4 <= s.bytes.len() as u64, "a field at {at} runs past the shim");
+            assert!(
+                at + 4 <= s.bytes.len() as u64,
+                "a field at {at} runs past the shim"
+            );
             // The four bytes of a field are left zero: the linker writes them.
             let field = s.bytes.get(*at as usize..*at as usize + 4);
             assert_eq!(field, Some(&[0u8, 0, 0, 0][..]));
@@ -1818,13 +1924,21 @@ mod tests {
             program_entry(
                 X86_64,
                 "m",
-                MainResult { tag: (0, 4), niche: None, message: (8, 16, 24) },
+                MainResult {
+                    tag: (0, 4),
+                    niche: None,
+                    message: (8, 16, 24),
+                },
                 Marking::None,
             )
             .bytes,
             test_entry(X86_64, &[String::from("t0")], Marking::None).bytes,
         ] {
-            assert_eq!(bytes.first(), Some(&0x55), "the shim does not open with `push %rbp`");
+            assert_eq!(
+                bytes.first(),
+                Some(&0x55),
+                "the shim does not open with `push %rbp`"
+            );
             // `48 81 ec` and `48 81 c4` are `subtract`/`add` on `rsp`; neither may
             // appear, because either would put the alignment back where the
             // entry found it.
@@ -1860,13 +1974,21 @@ mod tests {
         let niche = program_entry(
             X86_64,
             "m",
-            MainResult { tag: (0, 8), niche: Some(8), message: (0, 8, 16) },
+            MainResult {
+                tag: (0, 8),
+                niche: Some(8),
+                message: (0, 8, 16),
+            },
             Marking::None,
         );
         let tagged = program_entry(
             X86_64,
             "m",
-            MainResult { tag: (0, 8), niche: None, message: (8, 16, 24) },
+            MainResult {
+                tag: (0, 8),
+                niche: None,
+                message: (8, 16, 24),
+            },
             Marking::None,
         );
         assert_eq!(branch(niche), Some(vec![0x0f, 0x85]));
@@ -1889,4 +2011,3 @@ mod tests {
         assert_eq!(of(8), Some(vec![0x48, 0x8b])); // mov r64
     }
 }
-

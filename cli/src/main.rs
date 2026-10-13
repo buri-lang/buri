@@ -48,7 +48,11 @@ fn main() -> ExitCode {
     }));
     // The work happens on a thread of our own, because the main thread's stack
     // is fixed by the process that started us and cannot be asked for more.
-    match std::thread::Builder::new().name("buri".into()).stack_size(STACK).spawn(run) {
+    match std::thread::Builder::new()
+        .name("buri".into())
+        .stack_size(STACK)
+        .spawn(run)
+    {
         Ok(worker) => match worker.join() {
             Ok(code) => code,
             // A panic has already printed its own message; this is the exit

@@ -111,8 +111,14 @@ fn written(name: &str, platform: &str) -> Scratch {
         "lib/text/BUILD.buri",
         "library {\n    sources: [\"text.buri\"]\n    visibility: [\"//visibility:public\"]\n}\n",
     );
-    scratch.write("lib/text/text.buri", "export fn text(): Str {\n    \"a\"\n}\n");
-    scratch.write("lib/text/lib.buri", "from \"//lib/text/text.buri\" export { text };\n");
+    scratch.write(
+        "lib/text/text.buri",
+        "export fn text(): Str {\n    \"a\"\n}\n",
+    );
+    scratch.write(
+        "lib/text/lib.buri",
+        "from \"//lib/text/text.buri\" export { text };\n",
+    );
     scratch
 }
 

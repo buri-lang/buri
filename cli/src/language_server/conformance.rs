@@ -11,14 +11,14 @@
 //! that declares its type (SPEC rule 22), and which targets those are is not
 //! something the file under the cursor knows.
 
-use crate::compiler::semantics::types::TyDef;
-use crate::diagnostics::Span;
-use crate::json::Value;
-use std::path::Path;
 use super::convert::{self, Position};
 use super::features;
 use super::state::Analyzed;
 use super::symbols::{self, Symbol};
+use crate::compiler::semantics::types::TyDef;
+use crate::diagnostics::Span;
+use crate::json::Value;
+use std::path::Path;
 
 /// Every `impl` that answers for the symbol under the cursor.
 ///
@@ -39,12 +39,18 @@ pub fn implementations(
     let found = symbols::at(analyzed, path, text, offset)?;
     let tables = &analyzed.analysis.checked.tables;
     let spans: Vec<Span> = match &found.symbol {
-        Symbol::Trait(id) => {
-            tables.impls.iter().filter(|((t, _), _)| t == id).map(|(_, i)| i.span).collect()
-        }
-        Symbol::Type(con) => {
-            tables.impls.iter().filter(|((_, c), _)| c == con).map(|(_, i)| i.span).collect()
-        }
+        Symbol::Trait(id) => tables
+            .impls
+            .iter()
+            .filter(|((t, _), _)| t == id)
+            .map(|(_, i)| i.span)
+            .collect(),
+        Symbol::Type(con) => tables
+            .impls
+            .iter()
+            .filter(|((_, c), _)| c == con)
+            .map(|(_, i)| i.span)
+            .collect(),
         // The method the `impl` wrote. A `derive` has no function to point at,
         // so the `derive` itself is the answer.
         Symbol::TraitMethod { trait_id, method } => tables
@@ -69,12 +75,7 @@ pub fn implementations(
 /// are the only two things that are a node in one. Anything else answers
 /// `null`, and the editor does not open a panel it would have nothing to put
 /// in.
-pub fn prepare(
-    analyzed: &Analyzed,
-    path: &Path,
-    text: &str,
-    position: Position,
-) -> Option<Value> {
+pub fn prepare(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -> Option<Value> {
     let offset = convert::offset_of(text, position);
     let found = symbols::at(analyzed, path, text, offset)?;
     Some(Value::Array(vec![item(analyzed, &found.symbol)?]))
@@ -107,9 +108,12 @@ pub fn supertypes(analyzed: &Analyzed, symbol: &Symbol) -> Value {
 pub fn subtypes(analyzed: &Analyzed, symbol: &Symbol) -> Value {
     let tables = &analyzed.analysis.checked.tables;
     let found = match symbol {
-        Symbol::Trait(id) => {
-            tables.impls.keys().filter(|(t, _)| t == id).map(|(_, c)| Symbol::Type(*c)).collect()
-        }
+        Symbol::Trait(id) => tables
+            .impls
+            .keys()
+            .filter(|(t, _)| t == id)
+            .map(|(_, c)| Symbol::Type(*c))
+            .collect(),
         _ => Vec::new(),
     };
     items(analyzed, found)
@@ -132,7 +136,11 @@ fn items(analyzed: &Analyzed, symbols: Vec<Symbol>) -> Value {
         .collect();
     out.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
     out.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1 && a.2 == b.2);
-    Value::Array(out.into_iter().map(|(_, _, _, rendered)| rendered).collect())
+    Value::Array(
+        out.into_iter()
+            .map(|(_, _, _, rendered)| rendered)
+            .collect(),
+    )
 }
 
 /// One `TypeHierarchyItem`.
@@ -169,7 +177,10 @@ fn item(analyzed: &Analyzed, symbol: &Symbol) -> Option<Value> {
         ("uri", Value::str(&uri)),
         // The whole declaration, with the name inside it: the protocol asks
         // for both, and they differ.
-        ("range", convert::range(&file.text, symbols::declaration_extent(analyzed, symbol))),
+        (
+            "range",
+            convert::range(&file.text, symbols::declaration_extent(analyzed, symbol)),
+        ),
         ("selectionRange", convert::range(&file.text, selection)),
         // What the two walking requests resolve the item back from, since the
         // protocol hands them the item rather than a position.

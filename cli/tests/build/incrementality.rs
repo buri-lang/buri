@@ -29,7 +29,11 @@ fn keys(run: &Run) -> BTreeMap<String, String> {
             out.insert(format!("{} {}", f[1], f[2]), f[4].to_string());
         }
     }
-    assert!(!out.is_empty(), "no --explain lines in:\n{}", indent(&run.all()));
+    assert!(
+        !out.is_empty(),
+        "no --explain lines in:\n{}",
+        indent(&run.all())
+    );
     out
 }
 
@@ -66,7 +70,12 @@ export fn main(host: NodeHost): Result<(), Str> {{
 
 /// The same program, for a native output.
 fn native_program(answer: i32) -> String {
-    program(answer).replace("from \"node\" import { NodeHost };", "from \"native\" import { NativeHost };").replace("host: NodeHost", "host: NativeHost")
+    program(answer)
+        .replace(
+            "from \"node\" import { NodeHost };",
+            "from \"native\" import { NativeHost };",
+        )
+        .replace("host: NodeHost", "host: NativeHost")
 }
 
 /// A content-keyed cache must not be able to hold a wrong answer. This builds,
@@ -105,9 +114,10 @@ fn the_cache_cannot_serve_a_stale_answer() {
 #[test]
 fn an_import_no_rule_lists_cannot_serve_a_stale_answer() {
     let scratch = Scratch::repo("cache-unlisted");
-    let main = program(0)
-        .replace("fn answer(): Int { 0 }", "")
-        .replace("from \"core/io\"", "from \"//cmd/c/helper.buri\" import { answer };\nfrom \"core/io\"");
+    let main = program(0).replace("fn answer(): Int { 0 }", "").replace(
+        "from \"core/io\"",
+        "from \"//cmd/c/helper.buri\" import { answer };\nfrom \"core/io\"",
+    );
     scratch.binary_package("cmd/c", &main);
     scratch.write("cmd/c/helper.buri", "export fn answer(): Int { 1 }\n");
 
@@ -117,28 +127,49 @@ fn an_import_no_rule_lists_cannot_serve_a_stale_answer() {
 
     scratch.write("cmd/c/helper.buri", "export fn answer(): Int { 2 }\n");
     scratch.run(&["build", "//cmd/c"]).ok();
-    assert_eq!(scratch.exec_js("cmd/c").stdout, "answer=2\n", "the cache served a stale artifact");
+    assert_eq!(
+        scratch.exec_js("cmd/c").stdout,
+        "answer=2\n",
+        "the cache served a stale artifact"
+    );
     scratch.run(&["build", "//cmd/c"]).says("cached");
 }
 
 /// The same, for a native output, whose record is read before the front end.
 #[test]
 fn a_native_import_no_rule_lists_cannot_serve_a_stale_answer() {
-    let host = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let host = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     let scratch = Scratch::repo("cache-unlisted-native");
     scratch.write(
         "cmd/c/BUILD.buri",
-        &format!("binary {{\n  outputs: [{{ platform: \"native\", variant: \"{host}-{arch}\" }}]\n}}\n"),
+        &format!(
+            "binary {{\n  outputs: [{{ platform: \"native\", variant: \"{host}-{arch}\" }}]\n}}\n"
+        ),
     );
     let main = native_program(0)
         .replace("fn answer(): Int { 0 }", "")
-        .replace("from \"core/io\"", "from \"//cmd/c/helper.buri\" import { answer };\nfrom \"core/io\"");
+        .replace(
+            "from \"core/io\"",
+            "from \"//cmd/c/helper.buri\" import { answer };\nfrom \"core/io\"",
+        );
     scratch.write("cmd/c/main.buri", &main);
     scratch.write("cmd/c/helper.buri", "export fn answer(): Int { 1 }\n");
-    let exe = scratch.root.join(format!(".buri/out/native/{host}-{arch}/cmd/c/c"));
+    let exe = scratch
+        .root
+        .join(format!(".buri/out/native/{host}-{arch}/cmd/c/c"));
     let answer = || {
-        let out = std::process::Command::new(&exe).output().expect("the artifact runs");
+        let out = std::process::Command::new(&exe)
+            .output()
+            .expect("the artifact runs");
         String::from_utf8_lossy(&out.stdout).to_string()
     };
 
@@ -158,14 +189,25 @@ fn a_native_import_no_rule_lists_cannot_serve_a_stale_answer() {
 #[test]
 fn a_suite_reaching_a_module_no_rule_lists_cannot_serve_a_stale_verdict() {
     let scratch = Scratch::repo("suite-unlisted");
-    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
-    scratch.write("lib/a/lib.buri", "from \"//lib/a/helper.buri\" import { one };\nexport fn get(): Int { one() }\n");
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n  test { sources: [\"test/a.buri\"] }\n}\n",
+    );
+    scratch.write(
+        "lib/a/lib.buri",
+        "from \"//lib/a/helper.buri\" import { one };\nexport fn get(): Int { one() }\n",
+    );
     scratch.write(
         "lib/a/test/a.buri",
         "from \"//lib/a\" import { get };\nfrom \"core/testing/assert\" import * as assert;\n\n\
          test \"get\" {\n  assert.equal(get(), 1);\n}\n",
     );
-    let helper = |n: i32| scratch.write("lib/a/helper.buri", &format!("export fn one(): Int {{ {n} }}\n"));
+    let helper = |n: i32| {
+        scratch.write(
+            "lib/a/helper.buri",
+            &format!("export fn one(): Int {{ {n} }}\n"),
+        )
+    };
     helper(2);
     let run = scratch.run(&["test", "//lib/a"]);
     if run.stderr.contains("native-run-not-available") {
@@ -185,15 +227,26 @@ fn a_suite_reaching_a_module_no_rule_lists_cannot_serve_a_stale_verdict() {
 #[test]
 fn a_suite_reaching_a_library_it_does_not_declare_cannot_serve_a_stale_verdict() {
     let scratch = Scratch::repo("suite-undeclared");
-    scratch.write("lib/b/BUILD.buri", "library {\n  visibility: [\"//visibility:public\"]\n}\n");
-    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write(
+        "lib/b/BUILD.buri",
+        "library {\n  visibility: [\"//visibility:public\"]\n}\n",
+    );
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n  test { sources: [\"test/a.buri\"] }\n}\n",
+    );
     scratch.write("lib/a/lib.buri", "export fn unused(): Int { 0 }\n");
     scratch.write(
         "lib/a/test/a.buri",
         "from \"//lib/b\" import { one };\nfrom \"core/testing/assert\" import * as assert;\n\n\
          test \"one\" {\n  assert.equal(one(), 1);\n}\n",
     );
-    let library = |n: i32| scratch.write("lib/b/lib.buri", &format!("export fn one(): Int {{ {n} }}\n"));
+    let library = |n: i32| {
+        scratch.write(
+            "lib/b/lib.buri",
+            &format!("export fn one(): Int {{ {n} }}\n"),
+        )
+    };
     library(2);
     let run = scratch.run(&["test", "//lib/a"]);
     if run.stderr.contains("native-run-not-available") {
@@ -234,7 +287,10 @@ fn a_remembered_library_check_cannot_hide_an_error() {
     let public = "  visibility: [\"//visibility:public\"]\n";
     scratch.write("lib/a/BUILD.buri", &format!("library {{\n{public}}}\n"));
     scratch.write("lib/a/lib.buri", "export fn f(x: Int): Int { x }\n");
-    scratch.write("lib/b/BUILD.buri", &format!("library {{\n  dependencies: [\"//lib/a\"]\n{public}}}\n"));
+    scratch.write(
+        "lib/b/BUILD.buri",
+        &format!("library {{\n  dependencies: [\"//lib/a\"]\n{public}}}\n"),
+    );
     scratch.write(
         "lib/b/lib.buri",
         "from \"//lib/a\" import { f };\nfrom \"//lib/b/hidden.buri\" import { h };\nexport fn g(): Int { f(1) + h() }\n",
@@ -303,7 +359,12 @@ fn a_build_that_waited_for_the_cache_lock_keeps_the_cache() {
         .stdout
         .lines()
         .find_map(|l| l.strip_prefix("this executable: "))
-        .unwrap_or_else(|| panic!("`buri version --verbose` names no executable:\n{}", version.all()))
+        .unwrap_or_else(|| {
+            panic!(
+                "`buri version --verbose` names no executable:\n{}",
+                version.all()
+            )
+        })
         .to_string();
 
     scratch.write(".buri/cache/.lock", "");
@@ -333,9 +394,7 @@ fn rewriting_a_file_with_its_own_bytes_rebuilds_nothing() {
 
     let source = scratch.read("cmd/c/main.buri");
     scratch.write("cmd/c/main.buri", &source);
-    scratch
-        .run(&["build", "//cmd/c"])
-        .says("cached");
+    scratch.run(&["build", "//cmd/c"]).says("cached");
 
     // And `--force` is the way past it, so the cache is an optimisation rather
     // than something a user cannot get out from under.
@@ -439,11 +498,7 @@ fn editing_a_test_source_reaches_only_its_suite() {
     let before = keys(example.run(&["build", "//cmd/web", "--explain"]).ok());
     let suite_before = keys(example.run(&["test", "//lib/money", "--explain"]).ok());
 
-    example.edit(
-        "lib/money/test/cents.buri",
-        "test \"",
-        "test \"x ",
-    );
+    example.edit("lib/money/test/cents.buri", "test \"", "test \"x ");
     let run = example.run(&["build", "//cmd/web", "--explain"]);
     run.ok();
 
@@ -545,7 +600,11 @@ fn a_test_suite_is_cached_and_force_re_runs_it() {
 
     // And the negative twin, from each of the two directions a suite's key can
     // move: the code under test, and the suite's own source.
-    example.edit("lib/money/cents.buri", "let whole = self.0 / 100;", "let whole = (self.0) / 100;");
+    example.edit(
+        "lib/money/cents.buri",
+        "let whole = self.0 / 100;",
+        "let whole = (self.0) / 100;",
+    );
     let edited = example.run(&["test", "//lib/money", "--explain"]);
     edited.ok();
     assert_eq!(
@@ -589,15 +648,27 @@ fn editing_a_test_only_dependency_re_runs_the_suite() {
         "lib/helper/BUILD.buri",
         "library {\n    sources: [\"h.buri\"]\n    visibility: [\"//...\"]\n}\n",
     );
-    scratch.write("lib/helper/lib.buri", "from \"//lib/helper/h.buri\" export { double };\n");
-    scratch.write("lib/helper/h.buri", "export fn double(n: I64): I64 { n * 2 }\n");
+    scratch.write(
+        "lib/helper/lib.buri",
+        "from \"//lib/helper/h.buri\" export { double };\n",
+    );
+    scratch.write(
+        "lib/helper/h.buri",
+        "export fn double(n: I64): I64 { n * 2 }\n",
+    );
     scratch.write(
         "lib/subject/BUILD.buri",
         "library {\n    sources: [\"x.buri\"]\n\n    test {\n        sources: \
          [\"test/x.buri\"]\n        dependencies: [\"//lib/helper\"]\n    }\n}\n",
     );
-    scratch.write("lib/subject/lib.buri", "from \"//lib/subject/x.buri\" export { triple };\n");
-    scratch.write("lib/subject/x.buri", "export fn triple(n: I64): I64 { n * 3 }\n");
+    scratch.write(
+        "lib/subject/lib.buri",
+        "from \"//lib/subject/x.buri\" export { triple };\n",
+    );
+    scratch.write(
+        "lib/subject/x.buri",
+        "export fn triple(n: I64): I64 { n * 3 }\n",
+    );
     scratch.write(
         "lib/subject/test/x.buri",
         "from \"//lib/subject\" import { triple };\nfrom \"//lib/helper\" import { double };\n\
@@ -608,11 +679,20 @@ fn editing_a_test_only_dependency_re_runs_the_suite() {
     let first = scratch.run(&["test", "//lib/subject", "--explain"]);
     first.ok();
     assert_eq!(status(&first, "test //lib/subject"), "run");
-    assert_eq!(status(&scratch.run(&["test", "//lib/subject", "--explain"]), "test //lib/subject"), "cached");
+    assert_eq!(
+        status(
+            &scratch.run(&["test", "//lib/subject", "--explain"]),
+            "test //lib/subject"
+        ),
+        "cached"
+    );
 
     // `double` now answers something else, so `triple(2) == double(3)` is
     // false. A suite served from the cache would still say it passed.
-    scratch.write("lib/helper/h.buri", "export fn double(n: I64): I64 { n * 5 }\n");
+    scratch.write(
+        "lib/helper/h.buri",
+        "export fn double(n: I64): I64 { n * 5 }\n",
+    );
     let edited = scratch.run(&["test", "//lib/subject", "--explain"]);
     assert_eq!(
         status(&edited, "test //lib/subject"),
@@ -661,7 +741,10 @@ fn an_unchanged_program_schedules_the_same_way_twice_and_is_cached() {
         "library {\n    sources: [\"fan.buri\"]\n    visibility: [\"//...\"]\n\n    test {\n        \
          sources: [\"test/fan.buri\"]\n    }\n}\n",
     );
-    scratch.write("lib/fan/lib.buri", "from \"//lib/fan/fan.buri\" export { labelled };\n");
+    scratch.write(
+        "lib/fan/lib.buri",
+        "from \"//lib/fan/fan.buri\" export { labelled };\n",
+    );
     scratch.write(
         "lib/fan/fan.buri",
         "from \"platform/effect\" import { Allocator, Tasks };\n\
@@ -689,7 +772,10 @@ fn an_unchanged_program_schedules_the_same_way_twice_and_is_cached() {
         "library {\n    sources: [\"w.buri\"]\n\n    test {\n        sources: \
          [\"test/w.buri\"]\n        dependencies: [\"//lib/fan\"]\n    }\n}\n",
     );
-    scratch.write("lib/wobble/lib.buri", "from \"//lib/wobble/w.buri\" export { nothing };\n");
+    scratch.write(
+        "lib/wobble/lib.buri",
+        "from \"//lib/wobble/w.buri\" export { nothing };\n",
+    );
     scratch.write("lib/wobble/w.buri", "export fn nothing(): Int { 0 }\n");
     scratch.write(
         "lib/wobble/test/w.buri",
@@ -706,7 +792,9 @@ fn an_unchanged_program_schedules_the_same_way_twice_and_is_cached() {
     assert_eq!(status(&first, "test //lib/fan"), "run");
     let report = failures(&first);
     assert!(
-        report.iter().any(|l| l.contains("replay it with `tasks().seed(")),
+        report
+            .iter()
+            .any(|l| l.contains("replay it with `tasks().seed(")),
         "a failure under anyOrder did not name a seed:\n{}",
         indent(&first.all())
     );
@@ -816,9 +904,14 @@ fn a_filter_skips_a_suite_it_leaves_no_test_in_without_compiling_it() {
     for (name, body) in [("good", "1"), ("broken", "\"not a number\"")] {
         scratch.write(
             &format!("lib/{name}/BUILD.buri"),
-            &format!("library {{\n    test {{\n        sources: [\"test/{name}.buri\"]\n    }}\n}}\n"),
+            &format!(
+                "library {{\n    test {{\n        sources: [\"test/{name}.buri\"]\n    }}\n}}\n"
+            ),
         );
-        scratch.write(&format!("lib/{name}/lib.buri"), &format!("export fn one(): Int {{\n    {body}\n}}\n"));
+        scratch.write(
+            &format!("lib/{name}/lib.buri"),
+            &format!("export fn one(): Int {{\n    {body}\n}}\n"),
+        );
         scratch.write(
             &format!("lib/{name}/test/{name}.buri"),
             &format!(
@@ -828,12 +921,25 @@ fn a_filter_skips_a_suite_it_leaves_no_test_in_without_compiling_it() {
         );
     }
     for extra in [&[][..], &["--output=js"][..]] {
-        let args: Vec<&str> = ["test", "//...", "--filter=good"].iter().chain(extra).copied().collect();
+        let args: Vec<&str> = ["test", "//...", "--filter=good"]
+            .iter()
+            .chain(extra)
+            .copied()
+            .collect();
         let run = scratch.run(&args);
-        run.ok().says("1 passed, 0 failed, 1 skipped").silent_about("error");
+        run.ok()
+            .says("1 passed, 0 failed, 1 skipped")
+            .silent_about("error");
     }
-    scratch.edit("lib/broken/test/broken.buri", "test \"broken", "test broken \"");
-    scratch.run(&["test", "//...", "--filter=good"]).exits(1).says("error");
+    scratch.edit(
+        "lib/broken/test/broken.buri",
+        "test \"broken",
+        "test broken \"",
+    );
+    scratch
+        .run(&["test", "//...", "--filter=good"])
+        .exits(1)
+        .says("error");
 }
 
 /// A JavaScript suite run again from its cached build leaves a bundle that
@@ -841,7 +947,10 @@ fn a_filter_skips_a_suite_it_leaves_no_test_in_without_compiling_it() {
 #[test]
 fn a_rerun_bundle_is_left_alone_only_when_it_holds_the_same_bytes() {
     let scratch = Scratch::repo("bundle-left-alone");
-    scratch.write("lib/n/BUILD.buri", "library {\n    test {\n        sources: [\"test/n.buri\"]\n    }\n}\n");
+    scratch.write(
+        "lib/n/BUILD.buri",
+        "library {\n    test {\n        sources: [\"test/n.buri\"]\n    }\n}\n",
+    );
     scratch.write("lib/n/lib.buri", "export fn one(): Int {\n    1\n}\n");
     scratch.write(
         "lib/n/test/n.buri",
@@ -853,7 +962,11 @@ fn a_rerun_bundle_is_left_alone_only_when_it_holds_the_same_bytes() {
     let bundle = scratch.path(".buri/out/node/lib/n/test-library.mjs");
     let written = std::fs::metadata(&bundle).unwrap().modified().unwrap();
     scratch.run(&args).ok().says("1 passed");
-    assert_eq!(std::fs::metadata(&bundle).unwrap().modified().unwrap(), written, "an identical bundle was rewritten");
+    assert_eq!(
+        std::fs::metadata(&bundle).unwrap().modified().unwrap(),
+        written,
+        "an identical bundle was rewritten"
+    );
 
     std::fs::write(&bundle, "throw new Error(\"stale\");\n").unwrap();
     scratch.run(&args).ok().says("1 passed");
@@ -870,7 +983,10 @@ fn a_failing_suite_and_an_edited_one_each_run_their_own_runner() {
             &format!("lib/{s}/BUILD.buri"),
             &format!("library {{\n    test {{\n        sources: [\"test/{s}.buri\"]\n    }}\n}}\n"),
         );
-        scratch.write(&format!("lib/{s}/lib.buri"), "export fn same(k: Int): Int {\n    k\n}\n");
+        scratch.write(
+            &format!("lib/{s}/lib.buri"),
+            "export fn same(k: Int): Int {\n    k\n}\n",
+        );
     }
     let asserting = |s: &str, k: u32, want: u32| {
         scratch.write(
@@ -889,7 +1005,12 @@ fn a_failing_suite_and_an_edited_one_each_run_their_own_runner() {
         let run = scratch.run_with_env(&["test", "//..."], &env);
         run.exits(1).says("FAIL //lib/f");
         let e_fails = run.stdout.contains("FAIL //lib/e");
-        assert_eq!(e_fails, k != want, "edit {k} of //lib/e reported the wrong verdict:\n{}", indent(&run.all()));
+        assert_eq!(
+            e_fails,
+            k != want,
+            "edit {k} of //lib/e reported the wrong verdict:\n{}",
+            indent(&run.all())
+        );
     }
 }
 
@@ -917,9 +1038,13 @@ fn failing_suites_beside_edited_runner_mates_each_report_their_own_code() {
     };
     // Two runners, `server` and `client`, each with a failing suite after its first.
     let mut now = std::collections::BTreeMap::new();
-    let suites = [("a", "server", 0, 0), ("d", "server", 10, 11), ("e", "server", 0, 0)]
-        .into_iter()
-        .chain([("b", "client", 0, 0), ("c", "client", 20, 21)]);
+    let suites = [
+        ("a", "server", 0, 0),
+        ("d", "server", 10, 11),
+        ("e", "server", 0, 0),
+    ]
+    .into_iter()
+    .chain([("b", "client", 0, 0), ("c", "client", 20, 21)]);
     for (s, tag, k, want) in suites {
         scratch.write(
             &format!("lib/{s}/BUILD.buri"),
@@ -927,21 +1052,31 @@ fn failing_suites_beside_edited_runner_mates_each_report_their_own_code() {
                 "library {{\n    tags: [\"{tag}\"]\n    test {{\n        sources: [\"test/{s}.buri\"]\n    }}\n}}\n"
             ),
         );
-        scratch.write(&format!("lib/{s}/lib.buri"), "export fn same(k: Int): Int {\n    k\n}\n");
+        scratch.write(
+            &format!("lib/{s}/lib.buri"),
+            "export fn same(k: Int): Int {\n    k\n}\n",
+        );
         asserting(s, k, want);
         now.insert(s, (k, want));
     }
     // Each failing suite says so, with the value its code now computes.
-    let holds = |run: &Run, now: &std::collections::BTreeMap<&str, (u32, u32)>, filter: Option<&str>| {
-        for (s, &(k, want)) in now {
-            let ran = filter.is_none_or(|f| f == *s);
-            let fails = run.stdout.contains(&format!("FAIL //lib/{s} "));
-            assert_eq!(fails, ran && k != want, "//lib/{s} got the wrong verdict:\n{}", indent(&run.all()));
-            if fails {
-                run.says(&format!("lib/{s}/test/{s}.buri:4:1")).says(&format!("actual:   {k}\n"));
+    let holds =
+        |run: &Run, now: &std::collections::BTreeMap<&str, (u32, u32)>, filter: Option<&str>| {
+            for (s, &(k, want)) in now {
+                let ran = filter.is_none_or(|f| f == *s);
+                let fails = run.stdout.contains(&format!("FAIL //lib/{s} "));
+                assert_eq!(
+                    fails,
+                    ran && k != want,
+                    "//lib/{s} got the wrong verdict:\n{}",
+                    indent(&run.all())
+                );
+                if fails {
+                    run.says(&format!("lib/{s}/test/{s}.buri:4:1"))
+                        .says(&format!("actual:   {k}\n"));
+                }
             }
-        }
-    };
+        };
     let all = ["test", "//..."];
     let edits = [("e", 1, 1), ("e", 2, 2), ("e", 3, 4), ("e", 4, 4)]
         .into_iter()
@@ -953,10 +1088,19 @@ fn failing_suites_beside_edited_runner_mates_each_report_their_own_code() {
         holds(scratch.run(&all).exits(1), &now, None);
     }
     for _ in 0..2 {
-        holds(scratch.run(&["test", "//...", "--filter=d holds"]).exits(1), &now, Some("d"));
+        holds(
+            scratch.run(&["test", "//...", "--filter=d holds"]).exits(1),
+            &now,
+            Some("d"),
+        );
     }
     holds(scratch.run(&all).exits(1), &now, None);
-    for (s, k, want, exit) in [("c", 23, 23, 1), ("d", 11, 11, 0), ("e", 5, 5, 0), ("a", 6, 7, 1)] {
+    for (s, k, want, exit) in [
+        ("c", 23, 23, 1),
+        ("d", 11, 11, 0),
+        ("e", 5, 5, 0),
+        ("a", 6, 7, 1),
+    ] {
         asserting(s, k, want);
         now.insert(s, (k, want));
         holds(scratch.run(&all).exits(exit), &now, None);
@@ -986,12 +1130,22 @@ fn failing_suites_beside_edited_runner_mates_each_report_their_own_code() {
 /// made. What is missing here is the wiring, not the behaviour.
 #[test]
 fn a_native_build_re_emits_the_unit_an_edit_landed_in() {
-    let host = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let host = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     let scratch = Scratch::repo("explain-native");
     scratch.write(
         "cmd/c/BUILD.buri",
-        &format!("binary {{\n  outputs: [{{ platform: \"native\", variant: \"{host}-{arch}\" }}]\n}}\n"),
+        &format!(
+            "binary {{\n  outputs: [{{ platform: \"native\", variant: \"{host}-{arch}\" }}]\n}}\n"
+        ),
     );
     scratch.write("cmd/c/main.buri", &native_program(1));
 
@@ -1004,7 +1158,9 @@ fn a_native_build_re_emits_the_unit_an_edit_landed_in() {
         // here rather than in a golden file nobody reran.
         first.exits(1);
         assert!(
-            first.stderr.contains(&format!("the {host} backend is not implemented")),
+            first
+                .stderr
+                .contains(&format!("the {host} backend is not implemented")),
             "a native output was refused in words nothing pins:\n{}",
             indent(&first.all())
         );
@@ -1023,14 +1179,22 @@ fn a_native_build_re_emits_the_unit_an_edit_landed_in() {
         .filter(|l| l.split_whitespace().nth(1) == Some("codegen"))
         .map(|l| l.to_string())
         .collect();
-    assert!(!units.is_empty(), "a native build reported no codegen action:\n{}", indent(&first.all()));
+    assert!(
+        !units.is_empty(),
+        "a native build reported no codegen action:\n{}",
+        indent(&first.all())
+    );
 
     // Nothing edited: every unit is served from the cache and the link is
     // skipped entirely, which is the case a watch loop hits on every keystroke
     // inside a comment.
     let again = scratch.run(&["build", "//cmd/c", &selector, "--explain"]);
     again.ok();
-    for line in again.stdout.lines().filter(|l| l.split_whitespace().nth(1) == Some("codegen")) {
+    for line in again
+        .stdout
+        .lines()
+        .filter(|l| l.split_whitespace().nth(1) == Some("codegen"))
+    {
         assert!(
             line.starts_with("cached"),
             "an unchanged unit was re-emitted:\n{}",
@@ -1050,7 +1214,12 @@ fn a_native_build_re_emits_the_unit_an_edit_landed_in() {
         .filter(|l| l.split_whitespace().nth(1) == Some("codegen"))
         .filter(|l| l.starts_with("run"))
         .count();
-    assert_eq!(ran, 1, "an edit reached {ran} units rather than one:\n{}", indent(&edited.all()));
+    assert_eq!(
+        ran,
+        1,
+        "an edit reached {ran} units rather than one:\n{}",
+        indent(&edited.all())
+    );
     assert_eq!(status(&edited, "link //cmd/c"), "run");
 }
 
@@ -1164,8 +1333,16 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// move it.
 #[test]
 fn an_incremental_rebuild_after_a_dependency_struct_changes_shape_is_not_miscompiled() {
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     let host = format!("\"native\", variant: \"{os}-{arch}\"");
     let scratch = Scratch::repo("shape-change");
 
@@ -1206,8 +1383,7 @@ fn an_incremental_rebuild_after_a_dependency_struct_changes_shape_is_not_miscomp
     // before the fix: same answer shape, one fewer field, and the incremental
     // binary aborts in libmalloc at exit (or segfaults in the copy walk).
     scratch.write("libs/state/held.buri", SHAPE_HELD_ONE_FIELD);
-    let incremental =
-        scratch.run_with_env(&["run", "//apps/app"], &[("BURI_RT_HEAP_REPORT", "1")]);
+    let incremental = scratch.run_with_env(&["run", "//apps/app"], &[("BURI_RT_HEAP_REPORT", "1")]);
     incremental
         .ok()
         .says("open 1")
@@ -1249,11 +1425,19 @@ fn a_suite_naming_the_host_platform_runs_natively() {
         return;
     }
     first.ok();
-    assert_eq!(first.tests_passed(), 1, "a native suite ran no tests:\n{}", indent(&first.all()));
+    assert_eq!(
+        first.tests_passed(),
+        1,
+        "a native suite ran no tests:\n{}",
+        indent(&first.all())
+    );
     // The objects and the link are the build's actions, reported under the
     // platform the suite named rather than under `js`.
     assert!(
-        first.stdout.lines().any(|l| l.split_whitespace().nth(1) == Some("codegen")),
+        first
+            .stdout
+            .lines()
+            .any(|l| l.split_whitespace().nth(1) == Some("codegen")),
         "a native suite reported no codegen action:\n{}",
         indent(&first.all())
     );
@@ -1308,7 +1492,10 @@ fn a_suite_naming_the_host_platform_runs_natively() {
 #[test]
 fn a_suite_naming_no_platform_runs_natively() {
     let scratch = Scratch::repo("default-backend");
-    scratch.write("lib/n/BUILD.buri", "library {\n  test {\n    sources: [\"test/n.buri\"]\n  }\n}\n");
+    scratch.write(
+        "lib/n/BUILD.buri",
+        "library {\n  test {\n    sources: [\"test/n.buri\"]\n  }\n}\n",
+    );
     scratch.write("lib/n/lib.buri", "export fn answer(): Int { 21 }\n");
     scratch.write(
         "lib/n/test/n.buri",
@@ -1323,11 +1510,21 @@ fn a_suite_naming_no_platform_runs_natively() {
         // whole answer: nothing ran, and in particular nothing ran on
         // JavaScript.
         run.exits(1);
-        assert_eq!(run.tests_passed(), 0, "a refused suite still ran:\n{}", indent(&run.all()));
+        assert_eq!(
+            run.tests_passed(),
+            0,
+            "a refused suite still ran:\n{}",
+            indent(&run.all())
+        );
         return;
     }
     run.ok();
-    assert_eq!(run.tests_passed(), 1, "the default backend ran no tests:\n{}", indent(&run.all()));
+    assert_eq!(
+        run.tests_passed(),
+        1,
+        "the default backend ran no tests:\n{}",
+        indent(&run.all())
+    );
     assert_ne!(
         platform_of(&run, "test //lib/n"),
         "node",
@@ -1335,7 +1532,9 @@ fn a_suite_naming_no_platform_runs_natively() {
         indent(&run.all())
     );
     assert!(
-        run.stdout.lines().any(|l| l.split_whitespace().nth(1) == Some("codegen")),
+        run.stdout
+            .lines()
+            .any(|l| l.split_whitespace().nth(1) == Some("codegen")),
         "a suite reported a native platform and no codegen action:\n{}",
         indent(&run.all())
     );
@@ -1400,7 +1599,10 @@ fn a_suite_naming_no_platform_runs_natively() {
 #[test]
 fn a_release_run_this_toolchain_cannot_produce_is_refused() {
     let scratch = Scratch::repo("release-backend");
-    scratch.write("lib/n/BUILD.buri", "library {\n  test {\n    sources: [\"test/n.buri\"]\n  }\n}\n");
+    scratch.write(
+        "lib/n/BUILD.buri",
+        "library {\n  test {\n    sources: [\"test/n.buri\"]\n  }\n}\n",
+    );
     scratch.write("lib/n/lib.buri", "export fn answer(): Int { 21 }\n");
     scratch.write(
         "lib/n/test/n.buri",
@@ -1453,7 +1655,10 @@ fn a_release_run_this_toolchain_cannot_produce_is_refused() {
 #[test]
 fn a_suite_the_native_backend_cannot_compile_is_refused() {
     let scratch = Scratch::repo("native-gap");
-    scratch.write("lib/g/BUILD.buri", "library {\n  test {\n    sources: [\"test/g.buri\"]\n  }\n}\n");
+    scratch.write(
+        "lib/g/BUILD.buri",
+        "library {\n  test {\n    sources: [\"test/g.buri\"]\n  }\n}\n",
+    );
     scratch.write("lib/g/lib.buri", "export fn nothing(): Int { 0 }\n");
     scratch.write(
         "lib/g/test/g.buri",
@@ -1495,7 +1700,12 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
     );
     let named = scratch.run(&["test", "//lib/g"]);
     named.ok();
-    assert_eq!(named.tests_passed(), 1, "the named platform ran no tests:\n{}", indent(&named.all()));
+    assert_eq!(
+        named.tests_passed(),
+        1,
+        "the named platform ran no tests:\n{}",
+        indent(&named.all())
+    );
 }
 
 /// The platform an `--explain` row names, which is its fourth field.
@@ -1570,7 +1780,11 @@ fn a_dependency_reaches_its_dependent_as_a_key_and_not_as_contents() {
     let example = Scratch::copy_of("explain-dep-keys", &example_repo());
     let before = keys(example.run(&["build", "//cmd/web", "--explain"]).ok());
 
-    example.edit("lib/money/cents.buri", "let whole = self.0 / 100;", "let whole = (self.0) / 100;");
+    example.edit(
+        "lib/money/cents.buri",
+        "let whole = self.0 / 100;",
+        "let whole = (self.0) / 100;",
+    );
     let after = keys(example.run(&["build", "//cmd/web", "--explain"]).ok());
 
     // The dependency moved, and the artifact that links it moved with it.
@@ -1613,7 +1827,10 @@ fn a_suite_is_keyed_on_the_key_of_what_it_tests() {
         "from \"//lib/n\" import { twice };\nfrom \"core/testing/assert\" import * as assert;\n\ntest \"twice\" {\n  assert.equal(twice(), 42);\n}\n",
     );
     // An unrelated package: nothing depends on it and it depends on nothing.
-    scratch.write("lib/m/BUILD.buri", "library {\n  test { sources: [\"test/m.buri\"] }\n}\n");
+    scratch.write(
+        "lib/m/BUILD.buri",
+        "library {\n  test { sources: [\"test/m.buri\"] }\n}\n",
+    );
     scratch.write("lib/m/lib.buri", "export fn one(): Int { 1 }\n");
     scratch.write(
         "lib/m/test/m.buri",
@@ -1659,7 +1876,10 @@ fn suite_package(scratch: &Scratch, name: &str, tags: &str) {
         &format!("lib/{name}/BUILD.buri"),
         &format!("library {{\n{tags}  test {{ sources: [\"test/{name}.buri\"] }}\n}}\n"),
     );
-    scratch.write(&format!("lib/{name}/lib.buri"), "export fn one(): Int { 1 }\n");
+    scratch.write(
+        &format!("lib/{name}/lib.buri"),
+        "export fn one(): Int { 1 }\n",
+    );
     scratch.write(
         &format!("lib/{name}/test/{name}.buri"),
         &format!(
@@ -1716,18 +1936,35 @@ fn suites_share_a_binary_only_where_their_tags_allow_it() {
         return;
     }
     run.ok();
-    assert_eq!(run.tests_passed(), 4, "a batched run lost a test:\n{}", indent(&run.all()));
+    assert_eq!(
+        run.tests_passed(),
+        4,
+        "a batched run lost a test:\n{}",
+        indent(&run.all())
+    );
     // Every suite is still its own `test` action, batched or not — that is the
     // cache statement, and it is per suite whatever produced the verdict.
-    assert_eq!(rows(&run, "test").len(), 4, "a suite lost its own action:\n{}", indent(&run.all()));
+    assert_eq!(
+        rows(&run, "test").len(),
+        4,
+        "a suite lost its own action:\n{}",
+        indent(&run.all())
+    );
 
     let links = rows(&run, "link");
-    assert!(!links.is_empty(), "a native pass linked nothing:\n{}", indent(&run.all()));
+    assert!(
+        !links.is_empty(),
+        "a native pass linked nothing:\n{}",
+        indent(&run.all())
+    );
     let shared = links
         .iter()
         .find(|l| l.contains("//lib/a") && l.contains("//lib/b") && l.contains("//lib/c"))
         .unwrap_or_else(|| {
-            panic!("three compatible suites did not share a binary:\n{}", indent(&run.all()))
+            panic!(
+                "three compatible suites did not share a binary:\n{}",
+                indent(&run.all())
+            )
         });
     assert!(
         !shared.contains("//lib/d"),
@@ -1765,7 +2002,10 @@ fn a_batched_verdict_is_cached_and_invalidated_one_suite_at_a_time() {
     let again = scratch.run(&["test", "//...", "--explain"]);
     again.ok();
     assert_eq!(
-        (status(&again, "test //lib/a"), status(&again, "test //lib/b")),
+        (
+            status(&again, "test //lib/a"),
+            status(&again, "test //lib/b")
+        ),
         ("cached".to_string(), "cached".to_string()),
         "a verdict produced in a batch was not served from its suite's key:\n{}",
         indent(&again.all())
@@ -1776,7 +2016,10 @@ fn a_batched_verdict_is_cached_and_invalidated_one_suite_at_a_time() {
     edited.ok();
     assert_eq!(edited.tests_passed(), 2);
     assert_eq!(
-        (status(&edited, "test //lib/a"), status(&edited, "test //lib/b")),
+        (
+            status(&edited, "test //lib/a"),
+            status(&edited, "test //lib/b")
+        ),
         ("run".to_string(), "cached".to_string()),
         "an edit to one suite reached the other's verdict:\n{}",
         indent(&edited.all())
@@ -1829,7 +2072,11 @@ fn one_suites_failure_leaves_the_others_reported() {
             status(&again, "test //lib/b"),
             status(&again, "test //lib/c")
         ),
-        ("cached".to_string(), "run".to_string(), "cached".to_string()),
+        (
+            "cached".to_string(),
+            "run".to_string(),
+            "cached".to_string()
+        ),
         "a failing suite's neighbours were not cached, or the failure was:\n{}",
         indent(&again.all())
     );
@@ -1870,13 +2117,25 @@ fn a_failing_suite_runs_again_without_being_built_again() {
         return;
     }
     first.exits(1);
-    assert_eq!(status(&first, "build //lib/a"), "run", "{}", indent(&first.all()));
-    assert!(report(&first).contains("FAIL //lib/a"), "{}", indent(&first.all()));
+    assert_eq!(
+        status(&first, "build //lib/a"),
+        "run",
+        "{}",
+        indent(&first.all())
+    );
+    assert!(
+        report(&first).contains("FAIL //lib/a"),
+        "{}",
+        indent(&first.all())
+    );
 
     let again = scratch.run(&["test", "//lib/a", "--explain"]);
     again.exits(1);
     assert_eq!(
-        (status(&again, "test //lib/a"), status(&again, "build //lib/a")),
+        (
+            status(&again, "test //lib/a"),
+            status(&again, "build //lib/a")
+        ),
         ("run".to_string(), "cached".to_string()),
         "a failing suite was not run again from the binary it already had:\n{}",
         indent(&again.all())
@@ -1886,13 +2145,22 @@ fn a_failing_suite_runs_again_without_being_built_again() {
         "an unedited failing suite was built again:\n{}",
         indent(&again.all())
     );
-    assert_eq!(report(&again), report(&first), "the failure read differently the second time");
+    assert_eq!(
+        report(&again),
+        report(&first),
+        "the failure read differently the second time"
+    );
 
     let source = scratch.read("lib/a/test/a.buri");
     scratch.write("lib/a/test/a.buri", &format!("// The one test.\n{source}"));
     let commented = scratch.run(&["test", "//lib/a", "--explain"]);
     commented.exits(1);
-    assert_eq!(status(&commented, "build //lib/a"), "cached", "{}", indent(&commented.all()));
+    assert_eq!(
+        status(&commented, "build //lib/a"),
+        "cached",
+        "{}",
+        indent(&commented.all())
+    );
     assert!(
         rows(&commented, "link").is_empty() && rows(&commented, "codegen").is_empty(),
         "a comment edit built the failing suite again:\n{}",
@@ -1908,14 +2176,28 @@ fn a_failing_suite_runs_again_without_being_built_again() {
     let fixed = scratch.run(&["test", "//lib/a", "--explain"]);
     fixed.ok();
     assert_eq!(fixed.tests_passed(), 1, "{}", indent(&fixed.all()));
-    assert_eq!(status(&fixed, "build //lib/a"), "run", "{}", indent(&fixed.all()));
+    assert_eq!(
+        status(&fixed, "build //lib/a"),
+        "run",
+        "{}",
+        indent(&fixed.all())
+    );
 
     // And a passing suite is what it always was: a cached verdict, and no
     // build to look up at all.
     let passing = scratch.run(&["test", "//lib/a", "--explain"]);
     passing.ok();
-    assert_eq!(status(&passing, "test //lib/a"), "cached", "{}", indent(&passing.all()));
-    assert!(rows(&passing, "build").is_empty(), "{}", indent(&passing.all()));
+    assert_eq!(
+        status(&passing, "test //lib/a"),
+        "cached",
+        "{}",
+        indent(&passing.all())
+    );
+    assert!(
+        rows(&passing, "build").is_empty(),
+        "{}",
+        indent(&passing.all())
+    );
 }
 
 /// A suite that doesn't compile says the same thing the second time, without
@@ -1928,9 +2210,18 @@ fn a_suite_that_does_not_compile_says_so_again_without_being_checked() {
 
     let first = scratch.run(&["test", "//lib/a", "--explain"]);
     first.exits(1);
-    assert_eq!(status(&first, "build //lib/a"), "run", "{}", indent(&first.all()));
+    assert_eq!(
+        status(&first, "build //lib/a"),
+        "run",
+        "{}",
+        indent(&first.all())
+    );
     assert!(first.stderr.contains("missing"), "{}", indent(&first.all()));
-    assert!(first.stdout.contains("1 failed to compile"), "{}", indent(&first.all()));
+    assert!(
+        first.stdout.contains("1 failed to compile"),
+        "{}",
+        indent(&first.all())
+    );
 
     let again = scratch.run(&["test", "//lib/a", "--explain"]);
     again.exits(1);
@@ -1940,13 +2231,25 @@ fn a_suite_that_does_not_compile_says_so_again_without_being_checked() {
         "a suite that did not compile was checked again:\n{}",
         indent(&again.all())
     );
-    assert_eq!(again.stderr, first.stderr, "the errors read differently the second time");
-    assert!(again.stdout.contains("1 failed to compile"), "{}", indent(&again.all()));
+    assert_eq!(
+        again.stderr, first.stderr,
+        "the errors read differently the second time"
+    );
+    assert!(
+        again.stdout.contains("1 failed to compile"),
+        "{}",
+        indent(&again.all())
+    );
 
     scratch.write("lib/a/lib.buri", "export fn one(): Int { absent() }\n");
     let edited = scratch.run(&["test", "//lib/a", "--explain"]);
     edited.exits(1);
-    assert_eq!(status(&edited, "build //lib/a"), "run", "{}", indent(&edited.all()));
+    assert_eq!(
+        status(&edited, "build //lib/a"),
+        "run",
+        "{}",
+        indent(&edited.all())
+    );
     assert!(
         edited.stderr.contains("absent") && !edited.stderr.contains("missing"),
         "the edit was not checked:\n{}",
@@ -1979,26 +2282,40 @@ fn failing_suites_that_shared_a_binary_run_in_it_again() {
     let again = scratch.run(&["test", "//...", "--explain"]);
     again.exits(1);
     assert_eq!(
-        (status(&again, "build //lib/a"), status(&again, "build //lib/b")),
+        (
+            status(&again, "build //lib/a"),
+            status(&again, "build //lib/b")
+        ),
         ("cached".to_string(), "cached".to_string()),
         "{}",
         indent(&again.all())
     );
     assert_eq!(
-        (status(&again, "test //lib/a"), status(&again, "test //lib/b"), status(&again, "test //lib/c")),
+        (
+            status(&again, "test //lib/a"),
+            status(&again, "test //lib/b"),
+            status(&again, "test //lib/c")
+        ),
         ("run".to_string(), "run".to_string(), "cached".to_string()),
         "{}",
         indent(&again.all())
     );
     assert!(rows(&again, "link").is_empty(), "{}", indent(&again.all()));
     assert_eq!(again.tests_passed(), 1, "{}", indent(&again.all()));
-    assert_eq!(report(&again), report(&first), "the failures read differently the second time");
+    assert_eq!(
+        report(&again),
+        report(&first),
+        "the failures read differently the second time"
+    );
 
     scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
     let edited = scratch.run(&["test", "//...", "--explain"]);
     edited.exits(1);
     assert_eq!(
-        (status(&edited, "build //lib/a"), status(&edited, "build //lib/b")),
+        (
+            status(&edited, "build //lib/a"),
+            status(&edited, "build //lib/b")
+        ),
         ("run".to_string(), "cached".to_string()),
         "{}",
         indent(&edited.all())
@@ -2028,41 +2345,90 @@ fn a_failing_javascript_suite_runs_again_without_being_built_again() {
 
     let first = scratch.run(&["test", "//lib/a", "--explain"]);
     first.exits(1);
-    assert_eq!(status(&first, "build //lib/a"), "run", "{}", indent(&first.all()));
-    assert!(report(&first).contains("FAIL //lib/a"), "{}", indent(&first.all()));
+    assert_eq!(
+        status(&first, "build //lib/a"),
+        "run",
+        "{}",
+        indent(&first.all())
+    );
+    assert!(
+        report(&first).contains("FAIL //lib/a"),
+        "{}",
+        indent(&first.all())
+    );
 
     let again = scratch.run(&["test", "//lib/a", "--explain"]);
     again.exits(1);
     assert_eq!(
-        (status(&again, "test //lib/a"), status(&again, "build //lib/a")),
+        (
+            status(&again, "test //lib/a"),
+            status(&again, "build //lib/a")
+        ),
         ("run".to_string(), "cached".to_string()),
         "a failing suite was not run again from the bundle it already had:\n{}",
         indent(&again.all())
     );
-    assert_eq!(report(&again), report(&first), "the failure read differently the second time");
+    assert_eq!(
+        report(&again),
+        report(&first),
+        "the failure read differently the second time"
+    );
 
     scratch.write("lib/a/lib.buri", "export fn one(): Int { 3 }\n");
     let edited = scratch.run(&["test", "//lib/a", "--explain"]);
     edited.exits(1);
-    assert_eq!(status(&edited, "build //lib/a"), "run", "{}", indent(&edited.all()));
+    assert_eq!(
+        status(&edited, "build //lib/a"),
+        "run",
+        "{}",
+        indent(&edited.all())
+    );
     let actual = |run: &Run| {
-        run.stdout.lines().find_map(|l| l.trim().strip_prefix("actual:").map(|v| v.trim().to_string()))
+        run.stdout.lines().find_map(|l| {
+            l.trim()
+                .strip_prefix("actual:")
+                .map(|v| v.trim().to_string())
+        })
     };
-    assert_eq!(actual(&first).as_deref(), Some("2"), "{}", indent(&first.all()));
-    assert_eq!(actual(&edited).as_deref(), Some("3"), "the edit was not built:\n{}", indent(&edited.all()));
+    assert_eq!(
+        actual(&first).as_deref(),
+        Some("2"),
+        "{}",
+        indent(&first.all())
+    );
+    assert_eq!(
+        actual(&edited).as_deref(),
+        Some("3"),
+        "the edit was not built:\n{}",
+        indent(&edited.all())
+    );
 
     scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
     let fixed = scratch.run(&["test", "//lib/a", "--explain"]);
     fixed.ok();
     assert_eq!(fixed.tests_passed(), 1, "{}", indent(&fixed.all()));
-    assert_eq!(status(&fixed, "build //lib/a"), "run", "{}", indent(&fixed.all()));
+    assert_eq!(
+        status(&fixed, "build //lib/a"),
+        "run",
+        "{}",
+        indent(&fixed.all())
+    );
 
     // And a passing suite is what it always was: a cached verdict, and no
     // build to look up at all.
     let passing = scratch.run(&["test", "//lib/a", "--explain"]);
     passing.ok();
-    assert_eq!(status(&passing, "test //lib/a"), "cached", "{}", indent(&passing.all()));
-    assert!(rows(&passing, "build").is_empty(), "{}", indent(&passing.all()));
+    assert_eq!(
+        status(&passing, "test //lib/a"),
+        "cached",
+        "{}",
+        indent(&passing.all())
+    );
+    assert!(
+        rows(&passing, "build").is_empty(),
+        "{}",
+        indent(&passing.all())
+    );
 }
 
 /// A package whose one suite paints a picture and compares it with the golden
@@ -2073,7 +2439,10 @@ fn painting_package(scratch: &Scratch, name: &str) {
         &format!("lib/{name}/BUILD.buri"),
         &format!("library {{\n  sources: []\n  test {{ sources: [\"test/{name}.buri\"] }}\n}}\n"),
     );
-    scratch.write(&format!("lib/{name}/lib.buri"), "// The package is its suite and nothing else.\n");
+    scratch.write(
+        &format!("lib/{name}/lib.buri"),
+        "// The package is its suite and nothing else.\n",
+    );
     scratch.write(
         &format!("lib/{name}/test/{name}.buri"),
         &format!(
@@ -2118,7 +2487,9 @@ fn a_suite_that_paints_shares_a_binary_with_those_that_do_not() {
     recorded.ok();
     for name in ["one", "two"] {
         assert!(
-            scratch.path(&format!("lib/{name}/test/__snapshots__/panel.png")).is_file(),
+            scratch
+                .path(&format!("lib/{name}/test/__snapshots__/panel.png"))
+                .is_file(),
             "//lib/{name} did not record its golden in its own package:\n{}",
             indent(&recorded.all())
         );
@@ -2133,17 +2504,32 @@ fn a_suite_that_paints_shares_a_binary_with_those_that_do_not() {
         indent(&recorded.all())
     );
     assert!(
-        !links.iter().any(|l| l.contains("//lib/one") && l.contains("//lib/two")),
+        !links
+            .iter()
+            .any(|l| l.contains("//lib/one") && l.contains("//lib/two")),
         "two suites that paint into two directories shared a binary:\n{}",
         indent(&recorded.all())
     );
 
     let run = scratch.run(&["test", "//...", "--explain"]);
     run.ok();
-    assert_eq!(run.tests_passed(), 4, "a batched run lost a test:\n{}", indent(&run.all()));
-    assert!(rows(&run, "link").is_empty(), "the goldens rebuilt a binary:\n{}", indent(&run.all()));
+    assert_eq!(
+        run.tests_passed(),
+        4,
+        "a batched run lost a test:\n{}",
+        indent(&run.all())
+    );
+    assert!(
+        rows(&run, "link").is_empty(),
+        "the goldens rebuilt a binary:\n{}",
+        indent(&run.all())
+    );
 
-    scratch.edit("lib/two/test/two.buri", ".Const(\"two\")", ".Const(\"three\")");
+    scratch.edit(
+        "lib/two/test/two.buri",
+        ".Const(\"two\")",
+        ".Const(\"three\")",
+    );
     let edited = scratch.run(&["test", "//...", "--explain"]);
     edited.exits(1);
     assert!(
@@ -2167,14 +2553,27 @@ fn a_batch_too_large_for_one_binary_is_split() {
     suite_package(&scratch, "b", "");
     suite_package(&scratch, "c", "");
 
-    let run = scratch.run_with_env(&["test", "//...", "--explain"], &[("BURI_TEST_BATCH_BYTES", "1")]);
+    let run = scratch.run_with_env(
+        &["test", "//...", "--explain"],
+        &[("BURI_TEST_BATCH_BYTES", "1")],
+    );
     if run.stderr.contains("native-run-not-available") {
         run.exits(1);
         return;
     }
     run.ok();
-    assert_eq!(run.tests_passed(), 3, "a split batch lost a test:\n{}", indent(&run.all()));
-    assert_eq!(rows(&run, "test").len(), 3, "a suite lost its own action:\n{}", indent(&run.all()));
+    assert_eq!(
+        run.tests_passed(),
+        3,
+        "a split batch lost a test:\n{}",
+        indent(&run.all())
+    );
+    assert_eq!(
+        rows(&run, "test").len(),
+        3,
+        "a suite lost its own action:\n{}",
+        indent(&run.all())
+    );
     let links = rows(&run, "link");
     assert_eq!(
         links.len(),
@@ -2191,7 +2590,12 @@ fn a_batch_too_large_for_one_binary_is_split() {
     suite_package(&shared, "c", "");
     let run = shared.run(&["test", "//...", "--explain"]);
     run.ok();
-    assert_eq!(rows(&run, "link").len(), 1, "three small suites did not share:\n{}", indent(&run.all()));
+    assert_eq!(
+        rows(&run, "link").len(),
+        1,
+        "three small suites did not share:\n{}",
+        indent(&run.all())
+    );
 }
 
 /// A test binary that cannot start is one failure, and is started once.
@@ -2217,7 +2621,10 @@ fn a_batch_too_large_for_one_binary_is_split() {
 fn a_test_binary_that_cannot_start_is_reported_once() {
     let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
     let scratch = Scratch::repo("binary-cannot-start");
-    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n  test { sources: [\"test/a.buri\"] }\n}\n",
+    );
     scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
     scratch.write(
         "lib/a/test/a.buri",
@@ -2247,7 +2654,10 @@ echo \"dyld[1]: Library not loaded: /usr/lib/libSystem.B.dylib\" >&2\\nkill -ABR
         ),
     );
 
-    let run = scratch.run_with_env(&["test", "//lib/a"], &[("CC", &driver.display().to_string()), LINKED]);
+    let run = scratch.run_with_env(
+        &["test", "//lib/a"],
+        &[("CC", &driver.display().to_string()), LINKED],
+    );
     if run.stderr.contains("native-run-not-available") {
         run.exits(1);
         return;
@@ -2276,7 +2686,9 @@ echo \"dyld[1]: Library not loaded: /usr/lib/libSystem.B.dylib\" >&2\\nkill -ABR
 fn unshared_bytes(dir: &std::path::Path) -> u64 {
     use std::os::unix::fs::MetadataExt;
     let mut total = 0;
-    let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let meta = std::fs::symlink_metadata(&path).unwrap();
@@ -2312,7 +2724,11 @@ fn a_link_directory_costs_no_more_disk_than_the_cache() {
     }
     run.ok();
     let link = scratch.path(".buri/link");
-    assert!(link.is_dir(), "a native run linked nothing:\n{}", indent(&run.all()));
+    assert!(
+        link.is_dir(),
+        "a native run linked nothing:\n{}",
+        indent(&run.all())
+    );
     let unshared = unshared_bytes(&link);
     assert!(
         unshared < 64 * 1024,
@@ -2320,13 +2736,18 @@ fn a_link_directory_costs_no_more_disk_than_the_cache() {
     );
 
     // A directory a different toolchain left behind.
-    scratch.write(".buri/link/0000-left-by-another-toolchain/libburi_rt.a", "stale");
+    scratch.write(
+        ".buri/link/0000-left-by-another-toolchain/libburi_rt.a",
+        "stale",
+    );
     scratch.write(".buri/cache/.toolchain", "another toolchain");
     let again = scratch.run_with_env(&["test", "//..."], &[LINKED]);
     again.ok();
     assert_eq!(again.tests_passed(), 2);
     assert!(
-        !scratch.path(".buri/link/0000-left-by-another-toolchain").exists(),
+        !scratch
+            .path(".buri/link/0000-left-by-another-toolchain")
+            .exists(),
         "a link directory outlived the toolchain that made it"
     );
 }
@@ -2353,7 +2774,13 @@ fn library_package(scratch: &Scratch, path: &str, exports: &str, deps: &str, sou
 /// Three libraries: a leaf, a dependent of it, and a stranger to both.
 fn three_libraries(name: &str) -> Scratch {
     let scratch = Scratch::repo(name);
-    library_package(&scratch, "lib/money", "cents", "", "export fn cents(): I64 { 1 }\n");
+    library_package(
+        &scratch,
+        "lib/money",
+        "cents",
+        "",
+        "export fn cents(): I64 { 1 }\n",
+    );
     library_package(
         &scratch,
         "lib/ledger",
@@ -2361,7 +2788,13 @@ fn three_libraries(name: &str) -> Scratch {
         "    dependencies: [\"//lib/money\"]\n",
         "from \"//lib/money\" import { cents };\n\nexport fn total(): I64 { cents() }\n",
     );
-    library_package(&scratch, "lib/kit", "one", "", "export fn one(): I64 { 1 }\n");
+    library_package(
+        &scratch,
+        "lib/kit",
+        "one",
+        "",
+        "export fn one(): I64 { 1 }\n",
+    );
     scratch
 }
 
@@ -2375,7 +2808,11 @@ fn a_lint_re_analyses_only_the_targets_an_edit_can_reach() {
     let first = scratch.run(&["lint", "//...", "--explain"]);
     first.ok();
     for label in ["//lib/money", "//lib/ledger", "//lib/kit"] {
-        assert_eq!(status(&first, &format!("lint {label}")), "run", "{label} came from nowhere");
+        assert_eq!(
+            status(&first, &format!("lint {label}")),
+            "run",
+            "{label} came from nowhere"
+        );
     }
 
     let again = scratch.run(&["lint", "//...", "--explain"]);
@@ -2415,14 +2852,23 @@ fn a_lint_re_analyses_only_the_targets_an_edit_can_reach() {
 fn clean_drops_the_lint_records() {
     let scratch = three_libraries("lint-clean");
     scratch.run(&["lint", "//..."]).ok();
-    scratch.run(&["lint", "//...", "--explain"]).ok().says("cached lint");
+    scratch
+        .run(&["lint", "//...", "--explain"])
+        .ok()
+        .says("cached lint");
 
     scratch.run(&["clean"]).ok();
-    assert!(!scratch.path(".buri/cache").exists(), "clean left the cache behind");
+    assert!(
+        !scratch.path(".buri/cache").exists(),
+        "clean left the cache behind"
+    );
 
     // And the run after it re-analyses everything, which is what makes the
     // directory being gone mean the records are.
-    scratch.run(&["lint", "//...", "--explain"]).ok().silent_about("cached lint");
+    scratch
+        .run(&["lint", "//...", "--explain"])
+        .ok()
+        .silent_about("cached lint");
 }
 
 /// A record this binary cannot read is a miss.
@@ -2457,7 +2903,9 @@ fn a_lint_record_this_toolchain_cannot_read_is_a_miss() {
 }
 
 fn cache_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.filter_map(Result::ok) {
         let path = entry.path();
         if path.is_dir() {
@@ -2488,8 +2936,15 @@ fn fail_on_finding_reaches_a_cached_finding() {
 
     let warm = scratch.run(&["lint", "//...", "--explain"]);
     warm.exits(1);
-    assert_eq!(status(&warm, "lint //lib/kit"), "cached", "the finding was not a cached one");
-    assert_eq!(warm.stderr, cold.stderr, "a cached finding was not promoted");
+    assert_eq!(
+        status(&warm, "lint //lib/kit"),
+        "cached",
+        "the finding was not a cached one"
+    );
+    assert_eq!(
+        warm.stderr, cold.stderr,
+        "a cached finding was not promoted"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -2505,8 +2960,10 @@ fn fail_on_finding_reaches_a_cached_finding() {
 /// routes. `//lib/other` is on none of them.
 fn generated_repository(name: &str) -> Scratch {
     let scratch = Scratch::repo(name);
-    scratch
-        .write("lib/factor/BUILD.buri", "library {\n    visibility: [\"//visibility:public\"]\n}\n");
+    scratch.write(
+        "lib/factor/BUILD.buri",
+        "library {\n    visibility: [\"//visibility:public\"]\n}\n",
+    );
     scratch.write("lib/factor/lib.buri", "export fn factor(): Int { 2 }\n");
     scratch.write(
         "tools/gen/BUILD.buri",
@@ -2519,9 +2976,14 @@ fn generated_repository(name: &str) -> Scratch {
          visibility: [\"//visibility:public\"]\n}\n",
     );
     scratch.write("lib/wire/units.txt", "3\n");
-    scratch.write("lib/wire/lib.buri", "from \"//lib/wire/units\" export { width };\n");
-    scratch
-        .write("lib/other/BUILD.buri", "library {\n    visibility: [\"//visibility:public\"]\n}\n");
+    scratch.write(
+        "lib/wire/lib.buri",
+        "from \"//lib/wire/units\" export { width };\n",
+    );
+    scratch.write(
+        "lib/other/BUILD.buri",
+        "library {\n    visibility: [\"//visibility:public\"]\n}\n",
+    );
     scratch.write("lib/other/lib.buri", "export fn unrelated(): Int { 1 }\n");
     scratch.write(
         "cmd/app/BUILD.buri",
@@ -2566,8 +3028,11 @@ export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generat
 
 /// The programs the build has compiled tools to, one file per program key.
 fn tool_programs(scratch: &Scratch) -> Vec<std::path::PathBuf> {
-    let Ok(entries) = std::fs::read_dir(scratch.path(".buri/out/tools")) else { return Vec::new() };
-    let mut out: Vec<std::path::PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
+    let Ok(entries) = std::fs::read_dir(scratch.path(".buri/out/tools")) else {
+        return Vec::new();
+    };
+    let mut out: Vec<std::path::PathBuf> =
+        entries.filter_map(Result::ok).map(|e| e.path()).collect();
     out.sort();
     out
 }
@@ -2610,7 +3075,11 @@ fn a_generate_key_moves_with_the_input_the_tool_and_the_tools_own_dependency() {
         before["generate //lib/wire"], after["generate //lib/wire"],
         "editing an input did not move the generate key"
     );
-    assert_eq!(tool_programs(&scratch), tools, "editing an input rebuilt the tool");
+    assert_eq!(
+        tool_programs(&scratch),
+        tools,
+        "editing an input rebuilt the tool"
+    );
     scratch.run(&["run", "//cmd/app"]).ok().says("width=10");
 
     // The tool's own source. Both move, and no source of `//lib/wire` was
@@ -2618,7 +3087,11 @@ fn a_generate_key_moves_with_the_input_the_tool_and_the_tools_own_dependency() {
     let before = after;
     scratch.edit("tools/gen/tool.buri", "* factor()", "* factor() + 1");
     let after = keys(scratch.run(&["build", "//...", "--explain"]).ok());
-    assert_ne!(tool_programs(&scratch), tools, "editing the tool did not rebuild it");
+    assert_ne!(
+        tool_programs(&scratch),
+        tools,
+        "editing the tool did not rebuild it"
+    );
     assert_ne!(
         before["generate //lib/wire"], after["generate //lib/wire"],
         "editing the tool did not move the generate key"
@@ -2673,7 +3146,10 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// artifact is the ground truth; the incremental one has to match it exactly,
 /// edit for edit. See `blog/dev-mode-compilation-speed.md`, finding 5.
 fn incremental_vs_force(name: &str, before: &str, after: &str) {
-    assert_ne!(before, after, "{name}: the edit changed nothing, so it proves nothing");
+    assert_ne!(
+        before, after,
+        "{name}: the edit changed nothing, so it proves nothing"
+    );
 
     let scratch = Scratch::repo(name);
     scratch.binary_package("cmd/app", before);
@@ -2681,8 +3157,8 @@ fn incremental_vs_force(name: &str, before: &str, after: &str) {
 
     scratch.write("cmd/app/main.buri", after);
     scratch.run(&["build", "//cmd/app"]).ok();
-    let incremental = std::fs::read(scratch.artifact("cmd/app"))
-        .expect("the incremental build left an artifact");
+    let incremental =
+        std::fs::read(scratch.artifact("cmd/app")).expect("the incremental build left an artifact");
 
     scratch.run(&["build", "//cmd/app", "--force"]).ok();
     let forced =
@@ -2740,7 +3216,10 @@ fn a_signature_edit_rebuilds_to_the_force_artifact() {
             "fn scale(p: Point, k: Int): Int { p.x * k + p.y }",
             "fn scale(p: Point, k: Int, b: Int): Int { p.x * k + p.y + b }",
         )
-        .replace("scale(Point { x: 3, y: 4 }, 2)", "scale(Point { x: 3, y: 4 }, 2, 1)");
+        .replace(
+            "scale(Point { x: 3, y: 4 }, 2)",
+            "scale(Point { x: 3, y: 4 }, 2, 1)",
+        );
     incremental_vs_force("edit-signature", edit_base(), &after);
 }
 
@@ -2772,7 +3251,10 @@ fn removing_a_test_relinks_the_binary() {
         "library {\n    sources: [\"s.buri\"]\n\n    test {\n        sources: \
          [\"test/alpha.buri\", \"test/beta.buri\"]\n    }\n}\n",
     );
-    scratch.write("lib/suite/lib.buri", "from \"//lib/suite/s.buri\" export { two };\n");
+    scratch.write(
+        "lib/suite/lib.buri",
+        "from \"//lib/suite/s.buri\" export { two };\n",
+    );
     scratch.write("lib/suite/s.buri", "export fn two(): I64 { 2 }\n");
     // The entry lands in this source's unit, because it holds the first test.
     scratch.write(
@@ -2795,7 +3277,12 @@ fn removing_a_test_relinks_the_binary() {
 
     let first = scratch.run(&["test", "//lib/suite"]);
     first.ok();
-    assert_eq!(first.tests_passed(), 3, "the suite did not run:\n{}", indent(&first.all()));
+    assert_eq!(
+        first.tests_passed(),
+        3,
+        "the suite did not run:\n{}",
+        indent(&first.all())
+    );
 
     // The removed test's function is in `beta.buri`; `alpha.buri`'s own
     // functions do not change, so its object — the one carrying the entry — was
@@ -2882,7 +3369,12 @@ fn a_cached_pass_does_not_outlive_an_edit_to_its_golden() {
     scratch.run(&["test", "//lib/pic"]).ok();
     let warm = scratch.run(&["test", "//lib/pic", "--explain"]);
     warm.ok();
-    assert_eq!(status(&warm, "test //lib/pic"), "cached", "{}", indent(&warm.all()));
+    assert_eq!(
+        status(&warm, "test //lib/pic"),
+        "cached",
+        "{}",
+        indent(&warm.all())
+    );
 
     // Not goldens: a note beside them, and a file elsewhere in the package.
     scratch.write("lib/pic/test/__snapshots__/NOTES.txt", "not a golden\n");
@@ -2897,8 +3389,11 @@ fn a_cached_pass_does_not_outlive_an_edit_to_its_golden() {
     );
 
     // Edited: the golden now holds a different picture.
-    std::fs::copy(scratch.path("lib/decoy/test/__snapshots__/panel.png"), scratch.path(golden))
-        .expect("overwriting the golden");
+    std::fs::copy(
+        scratch.path("lib/decoy/test/__snapshots__/panel.png"),
+        scratch.path(golden),
+    )
+    .expect("overwriting the golden");
     let edited = scratch.run(&["test", "//lib/pic", "--explain"]);
     assert_eq!(
         status(&edited, "test //lib/pic"),
@@ -3008,9 +3503,21 @@ fn a_plain_run_never_serves_a_cached_pass_over_failing_content() {
     // catches it is a plain one served over a cache that held green a moment
     // before.
     for (file, from, to) in [
-        ("lib/formula/test/editor.buri", "assert.equal(half(10), 5)", "assert.equal(half(10), 6)"),
-        ("lib/formula/test/structure.buri", "assert.equal(addOne(5), 6)", "assert.equal(addOne(5), 7)"),
-        ("lib/formula/test/autocomplete.buri", "assert.equal(square(4), 16)", "assert.equal(square(4), 17)"),
+        (
+            "lib/formula/test/editor.buri",
+            "assert.equal(half(10), 5)",
+            "assert.equal(half(10), 6)",
+        ),
+        (
+            "lib/formula/test/structure.buri",
+            "assert.equal(addOne(5), 6)",
+            "assert.equal(addOne(5), 7)",
+        ),
+        (
+            "lib/formula/test/autocomplete.buri",
+            "assert.equal(square(4), 16)",
+            "assert.equal(square(4), 17)",
+        ),
     ] {
         s.edit(file, from, to);
         let run = s.run(&["test", "//lib/formula"]);
@@ -3042,8 +3549,14 @@ fn a_plain_run_never_serves_a_cached_pass_over_failing_content() {
             "library {\n    sources: [\"m.buri\"]\n    visibility: [\"//...\"]\n\n    test {\n        \
              sources: [\"test/t.buri\"]\n    }\n}\n",
         );
-        b.write(&format!("lib/{pkg}/lib.buri"), &format!("from \"//lib/{pkg}/m.buri\" export {{ f }};\n"));
-        b.write(&format!("lib/{pkg}/m.buri"), "export fn f(x: I64): I64 { x + 1 }\n");
+        b.write(
+            &format!("lib/{pkg}/lib.buri"),
+            &format!("from \"//lib/{pkg}/m.buri\" export {{ f }};\n"),
+        );
+        b.write(
+            &format!("lib/{pkg}/m.buri"),
+            "export fn f(x: I64): I64 { x + 1 }\n",
+        );
         b.write(
             &format!("lib/{pkg}/test/t.buri"),
             &format!(
@@ -3056,7 +3569,11 @@ fn a_plain_run_never_serves_a_cached_pass_over_failing_content() {
     b.run(&["test", "//..."]).ok();
     b.run(&["test", "//..."]).ok();
     // Falsify one batched member's test source, and the other member's library.
-    b.edit("lib/one/test/t.buri", "assert.equal(f(1), 2)", "assert.equal(f(1), 99)");
+    b.edit(
+        "lib/one/test/t.buri",
+        "assert.equal(f(1), 2)",
+        "assert.equal(f(1), 99)",
+    );
     b.run(&["test", "//..."]).exits(1);
     b.write("lib/two/m.buri", "export fn f(x: I64): I64 { x + 5 }\n");
     b.run(&["test", "//..."]).exits(1);
@@ -3096,7 +3613,10 @@ fn a_filtered_run_over_a_derived_ordered_suite_runs_rather_than_ices() {
             "library {\n    sources: [\"math.buri\"]\n    visibility: [\"//...\"]\n\n    test {\n        \
              sources: [\"test/a.buri\", \"test/b.buri\"]\n    }\n}\n",
         );
-        s.write(&format!("lib/{pkg}/lib.buri"), &format!("from \"//lib/{pkg}/math.buri\" export {{ Row, mk }};\n"));
+        s.write(
+            &format!("lib/{pkg}/lib.buri"),
+            &format!("from \"//lib/{pkg}/math.buri\" export {{ Row, mk }};\n"),
+        );
         s.write(
             &format!("lib/{pkg}/math.buri"),
             "from \"core/order\" import { Order };\n\nexport struct Row { rank: Int, label: Str }\n\

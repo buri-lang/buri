@@ -19,6 +19,10 @@
 //! of them should now import what is a judgement, and a server that guessed
 //! would be editing code nobody asked it to.
 
+use super::build_files::is_build_file;
+use super::convert;
+use super::links::inside_quotes;
+use super::state::State;
 use crate::build::regenerate;
 use crate::build::session::Session;
 use crate::build::textproto::{self, Document};
@@ -28,10 +32,6 @@ use crate::parsing::tree::Item;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use super::build_files::is_build_file;
-use super::convert;
-use super::links::inside_quotes;
-use super::state::State;
 
 /// The files these operations are about, and the ones the server asks to have
 /// watched.
@@ -105,10 +105,20 @@ pub fn will_create(state: &mut State, params: &Value) -> Option<Value> {
         if is_build_file(&path) {
             continue;
         }
-        let Some(session) = state.session_for(&path) else { continue };
-        let Some(place) = placement(&session, &path) else { continue };
-        let Some((rule, field)) = destination(&place) else { continue };
-        let change = Change::Added { rule, field, rel: place.rel.clone() };
+        let Some(session) = state.session_for(&path) else {
+            continue;
+        };
+        let Some(place) = placement(&session, &path) else {
+            continue;
+        };
+        let Some((rule, field)) = destination(&place) else {
+            continue;
+        };
+        let change = Change::Added {
+            rule,
+            field,
+            rel: place.rel.clone(),
+        };
         sources(state, &mut edits, &place.build_path, &change);
     }
     edits.finish()
@@ -124,7 +134,9 @@ pub fn will_rename(state: &mut State, params: &Value) -> Option<Value> {
         if is_build_file(&old) || is_build_file(&new) {
             continue;
         }
-        let Some(session) = state.session_for(&old) else { continue };
+        let Some(session) = state.session_for(&old) else {
+            continue;
+        };
         // Either end may be under no package: a file leaving every package is
         // a delete as far as its old list is concerned, and one arriving from
         // under none is a create as far as its new one is.
@@ -139,7 +151,10 @@ pub fn will_rename(state: &mut State, params: &Value) -> Option<Value> {
                     && listed_in(b).is_some()
                     && listed_in(b) == listed_in(a) =>
             {
-                let change = Change::Renamed { from: b.rel.clone(), to: a.rel.clone() };
+                let change = Change::Renamed {
+                    from: b.rel.clone(),
+                    to: a.rel.clone(),
+                };
                 sources(state, &mut edits, &b.build_path, &change);
             }
             _ => {
@@ -157,7 +172,11 @@ pub fn will_rename(state: &mut State, params: &Value) -> Option<Value> {
                 if let Some((a, (rule, field))) =
                     after.as_ref().and_then(|a| Some((a, destination(a)?)))
                 {
-                    let added = Change::Added { rule, field, rel: a.rel.clone() };
+                    let added = Change::Added {
+                        rule,
+                        field,
+                        rel: a.rel.clone(),
+                    };
                     sources(state, &mut edits, &a.build_path, &added);
                 }
             }
@@ -185,9 +204,15 @@ pub fn will_delete(state: &mut State, params: &Value) -> Option<Value> {
         if is_build_file(&path) {
             continue;
         }
-        let Some(session) = state.session_for(&path) else { continue };
-        let Some(place) = placement(&session, &path) else { continue };
-        let change = Change::Dropped { rel: place.rel.clone() };
+        let Some(session) = state.session_for(&path) else {
+            continue;
+        };
+        let Some(place) = placement(&session, &path) else {
+            continue;
+        };
+        let change = Change::Dropped {
+            rel: place.rel.clone(),
+        };
         sources(state, &mut edits, &place.build_path, &change);
     }
     edits.finish()
@@ -253,7 +278,12 @@ struct Placement {
 fn placement(session: &Session, path: &Path) -> Option<Placement> {
     let package = session.workspace.owning_package(path)?;
     let p = session.workspace.package(package);
-    let rel = path.strip_prefix(&p.dir).ok()?.display().to_string().replace('\\', "/");
+    let rel = path
+        .strip_prefix(&p.dir)
+        .ok()?
+        .display()
+        .to_string()
+        .replace('\\', "/");
     Some(Placement {
         build_path: p.build_path.clone(),
         module: crate::build::workspace::names_a_file(&rel)
@@ -278,7 +308,11 @@ fn placement(session: &Session, path: &Path) -> Option<Placement> {
 /// left for whoever writes the entry.
 fn destination(place: &Placement) -> Option<(&'static str, &'static [&'static str])> {
     let field = listed_in(place)?;
-    let rule = match (place.rel.starts_with("testing/"), place.has_library, place.has_binary) {
+    let rule = match (
+        place.rel.starts_with("testing/"),
+        place.has_library,
+        place.has_binary,
+    ) {
         // A `testing/` surface is a library's, and only a library declares one.
         (true, true, _) => "library",
         (true, false, _) => return None,
@@ -311,9 +345,18 @@ fn listed_in(place: &Placement) -> Option<&'static [&'static str]> {
 
 /// One change to a package's source lists.
 enum Change {
-    Added { rule: &'static str, field: &'static [&'static str], rel: String },
-    Renamed { from: String, to: String },
-    Dropped { rel: String },
+    Added {
+        rule: &'static str,
+        field: &'static [&'static str],
+        rel: String,
+    },
+    Renamed {
+        from: String,
+        to: String,
+    },
+    Dropped {
+        rel: String,
+    },
 }
 
 /// The `WorkspaceEdit` under construction.
@@ -334,17 +377,25 @@ impl Edits {
             if before == after {
                 continue;
             }
-            changes.entry(convert::uri_of(&path)).or_default().push(Value::object(vec![
-                ("range", super::whole(&before)),
-                ("newText", Value::str(after)),
-            ]));
+            changes
+                .entry(convert::uri_of(&path))
+                .or_default()
+                .push(Value::object(vec![
+                    ("range", super::whole(&before)),
+                    ("newText", Value::str(after)),
+                ]));
         }
         if changes.is_empty() {
             return None;
         }
         Some(Value::object(vec![(
             "changes",
-            Value::Object(changes.into_iter().map(|(k, v)| (k, Value::Array(v))).collect()),
+            Value::Object(
+                changes
+                    .into_iter()
+                    .map(|(k, v)| (k, Value::Array(v)))
+                    .collect(),
+            ),
         )]))
     }
 }
@@ -355,7 +406,9 @@ fn sources(state: &State, edits: &mut Edits, build_path: &Path, change: &Change)
     let current = match edits.build_files.entry(build_path.to_path_buf()) {
         Entry::Occupied(held) => &mut held.into_mut().1,
         Entry::Vacant(slot) => {
-            let Some(text) = state.text_of(build_path) else { return };
+            let Some(text) = state.text_of(build_path) else {
+                return;
+            };
             &mut slot.insert((text.clone(), text)).1
         }
     };
@@ -437,7 +490,9 @@ fn set(
 /// that file changes a path that never contained the file's name.
 fn imports(state: &mut State, renamed: &Path, to: &str, edits: &mut Edits) {
     for root in state.roots.clone() {
-        let Some(analyzed) = state.analyze_workspace(&root) else { continue };
+        let Some(analyzed) = state.analyze_workspace(&root) else {
+            continue;
+        };
         for module in &analyzed.analysis.loaded.modules {
             let file = analyzed.session.map.get(module.file);
             // A module generated from a schema has a `.proto` on disk and Buri
@@ -459,16 +514,20 @@ fn imports(state: &mut State, renamed: &Path, to: &str, edits: &mut Edits) {
                     continue;
                 }
                 let (start, end) = inside_quotes(span);
-                edits.imports.entry(uri.clone()).or_default().push(Value::object(vec![
-                    (
-                        "range",
-                        Value::object(vec![
-                            ("start", convert::position_of(&file.text, start).to_json()),
-                            ("end", convert::position_of(&file.text, end).to_json()),
-                        ]),
-                    ),
-                    ("newText", Value::str(to)),
-                ]));
+                edits
+                    .imports
+                    .entry(uri.clone())
+                    .or_default()
+                    .push(Value::object(vec![
+                        (
+                            "range",
+                            Value::object(vec![
+                                ("start", convert::position_of(&file.text, start).to_json()),
+                                ("end", convert::position_of(&file.text, end).to_json()),
+                            ]),
+                        ),
+                        ("newText", Value::str(to)),
+                    ]));
             }
         }
     }
@@ -480,7 +539,9 @@ fn imports(state: &mut State, renamed: &Path, to: &str, edits: &mut Edits) {
 
 /// The paths a `CreateFilesParams` or a `DeleteFilesParams` names.
 fn named(params: &Value, field: &str) -> Vec<PathBuf> {
-    let Some(items) = params.get("files").and_then(|f| f.as_array()) else { return Vec::new() };
+    let Some(items) = params.get("files").and_then(|f| f.as_array()) else {
+        return Vec::new();
+    };
     items
         .iter()
         .filter_map(|f| f.get(field))
@@ -491,12 +552,20 @@ fn named(params: &Value, field: &str) -> Vec<PathBuf> {
 
 /// The old-and-new pairs a `RenameFilesParams` names.
 fn pairs(params: &Value) -> Vec<(PathBuf, PathBuf)> {
-    let Some(items) = params.get("files").and_then(|f| f.as_array()) else { return Vec::new() };
+    let Some(items) = params.get("files").and_then(|f| f.as_array()) else {
+        return Vec::new();
+    };
     items
         .iter()
         .filter_map(|f| {
-            let old = f.get("oldUri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
-            let new = f.get("newUri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
+            let old = f
+                .get("oldUri")
+                .and_then(|u| u.as_str())
+                .and_then(convert::path_of)?;
+            let new = f
+                .get("newUri")
+                .and_then(|u| u.as_str())
+                .and_then(convert::path_of)?;
             Some((old, new))
         })
         .collect()
@@ -517,8 +586,14 @@ mod tests {
             has_library: library,
             has_binary: binary,
         };
-        assert_eq!(destination(&place("cents.buri", true, false)).map(|(r, _)| r), Some("library"));
-        assert_eq!(destination(&place("cents.buri", false, true)).map(|(r, _)| r), Some("binary"));
+        assert_eq!(
+            destination(&place("cents.buri", true, false)).map(|(r, _)| r),
+            Some("library")
+        );
+        assert_eq!(
+            destination(&place("cents.buri", false, true)).map(|(r, _)| r),
+            Some("binary")
+        );
         assert!(destination(&place("cents.buri", true, true)).is_none());
         assert!(destination(&place("lib.buri", true, false)).is_none());
         assert_eq!(

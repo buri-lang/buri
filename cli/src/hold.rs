@@ -30,14 +30,23 @@ pub struct Point {
 
 impl Point {
     pub const fn new(name: &'static str) -> Point {
-        Point { name, reached: AtomicUsize::new(0) }
+        Point {
+            name,
+            reached: AtomicUsize::new(0),
+        }
     }
 
     /// Waits for the test, and answers what it wrote: nothing without one.
     pub fn held(&self) -> Vec<u8> {
-        let Some(dir) = std::env::var_os(VARIABLE) else { return Vec::new() };
-        let n = self.reached.fetch_add(1, Ordering::Relaxed).saturating_add(1);
-        let Ok(mut file) = std::fs::File::open(std::path::Path::new(&dir).join(format!("{}-{n}", self.name)))
+        let Some(dir) = std::env::var_os(VARIABLE) else {
+            return Vec::new();
+        };
+        let n = self
+            .reached
+            .fetch_add(1, Ordering::Relaxed)
+            .saturating_add(1);
+        let Ok(mut file) =
+            std::fs::File::open(std::path::Path::new(&dir).join(format!("{}-{n}", self.name)))
         else {
             return Vec::new();
         };
@@ -64,6 +73,9 @@ impl Point {
 
     /// The nanoseconds the test wrote, or `measured` without them.
     pub fn time(&self, measured: u64) -> u64 {
-        String::from_utf8_lossy(&self.held()).trim().parse().unwrap_or(measured)
+        String::from_utf8_lossy(&self.held())
+            .trim()
+            .parse()
+            .unwrap_or(measured)
     }
 }

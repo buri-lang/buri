@@ -25,6 +25,10 @@ pub mod platforms {
     /// or an asset: `(platform, path, text)`.
     pub const FILES: &[(&str, &str, &str)] = &[
         ("web", "main.mjs", include_str!("platforms/web/main.mjs")),
-        ("web", "index.html", include_str!("platforms/web/index.html")),
+        (
+            "web",
+            "index.html",
+            include_str!("platforms/web/index.html"),
+        ),
     ];
 }

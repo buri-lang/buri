@@ -207,8 +207,7 @@ pub fn can_link(target: Target) -> bool {
 /// cross target and its runtime comes from [`runtime_cross`] instead. `arch:
 /// None` means the host's architecture, so it is a host target.
 pub fn is_host_target(target: Target) -> bool {
-    host_platform() == Some(target.platform)
-        && target.arch.is_none_or(|a| host_arch() == Some(a))
+    host_platform() == Some(target.platform) && target.arch.is_none_or(|a| host_arch() == Some(a))
 }
 
 // ---------------------------------------------------------------------------
@@ -307,12 +306,18 @@ pub fn runtime_archive_for(units: &[Emitted]) -> RuntimeArchive {
 fn mentions_runtime(haystack: &[u8]) -> bool {
     const PREFIX: &[u8] = runtime_native::SYMBOL_PREFIX.as_bytes();
     // Evaluated at compile time: an empty prefix fails the build, never a link.
-    const FIRST: u8 = *PREFIX.first().expect("the runtime's symbol prefix has a first byte");
+    const FIRST: u8 = *PREFIX
+        .first()
+        .expect("the runtime's symbol prefix has a first byte");
     haystack
         .iter()
         .enumerate()
         .filter(|(_, byte)| **byte == FIRST)
-        .any(|(i, _)| haystack.get(i..).is_some_and(|rest| rest.starts_with(PREFIX)))
+        .any(|(i, _)| {
+            haystack
+                .get(i..)
+                .is_some_and(|rest| rest.starts_with(PREFIX))
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -406,7 +411,11 @@ pub struct Refusal {
 
 impl Refusal {
     fn new(message: impl Into<String>, fix: impl Into<String>) -> Refusal {
-        Refusal { message: message.into(), notes: Vec::new(), fix: fix.into() }
+        Refusal {
+            message: message.into(),
+            notes: Vec::new(),
+            fix: fix.into(),
+        }
     }
 
     fn with_note(mut self, note: impl Into<String>) -> Refusal {
@@ -428,7 +437,6 @@ impl Refusal {
         out
     }
 }
-
 
 /// Which linker the C driver is told to run.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -577,7 +585,10 @@ impl Identity {
 /// [`probe_record`], and read back while every program is the same file it was.
 fn probe(programs: &[PathBuf]) -> String {
     let record = probe_record(programs);
-    if let Some(found) = record.as_ref().and_then(|r| std::fs::read_to_string(r).ok()) {
+    if let Some(found) = record
+        .as_ref()
+        .and_then(|r| std::fs::read_to_string(r).ok())
+    {
         if found.len() == 64 && found.bytes().all(|b| b.is_ascii_hexdigit()) {
             return found;
         }
@@ -641,7 +652,12 @@ fn probe_record(programs: &[PathBuf]) -> Option<PathBuf> {
     if let Ok(chosen) = std::fs::read_link("/var/db/xcode_select_link") {
         text.push_str(&format!("xcode-select={}\0", chosen.display()));
     }
-    Some(runtime_cross::buri_home().ok()?.join("linker-identity").join(hash_bytes(text.as_bytes())))
+    Some(
+        runtime_cross::buri_home()
+            .ok()?
+            .join("linker-identity")
+            .join(hash_bytes(text.as_bytes())),
+    )
 }
 
 /// A file's size, times and place on disk, as text.
@@ -663,7 +679,10 @@ fn file_identity(meta: &std::fs::Metadata) -> String {
 /// A file's size and modification time, as text.
 #[cfg(not(unix))]
 fn file_identity(meta: &std::fs::Metadata) -> String {
-    let modified = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok());
     format!("{} {:?}", meta.len(), modified)
 }
 
@@ -672,7 +691,11 @@ fn file_identity(meta: &std::fs::Metadata) -> String {
 /// next process asks again.
 fn remember(record: &Path, text: &str) {
     crate::build::create_parent(record);
-    let partial = record.with_file_name(format!(".partial-{}-{:?}", std::process::id(), std::thread::current().id()));
+    let partial = record.with_file_name(format!(
+        ".partial-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
     if std::fs::write(&partial, text).is_err() || std::fs::rename(&partial, record).is_err() {
         let _ = std::fs::remove_file(&partial);
     }
@@ -717,7 +740,9 @@ fn identity_of(flavour: Flavour, programs: Vec<PathBuf>) -> std::sync::Arc<Ident
         })
     };
     // Nothing panics while holding it, so it is never poisoned.
-    let mut table = PROBED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut table = PROBED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some((_, ready)) = table.iter().find(|(key, _)| *key == name) {
         return std::sync::Arc::clone(ready);
     }
@@ -733,7 +758,9 @@ fn identity_of(flavour: Flavour, programs: Vec<PathBuf>) -> std::sync::Arc<Ident
 /// whenever the exit came first, and the next process asked again. Joining
 /// costs nothing once the answer is remembered: the probe reads one file.
 pub fn settle() {
-    let table = PROBED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let table = PROBED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     for (_, identity) in table.iter() {
         let handle = identity.probe.lock().ok().and_then(|mut slot| slot.take());
         if let Some(Ok(hashed)) = handle.map(std::thread::JoinHandle::join) {
@@ -793,7 +820,11 @@ pub fn select(target: Target) -> Result<CDriver, Refusal> {
     let (driver, libc) = libc_for(target, driver)?;
     let flavour = choose(target.platform);
     let mut programs = vec![driver.clone()];
-    programs.extend(flavour.program(Some(target.platform)).and_then(spawn::resolve));
+    programs.extend(
+        flavour
+            .program(Some(target.platform))
+            .and_then(spawn::resolve),
+    );
     let version = identity_of(flavour, programs);
     Ok(CDriver {
         dir: PathBuf::new(),
@@ -852,7 +883,11 @@ fn select_cross(target: Target, driver: PathBuf) -> Result<CDriver, Refusal> {
     // `PATH` probe the host path uses.
     match &lld_dir {
         Some(dir) => programs.push(dir.join("ld.lld")),
-        None => programs.extend(flavour.program(Some(target.platform)).and_then(spawn::resolve)),
+        None => programs.extend(
+            flavour
+                .program(Some(target.platform))
+                .and_then(spawn::resolve),
+        ),
     }
     let version = identity_of(flavour, programs);
     Ok(CDriver {
@@ -908,7 +943,9 @@ fn choose(platform: Platform) -> Flavour {
 /// program's own path in its place, so the field is never silently empty.
 fn version_of(program: &Path) -> Option<String> {
     let out = spawn::output(Command::new(program).arg("--version")).ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 // ---------------------------------------------------------------------------
@@ -965,7 +1002,10 @@ impl LibcMode {
     /// Whether this link is hermetic, which is the question every caller
     /// outside this module is actually asking.
     pub fn is_musl(self) -> bool {
-        matches!(self, LibcMode::MuslBaked | LibcMode::MuslSystem | LibcMode::MuslCross)
+        matches!(
+            self,
+            LibcMode::MuslBaked | LibcMode::MuslSystem | LibcMode::MuslCross
+        )
     }
 }
 
@@ -1109,14 +1149,12 @@ fn forced_libc(value: &str) -> Result<Forced, Refusal> {
 /// [`Libc::Absent`] agrees with everything, because it is the answer of a
 /// toolchain with no archive at all: there is nothing for the link to
 /// contradict.
-fn agrees(
-    driver: PathBuf,
-    mode: LibcMode,
-    triple: &str,
-) -> Result<(PathBuf, LibcMode), Refusal> {
+fn agrees(driver: PathBuf, mode: LibcMode, triple: &str) -> Result<(PathBuf, LibcMode), Refusal> {
     match runtime_native::libc() {
-        Libc::Glibc => Err(refusal(triple)
-            .with_note("this toolchain's runtime archive was built against glibc")),
+        Libc::Glibc => {
+            Err(refusal(triple)
+                .with_note("this toolchain's runtime archive was built against glibc"))
+        }
         Libc::MuslBaked | Libc::MuslSystem | Libc::Absent => Ok((driver, mode)),
     }
 }
@@ -1166,11 +1204,19 @@ fn refusal(triple: &str) -> Refusal {
 fn accepts_target(driver: &Path, triple: &str) -> bool {
     static ASKED: std::sync::Mutex<Vec<(String, bool)>> = std::sync::Mutex::new(Vec::new());
     let name = format!("{}\u{0}{triple}", driver.display());
-    if let Some((_, answer)) = ASKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().find(|(key, _)| *key == name) {
+    if let Some((_, answer)) = ASKED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .find(|(key, _)| *key == name)
+    {
         return *answer;
     }
     let answer = probe_target(driver, triple);
-    ASKED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, answer));
+    ASKED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push((name, answer));
     answer
 }
 
@@ -1216,7 +1262,9 @@ fn system_musl(driver: &Path) -> Result<Option<PathBuf>, Refusal> {
     if host.status.success() && String::from_utf8_lossy(&host.stdout).contains("musl") {
         return Ok(Some(driver.to_path_buf()));
     }
-    Ok(["musl-clang", "musl-gcc"].iter().find_map(|name| spawn::resolve(name)))
+    Ok(["musl-clang", "musl-gcc"]
+        .iter()
+        .find_map(|name| spawn::resolve(name)))
 }
 
 /// Writes the baked musl sysroot into `<dir>/musl/lib`.
@@ -1244,7 +1292,13 @@ fn stage_baked(dir: &Path, store: Option<&Cache>, files: &[(&str, &[u8])]) -> st
     std::fs::create_dir_all(&lib)?;
     let digest = musl::sysroot_hash();
     for (name, bytes) in files {
-        stage_constant(store, &format!("musl sysroot {digest} {name}"), bytes, &lib.join(name), true)?;
+        stage_constant(
+            store,
+            &format!("musl sysroot {digest} {name}"),
+            bytes,
+            &lib.join(name),
+            true,
+        )?;
     }
     Ok(())
 }
@@ -1269,12 +1323,17 @@ fn stage_constant(
     dest: &Path,
     checked: bool,
 ) -> std::io::Result<()> {
-    let Some(cache) = store else { return replace_with(dest, bytes) };
+    let Some(cache) = store else {
+        return replace_with(dest, bytes);
+    };
     let key = ActionKey::of(name.as_bytes());
-    let entry = cache.entry(&key).filter(|entry| !checked || holds(entry, bytes)).or_else(|| {
-        cache.put(&key, bytes);
-        cache.entry(&key)
-    });
+    let entry = cache
+        .entry(&key)
+        .filter(|entry| !checked || holds(entry, bytes))
+        .or_else(|| {
+            cache.put(&key, bytes);
+            cache.entry(&key)
+        });
     match entry {
         Some(entry) => stage_from(&entry, dest),
         None => replace_with(dest, bytes),
@@ -1296,7 +1355,9 @@ fn holds(path: &Path, bytes: &[u8]) -> bool {
     }
     let same = std::fs::read(path).is_ok_and(|read| read == bytes);
     if same {
-        HELD.lock().map(|mut held| held.insert(path.to_path_buf())).ok();
+        HELD.lock()
+            .map(|mut held| held.insert(path.to_path_buf()))
+            .ok();
     }
     same
 }
@@ -1405,7 +1466,10 @@ impl CDriver {
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut name = self.dir.file_name().unwrap_or_default().to_os_string();
         name.push(format!(".{}.{n}", std::process::id()));
-        CDriver { dir: self.dir.with_file_name(name), ..self.clone() }
+        CDriver {
+            dir: self.dir.with_file_name(name),
+            ..self.clone()
+        }
     }
 
     /// Which libc this link will answer with.
@@ -1511,7 +1575,10 @@ impl CDriver {
             return Vec::new();
         }
         let mut flags: Vec<String> = Vec::new();
-        flags.push(format!("--target={}", crate::compiler::backend::linux_triple(self.target.arch)));
+        flags.push(format!(
+            "--target={}",
+            crate::compiler::backend::linux_triple(self.target.arch)
+        ));
         flags.push("-static-pie".into());
         flags.push("-nodefaultlibs".into());
         flags.push("-nostartfiles".into());
@@ -1553,7 +1620,10 @@ impl CDriver {
                 // are under (ARCHITECTURE.md §7): an absolute `-L` would put
                 // the checkout's path on the command line, and a command line
                 // is what `--check-reproducible` compares two of.
-                flags.push(format!("--target={}", crate::compiler::backend::linux_triple(self.target.arch)));
+                flags.push(format!(
+                    "--target={}",
+                    crate::compiler::backend::linux_triple(self.target.arch)
+                ));
                 flags.push("-B".into());
                 flags.push("musl/lib".into());
                 flags.push("-L".into());
@@ -1677,7 +1747,9 @@ impl CDriver {
             Ok(cc) => Some(format!("`CC={cc}`")),
             Err(_) => (!own).then(|| format!("`{}`", self.driver.display())),
         };
-        let forced = std::env::var("BURI_LINKER").ok().map(|l| format!("`BURI_LINKER={l}`"));
+        let forced = std::env::var("BURI_LINKER")
+            .ok()
+            .map(|l| format!("`BURI_LINKER={l}`"));
         match (driver, forced) {
             (Some(d), Some(f)) => Some(format!("{d} with {f}")),
             (one, other) => one.or(other),
@@ -1779,9 +1851,14 @@ impl CDriver {
                       only be unboxed again below"
         )]
         let staged: Vec<Result<PathBuf, Diagnostic>> = crate::parallel::map(units.len(), |i| {
-            #[expect(clippy::expect_used, reason = "`parallel::map` hands out indices below the length it was given")]
+            #[expect(
+                clippy::expect_used,
+                reason = "`parallel::map` hands out indices below the length it was given"
+            )]
             let unit = units.get(i).expect("each index is a unit's");
-            let path = self.object_path(&unit.name).or_ice("a backend names each unit as a filename");
+            let path = self
+                .object_path(&unit.name)
+                .or_ice("a backend names each unit as a filename");
             // The cache's own file, where it holds these bytes: the linker
             // reads it where it is, so a link directory costs the disk nothing
             // the cache has not already paid for, and a cold link makes no
@@ -1825,14 +1902,19 @@ impl CDriver {
         // come from `runtime_cross`'s `~/.buri` cache.
         let staged_sysroot = match (self.libc, &self.cross) {
             (LibcMode::MuslBaked, _) => stage_sysroot(&self.dir, self.store.as_ref()),
-            (LibcMode::MuslSystem, _) if musl::BAKED => stage_unwinder(&self.dir, self.store.as_ref()),
+            (LibcMode::MuslSystem, _) if musl::BAKED => {
+                stage_unwinder(&self.dir, self.store.as_ref())
+            }
             (LibcMode::MuslCross, Some(cross)) => stage_cross_sysroot(cross, &self.dir),
             _ => Ok(()),
         };
         if let Err(e) = staged_sysroot {
             diagnostics.push(Diagnostic::error(
                 Span::NONE,
-                format!("cannot write the musl sysroot into {}: {e}", self.dir.display()),
+                format!(
+                    "cannot write the musl sysroot into {}: {e}",
+                    self.dir.display()
+                ),
             ));
             return Err(diagnostics);
         }
@@ -1860,7 +1942,10 @@ impl CDriver {
                 (Some(cross), _) => stage_from(&cross.archive(), &archive),
                 (None, store) => stage_constant(
                     store.as_ref(),
-                    &format!("runtime archive {}", crate::build::actions::runtime_archive_hash()),
+                    &format!(
+                        "runtime archive {}",
+                        crate::build::actions::runtime_archive_hash()
+                    ),
                     runtime_native::ARCHIVE,
                     &archive,
                     // Reading its 19 MB costs a link about 5 ms.
@@ -1908,9 +1993,15 @@ impl CDriver {
             .iter()
             .map(|path| {
                 if path.parent() == Some(self.dir.as_path()) {
-                    path.file_name().unwrap_or(path.as_os_str()).to_string_lossy().into_owned()
+                    path.file_name()
+                        .unwrap_or(path.as_os_str())
+                        .to_string_lossy()
+                        .into_owned()
                 } else {
-                    std::path::absolute(path).unwrap_or_else(|_| path.clone()).to_string_lossy().into_owned()
+                    std::path::absolute(path)
+                        .unwrap_or_else(|_| path.clone())
+                        .to_string_lossy()
+                        .into_owned()
                 }
             })
             .collect();
@@ -2126,16 +2217,27 @@ impl Replay {
             return None;
         }
         let mut commands = stderr.lines().filter(|line| line.starts_with(" \""));
-        let (Some(line), None) = (commands.next(), commands.next()) else { return None };
+        let (Some(line), None) = (commands.next(), commands.next()) else {
+            return None;
+        };
         let mut argv = unquote(line)?.into_iter();
         let program = PathBuf::from(argv.next()?);
         let argv: Vec<String> = argv.collect();
         // At least one wide, so no objects at all match no window and are
         // refused like objects the driver split.
-        let mut at = argv.windows(objects.len().max(1)).enumerate().filter(|(_, w)| *w == objects);
-        let (Some((start, _)), None) = (at.next(), at.next()) else { return None };
+        let mut at = argv
+            .windows(objects.len().max(1))
+            .enumerate()
+            .filter(|(_, w)| *w == objects);
+        let (Some((start, _)), None) = (at.next(), at.next()) else {
+            return None;
+        };
         let (before, rest) = argv.split_at_checked(start)?;
-        Some(Replay { program, before: before.to_vec(), after: rest.get(objects.len()..)?.to_vec() })
+        Some(Replay {
+            program,
+            before: before.to_vec(),
+            after: rest.get(objects.len()..)?.to_vec(),
+        })
     }
 
     fn to_text(&self) -> String {
@@ -2152,7 +2254,11 @@ impl Replay {
         let fields: Vec<String> = fields.collect();
         let at = fields.iter().position(|f| f == OBJECTS)?;
         let (before, rest) = fields.split_at_checked(at)?;
-        Some(Replay { program, before: before.to_vec(), after: rest.get(1..)?.to_vec() })
+        Some(Replay {
+            program,
+            before: before.to_vec(),
+            after: rest.get(1..)?.to_vec(),
+        })
     }
 
     /// Whether this command can run without the driver around it.
@@ -2175,7 +2281,12 @@ impl Replay {
             .map(|d| d.to_string_lossy().into_owned())
             .filter(|d| !d.is_empty())
             .collect();
-        binary && !self.before.iter().chain(&self.after).any(|a| dirs.iter().any(|d| a.contains(d)))
+        binary
+            && !self
+                .before
+                .iter()
+                .chain(&self.after)
+                .any(|a| dirs.iter().any(|d| a.contains(d)))
     }
 }
 
@@ -2245,7 +2356,11 @@ impl CDriver {
             self.version(),
             self.link_identity(),
             runtime.is_linked(),
-            self.lld_dir.as_deref().map(Path::display).map(|d| d.to_string()).unwrap_or_default(),
+            self.lld_dir
+                .as_deref()
+                .map(Path::display)
+                .map(|d| d.to_string())
+                .unwrap_or_default(),
         );
         text.push_str(&shaping_environment());
         ActionKey::of(text.as_bytes())
@@ -2265,18 +2380,25 @@ impl CDriver {
         keep: bool,
     ) -> Option<Replay> {
         let key = self.replay_key(runtime);
-        let mut table = REPLAYS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut table = REPLAYS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some((_, known)) = table.iter().find(|(k, _)| k == key.as_str()) {
             return known.clone();
         }
         let record = replay_record(&key).filter(|_| keep);
-        let stored = record.as_ref().and_then(|r| std::fs::read_to_string(r).ok());
+        let stored = record
+            .as_ref()
+            .and_then(|r| std::fs::read_to_string(r).ok());
         let found = match stored {
             Some(text) => Replay::from_text(&text),
             None => {
                 let captured = self.capture(args, objects);
                 if let Some(record) = &record {
-                    remember(record, &captured.as_ref().map(Replay::to_text).unwrap_or_default());
+                    remember(
+                        record,
+                        &captured.as_ref().map(Replay::to_text).unwrap_or_default(),
+                    );
                 }
                 captured
             }
@@ -2301,7 +2423,9 @@ impl CDriver {
     /// says it was kept, between processes.
     pub fn forget_replay(&self, runtime: RuntimeArchive, keep: bool) {
         let key = self.replay_key(runtime);
-        let mut table = REPLAYS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut table = REPLAYS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         table.retain(|(k, _)| k != key.as_str());
         table.push((key.as_str().to_string(), None));
         drop(table);
@@ -2322,7 +2446,12 @@ impl CDriver {
 /// A link with the cache off keeps nothing between processes, as before, so
 /// [`CDriver::link`] asks for this only when it has a cache.
 fn replay_record(key: &ActionKey) -> Option<PathBuf> {
-    Some(runtime_cross::buri_home().ok()?.join("link-replay").join(key.as_str()))
+    Some(
+        runtime_cross::buri_home()
+            .ok()?
+            .join("link-replay")
+            .join(key.as_str()),
+    )
 }
 
 /// A linked artifact on disk, owned by this process until something takes it.
@@ -2395,7 +2524,8 @@ fn same_contents(a: &mut std::fs::File, b: &mut std::fs::File) -> std::io::Resul
 
 /// Whether `dest` already holds `src`'s bytes, so [`place_from`] would leave it alone.
 pub fn holds_same(src: &Path, dest: &Path) -> bool {
-    let (Ok(mut source), Ok(mut existing)) = (std::fs::File::open(src), std::fs::File::open(dest)) else {
+    let (Ok(mut source), Ok(mut existing)) = (std::fs::File::open(src), std::fs::File::open(dest))
+    else {
         return false;
     };
     // The lengths first, so a binary that moved isn't read.
@@ -2440,7 +2570,9 @@ pub fn place_from(src: &Path, dest: &Path) -> std::io::Result<u64> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(dest).map(|m| m.permissions().mode() & 0o777).unwrap_or(0);
+            let mode = std::fs::metadata(dest)
+                .map(|m| m.permissions().mode() & 0o777)
+                .unwrap_or(0);
             if mode != 0o755 {
                 std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o755))?;
             }
@@ -2463,7 +2595,10 @@ pub fn place_from(src: &Path, dest: &Path) -> std::io::Result<u64> {
 fn beside(dest: &Path) -> PathBuf {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let name = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = dest
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     dest.with_file_name(format!(".{name}.{}.{n}.partial", std::process::id()))
 }
 
@@ -2529,7 +2664,10 @@ pub fn run(
     publish(work.dir(), linker.dir());
     if let Err(mut diagnostics) = linked {
         // What a failure names is the directory a reader can still `cd` into.
-        let (from, to) = (work.dir().display().to_string(), linker.dir().display().to_string());
+        let (from, to) = (
+            work.dir().display().to_string(),
+            linker.dir().display().to_string(),
+        );
         for d in &mut diagnostics.items {
             d.message = d.message.replace(&from, &to);
             for note in &mut d.notes {
@@ -2542,16 +2680,24 @@ pub fn run(
     // directory, where the caller can move them from rather than write them
     // again. A caller that does not is a caller that drops this, and dropping
     // it is what removes the file — see [`Staged`].
-    Ok(Staged { path: work.claimed() })
+    Ok(Staged {
+        path: work.claimed(),
+    })
 }
 
 /// Empties a link directory taken over from the last link of its output, but
 /// for the objects this link names.
 fn keep_only_objects(dir: &Path, units: &[Emitted]) {
-    let names: std::collections::HashSet<&std::ffi::OsStr> =
-        units.iter().map(|u| std::ffi::OsStr::new(u.name.as_str())).collect();
+    let names: std::collections::HashSet<&std::ffi::OsStr> = units
+        .iter()
+        .map(|u| std::ffi::OsStr::new(u.name.as_str()))
+        .collect();
     // A directory that can't be read leaves nothing to empty.
-    for entry in std::fs::read_dir(dir).into_iter().flatten().filter_map(Result::ok) {
+    for entry in std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+    {
         let is_file = entry.file_type().is_ok_and(|t| t.is_file());
         if is_file && names.contains(entry.file_name().as_os_str()) {
             continue;
@@ -2586,8 +2732,16 @@ mod tests {
 
     fn rows() -> Vec<Row> {
         vec![
-            Row { unit: "core_list".into(), key: "3f9a1c2b8d4e".into(), cached: true },
-            Row { unit: "main".into(), key: "8b2e01f4c7a9".into(), cached: false },
+            Row {
+                unit: "core_list".into(),
+                key: "3f9a1c2b8d4e".into(),
+                cached: true,
+            },
+            Row {
+                unit: "main".into(),
+                key: "8b2e01f4c7a9".into(),
+                cached: false,
+            },
         ]
     }
 
@@ -2596,7 +2750,10 @@ mod tests {
     #[test]
     fn a_manifest_lines_up_its_rows() {
         let text = manifest_text(&rows());
-        assert_eq!(text, "core_list 3f9a1c2b8d4e cached\nmain      8b2e01f4c7a9 run\n");
+        assert_eq!(
+            text,
+            "core_list 3f9a1c2b8d4e cached\nmain      8b2e01f4c7a9 run\n"
+        );
     }
 
     /// Where a placement test works, named for the test so that two of them
@@ -2631,10 +2788,17 @@ mod tests {
         std::fs::write(&second, &b).expect("writing another source");
 
         let out = dir.join("artifact");
-        assert_eq!(place_from(&first, &out).expect("the first placement"), a.len() as u64);
+        assert_eq!(
+            place_from(&first, &out).expect("the first placement"),
+            a.len() as u64
+        );
         assert_eq!(std::fs::read(&out).expect("the output"), a);
         assert_eq!(
-            std::fs::metadata(&out).expect("the output").permissions().mode() & 0o777,
+            std::fs::metadata(&out)
+                .expect("the output")
+                .permissions()
+                .mode()
+                & 0o777,
             0o755,
             "a placed artifact is not executable"
         );
@@ -2642,16 +2806,26 @@ mod tests {
         // Held open the way a running program holds its executable.
         let mut held = std::fs::File::open(&out).expect("opening the output");
         let before = id(&out);
-        assert_eq!(place_from(&second, &out).expect("a second placement"), b.len() as u64);
+        assert_eq!(
+            place_from(&second, &out).expect("a second placement"),
+            b.len() as u64
+        );
         assert_ne!(id(&out), before, "new bytes were written into the old file");
         assert_eq!(std::fs::read(&out).expect("the output"), b);
-        assert_ne!(id(&out), id(&second), "the output is a hard link to its source");
+        assert_ne!(
+            id(&out),
+            id(&second),
+            "the output is a hard link to its source"
+        );
         let mut old = Vec::new();
         held.read_to_end(&mut old).expect("reading the old file");
         assert_eq!(old, a, "the old file changed under its reader");
 
         let settled = id(&out);
-        assert_eq!(place_from(&second, &out).expect("a settled placement"), b.len() as u64);
+        assert_eq!(
+            place_from(&second, &out).expect("a settled placement"),
+            b.len() as u64
+        );
         assert_eq!(id(&out), settled, "matching bytes replaced the file");
 
         let short = dir.join("short");
@@ -2661,10 +2835,19 @@ mod tests {
 
         let mut left: Vec<String> = std::fs::read_dir(&dir)
             .expect("listing the directory")
-            .map(|e| e.expect("an entry").file_name().to_string_lossy().into_owned())
+            .map(|e| {
+                e.expect("an entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
             .collect();
         left.sort();
-        assert_eq!(left, ["artifact", "first", "second", "short"], "a placement left a file behind");
+        assert_eq!(
+            left,
+            ["artifact", "first", "second", "short"],
+            "a placement left a file behind"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2699,11 +2882,23 @@ mod tests {
     #[test]
     fn a_runtime_symbol_is_found_wherever_it_sits() {
         assert!(mentions_runtime(b"buri_rt_flush"), "a match at offset zero");
-        assert!(mentions_runtime(b"\0\0_buri_rt_alloc\0"), "a match in the middle");
-        assert!(mentions_runtime(b"xxxburi_rt_"), "a match that ends the haystack");
-        assert!(!mentions_runtime(b"buri_rt"), "a prefix of the prefix is not the prefix");
+        assert!(
+            mentions_runtime(b"\0\0_buri_rt_alloc\0"),
+            "a match in the middle"
+        );
+        assert!(
+            mentions_runtime(b"xxxburi_rt_"),
+            "a match that ends the haystack"
+        );
+        assert!(
+            !mentions_runtime(b"buri_rt"),
+            "a prefix of the prefix is not the prefix"
+        );
         assert!(!mentions_runtime(b""), "an empty object mentions nothing");
-        assert!(!mentions_runtime(b"bbbbbbbb"), "first-byte matches that go nowhere");
+        assert!(
+            !mentions_runtime(b"bbbbbbbb"),
+            "first-byte matches that go nowhere"
+        );
         assert!(!mentions_runtime(b"buri_rtX"), "one byte short");
     }
 
@@ -2722,11 +2917,20 @@ mod tests {
         };
         assert_eq!(runtime_archive_for(&[]), RuntimeArchive::Omitted);
         if !runtime_native::AVAILABLE {
-            assert_eq!(runtime_archive_for(&[unit(b"buri_rt_flush")]), RuntimeArchive::Omitted);
+            assert_eq!(
+                runtime_archive_for(&[unit(b"buri_rt_flush")]),
+                RuntimeArchive::Omitted
+            );
             return;
         }
-        assert_eq!(runtime_archive_for(&[unit(b"printf\0main\0")]), RuntimeArchive::Omitted);
-        assert_eq!(runtime_archive_for(&[unit(b"\0buri_rt_flush\0")]), RuntimeArchive::Linked);
+        assert_eq!(
+            runtime_archive_for(&[unit(b"printf\0main\0")]),
+            RuntimeArchive::Omitted
+        );
+        assert_eq!(
+            runtime_archive_for(&[unit(b"\0buri_rt_flush\0")]),
+            RuntimeArchive::Linked
+        );
         // Any one unit is enough: the archive is one file on one command line.
         assert_eq!(
             runtime_archive_for(&[unit(b"printf"), unit(b"buri_rt_alloc")]),
@@ -2743,8 +2947,7 @@ mod tests {
             platform: host_platform().unwrap_or(Platform::Linux),
             arch: None,
         })
-        .map(|cc| cc.in_dir(PathBuf::from("/tmp/buri-link-test")))
-        else {
+        .map(|cc| cc.in_dir(PathBuf::from("/tmp/buri-link-test"))) else {
             // No C compiler on this machine: there is nothing to link with and
             // nothing this test could be about.
             return;
@@ -2767,7 +2970,10 @@ mod tests {
     #[test]
     fn a_linker_is_asked_its_version_once_per_process() {
         let Some(host) = host_platform() else { return };
-        let target = Target { platform: host, arch: None };
+        let target = Target {
+            platform: host,
+            arch: None,
+        };
         let (Ok(first), Ok(second)) = (select(target), select(target)) else {
             // No C compiler on this machine: there is no linker to have an
             // identity, and `select` says so rather than inventing one.
@@ -2776,10 +2982,16 @@ mod tests {
         assert!(std::sync::Arc::ptr_eq(&first.version, &second.version));
         let term = first.version();
         assert_eq!(term, second.version());
-        assert!(term.starts_with(first.name()), "the flavour is part of the term: {term}");
+        assert!(
+            term.starts_with(first.name()),
+            "the flavour is part of the term: {term}"
+        );
         // A term that is only the flavour is a term that does not tell two
         // linkers apart, which is the thing it exists to do.
-        assert!(term.len() > first.name().len() + 1, "no banner hash in {term}");
+        assert!(
+            term.len() > first.name().len() + 1,
+            "no banner hash in {term}"
+        );
     }
 
     /// The libc a link answers with, and the flags that answer it.
@@ -2801,7 +3013,10 @@ mod tests {
     #[test]
     fn the_libc_flags_are_the_libc_the_link_chose() {
         let Some(host) = host_platform() else { return };
-        let Ok(cc) = select(Target { platform: host, arch: host_arch() }) else {
+        let Ok(cc) = select(Target {
+            platform: host,
+            arch: host_arch(),
+        }) else {
             // No C compiler, or a Linux host that cannot link hermetically.
             // Both are refusals rather than links, and both are asserted
             // elsewhere; there is no command line here to be about.
@@ -2810,25 +3025,58 @@ mod tests {
         let flags = cc.platform_flags();
         let has = |flag: &str| flags.iter().any(|f| f == flag);
         if host == Platform::Macos {
-            assert_eq!(cc.libc(), LibcMode::NotLinux, "macOS has no Linux libc question");
-            assert!(has("-Wl,-dead_strip"), "the macOS link lost -dead_strip: {flags:?}");
-            assert!(!has("-static-pie"), "a Mach-O link asked for -static-pie: {flags:?}");
-            assert!(!has("-lunwind"), "a Mach-O link named musl's unwinder: {flags:?}");
+            assert_eq!(
+                cc.libc(),
+                LibcMode::NotLinux,
+                "macOS has no Linux libc question"
+            );
+            assert!(
+                has("-Wl,-dead_strip"),
+                "the macOS link lost -dead_strip: {flags:?}"
+            );
+            assert!(
+                !has("-static-pie"),
+                "a Mach-O link asked for -static-pie: {flags:?}"
+            );
+            assert!(
+                !has("-lunwind"),
+                "a Mach-O link named musl's unwinder: {flags:?}"
+            );
             return;
         }
-        assert!(has("-Wl,--gc-sections"), "the Linux link lost --gc-sections: {flags:?}");
+        assert!(
+            has("-Wl,--gc-sections"),
+            "the Linux link lost --gc-sections: {flags:?}"
+        );
         if cc.libc().is_musl() {
-            assert!(has("-static-pie"), "a musl link is not static-pie: {flags:?}");
+            assert!(
+                has("-static-pie"),
+                "a musl link is not static-pie: {flags:?}"
+            );
             for absent in ["-lpthread", "-ldl", "-lm"] {
-                assert!(!has(absent), "{absent} is on a musl command line: {flags:?}");
+                assert!(
+                    !has(absent),
+                    "{absent} is on a musl command line: {flags:?}"
+                );
             }
         }
         if cc.libc() == LibcMode::MuslBaked {
-            assert!(has("musl/lib"), "-B/-L do not point at the staged sysroot: {flags:?}");
-            assert!(has("-unwindlib=none"), "glibc's unwinder was left on the line: {flags:?}");
-            assert!(has("-lunwind"), "the baked unwinder is not named: {flags:?}");
             assert!(
-                flags.iter().any(|f| f.starts_with("--target=") && f.ends_with("-linux-musl")),
+                has("musl/lib"),
+                "-B/-L do not point at the staged sysroot: {flags:?}"
+            );
+            assert!(
+                has("-unwindlib=none"),
+                "glibc's unwinder was left on the line: {flags:?}"
+            );
+            assert!(
+                has("-lunwind"),
+                "the baked unwinder is not named: {flags:?}"
+            );
+            assert!(
+                flags
+                    .iter()
+                    .any(|f| f.starts_with("--target=") && f.ends_with("-linux-musl")),
                 "the driver is not pointed at a musl triple: {flags:?}"
             );
         }
@@ -2867,9 +3115,15 @@ mod tests {
         for typo in ["bakde", "musl", "none", "OFF", "off "] {
             let refused = forced_libc(typo).expect_err("a value that is not one of the three");
             let text = refused.text();
-            assert!(text.contains(typo), "the refusal does not quote `{typo}`:\n{text}");
+            assert!(
+                text.contains(typo),
+                "the refusal does not quote `{typo}`:\n{text}"
+            );
             for valid in ["baked", "system", "off"] {
-                assert!(text.contains(valid), "the refusal does not name `{valid}`:\n{text}");
+                assert!(
+                    text.contains(valid),
+                    "the refusal does not name `{valid}`:\n{text}"
+                );
             }
         }
     }
@@ -2890,7 +3144,11 @@ mod tests {
         for (name, bytes) in musl::FILES {
             let path = dir.join("musl").join("lib").join(name);
             let on_disk = std::fs::read(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
-            assert_eq!(on_disk.len(), bytes.len(), "{name} was staged at the wrong length");
+            assert_eq!(
+                on_disk.len(),
+                bytes.len(),
+                "{name} was staged at the wrong length"
+            );
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2930,15 +3188,26 @@ mod tests {
         for stderr in refused {
             assert_eq!(Replay::from_dry_run(stderr, &objects), None, "{stderr}");
         }
-        assert_eq!(Replay::from_dry_run(stderr, &[]), None, "a link of no objects");
-        assert_eq!(Replay::from_text(""), None, "an empty entry means no replay");
+        assert_eq!(
+            Replay::from_dry_run(stderr, &[]),
+            None,
+            "a link of no objects"
+        );
+        assert_eq!(
+            Replay::from_text(""),
+            None,
+            "an empty entry means no replay"
+        );
     }
 
     /// A replayed link writes the same bytes the driver writes.
     #[test]
     fn a_replayed_link_matches_the_drivers() {
         let Some(host) = host_platform() else { return };
-        let target = Target { platform: host, arch: host_arch() };
+        let target = Target {
+            platform: host,
+            arch: host_arch(),
+        };
         let Ok(cc) = select(target) else { return };
         let root = scratch("replay");
         let (direct, driven) = (root.join("direct"), root.join("driven"));
@@ -2975,7 +3244,10 @@ mod tests {
             target,
             unit_prefix: "t",
         };
-        assert!(cc.link(std::slice::from_ref(&unit), &out, &opts).is_ok(), "the replayed link");
+        assert!(
+            cc.link(std::slice::from_ref(&unit), &out, &opts).is_ok(),
+            "the replayed link"
+        );
         let runtime = runtime_archive_for(std::slice::from_ref(&unit));
         let names = strings(&["main.o"]);
         let replayed = cc.replay(&cc.driver_args(&names, runtime), &names, runtime, true);
@@ -2990,7 +3262,10 @@ mod tests {
         }
         let mut command = Command::new(&cc.driver);
         cc.pin(&mut command);
-        let linked = command.args(cc.driver_args(&names, runtime)).status().is_ok_and(|s| s.success());
+        let linked = command
+            .args(cc.driver_args(&names, runtime))
+            .status()
+            .is_ok_and(|s| s.success());
         assert!(linked, "the driver's link");
         assert!(
             std::fs::read(&out).expect("the replayed artifact")
@@ -3018,27 +3293,51 @@ mod tests {
     fn any_host_links_linux_and_only_a_macos_host_links_macos() {
         // Neither JavaScript platform is a native link at all, and `Web` is the
         // one that could be mistaken for a native target by a `!= Js` predicate.
-        assert!(!can_link(Target { platform: Platform::Js, arch: None }));
-        assert!(!can_link(Target { platform: Platform::Web, arch: None }));
+        assert!(!can_link(Target {
+            platform: Platform::Js,
+            arch: None
+        }));
+        assert!(!can_link(Target {
+            platform: Platform::Web,
+            arch: None
+        }));
 
         // Every Linux target links from every host: the runtime archive and the
         // musl sysroot are cross-built and cached, not baked per host.
-        assert!(can_link(Target { platform: Platform::Linux, arch: Some(Arch::X86_64) }));
-        assert!(can_link(Target { platform: Platform::Linux, arch: Some(Arch::Arm64) }));
-        assert!(can_link(Target { platform: Platform::Linux, arch: None }));
+        assert!(can_link(Target {
+            platform: Platform::Linux,
+            arch: Some(Arch::X86_64)
+        }));
+        assert!(can_link(Target {
+            platform: Platform::Linux,
+            arch: Some(Arch::Arm64)
+        }));
+        assert!(can_link(Target {
+            platform: Platform::Linux,
+            arch: None
+        }));
 
         let Some(host) = host_platform() else { return };
         // The host's own platform and architecture always link, from the baked
         // runtime — which is what `is_host_target` names.
-        let own = Target { platform: host, arch: host_arch() };
+        let own = Target {
+            platform: host,
+            arch: host_arch(),
+        };
         assert!(can_link(own));
         assert!(is_host_target(own));
-        assert!(can_link(Target { platform: host, arch: None }));
+        assert!(can_link(Target {
+            platform: host,
+            arch: None
+        }));
 
         // A macOS artifact links only on a macOS host, and there only for the
         // host's own architecture — there is no cross-arch macOS runtime, and
         // Apple's libSystem stubs do not ship for a Linux host to link against.
-        let macos_x86 = Target { platform: Platform::Macos, arch: Some(Arch::X86_64) };
+        let macos_x86 = Target {
+            platform: Platform::Macos,
+            arch: Some(Arch::X86_64),
+        };
         assert_eq!(
             can_link(macos_x86),
             host == Platform::Macos && host_arch() == Some(Arch::X86_64)
@@ -3046,7 +3345,10 @@ mod tests {
         // The one direction always refused.
         if host == Platform::Linux {
             for arch in [None, Some(Arch::X86_64), Some(Arch::Arm64)] {
-                assert!(!can_link(Target { platform: Platform::Macos, arch }));
+                assert!(!can_link(Target {
+                    platform: Platform::Macos,
+                    arch
+                }));
             }
         }
     }
@@ -3058,7 +3360,10 @@ mod tests {
     fn a_cross_linux_target_is_linkable_but_not_the_host() {
         let Some(host) = host_platform() else { return };
         if host == Platform::Macos {
-            let linux = Target { platform: Platform::Linux, arch: Some(Arch::X86_64) };
+            let linux = Target {
+                platform: Platform::Linux,
+                arch: Some(Arch::X86_64),
+            };
             assert!(can_link(linux), "a mac links Linux");
             assert!(!is_host_target(linux), "a Linux target is cross on a mac");
         }

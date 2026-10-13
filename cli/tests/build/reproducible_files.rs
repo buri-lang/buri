@@ -8,8 +8,16 @@ use crate::harness::*;
 
 /// The platform a native binary here declares.
 fn host_variant() -> String {
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     format!("{os}-{arch}")
 }
 
@@ -95,14 +103,25 @@ fn repository(name: &str, output: &str, script: &str) -> (Scratch, String) {
          visibility: [\"//visibility:public\"]\n}\n",
     );
     scratch.write("lib/text/a.txt", "a\n");
-    scratch.write("lib/text/lib.buri", "from \"//lib/text/text\" export { run };\n");
+    scratch.write(
+        "lib/text/lib.buri",
+        "from \"//lib/text/text\" export { run };\n",
+    );
     let (module, host, effects, context) = match output {
-        "web" => ("web", "WebHost", ", Ui, Watch", "Ui: host.ui,\n        Watch: host.watch,"),
+        "web" => (
+            "web",
+            "WebHost",
+            ", Ui, Watch",
+            "Ui: host.ui,\n        Watch: host.watch,",
+        ),
         "node" => ("node", "NodeHost", "", ""),
         _ => ("native", "NativeHost", "", ""),
     };
     let declared = match output {
-        "native" => format!("{{ platform: \"native\", variant: \"{}\" }}", host_variant()),
+        "native" => format!(
+            "{{ platform: \"native\", variant: \"{}\" }}",
+            host_variant()
+        ),
         other => format!("{{ platform: \"{other}\" }}"),
     };
     scratch.write(
@@ -128,7 +147,10 @@ fn repository(name: &str, output: &str, script: &str) -> (Scratch, String) {
 fn a_round_with_more_chunks_is_reported_by_its_file_count() {
     let (scratch, js) = repository("reproducible-more-chunks", "node", GROWING_CHUNKS);
     scratch
-        .run_with_env(&["build", "--check-reproducible", "//cmd/app"], &[("BURI_JS", &js)])
+        .run_with_env(
+            &["build", "--check-reproducible", "//cmd/app"],
+            &[("BURI_JS", &js)],
+        )
         .exits(1)
         .says("error: //cmd/app is not reproducible")
         .says("two builds of the same tree wrote ")
@@ -142,7 +164,10 @@ fn a_round_with_more_chunks_is_reported_by_its_file_count() {
 fn a_stylesheet_in_one_round_and_a_chunk_in_the_other_are_named() {
     let (scratch, js) = repository("reproducible-style-or-chunk", "web", STYLE_THEN_CHUNK);
     scratch
-        .run_with_env(&["build", "--check-reproducible", "//cmd/app"], &[("BURI_JS", &js)])
+        .run_with_env(
+            &["build", "--check-reproducible", "//cmd/app"],
+            &[("BURI_JS", &js)],
+        )
         .exits(1)
         .says("error: //cmd/app is not reproducible")
         .says("two builds of the same tree wrote `main.css` and `main.0.mjs`");
@@ -155,7 +180,10 @@ fn a_stylesheet_in_one_round_and_a_chunk_in_the_other_are_named() {
 fn a_renamed_unit_is_reported_and_blamed_on_the_toolchain() {
     let (scratch, js) = repository("reproducible-renamed-unit", "native", RENAMED_MODULE);
     scratch
-        .run_with_env(&["build", "--check-reproducible", "//cmd/app"], &[("BURI_JS", &js)])
+        .run_with_env(
+            &["build", "--check-reproducible", "//cmd/app"],
+            &[("BURI_JS", &js)],
+        )
         .exits(1)
         .says("error: //cmd/app is not reproducible")
         .says("two builds of the same tree named unit `__lib_text_m")

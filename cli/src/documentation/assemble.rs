@@ -59,25 +59,23 @@ pub struct Document {
     pub sections: &'static [Section],
 }
 
-pub const DOCUMENTS: &[Document] = &[
-    Document {
-        path: "crates/docs/src/docs/SPEC.md",
-        front: topics::LANG_FRONT,
-        sections: &[
-            sec("1", "language/introduction"),
-            sec("2", "language/notation"),
-            sec("3", "language/lexical"),
-            sec("4", "language/modules"),
-            sec("5", "language/types"),
-            sec("6", "language/expressions"),
-            sec("7", "language/patterns"),
-            sec("8", "language/evaluation"),
-            sec("9", "language/functions"),
-            sec("10", "language/effects"),
-            sec("11", "language/programs"),
-        ],
-    },
-];
+pub const DOCUMENTS: &[Document] = &[Document {
+    path: "crates/docs/src/docs/SPEC.md",
+    front: topics::LANG_FRONT,
+    sections: &[
+        sec("1", "language/introduction"),
+        sec("2", "language/notation"),
+        sec("3", "language/lexical"),
+        sec("4", "language/modules"),
+        sec("5", "language/types"),
+        sec("6", "language/expressions"),
+        sec("7", "language/patterns"),
+        sec("8", "language/evaluation"),
+        sec("9", "language/functions"),
+        sec("10", "language/effects"),
+        sec("11", "language/programs"),
+    ],
+}];
 
 /// The comment every assembled document opens with, naming the directories its
 /// sections are edited in. Written here rather than in the front matter so a
@@ -135,7 +133,9 @@ pub fn write(root: &std::path::Path) -> std::io::Result<Vec<&'static str>> {
 
 /// The topics an assembled document is built from, for `buri docs` to say so.
 pub fn document_of(topic: &Topic) -> Option<&'static Document> {
-    DOCUMENTS.iter().find(|d| d.sections.iter().any(|s| s.topic == topic.id))
+    DOCUMENTS
+        .iter()
+        .find(|d| d.sections.iter().any(|s| s.topic == topic.id))
 }
 
 #[cfg(test)]
@@ -206,10 +206,16 @@ mod tests {
     #[test]
     fn only_language_topics_are_specification_sections() {
         for t in topics::TOPICS {
-            let assembled = DOCUMENTS.iter().any(|d| d.sections.iter().any(|s| s.topic == t.id));
+            let assembled = DOCUMENTS
+                .iter()
+                .any(|d| d.sections.iter().any(|s| s.topic == t.id));
             match t.kind {
                 topics::Kind::Language => {
-                    assert!(assembled, "`{}` is a language topic but is in no document", t.id);
+                    assert!(
+                        assembled,
+                        "`{}` is a language topic but is in no document",
+                        t.id
+                    );
                 }
                 topics::Kind::GettingStarted
                 | topics::Kind::Guide

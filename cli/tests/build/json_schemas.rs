@@ -107,20 +107,32 @@ fn json_schema_problems_and_values() {
         "library {\n    generators: [\n        { tool: \"//tools/gen\", inputs: [\"problems.json\", \"values.json5\"] },\n    ]\n}\n",
     );
     // A root may name itself with a relative `$id`.
-    s.write("lib/s/ok.schema.json", &format!("{{\"$schema\": \"{DRAFT}\", \"$id\": \"ok.schema.json\"}}\n"));
+    s.write(
+        "lib/s/ok.schema.json",
+        &format!("{{\"$schema\": \"{DRAFT}\", \"$id\": \"ok.schema.json\"}}\n"),
+    );
 
     let mut problems = format!("{{\"$schema\": \"{DRAFT}\", \"$defs\": {{\n");
     for (i, (sub, _)) in PROBLEMS.iter().enumerate() {
-        problems.push_str(&format!("\"d{i}\": {},\n", sub.replace("{N}", &i.to_string())));
+        problems.push_str(&format!(
+            "\"d{i}\": {},\n",
+            sub.replace("{N}", &i.to_string())
+        ));
     }
     problems.push_str("\"end\": true}}\n");
     s.write("lib/s/problems.schema.json", &problems);
-    s.write("lib/s/problems.json", "{\"$schema\": \"problems.schema.json\"}\n");
+    s.write(
+        "lib/s/problems.json",
+        "{\"$schema\": \"problems.schema.json\"}\n",
+    );
 
     let mut schema = format!("{{\"$schema\": \"{DRAFT}\", \"$defs\": {{\"str\": {{\"type\": \"string\"}}}}, \"properties\": {{\n");
     let mut data = String::from("{\"$schema\": \"values.schema.json\",\n");
     for (i, (sub, value, _)) in VALUES.iter().enumerate() {
-        schema.push_str(&format!("\"v{i}\": {},\n", sub.replace("{N}", &i.to_string())));
+        schema.push_str(&format!(
+            "\"v{i}\": {},\n",
+            sub.replace("{N}", &i.to_string())
+        ));
         data.push_str(&format!("\"v{i}\": {value},\n"));
     }
     schema.push_str("\"$schema\": true}}\n");
@@ -131,14 +143,32 @@ fn json_schema_problems_and_values() {
     let run = s.run(&["lint", "//lib/s", "--error-format=json"]);
     run.exits(1);
     let mut said: Vec<(String, u32, String)> = Vec::new();
-    for line in run.stdout.lines().chain(run.stderr.lines()).filter(|l| l.starts_with('{')) {
+    for line in run
+        .stdout
+        .lines()
+        .chain(run.stderr.lines())
+        .filter(|l| l.starts_with('{'))
+    {
         let d = buri::json::parse(line).unwrap();
-        let text = |path: &str| d.at(path).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let text = |path: &str| {
+            d.at(path)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
         let line = d.at("location.line").and_then(|v| v.as_u32()).unwrap();
-        said.push((text("location.file"), line, format!("{} {}", text("code"), text("message"))));
+        said.push((
+            text("location.file"),
+            line,
+            format!("{} {}", text("code"), text("message")),
+        ));
     }
     let at = |file: &str, line: usize| -> Vec<String> {
-        let mut found: Vec<String> = said.iter().filter(|(f, l, _)| f == file && *l as usize == line).map(|(_, _, m)| m.clone()).collect();
+        let mut found: Vec<String> = said
+            .iter()
+            .filter(|(f, l, _)| f == file && *l as usize == line)
+            .map(|(_, _, m)| m.clone())
+            .collect();
         found.dedup();
         found
     };
@@ -146,21 +176,38 @@ fn json_schema_problems_and_values() {
     let mut failures = Vec::new();
     // Row `i` is on line `i + 2`, after the line that opens `$defs`.
     for (i, (sub, want)) in PROBLEMS.iter().enumerate() {
-        let want: Vec<String> = Some(want.replace("{N}", &i.to_string())).filter(|w| !w.is_empty()).into_iter().collect();
+        let want: Vec<String> = Some(want.replace("{N}", &i.to_string()))
+            .filter(|w| !w.is_empty())
+            .into_iter()
+            .collect();
         let found = at("lib/s/problems.schema.json", i + 2);
         if found != want {
             failures.push(format!("{sub}: expected {want:?}, found {found:?}"));
         }
     }
     for (i, (sub, value, want)) in VALUES.iter().enumerate() {
-        let want: Vec<String> = Some(want).filter(|w| !w.is_empty()).map(|w| format!("json-schema-violation {w}")).into_iter().collect();
+        let want: Vec<String> = Some(want)
+            .filter(|w| !w.is_empty())
+            .map(|w| format!("json-schema-violation {w}"))
+            .into_iter()
+            .collect();
         let found = at("lib/s/values.json5", i + 2);
         if found != want {
-            failures.push(format!("{sub} against {value}: expected {want:?}, found {found:?}"));
+            failures.push(format!(
+                "{sub} against {value}: expected {want:?}, found {found:?}"
+            ));
         }
     }
-    let elsewhere: Vec<_> = said.iter().filter(|(f, _, _)| f != "lib/s/problems.schema.json" && f != "lib/s/values.json5").collect();
-    assert!(failures.is_empty() && elsewhere.is_empty(), "{} failures:\n{}\nelsewhere: {elsewhere:#?}", failures.len(), failures.join("\n"));
+    let elsewhere: Vec<_> = said
+        .iter()
+        .filter(|(f, _, _)| f != "lib/s/problems.schema.json" && f != "lib/s/values.json5")
+        .collect();
+    assert!(
+        failures.is_empty() && elsewhere.is_empty(),
+        "{} failures:\n{}\nelsewhere: {elsewhere:#?}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
 
 /// What a data file's `"$schema"` may name, and how far a check follows the
@@ -173,35 +220,71 @@ fn json_schema_paths() {
     s.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
     s.write("tools/gen/tool.buri", crate::json_schema_suite::GENERATOR);
     s.write("lib/p/lib.buri", "export let nothing: Int = 0;\n");
-    let inputs = ["number.json", "draft.json", "self.schema.json", "broken.json", "chain.json"];
+    let inputs = [
+        "number.json",
+        "draft.json",
+        "self.schema.json",
+        "broken.json",
+        "chain.json",
+    ];
     s.write(
         "lib/p/BUILD.buri",
         &format!("library {{\n    generators: [\n        {{ tool: \"//tools/gen\", inputs: {inputs:?} }},\n    ]\n}}\n"),
     );
     s.write("lib/p/number.json", "{\"$schema\": 1}\n");
-    s.write("lib/p/draft.json", "{\"$schema\": \"http://json-schema.org/draft-07/schema#\"}\n");
+    s.write(
+        "lib/p/draft.json",
+        "{\"$schema\": \"http://json-schema.org/draft-07/schema#\"}\n",
+    );
     s.write(
         "lib/p/self.schema.json",
         &format!("{{\"$schema\": \"{DRAFT}\", \"$defs\": {{\"a\": {{\"$ref\": \"self.schema.json#/$defs/b\"}}, \"b\": {{}}}}}}\n"),
     );
-    s.write("lib/p/broken.json", "{\"$schema\": \"broken.schema.json\"}\n");
-    s.write("lib/p/broken.schema.json", &format!("{{\"$schema\": \"{DRAFT}\", \"$ref\": \"bad.schema.json\"}}\n"));
+    s.write(
+        "lib/p/broken.json",
+        "{\"$schema\": \"broken.schema.json\"}\n",
+    );
+    s.write(
+        "lib/p/broken.schema.json",
+        &format!("{{\"$schema\": \"{DRAFT}\", \"$ref\": \"bad.schema.json\"}}\n"),
+    );
     s.write("lib/p/bad.schema.json", "{\n");
     // A check reads at most a hundred schema files, so the hundredth's `$ref`
     // reaches nothing, and nothing reads the last.
-    s.write("lib/p/chain.json", "{\"$schema\": \"chain0.schema.json\"}\n");
+    s.write(
+        "lib/p/chain.json",
+        "{\"$schema\": \"chain0.schema.json\"}\n",
+    );
     for i in 0..100 {
-        s.write(&format!("lib/p/chain{i}.schema.json"), &format!("{{\"$ref\": \"chain{}.schema.json\"}}\n", i + 1));
+        s.write(
+            &format!("lib/p/chain{i}.schema.json"),
+            &format!("{{\"$ref\": \"chain{}.schema.json\"}}\n", i + 1),
+        );
     }
     s.write("lib/p/chain100.schema.json", "{}\n");
 
     let run = s.run(&["lint", "//lib/p", "--error-format=json"]);
     run.exits(1);
     let mut said: Vec<String> = Vec::new();
-    for line in run.stdout.lines().chain(run.stderr.lines()).filter(|l| l.starts_with('{')) {
+    for line in run
+        .stdout
+        .lines()
+        .chain(run.stderr.lines())
+        .filter(|l| l.starts_with('{'))
+    {
         let d = buri::json::parse(line).unwrap();
-        let text = |path: &str| d.at(path).and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        said.push(format!("{} {} {}", text("location.file"), text("code"), text("message")));
+        let text = |path: &str| {
+            d.at(path)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
+        said.push(format!(
+            "{} {} {}",
+            text("location.file"),
+            text("code"),
+            text("message")
+        ));
     }
     said.sort();
     said.dedup();

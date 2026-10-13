@@ -92,7 +92,10 @@ pub fn invariant(holds: bool, what: &str) {
 /// too often to format one every time.
 pub fn invariant_with(holds: bool, what: impl FnOnce() -> String) {
     // No `if`: the failure is a closure, as in `or_ice`.
-    holds.then_some(()).ok_or_else(what).unwrap_or_else(|what| ice(&what));
+    holds
+        .then_some(())
+        .ok_or_else(what)
+        .unwrap_or_else(|what| ice(&what));
 }
 
 /// `.expect(…)` for an invariant, without the panic.
@@ -181,7 +184,11 @@ pub struct Span {
 
 impl Span {
     pub fn new(file: FileId, start: usize, end: usize) -> Span {
-        Span { file, start: start as u32, end: end as u32 }
+        Span {
+            file,
+            start: start as u32,
+            end: end as u32,
+        }
     }
 
     /// A zero-width span, used where a construct is missing rather than wrong.
@@ -189,7 +196,11 @@ impl Span {
         Span::new(file, at, at)
     }
 
-    pub const NONE: Span = Span { file: FileId::NONE, start: 0, end: 0 };
+    pub const NONE: Span = Span {
+        file: FileId::NONE,
+        start: 0,
+        end: 0,
+    };
 
     pub fn is_none(&self) -> bool {
         self.file == FileId::NONE
@@ -198,7 +209,11 @@ impl Span {
     /// The span covering both, which are in the same file: the parser joins
     /// the spans of one parse, and none of them is [`Span::NONE`].
     pub fn to(self, other: Span) -> Span {
-        Span { file: self.file, start: self.start.min(other.start), end: self.end.max(other.end) }
+        Span {
+            file: self.file,
+            start: self.start.min(other.start),
+            end: self.end.max(other.end),
+        }
     }
 
     /// The same span with the quotes taken off a closed string literal.
@@ -311,12 +326,18 @@ impl std::fmt::Display for BadEdits {
                 write!(f, "an edit whose range runs backwards ({start}..{end})")
             }
             BadEdits::PastEnd { offset, len } => {
-                write!(f, "an edit at offset {offset}, past the end of the {len}-byte file")
+                write!(
+                    f,
+                    "an edit at offset {offset}, past the end of the {len}-byte file"
+                )
             }
             BadEdits::NotACharBoundary { offset } => {
                 write!(f, "an edit at offset {offset}, which is inside a character")
             }
-            BadEdits::Overlap { first_end, second_start } => {
+            BadEdits::Overlap {
+                first_end,
+                second_start,
+            } => {
                 write!(f, "overlapping fixes ({first_end} > {second_start})")
             }
         }
@@ -348,11 +369,17 @@ impl EditSet {
         let mut edits: Vec<Edit> = edits.into_iter().collect();
         for e in &edits {
             if e.at.start > e.at.end {
-                return Err(BadEdits::Inverted { start: e.at.start, end: e.at.end });
+                return Err(BadEdits::Inverted {
+                    start: e.at.start,
+                    end: e.at.end,
+                });
             }
             for offset in [e.at.start, e.at.end] {
                 if offset as usize > text.len() {
-                    return Err(BadEdits::PastEnd { offset, len: text.len() });
+                    return Err(BadEdits::PastEnd {
+                        offset,
+                        len: text.len(),
+                    });
                 }
                 if !text.is_char_boundary(offset as usize) {
                     return Err(BadEdits::NotACharBoundary { offset });
@@ -413,7 +440,10 @@ impl Diagnostic {
     }
 
     pub fn warning(span: Span, message: impl Into<String>) -> Diagnostic {
-        Diagnostic { severity: Severity::Warning, ..Diagnostic::error(span, message) }
+        Diagnostic {
+            severity: Severity::Warning,
+            ..Diagnostic::error(span, message)
+        }
     }
 
     /// A diagnostic whose wording is the page's rather than this call site's.
@@ -513,7 +543,9 @@ impl Diagnostic {
                 .flat_map(|t| crate::documentation::frontmatter::placeholders(t))
                 .collect();
             let code = &t.page.code;
-            let unbound = holes.iter().find(|h| !t.bindings.iter().any(|(n, _)| n == *h));
+            let unbound = holes
+                .iter()
+                .find(|h| !t.bindings.iter().any(|(n, _)| n == *h));
             unbound
                 .map_or(Ok(()), |hole| {
                     Err(format!(
@@ -522,7 +554,10 @@ impl Diagnostic {
                     ))
                 })
                 .or_ice("a documentation page's template");
-            let unused = t.bindings.iter().find(|(name, _)| !holes.iter().any(|h| h == name));
+            let unused = t
+                .bindings
+                .iter()
+                .find(|(name, _)| !holes.iter().any(|h| h == name));
             unused
                 .map_or(Ok(()), |(name, _)| {
                     Err(format!(
@@ -586,7 +621,10 @@ impl Diagnostic {
 
     pub fn secondary_span(&mut self, span: Span, label: impl Into<String>) -> &mut Diagnostic {
         invariant(!span.is_none(), "a secondary span points into a file");
-        self.secondary_spans.push(SecondarySpan { span, label: label.into() });
+        self.secondary_spans.push(SecondarySpan {
+            span,
+            label: label.into(),
+        });
         self
     }
 
@@ -614,7 +652,10 @@ impl Diagnostic {
     /// The byte form of the fix. Only for a rule whose answer is mechanical —
     /// `--fix` applies these without asking.
     pub fn edit(&mut self, at: Span, replacement: &str) -> &mut Diagnostic {
-        self.edits.push(Edit { at, replacement: replacement.to_string() });
+        self.edits.push(Edit {
+            at,
+            replacement: replacement.to_string(),
+        });
         self
     }
 
@@ -661,7 +702,12 @@ pub struct SourceFile {
 
 impl SourceFile {
     pub(crate) fn new(name: String, abs_path: PathBuf, text: String) -> SourceFile {
-        SourceFile { name, abs_path, text, line_starts: std::sync::OnceLock::new() }
+        SourceFile {
+            name,
+            abs_path,
+            text,
+            line_starts: std::sync::OnceLock::new(),
+        }
     }
 
     /// Byte offset of the start of each line, the first at 0.
@@ -708,7 +754,10 @@ impl SourceFile {
             Err(i) => i.saturating_sub(1),
         };
         let start = self.line_starts().get(line).map_or(0, |&s| s as usize);
-        let col = self.text.get(start..offset).map_or(0, |s| s.chars().count());
+        let col = self
+            .text
+            .get(start..offset)
+            .map_or(0, |s| s.chars().count());
         (line.saturating_add(1), col.saturating_add(1))
     }
 
@@ -718,7 +767,10 @@ impl SourceFile {
             .checked_sub(1)
             .and_then(|i| self.line_starts().get(i))
             .or_ice("`line_col` answers a line this file has");
-        let end = self.line_starts().get(line).map_or(self.text.len(), |&e| e as usize);
+        let end = self
+            .line_starts()
+            .get(line)
+            .map_or(self.text.len(), |&e| e as usize);
         self.text
             .get(*start as usize..end)
             .unwrap_or("")
@@ -771,7 +823,11 @@ impl Default for SourceMap {
         SourceMap {
             files: Vec::new(),
             by_name: HashMap::new(),
-            missing: Arc::new(SourceFile::new("<none>".to_string(), PathBuf::new(), String::new())),
+            missing: Arc::new(SourceFile::new(
+                "<none>".to_string(),
+                PathBuf::new(),
+                String::new(),
+            )),
             shared: None,
         }
     }
@@ -804,7 +860,8 @@ impl SourceMap {
         let name = name.into();
         self.shared = None;
         self.by_name.insert(name.clone(), id);
-        self.files.push(Arc::new(SourceFile::new(name, abs_path, text)));
+        self.files
+            .push(Arc::new(SourceFile::new(name, abs_path, text)));
         id
     }
 
@@ -900,8 +957,10 @@ impl SourceMap {
     /// Maps cloned before this call keep the text they were cloned with, which
     /// is what lets an analysis already in hand go on rendering its own spans.
     pub fn replace(&mut self, id: FileId, text: String) {
-        let slot =
-            self.files.get_mut(id.0 as usize).or_ice("`replace` takes an id this map minted");
+        let slot = self
+            .files
+            .get_mut(id.0 as usize)
+            .or_ice("`replace` takes an id this map minted");
         let (name, abs_path) = (slot.name.clone(), slot.abs_path.clone());
         *slot = Arc::new(SourceFile::new(name, abs_path, text));
         self.shared = None;
@@ -909,7 +968,10 @@ impl SourceMap {
 
     /// Every file in this map, with the id it was minted under.
     pub fn entries(&self) -> impl Iterator<Item = (FileId, &SourceFile)> {
-        self.files.iter().enumerate().map(|(i, f)| (FileId(i as u32), &**f))
+        self.files
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (FileId(i as u32), &**f))
     }
 
     /// Every file this map read from a path, in the order it read them.
@@ -956,7 +1018,13 @@ impl SourceMap {
         d.check_template();
         let mut out = String::new();
         let (c_bold, c_red, c_yellow, c_blue, c_reset) = if color {
-            ("\x1b[1m", "\x1b[1;31m", "\x1b[1;33m", "\x1b[1;34m", "\x1b[0m")
+            (
+                "\x1b[1m",
+                "\x1b[1;31m",
+                "\x1b[1;33m",
+                "\x1b[1;34m",
+                "\x1b[0m",
+            )
         } else {
             ("", "", "", "", "")
         };
@@ -974,7 +1042,14 @@ impl SourceMap {
         let _ = writeln!(out, "{sev_color}{sev}{c_reset}{c_bold}{rest}{c_reset}");
 
         if !d.span.is_none() {
-            self.render_snippet(&mut out, d.span, d.label.as_deref(), sev_color, c_blue, c_reset);
+            self.render_snippet(
+                &mut out,
+                d.span,
+                d.label.as_deref(),
+                sev_color,
+                c_blue,
+                c_reset,
+            );
             for secondary in &d.secondary_spans {
                 let label = Some(secondary.label.as_str());
                 self.render_snippet(&mut out, secondary.span, label, c_blue, c_blue, c_reset);
@@ -985,7 +1060,11 @@ impl SourceMap {
             for line in Self::trailer(d) {
                 // The `=` on the first line, and the rest indented under it.
                 for (i, text) in line.lines().enumerate() {
-                    let mark = if i == 0 { format!("{c_blue}={c_reset}") } else { " ".to_string() };
+                    let mark = if i == 0 {
+                        format!("{c_blue}={c_reset}")
+                    } else {
+                        " ".to_string()
+                    };
                     let _ = writeln!(out, "{:w$}{mark} {text}", "", w = gutter);
                 }
             }
@@ -1040,7 +1119,10 @@ impl SourceMap {
         // dimmed line un-dims the rest of it.
         let rendered = crate::documentation::markdown::to_terminal(&body, width, false);
         let (dim, reset) = if color {
-            (crate::documentation::markdown::DIM, crate::documentation::markdown::RESET)
+            (
+                crate::documentation::markdown::DIM,
+                crate::documentation::markdown::RESET,
+            )
         } else {
             ("", "")
         };
@@ -1074,7 +1156,11 @@ impl SourceMap {
         }
         out.push_str(",\"location\":");
         out.push_str(&self.json_location(d.span, d.label.as_deref()));
-        for (key, value) in [("expected", &d.expected), ("actual", &d.actual), ("fix", &d.fix)] {
+        for (key, value) in [
+            ("expected", &d.expected),
+            ("actual", &d.actual),
+            ("fix", &d.fix),
+        ] {
             if let Some(v) = value {
                 let _ = write!(out, ",\"{key}\":{}", json_str(v));
             }
@@ -1150,7 +1236,15 @@ impl SourceMap {
         let gw = line.to_string().len().max(1).saturating_add(1);
         let inner = gw.saturating_sub(1);
 
-        let _ = writeln!(out, "{:w$}{c_blue}-->{c_reset} {}:{}:{}", "", f.name, line, col, w = inner);
+        let _ = writeln!(
+            out,
+            "{:w$}{c_blue}-->{c_reset} {}:{}:{}",
+            "",
+            f.name,
+            line,
+            col,
+            w = inner
+        );
         let _ = writeln!(out, "{:w$}{c_blue}|{c_reset}", "", w = gw);
 
         // Carets under the span. A span crossing a line break is underlined to
@@ -1159,12 +1253,22 @@ impl SourceMap {
         let span_chars = if end_line == line {
             (end_col.saturating_sub(col)).max(1)
         } else {
-            full.chars().count().saturating_sub(col.saturating_sub(1)).max(1)
+            full.chars()
+                .count()
+                .saturating_sub(col.saturating_sub(1))
+                .max(1)
         };
-        let Window { text, col: shown_col, cut_left, cut_right } =
-            window(full, f.line_start(line), span.start as usize);
+        let Window {
+            text,
+            col: shown_col,
+            cut_left,
+            cut_right,
+        } = window(full, f.line_start(line), span.start as usize);
         let span_chars = span_chars.min(
-            text.chars().count().saturating_sub(shown_col.saturating_sub(1)).max(1),
+            text.chars()
+                .count()
+                .saturating_sub(shown_col.saturating_sub(1))
+                .max(1),
         );
 
         let _ = writeln!(
@@ -1253,7 +1357,9 @@ pub fn standard_file(index: usize) -> &'static SourceFile {
     static FILES: [std::sync::OnceLock<SourceFile>; MODULES.len()] =
         [const { std::sync::OnceLock::new() }; MODULES.len()];
     static MISSING: std::sync::OnceLock<SourceFile> = std::sync::OnceLock::new();
-    let new = |name: &str, text: &str| SourceFile::new(name.to_string(), PathBuf::new(), text.to_string());
+    let new = |name: &str, text: &str| {
+        SourceFile::new(name.to_string(), PathBuf::new(), text.to_string())
+    };
     match (FILES.get(index), MODULES.get(index)) {
         (Some(slot), Some(m)) => slot.get_or_init(|| new(m.path, m.source)),
         _ => MISSING.get_or_init(|| new("<none>", "")),
@@ -1298,8 +1404,16 @@ struct Window<'a> {
 fn window(line: &str, line_start: usize, at: usize) -> Window<'_> {
     let at = at.saturating_sub(line_start).min(line.len());
     if line.len() <= MAX_SNIPPET_BYTES {
-        let col = line.get(..at).map_or(0, |s| s.chars().count()).saturating_add(1);
-        return Window { text: line, col, cut_left: false, cut_right: false };
+        let col = line
+            .get(..at)
+            .map_or(0, |s| s.chars().count())
+            .saturating_add(1);
+        return Window {
+            text: line,
+            col,
+            cut_left: false,
+            cut_right: false,
+        };
     }
     let mut lo = at.saturating_sub(SNIPPET_LEAD_BYTES);
     while lo > 0 && !line.is_char_boundary(lo) {
@@ -1312,8 +1426,16 @@ fn window(line: &str, line_start: usize, at: usize) -> Window<'_> {
         hi = hi.saturating_sub(1);
     }
     let text = line.get(lo..hi).unwrap_or("");
-    let col = line.get(lo..at.max(lo)).map_or(0, |s| s.chars().count()).saturating_add(1);
-    Window { text, col, cut_left: lo > 0, cut_right: hi < line.len() }
+    let col = line
+        .get(lo..at.max(lo))
+        .map_or(0, |s| s.chars().count())
+        .saturating_add(1);
+    Window {
+        text,
+        col,
+        cut_left: lo > 0,
+        cut_right: hi < line.len(),
+    }
 }
 
 /// A JSON string literal. There is no serde here, on purpose: the toolchain
@@ -1452,7 +1574,8 @@ impl Diagnostics {
         }
         for d in self.items.split_off(mark) {
             if drop(&d) {
-                self.seen.remove(&(d.span.file.0, d.span.start, d.span.end, d.message.clone()));
+                self.seen
+                    .remove(&(d.span.file.0, d.span.start, d.span.end, d.message.clone()));
             } else {
                 self.items.push(d);
             }
@@ -1462,7 +1585,11 @@ impl Diagnostics {
     /// Source order, errors before warnings at the same location.
     pub fn sort(&mut self, map: &SourceMap) {
         self.items.sort_by_key(|d| {
-            let name = if d.span.is_none() { String::new() } else { map.name(d.span.file).to_string() };
+            let name = if d.span.is_none() {
+                String::new()
+            } else {
+                map.name(d.span.file).to_string()
+            };
             (name, d.span.start, d.severity == Severity::Warning)
         });
     }
@@ -1494,8 +1621,10 @@ mod tests {
             .with_note("there is no implicit promotion of any kind")
             .with_fix("convert explicitly with `.toI32()?`");
         let text = map.render(&d, false);
-        let trailer: Vec<&str> =
-            text.lines().filter_map(|l| l.trim_start().strip_prefix("= ")).collect();
+        let trailer: Vec<&str> = text
+            .lines()
+            .filter_map(|l| l.trim_start().strip_prefix("= "))
+            .collect();
         assert_eq!(
             trailer,
             vec![
@@ -1511,8 +1640,7 @@ mod tests {
     #[test]
     fn the_gutter_is_a_straight_line() {
         let (map, id) = one_file();
-        let d = Diagnostic::error(Span::new(id, 16, 21), "no")
-            .with_fix("do something else");
+        let d = Diagnostic::error(Span::new(id, 16, 21), "no").with_fix("do something else");
         // Every `|` and every `=` sits in the same column.
         let columns: Vec<usize> = map
             .render(&d, false)
@@ -1520,7 +1648,10 @@ mod tests {
             .filter(|l| l.contains('|') || l.trim_start().starts_with('='))
             .map(|l| l.find(['|', '=']).unwrap())
             .collect();
-        assert!(columns.windows(2).all(|w| w[0] == w[1]), "ragged gutter: {columns:?}");
+        assert!(
+            columns.windows(2).all(|w| w[0] == w[1]),
+            "ragged gutter: {columns:?}"
+        );
     }
 
     /// Two spans whose line numbers are different widths. The `=` block sits
@@ -1548,7 +1679,10 @@ mod tests {
         // belongs to that secondary span.
         let last = *gutters.last().unwrap();
         let under = gutters[gutters.len() - 2];
-        assert_eq!(last, under, "the `=` is not under the `|` above it: {gutters:?}\n{rendered}");
+        assert_eq!(
+            last, under,
+            "the `=` is not under the `|` above it: {gutters:?}\n{rendered}"
+        );
         assert!(
             rendered.contains("\n  = fix: list it under one rule only\n"),
             "expected the fix in line 5's gutter:\n{rendered}"
@@ -1618,8 +1752,14 @@ mod tests {
             id,
             map.text(id),
             [
-                Edit { at: Span::new(id, 8, 13), replacement: "3".into() },
-                Edit { at: Span::new(id, 0, 3), replacement: "1".into() },
+                Edit {
+                    at: Span::new(id, 8, 13),
+                    replacement: "3".into(),
+                },
+                Edit {
+                    at: Span::new(id, 0, 3),
+                    replacement: "1".into(),
+                },
             ],
         )
         .expect("in bounds and not overlapping");
@@ -1645,13 +1785,24 @@ mod tests {
     #[test]
     fn a_span_that_makes_no_sense_still_renders() {
         let mut map = SourceMap::new();
-        let id = map.add("a.buri", PathBuf::new(), "let s = \"café 🙂\";\n".to_string());
+        let id = map.add(
+            "a.buri",
+            PathBuf::new(),
+            "let s = \"café 🙂\";\n".to_string(),
+        );
         let cases = [
             ("inside a two-byte character", Span::new(id, 10, 11)),
             ("inside a four-byte character", Span::new(id, 14, 16)),
             ("past the end", Span::new(id, 9_000, 10_000)),
             ("backwards", Span::new(id, 12, 4)),
-            ("as wide as the address space", Span { file: id, start: 0, end: u32::MAX }),
+            (
+                "as wide as the address space",
+                Span {
+                    file: id,
+                    start: 0,
+                    end: u32::MAX,
+                },
+            ),
             ("in a file this map never had", Span::new(FileId(77), 0, 3)),
             ("in no file at all", Span::NONE),
         ];
@@ -1672,14 +1823,31 @@ mod tests {
         let line = format!("let x = {};\n", "1 + ".repeat(50_000));
         let at = line.len() as u32 / 2;
         let id = map.add("a.buri", PathBuf::new(), line);
-        let d = Diagnostic::error(Span { file: id, start: at, end: at + 1 }, "no")
-            .with_fix("do something else");
+        let d = Diagnostic::error(
+            Span {
+                file: id,
+                start: at,
+                end: at + 1,
+            },
+            "no",
+        )
+        .with_fix("do something else");
         let rendered = map.render(&d, false);
-        assert!(rendered.len() < 2_000, "the snippet was {} bytes", rendered.len());
-        assert!(rendered.contains('…'), "nothing said the line was cut:\n{rendered}");
+        assert!(
+            rendered.len() < 2_000,
+            "the snippet was {} bytes",
+            rendered.len()
+        );
+        assert!(
+            rendered.contains('…'),
+            "nothing said the line was cut:\n{rendered}"
+        );
         // The carets still sit under the character the span names.
         let lines: Vec<&str> = rendered.lines().collect();
-        let source = lines.iter().position(|l| l.contains('…')).expect("a windowed line");
+        let source = lines
+            .iter()
+            .position(|l| l.contains('…'))
+            .expect("a windowed line");
         let carets = lines.get(source + 1).expect("a caret line");
         let column = carets.find('^').expect("a caret");
         assert!(column > 0, "the carets are in the gutter:\n{rendered}");
@@ -1706,9 +1874,10 @@ mod tests {
     fn a_templated_diagnostic_renders_what_the_call_site_used_to_build() {
         let (map, id) = one_file();
         let span = Span::new(id, 16, 21);
-        let by_hand = Diagnostic::error(span, "explicit type arguments qualify a function or a call")
-            .with_code("type-arguments-on-value")
-            .with_fix("attach the type arguments to the call, as in `a<Str>(x)`");
+        let by_hand =
+            Diagnostic::error(span, "explicit type arguments qualify a function or a call")
+                .with_code("type-arguments-on-value")
+                .with_fix("attach the type arguments to the call, as in `a<Str>(x)`");
         let templated =
             Diagnostic::templated("type-arguments-on-value", span).with_bind("function", "a");
         assert_eq!(map.render(&templated, false), map.render(&by_hand, false));

@@ -13,12 +13,12 @@
 //! `catalogue` gives `import { catalogue as shown }` and every use of `shown`
 //! keeps working.
 
-use crate::json::Value;
-use crate::diagnostics::Span;
-use std::path::Path;
 use super::convert::{self, Position};
 use super::state::Analyzed;
 use super::symbols::{self, Symbol};
+use crate::diagnostics::Span;
+use crate::json::Value;
+use std::path::Path;
 
 /// Why a name cannot be renamed. Each is a sentence an editor can show.
 pub enum Refusal {
@@ -77,12 +77,7 @@ impl Refusal {
 /// repository: everything this has to decide — what the cursor names, and
 /// whether that declaration has a file — is in the one analysis, and this runs
 /// every time a rename is begun.
-pub fn prepare(
-    analyzed: &Analyzed,
-    path: &Path,
-    text: &str,
-    position: Position,
-) -> Option<Value> {
+pub fn prepare(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -> Option<Value> {
     let offset = convert::offset_of(text, position);
     let found = symbols::at(analyzed, path, text, offset)?;
     let name = renameable(analyzed, &found.symbol).ok()?;
@@ -122,7 +117,9 @@ pub fn edits(
         .filter_map(|span| Some((file_uri(analyzed, span)?, span)))
         .collect();
     sites.sort_by(|a, b| {
-        a.0.cmp(&b.0).then(a.1.start.cmp(&b.1.start)).then(a.1.end.cmp(&b.1.end))
+        a.0.cmp(&b.0)
+            .then(a.1.start.cmp(&b.1.start))
+            .then(a.1.end.cmp(&b.1.end))
     });
     sites.dedup_by(|a, b| a.0 == b.0 && a.1.start == b.1.start && a.1.end == b.1.end);
 
@@ -137,7 +134,12 @@ pub fn edits(
     }
     Ok(Value::object(vec![(
         "changes",
-        Value::Object(changes.into_iter().map(|(k, v)| (k, Value::Array(v))).collect()),
+        Value::Object(
+            changes
+                .into_iter()
+                .map(|(k, v)| (k, Value::Array(v)))
+                .collect(),
+        ),
     )]))
 }
 
@@ -153,10 +155,12 @@ fn renameable(analyzed: &Analyzed, symbol: &Symbol) -> Result<String, Refusal> {
         // an edit to it is an edit that does not last. What changes is the
         // sentence — it names the generator and the input to edit instead of
         // blaming the standard library for a file the generator wrote.
-        return Err(match super::origins::refusal_sentence(&analyzed.session, declaration) {
-            Some(sentence) => Refusal::Generated(sentence),
-            None => Refusal::NoFile,
-        });
+        return Err(
+            match super::origins::refusal_sentence(&analyzed.session, declaration) {
+                Some(sentence) => Refusal::Generated(sentence),
+                None => Refusal::NoFile,
+            },
+        );
     }
     // The one check that the edit is an edit to a name: whatever else the scan
     // turns up, the declaration itself must spell what is being renamed.
@@ -220,7 +224,9 @@ mod tests {
         }
         // A keyword and a word v0.3 reserves are names the compiler refuses,
         // so they are names a rename refuses.
-        for bad in ["", "2x", "a b", "a-b", "a.b", "fn(", "fn", "match", "while", "é"] {
+        for bad in [
+            "", "2x", "a b", "a-b", "a.b", "fn(", "fn", "match", "while", "é",
+        ] {
             assert!(!is_identifier(bad), "{bad}");
         }
     }

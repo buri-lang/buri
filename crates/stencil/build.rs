@@ -26,25 +26,34 @@ use std::process::Command;
 // `dead_code` is allowed on the three the script does not use *all* of, and the
 // allow is here rather than in the files because that is where the fact is:
 // `library.rs`'s decoder and `abi.rs`'s register cap are the toolchain's half.
-#[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
+#[allow(
+    dead_code,
+    reason = "the halves of these files only the toolchain uses"
+)]
 #[path = "src/compiler/backend/stencil/abi.rs"]
 mod abi;
 #[path = "src/compiler/backend/stencil/elfobj.rs"]
 mod elfobj;
 #[path = "src/compiler/backend/stencil/extract.rs"]
 mod extract;
+#[allow(
+    dead_code,
+    reason = "the halves of these files only the toolchain uses"
+)]
+#[path = "src/compiler/backend/stencil/library.rs"]
+mod library;
 #[path = "src/compiler/backend/stencil/machobj.rs"]
 mod machobj;
 #[path = "src/compiler/backend/stencil/names.rs"]
 mod names;
-#[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
-#[path = "src/compiler/backend/stencil/x86.rs"]
-mod x86;
 #[path = "src/compiler/backend/stencil/sources.rs"]
 mod sources;
-#[allow(dead_code, reason = "the halves of these files only the toolchain uses")]
-#[path = "src/compiler/backend/stencil/library.rs"]
-mod library;
+#[allow(
+    dead_code,
+    reason = "the halves of these files only the toolchain uses"
+)]
+#[path = "src/compiler/backend/stencil/x86.rs"]
+mod x86;
 // The toolchain's table hasher, which `library.rs` indexes the stencils with.
 use buri_hash::hash;
 
@@ -76,7 +85,10 @@ fn write_if_different(path: &Path, bytes: &[u8]) {
 fn digest_beside(out: &Path) {
     let bytes = match std::fs::read(out) {
         Ok(b) => b,
-        Err(e) => fail(&format!("could not read back {} to hash it: {e}", out.display())),
+        Err(e) => fail(&format!(
+            "could not read back {} to hash it: {e}",
+            out.display()
+        )),
     };
     let path = out.with_file_name(format!(
         "{}.sha256",
@@ -128,9 +140,15 @@ fn digest_beside(out: &Path) {
 ///   place in the toolchain still describing a glibc Linux.
 fn stencil_library(manifest: &Path) {
     let dir = manifest.join("src/compiler/backend/stencil");
-    for file in
-        ["abi.rs", "library.rs", "sources.rs", "extract.rs", "machobj.rs", "elfobj.rs", "x86.rs"]
-    {
+    for file in [
+        "abi.rs",
+        "library.rs",
+        "sources.rs",
+        "extract.rs",
+        "machobj.rs",
+        "elfobj.rs",
+        "x86.rs",
+    ] {
         println!("cargo:rerun-if-changed={}", dir.join(file).display());
     }
     println!("cargo:rerun-if-env-changed=CC");
@@ -150,7 +168,10 @@ fn stencil_library(manifest: &Path) {
         return;
     }
     let scratch = out_dir.join("stencils");
-    let jobs: usize = std::env::var("NUM_JOBS").ok().and_then(|v| v.parse().ok()).unwrap_or(4);
+    let jobs: usize = std::env::var("NUM_JOBS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4);
     // Which targets this `cc` can build, asked of all three at once: each probe
     // is a compile.
     let buildable: Vec<bool> = std::thread::scope(|scope| {
@@ -168,7 +189,10 @@ fn stencil_library(manifest: &Path) {
                 })
             })
             .collect();
-        probes.into_iter().map(|p| p.join().unwrap_or(false)).collect()
+        probes
+            .into_iter()
+            .map(|p| p.join().unwrap_or(false))
+            .collect()
     });
     let wanted: Vec<abi::StencilTarget> = abi::StencilTarget::ALL
         .iter()
@@ -206,7 +230,11 @@ fn stencil_library(manifest: &Path) {
 /// A version probe rather than a `which`: `cc` on a machine with the Xcode
 /// command-line tools missing exists, is on `PATH`, and fails with a dialog.
 fn can_compile(cc: &str) -> bool {
-    Command::new(cc).arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+    Command::new(cc)
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 /// macOS and Linux. The runtime is `std` over `cfg(unix)`, and no other host

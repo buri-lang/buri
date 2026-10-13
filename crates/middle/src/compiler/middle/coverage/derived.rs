@@ -22,8 +22,12 @@
 
 use crate::compiler::middle::monomorphize::{Desc, Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::typed::{self, Arm, Expr, ExprKind, FieldPat, Magnitude, PatKind, Pattern, PrimOp, Stmt};
-use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Tables, Ty, TyConId, TyDef, TyKind};
+use crate::compiler::semantics::typed::{
+    self, Arm, Expr, ExprKind, FieldPat, Magnitude, PatKind, Pattern, PrimOp, Stmt,
+};
+use crate::compiler::semantics::types::{
+    self, FuncIdx, LocalId, Tables, Ty, TyConId, TyDef, TyKind,
+};
 use crate::diagnostics::Span;
 use std::collections::HashMap;
 
@@ -138,7 +142,9 @@ pub fn run(
                 }
             }
             if let Some((op, ty)) = call(e) {
-                if ty.head().is_some_and(|c| derives.contains_key(&(c, op))) && !wanted.contains(&(op, ty)) {
+                if ty.head().is_some_and(|c| derives.contains_key(&(c, op)))
+                    && !wanted.contains(&(op, ty))
+                {
                     wanted.push((op, ty));
                 }
             }
@@ -175,10 +181,16 @@ pub fn run(
 }
 
 /// Puts a call to the shadow before each derived call `made` has one for.
-fn precede(e: &mut Expr, made: &HashMap<(Op, Ty), Option<(FuncIdx, Ty)>>, locals: &mut Vec<typed::Local>) {
+fn precede(
+    e: &mut Expr,
+    made: &HashMap<(Op, Ty), Option<(FuncIdx, Ty)>>,
+    locals: &mut Vec<typed::Local>,
+) {
     typed::children_mut(e, &mut |c| precede(c, made, locals));
     let Some((op, ty)) = call(e) else { return };
-    let Some(Some((shadow, ret))) = made.get(&(op, ty)) else { return };
+    let Some(Some((shadow, ret))) = made.get(&(op, ty)) else {
+        return;
+    };
     let span = e.span;
     let args = match &mut e.kind {
         ExprKind::StructuralEq { args, .. } | ExprKind::Intrinsic { args, .. } => args,
@@ -188,21 +200,55 @@ fn precede(e: &mut Expr, made: &HashMap<(Op, Ty), Option<(FuncIdx, Ty)>>, locals
     let mut values = Vec::new();
     for arg in args.iter_mut().take(op.values()) {
         let id = LocalId(locals.len() as u32);
-        locals.push(typed::Local { name: Name::new("coverage"), ty: arg.ty, span });
+        locals.push(typed::Local {
+            name: Name::new("coverage"),
+            ty: arg.ty,
+            span,
+        });
         let value = std::mem::replace(arg, Expr::new(ExprKind::Local(id), arg.ty, span));
         values.push(Expr::new(ExprKind::Local(id), value.ty, span));
         stmts.push(bind(id, value, span));
     }
-    let shadowed = Expr::new(ExprKind::CallFn { func: typed::Callee::Func(*shadow), args: values }, *ret, span);
-    stmts.push(Stmt::Let { pattern: Pattern { kind: PatKind::Wild, ty: *ret, span }, value: shadowed, span });
+    let shadowed = Expr::new(
+        ExprKind::CallFn {
+            func: typed::Callee::Func(*shadow),
+            args: values,
+        },
+        *ret,
+        span,
+    );
+    stmts.push(Stmt::Let {
+        pattern: Pattern {
+            kind: PatKind::Wild,
+            ty: *ret,
+            span,
+        },
+        value: shadowed,
+        span,
+    });
     let ty = e.ty;
     let inner = std::mem::replace(e, Expr::new(ExprKind::Unit, ty, span));
-    *e = Expr::new(ExprKind::Block { stmts, tail: Some(Box::new(inner)) }, ty, span);
+    *e = Expr::new(
+        ExprKind::Block {
+            stmts,
+            tail: Some(Box::new(inner)),
+        },
+        ty,
+        span,
+    );
 }
 
 fn bind(local: LocalId, value: Expr, span: Span) -> Stmt {
-    let pattern = Pattern { kind: PatKind::Bind { local, sub: None }, ty: value.ty, span };
-    Stmt::Let { pattern, value, span }
+    let pattern = Pattern {
+        kind: PatKind::Bind { local, sub: None },
+        ty: value.ty,
+        span,
+    };
+    Stmt::Let {
+        pattern,
+        value,
+        span,
+    }
 }
 
 struct Shadows<'a> {
@@ -248,7 +294,11 @@ impl Shadows<'_> {
         let idx = FuncIdx(self.base.saturating_add(slot) as u32);
         self.funcs.push(Func {
             symbol: format!("coverage$derived${slot}"),
-            debug_name: format!("coverage: {} at {}", op.name(), types::show(self.tables, None, &[], &ty)),
+            debug_name: format!(
+                "coverage: {} at {}",
+                op.name(),
+                types::show(self.tables, None, &[], &ty)
+            ),
             params: Vec::new(),
             locals: Vec::new(),
             kind: FuncKind::Unbuilt,
@@ -269,7 +319,11 @@ impl Shadows<'_> {
                 self.made.insert((op, ty), None);
                 if let Some(f) = self.funcs.get_mut(slot) {
                     let unit = Expr::new(ExprKind::Unit, Ty::UNIT, Span::NONE);
-                    let answer = if f.ret == Ty::UNIT { unit } else { Expr::new(ExprKind::Bool(true), f.ret, Span::NONE) };
+                    let answer = if f.ret == Ty::UNIT {
+                        unit
+                    } else {
+                        Expr::new(ExprKind::Bool(true), f.ret, Span::NONE)
+                    };
                     f.params = Vec::new();
                     f.locals = Vec::new();
                     f.kind = FuncKind::Body(answer);
@@ -285,7 +339,14 @@ impl Shadows<'_> {
         let span = *self.derives.get(&(con, op))?;
         let file = (self.file_of)(span)?;
         let prefix = format!("{} {}", op.name(), types::show(self.tables, None, &[], &ty));
-        let mut body = Body { i64_ty: self.i64_ty, locals: Vec::new(), span, file, prefix, decisions: Vec::new() };
+        let mut body = Body {
+            i64_ty: self.i64_ty,
+            locals: Vec::new(),
+            span,
+            file,
+            prefix,
+            decisions: Vec::new(),
+        };
         let a = body.local(ty);
         let b = (op.values() == 2).then(|| body.local(ty));
         let targs: Vec<Ty> = match ty.kind() {
@@ -296,11 +357,19 @@ impl Shadows<'_> {
         let expr = match (&tycon.def, b) {
             (TyDef::Struct { fields, .. }, Some(b)) => {
                 let names: Vec<String> = fields.iter().map(|f| f.name.clone()).collect();
-                let types: Vec<Ty> = fields.iter().map(|f| types::substitute(&f.ty, &targs, None)).collect();
+                let types: Vec<Ty> = fields
+                    .iter()
+                    .map(|f| types::substitute(&f.ty, &targs, None))
+                    .collect();
                 let pairs: Vec<(Expr, Expr)> = types
                     .iter()
                     .enumerate()
-                    .map(|(i, t)| (field(local(a, ty, span), i, *t, span), field(local(b, ty, span), i, *t, span)))
+                    .map(|(i, t)| {
+                        (
+                            field(local(a, ty, span), i, *t, span),
+                            field(local(b, ty, span), i, *t, span),
+                        )
+                    })
                     .collect();
                 self.chain(op, &mut body, &names, &types, pairs, "")?
             }
@@ -308,22 +377,38 @@ impl Shadows<'_> {
                 let mut stmts = Vec::new();
                 for (i, f) in fields.iter().enumerate() {
                     let t = types::substitute(&f.ty, &targs, None);
-                    if let Some(call) = self.walk(op, t, vec![field(local(a, ty, span), i, t, span)], span) {
+                    if let Some(call) =
+                        self.walk(op, t, vec![field(local(a, ty, span), i, t, span)], span)
+                    {
                         stmts.push(discard(call, span));
                     }
                 }
-                Expr::new(ExprKind::Block { stmts, tail: Some(Box::new(unit(span))) }, Ty::UNIT, span)
+                Expr::new(
+                    ExprKind::Block {
+                        stmts,
+                        tail: Some(Box::new(unit(span))),
+                    },
+                    Ty::UNIT,
+                    span,
+                )
             }
             (TyDef::Enum { variants }, b) => {
                 let names: Vec<String> = variants.iter().map(|v| v.name.clone()).collect();
                 let which = body.decision("variant", names.clone());
                 let mut arms = Vec::new();
                 for (vi, v) in variants.iter().enumerate() {
-                    let types: Vec<Ty> = v.fields.iter().map(|f| types::substitute(&f.ty, &targs, None)).collect();
+                    let types: Vec<Ty> = v
+                        .fields
+                        .iter()
+                        .map(|f| types::substitute(&f.ty, &targs, None))
+                        .collect();
                     let xs: Vec<LocalId> = types.iter().map(|t| body.local(*t)).collect();
                     let inner = match b {
                         Some(b) => {
-                            let other = body.decision(&format!("{}, the other", v.name), vec!["same variant".into(), "another variant".into()]);
+                            let other = body.decision(
+                                &format!("{}, the other", v.name),
+                                vec!["same variant".into(), "another variant".into()],
+                            );
                             let ys: Vec<LocalId> = types.iter().map(|t| body.local(*t)).collect();
                             let pairs: Vec<(Expr, Expr)> = xs
                                 .iter()
@@ -331,30 +416,75 @@ impl Shadows<'_> {
                                 .zip(&types)
                                 .map(|((x, y), t)| (local(*x, *t, span), local(*y, *t, span)))
                                 .collect();
-                            let fnames: Vec<String> = v.fields.iter().map(|f| f.name.clone()).collect();
-                            let same = self.chain(op, &mut body, &fnames, &types, pairs, &format!("{}.", v.name))?;
+                            let fnames: Vec<String> =
+                                v.fields.iter().map(|f| f.name.clone()).collect();
+                            let same = self.chain(
+                                op,
+                                &mut body,
+                                &fnames,
+                                &types,
+                                pairs,
+                                &format!("{}.", v.name),
+                            )?;
                             let same = body.counted(&other, 0, same);
-                            let differs = body.counted(&other, 1, Expr::new(ExprKind::Bool(false), self.bool_ty, span));
+                            let differs = body.counted(
+                                &other,
+                                1,
+                                Expr::new(ExprKind::Bool(false), self.bool_ty, span),
+                            );
                             let arms = vec![
                                 arm(variant(ty, vi, &ys, &types, span), same),
-                                arm(Pattern { kind: PatKind::Wild, ty, span }, differs),
+                                arm(
+                                    Pattern {
+                                        kind: PatKind::Wild,
+                                        ty,
+                                        span,
+                                    },
+                                    differs,
+                                ),
                             ];
-                            Expr::new(ExprKind::Match { scrutinee: Box::new(local(b, ty, span)), arms }, self.bool_ty, span)
+                            Expr::new(
+                                ExprKind::Match {
+                                    scrutinee: Box::new(local(b, ty, span)),
+                                    arms,
+                                },
+                                self.bool_ty,
+                                span,
+                            )
                         }
                         None => {
                             let mut stmts = Vec::new();
                             for (x, t) in xs.iter().zip(&types) {
-                                if let Some(call) = self.walk(op, *t, vec![local(*x, *t, span)], span) {
+                                if let Some(call) =
+                                    self.walk(op, *t, vec![local(*x, *t, span)], span)
+                                {
                                     stmts.push(discard(call, span));
                                 }
                             }
-                            Expr::new(ExprKind::Block { stmts, tail: Some(Box::new(unit(span))) }, Ty::UNIT, span)
+                            Expr::new(
+                                ExprKind::Block {
+                                    stmts,
+                                    tail: Some(Box::new(unit(span))),
+                                },
+                                Ty::UNIT,
+                                span,
+                            )
                         }
                     };
-                    arms.push(arm(variant(ty, vi, &xs, &types, span), body.counted(&which, vi, inner)));
+                    arms.push(arm(
+                        variant(ty, vi, &xs, &types, span),
+                        body.counted(&which, vi, inner),
+                    ));
                 }
                 let ret = if b.is_some() { self.bool_ty } else { Ty::UNIT };
-                Expr::new(ExprKind::Match { scrutinee: Box::new(local(a, ty, span)), arms }, ret, span)
+                Expr::new(
+                    ExprKind::Match {
+                        scrutinee: Box::new(local(a, ty, span)),
+                        arms,
+                    },
+                    ret,
+                    span,
+                )
             }
             (TyDef::Prim(_), _) => return None,
         };
@@ -373,9 +503,21 @@ impl Shadows<'_> {
 
     /// `x.0 == y.0 && x.1 == y.1 && ...` for `Equal`, and the same over
     /// "compares equal" for `Ordered`, counting where it stopped.
-    fn chain(&mut self, op: Op, body: &mut Body, names: &[String], types: &[Ty], pairs: Vec<(Expr, Expr)>, at: &str) -> Option<Expr> {
+    fn chain(
+        &mut self,
+        op: Op,
+        body: &mut Body,
+        names: &[String],
+        types: &[Ty],
+        pairs: Vec<(Expr, Expr)>,
+        at: &str,
+    ) -> Option<Expr> {
         let span = body.span;
-        let outcomes: [&str; 2] = if op == Op::Equal { ["same", "differs"] } else { ["equal", "decides"] };
+        let outcomes: [&str; 2] = if op == Op::Equal {
+            ["same", "differs"]
+        } else {
+            ["equal", "decides"]
+        };
         let mut tests = Vec::new();
         for ((t, (x, y)), name) in types.iter().zip(pairs).zip(names) {
             tests.push((self.same(op, *t, x, y, span)?, name.clone()));
@@ -384,13 +526,24 @@ impl Shadows<'_> {
             return Some(Expr::new(ExprKind::Bool(true), self.bool_ty, span));
         };
         let mut acc = last;
-        let decisions: Vec<String> =
-            tests.iter().map(|(_, name)| body.decision(&format!("{at}{name}"), outcomes.iter().map(|s| s.to_string()).collect())).collect();
+        let decisions: Vec<String> = tests
+            .iter()
+            .map(|(_, name)| {
+                body.decision(
+                    &format!("{at}{name}"),
+                    outcomes.iter().map(|s| s.to_string()).collect(),
+                )
+            })
+            .collect();
         for ((test, _), d) in tests.into_iter().zip(decisions).rev() {
             let go_on = body.counted(&d, 0, acc);
             let stop = body.counted(&d, 1, Expr::new(ExprKind::Bool(false), self.bool_ty, span));
             acc = Expr::new(
-                ExprKind::If { cond: Box::new(test), then: Box::new(go_on), else_: Box::new(stop) },
+                ExprKind::If {
+                    cond: Box::new(test),
+                    then: Box::new(go_on),
+                    else_: Box::new(stop),
+                },
                 self.bool_ty,
                 span,
             );
@@ -407,27 +560,67 @@ impl Shadows<'_> {
         }
         let desc = *self.desc_index.get(&t)?;
         match (op, self.descriptors.get(desc)?) {
-            (Op::Equal, Desc::Prim(p)) => {
-                Some(Expr::new(ExprKind::Prim { op: PrimOp::Eq, prim: *p, args: vec![x, y] }, self.bool_ty, span))
-            }
+            (Op::Equal, Desc::Prim(p)) => Some(Expr::new(
+                ExprKind::Prim {
+                    op: PrimOp::Eq,
+                    prim: *p,
+                    args: vec![x, y],
+                },
+                self.bool_ty,
+                span,
+            )),
             (_, Desc::Unit) => Some(Expr::new(ExprKind::Bool(true), self.bool_ty, span)),
-            (Op::Equal, _) => Some(Expr::new(ExprKind::StructuralEq { args: vec![x, y] }, self.bool_ty, span)),
+            (Op::Equal, _) => Some(Expr::new(
+                ExprKind::StructuralEq { args: vec![x, y] },
+                self.bool_ty,
+                span,
+            )),
             (Op::Ordered, _) => {
                 let order = self.order?;
                 let con = order.head()?;
-                let index = Expr::new(ExprKind::Int(Magnitude::new(desc as u128), false), Ty::ERROR, span);
+                let index = Expr::new(
+                    ExprKind::Int(Magnitude::new(desc as u128), false),
+                    Ty::ERROR,
+                    span,
+                );
                 let compared = Expr::new(
-                    ExprKind::Intrinsic { name: "structuralCompare".into(), targs: Vec::new(), args: vec![x, y, index] },
+                    ExprKind::Intrinsic {
+                        name: "structuralCompare".into(),
+                        targs: Vec::new(),
+                        args: vec![x, y, index],
+                    },
                     order,
                     span,
                 );
                 // `Order`'s variants in declaration order: `Less`, `Equal`, `Greater`.
-                let equal = Pattern { kind: PatKind::Variant { con, variant: 1, fields: Vec::new() }, ty: order, span };
+                let equal = Pattern {
+                    kind: PatKind::Variant {
+                        con,
+                        variant: 1,
+                        fields: Vec::new(),
+                    },
+                    ty: order,
+                    span,
+                };
                 let arms = vec![
                     arm(equal, Expr::new(ExprKind::Bool(true), self.bool_ty, span)),
-                    arm(Pattern { kind: PatKind::Wild, ty: order, span }, Expr::new(ExprKind::Bool(false), self.bool_ty, span)),
+                    arm(
+                        Pattern {
+                            kind: PatKind::Wild,
+                            ty: order,
+                            span,
+                        },
+                        Expr::new(ExprKind::Bool(false), self.bool_ty, span),
+                    ),
                 ];
-                Some(Expr::new(ExprKind::Match { scrutinee: Box::new(compared), arms }, self.bool_ty, span))
+                Some(Expr::new(
+                    ExprKind::Match {
+                        scrutinee: Box::new(compared),
+                        arms,
+                    },
+                    self.bool_ty,
+                    span,
+                ))
             }
             _ => None,
         }
@@ -441,14 +634,25 @@ impl Shadows<'_> {
             return None;
         }
         let (func, ret) = self.request(op, t)?;
-        Some(Expr::new(ExprKind::CallFn { func: typed::Callee::Func(func), args: values }, ret, span))
+        Some(Expr::new(
+            ExprKind::CallFn {
+                func: typed::Callee::Func(func),
+                args: values,
+            },
+            ret,
+            span,
+        ))
     }
 }
 
 impl Body {
     fn local(&mut self, ty: Ty) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
-        self.locals.push(typed::Local { name: Name::new("coverage"), ty, span: self.span });
+        self.locals.push(typed::Local {
+            name: Name::new("coverage"),
+            ty,
+            span: self.span,
+        });
         id
     }
 
@@ -456,7 +660,13 @@ impl Body {
     fn decision(&mut self, what: &str, branches: Vec<String>) -> String {
         let order = self.decisions.len();
         let label = format!("{}, {what}", self.prefix);
-        self.decisions.push(Derived { span: self.span, group: self.prefix.clone(), order, label: label.clone(), branches });
+        self.decisions.push(Derived {
+            span: self.span,
+            group: self.prefix.clone(),
+            order,
+            label: label.clone(),
+            branches,
+        });
         label
     }
 
@@ -465,13 +675,28 @@ impl Body {
         let key = derived_key(&self.file, (self.span.start, self.span.end), label, slot);
         let span = e.span;
         let ty = e.ty;
-        let arg = Expr::new(ExprKind::Int(Magnitude::new(u128::from(key)), false), self.i64_ty, span);
+        let arg = Expr::new(
+            ExprKind::Int(Magnitude::new(u128::from(key)), false),
+            self.i64_ty,
+            span,
+        );
         let hit = Expr::new(
-            ExprKind::Intrinsic { name: super::HIT.to_string(), targs: Vec::new(), args: vec![arg] },
+            ExprKind::Intrinsic {
+                name: super::HIT.to_string(),
+                targs: Vec::new(),
+                args: vec![arg],
+            },
             Ty::UNIT,
             span,
         );
-        Expr::new(ExprKind::Block { stmts: vec![Stmt::Expr(hit)], tail: Some(Box::new(e)) }, ty, span)
+        Expr::new(
+            ExprKind::Block {
+                stmts: vec![Stmt::Expr(hit)],
+                tail: Some(Box::new(e)),
+            },
+            ty,
+            span,
+        )
     }
 }
 
@@ -480,7 +705,14 @@ fn local(id: LocalId, ty: Ty, span: Span) -> Expr {
 }
 
 fn field(base: Expr, index: usize, ty: Ty, span: Span) -> Expr {
-    Expr::new(ExprKind::Field { base: Box::new(base), index }, ty, span)
+    Expr::new(
+        ExprKind::Field {
+            base: Box::new(base),
+            index,
+        },
+        ty,
+        span,
+    )
 }
 
 fn unit(span: Span) -> Expr {
@@ -488,12 +720,25 @@ fn unit(span: Span) -> Expr {
 }
 
 fn discard(value: Expr, span: Span) -> Stmt {
-    Stmt::Let { pattern: Pattern { kind: PatKind::Wild, ty: value.ty, span }, value, span }
+    Stmt::Let {
+        pattern: Pattern {
+            kind: PatKind::Wild,
+            ty: value.ty,
+            span,
+        },
+        value,
+        span,
+    }
 }
 
 fn arm(pattern: Pattern, body: Expr) -> Arm {
     let span = body.span;
-    Arm { pattern, guard: None, body, span }
+    Arm {
+        pattern,
+        guard: None,
+        body,
+        span,
+    }
 }
 
 fn variant(ty: Ty, variant: usize, binds: &[LocalId], types: &[Ty], span: Span) -> Pattern {
@@ -501,8 +746,26 @@ fn variant(ty: Ty, variant: usize, binds: &[LocalId], types: &[Ty], span: Span) 
         .iter()
         .zip(types)
         .enumerate()
-        .map(|(index, (l, t))| FieldPat { index, pattern: Pattern { kind: PatKind::Bind { local: *l, sub: None }, ty: *t, span } })
+        .map(|(index, (l, t))| FieldPat {
+            index,
+            pattern: Pattern {
+                kind: PatKind::Bind {
+                    local: *l,
+                    sub: None,
+                },
+                ty: *t,
+                span,
+            },
+        })
         .collect();
     let con = ty.head().unwrap_or(TyConId(0));
-    Pattern { kind: PatKind::Variant { con, variant, fields }, ty, span }
+    Pattern {
+        kind: PatKind::Variant {
+            con,
+            variant,
+            fields,
+        },
+        ty,
+        span,
+    }
 }

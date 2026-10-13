@@ -22,7 +22,10 @@ unsafe extern "C" {
 /// A suite whose one test never ends.
 fn endless(name: &str) -> Scratch {
     let scratch = Scratch::repo(name);
-    scratch.write("lib/endless/BUILD.buri", "library {\n    test {\n        sources: [\"test/endless.buri\"]\n    }\n}\n");
+    scratch.write(
+        "lib/endless/BUILD.buri",
+        "library {\n    test {\n        sources: [\"test/endless.buri\"]\n    }\n}\n",
+    );
     scratch.write(
         "lib/endless/lib.buri",
         "/// Counts n down to zero, one step at a time.\n\
@@ -81,7 +84,12 @@ fn killed_with(sig: i32, name: &str) {
     let mut buri = command.spawn().expect("`buri` starts");
     drop(writer);
     let status: ExitStatus = buri.wait().unwrap();
-    assert_eq!(status.signal(), Some(sig), "`buri` was not killed once its runner ran: {status}\n{}", held.printed());
+    assert_eq!(
+        status.signal(),
+        Some(sig),
+        "`buri` was not killed once its runner ran: {status}\n{}",
+        held.printed()
+    );
     let (ended, ending) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let _ = std::io::Read::read_to_end(&mut reader, &mut Vec::new());
@@ -115,7 +123,10 @@ fn a_killed_coverage_run_takes_its_runner_with_it() {
 const SHAPES: [&str; 3] = ["test", "//lib/shapes", "--coverage"];
 
 fn shapes(name: &str) -> Scratch {
-    Scratch::copy_of(name, &tests_dir().join("repositories/coverage/partly_covered/repo"))
+    Scratch::copy_of(
+        name,
+        &tests_dir().join("repositories/coverage/partly_covered/repo"),
+    )
 }
 
 /// The report a run alone writes.
@@ -131,7 +142,10 @@ fn alone(scratch: &Scratch) -> String {
 fn two_coverage_runs_at_once_each_report_their_own_counts() {
     let scratch = shapes("coverage-runs-beside");
     let want = alone(&scratch);
-    let (first, second) = (Held::new("coverage-runs-first"), Held::new("coverage-runs-second"));
+    let (first, second) = (
+        Held::new("coverage-runs-first"),
+        Held::new("coverage-runs-second"),
+    );
     first.hold("handed", 1);
     second.hold("merging", 1);
     let mut one = first.start(&scratch, &SHAPES);
@@ -140,10 +154,20 @@ fn two_coverage_runs_at_once_each_report_their_own_counts() {
     let merging = second.reached("merging", 1);
     waiting.go();
     assert!(one.wait().unwrap().success(), "{}", first.printed());
-    assert_eq!(scratch.read(".buri/coverage/lcov.info"), want, "the first run's report:\n{}", first.printed());
+    assert_eq!(
+        scratch.read(".buri/coverage/lcov.info"),
+        want,
+        "the first run's report:\n{}",
+        first.printed()
+    );
     merging.go();
     assert!(two.wait().unwrap().success(), "{}", second.printed());
-    assert_eq!(scratch.read(".buri/coverage/lcov.info"), want, "the second run's report:\n{}", second.printed());
+    assert_eq!(
+        scratch.read(".buri/coverage/lcov.info"),
+        want,
+        "the second run's report:\n{}",
+        second.printed()
+    );
 }
 
 /// A run killed before it reported leaves nothing behind once the next one
@@ -154,13 +178,22 @@ fn a_killed_runs_counts_are_gone_after_the_next_run() {
     let held = Held::new("coverage-runs-leftover");
     held.raise("merging", 1, &[u8::try_from(SIGKILL).unwrap()]);
     let status = held.start(&scratch, &SHAPES).wait().unwrap();
-    assert_eq!(status.signal(), Some(SIGKILL), "`buri` was not killed before it reported: {status}\n{}", held.printed());
+    assert_eq!(
+        status.signal(),
+        Some(SIGKILL),
+        "`buri` was not killed before it reported: {status}\n{}",
+        held.printed()
+    );
     let want = alone(&scratch);
     let mut left: Vec<String> = std::fs::read_dir(scratch.path(".buri/coverage"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     left.sort();
-    assert_eq!(left, ["lcov.info"], "what a coverage run leaves in .buri/coverage");
+    assert_eq!(
+        left,
+        ["lcov.info"],
+        "what a coverage run leaves in .buri/coverage"
+    );
     assert!(want.contains("SF:lib/shapes/shapes.buri"), "{want}");
 }

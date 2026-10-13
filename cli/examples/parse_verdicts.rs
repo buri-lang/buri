@@ -77,7 +77,11 @@ fn main() {
         // A `SourceMap` per file: nothing here renders a diagnostic, and the
         // question is only whether there is one.
         let mut map = buri::diagnostics::SourceMap::new();
-        let id = map.add(path.to_string(), std::path::PathBuf::from(path), text.clone());
+        let id = map.add(
+            path.to_string(),
+            std::path::PathBuf::from(path),
+            text.clone(),
+        );
         // A platform's surface declares its entries without a body, as the
         // standard library does, wherever the repository keeps it.
         let platform = path == "platform.buri" || path.ends_with("/platform.buri");
@@ -86,7 +90,11 @@ fn main() {
         } else {
             buri::parsing::parser::parse(&text, id)
         };
-        let verdict = if parsed.errors.is_empty() { "parses" } else { "rejects" };
+        let verdict = if parsed.errors.is_empty() {
+            "parses"
+        } else {
+            "rejects"
+        };
         out.push_str(&format!("{verdict:<9}{path}\n"));
     }
 

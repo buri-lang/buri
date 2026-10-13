@@ -72,8 +72,8 @@ use std::fmt::{self, Write as _};
 
 use crate::compiler::semantics::typed::Magnitude;
 use crate::compiler::semantics::types::{FuncIdx, Prim, Ty};
-use crate::hash::Map as HashMap;
 use crate::diagnostics::{invariant_with, Invariant as _, Span};
+use crate::hash::Map as HashMap;
 
 // ---------------------------------------------------------------------------
 // Identifiers
@@ -93,8 +93,14 @@ macro_rules! ir_id {
     };
 }
 
-ir_id!(ValueId, "One SSA value: a block parameter or an instruction result.");
-ir_id!(BlockId, "One basic block within a function. `BlockId(0)` is the entry.");
+ir_id!(
+    ValueId,
+    "One SSA value: a block parameter or an instruction result."
+);
+ir_id!(
+    BlockId,
+    "One basic block within a function. `BlockId(0)` is the entry."
+);
 ir_id!(TypeId, "One source type, interned in [`Program::types`].");
 
 // ---------------------------------------------------------------------------
@@ -150,7 +156,10 @@ impl Type {
 
     /// Whether this is an integer a `Switch` may discriminate on.
     pub fn is_integer(self) -> bool {
-        matches!(self, Type::I1 | Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::I128)
+        matches!(
+            self,
+            Type::I1 | Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::I128
+        )
     }
 }
 
@@ -174,7 +183,10 @@ pub struct TypeInfo {
 pub enum Const {
     Unit,
     Bool(bool),
-    Int { bits: Magnitude, negative: bool },
+    Int {
+        bits: Magnitude,
+        negative: bool,
+    },
     Float(f64),
     /// UTF-8 bytes. A literal is `IMMORTAL` with a null `base`
     /// (VALUE-MODEL.md §3), so it touches no allocator.
@@ -236,7 +248,10 @@ pub enum BinOp {
 impl BinOp {
     /// Whether the result is a `Bool` rather than a value of the operand type.
     pub fn is_comparison(self) -> bool {
-        matches!(self, BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge)
+        matches!(
+            self,
+            BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge
+        )
     }
 
     /// The operation's short name: `add`, `and`, `le`.
@@ -498,14 +513,26 @@ impl Inst {
             | Inst::GetPayload { agg, .. }
             | Inst::GetTag { agg, .. } => out.push(*agg),
             Inst::ArrayLen { array, .. } => out.push(*array),
-            Inst::ArrayGet { array, index: other, .. }
-            | Inst::ArraySlice { array, from: other, .. }
-            | Inst::ArrayPrefix { array, len: other, .. } => {
+            Inst::ArrayGet {
+                array,
+                index: other,
+                ..
+            }
+            | Inst::ArraySlice {
+                array, from: other, ..
+            }
+            | Inst::ArrayPrefix {
+                array, len: other, ..
+            } => {
                 out.push(*array);
                 out.push(*other);
             }
             Inst::ArrayAlloc { len, .. } => out.push(*len),
-            Inst::ArraySet { array, index, value } => {
+            Inst::ArraySet {
+                array,
+                index,
+                value,
+            } => {
                 out.push(*array);
                 out.push(*index);
                 out.push(*value);
@@ -546,7 +573,10 @@ impl Target {
 
     /// An edge to a block with no parameters.
     pub fn to(block: BlockId) -> Target {
-        Target { block, args: Vec::new() }
+        Target {
+            block,
+            args: Vec::new(),
+        }
     }
 }
 
@@ -579,15 +609,21 @@ impl Term {
     /// block per pass.
     pub fn targets(&self) -> impl Iterator<Item = &Target> + Clone {
         // Up to two plain edges, then a switch's cases and its default.
-        type Edges<'t> = ([Option<&'t Target>; 2], &'t [(u64, Target)], Option<&'t Target>);
-        let (pair, cases, default): Edges<'_> =
-            match self {
-                Term::Jump(t) => ([Some(t), None], &[], None),
-                Term::Branch { then, else_, .. } => ([Some(then), Some(else_)], &[], None),
-                Term::Switch { cases, default, .. } => ([None, None], cases, default.as_ref()),
-                Term::Return(_) | Term::Unreachable => ([None, None], &[], None),
-            };
-        pair.into_iter().flatten().chain(cases.iter().map(|(_, t)| t)).chain(default)
+        type Edges<'t> = (
+            [Option<&'t Target>; 2],
+            &'t [(u64, Target)],
+            Option<&'t Target>,
+        );
+        let (pair, cases, default): Edges<'_> = match self {
+            Term::Jump(t) => ([Some(t), None], &[], None),
+            Term::Branch { then, else_, .. } => ([Some(then), Some(else_)], &[], None),
+            Term::Switch { cases, default, .. } => ([None, None], cases, default.as_ref()),
+            Term::Return(_) | Term::Unreachable => ([None, None], &[], None),
+        };
+        pair.into_iter()
+            .flatten()
+            .chain(cases.iter().map(|(_, t)| t))
+            .chain(default)
     }
 
     /// The `k`th of [`Term::targets`], without walking the ones before it.
@@ -719,7 +755,10 @@ pub struct Code {
 
 impl Code {
     pub fn new() -> Code {
-        Code { blocks: Vec::new(), values: Vec::new() }
+        Code {
+            blocks: Vec::new(),
+            values: Vec::new(),
+        }
     }
 
     /// Rewrites every `TypeId` this code holds through `remap`, which maps a
@@ -731,13 +770,17 @@ impl Code {
     pub fn remap_types(&mut self, remap: &[TypeId]) {
         for ty in &mut self.values {
             if let Type::Agg(id) = ty {
-                *id = *remap.get(id.index()).or_ice("the remap covers every local type id");
+                *id = *remap
+                    .get(id.index())
+                    .or_ice("the remap covers every local type id");
             }
         }
         for block in &mut self.blocks {
             for inst in &mut block.insts {
                 if let Inst::Structural { ty, .. } = inst {
-                    *ty = *remap.get(ty.index()).or_ice("the remap covers every local type id");
+                    *ty = *remap
+                        .get(ty.index())
+                        .or_ice("the remap covers every local type id");
                 }
             }
         }
@@ -750,7 +793,10 @@ impl Code {
     /// drops blocks and leaves the value table alone precisely so that this
     /// stays true.
     pub fn ty_of(&self, v: ValueId) -> Type {
-        *self.values.get(v.index()).or_ice("every ValueId was minted by `Code::value`")
+        *self
+            .values
+            .get(v.index())
+            .or_ice("every ValueId was minted by `Code::value`")
     }
 
     pub fn values(&self) -> usize {
@@ -770,16 +816,24 @@ impl Code {
     pub fn block(&mut self, params: &[Type]) -> BlockId {
         let ps: Vec<ValueId> = params.iter().map(|t| self.value(*t)).collect();
         let id = BlockId(self.blocks.len() as u32);
-        self.blocks.push(Block { params: ps, insts: Vec::new(), term: Term::Unreachable });
+        self.blocks.push(Block {
+            params: ps,
+            insts: Vec::new(),
+            term: Term::Unreachable,
+        });
         id
     }
 
     pub fn get(&self, b: BlockId) -> &Block {
-        self.blocks.get(b.index()).or_ice("every BlockId was minted by `Code::block`")
+        self.blocks
+            .get(b.index())
+            .or_ice("every BlockId was minted by `Code::block`")
     }
 
     pub fn get_mut(&mut self, b: BlockId) -> &mut Block {
-        self.blocks.get_mut(b.index()).or_ice("every BlockId was minted by `Code::block`")
+        self.blocks
+            .get_mut(b.index())
+            .or_ice("every BlockId was minted by `Code::block`")
     }
 
     /// The predecessors of every block, in block order.
@@ -787,7 +841,10 @@ impl Code {
         let mut preds = vec![Vec::new(); self.blocks.len()];
         for (i, b) in self.blocks.iter().enumerate() {
             for t in b.term.targets() {
-                preds.get_mut(t.block.index()).or_ice("every BlockId was minted by `Code::block`").push(BlockId(i as u32));
+                preds
+                    .get_mut(t.block.index())
+                    .or_ice("every BlockId was minted by `Code::block`")
+                    .push(BlockId(i as u32));
             }
         }
         preds
@@ -843,7 +900,8 @@ impl Code {
             }
         }
         let mut kept = keep.iter();
-        self.blocks.retain(|_| kept.next().copied().unwrap_or(false));
+        self.blocks
+            .retain(|_| kept.next().copied().unwrap_or(false));
         for b in &mut self.blocks {
             let retarget = |t: &mut Target| {
                 t.block = renumber
@@ -950,11 +1008,16 @@ pub struct Program {
 
 impl Program {
     pub fn type_info(&self, id: TypeId) -> &TypeInfo {
-        self.types.get(id.index()).or_ice("every TypeId was minted by the lowering's interner")
+        self.types
+            .get(id.index())
+            .or_ice("every TypeId was minted by the lowering's interner")
     }
 
     pub fn unit_name(&self, unit: u32) -> &str {
-        self.units.get(unit as usize).map(String::as_str).unwrap_or("?")
+        self.units
+            .get(unit as usize)
+            .map(String::as_str)
+            .unwrap_or("?")
     }
 
     /// The index of every function, bucketed by the codegen unit that owns it.
@@ -977,7 +1040,10 @@ impl Program {
     pub fn funcs_by_unit(&self) -> Vec<Vec<usize>> {
         let mut by_unit: Vec<Vec<usize>> = vec![Vec::new(); self.units.len()];
         for (i, f) in self.funcs.iter().enumerate() {
-            by_unit.get_mut(f.unit as usize).or_ice("every function belongs to one of the units").push(i);
+            by_unit
+                .get_mut(f.unit as usize)
+                .or_ice("every function belongs to one of the units")
+                .push(i);
         }
         by_unit
     }
@@ -1018,10 +1084,14 @@ fn verify_func(program: &Program, func: &Func) {
     let Some(code) = func.code() else { return };
     let name = &func.debug_name;
     let holds = |ok: bool, why: &dyn Fn() -> String| {
-        invariant_with(ok, || format!("the lowered IR is malformed: {name}: {}", why()));
+        invariant_with(ok, || {
+            format!("the lowered IR is malformed: {name}: {}", why())
+        });
     };
 
-    holds(!code.blocks.is_empty(), &|| "a function with a body has no entry block".into());
+    holds(!code.blocks.is_empty(), &|| {
+        "a function with a body has no entry block".into()
+    });
 
     // Entry parameters are the signature's parameters.
     let entry = code.get(BlockId(0));
@@ -1034,7 +1104,10 @@ fn verify_func(program: &Program, func: &Func) {
     });
     for (i, (p, t)) in entry.params.iter().zip(func.sig.params.iter()).enumerate() {
         holds(code.ty_of(*p) == *t, &|| {
-            format!("entry parameter {i} is {:?} and the signature says {t:?}", code.ty_of(*p))
+            format!(
+                "entry parameter {i} is {:?} and the signature says {t:?}",
+                code.ty_of(*p)
+            )
         });
     }
 
@@ -1045,7 +1118,9 @@ fn verify_func(program: &Program, func: &Func) {
     // comparison rather than two cases.
     let mut def: Vec<Option<(usize, usize)>> = vec![None; code.values()];
     let mut define = |v: ValueId, at: (usize, usize)| {
-        let slot = def.get_mut(v.index()).or_ice("every value the IR defines has a type");
+        let slot = def
+            .get_mut(v.index())
+            .or_ice("every value the IR defines has a type");
         holds(slot.is_none(), &|| format!("v{} is defined twice", v.0));
         *slot = Some(at);
     };
@@ -1064,8 +1139,14 @@ fn verify_func(program: &Program, func: &Func) {
     // with the callee's signature.
     for (bi, b) in code.blocks.iter().enumerate() {
         for (ii, inst) in b.insts.iter().enumerate() {
-            if let Inst::Call { func: callee, args, .. } = inst {
-                let c = program.funcs.get(callee.index()).or_ice("every call names a function in its program");
+            if let Inst::Call {
+                func: callee, args, ..
+            } = inst
+            {
+                let c = program
+                    .funcs
+                    .get(callee.index())
+                    .or_ice("every call names a function in its program");
                 holds(args.len() == c.sig.params.len(), &|| {
                     format!(
                         "b{bi} calls {} with {} arguments and it takes {}",
@@ -1075,11 +1156,17 @@ fn verify_func(program: &Program, func: &Func) {
                     )
                 });
                 holds(c.sig.rets.len() == 1, &|| {
-                    format!("b{bi} takes one result from {}, which returns {}", c.debug_name, c.sig.rets.len())
+                    format!(
+                        "b{bi} takes one result from {}, which returns {}",
+                        c.debug_name,
+                        c.sig.rets.len()
+                    )
                 });
             }
             if matches!(inst, Inst::Abort { .. }) {
-                holds(ii.saturating_add(1) == b.insts.len(), &|| format!("b{bi} continues after an abort"));
+                holds(ii.saturating_add(1) == b.insts.len(), &|| {
+                    format!("b{bi} continues after an abort")
+                });
                 holds(matches!(b.term, Term::Unreachable), &|| {
                     format!("b{bi} aborts and does not end unreachable")
                 });
@@ -1093,9 +1180,22 @@ fn verify_func(program: &Program, func: &Func) {
     let mut uses: Vec<ValueId> = Vec::new();
     for (bi, b) in code.blocks.iter().enumerate() {
         let check_use = |v: ValueId, at: (usize, usize)| {
-            let (db, dp) = def.get(v.index()).copied().flatten().or_ice("every value the IR uses is defined");
-            let ok = if db == at.0 { dp < at.1 } else { dom.dominates(db, at.0) };
-            holds(ok, &|| format!("b{bi} uses v{}, defined in b{db}, which does not dominate it", v.0));
+            let (db, dp) = def
+                .get(v.index())
+                .copied()
+                .flatten()
+                .or_ice("every value the IR uses is defined");
+            let ok = if db == at.0 {
+                dp < at.1
+            } else {
+                dom.dominates(db, at.0)
+            };
+            holds(ok, &|| {
+                format!(
+                    "b{bi} uses v{}, defined in b{db}, which does not dominate it",
+                    v.0
+                )
+            });
         };
 
         for (ii, inst) in b.insts.iter().enumerate() {
@@ -1120,7 +1220,9 @@ fn verify_func(program: &Program, func: &Func) {
 
     for (bi, b) in code.blocks.iter().enumerate() {
         if let Term::Branch { cond, .. } = &b.term {
-            holds(code.ty_of(*cond) == Type::I1, &|| format!("b{bi} branches on a value that is not a Bool"));
+            holds(code.ty_of(*cond) == Type::I1, &|| {
+                format!("b{bi} branches on a value that is not a Bool")
+            });
         }
         if let Term::Switch { on, cases, .. } = &b.term {
             holds(code.ty_of(*on).is_integer(), &|| {
@@ -1130,18 +1232,29 @@ fn verify_func(program: &Program, func: &Func) {
             seen.sort_unstable();
             let before = seen.len();
             seen.dedup();
-            holds(seen.len() == before, &|| format!("b{bi} switches on a duplicated case value"));
+            holds(seen.len() == before, &|| {
+                format!("b{bi} switches on a duplicated case value")
+            });
         }
         if let Term::Return(vs) = &b.term {
             holds(vs.len() == func.sig.rets.len(), &|| {
-                format!("b{bi} returns {} values and the signature declares {}", vs.len(), func.sig.rets.len())
+                format!(
+                    "b{bi} returns {} values and the signature declares {}",
+                    vs.len(),
+                    func.sig.rets.len()
+                )
             });
             for (v, t) in vs.iter().zip(func.sig.rets.iter()) {
-                holds(code.ty_of(*v) == *t, &|| format!("b{bi} returns a value of the wrong type"));
+                holds(code.ty_of(*v) == *t, &|| {
+                    format!("b{bi} returns a value of the wrong type")
+                });
             }
         }
         for t in b.term.targets() {
-            let dest = code.blocks.get(t.block.index()).or_ice("every jump names a block of its function");
+            let dest = code
+                .blocks
+                .get(t.block.index())
+                .or_ice("every jump names a block of its function");
             holds(dest.params.len() == t.args.len(), &|| {
                 format!(
                     "b{bi} passes {} arguments to b{}, which takes {}",
@@ -1152,7 +1265,10 @@ fn verify_func(program: &Program, func: &Func) {
             });
             for (a, p) in t.args.iter().zip(dest.params.iter()) {
                 holds(code.ty_of(*a) == code.ty_of(*p), &|| {
-                    format!("b{bi} passes v{} to b{}, whose parameter is a different type", a.0, t.block.0)
+                    format!(
+                        "b{bi} passes v{} to b{}, whose parameter is a different type",
+                        a.0, t.block.0
+                    )
                 });
             }
         }
@@ -1186,7 +1302,10 @@ impl Dominance {
         let at = |v: &Vec<usize>, i: usize| v.get(i).copied().unwrap_or(0);
         // `&`, not `&&`: every operand is cheap, and IR that holds its
         // invariants never makes one false.
-        reached(a) & reached(b) & (at(&self.pre, a) <= at(&self.pre, b)) & (at(&self.post, b) <= at(&self.post, a))
+        reached(a)
+            & reached(b)
+            & (at(&self.pre, a) <= at(&self.pre, b))
+            & (at(&self.post, b) <= at(&self.post, a))
     }
 }
 
@@ -1274,7 +1393,11 @@ fn dominators(code: &Code) -> Dominance {
             next_post = next_post.saturating_add(1);
         }
     }
-    Dominance { reachable, pre, post }
+    Dominance {
+        reachable,
+        pre,
+        post,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1436,7 +1559,12 @@ impl Program {
                 out.push_str("const ");
                 constant_into(c, out);
             }
-            Inst::Unary { dest: d, op, prim, arg } => {
+            Inst::Unary {
+                dest: d,
+                op,
+                prim,
+                arg,
+            } => {
                 dest(out, d);
                 out.push_str(un_op(*op));
                 out.push('.');
@@ -1444,7 +1572,13 @@ impl Program {
                 out.push(' ');
                 value(out, *arg);
             }
-            Inst::Binary { dest: d, op, prim, lhs, rhs } => {
+            Inst::Binary {
+                dest: d,
+                op,
+                prim,
+                lhs,
+                rhs,
+            } => {
                 dest(out, d);
                 out.push_str(op.name());
                 out.push('.');
@@ -1457,7 +1591,11 @@ impl Program {
                 out.push_str("make ");
                 wrapped(out, fields);
             }
-            Inst::MakeEnum { dest: d, variant, fields } => {
+            Inst::MakeEnum {
+                dest: d,
+                variant,
+                fields,
+            } => {
                 dest(out, d);
                 out.push_str("make #");
                 num(out, u64::from(*variant));
@@ -1479,14 +1617,23 @@ impl Program {
                     None => out.push_str("null"),
                 }
             }
-            Inst::GetField { dest: d, agg, index } => {
+            Inst::GetField {
+                dest: d,
+                agg,
+                index,
+            } => {
                 dest(out, d);
                 out.push_str("field.");
                 num(out, u64::from(*index));
                 out.push(' ');
                 value(out, *agg);
             }
-            Inst::GetPayload { dest: d, agg, variant, index } => {
+            Inst::GetPayload {
+                dest: d,
+                agg,
+                variant,
+                index,
+            } => {
                 dest(out, d);
                 out.push_str("payload.#");
                 num(out, u64::from(*variant));
@@ -1505,12 +1652,20 @@ impl Program {
                 out.push_str("len ");
                 value(out, *array);
             }
-            Inst::ArrayGet { dest: d, array, index } => {
+            Inst::ArrayGet {
+                dest: d,
+                array,
+                index,
+            } => {
                 dest(out, d);
                 out.push_str("elem ");
                 pair(out, *array, *index);
             }
-            Inst::ArraySlice { dest: d, array, from } => {
+            Inst::ArraySlice {
+                dest: d,
+                array,
+                from,
+            } => {
                 dest(out, d);
                 out.push_str("slice ");
                 pair(out, *array, *from);
@@ -1520,24 +1675,40 @@ impl Program {
                 out.push_str("alloc ");
                 value(out, *len);
             }
-            Inst::ArraySet { array, index, value: v } => {
+            Inst::ArraySet {
+                array,
+                index,
+                value: v,
+            } => {
                 out.push_str("set ");
                 pair(out, *array, *index);
                 out.push_str(", ");
                 value(out, *v);
             }
-            Inst::ArrayPrefix { dest: d, array, len } => {
+            Inst::ArrayPrefix {
+                dest: d,
+                array,
+                len,
+            } => {
                 dest(out, d);
                 out.push_str("prefix ");
                 pair(out, *array, *len);
             }
-            Inst::Call { dest: d, func, args } => {
+            Inst::Call {
+                dest: d,
+                func,
+                args,
+            } => {
                 dest(out, d);
                 out.push_str("call fn ");
                 self.sym_into(*func, out);
                 wrapped(out, args);
             }
-            Inst::CallIndirect { dest: d, callee, args } => {
+            Inst::CallIndirect {
+                dest: d,
+                callee,
+                args,
+            } => {
                 dest(out, d);
                 out.push_str("call_indirect ");
                 value(out, *callee);
@@ -1548,7 +1719,12 @@ impl Program {
                 let _ = write!(out, "intrinsic {key:?}");
                 wrapped(out, args);
             }
-            Inst::Structural { dest: d, op, ty, args } => {
+            Inst::Structural {
+                dest: d,
+                op,
+                ty,
+                args,
+            } => {
                 dest(out, d);
                 out.push_str("structural.");
                 out.push_str(structural_op(*op));
@@ -1576,7 +1752,10 @@ impl Program {
 }
 
 /// `n` in decimal, without going through `fmt`.
-#[expect(clippy::indexing_slicing, reason = "a `u64` has at most twenty decimal digits, one per slot of `buf`")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "a `u64` has at most twenty decimal digits, one per slot of `buf`"
+)]
 fn num(out: &mut String, mut n: u64) {
     let mut buf = [0u8; 20];
     let mut at = buf.len();
@@ -1748,7 +1927,10 @@ mod tests {
             funcs: vec![Func {
                 symbol: "m$add".into(),
                 debug_name: "m:add".into(),
-                sig: Signature { params: vec![Type::I64, Type::I64], rets: vec![Type::I64] },
+                sig: Signature {
+                    params: vec![Type::I64, Type::I64],
+                    rets: vec![Type::I64],
+                },
                 facts: Facts {
                     params: vec![Ownership::Own, Ownership::Own],
                     purity: Purity::Effectful,
@@ -1793,14 +1975,23 @@ mod tests {
         let v = code.value(Type::I64);
         code.get_mut(b1).insts.push(Inst::Const {
             dest: v,
-            value: Const::Int { bits: Magnitude::new(1), negative: false },
+            value: Const::Int {
+                bits: Magnitude::new(1),
+                negative: false,
+            },
         });
         code.get_mut(b1).term = Term::Return(vec![v]);
         code.get_mut(b2).term = Term::Return(vec![v]);
         let cond = code.value(Type::I1);
-        code.get_mut(BlockId(0)).insts.push(Inst::Const { dest: cond, value: Const::Bool(true) });
-        code.get_mut(BlockId(0)).term =
-            Term::Branch { cond, then: Target::to(b1), else_: Target::to(b2) };
+        code.get_mut(BlockId(0)).insts.push(Inst::Const {
+            dest: cond,
+            value: Const::Bool(true),
+        });
+        code.get_mut(BlockId(0)).term = Term::Branch {
+            cond,
+            then: Target::to(b1),
+            else_: Target::to(b2),
+        };
         let dom = dominators(code);
         assert!(dom.dominates(0, b2.index()));
         assert!(!dom.dominates(b1.index(), b2.index()));
@@ -1838,30 +2029,50 @@ mod tests {
             verify(&bad());
             return String::new();
         }
-        let path = module_path!().split_once("::").or_ice("a test module is in a crate").1;
-        let out = std::process::Command::new(std::env::current_exe().or_ice("this test's own executable"))
-            .args([&format!("{path}::{test}"), "--exact", "--nocapture", "--test-threads=1"])
-            .env(CHILD, "1")
-            .output()
-            .or_ice("the test re-runs itself");
+        let path = module_path!()
+            .split_once("::")
+            .or_ice("a test module is in a crate")
+            .1;
+        let out = std::process::Command::new(
+            std::env::current_exe().or_ice("this test's own executable"),
+        )
+        .args([
+            &format!("{path}::{test}"),
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(CHILD, "1")
+        .output()
+        .or_ice("the test re-runs itself");
         let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
-        assert_eq!(out.status.code(), Some(70), "the verifier let the program through:\n{stderr}");
+        assert_eq!(
+            out.status.code(),
+            Some(70),
+            "the verifier let the program through:\n{stderr}"
+        );
         stderr
     }
 
     #[test]
     fn an_edge_whose_arguments_do_not_match_its_destination_is_reported() {
-        let report = rejected("an_edge_whose_arguments_do_not_match_its_destination_is_reported", || {
-            let mut p = adder();
-            if let Body::Code(code) = &mut p.funcs.first_mut().or_ice("one function").body {
-                let b1 = code.block(&[Type::I64, Type::I64]);
-                code.get_mut(b1).term = Term::Unreachable;
-                let entry_param = *code.get(BlockId(0)).params.first().or_ice("two parameters");
-                code.get_mut(BlockId(0)).term = Term::Jump(Target::new(b1, vec![entry_param]));
-            }
-            p
-        });
-        assert!(report.contains("m:add: b0 passes 1 arguments to b1, which takes 2"), "{report}");
+        let report = rejected(
+            "an_edge_whose_arguments_do_not_match_its_destination_is_reported",
+            || {
+                let mut p = adder();
+                if let Body::Code(code) = &mut p.funcs.first_mut().or_ice("one function").body {
+                    let b1 = code.block(&[Type::I64, Type::I64]);
+                    code.get_mut(b1).term = Term::Unreachable;
+                    let entry_param = *code.get(BlockId(0)).params.first().or_ice("two parameters");
+                    code.get_mut(BlockId(0)).term = Term::Jump(Target::new(b1, vec![entry_param]));
+                }
+                p
+            },
+        );
+        assert!(
+            report.contains("m:add: b0 passes 1 arguments to b1, which takes 2"),
+            "{report}"
+        );
     }
 
     #[test]
@@ -1871,12 +2082,26 @@ mod tests {
             if let Body::Code(code) = &mut p.funcs.first_mut().or_ice("one function").body {
                 let v = code.value(Type::I64);
                 let entry = code.get_mut(BlockId(0));
-                entry.insts.insert(0, Inst::Abort { message: "boom".into() });
-                entry.insts.push(Inst::Const { dest: v, value: Const::Int { bits: Magnitude::new(0), negative: false } });
+                entry.insts.insert(
+                    0,
+                    Inst::Abort {
+                        message: "boom".into(),
+                    },
+                );
+                entry.insts.push(Inst::Const {
+                    dest: v,
+                    value: Const::Int {
+                        bits: Magnitude::new(0),
+                        negative: false,
+                    },
+                });
                 entry.term = Term::Unreachable;
             }
             p
         });
-        assert!(report.contains("m:add: b0 continues after an abort"), "{report}");
+        assert!(
+            report.contains("m:add: b0 continues after an abort"),
+            "{report}"
+        );
     }
 }

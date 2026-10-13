@@ -88,10 +88,21 @@ impl Lowered {
 fn lower(source: &str) -> Lowered {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, "main.buri", source, Role::Entry);
-    assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
-    let entry = analysis.checked.entry.expect("the program exports no `main`");
-    let module_paths: Vec<String> =
-        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    assert!(
+        !analysis.diagnostics.has_errors(),
+        "{}",
+        render(&analysis.diagnostics, &map)
+    );
+    let entry = analysis
+        .checked
+        .entry
+        .expect("the program exports no `main`");
+    let module_paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
 
     let mut diagnostics = Diagnostics::new();
     let mut program = middle::monomorphize::run(
@@ -110,7 +121,11 @@ fn lower(source: &str) -> Lowered {
     // never a lowering failure wearing a backend's clothes.
     middle::ir::verify(&ir);
 
-    Lowered { program, ir, tables: analysis.checked.tables }
+    Lowered {
+        program,
+        ir,
+        tables: analysis.checked.tables,
+    }
 }
 
 /// Diagnostics are not `Debug`, and a failed emission should print what it
@@ -120,24 +135,46 @@ fn expect<T>(what: Result<T, Diagnostics>) -> T {
         Ok(value) => value,
         Err(diagnostics) => panic!(
             "the LLVM backend refused the program: {}",
-            diagnostics.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("; ")
+            diagnostics
+                .items
+                .iter()
+                .map(|d| d.message.clone())
+                .collect::<Vec<_>>()
+                .join("; ")
         ),
     }
 }
 
 fn render(diagnostics: &Diagnostics, map: &SourceMap) -> String {
-    diagnostics.items.iter().map(|d| map.render(d, false)).collect::<Vec<_>>().join("\n")
+    diagnostics
+        .items
+        .iter()
+        .map(|d| map.render(d, false))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn host_target() -> Target {
     Target {
-        platform: if cfg!(target_os = "macos") { Platform::Macos } else { Platform::Linux },
-        arch: Some(if cfg!(target_arch = "aarch64") { Arch::Arm64 } else { Arch::X86_64 }),
+        platform: if cfg!(target_os = "macos") {
+            Platform::Macos
+        } else {
+            Platform::Linux
+        },
+        arch: Some(if cfg!(target_arch = "aarch64") {
+            Arch::Arm64
+        } else {
+            Arch::X86_64
+        }),
     }
 }
 
 fn options(profile: Profile) -> Options<'static> {
-    Options { profile, target: host_target(), unit_prefix: "" }
+    Options {
+        profile,
+        target: host_target(),
+        unit_prefix: "",
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -150,8 +187,8 @@ fn options(profile: Profile) -> Options<'static> {
 /// `tests/native/runtime.rs` follows, for the reason written there.
 fn workspace() -> PathBuf {
     crate::sweep::once();
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("native-llvm-{}", std::process::id()));
+    let dir =
+        Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("native-llvm-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -326,9 +363,17 @@ fn build_tests_as(name: &str, file: &str, source: &str) -> PathBuf {
 fn build_tests_at(name: &str, file: &str, source: &str, profile: Profile) -> PathBuf {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, file, source, Role::TestSource);
-    assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
-    let module_paths: Vec<String> =
-        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    assert!(
+        !analysis.diagnostics.has_errors(),
+        "{}",
+        render(&analysis.diagnostics, &map)
+    );
+    let module_paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
     let mut program = middle::monomorphize::run(
         &analysis.checked,
@@ -485,8 +530,18 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#
     .to_string();
-    let fast = build_and_run_at("thread-door-o2", &source, Some(THREAD_PROBE), Profile::Release);
-    let plain = build_and_run_at("thread-door-o0", &source, Some(THREAD_PROBE), Profile::Debug);
+    let fast = build_and_run_at(
+        "thread-door-o2",
+        &source,
+        Some(THREAD_PROBE),
+        Profile::Release,
+    );
+    let plain = build_and_run_at(
+        "thread-door-o0",
+        &source,
+        Some(THREAD_PROBE),
+        Profile::Debug,
+    );
 
     for (what, ran) in [("default<O2>", &fast), ("default<O0>", &plain)] {
         assert_eq!(ran.2, Some(0), "{what} exited {:?}: {}", ran.2, ran.1);
@@ -496,12 +551,16 @@ export fn main(host: NativeHost): Result<(), Str> {
             ran.1
         );
         assert_eq!(
-            ran.0, "bottom\ndepth 10000\nbottom\ndepth 10000\n",
+            ran.0,
+            "bottom\ndepth 10000\nbottom\ndepth 10000\n",
             "{what}: the root ran {} time(s), not twice",
             ran.0.lines().count() / 2
         );
     }
-    assert_eq!(fast.0, plain.0, "the two pipelines printed different things");
+    assert_eq!(
+        fast.0, plain.0,
+        "the two pipelines printed different things"
+    );
     assert_eq!(fast.2, plain.2, "the two pipelines exited differently");
 }
 
@@ -538,16 +597,29 @@ export fn main(host: NativeHost): Result<(), Str> {
         .find(|l| l.starts_with("define") && l.contains(name))
         .unwrap_or_else(|| panic!("no definition of {name} in:\n{ir}"));
     assert!(line.contains("void"), "the door answers something: {line}");
-    assert_eq!(line.matches("ptr ").count(), 2, "the door is not two pointers: {line}");
-    assert!(!line.contains("fastcc"), "the door is not at the platform ABI: {line}");
-    assert!(!line.contains("internal"), "the door is not externally visible: {line}");
+    assert_eq!(
+        line.matches("ptr ").count(),
+        2,
+        "the door is not two pointers: {line}"
+    );
+    assert!(
+        !line.contains("fastcc"),
+        "the door is not at the platform ABI: {line}"
+    );
+    assert!(
+        !line.contains("internal"),
+        "the door is not externally visible: {line}"
+    );
     // The body it wraps is `fastcc`, and the call is where the two meet.
     let body = ir
         .lines()
         .skip_while(|l| !(l.starts_with("define") && l.contains(name)))
         .take_while(|l| *l != "}")
         .find(|l| l.contains("call") && l.contains("fastcc"));
-    assert!(body.is_some(), "the door does not call its body at `fastcc`:\n{ir}");
+    assert!(
+        body.is_some(),
+        "the door does not call its body at `fastcc`:\n{ir}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -676,7 +748,10 @@ export fn main(host: NativeHost): Result<(), Str> {
     // which is the property `an_abort_flushes_what_was_printed` pins on the
     // runtime side and this pins through generated code.
     assert_eq!(out, "before\n");
-    assert!(err.contains("divide by zero") || err.contains("zero"), "stderr was: {err:?}");
+    assert!(
+        err.contains("divide by zero") || err.contains("zero"),
+        "stderr was: {err:?}"
+    );
     assert_ne!(code, Some(0));
 }
 
@@ -850,7 +925,12 @@ export fn main(host: NativeHost): Result<(), Str> {
     for profile in [Profile::Release, Profile::Debug] {
         let name = format!("nontail-{}", profile.name());
         let (out, err, code) = build_and_run_at(&name, &source, None, profile);
-        assert_eq!(out, "depth 10000\n", "at {}, stderr was: {err}", profile.name());
+        assert_eq!(
+            out,
+            "depth 10000\n",
+            "at {}, stderr was: {err}",
+            profile.name()
+        );
         assert_eq!(code, Some(0), "at {}, stderr was: {err}", profile.name());
     }
 }
@@ -874,7 +954,11 @@ fn the_float_order_holds_at_both_profiles() {
         let mut cmd = Command::new(&binary);
         cmd.env("BURI_TEST_FROM", "0");
         let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
-        let returned = ran.stdout.lines().filter(|l| l.contains("\"left\":1")).count();
+        let returned = ran
+            .stdout
+            .lines()
+            .filter(|l| l.contains("\"left\":1"))
+            .count();
         assert!(
             ran.status == 0 && returned == declared,
             "at {}, {returned} of {declared} blocks returned:\n{}\n{}",
@@ -903,8 +987,9 @@ fn the_indexset_file_holds_at_both_profiles() {
 /// `conformance/lib/collections/test/<file>.buri` as one linked test binary
 /// at each profile, under the heap check, with every block returning.
 fn collections_file_holds_at_both_profiles(file: &str) {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("tests/conformance/lib/collections/test/{file}.buri"));
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "tests/conformance/lib/collections/test/{file}.buri"
+    ));
     let source = std::fs::read_to_string(path).unwrap();
     let declared = source.matches("\ntest \"").count();
     for profile in [Profile::Release, Profile::Debug] {
@@ -913,7 +998,11 @@ fn collections_file_holds_at_both_profiles(file: &str) {
         let mut cmd = Command::new(&binary);
         cmd.env("BURI_TEST_FROM", "0");
         let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
-        let returned = ran.stdout.lines().filter(|l| l.contains("\"left\":1")).count();
+        let returned = ran
+            .stdout
+            .lines()
+            .filter(|l| l.contains("\"left\":1"))
+            .count();
         assert!(
             ran.status == 0 && returned == declared,
             "at {}, {returned} of {declared} blocks returned:\n{}\n{}",
@@ -1117,7 +1206,10 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
         ),
     );
-    assert_eq!(out, "seen ok\ntotal ok\nword\nnumber\nend\n", "stderr was: {err}");
+    assert_eq!(
+        out, "seen ok\ntotal ok\nword\nnumber\nend\n",
+        "stderr was: {err}"
+    );
     assert_eq!(code, Some(0));
 }
 
@@ -1164,7 +1256,11 @@ fn build_ir(source: &str, profile: Profile) -> String {
         .unwrap_or_else(|d| {
             panic!(
                 "{}",
-                d.items.iter().map(|x| x.message.clone()).collect::<Vec<_>>().join("; ")
+                d.items
+                    .iter()
+                    .map(|x| x.message.clone())
+                    .collect::<Vec<_>>()
+                    .join("; ")
             )
         })
 }
@@ -1210,7 +1306,10 @@ export fn main(host: NativeHost): Result<(), Str> {
     // The runtime declarations keep the C convention and the Buri functions
     // keep `fastcc` — a mismatch between a function and its call sites is a
     // miscompile LLVM will not diagnose, so both halves are asserted.
-    assert!(ir.contains("declare void @buri_rt_flush"), "no flush declaration in:\n{ir}");
+    assert!(
+        ir.contains("declare void @buri_rt_flush"),
+        "no flush declaration in:\n{ir}"
+    );
     assert!(ir.contains("buri_rt_argv_init"), "no argv_init in:\n{ir}");
 
     // `cli/runtime/lib.rs` §6's optional call, which **this** backend makes and
@@ -1227,9 +1326,13 @@ export fn main(host: NativeHost): Result<(), Str> {
     // Buri function is `fastcc`. A mismatch between a function and its call
     // sites is a miscompile LLVM will not diagnose, so both halves are here.
     let shim = function_body(&ir, "i32 @main(");
-    assert!(!shim.contains("fastcc"), "the emitted `main` must keep the C convention:\n{shim}");
     assert!(
-        ir.contains("define fastcc") && ir.contains("tail call fastcc") || ir.contains("define fastcc"),
+        !shim.contains("fastcc"),
+        "the emitted `main` must keep the C convention:\n{shim}"
+    );
+    assert!(
+        ir.contains("define fastcc") && ir.contains("tail call fastcc")
+            || ir.contains("define fastcc"),
         "Buri functions must be `fastcc`:\n{ir}"
     );
 }
@@ -1271,7 +1374,10 @@ export fn main(host: NativeHost): Result<(), Str> {
         "a program with no tasks in it marked every block it allocates:\n{plain}"
     );
     // …and it is not that this program has no entry point to put a call in.
-    assert!(plain.contains("buri_rt_argv_init"), "no entry point in:\n{plain}");
+    assert!(
+        plain.contains("buri_rt_argv_init"),
+        "no entry point in:\n{plain}"
+    );
 
     let tasks = optimized_ir(&format!(
         "{}\n{}",
@@ -1301,9 +1407,16 @@ export fn main(host: NativeHost): Result<(), Str> {
     // body is where both calls are, and `argv_init` — which allocates no Buri
     // block — is the only thing before it.
     let shim = function_body(&tasks, "i32 @main(");
-    let init = shim.find("buri_rt_argv_init").expect("no argv_init in the emitted main");
-    let mark = shim.find("buri_rt_values_may_cross_tasks").expect("no mark in the emitted main");
-    assert!(init < mark, "the mark was made before the runtime was initialised:\n{shim}");
+    let init = shim
+        .find("buri_rt_argv_init")
+        .expect("no argv_init in the emitted main");
+    let mark = shim
+        .find("buri_rt_values_may_cross_tasks")
+        .expect("no mark in the emitted main");
+    assert!(
+        init < mark,
+        "the mark was made before the runtime was initialised:\n{shim}"
+    );
 }
 
 /// `memory(none)` on a function the effect system proved pure, and the
@@ -1445,8 +1558,14 @@ export fn main(host: NativeHost): Result<(), Str> {
         ("down", "it calls itself, and the call is not a tail call"),
         ("pingA", "it is one half of a two-function cycle"),
         ("pingB", "it is the other half of that cycle"),
-        ("total", "its body is a loop with no bound on the trip count"),
-        ("viaDown", "it calls a function that is not proven to return"),
+        (
+            "total",
+            "its body is a loop with no bound on the trip count",
+        ),
+        (
+            "viaDown",
+            "it calls a function that is not proven to return",
+        ),
     ] {
         let attrs = attrs_of(name);
         assert!(
@@ -1510,7 +1629,10 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert!(!ir.contains(" nuw "), "`nuw` must never be emitted:\n{ir}");
     // `inbounds` on the other hand is set everywhere it applies, because the
     // premise is enforced by the type system rather than assumed away.
-    assert!(!ir.contains("getelementptr ") || ir.contains("inbounds"), "a bare gep:\n{ir}");
+    assert!(
+        !ir.contains("getelementptr ") || ir.contains("inbounds"),
+        "a bare gep:\n{ir}"
+    );
 }
 
 /// `readonly` on a pointer parameter, and the condition CODEGEN-LLVM.md §3.2
@@ -1569,7 +1691,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 fn definitions(ir: &str) -> Vec<(&str, &str)> {
     let mut out = Vec::new();
     for chunk in ir.split("\ndefine ").skip(1) {
-        let Some((head, rest)) = chunk.split_once('\n') else { continue };
+        let Some((head, rest)) = chunk.split_once('\n') else {
+            continue;
+        };
         let body = rest.split("\n}").next().unwrap_or(rest);
         out.push((head, body));
     }
@@ -1578,9 +1702,15 @@ fn definitions(ir: &str) -> Vec<(&str, &str)> {
 
 /// The `%N` names on a `define` line, and whether each is `readonly`.
 fn parameters(head: &str) -> Vec<(String, bool)> {
-    let Some(open) = head.find('(') else { return Vec::new() };
-    let Some(close) = head.rfind(')') else { return Vec::new() };
-    let Some(list) = head.get(open + 1..close) else { return Vec::new() };
+    let Some(open) = head.find('(') else {
+        return Vec::new();
+    };
+    let Some(close) = head.rfind(')') else {
+        return Vec::new();
+    };
+    let Some(list) = head.get(open + 1..close) else {
+        return Vec::new();
+    };
     list.split(',')
         .filter_map(|piece| {
             let name = piece.split_whitespace().find(|w| w.starts_with('%'))?;
@@ -1592,7 +1722,11 @@ fn parameters(head: &str) -> Vec<(String, bool)> {
 /// The attribute group `#N` a `define` line names, resolved through the
 /// module's `attributes #N = { ... }` lines.
 fn attribute_group<'a>(ir: &'a str, head: &str) -> &'a str {
-    let Some(hash) = head.rsplit('#').next().and_then(|t| t.split_whitespace().next()) else {
+    let Some(hash) = head
+        .rsplit('#')
+        .next()
+        .and_then(|t| t.split_whitespace().next())
+    else {
         return "";
     };
     let key = format!("\nattributes #{hash} = ");
@@ -1657,7 +1791,9 @@ export fn main(host: NativeHost): Result<(), Str> {
         let attrs = attribute_group(&ir, head);
         for line in body.lines() {
             // `%rc.p = getelementptr inbounds i8, ptr %0, i64 -16`
-            let Some((dest, gep)) = line.split_once(" = getelementptr") else { continue };
+            let Some((dest, gep)) = line.split_once(" = getelementptr") else {
+                continue;
+            };
             if !gep.contains("i64 -16") {
                 continue;
             }
@@ -1669,7 +1805,9 @@ export fn main(host: NativeHost): Result<(), Str> {
             else {
                 continue;
             };
-            let Some((_, readonly)) = params.iter().find(|(n, _)| n == base) else { continue };
+            let Some((_, readonly)) = params.iter().find(|(n, _)| n == base) else {
+                continue;
+            };
             let target = format!(", ptr {dest},");
             let stored = body
                 .lines()
@@ -1739,7 +1877,11 @@ export fn main(host: NativeHost): Result<(), Str> {
     ));
     let counting = function_body(&ir, "@\"main_buri$twice\"");
     assert!(
-        !counting.lines().next().unwrap_or_default().contains("readonly"),
+        !counting
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .contains("readonly"),
         "a function that counts its parameter must not call it `readonly`:\n{counting}"
     );
     assert!(
@@ -1865,7 +2007,11 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
     assert_eq!(out, "ababab\n", "stderr was: {err}");
     assert_eq!(code, Some(0), "stderr was: {err}");
-    assert_eq!(live_blocks(&err), 0, "a `Json` holding a heap `Str` leaked: {err:?}");
+    assert_eq!(
+        live_blocks(&err),
+        0,
+        "a `Json` holding a heap `Str` leaked: {err:?}"
+    );
 }
 
 /// G2: a reference operation is two counts behind one branch on `cap`'s bit 63.
@@ -1906,8 +2052,14 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
     ));
 
-    assert!(ir.contains("inc.shared"), "no shared arm on the increment in:\n{ir}");
-    assert!(ir.contains("dec.shared"), "no shared arm on the decrement in:\n{ir}");
+    assert!(
+        ir.contains("inc.shared"),
+        "no shared arm on the increment in:\n{ir}"
+    );
+    assert!(
+        ir.contains("dec.shared"),
+        "no shared arm on the decrement in:\n{ir}"
+    );
     assert!(
         ir.contains("call void @buri_rt_incref"),
         "the increment's shared arm does not reach the runtime in:\n{ir}"
@@ -1924,9 +2076,18 @@ export fn main(host: NativeHost): Result<(), Str> {
     // The unshared arm, unchanged: MEMORY.md §5.1's load, saturating select
     // and store. A `%rc.sat` that stopped being stored would mean the fork
     // replaced the fast path rather than standing beside it.
-    assert!(ir.contains("%rc.sat"), "the saturating select is gone from:\n{ir}");
-    assert!(ir.contains("%rc.inc"), "the non-atomic increment is gone from:\n{ir}");
-    assert!(ir.contains("%rc.dec"), "the non-atomic decrement is gone from:\n{ir}");
+    assert!(
+        ir.contains("%rc.sat"),
+        "the saturating select is gone from:\n{ir}"
+    );
+    assert!(
+        ir.contains("%rc.inc"),
+        "the non-atomic increment is gone from:\n{ir}"
+    );
+    assert!(
+        ir.contains("%rc.dec"),
+        "the non-atomic decrement is gone from:\n{ir}"
+    );
 
     // And the emitter says which arm is hot.
     assert!(
@@ -1989,7 +2150,10 @@ export fn main(host: NativeHost): Result<(), Str> {
         .find(|(head, _)| head.contains("main_buri$walk"))
         .map(|(_, body)| body)
         .unwrap_or_else(|| panic!("no `main_buri$walk` was emitted; the IR is:\n{emitted}"));
-    assert!(!walk.contains("alloca"), "no `alloca` before the pipeline either:\n{walk}");
+    assert!(
+        !walk.contains("alloca"),
+        "no `alloca` before the pipeline either:\n{walk}"
+    );
     assert!(walk.contains("phi "), "the loop must carry phis:\n{walk}");
 }
 
@@ -2013,7 +2177,10 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert!(ir.contains("target datalayout"), "no data layout in:\n{ir}");
     assert!(ir.contains("target triple"), "no triple in:\n{ir}");
     let expected = llvm::target::triple(host_target()).unwrap();
-    assert!(ir.contains(&expected), "the module names a different triple than the machine");
+    assert!(
+        ir.contains(&expected),
+        "the module names a different triple than the machine"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -2044,10 +2211,18 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
     );
     let analysis = driver::analyze_snippet(&mut map, "main.buri", &source, Role::Entry);
-    assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
+    assert!(
+        !analysis.diagnostics.has_errors(),
+        "{}",
+        render(&analysis.diagnostics, &map)
+    );
     let entry = analysis.checked.entry.unwrap();
-    let module_paths: Vec<String> =
-        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let module_paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
     let mut mono = middle::monomorphize::run(
         &analysis.checked,
@@ -2061,7 +2236,10 @@ export fn main(host: NativeHost): Result<(), Str> {
     // An interpolation is `str.concat` plus a template hole, and both are
     // emitted now — so the hook's job here is to say *nothing*, which is the
     // half of it that is easiest to break by accident.
-    assert!(missing.is_empty(), "an interpolation is implemented now, got {missing:?}");
+    assert!(
+        missing.is_empty(),
+        "an interpolation is implemented now, got {missing:?}"
+    );
 
     // `core/list` has no gap left: every key in `list.buri` is either a row in
     // `runtime_table.rs`'s table or a loop in `emit::Unit`, and `map`, `sortBy`,
@@ -2105,10 +2283,18 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
     );
     let analysis = driver::analyze_snippet(&mut map, "closure.buri", &with_closure, Role::Entry);
-    assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
+    assert!(
+        !analysis.diagnostics.has_errors(),
+        "{}",
+        render(&analysis.diagnostics, &map)
+    );
     let entry = analysis.checked.entry.unwrap();
-    let module_paths: Vec<String> =
-        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let module_paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
     let mut mono = middle::monomorphize::run(
         &analysis.checked,
@@ -2142,7 +2328,9 @@ export fn main(host: NativeHost): Result<(), Str> {
          got {missing:?}"
     );
     assert!(
-        !missing.iter().any(|m| m == "list.zip" || m == "list.flatten"),
+        !missing
+            .iter()
+            .any(|m| m == "list.zip" || m == "list.flatten"),
         "`zip` and `flatten` are emitted as loops now and must not be reported, \
          got {missing:?}"
     );
@@ -2163,7 +2351,10 @@ fn the_identity_names_the_linked_llvm_and_inkwell() {
     assert!(id.starts_with("llvm 21."), "{id}");
     assert!(id.contains("inkwell 0.10"), "{id}");
     assert!(id.contains("aarch64-unknown-linux-musl"), "{id}");
-    assert!(!id.contains("linux-gnu"), "a glibc triple is in the identity: {id}");
+    assert!(
+        !id.contains("linux-gnu"),
+        "a glibc triple is in the identity: {id}"
+    );
     assert_eq!(llvm::Llvm::default().name(), "llvm");
 }
 
@@ -2187,12 +2378,8 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#,
     );
-    let once = {
-        lower(&source).emit(Profile::Release)
-    };
-    let twice = {
-        lower(&source).emit(Profile::Release)
-    };
+    let once = { lower(&source).emit(Profile::Release) };
+    let twice = { lower(&source).emit(Profile::Release) };
     assert_eq!(once.len(), twice.len());
     for (a, b) in once.iter().zip(twice.iter()) {
         assert_eq!(a.name, b.name);
@@ -2249,8 +2436,16 @@ export fn main(host: NativeHost): Result<(), Str> {
     let pkg = repo.join("cmd").join("app");
     std::fs::create_dir_all(&pkg).unwrap();
     std::fs::write(repo.join("REPO.buri"), "").unwrap();
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     let variant = format!("{os}-{arch}");
     std::fs::write(
         pkg.join("BUILD.buri"),
@@ -2259,7 +2454,10 @@ export fn main(host: NativeHost): Result<(), Str> {
         ),
     )
     .unwrap();
-    let artifact = repo.join(".buri/out/native").join(&variant).join("cmd/app/app");
+    let artifact = repo
+        .join(".buri/out/native")
+        .join(&variant)
+        .join("cmd/app/app");
 
     // Builds `source`, runs it to be sure it is the program, and answers each
     // unit's `codegen` status as `--explain` printed it: `run` or `cached`.
@@ -2280,25 +2478,38 @@ export fn main(host: NativeHost): Result<(), Str> {
         assert_eq!(String::from_utf8_lossy(&ran.stdout), format!("{says}\n"));
         let units: Vec<(String, String)> = stdout
             .lines()
-            .filter_map(|line| match line.split_whitespace().collect::<Vec<_>>().as_slice() {
-                [status, "codegen", unit, ..] => Some(((*unit).to_string(), (*status).to_string())),
-                _ => None,
-            })
+            .filter_map(
+                |line| match line.split_whitespace().collect::<Vec<_>>().as_slice() {
+                    [status, "codegen", unit, ..] => {
+                        Some(((*unit).to_string(), (*status).to_string()))
+                    }
+                    _ => None,
+                },
+            )
             .collect();
-        assert!(!units.is_empty(), "`--explain` named no codegen unit:\n{stdout}");
+        assert!(
+            !units.is_empty(),
+            "`--explain` named no codegen unit:\n{stdout}"
+        );
         units
     };
 
     let cold = build(&one, "a");
-    assert!(cold.iter().all(|(_, s)| s == "run"), "a cold build hit the cache: {cold:?}");
+    assert!(
+        cold.iter().all(|(_, s)| s == "run"),
+        "a cold build hit the cache: {cold:?}"
+    );
     let reformatted = build(&same, "a");
     assert!(
         reformatted.iter().all(|(_, s)| s == "cached"),
         "reformatting must not move a codegen key: {reformatted:?}"
     );
     let changed = build(&other, "b");
-    let moved: Vec<&str> =
-        changed.iter().filter(|(_, s)| s == "run").map(|(u, _)| u.as_str()).collect();
+    let moved: Vec<&str> = changed
+        .iter()
+        .filter(|(_, s)| s == "run")
+        .map(|(u, _)| u.as_str())
+        .collect();
     assert!(
         moved.len() == 1 && moved[0].ends_with("main_buri"),
         "a changed literal in `main` must move `main`'s codegen key and no other: {changed:?}"
@@ -2353,8 +2564,16 @@ export fn main(host: NativeHost): Result<(), Str> {{
     std::fs::create_dir_all(&pkg).unwrap();
     std::fs::write(repo.join("REPO.buri"), "").unwrap();
     std::fs::write(pkg.join("helper.buri"), helper).unwrap();
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     let variant = format!("{os}-{arch}");
     std::fs::write(
         pkg.join("BUILD.buri"),
@@ -2364,7 +2583,10 @@ export fn main(host: NativeHost): Result<(), Str> {{
         ),
     )
     .unwrap();
-    let artifact = repo.join(".buri/out/native").join(&variant).join("cmd/app/app");
+    let artifact = repo
+        .join(".buri/out/native")
+        .join(&variant)
+        .join("cmd/app/app");
     let build = |source: &str, says: &str| {
         std::fs::write(pkg.join("main.buri"), source).unwrap();
         let out = Command::new(env!("CARGO_BIN_EXE_buri"))
@@ -2515,7 +2737,10 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
         ),
     );
-    assert_eq!(out, "hi -1294967296\nlo 1294967296\nmid -3\n", "stderr was: {err}");
+    assert_eq!(
+        out, "hi -1294967296\nlo 1294967296\nmid -3\n",
+        "stderr was: {err}"
+    );
     assert_eq!(code, Some(0));
 }
 
@@ -2544,7 +2769,10 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
         ),
     );
-    assert_eq!(out, "ascii 5\nwide 5\nastral 3\nempty 0\n", "stderr was: {err}");
+    assert_eq!(
+        out, "ascii 5\nwide 5\nastral 3\nempty 0\n",
+        "stderr was: {err}"
+    );
     assert_eq!(code, Some(0));
 }
 
@@ -2693,7 +2921,10 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
         ),
     );
-    assert_eq!(out, "abcd abcd-one abcd-two 4\nabcd-two 8\n", "stderr was: {err}");
+    assert_eq!(
+        out, "abcd abcd-one abcd-two 4\nabcd-two 8\n",
+        "stderr was: {err}"
+    );
     assert_eq!(code, Some(0));
 }
 
@@ -2726,7 +2957,10 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
         ),
     );
-    assert_eq!(out, "left\nright\nleft!!\nleft,right\n", "stderr was: {err}");
+    assert_eq!(
+        out, "left\nright\nleft!!\nleft,right\n",
+        "stderr was: {err}"
+    );
     assert_eq!(code, Some(0));
 }
 
@@ -2808,7 +3042,10 @@ export fn main(host: NativeHost): Result<(), Str> {
         blocks < 60,
         "four thousand pushes allocated {blocks} blocks: the uniqueness fast path did not fire"
     );
-    assert_eq!(live, 0, "{blocks} blocks allocated and {live} still live at exit");
+    assert_eq!(
+        live, 0,
+        "{blocks} blocks allocated and {live} still live at exit"
+    );
 }
 
 /// A slot past one list's end can hold an element a **longer**, now-dead list
@@ -2857,7 +3094,10 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
     assert_eq!(code, Some(0), "stderr was: {err}");
     let (blocks, live) = probed(&err);
-    assert_eq!(live, 0, "{blocks} blocks allocated and {live} still live at exit");
+    assert_eq!(
+        live, 0,
+        "{blocks} blocks allocated and {live} still live at exit"
+    );
 }
 
 /// The same guard for the list half: two pushes onto a list a binding still
@@ -2982,8 +3222,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         ),
     );
     assert_eq!(
-        out,
-        "at b\nat none\nidx 2\nidx none\nint 42\nint none\nflt 1.5\npair a|b\npair none\n",
+        out, "at b\nat none\nidx 2\nidx none\nint 42\nint none\nflt 1.5\npair a|b\npair none\n",
         "stderr was: {err}"
     );
     assert_eq!(code, Some(0));
@@ -3114,8 +3353,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         ),
     );
     assert_eq!(
-        out,
-        "eq true false\ncmp true true true\nord true true true\nderived true false\n",
+        out, "eq true false\ncmp true true true\nord true true true\nderived true false\n",
         "stderr was: {err}"
     );
     assert_eq!(code, Some(0));
@@ -3179,8 +3417,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         ),
     );
     assert_eq!(
-        out,
-        "listInt: true\nstruct: Less true\nsorted: true\n",
+        out, "listInt: true\nstruct: Less true\nsorted: true\n",
         "stderr was: {err}"
     );
     assert_eq!(code, Some(0));
@@ -3215,8 +3452,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         ),
     );
     assert_eq!(
-        out,
-        "Tagged { label: \"hi\", live: true, ratio: 0.5, n: -3, small: 255, c: 'q' }\n",
+        out, "Tagged { label: \"hi\", live: true, ratio: 0.5, n: -3, small: 255, c: 'q' }\n",
         "stderr was: {err}"
     );
     assert_eq!(code, Some(0));
@@ -3245,7 +3481,10 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
         ),
     );
-    assert_eq!(out, "Bytes { signed: -1, unsigned: 255 }\n", "stderr was: {err}");
+    assert_eq!(
+        out, "Bytes { signed: -1, unsigned: 255 }\n",
+        "stderr was: {err}"
+    );
     assert_eq!(code, Some(0));
 }
 
@@ -3374,8 +3613,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         ),
     );
     assert_eq!(
-        out,
-        "slice 0\nrange 0\nrepeat 0\nreverse 0\nchars 0\ntrim []\nrepeat0 []\nslice0 []\n",
+        out, "slice 0\nrange 0\nrepeat 0\nreverse 0\nchars 0\ntrim []\nrepeat0 []\nslice0 []\n",
         "stderr was: {err}"
     );
     assert_eq!(code, Some(0));
@@ -3449,8 +3687,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         ),
     );
     assert_eq!(
-        out,
-        "same true\nstr false\nint false\nbool false\nfloat false\nchar false\nu8 false\n",
+        out, "same true\nstr false\nint false\nbool false\nfloat false\nchar false\nu8 false\n",
         "stderr was: {err}"
     );
     assert_eq!(code, Some(0));
@@ -3505,7 +3742,10 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
         ),
     );
-    assert_eq!(out, "add 15\ntwice 21\nfree 42\nboth 19\n", "stderr was: {err}");
+    assert_eq!(
+        out, "add 15\ntwice 21\nfree 42\nboth 19\n",
+        "stderr was: {err}"
+    );
     assert_eq!(code, Some(0));
 }
 
@@ -3607,7 +3847,8 @@ export fn main(host: NativeHost): Result<(), Str> {{
     assert_eq!(b.0, "done 4\n", "stderr was: {}", b.1);
     let (held, base) = (live_blocks(&a.1), live_blocks(&b.1));
     assert_eq!(
-        held, base,
+        held,
+        base,
         "the drop glue leaks {} block(s): a nested aggregate left {held} live where an \
          equivalent program with no aggregate left {base}",
         held.saturating_sub(base)
@@ -3644,8 +3885,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         ),
     );
     assert_eq!(
-        out,
-        "u8 0 255\ni8 -128 127\ni32 -2147483648 2147483647\nu32 4294967295\n",
+        out, "u8 0 255\ni8 -128 127\ni32 -2147483648 2147483647\nu32 4294967295\n",
         "stderr was: {err}"
     );
     assert_eq!(code, Some(0));
@@ -3705,8 +3945,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         ),
     );
     assert_eq!(
-        out,
-        "pad [...abc]\ncat abcd\nrep xyxyxy\nrep2 a+b\nsplit 3 1|2|3\nlist 4\n",
+        out, "pad [...abc]\ncat abcd\nrep xyxyxy\nrep2 a+b\nsplit 3 1|2|3\nlist 4\n",
         "stderr was: {err}"
     );
     assert_eq!(code, Some(0));
@@ -3979,15 +4218,35 @@ export fn main(host: NativeHost): Result<(), Str> {
                     two [ababab][cdcd]\nlocal [ababab][ababab]\n\
                     literal [zz][zz]\none [ababab]\n";
 
-    let fast = build_and_run_at("aggregate-projection-o2", &source, Some(LIVE_PROBE), Profile::Release);
-    let plain = build_and_run_at("aggregate-projection-o0", &source, Some(LIVE_PROBE), Profile::Debug);
+    let fast = build_and_run_at(
+        "aggregate-projection-o2",
+        &source,
+        Some(LIVE_PROBE),
+        Profile::Release,
+    );
+    let plain = build_and_run_at(
+        "aggregate-projection-o0",
+        &source,
+        Some(LIVE_PROBE),
+        Profile::Debug,
+    );
 
     assert_eq!(fast.0, expected, "stderr was: {}", fast.1);
     assert_eq!(plain.0, expected, "stderr was: {}", plain.1);
     assert_eq!(fast.2, Some(0), "stderr was: {}", fast.1);
     assert_eq!(plain.2, Some(0), "stderr was: {}", plain.1);
-    assert_eq!(live_blocks(&fast.1), 0, "`default<O2>` left blocks live: {:?}", fast.1);
-    assert_eq!(live_blocks(&plain.1), 0, "`default<O0>` left blocks live: {:?}", plain.1);
+    assert_eq!(
+        live_blocks(&fast.1),
+        0,
+        "`default<O2>` left blocks live: {:?}",
+        fast.1
+    );
+    assert_eq!(
+        live_blocks(&plain.1),
+        0,
+        "`default<O0>` left blocks live: {:?}",
+        plain.1
+    );
 }
 
 /// The **class**, rather than the shape the report arrived in: every borrowing
@@ -4047,17 +4306,36 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#,
     );
-    let expected =
-        "field [abab][cdcd]\nindex [efef]\nmatch [ijij]\nloop [mnmn]\n";
+    let expected = "field [abab][cdcd]\nindex [efef]\nmatch [ijij]\nloop [mnmn]\n";
 
-    let fast = build_and_run_at("projection-class-o2", &source, Some(LIVE_PROBE), Profile::Release);
-    let plain = build_and_run_at("projection-class-o0", &source, Some(LIVE_PROBE), Profile::Debug);
+    let fast = build_and_run_at(
+        "projection-class-o2",
+        &source,
+        Some(LIVE_PROBE),
+        Profile::Release,
+    );
+    let plain = build_and_run_at(
+        "projection-class-o0",
+        &source,
+        Some(LIVE_PROBE),
+        Profile::Debug,
+    );
 
     assert_eq!(fast.0, expected, "stderr was: {}", fast.1);
     assert_eq!(plain.0, expected, "stderr was: {}", plain.1);
     assert_eq!(fast.2, Some(0), "stderr was: {}", fast.1);
-    assert_eq!(live_blocks(&fast.1), 0, "`default<O2>` left blocks live: {:?}", fast.1);
-    assert_eq!(live_blocks(&plain.1), 0, "`default<O0>` left blocks live: {:?}", plain.1);
+    assert_eq!(
+        live_blocks(&fast.1),
+        0,
+        "`default<O2>` left blocks live: {:?}",
+        fast.1
+    );
+    assert_eq!(
+        live_blocks(&plain.1),
+        0,
+        "`default<O0>` left blocks live: {:?}",
+        plain.1
+    );
 }
 
 /// The join `middle::lower::template` builds is nobody else's to drop.
@@ -4113,7 +4391,12 @@ export fn main(host: NativeHost): Result<(), Str> {{
         live_blocks(&few.1),
         live_blocks(&many.1)
     );
-    assert_eq!(live_blocks(&many.1), 0, "the heap did not come back balanced: {:?}", many.1);
+    assert_eq!(
+        live_blocks(&many.1),
+        0,
+        "the heap did not come back balanced: {:?}",
+        many.1
+    );
 }
 
 /// **An empty list is not a block.**
@@ -4186,7 +4469,12 @@ export fn main(host: NativeHost): Result<(), Str> {{
         live_blocks(&few.1),
         live_blocks(&many.1)
     );
-    assert_eq!(live_blocks(&many.1), 0, "the heap did not come back balanced: {:?}", many.1);
+    assert_eq!(
+        live_blocks(&many.1),
+        0,
+        "the heap did not come back balanced: {:?}",
+        many.1
+    );
 }
 
 /// A `C: Allocator` parameter reached with a value that **implements** `Allocator`
@@ -4301,7 +4589,11 @@ fn a_server_answers_a_request_on_a_socket() {
     let source = crate::shared::one_shot_server();
     let binary = build_at("server-socket", &source, None, Profile::Release);
     let (out, reply) = crate::shared::served(&binary, "/ping?x=1");
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert!(
         out.stdout.ends_with("served\n"),
         "the server did not run to its own end:\n{}",
@@ -4365,7 +4657,11 @@ fn a_secured_server_opens_its_port_and_says_why_when_it_cannot() {
     let source = crate::shared::tls_server(&certificate, &key, &absent);
     let binary = build_at("server-tls", &source, None, Profile::Release);
     let out = crate::shared::ran(&binary);
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     crate::shared::tls_bind_answers(&out.stdout, &absent);
 }
 
@@ -4404,7 +4700,11 @@ fn fifty_requests_are_answered_at_once() {
         "{met} of {REQUESTS} handlers were ever in flight at once, so the server \
          answered them one at a time rather than together"
     );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert!(
         out.stdout.ends_with("served\n"),
         "the server did not run to its own end:\n{}",
@@ -4455,7 +4755,11 @@ fn a_socket_counts_the_messages_it_was_sent() {
         out.stdout,
         out.stderr
     );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert!(
         out.stdout.contains("closed .Normal\n"),
         "the close hook did not run with the reason the client sent:\n{}",
@@ -4566,11 +4870,17 @@ export fn main(host: NativeHost): Result<(), Str> {{
 fn a_server_holding_two_hundred_open_websockets_still_answers() {
     skip_unless_executable!();
     const OPEN: usize = 200;
-    let binary = build_at("socket-many", &many_sockets_server(OPEN), None, Profile::Release);
+    let binary = build_at(
+        "socket-many",
+        &many_sockets_server(OPEN),
+        None,
+        Profile::Release,
+    );
     let running = crate::shared::announced(&binary);
     let port = running.2;
-    let mut open: Vec<crate::shared::Talking> =
-        (0..OPEN).map(|_| crate::shared::Talking::to(port)).collect();
+    let mut open: Vec<crate::shared::Talking> = (0..OPEN)
+        .map(|_| crate::shared::Talking::to(port))
+        .collect();
     // The upgrade past all of them, and a message on it.
     let mut last = crate::shared::Talking::to(port);
     last.say("last");
@@ -4579,8 +4889,12 @@ fn a_server_holding_two_hundred_open_websockets_still_answers() {
     let plain = {
         use std::io::{Read, Write};
         let mut socket = std::net::TcpStream::connect(("127.0.0.1", port)).expect("connect");
-        socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).unwrap();
-        socket.write_all(b"GET / HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").expect("the request");
+        socket
+            .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+            .unwrap();
+        socket
+            .write_all(b"GET / HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n")
+            .expect("the request");
         let mut back = String::new();
         let _ = socket.read_to_string(&mut back);
         back
@@ -4598,14 +4912,28 @@ fn a_server_holding_two_hundred_open_websockets_still_answers() {
         client.hush();
     }
     let out = crate::shared::finished(running);
-    assert_eq!(heard_last.as_deref(), Some("echo last"), "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        heard_last.as_deref(),
+        Some("echo last"),
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout,
+        out.stderr
+    );
     assert!(
         plain.starts_with("HTTP/1.1 200 ") && plain.ends_with("plain"),
         "the plain request was not answered:\n{plain}"
     );
     assert_eq!(echoed, OPEN, "not every open socket echoed");
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
-    assert!(out.stdout.ends_with("served\n"), "the server did not run to its end:\n{}", out.stdout);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    assert!(
+        out.stdout.ends_with("served\n"),
+        "the server did not run to its end:\n{}",
+        out.stdout
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -4666,7 +4994,10 @@ fn ignore(value: Int): () {
 }
 "#;
     let binary = build_tests("graph", source);
-    let out = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
+    let out = Command::new(&binary)
+        .env("BURI_TEST_FROM", "0")
+        .output()
+        .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -4783,7 +5114,10 @@ test "a schema declared ahead of a cache of ordered maps survives" {
 }
 "#;
     let binary = build_tests("ordered-container-signal", source);
-    let out = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
+    let out = Command::new(&binary)
+        .env("BURI_TEST_FROM", "0")
+        .output()
+        .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -4849,7 +5183,10 @@ fn a_snapshot_is_painted_and_compared_by_a_linked_release_program() {
         let mut cmd = Command::new(&binary);
         cmd.env("BURI_TEST_FROM", "0")
             .env("BURI_SNAPSHOT_DIR", &snapshots)
-            .env("BURI_SNAPSHOT_SHEET", workspace().join("snapshot").join("styles.css"));
+            .env(
+                "BURI_SNAPSHOT_SHEET",
+                workspace().join("snapshot").join("styles.css"),
+            );
         if update {
             cmd.env("BURI_SNAPSHOT_UPDATE", "1");
         }
@@ -4886,22 +5223,41 @@ fn a_snapshot_is_painted_and_compared_by_a_linked_release_program() {
         "comparing against the golden just written failed:\n{}",
         String::from_utf8_lossy(&compared.stderr)
     );
-    assert!(!snapshots.join("card.diff.png").exists(), "a run that matched left a diff image");
+    assert!(
+        !snapshots.join("card.diff.png").exists(),
+        "a run that matched left a diff image"
+    );
 
     // The negative twin: one word of the tree, and the report a reader gets.
     let changed = source.replace(".Const(\"Ada\")", ".Const(\"Grace\")");
-    assert_ne!(changed, source, "the case no longer names the string this test changes");
+    assert_ne!(
+        changed, source,
+        "the case no longer names the string this test changes"
+    );
     let other = build_tests("snapshot-changed", &changed);
     let out = Command::new(&other)
         .env("BURI_TEST_FROM", "0")
         .env("BURI_SNAPSHOT_DIR", &snapshots)
-        .env("BURI_SNAPSHOT_SHEET", workspace().join("snapshot-changed").join("styles.css"))
+        .env(
+            "BURI_SNAPSHOT_SHEET",
+            workspace().join("snapshot-changed").join("styles.css"),
+        )
         .output()
         .unwrap();
-    assert_ne!(out.status.code(), Some(0), "a changed tree has to fail the test");
+    assert_ne!(
+        out.status.code(),
+        Some(0),
+        "a changed tree has to fail the test"
+    );
     let said = String::from_utf8_lossy(&out.stderr);
-    assert!(said.contains("card.diff.png"), "the report names the file to look at: {said}");
-    assert!(snapshots.join("card.diff.png").exists(), "the difference was not written");
+    assert!(
+        said.contains("card.diff.png"),
+        "the report names the file to look at: {said}"
+    );
+    assert!(
+        snapshots.join("card.diff.png").exists(),
+        "the difference was not written"
+    );
 }
 
 /// **The same claim where the two backends have most room to disagree: text.**
@@ -4919,9 +5275,8 @@ fn a_snapshot_is_painted_and_compared_by_a_linked_release_program() {
 #[test]
 fn the_text_a_shaper_has_to_survive_paints_the_same_bytes_under_the_release_backend() {
     skip_unless_executable!();
-    let package = Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "tests/repositories/ui/every_shape_and_state_is_painted/repo/lib/scenes",
-    );
+    let package = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/repositories/ui/every_shape_and_state_is_painted/repo/lib/scenes");
     let library = std::fs::read_to_string(package.join("scenes.buri")).unwrap();
     let suite = std::fs::read_to_string(package.join("test/text.buri")).unwrap();
     let mut lines: Vec<String> = Vec::new();
@@ -4943,14 +5298,20 @@ fn the_text_a_shaper_has_to_survive_paints_the_same_bytes_under_the_release_back
     let _ = std::fs::remove_dir_all(&snapshots);
     std::fs::create_dir_all(&snapshots).unwrap();
     let goldens = package.join("test/__snapshots__");
-    for name in ["\u{441}\u{43d}\u{438}\u{43c}\u{43e}\u{43a}.png", "a-line-past-the-edge.png"] {
+    for name in [
+        "\u{441}\u{43d}\u{438}\u{43c}\u{43e}\u{43a}.png",
+        "a-line-past-the-edge.png",
+    ] {
         std::fs::copy(goldens.join(name), snapshots.join(name)).unwrap();
     }
 
     let out = Command::new(&binary)
         .env("BURI_TEST_FROM", "0")
         .env("BURI_SNAPSHOT_DIR", &snapshots)
-        .env("BURI_SNAPSHOT_SHEET", workspace().join("snapshot-text").join("styles.css"))
+        .env(
+            "BURI_SNAPSHOT_SHEET",
+            workspace().join("snapshot-text").join("styles.css"),
+        )
         .output()
         .unwrap();
     assert_eq!(
@@ -5027,7 +5388,10 @@ test "the label ahead of a map survives its own paint" {
     let out = Command::new(&binary)
         .env("BURI_TEST_FROM", "0")
         .env("BURI_SNAPSHOT_DIR", &snapshots)
-        .env("BURI_SNAPSHOT_SHEET", workspace().join("snapshot-intact").join("styles.css"))
+        .env(
+            "BURI_SNAPSHOT_SHEET",
+            workspace().join("snapshot-intact").join("styles.css"),
+        )
         .env("BURI_SNAPSHOT_UPDATE", "1")
         .output()
         .unwrap();
@@ -5086,8 +5450,14 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(status, Some(0), "{err}");
     assert_eq!(out, "42\n");
     let (total, live) = probed(&err);
-    assert!(total > 0, "the program allocated nothing, so this asserts nothing");
-    assert_eq!(live, 0, "{total} blocks allocated and {live} still live: a box was not released");
+    assert!(
+        total > 0,
+        "the program allocated nothing, so this asserts nothing"
+    );
+    assert_eq!(
+        live, 0,
+        "{total} blocks allocated and {live} still live: a box was not released"
+    );
 }
 
 /// **`assert.notEmpty` on a non-empty list runs to completion under the release
@@ -5109,7 +5479,10 @@ test "notEmpty on a one-element list" {
 }
 "#;
     let binary = build_tests("not-empty-204", source);
-    let out = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
+    let out = Command::new(&binary)
+        .env("BURI_TEST_FROM", "0")
+        .output()
+        .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -5153,12 +5526,19 @@ test "two states are independent, and one updates inside the other" {
     assert.equal(state.read(b), ["y", "w"]);
 }
 "#;
-    let binary =
-        build_tests_as("platform-state", "platform/effect/probe/testing/probe.buri", source);
+    let binary = build_tests_as(
+        "platform-state",
+        "platform/effect/probe/testing/probe.buri",
+        source,
+    );
     let mut cmd = Command::new(&binary);
     cmd.env("BURI_TEST_FROM", "0");
     let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
-    assert_eq!(ran.status, 0, "a state on the release backend:\n{}", ran.stderr);
+    assert_eq!(
+        ran.status, 0,
+        "a state on the release backend:\n{}",
+        ran.stderr
+    );
 }
 
 /// **A function that only builds a box is still an allocation, in every unit
@@ -5229,7 +5609,8 @@ test "two trees grown alike are two trees" {
     .unwrap();
 
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-    cmd.current_dir(&repo).args(["test", "--release", "//libs/trees"]);
+    cmd.current_dir(&repo)
+        .args(["test", "--release", "//libs/trees"]);
     let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
     assert!(
         ran.status == 0 && ran.stdout.contains("1 passed, 0 failed"),
@@ -5263,21 +5644,66 @@ fn coverage_under_release_counts_the_lines_the_other_backends_count() {
     }
     // The MC/DC case has a test that aborts on purpose.
     let cases = [
-        ("partly_covered", "//lib/shapes", "--coverage", "lcov.info", "3 passed, 0 failed", 0),
-        ("branch_kinds", "//lib/branches", "--coverage", "lcov.info", "7 passed, 0 failed", 0),
-        ("mcdc", "//lib/m", "--coverage=mcdc", "mcdc.info", "6 passed, 3 failed", 1),
-        ("mcdc", "//lib/d", "--coverage=mcdc", "derived.info", "4 passed, 0 failed", 0),
-        ("a_passed_condition", "//libs/greeting", "--coverage", "lcov.info", "1 passed, 0 failed", 0),
-        ("a_passed_condition", "//libs/greeting", "--coverage=mcdc", "mcdc.info", "1 passed, 0 failed", 0),
+        (
+            "partly_covered",
+            "//lib/shapes",
+            "--coverage",
+            "lcov.info",
+            "3 passed, 0 failed",
+            0,
+        ),
+        (
+            "branch_kinds",
+            "//lib/branches",
+            "--coverage",
+            "lcov.info",
+            "7 passed, 0 failed",
+            0,
+        ),
+        (
+            "mcdc",
+            "//lib/m",
+            "--coverage=mcdc",
+            "mcdc.info",
+            "6 passed, 3 failed",
+            1,
+        ),
+        (
+            "mcdc",
+            "//lib/d",
+            "--coverage=mcdc",
+            "derived.info",
+            "4 passed, 0 failed",
+            0,
+        ),
+        (
+            "a_passed_condition",
+            "//libs/greeting",
+            "--coverage",
+            "lcov.info",
+            "1 passed, 0 failed",
+            0,
+        ),
+        (
+            "a_passed_condition",
+            "//libs/greeting",
+            "--coverage=mcdc",
+            "mcdc.info",
+            "1 passed, 0 failed",
+            0,
+        ),
     ];
     for (name, target, flag, golden, passed, status) in cases {
-        let case = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/repositories/coverage").join(name);
+        let case = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/repositories/coverage")
+            .join(name);
         let repo = workspace().join(format!("coverage-under-release-{name}"));
         let _ = std::fs::remove_dir_all(&repo);
         copy(&case.join("repo"), &repo);
 
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-        cmd.current_dir(&repo).args(["test", "--release", flag, target]);
+        cmd.current_dir(&repo)
+            .args(["test", "--release", flag, target]);
         let ran = crate::shared::ran_command(&mut cmd);
         assert!(
             ran.status == status && ran.stdout.contains(passed),
@@ -5332,11 +5758,16 @@ fn verbose_under_release_times_every_test() {
     /// or seconds to one decimal.
     fn timed(line: &str) -> bool {
         let mut words = line.rsplit(' ');
-        let (unit, number) = (words.next().unwrap_or_default(), words.next().unwrap_or_default());
+        let (unit, number) = (
+            words.next().unwrap_or_default(),
+            words.next().unwrap_or_default(),
+        );
         let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
         match unit {
             "µs" => digits(number),
-            "ms" | "s" => number.split_once('.').is_some_and(|(w, t)| digits(w) && t.len() == 1 && digits(t)),
+            "ms" | "s" => number
+                .split_once('.')
+                .is_some_and(|(w, t)| digits(w) && t.len() == 1 && digits(t)),
             _ => false,
         }
     }
@@ -5345,25 +5776,49 @@ fn verbose_under_release_times_every_test() {
     let _ = std::fs::remove_dir_all(&repo);
     copy(&case.join("repo"), &repo);
     let cents = repo.join("lib/money/cents.buri");
-    let source = std::fs::read_to_string(&cents).unwrap().replace("n % 100", "n % 10");
+    let source = std::fs::read_to_string(&cents)
+        .unwrap()
+        .replace("n % 100", "n % 10");
     std::fs::write(&cents, source).unwrap();
 
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-    cmd.current_dir(&repo).args(["test", "--release", "--verbose", "//lib/..."]);
+    cmd.current_dir(&repo)
+        .args(["test", "--release", "--verbose", "//lib/..."]);
     let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
     assert_eq!(ran.status, 1, "{}\n{}", ran.stdout, ran.stderr);
-    let (shared, listed): (Vec<&str>, Vec<&str>) =
-        ran.stdout.lines().take_while(|l| !l.is_empty()).partition(|l| l.starts_with("shared build  "));
-    assert!(shared.len() == 1 && timed(shared[0]), "no one shared build time:\n{}", ran.stdout);
+    let (shared, listed): (Vec<&str>, Vec<&str>) = ran
+        .stdout
+        .lines()
+        .take_while(|l| !l.is_empty())
+        .partition(|l| l.starts_with("shared build  "));
+    assert!(
+        shared.len() == 1 && timed(shared[0]),
+        "no one shared build time:\n{}",
+        ran.stdout
+    );
     let shape: Vec<String> = listed
         .iter()
         .map(|l| {
             // A suite's build follows its tests' time, and is a time of its own
             // unless it was built with others.
-            let (tests, build) = l.split_once("  built in ").unwrap_or((l.trim_end_matches("  built with others"), "0 µs"));
-            assert!(timed(tests) && timed(build), "not a time the runner spells: {l:?}\n{}", ran.stdout);
-            assert!(!l.starts_with("//") || l.contains("  built "), "a suite with no build: {l:?}\n{}", ran.stdout);
-            l.split("  ").filter(|w| !w.is_empty()).take(3).collect::<Vec<_>>().join("|")
+            let (tests, build) = l
+                .split_once("  built in ")
+                .unwrap_or((l.trim_end_matches("  built with others"), "0 µs"));
+            assert!(
+                timed(tests) && timed(build),
+                "not a time the runner spells: {l:?}\n{}",
+                ran.stdout
+            );
+            assert!(
+                !l.starts_with("//") || l.contains("  built "),
+                "a suite with no build: {l:?}\n{}",
+                ran.stdout
+            );
+            l.split("  ")
+                .filter(|w| !w.is_empty())
+                .take(3)
+                .collect::<Vec<_>>()
+                .join("|")
         })
         .collect();
     assert_eq!(
@@ -5381,7 +5836,11 @@ fn verbose_under_release_times_every_test() {
         "{}",
         ran.stdout
     );
-    assert!(ran.stdout.contains("FAIL //lib/money  test/cents.buri"), "{}", ran.stdout);
+    assert!(
+        ran.stdout.contains("FAIL //lib/money  test/cents.buri"),
+        "{}",
+        ran.stdout
+    );
 }
 
 /// **A wide payload reaches LLVM as words, never as one wide integer.**
@@ -5582,7 +6041,12 @@ export fn main(host: NativeHost): Result<(), Str> {{
 }}
 "#
     )));
-    let unit = lowered.ir.funcs.get(lowered.entry().index()).map(|f| f.unit).expect("an entry");
+    let unit = lowered
+        .ir
+        .funcs
+        .get(lowered.entry().index())
+        .map(|f| f.unit)
+        .expect("an entry");
     let (mut backend, program, tables) = lowered.adopted();
     let ir = expect(backend.emit_ir_text(&program, &tables, &options(Profile::Debug), unit));
     // Every function but `big`, which builds the value and so writes its 600
@@ -5700,12 +6164,20 @@ export fn main(host: NativeHost): Result<(), Str> {{
             longest = longest.max(run);
         }
     }
-    assert!(longest <= 32, "a template converts {longest} holes before joining any");
+    assert!(
+        longest <= 32,
+        "a template converts {longest} holes before joining any"
+    );
 }
 
 /// How many instructions in `body` are `op`.
 fn count_op(body: &str, op: &str) -> usize {
-    body.lines().filter(|l| l.split_once(" = ").is_some_and(|(_, rest)| rest.starts_with(op))).count()
+    body.lines()
+        .filter(|l| {
+            l.split_once(" = ")
+                .is_some_and(|(_, rest)| rest.starts_with(op))
+        })
+        .count()
 }
 
 /// The body of the function whose symbol ends in `suffix`, from its `define`.
@@ -5734,7 +6206,9 @@ fn a_matchs_tests_of_one_value_read_its_tag_once() {
         .step_by(3)
         .map(|i| format!("        .V{i} | .V{} | .V{} => {},\n", i + 1, i + 2, i / 3))
         .collect();
-    let pairs: String = (0..n).map(|i| format!("        (.V{i}, .V{i}) => {i},\n")).collect();
+    let pairs: String = (0..n)
+        .map(|i| format!("        (.V{i}, .V{i}) => {i},\n"))
+        .collect();
     let ir = emitted_ir(&program(&format!(
         r#"
 from "native" import {{ NativeHost }};
@@ -5781,7 +6255,11 @@ export fn main(host: NativeHost): Result<(), Str> {{
     let same = definition(&ir, "$same");
     for op in ["zext ", "extractvalue "] {
         let count = count_op(same, op);
-        assert!(count <= 2, "a match of {n} arms over a pair has {count} `{}`s", op.trim_end());
+        assert!(
+            count <= 2,
+            "a match of {n} arms over a pair has {count} `{}`s",
+            op.trim_end()
+        );
     }
 }
 
@@ -5795,7 +6273,9 @@ fn a_failed_guard_skips_the_arms_it_cannot_match() {
     skip_unless_executable!();
     let n = 60;
     let variants: String = (0..n).map(|i| format!("    V{i},\n")).collect();
-    let guarded: String = (0..n).map(|i| format!("        .V{i} if k > {i} => {i},\n")).collect();
+    let guarded: String = (0..n)
+        .map(|i| format!("        .V{i} if k > {i} => {i},\n"))
+        .collect();
     let ir = emitted_ir(&program(&format!(
         r#"
 from "native" import {{ NativeHost }};
@@ -5829,8 +6309,14 @@ export fn main(host: NativeHost): Result<(), Str> {{
     // Each arm's tag test is entered from the test before it alone. The blocks
     // with more than one way in are the catch-all and the join.
     let guard = definition(&ir, "$guard");
-    let merges = guard.lines().filter(|l| l.contains("; preds = %") && l.contains(',')).count();
-    assert!(merges <= 4, "a match of {n} guarded arms has {merges} blocks entered from two places");
+    let merges = guard
+        .lines()
+        .filter(|l| l.contains("; preds = %") && l.contains(','))
+        .count();
+    assert!(
+        merges <= 4,
+        "a match of {n} guarded arms has {merges} blocks entered from two places"
+    );
 }
 
 /// The longest run of loads in one block of the derived functions, with no
@@ -5869,13 +6355,25 @@ fn longest_derived_load_run(source: &str) -> usize {
 /// An enum whose variants carry `n` fields each, alternating `Int` and `Str`,
 /// with every derive that reads them all.
 fn wide_variants(n: usize) -> String {
-    let tys: Vec<&str> = (0..n).map(|i| if i % 2 == 0 { "Int" } else { "Str" }).collect();
+    let tys: Vec<&str> = (0..n)
+        .map(|i| if i % 2 == 0 { "Int" } else { "Str" })
+        .collect();
     let positional = tys.join(", ");
-    let named: String = tys.iter().enumerate().map(|(i, t)| format!("f{i}: {t}, ")).collect();
+    let named: String = tys
+        .iter()
+        .enumerate()
+        .map(|(i, t)| format!("f{i}: {t}, "))
+        .collect();
     let vals: String = tys
         .iter()
         .enumerate()
-        .map(|(i, t)| if *t == "Int" { format!("k + {i}, ") } else { "s, ".to_string() })
+        .map(|(i, t)| {
+            if *t == "Int" {
+                format!("k + {i}, ")
+            } else {
+                "s, ".to_string()
+            }
+        })
         .collect();
     program(&format!(
         r#"

@@ -112,10 +112,19 @@ pub struct SyntaxError {
 const MAX_DEPTH: usize = 256;
 
 pub fn parse(text: &str, dialect: Dialect) -> Result<Document, SyntaxError> {
-    let mut p = Parser { text, at: 0, dialect, depth: 0 };
+    let mut p = Parser {
+        text,
+        at: 0,
+        dialect,
+        depth: 0,
+    };
     let mut first = p.token()?;
     if first.kind == Kind::Eof {
-        return Err(p.error(first.span, "the file holds no value", "write a JSON value, such as `{}`"));
+        return Err(p.error(
+            first.span,
+            "the file holds no value",
+            "write a JSON value, such as `{}`",
+        ));
     }
     let leading = std::mem::take(&mut first.comments);
     let mut root = p.value(first)?;
@@ -131,7 +140,10 @@ pub fn parse(text: &str, dialect: Dialect) -> Result<Document, SyntaxError> {
     }
     let (same_line, rest) = split_same_line(std::mem::take(&mut end.comments));
     root.trailing.extend(same_line);
-    Ok(Document { root, trailing: rest })
+    Ok(Document {
+        root,
+        trailing: rest,
+    })
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -165,7 +177,10 @@ impl Token {
 
 /// The comments on the line a value ended on, and the rest.
 fn split_same_line(comments: Vec<Comment>) -> (Vec<Comment>, Vec<Comment>) {
-    let n = comments.iter().take_while(|c| c.newlines_before == 0).count();
+    let n = comments
+        .iter()
+        .take_while(|c| c.newlines_before == 0)
+        .count();
     let mut same_line = comments;
     let rest = same_line.split_off(n);
     (same_line, rest)
@@ -192,7 +207,10 @@ fn is_json_space(c: char) -> bool {
 
 fn is_json5_space(c: char) -> bool {
     is_json_space(c)
-        || matches!(c, '\u{0b}' | '\u{0c}' | '\u{a0}' | '\u{2028}' | '\u{2029}' | '\u{feff}')
+        || matches!(
+            c,
+            '\u{0b}' | '\u{0c}' | '\u{a0}' | '\u{2028}' | '\u{2029}' | '\u{feff}'
+        )
         || (c.is_whitespace() && !c.is_control())
 }
 
@@ -206,7 +224,11 @@ fn is_identifier_part(c: char) -> bool {
 
 impl<'t> Parser<'t> {
     fn error(&self, span: Range, problem: &str, remedy: &str) -> SyntaxError {
-        SyntaxError { span, problem: problem.to_string(), remedy: remedy.to_string() }
+        SyntaxError {
+            span,
+            problem: problem.to_string(),
+            remedy: remedy.to_string(),
+        }
     }
 
     fn peek(&self) -> Option<char> {
@@ -293,7 +315,10 @@ impl<'t> Parser<'t> {
                     }
                 }
                 let text = self.slice((start, self.at)).trim_end().to_string();
-                comments.push(Comment { text, newlines_before: newlines });
+                comments.push(Comment {
+                    text,
+                    newlines_before: newlines,
+                });
                 newlines = 0;
                 continue;
             }
@@ -346,7 +371,12 @@ impl<'t> Parser<'t> {
                 ))
             }
         };
-        Ok(Token { kind, span: (start, self.at), comments, newlines_before: newlines })
+        Ok(Token {
+            kind,
+            span: (start, self.at),
+            comments,
+            newlines_before: newlines,
+        })
     }
 
     fn string(&mut self, quote: char) -> Result<String, SyntaxError> {
@@ -356,7 +386,11 @@ impl<'t> Parser<'t> {
         loop {
             let at = self.at;
             let Some(c) = self.bump() else {
-                return Err(self.error((start, start.saturating_add(1)), "this string is never closed", "close it with a quote"));
+                return Err(self.error(
+                    (start, start.saturating_add(1)),
+                    "this string is never closed",
+                    "close it with a quote",
+                ));
             };
             match c {
                 c if c == quote => return Ok(out),
@@ -383,7 +417,11 @@ impl<'t> Parser<'t> {
     fn escape(&mut self, at: usize, out: &mut String) -> Result<(), SyntaxError> {
         let json5 = self.dialect == Dialect::Json5;
         let Some(c) = self.bump() else {
-            return Err(self.error((at, self.at), "this string is never closed", "close it with a quote"));
+            return Err(self.error(
+                (at, self.at),
+                "this string is never closed",
+                "close it with a quote",
+            ));
         };
         let span = (at, self.at);
         match c {
@@ -513,9 +551,15 @@ impl<'t> Parser<'t> {
             }
             let hex = self.slice((hex_start, self.at));
             if hex.is_empty() {
-                return Err(self.error((start, self.at), "`0x` needs digits after it", "write the digits"));
+                return Err(self.error(
+                    (start, self.at),
+                    "`0x` needs digits after it",
+                    "write the digits",
+                ));
             }
-            return Ok(Kind::Number(Number::Finite(Decimal::from_hex(negative, hex))));
+            return Ok(Kind::Number(Number::Finite(Decimal::from_hex(
+                negative, hex,
+            ))));
         }
         let whole = self.digits();
         if whole.len() > 1 && whole.starts_with('0') {
@@ -535,7 +579,11 @@ impl<'t> Parser<'t> {
         }
         if whole.is_empty() {
             if fraction.is_empty() {
-                return Err(self.error((start, self.at.max(start.saturating_add(1))), "this is not a number", "write digits"));
+                return Err(self.error(
+                    (start, self.at.max(start.saturating_add(1))),
+                    "this is not a number",
+                    "write digits",
+                ));
             }
             if !json5 {
                 return Err(self.no_json5((start, self.at), "a number starting with `.`"));
@@ -557,14 +605,23 @@ impl<'t> Parser<'t> {
             };
             let digits = self.digits();
             if digits.is_empty() {
-                return Err(self.error((start, self.at), "an exponent needs digits", "write the digits after `e`"));
+                return Err(self.error(
+                    (start, self.at),
+                    "an exponent needs digits",
+                    "write the digits after `e`",
+                ));
             }
             exp = digits
                 .bytes()
-                .fold(0i64, |n, b| n.saturating_mul(10).saturating_add(i64::from(b.saturating_sub(b'0'))))
+                .fold(0i64, |n, b| {
+                    n.saturating_mul(10)
+                        .saturating_add(i64::from(b.saturating_sub(b'0')))
+                })
                 .saturating_mul(sign);
         }
-        Ok(Kind::Number(Number::Finite(Decimal::from_parts(negative, whole, fraction, exp))))
+        Ok(Kind::Number(Number::Finite(Decimal::from_parts(
+            negative, whole, fraction, exp,
+        ))))
     }
 
     fn scalar(&self, token: Token, value: Value) -> Node {
@@ -595,7 +652,11 @@ impl<'t> Parser<'t> {
                     "false" => Value::Bool(false),
                     "null" => Value::Null,
                     "Infinity" | "NaN" if self.dialect == Dialect::Json5 => {
-                        Value::Number(if w == "NaN" { Number::NaN } else { Number::Infinity(false) })
+                        Value::Number(if w == "NaN" {
+                            Number::NaN
+                        } else {
+                            Number::Infinity(false)
+                        })
                     }
                     "Infinity" | "NaN" => return Err(self.no_json5(first.span, &format!("`{w}`"))),
                     _ => {
@@ -622,13 +683,21 @@ impl<'t> Parser<'t> {
                 self.depth = self.depth.saturating_sub(1);
                 Ok(node)
             }
-            Kind::Close(c) => Err(self.error(first.span, &format!("`{c}` closes nothing here"), "delete it, or open what it closes")),
+            Kind::Close(c) => Err(self.error(
+                first.span,
+                &format!("`{c}` closes nothing here"),
+                "delete it, or open what it closes",
+            )),
             Kind::Colon | Kind::Comma => Err(self.error(
                 first.span,
                 &format!("expected a value, found `{}`", self.slice(first.span)),
                 "write a value here",
             )),
-            Kind::Eof => Err(self.error(first.span, "the file ends where a value should be", "write the value")),
+            Kind::Eof => Err(self.error(
+                first.span,
+                "the file ends where a value should be",
+                "write the value",
+            )),
         }
     }
 
@@ -641,7 +710,11 @@ impl<'t> Parser<'t> {
         loop {
             // What is still on the previous element's line belongs to it.
             let (same_line, rest) = split_same_line(std::mem::take(&mut next.comments));
-            let last = if open == '{' { members.last_mut().map(|m| &mut m.value) } else { items.last_mut() };
+            let last = if open == '{' {
+                members.last_mut().map(|m| &mut m.value)
+            } else {
+                items.last_mut()
+            };
             match last {
                 Some(last) => last.trailing.extend(same_line),
                 None => next.comments.extend(same_line),
@@ -654,7 +727,14 @@ impl<'t> Parser<'t> {
                 } else {
                     Value::Array(items, next.comments)
                 };
-                return Ok(Node { value, span, raw: String::new(), leading: Vec::new(), trailing: Vec::new(), blank_before: false });
+                return Ok(Node {
+                    value,
+                    span,
+                    raw: String::new(),
+                    leading: Vec::new(),
+                    trailing: Vec::new(),
+                    blank_before: false,
+                });
             }
             let blank_before = next.blank_before();
             let leading = std::mem::take(&mut next.comments);
@@ -664,7 +744,11 @@ impl<'t> Parser<'t> {
                     Kind::Word(w) if self.dialect == Dialect::Json5 => (w.clone(), w.clone()),
                     Kind::Word(_) => return Err(self.no_json5(next.span, "an unquoted key")),
                     Kind::Eof => {
-                        return Err(self.error((start, start.saturating_add(1)), "this object is never closed", &format!("close it with `{close}`")))
+                        return Err(self.error(
+                            (start, start.saturating_add(1)),
+                            "this object is never closed",
+                            &format!("close it with `{close}`"),
+                        ))
                     }
                     _ => {
                         return Err(self.error(
@@ -684,7 +768,11 @@ impl<'t> Parser<'t> {
                 let key_span = next.span;
                 let colon = self.token()?;
                 if colon.kind != Kind::Colon {
-                    return Err(self.error(colon.span, "expected `:` after the key", "write `:` and the value"));
+                    return Err(self.error(
+                        colon.span,
+                        "expected `:` after the key",
+                        "write `:` and the value",
+                    ));
                 }
                 let mut first = self.token()?;
                 let mut inner = colon.comments;
@@ -701,7 +789,11 @@ impl<'t> Parser<'t> {
                 (Some((key, key_raw, key_span)), value)
             } else {
                 if next.kind == Kind::Eof {
-                    return Err(self.error((start, start.saturating_add(1)), "this array is never closed", "close it with `]`"));
+                    return Err(self.error(
+                        (start, start.saturating_add(1)),
+                        "this array is never closed",
+                        "close it with `]`",
+                    ));
                 }
                 let mut value = self.value(next)?;
                 value.leading = leading;
@@ -716,7 +808,12 @@ impl<'t> Parser<'t> {
                 after.comments = rest;
             }
             match key {
-                Some((key, key_raw, key_span)) => members.push(Member { key, key_raw, key_span, value }),
+                Some((key, key_raw, key_span)) => members.push(Member {
+                    key,
+                    key_raw,
+                    key_span,
+                    value,
+                }),
                 None => items.push(value),
             }
             match after.kind {
@@ -735,21 +832,31 @@ impl<'t> Parser<'t> {
                         ));
                     }
                     if next.kind == Kind::Comma {
-                        return Err(self.error(next.span, "two commas with no value between them", "delete one"));
+                        return Err(self.error(
+                            next.span,
+                            "two commas with no value between them",
+                            "delete one",
+                        ));
                     }
                 }
                 Kind::Close(c) if c == close => next = after,
                 Kind::Eof => {
                     return Err(self.error(
                         (start, start.saturating_add(1)),
-                        &format!("this {} is never closed", if open == '{' { "object" } else { "array" }),
+                        &format!(
+                            "this {} is never closed",
+                            if open == '{' { "object" } else { "array" }
+                        ),
                         &format!("close it with `{close}`"),
                     ))
                 }
                 _ => {
                     return Err(self.error(
                         after.span,
-                        &format!("expected `,` or `{close}`, found `{}`", self.slice(after.span)),
+                        &format!(
+                            "expected `,` or `{close}`, found `{}`",
+                            self.slice(after.span)
+                        ),
                         "separate the values with a comma",
                     ))
                 }
@@ -769,7 +876,11 @@ mod tests {
         assert!(parse("// c\n{}", Dialect::Json).is_err());
         assert!(parse("// c\n{}", Dialect::Jsonc).is_ok());
         assert!(parse("{a: 'x'}", Dialect::Jsonc).is_err());
-        assert!(parse("{a: 'x', b: 0x1F, c: +.5, d: 5., e: -Infinity, f: NaN,}", Dialect::Json5).is_ok());
+        assert!(parse(
+            "{a: 'x', b: 0x1F, c: +.5, d: 5., e: -Infinity, f: NaN,}",
+            Dialect::Json5
+        )
+        .is_ok());
     }
 
     #[test]
@@ -780,8 +891,14 @@ mod tests {
 
     #[test]
     fn comments_land_on_the_value_they_describe() {
-        let doc = parse("{\n  // above\n  \"a\": 1, // beside\n  \"b\": 2\n  // below\n}\n", Dialect::Jsonc).unwrap();
-        let Value::Object(members, dangling) = &doc.root.value else { panic!() };
+        let doc = parse(
+            "{\n  // above\n  \"a\": 1, // beside\n  \"b\": 2\n  // below\n}\n",
+            Dialect::Jsonc,
+        )
+        .unwrap();
+        let Value::Object(members, dangling) = &doc.root.value else {
+            panic!()
+        };
         assert_eq!(members[0].value.leading[0].text, "// above");
         assert_eq!(members[0].value.trailing[0].text, "// beside");
         assert!(members[1].value.leading.is_empty());
@@ -791,7 +908,9 @@ mod tests {
     #[test]
     fn strings_decode_their_escapes() {
         let doc = parse(r#"["aé😀\n"]"#, Dialect::Json).unwrap();
-        let Value::Array(items, _) = &doc.root.value else { panic!() };
+        let Value::Array(items, _) = &doc.root.value else {
+            panic!()
+        };
         assert_eq!(items[0].as_str(), Some("aé😀\n"));
     }
 

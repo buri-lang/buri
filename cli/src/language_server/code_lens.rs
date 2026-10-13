@@ -131,20 +131,27 @@ pub fn resolve(analyzed: &Analyzed, path: &Path, text: &str, lens: &Value) -> Va
         return resolved;
     };
     let offset = convert::offset_of(text, position);
-    let Some(found) = symbols::at(analyzed, path, text, offset) else { return resolved };
+    let Some(found) = symbols::at(analyzed, path, text, offset) else {
+        return resolved;
+    };
     let spans = symbols::references(analyzed, &found.symbol);
     let locations = super::features::locations(analyzed, spans);
     let count = match &locations {
         Value::Array(items) => items.len(),
         _ => 0,
     };
-    let Value::Object(fields) = &mut resolved else { return resolved };
+    let Value::Object(fields) = &mut resolved else {
+        return resolved;
+    };
     fields.insert(
         "command".to_string(),
         Value::object(vec![
             (
                 "title",
-                Value::str(format!("{count} reference{}", if count == 1 { "" } else { "s" })),
+                Value::str(format!(
+                    "{count} reference{}",
+                    if count == 1 { "" } else { "s" }
+                )),
             ),
             ("command", Value::str(SHOW_REFERENCES)),
             (

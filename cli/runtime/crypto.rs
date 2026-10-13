@@ -16,8 +16,8 @@ use ring::signature::{
     UnparsedPublicKey,
 };
 
-use crate::value::{list_of_bytes, BuriList};
 use crate::BURI_OK;
+use crate::value::{BuriList, list_of_bytes};
 
 /// Borrow a `[U8]` argument: `ptr` and `len`, per `lib.rs` §2 rule 1.
 ///
@@ -32,7 +32,9 @@ unsafe fn octets<'a>(ptr: *const u8, len: u64) -> &'a [u8] {
 }
 
 fn sealing_key(key: &[u8]) -> Option<LessSafeKey> {
-    UnboundKey::new(&CHACHA20_POLY1305, key).ok().map(LessSafeKey::new)
+    UnboundKey::new(&CHACHA20_POLY1305, key)
+        .ok()
+        .map(LessSafeKey::new)
 }
 
 /// Zero a buffer that held plaintext, so a freed allocation keeps no copy.
@@ -74,12 +76,17 @@ pub unsafe extern "C" fn buri_rt_crypto_chacha20_poly1305_seal(
             octets(aad_ptr, aad_len),
         )
     };
-    let Some(key) = sealing_key(key) else { crate::abort::die(&[b"a sealing key is 32 bytes"]) };
+    let Some(key) = sealing_key(key) else {
+        crate::abort::die(&[b"a sealing key is 32 bytes"])
+    };
     let Ok(nonce) = Nonce::try_assume_unique_for_key(nonce) else {
         crate::abort::die(&[b"a sealing nonce is 12 bytes"])
     };
     let mut buffer = plaintext.to_vec();
-    if key.seal_in_place_append_tag(nonce, Aad::from(aad), &mut buffer).is_err() {
+    if key
+        .seal_in_place_append_tag(nonce, Aad::from(aad), &mut buffer)
+        .is_err()
+    {
         // Only a plaintext past ChaCha20's 256 GiB block counter gets here.
         crate::abort::die(&[b"a sealed value is at most 256 GiB"]);
     }
@@ -118,8 +125,12 @@ pub unsafe extern "C" fn buri_rt_crypto_chacha20_poly1305_open(
             octets(aad_ptr, aad_len),
         )
     };
-    let Some(key) = sealing_key(key) else { return 0 };
-    let Ok(nonce) = Nonce::try_assume_unique_for_key(nonce) else { return 0 };
+    let Some(key) = sealing_key(key) else {
+        return 0;
+    };
+    let Ok(nonce) = Nonce::try_assume_unique_for_key(nonce) else {
+        return 0;
+    };
     let mut buffer = sealed.to_vec();
     let answer = match key.open_in_place(nonce, Aad::from(aad), &mut buffer) {
         Ok(plaintext) => {
@@ -212,5 +223,8 @@ pub unsafe extern "C" fn buri_rt_crypto_rsa_pkcs1_sha256_verify(
         )
     };
     let key = RsaPublicKeyComponents { n, e };
-    u8::from(key.verify(&RSA_PKCS1_2048_8192_SHA256, message, signature).is_ok())
+    u8::from(
+        key.verify(&RSA_PKCS1_2048_8192_SHA256, message, signature)
+            .is_ok(),
+    )
 }

@@ -89,7 +89,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: eight thousand pushes through taken-apart tuples and records allocated \
              {blocks} blocks: every push copied its list"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -125,7 +128,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: two thousand pushes allocated {blocks} blocks: the fold's step kept a \
              second reference to the list it handed on, so every push copied it"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -182,7 +188,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: four thousand pushes allocated {blocks} blocks: the step kept a count on \
              the accumulator while the function it handed the list to pushed, so every push copied"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -220,7 +229,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: two thousand pushes allocated {blocks} blocks: the inlined function's \
              parameter took a count of its own on the lent list, so every push copied it"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -266,7 +278,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: two thousand pushes allocated {blocks} blocks: the inlined function's \
              parameter took a count of its own on the list, so every push copied it"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -313,7 +328,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: twelve thousand pushes allocated {blocks} blocks: the step's second push \
              found the list still lent to it, so every step copied it"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -520,7 +538,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: six thousand splices of an owned list allocated {blocks} blocks: \
              every splice copied its list"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -589,7 +610,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             r.stderr
         );
         let (blocks, live) = probed(&r.stderr);
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -636,8 +660,15 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#;
     for (backend, r) in run_each("short-circuit-recursion-nested", source) {
         assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
-        assert_eq!(r.stdout, "true false | true false | true false\n", "{backend}: {}", r.stderr);
+        assert_eq!(
+            r.stdout, "true false | true false | true false\n",
+            "{backend}: {}",
+            r.stderr
+        );
         let (blocks, live) = probed(&r.stderr);
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }

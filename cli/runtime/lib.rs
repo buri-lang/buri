@@ -663,22 +663,16 @@ mod net;
 #[cfg(feature = "paint")]
 mod paint;
 mod rng;
-mod ryu;
-/// Scalar indices into a long non-ASCII `Str`: the kept tables that make
-/// `slice`, `charAt` and `indexOf` a lookup rather than a walk.
-mod scalars;
 /// The thread runtime — the tokio handle, the thread pool, the task table
 /// and the stack switch a park is made of. (The run baton this line used to
 /// name was deleted in G3; `rt.rs` §1 is what stands in its place.) Behind `net` in full: without the feature there is no
 /// reactor to hold and nothing here compiles.
 #[cfg(feature = "net")]
 pub mod rt;
-/// The machine-stack switch `rt.rs` suspends a task with: three hand-written
-/// `(arch, os)` blocks behind one `buri_rt_task_switch`. Behind `net` because
-/// the scheduler that calls it is, and because a runtime with no tasks has
-/// nothing to switch.
-#[cfg(feature = "net")]
-mod switch;
+mod ryu;
+/// Scalar indices into a long non-ASCII `Str`: the kept tables that make
+/// `slice`, `charAt` and `indexOf` a lookup rather than a walk.
+mod scalars;
 /// `platform/effect/testing`'s `snapshot`: paint the scene `ui/node`'s `describe` wrote,
 /// then compare it against the golden or record it. Four `Str`s in — the last
 /// is the flattened theme document, which says what each token is worth — and
@@ -687,6 +681,12 @@ mod switch;
 #[cfg(feature = "paint")]
 mod snapshot;
 mod splice;
+/// The machine-stack switch `rt.rs` suspends a task with: three hand-written
+/// `(arch, os)` blocks behind one `buri_rt_task_switch`. Behind `net` because
+/// the scheduler that calls it is, and because a runtime with no tasks has
+/// nothing to switch.
+#[cfg(feature = "net")]
+mod switch;
 /// `Mutex` and `Condvar`, reported to helgrind as locks under the `valgrind`
 /// feature and `std`'s own without it.
 mod sync;
@@ -732,8 +732,7 @@ pub const BURI_OK: i32 = -1;
 /// `false` until an entry point says otherwise, and the conservative answer is
 /// the one that costs nothing: a runtime that believes frames are shared runs
 /// `rt::buri_rt_host_tasks_parallel`'s steps one at a time.
-static FRAMES_PER_THREAD: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static FRAMES_PER_THREAD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The artifact declaring that a second thread entering Buri code gets frames
 /// of its own — §6's third call, and the one that is *optional*.
@@ -834,7 +833,6 @@ pub unsafe extern "C" fn buri_rt_i128_divmod(
         rem.add(1).write((r >> 64) as u64);
     }
 }
-
 
 /// 128-bit checked arithmetic, in one call.
 ///
@@ -1026,7 +1024,11 @@ pub unsafe extern "C" fn buri_rt_i128_saturating(
 #[cfg(test)]
 pub(crate) struct RefusedPort {
     pub(crate) port: u16,
-    _held: (std::net::TcpListener, std::net::TcpStream, std::net::TcpStream),
+    _held: (
+        std::net::TcpListener,
+        std::net::TcpStream,
+        std::net::TcpStream,
+    ),
 }
 
 #[cfg(test)]
@@ -1079,8 +1081,15 @@ impl RefusedPort {
                 && connect(fd, &raw const to, size) == 0
                 && getsockname(fd, &raw mut from, &raw mut len) == 0
         };
-        assert!(connected, "a loopback connection from a bound port: {}", std::io::Error::last_os_error());
+        assert!(
+            connected,
+            "a loopback connection from a bound port: {}",
+            std::io::Error::last_os_error()
+        );
         let (server, _) = listener.accept().expect("the connection accepted");
-        RefusedPort { port: u16::from_be(from.port), _held: (listener, client, server) }
+        RefusedPort {
+            port: u16::from_be(from.port),
+            _held: (listener, client, server),
+        }
     }
 }

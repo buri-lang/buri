@@ -25,7 +25,12 @@ enum Node {
     Look(Box<Node>, bool),
     Concat(Vec<Node>),
     Alt(Vec<Node>),
-    Repeat { node: Box<Node>, min: u32, max: Option<u32>, greedy: bool },
+    Repeat {
+        node: Box<Node>,
+        min: u32,
+        max: Option<u32>,
+        greedy: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -54,8 +59,19 @@ fn is_word(c: char) -> bool {
 fn is_space(c: char) -> bool {
     matches!(
         c,
-        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2028}' | '\u{2029}'
-            | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
+        '\t' | '\n'
+            | '\u{b}'
+            | '\u{c}'
+            | '\r'
+            | ' '
+            | '\u{a0}'
+            | '\u{1680}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202f}'
+            | '\u{205f}'
+            | '\u{3000}'
+            | '\u{feff}'
     ) || ('\u{2000}'..='\u{200a}').contains(&c)
 }
 
@@ -81,7 +97,10 @@ pub struct TooCostly;
 impl Regex {
     pub fn new(pattern: &str) -> Result<Regex, String> {
         let chars: Vec<char> = pattern.chars().collect();
-        let mut p = Parser { chars: &chars, at: 0 };
+        let mut p = Parser {
+            chars: &chars,
+            at: 0,
+        };
         let root = p.alternation(0)?;
         if let Some(c) = p.peek() {
             return Err(format!("`{c}` is unbalanced"));
@@ -92,7 +111,11 @@ impl Regex {
     /// Whether the pattern matches anywhere in `text`.
     pub fn is_match(&self, text: &str) -> Result<bool, TooCostly> {
         let chars: Vec<char> = text.chars().collect();
-        let mut m = Matcher { text: &chars, steps: 0, depth: 0 };
+        let mut m = Matcher {
+            text: &chars,
+            steps: 0,
+            depth: 0,
+        };
         for start in 0..=chars.len() {
             if m.at(&self.root, start, &Cont::Done)? {
                 return Ok(true);
@@ -138,7 +161,11 @@ impl Parser<'_> {
         while self.eat('|') {
             alts.push(self.sequence(depth)?);
         }
-        Ok(if alts.len() == 1 { alts.pop().unwrap_or(Node::Concat(Vec::new())) } else { Node::Alt(alts) })
+        Ok(if alts.len() == 1 {
+            alts.pop().unwrap_or(Node::Concat(Vec::new()))
+        } else {
+            Node::Alt(alts)
+        })
     }
 
     fn sequence(&mut self, depth: usize) -> Result<Node, String> {
@@ -170,7 +197,10 @@ impl Parser<'_> {
             }
             _ => return Ok(atom),
         };
-        if matches!(atom, Node::Start | Node::End | Node::WordBoundary(_) | Node::Look(..)) {
+        if matches!(
+            atom,
+            Node::Start | Node::End | Node::WordBoundary(_) | Node::Look(..)
+        ) {
             return Err("an assertion cannot be repeated".to_string());
         }
         if let Some(max) = max {
@@ -182,7 +212,12 @@ impl Parser<'_> {
         if matches!(self.peek(), Some('*' | '+' | '?')) {
             return Err("a quantifier cannot follow a quantifier".to_string());
         }
-        Ok(Node::Repeat { node: Box::new(atom), min, max, greedy })
+        Ok(Node::Repeat {
+            node: Box::new(atom),
+            min,
+            max,
+            greedy,
+        })
     }
 
     /// `{n}`, `{n,}` or `{n,m}`, consumed. `None`, and nothing consumed, for a
@@ -296,7 +331,9 @@ impl Parser<'_> {
         let negated = self.eat('^');
         let mut items = Vec::new();
         loop {
-            let Some(c) = self.bump() else { return Err("a `[` class is not closed".to_string()) };
+            let Some(c) = self.bump() else {
+                return Err("a `[` class is not closed".to_string());
+            };
             if c == ']' {
                 break;
             }
@@ -335,7 +372,9 @@ impl Parser<'_> {
     }
 
     fn escape(&mut self, in_class: bool) -> Result<Escaped, String> {
-        let Some(c) = self.bump() else { return Err("the pattern ends in `\\`".to_string()) };
+        let Some(c) = self.bump() else {
+            return Err("the pattern ends in `\\`".to_string());
+        };
         Ok(match c {
             'd' => Escaped::Item(Item::Digit(true)),
             'D' => Escaped::Item(Item::Digit(false)),
@@ -461,7 +500,11 @@ impl Matcher<'_> {
 
     fn at_inner(&mut self, node: &Node, pos: usize, k: &Cont) -> Result<bool, TooCostly> {
         if let Some(hit) = self.one(node, pos) {
-            return if hit { self.then(k, pos.saturating_add(1)) } else { Ok(false) };
+            return if hit {
+                self.then(k, pos.saturating_add(1))
+            } else {
+                Ok(false)
+            };
         }
         match node {
             Node::Start => {
@@ -504,11 +547,24 @@ impl Matcher<'_> {
                 Ok(false)
             }
             Node::Concat(items) => self.then(&Cont::Seq(items, k), pos),
-            Node::Repeat { node, min, max, greedy } => {
+            Node::Repeat {
+                node,
+                min,
+                max,
+                greedy,
+            } => {
                 if self.one(node, pos).is_some() {
                     return self.simple_repeat(node, pos, (*min, *max, *greedy), k);
                 }
-                let r = Repeat { node, done: 0, min: *min, max: *max, greedy: *greedy, start: pos, next: k };
+                let r = Repeat {
+                    node,
+                    done: 0,
+                    min: *min,
+                    max: *max,
+                    greedy: *greedy,
+                    start: pos,
+                    next: k,
+                };
                 self.repeat(r, pos)
             }
             Node::Char(_) | Node::Any | Node::Class(..) => Ok(false),
@@ -528,7 +584,13 @@ impl Matcher<'_> {
                 if pos == r.start && r.done >= r.min {
                     return Ok(false);
                 }
-                self.repeat(Repeat { done: r.done.saturating_add(1), ..*r }, pos)
+                self.repeat(
+                    Repeat {
+                        done: r.done.saturating_add(1),
+                        ..*r
+                    },
+                    pos,
+                )
             }
         }
     }
@@ -551,7 +613,11 @@ impl Matcher<'_> {
             return Ok(false);
         }
         for i in 0..=count.saturating_sub(min) {
-            let n = if greedy { count.saturating_sub(i) } else { min.saturating_add(i) };
+            let n = if greedy {
+                count.saturating_sub(i)
+            } else {
+                min.saturating_add(i)
+            };
             self.spend()?;
             if self.then(k, pos.saturating_add(n))? {
                 return Ok(true);
@@ -568,7 +634,11 @@ impl Matcher<'_> {
             if can_more && self.at(r.node, pos, &again)? {
                 return Ok(true);
             }
-            return if r.done >= r.min { self.then(r.next, pos) } else { Ok(false) };
+            return if r.done >= r.min {
+                self.then(r.next, pos)
+            } else {
+                Ok(false)
+            };
         }
         if r.done >= r.min && self.then(r.next, pos)? {
             return Ok(true);

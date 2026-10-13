@@ -38,7 +38,9 @@ fn scratch(name: &str) -> PathBuf {
 /// `buri test --release` over `targets` in `repo`, which must pass whole.
 fn passes(repo: &Path, targets: &[&str]) -> String {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-    cmd.current_dir(repo).args(["test", "--release"]).args(targets);
+    cmd.current_dir(repo)
+        .args(["test", "--release"])
+        .args(targets);
     let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
     assert!(
         ran.status == 0 && ran.stdout.contains(" passed, 0 failed, 0 skipped ("),
@@ -63,7 +65,10 @@ macro_rules! skip_unless_executable {
 fn the_release_suites_pass() {
     skip_unless_executable!();
     let repo = scratch("suites");
-    copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release"), &repo);
+    copy(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release"),
+        &repo,
+    );
     passes(&repo, &["//lib/..."]);
 }
 
@@ -73,11 +78,20 @@ fn the_release_suites_pass() {
 fn a_program_fans_out_wide_values_on_the_host() {
     skip_unless_executable!();
     let repo = scratch("fanout");
-    copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release"), &repo);
+    copy(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release"),
+        &repo,
+    );
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-    cmd.current_dir(&repo).args(["run", "--release", "//cmd/fanout"]);
+    cmd.current_dir(&repo)
+        .args(["run", "--release", "//cmd/fanout"]);
     let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
-    assert_eq!((ran.status, ran.stdout.as_str()), (0, "a2 b5 c8\n"), "{}", ran.stderr);
+    assert_eq!(
+        (ran.status, ran.stdout.as_str()),
+        (0, "a2 b5 c8\n"),
+        "{}",
+        ran.stderr
+    );
 }
 
 /// **The native set's files in a package that also holds a JavaScript-only
@@ -118,7 +132,10 @@ fn the_native_files_of_a_mixed_package_pass_under_release() {
         std::fs::write(at.join("BUILD.buri"), build).unwrap();
         targets.push(format!("//lib/{package}"));
     }
-    assert!(targets.len() >= 3, "fewer mixed packages than expected: {targets:?}");
+    assert!(
+        targets.len() >= 3,
+        "fewer mixed packages than expected: {targets:?}"
+    );
     let targets: Vec<&str> = targets.iter().map(String::as_str).collect();
     passes(&repo, &targets);
 }
@@ -163,16 +180,25 @@ fn a_value_nested_seventy_structs_deep_keeps_its_count() {
 fn a_context_that_owns_a_count_is_refused() {
     skip_unless_executable!();
     let repo = scratch("refused");
-    copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release"), &repo);
+    copy(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release"),
+        &repo,
+    );
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-    cmd.current_dir(&repo).args(["test", "--release", "//refused"]);
+    cmd.current_dir(&repo)
+        .args(["test", "--release", "//refused"]);
     let ran = crate::shared::ran_command(&mut cmd);
     let err = &ran.stderr;
     assert_ne!(ran.status, 0, "{err}");
     assert!(
-        err.contains("`host_testing.TestTasks.parallel` was given a step whose context owns a count"),
+        err.contains(
+            "`host_testing.TestTasks.parallel` was given a step whose context owns a count"
+        ),
         "{err}"
     );
-    assert!(err.contains("`tasks.timerStart` was given a handler whose context owns a count"), "{err}");
+    assert!(
+        err.contains("`tasks.timerStart` was given a handler whose context owns a count"),
+        "{err}"
+    );
     assert!(!err.contains("internal error"), "{err}");
 }

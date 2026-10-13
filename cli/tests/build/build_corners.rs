@@ -151,7 +151,8 @@ fn buri_test_under_a_libc_the_link_refuses_says_why() {
     let scratch = suite("corners-musl");
     let run = scratch.run_with_env(&["test", "//lib/a"], &[("BURI_MUSL", "bogus")]);
     if cfg!(target_os = "linux") {
-        run.exits(1).says("`BURI_MUSL=bogus` is not a libc this toolchain can be forced to");
+        run.exits(1)
+            .says("`BURI_MUSL=bogus` is not a libc this toolchain can be forced to");
     } else {
         run.ok().says("1 passed, 0 failed");
     }
@@ -167,23 +168,36 @@ fn a_runner_recorded_outside_the_output_directory_is_restored() {
         return;
     }
     let scratch = suite("corners-runner");
-    scratch.run(&["test", "//lib/a"]).ok().says("1 passed, 0 failed");
+    scratch
+        .run(&["test", "//lib/a"])
+        .ok()
+        .says("1 passed, 0 failed");
     let (magic, out) = (&b"buri-test-build-"[..], &b".buri/out"[..]);
     let mut damaged = 0;
-    for dir in std::fs::read_dir(scratch.path(".buri/cache")).unwrap().flatten() {
-        let Ok(entries) = std::fs::read_dir(dir.path()) else { continue };
+    for dir in std::fs::read_dir(scratch.path(".buri/cache"))
+        .unwrap()
+        .flatten()
+    {
+        let Ok(entries) = std::fs::read_dir(dir.path()) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let mut bytes = std::fs::read(entry.path()).unwrap();
             if !bytes.windows(magic.len()).any(|w| w == magic) {
                 continue;
             }
-            let Some(at) = bytes.windows(out.len()).position(|w| w == out) else { continue };
+            let Some(at) = bytes.windows(out.len()).position(|w| w == out) else {
+                continue;
+            };
             bytes.splice(at..at + out.len(), b"elsewhere".iter().copied());
             std::fs::write(entry.path(), bytes).unwrap();
             damaged += 1;
         }
     }
-    assert_eq!(damaged, 1, "no record of the runner's place was found to damage");
+    assert_eq!(
+        damaged, 1,
+        "no record of the runner's place was found to damage"
+    );
     // A golden is in the verdict's key and not in the build's.
     scratch.write("lib/a/test/__snapshots__/unused.png", "not a picture\n");
     scratch
@@ -191,7 +205,10 @@ fn a_runner_recorded_outside_the_output_directory_is_restored() {
         .ok()
         .says("1 passed, 0 failed")
         .says("suites restored 1");
-    assert!(!scratch.path("elsewhere").exists(), "a runner was written where the record pointed");
+    assert!(
+        !scratch.path("elsewhere").exists(),
+        "a runner was written where the record pointed"
+    );
 }
 
 /// `BURI_COVERAGE_STD=1` under MC/DC counts the standard library, and a suite
@@ -200,7 +217,11 @@ fn a_runner_recorded_outside_the_output_directory_is_restored() {
 fn mcdc_over_the_standard_library_counts_its_built_in_operations() {
     let repo = tests_dir().join("repositories/coverage/mcdc/repo");
     let scratch = Scratch::copy_of("corners-std-mcdc", &repo);
-    scratch.edit("lib/d/BUILD.buri", "\"test/d.buri\"", "\"test/d.buri\", \"test/lists.buri\"");
+    scratch.edit(
+        "lib/d/BUILD.buri",
+        "\"test/d.buri\"",
+        "\"test/d.buri\", \"test/lists.buri\"",
+    );
     scratch.write("lib/d/test/lists.buri", LISTS);
     let args = ["test", "//lib/d", "--coverage=mcdc"];
     let run = scratch.run_with_env(&args, &[("BURI_COVERAGE_STD", "1")]);
@@ -217,7 +238,12 @@ fn a_forced_test_that_lints_prepares_every_generator_again() {
     let scratch = Scratch::repo("corners-force-generators");
     scratch.write("REPO.buri", "lint {\n    check_during_build: true\n}\n");
     contract_tool(&scratch, "b.schema.json");
-    generated(&scratch, "lib/a", "a.json", "\n    test {\n        sources: [\"test/a.buri\"]\n    }\n");
+    generated(
+        &scratch,
+        "lib/a",
+        "a.json",
+        "\n    test {\n        sources: [\"test/a.buri\"]\n    }\n",
+    );
     scratch.write("lib/a/test/a.buri", SUITE);
     // A file no rule lists makes the lint want every rule's generated code.
     scratch.write("lib/a/stray.json", "{}\n");

@@ -62,7 +62,9 @@ fn a_scoped_analysis_answers_what_a_whole_closure_one_answers() {
     let mut repositories_checked = 0usize;
     let mut files_checked = 0usize;
     for root in repositories() {
-        let Ok(mut open) = session::open_at(&root, &Flags::default()) else { continue };
+        let Ok(mut open) = session::open_at(&root, &Flags::default()) else {
+            continue;
+        };
         // A repository whose own build files do not read compiles nothing, and
         // the server says so rather than analysing it.
         if open.diagnostics.has_errors() {
@@ -70,7 +72,12 @@ fn a_scoped_analysis_answers_what_a_whole_closure_one_answers() {
         }
         repositories_checked = repositories_checked.saturating_add(1);
         for target in open.workspace.targets() {
-            let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
+            let unit = Unit {
+                target: Some(target),
+                platform: None,
+                entry: None,
+                with_tests: true,
+            };
             let full = driver::analyze(
                 Some(&open.workspace),
                 &mut open.map,
@@ -106,7 +113,10 @@ fn a_scoped_analysis_answers_what_a_whole_closure_one_answers() {
         repositories_checked > 60,
         "expected the lsp corpus and the worked monorepo, analysed {repositories_checked}"
     );
-    assert!(files_checked > 150, "only {files_checked} files were compared");
+    assert!(
+        files_checked > 150,
+        "only {files_checked} files were compared"
+    );
 }
 
 /// **A program analysis answers what a whole-closure one answers**, for every
@@ -151,15 +161,26 @@ fn a_program_analysis_checks_the_repository_and_not_the_standard_library() {
     // something rather than asserted into an empty room.
     let mut most_std_bodies = 0usize;
     for root in repositories() {
-        let Ok(mut open) = session::open_at(&root, &Flags::default()) else { continue };
+        let Ok(mut open) = session::open_at(&root, &Flags::default()) else {
+            continue;
+        };
         if open.diagnostics.has_errors() {
             continue;
         }
         repositories_checked = repositories_checked.saturating_add(1);
         for target in open.workspace.targets() {
-            let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
-            let full =
-                driver::analyze(Some(&open.workspace), &mut open.map, &mut open.parsed, &unit);
+            let unit = Unit {
+                target: Some(target),
+                platform: None,
+                entry: None,
+                with_tests: true,
+            };
+            let full = driver::analyze(
+                Some(&open.workspace),
+                &mut open.map,
+                &mut open.parsed,
+                &unit,
+            );
             let program = driver::analyze_program(
                 Some(&open.workspace),
                 &mut open.map,
@@ -198,7 +219,10 @@ fn a_program_analysis_checks_the_repository_and_not_the_standard_library() {
         repositories_checked > 60,
         "expected the lsp corpus and the worked monorepo, analysed {repositories_checked}"
     );
-    assert!(files_checked > 150, "only {files_checked} files were compared");
+    assert!(
+        files_checked > 150,
+        "only {files_checked} files were compared"
+    );
     assert!(
         most_std_bodies > 300,
         "a whole-closure run checked only {most_std_bodies} standard library bodies, so the \
@@ -228,12 +252,28 @@ fn std_bodies(analysis: &Analysis) -> usize {
 fn compare(label: &str, file: FileId, full: &Analysis, scoped: &Analysis) {
     let want = bodies_in(full, file);
     let got = bodies_in(scoped, file);
-    let missing: Vec<&String> = want.iter().map(|(k, _)| k).filter(|k| !has(&got, k)).collect();
-    assert!(missing.is_empty(), "{label}: the scoped analysis is missing {missing:?}");
-    let extra: Vec<&String> = got.iter().map(|(k, _)| k).filter(|k| !has(&want, k)).collect();
-    assert!(extra.is_empty(), "{label}: the scoped analysis invented {extra:?}");
+    let missing: Vec<&String> = want
+        .iter()
+        .map(|(k, _)| k)
+        .filter(|k| !has(&got, k))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "{label}: the scoped analysis is missing {missing:?}"
+    );
+    let extra: Vec<&String> = got
+        .iter()
+        .map(|(k, _)| k)
+        .filter(|k| !has(&want, k))
+        .collect();
+    assert!(
+        extra.is_empty(),
+        "{label}: the scoped analysis invented {extra:?}"
+    );
     for (name, rendering) in &want {
-        let Some(theirs) = got.iter().find(|(k, _)| k == name).map(|(_, v)| v) else { continue };
+        let Some(theirs) = got.iter().find(|(k, _)| k == name).map(|(_, v)| v) else {
+            continue;
+        };
         assert!(
             theirs == rendering,
             "{label}: `{name}` differs{}",
@@ -259,13 +299,19 @@ fn bodies_in(analysis: &Analysis, file: FileId) -> Vec<(String, String)> {
     for (id, body) in &analysis.checked.bodies {
         let info = tables.fn_info(id);
         if info.span.file == file {
-            out.push((format!("fn {} @{}", info.name, info.span.start), render(&format!("{body:?}"))));
+            out.push((
+                format!("fn {} @{}", info.name, info.span.start),
+                render(&format!("{body:?}")),
+            ));
         }
     }
     for (id, expr) in &analysis.checked.consts {
         let info = tables.const_(id);
         if info.span.file == file {
-            out.push((format!("let {} @{}", info.name, info.span.start), render(&format!("{expr:?}"))));
+            out.push((
+                format!("let {} @{}", info.name, info.span.start),
+                render(&format!("{expr:?}")),
+            ));
         }
     }
     out.sort();
@@ -279,7 +325,12 @@ fn findings_in(analysis: &Analysis, file: FileId) -> Vec<String> {
         .items
         .iter()
         .filter(|d| d.span.file == file)
-        .map(|d| format!("{}..{} {:?} {}", d.span.start, d.span.end, d.severity, d.message))
+        .map(|d| {
+            format!(
+                "{}..{} {:?} {}",
+                d.span.start, d.span.end, d.severity, d.message
+            )
+        })
         .collect()
 }
 
@@ -329,6 +380,9 @@ fn first_difference(want: &str, got: &str) -> String {
         let from = from.min(s.len());
         s.get(from..to).unwrap_or(s).to_string()
     };
-    format!(", at byte {at}\n  whole closure: ...{}\n         scoped: ...{}", window(want), window(got))
+    format!(
+        ", at byte {at}\n  whole closure: ...{}\n         scoped: ...{}",
+        window(want),
+        window(got)
+    )
 }
-

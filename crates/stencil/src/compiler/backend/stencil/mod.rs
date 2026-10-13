@@ -213,8 +213,10 @@ const MACOS_ARM64_SHA256: &str =
     include_str!(concat!(env!("OUT_DIR"), "/stencils-macos-arm64.bin.sha256"));
 const LINUX_ARM64_SHA256: &str =
     include_str!(concat!(env!("OUT_DIR"), "/stencils-linux-arm64.bin.sha256"));
-const LINUX_X86_64_SHA256: &str =
-    include_str!(concat!(env!("OUT_DIR"), "/stencils-linux-x86_64.bin.sha256"));
+const LINUX_X86_64_SHA256: &str = include_str!(concat!(
+    env!("OUT_DIR"),
+    "/stencils-linux-x86_64.bin.sha256"
+));
 
 /// One target's blob and its baked digest.
 fn blob(t: abi::StencilTarget) -> (&'static [u8], &'static str) {
@@ -269,7 +271,9 @@ pub fn unavailable_reason() -> Option<String> {
         return None;
     }
     let Some(host) = host_stencil_target() else {
-        return Some(String::from("stencil has no x86_64-apple-darwin backend yet"));
+        return Some(String::from(
+            "stencil has no x86_64-apple-darwin backend yet",
+        ));
     };
     // `AVAILABLE` is false and the host has a target, so its library is empty.
     Some(format!(
@@ -291,8 +295,13 @@ fn load(t: abi::StencilTarget) -> Result<&'static library::Library, String> {
         [OnceLock::new(), OnceLock::new(), OnceLock::new()];
     // `StencilTarget::ALL` is the order, and `blob` is matched to it by the
     // assertion in `the_libraries_are_indexed_by_their_own_order`.
-    let i = abi::StencilTarget::ALL.iter().position(|x| *x == t).unwrap_or(0);
-    let slot = LIBS.get(i).ok_or("stencil: a target with no library slot")?;
+    let i = abi::StencilTarget::ALL
+        .iter()
+        .position(|x| *x == t)
+        .unwrap_or(0);
+    let slot = LIBS
+        .get(i)
+        .ok_or("stencil: a target with no library slot")?;
     match slot.get_or_init(|| library::Library::decode(blob(t).0)) {
         Ok(l) => Ok(l),
         Err(e) => Err(e.clone()),
@@ -450,8 +459,7 @@ impl Backend for Stencil {
         // emitter O(units × program) — 2,378 ms of a 3,184 ms emission at 104k
         // lines and 367 units. This is the same place `lower::run` above is,
         // for the same reason.
-        let cycles =
-            std::sync::Arc::new(crate::compiler::middle::layout::Cycles::new(tables));
+        let cycles = std::sync::Arc::new(crate::compiler::middle::layout::Cycles::new(tables));
         let frames = jit::frame_sigs(&lowered, tables, std::sync::Arc::clone(&cycles));
         let whole = Whole {
             lib,
@@ -499,9 +507,9 @@ impl Backend for Stencil {
                     .get(job.unit)
                     .and_then(|m| m.get(job.lo..job.hi))
                     .unwrap_or_default();
-                let held = scratch.take().unwrap_or_else(|| {
-                    jit::Scratch::new(tables, std::sync::Arc::clone(&cycles))
-                });
+                let held = scratch
+                    .take()
+                    .unwrap_or_else(|| jit::Scratch::new(tables, std::sync::Arc::clone(&cycles)));
                 let (out, held) = emit_part(&whole, held, job.part, mine);
                 *scratch = Some(held);
                 out
@@ -512,8 +520,7 @@ impl Backend for Stencil {
         // a part's bytes are megabytes: they are handed over rather than
         // copied, and `parts_of` is what a hand-over that already happened
         // falls back to.
-        let mut held: Vec<std::sync::Mutex<Option<Vec<Part>>>> =
-            Vec::with_capacity(wanted.len());
+        let mut held: Vec<std::sync::Mutex<Option<Vec<Part>>>> = Vec::with_capacity(wanted.len());
         let mut rest = parts;
         for span in plan.spans.iter().rev() {
             let mine = rest.split_off(span.0.min(rest.len()));
@@ -629,7 +636,12 @@ const ENTRY_SYMBOL: &str = "main";
 /// **Nullary only.** `task_thread.rs`'s `state` is passed and not read, and
 /// every Buri root takes no arguments (`main(): Result<(), Str>` and a `test`
 /// block both), so there is no record of arguments to read.
-fn thread_door(target: abi::StencilTarget, frames: &[jit::FrameSig], idx: usize, sym: &str) -> asm::Shim {
+fn thread_door(
+    target: abi::StencilTarget,
+    frames: &[jit::FrameSig],
+    idx: usize,
+    sym: &str,
+) -> asm::Shim {
     let frame = frames.get(idx).filter(|f| f.params.is_empty());
     let frame = frame.or_ice("a root has a frame and takes no arguments");
     asm::thread_entry(target, sym, frame.ret_size)
@@ -727,7 +739,12 @@ fn part_plan(wanted: &[usize], members: &[Vec<usize>]) -> PartPlan {
         let len = members.get(*unit).map_or(0, Vec::len);
         let first = jobs.len();
         for (part, (lo, hi)) in cut(len).into_iter().enumerate() {
-            jobs.push(Job { unit: *unit, part, lo, hi });
+            jobs.push(Job {
+                unit: *unit,
+                part,
+                lo,
+                hi,
+            });
         }
         spans.push((first, jobs.len()));
     }
@@ -783,7 +800,15 @@ fn emit_part<'a>(
     part: usize,
     members: &[usize],
 ) -> (Part, jit::Scratch<'a>) {
-    let Whole { lib, program, tables, frames, target, shares, .. } = *w;
+    let Whole {
+        lib,
+        program,
+        tables,
+        frames,
+        target,
+        shares,
+        ..
+    } = *w;
     let mut j = jit::Jit::new(lib, tables, frames, target, scratch, part);
     j.shares = shares;
     j.compile_part(program, members);
@@ -795,7 +820,15 @@ fn emit_part<'a>(
     let entries: Vec<u64> = members.iter().map(|i| j.entry_of(*i)).collect();
     let helpers = j.helper_symbols();
     let emitted = std::mem::take(&mut j.region).finish();
-    (Part { emitted, entries, helpers, reasons }, j.into_scratch())
+    (
+        Part {
+            emitted,
+            entries,
+            helpers,
+            reasons,
+        },
+        j.into_scratch(),
+    )
 }
 
 fn assemble_unit(
@@ -804,7 +837,15 @@ fn assemble_unit(
     members: &[usize],
     parts: Vec<Part>,
 ) -> Result<Emitted, Vec<String>> {
-    let Whole { program, tables, frames, root, target, shares, .. } = *w;
+    let Whole {
+        program,
+        tables,
+        frames,
+        root,
+        target,
+        shares,
+        ..
+    } = *w;
 
     // Every part's refusals, in part order and then in the order that part met
     // them, which is the order one pass over the unit would have met them in.
@@ -862,16 +903,25 @@ fn assemble_unit(
                 String::from(ENTRY_SYMBOL),
                 asm::program_entry(target, &sym, main_result(program, tables, *idx), marking),
             ));
-            shims.push((String::from(task_thread::MAIN_ENTRY), thread_door(target, frames, *idx, &sym)));
+            shims.push((
+                String::from(task_thread::MAIN_ENTRY),
+                thread_door(target, frames, *idx, &sym),
+            ));
         }
         Root::Tests(tests) if tests.first().is_some_and(|i| members.contains(i)) => {
             let names: Vec<String> = tests
                 .iter()
                 .map(|i| jit::symbol_of(program, u32::try_from(*i).unwrap_or(0)))
                 .collect();
-            shims.push((String::from(ENTRY_SYMBOL), asm::test_entry(target, &names, marking)));
+            shims.push((
+                String::from(ENTRY_SYMBOL),
+                asm::test_entry(target, &names, marking),
+            ));
             for (i, (t, sym)) in tests.iter().zip(&names).enumerate() {
-                shims.push((task_thread::test_entry(i), thread_door(target, frames, *t, sym)));
+                shims.push((
+                    task_thread::test_entry(i),
+                    thread_door(target, frames, *t, sym),
+                ));
             }
         }
         _ => {}
@@ -880,8 +930,8 @@ fn assemble_unit(
     let mut symbols: Vec<object::Symbol> = Vec::new();
     let mut index: crate::hash::Map<String, usize> = crate::hash::Map::default();
     let want = |symbols: &mut Vec<object::Symbol>,
-                    index: &mut crate::hash::Map<String, usize>,
-                    name: &str|
+                index: &mut crate::hash::Map<String, usize>,
+                name: &str|
      -> usize {
         if let Some(i) = index.get(name) {
             return *i;
@@ -902,8 +952,13 @@ fn assemble_unit(
     for (i, entry) in members.iter().zip(&entries) {
         let sym = jit::symbol_of(program, u32::try_from(*i).unwrap_or(0));
         let at = want(&mut symbols, &mut index, &sym);
-        let s = symbols.get_mut(at).or_ice("`want` answers a symbol it holds");
-        s.defined = Some(object::Definition { section: 0, offset: *entry });
+        let s = symbols
+            .get_mut(at)
+            .or_ice("`want` answers a symbol it holds");
+        s.defined = Some(object::Definition {
+            section: 0,
+            offset: *entry,
+        });
     }
 
     // The functions the unit generated for itself (`glue.rs`). Drop and copy
@@ -914,13 +969,23 @@ fn assemble_unit(
     // namespace per part (`glue::symbol`).
     let mut glue: Vec<(usize, u64, u64)> = Vec::new();
     for h in helper_symbols {
-        let repeat = h.shared && index.get(&h.name).is_some_and(|i| {
-            symbols.get(*i).is_some_and(|s| s.defined.is_some())
-        });
-        let name = if repeat { format!("{}$again{}", h.name, glue.len()) } else { h.name };
+        let repeat = h.shared
+            && index
+                .get(&h.name)
+                .is_some_and(|i| symbols.get(*i).is_some_and(|s| s.defined.is_some()));
+        let name = if repeat {
+            format!("{}$again{}", h.name, glue.len())
+        } else {
+            h.name
+        };
         let ix = want(&mut symbols, &mut index, &name);
-        let s = symbols.get_mut(ix).or_ice("`want` answers a symbol it holds");
-        s.defined = Some(object::Definition { section: CODE, offset: h.at });
+        let s = symbols
+            .get_mut(ix)
+            .or_ice("`want` answers a symbol it holds");
+        s.defined = Some(object::Definition {
+            section: CODE,
+            offset: h.at,
+        });
         s.global = h.shared && !repeat;
         s.weak = s.global;
         if h.shared {
@@ -930,7 +995,10 @@ fn assemble_unit(
 
     let mut out: Vec<object::Reloc> = Vec::new();
     // Borrowed, because a name is only copied the first time `want` meets it.
-    fn name_of<'n>(program: &'n ir::Program, target: &'n region::Target) -> std::borrow::Cow<'n, str> {
+    fn name_of<'n>(
+        program: &'n ir::Program,
+        target: &'n region::Target,
+    ) -> std::borrow::Cow<'n, str> {
         match target {
             region::Target::Func(f) => match program.funcs.get(*f as usize) {
                 Some(func) => std::borrow::Cow::Borrowed(func.symbol.as_str()),
@@ -941,14 +1009,21 @@ fn assemble_unit(
             // collide with: Mach-O has no "this section" relocation that is
             // not scattered, so an offset into the pool is a symbol plus an
             // addend.
-            region::Target::Here(_) | region::Target::Pool => std::borrow::Cow::Borrowed(POOL_ANCHOR),
+            region::Target::Here(_) | region::Target::Pool => {
+                std::borrow::Cow::Borrowed(POOL_ANCHOR)
+            }
         }
     }
     // Most relocations name the pool or a function of the program, so those
     // two remember their symbol rather than hashing its name every time.
     let mut pool_sym: Option<usize> = None;
     let mut func_sym: crate::hash::Map<u32, usize> = crate::hash::Map::default();
-    out.reserve(emitted.code_relocs.len().saturating_add(emitted.pool_relocs.len()));
+    out.reserve(
+        emitted
+            .code_relocs
+            .len()
+            .saturating_add(emitted.pool_relocs.len()),
+    );
     for (section, r) in emitted
         .code_relocs
         .iter()
@@ -956,8 +1031,9 @@ fn assemble_unit(
         .chain(emitted.pool_relocs.iter().map(|r| (POOL, r)))
     {
         let sym = match r.target {
-            region::Target::Here(_) | region::Target::Pool => *pool_sym
-                .get_or_insert_with(|| want(&mut symbols, &mut index, POOL_ANCHOR)),
+            region::Target::Here(_) | region::Target::Pool => {
+                *pool_sym.get_or_insert_with(|| want(&mut symbols, &mut index, POOL_ANCHOR))
+            }
             region::Target::Func(f) => *func_sym
                 .entry(f)
                 .or_insert_with(|| want(&mut symbols, &mut index, &name_of(program, &r.target))),
@@ -974,15 +1050,24 @@ fn assemble_unit(
         });
     }
     let anchor = want(&mut symbols, &mut index, POOL_ANCHOR);
-    let s = symbols.get_mut(anchor).or_ice("`want` answers a symbol it holds");
-    s.defined = Some(object::Definition { section: POOL, offset: 0 });
+    let s = symbols
+        .get_mut(anchor)
+        .or_ice("`want` answers a symbol it holds");
+    s.defined = Some(object::Definition {
+        section: POOL,
+        offset: 0,
+    });
     s.global = false;
 
     // The three sections a unit has, under whichever container's names. Only
     // the spelling differs: a Mach-O section is `segment,section` and an ELF
     // one is a name and a flag word, and `elf.rs` reads the flags off
     // `attributes` and `zerofill` exactly as `object.rs` does.
-    let (text, text_seg) = if target.is_elf() { (".text", "") } else { ("__text", "__TEXT") };
+    let (text, text_seg) = if target.is_elf() {
+        (".text", "")
+    } else {
+        ("__text", "__TEXT")
+    };
     // **`.data.rel.ro` and not `.rodata`**, which is the ELF spelling of the
     // `__DATA_CONST,__const` beside it rather than a different decision. The
     // pool holds *addresses* — every `Abs64` in `pool_relocs` writes one — and
@@ -997,9 +1082,16 @@ fn assemble_unit(
     // again before `main` — so the constant pool ends up as constant as it was,
     // one page later. Mach-O's `__DATA_CONST` has always been the same bargain,
     // which is why only the spelling differs here.
-    let (const_, const_seg) =
-        if target.is_elf() { (".data.rel.ro", "") } else { ("__const", "__DATA_CONST") };
-    let (bss, bss_seg) = if target.is_elf() { (".bss", "") } else { ("__bss", "__DATA") };
+    let (const_, const_seg) = if target.is_elf() {
+        (".data.rel.ro", "")
+    } else {
+        ("__const", "__DATA_CONST")
+    };
+    let (bss, bss_seg) = if target.is_elf() {
+        (".bss", "")
+    } else {
+        ("__bss", "__DATA")
+    };
     let mut sections = vec![
         object::Section {
             name: text,
@@ -1035,8 +1127,13 @@ fn assemble_unit(
             let at = code.len() as u64;
             code.extend_from_slice(&shim.bytes);
             let ix = want(&mut symbols, &mut index, &name);
-            let s = symbols.get_mut(ix).or_ice("`want` answers a symbol it holds");
-            s.defined = Some(object::Definition { section: 0, offset: at });
+            let s = symbols
+                .get_mut(ix)
+                .or_ice("`want` answers a symbol it holds");
+            s.defined = Some(object::Definition {
+                section: 0,
+                offset: at,
+            });
             for (off, kind, target, addend) in shim.relocs {
                 let sym = want(&mut symbols, &mut index, &name_of(program, &target));
                 out.push(object::Reloc {
@@ -1060,15 +1157,23 @@ fn assemble_unit(
             data: Vec::new(),
         });
         let stack = want(&mut symbols, &mut index, asm::STACK_SYMBOL);
-        let s = symbols.get_mut(stack).or_ice("`want` answers a symbol it holds");
-        s.defined = Some(object::Definition { section: STACK, offset: 0 });
+        let s = symbols
+            .get_mut(stack)
+            .or_ice("`want` answers a symbol it holds");
+        s.defined = Some(object::Definition {
+            section: STACK,
+            offset: 0,
+        });
     }
 
     if target.is_elf() {
         let first = sections.len();
         sections.extend(carve(&mut code, &mut symbols, &mut out, &glue, first));
     }
-    sections.first_mut().or_ice("a unit has its code section").data = code;
+    sections
+        .first_mut()
+        .or_ice("a unit has its code section")
+        .data = code;
     let bytes = if target.is_elf() {
         elf::write(target, &sections, &symbols, &out)
     } else {
@@ -1078,7 +1183,11 @@ fn assemble_unit(
 
     // No key: the `codegen` key is the build system's (`Backend::emit`), and
     // `build::actions::unit_hashes` computed it before this unit was asked for.
-    Ok(Emitted { name: format!("{name}.o"), key: None, bytes })
+    Ok(Emitted {
+        name: format!("{name}.o"),
+        key: None,
+        bytes,
+    })
 }
 
 /// Moves each glue function out of the code section into a section of its
@@ -1138,7 +1247,10 @@ fn carve(
             attributes: object::CODE_ATTRIBUTES,
             zerofill: 0,
             group: symbol.filter(|s| s.weak).map(|s| s.name.clone()),
-            data: code.get(*at as usize..*end as usize).unwrap_or_default().to_vec(),
+            data: code
+                .get(*at as usize..*end as usize)
+                .unwrap_or_default()
+                .to_vec(),
         });
         from = *end;
     }
@@ -1164,22 +1276,37 @@ const STACK: usize = 2;
 ///
 /// Read off `middle::layout` here so that `asm.rs` never learns a layout rule.
 fn main_result(program: &ir::Program, tables: &Tables, idx: usize) -> asm::MainResult {
-    let f = program.funcs.get(idx).or_ice("`main` is one of its program's functions");
+    let f = program
+        .funcs
+        .get(idx)
+        .or_ice("`main` is one of its program's functions");
     let ret = f.sig.rets.first().copied();
     let id = jit::agg_of(ret.or_ice("the checker makes `main` answer `Result<(), Str>`"));
     let mut layouts = Layouts::new(tables);
     let l = layouts.of(program.type_info(id).ty);
     let (repr, variants) = jit::enum_of(&l);
     // `.Err(msg)`'s payload is a `Str` at the variant's first field.
-    let payload = variants.get(1).and_then(|v| v.first()).copied().unwrap_or(0);
-    let message = (payload, payload.saturating_add(8), payload.saturating_add(16));
+    let payload = variants
+        .get(1)
+        .and_then(|v| v.first())
+        .copied()
+        .unwrap_or(0);
+    let message = (
+        payload,
+        payload.saturating_add(8),
+        payload.saturating_add(16),
+    );
     match repr {
-        EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => {
-            asm::MainResult { tag: (0, tag.size()), niche: None, message }
-        }
-        EnumRepr::Niche { null_at } => {
-            asm::MainResult { tag: (*null_at, 8), niche: Some(*null_at), message }
-        }
+        EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => asm::MainResult {
+            tag: (0, tag.size()),
+            niche: None,
+            message,
+        },
+        EnumRepr::Niche { null_at } => asm::MainResult {
+            tag: (*null_at, 8),
+            niche: Some(*null_at),
+            message,
+        },
     }
 }
 
@@ -1199,7 +1326,10 @@ mod tests {
         let id = Stencil::default().identity();
         assert!(id.starts_with("stencil "), "{id}");
         // One digest per target, space-separated after the name.
-        assert_eq!(id.len(), "stencil".len() + abi::StencilTarget::ALL.len() * (1 + 64));
+        assert_eq!(
+            id.len(),
+            "stencil".len() + abi::StencilTarget::ALL.len() * (1 + 64)
+        );
     }
 
     /// `library` indexes `LIBS` by a target's position in
@@ -1247,7 +1377,12 @@ mod tests {
             // vacuous. The folds are an AArch64 `imm12` question
             // (`extract::fold_addressing`), so it is the arm64 libraries that
             // have to have some.
-            assert_eq!(twins > 0, t.is_arm64(), "{} has {twins} folded twins", t.slug());
+            assert_eq!(
+                twins > 0,
+                t.is_arm64(),
+                "{} has {twins} folded twins",
+                t.slug()
+            );
         }
     }
 
@@ -1299,7 +1434,11 @@ mod tests {
     fn availability_on_this_host_implies_a_library() {
         if AVAILABLE {
             let host = host_stencil_target().expect("an available host has a stencil target");
-            assert!(available_for(host), "{} is available with no library", host.slug());
+            assert!(
+                available_for(host),
+                "{} is available with no library",
+                host.slug()
+            );
         }
     }
 
@@ -1325,7 +1464,9 @@ mod tests {
     /// check belongs here, against the library the toolchain actually built.
     #[test]
     fn every_slots_runtime_call_has_a_folded_twin_that_is_shorter() {
-        let Ok(lib) = load(abi::StencilTarget::MacosArm64) else { return };
+        let Ok(lib) = load(abi::StencilTarget::MacosArm64) else {
+            return;
+        };
         let mut checked = 0;
         for ni in 0..=abi::MAX_INT_ARGS {
             for nf in 0..=abi::MAX_FLOAT_ARGS {
@@ -1361,14 +1502,19 @@ mod tests {
                 }
             }
         }
-        assert_eq!(checked, (abi::MAX_INT_ARGS + 1) * (abi::MAX_FLOAT_ARGS + 1) * 7);
+        assert_eq!(
+            checked,
+            (abi::MAX_INT_ARGS + 1) * (abi::MAX_FLOAT_ARGS + 1) * 7
+        );
     }
     /// A stencil key without its fold suffixes: the operation and operand
     /// shape the emitter looks up, before `Jit::emit` narrows to whichever
     /// twin's fields the operands fit.
     #[cfg(test)]
     fn base_keys(lib: &library::Library) -> std::collections::BTreeSet<String> {
-        lib.keys().map(|k| k.split('+').next().unwrap_or(k).to_string()).collect()
+        lib.keys()
+            .map(|k| k.split('+').next().unwrap_or(k).to_string())
+            .collect()
     }
 
     /// **The two arm64 libraries must cover exactly the same operations.**
@@ -1388,9 +1534,10 @@ mod tests {
     /// back to the unfolded key when a twin is absent.
     #[test]
     fn the_two_arm64_libraries_cover_the_same_operations() {
-        let (Ok(m), Ok(l)) =
-            (load(abi::StencilTarget::MacosArm64), load(abi::StencilTarget::LinuxArm64))
-        else {
+        let (Ok(m), Ok(l)) = (
+            load(abi::StencilTarget::MacosArm64),
+            load(abi::StencilTarget::LinuxArm64),
+        ) else {
             return;
         };
         let (bm, bl) = (base_keys(m), base_keys(l));
@@ -1423,9 +1570,10 @@ mod tests {
     /// no second backend behind it.
     #[test]
     fn the_x86_64_library_covers_what_the_arm64_ones_do() {
-        let (Ok(m), Ok(x)) =
-            (load(abi::StencilTarget::MacosArm64), load(abi::StencilTarget::LinuxX86_64))
-        else {
+        let (Ok(m), Ok(x)) = (
+            load(abi::StencilTarget::MacosArm64),
+            load(abi::StencilTarget::LinuxX86_64),
+        ) else {
             return;
         };
         let missing: Vec<String> = base_keys(m).difference(&base_keys(x)).cloned().collect();
@@ -1437,7 +1585,10 @@ mod tests {
     /// different bits. Baseline x86-64 has no FMA, so arm64 is where it can happen.
     #[test]
     fn no_stencil_fuses_a_multiply_and_an_add() {
-        for t in [abi::StencilTarget::MacosArm64, abi::StencilTarget::LinuxArm64] {
+        for t in [
+            abi::StencilTarget::MacosArm64,
+            abi::StencilTarget::LinuxArm64,
+        ] {
             let Ok(lib) = load(t) else { continue };
             for s in lib.iter() {
                 for w in s.code.as_chunks::<4>().0 {
@@ -1445,7 +1596,12 @@ mod tests {
                     // `fmadd`/`fmsub`/`fnmadd`/`fnmsub`, then vector `fmla`/`fmls`.
                     let scalar = w & 0xff00_0000 == 0x1f00_0000;
                     let vector = w & 0xbf20_fc00 == 0x0e20_cc00;
-                    assert!(!scalar && !vector, "{} fuses: {w:#010x} in {}", s.name, t.slug());
+                    assert!(
+                        !scalar && !vector,
+                        "{} fuses: {w:#010x} in {}",
+                        s.name,
+                        t.slug()
+                    );
                 }
             }
         }
@@ -1456,25 +1612,58 @@ mod tests {
     /// `ConstRef` would be a stencil reading `.rodata` that is not there.
     #[test]
     fn the_spilled_constant_families_carry_their_bytes() {
-        let Ok(x) = load(abi::StencilTarget::LinuxX86_64) else { return };
+        let Ok(x) = load(abi::StencilTarget::LinuxX86_64) else {
+            return;
+        };
         let s = x.get("cvt/u2f").unwrap_or_else(|| panic!("no cvt/u2f"));
-        assert!(!s.const_refs.is_empty(), "cvt/u2f reads no spilled constant");
+        assert!(
+            !s.const_refs.is_empty(),
+            "cvt/u2f reads no spilled constant"
+        );
         let carriers = x.iter().filter(|s| !s.const_refs.is_empty()).count();
-        assert!(carriers >= 4, "only {carriers} stencils carry spilled constants");
+        assert!(
+            carriers >= 4,
+            "only {carriers} stencils carry spilled constants"
+        );
         for s in x.iter() {
             assert_eq!(s.consts.is_empty(), s.const_refs.is_empty(), "{}", s.name);
-            assert!(s.consts_align <= 16, "{} asks for {} alignment", s.name, s.consts_align);
+            assert!(
+                s.consts_align <= 16,
+                "{} asks for {} alignment",
+                s.name,
+                s.consts_align
+            );
             for c in &s.const_refs {
-                assert!(c.insn_end > c.field, "{}: a field past its instruction", s.name);
-                assert!(c.insn_end - c.field <= 8, "{}: an eight-byte trailer", s.name);
-                assert!((c.at as usize) < s.consts.len(), "{}: a reference past the bytes", s.name);
-                assert!((c.insn_end as usize) <= s.code.len(), "{}: a field outside the body", s.name);
+                assert!(
+                    c.insn_end > c.field,
+                    "{}: a field past its instruction",
+                    s.name
+                );
+                assert!(
+                    c.insn_end - c.field <= 8,
+                    "{}: an eight-byte trailer",
+                    s.name
+                );
+                assert!(
+                    (c.at as usize) < s.consts.len(),
+                    "{}: a reference past the bytes",
+                    s.name
+                );
+                assert!(
+                    (c.insn_end as usize) <= s.code.len(),
+                    "{}: a field outside the body",
+                    s.name
+                );
             }
         }
         // No AArch64 stencil has any: `extract.rs` refuses an object that
         // spilled anything at all.
-        let Ok(m) = load(abi::StencilTarget::MacosArm64) else { return };
-        assert!(m.iter().all(|s| s.const_refs.is_empty() && s.consts.is_empty()));
+        let Ok(m) = load(abi::StencilTarget::MacosArm64) else {
+            return;
+        };
+        assert!(m
+            .iter()
+            .all(|s| s.const_refs.is_empty() && s.consts.is_empty()));
     }
 
     /// Every key in the x86-64 library has exactly one entry — no fold twins —
@@ -1483,7 +1672,9 @@ mod tests {
     /// arm64 rewrites had been let loose on x86-64 bytes.
     #[test]
     fn the_x86_64_library_has_no_folded_twins() {
-        let Ok(x) = load(abi::StencilTarget::LinuxX86_64) else { return };
+        let Ok(x) = load(abi::StencilTarget::LinuxX86_64) else {
+            return;
+        };
         assert!(
             !x.keys().any(|k| k.contains('+')),
             "the x86-64 library has fold twins, which nothing produces"

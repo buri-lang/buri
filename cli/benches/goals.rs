@@ -83,7 +83,9 @@ pub fn run(mode: &str) {
         for f in &failures {
             eprintln!("error: {f}");
         }
-        eprintln!("design/PERFORMANCE.md §6.82 says what each number means and how a budget was set.");
+        eprintln!(
+            "design/PERFORMANCE.md §6.82 says what each number means and how a budget was set."
+        );
         std::process::exit(1);
     }
 }
@@ -119,7 +121,10 @@ fn repository(name: &str) -> (PathBuf, Program) {
 
 /// `7.78M lines/s`.
 fn lines_per_second(rate: f64) -> String {
-    format!("{} lines/s", crate::rate(rate).trim().trim_end_matches("/s").trim())
+    format!(
+        "{} lines/s",
+        crate::rate(rate).trim().trim_end_matches("/s").trim()
+    )
 }
 
 fn buri(dir: &Path, args: &[&str]) -> Command {
@@ -129,7 +134,10 @@ fn buri(dir: &Path, args: &[&str]) -> Command {
 }
 
 fn clean(dir: &Path) {
-    let ok = buri(dir, &["clean"]).stdout(Stdio::null()).status().is_ok_and(|s| s.success());
+    let ok = buri(dir, &["clean"])
+        .stdout(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
     if !ok {
         fail(&format!("`buri clean` failed in {}", dir.display()));
     }
@@ -151,7 +159,8 @@ pub fn child(phase: &str, dir: &str) {
     let mut map = SourceMap::new();
     let mut cache = parser::Cache::new();
     let mut diagnostics = Diagnostics::new();
-    let loaded = matches!(phase, "load" | "check").then(|| load(&program, &mut map, &mut cache, &mut diagnostics));
+    let loaded = matches!(phase, "load" | "check")
+        .then(|| load(&program, &mut map, &mut cache, &mut diagnostics));
     let before = buri::profile::thread_instructions();
     match (phase, &loaded) {
         ("read" | "load", _) => {}
@@ -165,7 +174,10 @@ pub fn child(phase: &str, dir: &str) {
         }
         _ => fail(&format!("no goals phase `{phase}`")),
     }
-    println!("{}", buri::profile::thread_instructions().saturating_sub(before));
+    println!(
+        "{}",
+        buri::profile::thread_instructions().saturating_sub(before)
+    );
 }
 
 /// What a child that counts itself printed.
@@ -176,9 +188,11 @@ fn own_count(cmd: &mut Command) -> Result<u64, String> {
     }
     match String::from_utf8_lossy(&out.stdout).trim().parse::<u64>() {
         Ok(n) if n > 0 => Ok(n),
-        _ => Err("this machine counts no instructions, as in a virtual machine; \
+        _ => Err(
+            "this machine counts no instructions, as in a virtual machine; \
                   count on a Mac, or on Linux with valgrind"
-            .to_string()),
+                .to_string(),
+        ),
     }
 }
 
@@ -194,7 +208,13 @@ fn instructions(cmd: &Command, core: usize) -> Result<u64, String> {
     } else {
         let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
         let mut c = Command::new("taskset");
-        c.args(["-c", &(core % cores).to_string(), "valgrind", "--tool=cachegrind", "--cache-sim=no"]);
+        c.args([
+            "-c",
+            &(core % cores).to_string(),
+            "valgrind",
+            "--tool=cachegrind",
+            "--cache-sim=no",
+        ]);
         c.arg("--cachegrind-out-file=/dev/null");
         c
     };
@@ -208,7 +228,9 @@ fn instructions(cmd: &Command, core: usize) -> Result<u64, String> {
             None => counted.env_remove(k),
         };
     }
-    let out = counted.output().map_err(|e| format!("{}: {e}", counted.get_program().to_string_lossy()))?;
+    let out = counted
+        .output()
+        .map_err(|e| format!("{}: {e}", counted.get_program().to_string_lossy()))?;
     let stderr = String::from_utf8_lossy(&out.stderr);
     if !out.status.success() {
         return Err(format!("{} failed:\n{stderr}", program.to_string_lossy()));
@@ -217,9 +239,11 @@ fn instructions(cmd: &Command, core: usize) -> Result<u64, String> {
         let line = line.trim();
         // BSD `time -l`: "  123456  instructions retired".
         // cachegrind: "==123== I refs:      1,234,567" (`I   refs:` before 3.21).
-        let digits = line
-            .strip_suffix("instructions retired")
-            .or_else(|| line.split_once("I refs:").or_else(|| line.split_once("I   refs:")).map(|(_, n)| n))?;
+        let digits = line.strip_suffix("instructions retired").or_else(|| {
+            line.split_once("I refs:")
+                .or_else(|| line.split_once("I   refs:"))
+                .map(|(_, n)| n)
+        })?;
         digits.trim().replace(',', "").parse::<u64>().ok()
     });
     match count {
@@ -240,15 +264,29 @@ fn counted() -> Vec<String> {
     for name in ["mixed-1M", "mixed-100k"] {
         let (dir, program) = repository(name);
         lines.insert(name, program.lines());
-        if GOALS.iter().any(|g| g.counted_on == name && g.phase == "dev compile") {
-            jobs.push((format!("{name}/build"), buri(&dir, &["build", "//bench"]), Some(dir.clone())));
+        if GOALS
+            .iter()
+            .any(|g| g.counted_on == name && g.phase == "dev compile")
+        {
+            jobs.push((
+                format!("{name}/build"),
+                buri(&dir, &["build", "//bench"]),
+                Some(dir.clone()),
+            ));
         }
-        if GOALS.iter().any(|g| g.counted_on == name && g.phase != "dev compile") {
-            let phases: &[&str] =
-                if COUNTS_ITSELF { &["parse", "check"] } else { &["read", "parse", "load", "check"] };
+        if GOALS
+            .iter()
+            .any(|g| g.counted_on == name && g.phase != "dev compile")
+        {
+            let phases: &[&str] = if COUNTS_ITSELF {
+                &["parse", "check"]
+            } else {
+                &["read", "parse", "load", "check"]
+            };
             for phase in phases {
                 let mut cmd = Command::new(&exe);
-                cmd.arg(format!("--goals-child={phase}")).arg(format!("--from={}", dir.display()));
+                cmd.arg(format!("--goals-child={phase}"))
+                    .arg(format!("--from={}", dir.display()));
                 jobs.push((format!("{name}/{phase}"), cmd, None));
             }
         }
@@ -268,14 +306,21 @@ fn counted() -> Vec<String> {
                         if let Some(dir) = dirty {
                             clean(dir);
                         }
-                        let n = if dirty.is_none() && COUNTS_ITSELF { own_count(cmd) } else { instructions(cmd, i) };
+                        let n = if dirty.is_none() && COUNTS_ITSELF {
+                            own_count(cmd)
+                        } else {
+                            instructions(cmd, i)
+                        };
                         n.map(|n| fewest.min(n))
                     });
                     (label.clone(), fewest)
                 })
             })
             .collect();
-        handles.into_iter().map(|h| h.join().expect("a counting thread")).collect()
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("a counting thread"))
+            .collect()
     });
     // A built program is hundreds of megabytes that a cached corpus shouldn't carry.
     for (_, _, dirty) in &jobs {
@@ -294,9 +339,14 @@ fn counted() -> Vec<String> {
     }
     let of = |label: String| count.get(&label).copied().unwrap_or(0);
 
-    println!("goals, counted: instructions a line against each budget (design/PERFORMANCE.md §6.82)");
+    println!(
+        "goals, counted: instructions a line against each budget (design/PERFORMANCE.md §6.82)"
+    );
     println!();
-    println!("  {:<12} {:<12} {:>12} {:>9} {:>9}", "phase", "corpus", "per line", "budget", "headroom");
+    println!(
+        "  {:<12} {:<12} {:>12} {:>9} {:>9}",
+        "phase", "corpus", "per line", "budget", "headroom"
+    );
     let mut failures = Vec::new();
     for g in &GOALS {
         let name = g.counted_on;
@@ -346,9 +396,14 @@ fn timed() -> Vec<String> {
         warm_reps: 1,
         reduced: true,
     };
-    println!("goals, timed: the fastest of several runs against each goal (design/PERFORMANCE.md §6.82)");
+    println!(
+        "goals, timed: the fastest of several runs against each goal (design/PERFORMANCE.md §6.82)"
+    );
     println!();
-    println!("  {:<12} {:<12} {:>10} {:>10} {:>9}  on a miss", "phase", "corpus", "lines/s", "goal", "headroom");
+    println!(
+        "  {:<12} {:<12} {:>10} {:>10} {:>9}  on a miss",
+        "phase", "corpus", "lines/s", "goal", "headroom"
+    );
     let mut failures = Vec::new();
     for g in &GOALS {
         let (dir, program) = repository(g.timed_on);
@@ -372,7 +427,10 @@ fn timed() -> Vec<String> {
                 fastest
             }
             _ => {
-                let fastest = (0..BUILDS).map(|_| cold_build(&dir)).min().unwrap_or_default();
+                let fastest = (0..BUILDS)
+                    .map(|_| cold_build(&dir))
+                    .min()
+                    .unwrap_or_default();
                 clean(&dir);
                 fastest
             }
@@ -411,10 +469,16 @@ fn timed() -> Vec<String> {
 fn cold_build(dir: &Path) -> Duration {
     clean(dir);
     let started = Instant::now();
-    let out = buri(dir, &["build", "//bench"]).output().unwrap_or_else(|e| fail(&e.to_string()));
+    let out = buri(dir, &["build", "//bench"])
+        .output()
+        .unwrap_or_else(|e| fail(&e.to_string()));
     let took = started.elapsed();
     if !out.status.success() {
-        fail(&format!("`buri build //bench` failed in {}:\n{}", dir.display(), String::from_utf8_lossy(&out.stderr)));
+        fail(&format!(
+            "`buri build //bench` failed in {}:\n{}",
+            dir.display(),
+            String::from_utf8_lossy(&out.stderr)
+        ));
     }
     took
 }

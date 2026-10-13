@@ -179,19 +179,19 @@
               exist, table positions answered by a push, and deadlines a bounded duration past now"
 )]
 
+use crate::allocator::valgrind;
+use crate::sync::{Condvar, Mutex, MutexGuard};
 use std::cell::{Cell, UnsafeCell};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize, Ordering};
-use crate::allocator::valgrind;
-use crate::sync::{Condvar, Mutex, MutexGuard};
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 use std::thread;
 use std::time::Duration;
 
-use crate::list::{block, Release, StepEntry};
+use crate::list::{Release, StepEntry, block};
 use crate::memory::Blocks;
 use crate::switch;
 use crate::value::BuriList;
@@ -226,7 +226,10 @@ static REACTOR: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 /// process cannot create threads.
 pub fn handle() -> &'static tokio::runtime::Handle {
     let reactor = REACTOR.get_or_init(|| {
-        #[expect(clippy::expect_used, reason = "a program with no reactor has nothing left to run on")]
+        #[expect(
+            clippy::expect_used,
+            reason = "a program with no reactor has nothing left to run on"
+        )]
         let built = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .thread_name("buri-reactor")
@@ -576,7 +579,8 @@ impl Task {
     }
 }
 
-static WAKER: RawWakerVTable = RawWakerVTable::new(waker_clone, waker_wake, waker_wake_ref, waker_drop);
+static WAKER: RawWakerVTable =
+    RawWakerVTable::new(waker_clone, waker_wake, waker_wake_ref, waker_drop);
 
 /// # Safety
 /// `p` came from `Arc<Task>::into_raw`, or from a live `Arc<Task>`.
@@ -737,7 +741,10 @@ impl<T> Sched<T> {
     /// to be created: two pushes racing would otherwise each see the same
     /// count and start a thread apiece.
     fn grow(&mut self) -> bool {
-        let short = !self.queue.is_empty() && self.idle == 0 && !self.starting && self.threads < MAX_THREADS;
+        let short = !self.queue.is_empty()
+            && self.idle == 0
+            && !self.starting
+            && self.threads < MAX_THREADS;
         if short {
             self.threads += 1;
             self.starting = true;
@@ -887,7 +894,10 @@ fn arm() {
 }
 
 /// Start one thread. The count was taken by [`push`].
-#[expect(clippy::panic, reason = "the count already promised this thread to the scheduler")]
+#[expect(
+    clippy::panic,
+    reason = "the count already promised this thread to the scheduler"
+)]
 fn start_thread() {
     let id = {
         let s = sched();
@@ -1095,7 +1105,9 @@ fn help(latch: &Arc<Latch>) {
         let task = {
             let mut s = sched();
             match s.queue.back() {
-                Some(t) if t.latch.as_ref().is_some_and(|l| Arc::as_ptr(l) == mine) => s.queue.pop_back(),
+                Some(t) if t.latch.as_ref().is_some_and(|l| Arc::as_ptr(l) == mine) => {
+                    s.queue.pop_back()
+                }
                 _ => None,
             }
         };
@@ -1197,7 +1209,12 @@ unsafe fn give_stack(task: &Arc<Task>) {
 /// of a fan-out of trivial steps itself, then runs each one sooner. Mapping
 /// later is what a wider one needs, or its queued steps hold every pooled
 /// stack and the running ones map and unmap fresh ones.
-fn new_task(body: Box<dyn FnOnce() + Send>, latch: Option<Arc<Latch>>, lineage: Arc<[Who]>, mapped: bool) -> Arc<Task> {
+fn new_task(
+    body: Box<dyn FnOnce() + Send>,
+    latch: Option<Arc<Latch>>,
+    lineage: Arc<[Who]>,
+    mapped: bool,
+) -> Arc<Task> {
     let task = Arc::new(Task {
         state: AtomicU8::new(QUEUED),
         why: AtomicU8::new(WHY_PARK),
@@ -1313,11 +1330,11 @@ fn unqueued<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Handof
     let slot = Arc::clone(&answer);
     let task = new_task(
         Box::new(move || {
-        let out = f();
-        match slot.lock() {
-            Ok(mut slot) => *slot = Some(out),
-            Err(poisoned) => *poisoned.into_inner() = Some(out),
-        }
+            let out = f();
+            match slot.lock() {
+                Ok(mut slot) => *slot = Some(out),
+                Err(poisoned) => *poisoned.into_inner() = Some(out),
+            }
         }),
         None,
         lineage_here(),
@@ -1613,10 +1630,19 @@ unsafe fn fan_out(steps: Steps, n: usize) {
         // Room for a batch, so a window refills in batches rather than a step
         // at a time.
         let batch = REFILL.min(n - started);
-        park_on(Arrived { latch: &latch, left: n - started + IN_FLIGHT - batch });
+        park_on(Arrived {
+            latch: &latch,
+            left: n - started + IN_FLIGHT - batch,
+        });
     }
-    park_on(Arrived { latch: &latch, left: 0 });
-    assert!(!latch.failed.load(Ordering::Acquire), "a buri task did not finish");
+    park_on(Arrived {
+        latch: &latch,
+        left: 0,
+    });
+    assert!(
+        !latch.failed.load(Ordering::Acquire),
+        "a buri task did not finish"
+    );
     drop(kept);
 }
 
@@ -1851,13 +1877,19 @@ impl Held {
         // SAFETY: `ptr` is null or a live payload pointer the caller owns for
         // the duration of the call (`lib.rs` §3's borrowed-parameter rule).
         unsafe { crate::memory::buri_rt_incref(list.ptr) };
-        Held { ptr: list.ptr, len: list.len }
+        Held {
+            ptr: list.ptr,
+            len: list.len,
+        }
     }
 
     /// Give the reference away. The caller of the entry that answers this owns
     /// it now, and its own release is what eventually frees the block.
     fn give(self) -> BuriList {
-        BuriList { ptr: self.ptr, len: self.len }
+        BuriList {
+            ptr: self.ptr,
+            len: self.len,
+        }
     }
 }
 
@@ -1936,7 +1968,10 @@ struct Slots {
     free: Vec<usize>,
 }
 
-static REPLIES: Mutex<Slots> = Mutex::new(Slots { slots: Vec::new(), free: Vec::new() });
+static REPLIES: Mutex<Slots> = Mutex::new(Slots {
+    slots: Vec::new(),
+    free: Vec::new(),
+});
 
 /// The index half of a reply handle.
 const REPLY_INDEX_BITS: u32 = 20;
@@ -1997,7 +2032,9 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_open(
 /// `try_lock` for `ui.rs`'s reason: an abort can exit while this lock is held.
 /// A state a step has out is that step's to give back.
 fn give_back_states() {
-    let Ok(mut table) = ACTORS.try_lock() else { return };
+    let Ok(mut table) = ACTORS.try_lock() else {
+        return;
+    };
     let states: Vec<(Held, u64, Release)> = table
         .iter_mut()
         .filter_map(|m| m.state.take().map(|h| (h, m.stride, m.release)))
@@ -2109,7 +2146,9 @@ fn permit_within(
 /// every one of them — so this answers `None` rather than aborting, for the
 /// reason `task_join` gives at its own table.
 fn at(table: &mut [Mailbox], handle: i64) -> Option<&mut Mailbox> {
-    usize::try_from(handle).ok().and_then(move |i| table.get_mut(i))
+    usize::try_from(handle)
+        .ok()
+        .and_then(move |i| table.get_mut(i))
 }
 
 /// `actor.mailboxPush(ctx, handle, message) -> Result<Int, SendError>` — the
@@ -2164,7 +2203,9 @@ unsafe fn push_within(
     };
     permit.forget();
     let mut table = actors();
-    let Some(mailbox) = at(&mut table, handle) else { return STOPPED };
+    let Some(mailbox) = at(&mut table, handle) else {
+        return STOPPED;
+    };
     if mailbox.closed {
         // Closed between the permit and the lock. The permit is not given back
         // — a closed semaphore hands out no more anyway — and the block is not
@@ -2187,8 +2228,12 @@ unsafe fn push_within(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_actor_mailbox_pop(handle: i64, out: *mut BuriList) -> i32 {
     let mut table = actors();
-    let Some(mailbox) = at(&mut table, handle) else { return 0 };
-    let Some(held) = mailbox.queue.pop_front() else { return 0 };
+    let Some(mailbox) = at(&mut table, handle) else {
+        return 0;
+    };
+    let Some(held) = mailbox.queue.pop_front() else {
+        return 0;
+    };
     mailbox.room.add_permits(1);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(held.give()) };
@@ -2249,8 +2294,12 @@ unsafe fn close_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i
     // at its own deadline: there is no state left to wait for.
     baton.close();
     let mut table = actors();
-    let Some(mailbox) = at(&mut table, handle) else { return 0 };
-    let Some(held) = mailbox.state.take() else { return 0 };
+    let Some(mailbox) = at(&mut table, handle) else {
+        return 0;
+    };
+    let Some(held) = mailbox.state.take() else {
+        return 0;
+    };
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(held.give()) };
     crate::BURI_OK
@@ -2288,7 +2337,9 @@ pub unsafe extern "C" fn buri_rt_actor_state_take(handle: i64, out: *mut BuriLis
 unsafe fn take_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i32 {
     let baton = {
         let mut table = actors();
-        let Some(mailbox) = at(&mut table, handle) else { return STOPPED };
+        let Some(mailbox) = at(&mut table, handle) else {
+            return STOPPED;
+        };
         if mailbox.closed {
             return STOPPED;
         }
@@ -2316,7 +2367,9 @@ unsafe fn take_within(handle: i64, out: *mut BuriList, deadline: Duration) -> i3
     };
     permit.forget();
     let mut table = actors();
-    let Some(mailbox) = at(&mut table, handle) else { return STOPPED };
+    let Some(mailbox) = at(&mut table, handle) else {
+        return STOPPED;
+    };
     if mailbox.closed {
         // Closed while this waited, and the close is waiting for this very
         // baton: give it straight back.
@@ -2360,7 +2413,9 @@ pub unsafe extern "C" fn buri_rt_actor_state_put(
     out: *mut i64,
 ) -> i32 {
     let mut table = actors();
-    let Some(mailbox) = at(&mut table, handle) else { return 0 };
+    let Some(mailbox) = at(&mut table, handle) else {
+        return 0;
+    };
     mailbox.state = Some(Held::keep(BuriList { ptr, len }));
     mailbox.holder = None;
     let waiting = mailbox.queue.len() as i64;
@@ -2427,7 +2482,9 @@ pub unsafe extern "C" fn buri_rt_actor_reply_put(
     out: *mut i64,
 ) -> i32 {
     let mut table = replies();
-    let Some(slot) = reply_at(&mut table.slots, handle) else { return 0 };
+    let Some(slot) = reply_at(&mut table.slots, handle) else {
+        return 0;
+    };
     if !matches!(slot, Answer::Waiting) {
         return 0;
     }
@@ -2452,7 +2509,9 @@ pub unsafe extern "C" fn buri_rt_actor_reply_put(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_actor_reply_take(handle: i64, out: *mut BuriList) -> i32 {
     let mut table = replies();
-    let Some(slot) = reply_at(&mut table.slots, handle) else { return 0 };
+    let Some(slot) = reply_at(&mut table.slots, handle) else {
+        return 0;
+    };
     let held = match std::mem::replace(slot, Answer::Spent) {
         Answer::Ready(held) => Some(held),
         Answer::Waiting | Answer::Spent => None,
@@ -2550,7 +2609,9 @@ fn scopes() -> MutexGuard<'static, Vec<ScopePlace>> {
 /// from a program, because `core/tasks` mints every one of them and keeps the
 /// `Int` private, so this answers `None` rather than aborting.
 fn scope_at(table: &mut [ScopePlace], handle: i64) -> Option<&mut ScopePlace> {
-    usize::try_from(handle).ok().and_then(move |i| table.get_mut(i))
+    usize::try_from(handle)
+        .ok()
+        .and_then(move |i| table.get_mut(i))
 }
 
 /// `tasks.scopeOpen(ctx) -> Int` — a fresh scope, already being drained by
@@ -2584,7 +2645,9 @@ pub unsafe extern "C" fn buri_rt_tasks_scope_push(
     out: *mut i64,
 ) -> i32 {
     let mut table = scopes();
-    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    let Some(place) = scope_at(&mut table, handle) else {
+        return 0;
+    };
     place.waiting.push_back(Held::keep(BuriList { ptr, len }));
     let waiting = place.waiting.len() as i64;
     if let Some(beside) = &place.beside {
@@ -2623,7 +2686,12 @@ pub unsafe extern "C" fn buri_rt_tasks_scope_round(handle: i64, out: *mut BuriLi
     for i in 0..round {
         // SAFETY: `i * 8` is inside the block just allocated, and its payload is
         // 16-aligned so every `i64` slot is aligned.
-        unsafe { list.ptr.add(i.saturating_mul(8)).cast::<i64>().write(i as i64) };
+        unsafe {
+            list.ptr
+                .add(i.saturating_mul(8))
+                .cast::<i64>()
+                .write(i as i64)
+        };
     }
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(list) }
@@ -2644,9 +2712,15 @@ pub unsafe extern "C" fn buri_rt_tasks_scope_task_at(
     out: *mut BuriList,
 ) -> i32 {
     let mut table = scopes();
-    let Some(place) = scope_at(&mut table, handle) else { return 0 };
-    let Ok(at) = usize::try_from(index) else { return 0 };
-    let Some(slot) = place.round.get_mut(at) else { return 0 };
+    let Some(place) = scope_at(&mut table, handle) else {
+        return 0;
+    };
+    let Ok(at) = usize::try_from(index) else {
+        return 0;
+    };
+    let Some(slot) = place.round.get_mut(at) else {
+        return 0;
+    };
     let Some(held) = slot.take() else { return 0 };
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(held.give()) };
@@ -2661,7 +2735,9 @@ pub unsafe extern "C" fn buri_rt_tasks_scope_task_at(
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_tasks_scope_enter(handle: i64) -> u8 {
     let mut table = scopes();
-    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    let Some(place) = scope_at(&mut table, handle) else {
+        return 0;
+    };
     if place.draining {
         return 0;
     }
@@ -2679,7 +2755,9 @@ pub extern "C" fn buri_rt_tasks_scope_enter(handle: i64) -> u8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_tasks_scope_leave(handle: i64) -> u8 {
     let mut table = scopes();
-    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    let Some(place) = scope_at(&mut table, handle) else {
+        return 0;
+    };
     place.draining = false;
     u8::from(!place.waiting.is_empty())
 }
@@ -2699,7 +2777,9 @@ pub extern "C" fn buri_rt_tasks_scope_beside(handle: i64) -> u8 {
         return 0;
     }
     let mut table = scopes();
-    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    let Some(place) = scope_at(&mut table, handle) else {
+        return 0;
+    };
     // The scope's tasks are about to run beside its body: see
     // `buri_rt_host_tasks_parallel`'s gate.
     crate::memory::begin_sharing();
@@ -2725,11 +2805,19 @@ pub extern "C" fn buri_rt_tasks_scope_beside(handle: i64) -> u8 {
 pub extern "C" fn buri_rt_tasks_scope_claim(handle: i64) -> i64 {
     loop {
         let mut table = scopes();
-        let Some(place) = scope_at(&mut table, handle) else { return -1 };
-        let Some(beside) = place.beside.as_mut() else { return -1 };
+        let Some(place) = scope_at(&mut table, handle) else {
+            return -1;
+        };
+        let Some(beside) = place.beside.as_mut() else {
+            return -1;
+        };
         if let Some(task) = place.waiting.pop_front() {
             beside.busy += 1;
-            let at = place.round.iter().position(Option::is_none).unwrap_or(place.round.len());
+            let at = place
+                .round
+                .iter()
+                .position(Option::is_none)
+                .unwrap_or(place.round.len());
             match place.round.get_mut(at) {
                 Some(slot) => *slot = Some(task),
                 None => place.round.push(Some(task)),
@@ -2764,7 +2852,9 @@ pub extern "C" fn buri_rt_tasks_scope_claim(handle: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_tasks_scope_spare(handle: i64) -> u8 {
     let mut table = scopes();
-    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    let Some(place) = scope_at(&mut table, handle) else {
+        return 0;
+    };
     u8::from(place.beside.as_ref().is_some_and(|b| b.idle > 0))
 }
 
@@ -2773,8 +2863,12 @@ pub extern "C" fn buri_rt_tasks_scope_spare(handle: i64) -> u8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_tasks_scope_ran(handle: i64) -> u8 {
     let mut table = scopes();
-    let Some(place) = scope_at(&mut table, handle) else { return 0 };
-    let Some(beside) = place.beside.as_mut() else { return 0 };
+    let Some(place) = scope_at(&mut table, handle) else {
+        return 0;
+    };
+    let Some(beside) = place.beside.as_mut() else {
+        return 0;
+    };
     beside.busy = beside.busy.saturating_sub(1);
     beside.wake.notify_waiters();
     u8::from(beside.busy == 0)
@@ -2811,8 +2905,7 @@ pub extern "C" fn buri_rt_tasks_scope_ran(handle: i64) -> u8 {
 
 /// The entry thunk a timer's body is reached through: [`StepEntry`]'s four
 /// words, with the handle as the index-sized element.
-type HandlerEntry =
-    unsafe extern "C" fn(state: *mut u8, index: i64, arg: *const u8, out: *mut u8);
+type HandlerEntry = unsafe extern "C" fn(state: *mut u8, index: i64, arg: *const u8, out: *mut u8);
 
 /// One pending timer: the handler the backend handed over, and its copy of the
 /// record.
@@ -2847,7 +2940,14 @@ impl Pending {
         // SAFETY: `entry`/`state` are the handler's thunk and its kept record;
         // `handle` is one live word crossing as the element, and `sink` a live
         // destination a `()`-answering thunk writes nothing to.
-        unsafe { (self.entry)(self.state, 0, std::ptr::addr_of!(handle).cast(), sink.as_mut_ptr()) };
+        unsafe {
+            (self.entry)(
+                self.state,
+                0,
+                std::ptr::addr_of!(handle).cast(),
+                sink.as_mut_ptr(),
+            )
+        };
         if !frame.is_null() {
             // SAFETY: this thread acquired it above and the thunk has returned.
             unsafe { crate::memory::buri_rt_stack_release(frame) };
@@ -2866,7 +2966,9 @@ impl Pending {
         }
         if !self.state.is_null() {
             // SAFETY: `keep` leaked exactly this boxed slice.
-            drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(self.state, self.bytes)) });
+            drop(unsafe {
+                Box::from_raw(std::ptr::slice_from_raw_parts_mut(self.state, self.bytes))
+            });
         }
     }
 }
@@ -2922,14 +3024,20 @@ fn fire_due() {
         let now = std::time::Instant::now();
         let taken = {
             let mut t = timers();
-            let found =
-                t.due.keys().take_while(|(at, _)| *at <= now).find(|(_, h)| *h < limit).copied();
+            let found = t
+                .due
+                .keys()
+                .take_while(|(at, _)| *at <= now)
+                .find(|(_, h)| *h < limit)
+                .copied();
             found.and_then(|key| {
                 t.at.remove(&key.1);
                 t.due.remove(&key).map(|p| (key.1, p))
             })
         };
-        let Some((handle, pending)) = taken else { return };
+        let Some((handle, pending)) = taken else {
+            return;
+        };
         pending.fire(handle);
         pending.give_back();
     }
@@ -3071,7 +3179,16 @@ pub unsafe extern "C" fn buri_rt_tasks_timer_start(
         let mut t = timers();
         let handle = t.next;
         t.next = t.next.saturating_add(1);
-        t.due.insert((at, handle), Pending { entry, state: copy, bytes, frame_at, body });
+        t.due.insert(
+            (at, handle),
+            Pending {
+                entry,
+                state: copy,
+                bytes,
+                frame_at,
+                body,
+            },
+        );
         t.at.insert(handle, at);
         handle
     };
@@ -3153,7 +3270,14 @@ mod tests {
         concurrent: bool,
     ) -> BuriList {
         let result = block(n, out_stride);
-        let steps = Steps { entry, state, src, dst: result.ptr, in_stride, out_stride };
+        let steps = Steps {
+            entry,
+            state,
+            src,
+            dst: result.ptr,
+            in_stride,
+            out_stride,
+        };
         // SAFETY: the caller's promise, forwarded.
         unsafe {
             if concurrent {
@@ -3171,7 +3295,9 @@ mod tests {
     /// `got` holds `n` `i64`s at a stride of eight.
     unsafe fn i64s(got: &BuriList, n: usize) -> Vec<i64> {
         // SAFETY: the caller's promise.
-        (0..n).map(|i| unsafe { got.ptr.add(i * 8).cast::<i64>().read() }).collect()
+        (0..n)
+            .map(|i| unsafe { got.ptr.add(i * 8).cast::<i64>().read() })
+            .collect()
     }
 
     /// **The count of a marked block is exact under every thread at once.**
@@ -3200,7 +3326,11 @@ mod tests {
         let p = crate::memory::buri_rt_alloc(64);
         // SAFETY: `p` is live and was just allocated under the latch.
         let (rc, marked) = unsafe { crate::memory::count_and_mark(p) };
-        assert_eq!((rc, marked), (1, true), "a block allocated under the latch was not marked");
+        assert_eq!(
+            (rc, marked),
+            (1, true),
+            "a block allocated under the latch was not marked"
+        );
 
         let shared = p as usize;
         thread::scope(|scope| {
@@ -3256,7 +3386,10 @@ mod tests {
         let _alone = alone();
         // `alone()` first, then this; `memory::latch` states the order.
         let _latch = crate::memory::latch();
-        assert!(!crate::memory::values_may_cross_tasks(), "the silent answer is the safe one");
+        assert!(
+            !crate::memory::values_may_cross_tasks(),
+            "the silent answer is the safe one"
+        );
 
         let plain = crate::memory::buri_rt_alloc(48);
         // SAFETY: live, just allocated.
@@ -3268,7 +3401,11 @@ mod tests {
             let p = crate::memory::buri_rt_alloc(size);
             // SAFETY: live, just allocated.
             let (rc, marked) = unsafe { crate::memory::count_and_mark(p) };
-            assert_eq!((rc, marked), (1, true), "a {size}-byte block was not marked");
+            assert_eq!(
+                (rc, marked),
+                (1, true),
+                "a {size}-byte block was not marked"
+            );
             // SAFETY: the capacity is still the byte count it asked for, which
             // is what keeps the release glue's `cap / stride` walk honest.
             assert_eq!(unsafe { crate::memory::buri_rt_cap(p) }, size);
@@ -3305,7 +3442,10 @@ mod tests {
         let _latch = crate::memory::latch();
         let plain = crate::memory::buri_rt_alloc(64);
         // SAFETY: live, count of one, unmarked.
-        assert_eq!(unsafe { crate::memory::buri_rt_unique_cap(plain) }, Some(64));
+        assert_eq!(
+            unsafe { crate::memory::buri_rt_unique_cap(plain) },
+            Some(64)
+        );
         // SAFETY: the only reference.
         unsafe { crate::memory::buri_rt_free(plain) };
 
@@ -3339,7 +3479,10 @@ mod tests {
             9
         });
         assert_eq!(slept, 9);
-        assert!(started.elapsed() >= Duration::from_millis(25), "the sleep did not wait");
+        assert!(
+            started.elapsed() >= Duration::from_millis(25),
+            "the sleep did not wait"
+        );
     }
 
     /// A thread that parks does not stop another one from running.
@@ -3377,12 +3520,22 @@ mod tests {
     /// [`MAX_THREADS`] for a thousand tasks that park.
     #[test]
     fn a_burst_starts_one_thread_until_that_thread_arrives() {
-        let mut s = Sched { queue: VecDeque::new(), idle: 0, threads: 0, starting: false, sleeping: 0, waking: 0 };
+        let mut s = Sched {
+            queue: VecDeque::new(),
+            idle: 0,
+            threads: 0,
+            starting: false,
+            sleeping: 0,
+            waking: 0,
+        };
         for _ in 0..1000 {
             s.queue.push_back(());
             s.grow();
         }
-        assert_eq!(s.threads, 1, "a burst of pushes started more than the thread already on its way");
+        assert_eq!(
+            s.threads, 1,
+            "a burst of pushes started more than the thread already on its way"
+        );
 
         // The thread arrives, as `take` has it, and takes a task with a backlog behind it.
         s.starting = false;
@@ -3398,7 +3551,14 @@ mod tests {
     /// work ran on 64 threads.
     #[test]
     fn a_queue_with_an_idle_thread_starts_none() {
-        let mut s = Sched { queue: VecDeque::new(), idle: 1, threads: 1, starting: false, sleeping: 0, waking: 0 };
+        let mut s = Sched {
+            queue: VecDeque::new(),
+            idle: 1,
+            threads: 1,
+            starting: false,
+            sleeping: 0,
+            waking: 0,
+        };
         for _ in 0..64 {
             s.queue.push_back(());
             assert!(!s.grow(), "a push started a thread while one was idle");
@@ -3417,10 +3577,20 @@ mod tests {
     /// found the queue empty when they got the lock.
     #[test]
     fn a_batch_wakes_one_thread_and_each_arrival_the_next() {
-        let mut s = Sched { queue: VecDeque::new(), idle: 8, threads: 8, starting: false, sleeping: 8, waking: 0 };
+        let mut s = Sched {
+            queue: VecDeque::new(),
+            idle: 8,
+            threads: 8,
+            starting: false,
+            sleeping: 8,
+            waking: 0,
+        };
         s.queue.extend([(); 64]);
         assert!(s.wake(), "a batch with eight threads asleep woke none");
-        assert!(!s.wake(), "a second thread was woken before the first arrived");
+        assert!(
+            !s.wake(),
+            "a second thread was woken before the first arrived"
+        );
 
         // The woken thread arrives, as `take` has it, and pops with work left.
         s.sleeping -= 1;
@@ -3442,9 +3612,19 @@ mod tests {
     /// it reaches the lock, and asks again after its pop.
     #[test]
     fn a_batch_wakes_nobody_while_an_idle_thread_is_awake() {
-        let mut s = Sched { queue: VecDeque::new(), idle: 3, threads: 3, starting: false, sleeping: 2, waking: 0 };
+        let mut s = Sched {
+            queue: VecDeque::new(),
+            idle: 3,
+            threads: 3,
+            starting: false,
+            sleeping: 2,
+            waking: 0,
+        };
         s.queue.extend([(); 64]);
-        assert!(!s.wake(), "a thread was woken while an idle one was on its way");
+        assert!(
+            !s.wake(),
+            "a thread was woken while an idle one was on its way"
+        );
 
         // That thread pops, and the two left are asleep.
         s.idle -= 1;
@@ -3477,7 +3657,10 @@ mod tests {
         let waker = Waker::from(Arc::clone(&woken));
         let mut cx = Context::from_waker(&waker);
         let latch = Latch::new(10);
-        let mut at_seven = std::pin::pin!(Arrived { latch: &latch, left: 7 });
+        let mut at_seven = std::pin::pin!(Arrived {
+            latch: &latch,
+            left: 7
+        });
         assert!(at_seven.as_mut().poll(&mut cx).is_pending());
         latch.arrive(true);
         latch.arrive(true);
@@ -3486,22 +3669,35 @@ mod tests {
         assert_eq!(woken.0.load(Ordering::SeqCst), 1, "not woken at the mark");
         assert!(at_seven.as_mut().poll(&mut cx).is_ready());
         latch.arrive(true);
-        assert_eq!(woken.0.load(Ordering::SeqCst), 1, "woken again with nobody waiting");
-        assert!(latch.failed.load(Ordering::SeqCst), "a failed step was forgotten");
+        assert_eq!(
+            woken.0.load(Ordering::SeqCst),
+            1,
+            "woken again with nobody waiting"
+        );
+        assert!(
+            latch.failed.load(Ordering::SeqCst),
+            "a failed step was forgotten"
+        );
     }
 
     #[test]
     fn a_thread_runs_the_job_and_is_reused() {
         let _alone = alone();
         let here = thread::current().id();
-        let first = on_thread(move || (thread::current().id(), 6 * 7)).join().unwrap();
+        let first = on_thread(move || (thread::current().id(), 6 * 7))
+            .join()
+            .unwrap();
         assert_eq!(first.1, 42);
         assert_ne!(first.0, here, "the job ran on the calling thread");
 
         let before = threads();
         let second = on_thread(move || thread::current().id()).join().unwrap();
         assert_ne!(second, here, "the second job ran on the calling thread");
-        assert_eq!(threads(), before, "a thread was started for a job an idle one could take");
+        assert_eq!(
+            threads(),
+            before,
+            "a thread was started for a job an idle one could take"
+        );
     }
 
     /// Four jobs that wait, all of them answering.
@@ -3563,7 +3759,9 @@ mod tests {
                     return Poll::Ready(5u8);
                 }
                 sent = true;
-                wakers.send(cx.waker().clone()).expect("the waking thread is gone");
+                wakers
+                    .send(cx.waker().clone())
+                    .expect("the waking thread is gone");
                 woken.recv().expect("the waking thread never woke the task");
                 Poll::Pending
             }))
@@ -3584,7 +3782,10 @@ mod tests {
 
         assert!(task_join(handle), "the task did not join");
         assert!(!task_is_live(handle), "a joined task is still live");
-        assert!(!task_join(handle), "a second join answered as if it had work to wait for");
+        assert!(
+            !task_join(handle),
+            "a second join answered as if it had work to wait for"
+        );
 
         // A handle that names nothing is inert rather than fatal.
         assert!(!task_join(9_999));
@@ -3613,14 +3814,16 @@ mod tests {
         let (go, wait) = channel::<()>();
         let (done, ran) = channel::<&'static str>();
         let handle = task_start(move || {
-            wait.recv().expect("the starter dropped its sender before the task ran");
+            wait.recv()
+                .expect("the starter dropped its sender before the task ran");
             let _ = done.send("beside");
         });
         // The task is already running and is blocked on `wait`, which it could
         // not be if starting it had waited for this thread to suspend.
         go.send(()).expect("the task was not running to receive it");
         assert_eq!(
-            ran.recv_timeout(Duration::from_secs(5)).expect("the task never ran"),
+            ran.recv_timeout(Duration::from_secs(5))
+                .expect("the task never ran"),
             "beside",
         );
         assert!(task_join(handle));
@@ -3645,8 +3848,14 @@ mod tests {
             assert_eq!(on_thread(|| 6 * 7).join().unwrap(), 42);
             return;
         }
-        assert!(!thread::spawn(crate::host::dit_is_set).join().unwrap(), "a new thread started with DIT set");
-        assert!(on_thread(crate::host::dit_is_set).join().unwrap(), "a scheduler thread ran with DIT clear");
+        assert!(
+            !thread::spawn(crate::host::dit_is_set).join().unwrap(),
+            "a new thread started with DIT set"
+        );
+        assert!(
+            on_thread(crate::host::dit_is_set).join().unwrap(),
+            "a scheduler thread ran with DIT clear"
+        );
     }
 
     /// `Clock.sleepMilliseconds` still waits and still answers nothing, having gone
@@ -3694,12 +3903,19 @@ mod tests {
                 let seen = &mut *state.cast::<Seen>();
                 seen.calls += 1;
                 seen.order.push(index);
-                out.cast::<i64>().write(arg.cast::<i64>().read() * 10 + index as i64);
+                out.cast::<i64>()
+                    .write(arg.cast::<i64>().read() * 10 + index as i64);
             }
         }
         let src: [i64; 4] = [1, 2, 3, 4];
-        let mut seen = Seen { calls: 0, order: Vec::new() };
-        let mut got = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut seen = Seen {
+            calls: 0,
+            order: Vec::new(),
+        };
+        let mut got = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         // SAFETY: `src` covers four `i64`s and both out-pointers are live.
         unsafe {
             buri_rt_host_tasks_parallel(
@@ -3716,8 +3932,9 @@ mod tests {
         assert_eq!(seen.order, vec![0, 1, 2, 3], "the index is the item's own");
         assert_eq!(got.len, 4);
         // SAFETY: four `i64`s were written there, at the stride asked for.
-        let answers: Vec<i64> =
-            (0..4).map(|i| unsafe { got.ptr.add(i * 8).cast::<i64>().read() }).collect();
+        let answers: Vec<i64> = (0..4)
+            .map(|i| unsafe { got.ptr.add(i * 8).cast::<i64>().read() })
+            .collect();
         // Results in the *items'* order, which is what the effect promises and
         // what a fan-out has to keep.
         assert_eq!(answers, vec![10, 21, 32, 43]);
@@ -3734,10 +3951,16 @@ mod tests {
         let _alone = alone();
         unsafe extern "C" fn narrow(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
             // SAFETY: an `i64` in, an `i32` out.
-            unsafe { out.cast::<i32>().write((arg.cast::<i64>().read() + index as i64) as i32) }
+            unsafe {
+                out.cast::<i32>()
+                    .write((arg.cast::<i64>().read() + index as i64) as i32)
+            }
         }
         let src: [i64; 3] = [100, 200, 300];
-        let mut got = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut got = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         // SAFETY: `src` covers three `i64`s and `got` is a live local.
         unsafe {
             buri_rt_host_tasks_parallel(
@@ -3752,8 +3975,9 @@ mod tests {
         }
         assert_eq!(got.len, 3);
         // SAFETY: three `i32`s were written there.
-        let answers: Vec<i32> =
-            (0..3).map(|i| unsafe { got.ptr.add(i * 4).cast::<i32>().read() }).collect();
+        let answers: Vec<i32> = (0..3)
+            .map(|i| unsafe { got.ptr.add(i * 4).cast::<i32>().read() })
+            .collect();
         assert_eq!(answers, vec![100, 201, 302]);
         // SAFETY: the only reference.
         unsafe { crate::memory::buri_rt_free(got.ptr) };
@@ -3766,11 +3990,17 @@ mod tests {
         // This case drives the exported entry, which reads the artifact's
         // answer about its own frames — a global, so one case at a time.
         let _alone = alone();
-        #[expect(clippy::unreachable, reason = "the case fails if the runtime ever calls it")]
+        #[expect(
+            clippy::unreachable,
+            reason = "the case fails if the runtime ever calls it"
+        )]
         unsafe extern "C" fn never(_: *mut u8, _: u64, _: *const u8, _: *mut u8) {
             unreachable!("a task ran on an empty list");
         }
-        let mut got = BuriList { ptr: std::ptr::null_mut(), len: 9 };
+        let mut got = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 9,
+        };
         // SAFETY: the source is empty, so the pointer is never read.
         unsafe {
             buri_rt_host_tasks_parallel(
@@ -3798,11 +4028,17 @@ mod tests {
         let _alone = alone();
         unsafe extern "C" fn inner(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
             // SAFETY: an `i64` in and an `i64` out.
-            unsafe { out.cast::<i64>().write(arg.cast::<i64>().read() + index as i64) }
+            unsafe {
+                out.cast::<i64>()
+                    .write(arg.cast::<i64>().read() + index as i64)
+            }
         }
         unsafe extern "C" fn outer(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
             let src: [i64; 3] = [10, 20, 30];
-            let mut nested = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            let mut nested = BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            };
             // SAFETY: `src` is live for the length of this call.
             unsafe {
                 buri_rt_host_tasks_parallel(
@@ -3817,15 +4053,22 @@ mod tests {
             }
             // SAFETY: three `i64`s were just written there, and the block is
             // this call's to free.
-            let sum: i64 =
-                (0..3).map(|i| unsafe { nested.ptr.add(i * 8).cast::<i64>().read() }).sum();
+            let sum: i64 = (0..3)
+                .map(|i| unsafe { nested.ptr.add(i * 8).cast::<i64>().read() })
+                .sum();
             // SAFETY: the only reference.
             unsafe { crate::memory::buri_rt_free(nested.ptr) };
             // SAFETY: an `i64` in and an `i64` out.
-            unsafe { out.cast::<i64>().write(sum + arg.cast::<i64>().read() + index as i64) }
+            unsafe {
+                out.cast::<i64>()
+                    .write(sum + arg.cast::<i64>().read() + index as i64)
+            }
         }
         let src: [i64; 2] = [1000, 2000];
-        let mut got = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut got = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         // SAFETY: `src` covers two `i64`s and `got` is a live local.
         unsafe {
             buri_rt_host_tasks_parallel(
@@ -3840,8 +4083,9 @@ mod tests {
         }
         // The inner walk answers 10 + 21 + 32 = 63 every time.
         // SAFETY: two `i64`s were written there.
-        let answers: Vec<i64> =
-            (0..2).map(|i| unsafe { got.ptr.add(i * 8).cast::<i64>().read() }).collect();
+        let answers: Vec<i64> = (0..2)
+            .map(|i| unsafe { got.ptr.add(i * 8).cast::<i64>().read() })
+            .collect();
         assert_eq!(answers, vec![1063, 2064]);
         // SAFETY: the only reference.
         unsafe { crate::memory::buri_rt_free(got.ptr) };
@@ -4066,7 +4310,10 @@ mod tests {
             }
             chain.finished.fetch_add(1, Ordering::SeqCst);
             // SAFETY: an `i64` element and an `i64` slot of the answer.
-            unsafe { out.cast::<i64>().write(arg.cast::<i64>().read() * 10 + index as i64) }
+            unsafe {
+                out.cast::<i64>()
+                    .write(arg.cast::<i64>().read() * 10 + index as i64)
+            }
         }
         let src: [i64; STEPS] = [1, 2, 3, 4];
         let chain = Backwards {
@@ -4102,7 +4349,11 @@ mod tests {
             Ok(seen) => seen.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
         };
-        assert_eq!(seen, vec![3, 2, 1, 0], "the work did not finish out of order");
+        assert_eq!(
+            seen,
+            vec![3, 2, 1, 0],
+            "the work did not finish out of order"
+        );
     }
 
     /// **Two steps that compute run at the same time.** The case the baton
@@ -4138,7 +4389,10 @@ mod tests {
                 out.cast::<i64>().write(index as i64);
             }
         }
-        let r = Rendezvous { arrived: AtomicUsize::new(0), gave_up: AtomicUsize::new(0) };
+        let r = Rendezvous {
+            arrived: AtomicUsize::new(0),
+            gave_up: AtomicUsize::new(0),
+        };
         let src = [0i64; STEPS];
         // SAFETY: `STEPS` `i64`s in and out, and `r` outlives the call.
         let got = unsafe {
@@ -4156,7 +4410,11 @@ mod tests {
         let answers = unsafe { i64s(&got, STEPS) };
         // SAFETY: the only reference.
         unsafe { crate::memory::buri_rt_free(got.ptr) };
-        assert_eq!(answers, (0..STEPS as i64).collect::<Vec<i64>>(), "the items' order");
+        assert_eq!(
+            answers,
+            (0..STEPS as i64).collect::<Vec<i64>>(),
+            "the items' order"
+        );
         assert_eq!(
             r.gave_up.load(Ordering::SeqCst),
             0,
@@ -4248,7 +4506,11 @@ mod tests {
         let answers = unsafe { i64s(&got, STEPS) };
         // SAFETY: the only reference.
         unsafe { crate::memory::buri_rt_free(got.ptr) };
-        assert_eq!(answers, (0..STEPS as i64).collect::<Vec<i64>>(), "the items' order");
+        assert_eq!(
+            answers,
+            (0..STEPS as i64).collect::<Vec<i64>>(),
+            "the items' order"
+        );
         // SAFETY: `p` is still live at whatever the counts left it.
         let (rc, marked) = unsafe { crate::memory::count_and_mark(p) };
         assert_eq!(
@@ -4277,14 +4539,29 @@ mod tests {
         let _alone = alone();
         unsafe extern "C" fn triple(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
             // SAFETY: an `i64` in and an `i64` out.
-            unsafe { out.cast::<i64>().write(arg.cast::<i64>().read() * 2 + index as i64) }
+            unsafe {
+                out.cast::<i64>()
+                    .write(arg.cast::<i64>().read() * 2 + index as i64)
+            }
         }
         let n = IN_FLIGHT * 2 + 3;
-        assert!(n > IN_FLIGHT, "the case is only a case while the list outruns the window");
+        assert!(
+            n > IN_FLIGHT,
+            "the case is only a case while the list outruns the window"
+        );
         let src: Vec<i64> = (0..n as i64).collect();
         // SAFETY: `n` `i64`s in and out.
-        let got =
-            unsafe { steps_of(src.as_ptr().cast(), n, triple, std::ptr::null_mut(), 8, 8, true) };
+        let got = unsafe {
+            steps_of(
+                src.as_ptr().cast(),
+                n,
+                triple,
+                std::ptr::null_mut(),
+                8,
+                8,
+                true,
+            )
+        };
         // SAFETY: `n` `i64`s were written there.
         let answers = unsafe { i64s(&got, n) };
         // SAFETY: the only reference.
@@ -4317,7 +4594,10 @@ mod tests {
                 park_on(YieldOnce(false));
             }
             // SAFETY: an `i64` in and an `i64` out.
-            unsafe { out.cast::<i64>().write(arg.cast::<i64>().read() * 2 + index as i64) }
+            unsafe {
+                out.cast::<i64>()
+                    .write(arg.cast::<i64>().read() * 2 + index as i64)
+            }
         }
         let stop = Arc::new(AtomicBool::new(false));
         // The hogs poll it with plain loads, which helgrind doesn't order.
@@ -4341,12 +4621,26 @@ mod tests {
                             0 => 1,
                             1 => 7,
                             2 => 64 + caller,
-                            _ => if round == 3 { IN_FLIGHT * 2 + 1 } else { 200 },
+                            _ => {
+                                if round == 3 {
+                                    IN_FLIGHT * 2 + 1
+                                } else {
+                                    200
+                                }
+                            }
                         };
                         let src: Vec<i64> = (0..n as i64).collect();
                         // SAFETY: `n` `i64`s in and out.
                         let got = unsafe {
-                            steps_of(src.as_ptr().cast(), n, step, std::ptr::null_mut(), 8, 8, true)
+                            steps_of(
+                                src.as_ptr().cast(),
+                                n,
+                                step,
+                                std::ptr::null_mut(),
+                                8,
+                                8,
+                                true,
+                            )
                         };
                         // SAFETY: `n` `i64`s were written there.
                         let answers = unsafe { i64s(&got, n) };
@@ -4362,7 +4656,10 @@ mod tests {
         for hog in hogs {
             hog.join().unwrap();
         }
-        assert!(outcomes.iter().all(Result::is_ok), "a caller's fan-out answered wrongly");
+        assert!(
+            outcomes.iter().all(Result::is_ok),
+            "a caller's fan-out answered wrongly"
+        );
     }
 
     /// Busy-loop processes on every core, killed by PID when dropped.
@@ -4376,7 +4673,10 @@ mod tests {
                     .filter_map(|_| {
                         // Bounded, so a test killed before its `Drop` leaves nothing burning.
                         std::process::Command::new("sh")
-                            .args(["-c", "end=$((SECONDS + 120)); while [ $SECONDS -lt $end ]; do :; done"])
+                            .args([
+                                "-c",
+                                "end=$((SECONDS + 120)); while [ $SECONDS -lt $end ]; do :; done",
+                            ])
                             .spawn()
                             .ok()
                     })
@@ -4417,7 +4717,15 @@ mod tests {
         for _ in 0..3 {
             // SAFETY: `n` `i64`s in and out, and the barrier outlives the call.
             let got = unsafe {
-                steps_of(src.as_ptr().cast(), n, meet, (&raw const barrier).cast_mut().cast(), 8, 8, true)
+                steps_of(
+                    src.as_ptr().cast(),
+                    n,
+                    meet,
+                    (&raw const barrier).cast_mut().cast(),
+                    8,
+                    8,
+                    true,
+                )
             };
             // SAFETY: `n` `i64`s were written there.
             let answers = unsafe { i64s(&got, n) };
@@ -4448,7 +4756,10 @@ mod tests {
         }
         unsafe extern "C" fn double(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
             // SAFETY: an `i64` in and an `i64` out.
-            unsafe { out.cast::<i64>().write(arg.cast::<i64>().read() * 2 + index as i64) }
+            unsafe {
+                out.cast::<i64>()
+                    .write(arg.cast::<i64>().read() * 2 + index as i64)
+            }
         }
         let first = {
             let released = Arc::clone(&released);
@@ -4470,7 +4781,17 @@ mod tests {
         let n = 16;
         let src: Vec<i64> = (0..n as i64).collect();
         // SAFETY: `n` `i64`s in and out.
-        let got = unsafe { steps_of(src.as_ptr().cast(), n, double, std::ptr::null_mut(), 8, 8, true) };
+        let got = unsafe {
+            steps_of(
+                src.as_ptr().cast(),
+                n,
+                double,
+                std::ptr::null_mut(),
+                8,
+                8,
+                true,
+            )
+        };
         // SAFETY: as above.
         let answers = unsafe { i64s(&got, n) };
         // SAFETY: the only reference.
@@ -4498,25 +4819,48 @@ mod tests {
         let _alone = alone();
         unsafe extern "C" fn inner(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
             // SAFETY: an `i64` in and an `i64` out.
-            unsafe { out.cast::<i64>().write(arg.cast::<i64>().read() + index as i64) }
+            unsafe {
+                out.cast::<i64>()
+                    .write(arg.cast::<i64>().read() + index as i64)
+            }
         }
         unsafe extern "C" fn outer(_: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
             let src: [i64; 3] = [10, 20, 30];
             // SAFETY: three `i64`s in and out, for the length of this call.
             let nested = unsafe {
-                steps_of(src.as_ptr().cast(), 3, inner, std::ptr::null_mut(), 8, 8, true)
+                steps_of(
+                    src.as_ptr().cast(),
+                    3,
+                    inner,
+                    std::ptr::null_mut(),
+                    8,
+                    8,
+                    true,
+                )
             };
             // SAFETY: three `i64`s were just written there.
             let sum: i64 = unsafe { i64s(&nested, 3) }.iter().sum();
             // SAFETY: the only reference.
             unsafe { crate::memory::buri_rt_free(nested.ptr) };
             // SAFETY: an `i64` in and an `i64` out.
-            unsafe { out.cast::<i64>().write(sum + arg.cast::<i64>().read() + index as i64) }
+            unsafe {
+                out.cast::<i64>()
+                    .write(sum + arg.cast::<i64>().read() + index as i64)
+            }
         }
         let src: [i64; 2] = [1000, 2000];
         // SAFETY: two `i64`s in and out.
-        let got =
-            unsafe { steps_of(src.as_ptr().cast(), 2, outer, std::ptr::null_mut(), 8, 8, true) };
+        let got = unsafe {
+            steps_of(
+                src.as_ptr().cast(),
+                2,
+                outer,
+                std::ptr::null_mut(),
+                8,
+                8,
+                true,
+            )
+        };
         // SAFETY: two `i64`s were written there.
         let answers = unsafe { i64s(&got, 2) };
         // SAFETY: the only reference.
@@ -4560,7 +4904,7 @@ mod tests {
     /// stamp the mark: it fails on every run, at both assertions.
     #[test]
     fn two_steps_never_append_to_one_buffer_in_place() {
-        use crate::value::{BuriStr, BURI_RT_STR_ASCII, BURI_RT_STR_LEN_MASK};
+        use crate::value::{BURI_RT_STR_ASCII, BURI_RT_STR_LEN_MASK, BuriStr};
         let _alone = alone();
         let _latch = crate::memory::latch();
         const STEPS: usize = 16;
@@ -4662,8 +5006,14 @@ mod tests {
         distinct.dedup();
         let mut untouched = vec![0u8; crate::memory::BURI_RT_GROWTH_FLOOR as usize];
         untouched[..4].copy_from_slice(b"seed");
-        assert_eq!(aliased, 0, "a step answered a view over the buffer it borrowed");
-        assert_eq!(base_after, untouched, "a step wrote through a borrowed buffer");
+        assert_eq!(
+            aliased, 0,
+            "a step answered a view over the buffer it borrowed"
+        );
+        assert_eq!(
+            base_after, untouched,
+            "a step wrote through a borrowed buffer"
+        );
         assert_eq!(
             distinct.len(),
             STEPS,
@@ -4702,7 +5052,10 @@ mod tests {
         }
         fn ran_on() -> Vec<(ThreadId, bool)> {
             let src: [i64; 4] = [0; 4];
-            let mut got = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            let mut got = BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            };
             // SAFETY: four `i64`s in, four out, and `got` is a live local.
             unsafe {
                 buri_rt_host_tasks_parallel(
@@ -4728,9 +5081,18 @@ mod tests {
         let me = thread::current().id();
         let here = |seen: &[(ThreadId, bool)]| seen.iter().all(|&(id, task)| id == me && !task);
 
-        assert!(!crate::frames_are_per_thread(), "the silent answer is the safe one");
-        assert!(!crate::memory::values_may_cross_tasks(), "the silent answer is the safe one");
-        assert!(here(&ran_on()), "neither statement made, and a step left the calling thread");
+        assert!(
+            !crate::frames_are_per_thread(),
+            "the silent answer is the safe one"
+        );
+        assert!(
+            !crate::memory::values_may_cross_tasks(),
+            "the silent answer is the safe one"
+        );
+        assert!(
+            here(&ran_on()),
+            "neither statement made, and a step left the calling thread"
+        );
         // A block made before any fan-out, as a program's values before its
         // first `Tasks.parallel` are.
         let early = crate::memory::buri_rt_alloc(32);
@@ -4743,7 +5105,10 @@ mod tests {
         // still nowhere for a second thread to put a frame. Sharing never
         // began, so the counts stay plain (buri-lang/buri#243).
         crate::memory::buri_rt_values_may_cross_tasks();
-        assert!(here(&ran_on()), "a shared Buri stack ran a step off the calling thread");
+        assert!(
+            here(&ran_on()),
+            "a shared Buri stack ran a step off the calling thread"
+        );
         assert!(!marked(), "sharing began without a fan-out");
 
         // Frames without marking: **the row a bug lands in.** A backend that
@@ -4771,9 +5136,11 @@ mod tests {
             fanned.len() == 4 && fanned.iter().all(|&(_, task)| task),
             "the steps stayed on the calling thread's stack: {fanned:?}"
         );
-        assert!(early_marked, "a block made before the fan-out was still counted plainly");
+        assert!(
+            early_marked,
+            "a block made before the fan-out was still counted plainly"
+        );
     }
-
 
     // === B9: the switch ===
 
@@ -4801,7 +5168,10 @@ mod tests {
         let _alone = alone();
         let before = threads();
         park_n(N);
-        assert!(threads() - before <= MAX_THREADS, "the pool went past its own ceiling");
+        assert!(
+            threads() - before <= MAX_THREADS,
+            "the pool went past its own ceiling"
+        );
     }
 
     /// **A task resumed on a different thread keeps its frames.**
@@ -4878,8 +5248,10 @@ mod tests {
 
                     let _ = park_on(gate.acquire());
 
-                    let intact =
-                        frame.iter().enumerate().all(|(n, w)| *w == (i as u64) << 32 | n as u64);
+                    let intact = frame
+                        .iter()
+                        .enumerate()
+                        .all(|(n, w)| *w == (i as u64) << 32 | n as u64);
                     let mine = Seen {
                         parked_on,
                         woke_on: thread::current().id(),
@@ -4898,7 +5270,11 @@ mod tests {
         // Every task is parked before any of them is let go.
         let deadline = Instant::now() + Duration::from_secs(30);
         while arrived.load(Ordering::SeqCst) < TASKS {
-            assert!(Instant::now() < deadline, "only {} of {TASKS} tasks parked", arrived.load(Ordering::SeqCst));
+            assert!(
+                Instant::now() < deadline,
+                "only {} of {TASKS} tasks parked",
+                arrived.load(Ordering::SeqCst)
+            );
             thread::sleep(Duration::from_millis(2));
         }
 
@@ -4934,7 +5310,11 @@ mod tests {
             if now.len() == holders {
                 break now;
             }
-            assert!(Instant::now() < deadline, "only {} of {holders} holders started", now.len());
+            assert!(
+                Instant::now() < deadline,
+                "only {} of {holders} holders started",
+                now.len()
+            );
             thread::sleep(Duration::from_millis(2));
         };
 
@@ -4950,7 +5330,10 @@ mod tests {
         if let Some((k, _)) = holding.iter().find(|(_, id)| !parked_threads.contains(id)) {
             releases[*k] = None;
         } else {
-            assert!(threads() < MAX_THREADS, "every thread is held and the pool cannot start another");
+            assert!(
+                threads() < MAX_THREADS,
+                "every thread is held and the pool cannot start another"
+            );
         }
 
         // Bounded: a woken task that never runs is a failure, not a hang.
@@ -4964,7 +5347,10 @@ mod tests {
             if done == TASKS {
                 break;
             }
-            assert!(Instant::now() < woken, "only {done} of {TASKS} woken tasks ran");
+            assert!(
+                Instant::now() < woken,
+                "only {done} of {TASKS} woken tasks ran"
+            );
             thread::sleep(Duration::from_millis(2));
         }
         for h in handles {
@@ -4982,7 +5368,10 @@ mod tests {
         assert_eq!(seen.len(), TASKS);
         for (i, s) in seen.iter().enumerate() {
             assert!(s.intact, "task {i}'s frame was not what it left there");
-            assert_eq!(s.frame, s.frame_again, "task {i}'s frame moved across the park");
+            assert_eq!(
+                s.frame, s.frame_again,
+                "task {i}'s frame moved across the park"
+            );
         }
         assert!(
             seen.iter().any(|s| s.parked_on != s.woke_on),
@@ -5003,7 +5392,7 @@ mod tests {
     /// restated for the thing that owns a stack now.
     #[test]
     fn a_tasks_buri_stack_is_its_own_across_a_park() {
-        use crate::memory::{buri_rt_stack_acquire, buri_rt_stack_release, BURI_RT_STACK_USABLE};
+        use crate::memory::{BURI_RT_STACK_USABLE, buri_rt_stack_acquire, buri_rt_stack_release};
         let _alone = alone();
         const TASKS: usize = 16;
 
@@ -5044,7 +5433,11 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(30);
         while arrived.load(Ordering::SeqCst) < TASKS {
-            assert!(Instant::now() < deadline, "only {} of {TASKS} tasks parked", arrived.load(Ordering::SeqCst));
+            assert!(
+                Instant::now() < deadline,
+                "only {} of {TASKS} tasks parked",
+                arrived.load(Ordering::SeqCst)
+            );
             thread::sleep(Duration::from_millis(2));
         }
         gate.add_permits(TASKS);
@@ -5057,11 +5450,18 @@ mod tests {
             Err(poisoned) => poisoned.into_inner(),
         };
         assert_eq!(blocks.len(), TASKS);
-        assert!(blocks.iter().all(|(_, kept)| *kept), "a task's buri stack was written over");
+        assert!(
+            blocks.iter().all(|(_, kept)| *kept),
+            "a task's buri stack was written over"
+        );
         blocks.sort_unstable();
         let mut addresses: Vec<usize> = blocks.iter().map(|(a, _)| *a).collect();
         addresses.dedup();
-        assert_eq!(addresses.len(), TASKS, "two live tasks were handed the same buri stack");
+        assert_eq!(
+            addresses.len(),
+            TASKS,
+            "two live tasks were handed the same buri stack"
+        );
     }
 
     /// **A task recurses far past what a thread stack could hold**, which is
@@ -5098,7 +5498,9 @@ mod tests {
             down(n - 1) + pad.iter().sum::<u64>()
         }
 
-        let answer = on_thread(|| down(DEPTH)).join().expect("the task did not finish");
+        let answer = on_thread(|| down(DEPTH))
+            .join()
+            .expect("the task did not finish");
         assert_eq!(answer, (0..=DEPTH).sum::<u64>());
     }
 
@@ -5113,13 +5515,16 @@ mod tests {
     #[test]
     fn a_task_machine_stack_is_guarded_at_the_end_it_grows_towards() {
         use crate::memory::{
-            buri_rt_task_stack_acquire, buri_rt_task_stack_release, BURI_RT_STACK_ALIGN,
-            BURI_RT_STACK_BYTES, BURI_RT_STACK_GUARD, BURI_RT_STACK_USABLE,
+            BURI_RT_STACK_ALIGN, BURI_RT_STACK_BYTES, BURI_RT_STACK_GUARD, BURI_RT_STACK_USABLE,
+            buri_rt_task_stack_acquire, buri_rt_task_stack_release,
         };
         let (base, top) = buri_rt_task_stack_acquire();
         assert_eq!(top as usize - base as usize, BURI_RT_STACK_BYTES);
         assert!((base as usize).is_multiple_of(BURI_RT_STACK_ALIGN));
-        assert!((top as usize).is_multiple_of(16), "a stack top must be 16-byte aligned");
+        assert!(
+            (top as usize).is_multiple_of(16),
+            "a stack top must be 16-byte aligned"
+        );
         // SAFETY: the usable range is `[base + GUARD, top)`, which the mapping
         // left readable and writable.
         unsafe {
@@ -5186,7 +5591,12 @@ mod tests {
         // SAFETY: a struct of exactly `count` words, and the task port is this
         // process's own.
         let rc = unsafe {
-            task_info(mach_task_self_, FLAVOR, (&raw mut info).cast::<u32>(), &raw mut count)
+            task_info(
+                mach_task_self_,
+                FLAVOR,
+                (&raw mut info).cast::<u32>(),
+                &raw mut count,
+            )
         };
         (rc == 0).then_some(info.resident_size / 1024)
     }
@@ -5246,14 +5656,22 @@ mod tests {
         }
         let deadline = Instant::now() + Duration::from_secs(120);
         while arrived.load(Ordering::SeqCst) < n {
-            assert!(Instant::now() < deadline, "only {} of {n} tasks ever parked", arrived.load(Ordering::SeqCst));
+            assert!(
+                Instant::now() < deadline,
+                "only {} of {n} tasks ever parked",
+                arrived.load(Ordering::SeqCst)
+            );
             thread::sleep(Duration::from_millis(5));
         }
         // Every task is inside `acquire`, and none will come out until the
         // permits below. Waited for rather than slept on: a task that holds its
         // thread instead of parking never gets here.
         while let Some(h) = handles.iter().find(|h| task_state(**h) != PARKED) {
-            assert!(Instant::now() < deadline, "a task never parked, it is in state {}", task_state(*h));
+            assert!(
+                Instant::now() < deadline,
+                "a task never parked, it is in state {}",
+                task_state(*h)
+            );
             thread::sleep(Duration::from_millis(5));
         }
         let parked = rss_kib().unwrap_or(0);
@@ -5265,7 +5683,6 @@ mod tests {
         }
         (before, parked, threads_now - threads_before)
     }
-
 
     /// **What a switch costs, and what the stack seam costs**, printed rather
     /// than asserted.
@@ -5319,7 +5736,9 @@ mod tests {
             }
         }
 
-        let _one = ONE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = ONE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         const ROUNDS: usize = 200_000;
 
         let block = vec![0u8; 256 * 1024];
@@ -5398,7 +5817,10 @@ mod tests {
         // SAFETY: the two halves of the live cell, written by the switch.
         let (mine, theirs) = unsafe { (home.read_volatile(), away.read_volatile()) };
         for (whose, sp) in [("this thread's", mine), ("the pong's", theirs)] {
-            assert!(!sp.is_null(), "{whose} context was never saved: the ping-pong did not run");
+            assert!(
+                !sp.is_null(),
+                "{whose} context was never saved: the ping-pong did not run"
+            );
             assert!(
                 (sp as usize).is_multiple_of(16),
                 "{whose} saved stack pointer is {sp:?} after {} round trips, which is not \
@@ -5504,7 +5926,10 @@ mod tests {
     }
 
     fn nothing() -> BuriList {
-        BuriList { ptr: std::ptr::null_mut(), len: 0 }
+        BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        }
     }
 
     /// Every block counted atomically until this drops, which is what a
@@ -5589,8 +6014,7 @@ mod tests {
         let first = carried(1);
         let mut depth = 0i64;
         // SAFETY: a live one-element block, and a writable `i64`.
-        let ok =
-            unsafe { buri_rt_actor_mailbox_push(actor, first.ptr, first.len, &raw mut depth) };
+        let ok = unsafe { buri_rt_actor_mailbox_push(actor, first.ptr, first.len, &raw mut depth) };
         assert_eq!(ok, crate::BURI_OK);
         drop_ref(&first);
 
@@ -5615,7 +6039,10 @@ mod tests {
 
         let mut out = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut out) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut out) },
+            crate::BURI_OK
+        );
         // SAFETY: the block the runtime handed back, still counted here.
         assert_eq!(unsafe { mark_of(&out) }, 1);
         drop_ref(&out);
@@ -5631,11 +6058,17 @@ mod tests {
         // when the test ends.
         let mut out = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut out) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut out) },
+            crate::BURI_OK
+        );
         drop_ref(&out);
         let mut out = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) },
+            crate::BURI_OK
+        );
         drop_ref(&out);
     }
 
@@ -5668,8 +6101,7 @@ mod tests {
         let first = carried(1);
         let mut depth = 0i64;
         // SAFETY: a live one-element block, and a writable `i64`.
-        let ok =
-            unsafe { buri_rt_actor_mailbox_push(actor, first.ptr, first.len, &raw mut depth) };
+        let ok = unsafe { buri_rt_actor_mailbox_push(actor, first.ptr, first.len, &raw mut depth) };
         assert_eq!(ok, crate::BURI_OK, "the first post filled the mailbox");
         drop_ref(&first);
 
@@ -5679,11 +6111,20 @@ mod tests {
         let started = Instant::now();
         // SAFETY: a live one-element block, and a writable `i64`.
         let answer = unsafe {
-            push_within(actor, second.ptr, second.len, &raw mut depth, Duration::from_millis(80))
+            push_within(
+                actor,
+                second.ptr,
+                second.len,
+                &raw mut depth,
+                Duration::from_millis(80),
+            )
         };
         let waited = started.elapsed();
         assert_eq!(answer, TIMED_OUT, "a mailbox nobody drains accepted a post");
-        assert!(waited >= Duration::from_millis(60), "{waited:?} is not a wait at all");
+        assert!(
+            waited >= Duration::from_millis(60),
+            "{waited:?} is not a wait at all"
+        );
         assert!(waited < SOON, "the post waited {waited:?}");
         // The block was not taken, so this side still owns it — which is the
         // half of the answer that keeps a deadline from being a leak.
@@ -5691,11 +6132,17 @@ mod tests {
 
         let mut out = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut out) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut out) },
+            crate::BURI_OK
+        );
         drop_ref(&out);
         let mut out = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) },
+            crate::BURI_OK
+        );
         drop_ref(&out);
     }
 
@@ -5719,22 +6166,34 @@ mod tests {
         // A step begins and never puts the state back.
         let mut held = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut held) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_state_take(actor, &raw mut held) },
+            crate::BURI_OK
+        );
 
         let mut out = nothing();
         let started = Instant::now();
         // SAFETY: a writable, aligned destination.
         let answer = unsafe { close_within(actor, &raw mut out, Duration::from_millis(80)) };
         let waited = started.elapsed();
-        assert_eq!(answer, 0, "a close under a live step answered with a state it does not have");
-        assert!(waited >= Duration::from_millis(60), "{waited:?} is not a wait at all");
+        assert_eq!(
+            answer, 0,
+            "a close under a live step answered with a state it does not have"
+        );
+        assert!(
+            waited >= Duration::from_millis(60),
+            "{waited:?} is not a wait at all"
+        );
         assert!(waited < SOON, "the close waited {waited:?}");
 
         // Closed all the same: the half of a `stop` that does not need the step
         // happened, so nothing may step this actor again.
         let mut refused = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut refused) }, STOPPED);
+        assert_eq!(
+            unsafe { buri_rt_actor_state_take(actor, &raw mut refused) },
+            STOPPED
+        );
         drop_ref(&held);
     }
 
@@ -5754,13 +6213,19 @@ mod tests {
 
         let mut held = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut held) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_state_take(actor, &raw mut held) },
+            crate::BURI_OK
+        );
 
         let mut again = nothing();
         let started = Instant::now();
         // SAFETY: a writable, aligned destination.
         let answer = unsafe { take_within(actor, &raw mut again, Duration::from_secs(20)) };
-        assert_eq!(answer, WOULD_DEADLOCK, "the holder's own take was not refused");
+        assert_eq!(
+            answer, WOULD_DEADLOCK,
+            "the holder's own take was not refused"
+        );
         assert!(started.elapsed() < SOON, "the holder's own take waited");
 
         let other = thread::spawn(move || {
@@ -5771,8 +6236,14 @@ mod tests {
             (answer, started.elapsed())
         });
         let (answer, waited) = other.join().unwrap();
-        assert_eq!(answer, TIMED_OUT, "a take behind a step that outlasted it was not a timeout");
-        assert!(waited >= Duration::from_millis(60), "{waited:?} is not a wait at all");
+        assert_eq!(
+            answer, TIMED_OUT,
+            "a take behind a step that outlasted it was not a timeout"
+        );
+        assert!(
+            waited >= Duration::from_millis(60),
+            "{waited:?} is not a wait at all"
+        );
         assert!(waited < SOON, "the take waited {waited:?}");
 
         let mut waiting = 0i64;
@@ -5784,7 +6255,10 @@ mod tests {
         drop_ref(&held);
         let mut out = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) },
+            crate::BURI_OK
+        );
         drop_ref(&out);
     }
 
@@ -5806,7 +6280,10 @@ mod tests {
 
         let mut held = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut held) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_state_take(actor, &raw mut held) },
+            crate::BURI_OK
+        );
         let taking = || {
             thread::spawn(move || {
                 let mut got = nothing();
@@ -5824,7 +6301,10 @@ mod tests {
 
         let first = taking();
         thread::sleep(Duration::from_millis(50));
-        assert!(!first.is_finished(), "a take answered while another thread held the state");
+        assert!(
+            !first.is_finished(),
+            "a take answered while another thread held the state"
+        );
         let mut waiting = 0i64;
         // SAFETY: a live one-element block, and a writable `i64`.
         assert_eq!(
@@ -5832,23 +6312,40 @@ mod tests {
             crate::BURI_OK
         );
         drop_ref(&held);
-        assert_eq!(first.join().unwrap(), Some(3), "the waiting take did not get the state back");
+        assert_eq!(
+            first.join().unwrap(),
+            Some(3),
+            "the waiting take did not get the state back"
+        );
 
         // The first taker never puts the state back, so this one waits behind a
         // step that never ends — until the stop.
         let second = taking();
         thread::sleep(Duration::from_millis(50));
-        assert!(!second.is_finished(), "a take answered while another thread held the state");
+        assert!(
+            !second.is_finished(),
+            "a take answered while another thread held the state"
+        );
         let mut out = nothing();
         // SAFETY: a writable, aligned destination.
         let closed = unsafe { close_within(actor, &raw mut out, Duration::from_millis(80)) };
-        assert_eq!(closed, 0, "a close under a live step answered with a state it does not have");
+        assert_eq!(
+            closed, 0,
+            "a close under a live step answered with a state it does not have"
+        );
         let started = Instant::now();
         while !second.is_finished() {
-            assert!(started.elapsed() < SOON, "the stop left a waiting take waiting");
+            assert!(
+                started.elapsed() < SOON,
+                "the stop left a waiting take waiting"
+            );
             thread::sleep(Duration::from_millis(2));
         }
-        assert_eq!(second.join().unwrap(), None, "a take after the stop got a state");
+        assert_eq!(
+            second.join().unwrap(),
+            None,
+            "a take after the stop got a state"
+        );
     }
 
     /// A `stop` while the mailbox is full does not leave the poster waiting:
@@ -5881,13 +6378,18 @@ mod tests {
 
         let mut out = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) },
+            crate::BURI_OK
+        );
         // SAFETY: the block the runtime handed back is the state.
         assert_eq!(unsafe { mark_of(&out) }, 0);
         drop_ref(&out);
 
         assert_eq!(
-            arrived.recv_timeout(Duration::from_secs(5)).expect("the post never woke"),
+            arrived
+                .recv_timeout(Duration::from_secs(5))
+                .expect("the post never woke"),
             0,
             "a post into a closed mailbox is `.None`"
         );
@@ -5896,7 +6398,10 @@ mod tests {
         // the poster released it: nothing here holds a second reference to it.
         let mut left = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut left) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_mailbox_pop(actor, &raw mut left) },
+            crate::BURI_OK
+        );
         drop_ref(&left);
     }
 
@@ -5911,14 +6416,20 @@ mod tests {
 
         let mut held = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut held) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_state_take(actor, &raw mut held) },
+            crate::BURI_OK
+        );
         // SAFETY: the block the runtime handed back, still counted here.
         assert_eq!(unsafe { mark_of(&held) }, 7);
         // A second take by the holder finds the baton gone, and does not wait
         // for it.
         let mut again = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut again) }, WOULD_DEADLOCK);
+        assert_eq!(
+            unsafe { buri_rt_actor_state_take(actor, &raw mut again) },
+            WOULD_DEADLOCK
+        );
 
         let next = carried(8);
         let mut depth = 0i64;
@@ -5932,16 +6443,26 @@ mod tests {
 
         let mut out = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) },
+            crate::BURI_OK
+        );
         // SAFETY: the block the runtime handed back is what `statePut` stored.
-        assert_eq!(unsafe { mark_of(&out) }, 8, "the close answers the *final* state");
+        assert_eq!(
+            unsafe { mark_of(&out) },
+            8,
+            "the close answers the *final* state"
+        );
         drop_ref(&out);
 
         // Once. A second close is `.None`, which is what makes `onStop` run
         // exactly once without `core/actor` having to remember.
         let mut twice = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_mailbox_close(actor, &raw mut twice) }, 0);
+        assert_eq!(
+            unsafe { buri_rt_actor_mailbox_close(actor, &raw mut twice) },
+            0
+        );
         // A post after it is `.None` too, and does not take the block.
         let late = carried(9);
         // SAFETY: a live one-element block, and a writable `i64`.
@@ -5964,7 +6485,10 @@ mod tests {
         drop_ref(&state);
         let mut held = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_state_take(actor, &raw mut held) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_state_take(actor, &raw mut held) },
+            crate::BURI_OK
+        );
 
         let (closed, arrived) = channel();
         let closer = thread::spawn(move || {
@@ -5996,7 +6520,10 @@ mod tests {
             .recv_timeout(Duration::from_secs(5))
             .expect("the close never woke after the state came back");
         assert_eq!(ok, crate::BURI_OK);
-        assert_eq!(mark, 2, "the close answers what the step left, not what it started with");
+        assert_eq!(
+            mark, 2,
+            "the close answers what the step left, not what it started with"
+        );
         closer.join().expect("the closing thread panicked");
     }
 
@@ -6025,7 +6552,10 @@ mod tests {
         drop_ref(&other);
 
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_reply_take(slot, &raw mut out) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_reply_take(slot, &raw mut out) },
+            crate::BURI_OK
+        );
         // SAFETY: the block the runtime handed back, still counted here.
         assert_eq!(unsafe { mark_of(&out) }, 42);
         drop_ref(&out);
@@ -6050,7 +6580,10 @@ mod tests {
         drop_ref(&late);
         let mut back = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_reply_take(fresh, &raw mut back) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_reply_take(fresh, &raw mut back) },
+            crate::BURI_OK
+        );
         drop_ref(&back);
     }
 
@@ -6102,7 +6635,10 @@ mod tests {
         );
         drop_ref(&value);
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_reply_take(fresh, &raw mut out) }, crate::BURI_OK);
+        assert_eq!(
+            unsafe { buri_rt_actor_reply_take(fresh, &raw mut out) },
+            crate::BURI_OK
+        );
         // SAFETY: the block the runtime handed back, still counted here.
         assert_eq!(unsafe { mark_of(&out) }, 9);
         drop_ref(&out);
@@ -6200,22 +6736,34 @@ mod tests {
             // a second take answering the block would be a task run twice.
             let mut twice = nothing();
             // SAFETY: a writable, aligned destination.
-            assert_eq!(unsafe { buri_rt_tasks_scope_task_at(scope, at, &raw mut twice) }, 0);
+            assert_eq!(
+                unsafe { buri_rt_tasks_scope_task_at(scope, at, &raw mut twice) },
+                0
+            );
         }
 
         // An index past the round is nothing, not a fault.
         let mut past = nothing();
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_tasks_scope_task_at(scope, 3, &raw mut past) }, 0);
+        assert_eq!(
+            unsafe { buri_rt_tasks_scope_task_at(scope, 3, &raw mut past) },
+            0
+        );
         // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_tasks_scope_task_at(scope, -1, &raw mut past) }, 0);
+        assert_eq!(
+            unsafe { buri_rt_tasks_scope_task_at(scope, -1, &raw mut past) },
+            0
+        );
 
         // Everything waiting went into the round, so the next one ends the
         // drain.
         let mut after = nothing();
         // SAFETY: a writable, aligned destination.
         unsafe { buri_rt_tasks_scope_round(scope, &raw mut after) };
-        assert_eq!(after.len, 0, "a scope with nothing in it cut a round anyway");
+        assert_eq!(
+            after.len, 0,
+            "a scope with nothing in it cut a round anyway"
+        );
         drop_ref(&after);
     }
 
@@ -6269,7 +6817,10 @@ mod tests {
         let mut next = nothing();
         // SAFETY: a writable, aligned destination.
         unsafe { buri_rt_tasks_scope_round(scope, &raw mut next) };
-        assert_eq!(next.len, 1, "the task spawned during the round was left behind");
+        assert_eq!(
+            next.len, 1,
+            "the task spawned during the round was left behind"
+        );
         drop_ref(&next);
         let mut late = nothing();
         // SAFETY: a writable, aligned destination.

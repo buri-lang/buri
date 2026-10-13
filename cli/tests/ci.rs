@@ -59,12 +59,16 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 fn workflow() -> String {
     let path = repo_root().join(".github/workflows/ci.yml");
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{} cannot be read: {e}", path.display()))
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{} cannot be read: {e}", path.display()))
 }
 
 /// Every `.rs` file in the repository, minus the build outputs.
@@ -86,7 +90,15 @@ fn rust_sources() -> Vec<PathBuf> {
 
 fn listed_by_git(root: &Path) -> Option<Vec<PathBuf>> {
     let output = std::process::Command::new("git")
-        .args(["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.rs"])
+        .args([
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            "*.rs",
+        ])
         .current_dir(root)
         .output()
         .ok()?;
@@ -96,12 +108,21 @@ fn listed_by_git(root: &Path) -> Option<Vec<PathBuf>> {
     let listed = String::from_utf8(output.stdout).ok()?;
     // `--cached` still lists a file deleted from disk but not yet from the
     // index; what is read below has to exist.
-    Some(listed.split('\0').filter(|p| !p.is_empty()).map(|p| root.join(p)).filter(|p| p.is_file()).collect())
+    Some(
+        listed
+            .split('\0')
+            .filter(|p| !p.is_empty())
+            .map(|p| root.join(p))
+            .filter(|p| p.is_file())
+            .collect(),
+    )
 }
 
 fn walked(root: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             let name = entry.file_name();
@@ -285,8 +306,11 @@ fn ignored_in_tree() -> BTreeMap<String, PathBuf> {
                         start + 1
                     )
                 });
-            let rel =
-                path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+            let rel = path
+                .strip_prefix(&root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
             out.insert(format!("{rel}::{name}"), path.clone());
         }
     }
@@ -320,7 +344,11 @@ fn the_only_ignored_tests_are_the_ones_named_here() {
         stale.is_empty(),
         "these rows of .github/known-skips.txt name a test that is no longer ignored (or no \
          longer there):\n  {}\n\nDelete the row — the defect it names is fixed.",
-        stale.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n  ")
+        stale
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("\n  ")
     );
 
     for (name, why) in &signed {
@@ -368,7 +396,9 @@ fn the_workflow_sets_buri_ci_for_every_job() {
 /// `jobs:`, and nothing else in this file is. A YAML parser would be a
 /// dependency, and the bar in `Cargo.toml` is what it is.
 fn jobs(text: &str) -> BTreeMap<String, String> {
-    let Some(at) = text.find("\njobs:\n") else { panic!("ci.yml has no `jobs:`") };
+    let Some(at) = text.find("\njobs:\n") else {
+        panic!("ci.yml has no `jobs:`")
+    };
     let body = &text[at + "\njobs:\n".len()..];
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     let mut current: Option<String> = None;
@@ -457,8 +487,11 @@ fn no_step_runs_a_script_from_the_repository() {
 #[test]
 fn nothing_in_the_workflow_asks_for_part_of_the_suite() {
     let text = workflow();
-    let skipping: Vec<&str> =
-        text.lines().map(str::trim).filter(|line| line.contains("--skip ")).collect();
+    let skipping: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.contains("--skip "))
+        .collect();
     assert!(
         skipping.is_empty(),
         "these lines in ci.yml pass `--skip`:\n  {}\nA `--skip` removes tests from a run that \
@@ -597,8 +630,10 @@ fn the_suite_is_asked_for_as_a_whole() {
     // The scheduling hint, as the step writes it: the executable's name up to
     // cargo's hash. At most one, and the one that is named is still run and
     // waited for.
-    let scheduled: Vec<&String> =
-        domains.iter().filter(|d| step.contains(&format!("/{d}-[0-9a-f]"))).collect();
+    let scheduled: Vec<&String> = domains
+        .iter()
+        .filter(|d| step.contains(&format!("/{d}-[0-9a-f]")))
+        .collect();
     assert!(
         scheduled.len() <= 1,
         "the overlapped step picks out {scheduled:?} by name. One unit may be named, to start \
@@ -623,9 +658,11 @@ fn the_suite_is_asked_for_as_a_whole() {
              have.\n--- the step ---\n{step}"
         );
     }
-    println!("{} domain(s), none of them named by the overlapped step", domains.len());
+    println!(
+        "{} domain(s), none of them named by the overlapped step",
+        domains.len()
+    );
 }
-
 
 /// Every job declares `timeout-minutes`.
 ///
@@ -644,9 +681,9 @@ fn every_job_declares_a_timeout() {
     let mut missing: Vec<String> = Vec::new();
     let mut found = 0;
     for (name, body) in jobs(&text) {
-        let declared = body.lines().find(|line| {
-            line.starts_with("    timeout-minutes:") && !line.starts_with("     ")
-        });
+        let declared = body
+            .lines()
+            .find(|line| line.starts_with("    timeout-minutes:") && !line.starts_with("     "));
         let Some(line) = declared else {
             missing.push(format!("{name}: no `timeout-minutes:`"));
             continue;
@@ -654,8 +691,9 @@ fn every_job_declares_a_timeout() {
         let value = line.split(':').nth(1).unwrap_or("").trim();
         match value.parse::<u32>() {
             Ok(minutes) if minutes > 0 => found += 1,
-            _ => missing
-                .push(format!("{name}: `timeout-minutes: {value}` is not a number of minutes")),
+            _ => missing.push(format!(
+                "{name}: `timeout-minutes: {value}` is not a number of minutes"
+            )),
         }
     }
     assert!(
@@ -689,8 +727,11 @@ fn the_runner_config_never_kills_retries_or_filters_a_test() {
     let runner = format!("next{}", "est");
     let config = repo_root().join(".config").join(format!("{runner}.toml"));
     let text = std::fs::read_to_string(&config).unwrap_or_default();
-    let settings: Vec<&str> =
-        text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).collect();
+    let settings: Vec<&str> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect();
     for forbidden in ["terminate-after", "default-filter"] {
         assert!(
             !settings.iter().any(|l| l.contains(forbidden)),
@@ -789,7 +830,10 @@ fn the_hang_cap_leaves_a_busy_child_alone() {
     let mut child = silently("while :; do :; done & busy=$!; sleep 2; kill $busy; wait");
     let status = hang::wait_capped(&mut child, "a busy grandchild", cap);
 
-    assert!(status.success(), "the shell holding the busy grandchild failed on its own: {status}");
+    assert!(
+        status.success(),
+        "the shell holding the busy grandchild failed on its own: {status}"
+    );
     let ran = started.elapsed();
     assert!(
         ran > cap,
@@ -840,7 +884,10 @@ fn the_hang_cap_kills_a_tree_that_is_only_sleeping() {
         .stderr(std::process::Stdio::null())
         .status()
         .expect("`kill` is on PATH");
-    assert!(!alive.success(), "the cap fired and left process {id} running");
+    assert!(
+        !alive.success(),
+        "the cap fired and left process {id} running"
+    );
 }
 
 /// **And a tree that never stops working is killed by the ceiling.**
@@ -897,7 +944,10 @@ fn the_hang_cap_kills_a_runaway_that_spins() {
         .stderr(std::process::Stdio::null())
         .status()
         .expect("`kill` is on PATH");
-    assert!(!alive.success(), "the ceiling fired and left process {id} running");
+    assert!(
+        !alive.success(),
+        "the ceiling fired and left process {id} running"
+    );
     println!("a runaway was killed after {:?}: {said}", started.elapsed());
 }
 
@@ -999,9 +1049,15 @@ fn every_workspace_member_is_tested_by_a_job() {
         //
         // Any `-p` of a `cargo test` command counts, because one command asks
         // for every crate of the toolchain at once.
-        let covered = text.lines().filter(|line| line.contains("cargo test ")).any(|line| {
-            line.split_whitespace().collect::<Vec<_>>().windows(2).any(|w| w == ["-p", package.as_str()])
-        });
+        let covered = text
+            .lines()
+            .filter(|line| line.contains("cargo test "))
+            .any(|line| {
+                line.split_whitespace()
+                    .collect::<Vec<_>>()
+                    .windows(2)
+                    .any(|w| w == ["-p", package.as_str()])
+            });
         if !covered {
             untested.push(format!("{dir}/ (package `{package}`)"));
         }
@@ -1014,7 +1070,10 @@ fn every_workspace_member_is_tested_by_a_job() {
         untested.len(),
         untested.join("\n  ")
     );
-    println!("{} workspace member(s), each asked for by a job", members.len());
+    println!(
+        "{} workspace member(s), each asked for by a job",
+        members.len()
+    );
 }
 
 /// Every `ci::deferred_to` names a job that is in the workflow and still asks
@@ -1073,7 +1132,10 @@ fn every_deferral_names_a_job_that_still_asks_for_it() {
             found += 1;
         }
     }
-    assert!(found > 0, "no `ci::deferred_to` was found; this test would have asserted nothing");
+    assert!(
+        found > 0,
+        "no `ci::deferred_to` was found; this test would have asserted nothing"
+    );
     println!("{found} deferral(s), each naming a job that is in the workflow");
 }
 
@@ -1127,7 +1189,14 @@ fn every_tool_the_workflow_assumes_is_on_path() {
     }
     let mut needed = vec!["cc", "clang", "node", "bun"];
     if cfg!(target_os = "linux") {
-        needed.extend(["ld.lld", "mold", "llvm-nm", "llvm-objdump", "llvm-readelf", "readelf"]);
+        needed.extend([
+            "ld.lld",
+            "mold",
+            "llvm-nm",
+            "llvm-objdump",
+            "llvm-readelf",
+            "readelf",
+        ]);
     }
     let missing: Vec<&str> = needed
         .into_iter()
@@ -1230,7 +1299,9 @@ fn archive_symbols() -> String {
     let path = dir.join(buri::compiler::backend::runtime_native::ARCHIVE_NAME);
     std::fs::write(&path, buri::compiler::backend::runtime_native::ARCHIVE).unwrap();
     for tool in ["nm", "llvm-nm"] {
-        let Ok(out) = std::process::Command::new(tool).arg(&path).output() else { continue };
+        let Ok(out) = std::process::Command::new(tool).arg(&path).output() else {
+            continue;
+        };
         let text = String::from_utf8_lossy(&out.stdout);
         let symbols = text
             .lines()
@@ -1418,7 +1489,11 @@ fn the_runtime_archive_is_real() {
     // on x86_64 musl (27 508 858) and +415 268 on aarch64 musl (27 281 056).
     // Linux stays under 29 MiB, which therefore does not move. A hello world
     // does not grow: it reaches neither provider.
-    let budget = if cfg!(target_os = "macos") { 20_447_232 } else { 30_408_704 };
+    let budget = if cfg!(target_os = "macos") {
+        20_447_232
+    } else {
+        30_408_704
+    };
     assert!(
         rt::ARCHIVE.len() <= budget,
         "libburi_rt.a is {} bytes, over the {budget}-byte budget for this platform. Every buri \
@@ -1457,7 +1532,14 @@ fn the_runtime_archive_is_real() {
     let symbols = archive_symbols().to_lowercase();
     let carries = |crate_name: &str| symbols.contains(crate_name);
     if rt::net() {
-        for wanted in ["tokio", "rustls", "graviola", "ring_core", "hyper", "tungstenite"] {
+        for wanted in [
+            "tokio",
+            "rustls",
+            "graviola",
+            "ring_core",
+            "hyper",
+            "tungstenite",
+        ] {
             assert!(
                 carries(wanted),
                 "libburi_rt.a carries no symbol from `{wanted}`, and it was built with the \
@@ -1495,10 +1577,18 @@ fn the_runtime_archive_is_real() {
          means something first CALLED into quinn, which is the slice that also re-measures the \
          size budget above. An unexpected ABSENT on Linux means LTO started dropping it \
          there too, which is good news and a stale assertion: re-measure and move this line.",
-        if carries("quinn") { "carries" } else { "carries no" },
+        if carries("quinn") {
+            "carries"
+        } else {
+            "carries no"
+        },
         std::env::consts::OS,
         if rt::h3() { "on" } else { "off" },
-        if quinn_expected { "carry them" } else { "carry none" },
+        if quinn_expected {
+            "carry them"
+        } else {
+            "carry none"
+        },
     );
 
     // `aws_lc` is on the absent list on EVERY leg and every feature set, and it
@@ -1595,7 +1685,10 @@ fn the_published_crate_ships_the_runtime() {
     // A floor rather than an equality, so that adding a runtime source is not a
     // CI failure, and not merely `> 0`, so that shipping one file out of
     // nineteen is not a pass. Raising it with each new source keeps it tight.
-    let sources = files.iter().filter(|f| f.starts_with("runtime/") && f.ends_with(".rs")).count();
+    let sources = files
+        .iter()
+        .filter(|f| f.starts_with("runtime/") && f.ends_with(".rs"))
+        .count();
     assert!(
         sources >= 19,
         "the published buri crate carries {sources} runtime sources; cli/runtime holds more than \
@@ -1637,7 +1730,9 @@ impl Image {
     }
 
     fn u32(&self, at: usize) -> u64 {
-        u64::from(u32::from_le_bytes(self.bytes[at..at + 4].try_into().unwrap()))
+        u64::from(u32::from_le_bytes(
+            self.bytes[at..at + 4].try_into().unwrap(),
+        ))
     }
 
     fn u64(&self, at: usize) -> u64 {
@@ -1762,8 +1857,16 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
         return;
     }
 
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
-    let selector = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
+    let selector = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("ci-static-pie-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -1801,7 +1904,11 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
     let mut linked = 0;
     for linker in ["mold", "lld"] {
         let driver = if linker == "lld" { "ld.lld" } else { linker };
-        if !Command::new(driver).arg("--version").output().is_ok_and(|o| o.status.success()) {
+        if !Command::new(driver)
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
+        {
             assert!(!ci::on(), "BURI_CI=1 and `{driver}` is not on PATH");
             eprintln!("ci: {linker} is not installed, so its image is not read");
             continue;
@@ -1822,7 +1929,10 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
         );
 
         let artifact = executable_under(&dir).unwrap_or_else(|| {
-            panic!("BURI_LINKER={linker} left no linked artifact under {}", dir.display())
+            panic!(
+                "BURI_LINKER={linker} left no linked artifact under {}",
+                dir.display()
+            )
         });
         let image = Image::read(&artifact);
 
@@ -1882,7 +1992,10 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
             .into_iter()
             .find(|(name, ..)| name == ".bss")
             .unwrap_or_else(|| panic!("{linker}: the image has no .bss at all"));
-        assert_eq!(bss.1, 8, "{linker}: .bss is not NOBITS, so the reservation is bytes on disk");
+        assert_eq!(
+            bss.1, 8,
+            "{linker}: .bss is not NOBITS, so the reservation is bytes on disk"
+        );
         assert!(
             bss.3 >= 64 * 1024 * 1024,
             "{linker}: .bss is {} bytes, under the 64 MiB the Buri stack reserves — \
@@ -1898,7 +2011,10 @@ fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
             "{linker}: the artifact printed the wrong answer"
         );
     }
-    assert!(linked > 0, "neither mold nor ld.lld is installed, so no image was read");
+    assert!(
+        linked > 0,
+        "neither mold nor ld.lld is installed, so no image was read"
+    );
 
     let dir = repo("reproducible");
     let out = Command::new(buri)
@@ -1930,7 +2046,9 @@ fn executable_under(dir: &Path) -> Option<PathBuf> {
                 stack.push(path);
                 continue;
             }
-            let Ok(bytes) = std::fs::read(&path) else { continue };
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
             if bytes.len() < 20 || bytes[..4] != *b"\x7fELF" {
                 continue;
             }

@@ -441,7 +441,13 @@ impl Entry {
 }
 
 const fn e(key: &'static str, args: &'static [Arg], ret: Ret) -> Entry {
-    Entry { key, args, ret, whole_value: false, runs: key }
+    Entry {
+        key,
+        args,
+        ret,
+        whole_value: false,
+        runs: key,
+    }
 }
 
 /// The same row, calling `runs`'s body: one the archive already has under
@@ -453,7 +459,10 @@ const fn via(runs: &'static str, entry: Entry) -> Entry {
 /// The same row, carrying **one whole value** rather than a `[T]`'s element
 /// ([`Entry::whole_value`]).
 const fn v(entry: Entry) -> Entry {
-    Entry { whole_value: true, ..entry }
+    Entry {
+        whole_value: true,
+        ..entry
+    }
 }
 
 /// Every key the archive has a body for, which both backends call.
@@ -520,21 +529,70 @@ pub const ENTRIES: &[Entry] = &[
     // `len` is open-coded (it is a load) and every entry taking a closure is
     // absent; `cli/runtime/list.rs`'s header says which and why.
     e("list.get", &[Elems, Scalar, Stride, Retain], Ret::Sum),
-    e("list.concat", &[Elems, Dropped, Elems, Stride, Retain], Ret::Out),
+    e(
+        "list.concat",
+        &[Elems, Dropped, Elems, Stride, Retain],
+        Ret::Out,
+    ),
     // `push(self, ctx, item)` — the item is a `T`, so it goes by address.
-    e("list.push", &[Elems, Dropped, Spilled, Stride, Retain], Ret::Out),
+    e(
+        "list.push",
+        &[Elems, Dropped, Spilled, Stride, Retain],
+        Ret::Out,
+    ),
     e("list.reverse", &[Elems, Dropped, Stride, Retain], Ret::Out),
-    e("list.slice", &[Elems, Dropped, Scalar, Scalar, Stride, Retain], Ret::Out),
-    e("list.take", &[Elems, Dropped, Scalar, Stride, Retain], Ret::Out),
-    e("list.drop", &[Elems, Dropped, Scalar, Stride, Retain], Ret::Out),
+    e(
+        "list.slice",
+        &[Elems, Dropped, Scalar, Scalar, Stride, Retain],
+        Ret::Out,
+    ),
+    e(
+        "list.take",
+        &[Elems, Dropped, Scalar, Stride, Retain],
+        Ret::Out,
+    ),
+    e(
+        "list.drop",
+        &[Elems, Dropped, Scalar, Stride, Retain],
+        Ret::Out,
+    ),
     // `insertAt(self, ctx, index, item)` and its two siblings: `core/map`'s
     // splices with the list first, which flatten to the same C row. They own
     // the list, as `core/map`'s do.
-    via("map.insertAt", e("list.insertAt", &[Elems, Dropped, Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Out)),
-    via("map.replaceAt", e("list.replaceAt", &[Elems, Dropped, Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Out)),
-    via("map.removeAt", e("list.removeAt", &[Elems, Dropped, Scalar, Stride, Retain, Release, Equal], Ret::Out)),
+    via(
+        "map.insertAt",
+        e(
+            "list.insertAt",
+            &[
+                Elems, Dropped, Scalar, Spilled, Stride, Retain, Release, Equal,
+            ],
+            Ret::Out,
+        ),
+    ),
+    via(
+        "map.replaceAt",
+        e(
+            "list.replaceAt",
+            &[
+                Elems, Dropped, Scalar, Spilled, Stride, Retain, Release, Equal,
+            ],
+            Ret::Out,
+        ),
+    ),
+    via(
+        "map.removeAt",
+        e(
+            "list.removeAt",
+            &[Elems, Dropped, Scalar, Stride, Retain, Release, Equal],
+            Ret::Out,
+        ),
+    ),
     // `repeat(ctx, item, times)` — likewise, one place earlier.
-    e("list.repeat", &[Dropped, Spilled, Scalar, Stride, Retain], Ret::Out),
+    e(
+        "list.repeat",
+        &[Dropped, Spilled, Scalar, Stride, Retain],
+        Ret::Out,
+    ),
     e("list.range", &[Dropped, Scalar, Scalar], Ret::Out),
     e("list.join", &[List, Dropped, Str], Ret::Out),
     // `[` + already-rendered elements joined by `, ` + `]`, for
@@ -546,9 +604,25 @@ pub const ENTRIES: &[Entry] = &[
     //
     // A node's children, spliced. These own the list (`cli/runtime/splice.rs`),
     // so they carry the element's release for what a splice writes over.
-    e("map.insertAt", &[Dropped, Elems, Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Out),
-    e("map.replaceAt", &[Dropped, Elems, Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Out),
-    e("map.removeAt", &[Dropped, Elems, Scalar, Stride, Retain, Release, Equal], Ret::Out),
+    e(
+        "map.insertAt",
+        &[
+            Dropped, Elems, Scalar, Spilled, Stride, Retain, Release, Equal,
+        ],
+        Ret::Out,
+    ),
+    e(
+        "map.replaceAt",
+        &[
+            Dropped, Elems, Scalar, Spilled, Stride, Retain, Release, Equal,
+        ],
+        Ret::Out,
+    ),
+    e(
+        "map.removeAt",
+        &[Dropped, Elems, Scalar, Stride, Retain, Release, Equal],
+        Ret::Out,
+    ),
     // -- core/bytes ---------------------------------------------------------
     //
     // Six of `bytes.buri`'s surface, and the rest of that module is Buri:
@@ -597,11 +671,27 @@ pub const ENTRIES: &[Entry] = &[
     // Sealing and the three signature checks, in `cli/runtime/crypto.rs` behind
     // the `crypto` feature (`runtime_native::crypto_intrinsic`). Every argument
     // is a `[U8]`, so `core/bytes`'s `Extra::None` reasoning holds.
-    e("crypto.chacha20Poly1305Seal", &[Dropped, List, List, List, List], Ret::Out),
-    e("crypto.chacha20Poly1305Open", &[Dropped, List, List, List, List], Ret::Sum),
-    e("crypto.ecdsaP256Sha256Verify", &[List, List, List], Ret::Int(8)),
+    e(
+        "crypto.chacha20Poly1305Seal",
+        &[Dropped, List, List, List, List],
+        Ret::Out,
+    ),
+    e(
+        "crypto.chacha20Poly1305Open",
+        &[Dropped, List, List, List, List],
+        Ret::Sum,
+    ),
+    e(
+        "crypto.ecdsaP256Sha256Verify",
+        &[List, List, List],
+        Ret::Int(8),
+    ),
     e("crypto.ed25519Verify", &[List, List, List], Ret::Int(8)),
-    e("crypto.rsaPkcs1Sha256Verify", &[List, List, List, List], Ret::Int(8)),
+    e(
+        "crypto.rsaPkcs1Sha256Verify",
+        &[List, List, List, List],
+        Ret::Int(8),
+    ),
     // -- core/math, the exactly-specified half --------------------------------
     //
     // Nine of twenty-two. `cli/runtime/math.rs` says why the other thirteen are
@@ -672,13 +762,41 @@ pub const ENTRIES: &[Entry] = &[
     // cannot fail — which is why it sits with the scalars below and not here.
     e("host.HostFileSystem.readFile", &[Dropped, Str], Ret::ResMsg),
     e("host.HostFileSystem.readDir", &[Dropped, Str], Ret::ResMsg),
-    e("host.HostFileSystem.readFileBytes", &[Dropped, Str], Ret::ResMsg),
-    e("host.HostFileSystem.writeFile", &[Dropped, Str, Str], Ret::ResMsg),
-    e("host.HostFileSystem.writeFileBytes", &[Dropped, Str, List], Ret::ResMsg),
-    e("host.HostFileSystem.appendFile", &[Dropped, Str, List], Ret::ResMsg),
-    e("host.HostFileSystem.renameFile", &[Dropped, Str, Str], Ret::ResMsg),
-    e("host.HostFileSystem.removeFile", &[Dropped, Str], Ret::ResMsg),
-    e("host.HostFileSystem.removeDir", &[Dropped, Str], Ret::ResMsg),
+    e(
+        "host.HostFileSystem.readFileBytes",
+        &[Dropped, Str],
+        Ret::ResMsg,
+    ),
+    e(
+        "host.HostFileSystem.writeFile",
+        &[Dropped, Str, Str],
+        Ret::ResMsg,
+    ),
+    e(
+        "host.HostFileSystem.writeFileBytes",
+        &[Dropped, Str, List],
+        Ret::ResMsg,
+    ),
+    e(
+        "host.HostFileSystem.appendFile",
+        &[Dropped, Str, List],
+        Ret::ResMsg,
+    ),
+    e(
+        "host.HostFileSystem.renameFile",
+        &[Dropped, Str, Str],
+        Ret::ResMsg,
+    ),
+    e(
+        "host.HostFileSystem.removeFile",
+        &[Dropped, Str],
+        Ret::ResMsg,
+    ),
+    e(
+        "host.HostFileSystem.removeDir",
+        &[Dropped, Str],
+        Ret::ResMsg,
+    ),
     e("host.HostFileSystem.makeDir", &[Dropped, Str], Ret::ResMsg),
     e("host.HostFileSystem.syncFile", &[Dropped, Str], Ret::ResMsg),
     // `metadata`'s `.Ok` is a **struct** rather than a `Str` or a list, which
@@ -687,9 +805,17 @@ pub const ENTRIES: &[Entry] = &[
     // `cli/runtime/host.rs`'s `BuriMetadata` is the layout transcribed —
     // `net.rs`'s `BuriRequest` one level down.
     e("host.HostFileSystem.metadata", &[Dropped, Str], Ret::ResMsg),
-    e("host.HostFileSystem.readRange", &[Dropped, Str, Scalar, Scalar], Ret::ResMsg),
+    e(
+        "host.HostFileSystem.readRange",
+        &[Dropped, Str, Scalar, Scalar],
+        Ret::ResMsg,
+    ),
     e("host.HostFileSystem.realPath", &[Dropped, Str], Ret::ResMsg),
-    e("host.HostFileSystem.copyFile", &[Dropped, Str, Str], Ret::ResMsg),
+    e(
+        "host.HostFileSystem.copyFile",
+        &[Dropped, Str, Str],
+        Ret::ResMsg,
+    ),
     // -- Env, and Stdin beside it -------------------------------------------
     //
     // Four rows and no new shape between them, which is what made them the
@@ -706,24 +832,52 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostEnvironment.arguments", &[Dropped], Ret::Out),
     // Three more of the same two shapes: two `Str`s and a `[(Str, Str)]`,
     // which is `[Header]`'s layout and so is `list_of_headers`' block.
-    e("host.HostEnvironment.currentDirectory", &[Dropped], Ret::Out),
+    e(
+        "host.HostEnvironment.currentDirectory",
+        &[Dropped],
+        Ret::Out,
+    ),
     e("host.HostEnvironment.allVariables", &[Dropped], Ret::Out),
-    e("host.HostEnvironment.operatingSystemName", &[Dropped], Ret::Out),
+    e(
+        "host.HostEnvironment.operatingSystemName",
+        &[Dropped],
+        Ret::Out,
+    ),
     // Starting a program. `self` is `HostSpawn`, an empty struct, so the C call
     // is a `Command` encoded into four flat arguments — two `[Str]`s, a `Bool`
     // and a `[U8]`, which is nine leaves with the two out-pointers and so
     // inside `backend/stencil/abi.rs`'s register budget. `Output`'s three
     // fields leave through the one out-pointer `Ret::ResMsg` gives, as
     // `Metadata` does.
-    e("host.HostSpawn.spawnProcess", &[Dropped, List, List, Scalar, List], Ret::ResMsg),
+    e(
+        "host.HostSpawn.spawnProcess",
+        &[Dropped, List, List, Scalar, List],
+        Ret::ResMsg,
+    ),
     // Starting one without waiting: `spawnProcess`'s arguments, and a handle
     // back. The other four take the handle, and a signal or a status crosses
     // as one integer in `core/process`'s numbering.
-    e("host.HostSpawn.startProcess", &[Dropped, List, List, Scalar, List], Ret::ResMsg),
+    e(
+        "host.HostSpawn.startProcess",
+        &[Dropped, List, List, Scalar, List],
+        Ret::ResMsg,
+    ),
     e("host.HostSpawn.processId", &[Dropped, Scalar], Ret::Scalar),
-    e("host.HostSpawn.signalProcess", &[Dropped, Scalar, Scalar], Ret::ResMsg),
-    e("host.HostSpawn.pollProcess", &[Dropped, Scalar], Ret::Int(8)),
-    e("host.HostSpawn.waitProcess", &[Dropped, Scalar], Ret::ResMsg),
+    e(
+        "host.HostSpawn.signalProcess",
+        &[Dropped, Scalar, Scalar],
+        Ret::ResMsg,
+    ),
+    e(
+        "host.HostSpawn.pollProcess",
+        &[Dropped, Scalar],
+        Ret::Int(8),
+    ),
+    e(
+        "host.HostSpawn.waitProcess",
+        &[Dropped, Scalar],
+        Ret::ResMsg,
+    ),
     e("host.HostStdin.readLine", &[Dropped], Ret::Sum),
     e("host.HostStdin.readBytes", &[Dropped, Scalar], Ret::Sum),
     // -- the scalar capabilities --------------------------------------------
@@ -733,22 +887,50 @@ pub const ENTRIES: &[Entry] = &[
     // reason: a socket meets failures `IoError` has no variant for, and the
     // sentence is the only actionable half of one. `tcpWrite`'s `.Ok` is `()`
     // and so has no payload out-pointer, and `tcpClose` answers nothing at all.
-    e("host.HostTcp.tcpConnect", &[Dropped, Str, Scalar], Ret::ResMsg),
-    e("host.HostTcp.tcpRead", &[Dropped, Scalar, Scalar], Ret::ResMsg),
-    e("host.HostTcp.tcpWrite", &[Dropped, Scalar, List], Ret::ResMsg),
+    e(
+        "host.HostTcp.tcpConnect",
+        &[Dropped, Str, Scalar],
+        Ret::ResMsg,
+    ),
+    e(
+        "host.HostTcp.tcpRead",
+        &[Dropped, Scalar, Scalar],
+        Ret::ResMsg,
+    ),
+    e(
+        "host.HostTcp.tcpWrite",
+        &[Dropped, Scalar, List],
+        Ret::ResMsg,
+    ),
     e("host.HostTcp.tcpClose", &[Dropped, Scalar], Ret::Void),
     // `Request` goes by address: its nine words plus two out-pointers would not
     // fit the stencil backend's ten argument registers. `NetError`'s `BadUrl`
     // and `Transport` carry the sentence `Ret::ResMsg` gives a place to.
     e("host.HostNetwork.fetch", &[Dropped, Spilled], Ret::ResMsg),
-    e("host.HostFileSystem.fileExists", &[Dropped, Str], Ret::Int(8)),
+    e(
+        "host.HostFileSystem.fileExists",
+        &[Dropped, Str],
+        Ret::Int(8),
+    ),
     e("host.HostClock.nowMilliseconds", &[Dropped], Ret::Scalar),
-    e("host.HostClock.sleepMilliseconds", &[Dropped, Scalar], Ret::Void),
+    e(
+        "host.HostClock.sleepMilliseconds",
+        &[Dropped, Scalar],
+        Ret::Void,
+    ),
     // A reading off a clock that only goes forward, in nanoseconds. `Ret::Scalar`
     // like `nowMilliseconds` and for the same reason: one `i64` out, nothing in but the
     // dropped `self`.
-    e("host.HostClock.monotonicNanoseconds", &[Dropped], Ret::Scalar),
-    e("host.HostRandom.nextInt", &[Dropped, Scalar, Scalar], Ret::Scalar),
+    e(
+        "host.HostClock.monotonicNanoseconds",
+        &[Dropped],
+        Ret::Scalar,
+    ),
+    e(
+        "host.HostRandom.nextInt",
+        &[Dropped, Scalar, Scalar],
+        Ret::Scalar,
+    ),
     e("host.HostRandom.nextFloat", &[Dropped], Ret::Scalar),
     // The one row here whose symbol may not be in the archive: it is behind the
     // runtime's `crypto` feature, and `runtime_native::crypto_intrinsic` is
@@ -758,7 +940,11 @@ pub const ENTRIES: &[Entry] = &[
     // toolchain's copy carries it is the feature file's question and is asked
     // separately, exactly as `host.HostListen.*` is.
     e("host.HostEntropy.bytes", &[Dropped, Scalar], Ret::Out),
-    e("host.HostProcess.exitWith", &[Dropped, Scalar], Ret::NoReturn),
+    e(
+        "host.HostProcess.exitWith",
+        &[Dropped, Scalar],
+        Ret::NoReturn,
+    ),
     // `allocate(self, bytes) -> Region`. `self` is `HostAllocator`, an empty
     // struct, so it flattens to nothing and the C call is the one `i64`; the
     // result is `struct Region(I64)`, whose single leaf is what makes
@@ -773,7 +959,11 @@ pub const ENTRIES: &[Entry] = &[
     // archive already has the body and the LLVM backend already calls it — two
     // backends reaching one definition of a *defined* cost model, which is what
     // §7.1 means by "the same number on both backends".
-    e("host.HostAllocator.allocate", &[Dropped, Scalar], Ret::Scalar),
+    e(
+        "host.HostAllocator.allocate",
+        &[Dropped, Scalar],
+        Ret::Scalar,
+    ),
     // -- Tasks --------------------------------------------------------------
     //
     // `parallel(self, ctx, items, f)`. `self` is `HostTasks`, an empty struct,
@@ -794,7 +984,11 @@ pub const ENTRIES: &[Entry] = &[
     // `runtime_native::net_intrinsic` names the `host.HostTasks.*` family: a
     // toolchain built without the reactor refuses this key with a sentence
     // before code generation rather than with a missing symbol from `cc`.
-    e("host.HostTasks.parallel", &[Dropped, Dropped, Elems, Step], Ret::Out),
+    e(
+        "host.HostTasks.parallel",
+        &[Dropped, Dropped, Elems, Step],
+        Ret::Out,
+    ),
     // -- Listen, and Sockets beside it --------------------------------------
     //
     // Seven operations and no closure among them: the accept loop is
@@ -829,10 +1023,22 @@ pub const ENTRIES: &[Entry] = &[
     // `runtime_native::net_intrinsic` names the `host.HostListen.*` family: a
     // toolchain built without the network refuses these keys with a sentence
     // before code generation rather than with a missing symbol from `cc`.
-    e("host.HostListen.listenBind", &[Dropped, Str, Scalar, List, Scalar, Scalar], Ret::Res),
+    e(
+        "host.HostListen.listenBind",
+        &[Dropped, Str, Scalar, List, Scalar, Scalar],
+        Ret::Res,
+    ),
     e("host.HostListen.listenAccept", &[Dropped, Scalar], Ret::Res),
-    e("host.HostListen.listenRequest", &[Dropped, Scalar], Ret::Res),
-    e("host.HostListen.listenRespond", &[Dropped, Scalar, Scalar, List, List], Ret::Res),
+    e(
+        "host.HostListen.listenRequest",
+        &[Dropped, Scalar],
+        Ret::Res,
+    ),
+    e(
+        "host.HostListen.listenRespond",
+        &[Dropped, Scalar, Scalar, List, List],
+        Ret::Res,
+    ),
     e("host.HostListen.listenClose", &[Dropped, Scalar], Ret::Void),
     // The two that turn a connection into a socket and then read it.
     // `listenUpgrade` answers a bare `Int` — the socket — so its `.Ok` is a
@@ -840,17 +1046,37 @@ pub const ENTRIES: &[Entry] = &[
     // `Received`, which is a struct and comes back whole, exactly as `Request`
     // does one row up. Neither is a closure either: the socket's loop is
     // `core/net/server`'s in Buri, and a socket's state never crosses.
-    e("host.HostListen.listenUpgrade", &[Dropped, Scalar], Ret::Res),
-    e("host.HostListen.listenReceive", &[Dropped, Scalar], Ret::Res),
+    e(
+        "host.HostListen.listenUpgrade",
+        &[Dropped, Scalar],
+        Ret::Res,
+    ),
+    e(
+        "host.HostListen.listenReceive",
+        &[Dropped, Scalar],
+        Ret::Res,
+    ),
     // The socket half. `()` on all three, because a frame is enqueued rather
     // than delivered and "did this arrive" was never answerable — the message
     // goes to the socket's own outbound buffer and leaves when that socket's
     // worker next pumps it. A handle naming no open socket is one that has
     // already gone, which is the same answer, so the three are total.
-    e("host.HostSockets.socketSendText", &[Dropped, Scalar, Str], Ret::Void),
-    e("host.HostSockets.socketSendBytes", &[Dropped, Scalar, List], Ret::Void),
+    e(
+        "host.HostSockets.socketSendText",
+        &[Dropped, Scalar, Str],
+        Ret::Void,
+    ),
+    e(
+        "host.HostSockets.socketSendBytes",
+        &[Dropped, Scalar, List],
+        Ret::Void,
+    ),
     e("host.HostSockets.socketPing", &[Dropped, Scalar], Ret::Void),
-    e("host.HostSockets.socketClose", &[Dropped, Scalar, Scalar, Str], Ret::Void),
+    e(
+        "host.HostSockets.socketClose",
+        &[Dropped, Scalar, Scalar, Str],
+        Ret::Void,
+    ),
     // -- WebSocketClient, the other way to come by a socket -----------------
     //
     // Two rows, and they are `listenUpgrade` and `listenReceive` from the
@@ -865,8 +1091,16 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `self` is `HostWebSocketClient`, an empty struct, so it flattens to
     // nothing; the URL flattens to its three `Str` leaves by §2 rule 1.
-    e("host.HostWebSocketClient.connectSocket", &[Dropped, Str], Ret::Res),
-    e("host.HostWebSocketClient.connectReceive", &[Dropped, Scalar], Ret::Res),
+    e(
+        "host.HostWebSocketClient.connectSocket",
+        &[Dropped, Str],
+        Ret::Res,
+    ),
+    e(
+        "host.HostWebSocketClient.connectReceive",
+        &[Dropped, Scalar],
+        Ret::Res,
+    ),
     // -- core/alloc's counters ----------------------------------------------
     //
     // Four scalars in, one scalar out, and no context anywhere in them: the
@@ -932,7 +1166,11 @@ pub const ENTRIES: &[Entry] = &[
     // before code generation rather than with a missing symbol from `cc`.
     // `mailboxOpen` carries the state's stride and release glue, so the
     // runtime can let go of the state of an actor nobody stopped at exit.
-    e("actor.mailboxOpen", &[Dropped, Elems, Scalar, Stride, Retain, Release, Equal], Ret::Scalar),
+    e(
+        "actor.mailboxOpen",
+        &[Dropped, Elems, Scalar, Stride, Retain, Release, Equal],
+        Ret::Scalar,
+    ),
     e("actor.mailboxPush", &[Dropped, Scalar, List], Ret::Res),
     e("actor.mailboxPop", &[Dropped, Scalar], Ret::Sum),
     e("actor.mailboxClose", &[Dropped, Scalar], Ret::Sum),
@@ -1019,7 +1257,11 @@ pub const ENTRIES: &[Entry] = &[
     // nothing to fail. The shape is the effect's, not the implementation's.
     e("host_testing.TestStdout.print", &[Scalar, Str], Ret::Res),
     e("host_testing.TestStdout.println", &[Scalar, Str], Ret::Res),
-    e("host_testing.TestStdout.writeBytes", &[Scalar, List], Ret::Res),
+    e(
+        "host_testing.TestStdout.writeBytes",
+        &[Scalar, List],
+        Ret::Res,
+    ),
     e("host_testing.TestStdout.captured", &[Scalar], Ret::Out),
     e("host_testing.TestStderr.eprint", &[Scalar, Str], Ret::Res),
     e("host_testing.TestStderr.eprintln", &[Scalar, Str], Ret::Res),
@@ -1028,7 +1270,11 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.TestStdin.lines", &[Scalar, List], Ret::Out),
     e("host_testing.TestStdin.bytes", &[Scalar, List], Ret::Out),
     e("host_testing.TestStdin.readLine", &[Scalar], Ret::Sum),
-    e("host_testing.TestStdin.readBytes", &[Scalar, Scalar], Ret::Sum),
+    e(
+        "host_testing.TestStdin.readBytes",
+        &[Scalar, Scalar],
+        Ret::Sum,
+    ),
     // The stream's log, read back. A log is state the runner keeps, so it is
     // here for the reason the handle table itself is.
     e("host_testing.TestStdin.calls", &[Scalar], Ret::Out),
@@ -1056,9 +1302,17 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.fsFileExists", &[Scalar, Str], Ret::Int(8)),
     e("host_testing.fsReadDir", &[Scalar, Str], Ret::Res),
     e("host_testing.fsReadFileBytes", &[Scalar, Str], Ret::Res),
-    e("host_testing.fsWriteFileBytes", &[Scalar, Str, List], Ret::Res),
+    e(
+        "host_testing.fsWriteFileBytes",
+        &[Scalar, Str, List],
+        Ret::Res,
+    ),
     e("host_testing.fsAppendFile", &[Scalar, Str, List], Ret::Res),
-    e("host_testing.fsRenameFile", &[Scalar, Str, Str], Ret::ResMsg),
+    e(
+        "host_testing.fsRenameFile",
+        &[Scalar, Str, Str],
+        Ret::ResMsg,
+    ),
     e("host_testing.fsRemoveFile", &[Scalar, Str], Ret::Res),
     e("host_testing.fsRemoveDir", &[Scalar, Str], Ret::ResMsg),
     e("host_testing.fsMakeDir", &[Scalar, Str], Ret::Res),
@@ -1067,7 +1321,11 @@ pub const ENTRIES: &[Entry] = &[
     // The one of the four that can say something: a negative offset or count is
     // `.Other` with a sentence, and the sentence is the one the JavaScript
     // double writes.
-    e("host_testing.fsReadRange", &[Scalar, Str, Scalar, Scalar], Ret::ResMsg),
+    e(
+        "host_testing.fsReadRange",
+        &[Scalar, Str, Scalar, Scalar],
+        Ret::ResMsg,
+    ),
     e("host_testing.fsRealPath", &[Scalar, Str], Ret::Res),
     e("host_testing.fsCopyFile", &[Scalar, Str, Str], Ret::Res),
     // -- the fault plan's promise -------------------------------------------
@@ -1082,11 +1340,23 @@ pub const ENTRIES: &[Entry] = &[
     // the twelfth way into a log: a call the plan failed never reaches the row
     // that would have recorded it, and it is still a call.
     e("host_testing.fsWithPlan", &[Scalar], Ret::Scalar),
-    e("host_testing.addFsFault", &[Scalar, Str, Str, Str], Ret::Void),
+    e(
+        "host_testing.addFsFault",
+        &[Scalar, Str, Str, Str],
+        Ret::Void,
+    ),
     e("host_testing.addNetFault", &[Scalar, Str], Ret::Void),
-    e("host_testing.faultFails", &[Scalar, Scalar, Scalar, Str], Ret::Void),
+    e(
+        "host_testing.faultFails",
+        &[Scalar, Scalar, Scalar, Str],
+        Ret::Void,
+    ),
     e("host_testing.noteFault", &[Scalar, Scalar], Ret::Void),
-    e("host_testing.noteFsCall", &[Scalar, Str, Str, Str], Ret::Void),
+    e(
+        "host_testing.noteFsCall",
+        &[Scalar, Str, Str, Str],
+        Ret::Void,
+    ),
     e("host_testing.netRebind", &[Scalar], Ret::Scalar),
     e("host_testing.netWithPlan", &[Scalar], Ret::Scalar),
     // -- the call log's remaining four --------------------------------------
@@ -1106,7 +1376,11 @@ pub const ENTRIES: &[Entry] = &[
     // its leaves.
     e("host_testing.spelled", &[List], Ret::Out),
     e("host_testing.newNet", &[], Ret::Scalar),
-    e("host_testing.recordFetch", &[Scalar, Scalar, Str, List, List, Scalar], Ret::Void),
+    e(
+        "host_testing.recordFetch",
+        &[Scalar, Scalar, Str, List, List, Scalar],
+        Ret::Void,
+    ),
     e("host_testing.netCalls", &[Scalar], Ret::Out),
     // `tcp()`'s seven. Its shape is `TestStdin`'s rather than `TestNetwork`'s —
     // what a test writes down is a script and what it reads back is a log, and
@@ -1116,9 +1390,21 @@ pub const ENTRIES: &[Entry] = &[
     // nothing.
     e("host_testing.newTcp", &[], Ret::Scalar),
     e("host_testing.tcpStream", &[Scalar, List], Ret::Scalar),
-    e("host_testing.recordTcpConnect", &[Scalar, Str, Scalar], Ret::Scalar),
-    e("host_testing.recordTcpRead", &[Scalar, Scalar, Scalar], Ret::Sum),
-    e("host_testing.recordTcpWrite", &[Scalar, Scalar, List], Ret::Int(8)),
+    e(
+        "host_testing.recordTcpConnect",
+        &[Scalar, Str, Scalar],
+        Ret::Scalar,
+    ),
+    e(
+        "host_testing.recordTcpRead",
+        &[Scalar, Scalar, Scalar],
+        Ret::Sum,
+    ),
+    e(
+        "host_testing.recordTcpWrite",
+        &[Scalar, Scalar, List],
+        Ret::Int(8),
+    ),
     e("host_testing.recordTcpClose", &[Scalar, Scalar], Ret::Void),
     e("host_testing.tcpCalls", &[Scalar], Ret::Out),
     // -- tasks(): the order the work happens in ------------------------------
@@ -1131,7 +1417,11 @@ pub const ENTRIES: &[Entry] = &[
     // `Arg::Dropped` — the runtime has to be able to ask which order this run
     // schedules in. The other rows are the ordering builders, the log, and the
     // plan's two halves.
-    e("host_testing.TestTasks.parallel", &[Scalar, Dropped, Elems, Step], Ret::Out),
+    e(
+        "host_testing.TestTasks.parallel",
+        &[Scalar, Dropped, Elems, Step],
+        Ret::Out,
+    ),
     e("host_testing.tasks", &[], Ret::Out),
     e("host_testing.TestTasks.anyOrder", &[Scalar], Ret::Out),
     e("host_testing.TestTasks.everyOrder", &[Scalar], Ret::Out),
@@ -1140,27 +1430,79 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.TestTasks.runs", &[Scalar], Ret::Scalar),
     e("host_testing.TestTasks.orders", &[Scalar], Ret::Scalar),
     e("host_testing.TestTasks.replan", &[Scalar], Ret::Out),
-    e("host_testing.TestTasks.addFault", &[Scalar, Scalar, Scalar, Str], Ret::Void),
+    e(
+        "host_testing.TestTasks.addFault",
+        &[Scalar, Scalar, Scalar, Str],
+        Ret::Void,
+    ),
     e("host_testing.clock", &[], Ret::Out),
     e("host_testing.TestClock.at", &[Scalar, Scalar], Ret::Out),
-    e("host_testing.TestClock.nowMilliseconds", &[Scalar], Ret::Scalar),
-    e("host_testing.TestClock.sleepMilliseconds", &[Scalar, Scalar], Ret::Void),
-    e("host_testing.TestClock.monotonicNanoseconds", &[Scalar], Ret::Scalar),
+    e(
+        "host_testing.TestClock.nowMilliseconds",
+        &[Scalar],
+        Ret::Scalar,
+    ),
+    e(
+        "host_testing.TestClock.sleepMilliseconds",
+        &[Scalar, Scalar],
+        Ret::Void,
+    ),
+    e(
+        "host_testing.TestClock.monotonicNanoseconds",
+        &[Scalar],
+        Ret::Scalar,
+    ),
     e("host_testing.rand", &[], Ret::Out),
     e("host_testing.TestRandom.seed", &[Scalar, Scalar], Ret::Out),
-    e("host_testing.TestRandom.nextInt", &[Scalar, Scalar, Scalar], Ret::Scalar),
+    e(
+        "host_testing.TestRandom.nextInt",
+        &[Scalar, Scalar, Scalar],
+        Ret::Scalar,
+    ),
     e("host_testing.TestRandom.nextFloat", &[Scalar], Ret::Scalar),
     e("host_testing.entropy", &[], Ret::Out),
     e("host_testing.TestEntropy.seed", &[Scalar, Scalar], Ret::Out),
-    e("host_testing.TestEntropy.bytes", &[Scalar, Scalar], Ret::Out),
+    e(
+        "host_testing.TestEntropy.bytes",
+        &[Scalar, Scalar],
+        Ret::Out,
+    ),
     e("host_testing.env", &[], Ret::Out),
-    e("host_testing.TestEnvironment.variables", &[Scalar, List], Ret::Out),
-    e("host_testing.TestEnvironment.withArguments", &[Scalar, List], Ret::Out),
-    e("host_testing.TestEnvironment.variable", &[Scalar, Str], Ret::Sum),
-    e("host_testing.TestEnvironment.arguments", &[Scalar], Ret::Out),
-    e("host_testing.TestEnvironment.currentDirectory", &[Scalar], Ret::Out),
-    e("host_testing.TestEnvironment.allVariables", &[Scalar], Ret::Out),
-    e("host_testing.TestEnvironment.operatingSystemName", &[Scalar], Ret::Out),
+    e(
+        "host_testing.TestEnvironment.variables",
+        &[Scalar, List],
+        Ret::Out,
+    ),
+    e(
+        "host_testing.TestEnvironment.withArguments",
+        &[Scalar, List],
+        Ret::Out,
+    ),
+    e(
+        "host_testing.TestEnvironment.variable",
+        &[Scalar, Str],
+        Ret::Sum,
+    ),
+    e(
+        "host_testing.TestEnvironment.arguments",
+        &[Scalar],
+        Ret::Out,
+    ),
+    e(
+        "host_testing.TestEnvironment.currentDirectory",
+        &[Scalar],
+        Ret::Out,
+    ),
+    e(
+        "host_testing.TestEnvironment.allVariables",
+        &[Scalar],
+        Ret::Out,
+    ),
+    e(
+        "host_testing.TestEnvironment.operatingSystemName",
+        &[Scalar],
+        Ret::Out,
+    ),
     // The spawn double is a log and nothing else — the scripted answer holds an
     // `IoError`, which §2.1 cannot hand back across a row, so it stays in the
     // program and `spawnProcess` is a Buri body. `TestNetwork`'s arrangement.
@@ -1170,7 +1512,11 @@ pub const ENTRIES: &[Entry] = &[
     // Its started children: the state a signal changes, which an immutable
     // `self` cannot hold.
     e("host_testing.spawnStart", &[Scalar, Scalar], Ret::Scalar),
-    e("host_testing.spawnSignal", &[Scalar, Scalar, Scalar], Ret::Void),
+    e(
+        "host_testing.spawnSignal",
+        &[Scalar, Scalar, Scalar],
+        Ret::Void,
+    ),
     e("host_testing.spawnExited", &[Scalar, Scalar], Ret::Int(8)),
     e("host_testing.spawnWait", &[Scalar, Scalar], Ret::Scalar),
     e("host_testing.spawnSignals", &[Scalar], Ret::Out),
@@ -1186,9 +1532,21 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.socketsOpen", &[Scalar], Ret::Scalar),
     e("host_testing.socketsSent", &[Scalar], Ret::Out),
     e("host_testing.socketsIsOpen", &[Scalar, Scalar], Ret::Scalar),
-    e("host_testing.TestSockets.socketSendText", &[Scalar, Scalar, Str], Ret::Void),
-    e("host_testing.TestSockets.socketSendBytes", &[Scalar, Scalar, List], Ret::Void),
-    e("host_testing.TestSockets.socketClose", &[Scalar, Scalar, Scalar, Str], Ret::Void),
+    e(
+        "host_testing.TestSockets.socketSendText",
+        &[Scalar, Scalar, Str],
+        Ret::Void,
+    ),
+    e(
+        "host_testing.TestSockets.socketSendBytes",
+        &[Scalar, Scalar, List],
+        Ret::Void,
+    ),
+    e(
+        "host_testing.TestSockets.socketClose",
+        &[Scalar, Scalar, Scalar, Str],
+        Ret::Void,
+    ),
     // `sockets().dialling(messages)` — a client with a script instead of a
     // network. Three rows: the mint and the client's two effect methods.
     //
@@ -1199,8 +1557,16 @@ pub const ENTRIES: &[Entry] = &[
     // in `isOpen`. One double writes and one double reads, which is the same
     // division `effect Sockets`' header draws.
     e("host_testing.socketsDialling", &[Scalar, List], Ret::Scalar),
-    e("host_testing.TestWebSocketClient.connectSocket", &[Scalar, Str], Ret::Res),
-    e("host_testing.TestWebSocketClient.connectReceive", &[Scalar, Scalar], Ret::Res),
+    e(
+        "host_testing.TestWebSocketClient.connectSocket",
+        &[Scalar, Str],
+        Ret::Res,
+    ),
+    e(
+        "host_testing.TestWebSocketClient.connectReceive",
+        &[Scalar, Scalar],
+        Ret::Res,
+    ),
     // The one key here that no Buri declaration produces: `middle::monomorphize`
     // emits it after every `test` body, so that "a fault whose call never
     // happens fails the test" is checked once for all three backends rather than
@@ -1287,21 +1653,53 @@ pub const ENTRIES: &[Entry] = &[
     // closure crosses here. Both answer a `Str`.
     e("ui_theme.installDoc", &[Str], Ret::Out),
     e("ui_theme.variables", &[], Ret::Out),
-    v(e("effect.Scope.read", &[Scalar, Scalar, Stride, Retain], Ret::Out)),
+    v(e(
+        "effect.Scope.read",
+        &[Scalar, Scalar, Stride, Retain],
+        Ret::Out,
+    )),
     e("host_testing.headless", &[], Ret::Out),
-    v(e("host_testing.Headless.signal", &[Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Scalar)),
-    v(e("host_testing.Headless.read", &[Scalar, Scalar, Stride, Retain], Ret::Out)),
+    v(e(
+        "host_testing.Headless.signal",
+        &[Scalar, Spilled, Stride, Retain, Release, Equal],
+        Ret::Scalar,
+    )),
+    v(e(
+        "host_testing.Headless.read",
+        &[Scalar, Scalar, Stride, Retain],
+        Ret::Out,
+    )),
     e("host_testing.observer", &[], Ret::Out),
-    v(e("host_testing.Observer.read", &[Scalar, Scalar, Stride, Retain], Ret::Out)),
-    v(e("host_testing.Headless.write", &[Scalar, Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Void)),
-    e("host_testing.Headless.memo", &[Scalar, Compute], Ret::Scalar),
+    v(e(
+        "host_testing.Observer.read",
+        &[Scalar, Scalar, Stride, Retain],
+        Ret::Out,
+    )),
+    v(e(
+        "host_testing.Headless.write",
+        &[Scalar, Scalar, Spilled, Stride, Retain, Release, Equal],
+        Ret::Void,
+    )),
+    e(
+        "host_testing.Headless.memo",
+        &[Scalar, Compute],
+        Ret::Scalar,
+    ),
     e("host_testing.Headless.watch", &[Scalar, Compute], Ret::Void),
     // The virtual clock `after` schedules on under `headless()` (#256).
     // `headlessTimerStart` is `tasks.timerStart`'s shape: a kept handler with
     // the double written into the record beside it and the handle as the
     // element. `elapse` fires what came due, each on the graph's own turn.
-    e("host_testing.headlessTimerStart", &[Dropped, Scalar, Press], Ret::Scalar),
-    e("host_testing.Headless.unschedule", &[Scalar, Scalar], Ret::Void),
+    e(
+        "host_testing.headlessTimerStart",
+        &[Dropped, Scalar, Press],
+        Ret::Scalar,
+    ),
+    e(
+        "host_testing.Headless.unschedule",
+        &[Scalar, Scalar],
+        Ret::Void,
+    ),
     e("host_testing.elapse", &[Scalar], Ret::Void),
     e("host_testing.installThemes", &[Str], Ret::Void),
     // `core/platforms/testing/state`: a whole `T` per handle, in the shape of
@@ -1309,10 +1707,26 @@ pub const ENTRIES: &[Entry] = &[
     // `statePut` carry the release so the runtime can give the value back at
     // exit; `stateTake` moves the value out, so it needs no retain but takes
     // the pair anyway for `read`'s one C shape.
-    v(e("platforms_testing_state.stateNew", &[Spilled, Stride, Retain, Release, Equal], Ret::Scalar)),
-    v(e("platforms_testing_state.stateRead", &[Scalar, Stride, Retain], Ret::Out)),
-    v(e("platforms_testing_state.stateTake", &[Scalar, Stride, Retain], Ret::Out)),
-    v(e("platforms_testing_state.statePut", &[Scalar, Spilled, Stride, Retain, Release, Equal], Ret::Void)),
+    v(e(
+        "platforms_testing_state.stateNew",
+        &[Spilled, Stride, Retain, Release, Equal],
+        Ret::Scalar,
+    )),
+    v(e(
+        "platforms_testing_state.stateRead",
+        &[Scalar, Stride, Retain],
+        Ret::Out,
+    )),
+    v(e(
+        "platforms_testing_state.stateTake",
+        &[Scalar, Stride, Retain],
+        Ret::Out,
+    )),
+    v(e(
+        "platforms_testing_state.statePut",
+        &[Scalar, Spilled, Stride, Retain, Release, Equal],
+        Ret::Void,
+    )),
     // `stylesheet()` — the extracted sheet, a compile artifact `buri test`
     // writes beside the binary and hands over the way it hands over the snapshot
     // directory (#53 phase 5). The same string the JavaScript backend splices in
@@ -1374,14 +1788,22 @@ pub const ENTRIES: &[Entry] = &[
     // widget that emits inline under its own watcher rather than walking a node.
     e("ui_node.beginRegion", &[Scalar, Scalar], Ret::Void),
     e("ui_node.endRegion", &[Scalar], Ret::Void),
-    e("ui_node.rebuildRegion", &[Scalar, Scalar, Spilled, Walk], Ret::Void),
+    e(
+        "ui_node.rebuildRegion",
+        &[Scalar, Scalar, Spilled, Walk],
+        Ret::Void,
+    ),
     // The keyed list (#53 phase 4). `enterEach` opens the two markers and the
     // row owner; `reconcile` is driven from the list's watcher with the keys the
     // watcher computed and the row body last, an [`Extra::Walk`] like a region
     // rebuild's — but with nothing spilled, because the body builds its own node
     // from `rowAt` rather than being handed one.
     e("ui_node.enterEach", &[Scalar], Ret::Scalar),
-    e("ui_node.reconcile", &[Scalar, Scalar, List, Walk], Ret::Void),
+    e(
+        "ui_node.reconcile",
+        &[Scalar, Scalar, List, Walk],
+        Ret::Void,
+    ),
     // The event arms (#53 phase 4). `registerPress` keeps a button's or a form's
     // `fn(C, Event) => ()` on the open element — an [`Extra::Press`], the kept
     // two-parameter handler; `registerValue` stores a field's or a toggle's bound
@@ -1426,8 +1848,16 @@ pub const ENTRIES: &[Entry] = &[
     // button's changing name.
     e("ui_node.focusKey", &[Scalar], Ret::Scalar),
     e("ui_node.attachFocus", &[Scalar, Scalar, Scalar], Ret::Void),
-    e("ui_node.setFocusOrder", &[Scalar, Scalar, Scalar], Ret::Void),
-    e("ui_node.bindFocusSignal", &[Scalar, Scalar, Scalar, Scalar], Ret::Void),
+    e(
+        "ui_node.setFocusOrder",
+        &[Scalar, Scalar, Scalar],
+        Ret::Void,
+    ),
+    e(
+        "ui_node.bindFocusSignal",
+        &[Scalar, Scalar, Scalar, Scalar],
+        Ret::Void,
+    ),
     e("ui_node.requestFocus", &[Scalar, Scalar, Scalar], Ret::Void),
     e("ui_node.relabel", &[Scalar, Scalar, Str], Ret::Void),
     // A file picker (#209). `registerPick` keeps its handler in a slot of its
@@ -1438,7 +1868,11 @@ pub const ENTRIES: &[Entry] = &[
     e("ui_node.offeredName", &[Scalar], Ret::Out),
     e("ui_node.offeredType", &[Scalar], Ret::Out),
     e("ui_node.offeredBytes", &[Scalar], Ret::Out),
-    e("host_testing.offerFile", &[Scalar, Str, Str, List], Ret::Void),
+    e(
+        "host_testing.offerFile",
+        &[Scalar, Str, Str, List],
+        Ret::Void,
+    ),
     e("host_testing.deliverFile", &[Scalar, Str], Ret::Void),
     // The readers, over the reconciled document rather than the string:
     // `markup` and `text` answer a `Str` through an out-pointer, `count` and
@@ -1446,15 +1880,27 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.Rendered.markup", &[Scalar], Ret::Out),
     e("host_testing.Rendered.text", &[Scalar], Ret::Out),
     e("host_testing.Rendered.spoken", &[Scalar], Ret::Out),
-    e("host_testing.Rendered.isCurrent", &[Scalar, Str], Ret::Scalar),
-    e("host_testing.Rendered.description", &[Scalar, Str], Ret::Out),
+    e(
+        "host_testing.Rendered.isCurrent",
+        &[Scalar, Str],
+        Ret::Scalar,
+    ),
+    e(
+        "host_testing.Rendered.description",
+        &[Scalar, Str],
+        Ret::Out,
+    ),
     e("host_testing.Rendered.focus", &[Scalar, Str], Ret::Void),
     e("host_testing.Rendered.key", &[Scalar, Str], Ret::Void),
     e("host_testing.Rendered.focused", &[Scalar], Ret::Out),
     e("host_testing.Rendered.tab", &[Scalar], Ret::Void),
     e("host_testing.Rendered.shiftTab", &[Scalar], Ret::Void),
     e("host_testing.Rendered.count", &[Scalar, Str], Ret::Scalar),
-    e("host_testing.Rendered.identity", &[Scalar, Str, Scalar], Ret::Scalar),
+    e(
+        "host_testing.Rendered.identity",
+        &[Scalar, Str, Scalar],
+        Ret::Scalar,
+    ),
     // The event dispatch (#53 phase 4), each addressing the reconciled document
     // by label or index and mutating a signal a watcher then sees: `press` fires
     // the stored handler (and submits an enclosing form for a submit button),
@@ -1464,21 +1910,41 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.Rendered.fill", &[Scalar, Str, Str], Ret::Void),
     // `select` moves the caret and selection: it writes the field's `(Int, Int)`
     // selection signal the way `fill` writes its value.
-    e("host_testing.Rendered.select", &[Scalar, Str, Scalar, Scalar], Ret::Void),
+    e(
+        "host_testing.Rendered.select",
+        &[Scalar, Str, Scalar, Scalar],
+        Ret::Void,
+    ),
     e("host_testing.Rendered.flip", &[Scalar, Str], Ret::Void),
     e("host_testing.Rendered.submit", &[Scalar, Scalar], Ret::Void),
     // The pointer (#220). `registerPointer` keeps one of an element's three
     // pointer handlers under its phase, an `ep` like `registerPress`; the four
     // readers answer the `PointerAt` the dispatch in flight set, and
     // `pointerDown`/`pointerMove`/`pointerUp` are that dispatch.
-    e("ui_node.registerPointer", &[Scalar, Scalar, Press], Ret::Void),
+    e(
+        "ui_node.registerPointer",
+        &[Scalar, Scalar, Press],
+        Ret::Void,
+    ),
     e("ui_node.pointerX", &[Scalar], Ret::Scalar),
     e("ui_node.pointerY", &[Scalar], Ret::Scalar),
     e("ui_node.pointerOverRow", &[Scalar], Ret::Scalar),
     e("ui_node.pointerRow", &[Scalar], Ret::Out),
-    e("host_testing.Rendered.pointerDown", &[Scalar, Str, Scalar, Scalar], Ret::Void),
-    e("host_testing.Rendered.pointerMove", &[Scalar, Str, Scalar, Scalar], Ret::Void),
-    e("host_testing.Rendered.pointerUp", &[Scalar, Str, Scalar, Scalar], Ret::Void),
+    e(
+        "host_testing.Rendered.pointerDown",
+        &[Scalar, Str, Scalar, Scalar],
+        Ret::Void,
+    ),
+    e(
+        "host_testing.Rendered.pointerMove",
+        &[Scalar, Str, Scalar, Scalar],
+        Ret::Void,
+    ),
+    e(
+        "host_testing.Rendered.pointerUp",
+        &[Scalar, Str, Scalar, Scalar],
+        Ret::Void,
+    ),
 ];
 
 /// The entry for a key, or `None` where the archive has no body for it.
@@ -1659,8 +2125,7 @@ pub const I128_SATURATING: &str = "buri_rt_i128_saturating";
 /// sum-returning call path can be reused. `args` is empty because the argument
 /// list is built at the call site from a 128-bit pair rather than from a Buri
 /// signature, and the key is the one [`Entry::symbol`] mangles to that name.
-pub const I128_CHECKED_ENTRY: Entry =
-    e("i128.checked", &[], Ret::Sum);
+pub const I128_CHECKED_ENTRY: Entry = e("i128.checked", &[], Ret::Sum);
 
 /// `buri_rt_str_scalar_len(ptr, byte_len) -> u64` — the slow half of
 /// `str.length`, called only where the ASCII flag is clear.
@@ -1751,13 +2216,25 @@ mod tests {
     /// checked directly against the rule [`Entry::symbol`] applies.
     #[test]
     fn the_symbol_is_the_rule_applied_to_the_key() {
-        assert_eq!(symbol_for("host.HostFileSystem.readFile"), "buri_rt_host_file_system_read_file");
-        assert_eq!(symbol_for("host.HostProcess.exitWith"), "buri_rt_host_process_exit_with");
-        assert_eq!(symbol_for("host.HostStdout.println"), "buri_rt_host_stdout_println");
+        assert_eq!(
+            symbol_for("host.HostFileSystem.readFile"),
+            "buri_rt_host_file_system_read_file"
+        );
+        assert_eq!(
+            symbol_for("host.HostProcess.exitWith"),
+            "buri_rt_host_process_exit_with"
+        );
+        assert_eq!(
+            symbol_for("host.HostStdout.println"),
+            "buri_rt_host_stdout_println"
+        );
         assert_eq!(symbol_for("str.splitOnce"), "buri_rt_str_split_once");
         // The one that does not collapse, because the repetition is real:
         // `memory.rs` exports it under this name.
-        assert_eq!(symbol_for("host.HostAllocator.allocate"), "buri_rt_host_allocator_allocate");
+        assert_eq!(
+            symbol_for("host.HostAllocator.allocate"),
+            "buri_rt_host_allocator_allocate"
+        );
     }
 
     /// **The thread-stack entries are symbols with no row, and that is the
@@ -1777,7 +2254,10 @@ mod tests {
             task_thread::STEP_STACK_ACQUIRE,
             task_thread::STEP_STACK_RELEASE,
         ] {
-            assert!(symbol.starts_with("buri_rt_"), "{symbol} is not a runtime symbol");
+            assert!(
+                symbol.starts_with("buri_rt_"),
+                "{symbol} is not a runtime symbol"
+            );
             assert!(
                 !ENTRIES.iter().any(|e| e.symbol() == symbol),
                 "{symbol} gained a row: neither backend's door reaches it through the table"
@@ -1861,7 +2341,9 @@ mod tests {
     /// invariant.
     #[test]
     fn only_the_generic_extras_consume_no_argument() {
-        for shape in [Str, Bytes, List, Scalar, Dropped, Elems, Spilled, Step, Compute, Walk, Press] {
+        for shape in [
+            Str, Bytes, List, Scalar, Dropped, Elems, Spilled, Step, Compute, Walk, Press,
+        ] {
             assert!(shape.consumes(), "{shape:?}");
         }
         for shape in [Stride, Retain, Release, Equal] {
@@ -1959,20 +2441,32 @@ mod tests {
             {
                 continue;
             }
-            let Some(rest) = source.get(at.saturating_add(3)..) else { continue };
-            let Some(tail) = rest.strip_prefix(name) else { continue };
+            let Some(rest) = source.get(at.saturating_add(3)..) else {
+                continue;
+            };
+            let Some(tail) = rest.strip_prefix(name) else {
+                continue;
+            };
             // `fn splitOnce` must not answer for `fn split`, so the character
             // after the name has to end it.
-            if tail.chars().next().is_some_and(|c| c.is_alphanumeric() || c == '_') {
+            if tail
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+            {
                 continue;
             }
             // Past the generics, if any, to the parameter list's own `(`.
             let Some(open) = tail.find('(') else { continue };
-            let Some(head) = tail.get(..open) else { continue };
+            let Some(head) = tail.get(..open) else {
+                continue;
+            };
             if head.contains(')') || head.contains('{') {
                 continue;
             }
-            let Some(after) = tail.get(open.saturating_add(1)..) else { continue };
+            let Some(after) = tail.get(open.saturating_add(1)..) else {
+                continue;
+            };
             let mut depth = 0usize;
             let mut params: Vec<String> = Vec::new();
             let mut piece = String::new();
@@ -1998,7 +2492,9 @@ mod tests {
                 params.push(piece);
             }
             out.push(
-                params.iter().position(|p| p.split(':').next().is_some_and(|n| n.trim() == "ctx")),
+                params
+                    .iter()
+                    .position(|p| p.split(':').next().is_some_and(|n| n.trim() == "ctx")),
             );
         }
         out
@@ -2043,13 +2539,20 @@ mod tests {
                 entry.key
             );
             if let Some(at) = found[0] {
-                assert!(entry.dropped(at), "{}: argument {at} is the context", entry.key);
+                assert!(
+                    entry.dropped(at),
+                    "{}: argument {at} is the context",
+                    entry.key
+                );
                 contexts += 1;
             }
             checked += 1;
         }
         // A scan that matched nothing would pass every assertion above.
-        assert!(checked > 140, "only {checked} rows were read against a declaration");
+        assert!(
+            checked > 140,
+            "only {checked} rows were read against a declaration"
+        );
         assert_eq!(contexts, 56);
     }
 
@@ -2097,8 +2600,12 @@ mod tests {
             .unwrap_or_else(|| panic!("`effect {effect}` never closes"));
         let mut out = Vec::new();
         for line in body.lines() {
-            let Some(rest) = line.trim().strip_prefix("fn ") else { continue };
-            let Some(name) = rest.split('(').next() else { continue };
+            let Some(rest) = line.trim().strip_prefix("fn ") else {
+                continue;
+            };
+            let Some(name) = rest.split('(').next() else {
+                continue;
+            };
             out.push(name.to_string());
         }
         out
@@ -2164,8 +2671,11 @@ mod tests {
     /// `a_hot_function_has_no_allocas` is the assertion about.
     #[test]
     fn only_the_filesystem_and_one_double_carry_a_message() {
-        let mut carrying: Vec<&str> =
-            ENTRIES.iter().filter(|e| e.ret == Ret::ResMsg).map(|e| e.key).collect();
+        let mut carrying: Vec<&str> = ENTRIES
+            .iter()
+            .filter(|e| e.ret == Ret::ResMsg)
+            .map(|e| e.key)
+            .collect();
         carrying.sort_unstable();
         assert_eq!(
             carrying,
@@ -2255,7 +2765,12 @@ mod tests {
             .filter(|l| !l.is_empty() && !l.starts_with("//"))
             .map(|l| l.trim_end_matches(','))
             .collect();
-        assert_eq!(variants.len(), 7, "`IoError` has {} variants: {variants:?}", variants.len());
+        assert_eq!(
+            variants.len(),
+            7,
+            "`IoError` has {} variants: {variants:?}",
+            variants.len()
+        );
         let (last, rest) = variants.split_last().expect("seven variants");
         for variant in rest {
             assert!(

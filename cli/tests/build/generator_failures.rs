@@ -139,25 +139,44 @@ fn js_path() -> String {
 fn build_with(name: &str, script: &str) -> Run {
     let scratch = two_entries(name);
     let runtime = scratch.write_executable("runtime.sh", &format!("#!/bin/sh\n{script}"));
-    scratch.run_with_env(&["build", "//lib/wire"], &[("BURI_JS", &runtime.display().to_string())])
+    scratch.run_with_env(
+        &["build", "//lib/wire"],
+        &[("BURI_JS", &runtime.display().to_string())],
+    )
 }
 
 /// The note under a failed tool's error, its lines unindented.
 fn note(run: &Run) -> String {
-    let at = run.stderr.find("  = the tool ").unwrap_or_else(|| panic!("no note:\n{}", indent(&run.all())));
+    let at = run
+        .stderr
+        .find("  = the tool ")
+        .unwrap_or_else(|| panic!("no note:\n{}", indent(&run.all())));
     let rest = &run.stderr[at..];
     let end = rest.find("  = fix:").unwrap_or(rest.len());
-    rest[..end].lines().map(|l| l.trim_start().trim_start_matches("= ")).collect::<Vec<_>>().join("\n")
+    rest[..end]
+        .lines()
+        .map(|l| l.trim_start().trim_start_matches("= "))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// A tool that exits without answering, or answers with a blank line, wrote
 /// nothing a build can read.
 #[test]
 fn a_tool_that_answers_nothing_wrote_nothing() {
-    for (name, script) in [("silent", "read -r line\n"), ("blank", "read -r line\necho '   '\n")] {
+    for (name, script) in [
+        ("silent", "read -r line\n"),
+        ("blank", "read -r line\necho '   '\n"),
+    ] {
         let run = build_with(&format!("tool-{name}"), script);
-        run.exits(1).says("`//tools/gen` did not answer [tool-failed]");
-        assert_eq!(note(&run), "the tool wrote nothing", "{name}:\n{}", indent(&run.all()));
+        run.exits(1)
+            .says("`//tools/gen` did not answer [tool-failed]");
+        assert_eq!(
+            note(&run),
+            "the tool wrote nothing",
+            "{name}:\n{}",
+            indent(&run.all())
+        );
     }
 }
 
@@ -179,7 +198,10 @@ fn a_tool_killed_by_a_signal_is_named_by_it() {
 #[test]
 fn a_tool_s_long_standard_error_is_cut_to_its_tail() {
     let wide = "é".repeat(3000);
-    let run = build_with("tool-loud", &format!("read -r line\nprintf '%s\\nlast words\\n' '{wide}' >&2\nexit 3\n"));
+    let run = build_with(
+        "tool-loud",
+        &format!("read -r line\nprintf '%s\\nlast words\\n' '{wide}' >&2\nexit 3\n"),
+    );
     run.exits(1);
     // 6011 bytes, so 1915 go, and one more to reach the end of a character.
     let kept = format!("the tool exited with 3\n(the first 1916 bytes of standard error are not shown)\n{}\nlast words", "é".repeat(2048 - 6));
@@ -208,7 +230,10 @@ fn a_tool_s_stack_frames_go_and_its_own_words_stay() {
         "    at foo (x.js:1:b)",
     ]
     .join("\n");
-    let run = build_with("tool-frames", &format!("read -r line\ncat >&2 <<'EOF'\n{stderr}\nEOF\nexit 2\n"));
+    let run = build_with(
+        "tool-frames",
+        &format!("read -r line\ncat >&2 <<'EOF'\n{stderr}\nEOF\nexit 2\n"),
+    );
     run.exits(1);
     assert_eq!(
         note(&run).trim_end(),
@@ -260,18 +285,32 @@ fn a_tool_s_needs_outside_the_repository_are_refused() {
             scratch.path("answer.json").display()
         ),
     );
-    let run = scratch.run_with_env(&["build", "//lib/wire"], &[("BURI_JS", &runtime.display().to_string())]);
+    let run = scratch.run_with_env(
+        &["build", "//lib/wire"],
+        &[("BURI_JS", &runtime.display().to_string())],
+    );
     run.exits(1);
-    for outside in ["//", "/etc/hosts", "https://example.org/a", "a\\b", "../../up"] {
-        run.says(&format!("error: `{outside}` is not in this repository [needs-outside-repository]"));
+    for outside in [
+        "//",
+        "/etc/hosts",
+        "https://example.org/a",
+        "a\\b",
+        "../../up",
+    ] {
+        run.says(&format!(
+            "error: `{outside}` is not in this repository [needs-outside-repository]"
+        ));
     }
     run.says("= fix: check the file in, and have the tool ask for it by its repository path")
         .silent_about("$schema")
         .silent_about("[schema-outside-repository]");
-    run.silent_about("`1`").silent_about("`//lib/wire/extra.txt` is not");
+    run.silent_about("`1`")
+        .silent_about("`//lib/wire/extra.txt` is not");
     let asked = std::fs::read_to_string(asked).unwrap();
     assert!(
-        asked.contains(r#""files":[["//lib/wire/extra.txt","extra\n"],["lib/wire/extra.txt","extra\n"]]"#),
+        asked.contains(
+            r#""files":[["//lib/wire/extra.txt","extra\n"],["lib/wire/extra.txt","extra\n"]]"#
+        ),
         "the tool was not handed the files it needed:\n{}",
         indent(&asked)
     );
@@ -286,7 +325,10 @@ fn a_check_s_and_a_contract_s_needs_outside_the_repository_are_refused() {
         "REPO.buri",
         "language {\n    name: \"lines\"\n    extensions: [\".lines\"]\n    check: \"//tools/types\"\n    generate: \"//tools/types\"\n}\n",
     );
-    scratch.write("tools/types/BUILD.buri", "tool {\n    check {}\n\n    generate {}\n}\n");
+    scratch.write(
+        "tools/types/BUILD.buri",
+        "tool {\n    check {}\n\n    generate {}\n}\n",
+    );
     scratch.write(
         "tools/types/tool.buri",
         &format!(
@@ -308,14 +350,23 @@ fn a_check_s_and_a_contract_s_needs_outside_the_repository_are_refused() {
     scratch.write("lib/x/BUILD.buri", "library {\n    generators: [\n        { tool: \"//tools/gen\", inputs: [\"x.lines\"] },\n    ]\n}\n");
     scratch.write("lib/x/x.lines", "x 1\n");
     scratch.write("lib/x/lib.buri", "export let one: Int = 1;\n");
-    scratch.write("answer.json", "{\"modules\":[],\"diagnostics\":[],\"needs\":[\"https://example.org/a\"]}\n");
+    scratch.write(
+        "answer.json",
+        "{\"modules\":[],\"diagnostics\":[],\"needs\":[\"https://example.org/a\"]}\n",
+    );
     let runtime = scratch.write_executable(
         "runtime.sh",
-        &format!("#!/bin/sh\nwhile read -r line; do cat '{}'; done\n", scratch.path("answer.json").display()),
+        &format!(
+            "#!/bin/sh\nwhile read -r line; do cat '{}'; done\n",
+            scratch.path("answer.json").display()
+        ),
     );
     let env = [("BURI_JS", runtime.display().to_string())];
     let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    for (target, at) in [("//tools/lines", "tools/lines/BUILD.buri:4:47"), ("//lib/x", "lib/x/x.lines")] {
+    for (target, at) in [
+        ("//tools/lines", "tools/lines/BUILD.buri:4:47"),
+        ("//lib/x", "lib/x/x.lines"),
+    ] {
         scratch
             .run_with_env(&["build", target], &env)
             .exits(1)
@@ -337,7 +388,10 @@ fn tools_built_from_each_other_s_libraries_run_one_at_a_time() {
     );
     scratch.write("tools/ta/b.schema.json", NAMES_SCHEMA);
     scratch.write("tools/ta/tool.buri", COUNTING_TOOL);
-    scratch.write("tools/tb/BUILD.buri", "tool {\n    dependencies: [\"//lib/a\"]\n\n    generate {}\n}\n");
+    scratch.write(
+        "tools/tb/BUILD.buri",
+        "tool {\n    dependencies: [\"//lib/a\"]\n\n    generate {}\n}\n",
+    );
     scratch.write("tools/tb/tool.buri", TOOL);
     scratch.write(
         "lib/a/BUILD.buri",
@@ -353,7 +407,10 @@ fn tools_built_from_each_other_s_libraries_run_one_at_a_time() {
     scratch.write("lib/b/lib.buri", "from \"//lib/b/beta\" export { beta };\n");
     scratch.run(&["build", "//lib/a", "//lib/b"]).ok();
 
-    scratch.write("tools/tc/BUILD.buri", "tool {\n    dependencies: [\"//lib/a\"]\n\n    generate {}\n}\n");
+    scratch.write(
+        "tools/tc/BUILD.buri",
+        "tool {\n    dependencies: [\"//lib/a\"]\n\n    generate {}\n}\n",
+    );
     scratch.write("tools/tc/tool.buri", TOOL);
     scratch.write(
         "lib/a/BUILD.buri",
@@ -374,7 +431,10 @@ fn session(scratch: &Scratch, lines: &[&str]) -> Vec<u8> {
         r#"{"jsonrpc": "2.0", "method": "initialized", "params": {}}"#,
     ];
     all.extend(lines);
-    all.extend([r#"{"jsonrpc": "2.0", "id": 99, "method": "shutdown"}"#, r#"{"jsonrpc": "2.0", "method": "exit"}"#]);
+    all.extend([
+        r#"{"jsonrpc": "2.0", "id": 99, "method": "shutdown"}"#,
+        r#"{"jsonrpc": "2.0", "method": "exit"}"#,
+    ]);
     let mut out = Vec::new();
     for line in all {
         let line = line.replace("<scratch>", &scratch.root.display().to_string());
@@ -386,7 +446,10 @@ fn session(scratch: &Scratch, lines: &[&str]) -> Vec<u8> {
 /// The editor's answer to request `id`.
 fn reply(run: &Run, id: u32) -> String {
     let head = format!("{{\"id\":{id},");
-    let at = run.stdout.find(&head).unwrap_or_else(|| panic!("no reply {id}:\n{}", indent(&run.all())));
+    let at = run
+        .stdout
+        .find(&head)
+        .unwrap_or_else(|| panic!("no reply {id}:\n{}", indent(&run.all())));
     let rest = &run.stdout[at..];
     rest[..rest.find("Content-Length").unwrap_or(rest.len())].to_string()
 }
@@ -412,7 +475,11 @@ fn an_editor_gets_the_contract_types_a_refused_build_file_still_names() {
     );
     scratch.write("tools/b/b.schema.json", NAMES_SCHEMA);
     scratch.write("tools/b/tool.buri", NAMES_TOOL);
-    scratch.run(&["build", "//tools/b"]).exits(2).says("[accepts-unknown-language]").says("[accepts-missing-generate]");
+    scratch
+        .run(&["build", "//tools/b"])
+        .exits(2)
+        .says("[accepts-unknown-language]")
+        .says("[accepts-missing-generate]");
     let run = scratch.run_with_stdin(
         &["lsp"],
         &session(
@@ -421,7 +488,10 @@ fn an_editor_gets_the_contract_types_a_refused_build_file_still_names() {
         ),
     );
     run.ok();
-    assert_eq!(reply(&run, 2), r#"{"id":2,"jsonrpc":"2.0","result":{"items":[],"kind":"full","resultId":"1"}}"#);
+    assert_eq!(
+        reply(&run, 2),
+        r#"{"id":2,"jsonrpc":"2.0","result":{"items":[],"kind":"full","resultId":"1"}}"#
+    );
 }
 
 /// The contract an input is checked under, in the editor, is the first entry's
@@ -437,10 +507,15 @@ fn an_editor_checks_an_input_under_the_contract_that_reads_it() {
             &format!("tools/{tool}/BUILD.buri"),
             &format!("tool {{\n    generate {{\n        accepts: [\n            {{ language: \"json\", type_schema: \"{tool}.schema.json\" }},\n        ]\n    }}\n}}\n"),
         );
-        scratch.write(&format!("tools/{tool}/{tool}.schema.json"), &NAMES_SCHEMA.replace("Names", root));
+        scratch.write(
+            &format!("tools/{tool}/{tool}.schema.json"),
+            &NAMES_SCHEMA.replace("Names", root),
+        );
         scratch.write(
             &format!("tools/{tool}/tool.buri"),
-            &NAMES_TOOL.replace("//tools/b/json", &format!("//tools/{tool}/json")).replace("a.Names", &format!("a.{root}")),
+            &NAMES_TOOL
+                .replace("//tools/b/json", &format!("//tools/{tool}/json"))
+                .replace("a.Names", &format!("a.{root}")),
         );
     }
     scratch.write(
@@ -502,7 +577,10 @@ fn a_tool_s_request_type_names_its_contract_s_root() {
             "tool {\n    generate {\n        accepts: [\n            { language: \"json\", type_schema: \"b.schema.json\" },\n        ]\n    }\n}\n",
         );
         scratch.write(&format!("tools/{tool}/b.schema.json"), NAMES_SCHEMA);
-        scratch.write(&format!("tools/{tool}/tool.buri"), &format!("{}{signature}{body}", head.replace("TOOL", tool)));
+        scratch.write(
+            &format!("tools/{tool}/tool.buri"),
+            &format!("{}{signature}{body}", head.replace("TOOL", tool)),
+        );
     }
     let run = scratch.run(&["build", "//tools/..."]);
     run.exits(1);
@@ -533,7 +611,10 @@ fn a_repository_language_s_tools_answer_however_they_answer() {
     );
     scratch.write("tools/lines/words.lines", "one\ntwo\n");
     scratch.write("tools/lines/tool.buri", TOOL);
-    scratch.write("tools/types/BUILD.buri", "tool {\n    generate {}\n\n    format {}\n}\n");
+    scratch.write(
+        "tools/types/BUILD.buri",
+        "tool {\n    generate {}\n\n    format {}\n}\n",
+    );
     scratch.write(
         "tools/types/tool.buri",
         &format!(
@@ -551,7 +632,10 @@ fn a_repository_language_s_tools_answer_however_they_answer() {
     scratch.write("answer.json", &format!("{{\"modules\":[{{\"name\":\"lines\",\"text\":\"{module}\",\"anchors\":[]}}],\"diagnostics\":[],\"needs\":[]}}\n"));
     let runtime = scratch.write_executable(
         "runtime.sh",
-        &format!("#!/bin/sh\nwhile read -r line; do cat '{}'; done\n", scratch.path("answer.json").display()),
+        &format!(
+            "#!/bin/sh\nwhile read -r line; do cat '{}'; done\n",
+            scratch.path("answer.json").display()
+        ),
     );
     let env = [("BURI_JS", runtime.display().to_string())];
     let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (*k, v.as_str())).collect();
@@ -611,5 +695,8 @@ fn a_language_generated_by_the_json_tool_is_refused_where_it_is_written() {
         "language {\n    name: \"conf\"\n    extensions: [\".conf\"]\n    check: \"json\"\n    format: \"json\"\n}\n",
     );
     scratch.write("tools/b/BUILD.buri", "tool {\n    generate {}\n}\n");
-    scratch.run(&["format", "--check"]).exits(1).says("lib/x/x.conf");
+    scratch
+        .run(&["format", "--check"])
+        .exits(1)
+        .says("lib/x/x.conf");
 }

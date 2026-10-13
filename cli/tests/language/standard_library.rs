@@ -9,7 +9,10 @@ fn the_standard_library_checks() {
     for d in &analysis.diagnostics.items {
         out.push_str(&map.render(d, false));
     }
-    assert!(out.is_empty(), "the standard library does not check:\n{out}");
+    assert!(
+        out.is_empty(),
+        "the standard library does not check:\n{out}"
+    );
 }
 
 /// A module that loads lazily may not declare a method on a built-in type.
@@ -42,7 +45,9 @@ fn a_lazily_loaded_module_declares_no_method_on_a_built_in_type() {
         checked += 1;
         let parsed = buri::parsing::parser::parse_stdlib(source, buri::diagnostics::FileId(0));
         for item in &parsed.module.items {
-            let buri::parsing::tree::Item::Impl(d) = item else { continue };
+            let buri::parsing::tree::Item::Impl(d) = item else {
+                continue;
+            };
             // The self position is the type the methods belong to. With a
             // `for` clause it is the second one; that is a conformance, and a
             // conformance travels with the trait rather than with the module.
@@ -72,7 +77,10 @@ fn a_lazily_loaded_module_declares_no_method_on_a_built_in_type() {
          standard_library::MODULES with `eager: true`, or make these free functions.",
         offenders.join("\n  ")
     );
-    assert!(checked > 5, "only {checked} lazily loaded module(s); the scan is not working");
+    assert!(
+        checked > 5,
+        "only {checked} lazily loaded module(s); the scan is not working"
+    );
 }
 
 /// Every module still loads, one at a time, on top of the eager set.

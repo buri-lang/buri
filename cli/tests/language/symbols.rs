@@ -80,7 +80,9 @@ fn repositories() -> Vec<PathBuf> {
 fn no_two_functions_in_one_program_share_a_symbol() {
     let mut programs = 0usize;
     for root in repositories() {
-        let Ok(mut open) = session::open_at(&root, &Flags::default()) else { continue };
+        let Ok(mut open) = session::open_at(&root, &Flags::default()) else {
+            continue;
+        };
         // A repository whose own build files do not read compiles nothing.
         if open.diagnostics.has_errors() {
             continue;
@@ -89,17 +91,26 @@ fn no_two_functions_in_one_program_share_a_symbol() {
             .workspace
             .targets()
             .into_iter()
-            .map(|target| Unit { target: Some(target), platform: None, entry: None, with_tests: true })
+            .map(|target| Unit {
+                target: Some(target),
+                platform: None,
+                entry: None,
+                with_tests: true,
+            })
             .collect();
 
         // One target at a time, and then all of them at once — the batched
         // test binary, which is where two packages' declarations first meet.
-        let mut sets: Vec<(String, Vec<Unit>)> =
-            every.iter().map(|u| (root.display().to_string(), vec![u.clone()])).collect();
+        let mut sets: Vec<(String, Vec<Unit>)> = every
+            .iter()
+            .map(|u| (root.display().to_string(), vec![u.clone()]))
+            .collect();
         sets.push((format!("{} (batched)", root.display()), every));
 
         for (label, units) in sets {
-            let Some(program) = program_of(&mut open, &units) else { continue };
+            let Some(program) = program_of(&mut open, &units) else {
+                continue;
+            };
             unique_symbols(&label, &program);
             programs = programs.saturating_add(1);
         }
@@ -123,12 +134,20 @@ fn no_two_functions_in_one_program_share_a_symbol() {
 fn a_context_constructor_is_named_by_the_module_that_declares_it() {
     let root = tests_dir().join("repositories/testing/same_named_contexts/repo");
     let mut open = session::open_at(&root, &Flags::default()).expect("the case repository");
-    assert!(!open.diagnostics.has_errors(), "the case repository does not open");
+    assert!(
+        !open.diagnostics.has_errors(),
+        "the case repository does not open"
+    );
     let units: Vec<Unit> = open
         .workspace
         .targets()
         .into_iter()
-        .map(|target| Unit { target: Some(target), platform: None, entry: None, with_tests: true })
+        .map(|target| Unit {
+            target: Some(target),
+            platform: None,
+            entry: None,
+            with_tests: true,
+        })
         .collect();
     let program = program_of(&mut open, &units).expect("the case repository does not compile");
 
@@ -147,9 +166,15 @@ fn a_context_constructor_is_named_by_the_module_that_declares_it() {
         "__lib_two_testing_fixture_buri$ctx$Fixture",
         "__lib_writer_test_writer_buri$ctx$Fixture",
     ];
-    let missing: Vec<&str> =
-        expected.iter().copied().filter(|w| !ctors.iter().any(|s| s == w)).collect();
-    assert!(missing.is_empty(), "the constructors {missing:?} are not in {ctors:?}");
+    let missing: Vec<&str> = expected
+        .iter()
+        .copied()
+        .filter(|w| !ctors.iter().any(|s| s == w))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "the constructors {missing:?} are not in {ctors:?}"
+    );
 }
 
 /// Every module the JavaScript backend writes loads under node.
@@ -245,7 +270,9 @@ export fn main(host: WebHost): Result<(), Str> {
             indent(&suite.all())
         );
 
-        scratch.run(&["build", "//cmd/rank", "//cmd/page", mode, "--force"]).ok();
+        scratch
+            .run(&["build", "//cmd/rank", "//cmd/page", mode, "--force"])
+            .ok();
         let binary = Command::new("node")
             .arg(scratch.artifact("cmd/rank"))
             .output()
@@ -255,7 +282,11 @@ export fn main(host: WebHost): Result<(), Str> {
             "the {mode} binary did not run under node:\n{}",
             String::from_utf8_lossy(&binary.stderr)
         );
-        assert_eq!(String::from_utf8_lossy(&binary.stdout), "true\n", "the {mode} binary");
+        assert_eq!(
+            String::from_utf8_lossy(&binary.stdout),
+            "true\n",
+            "the {mode} binary"
+        );
         let page = Command::new("node")
             .arg("--check")
             .arg(scratch.artifact_in("web", "cmd/page"))
@@ -282,8 +313,12 @@ fn program_of(open: &mut session::Session, units: &[Unit]) -> Option<Program> {
     if analysis.diagnostics.has_errors() {
         return None;
     }
-    let module_paths: Vec<String> =
-        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let module_paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
     let program = monomorphize::run(
         &analysis.checked,

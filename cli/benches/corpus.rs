@@ -208,12 +208,16 @@ fn own_delta(params: &str) -> Vec<&str> {
 /// The root of the checked-in corpora, resolved at compile time so that the
 /// benchmark finds them from any working directory.
 pub fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("benches").join("corpora")
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("benches")
+        .join("corpora")
 }
 
 /// Every corpus directory under `root`, in name order.
 pub fn discover(root: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(root) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
     let mut out: Vec<PathBuf> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
@@ -226,8 +230,7 @@ pub fn discover(root: &Path) -> Vec<PathBuf> {
 /// A corpus's manifest, without reading its source.
 pub fn manifest(dir: &Path) -> Result<Manifest, String> {
     let path = dir.join("manifest.txt");
-    let text =
-        std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     Manifest::parse(&text, &path)
 }
 
@@ -251,7 +254,10 @@ pub fn load(dir: &Path) -> Result<(Manifest, Program), String> {
     // on it.
     files.sort_by(|a, b| {
         let key = |p: &Path| {
-            let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            let stem = p
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
             (stem == "main", stem)
         };
         key(a).cmp(&key(b))
@@ -262,9 +268,15 @@ pub fn load(dir: &Path) -> Result<(Manifest, Program), String> {
 
     let mut modules = Vec::new();
     for f in &files {
-        let name = f.file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = f
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let text = std::fs::read_to_string(f).map_err(|e| format!("{}: {e}", f.display()))?;
-        modules.push(Module { path: format!("//bench/{name}"), text });
+        modules.push(Module {
+            path: format!("//bench/{name}"),
+            text,
+        });
     }
     let program = Program { modules };
 
@@ -402,12 +414,16 @@ pub fn record(
 /// spends no budget, so filing it there would mean teaching four functions to
 /// skip it.
 pub fn pinned_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("benches").join("pinned")
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("benches")
+        .join("pinned")
 }
 
 /// Every pinned manifest under `root`, in name order.
 pub fn discover_pinned(root: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(root) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return Vec::new();
+    };
     let mut out: Vec<PathBuf> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
@@ -419,8 +435,7 @@ pub fn discover_pinned(root: &Path) -> Vec<PathBuf> {
 
 /// A pinned manifest, without regenerating its source.
 pub fn pinned_manifest(path: &Path) -> Result<Manifest, String> {
-    let text =
-        std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     Manifest::parse(&text, path)
 }
 
@@ -439,10 +454,16 @@ fn pinned_params(m: &Manifest) -> Result<Params, String> {
             m.name, m.profile
         ));
     };
-    let mut params = Params { shape: profile.shape, ..Params::default() };
+    let mut params = Params {
+        shape: profile.shape,
+        ..Params::default()
+    };
     for pair in m.params.split_whitespace() {
         let Some((k, v)) = pair.split_once('=') else {
-            return Err(format!("{}: `{pair}` in `params` is not `key=value`", m.name));
+            return Err(format!(
+                "{}: `{pair}` in `params` is not `key=value`",
+                m.name
+            ));
         };
         params.set(k, v).map_err(|e| format!("{}: {e}", m.name))?;
     }
@@ -528,8 +549,7 @@ pub fn pin(
         digest: digest(program),
         native,
     };
-    std::fs::write(&path, manifest.render())
-        .map_err(|e| format!("{}: {e}", path.display()))?;
+    std::fs::write(&path, manifest.render()).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(manifest)
 }
 
@@ -539,7 +559,9 @@ pub fn total_bytes(root: &Path) -> u64 {
 }
 
 fn dir_bytes(dir: &Path) -> u64 {
-    let Ok(entries) = std::fs::read_dir(dir.join("src")) else { return 0 };
+    let Ok(entries) = std::fs::read_dir(dir.join("src")) else {
+        return 0;
+    };
     entries
         .filter_map(|e| e.ok())
         .filter_map(|e| e.metadata().ok())
@@ -571,12 +593,21 @@ pub fn write_repository(dir: &Path, program: &Program) -> Result<(), String> {
     let write = |path: PathBuf, text: &str| {
         std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
     };
-    write(dir.join("REPO.buri"), "# A benchmark corpus, written by cli/benches/corpus.rs.\n")?;
-    write(bench.join("BUILD.buri"), "binary {\n    outputs: [\n        { platform: \"native\" },\n    ]\n}\n")?;
+    write(
+        dir.join("REPO.buri"),
+        "# A benchmark corpus, written by cli/benches/corpus.rs.\n",
+    )?;
+    write(
+        bench.join("BUILD.buri"),
+        "binary {\n    outputs: [\n        { platform: \"native\" },\n    ]\n}\n",
+    )?;
     for m in &program.modules {
         let name = m.path.rsplit('/').next().unwrap_or("module.buri");
-        let text =
-            if name == "main.buri" { swap_host(&m.text, NODE_HOST, NATIVE_HOST) } else { m.text.clone() };
+        let text = if name == "main.buri" {
+            swap_host(&m.text, NODE_HOST, NATIVE_HOST)
+        } else {
+            m.text.clone()
+        };
         write(bench.join(name), &text)?;
     }
     Ok(())
@@ -598,9 +629,17 @@ pub fn load_repository(dir: &Path) -> Result<Program, String> {
     let mut modules = Vec::new();
     for name in names {
         let path = bench.join(&name);
-        let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let text = if name == "main.buri" { swap_host(&text, NATIVE_HOST, NODE_HOST) } else { text };
-        modules.push(Module { path: format!("//bench/{name}"), text });
+        let text =
+            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let text = if name == "main.buri" {
+            swap_host(&text, NATIVE_HOST, NODE_HOST)
+        } else {
+            text
+        };
+        modules.push(Module {
+            path: format!("//bench/{name}"),
+            text,
+        });
     }
     Ok(Program { modules })
 }

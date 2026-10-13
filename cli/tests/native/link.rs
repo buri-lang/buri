@@ -98,7 +98,10 @@ fn cc() -> String {
 /// Whether this machine can be asked any of the questions below.
 fn linkable() -> Option<Target> {
     let platform = link::host_platform()?;
-    let target = Target { platform, arch: link::host_arch() };
+    let target = Target {
+        platform,
+        arch: link::host_arch(),
+    };
     if Command::new(cc()).arg("--version").output().is_err() {
         return None;
     }
@@ -151,14 +154,22 @@ fn rows(units: &[Emitted], cached: &[bool]) -> Vec<Row> {
         .zip(cached)
         .map(|(u, c)| Row {
             unit: u.name.trim_end_matches(".o").to_string(),
-            key: u.key.as_ref().map(|k| k.as_str().to_string()).unwrap_or_default(),
+            key: u
+                .key
+                .as_ref()
+                .map(|k| k.as_str().to_string())
+                .unwrap_or_default(),
             cached: *c,
         })
         .collect()
 }
 
 fn options(target: Target) -> LinkOptions<'static> {
-    LinkOptions { profile: Profile::Debug, target, unit_prefix: "cmd/app" }
+    LinkOptions {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "cmd/app",
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -178,21 +189,40 @@ fn two_objects_link_into_a_program_that_runs() {
         return;
     };
     let dir = workspace("links");
-    let units = vec![emit(&dir, "lib_answer", &library(42)), emit(&dir, "main", MAIN)];
+    let units = vec![
+        emit(&dir, "lib_answer", &library(42)),
+        emit(&dir, "main", MAIN),
+    ];
     let linker = link::select(target).unwrap().in_dir(dir.join("link"));
 
     let out = dir.join("app");
-    ok(link::run(&units, &rows(&units, &[false, false]), &linker, &out, &options(target)));
+    ok(link::run(
+        &units,
+        &rows(&units, &[false, false]),
+        &linker,
+        &out,
+        &options(target),
+    ));
 
     let ran = crate::shared::run_artifact(&out);
-    assert!(ran.status.success(), "the linked program exited {:?}", ran.status.code());
+    assert!(
+        ran.status.success(),
+        "the linked program exited {:?}",
+        ran.status.code()
+    );
     assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=42\n");
 
     // The objects and the runtime archive are where the design says they are,
     // because a linker takes paths and `CDriver::link` takes bytes.
-    assert!(dir.join("link/lib_answer.o").exists(), "the object was not staged");
+    assert!(
+        dir.join("link/lib_answer.o").exists(),
+        "the object was not staged"
+    );
     assert!(dir.join("link/main.o").exists());
-    assert!(dir.join("link/manifest").exists(), "the link wrote no manifest");
+    assert!(
+        dir.join("link/manifest").exists(),
+        "the link wrote no manifest"
+    );
     println!("linked with {} ({})", linker.name(), linker.version());
 }
 
@@ -206,10 +236,19 @@ fn the_manifest_records_where_every_object_came_from() {
         return;
     };
     let dir = workspace("manifest");
-    let units = vec![emit(&dir, "lib_answer", &library(1)), emit(&dir, "main", MAIN)];
+    let units = vec![
+        emit(&dir, "lib_answer", &library(1)),
+        emit(&dir, "main", MAIN),
+    ];
     let linker = link::select(target).unwrap().in_dir(dir.join("link"));
     let rows = rows(&units, &[true, false]);
-    ok(link::run(&units, &rows, &linker, &dir.join("app"), &options(target)));
+    ok(link::run(
+        &units,
+        &rows,
+        &linker,
+        &dir.join("app"),
+        &options(target),
+    ));
 
     let read = crate::product_link::manifest(&dir.join("link")).expect("a manifest was written");
     assert_eq!(read, rows);
@@ -235,18 +274,30 @@ fn the_harness_links_and_compiles_for_the_products_target() {
     assert_eq!(crate::product_link::args(&dir), cc.platform_flags());
     let compile = crate::product_link::compile_args();
     if cc.libc() != LibcMode::MuslBaked {
-        assert!(compile.is_empty(), "a compile flag escaped the baked tier: {compile:?}");
+        assert!(
+            compile.is_empty(),
+            "a compile flag escaped the baked tier: {compile:?}"
+        );
         return;
     }
-    assert!(dir.join("musl/lib/rcrt1.o").exists(), "the static-PIE crt was not staged");
-    assert!(dir.join("musl/lib/libc.a").exists(), "musl's libc.a was not staged");
+    assert!(
+        dir.join("musl/lib/rcrt1.o").exists(),
+        "the static-PIE crt was not staged"
+    );
+    assert!(
+        dir.join("musl/lib/libc.a").exists(),
+        "musl's libc.a was not staged"
+    );
     let named = |flags: &[String]| flags.iter().find(|f| f.starts_with("--target=")).cloned();
     assert_eq!(
         named(&compile),
         named(&cc.platform_flags()),
         "the compile and the link name two different targets"
     );
-    assert!(named(&compile).is_some(), "the baked tier named no target at all");
+    assert!(
+        named(&compile).is_some(),
+        "the baked tier named no target at all"
+    );
 }
 
 /// Two links of the same objects, in two different directories, produce
@@ -265,7 +316,10 @@ fn two_links_of_one_set_of_objects_agree_byte_for_byte() {
         return;
     };
     let dir = workspace("reproducible");
-    let units = vec![emit(&dir, "lib_answer", &library(7)), emit(&dir, "main", MAIN)];
+    let units = vec![
+        emit(&dir, "lib_answer", &library(7)),
+        emit(&dir, "main", MAIN),
+    ];
     let cached = vec![false, false];
 
     let mut bytes = Vec::new();
@@ -274,7 +328,13 @@ fn two_links_of_one_set_of_objects_agree_byte_for_byte() {
         std::fs::create_dir_all(&round_dir).unwrap();
         let linker = link::select(target).unwrap().in_dir(round_dir.join("link"));
         let out = round_dir.join("app");
-        ok(link::run(&units, &rows(&units, &cached), &linker, &out, &options(target)));
+        ok(link::run(
+            &units,
+            &rows(&units, &cached),
+            &linker,
+            &out,
+            &options(target),
+        ));
         bytes.push(std::fs::read(&out).unwrap());
     }
     assert_eq!(
@@ -288,12 +348,20 @@ fn two_links_of_one_set_of_objects_agree_byte_for_byte() {
     // from content — which the byte comparison above holds it to. On Linux the
     // build id is still removed, and what is asserted is that it is gone.
     let load_commands = |path: &Path| -> String {
-        Command::new(if target.platform == Platform::Macos { "otool" } else { "readelf" })
-            .args(if target.platform == Platform::Macos { ["-l"] } else { ["-S"] })
-            .arg(path)
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default()
+        Command::new(if target.platform == Platform::Macos {
+            "otool"
+        } else {
+            "readelf"
+        })
+        .args(if target.platform == Platform::Macos {
+            ["-l"]
+        } else {
+            ["-S"]
+        })
+        .arg(path)
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
     };
     let dumped = load_commands(&dir.join("a/app"));
     if dumped.is_empty() {
@@ -335,9 +403,15 @@ fn concurrent_links_of_one_key_each_have_a_directory_of_their_own() {
         return;
     };
     let dir = workspace("concurrent");
-    let units = vec![emit(&dir, "lib_answer", &library(9)), emit(&dir, "main", MAIN)];
+    let units = vec![
+        emit(&dir, "lib_answer", &library(9)),
+        emit(&dir, "main", MAIN),
+    ];
     let cache = Cache::open(&dir);
-    let linker = link::select(target).unwrap().in_dir(dir.join("link")).from_cache(cache);
+    let linker = link::select(target)
+        .unwrap()
+        .in_dir(dir.join("link"))
+        .from_cache(cache);
     let rows = rows(&units, &[false, false]);
 
     const LINKS: usize = 12;
@@ -349,9 +423,14 @@ fn concurrent_links_of_one_key_each_have_a_directory_of_their_own() {
                 scope.spawn(move || {
                     let out = dir.join(format!("app-{n}"));
                     start.wait();
-                    let staged = link::run(units, rows, linker, &out, &options(target)).map_err(|d| {
-                        d.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n")
-                    });
+                    let staged =
+                        link::run(units, rows, linker, &out, &options(target)).map_err(|d| {
+                            d.items
+                                .iter()
+                                .map(|d| d.message.clone())
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        });
                     (out, staged)
                 })
             })
@@ -361,7 +440,9 @@ fn concurrent_links_of_one_key_each_have_a_directory_of_their_own() {
 
     let mut claimed = std::collections::BTreeSet::new();
     for (out, staged) in &linked {
-        let staged = staged.as_ref().unwrap_or_else(|e| panic!("a concurrent link failed:\n{e}"));
+        let staged = staged
+            .as_ref()
+            .unwrap_or_else(|e| panic!("a concurrent link failed:\n{e}"));
         assert!(
             claimed.insert(staged.path().to_path_buf()),
             "two concurrent links handed back the same file, {}",
@@ -380,14 +461,23 @@ fn concurrent_links_of_one_key_each_have_a_directory_of_their_own() {
     assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=9\n");
     drop(linked);
 
-    assert!(dir.join("link/manifest").exists(), "no link left its record");
+    assert!(
+        dir.join("link/manifest").exists(),
+        "no link left its record"
+    );
     let mut left: Vec<String> = std::fs::read_dir(&dir)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .filter(|name| !name.starts_with("app-") && !name.contains(".built.o") && !name.ends_with(".c"))
+        .filter(|name| {
+            !name.starts_with("app-") && !name.contains(".built.o") && !name.ends_with(".c")
+        })
         .collect();
     left.sort();
-    assert_eq!(left, [".buri", "link"], "the links left their own directories behind");
+    assert_eq!(
+        left,
+        [".buri", "link"],
+        "the links left their own directories behind"
+    );
 }
 
 /// A run never empties the cache, or `.buri/link`, under its own links (#248).
@@ -415,13 +505,19 @@ fn a_run_never_empties_the_cache_under_its_own_links() {
         return;
     };
     let dir = workspace("reopened");
-    let units = vec![emit(&dir, "lib_answer", &library(5)), emit(&dir, "main", MAIN)];
+    let units = vec![
+        emit(&dir, "lib_answer", &library(5)),
+        emit(&dir, "main", MAIN),
+    ];
     let cache = Cache::open(&dir);
     // The codegen entries, which every link hard-links its objects from.
     for unit in &units {
         cache.put(unit.key.as_ref().unwrap(), &unit.bytes);
     }
-    let linker = link::select(target).unwrap().in_dir(link::dir(&dir, "app")).from_cache(cache.clone());
+    let linker = link::select(target)
+        .unwrap()
+        .in_dir(link::dir(&dir, "app"))
+        .from_cache(cache.clone());
     let rows = rows(&units, &[true, true]);
 
     const LINKS: usize = 12;
@@ -441,7 +537,11 @@ fn a_run_never_empties_the_cache_under_its_own_links() {
         handles.into_iter().map(|h| h.join().unwrap()).collect()
     });
 
-    std::fs::write(dir.join(".buri/cache/.toolchain"), "a toolchain from before this run").unwrap();
+    std::fs::write(
+        dir.join(".buri/cache/.toolchain"),
+        "a toolchain from before this run",
+    )
+    .unwrap();
     let reopened = std::sync::Barrier::new(LINKS);
     std::thread::scope(|scope| {
         for (n, (out, staged)) in linked.iter().enumerate() {
@@ -466,9 +566,18 @@ fn a_run_never_empties_the_cache_under_its_own_links() {
             unit.name
         );
     }
-    assert!(link::dir(&dir, "app").join("manifest").exists(), "the run's link record was removed");
+    assert!(
+        link::dir(&dir, "app").join("manifest").exists(),
+        "the run's link record was removed"
+    );
     let out = dir.join("app-again");
-    drop(ok(link::run(&units, &rows, &linker, &out, &options(target))));
+    drop(ok(link::run(
+        &units,
+        &rows,
+        &linker,
+        &out,
+        &options(target),
+    )));
     let ran = crate::shared::run_artifact(&out);
     assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=5\n");
 }
@@ -483,28 +592,55 @@ fn a_link_reads_the_caches_objects_where_they_are() {
         return;
     };
     let dir = workspace("in-place");
-    let units = vec![emit(&dir, "lib_answer", &library(8)), emit(&dir, "main", MAIN)];
+    let units = vec![
+        emit(&dir, "lib_answer", &library(8)),
+        emit(&dir, "main", MAIN),
+    ];
     let copied = dir.join("app-copied");
-    let linker = link::select(target).unwrap().in_dir(link::dir(&dir, "copied"));
-    drop(ok(link::run(&units, &rows(&units, &[false, false]), &linker, &copied, &options(target))));
+    let linker = link::select(target)
+        .unwrap()
+        .in_dir(link::dir(&dir, "copied"));
+    drop(ok(link::run(
+        &units,
+        &rows(&units, &[false, false]),
+        &linker,
+        &copied,
+        &options(target),
+    )));
 
     let cache = Cache::open(&dir);
     for unit in &units {
         cache.put(unit.key.as_ref().unwrap(), &unit.bytes);
     }
     let read = dir.join("app-read");
-    let linker = link::select(target).unwrap().in_dir(link::dir(&dir, "read")).from_cache(cache);
-    drop(ok(link::run(&units, &rows(&units, &[true, true]), &linker, &read, &options(target))));
+    let linker = link::select(target)
+        .unwrap()
+        .in_dir(link::dir(&dir, "read"))
+        .from_cache(cache);
+    drop(ok(link::run(
+        &units,
+        &rows(&units, &[true, true]),
+        &linker,
+        &read,
+        &options(target),
+    )));
 
     let ran = crate::shared::run_artifact(&read);
     assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=8\n");
-    assert_eq!(std::fs::read(&read).unwrap(), std::fs::read(&copied).unwrap(), "naming the cache's files moved the bytes");
+    assert_eq!(
+        std::fs::read(&read).unwrap(),
+        std::fs::read(&copied).unwrap(),
+        "naming the cache's files moved the bytes"
+    );
     let staged: Vec<String> = std::fs::read_dir(link::dir(&dir, "read"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .filter(|name| name.ends_with(".o"))
         .collect();
-    assert!(staged.is_empty(), "the link copied the cache's objects: {staged:?}");
+    assert!(
+        staged.is_empty(),
+        "the link copied the cache's objects: {staged:?}"
+    );
 }
 
 /// Without a cache, a link directory's objects hold the units' bytes, even
@@ -517,13 +653,28 @@ fn a_staged_object_holds_its_units_bytes() {
         return;
     };
     let dir = workspace("unchanged");
-    let units = vec![emit(&dir, "lib_answer", &library(3)), emit(&dir, "main", MAIN)];
+    let units = vec![
+        emit(&dir, "lib_answer", &library(3)),
+        emit(&dir, "main", MAIN),
+    ];
     let linker = link::select(target).unwrap().in_dir(dir.join("link"));
     let out = dir.join("app");
-    ok(link::run(&units, &rows(&units, &[false, false]), &linker, &out, &options(target)));
+    ok(link::run(
+        &units,
+        &rows(&units, &[false, false]),
+        &linker,
+        &out,
+        &options(target),
+    ));
 
     let staged = dir.join("link/lib_answer.o");
-    ok(link::run(&units, &rows(&units, &[true, false]), &linker, &out, &options(target)));
+    ok(link::run(
+        &units,
+        &rows(&units, &[true, false]),
+        &linker,
+        &out,
+        &options(target),
+    ));
     assert_eq!(
         std::fs::read(&staged).unwrap(),
         units[0].bytes,
@@ -532,7 +683,13 @@ fn a_staged_object_holds_its_units_bytes() {
 
     let moved = emit(&dir, "lib_answer", &library(4));
     let units = vec![moved, emit(&dir, "main", MAIN)];
-    ok(link::run(&units, &rows(&units, &[true, true]), &linker, &out, &options(target)));
+    ok(link::run(
+        &units,
+        &rows(&units, &[true, true]),
+        &linker,
+        &out,
+        &options(target),
+    ));
     assert_eq!(std::fs::read(&staged).unwrap(), units[0].bytes);
     let ran = crate::shared::run_artifact(&out);
     assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=4\n");
@@ -591,8 +748,10 @@ fn the_archive_is_staged_and_linked_only_when_the_objects_name_it() {
     ] {
         let round_dir = dir.join(round);
         std::fs::create_dir_all(&round_dir).unwrap();
-        let units =
-            vec![emit(&round_dir, "lib_answer", &library(42)), emit(&round_dir, "main", main)];
+        let units = vec![
+            emit(&round_dir, "lib_answer", &library(42)),
+            emit(&round_dir, "main", main),
+        ];
         assert_eq!(
             link::runtime_archive_for(&units),
             want,
@@ -601,7 +760,13 @@ fn the_archive_is_staged_and_linked_only_when_the_objects_name_it() {
 
         let linker = link::select(target).unwrap().in_dir(round_dir.join("link"));
         let out = round_dir.join("app");
-        ok(link::run(&units, &rows(&units, &[false, false]), &linker, &out, &options(target)));
+        ok(link::run(
+            &units,
+            &rows(&units, &[false, false]),
+            &linker,
+            &out,
+            &options(target),
+        ));
 
         // The file is staged exactly when it is named: six megabytes written
         // into every link directory of every artifact that has no use for them
@@ -613,7 +778,11 @@ fn the_archive_is_staged_and_linked_only_when_the_objects_name_it() {
         );
 
         let ran = crate::shared::run_artifact(&out);
-        assert!(ran.status.success(), "the `{round}` program exited {:?}", ran.status.code());
+        assert!(
+            ran.status.success(),
+            "the `{round}` program exited {:?}",
+            ran.status.code()
+        );
         assert_eq!(String::from_utf8_lossy(&ran.stdout), "answer=42\n");
         sizes.push(std::fs::metadata(&out).unwrap().len());
     }
@@ -645,11 +814,18 @@ fn a_toolchain_with_no_archive_never_names_one() {
     if buri::compiler::backend::runtime_native::AVAILABLE {
         assert_eq!(decision, link::RuntimeArchive::Linked);
     } else {
-        assert_eq!(decision, link::RuntimeArchive::Omitted, "an absent archive was named");
+        assert_eq!(
+            decision,
+            link::RuntimeArchive::Omitted,
+            "an absent archive was named"
+        );
     }
     // And the empty set of objects references nothing, which is the degenerate
     // case `link::run` refuses one step later for a different reason.
-    assert_eq!(link::runtime_archive_for(&[]), link::RuntimeArchive::Omitted);
+    assert_eq!(
+        link::runtime_archive_for(&[]),
+        link::RuntimeArchive::Omitted
+    );
     let _ = target;
 }
 
@@ -678,17 +854,36 @@ fn every_unit_cached_never_reaches_the_backend() {
 
     let first = ok(actions::codegen_units(&cache, &keys, false, || {
         Ok(vec![
-            Emitted { name: "lib_answer.o".into(), key: Some(keys[0].1.clone()), bytes: b"AAAA".to_vec() },
-            Emitted { name: "main.o".into(), key: Some(keys[1].1.clone()), bytes: b"MMMM".to_vec() },
+            Emitted {
+                name: "lib_answer.o".into(),
+                key: Some(keys[0].1.clone()),
+                bytes: b"AAAA".to_vec(),
+            },
+            Emitted {
+                name: "main.o".into(),
+                key: Some(keys[1].1.clone()),
+                bytes: b"MMMM".to_vec(),
+            },
         ])
     }));
-    assert_eq!(first.iter().filter(|(_, cached)| *cached).count(), 0, "a first build hit");
+    assert_eq!(
+        first.iter().filter(|(_, cached)| *cached).count(),
+        0,
+        "a first build hit"
+    );
 
     let second = ok(actions::codegen_units(&cache, &keys, false, || {
         panic!("the backend was entered although every unit's key was unchanged")
     }));
-    assert!(second.iter().all(|(_, cached)| *cached), "an unchanged unit was re-emitted");
-    assert_eq!(second[0].0.bytes, b"AAAA".to_vec(), "a cached object came back wrong");
+    assert!(
+        second.iter().all(|(_, cached)| *cached),
+        "an unchanged unit was re-emitted"
+    );
+    assert_eq!(
+        second[0].0.bytes,
+        b"AAAA".to_vec(),
+        "a cached object came back wrong"
+    );
     assert_eq!(second[1].0.bytes, b"MMMM".to_vec());
 }
 
@@ -703,21 +898,51 @@ fn editing_one_unit_re_emits_exactly_that_unit() {
     let objects = |bytes: &'static [u8]| {
         move || {
             Ok(vec![
-                Emitted { name: "lib_answer.o".into(), key: Some(ActionKey::of(b"")), bytes: bytes.to_vec() },
-                Emitted { name: "main.o".into(), key: Some(ActionKey::of(b"")), bytes: b"MMMM".to_vec() },
+                Emitted {
+                    name: "lib_answer.o".into(),
+                    key: Some(ActionKey::of(b"")),
+                    bytes: bytes.to_vec(),
+                },
+                Emitted {
+                    name: "main.o".into(),
+                    key: Some(ActionKey::of(b"")),
+                    bytes: b"MMMM".to_vec(),
+                },
             ])
         }
     };
-    ok(actions::codegen_units(&cache, &before, false, objects(b"AAAA")));
+    ok(actions::codegen_units(
+        &cache,
+        &before,
+        false,
+        objects(b"AAAA"),
+    ));
 
     // One module edited: its unit's IR hash moves and the other's does not.
     let after = keys(&[("lib_answer", "fn answer -> 2"), ("main", "fn main")]);
-    let built = ok(actions::codegen_units(&cache, &after, false, objects(b"BBBB")));
+    let built = ok(actions::codegen_units(
+        &cache,
+        &after,
+        false,
+        objects(b"BBBB"),
+    ));
 
     let statuses: Vec<bool> = built.iter().map(|(_, cached)| *cached).collect();
-    assert_eq!(statuses, vec![false, true], "the edit did not stop at the unit it was in");
-    assert_eq!(built[0].0.bytes, b"BBBB".to_vec(), "the edited unit was served from the cache");
-    assert_eq!(built[1].0.bytes, b"MMMM".to_vec(), "the sibling was re-emitted");
+    assert_eq!(
+        statuses,
+        vec![false, true],
+        "the edit did not stop at the unit it was in"
+    );
+    assert_eq!(
+        built[0].0.bytes,
+        b"BBBB".to_vec(),
+        "the edited unit was served from the cache"
+    );
+    assert_eq!(
+        built[1].0.bytes,
+        b"MMMM".to_vec(),
+        "the sibling was re-emitted"
+    );
 
     // And the new object was stored, so going back is a hit in both units.
     let again = ok(actions::codegen_units(&cache, &after, false, || {
@@ -764,12 +989,30 @@ fn the_link_key_is_the_ordered_units_and_the_linker() {
     let linker = link::select(target).unwrap();
     let key = |units: &[&str]| {
         let keys: Vec<ActionKey> = units.iter().map(|u| ActionKey::of(u.as_bytes())).collect();
-        actions::link_key_of(BuildMode::Debug, target, &linker.identity(), &keys, link::RuntimeArchive::Linked)
+        actions::link_key_of(
+            BuildMode::Debug,
+            target,
+            &linker.identity(),
+            &keys,
+            link::RuntimeArchive::Linked,
+        )
     };
     assert_eq!(key(&["a", "b"]), key(&["a", "b"]));
-    assert_ne!(key(&["a", "b"]), key(&["b", "a"]), "link order is not in the key");
-    assert_ne!(key(&["a", "b"]), key(&["a", "c"]), "a unit's key is not in the link key");
-    assert_ne!(key(&["a", "b"]), key(&["a"]), "the unit count is not in the link key");
+    assert_ne!(
+        key(&["a", "b"]),
+        key(&["b", "a"]),
+        "link order is not in the key"
+    );
+    assert_ne!(
+        key(&["a", "b"]),
+        key(&["a", "c"]),
+        "a unit's key is not in the link key"
+    );
+    assert_ne!(
+        key(&["a", "b"]),
+        key(&["a"]),
+        "the unit count is not in the link key"
+    );
 
     // A linker that is only its name and version, which is all the key sees.
     let named = |name: &str| link::LinkerIdentity {
@@ -823,7 +1066,8 @@ fn the_link_key_moves_with_the_libc() {
 
     let one = [ActionKey::of(b"a")];
     let linked = link::RuntimeArchive::Linked;
-    let key = |identity| actions::link_key_of(BuildMode::Debug, target, &libc(identity), &one, linked);
+    let key =
+        |identity| actions::link_key_of(BuildMode::Debug, target, &libc(identity), &one, linked);
 
     let baked = key("musl-baked");
     let system = key("musl-system");
@@ -835,7 +1079,11 @@ fn the_link_key_moves_with_the_libc() {
     // must still hit.
     assert_eq!(baked, key("musl-baked"));
     // And an empty term is its own key rather than an alias of any of them.
-    assert_ne!(baked, key(""), "an empty libc term collides with a real one");
+    assert_ne!(
+        baked,
+        key(""),
+        "an empty libc term collides with a real one"
+    );
 }
 
 /// The archive decision moves the `link` key, and moves it **only** when it
@@ -860,12 +1108,21 @@ fn the_link_key_moves_with_the_archive_decision_and_not_otherwise() {
     let linker = link::select(target).unwrap();
     let units = [ActionKey::of(b"a"), ActionKey::of(b"b")];
     let key = |runtime| {
-        actions::link_key_of(BuildMode::Debug, target, &linker.identity(), &units, runtime)
+        actions::link_key_of(
+            BuildMode::Debug,
+            target,
+            &linker.identity(),
+            &units,
+            runtime,
+        )
     };
     let linked = key(link::RuntimeArchive::Linked);
     let omitted = key(link::RuntimeArchive::Omitted);
 
-    assert_ne!(linked, omitted, "the archive decision is not in the link key");
+    assert_ne!(
+        linked, omitted,
+        "the archive decision is not in the link key"
+    );
     // Stable: the same decision over the same inputs is the same key, so a
     // rebuild of an unchanged program hits.
     assert_eq!(
@@ -887,7 +1144,13 @@ fn the_link_key_moves_with_the_archive_decision_and_not_otherwise() {
         assert_ne!(of(&units), of(&units[..1]), "the unit count left the key");
         assert_ne!(
             of(&units),
-            actions::link_key_of(BuildMode::Release, target, &linker.identity(), &units, runtime),
+            actions::link_key_of(
+                BuildMode::Release,
+                target,
+                &linker.identity(),
+                &units,
+                runtime
+            ),
             "the build mode left the key"
         );
     }
@@ -905,8 +1168,14 @@ fn the_link_key_moves_with_the_archive_decision_and_not_otherwise() {
 /// rather than on the old "host only" one.
 #[test]
 fn a_native_output_is_refused_until_a_backend_and_a_runtime_are_both_present() {
-    let js = Target { platform: Platform::Js, arch: None };
-    assert!(!actions::native_ready(js, Profile::Debug), "js took the native path");
+    let js = Target {
+        platform: Platform::Js,
+        arch: None,
+    };
+    assert!(
+        !actions::native_ready(js, Profile::Debug),
+        "js took the native path"
+    );
 
     for platform in [Platform::Linux, Platform::Macos] {
         for arch in [None, Some(Arch::X86_64), Some(Arch::Arm64)] {
@@ -934,7 +1203,10 @@ fn a_native_output_is_refused_until_a_backend_and_a_runtime_are_both_present() {
         buri::compiler::backend::select(t, Profile::Debug).is_ok()
             && buri::compiler::backend::runtime_native::AVAILABLE
     };
-    let linux = Target { platform: Platform::Linux, arch: Some(Arch::X86_64) };
+    let linux = Target {
+        platform: Platform::Linux,
+        arch: Some(Arch::X86_64),
+    };
     if backend_and_archive(linux) {
         assert!(
             actions::native_ready(linux, Profile::Debug),
@@ -943,7 +1215,13 @@ fn a_native_output_is_refused_until_a_backend_and_a_runtime_are_both_present() {
     }
     if link::host_platform() == Some(Platform::Linux) {
         assert!(
-            !actions::native_ready(Target { platform: Platform::Macos, arch: None }, Profile::Debug),
+            !actions::native_ready(
+                Target {
+                    platform: Platform::Macos,
+                    arch: None
+                },
+                Profile::Debug
+            ),
             "a Linux host cannot build a macOS artifact"
         );
     }

@@ -19,10 +19,10 @@
     reason = "every operand is a count of things already in memory — nodes in a body, functions in the program, slots in one function's local table — and nothing here subtracts, so no sum or product can leave the range of the machine holding them"
 )]
 
-use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Stmt};
-use crate::compiler::semantics::types::LocalId;
 use crate::compiler::middle::monomorphize::{Func, Program};
 use crate::compiler::middle::{resolved, strongly_connected};
+use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Stmt};
+use crate::compiler::semantics::types::LocalId;
 use crate::diagnostics::Invariant as _;
 
 /// How many times the pipeline may run.
@@ -102,8 +102,12 @@ pub fn run(program: &mut Program) -> Stats {
 /// and whose callees' facts are the same would make every decision it made last
 /// time, and inline and fold nothing again. Skipping it is the same answer.
 fn revisit(dirty: &mut [bool], own: &[Own], now: &Facts, before: &Facts) {
-    let moved: Vec<bool> =
-        now.per_func.iter().zip(&before.per_func).map(|(a, b)| a != b).collect();
+    let moved: Vec<bool> = now
+        .per_func
+        .iter()
+        .zip(&before.per_func)
+        .map(|(a, b)| a != b)
+        .collect();
     for (d, o) in dirty.iter_mut().zip(own) {
         if !*d {
             *d = o.callees().any(|j| moved.get(j) == Some(&true));
@@ -173,7 +177,11 @@ fn fold_expr(e: &mut Expr) -> usize {
                 _ => return n,
             };
             // The checker keeps `index` inside the record or tuple it reads.
-            if !fields.iter().enumerate().all(|(i, f)| i == index || discardable(f)) {
+            if !fields
+                .iter()
+                .enumerate()
+                .all(|(i, f)| i == index || discardable(f))
+            {
                 return n;
             }
             fields.swap_remove(index)
@@ -181,8 +189,13 @@ fn fold_expr(e: &mut Expr) -> usize {
         // `S { ..S { a: x, b: y }, b: z }` is `S { a: x, b: z }`, provided the
         // `y` it replaces had nothing to do.
         ExprKind::StructUpdate { base, updates, .. } => {
-            let ExprKind::StructLit { con, targs, fields } = &mut base.kind else { return n };
-            if !updates.iter().all(|(i, _)| fields.get(*i).is_some_and(discardable)) {
+            let ExprKind::StructLit { con, targs, fields } = &mut base.kind else {
+                return n;
+            };
+            if !updates
+                .iter()
+                .all(|(i, _)| fields.get(*i).is_some_and(discardable))
+            {
                 return n;
             }
             let (con, targs) = (*con, targs.clone());
@@ -190,7 +203,10 @@ fn fold_expr(e: &mut Expr) -> usize {
             // Every index was just checked against this vector, which nothing
             // has resized since.
             for (i, v) in std::mem::take(updates) {
-                #[expect(clippy::indexing_slicing, reason = "checked against `fields` just above")]
+                #[expect(
+                    clippy::indexing_slicing,
+                    reason = "checked against `fields` just above"
+                )]
                 let slot = &mut fields[i];
                 *slot = v;
             }
@@ -258,7 +274,12 @@ struct Own {
 
 impl Own {
     fn of(func: &Func) -> Own {
-        let mut own = Own { size: 0, has_try: false, edges: Vec::new(), folds: false };
+        let mut own = Own {
+            size: 0,
+            has_try: false,
+            edges: Vec::new(),
+            folds: false,
+        };
         let Some(body) = func.body() else { return own };
         typed::walk(body, &mut |e| {
             own.size += 1;
@@ -300,7 +321,10 @@ impl Facts {
         let mut edges: Vec<Vec<usize>> = Vec::with_capacity(own.len());
         for o in own {
             for (j, call) in &o.edges {
-                #[expect(clippy::indexing_slicing, reason = "an edge names a function of the program")]
+                #[expect(
+                    clippy::indexing_slicing,
+                    reason = "an edge names a function of the program"
+                )]
                 let row = &mut f.per_func[*j];
                 if *call {
                     row.calls += 1;
@@ -318,7 +342,10 @@ impl Facts {
         for group in strongly_connected(&edges).iter() {
             if group.len() > 1 {
                 for &i in group {
-                    #[expect(clippy::indexing_slicing, reason = "a component's members are functions of the program")]
+                    #[expect(
+                        clippy::indexing_slicing,
+                        reason = "a component's members are functions of the program"
+                    )]
                     let row = &mut f.per_func[i];
                     row.recursive = true;
                 }
@@ -345,7 +372,10 @@ impl Facts {
 
     /// The half of [`Facts::may_inline`] that is about the callee alone, and
     /// so is fixed for a whole round.
-    #[expect(clippy::indexing_slicing, reason = "a callee is a function of the program")]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "a callee is a function of the program"
+    )]
     fn inlinable(&self, callee: usize) -> bool {
         let c = &self.per_func[callee];
         if c.recursive || c.has_try {
@@ -377,22 +407,38 @@ impl Facts {
 /// respect it, one pool start per level, measured slower than this on every
 /// corpus: thread start and stack teardown cost more than the work they
 /// shared. `buri test` already prepares one program per job thread.
-#[expect(clippy::indexing_slicing, reason = "`i` ranges over the program's functions, and `done` has one slot each")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`i` ranges over the program's functions, and `done` has one slot each"
+)]
 fn inline_round(program: &mut Program, facts: &Facts, dirty: &[bool], own: &[Own]) -> Vec<usize> {
     let n = program.funcs.len();
     let mut done = vec![0usize; n];
     for i in (0..n).filter(|i| dirty.get(*i) == Some(&true)) {
         // A body that calls nothing inlinable would be walked to inline nothing.
-        if own.get(i).is_some_and(|o| !o.callees().any(|j| j != i && facts.inlinable(j))) {
+        if own
+            .get(i)
+            .is_some_and(|o| !o.callees().any(|j| j != i && facts.inlinable(j)))
+        {
             continue;
         }
         // Only a body calls anything, so one that got this far has one.
         let func = &mut program.funcs[i];
-        let mut body = func.take_body().or_ice("a function that calls something has a body");
+        let mut body = func
+            .take_body()
+            .or_ice("a function that calls something has a body");
         let mut locals = std::mem::take(&mut func.locals);
         let mut size = facts.size(i);
         let mut count = 0;
-        inline_expr(&mut body, program, facts, facts.limit(i), &mut locals, &mut size, &mut count);
+        inline_expr(
+            &mut body,
+            program,
+            facts,
+            facts.limit(i),
+            &mut locals,
+            &mut size,
+            &mut count,
+        );
         let func = &mut program.funcs[i];
         func.set_body(body);
         func.locals = locals;
@@ -412,7 +458,10 @@ fn fold_round(program: &mut Program, dirty: &[bool], inlined: &[usize], own: &[O
         let pasted = inlined.get(i).is_some_and(|n| *n > 0);
         let folds = own.get(i).is_none_or(|o| o.folds);
         if dirty.get(i) == Some(&true) && (pasted || folds) {
-            *slot = fold_expr(f.body_mut().or_ice("a function with something to fold has a body"));
+            *slot = fold_expr(
+                f.body_mut()
+                    .or_ice("a function with something to fold has a body"),
+            );
         }
     }
     folded
@@ -434,11 +483,18 @@ fn inline_expr(
         inline_expr(child, program, facts, limit, locals, size, done);
     });
 
-    let ExprKind::CallFn { func, args } = &mut e.kind else { return };
+    let ExprKind::CallFn { func, args } = &mut e.kind else {
+        return;
+    };
     let callee = resolved(func);
-    #[expect(clippy::indexing_slicing, reason = "a callee is a function of the program")]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "a callee is a function of the program"
+    )]
     let target = &program.funcs[callee];
-    let Some(callee_body) = target.body() else { return };
+    let Some(callee_body) = target.body() else {
+        return;
+    };
     // The checker gave the call one argument per parameter.
     if !facts.may_inline(callee, *size, limit) {
         return;
@@ -480,7 +536,10 @@ fn inline_expr(
 
     *size += facts.size(callee);
     *done += 1;
-    e.kind = ExprKind::Block { stmts, tail: Some(Box::new(body)) };
+    e.kind = ExprKind::Block {
+        stmts,
+        tail: Some(Box::new(body)),
+    };
 }
 
 /// Every local id in an expression, moved by `offset`.
@@ -491,7 +550,9 @@ fn inline_expr(
 pub(crate) fn shift_expr(e: &mut Expr, offset: u32) {
     match &mut e.kind {
         ExprKind::Local(l) => l.0 += offset,
-        ExprKind::Lambda { params, captures, .. } => {
+        ExprKind::Lambda {
+            params, captures, ..
+        } => {
             params.iter_mut().for_each(|p| p.0 += offset);
             captures.iter_mut().for_each(|c| c.0 += offset);
         }
@@ -525,9 +586,9 @@ fn shift_pattern(p: &mut typed::Pattern, offset: u32) {
             }
         }
         PatKind::Tuple(ps) => ps.iter_mut().for_each(|p| shift_pattern(p, offset)),
-        PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
-            fields.iter_mut().for_each(|f| shift_pattern(&mut f.pattern, offset))
-        }
+        PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => fields
+            .iter_mut()
+            .for_each(|f| shift_pattern(&mut f.pattern, offset)),
         PatKind::Array { elems, rest } => {
             elems.iter_mut().for_each(|p| shift_pattern(p, offset));
             if let typed::ArrayRest::Bound(l) = rest {
@@ -562,12 +623,16 @@ fn mentioned(e: &Expr, out: &mut std::collections::HashSet<u32>) {
 mod tests {
     use super::*;
     use crate::compiler::semantics::name::Name;
-    use crate::diagnostics::{FileId, Span};
     use crate::compiler::semantics::types::Ty;
+    use crate::diagnostics::{FileId, Span};
     use std::collections::HashSet;
 
     fn span() -> Span {
-        Span { file: FileId(0), start: 0, end: 0 }
+        Span {
+            file: FileId(0),
+            start: 0,
+            end: 0,
+        }
     }
 
     fn e(kind: ExprKind) -> Expr {
@@ -603,7 +668,9 @@ mod tests {
     fn program(funcs: Vec<Func>) -> Program {
         Program {
             funcs,
-            roots: crate::compiler::middle::monomorphize::ProgramRoots::Main(crate::compiler::semantics::types::FuncIdx(0)),
+            roots: crate::compiler::middle::monomorphize::ProgramRoots::Main(
+                crate::compiler::semantics::types::FuncIdx(0),
+            ),
             descriptors: Vec::new(),
             desc_modules: Vec::new(),
             desc_index: Default::default(),
@@ -623,7 +690,10 @@ mod tests {
     }
 
     fn call(i: usize, args: Vec<Expr>) -> Expr {
-        e(ExprKind::CallFn { func: typed::Callee::Func(crate::compiler::semantics::types::FuncIdx(i as u32)), args })
+        e(ExprKind::CallFn {
+            func: typed::Callee::Func(crate::compiler::semantics::types::FuncIdx(i as u32)),
+            args,
+        })
     }
 
     /// `double(x) = x + x`, called once. The call becomes a block that binds
@@ -665,7 +735,11 @@ mod tests {
         let mut p = program(vec![main, callee]);
 
         run(&mut p);
-        assert_eq!(p.funcs[0].locals.len(), 5, "the callee's locals were not appended");
+        assert_eq!(
+            p.funcs[0].locals.len(),
+            5,
+            "the callee's locals were not appended"
+        );
 
         let mut ids = HashSet::new();
         mentioned(p.funcs[0].body().unwrap(), &mut ids);
@@ -674,7 +748,10 @@ mod tests {
             "an id escaped the caller's table: {ids:?}"
         );
         // The callee's parameter is now slot 3, not slot 0.
-        assert!(ids.contains(&3), "the callee's parameter was not shifted: {ids:?}");
+        assert!(
+            ids.contains(&3),
+            "the callee's parameter was not shifted: {ids:?}"
+        );
     }
 
     /// `?` compiles to a `return` in the enclosing function, so a body holding
@@ -755,7 +832,11 @@ mod tests {
             index: 1,
         });
         assert_eq!(fold_expr(&mut x), 1);
-        assert!(matches!(x.kind, ExprKind::Int(m, false) if m.get() == 2), "{:?}", x.kind);
+        assert!(
+            matches!(x.kind, ExprKind::Int(m, false) if m.get() == 2),
+            "{:?}",
+            x.kind
+        );
     }
 
     /// The field being stepped over has to have nothing to do: a call there is
@@ -783,8 +864,10 @@ mod tests {
 
     #[test]
     fn a_block_that_binds_nothing_is_its_tail() {
-        let mut x =
-            e(ExprKind::Block { stmts: Vec::new(), tail: Some(Box::new(int(7))) });
+        let mut x = e(ExprKind::Block {
+            stmts: Vec::new(),
+            tail: Some(Box::new(int(7))),
+        });
         assert_eq!(fold_expr(&mut x), 1);
         assert!(matches!(x.kind, ExprKind::Int(m, false) if m.get() == 7));
     }

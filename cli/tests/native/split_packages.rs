@@ -17,7 +17,10 @@ fn split_corpus() -> (PathBuf, Vec<String>) {
     let repo = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("native-split-packages-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&repo);
-    copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance"), &repo);
+    copy(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance"),
+        &repo,
+    );
     let mut packages = Vec::new();
     for package in crate::conformance::javascript_only_packages() {
         let dir = repo.join("lib").join(package);
@@ -67,18 +70,29 @@ fn the_native_files_of_javascript_only_packages_pass_on_the_debug_backend() {
         return;
     }
     let (repo, packages) = split_corpus();
-    assert!(packages.len() >= 3, "only {packages:?} have native-set files");
+    assert!(
+        packages.len() >= 3,
+        "only {packages:?} have native-set files"
+    );
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
     cmd.current_dir(&repo).arg("test").args(&packages);
     let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
-    let summary = ran.stdout.lines().find(|l| l.contains(" passed, ")).unwrap_or_default();
+    let summary = ran
+        .stdout
+        .lines()
+        .find(|l| l.contains(" passed, "))
+        .unwrap_or_default();
     assert!(
         ran.status == 0 && summary.contains(" 0 failed, 0 skipped"),
         "{packages:?} on the debug backend:\n{}\n{}",
         ran.stdout,
         ran.stderr
     );
-    let passed: usize = summary.split(' ').next().and_then(|n| n.parse().ok()).unwrap_or(0);
+    let passed: usize = summary
+        .split(' ')
+        .next()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(0);
     assert!(passed >= 300, "only {passed} tests ran: {summary}");
     let _ = std::fs::remove_dir_all(&repo);
 }

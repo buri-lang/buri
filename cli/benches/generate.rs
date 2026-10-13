@@ -376,9 +376,9 @@ impl Params {
             parsed.map_err(|_| format!("`{v}` is not a number"))
         }
         fn range(v: &str) -> Result<(u32, u32), String> {
-            let (lo, hi) = v.split_once("..").ok_or_else(|| {
-                format!("`{v}` is not a range; write it as `lo..hi`, inclusive")
-            })?;
+            let (lo, hi) = v
+                .split_once("..")
+                .ok_or_else(|| format!("`{v}` is not a range; write it as `lo..hi`, inclusive"))?;
             let lo = number(lo)? as u32;
             let hi = number(hi)? as u32;
             if hi < lo {
@@ -491,7 +491,13 @@ impl Params {
             ident_len,
             reach,
         );
-        pair!(fanout, fields_per_struct, variants_per_enum, body_lets, match_arms);
+        pair!(
+            fanout,
+            fields_per_struct,
+            variants_per_enum,
+            body_lets,
+            match_arms
+        );
         if self.seed != d.seed {
             out.push(format!("seed={:#018x}", self.seed));
         }
@@ -831,7 +837,9 @@ fn mixed(p: &Params) -> Program {
                 }
             }
         }
-        let want_here = p.lines_per_module.min(p.lines.saturating_sub(emitted).max(40));
+        let want_here = p
+            .lines_per_module
+            .min(p.lines.saturating_sub(emitted).max(40));
         let emitted_text = mixed_module(index, &deps, want_here, p, &mut rng, &mut aux);
         let text = laid_out(&path, surface(emitted_text, p));
         emitted += nonblank_lines(&text);
@@ -953,8 +961,10 @@ fn mixed_module(
         for (i, d) in deps.iter().enumerate() {
             s.push_str(&format!("  let d{i} = blend{d}(base) + seed{d}();\n"));
         }
-        let sum: String =
-            (0..deps.len()).map(|i| format!("d{i}")).collect::<Vec<_>>().join(" + ");
+        let sum: String = (0..deps.len())
+            .map(|i| format!("d{i}"))
+            .collect::<Vec<_>>()
+            .join(" + ");
         s.push_str(&format!("  {sum} + seed{index}()\n}}\n\n"));
     }
 
@@ -1052,7 +1062,10 @@ fn chunk_record_struct(out: &mut String, index: usize, name: &str, params: &Para
         out.push_str(&format!("  export f{f}: {},\n", types[f % types.len()]));
     }
     out.push_str("}\n\n");
-    out.push_str(&derive_clause(params.derives, &format!("Rec{index}_{name}")));
+    out.push_str(&derive_clause(
+        params.derives,
+        &format!("Rec{index}_{name}"),
+    ));
     // Both bodies read fields, and the field count is a dimension: a body that
     // names `f1` on a struct drawn with one field is a program that does not
     // compile. Two fields is the low end of the default range, so what those
@@ -1066,7 +1079,11 @@ fn chunk_record_struct(out: &mut String, index: usize, name: &str, params: &Para
         .map(|f| format!("${{self.f{f}}}"))
         .collect::<Vec<_>>()
         .join("/");
-    let shown = if fields == 0 { String::new() } else { format!(": {shown}") };
+    let shown = if fields == 0 {
+        String::new()
+    } else {
+        format!(": {shown}")
+    };
     out.push_str(&format!(
         "impl Rec{index}_{name} {{\n\
          \x20 /// A pure accessor, of the kind that is most of a real impl block.\n\
@@ -1129,7 +1146,10 @@ fn chunk_enum(out: &mut String, index: usize, name: &str, params: &Params, rng: 
         out.push_str(&format!("  Step{v}(Int, Str),\n"));
     }
     out.push_str("}\n\n");
-    out.push_str(&derive_clause(params.derives, &format!("State{index}_{name}")));
+    out.push_str(&derive_clause(
+        params.derives,
+        &format!("State{index}_{name}"),
+    ));
     out.push_str(&format!(
         "/// The match every enum in a real program has somewhere.\n\
          export fn rank{index}_{name}(state: State{index}_{name}): Int {{\n\
@@ -1294,8 +1314,11 @@ fn chunk_match_fn(
     // `match_arms = 0..0` emits nothing and takes no draw — not even from the
     // auxiliary stream, so that the corpus is identical under any future
     // change to the ones that do.
-    let arms =
-        if params.match_arms.1 == 0 { 0 } else { auxiliary.span(params.match_arms) as usize };
+    let arms = if params.match_arms.1 == 0 {
+        0
+    } else {
+        auxiliary.span(params.match_arms) as usize
+    };
     let bucket = if arms == 0 {
         String::new()
     } else {
@@ -1312,7 +1335,11 @@ fn chunk_match_fn(
         b
     };
     out.push_str(&bucket);
-    let extra = if arms == 0 { String::new() } else { format!(" + bucket{index}_{name}(3)") };
+    let extra = if arms == 0 {
+        String::new()
+    } else {
+        format!(" + bucket{index}_{name}(3)")
+    };
     out.push_str(&format!(
         "/// Reaches everything above from one call. See `reach` below.\n\
          export fn probe{index}_{name}<C: Allocator>(ctx: C): Int {{\n\
@@ -1327,7 +1354,9 @@ fn chunk_match_fn(
 }
 
 fn chunk_string_fn(out: &mut String, index: usize, name: &str, rng: &mut Rng) {
-    let words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"];
+    let words = [
+        "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
+    ];
     let w0 = rng.pick(&words);
     let w1 = rng.pick(&words);
     out.push_str(&format!(
@@ -1408,7 +1437,9 @@ fn main_module(count: usize, p: &Params) -> String {
     s.push_str("from \"platform/effect\" import { Allocator };\n");
     s.push_str("from \"node\" import { NodeHost };\n");
     for i in 0..count {
-        s.push_str(&format!("from \"//bench/m{i:04}.buri\" import {{ blend{i}, reach{i} }};\n"));
+        s.push_str(&format!(
+            "from \"//bench/m{i:04}.buri\" import {{ blend{i}, reach{i} }};\n"
+        ));
     }
     if count > MODULES_PER_PART {
         return main_module_parts(s, count, p);
@@ -1503,7 +1534,11 @@ fn surface(text: String, p: &Params) -> String {
     let mut since_blank = 0usize;
     // A blank every `stride` lines. `blank_pct` is capped at 90 by `set`, so
     // the stride is at least 1.
-    let stride = if p.blank_pct == 0 { 0 } else { (100 / p.blank_pct.max(1)).max(1) as usize };
+    let stride = if p.blank_pct == 0 {
+        0
+    } else {
+        (100 / p.blank_pct.max(1)).max(1) as usize
+    };
     for line in text.lines() {
         let trimmed = line.trim_start();
         let is_doc = trimmed.starts_with("///") || trimmed.starts_with("//!");
@@ -1585,7 +1620,9 @@ fn deep_nesting(target_lines: usize) -> Program {
     s.push_str("    ;\n  if (total == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
     let path = "//bench/main.buri".to_string();
     let text = laid_out(&path, s);
-    Program { modules: vec![Module { path, text }] }
+    Program {
+        modules: vec![Module { path, text }],
+    }
 }
 
 /// One enum with thousands of variants and one match covering all of them.
@@ -1608,7 +1645,9 @@ fn wide_match(target_lines: usize) -> Program {
     s.push_str("  if (classify(.V0(1)) == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
     let path = "//bench/main.buri".to_string();
     let text = laid_out(&path, s);
-    Program { modules: vec![Module { path, text }] }
+    Program {
+        modules: vec![Module { path, text }],
+    }
 }
 
 /// Thousands of small functions, spread over modules the way real code would
@@ -1636,7 +1675,10 @@ fn many_small(target_lines: usize) -> Program {
         let here = per_module.min(total - made);
         for i in 0..here {
             let g = made + i;
-            s.push_str(&format!("export fn tiny{g}(x: Int): Int {{ x + {} }}\n\n", g % 251));
+            s.push_str(&format!(
+                "export fn tiny{g}(x: Int): Int {{ x + {} }}\n\n",
+                g % 251
+            ));
         }
         // One call per function, so none of them is dead: a `main` naming one
         // function per module would leave the other 399 out of the reachable
@@ -1651,9 +1693,12 @@ fn many_small(target_lines: usize) -> Program {
         let text = laid_out(&path, s);
         modules.push(Module { path, text });
     }
-    let mut main = String::from("//! Stress shape entry point.\n\nfrom \"node\" import { NodeHost };\n\n");
+    let mut main =
+        String::from("//! Stress shape entry point.\n\nfrom \"node\" import { NodeHost };\n\n");
     for m in 0..module_count {
-        main.push_str(&format!("from \"//bench/m{m:04}.buri\" import {{ all{m} }};\n"));
+        main.push_str(&format!(
+            "from \"//bench/m{m:04}.buri\" import {{ all{m} }};\n"
+        ));
     }
     main.push_str("\nexport fn main(host: NodeHost): Result<(), Str> {\n  let total = 0\n");
     for m in 0..module_count {
@@ -1671,9 +1716,13 @@ fn many_small(target_lines: usize) -> Program {
 fn few_large(target_lines: usize) -> Program {
     let body = 1_000usize;
     let count = (target_lines / body).max(1);
-    let mut s = String::from("//! Stress shape: few large functions.\n\nfrom \"node\" import { NodeHost };\n\n");
+    let mut s = String::from(
+        "//! Stress shape: few large functions.\n\nfrom \"node\" import { NodeHost };\n\n",
+    );
     for f in 0..count {
-        s.push_str(&format!("export fn large{f}(x: Int): Int {{\n  let v0 = x + 1;\n"));
+        s.push_str(&format!(
+            "export fn large{f}(x: Int): Int {{\n  let v0 = x + 1;\n"
+        ));
         for i in 1..body {
             s.push_str(&format!("  let v{i} = v{} + {};\n", i - 1, i % 89));
         }
@@ -1686,5 +1735,7 @@ fn few_large(target_lines: usize) -> Program {
     s.push_str("    ;\n  if (total == 0) { .Err(\"zero\") } else { .Ok(()) }\n}\n");
     let path = "//bench/main.buri".to_string();
     let text = laid_out(&path, s);
-    Program { modules: vec![Module { path, text }] }
+    Program {
+        modules: vec![Module { path, text }],
+    }
 }

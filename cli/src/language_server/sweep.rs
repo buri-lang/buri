@@ -70,7 +70,10 @@ impl Mode {
     /// What `BURI_LSP_ANALYSIS` asked for, and asynchronous otherwise — a word
     /// nobody recognises is not a reason to answer differently.
     pub fn chosen() -> Mode {
-        std::env::var(CHOSEN).ok().and_then(|word| Mode::named(&word)).unwrap_or(Mode::Asynchronous)
+        std::env::var(CHOSEN)
+            .ok()
+            .and_then(|word| Mode::named(&word))
+            .unwrap_or(Mode::Asynchronous)
     }
 }
 
@@ -238,7 +241,11 @@ impl Sweeps {
         let latest = Arc::clone(&self.latest);
         let knocker = self.knocker.clone();
         let worker = self.worker.get_or_insert_with(|| start(latest, knocker));
-        let job = Job { root: root.clone(), buffers: buffers.clone(), generation: self.generation };
+        let job = Job {
+            root: root.clone(),
+            buffers: buffers.clone(),
+            generation: self.generation,
+        };
         // A worker that has gone is one nothing here can bring back: the
         // reports stop and every answer falls back to the last complete one.
         if worker.jobs.send(job).is_ok() {
@@ -248,7 +255,10 @@ impl Sweeps {
 
     /// Takes up whatever the worker has finished, without waiting for it.
     pub fn collect(&mut self, buffers: &Overlay) {
-        while let Some(swept) = self.worker.as_ref().and_then(|worker| worker.done.try_recv().ok())
+        while let Some(swept) = self
+            .worker
+            .as_ref()
+            .and_then(|worker| worker.done.try_recv().ok())
         {
             self.arrived(swept);
         }
@@ -261,7 +271,10 @@ impl Sweeps {
     /// `buri/awaitAnalysis` does.
     pub fn settle(&mut self, buffers: &Overlay) {
         while self.busy() {
-            let Some(swept) = self.worker.as_ref().and_then(|worker| worker.done.recv().ok())
+            let Some(swept) = self
+                .worker
+                .as_ref()
+                .and_then(|worker| worker.done.recv().ok())
             else {
                 // Nothing is coming. Forgetting what was asked for is what
                 // keeps this from waiting for ever.
@@ -324,7 +337,10 @@ fn serve(
     // A `for`, so the end isn't a branch: whether the server lets go of
     // `jobs` before it exits is a race.
     for job in incoming.iter() {
-        let wanted = Wanted { latest: Arc::clone(latest), generation: job.generation };
+        let wanted = Wanted {
+            latest: Arc::clone(latest),
+            generation: job.generation,
+        };
         let swept = one(&mut analyst, job, &wanted);
         // A send fails only once the server has gone, and then `incoming` ends
         // the loop too. Not a branch, since which comes first is a race.
@@ -351,7 +367,6 @@ fn one(analyst: &mut State, job: Job, wanted: &Wanted) -> Swept {
         root: job.root,
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -402,7 +417,10 @@ mod tests {
     #[test]
     fn a_sweep_hears_that_a_newer_edit_has_overtaken_it() {
         let latest = Arc::new(AtomicU64::new(1));
-        let wanted = Wanted { latest: Arc::clone(&latest), generation: 1 };
+        let wanted = Wanted {
+            latest: Arc::clone(&latest),
+            generation: 1,
+        };
         assert!(!wanted.superseded());
         latest.store(2, Ordering::Relaxed);
         assert!(wanted.superseded());

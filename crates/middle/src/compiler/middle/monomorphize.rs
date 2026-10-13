@@ -130,17 +130,33 @@ pub enum Desc {
     Prim(Prim),
     Unit,
     /// Rendered as `Name { field: .., .. }` or `Name(..)`.
-    Struct { name: String, record: bool, fields: Vec<DescField> },
+    Struct {
+        name: String,
+        record: bool,
+        fields: Vec<DescField>,
+    },
     /// A `derive Flags` struct, stored as the word `prim`: compared, ordered
     /// and hashed as that word, and shown and encoded as the struct of `Bool`s
     /// it stands for. Field `i` of `n` is bit `n - 1 - i` (`middle::flags`).
-    Flags { name: String, record: bool, fields: Vec<DescField>, prim: Prim },
-    Enum { name: String, variants: Vec<DescVariant> },
+    Flags {
+        name: String,
+        record: bool,
+        fields: Vec<DescField>,
+        prim: Prim,
+    },
+    Enum {
+        name: String,
+        variants: Vec<DescVariant>,
+    },
     /// An `IndexSet<K>`, read by every walk as the list of its members, `list`
     /// the descriptor of `[K]`. `to` is its `toList` and `from` is
     /// `indexset.of`, each instantiated with `()` as its context, which no
     /// list operation reads.
-    Members { list: usize, to: FuncIdx, from: FuncIdx },
+    Members {
+        list: usize,
+        to: FuncIdx,
+        from: FuncIdx,
+    },
     Array(usize),
     Tuple(Vec<usize>),
     /// `Option<T>`, whose value is the payload itself.
@@ -468,11 +484,12 @@ fn shapes_of(tables: &Tables) -> Shapes {
         .iter()
         .map(|c| match &c.def {
             TyDef::Prim(p) => ConShape::Prim(*p),
-            TyDef::Struct { fields, .. } => {
-                ConShape::Fields(fields.iter().map(|f| f.ty).collect())
-            }
+            TyDef::Struct { fields, .. } => ConShape::Fields(fields.iter().map(|f| f.ty).collect()),
             TyDef::Enum { variants } => ConShape::Fields(
-                variants.iter().flat_map(|v| v.fields.iter().map(|f| f.ty)).collect(),
+                variants
+                    .iter()
+                    .flat_map(|v| v.fields.iter().map(|f| f.ty))
+                    .collect(),
             ),
         })
         .collect();
@@ -494,7 +511,12 @@ fn shapes_of(tables: &Tables) -> Shapes {
             })
             .collect(),
     };
-    Shapes { cons, ctxs, effects, option: None }
+    Shapes {
+        cons,
+        ctxs,
+        effects,
+        option: None,
+    }
 }
 
 /// What a queued instance is.
@@ -509,9 +531,19 @@ enum Key {
     /// trait, generated one level deep. `ctx` is `Show`'s context type.
     /// `unbounded` walks a type with no `impl` of the trait too, for a `T` that
     /// carries no bound (`hand_written::Deriving::unbounded`).
-    Derived { trait_id: TraitId, ty: Ty, ctx: Option<Ty>, unbounded: bool },
+    Derived {
+        trait_id: TraitId,
+        ty: Ty,
+        ctx: Option<Ty>,
+        unbounded: bool,
+    },
     /// The rest of a list after its first element, for `Derived` at `[elem]`.
-    DerivedItems { trait_id: TraitId, elem: Ty, ctx: Option<Ty>, unbounded: bool },
+    DerivedItems {
+        trait_id: TraitId,
+        elem: Ty,
+        ctx: Option<Ty>,
+        unbounded: bool,
+    },
 }
 
 pub struct Monomorphizer<'a> {
@@ -592,7 +624,11 @@ pub fn run(
         Roots::Tests | Roots::TestsIn(_) => {
             let mut tests = Vec::new();
             for (i, case) in m.checked.tests.iter().enumerate() {
-                let module = m.module_paths.get(case.module.index()).cloned().unwrap_or_default();
+                let module = m
+                    .module_paths
+                    .get(case.module.index())
+                    .cloned()
+                    .unwrap_or_default();
                 if let Roots::TestsIn(modules) = roots {
                     if !modules.contains(&module) {
                         continue;
@@ -642,7 +678,9 @@ pub fn run(
     if ui.style.is_some() {
         // `ui/style`'s own functions are how a style becomes classes at run
         // time, and name none themselves.
-        let style_module = checked.classify_fns.map(|(classify, _)| checked.tables.fn_info(classify).module);
+        let style_module = checked
+            .classify_fns
+            .map(|(classify, _)| checked.tables.fn_info(classify).module);
         let mut skipped: crate::hash::Set<usize> = crate::hash::Set::default();
         let mut classifiers = Vec::new();
         for (key, slot) in &m.index {
@@ -651,7 +689,10 @@ pub fn run(
                 if Some(info.module) == style_module {
                     skipped.insert(*slot);
                 }
-                if checked.classify_fns.is_some_and(|(a, b)| *f == a || *f == b) {
+                if checked
+                    .classify_fns
+                    .is_some_and(|(a, b)| *f == a || *f == b)
+                {
                     classifiers.push(FuncIdx(*slot as u32));
                 }
             }
@@ -664,7 +705,13 @@ pub fn run(
         };
         for (slot, f) in m.funcs.iter_mut().enumerate() {
             if let (FuncKind::Body(body), false) = (&mut f.kind, skipped.contains(&slot)) {
-                crate::compiler::semantics::styles::survey(body, ui, &checked.style_sources, &unchecked, &mut reached);
+                crate::compiler::semantics::styles::survey(
+                    body,
+                    ui,
+                    &checked.style_sources,
+                    &unchecked,
+                    &mut reached,
+                );
             }
         }
     }
@@ -783,10 +830,17 @@ pub(crate) fn assert_one_symbol_per_function(funcs: &[Func], after: &str) {
 fn one_symbol_per_function(funcs: &[Func]) -> Option<SymbolClash<'_>> {
     let mut seen: HashMap<&str, &str> =
         HashMap::with_capacity_and_hasher(funcs.len(), std::hash::BuildHasherDefault::default());
-    funcs.iter().filter(|func| !matches!(func.kind, FuncKind::Intrinsic(_))).find_map(|func| {
-        let first = seen.insert(&func.symbol, &func.debug_name)?;
-        Some(SymbolClash { symbol: &func.symbol, first, second: &func.debug_name })
-    })
+    funcs
+        .iter()
+        .filter(|func| !matches!(func.kind, FuncKind::Intrinsic(_)))
+        .find_map(|func| {
+            let first = seen.insert(&func.symbol, &func.debug_name)?;
+            Some(SymbolClash {
+                symbol: &func.symbol,
+                first,
+                second: &func.debug_name,
+            })
+        })
 }
 
 #[derive(Clone, Copy)]
@@ -809,7 +863,9 @@ impl<'a> Monomorphizer<'a> {
     /// pushing onto `funcs`, and nothing ever removes a row, so the slot is an
     /// index this table has.
     fn func_mut(&mut self, slot: usize) -> &mut Func {
-        self.funcs.get_mut(slot).or_ice("every function slot was minted by `request`, which makes it by pushing onto `funcs`")
+        self.funcs.get_mut(slot).or_ice(
+            "every function slot was minted by `request`, which makes it by pushing onto `funcs`",
+        )
     }
 
     /// The function a program starts at.
@@ -831,7 +887,9 @@ impl<'a> Monomorphizer<'a> {
     /// before hosts.
     fn entry(&mut self, f: FnId) -> usize {
         let inner = self.request(Key::Fn(f, Vec::new()));
-        let Some(host) = self.host_parameter(f) else { return inner };
+        let Some(host) = self.host_parameter(f) else {
+            return inner;
+        };
         let info = self.tables().fn_info(f).clone();
         let span = info.span;
         // The parameters after the host are the wrapper's own: a worker's
@@ -840,7 +898,11 @@ impl<'a> Monomorphizer<'a> {
             .params
             .iter()
             .skip(1)
-            .map(|p| typed::Local { name: Name::new(&p.name), ty: p.ty, span: p.span })
+            .map(|p| typed::Local {
+                name: Name::new(&p.name),
+                ty: p.ty,
+                span: p.span,
+            })
             .collect();
         let forwarded: Vec<typed::Expr> = rest
             .iter()
@@ -854,7 +916,11 @@ impl<'a> Monomorphizer<'a> {
             .iter()
             .map(|field| match field.ty.kind() {
                 TyKind::Con(con, _) => typed::Expr::new(
-                    ExprKind::StructLit { con: *con, targs: Vec::new(), fields: Vec::new() },
+                    ExprKind::StructLit {
+                        con: *con,
+                        targs: Vec::new(),
+                        fields: Vec::new(),
+                    },
                     field.ty,
                     span,
                 ),
@@ -864,14 +930,21 @@ impl<'a> Monomorphizer<'a> {
             })
             .collect();
         let value = typed::Expr::new(
-            ExprKind::StructLit { con: host, targs: Vec::new(), fields },
+            ExprKind::StructLit {
+                con: host,
+                targs: Vec::new(),
+                fields,
+            },
             Ty::con(host, []),
             span,
         );
         let mut args = vec![value];
         args.extend(forwarded);
         let call = typed::Expr::new(
-            ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(inner as u32)), args },
+            ExprKind::CallFn {
+                func: typed::Callee::Func(FuncIdx(inner as u32)),
+                args,
+            },
             info.ret,
             span,
         );
@@ -900,7 +973,9 @@ impl<'a> Monomorphizer<'a> {
     fn host_parameter(&self, f: FnId) -> Option<TyConId> {
         let info = self.tables().fn_info(f);
         let param = info.params.first()?;
-        let TyKind::Con(con, args) = param.ty.kind() else { return None };
+        let TyKind::Con(con, args) = param.ty.kind() else {
+            return None;
+        };
         if !args.is_empty() {
             return None;
         }
@@ -913,7 +988,9 @@ impl<'a> Monomorphizer<'a> {
         let production = tycon.fields().iter().all(|field| match field.ty.kind() {
             TyKind::Con(c, a) => {
                 let field = self.tables().tycon(*c);
-                a.is_empty() && matches!(field.def, TyDef::Struct { .. }) && field.fields().is_empty()
+                a.is_empty()
+                    && matches!(field.def, TyDef::Struct { .. })
+                    && field.fields().is_empty()
             }
             _ => false,
         });
@@ -958,7 +1035,11 @@ impl<'a> Monomorphizer<'a> {
                         named
                     }
                 };
-                let symbol = if targs.is_empty() { base } else { self.instantiation(&base, targs) };
+                let symbol = if targs.is_empty() {
+                    base
+                } else {
+                    self.instantiation(&base, targs)
+                };
                 (symbol, debug, span)
             }
             Key::CtxCtor(c) => {
@@ -1005,7 +1086,11 @@ impl<'a> Monomorphizer<'a> {
                     module.replace(['/', '.'], "_").replace("//", ""),
                     info.name
                 );
-                (sanitize(&symbol), format!("{module}:{}", info.name), info.span)
+                (
+                    sanitize(&symbol),
+                    format!("{module}:{}", info.name),
+                    info.span,
+                )
             }
             Key::Test(i) => {
                 let case = self
@@ -1023,24 +1108,40 @@ impl<'a> Monomorphizer<'a> {
                     .get(case.module.index())
                     .cloned()
                     .unwrap_or_else(|| "core".into());
-                (format!("test${i}"), format!("{module}:{}", case.name), case.span)
+                (
+                    format!("test${i}"),
+                    format!("{module}:{}", case.name),
+                    case.span,
+                )
             }
-            Key::Derived { trait_id, ty, ctx, unbounded } => {
-                self.derived_name(*trait_id, *ty, *ctx, false, *unbounded)
-            }
-            Key::DerivedItems { trait_id, elem, ctx, unbounded } => {
-                self.derived_name(*trait_id, *elem, *ctx, true, *unbounded)
-            }
+            Key::Derived {
+                trait_id,
+                ty,
+                ctx,
+                unbounded,
+            } => self.derived_name(*trait_id, *ty, *ctx, false, *unbounded),
+            Key::DerivedItems {
+                trait_id,
+                elem,
+                ctx,
+                unbounded,
+            } => self.derived_name(*trait_id, *elem, *ctx, true, *unbounded),
         }
     }
 
     /// A declaration's symbol with no instantiation tag, and its debug name.
     fn base_name(&self, f: FnId) -> (String, String) {
         let info = self.tables().fn_info(f);
-        let module = self.module_paths.get(info.module.index()).map_or("core", String::as_str);
+        let module = self
+            .module_paths
+            .get(info.module.index())
+            .map_or("core", String::as_str);
         let owner = info.self_ty.map(|c| self.tables().tycon(c).name.as_str());
         let mut debug = String::with_capacity(
-            module.len().saturating_add(info.name.len()).saturating_add(32),
+            module
+                .len()
+                .saturating_add(info.name.len())
+                .saturating_add(32),
         );
         debug.push_str(module);
         debug.push(':');
@@ -1169,8 +1270,17 @@ impl Monomorphizer<'_> {
             Key::Fn(f, targs) => self.build_fn(f, targs, slot),
             Key::CtxCtor(c) => {
                 // Only a checked context declaration is requested.
-                let ctor = self.tables().ctx_decl(c).checked.or_ice("a requested context was checked").ctor;
-                let body = self.checked.bodies.get(&ctor).or_ice("a checked context has a constructor body");
+                let ctor = self
+                    .tables()
+                    .ctx_decl(c)
+                    .checked
+                    .or_ice("a requested context was checked")
+                    .ctor;
+                let body = self
+                    .checked
+                    .bodies
+                    .get(&ctor)
+                    .or_ice("a checked context has a constructor body");
                 let mut b = typed::Body::clone(body);
                 for l in &mut b.locals {
                     l.ty = self.sub(&l.ty, &[]);
@@ -1190,7 +1300,11 @@ impl Monomorphizer<'_> {
                     .get(i)
                     .or_ice("a test key holds the index `run` enumerated `checked.tests` with")
                     .func;
-                let body = self.checked.bodies.get(&fid).or_ice("a checked test has a body");
+                let body = self
+                    .checked
+                    .bodies
+                    .get(&fid)
+                    .or_ice("a checked test has a body");
                 let mut b = typed::Body::clone(body);
                 for l in &mut b.locals {
                     l.ty = self.sub(&l.ty, &[]);
@@ -1204,12 +1318,18 @@ impl Monomorphizer<'_> {
                 f.locals = b.locals;
                 f.set_body(b.expr);
             }
-            Key::Derived { trait_id, ty, ctx, unbounded } => {
-                self.build_derived(trait_id, ty, ctx, unbounded, slot)
-            }
-            Key::DerivedItems { trait_id, elem, ctx, unbounded } => {
-                self.build_derived_items(trait_id, elem, ctx, unbounded, slot)
-            }
+            Key::Derived {
+                trait_id,
+                ty,
+                ctx,
+                unbounded,
+            } => self.build_derived(trait_id, ty, ctx, unbounded, slot),
+            Key::DerivedItems {
+                trait_id,
+                elem,
+                ctx,
+                unbounded,
+            } => self.build_derived_items(trait_id, elem, ctx, unbounded, slot),
         }
     }
 
@@ -1252,7 +1372,10 @@ impl Monomorphizer<'_> {
         // what it promised* is asked of the run that just ended, and only a run
         // that kept it goes round again.
         let again = typed::Expr::new(
-            ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(slot as u32)), args: Vec::new() },
+            ExprKind::CallFn {
+                func: typed::Callee::Func(FuncIdx(slot as u32)),
+                args: Vec::new(),
+            },
             Ty::UNIT,
             span,
         );
@@ -1317,7 +1440,11 @@ impl Monomorphizer<'_> {
             // choice below reads. They used to live on `Func` as a second
             // vector parallel to `params`, filled on this path and left empty
             // on the body path, and nothing outside this function read them.
-            let param_types: Vec<Ty> = info.params.iter().map(|p| self.sub(&p.ty, &targs)).collect();
+            let param_types: Vec<Ty> = info
+                .params
+                .iter()
+                .map(|p| self.sub(&p.ty, &targs))
+                .collect();
             let locals: Vec<typed::Local> = info
                 .params
                 .iter()
@@ -1333,7 +1460,9 @@ impl Monomorphizer<'_> {
             // implement: the parser refuses one anywhere else outside the
             // standard library.
             let module = self.module_paths.get(info.module.index());
-            if module.is_some_and(|m| m.starts_with("//") || crate::compiler::standard_library::is_bundled_platform(m)) {
+            if module.is_some_and(|m| {
+                m.starts_with("//") || crate::compiler::standard_library::is_bundled_platform(m)
+            }) {
                 self.js_implemented.insert(key.clone());
             }
             let f = self.func_mut(slot);
@@ -1347,7 +1476,9 @@ impl Monomorphizer<'_> {
                 return;
             }
             if CELL_WRITE_KEYS.contains(&key.as_str()) {
-                let t = *param_types.last().or_ice("a cell write takes the value last");
+                let t = *param_types
+                    .last()
+                    .or_ice("a cell write takes the value last");
                 self.cell_through_equal(t);
             }
             if key == "testing_assert.report" || key == "testing_assert.failExpected" {
@@ -1368,7 +1499,9 @@ impl Monomorphizer<'_> {
             // last parameter at both keys: `signal(self, initial: T)` and
             // `write(self, id: Int, value: T)`.
             if CELL_VALUE_KEYS.contains(&key.as_str()) {
-                let t = *param_types.last().or_ice("a cell's value is its last parameter");
+                let t = *param_types
+                    .last()
+                    .or_ice("a cell's value is its last parameter");
                 let desc = self.descriptor(&t);
                 self.func_mut(slot).desc = Some(desc);
             }
@@ -1377,7 +1510,9 @@ impl Monomorphizer<'_> {
             // `Json`. `T` is the first type argument, and the descriptor of it
             // is the whole of what the runtime needs to read one.
             if key == "json.decode" {
-                let t = *targs.first().or_ice("`json.decode` is called at the type it decodes");
+                let t = *targs
+                    .first()
+                    .or_ice("`json.decode` is called at the type it decodes");
                 let desc = self.descriptor(&t);
                 self.func_mut(slot).desc = Some(desc);
             }
@@ -1430,9 +1565,7 @@ impl Monomorphizer<'_> {
             // `core/number` is the defining module of a dozen types, so there the
             // type is what tells two conversions apart.
             Some(con)
-                if is_prim(self.tables(), con)
-                    && short != "number"
-                    && info.impl_of.is_none() =>
+                if is_prim(self.tables(), con) && short != "number" && info.impl_of.is_none() =>
             {
                 format!("{short}.{}", info.name)
             }
@@ -1490,7 +1623,11 @@ impl Monomorphizer<'_> {
     /// afterwards, so an entry added here reaches the emitted function.
     fn new_local(&mut self, name: &str, ty: Ty, span: Span) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
-        self.locals.push(typed::Local { name: Name::new(name), ty, span });
+        self.locals.push(typed::Local {
+            name: Name::new(name),
+            ty,
+            span,
+        });
         id
     }
 
@@ -1622,7 +1759,9 @@ impl Monomorphizer<'_> {
             _ => None,
         };
         let mut out = self.rewrite_all(args, targs);
-        let Some(implementation) = implementation else { return (out, None) };
+        let Some(implementation) = implementation else {
+            return (out, None);
+        };
 
         // Which parameter of which argument the *declaration* spells `Self`.
         // Argument 0 is the receiver and is never one of these.
@@ -1653,7 +1792,10 @@ impl Monomorphizer<'_> {
         let receiver = std::mem::replace(slot, stands_for);
         let prelude = typed::Stmt::Let {
             pattern: typed::Pattern {
-                kind: PatKind::Bind { local: bound, sub: None },
+                kind: PatKind::Bind {
+                    local: bound,
+                    sub: None,
+                },
                 ty: recv_ty,
                 span,
             },
@@ -1687,24 +1829,20 @@ impl Monomorphizer<'_> {
                     typed::Expr::new(ExprKind::Local(id), ty, span)
                 });
             }
-            let adapter_ty = Ty::func(params
-                    .iter()
-                    .enumerate()
-                    .map(|(k, p)| {
+            let adapter_ty =
+                Ty::func(
+                    params.iter().enumerate().map(|(k, p)| {
                         if at.contains(&k) {
                             implementation
                         } else {
                             *p
                         }
-                    })
-                    , *ret);
+                    }),
+                    *ret,
+                );
             let body = typed::Expr::new(
                 ExprKind::CallValue {
-                    callee: Box::new(typed::Expr::new(
-                        ExprKind::Local(held),
-                        callback_ty,
-                        span,
-                    )),
+                    callee: Box::new(typed::Expr::new(ExprKind::Local(held), callback_ty, span)),
                     args: forwarded,
                 },
                 *ret,
@@ -1719,14 +1857,19 @@ impl Monomorphizer<'_> {
                 adapter_ty,
                 span,
             );
-            let slot = out.get_mut(i).or_ice("`adapt` names arguments the call has");
+            let slot = out
+                .get_mut(i)
+                .or_ice("`adapt` names arguments the call has");
             let callback =
                 std::mem::replace(slot, typed::Expr::new(ExprKind::Error, Ty::ERROR, span));
             *slot = typed::Expr::new(
                 ExprKind::Block {
                     stmts: vec![typed::Stmt::Let {
                         pattern: typed::Pattern {
-                            kind: PatKind::Bind { local: held, sub: None },
+                            kind: PatKind::Bind {
+                                local: held,
+                                sub: None,
+                            },
                             ty: callback_ty,
                             span,
                         },
@@ -1750,11 +1893,15 @@ impl Monomorphizer<'_> {
     /// primitive operator it stands for. Its match, its arms and its call all
     /// carry the operator's span, which a `match` someone wrote cannot.
     fn float_operator(&self, e: &typed::Expr, targs: &[Ty]) -> Option<(typed::PrimOp, Prim)> {
-        let ExprKind::Match { scrutinee, arms } = &e.kind else { return None };
+        let ExprKind::Match { scrutinee, arms } = &e.kind else {
+            return None;
+        };
         let ExprKind::CallTrait { recv, args, .. } = &scrutinee.kind else {
             return None;
         };
-        let [tested, rest] = arms.as_slice() else { return None };
+        let [tested, rest] = arms.as_slice() else {
+            return None;
+        };
         let spans = [scrutinee.span, tested.span, rest.span];
         if args.len() != 2 || spans.iter().any(|s| *s != e.span) {
             return None;
@@ -1762,7 +1909,10 @@ impl Monomorphizer<'_> {
         // Only `order_test` builds a match whose arms all carry its own span:
         // `Ordered.compare` tested for one variant of `Order`, that arm
         // answering a `Bool` and `_` answering the other.
-        let prim = self.tables().as_prim(&self.sub(recv, targs)).filter(|p| p.is_float())?;
+        let prim = self
+            .tables()
+            .as_prim(&self.sub(recv, targs))
+            .filter(|p| p.is_float())?;
         let (variant, when) = match (&tested.pattern.kind, &tested.body.kind) {
             (PatKind::Variant { variant, .. }, ExprKind::Bool(when)) => Some((*variant, *when)),
             _ => None,
@@ -1811,9 +1961,18 @@ impl Monomorphizer<'_> {
                 }
                 let args = self.rewrite_all(args, targs);
                 let slot = self.request(Key::Fn(id, resolved));
-                ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(slot as u32)), args }
+                ExprKind::CallFn {
+                    func: typed::Callee::Func(FuncIdx(slot as u32)),
+                    args,
+                }
             }
-            ExprKind::CallTrait { trait_id, method, recv, targs: mt, args } => {
+            ExprKind::CallTrait {
+                trait_id,
+                method,
+                recv,
+                targs: mt,
+                args,
+            } => {
                 let recv_at = self.sub(&recv, targs);
                 let mt: Vec<Ty> = mt.iter().map(|t| self.sub(t, targs)).collect();
                 let (args, prelude) =
@@ -1881,7 +2040,11 @@ impl Monomorphizer<'_> {
                 callee: Box::new(self.rewrite(*callee, targs)),
                 args: self.rewrite_all(args, targs),
             },
-            ExprKind::StructLit { con, targs: st, fields } => {
+            ExprKind::StructLit {
+                con,
+                targs: st,
+                fields,
+            } => {
                 let fields = self.rewrite_all(fields, targs);
                 if let Some(word) = self.flags_word(&e.ty, e.span) {
                     return word.pack(fields);
@@ -1901,9 +2064,18 @@ impl Monomorphizer<'_> {
                 if let Some(word) = self.flags_word(&e.ty, e.span) {
                     return word.update(base, updates);
                 }
-                ExprKind::StructUpdate { con, base: Box::new(base), updates }
+                ExprKind::StructUpdate {
+                    con,
+                    base: Box::new(base),
+                    updates,
+                }
             }
-            ExprKind::EnumLit { con, targs: et, variant, args } => ExprKind::EnumLit {
+            ExprKind::EnumLit {
+                con,
+                targs: et,
+                variant,
+                args,
+            } => ExprKind::EnumLit {
                 con,
                 targs: et.iter().map(|t| self.sub(t, targs)).collect(),
                 variant,
@@ -1916,11 +2088,15 @@ impl Monomorphizer<'_> {
                 if let Some(word) = self.flags_word(&base.ty, e.span) {
                     return word.bit(base, index);
                 }
-                ExprKind::Field { base: Box::new(base), index }
+                ExprKind::Field {
+                    base: Box::new(base),
+                    index,
+                }
             }
-            ExprKind::TupleIndex { base, index } => {
-                ExprKind::TupleIndex { base: Box::new(self.rewrite(*base, targs)), index }
-            }
+            ExprKind::TupleIndex { base, index } => ExprKind::TupleIndex {
+                base: Box::new(self.rewrite(*base, targs)),
+                index,
+            },
             ExprKind::Index { base, index, elem } => ExprKind::Index {
                 base: Box::new(self.rewrite(*base, targs)),
                 index: Box::new(self.rewrite(*index, targs)),
@@ -1930,7 +2106,11 @@ impl Monomorphizer<'_> {
                 stmts: stmts
                     .into_iter()
                     .map(|s| match s {
-                        typed::Stmt::Let { pattern, value, span } => typed::Stmt::Let {
+                        typed::Stmt::Let {
+                            pattern,
+                            value,
+                            span,
+                        } => typed::Stmt::Let {
                             pattern: self.rewrite_pattern(pattern, targs),
                             value: self.rewrite(value, targs),
                             span,
@@ -1957,13 +2137,15 @@ impl Monomorphizer<'_> {
                     })
                     .collect(),
             },
-            ExprKind::Lambda { params, body, captures } => {
-                ExprKind::Lambda {
-                    params,
-                    body: Box::new(self.rewrite(*body, targs)),
-                    captures,
-                }
-            }
+            ExprKind::Lambda {
+                params,
+                body,
+                captures,
+            } => ExprKind::Lambda {
+                params,
+                body: Box::new(self.rewrite(*body, targs)),
+                captures,
+            },
             ExprKind::And { lhs, rhs } => ExprKind::And {
                 lhs: Box::new(self.rewrite(*lhs, targs)),
                 rhs: Box::new(self.rewrite(*rhs, targs)),
@@ -1972,16 +2154,19 @@ impl Monomorphizer<'_> {
                 lhs: Box::new(self.rewrite(*lhs, targs)),
                 rhs: Box::new(self.rewrite(*rhs, targs)),
             },
-            ExprKind::Try { base, kind } => {
-                ExprKind::Try { base: Box::new(self.rewrite(*base, targs)), kind }
-            }
-            ExprKind::Prim { op, prim, args } => {
-                ExprKind::Prim { op, prim, args: self.rewrite_all(args, targs) }
-            }
+            ExprKind::Try { base, kind } => ExprKind::Try {
+                base: Box::new(self.rewrite(*base, targs)),
+                kind,
+            },
+            ExprKind::Prim { op, prim, args } => ExprKind::Prim {
+                op,
+                prim,
+                args: self.rewrite_all(args, targs),
+            },
             // Only `coverage::derived` builds one, after this pass.
-            ExprKind::StructuralEq { args } => {
-                ExprKind::StructuralEq { args: self.rewrite_all(args, targs) }
-            }
+            ExprKind::StructuralEq { args } => ExprKind::StructuralEq {
+                args: self.rewrite_all(args, targs),
+            },
             ExprKind::Template { parts } => ExprKind::Template {
                 parts: parts
                     .into_iter()
@@ -1994,7 +2179,11 @@ impl Monomorphizer<'_> {
                     })
                     .collect(),
             },
-            ExprKind::Intrinsic { name, targs: it, args } => ExprKind::Intrinsic {
+            ExprKind::Intrinsic {
+                name,
+                targs: it,
+                args,
+            } => ExprKind::Intrinsic {
                 name,
                 targs: it.iter().map(|t| self.sub(t, targs)).collect(),
                 args: self.rewrite_all(args, targs),
@@ -2011,15 +2200,15 @@ impl Monomorphizer<'_> {
     fn rewrite_pattern(&mut self, mut p: typed::Pattern, targs: &[Ty]) -> typed::Pattern {
         p.ty = self.sub(&p.ty, targs);
         p.kind = match p.kind {
-            PatKind::Bind { local, sub } => {
-                PatKind::Bind {
-                    local,
-                    sub: sub.map(|s| Box::new(self.rewrite_pattern(*s, targs))),
-                }
-            }
-            PatKind::Tuple(ps) => {
-                PatKind::Tuple(ps.into_iter().map(|x| self.rewrite_pattern(x, targs)).collect())
-            }
+            PatKind::Bind { local, sub } => PatKind::Bind {
+                local,
+                sub: sub.map(|s| Box::new(self.rewrite_pattern(*s, targs))),
+            },
+            PatKind::Tuple(ps) => PatKind::Tuple(
+                ps.into_iter()
+                    .map(|x| self.rewrite_pattern(x, targs))
+                    .collect(),
+            ),
             PatKind::Struct { con, fields } => PatKind::Struct {
                 con,
                 fields: fields
@@ -2030,7 +2219,11 @@ impl Monomorphizer<'_> {
                     })
                     .collect(),
             },
-            PatKind::Variant { con, variant, fields } => PatKind::Variant {
+            PatKind::Variant {
+                con,
+                variant,
+                fields,
+            } => PatKind::Variant {
                 con,
                 variant,
                 fields: fields
@@ -2042,12 +2235,17 @@ impl Monomorphizer<'_> {
                     .collect(),
             },
             PatKind::Array { elems, rest } => PatKind::Array {
-                elems: elems.into_iter().map(|x| self.rewrite_pattern(x, targs)).collect(),
+                elems: elems
+                    .into_iter()
+                    .map(|x| self.rewrite_pattern(x, targs))
+                    .collect(),
                 rest,
             },
-            PatKind::Or(ps) => {
-                PatKind::Or(ps.into_iter().map(|x| self.rewrite_pattern(x, targs)).collect())
-            }
+            PatKind::Or(ps) => PatKind::Or(
+                ps.into_iter()
+                    .map(|x| self.rewrite_pattern(x, targs))
+                    .collect(),
+            ),
             other => other,
         };
         p
@@ -2072,16 +2270,18 @@ impl Monomorphizer<'_> {
             // without the effect: directly, through a bounded parameter, and
             // through a conditional `impl` such as `impl<C: Stdout> Stdout
             // for Scoped<C>`, whose bound `Infer::satisfies` checks too.
-            let impl_ty = self.tables().ctx_type(*id).get(trait_id).cloned().or_ice(
-                "checking proved every effect call's context binds the effect it calls",
-            );
-            if let Some(first) = args.first_mut() {
-                let base = std::mem::replace(
-                    first,
-                    typed::Expr::new(ExprKind::Error, Ty::ERROR, span),
+            let impl_ty =
+                self.tables().ctx_type(*id).get(trait_id).cloned().or_ice(
+                    "checking proved every effect call's context binds the effect it calls",
                 );
+            if let Some(first) = args.first_mut() {
+                let base =
+                    std::mem::replace(first, typed::Expr::new(ExprKind::Error, Ty::ERROR, span));
                 *first = typed::Expr::new(
-                    ExprKind::CtxGet { base: Box::new(base), trait_id },
+                    ExprKind::CtxGet {
+                        base: Box::new(base),
+                        trait_id,
+                    },
                     impl_ty,
                     span,
                 );
@@ -2091,17 +2291,19 @@ impl Monomorphizer<'_> {
 
         // The structural traits are defined on `[T]`, tuples and unit by
         // their components (SPEC 5.11), with no `impl` to find.
-        if matches!(recv.kind(), TyKind::Array(_) | TyKind::Tuple(_) | TyKind::Unit) {
+        if matches!(
+            recv.kind(),
+            TyKind::Array(_) | TyKind::Tuple(_) | TyKind::Unit
+        ) {
             return self.structural_call(trait_id, method, &recv, args, span);
         }
 
         let Some(con) = recv.head() else {
-            self.diags.push(
-                Diagnostic::templated("undetermined-type", span).with_bind(
+            self.diags
+                .push(Diagnostic::templated("undetermined-type", span).with_bind(
                     "function",
                     format!("a `{}` method", self.tables().trait_(trait_id).name),
-                ),
-            );
+                ));
             return ExprKind::Error;
         };
 
@@ -2127,7 +2329,9 @@ impl Monomorphizer<'_> {
 
         // `None` covers an out-of-range slot and a method the `impl` never
         // supplied; both are already diagnosed, and both are poison here.
-        let Some(fid) = imp.method(method) else { return ExprKind::Error };
+        let Some(fid) = imp.method(method) else {
+            return ExprKind::Error;
+        };
         let declared = self.tables().fn_info(fid).generics.len();
         let instance_targs = match instance_targs(&imp.head, &recv, declared, &method_targs) {
             Ok(targs) => targs,
@@ -2144,7 +2348,10 @@ impl Monomorphizer<'_> {
         };
 
         let slot = self.request(Key::Fn(fid, instance_targs));
-        ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(slot as u32)), args }
+        ExprKind::CallFn {
+            func: typed::Callee::Func(FuncIdx(slot as u32)),
+            args,
+        }
     }
 
     /// One template hole, rendered where the type is not one a backend renders
@@ -2167,7 +2374,11 @@ impl Monomorphizer<'_> {
         let span = h.span;
         let desc = self.descriptor(&h.ty);
         let str_ty = self.tables().prim(Prim::Str);
-        let desc_arg = typed::Expr::new(ExprKind::Int(typed::Magnitude::new(desc as u128), false), Ty::ERROR, span);
+        let desc_arg = typed::Expr::new(
+            ExprKind::Int(typed::Magnitude::new(desc as u128), false),
+            Ty::ERROR,
+            span,
+        );
         typed::Expr::new(
             ExprKind::Intrinsic {
                 name: "structuralShow".into(),
@@ -2198,15 +2409,24 @@ impl Monomorphizer<'_> {
         }
         let name = self.tables().trait_(trait_id).name.clone();
         let desc = self.descriptor(recv);
-        let desc_arg =
-            typed::Expr::new(ExprKind::Int(typed::Magnitude::new(desc as u128), false), Ty::ERROR, span);
+        let desc_arg = typed::Expr::new(
+            ExprKind::Int(typed::Magnitude::new(desc as u128), false),
+            Ty::ERROR,
+            span,
+        );
         let mut all = args;
         all.push(desc_arg);
         match (name.as_str(), method) {
-            ("Equal", _) => ExprKind::Intrinsic { name: "structuralEq".into(), targs: Vec::new(), args: all },
-            ("Ordered", _) => {
-                ExprKind::Intrinsic { name: "structuralCompare".into(), targs: Vec::new(), args: all }
-            }
+            ("Equal", _) => ExprKind::Intrinsic {
+                name: "structuralEq".into(),
+                targs: Vec::new(),
+                args: all,
+            },
+            ("Ordered", _) => ExprKind::Intrinsic {
+                name: "structuralCompare".into(),
+                targs: Vec::new(),
+                args: all,
+            },
             // `show` and `toJson` each take a context they do not use here:
             // rendering, and building the tree, are the runtime's. Drop it so
             // the intrinsic sees value and descriptor only.
@@ -2220,9 +2440,11 @@ impl Monomorphizer<'_> {
                 targs: Vec::new(),
                 args: value_and_descriptor(&all),
             },
-            ("Hash", _) => {
-                ExprKind::Intrinsic { name: "structuralHash".into(), targs: Vec::new(), args: all }
-            }
+            ("Hash", _) => ExprKind::Intrinsic {
+                name: "structuralHash".into(),
+                targs: Vec::new(),
+                args: all,
+            },
             // The operator traits derived on a newtype: apply the operation to
             // the wrapped value and rewrap.
             (op @ ("Add" | "Subtract" | "Multiply" | "Divide" | "Remainder" | "Negate"), _) => {
@@ -2230,8 +2452,15 @@ impl Monomorphizer<'_> {
             }
             ("Flags", _) => {
                 all.pop(); // the descriptor, which the word does not need
-                let Some(word) = self.flags_word(recv, span) else { return ExprKind::Error };
-                let method = self.tables().trait_(trait_id).methods.get(method).map(|m| m.name.clone());
+                let Some(word) = self.flags_word(recv, span) else {
+                    return ExprKind::Error;
+                };
+                let method = self
+                    .tables()
+                    .trait_(trait_id)
+                    .methods
+                    .get(method)
+                    .map(|m| m.name.clone());
                 self.flags_method(word, method.as_deref().unwrap_or(""), all)
             }
             _ => {
@@ -2247,9 +2476,17 @@ impl Monomorphizer<'_> {
     /// The word a `derive Flags` type is stored in, when `ty` is one.
     fn flags_word(&self, ty: &Ty, span: Span) -> Option<crate::compiler::middle::flags::Word> {
         let prim = self.tables().flags_word_of(ty)?;
-        let fields = ty.head().map_or(0, |con| self.tables().tycon(con).fields().len());
+        let fields = ty
+            .head()
+            .map_or(0, |con| self.tables().tycon(con).fields().len());
         let bool_ty = self.tables().prim(Prim::Bool);
-        Some(crate::compiler::middle::flags::Word { prim, fields, ty: *ty, bool_ty, span })
+        Some(crate::compiler::middle::flags::Word {
+            prim,
+            fields,
+            ty: *ty,
+            bool_ty,
+            span,
+        })
     }
 
     /// `flags.none<T>()` and `flags.all<T>()`, which are the word with no bit
@@ -2300,22 +2537,40 @@ impl Monomorphizer<'_> {
             if from == to {
                 return Some(value);
             }
-            let name = if to == Prim::U64 { format!("to{}", to.name()) } else { format!("wrapTo{}", to.name()) };
+            let name = if to == Prim::U64 {
+                format!("to{}", to.name())
+            } else {
+                format!("wrapTo{}", to.name())
+            };
             let method = self.tables().method(self.tables().prim_id(from), &name)?;
             let call = ExprKind::CallFn {
-                func: typed::Callee::Decl { id: method, targs: Vec::new() },
+                func: typed::Callee::Decl {
+                    id: method,
+                    targs: Vec::new(),
+                },
                 args: vec![value],
             };
             Some(typed::Expr::new(call, self.tables().prim(to), span))
         };
         match info.name.as_str() {
             "position" => {
-                let field = ExprKind::Field { base: Box::new(arg), index: 0 };
-                convert(typed::Expr::new(field, self.tables().prim(prim), span), prim, Prim::U64)
+                let field = ExprKind::Field {
+                    base: Box::new(arg),
+                    index: 0,
+                };
+                convert(
+                    typed::Expr::new(field, self.tables().prim(prim), span),
+                    prim,
+                    Prim::U64,
+                )
             }
             "member" => {
                 let field = convert(arg, Prim::U64, prim)?;
-                let lit = ExprKind::StructLit { con, targs: k_args, fields: vec![field] };
+                let lit = ExprKind::StructLit {
+                    con,
+                    targs: k_args,
+                    fields: vec![field],
+                };
                 Some(typed::Expr::new(lit, *k, span))
             }
             _ => None,
@@ -2357,12 +2612,17 @@ impl Monomorphizer<'_> {
 
     /// How many bits are set: one test per field, added up. The value is bound
     /// once, because each test reads it.
-    fn flags_count(&mut self, word: crate::compiler::middle::flags::Word, a: typed::Expr) -> ExprKind {
+    fn flags_count(
+        &mut self,
+        word: crate::compiler::middle::flags::Word,
+        a: typed::Expr,
+    ) -> ExprKind {
         let int = self.tables().prim(Prim::I64);
         let span = word.span;
         let x = self.new_local("flags", word.ty, span);
         let read = || typed::Expr::new(ExprKind::Local(x), word.ty, span);
-        let one = |v: u128| typed::Expr::new(ExprKind::Int(typed::Magnitude::new(v), false), int, span);
+        let one =
+            |v: u128| typed::Expr::new(ExprKind::Int(typed::Magnitude::new(v), false), int, span);
         let sum = (0..word.fields)
             .map(|i| {
                 typed::Expr::new(
@@ -2377,19 +2637,30 @@ impl Monomorphizer<'_> {
             })
             .reduce(|acc, b| {
                 typed::Expr::new(
-                    ExprKind::Prim { op: typed::PrimOp::Add, prim: Prim::I64, args: vec![acc, b] },
+                    ExprKind::Prim {
+                        op: typed::PrimOp::Add,
+                        prim: Prim::I64,
+                        args: vec![acc, b],
+                    },
                     int,
                     span,
                 )
             })
             .unwrap_or_else(|| one(0));
         let bind = typed::Pattern {
-            kind: typed::PatKind::Bind { local: x, sub: None },
+            kind: typed::PatKind::Bind {
+                local: x,
+                sub: None,
+            },
             ty: word.ty,
             span,
         };
         ExprKind::Block {
-            stmts: vec![typed::Stmt::Let { pattern: bind, value: a, span }],
+            stmts: vec![typed::Stmt::Let {
+                pattern: bind,
+                value: a,
+                span,
+            }],
             tail: Some(Box::new(sum)),
         }
     }
@@ -2405,7 +2676,9 @@ impl Monomorphizer<'_> {
         span: Span,
     ) -> ExprKind {
         args.pop(); // the descriptor, which an operator does not need
-        let con = recv.head().or_ice("only a struct derives an arithmetic operator");
+        let con = recv
+            .head()
+            .or_ice("only a struct derives an arithmetic operator");
         let tycon = self.tables().tycon(con).clone();
         let fields = tycon.fields().to_vec();
         let [field] = fields.as_slice() else {
@@ -2426,8 +2699,7 @@ impl Monomorphizer<'_> {
         // Without this the backend used to default the missing type to `I64`
         // and emit integer arithmetic on whatever was inside.
         let Some(prim) = self.tables().as_prim(&inner) else {
-            let shown =
-                crate::compiler::semantics::types::show(self.tables(), None, &[], &inner);
+            let shown = crate::compiler::semantics::types::show(self.tables(), None, &[], &inner);
             self.diags.push(
                 Diagnostic::templated("derive-operator-not-numeric", span)
                     .with_bind("type", tycon.name.clone())
@@ -2448,15 +2720,29 @@ impl Monomorphizer<'_> {
             .into_iter()
             .map(|a| {
                 typed::Expr::new(
-                    ExprKind::Field { base: Box::new(a), index: 0 },
+                    ExprKind::Field {
+                        base: Box::new(a),
+                        index: 0,
+                    },
                     inner,
                     span,
                 )
             })
             .collect();
-        let computed =
-            typed::Expr::new(ExprKind::Prim { op: prim_op, prim, args: unwrapped }, inner, span);
-        ExprKind::StructLit { con, targs, fields: vec![computed] }
+        let computed = typed::Expr::new(
+            ExprKind::Prim {
+                op: prim_op,
+                prim,
+                args: unwrapped,
+            },
+            inner,
+            span,
+        );
+        ExprKind::StructLit {
+            con,
+            targs,
+            fields: vec![computed],
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -2477,7 +2763,10 @@ impl Monomorphizer<'_> {
     /// [`Desc::Members`] at `IndexSet<k>`.
     fn members(&mut self, con: TyConId, k: Ty) -> Desc {
         let list = self.descriptor(&Ty::array(k));
-        let to_list = self.tables().method(con, "toList").or_ice("`core/indexset` declares `IndexSet.toList`");
+        let to_list = self
+            .tables()
+            .method(con, "toList")
+            .or_ice("`core/indexset` declares `IndexSet.toList`");
         let module = self.tables().tycon(con).module;
         let of = self
             .tables()
@@ -2487,7 +2776,11 @@ impl Monomorphizer<'_> {
             .or_ice("`core/indexset` declares `of`");
         let to = self.request(Key::Fn(to_list, vec![k, Ty::UNIT]));
         let from = self.request(Key::Fn(FnId(of as u32), vec![k, Ty::UNIT]));
-        Desc::Members { list, to: FuncIdx(to as u32), from: FuncIdx(from as u32) }
+        Desc::Members {
+            list,
+            to: FuncIdx(to as u32),
+            from: FuncIdx(from as u32),
+        }
     }
 
     /// Interns a runtime type descriptor. Field names and variant names are
@@ -2513,14 +2806,19 @@ impl Monomorphizer<'_> {
                 let tycon = checked.tables.tycon(*con);
                 match &tycon.def {
                     TyDef::Prim(p) => Desc::Prim(*p),
-                    TyDef::Struct { fields, record } if checked.tables.flags_word(*con).is_some() => {
+                    TyDef::Struct { fields, record }
+                        if checked.tables.flags_word(*con).is_some() =>
+                    {
                         let bool_desc = self.descriptor(&checked.tables.prim(Prim::Bool));
                         Desc::Flags {
                             name: tycon.name.clone(),
                             record: *record,
                             fields: fields
                                 .iter()
-                                .map(|f| DescField { name: f.name.clone(), ty: bool_desc })
+                                .map(|f| DescField {
+                                    name: f.name.clone(),
+                                    ty: bool_desc,
+                                })
                                 .collect(),
                             prim: checked.tables.flags_word(*con).unwrap_or(Prim::U64),
                         }
@@ -2533,7 +2831,10 @@ impl Monomorphizer<'_> {
                             .iter()
                             .map(|f| {
                                 let t = substitute(&f.ty, args, None);
-                                DescField { name: f.name.clone(), ty: self.descriptor(&t) }
+                                DescField {
+                                    name: f.name.clone(),
+                                    ty: self.descriptor(&t),
+                                }
                             })
                             .collect();
                         Desc::Struct {
@@ -2546,11 +2847,7 @@ impl Monomorphizer<'_> {
                     // `Some(x)` is `x`, so its descriptor says only what the
                     // payload is.
                     TyDef::Enum { .. } if self.tables().is_option(*con) => {
-                        let payload = substitute(
-                            args.first().unwrap_or(&Ty::ERROR),
-                            args,
-                            None,
-                        );
+                        let payload = substitute(args.first().unwrap_or(&Ty::ERROR), args, None);
                         let inner = self.descriptor(&payload);
                         Desc::Option(inner)
                     }
@@ -2576,16 +2873,18 @@ impl Monomorphizer<'_> {
                                 }
                             })
                             .collect();
-                        Desc::Enum { name: tycon.name.clone(), variants: vs }
+                        Desc::Enum {
+                            name: tycon.name.clone(),
+                            variants: vs,
+                        }
                     }
                 }
             }
             _ => Desc::Opaque("a value".into()),
         };
-        *self
-            .descriptors
-            .get_mut(slot)
-            .or_ice("the descriptor slot was reserved by pushing onto `descriptors`, which nothing shrinks") = desc;
+        *self.descriptors.get_mut(slot).or_ice(
+            "the descriptor slot was reserved by pushing onto `descriptors`, which nothing shrinks",
+        ) = desc;
         slot
     }
 }
@@ -2611,7 +2910,9 @@ impl Monomorphizer<'_> {
 /// `onRequest: fn(Self, Request) => Response` is the standard library's only
 /// `Self`-spelled parameter.
 fn self_positions(ty: &Ty) -> Vec<usize> {
-    let TyKind::Fn(params, _) = ty.kind() else { return Vec::new() };
+    let TyKind::Fn(params, _) = ty.kind() else {
+        return Vec::new();
+    };
     params
         .iter()
         .enumerate()
@@ -2737,7 +3038,10 @@ fn match_head(head: &Ty, recv: &Ty, bound: &mut [Option<Ty>]) -> bool {
 }
 
 fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
-    heads.iter().zip(recvs).all(|(h, r)| match_head(h, r, bound))
+    heads
+        .iter()
+        .zip(recvs)
+        .all(|(h, r)| match_head(h, r, bound))
 }
 
 // ---------------------------------------------------------------------------
@@ -2805,8 +3109,10 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 /// for nothing. `read` is not here — it stores nothing — and neither is `memo`,
 /// whose answer has no cutoff at all (`ui/reactivity.buri`: a memo that
 /// recomputed to the answer it had still runs what reads it).
-pub const CELL_VALUE_KEYS: &[&str] =
-    &["host_testing.Headless.signal", "host_testing.Headless.write"];
+pub const CELL_VALUE_KEYS: &[&str] = &[
+    "host_testing.Headless.signal",
+    "host_testing.Headless.write",
+];
 
 /// The intrinsic keys that write a reactive cell, on every platform that has
 /// one. Where the value's type reaches a hand-written `Equal`, the write is
@@ -3096,8 +3402,12 @@ fn generic_intrinsic_allowed(key: &str) -> bool {
 /// Both methods name `C: Allocator` and nothing else — the type they are at is in
 /// the key, which is what `short != "number"` in `intrinsic_key` arranges.
 fn prim_show_or_to_json(key: &str) -> bool {
-    let Some(rest) = key.strip_prefix("number.") else { return false };
-    let Some((ty, op)) = rest.split_once('.') else { return false };
+    let Some(rest) = key.strip_prefix("number.") else {
+        return false;
+    };
+    let Some((ty, op)) = rest.split_once('.') else {
+        return false;
+    };
     matches!(op, "show" | "toJson") && Prim::all().iter().any(|p| p.name() == ty)
 }
 
@@ -3129,14 +3439,20 @@ fn is_prim(tables: &Tables, con: TyConId) -> bool {
 pub fn runtime_module_key(module: &str) -> String {
     // A repository platform's `platform.buri` keys by its label: the methods
     // there are its `js` file's, `//platform/cloudflare_worker.HostKv.get`.
-    if let Some(label) = module.strip_suffix("/platform.buri").filter(|_| module.starts_with("//")) {
+    if let Some(label) = module
+        .strip_suffix("/platform.buri")
+        .filter(|_| module.starts_with("//"))
+    {
         return label.to_string();
     }
     match module {
         "platform/host" => String::from("host"),
         "platform/effect/testing" => String::from("host_testing"),
         "platform/effect" => String::from("effect"),
-        _ => module.strip_prefix("core/").unwrap_or(module).replace('/', "_"),
+        _ => module
+            .strip_prefix("core/")
+            .unwrap_or(module)
+            .replace('/', "_"),
     }
 }
 
@@ -3167,8 +3483,11 @@ fn canonical_contexts(tables: &Tables) -> Vec<CtxTypeId> {
         let id = CtxTypeId(i as u32);
         // A context's bindings were resolved before its id was minted, so any
         // context type they name has a smaller id and is already in `canon`.
-        let bindings: Vec<(TraitId, Ty)> =
-            c.bindings.iter().map(|(t, ty)| (*t, canonical_ty(&canon, ty))).collect();
+        let bindings: Vec<(TraitId, Ty)> = c
+            .bindings
+            .iter()
+            .map(|(t, ty)| (*t, canonical_ty(&canon, ty)))
+            .collect();
         let canonical = if bindings.iter().all(|(_, ty)| closed(ty)) {
             *first.entry(bindings).or_insert(id)
         } else {
@@ -3184,13 +3503,21 @@ fn canonical_contexts(tables: &Tables) -> Vec<CtxTypeId> {
 /// Read first and rebuilt only where a context moves: rebuilding interns every
 /// level, and most types name no context that moves.
 fn canonical_ty(canon: &[CtxTypeId], ty: &Ty) -> Ty {
-    if canon.is_empty() || moves_no_context(canon, ty) { *ty } else { rebuild_canonical(canon, ty) }
+    if canon.is_empty() || moves_no_context(canon, ty) {
+        *ty
+    } else {
+        rebuild_canonical(canon, ty)
+    }
 }
 
 /// `canon`, or nothing where it maps every context to itself, which
 /// [`canonical_ty`] reads the same way and answers without a walk.
 fn moving_contexts(canon: Vec<CtxTypeId>) -> Vec<CtxTypeId> {
-    if canon.iter().enumerate().all(|(i, c)| c.index() == i) { Vec::new() } else { canon }
+    if canon.iter().enumerate().all(|(i, c)| c.index() == i) {
+        Vec::new()
+    } else {
+        canon
+    }
 }
 
 /// Whether [`canonical_ty`] would hand `ty` back unchanged.
@@ -3199,7 +3526,9 @@ fn moves_no_context(canon: &[CtxTypeId], ty: &Ty) -> bool {
         TyKind::Ctx(id) => canon.get(id.index()).is_none_or(|c| c == id),
         TyKind::Con(_, xs) | TyKind::Tuple(xs) => xs.iter().all(|x| moves_no_context(canon, x)),
         TyKind::Array(e) => moves_no_context(canon, e),
-        TyKind::Fn(ps, r) => ps.iter().all(|p| moves_no_context(canon, p)) && moves_no_context(canon, r),
+        TyKind::Fn(ps, r) => {
+            ps.iter().all(|p| moves_no_context(canon, p)) && moves_no_context(canon, r)
+        }
         TyKind::Var(_) | TyKind::Param(_) | TyKind::Unit | TyKind::SelfTy | TyKind::Error => true,
     }
 }
@@ -3210,7 +3539,10 @@ fn rebuild_canonical(canon: &[CtxTypeId], ty: &Ty) -> Ty {
         TyKind::Con(id, xs) => Ty::con(*id, xs.iter().map(|x| canonical_ty(canon, x))),
         TyKind::Array(e) => Ty::array(canonical_ty(canon, e)),
         TyKind::Tuple(es) => Ty::tuple(es.iter().map(|e| canonical_ty(canon, e))),
-        TyKind::Fn(ps, r) => Ty::func(ps.iter().map(|p| canonical_ty(canon, p)), canonical_ty(canon, r)),
+        TyKind::Fn(ps, r) => Ty::func(
+            ps.iter().map(|p| canonical_ty(canon, p)),
+            canonical_ty(canon, r),
+        ),
         TyKind::Var(_) | TyKind::Param(_) | TyKind::Unit | TyKind::SelfTy | TyKind::Error => *ty,
     }
 }
@@ -3240,7 +3572,8 @@ struct Mangled<'a>(&'a Ty, &'a Tables);
 impl<'a> std::fmt::Debug for Mangled<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let tables = self.1;
-        let each = |xs: &'a [Ty]| -> Vec<Mangled<'a>> { xs.iter().map(|x| Mangled(x, tables)).collect() };
+        let each =
+            |xs: &'a [Ty]| -> Vec<Mangled<'a>> { xs.iter().map(|x| Mangled(x, tables)).collect() };
         match self.0.kind() {
             TyKind::Ctx(id) => {
                 let bindings: Vec<(TraitId, Mangled)> = tables
@@ -3256,7 +3589,11 @@ impl<'a> std::fmt::Debug for Mangled<'a> {
             TyKind::Con(id, xs) => f.debug_tuple("Con").field(id).field(&each(xs)).finish(),
             TyKind::Array(e) => f.debug_tuple("Array").field(&Mangled(e, tables)).finish(),
             TyKind::Tuple(es) => f.debug_tuple("Tuple").field(&each(es)).finish(),
-            TyKind::Fn(ps, r) => f.debug_tuple("Fn").field(&each(ps)).field(&Mangled(r, tables)).finish(),
+            TyKind::Fn(ps, r) => f
+                .debug_tuple("Fn")
+                .field(&each(ps))
+                .field(&Mangled(r, tables))
+                .finish(),
             other => other.fmt(f),
         }
     }
@@ -3268,7 +3605,11 @@ fn sanitize(s: &str) -> String {
 
 /// A character of a symbol: itself if a symbol may hold it, `_` otherwise.
 fn symbol_char(c: char) -> char {
-    if c.is_ascii_alphanumeric() || c == '_' || c == '$' { c } else { '_' }
+    if c.is_ascii_alphanumeric() || c == '_' || c == '$' {
+        c
+    } else {
+        '_'
+    }
 }
 
 /// A short, deterministic tag distinguishing two instantiations of one
@@ -3466,10 +3807,7 @@ mod tests {
     #[test]
     fn an_impl_generic_the_head_never_mentions_is_reported() {
         let point = con(11, vec![]);
-        assert_eq!(
-            instance_targs(&point, &point, 2, &[int()]),
-            Err(Unbound(0))
-        );
+        assert_eq!(instance_targs(&point, &point, 2, &[int()]), Err(Unbound(0)));
     }
 
     /// A receiver of another type constructor entirely. `impls` is keyed by
@@ -3553,9 +3891,17 @@ mod tests {
     fn the_list_is_sorted_and_has_no_duplicates() {
         let mut sorted: Vec<&str> = GENERIC_INTRINSICS.to_vec();
         sorted.sort_unstable();
-        assert_eq!(GENERIC_INTRINSICS, sorted.as_slice(), "the list is not in order");
+        assert_eq!(
+            GENERIC_INTRINSICS,
+            sorted.as_slice(),
+            "the list is not in order"
+        );
         sorted.dedup();
-        assert_eq!(sorted.len(), GENERIC_INTRINSICS.len(), "the list repeats a key");
+        assert_eq!(
+            sorted.len(),
+            GENERIC_INTRINSICS.len(),
+            "the list repeats a key"
+        );
     }
 
     /// The whole of the slice: a generic intrinsic nobody wrote a rule for is
@@ -3593,7 +3939,10 @@ mod tests {
     #[test]
     fn every_listed_key_is_allowed() {
         for key in GENERIC_INTRINSICS {
-            assert!(generic_intrinsic_allowed(key), "`{key}` is on the list and was refused");
+            assert!(
+                generic_intrinsic_allowed(key),
+                "`{key}` is on the list and was refused"
+            );
         }
     }
 
@@ -3603,8 +3952,14 @@ mod tests {
     fn show_and_to_json_are_allowed_at_every_primitive() {
         for p in Prim::all() {
             let name = p.name();
-            assert!(generic_intrinsic_allowed(&format!("number.{name}.show")), "{name} show");
-            assert!(generic_intrinsic_allowed(&format!("number.{name}.toJson")), "{name} toJson");
+            assert!(
+                generic_intrinsic_allowed(&format!("number.{name}.show")),
+                "{name} show"
+            );
+            assert!(
+                generic_intrinsic_allowed(&format!("number.{name}.toJson")),
+                "{name} toJson"
+            );
         }
     }
 
@@ -3613,7 +3968,12 @@ mod tests {
     /// check — this pins that widening the family would take an edit.
     #[test]
     fn the_primitive_family_is_those_two_methods_and_no_others() {
-        for key in ["number.I64.hash", "number.I64.equal", "number.F64.compare", "number.I64.showOff"] {
+        for key in [
+            "number.I64.hash",
+            "number.I64.equal",
+            "number.F64.compare",
+            "number.I64.showOff",
+        ] {
             assert!(!generic_intrinsic_allowed(key), "`{key}` was let through");
         }
         // A type that is not a primitive, spelled into the same shape.
@@ -3641,8 +4001,14 @@ mod tests {
     fn a_callback_parameter_spelled_self_is_in_scope() {
         // `Listen.listen`'s handler, and the same shape with generics beside
         // it.
-        assert_eq!(self_positions(&Ty::func([Ty::SELF, int()], string())), vec![0]);
-        assert_eq!(self_positions(&Ty::func([Ty::SELF, int(), p0()], p1())), vec![0]);
+        assert_eq!(
+            self_positions(&Ty::func([Ty::SELF, int()], string())),
+            vec![0]
+        );
+        assert_eq!(
+            self_positions(&Ty::func([Ty::SELF, int(), p0()], p1())),
+            vec![0]
+        );
         // Every position, not only the first.
         assert_eq!(
             self_positions(&Ty::func([int(), Ty::SELF, Ty::SELF], Ty::UNIT)),
@@ -3709,9 +4075,17 @@ mod tests {
     #[test]
     fn two_defined_functions_on_one_symbol_are_a_clash() {
         let funcs = vec![
-            func("__lib_a_buri$ctx$Fixture", "//lib/a:Fixture", FuncKind::Unbuilt),
+            func(
+                "__lib_a_buri$ctx$Fixture",
+                "//lib/a:Fixture",
+                FuncKind::Unbuilt,
+            ),
             func("__lib_b_buri$other", "//lib/b:other", FuncKind::Unbuilt),
-            func("__lib_a_buri$ctx$Fixture", "//lib/b:Fixture", FuncKind::Unbuilt),
+            func(
+                "__lib_a_buri$ctx$Fixture",
+                "//lib/b:Fixture",
+                FuncKind::Unbuilt,
+            ),
         ];
         let clash = one_symbol_per_function(&funcs).expect("the duplicate is not reported");
         assert_eq!(clash.symbol, "__lib_a_buri$ctx$Fixture");
@@ -3771,9 +4145,14 @@ mod tests {
         let wide = base36_hash(targs, WIDE_DIGITS);
         assert_eq!(short.len(), 6);
         assert_eq!(wide.len(), 12);
-        assert!(wide.starts_with(&short), "`{wide}` does not extend `{short}`");
         assert!(
-            short.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
+            wide.starts_with(&short),
+            "`{wide}` does not extend `{short}`"
+        );
+        assert!(
+            short
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
             "`{short}` is not base 36"
         );
         assert_eq!(short_hash(targs), short);

@@ -60,7 +60,9 @@ fn spawn_watcher(root: PathBuf, out: PathBuf, building: Arc<Mutex<()>>) {
         let mut stamps = Vec::new();
         loop {
             std::thread::sleep(POLL);
-            let Ok(site) = pages::read(&root) else { continue };
+            let Ok(site) = pages::read(&root) else {
+                continue;
+            };
             let now = modification_times(&site.sources());
             if stamps.is_empty() {
                 stamps = now;
@@ -110,7 +112,13 @@ fn respond(stream: TcpStream, out: &Path, building: &Mutex<()>) -> std::io::Resu
     let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("/");
     if method != "GET" && method != "HEAD" {
-        return send(stream, "405 Method Not Allowed", "text/plain; charset=utf-8", b"", false);
+        return send(
+            stream,
+            "405 Method Not Allowed",
+            "text/plain; charset=utf-8",
+            b"",
+            false,
+        );
     }
 
     let path = target.split(['?', '#']).next().unwrap_or("/");
@@ -124,12 +132,20 @@ fn respond(stream: TcpStream, out: &Path, building: &Mutex<()>) -> std::io::Resu
         );
     };
     let body = {
-        let _guard = building.lock().map_err(|_| std::io::Error::other("the builder panicked"))?;
+        let _guard = building
+            .lock()
+            .map_err(|_| std::io::Error::other("the builder panicked"))?;
         let mut body = Vec::new();
         std::fs::File::open(&file)?.read_to_end(&mut body)?;
         body
     };
-    send(stream, "200 OK", content_type(&file), &body, method == "HEAD")
+    send(
+        stream,
+        "200 OK",
+        content_type(&file),
+        &body,
+        method == "HEAD",
+    )
 }
 
 /// The file a request path names, or `None` when it names nothing this server
@@ -224,8 +240,17 @@ mod tests {
     /// say about an asset the site does not yet have.
     #[test]
     fn a_page_is_served_as_html() {
-        assert_eq!(content_type(Path::new("a/index.html")), "text/html; charset=utf-8");
-        assert_eq!(content_type(Path::new("assets/anything.css")), "text/css; charset=utf-8");
-        assert_eq!(content_type(Path::new(".website-generated")), "application/octet-stream");
+        assert_eq!(
+            content_type(Path::new("a/index.html")),
+            "text/html; charset=utf-8"
+        );
+        assert_eq!(
+            content_type(Path::new("assets/anything.css")),
+            "text/css; charset=utf-8"
+        );
+        assert_eq!(
+            content_type(Path::new(".website-generated")),
+            "application/octet-stream"
+        );
     }
 }

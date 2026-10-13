@@ -33,8 +33,9 @@ use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 
 /// The elements an icon may hold: a coordinate system, a group, and the shapes
 /// the painter's own SVG subset draws (`cli/runtime/image.rs`).
-const DRAWN: [&str; 9] =
-    ["svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon"];
+const DRAWN: [&str; 9] = [
+    "svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon",
+];
 
 /// The attributes an icon may carry: a frame, a paint, a transform, and each
 /// shape's own geometry. Every one of them draws.
@@ -101,7 +102,9 @@ pub fn run(
 ) {
     // `ui/node`'s `Image`, wherever one is written: a decorative one is what
     // lowers to an inline `<svg>`, whether or not it's written in the call.
-    let Some(image) = own_type(loaded, scopes, "ui/node", "Image") else { return };
+    let Some(image) = own_type(loaded, scopes, "ui/node", "Image") else {
+        return;
+    };
     let mut each = |e: &typed::Expr| {
         typed::walk(e, &mut |e| check(e, image, tables, bodies, consts, diags));
     };
@@ -128,7 +131,10 @@ fn check(
     match &e.kind {
         ExprKind::StructLit { con, .. } if *con == image => {}
         ExprKind::StructUpdate { con, updates, .. }
-            if *con == image && updates.iter().any(|(i, _)| [IMAGE_SOURCE, IMAGE_ALT].contains(i)) => {}
+            if *con == image
+                && updates
+                    .iter()
+                    .any(|(i, _)| [IMAGE_SOURCE, IMAGE_ALT].contains(i)) => {}
         _ => return,
     }
     let mut folder = Folder::new(tables, bodies, consts);
@@ -187,7 +193,9 @@ fn refuse(diags: &mut Diagnostics, span: Span, message: &str) {
 fn problem(text: &str) -> Option<String> {
     let tags = tags(text);
     let Some(first) = tags.first() else {
-        return Some("an icon's artwork has to be an `<svg>`, and this one holds no tag at all".into());
+        return Some(
+            "an icon's artwork has to be an `<svg>`, and this one holds no tag at all".into(),
+        );
     };
     if first.name != "svg" || first.closing {
         let slash = if first.closing { "/" } else { "" };
@@ -203,7 +211,11 @@ fn problem(text: &str) -> Option<String> {
                 tag.name
             ));
         }
-        if let Some(attribute) = tag.attributes.iter().find(|a| !DRAWING.contains(&a.as_str())) {
+        if let Some(attribute) = tag
+            .attributes
+            .iter()
+            .find(|a| !DRAWING.contains(&a.as_str()))
+        {
             return Some(format!(
                 "an icon may carry only the attributes that draw a shape, and this `<{}>` carries `{attribute}`",
                 tag.name
@@ -274,7 +286,11 @@ fn tags(text: &str) -> Vec<Tag> {
                 }
             }
         }
-        out.push(Tag { name, closing, attributes });
+        out.push(Tag {
+            name,
+            closing,
+            attributes,
+        });
     }
     out
 }
@@ -307,7 +323,10 @@ mod tests {
     #[test]
     fn a_glyph_out_of_an_icon_set_is_drawable() {
         assert_eq!(problem(CHECK), None);
-        assert_eq!(problem("<svg viewBox=\"0 0 1 1\"><g><rect x=\"0\"/></g></svg>"), None);
+        assert_eq!(
+            problem("<svg viewBox=\"0 0 1 1\"><g><rect x=\"0\"/></g></svg>"),
+            None
+        );
     }
 
     #[test]

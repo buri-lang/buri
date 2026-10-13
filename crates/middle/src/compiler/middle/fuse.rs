@@ -78,17 +78,18 @@
 
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::typed::{
-    self, Callee, Expr, ExprKind, PatKind, Pattern, Stmt,
-};
+use crate::compiler::semantics::typed::{self, Callee, Expr, ExprKind, PatKind, Pattern, Stmt};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty, TyKind};
-use crate::diagnostics::Span;
 use crate::diagnostics::Invariant as _;
+use crate::diagnostics::Span;
 
 /// Fuses every combinator chain in the program.
 pub fn run(program: &mut Program) {
-    let keys: Vec<Option<String>> =
-        program.funcs.iter().map(|f| f.intrinsic_key().map(str::to_string)).collect();
+    let keys: Vec<Option<String>> = program
+        .funcs
+        .iter()
+        .map(|f| f.intrinsic_key().map(str::to_string))
+        .collect();
     let names: Vec<(String, String, Span)> = program
         .funcs
         .iter()
@@ -97,8 +98,16 @@ pub fn run(program: &mut Program) {
     let base = program.funcs.len();
     let mut minted: Vec<Func> = Vec::new();
     for func in &mut program.funcs {
-        let Some(body) = func.body_mut() else { continue };
-        Fuse { keys: &keys, names: &names, base, minted: &mut minted }.expr(body);
+        let Some(body) = func.body_mut() else {
+            continue;
+        };
+        Fuse {
+            keys: &keys,
+            names: &names,
+            base,
+            minted: &mut minted,
+        }
+        .expr(body);
     }
     program.funcs.extend(minted);
 }
@@ -176,14 +185,19 @@ impl Fuse<'_> {
     }
 
     fn key<'e>(&self, e: &'e Expr) -> Option<(&str, FuncIdx, &'e Vec<Expr>)> {
-        let ExprKind::CallFn { func, args } = &e.kind else { return None };
+        let ExprKind::CallFn { func, args } = &e.kind else {
+            return None;
+        };
         let idx = func.func()?;
         // A minted instance is not in `keys`, and a chain fuses one stage at a
         // time — so the instance this pass wrote a moment ago is exactly the
         // one the next stage has to recognise.
         let key = match self.keys.get(idx.index()) {
             Some(k) => k.as_deref()?,
-            None => self.minted.get(idx.index().checked_sub(self.base)?)?.intrinsic_key()?,
+            None => self
+                .minted
+                .get(idx.index().checked_sub(self.base)?)?
+                .intrinsic_key()?,
         };
         Some((key, idx, args))
     }
@@ -198,7 +212,9 @@ impl Fuse<'_> {
         if self.len_of_filter(e) {
             return true;
         }
-        let Some(plan) = self.plan(e) else { return false };
+        let Some(plan) = self.plan(e) else {
+            return false;
+        };
         self.rewrite(e, plan);
         true
     }
@@ -215,7 +231,9 @@ impl Fuse<'_> {
         reason = "the checker gives every call its declared arity: one argument to `length`, three to `filter`"
     )]
     fn len_of_filter(&mut self, e: &mut Expr) -> bool {
-        let Some(("list.length", _, args)) = self.key(e) else { return false };
+        let Some(("list.length", _, args)) = self.key(e) else {
+            return false;
+        };
         let Some((Combinator::Filter, from, producer_args)) = self.combinator(&args[0]) else {
             return false;
         };
@@ -253,8 +271,11 @@ impl Fuse<'_> {
         let ExprKind::Lambda { .. } = &args.get(consumer.step_at())?.kind else {
             return None;
         };
-        let ExprKind::Lambda { params: producer_params, body: producer_body, .. } =
-            &producer_args.get(producer.step_at())?.kind
+        let ExprKind::Lambda {
+            params: producer_params,
+            body: producer_body,
+            ..
+        } = &producer_args.get(producer.step_at())?.kind
         else {
             return None;
         };
@@ -285,7 +306,10 @@ impl Fuse<'_> {
 
     /// Takes apart the call [`Fuse::plan`] read, and puts the fused one in its
     /// place.
-    #[expect(clippy::indexing_slicing, reason = "the call has its combinator's arity, which covers the step's position")]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "the call has its combinator's arity, which covers the step's position"
+    )]
     fn rewrite(&mut self, e: &mut Expr, plan: Plan) {
         let node_ty = e.ty;
         let mut producer = take_arg(e, 0);
@@ -297,7 +321,9 @@ impl Fuse<'_> {
         let (consumer_params, consumer_body, consumer_captures) = lambda_parts(step);
 
         let acc_ty = consumer_body.ty;
-        let (&bound, before) = consumer_params.split_last().or_ice("every step takes its element last");
+        let (&bound, before) = consumer_params
+            .split_last()
+            .or_ice("every step takes its element last");
         let acc = before.first().copied();
         let body = compose(&plan, *producer_body, acc, bound, *consumer_body, span);
         let mut captures = producer_captures;
@@ -313,7 +339,11 @@ impl Fuse<'_> {
         };
         let ret_ty = body.ty;
         let fused = Expr::new(
-            ExprKind::Lambda { params, body: Box::new(body), captures },
+            ExprKind::Lambda {
+                params,
+                body: Box::new(body),
+                captures,
+            },
             Ty::func(param_tys, ret_ty),
             span,
         );
@@ -337,12 +367,17 @@ impl Fuse<'_> {
     /// of the arguments at the call site, which is why the instance never needs
     /// to have existed before.
     fn mint(&mut self, combinator: Combinator, from: FuncIdx, params: Vec<Ty>, ret: Ty) -> FuncIdx {
-        let idx = FuncIdx(u32::try_from(self.base.saturating_add(self.minted.len())).unwrap_or(u32::MAX));
+        let idx =
+            FuncIdx(u32::try_from(self.base.saturating_add(self.minted.len())).unwrap_or(u32::MAX));
         let (symbol, debug_name, span) = match self.names.get(from.index()) {
             Some(n) => n.clone(),
             None => match self.minted.get(from.index().saturating_sub(self.base)) {
                 Some(f) => (f.symbol.clone(), f.debug_name.clone(), f.span),
-                None => (combinator.key().into(), combinator.key().into(), Span::default()),
+                None => (
+                    combinator.key().into(),
+                    combinator.key().into(),
+                    Span::default(),
+                ),
             },
         };
         self.minted.push(Func {
@@ -354,7 +389,11 @@ impl Fuse<'_> {
             locals: params
                 .into_iter()
                 .enumerate()
-                .map(|(i, ty)| typed::Local { name: Name::new(&format!("a{i}")), ty, span })
+                .map(|(i, ty)| typed::Local {
+                    name: Name::new(&format!("a{i}")),
+                    ty,
+                    span,
+                })
                 .collect(),
             kind: FuncKind::Intrinsic(combinator.key().to_string()),
             ret,
@@ -437,7 +476,11 @@ fn compose(
 
 fn binding(local: LocalId, ty: Ty, value: Expr, span: Span) -> Stmt {
     Stmt::Let {
-        pattern: Pattern { kind: PatKind::Bind { local, sub: None }, ty, span },
+        pattern: Pattern {
+            kind: PatKind::Bind { local, sub: None },
+            ty,
+            span,
+        },
         value,
         span,
     }
@@ -450,7 +493,10 @@ fn unit() -> Expr {
 /// Takes one argument out of a call, leaving a placeholder the rewrite either
 /// overwrites or discards with the node.
 fn take_arg(e: &mut Expr, at: usize) -> Expr {
-    let slot = call_mut(e).1.get_mut(at).or_ice("a combinator call has the argument");
+    let slot = call_mut(e)
+        .1
+        .get_mut(at)
+        .or_ice("a combinator call has the argument");
     std::mem::replace(slot, unit())
 }
 
@@ -466,7 +512,11 @@ fn call_mut(e: &mut Expr) -> (&mut Callee, &mut Vec<Expr>) {
 /// A step's parameters, body and captures.
 fn lambda_parts(step: Expr) -> (Vec<LocalId>, Box<Expr>, Vec<LocalId>) {
     match step.kind {
-        ExprKind::Lambda { params, body, captures } => Some((params, body, captures)),
+        ExprKind::Lambda {
+            params,
+            body,
+            captures,
+        } => Some((params, body, captures)),
         _ => None,
     }
     .or_ice("a fused step is a lambda")
@@ -513,8 +563,8 @@ fn readonly(e: &Expr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::run;
-    use crate::compiler::semantics::name::Name;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
+    use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{Callee, Expr, ExprKind, Local, Stmt};
     use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
     use crate::diagnostics::Span;
@@ -541,7 +591,13 @@ mod tests {
     }
 
     fn call(f: u32, args: Vec<Expr>, ty: Ty) -> Expr {
-        e(ExprKind::CallFn { func: Callee::Func(FuncIdx(f)), args }, ty)
+        e(
+            ExprKind::CallFn {
+                func: Callee::Func(FuncIdx(f)),
+                args,
+            },
+            ty,
+        )
     }
 
     fn intrinsic(key: &str) -> Func {
@@ -624,16 +680,30 @@ mod tests {
         run(&mut p);
 
         let body = p.funcs[0].body().unwrap();
-        let ExprKind::CallFn { func, args } = &body.kind else { panic!("still a call") };
+        let ExprKind::CallFn { func, args } = &body.kind else {
+            panic!("still a call")
+        };
         assert_eq!(func.func(), Some(FuncIdx(2)), "the fold instance is reused");
-        assert!(matches!(args[0].kind, ExprKind::Local(LocalId(0))), "over the source list");
-        let ExprKind::Lambda { params, body, .. } = &args[1].kind else { panic!("a lambda") };
+        assert!(
+            matches!(args[0].kind, ExprKind::Local(LocalId(0))),
+            "over the source list"
+        );
+        let ExprKind::Lambda { params, body, .. } = &args[1].kind else {
+            panic!("a lambda")
+        };
         // The accumulator, then the *map's* parameter as the element.
         assert_eq!(params, &[LocalId(3), LocalId(2)]);
-        let ExprKind::Block { stmts, .. } = &body.kind else { panic!("a block") };
+        let ExprKind::Block { stmts, .. } = &body.kind else {
+            panic!("a block")
+        };
         assert_eq!(stmts.len(), 1);
-        let Stmt::Let { value, .. } = &stmts[0] else { panic!("a binding") };
-        assert!(matches!(value.kind, ExprKind::Local(LocalId(2))), "the map's own body");
+        let Stmt::Let { value, .. } = &stmts[0] else {
+            panic!("a binding")
+        };
+        assert!(
+            matches!(value.kind, ExprKind::Local(LocalId(2))),
+            "the map's own body"
+        );
     }
 
     /// The filter's predicate becomes the step's guard and the accumulator is
@@ -664,8 +734,12 @@ mod tests {
         let ExprKind::CallFn { args, .. } = &p.funcs[0].body().unwrap().kind else {
             panic!("still a call")
         };
-        let ExprKind::Lambda { body, .. } = &args[1].kind else { panic!("a lambda") };
-        let ExprKind::If { else_, .. } = &body.kind else { panic!("a guard") };
+        let ExprKind::Lambda { body, .. } = &args[1].kind else {
+            panic!("a lambda")
+        };
+        let ExprKind::If { else_, .. } = &body.kind else {
+            panic!("a guard")
+        };
         assert!(
             matches!(else_.kind, ExprKind::Local(LocalId(3))),
             "a dropped element leaves the accumulator alone"
@@ -700,7 +774,10 @@ mod tests {
         let ExprKind::CallFn { args, .. } = &p.funcs[0].body().unwrap().kind else {
             panic!("still a call")
         };
-        assert!(matches!(args[0].kind, ExprKind::CallFn { .. }), "the map is still there");
+        assert!(
+            matches!(args[0].kind, ExprKind::CallFn { .. }),
+            "the map is still there"
+        );
     }
 
     /// A step passed by name would have to be *called* from the fused step,
@@ -754,7 +831,11 @@ mod tests {
         let ExprKind::CallFn { func, args } = &p.funcs[0].body().unwrap().kind else {
             panic!("still a call")
         };
-        assert_eq!(func.func(), Some(FuncIdx(before as u32)), "a minted instance");
+        assert_eq!(
+            func.func(),
+            Some(FuncIdx(before as u32)),
+            "a minted instance"
+        );
         assert_eq!(p.funcs[before].intrinsic_key(), Some("list.count"));
         assert_eq!(args.len(), 2);
         assert!(matches!(args[0].kind, ExprKind::Local(LocalId(0))));
@@ -776,7 +857,11 @@ mod tests {
         );
         let filter = call(
             2,
-            vec![map, e(ExprKind::Local(LocalId(1)), Ty::UNIT), lambda(vec![3], e(ExprKind::Bool(true), Ty::UNIT))],
+            vec![
+                map,
+                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
+                lambda(vec![3], e(ExprKind::Bool(true), Ty::UNIT)),
+            ],
             list(),
         );
         let fold = call(

@@ -10,12 +10,12 @@
 //! `BUILD.buri` is textproto and the strings in it are the build graph's
 //! rather than the language's.
 
+use super::convert;
+use super::state::Analyzed;
 use crate::diagnostics::FileId;
 use crate::json::Value;
 use crate::parsing::tree::Item;
 use std::path::Path;
-use super::convert;
-use super::state::Analyzed;
 
 /// Every link a Buri source file has: its import paths, and the addresses its
 /// comments write.
@@ -65,8 +65,16 @@ pub(super) fn render(text: &str, mut found: Vec<(u32, u32, String)>) -> Value {
 /// `definition` answers with there.
 fn imports(analyzed: &Analyzed, path: &Path, out: &mut Vec<(u32, u32, String)>) {
     let rel = analyzed.session.workspace.rel_of(path);
-    let Some(file) = analyzed.session.map.find(&rel) else { return };
-    let Some(module) = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file) else {
+    let Some(file) = analyzed.session.map.find(&rel) else {
+        return;
+    };
+    let Some(module) = analyzed
+        .analysis
+        .loaded
+        .modules
+        .iter()
+        .find(|m| m.file == file)
+    else {
         return;
     };
     for item in &module.ast.items {
@@ -75,8 +83,12 @@ fn imports(analyzed: &Analyzed, path: &Path, out: &mut Vec<(u32, u32, String)>) 
             Item::ReExport(r) => (&r.path, r.path_span),
             _ => continue,
         };
-        let Ok(resolved) = analyzed.session.workspace.resolve_module(written) else { continue };
-        let Some(in_package) = resolved.in_package() else { continue };
+        let Ok(resolved) = analyzed.session.workspace.resolve_module(written) else {
+            continue;
+        };
+        let Some(in_package) = resolved.in_package() else {
+            continue;
+        };
         let (start, end) = inside_quotes(span);
         out.push((start, end, convert::uri_of(&in_package.file)));
     }
@@ -106,19 +118,24 @@ pub(super) fn inside_quotes(span: crate::diagnostics::Span) -> (u32, u32) {
 /// is dropped, because a full stop after a link is a full stop.
 fn urls(text: &str, out: &mut Vec<(u32, u32, String)>) {
     let lexed = crate::parsing::lexer::lex(text, FileId(0));
-    let code: Vec<(u32, u32)> =
-        (0..lexed.tokens.len()).map(|i| (lexed.tokens.span(i).start, lexed.tokens.span(i).end)).collect();
+    let code: Vec<(u32, u32)> = (0..lexed.tokens.len())
+        .map(|i| (lexed.tokens.span(i).start, lexed.tokens.span(i).end))
+        .collect();
     let bytes = text.as_bytes();
     let mut at = 0usize;
     while at < text.len() {
-        let Some(hit) = text.get(at..).and_then(scheme_at) else { break };
+        let Some(hit) = text.get(at..).and_then(scheme_at) else {
+            break;
+        };
         let start = at.saturating_add(hit);
         at = start.saturating_add(1);
         // A scheme glued to the end of a word is part of that word.
         let attached = start
             .checked_sub(1)
             .is_some_and(|b| bytes.get(b).is_some_and(|c| c.is_ascii_alphanumeric()));
-        let in_code = code.iter().any(|(s, e)| *s <= start as u32 && (start as u32) < *e);
+        let in_code = code
+            .iter()
+            .any(|(s, e)| *s <= start as u32 && (start as u32) < *e);
         if attached || in_code {
             continue;
         }
@@ -153,15 +170,34 @@ fn run_end(bytes: &[u8], start: usize) -> usize {
     while let Some(b) = bytes.get(end) {
         // `*/` closes a block comment; it is not part of the address inside it.
         let closes_comment = *b == b'*' && bytes.get(end.saturating_add(1)) == Some(&b'/');
-        let delimiter = matches!(b, b'<' | b'>' | b'"' | b'\'' | b'(' | b')' | b'[' | b']'
-            | b'{' | b'}' | b'|' | b'\\' | b'^' | b'`');
+        let delimiter = matches!(
+            b,
+            b'<' | b'>'
+                | b'"'
+                | b'\''
+                | b'('
+                | b')'
+                | b'['
+                | b']'
+                | b'{'
+                | b'}'
+                | b'|'
+                | b'\\'
+                | b'^'
+                | b'`'
+        );
         if b.is_ascii_whitespace() || delimiter || closes_comment {
             break;
         }
         end = end.saturating_add(1);
     }
     // Prose runs on after a link: `see https://example.org/pricing, which …`.
-    while end > start && matches!(bytes.get(end.saturating_sub(1)), Some(b'.' | b',' | b';' | b':' | b'!' | b'?')) {
+    while end > start
+        && matches!(
+            bytes.get(end.saturating_sub(1)),
+            Some(b'.' | b',' | b';' | b':' | b'!' | b'?')
+        )
+    {
         end = end.saturating_sub(1);
     }
     end
@@ -183,6 +219,9 @@ mod tests {
         assert_eq!(run("https://example.org/a."), "https://example.org/a");
         assert_eq!(run("https://example.org/a>"), "https://example.org/a");
         assert_eq!(run("https://example.org/a*/"), "https://example.org/a");
-        assert_eq!(run("https://example.org/a#b?c=d"), "https://example.org/a#b?c=d");
+        assert_eq!(
+            run("https://example.org/a#b?c=d"),
+            "https://example.org/a#b?c=d"
+        );
     }
 }

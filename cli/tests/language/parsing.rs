@@ -80,7 +80,10 @@ export fn main(host: NodeHost): Result<(), Str> {
 }
 "#);
     scratch.run(&["build", "//app"]).ok();
-    scratch.exec_js("app").ok().says("5 -3 true 2 5 3 42 [0, 9, 10] 10 14");
+    scratch
+        .exec_js("app")
+        .ok()
+        .says("5 -3 true 2 5 3 42 [0, 9, 10] 10 14");
 }
 
 /// **Each budget is spent the same at its limit**: the deepest nesting and
@@ -92,7 +95,10 @@ fn nesting_and_chains_are_refused_one_past_their_limits() {
     let summed = |n: usize| ("1".to_string() + &" + 1".repeat(n), String::new());
     let typed = |n: usize| {
         let ty = "[".repeat(n) + "Int" + &"]".repeat(n);
-        ("1".to_string(), format!("fn f(a: {ty}): Int {{\n    1\n}}\n\n"))
+        (
+            "1".to_string(),
+            format!("fn f(a: {ty}): Int {{\n    1\n}}\n\n"),
+        )
     };
     // A shape at `n`: the value `main` binds, and the items above `main`.
     type Shape = fn(usize) -> (String, String);

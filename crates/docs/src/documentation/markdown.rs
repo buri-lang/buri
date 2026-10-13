@@ -55,7 +55,11 @@ impl FenceState {
     fn feed(&mut self, line: &str) -> Where {
         let trimmed = line.trim_start();
         let Some(rest) = trimmed.strip_prefix("```") else {
-            return if self.open { Where::Inside } else { Where::Outside };
+            return if self.open {
+                Where::Inside
+            } else {
+                Where::Outside
+            };
         };
         if self.open {
             // Only a bare ``` closes, per CommonMark. That is what lets a
@@ -90,14 +94,22 @@ pub struct Info {
 
 impl Info {
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.keys.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+        self.keys
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
     }
 
     /// A `key=a,b,c` list, empty when the key is absent.
     pub fn list(&self, key: &str) -> Vec<String> {
         match self.get(key) {
             None => Vec::new(),
-            Some(v) => v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect(),
+            Some(v) => v
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .collect(),
         }
     }
 }
@@ -128,7 +140,10 @@ fn info_words(raw: &str) -> Result<Vec<String>, String> {
         }
     }
     if quoted {
-        return Err(format!("unterminated `\"` in the fence info string `{}`", raw.trim()));
+        return Err(format!(
+            "unterminated `\"` in the fence info string `{}`",
+            raw.trim()
+        ));
     }
     if any {
         words.push(cur);
@@ -147,7 +162,10 @@ fn info_lang(raw: &str) -> &str {
 
 pub fn parse_info(raw: &str) -> Result<Info, String> {
     let words = info_words(raw)?;
-    let mut info = Info { mode: None, keys: Vec::new() };
+    let mut info = Info {
+        mode: None,
+        keys: Vec::new(),
+    };
     for (i, w) in words.iter().enumerate() {
         if i == 0 {
             continue;
@@ -306,8 +324,14 @@ pub fn headings(text: &str) -> Vec<Heading<'_>> {
         if state.feed(line) != Where::Outside {
             continue;
         }
-        let Some((level, title)) = atx(line.trim_start()) else { continue };
-        out.push(Heading { level, title, line: line_no });
+        let Some((level, title)) = atx(line.trim_start()) else {
+            continue;
+        };
+        out.push(Heading {
+            level,
+            title,
+            line: line_no,
+        });
     }
     out
 }
@@ -376,7 +400,10 @@ pub fn summary(text: &str) -> String {
         if t.is_empty() {
             continue;
         }
-        if t.starts_with('#') || t.starts_with('>') || t.starts_with('-') || t.starts_with('|')
+        if t.starts_with('#')
+            || t.starts_with('>')
+            || t.starts_with('-')
+            || t.starts_with('|')
             || t.starts_with("<!--")
         {
             continue;
@@ -409,8 +436,10 @@ fn first_sentence(line: &str) -> String {
                     continue;
                 }
                 // A single letter before the dot is an initial or `e.g`.
-                if b.get(i.wrapping_sub(1)).is_some_and(u8::is_ascii_alphabetic)
-                    && b.get(i.wrapping_sub(2)).is_some_and(|c| !c.is_ascii_alphanumeric())
+                if b.get(i.wrapping_sub(1))
+                    .is_some_and(u8::is_ascii_alphabetic)
+                    && b.get(i.wrapping_sub(2))
+                        .is_some_and(|c| !c.is_ascii_alphanumeric())
                 {
                     continue;
                 }
@@ -425,8 +454,14 @@ fn first_sentence(line: &str) -> String {
 /// Sections whose prose is background rather than reference. Dense mode keeps
 /// their headings so the reader knows they exist and can ask for them, and
 /// drops their bodies.
-const BACKGROUND_HEADINGS: &[&str] =
-    &["why ", "rationale", "considered and cut", "background", "history", "non-goals"];
+const BACKGROUND_HEADINGS: &[&str] = &[
+    "why ",
+    "rationale",
+    "considered and cut",
+    "background",
+    "history",
+    "non-goals",
+];
 
 fn is_background(title: &str) -> bool {
     let t = title.trim().to_lowercase();
@@ -504,7 +539,9 @@ pub fn dense(text: &str) -> String {
             continue;
         }
         // Tables and lists are already dense; pass them through whole.
-        if t.starts_with('|') || t.starts_with("- ") || t.starts_with("* ")
+        if t.starts_with('|')
+            || t.starts_with("- ")
+            || t.starts_with("* ")
             || t.chars().next().is_some_and(|c| c.is_ascii_digit()) && t.contains(". ")
         {
             flush(&mut out, &mut paragraph);
@@ -575,8 +612,11 @@ pub fn emphasis(color: bool) -> (&'static str, &'static str, &'static str) {
 /// Wrapping stops at `width` columns but never inside a fenced block — a
 /// wrapped program is not a program, and somebody will copy it.
 pub fn to_terminal(text: &str, width: super::Width, color: bool) -> String {
-    let (bold, dim, blue, reset) =
-        if color { (BOLD, DIM, BLUE, RESET) } else { ("", "", "", "") };
+    let (bold, dim, blue, reset) = if color {
+        (BOLD, DIM, BLUE, RESET)
+    } else {
+        ("", "", "", "")
+    };
     // Already clamped: `Width` has no other constructor.
     let width = width.get();
     let mut out = String::with_capacity(text.len());
@@ -671,7 +711,11 @@ fn render_table(out: &mut String, rows: &[String], width: usize, color: bool) {
         .iter()
         .filter(|r| !is_alignment_row(r))
         .map(|r| {
-            r.trim().trim_matches('|').split('|').map(|c| inline(c.trim(), false)).collect()
+            r.trim()
+                .trim_matches('|')
+                .split('|')
+                .map(|c| inline(c.trim(), false))
+                .collect()
         })
         .collect();
     if cells.is_empty() {
@@ -689,7 +733,9 @@ fn render_table(out: &mut String, rows: &[String], width: usize, color: bool) {
     }
     // `split_last` rather than `columns - 1`: it is the same "all but the last
     // column", and it says what a table with no columns at all does.
-    let Some((_, leading)) = widths.split_last() else { return };
+    let Some((_, leading)) = widths.split_last() else {
+        return;
+    };
     let fixed: usize = leading.iter().map(|w| w + 2).sum();
     let last = width.saturating_sub(fixed + 2).max(20);
 
@@ -728,7 +774,11 @@ fn is_alignment_row(row: &str) -> bool {
 /// Inline markup: `code` dim, **bold** bold, and `[text](target)` shown as the
 /// text followed by the target, since a terminal cannot be clicked.
 fn inline(s: &str, color: bool) -> String {
-    let (bold, dim, reset) = if color { (BOLD, DIM, RESET) } else { ("", "", "") };
+    let (bold, dim, reset) = if color {
+        (BOLD, DIM, RESET)
+    } else {
+        ("", "", "")
+    };
     let mut out = String::with_capacity(s.len());
     let b = s.as_bytes();
     let mut i = 0;
@@ -740,14 +790,22 @@ fn inline(s: &str, color: bool) -> String {
     while let Some(&c) = b.get(i) {
         if c == b'`' {
             if let Some(end) = s.get(i + 1..).and_then(|rest| rest.find('`')) {
-                let _ = write!(out, "{dim}{}{reset}", s.get(i + 1..i + 1 + end).unwrap_or(""));
+                let _ = write!(
+                    out,
+                    "{dim}{}{reset}",
+                    s.get(i + 1..i + 1 + end).unwrap_or("")
+                );
                 i += end + 2;
                 continue;
             }
         }
         if c == b'*' && b.get(i + 1) == Some(&b'*') {
             if let Some(end) = s.get(i + 2..).and_then(|rest| rest.find("**")) {
-                let _ = write!(out, "{bold}{}{reset}", s.get(i + 2..i + 2 + end).unwrap_or(""));
+                let _ = write!(
+                    out,
+                    "{bold}{}{reset}",
+                    s.get(i + 2..i + 2 + end).unwrap_or("")
+                );
                 i += end + 4;
                 continue;
             }
@@ -765,7 +823,9 @@ fn inline(s: &str, color: bool) -> String {
                 }
             }
         }
-        let Some(ch) = s.get(i..).and_then(|rest| rest.chars().next()) else { break };
+        let Some(ch) = s.get(i..).and_then(|rest| rest.chars().next()) else {
+            break;
+        };
         out.push(ch);
         i += ch.len_utf8();
     }
@@ -821,9 +881,15 @@ mod tests {
             slug("12. Why the grammar is context-free and unambiguous"),
             "12-why-the-grammar-is-context-free-and-unambiguous"
         );
-        assert_eq!(slug("Why `forbids` has no platforms"), "why-forbids-has-no-platforms");
+        assert_eq!(
+            slug("Why `forbids` has no platforms"),
+            "why-forbids-has-no-platforms"
+        );
         assert_eq!(slug("`Result` is must-use"), "result-is-must-use");
-        assert_eq!(slug("6.8 `?` — error propagation"), "68---error-propagation");
+        assert_eq!(
+            slug("6.8 `?` — error propagation"),
+            "68---error-propagation"
+        );
     }
 
     #[test]
@@ -868,7 +934,12 @@ mod tests {
         assert_eq!(fences("```buri")[0].body, "");
 
         // Multi-byte characters wherever a byte walk might stop between them.
-        for text in ["# 🎈\n\n[é](ü.md#ñ)\n\n| á | é |\n|---|---|\n| ü | ñ |\n", "`é", "**é", "[é"] {
+        for text in [
+            "# 🎈\n\n[é](ü.md#ñ)\n\n| á | é |\n|---|---|\n| ü | ñ |\n",
+            "`é",
+            "**é",
+            "[é",
+        ] {
             let _ = fences(text);
             let _ = headings(text);
             let _ = summary(text);
@@ -879,14 +950,18 @@ mod tests {
 
     #[test]
     fn info_strings_parse() {
-        let i = parse_info("textproto fail code=textproto-syntax file=\"lib/a b/server.txtpb\"").unwrap();
+        let i = parse_info("textproto fail code=textproto-syntax file=\"lib/a b/server.txtpb\"")
+            .unwrap();
         assert_eq!(i.mode.as_deref(), Some("fail"));
         assert_eq!(i.get("file"), Some("lib/a b/server.txtpb"));
 
         let i = parse_info("buri check ctx=alloc,stdout").unwrap();
         assert_eq!(i.list("ctx"), vec!["alloc", "stdout"]);
 
-        assert!(parse_info("buri run check").is_err(), "two modes is an error");
+        assert!(
+            parse_info("buri run check").is_err(),
+            "two modes is an error"
+        );
         assert!(parse_info("buri file=\"unclosed").is_err());
     }
 
@@ -924,8 +999,14 @@ mod tests {
         let d = dense(text);
         assert!(d.contains("let a = 1;"), "dense dropped a fence:\n{d}");
         assert!(!d.contains("second sentence"));
-        assert!(d.contains("## Why this is so"), "dense should keep the heading");
-        assert!(!d.contains("Background prose"), "dense should drop a background body");
+        assert!(
+            d.contains("## Why this is so"),
+            "dense should keep the heading"
+        );
+        assert!(
+            !d.contains("Background prose"),
+            "dense should drop a background body"
+        );
     }
 
     #[test]
@@ -934,13 +1015,22 @@ mod tests {
         // SPEC.md is over 40%. The floor is set well below it so the test
         // fails when dense stops working, not when a document gains prose.
         let d = dense(SPEC);
-        assert!(d.len() * 4 < SPEC.len() * 3, "dense SPEC is {} of {}", d.len(), SPEC.len());
+        assert!(
+            d.len() * 4 < SPEC.len() * 3,
+            "dense SPEC is {} of {}",
+            d.len(),
+            SPEC.len()
+        );
         // Every fence body survives verbatim.
         for f in fences(SPEC) {
             if f.body.trim().is_empty() {
                 continue;
             }
-            assert!(d.contains(f.body.trim()), "dense dropped the fence at SPEC.md:{}", f.line);
+            assert!(
+                d.contains(f.body.trim()),
+                "dense dropped the fence at SPEC.md:{}",
+                f.line
+            );
         }
     }
 }

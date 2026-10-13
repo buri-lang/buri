@@ -68,9 +68,9 @@
               bounds them"
 )]
 
-use crate::value::{list_of_bytes, list_of_headers, list_of_strs, str_of, BuriList, BuriStr};
 use crate::BURI_OK;
 use crate::sync::Mutex;
+use crate::value::{BuriList, BuriStr, list_of_bytes, list_of_headers, list_of_strs, str_of};
 
 /// One live handle's state.
 ///
@@ -88,7 +88,12 @@ enum Slot {
     /// A stream is lines or octets and never both, and one slot holds either:
     /// a second variant would cost every `readLine` a second arm that answered
     /// the same thing.
-    Stdin { lines: Vec<String>, at: usize, bytes: Option<Vec<u8>>, calls: Vec<StdinLog> },
+    Stdin {
+        lines: Vec<String>,
+        at: usize,
+        bytes: Option<Vec<u8>>,
+        calls: Vec<StdinLog>,
+    },
     /// The file store — the files, in insertion order, and the directories
     /// `makeDir` has been asked for.
     ///
@@ -102,16 +107,26 @@ enum Slot {
     /// `readFile` decodes lossily on the way out, which is what a real
     /// filesystem's does. The directories are separate because a flat map has
     /// no empty one otherwise, and `readDir` after `makeDir` has to see one.
-    Files { entries: Vec<(String, Vec<u8>)>, dirs: Vec<String> },
+    Files {
+        entries: Vec<(String, Vec<u8>)>,
+        dirs: Vec<String>,
+    },
     /// `TestClock` — the current instant, in milliseconds.
     Clock(i64),
     /// `TestRandom` — the xorshift32 state.
     Rand(u32),
     /// `TestEnvironment`.
-    Env { vars: Vec<(String, String)>, args: Vec<String> },
+    Env {
+        vars: Vec<(String, String)>,
+        args: Vec<String>,
+    },
     /// `TestSpawn` — the log, and nothing else. The scripted answer stays in
     /// the program, because `IoError::Other` carries a `Str`.
-    Spawn { calls: Vec<SpawnLog>, children: Vec<TestChild>, signals: Vec<(i64, i64)> },
+    Spawn {
+        calls: Vec<SpawnLog>,
+        children: Vec<TestChild>,
+        signals: Vec<(i64, i64)>,
+    },
     /// `platform/effect/testing`'s `TestFileSystem` — a **view**: the handle of the
     /// [`Slot::Files`] store its files live in, and whether writes through this
     /// view are refused.
@@ -131,7 +146,12 @@ enum Slot {
     /// nothing has called `faults`. It travels with the view exactly as
     /// `read_only` does — a builder is configuration and not a write — so the
     /// filesystem `fs().faults(p).files(x)` answers fails what `p` names.
-    Fs { store: i64, read_only: bool, plan: i64, calls: Vec<FsLog> },
+    Fs {
+        store: i64,
+        read_only: bool,
+        plan: i64,
+        calls: Vec<FsLog>,
+    },
     /// `platform/effect/testing`'s `TestNetwork` — its log and the plan it fails through,
     /// and nothing else.
     ///
@@ -155,7 +175,10 @@ enum Slot {
     /// `retired` is set when `faults` is called a second time on a chain: that
     /// call replaces the plan, and a promise nothing can keep any more is not
     /// one to report.
-    Plan { entries: Vec<PlanEntry>, retired: bool },
+    Plan {
+        entries: Vec<PlanEntry>,
+        retired: bool,
+    },
     /// `platform/effect/testing`'s `TestTasks` — the order it schedules its tasks
     /// in, the plan it fails them through, and the tasks that have completed.
     ///
@@ -170,7 +193,13 @@ enum Slot {
     /// three of those cross, so the matching happens here beside the walk that
     /// needs it. `plan` still names the [`Slot::Plan`] holding the *promise*,
     /// entry for entry with this list.
-    Tasks { mode: i64, seed: i64, plan: i64, log: Vec<i64>, faults: Vec<TaskFault> },
+    Tasks {
+        mode: i64,
+        seed: i64,
+        plan: i64,
+        log: Vec<i64>,
+        faults: Vec<TaskFault>,
+    },
     /// `platform/effect/testing`'s `TestSockets` — every message pushed through it,
     /// oldest first, and nothing else.
     ///
@@ -193,7 +222,12 @@ enum Slot {
     /// close. A handle outside it is one already closed, which is what
     /// `platform/effect` promises of the real effect and therefore what the double
     /// has to promise too.
-    Tcp { stream: Vec<u8>, taken: usize, open: Vec<i64>, calls: Vec<TcpLog> },
+    Tcp {
+        stream: Vec<u8>,
+        taken: usize,
+        open: Vec<i64>,
+        calls: Vec<TcpLog>,
+    },
     /// One socket `TestSockets::open` minted: which double owns it, whether it
     /// is still open, and the close code it was closed with.
     ///
@@ -205,7 +239,11 @@ enum Slot {
     /// closed reads back the reason the program chose — `net.rs`'s `told`, which
     /// is what makes `socket.close(c, .GoingAway)` reach `onClose` as
     /// `.GoingAway`. `None` while the socket is open.
-    Socket { owner: i64, open: bool, closed: Option<i64> },
+    Socket {
+        owner: i64,
+        open: bool,
+        closed: Option<i64>,
+    },
     /// `platform/effect/testing`'s `TestWebSocketClient` — the `sockets()` double its
     /// socket belongs to, the messages it will deliver, and how far through them
     /// it has got.
@@ -382,7 +420,10 @@ unsafe fn strings(xs: *const u8, count: u64) -> Vec<String> {
     }
     for i in 0..count {
         // SAFETY: the caller promises `count` elements at `xs`.
-        let element = unsafe { &*xs.add((i as usize).saturating_mul(stride)).cast::<BuriStr>() };
+        let element = unsafe {
+            &*xs.add((i as usize).saturating_mul(stride))
+                .cast::<BuriStr>()
+        };
         // SAFETY: an element of a live `[Str]` is a live view.
         out.push(unsafe { element.as_str() }.into_owned());
     }
@@ -416,8 +457,10 @@ unsafe fn byte_pairs(xs: *const u8, count: u64) -> Vec<(String, Vec<u8>)> {
     }
     for i in 0..count {
         // SAFETY: the caller promises `count` elements at `xs`.
-        let element =
-            unsafe { &*xs.add((i as usize).saturating_mul(stride)).cast::<BuriBytePair>() };
+        let element = unsafe {
+            &*xs.add((i as usize).saturating_mul(stride))
+                .cast::<BuriBytePair>()
+        };
         // SAFETY: both halves of a live element are live.
         let key = unsafe { element.key.as_str() }.into_owned();
         // SAFETY: a `[U8]` element's payload is `len` readable bytes at `ptr`.
@@ -439,7 +482,10 @@ unsafe fn pairs(xs: *const u8, count: u64) -> Vec<(String, String)> {
     }
     for i in 0..count {
         // SAFETY: the caller promises `count` elements at `xs`.
-        let element = unsafe { &*xs.add((i as usize).saturating_mul(stride)).cast::<BuriPair>() };
+        let element = unsafe {
+            &*xs.add((i as usize).saturating_mul(stride))
+                .cast::<BuriPair>()
+        };
         // SAFETY: both halves of a live element are live views.
         let (key, value) = unsafe { (element.key.as_str(), element.value.as_str()) };
         out.push((key.into_owned(), value.into_owned()));
@@ -525,9 +571,10 @@ const IO_OTHER: i32 = 6;
 /// abort, per [`with`]'s rule.
 fn fs_read(handle: i64, path: &str) -> Option<Vec<u8>> {
     with(handle, None, |slot| match slot {
-        Slot::Files { entries, .. } => {
-            entries.iter().find(|(k, _)| k == path).map(|(_, v)| v.clone())
-        }
+        Slot::Files { entries, .. } => entries
+            .iter()
+            .find(|(k, _)| k == path)
+            .map(|(_, v)| v.clone()),
         _ => None,
     })
 }
@@ -536,17 +583,15 @@ fn fs_read(handle: i64, path: &str) -> Option<Vec<u8>> {
 /// recorded and compared. `""` and `"."` both name the root.
 fn fs_clean(path: &str) -> &str {
     let trimmed = path.trim_end_matches('/');
-    if trimmed == "." {
-        ""
-    } else {
-        trimmed
-    }
+    if trimmed == "." { "" } else { trimmed }
 }
 
 /// Replace the file at `path`, or add it where its directory is there.
 fn fs_put(handle: i64, path: String, body: Vec<u8>) -> i32 {
     with(handle, IO_NOT_FOUND, |slot| {
-        let Slot::Files { entries, dirs } = slot else { return IO_NOT_FOUND };
+        let Slot::Files { entries, dirs } = slot else {
+            return IO_NOT_FOUND;
+        };
         if let Err(tag) = fs_parents(entries, dirs, fs_clean(&path)) {
             return tag;
         }
@@ -674,10 +719,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdout_write_bytes(
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_stdout_captured(
-    handle: i64,
-    out: *mut BuriStr,
-) {
+pub unsafe extern "C" fn buri_rt_host_testing_test_stdout_captured(handle: i64, out: *mut BuriStr) {
     let text = transcript(handle);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(str_of(&text)) }
@@ -689,10 +731,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdout_captured(
 /// # Safety
 /// As [`buri_rt_host_testing_test_stdout_captured`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_stderr_captured(
-    handle: i64,
-    out: *mut BuriStr,
-) {
+pub unsafe extern "C" fn buri_rt_host_testing_test_stderr_captured(handle: i64, out: *mut BuriStr) {
     let text = transcript(handle);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(str_of(&text)) }
@@ -708,7 +747,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stderr_captured(
 /// `out` must be writable and aligned for an `i64`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_stdin(out: *mut i64) {
-    let handle = install(Slot::Stdin { lines: Vec::new(), at: 0, bytes: None, calls: Vec::new() });
+    let handle = install(Slot::Stdin {
+        lines: Vec::new(),
+        at: 0,
+        bytes: None,
+        calls: Vec::new(),
+    });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(handle) }
 }
@@ -731,7 +775,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_lines(
 ) {
     // SAFETY: forwarded to the caller.
     let lines = unsafe { strings(xs, count) };
-    let handle = install(Slot::Stdin { lines, at: 0, bytes: None, calls: Vec::new() });
+    let handle = install(Slot::Stdin {
+        lines,
+        at: 0,
+        bytes: None,
+        calls: Vec::new(),
+    });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(handle) }
 }
@@ -754,7 +803,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_bytes(
         // SAFETY: the caller promises `len` readable bytes.
         unsafe { std::slice::from_raw_parts(ptr, len as usize) }.to_vec()
     };
-    let handle = install(Slot::Stdin { lines: Vec::new(), at: 0, bytes: Some(bytes), calls: Vec::new() });
+    let handle = install(Slot::Stdin {
+        lines: Vec::new(),
+        at: 0,
+        bytes: Some(bytes),
+        calls: Vec::new(),
+    });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(handle) }
 }
@@ -770,7 +824,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_read_line(
 ) -> i32 {
     let _recorded = recording_stdin(handle, "readLine", 0);
     let line = with(handle, None, |slot| match slot {
-        Slot::Stdin { lines, at, bytes, .. } if bytes.is_none() => {
+        Slot::Stdin {
+            lines, at, bytes, ..
+        } if bytes.is_none() => {
             let line = lines.get(*at).cloned();
             if line.is_some() {
                 *at = at.saturating_add(1);
@@ -797,7 +853,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_read_bytes(
 ) -> i32 {
     let _recorded = recording_stdin(handle, "readBytes", n);
     let taken = with(handle, None, |slot| match slot {
-        Slot::Stdin { at, bytes: Some(bytes), .. } => {
+        Slot::Stdin {
+            at,
+            bytes: Some(bytes),
+            ..
+        } => {
             if *at >= bytes.len() || n <= 0 {
                 return None;
             }
@@ -845,7 +905,9 @@ const IO_READ_ONLY: i32 = 2;
 fn fs_view(handle: i64) -> (i64, bool) {
     let table = lock();
     match usize::try_from(handle).ok().and_then(|i| table.get(i)) {
-        Some(Slot::Fs { store, read_only, .. }) => (*store, *read_only),
+        Some(Slot::Fs {
+            store, read_only, ..
+        }) => (*store, *read_only),
         _ => (-1, false),
     }
 }
@@ -858,9 +920,7 @@ fn fs_view(handle: i64) -> (i64, bool) {
 fn slot_plan(handle: i64) -> i64 {
     let table = lock();
     match usize::try_from(handle).ok().and_then(|i| table.get(i)) {
-        Some(
-            Slot::Fs { plan, .. } | Slot::Net { plan, .. } | Slot::Tasks { plan, .. },
-        ) => *plan,
+        Some(Slot::Fs { plan, .. } | Slot::Net { plan, .. } | Slot::Tasks { plan, .. }) => *plan,
         _ => -1,
     }
 }
@@ -877,7 +937,12 @@ fn fs_install(
     plan: i64,
 ) -> i64 {
     let store = install(Slot::Files { entries, dirs });
-    install(Slot::Fs { store, read_only, plan, calls: Vec::new() })
+    install(Slot::Fs {
+        store,
+        read_only,
+        plan,
+        calls: Vec::new(),
+    })
 }
 
 /// This view's files and directories, copied.
@@ -898,7 +963,10 @@ fn fs_contents(store: i64) -> (Vec<(String, Vec<u8>)>, Vec<String>) {
 fn list_of_pairs(items: &[(String, String)]) -> BuriList {
     let stride = size_of::<BuriPair>();
     if items.is_empty() {
-        return BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        return BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
     }
     let bytes = items.len().saturating_mul(stride);
     let ptr = crate::memory::buri_rt_alloc(bytes as u64);
@@ -909,10 +977,16 @@ fn list_of_pairs(items: &[(String, String)]) -> BuriList {
         unsafe {
             ptr.add(i.saturating_mul(stride))
                 .cast::<BuriPair>()
-                .write(BuriPair { key: str_of(key), value: str_of(value) })
+                .write(BuriPair {
+                    key: str_of(key),
+                    value: str_of(value),
+                })
         };
     }
-    BuriList { ptr, len: items.len() as u64 }
+    BuriList {
+        ptr,
+        len: items.len() as u64,
+    }
 }
 
 /// `newFs()` — in-memory, empty, writable, and failing nothing.
@@ -997,7 +1071,12 @@ fn fs_extended(handle: i64, added: impl IntoIterator<Item = (String, Vec<u8>)>) 
 pub extern "C" fn buri_rt_host_testing_fs_read_only(handle: i64) -> i64 {
     let (store, _) = fs_view(handle);
     let plan = slot_plan(handle);
-    install(Slot::Fs { store, read_only: true, plan, calls: Vec::new() })
+    install(Slot::Fs {
+        store,
+        read_only: true,
+        plan,
+        calls: Vec::new(),
+    })
 }
 
 /// `TestFileSystem::faults` — a **new** view onto the same store, with a fresh, empty
@@ -1012,8 +1091,16 @@ pub extern "C" fn buri_rt_host_testing_fs_read_only(handle: i64) -> i64 {
 pub extern "C" fn buri_rt_host_testing_fs_with_plan(handle: i64) -> i64 {
     let (store, read_only) = fs_view(handle);
     retire(slot_plan(handle));
-    let plan = install(Slot::Plan { entries: Vec::new(), retired: false });
-    install(Slot::Fs { store, read_only, plan, calls: Vec::new() })
+    let plan = install(Slot::Plan {
+        entries: Vec::new(),
+        retired: false,
+    });
+    install(Slot::Fs {
+        store,
+        read_only,
+        plan,
+        calls: Vec::new(),
+    })
 }
 
 /// Marks a plan as one nothing can keep any more.
@@ -1047,7 +1134,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read(
     // SAFETY: the caller promises the range.
     let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
     let (store, _) = fs_view(handle);
-    let Some(body) = fs_read(store, &path) else { return IO_NOT_FOUND };
+    let Some(body) = fs_read(store, &path) else {
+        return IO_NOT_FOUND;
+    };
     let value = str_of(&String::from_utf8_lossy(&body));
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) };
@@ -1068,10 +1157,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read(
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_fs_snapshot(
-    handle: i64,
-    out: *mut BuriList,
-) {
+pub unsafe extern "C" fn buri_rt_host_testing_fs_snapshot(handle: i64, out: *mut BuriList) {
     let (store, _) = fs_view(handle);
     let (entries, _) = fs_contents(store);
     let mut items: Vec<(String, String)> = entries
@@ -1127,10 +1213,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_write_file(
     let (store, read_only) = fs_view(handle);
     // SAFETY: the caller promises both ranges.
     let (path, body) = unsafe {
-        (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
+        (
+            String::from_utf8_lossy(view(pptr, plen)).into_owned(),
+            view(bptr, blen).to_vec(),
+        )
     };
-    let _recorded =
-        recording_fs(handle, "writeFile", &path, &String::from_utf8_lossy(&body));
+    let _recorded = recording_fs(handle, "writeFile", &path, &String::from_utf8_lossy(&body));
     if read_only {
         return IO_READ_ONLY;
     }
@@ -1193,7 +1281,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read_dir(
         if let Slot::Files { entries, dirs } = slot {
             let keys = entries.iter().map(|(k, _)| k).chain(dirs.iter());
             for key in keys {
-                let Some(rest) = key.strip_prefix(prefix.as_str()) else { continue };
+                let Some(rest) = key.strip_prefix(prefix.as_str()) else {
+                    continue;
+                };
                 let Some(first) = rest.split('/').next().filter(|s| !s.is_empty()) else {
                     continue;
                 };
@@ -1227,7 +1317,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read_file_bytes(
     let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
     let _recorded = recording_fs(handle, "readFileBytes", &path, "");
     let (store, _) = fs_view(handle);
-    let Some(body) = fs_read(store, &path) else { return IO_NOT_FOUND };
+    let Some(body) = fs_read(store, &path) else {
+        return IO_NOT_FOUND;
+    };
     let value = list_of_bytes(&body);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) };
@@ -1252,10 +1344,17 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_write_file_bytes(
     let (store, read_only) = fs_view(handle);
     // SAFETY: the caller promises both ranges.
     let (path, body) = unsafe {
-        (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
+        (
+            String::from_utf8_lossy(view(pptr, plen)).into_owned(),
+            view(bptr, blen).to_vec(),
+        )
     };
-    let _recorded =
-        recording_fs(handle, "writeFileBytes", &path, &String::from_utf8_lossy(&body));
+    let _recorded = recording_fs(
+        handle,
+        "writeFileBytes",
+        &path,
+        &String::from_utf8_lossy(&body),
+    );
     if read_only {
         return IO_READ_ONLY;
     }
@@ -1279,15 +1378,19 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_append_file(
     let (store, read_only) = fs_view(handle);
     // SAFETY: the caller promises both ranges.
     let (path, body) = unsafe {
-        (String::from_utf8_lossy(view(pptr, plen)).into_owned(), view(bptr, blen).to_vec())
+        (
+            String::from_utf8_lossy(view(pptr, plen)).into_owned(),
+            view(bptr, blen).to_vec(),
+        )
     };
-    let _recorded =
-        recording_fs(handle, "appendFile", &path, &String::from_utf8_lossy(&body));
+    let _recorded = recording_fs(handle, "appendFile", &path, &String::from_utf8_lossy(&body));
     if read_only {
         return IO_READ_ONLY;
     }
     with(store, IO_NOT_FOUND, |slot| {
-        let Slot::Files { entries, dirs } = slot else { return IO_NOT_FOUND };
+        let Slot::Files { entries, dirs } = slot else {
+            return IO_NOT_FOUND;
+        };
         if let Err(tag) = fs_parents(entries, dirs, fs_clean(&path)) {
             return tag;
         }
@@ -1369,13 +1472,19 @@ fn fs_named(entries: &[(String, Vec<u8>)], dirs: &[String], path: &str) -> Named
 
 /// Whether anything is stored under the directory `dir`.
 fn fs_holds(entries: &[(String, Vec<u8>)], dirs: &[String], dir: &str) -> bool {
-    entries.iter().map(|(k, _)| k).chain(dirs).any(|k| fs_inside(k, dir))
+    entries
+        .iter()
+        .map(|(k, _)| k)
+        .chain(dirs)
+        .any(|k| fs_inside(k, dir))
 }
 
 /// Whether `path` is strictly under the directory `dir`; everything is under the root.
 fn fs_inside(path: &str, dir: &str) -> bool {
     (dir.is_empty() && !path.is_empty())
-        || path.strip_prefix(dir).is_some_and(|rest| rest.starts_with('/'))
+        || path
+            .strip_prefix(dir)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// Whether every directory on the way to `path` is there, as `open(2)` and
@@ -1429,8 +1538,13 @@ fn fs_rename(
         (Named::Directory, _) => {
             dirs.retain(|d| d != to);
             let moved = |k: &str| {
-                let rest = if k == from { Some("") } else { k.strip_prefix(from) };
-                rest.filter(|r| r.is_empty() || r.starts_with('/')).map(|r| format!("{to}{r}"))
+                let rest = if k == from {
+                    Some("")
+                } else {
+                    k.strip_prefix(from)
+                };
+                rest.filter(|r| r.is_empty() || r.starts_with('/'))
+                    .map(|r| format!("{to}{r}"))
             };
             let (going, staying): (Vec<_>, Vec<_>) =
                 entries.drain(..).partition(|(k, _)| moved(k).is_some());
@@ -1476,7 +1590,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_remove_file(
         return IO_READ_ONLY;
     }
     with(store, IO_NOT_FOUND, |slot| {
-        let Slot::Files { entries, .. } = slot else { return IO_NOT_FOUND };
+        let Slot::Files { entries, .. } = slot else {
+            return IO_NOT_FOUND;
+        };
         let Some(at) = entries.iter().position(|(k, _)| *k == path) else {
             return IO_NOT_FOUND;
         };
@@ -1525,14 +1641,21 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_remove_dir(
     // reported as still holding something. A different order here would make
     // one conformance block answer two things.
     let answer = with(store, IO_NOT_FOUND, |slot| {
-        let Slot::Files { entries, dirs } = slot else { return IO_NOT_FOUND };
+        let Slot::Files { entries, dirs } = slot else {
+            return IO_NOT_FOUND;
+        };
         if entries.iter().any(|(k, _)| *k == clean) {
             return IO_NOT_A_DIRECTORY;
         }
-        let Some(at) = dirs.iter().position(|d| *d == clean) else { return IO_NOT_FOUND };
+        let Some(at) = dirs.iter().position(|d| *d == clean) else {
+            return IO_NOT_FOUND;
+        };
         let prefix = format!("{clean}/");
-        let held =
-            entries.iter().map(|(k, _)| k).chain(dirs.iter()).any(|k| k.starts_with(&prefix));
+        let held = entries
+            .iter()
+            .map(|(k, _)| k)
+            .chain(dirs.iter())
+            .any(|k| k.starts_with(&prefix));
         if held {
             return IO_OTHER;
         }
@@ -1571,9 +1694,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_make_dir(
         return BURI_OK;
     }
     with(store, BURI_OK, |slot| {
-        let Slot::Files { entries, dirs } = slot else { return BURI_OK };
-        let mut ancestors =
-            clean.match_indices('/').map(|(end, _)| clean.get(..end).unwrap_or_default());
+        let Slot::Files { entries, dirs } = slot else {
+            return BURI_OK;
+        };
+        let mut ancestors = clean
+            .match_indices('/')
+            .map(|(end, _)| clean.get(..end).unwrap_or_default());
         if ancestors.any(|at| entries.iter().any(|(k, _)| k == at)) {
             return IO_NOT_A_DIRECTORY;
         }
@@ -1587,7 +1713,10 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_make_dir(
 
 /// Record `dir` and every directory above it.
 fn fs_record_dirs(dirs: &mut Vec<String>, dir: &str) {
-    let ends = dir.match_indices('/').map(|(end, _)| end).chain([dir.len()]);
+    let ends = dir
+        .match_indices('/')
+        .map(|(end, _)| end)
+        .chain([dir.len()]);
     for at in ends.filter_map(|end| dir.get(..end)) {
         if !at.is_empty() && !dirs.iter().any(|d| d == at) {
             dirs.push(at.to_string());
@@ -1623,11 +1752,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_sync_file(
     with(store, IO_NOT_FOUND, |slot| match slot {
         Slot::Files { entries, dirs } => {
             let held = entries.iter().any(|(k, _)| *k == path) || dirs.contains(&clean);
-            if held {
-                BURI_OK
-            } else {
-                IO_NOT_FOUND
-            }
+            if held { BURI_OK } else { IO_NOT_FOUND }
         }
         _ => IO_NOT_FOUND,
     })
@@ -1808,7 +1933,10 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_entropy_bytes(
 /// `out` must be writable and aligned for an `i64`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_env(out: *mut i64) {
-    let handle = install(Slot::Env { vars: Vec::new(), args: Vec::new() });
+    let handle = install(Slot::Env {
+        vars: Vec::new(),
+        args: Vec::new(),
+    });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(handle) }
 }
@@ -1892,9 +2020,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_environment_variable(
     // SAFETY: forwarded to the caller.
     let name = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
     let found = with(handle, None, |slot| match slot {
-        Slot::Env { vars, .. } => {
-            vars.iter().rev().find(|(k, _)| *k == name).map(|(_, v)| v.clone())
-        }
+        Slot::Env { vars, .. } => vars
+            .iter()
+            .rev()
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| v.clone()),
         _ => None,
     });
     let Some(value) = found else { return 0 };
@@ -1995,7 +2125,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_sockets(out: *mut i64) {
 /// `Socket` carries has to be one no other double can have minted.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_sockets_open(handle: i64) -> i64 {
-    install(Slot::Socket { owner: handle, open: true, closed: None })
+    install(Slot::Socket {
+        owner: handle,
+        open: true,
+        closed: None,
+    })
 }
 
 /// `socketsIsOpen(handle, socket)` — whether that double minted that socket and
@@ -2038,7 +2172,12 @@ fn pushed(handle: i64, socket: i64, frame: i8, text: String, data: Vec<u8>) {
     }
     with(handle, (), |slot| {
         if let Slot::Sockets { sent } = slot {
-            sent.push(SentLog { socket, frame, text, data });
+            sent.push(SentLog {
+                socket,
+                frame,
+                text,
+                data,
+            });
         }
     });
 }
@@ -2119,14 +2258,16 @@ pub unsafe extern "C" fn buri_rt_host_testing_sockets_sent(handle: i64, out: *mu
             .collect(),
         _ => Vec::new(),
     });
-    let value =
-        list_of(&sent, |(socket, frame, text, data): &(i64, i8, String, Vec<u8>)| BuriSent {
+    let value = list_of(
+        &sent,
+        |(socket, frame, text, data): &(i64, i8, String, Vec<u8>)| BuriSent {
             socket: *socket,
             frame: *frame,
             pad: [0; 7],
             text: str_of(text),
             data: list_of_bytes(data),
-        });
+        },
+    );
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
 }
@@ -2237,7 +2378,11 @@ unsafe fn script_of(ptr: *const u8, len: u64) -> Vec<Scripted> {
             // element of a live list holds a live `Str` view.
             0 => {
                 let text = unsafe { element.payload.text.as_str() }.into_owned();
-                out.push(Scripted { frame: FRAME_TEXT, text, data: Vec::new() });
+                out.push(Scripted {
+                    frame: FRAME_TEXT,
+                    text,
+                    data: Vec::new(),
+                });
             }
             // SAFETY: as above, for a `[U8]` whose stride is one.
             1 => {
@@ -2249,7 +2394,11 @@ unsafe fn script_of(ptr: *const u8, len: u64) -> Vec<Scripted> {
                     // bytes.
                     unsafe { std::slice::from_raw_parts(list.ptr, list.len as usize) }.to_vec()
                 };
-                out.push(Scripted { frame: FRAME_BINARY, text: String::new(), data });
+                out.push(Scripted {
+                    frame: FRAME_BINARY,
+                    text: String::new(),
+                    data,
+                });
             }
             _ => {}
         }
@@ -2270,7 +2419,13 @@ pub unsafe extern "C" fn buri_rt_host_testing_sockets_dialling(
 ) -> i64 {
     // SAFETY: forwarded.
     let script = unsafe { script_of(ptr, len) };
-    install(Slot::Client { owner: sockets, socket: None, script, next: 0, gone: false })
+    install(Slot::Client {
+        owner: sockets,
+        socket: None,
+        script,
+        next: 0,
+        gone: false,
+    })
 }
 
 /// Whether a URL is one this double will pretend to dial.
@@ -2305,11 +2460,16 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_soc
     // SAFETY: the caller promises the range.
     let url = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
     if !dialable(&url) {
-        let detail = format!(
-            "this is not a WebSocket URL: `{url}` names neither `ws://` nor `wss://`"
-        );
+        let detail =
+            format!("this is not a WebSocket URL: `{url}` names neither `ws://` nor `wss://`");
         // SAFETY: the caller promises a writable destination.
-        unsafe { err.write(BuriServeError { cause: SERVE_UNSUPPORTED, pad: [0; 7], detail: str_of(&detail) }) };
+        unsafe {
+            err.write(BuriServeError {
+                cause: SERVE_UNSUPPORTED,
+                pad: [0; 7],
+                detail: str_of(&detail),
+            })
+        };
         return 0;
     }
     // Two locks and not one, because [`lock`] is not reentrant: the mint is a
@@ -2326,7 +2486,13 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_soc
     // working while proving nothing. So the new socket takes the place of the
     // old one, the cursor goes back to the front, and `gone` comes down.
     with(handle, (), |slot| {
-        if let Slot::Client { socket: held, next, gone, .. } = slot {
+        if let Slot::Client {
+            socket: held,
+            next,
+            gone,
+            ..
+        } = slot
+        {
             *held = Some(socket);
             *next = 0;
             *gone = false;
@@ -2368,9 +2534,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_rec
     // it. `-1` is "not this client's socket", which a made-up handle and
     // another client's both reach.
     let (owner, gone) = with(handle, (-1, true), |slot| match slot {
-        Slot::Client { owner, socket: held, gone, .. } if *held == Some(socket) => {
-            (*owner, *gone)
-        }
+        Slot::Client {
+            owner,
+            socket: held,
+            gone,
+            ..
+        } if *held == Some(socket) => (*owner, *gone),
         _ => (-1, true),
     });
     if gone {
@@ -2414,7 +2583,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_rec
         // when the program closed it — `open` is `false` there — and is
         // [`CLOSED_NORMALLY`] otherwise, which is also what the close below
         // records for the socket the script ended.
-        let code = if open { CLOSED_NORMALLY } else { closed_with(socket) };
+        let code = if open {
+            CLOSED_NORMALLY
+        } else {
+            closed_with(socket)
+        };
         with(handle, (), |slot| {
             if let Slot::Client { gone, .. } = slot {
                 *gone = true;
@@ -2439,8 +2612,13 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_rec
         unsafe { out.write(value) };
         return BURI_OK;
     };
-    let value =
-        BuriReceived { frame, pad: [0; 7], text: str_of(&text), data: list_of_bytes(&data), code: 0 };
+    let value = BuriReceived {
+        frame,
+        pad: [0; 7],
+        text: str_of(&text),
+        data: list_of_bytes(&data),
+        code: 0,
+    };
     // SAFETY: the caller promises a writable destination.
     unsafe { out.write(value) };
     BURI_OK
@@ -2537,7 +2715,10 @@ struct BuriSignalSent {
 fn list_of<T, S>(items: &[S], element: impl Fn(&S) -> T) -> BuriList {
     let stride = size_of::<T>();
     if items.is_empty() {
-        return BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        return BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
     }
     let bytes = items.len().saturating_mul(stride);
     let ptr = crate::memory::buri_rt_alloc(bytes as u64);
@@ -2545,9 +2726,16 @@ fn list_of<T, S>(items: &[S], element: impl Fn(&S) -> T) -> BuriList {
         // SAFETY: `i * stride` is within the `items.len() * stride` block, and
         // the destination is 8-aligned because the payload is 16-aligned and
         // every one of the four strides is a multiple of 8.
-        unsafe { ptr.add(i.saturating_mul(stride)).cast::<T>().write(element(item)) };
+        unsafe {
+            ptr.add(i.saturating_mul(stride))
+                .cast::<T>()
+                .write(element(item))
+        };
     }
-    BuriList { ptr, len: items.len() as u64 }
+    BuriList {
+        ptr,
+        len: items.len() as u64,
+    }
 }
 
 /// One call, appended to `handle`'s log when it goes out of scope.
@@ -2596,9 +2784,11 @@ fn recording_fs(handle: i64, name: &'static str, path: &str, body: &str) -> Reco
 
 /// A `TestStdin` read, recorded on the stream it was made through.
 fn recording_stdin(handle: i64, name: &'static str, count: i64) -> Recording {
-    Recording { handle, call: Some(Call::Stdin(StdinLog { name, count })) }
+    Recording {
+        handle,
+        call: Some(Call::Stdin(StdinLog { name, count })),
+    }
 }
-
 
 /// `TestFileSystem.metadata(self, path) -> Result<Metadata, IoError>`.
 ///
@@ -2670,7 +2860,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read_range(
         return IO_OTHER;
     }
     let (store, _) = fs_view(handle);
-    let Some(body) = fs_read(store, &path) else { return IO_NOT_FOUND };
+    let Some(body) = fs_read(store, &path) else {
+        return IO_NOT_FOUND;
+    };
     let start = (at as usize).min(body.len());
     let end = start.saturating_add(count as usize).min(body.len());
     let value = list_of_bytes(body.get(start..end).unwrap_or(&[]));
@@ -2745,10 +2937,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_copy_file(
     if read_only {
         return IO_READ_ONLY;
     }
-    let Some(body) = fs_read(store, &from) else { return IO_NOT_FOUND };
+    let Some(body) = fs_read(store, &from) else {
+        return IO_NOT_FOUND;
+    };
     fs_put(store, to, body)
 }
-
 
 /// `TestEnvironment::currentDirectory` — `/`, whatever the machine running the suite is.
 ///
@@ -2821,7 +3014,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_environment_operating_system_
 /// `lib.rs` §2.1 cannot hand one back across a row.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_new_spawn() -> i64 {
-    install(Slot::Spawn { calls: Vec::new(), children: Vec::new(), signals: Vec::new() })
+    install(Slot::Spawn {
+        calls: Vec::new(),
+        children: Vec::new(),
+        signals: Vec::new(),
+    })
 }
 
 /// `recordSpawn(handle, plan)` — one command, recorded.
@@ -2832,11 +3029,7 @@ pub extern "C" fn buri_rt_host_testing_new_spawn() -> i64 {
 /// # Safety
 /// `xs` points at `count` [`BuriStr`]s.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_record_spawn(
-    handle: i64,
-    xs: *const u8,
-    count: u64,
-) {
+pub unsafe extern "C" fn buri_rt_host_testing_record_spawn(handle: i64, xs: *const u8, count: u64) {
     // SAFETY: forwarded to the caller.
     let plan = unsafe { strings(xs, count) };
     // The plan is the program, the working directory, the two output files and
@@ -2859,14 +3052,17 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_spawn(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_spawn_calls(handle: i64, out: *mut BuriList) {
     let calls = with(handle, Vec::new(), |slot| match slot {
-        Slot::Spawn { calls, .. } => {
-            calls.iter().map(|c| (c.program.clone(), c.arguments.clone())).collect()
-        }
+        Slot::Spawn { calls, .. } => calls
+            .iter()
+            .map(|c| (c.program.clone(), c.arguments.clone()))
+            .collect(),
         _ => Vec::new(),
     });
-    let value = list_of(&calls, |(program, arguments): &(String, Vec<String>)| BuriSpawnCall {
-        program: str_of(program),
-        arguments: list_of_strs(arguments),
+    let value = list_of(&calls, |(program, arguments): &(String, Vec<String>)| {
+        BuriSpawnCall {
+            program: str_of(program),
+            arguments: list_of_strs(arguments),
+        }
     });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
@@ -2890,7 +3086,10 @@ pub extern "C" fn buri_rt_host_testing_spawn_start(handle: i64, code: i64) -> i6
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_spawn_signal(handle: i64, child: i64, signal: i64) {
     with(handle, (), |slot| {
-        if let Slot::Spawn { children, signals, .. } = slot {
+        if let Slot::Spawn {
+            children, signals, ..
+        } = slot
+        {
             signals.push((child, signal));
             let ended = match signal {
                 -1 => Some(-2),
@@ -2942,7 +3141,10 @@ pub unsafe extern "C" fn buri_rt_host_testing_spawn_signals(handle: i64, out: *m
         Slot::Spawn { signals, .. } => signals.clone(),
         _ => Vec::new(),
     });
-    let value = list_of(&signals, |&(child, signal): &(i64, i64)| BuriSignalSent { child, signal });
+    let value = list_of(&signals, |&(child, signal): &(i64, i64)| BuriSignalSent {
+        child,
+        signal,
+    });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
 }
@@ -2960,16 +3162,20 @@ fn test_child(children: &mut [TestChild], id: i64) -> Option<&mut TestChild> {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_fs_calls(handle: i64, out: *mut BuriList) {
     let calls = with(handle, Vec::new(), |slot| match slot {
-        Slot::Fs { calls, .. } => {
-            calls.iter().map(|c| (c.name, c.path.clone(), c.body.clone())).collect()
-        }
+        Slot::Fs { calls, .. } => calls
+            .iter()
+            .map(|c| (c.name, c.path.clone(), c.body.clone()))
+            .collect(),
         _ => Vec::new(),
     });
-    let value = list_of(&calls, |(name, path, body): &(&'static str, String, String)| BuriFsCall {
-        name: str_of(name),
-        path: str_of(path),
-        body: str_of(body),
-    });
+    let value = list_of(
+        &calls,
+        |(name, path, body): &(&'static str, String, String)| BuriFsCall {
+            name: str_of(name),
+            path: str_of(path),
+            body: str_of(body),
+        },
+    );
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
 }
@@ -2984,9 +3190,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_calls(handle: i64, out:
         Slot::Stdin { calls, .. } => calls.iter().map(|c| (c.name, c.count)).collect(),
         _ => Vec::new(),
     });
-    let value = list_of(&calls, |(name, count): &(&'static str, i64)| BuriStdinCall {
-        name: str_of(name),
-        count: *count,
+    let value = list_of(&calls, |(name, count): &(&'static str, i64)| {
+        BuriStdinCall {
+            name: str_of(name),
+            count: *count,
+        }
     });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
@@ -3000,7 +3208,10 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_calls(handle: i64, out:
 /// field is a value the archive cannot make.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_new_net() -> i64 {
-    install(Slot::Net { calls: Vec::new(), plan: -1 })
+    install(Slot::Net {
+        calls: Vec::new(),
+        plan: -1,
+    })
 }
 
 /// `netRebind(handle)` — a fresh, empty log carrying this one's plan.
@@ -3010,7 +3221,10 @@ pub extern "C" fn buri_rt_host_testing_new_net() -> i64 {
 /// not change is what the test said would fail.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_net_rebind(handle: i64) -> i64 {
-    install(Slot::Net { calls: Vec::new(), plan: slot_plan(handle) })
+    install(Slot::Net {
+        calls: Vec::new(),
+        plan: slot_plan(handle),
+    })
 }
 
 /// `netWithPlan(handle)` — a fresh, empty log with a fresh, empty plan.
@@ -3020,8 +3234,14 @@ pub extern "C" fn buri_rt_host_testing_net_rebind(handle: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_net_with_plan(handle: i64) -> i64 {
     retire(slot_plan(handle));
-    let plan = install(Slot::Plan { entries: Vec::new(), retired: false });
-    install(Slot::Net { calls: Vec::new(), plan })
+    let plan = install(Slot::Plan {
+        entries: Vec::new(),
+        retired: false,
+    });
+    install(Slot::Net {
+        calls: Vec::new(),
+        plan,
+    })
 }
 
 /// `recordFetch(handle, method, url, headers, body, timeoutMillis)` — one
@@ -3055,7 +3275,13 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_fetch(
     // SAFETY: the caller promises `blen` readable bytes; a `[U8]`'s stride is
     // one, so the payload is the octets themselves.
     let body = unsafe { view(bptr, blen) }.to_vec();
-    let call = NetLog { method: method as i8, url, headers, body, timeout_millis };
+    let call = NetLog {
+        method: method as i8,
+        url,
+        headers,
+        body,
+        timeout_millis,
+    };
     with(handle, (), |slot| {
         if let Slot::Net { calls, .. } = slot {
             calls.push(call);
@@ -3070,7 +3296,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_fetch(
 /// `newTcp() -> I64` — a fresh double: nothing scripted, nothing recorded.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_new_tcp() -> i64 {
-    install(Slot::Tcp { stream: Vec::new(), taken: 0, open: Vec::new(), calls: Vec::new() })
+    install(Slot::Tcp {
+        stream: Vec::new(),
+        taken: 0,
+        open: Vec::new(),
+        calls: Vec::new(),
+    })
 }
 
 /// `tcpStream(handle, bytes) -> I64` — a **new** double answering reads from
@@ -3089,7 +3320,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_tcp_stream(
 ) -> i64 {
     // SAFETY: forwarded.
     let stream = unsafe { view(ptr, len) }.to_vec();
-    install(Slot::Tcp { stream, taken: 0, open: Vec::new(), calls: Vec::new() })
+    install(Slot::Tcp {
+        stream,
+        taken: 0,
+        open: Vec::new(),
+        calls: Vec::new(),
+    })
 }
 
 /// `recordTcpConnect(handle, host, port) -> Int` — the dial, recorded, and the
@@ -3112,7 +3348,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_tcp_connect(
     // SAFETY: forwarded.
     let host = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
     with(handle, 0, |slot| {
-        let Slot::Tcp { open, calls, .. } = slot else { return 0 };
+        let Slot::Tcp { open, calls, .. } = slot else {
+            return 0;
+        };
         let stream = (calls.iter().filter(|c| c.name == "connect").count() as i64) + 1;
         calls.push(TcpLog {
             name: "connect",
@@ -3144,7 +3382,15 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_tcp_read(
     out: *mut BuriList,
 ) -> i32 {
     let taken = with(handle, None, |slot| {
-        let Slot::Tcp { stream: script, taken, open, calls } = slot else { return None };
+        let Slot::Tcp {
+            stream: script,
+            taken,
+            open,
+            calls,
+        } = slot
+        else {
+            return None;
+        };
         if !open.contains(&stream) {
             return None;
         }
@@ -3189,7 +3435,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_tcp_write(
     // SAFETY: forwarded.
     let body = unsafe { view(ptr, len) }.to_vec();
     with(handle, 0, |slot| {
-        let Slot::Tcp { open, calls, .. } = slot else { return 0 };
+        let Slot::Tcp { open, calls, .. } = slot else {
+            return 0;
+        };
         if !open.contains(&stream) {
             return 0;
         }
@@ -3214,7 +3462,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_tcp_write(
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_record_tcp_close(handle: i64, stream: i64) {
     with(handle, (), |slot| {
-        let Slot::Tcp { open, calls, .. } = slot else { return };
+        let Slot::Tcp { open, calls, .. } = slot else {
+            return;
+        };
         calls.push(TcpLog {
             name: "close",
             host: String::new(),
@@ -3269,7 +3519,10 @@ unsafe fn header_pairs(ptr: *const u8, len: u64) -> Vec<(String, String)> {
         let element = unsafe { &*ptr.add(i.saturating_mul(stride)).cast::<BuriPair>() };
         // SAFETY: an element of a live list holds live `Str` views.
         out.push(unsafe {
-            (element.key.as_str().into_owned(), element.value.as_str().into_owned())
+            (
+                element.key.as_str().into_owned(),
+                element.value.as_str().into_owned(),
+            )
         });
     }
     out
@@ -3313,11 +3566,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_net_calls(handle: i64, out: *mut B
 /// `ptr` is readable for `len` bytes, or null with a zero length; `out` is
 /// writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_spelled(
-    ptr: *const u8,
-    len: u64,
-    out: *mut BuriStr,
-) {
+pub unsafe extern "C" fn buri_rt_host_testing_spelled(ptr: *const u8, len: u64, out: *mut BuriStr) {
     // SAFETY: the caller promises the range.
     let body = unsafe { view(ptr, len) };
     let value = str_of(&String::from_utf8_lossy(body));
@@ -3359,13 +3608,16 @@ const IO_ERROR_NAMES: [&str; 7] = [
 ];
 
 /// `NetError`'s variant names, in declaration order — `netCode`'s indices.
-const NET_ERROR_NAMES: [&str; 5] =
-    [".Timeout", ".Refused", ".BadUrl", ".Transport", ".Aborted"];
+const NET_ERROR_NAMES: [&str; 5] = [".Timeout", ".Refused", ".BadUrl", ".Transport", ".Aborted"];
 
 /// One error, as a message names it: the variant, and the text it carries where
 /// it carries any.
 fn error_shown(names: &[&str], code: i64, payload: &str) -> String {
-    let name = usize::try_from(code).ok().and_then(|i| names.get(i)).copied().unwrap_or("?");
+    let name = usize::try_from(code)
+        .ok()
+        .and_then(|i| names.get(i))
+        .copied()
+        .unwrap_or("?");
     if payload.is_empty() {
         name.to_string()
     } else {
@@ -3382,7 +3634,10 @@ fn plan_push(handle: i64, shown: String) {
     let plan = slot_plan(handle);
     with(plan, (), |slot| {
         if let Slot::Plan { entries, .. } = slot {
-            entries.push(PlanEntry { shown, fired: false });
+            entries.push(PlanEntry {
+                shown,
+                fired: false,
+            });
         }
     });
 }
@@ -3548,10 +3803,18 @@ pub unsafe extern "C" fn buri_rt_host_testing_note_fs_call(
     // The name is one of the eleven the constructors write, so it is matched
     // back onto the `&'static str` the log holds rather than leaked: a log
     // entry's name is not a string a program invented.
-    let known = FS_CALL_NAMES.iter().find(|n| **n == name).copied().unwrap_or("");
+    let known = FS_CALL_NAMES
+        .iter()
+        .find(|n| **n == name)
+        .copied()
+        .unwrap_or("");
     with(handle, (), |slot| {
         if let Slot::Fs { calls, .. } = slot {
-            calls.push(FsLog { name: known, path, body });
+            calls.push(FsLog {
+                name: known,
+                path,
+                body,
+            });
         }
     });
 }
@@ -3660,7 +3923,10 @@ fn seeds() -> &'static [u128] {
 /// a panic: this is a report's detail, and a runner that wrote nonsense should
 /// cost a suite its replay line and not its verdict.
 fn seeds_from(text: &str) -> Vec<u128> {
-    text.split(',').filter(|s| !s.trim().is_empty()).filter_map(|s| s.trim().parse().ok()).collect()
+    text.split(',')
+        .filter(|s| !s.trim().is_empty())
+        .filter_map(|s| s.trim().parse().ok())
+        .collect()
 }
 
 /// The seed for the block at `index`, or `None` where the runner supplied none.
@@ -3673,7 +3939,10 @@ fn seed_at(seeds: &[u128], index: i64) -> Option<u128> {
     match seeds {
         [] => None,
         [only] => Some(*only),
-        many => usize::try_from(index).ok().and_then(|i| many.get(i)).copied(),
+        many => usize::try_from(index)
+            .ok()
+            .and_then(|i| many.get(i))
+            .copied(),
     }
 }
 
@@ -3689,7 +3958,10 @@ struct Runner {
     shown: Option<(String, String)>,
 }
 
-static RUNNER: Mutex<Runner> = Mutex::new(Runner { at: -1, shown: None });
+static RUNNER: Mutex<Runner> = Mutex::new(Runner {
+    at: -1,
+    shown: None,
+});
 
 /// Lock, recovering from poisoning, for the reason [`lock`] gives.
 fn runner() -> crate::sync::MutexGuard<'static, Runner> {
@@ -3803,7 +4075,11 @@ pub extern "C" fn buri_rt_test_enter(index: i64) -> i32 {
     // runs of one *body*, so the count belongs to the block and is reset where
     // the block is: `buri_rt_test_replay` advances it, and a block that never
     // schedules anything leaves it at the one run every block makes.
-    *replay() = Replay { pass: 0, total: 1, note: None };
+    *replay() = Replay {
+        pass: 0,
+        total: 1,
+        note: None,
+    };
     let Some(from) = resume_at() else { return 1 };
     if pulling() {
         if !handed_this(index) {
@@ -3877,7 +4153,10 @@ pub extern "C" fn buri_rt_test_leave(_test: i64) {
         return;
     }
     let listed = unconsumed.join("; ");
-    crate::abort::die(&[b"a fault was planned and never happened: ", listed.as_bytes()])
+    crate::abort::die(&[
+        b"a fault was planned and never happened: ",
+        listed.as_bytes(),
+    ])
 }
 
 /// Every entry of every plan installed at or after `from` that nothing fired,
@@ -3890,7 +4169,11 @@ fn unconsumed_since(from: usize) -> Vec<String> {
     let table = lock();
     let mut out: Vec<String> = Vec::new();
     for slot in table.iter().skip(from) {
-        if let Slot::Plan { entries, retired: false } = slot {
+        if let Slot::Plan {
+            entries,
+            retired: false,
+        } = slot
+        {
             out.extend(entries.iter().filter(|e| !e.fired).map(|e| e.shown.clone()));
         }
     }
@@ -3916,7 +4199,11 @@ pub unsafe extern "C" fn buri_rt_test_fail_compared(
 ) -> ! {
     // SAFETY: the caller promises each pointer addresses its length.
     let (kind, actual, expected) = unsafe {
-        (view(kind, kind_len), view(actual, actual_len), view(expected, expected_len))
+        (
+            view(kind, kind_len),
+            view(actual, actual_len),
+            view(expected, expected_len),
+        )
     };
     stash(actual, expected);
     crate::abort::die(&[b"assert.", kind, b" failed"])
@@ -3959,8 +4246,10 @@ pub unsafe extern "C" fn buri_rt_test_fail_expected(
 /// A separate step from writing it because the message is the abort's, and
 /// every abort goes through one place.
 fn stash(actual: &[u8], expected: &[u8]) {
-    let (actual, expected) =
-        (String::from_utf8_lossy(actual).into_owned(), String::from_utf8_lossy(expected).into_owned());
+    let (actual, expected) = (
+        String::from_utf8_lossy(actual).into_owned(),
+        String::from_utf8_lossy(expected).into_owned(),
+    );
     runner().shown = Some((actual, expected));
 }
 
@@ -4161,12 +4450,22 @@ fn tasks_at(handle: i64, mode: i64, seed: i64) -> i64 {
             *plan,
             faults
                 .iter()
-                .map(|f| TaskFault { index: f.index, nth: f.nth, reason: f.reason.clone() })
+                .map(|f| TaskFault {
+                    index: f.index,
+                    nth: f.nth,
+                    reason: f.reason.clone(),
+                })
                 .collect(),
         ),
         _ => (-1, Vec::new()),
     });
-    install(Slot::Tasks { mode, seed, plan, log: Vec::new(), faults })
+    install(Slot::Tasks {
+        mode,
+        seed,
+        plan,
+        log: Vec::new(),
+        faults,
+    })
 }
 
 /// The mode and seed a scheduler handle names, or program order for a handle
@@ -4229,8 +4528,17 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_seed(
 pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_replan(handle: i64, out: *mut i64) {
     let (mode, seed) = tasks_ordering_of(handle);
     retire(slot_plan(handle));
-    let plan = install(Slot::Plan { entries: Vec::new(), retired: false });
-    let next = install(Slot::Tasks { mode, seed, plan, log: Vec::new(), faults: Vec::new() });
+    let plan = install(Slot::Plan {
+        entries: Vec::new(),
+        retired: false,
+    });
+    let next = install(Slot::Tasks {
+        mode,
+        seed,
+        plan,
+        log: Vec::new(),
+        faults: Vec::new(),
+    });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(next) }
 }
@@ -4264,7 +4572,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_tasks_add_fault(
     plan_push(handle, shown);
     with(handle, (), |slot| {
         if let Slot::Tasks { faults, .. } = slot {
-            faults.push(TaskFault { index, nth, reason: reason.clone() });
+            faults.push(TaskFault {
+                index,
+                nth,
+                reason: reason.clone(),
+            });
         }
     });
 }
@@ -4406,7 +4718,9 @@ fn task_order(handle: i64, count: usize) -> Vec<i64> {
 /// to reach, and saturating is what keeps a seed legal at every length rather
 /// than making one length a panic.
 fn orders_of(n: usize) -> u128 {
-    (1..=n as u128).try_fold(1u128, |acc, i| acc.checked_mul(i)).unwrap_or(u128::MAX)
+    (1..=n as u128)
+        .try_fold(1u128, |acc, i| acc.checked_mul(i))
+        .unwrap_or(u128::MAX)
 }
 
 /// The `rank`th permutation of `0..n`, counted from zero in lexicographic
@@ -4424,7 +4738,9 @@ fn permutation(n: usize, rank: u128) -> Vec<i64> {
     let mut out = Vec::with_capacity(n);
     for taken in 0..n {
         let remaining = orders_of(n - taken - 1);
-        let digit = usize::try_from(left / remaining.max(1)).unwrap_or(0).min(pool.len() - 1);
+        let digit = usize::try_from(left / remaining.max(1))
+            .unwrap_or(0)
+            .min(pool.len() - 1);
         left %= remaining.max(1);
         out.push(pool.remove(digit));
     }
@@ -4456,7 +4772,11 @@ fn fail_planned_task(handle: i64, index: i64) -> Option<()> {
     let (at, reason) = chosen_task_fault(handle, index)?;
     buri_rt_host_testing_note_fault(handle, at as i64);
     let named = format!("task({index}): ");
-    crate::abort::die(&[b"a task was failed by the plan: ", named.as_bytes(), reason.as_bytes()])
+    crate::abort::die(&[
+        b"a task was failed by the plan: ",
+        named.as_bytes(),
+        reason.as_bytes(),
+    ])
 }
 
 /// The first entry of the plan this task matches and its position satisfies —
@@ -4500,7 +4820,11 @@ struct Replay {
     note: Option<(i64, u128, Vec<i64>)>,
 }
 
-static REPLAY: Mutex<Replay> = Mutex::new(Replay { pass: 0, total: 1, note: None });
+static REPLAY: Mutex<Replay> = Mutex::new(Replay {
+    pass: 0,
+    total: 1,
+    note: None,
+});
 
 /// Lock, recovering from poisoning, for the reason [`lock`] gives.
 fn replay() -> crate::sync::MutexGuard<'static, Replay> {
@@ -4637,7 +4961,11 @@ struct States {
     depth: usize,
 }
 
-static STATES: Mutex<States> = Mutex::new(States { kept: Vec::new(), owner: None, depth: 0 });
+static STATES: Mutex<States> = Mutex::new(States {
+    kept: Vec::new(),
+    owner: None,
+    depth: 0,
+});
 
 /// Signalled when the owner's last `update` puts its value back.
 static UNOWNED: Condvar = Condvar::new();
@@ -4661,7 +4989,9 @@ fn settled() -> MutexGuard<'static, States> {
 /// The slot `handle` names. Stops the program on a handle nothing made, or on
 /// one whose value is out.
 fn slot(g: MutexGuard<'static, States>, handle: i64) -> (MutexGuard<'static, States>, usize) {
-    let at = usize::try_from(handle).ok().and_then(|i| Some((i, g.kept.get(i)?.out)));
+    let at = usize::try_from(handle)
+        .ok()
+        .and_then(|i| Some((i, g.kept.get(i)?.out)));
     match at {
         Some((i, false)) => (g, i),
         Some(_) => {
@@ -4749,7 +5079,11 @@ pub unsafe extern "C" fn buri_rt_platforms_testing_state_state_new(
         unsafe { walk(retain, words.as_mut_ptr().cast()) };
     }
     let mut g = settled();
-    g.kept.push(Kept { words, release, out: false });
+    g.kept.push(Kept {
+        words,
+        release,
+        out: false,
+    });
     i64::try_from(g.kept.len() - 1).unwrap_or(i64::MAX)
 }
 
@@ -4790,7 +5124,9 @@ pub unsafe extern "C" fn buri_rt_platforms_testing_state_state_take(
     let (mut g, i) = slot(settled(), handle);
     g.owner = Some(std::thread::current().id());
     g.depth += 1;
-    let Some(kept) = g.kept.get_mut(i) else { return };
+    let Some(kept) = g.kept.get_mut(i) else {
+        return;
+    };
     kept.out = true;
     if stride > 0 {
         // SAFETY: as in `read`. The kept reference moves to the caller.
@@ -4845,12 +5181,7 @@ mod tests {
         // SAFETY: both are live, aligned `i64`s, and `lines` is a live `[Str]`.
         unsafe {
             buri_rt_host_testing_stdin(&raw mut empty);
-            buri_rt_host_testing_test_stdin_lines(
-                empty,
-                lines.ptr,
-                lines.len,
-                &raw mut handle,
-            );
+            buri_rt_host_testing_test_stdin_lines(empty, lines.ptr, lines.len, &raw mut handle);
         }
         let mut a = BuriStr::empty();
         let mut b = BuriStr::empty();
@@ -4869,7 +5200,10 @@ mod tests {
         assert_eq!(unsafe { b.as_str() }, "two");
         let mut c = BuriStr::empty();
         // SAFETY: the destination is live and aligned.
-        assert_eq!(unsafe { buri_rt_host_testing_test_stdin_read_line(handle, &raw mut c) }, 0);
+        assert_eq!(
+            unsafe { buri_rt_host_testing_test_stdin_read_line(handle, &raw mut c) },
+            0
+        );
         // SAFETY: the two lines read and the list this test built are its
         // own, and nothing reads them after this.
         unsafe {
@@ -4928,10 +5262,16 @@ mod tests {
             buri_rt_host_testing_clock(&raw mut origin);
             buri_rt_host_testing_test_clock_at(origin, 1_000, &raw mut handle);
         }
-        assert_eq!(buri_rt_host_testing_test_clock_now_milliseconds(handle), 1_000);
+        assert_eq!(
+            buri_rt_host_testing_test_clock_now_milliseconds(handle),
+            1_000
+        );
         buri_rt_host_testing_test_clock_sleep_milliseconds(handle, 5);
         buri_rt_host_testing_test_clock_sleep_milliseconds(handle, 5);
-        assert_eq!(buri_rt_host_testing_test_clock_now_milliseconds(handle), 1_010);
+        assert_eq!(
+            buri_rt_host_testing_test_clock_now_milliseconds(handle),
+            1_010
+        );
     }
 
     /// A handle nothing installed reads as empty rather than aborting, which is
@@ -4969,7 +5309,10 @@ mod tests {
     #[test]
     fn nothing_is_skipped_and_nothing_is_written_without_a_runner() {
         let _alone = one_runner_at_a_time();
-        assert!(resume_at().is_none(), "the test process itself is not a test binary");
+        assert!(
+            resume_at().is_none(),
+            "the test process itself is not a test binary"
+        );
         assert_eq!(buri_rt_test_enter(0), 1);
         assert_eq!(buri_rt_test_enter(9), 1);
         note_failure(&[b"division by zero"]);
@@ -5023,7 +5366,15 @@ mod tests {
     }
 
     /// The two rows one entry arrives in, spelled once for the test above.
-    fn add_fault(handle: i64, name: &str, path: &str, body: &str, nth: i64, code: i64, payload: &str) {
+    fn add_fault(
+        handle: i64,
+        name: &str,
+        path: &str,
+        body: &str,
+        nth: i64,
+        code: i64,
+        payload: &str,
+    ) {
         // SAFETY: every range is a live `&str`'s.
         unsafe {
             buri_rt_host_testing_add_fs_fault(
@@ -5132,7 +5483,10 @@ mod tests {
         }
         // Six runs, six orders, each of them once.
         assert_eq!(buri_rt_test_replay(0), 0);
-        assert_eq!(seen, (0..6).map(|rank| permutation(3, rank)).collect::<Vec<_>>());
+        assert_eq!(
+            seen,
+            (0..6).map(|rank| permutation(3, rank)).collect::<Vec<_>>()
+        );
 
         // And a block that orders nothing is run once.
         buri_rt_test_enter(0);
@@ -5219,7 +5573,11 @@ mod tests {
         // Six orders of three tasks. A 128-bit digest is not a number anybody
         // wrote down, and every one of them is a legal seed.
         for seed in [0u128, 5, 6, 7, u128::MAX] {
-            assert_eq!(permutation(3, seed), permutation(3, seed % 6), "seed {seed}");
+            assert_eq!(
+                permutation(3, seed),
+                permutation(3, seed % 6),
+                "seed {seed}"
+            );
         }
         // The degenerate lengths, where `orders_of` is one and the remainder is
         // zero however large the digest.
@@ -5252,7 +5610,10 @@ mod tests {
         // Task 0 is named by nothing; task 1 by an entry that fires every time;
         // task 2 by one that waits for the second fan-out to reach it.
         assert_eq!(chosen_task_fault(scheduler, 0), None);
-        assert_eq!(chosen_task_fault(scheduler, 1), Some((0, String::from("gone"))));
+        assert_eq!(
+            chosen_task_fault(scheduler, 1),
+            Some((0, String::from("gone")))
+        );
         assert_eq!(chosen_task_fault(scheduler, 2), None);
         note_task(scheduler, 2);
         assert_eq!(
@@ -5263,7 +5624,10 @@ mod tests {
         // A builder carries the plan and its promise; a second `faults` retires
         // both.
         let carried = tasks_at(scheduler, ORDER_SEEDED, -1);
-        assert_eq!(chosen_task_fault(carried, 1), Some((0, String::from("gone"))));
+        assert_eq!(
+            chosen_task_fault(carried, 1),
+            Some((0, String::from("gone")))
+        );
         replan_of(scheduler);
         assert!(unconsumed_since(from).is_empty());
     }
@@ -5359,9 +5723,10 @@ mod tests {
     /// The log as `(socket, frame, text)`, read off the slot.
     fn sent_on(handle: i64) -> Vec<(i64, i8, String)> {
         with(handle, Vec::new(), |slot| match slot {
-            Slot::Sockets { sent } => {
-                sent.iter().map(|s| (s.socket, s.frame, s.text.clone())).collect()
-            }
+            Slot::Sockets { sent } => sent
+                .iter()
+                .map(|s| (s.socket, s.frame, s.text.clone()))
+                .collect(),
             _ => Vec::new(),
         })
     }
@@ -5378,7 +5743,10 @@ mod tests {
         // real platform's own sentence: "did this arrive" was never answerable
         // from this side, so a message to a socket that has gone is dropped.
         assert_eq!(buri_rt_host_testing_sockets_is_open(double, socket), 0);
-        assert_eq!(sent_on(double), vec![(socket, FRAME_TEXT, String::from("before"))]);
+        assert_eq!(
+            sent_on(double),
+            vec![(socket, FRAME_TEXT, String::from("before"))]
+        );
     }
 
     /// Two `sockets()` are two worlds, exactly as two `fs()` are two
@@ -5393,7 +5761,10 @@ mod tests {
         assert_eq!(buri_rt_host_testing_sockets_is_open(mine, alien), 0);
         send_text(mine, alien, "not yours");
         send_text(mine, ours, "mine");
-        assert_eq!(sent_on(mine), vec![(ours, FRAME_TEXT, String::from("mine"))]);
+        assert_eq!(
+            sent_on(mine),
+            vec![(ours, FRAME_TEXT, String::from("mine"))]
+        );
         assert_eq!(sent_on(theirs), Vec::new());
     }
 
@@ -5436,13 +5807,19 @@ mod tests {
                 body.len() as u64,
             );
         }
-        let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut out = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         // SAFETY: `out` is a live, aligned `BuriList`.
         unsafe { buri_rt_host_testing_sockets_sent(double, &raw mut out) };
         assert_eq!(out.len, 2);
         // SAFETY: `out.ptr` is a block of two `BuriSent` strides, just written.
         let (first, second) = unsafe {
-            (&*out.ptr.cast::<BuriSent>(), &*out.ptr.add(size_of::<BuriSent>()).cast::<BuriSent>())
+            (
+                &*out.ptr.cast::<BuriSent>(),
+                &*out.ptr.add(size_of::<BuriSent>()).cast::<BuriSent>(),
+            )
         };
         assert_eq!(first.frame, FRAME_TEXT);
         assert_eq!(first.socket, socket);

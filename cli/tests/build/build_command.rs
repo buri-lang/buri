@@ -54,7 +54,10 @@ fn a_native_round_with_nowhere_to_link_is_an_error() {
     scratch.write("not-a-directory", "a file\n");
     let tmp = scratch.path("not-a-directory");
     scratch
-        .run_with_env(&["build", "--check-reproducible", "//cmd/app"], &[("TMPDIR", tmp.to_str().unwrap())])
+        .run_with_env(
+            &["build", "--check-reproducible", "//cmd/app"],
+            &[("TMPDIR", tmp.to_str().unwrap())],
+        )
         .exits(2)
         .says("error: cannot write ")
         .says("/cmd/app/app");
@@ -87,11 +90,21 @@ fn check_reproducible_on_a_library_is_quiet() {
 fn two_pages_build_in_one_run() {
     let scratch = Scratch::repo("build-command-pages");
     for name in ["a", "b"] {
-        scratch.write(&format!("cmd/{name}/BUILD.buri"), "binary {\n    outputs: [{ platform: \"web\" }]\n}\n");
+        scratch.write(
+            &format!("cmd/{name}/BUILD.buri"),
+            "binary {\n    outputs: [{ platform: \"web\" }]\n}\n",
+        );
         scratch.write(&format!("cmd/{name}/main.buri"), PAGE_MAIN);
     }
-    scratch.run(&["build", "//cmd/a", "//cmd/b"]).ok().says(".buri/out/web/cmd/a/main.mjs").says(".buri/out/web/cmd/b/main.mjs");
-    assert_eq!(scratch.read(".buri/out/web/cmd/a/index.html"), scratch.read(".buri/out/web/cmd/b/index.html"));
+    scratch
+        .run(&["build", "//cmd/a", "//cmd/b"])
+        .ok()
+        .says(".buri/out/web/cmd/a/main.mjs")
+        .says(".buri/out/web/cmd/b/main.mjs");
+    assert_eq!(
+        scratch.read(".buri/out/web/cmd/a/index.html"),
+        scratch.read(".buri/out/web/cmd/b/index.html")
+    );
 }
 
 /// A C driver that links through the real one, answers no dry run, and then
@@ -119,14 +132,24 @@ exit 0
 #[test]
 fn an_executable_that_differs_between_two_links_is_not_reproducible() {
     let scratch = repository("build-command-counting-linker", "native", NATIVE_MAIN);
-    let driver = scratch.write_executable("fake/cc", COUNTING_DRIVER).display().to_string();
+    let driver = scratch
+        .write_executable("fake/cc", COUNTING_DRIVER)
+        .display()
+        .to_string();
     let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
-    let real =
-        std::process::Command::new("sh").args(["-c", &format!("command -v '{real_cc}'")]).output().unwrap();
+    let real = std::process::Command::new("sh")
+        .args(["-c", &format!("command -v '{real_cc}'")])
+        .output()
+        .unwrap();
     let real = String::from_utf8_lossy(&real.stdout).trim().to_string();
     let count = scratch.path("count").display().to_string();
     let home = scratch.path("home").display().to_string();
-    let env = [("CC", driver.as_str()), ("REAL_CC", real.as_str()), ("FAKE_COUNT", count.as_str()), ("BURI_HOME", home.as_str())];
+    let env = [
+        ("CC", driver.as_str()),
+        ("REAL_CC", real.as_str()),
+        ("FAKE_COUNT", count.as_str()),
+        ("BURI_HOME", home.as_str()),
+    ];
     scratch
         .run_with_env(&["build", "--check-reproducible", "//cmd/app"], &env)
         .exits(1)
@@ -139,7 +162,9 @@ fn an_executable_that_differs_between_two_links_is_not_reproducible() {
     scratch
         .run_with_env(&["build", "--check-reproducible", "//cmd/app"], &forced)
         .exits(1)
-        .says(&format!("may come from the linker, `CC={driver}` with `BURI_LINKER=cc`"))
+        .says(&format!(
+            "may come from the linker, `CC={driver}` with `BURI_LINKER=cc`"
+        ))
         .silent_about("toolchain bug");
 }
 
@@ -149,19 +174,38 @@ fn an_executable_that_differs_between_two_links_is_not_reproducible() {
 #[test]
 fn an_executable_the_machine_s_linker_made_differ_names_that_linker() {
     let scratch = repository("build-command-path-linker", "native", NATIVE_MAIN);
-    let driver = scratch.write_executable("fake/cc", COUNTING_DRIVER).display().to_string();
-    let real =
-        std::process::Command::new("sh").args(["-c", "command -v cc"]).output().unwrap();
+    let driver = scratch
+        .write_executable("fake/cc", COUNTING_DRIVER)
+        .display()
+        .to_string();
+    let real = std::process::Command::new("sh")
+        .args(["-c", "command -v cc"])
+        .output()
+        .unwrap();
     let real = String::from_utf8_lossy(&real.stdout).trim().to_string();
-    let path = format!("{}:{}", scratch.path("fake").display(), std::env::var("PATH").unwrap_or_default());
+    let path = format!(
+        "{}:{}",
+        scratch.path("fake").display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
     let count = scratch.path("count").display().to_string();
     let home = scratch.path("home").display().to_string();
     let mut cmd = buri_command();
-    cmd.args(["build", "--check-reproducible", "//cmd/app", "--color=never"])
-        .current_dir(&scratch.root)
-        .env_remove("CC")
-        .env_remove("BURI_LINKER")
-        .envs([("PATH", path.as_str()), ("REAL_CC", real.as_str()), ("FAKE_COUNT", count.as_str()), ("BURI_HOME", home.as_str())]);
+    cmd.args([
+        "build",
+        "--check-reproducible",
+        "//cmd/app",
+        "--color=never",
+    ])
+    .current_dir(&scratch.root)
+    .env_remove("CC")
+    .env_remove("BURI_LINKER")
+    .envs([
+        ("PATH", path.as_str()),
+        ("REAL_CC", real.as_str()),
+        ("FAKE_COUNT", count.as_str()),
+        ("BURI_HOME", home.as_str()),
+    ]);
     let what = "buri build --check-reproducible //cmd/app".to_string();
     let out = hang::capped_output(cmd, &what, hang::cap());
     let run = Run {

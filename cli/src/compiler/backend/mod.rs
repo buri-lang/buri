@@ -209,19 +209,19 @@ pub fn select(target: Target, profile: Profile) -> Result<Box<dyn Backend>, Stri
         // "which backend emits this artifact", and a page is JavaScript.
         (Platform::Js | Platform::Web, _) => Ok(Box::new(js::Js)),
         #[cfg(feature = "backend-stencil")]
-        (Platform::Linux | Platform::Macos, Profile::Debug) => {
-            match stencil::supported(target) {
-                Ok(_) => Ok(Box::new(stencil::Stencil::default())),
-                Err(why) => Err(no_development_backend(target, &why)),
-            }
-        }
+        (Platform::Linux | Platform::Macos, Profile::Debug) => match stencil::supported(target) {
+            Ok(_) => Ok(Box::new(stencil::Stencil::default())),
+            Err(why) => Err(no_development_backend(target, &why)),
+        },
         // Gated the other way, not left as a fallback: with the feature on the
         // arm above is total for a native debug build, and an arm nothing can
         // reach is a warning rather than a safety net.
         #[cfg(not(feature = "backend-stencil"))]
         (_, Profile::Debug) => Err(no_development_code_generator()),
         #[cfg(feature = "backend-llvm")]
-        (Platform::Linux | Platform::Macos, Profile::Release) => Ok(Box::new(llvm::Llvm::default())),
+        (Platform::Linux | Platform::Macos, Profile::Release) => {
+            Ok(Box::new(llvm::Llvm::default()))
+        }
         // Gated the other way for the same reason the debug arm above is: with
         // the feature on the arm above is total for a native release build.
         #[cfg(not(feature = "backend-llvm"))]
@@ -312,7 +312,10 @@ mod tests {
                     "stencil",
                     "{platform:?}/{arch:?}"
                 ),
-                Err(_) => assert!(selected.is_err(), "{platform:?}/{arch:?} was selected anyway"),
+                Err(_) => assert!(
+                    selected.is_err(),
+                    "{platform:?}/{arch:?} was selected anyway"
+                ),
             }
         }
     }
@@ -337,7 +340,9 @@ mod tests {
 
         let supported = at(Platform::Linux, Some(Arch::X86_64));
         assert_eq!(
-            select(supported, Profile::Debug).map(|b| b.name()).unwrap_or("<refused>"),
+            select(supported, Profile::Debug)
+                .map(|b| b.name())
+                .unwrap_or("<refused>"),
             "stencil"
         );
     }
@@ -361,8 +366,16 @@ mod tests {
     #[cfg(feature = "backend-stencil")]
     #[test]
     fn an_unqualified_native_target_follows_the_host_architecture() {
-        let platform = if cfg!(target_os = "macos") { Platform::Macos } else { Platform::Linux };
-        let arch = if cfg!(target_arch = "aarch64") { Arch::Arm64 } else { Arch::X86_64 };
+        let platform = if cfg!(target_os = "macos") {
+            Platform::Macos
+        } else {
+            Platform::Linux
+        };
+        let arch = if cfg!(target_arch = "aarch64") {
+            Arch::Arm64
+        } else {
+            Arch::X86_64
+        };
         let unqualified = select(at(platform, None), Profile::Debug);
         let qualified = select(at(platform, Some(arch)), Profile::Debug);
         assert_eq!(unqualified.is_ok(), qualified.is_ok());
@@ -484,7 +497,10 @@ mod tests {
             "host.HostTasks.parallel".to_string(),
         ];
         let (networking, rest) = split_networking_when(&missing, false);
-        assert_eq!(networking, vec!["host.HostListen.listen", "host.HostTasks.parallel"]);
+        assert_eq!(
+            networking,
+            vec!["host.HostListen.listen", "host.HostTasks.parallel"]
+        );
         assert_eq!(rest, vec!["json.encode"]);
 
         let refusal = no_networking(&networking, Span::NONE);
@@ -495,17 +511,30 @@ mod tests {
             "the refusal names neither operation: {}",
             refusal.message
         );
-        assert!(refusal.message.contains("without networking"), "{}", refusal.message);
+        assert!(
+            refusal.message.contains("without networking"),
+            "{}",
+            refusal.message
+        );
         let fix = refusal.fix.clone().expect("the page carries a fix");
-        assert!(fix.contains("net"), "the fix does not name the feature: {fix}");
-        assert!(!fix.contains("report it"), "a missing capability is not a bug report: {fix}");
+        assert!(
+            fix.contains("net"),
+            "the fix does not name the feature: {fix}"
+        );
+        assert!(
+            !fix.contains("report it"),
+            "a missing capability is not a bug report: {fix}"
+        );
     }
 
     /// With networking present, every missing key is the backend's own gap —
     /// the split is not a reclassification of keys a toolchain can answer.
     #[test]
     fn networking_present_leaves_every_key_where_it_was() {
-        let missing = vec!["host.HostListen.listen".to_string(), "json.encode".to_string()];
+        let missing = vec![
+            "host.HostListen.listen".to_string(),
+            "json.encode".to_string(),
+        ];
         let (networking, rest) = split_networking_when(&missing, true);
         assert!(networking.is_empty());
         assert_eq!(rest, missing);
@@ -552,8 +581,10 @@ mod tests {
     /// "report it": nothing about the program is wrong.
     #[test]
     fn a_cryptography_gap_is_its_own_refusal() {
-        let missing =
-            vec!["host.HostEntropy.bytes".to_string(), "json.encode".to_string()];
+        let missing = vec![
+            "host.HostEntropy.bytes".to_string(),
+            "json.encode".to_string(),
+        ];
         let (cryptography, rest) = split_cryptography_when(&missing, false);
         assert_eq!(cryptography, vec!["host.HostEntropy.bytes"]);
         assert_eq!(rest, vec!["json.encode"]);
@@ -565,10 +596,20 @@ mod tests {
             "the refusal names no operation: {}",
             refusal.message
         );
-        assert!(refusal.message.contains("without cryptography"), "{}", refusal.message);
+        assert!(
+            refusal.message.contains("without cryptography"),
+            "{}",
+            refusal.message
+        );
         let fix = refusal.fix.clone().expect("the page carries a fix");
-        assert!(fix.contains("crypto"), "the fix does not name the feature: {fix}");
-        assert!(!fix.contains("report it"), "a missing capability is not a bug report: {fix}");
+        assert!(
+            fix.contains("crypto"),
+            "the fix does not name the feature: {fix}"
+        );
+        assert!(
+            !fix.contains("report it"),
+            "a missing capability is not a bug report: {fix}"
+        );
     }
 
     /// The two gaps are disjoint, and a toolchain missing both says both
@@ -676,8 +717,10 @@ mod tests {
     #[test]
     fn a_release_refusal_names_the_profile_rather_than_the_platform() {
         use crate::build::actions::native_gap;
-        let (Some(platform), arch) = (crate::build::link::host_platform(), crate::build::link::host_arch())
-        else {
+        let (Some(platform), arch) = (
+            crate::build::link::host_platform(),
+            crate::build::link::host_arch(),
+        ) else {
             return;
         };
         let target = Target { platform, arch };

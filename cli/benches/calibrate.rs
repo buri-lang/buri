@@ -220,7 +220,11 @@ pub fn run(
     let (median, dispersion, fastest, _) = bench(&mut || {
         tokens.clear();
         for i in 0..token_count {
-            tokens.push(TokenRecord { kind: (i & 0x3f) as u8, start: i as u32, end: i as u32 + 3 });
+            tokens.push(TokenRecord {
+                kind: (i & 0x3f) as u8,
+                start: i as u32,
+                end: i as u32 + 3,
+            });
         }
         std::hint::black_box(&tokens);
     });

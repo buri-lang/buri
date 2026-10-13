@@ -52,9 +52,9 @@
 )]
 
 use crate::list::{Release, Retain};
-use crate::ui::ComputeEntry;
-use crate::value::{list_of_bytes, str_of, BuriList, BuriStr, BURI_RT_STR_LEN_MASK};
 use crate::sync::Mutex;
+use crate::ui::ComputeEntry;
+use crate::value::{BURI_RT_STR_LEN_MASK, BuriList, BuriStr, list_of_bytes, str_of};
 
 /// What a record is. A `Marker` emits nothing in markup and is never counted;
 /// it is a placeholder around a region a watcher rebuilds.
@@ -149,7 +149,14 @@ struct Stop {
 
 /// A record with no widget state — an element, a run or a marker before any
 /// event arm attaches to it.
-fn plain_record(identity: i64, kind: Kind, name: String, body: String, text: String, parent: Option<usize>) -> Record {
+fn plain_record(
+    identity: i64,
+    kind: Kind,
+    name: String,
+    body: String,
+    text: String,
+    parent: Option<usize>,
+) -> Record {
     Record {
         identity,
         kind,
@@ -305,7 +312,10 @@ impl Document {
                 String::new(),
                 None,
             )],
-            cursor: vec![Frame { parent: 0, anchor: None }],
+            cursor: vec![Frame {
+                parent: 0,
+                anchor: None,
+            }],
             regions: Vec::new(),
             each_regions: Vec::new(),
             outside: Vec::new(),
@@ -323,7 +333,10 @@ impl Document {
     /// The frame the next record lands in.
     fn top(&self) -> Frame {
         // The cursor is never empty; the host frame is always at its floor.
-        self.cursor.last().copied().unwrap_or(Frame { parent: 0, anchor: None })
+        self.cursor.last().copied().unwrap_or(Frame {
+            parent: 0,
+            anchor: None,
+        })
     }
 
     /// Adds a record in the current frame — under its parent, before its anchor
@@ -331,13 +344,20 @@ impl Document {
     fn add(&mut self, kind: Kind, name: String, body: String, text: String) -> usize {
         let frame = self.top();
         let index = self.records.len();
-        self.records.push(plain_record(mint(), kind, name, body, text, Some(frame.parent)));
+        self.records.push(plain_record(
+            mint(),
+            kind,
+            name,
+            body,
+            text,
+            Some(frame.parent),
+        ));
         let pos = match frame.anchor {
-            Some(a) => {
-                self.records[frame.parent].children.iter().position(|&c| c == a).unwrap_or_else(
-                    || self.records[frame.parent].children.len(),
-                )
-            }
+            Some(a) => self.records[frame.parent]
+                .children
+                .iter()
+                .position(|&c| c == a)
+                .unwrap_or_else(|| self.records[frame.parent].children.len()),
             None => self.records[frame.parent].children.len(),
         };
         self.records[frame.parent].children.insert(pos, index);
@@ -411,7 +431,10 @@ unsafe fn text_of(ptr: *const u8, len: u64) -> String {
 /// for word: a backslash first (or the next two would double-escape), then a
 /// newline and a carriage return, and no fourth character.
 fn escape_run(content: &str) -> String {
-    content.replace('\\', "\\\\").replace('\n', "\\n").replace('\r', "\\r")
+    content
+        .replace('\\', "\\\\")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
 }
 
 // ---------------------------------------------------------------------------
@@ -488,7 +511,13 @@ pub unsafe extern "C" fn buri_rt_host_testing_mount(
         }
         give_back_at_exit();
         with_doc(handle, |doc| {
-            doc.ctx = Some(Supplied { words, bytes, at, retain: ctx_retain, release: ctx_release });
+            doc.ctx = Some(Supplied {
+                words,
+                bytes,
+                at,
+                retain: ctx_retain,
+                release: ctx_release,
+            });
         });
     }
     // SAFETY: `state` is the record the document's context was read out of.
@@ -507,7 +536,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_mount(
 /// context at the document's offset.
 pub(crate) unsafe fn supply(handle: i64, state: *mut u8) {
     let Some(Some((words, bytes, at, retain))) = with_doc(handle, |doc| {
-        doc.ctx.as_ref().map(|c| (c.words.clone(), c.bytes, c.at, c.retain))
+        doc.ctx
+            .as_ref()
+            .map(|c| (c.words.clone(), c.bytes, c.at, c.retain))
     }) else {
         return;
     };
@@ -540,9 +571,13 @@ unsafe extern "C" {
 /// Every document's context, given back. `try_lock` for `ui.rs`'s reason: an
 /// abort can exit while this lock is held, and then the audit is quiet anyway.
 extern "C" fn give_back() {
-    let Ok(mut all) = DOCUMENTS.try_lock() else { return };
+    let Ok(mut all) = DOCUMENTS.try_lock() else {
+        return;
+    };
     for doc in all.iter_mut() {
-        let Some(mut c) = doc.ctx.take() else { continue };
+        let Some(mut c) = doc.ctx.take() else {
+            continue;
+        };
         if let Some(f) = c.release {
             // SAFETY: `words` holds one whole context of the glue's type, and
             // nothing names it after this.
@@ -572,7 +607,10 @@ pub unsafe extern "C" fn buri_rt_ui_node_emit_element(
     let body = unsafe { text_of(body_ptr, body_len) };
     with_doc(handle, |doc| {
         let index = doc.add(Kind::Element, name, body, String::new());
-        doc.cursor.push(Frame { parent: index, anchor: None });
+        doc.cursor.push(Frame {
+            parent: index,
+            anchor: None,
+        });
     });
 }
 
@@ -598,7 +636,10 @@ pub unsafe extern "C" fn buri_rt_ui_node_open_element(
     let body = unsafe { text_of(body_ptr, body_len) };
     with_doc(handle, |doc| {
         let index = doc.add(Kind::Element, name, body, String::new());
-        doc.cursor.push(Frame { parent: index, anchor: None });
+        doc.cursor.push(Frame {
+            parent: index,
+            anchor: None,
+        });
         index as i64
     })
     .unwrap_or(-1)
@@ -634,7 +675,11 @@ pub unsafe extern "C" fn buri_rt_ui_style_classify_unextracted(
     if strict != 0 {
         // SAFETY: forwarded to the caller's promise.
         let name = unsafe { text_of(ptr, len) };
-        crate::abort::die(&[b"compiler bug: the stylesheet has no class `", name.as_bytes(), b"`"]);
+        crate::abort::die(&[
+            b"compiler bug: the stylesheet has no class `",
+            name.as_bytes(),
+            b"`",
+        ]);
     }
 }
 
@@ -660,9 +705,11 @@ pub unsafe extern "C" fn buri_rt_ui_node_emit_text(
 /// index a reactive leaf patches it by. Its identity is minted here, once.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_ui_node_open_text(handle: i64) -> i64 {
-    with_doc(handle, |doc| doc.add(Kind::Text, String::new(), String::new(), String::new()))
-        .map(|i| i as i64)
-        .unwrap_or(-1)
+    with_doc(handle, |doc| {
+        doc.add(Kind::Text, String::new(), String::new(), String::new())
+    })
+    .map(|i| i as i64)
+    .unwrap_or(-1)
 }
 
 /// `patchText(builder, at, content)` — writes `content` over the run `openText`
@@ -682,7 +729,10 @@ pub unsafe extern "C" fn buri_rt_ui_node_patch_text(
     // SAFETY: forwarded to the caller's promise.
     let content = unsafe { text_of(ptr, len) };
     with_doc(handle, |doc| {
-        if let Some(record) = usize::try_from(at).ok().and_then(|i| doc.records.get_mut(i)) {
+        if let Some(record) = usize::try_from(at)
+            .ok()
+            .and_then(|i| doc.records.get_mut(i))
+        {
             record.text = content;
         }
     });
@@ -705,7 +755,10 @@ pub unsafe extern "C" fn buri_rt_ui_node_patch_body(
     // SAFETY: forwarded to the caller's promise.
     let body = unsafe { text_of(ptr, len) };
     with_doc(handle, |doc| {
-        if let Some(record) = usize::try_from(at).ok().and_then(|i| doc.records.get_mut(i)) {
+        if let Some(record) = usize::try_from(at)
+            .ok()
+            .and_then(|i| doc.records.get_mut(i))
+        {
             record.body = body;
         }
     });
@@ -754,7 +807,10 @@ impl Document {
                 }
             }
         }
-        self.cursor.push(Frame { parent, anchor: Some(end) });
+        self.cursor.push(Frame {
+            parent,
+            anchor: Some(end),
+        });
     }
 
     /// Leaves the region `begin_region` entered, restoring where the builder
@@ -840,7 +896,10 @@ impl Document {
             Some(parent),
         ));
         let children = &mut self.records[parent].children;
-        let pos = children.iter().position(|&c| c == anchor).unwrap_or(children.len());
+        let pos = children
+            .iter()
+            .position(|&c| c == anchor)
+            .unwrap_or(children.len());
         children.insert(pos, index);
         index
     }
@@ -861,7 +920,10 @@ impl Document {
             return;
         }
         let block: Vec<usize> = children.drain(si..=ei).collect();
-        let pos = children.iter().position(|&c| c == anchor).unwrap_or(children.len());
+        let pos = children
+            .iter()
+            .position(|&c| c == anchor)
+            .unwrap_or(children.len());
         for (k, record) in block.into_iter().enumerate() {
             children.insert(pos + k, record);
         }
@@ -904,7 +966,12 @@ pub extern "C" fn buri_rt_ui_node_enter_each(handle: i64) -> i64 {
         let start = doc.add(Kind::Marker, String::new(), String::new(), String::new());
         let end = doc.add(Kind::Marker, String::new(), String::new(), String::new());
         let parent = doc.records.get(start).and_then(|r| r.parent).unwrap_or(0);
-        doc.each_regions.push(EachRegion { end, parent, list_owner, rows: Vec::new() });
+        doc.each_regions.push(EachRegion {
+            end,
+            parent,
+            list_owner,
+            rows: Vec::new(),
+        });
         (doc.each_regions.len() as i64) - 1
     })
     .unwrap_or(-1)
@@ -963,7 +1030,12 @@ pub unsafe extern "C" fn buri_rt_ui_node_reconcile(
         prev.into_iter().map(|r| (r.key.clone(), r)).collect();
     let mut next: Vec<RowRec> = Vec::with_capacity(keys.len());
     for _ in 0..keys.len() {
-        next.push(RowRec { key: String::new(), start: 0, end: 0, owner: -1 });
+        next.push(RowRec {
+            key: String::new(),
+            start: 0,
+            end: 0,
+            owner: -1,
+        });
     }
     let mut anchor = end;
 
@@ -980,7 +1052,10 @@ pub unsafe extern "C" fn buri_rt_ui_node_reconcile(
             let (row_start, row_end) = with_doc(handle, |doc| {
                 let start = doc.marker_before(parent, anchor);
                 let end = doc.marker_before(parent, anchor);
-                doc.cursor.push(Frame { parent, anchor: Some(end) });
+                doc.cursor.push(Frame {
+                    parent,
+                    anchor: Some(end),
+                });
                 (start, end)
             })
             .unwrap_or((0, 0));
@@ -1010,7 +1085,12 @@ pub unsafe extern "C" fn buri_rt_ui_node_reconcile(
             });
             anchor = row_start;
             if let Some(slot) = next.get_mut(i) {
-                *slot = RowRec { key: key.clone(), start: row_start, end: row_end, owner: row_owner };
+                *slot = RowRec {
+                    key: key.clone(),
+                    start: row_start,
+                    end: row_end,
+                    owner: row_owner,
+                };
             }
         }
     }
@@ -1209,7 +1289,10 @@ pub extern "C" fn buri_rt_ui_node_mark_submit(handle: i64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_ui_node_mark_current(handle: i64, at: i64, on: u8) {
     with_doc(handle, |doc| {
-        if let Some(r) = usize::try_from(at).ok().and_then(|i| doc.records.get_mut(i)) {
+        if let Some(r) = usize::try_from(at)
+            .ok()
+            .and_then(|i| doc.records.get_mut(i))
+        {
             r.current = on != 0;
         }
     });
@@ -1258,7 +1341,10 @@ pub unsafe extern "C" fn buri_rt_ui_node_describe_tip(
     // SAFETY: forwarded to the caller's promise.
     let text = unsafe { text_of(ptr, len) };
     with_doc(handle, |doc| {
-        if let Some(r) = usize::try_from(at).ok().and_then(|i| doc.records.get_mut(i)) {
+        if let Some(r) = usize::try_from(at)
+            .ok()
+            .and_then(|i| doc.records.get_mut(i))
+        {
             r.tip_text = text;
         }
     });
@@ -1421,7 +1507,9 @@ pub extern "C" fn buri_rt_ui_node_pointer_over_row(handle: i64) -> u8 {
 /// `out` is writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_ui_node_pointer_row(handle: i64, out: *mut BuriStr) {
-    let row = with_doc(handle, |doc| doc.pointer.row.clone()).flatten().unwrap_or_default();
+    let row = with_doc(handle, |doc| doc.pointer.row.clone())
+        .flatten()
+        .unwrap_or_default();
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(str_of(&row)) };
 }
@@ -1464,7 +1552,11 @@ impl Document {
             // A control's accessible name is its stored label where it has one —
             // a button's glyphs are not its name — and the text of its
             // descendants otherwise.
-            let named = if r.label.is_empty() { self.accessible_name(i) } else { r.label.clone() };
+            let named = if r.label.is_empty() {
+                self.accessible_name(i)
+            } else {
+                r.label.clone()
+            };
             (r.kind == Kind::Element && r.name == name && named == label).then_some(i)
         })
     }
@@ -1515,7 +1607,9 @@ impl Document {
     fn elements(&self, name: &str) -> Vec<usize> {
         self.ordered()
             .into_iter()
-            .filter(|(i, _)| self.records[*i].kind == Kind::Element && self.records[*i].name == name)
+            .filter(|(i, _)| {
+                self.records[*i].kind == Kind::Element && self.records[*i].name == name
+            })
             .map(|(i, _)| i)
             .collect()
     }
@@ -1576,10 +1670,17 @@ impl Document {
         let matches = |i: usize| {
             let r = &self.records[i];
             r.kind == Kind::Element
-                && (if r.label.is_empty() { self.accessible_name(i) } else { r.label.clone() })
-                    == label
+                && (if r.label.is_empty() {
+                    self.accessible_name(i)
+                } else {
+                    r.label.clone()
+                }) == label
         };
-        let mut found = self.ordered().into_iter().map(|(i, _)| i).find(|&i| matches(i))?;
+        let mut found = self
+            .ordered()
+            .into_iter()
+            .map(|(i, _)| i)
+            .find(|&i| matches(i))?;
         while let Some(&inner) = self.records[found].children.iter().find(|&&c| matches(c)) {
             found = inner;
         }
@@ -1602,7 +1703,9 @@ impl Document {
                     continue;
                 }
                 for row in &region.rows {
-                    let (Some(s), Some(e)) = (index(row.start), index(row.end)) else { continue };
+                    let (Some(s), Some(e)) = (index(row.start), index(row.end)) else {
+                        continue;
+                    };
                     if s < pos && pos < e && best.as_ref().is_none_or(|(b, _)| s > *b) {
                         best = Some((s, (list, row.key.clone(), row.start)));
                     }
@@ -1678,7 +1781,11 @@ fn decl_value(body: &str, prop: &str) -> Option<String> {
 fn classes_of(body: &str) -> Vec<String> {
     for token in body.split(';') {
         if let Some(names) = token.strip_prefix("class:") {
-            return names.split(' ').filter(|s| !s.is_empty()).map(|s| s.to_owned()).collect();
+            return names
+                .split(' ')
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_owned())
+                .collect();
         }
     }
     Vec::new()
@@ -1720,7 +1827,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_press(
     // SAFETY: forwarded to the caller's promise.
     let label = unsafe { text_of(ptr, len) };
     let Some(button) = with_doc(handle, |doc| doc.labelled("button", &label)).flatten() else {
-        crate::abort::die(&[b"this tree has no button labelled \"", label.as_bytes(), b"\""])
+        crate::abort::die(&[
+            b"this tree has no button labelled \"",
+            label.as_bytes(),
+            b"\"",
+        ])
     };
     let reachable =
         with_doc(handle, |doc| doc.reachable(button) && !doc.inert(button)).unwrap_or(false);
@@ -1730,7 +1841,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_press(
     // A press is the pointer's, so the button is what the pointer is over, and
     // it takes the focus before its handler runs, the way a browser's does.
     hover(handle, button);
-    if let Some(key) = with_doc(handle, |doc| doc.stop_of(button).filter(|&k| doc.focusable(k))).flatten() {
+    if let Some(key) = with_doc(handle, |doc| {
+        doc.stop_of(button).filter(|&k| doc.focusable(k))
+    })
+    .flatten()
+    {
         set_focus(handle, Some(key));
     }
     // The press reaches the document before the button, the way a browser's
@@ -1792,7 +1907,8 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_fill(
     // SAFETY: forwarded to the caller's promise.
     let value = unsafe { text_of(vptr, vlen) };
     let field = with_doc(handle, |doc| {
-        doc.labelled("label", &label).and_then(|l| doc.first_named(l, &["input", "textarea"]))
+        doc.labelled("label", &label)
+            .and_then(|l| doc.first_named(l, &["input", "textarea"]))
     })
     .flatten();
     let Some(field) = field else {
@@ -1847,7 +1963,8 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_select(
     // SAFETY: forwarded to the caller's promise.
     let label = unsafe { text_of(lptr, llen) };
     let field = with_doc(handle, |doc| {
-        doc.labelled("label", &label).and_then(|l| doc.first_named(l, &["input", "textarea"]))
+        doc.labelled("label", &label)
+            .and_then(|l| doc.first_named(l, &["input", "textarea"]))
     })
     .flatten();
     let Some(field) = field else {
@@ -1887,14 +2004,19 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_flip(
     // SAFETY: forwarded to the caller's promise.
     let label = unsafe { text_of(ptr, len) };
     let toggle = with_doc(handle, |doc| {
-        doc.labelled("label", &label).and_then(|l| doc.first_named(l, &["input"]))
+        doc.labelled("label", &label)
+            .and_then(|l| doc.first_named(l, &["input"]))
     })
     .flatten();
     let Some(toggle) = toggle else {
         crate::abort::die(&[b"the label \"", label.as_bytes(), b"\" is not a toggle"])
     };
     let (disabled, inert, signal) = with_doc(handle, |doc| {
-        (is_disabled(&doc.records[toggle].body), doc.inert(toggle), doc.records[toggle].value_signal)
+        (
+            is_disabled(&doc.records[toggle].body),
+            doc.inert(toggle),
+            doc.records[toggle].value_signal,
+        )
     })
     .unwrap_or((true, true, -1));
     if disabled || inert {
@@ -1936,7 +2058,13 @@ pub unsafe extern "C" fn buri_rt_host_testing_offer_file(
         // SAFETY: the caller promises `clen` readable bytes at `cptr`.
         unsafe { std::slice::from_raw_parts(cptr, clen as usize) }.to_vec()
     };
-    with_doc(handle, |doc| doc.offer = Offer { name, mime_type, content });
+    with_doc(handle, |doc| {
+        doc.offer = Offer {
+            name,
+            mime_type,
+            content,
+        }
+    });
 }
 
 /// `deliverFile(page, label)` — `pickFile`'s second half: fire the handler of
@@ -1954,15 +2082,23 @@ pub unsafe extern "C" fn buri_rt_host_testing_deliver_file(
     // SAFETY: forwarded to the caller's promise.
     let label = unsafe { text_of(ptr, len) };
     let picker = with_doc(handle, |doc| {
-        doc.labelled("button", &label).filter(|&b| doc.records[b].pick >= 0)
+        doc.labelled("button", &label)
+            .filter(|&b| doc.records[b].pick >= 0)
     })
     .flatten();
     let Some(picker) = picker else {
-        crate::abort::die(&[b"this tree has no file picker labelled \"", label.as_bytes(), b"\""])
+        crate::abort::die(&[
+            b"this tree has no file picker labelled \"",
+            label.as_bytes(),
+            b"\"",
+        ])
     };
     let (open, pick) = with_doc(handle, |doc| {
         let r = &doc.records[picker];
-        (doc.reachable(picker) && !doc.inert(picker) && !is_disabled(&r.body), r.pick)
+        (
+            doc.reachable(picker) && !doc.inert(picker) && !is_disabled(&r.body),
+            r.pick,
+        )
     })
     .unwrap_or((false, -1));
     if open {
@@ -1989,7 +2125,11 @@ unsafe fn pointer_target(handle: i64, ptr: *const u8, len: u64) -> usize {
     let label = unsafe { text_of(ptr, len) };
     match with_doc(handle, |doc| doc.named(&label)).flatten() {
         Some(node) => node,
-        None => crate::abort::die(&[b"this tree has no element named \"", label.as_bytes(), b"\""]),
+        None => crate::abort::die(&[
+            b"this tree has no element named \"",
+            label.as_bytes(),
+            b"\"",
+        ]),
     }
 }
 
@@ -2010,13 +2150,18 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_pointer_down(
 ) {
     // SAFETY: forwarded to the caller's promise.
     let target = unsafe { pointer_target(handle, ptr, len) };
-    let reached = with_doc(handle, |doc| doc.reachable(target) && !doc.inert(target)).unwrap_or(false);
+    let reached =
+        with_doc(handle, |doc| doc.reachable(target) && !doc.inert(target)).unwrap_or(false);
     if !reached {
         return;
     }
     hover(handle, target);
     let outside: Vec<i64> = with_doc(handle, |doc| {
-        doc.outside.iter().filter(|(_, elem)| !doc.within(*elem, target)).map(|(n, _)| *n).collect()
+        doc.outside
+            .iter()
+            .filter(|(_, elem)| !doc.within(*elem, target))
+            .map(|(n, _)| *n)
+            .collect()
     })
     .unwrap_or_default();
     for node in outside {
@@ -2145,7 +2290,10 @@ fn hover(handle: i64, node: usize) {
 impl Document {
     /// The record that draws stop `key` now, while it is in the tree.
     fn stop_record(&self, key: usize) -> Option<usize> {
-        self.stops.get(key).and_then(|s| s.record).filter(|&r| self.within(0, r))
+        self.stops
+            .get(key)
+            .and_then(|s| s.record)
+            .filter(|&r| self.within(0, r))
     }
 
     /// The record the focus is on, while it is in the tree.
@@ -2163,8 +2311,12 @@ impl Document {
     /// the program gave a focus. A group's signal is the group's, and the
     /// group itself is never where the focus lands.
     fn focusable(&self, key: usize) -> bool {
-        let Some(stop) = self.stops.get(key) else { return false };
-        let Some(record) = self.stop_record(key) else { return false };
+        let Some(stop) = self.stops.get(key) else {
+            return false;
+        };
+        let Some(record) = self.stop_record(key) else {
+            return false;
+        };
         !stop.within
             && (stop.natural || stop.signal >= 0 || stop.order.is_some())
             && self.records[record].kind == Kind::Element
@@ -2299,7 +2451,13 @@ pub(crate) fn check_focus(handle: i64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_ui_node_focus_key(handle: i64) -> i64 {
     with_doc(handle, |doc| {
-        doc.stops.push(Stop { record: None, natural: false, order: None, signal: -1, within: false });
+        doc.stops.push(Stop {
+            record: None,
+            natural: false,
+            order: None,
+            signal: -1,
+            within: false,
+        });
         (doc.stops.len() as i64) - 1
     })
     .unwrap_or(-1)
@@ -2335,7 +2493,12 @@ pub extern "C" fn buri_rt_ui_node_set_focus_order(handle: i64, key: i64, on: u8)
 /// `bindFocusSignal(builder, key, signal, within)` — keeps stop `key`'s
 /// `hasFocus` signal.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_ui_node_bind_focus_signal(handle: i64, key: i64, signal: i64, within: u8) {
+pub extern "C" fn buri_rt_ui_node_bind_focus_signal(
+    handle: i64,
+    key: i64,
+    signal: i64,
+    within: u8,
+) {
     with_doc(handle, |doc| {
         if let Some(stop) = usize::try_from(key).ok().and_then(|k| doc.stops.get_mut(k)) {
             stop.signal = signal;
@@ -2353,14 +2516,18 @@ pub extern "C" fn buri_rt_ui_node_bind_focus_signal(handle: i64, key: i64, signa
 /// takes the focus away from there, and off the page.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_ui_node_request_focus(handle: i64, key: i64, on: u8) {
-    let Ok(key) = usize::try_from(key) else { return };
+    let Ok(key) = usize::try_from(key) else {
+        return;
+    };
     enum Asked {
         Nothing,
         Move(Option<usize>),
         Refuse(i64),
     }
     let asked = with_doc(handle, |doc| {
-        let Some(stop) = doc.stops.get(key) else { return Asked::Nothing };
+        let Some(stop) = doc.stops.get(key) else {
+            return Asked::Nothing;
+        };
         let (within, signal) = (stop.within, stop.signal);
         let focused = doc.focused_record();
         let here = match (within, stop.record) {
@@ -2368,7 +2535,11 @@ pub extern "C" fn buri_rt_ui_node_request_focus(handle: i64, key: i64, on: u8) {
             _ => doc.focus_now() == Some(key),
         };
         if on == 0 {
-            return if here { Asked::Move(None) } else { Asked::Nothing };
+            return if here {
+                Asked::Move(None)
+            } else {
+                Asked::Nothing
+            };
         }
         if here {
             return Asked::Nothing;
@@ -2377,7 +2548,8 @@ pub extern "C" fn buri_rt_ui_node_request_focus(handle: i64, key: i64, on: u8) {
             (true, Some(group)) => {
                 let mut inside = Vec::new();
                 doc.visit(group, 0, &mut inside);
-                let stops: Vec<usize> = inside.iter().filter_map(|&(i, _)| doc.stop_of(i)).collect();
+                let stops: Vec<usize> =
+                    inside.iter().filter_map(|&(i, _)| doc.stop_of(i)).collect();
                 stops
                     .iter()
                     .copied()
@@ -2416,7 +2588,10 @@ pub unsafe extern "C" fn buri_rt_ui_node_relabel(
     // SAFETY: forwarded to the caller's promise.
     let label = unsafe { text_of(ptr, len) };
     with_doc(handle, |doc| {
-        if let Some(r) = usize::try_from(at).ok().and_then(|i| doc.records.get_mut(i)) {
+        if let Some(r) = usize::try_from(at)
+            .ok()
+            .and_then(|i| doc.records.get_mut(i))
+        {
             r.label = label;
         }
     });
@@ -2467,9 +2642,16 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_focus(
 ) {
     // SAFETY: forwarded to the caller's promise.
     let label = unsafe { text_of(ptr, len) };
-    let target = with_doc(handle, |doc| doc.named(&label).and_then(|n| doc.focus_target(n))).flatten();
+    let target = with_doc(handle, |doc| {
+        doc.named(&label).and_then(|n| doc.focus_target(n))
+    })
+    .flatten();
     let Some(target) = target else {
-        crate::abort::die(&[b"this tree has nothing to focus named \"", label.as_bytes(), b"\""])
+        crate::abort::die(&[
+            b"this tree has nothing to focus named \"",
+            label.as_bytes(),
+            b"\"",
+        ])
     };
     set_focus(handle, Some(target));
 }
@@ -2481,7 +2663,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_focus(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_rendered_focused(handle: i64, out: *mut BuriStr) {
     let name = with_doc(handle, |doc| {
-        let Some(record) = doc.focused_record() else { return String::new() };
+        let Some(record) = doc.focused_record() else {
+            return String::new();
+        };
         let r = &doc.records[record];
         if !r.label.is_empty() {
             return r.label.clone();
@@ -2504,7 +2688,10 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_focused(handle: i64, out:
 /// before any handler runs, the way a browser's is.
 fn dispatch_key(handle: i64, name: &str) -> bool {
     let path: Vec<i64> = with_doc(handle, |doc| {
-        doc.key = KeyPress { name: name.to_owned(), claimed: false };
+        doc.key = KeyPress {
+            name: name.to_owned(),
+            claimed: false,
+        };
         let mut out = Vec::new();
         let mut at = doc.focused_record();
         while let Some(i) = at {
@@ -2534,7 +2721,9 @@ fn tab(handle: i64, forward: bool) {
         if order.is_empty() {
             return None;
         }
-        let at = doc.focus_now().and_then(|k| order.iter().position(|&o| o == k));
+        let at = doc
+            .focus_now()
+            .and_then(|k| order.iter().position(|&o| o == k));
         let n = order.len();
         let index = match (at, forward) {
             (None, true) => 0,
@@ -2609,7 +2798,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_key(
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_rendered_submit(handle: i64, index: i64) {
     let forms = with_doc(handle, |doc| doc.elements("form")).unwrap_or_default();
-    let form = usize::try_from(index).ok().and_then(|i| forms.get(i).copied());
+    let form = usize::try_from(index)
+        .ok()
+        .and_then(|i| forms.get(i).copied());
     let Some(form) = form else {
         crate::abort::die(&[b"this tree has no form ", index.to_string().as_bytes()])
     };
@@ -2850,7 +3041,11 @@ pub unsafe extern "C" fn buri_rt_host_testing_rendered_identity(
     let found = usize::try_from(handle)
         .ok()
         .and_then(|i| all.get(i))
-        .and_then(|doc| usize::try_from(index).ok().and_then(|at| named(doc, &name).nth(at)));
+        .and_then(|doc| {
+            usize::try_from(index)
+                .ok()
+                .and_then(|at| named(doc, &name).nth(at))
+        });
     match found {
         Some(identity) => identity,
         None => {

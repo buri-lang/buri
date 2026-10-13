@@ -37,7 +37,10 @@ fn headless_timers_fire_on_the_virtual_clock() {
         "library {\n    sources: [\"timer.buri\"]\n\n    test {\n        \
          sources: [\"test/timer_test.buri\"]\n    }\n}\n",
     );
-    write(&repo.join("timer/lib.buri"), "from \"//timer/timer.buri\" export { flash };\n");
+    write(
+        &repo.join("timer/lib.buri"),
+        "from \"//timer/timer.buri\" export { flash };\n",
+    );
     // The issue's repro: a library that schedules on the graph.
     write(
         &repo.join("timer/timer.buri"),
@@ -161,7 +164,10 @@ test "a timer still pending at the end of a test is given back" {
     modes.push(("js", &["--output=js"]));
     for (backend, flags) in modes {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-        cmd.current_dir(&repo).arg("test").args(flags).arg("//timer");
+        cmd.current_dir(&repo)
+            .arg("test")
+            .args(flags)
+            .arg("//timer");
         let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
         assert!(
             ran.status == 0 && ran.stdout.contains("5 passed, 0 failed"),

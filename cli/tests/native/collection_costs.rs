@@ -32,22 +32,38 @@ fn measured(binary: &Path, args: &[&str]) -> (Ran, Option<u64>) {
     };
     let (ran, first) = once();
     let (_, second) = once();
-    (ran, first.zip(second).map(|(a, b)| a.min(b)).filter(|&n| n > 0))
+    (
+        ran,
+        first.zip(second).map(|(a, b)| a.min(b)).filter(|&n| n > 0),
+    )
 }
 
 /// The instructions one operation costs, from `ops` of them against none, and
 /// the blocks all of them allocated. `args` are the program's after its mode.
-pub(crate) fn per_op(backend: &str, binary: &Path, mode: &str, args: &[&str], ops: u64, expected: &str) -> (Option<u64>, u64) {
+pub(crate) fn per_op(
+    backend: &str,
+    binary: &Path,
+    mode: &str,
+    args: &[&str],
+    ops: u64,
+    expected: &str,
+) -> (Option<u64>, u64) {
     let (idle, idle_n) = measured(binary, &[&["none"], args].concat());
     let (busy, busy_n) = measured(binary, &[&[mode], args].concat());
-    let checked = ran_command(heap_checked(std::process::Command::new(binary).args([&[mode], args].concat())));
+    let checked = ran_command(heap_checked(
+        std::process::Command::new(binary).args([&[mode], args].concat()),
+    ));
     for (r, want) in [(&idle, "0\n"), (&busy, expected), (&checked, expected)] {
         assert_eq!(r.status, 0, "{backend} {mode} {args:?}: {}", r.stderr);
         assert_eq!(r.stdout, want, "{backend} {mode} {args:?}: {}", r.stderr);
     }
     let (idle_blocks, idle_live) = probed(&idle.stderr);
     let (busy_blocks, busy_live) = probed(&busy.stderr);
-    assert_eq!((idle_live, busy_live), (0, 0), "{backend} {mode}: blocks still live at exit");
+    assert_eq!(
+        (idle_live, busy_live),
+        (0, 0),
+        "{backend} {mode}: blocks still live at exit"
+    );
     let instructions = idle_n.zip(busy_n).map(|(a, b)| b.saturating_sub(a) / ops);
     (instructions, busy_blocks.saturating_sub(idle_blocks))
 }
@@ -108,10 +124,21 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// the one it answers, and that copy is the same however deep the key sits.
 #[test]
 fn an_ordered_map_lookup_costs_the_same_for_any_value_type() {
-    let fields = |n: usize, f: &dyn Fn(usize) -> String| (0..n).map(f).collect::<Vec<_>>().join(", ");
+    let fields =
+        |n: usize, f: &dyn Fn(usize) -> String| (0..n).map(f).collect::<Vec<_>>().join(", ");
     let shapes = [
-        ("one Int", fields(1, &|i| format!("f{i}: Int")), fields(1, &|i| format!("f{i}: i")), "v.f0"),
-        ("64 Ints", fields(64, &|i| format!("f{i}: Int")), fields(64, &|i| format!("f{i}: i")), "v.f0"),
+        (
+            "one Int",
+            fields(1, &|i| format!("f{i}: Int")),
+            fields(1, &|i| format!("f{i}: i")),
+            "v.f0",
+        ),
+        (
+            "64 Ints",
+            fields(64, &|i| format!("f{i}: Int")),
+            fields(64, &|i| format!("f{i}: i")),
+            "v.f0",
+        ),
         (
             "eight Strs",
             fields(8, &|i| format!("f{i}: Str")),
@@ -126,23 +153,53 @@ fn an_ordered_map_lookup_costs_the_same_for_any_value_type() {
         // (shape, size) -> (get, has)
         let mut costs = std::collections::BTreeMap::new();
         for (i, (name, value, make, read)) in shapes.iter().enumerate() {
-            let source = lookups(&format!("struct Value {{ {value} }}"), &format!("Value {{ {make} }}"), read);
+            let source = lookups(
+                &format!("struct Value {{ {value} }}"),
+                &format!("Value {{ {make} }}"),
+                read,
+            );
             let binary = build(&format!("orderedmap-lookup-{i}"), &source);
             for size in sizes {
                 let keys = (0..LOOKUPS).map(|j| j * 3 % size);
-                let got: u64 = if i == 2 { keys.map(|k| 1 + k.to_string().len() as u64).sum() } else { keys.sum() };
+                let got: u64 = if i == 2 {
+                    keys.map(|k| 1 + k.to_string().len() as u64).sum()
+                } else {
+                    keys.sum()
+                };
                 let at = size.to_string();
-                let (get, get_blocks) = per_op(backend, &binary, "get", &[&at], LOOKUPS, &format!("{got}\n"));
-                let (has, has_blocks) = per_op(backend, &binary, "has", &[&at], LOOKUPS, &format!("{LOOKUPS}\n"));
-                assert_eq!((get_blocks, has_blocks), (0, 0), "{backend}, {name}: a lookup allocated");
+                let (get, get_blocks) = per_op(
+                    backend,
+                    &binary,
+                    "get",
+                    &[&at],
+                    LOOKUPS,
+                    &format!("{got}\n"),
+                );
+                let (has, has_blocks) = per_op(
+                    backend,
+                    &binary,
+                    "has",
+                    &[&at],
+                    LOOKUPS,
+                    &format!("{LOOKUPS}\n"),
+                );
+                assert_eq!(
+                    (get_blocks, has_blocks),
+                    (0, 0),
+                    "{backend}, {name}: a lookup allocated"
+                );
                 eprintln!("{backend}, {name}, {size} keys: get {get:?}, has {has:?} instructions");
                 costs.insert((i, size), (get, has));
             }
         }
         for size in sizes {
-            let Some((_, Some(has1))) = costs.get(&(0, size)).copied() else { continue };
+            let Some((_, Some(has1))) = costs.get(&(0, size)).copied() else {
+                continue;
+            };
             for (i, (name, ..)) in shapes.iter().enumerate().skip(1) {
-                let Some((_, Some(has))) = costs.get(&(i, size)).copied() else { continue };
+                let Some((_, Some(has))) = costs.get(&(i, size)).copied() else {
+                    continue;
+                };
                 if has * 10 > has1 * 12 {
                     failures.push(format!(
                         "{backend}, {size} keys: `has` on {name} is {has} instructions against {has1} on one Int"
@@ -156,7 +213,9 @@ fn an_ordered_map_lookup_costs_the_same_for_any_value_type() {
                 Some((Some(get), Some(has))) => Some(get.saturating_sub(has)),
                 _ => None,
             };
-            let (Some(shallow), Some(deep)) = (value(7), value(2000)) else { continue };
+            let (Some(shallow), Some(deep)) = (value(7), value(2000)) else {
+                continue;
+            };
             if deep * 10 > shallow * 12 + 500 {
                 failures.push(format!(
                     "{backend}: `get` on {name} adds {deep} instructions over `has` three levels deep, \
@@ -240,11 +299,17 @@ fn filter_map_and_values_cost_about_what_map_costs() {
             eprintln!("{backend}, {mode}: {n:?} instructions an element");
             cost.insert(mode, n);
         }
-        let Some(Some(map)) = cost.get("map").copied() else { continue };
+        let Some(Some(map)) = cost.get("map").copied() else {
+            continue;
+        };
         for (mode, times) in [("filterMap", 13), ("values", 13)] {
-            let Some(Some(n)) = cost.get(mode).copied() else { continue };
+            let Some(Some(n)) = cost.get(mode).copied() else {
+                continue;
+            };
             if n * 10 > map * times + 200 {
-                failures.push(format!("{backend}: {mode} is {n} instructions an element against map's {map}"));
+                failures.push(format!(
+                    "{backend}: {mode} is {n} instructions an element against map's {map}"
+                ));
             }
         }
     }
@@ -289,14 +354,22 @@ fn sorting_an_ordered_list_costs_a_fraction_of_a_shuffled_one() {
     for (backend, build) in crate::e2e::probed_backends() {
         let binary = build("list-sorts", SORTS);
         let mut cost = std::collections::BTreeMap::new();
-        for (mode, answer) in [("shuffled", "50\n"), ("ascending", "50\n"), ("descending", "100\n")] {
+        for (mode, answer) in [
+            ("shuffled", "50\n"),
+            ("ascending", "50\n"),
+            ("descending", "100\n"),
+        ] {
             let (n, _blocks) = per_op(backend, &binary, mode, &[], elems, answer);
             eprintln!("{backend}, {mode}: {n:?} instructions an element");
             cost.insert(mode, n);
         }
-        let Some(Some(shuffled)) = cost.get("shuffled").copied() else { continue };
+        let Some(Some(shuffled)) = cost.get("shuffled").copied() else {
+            continue;
+        };
         for mode in ["ascending", "descending"] {
-            let Some(Some(n)) = cost.get(mode).copied() else { continue };
+            let Some(Some(n)) = cost.get(mode).copied() else {
+                continue;
+            };
             if n * 4 > shuffled {
                 failures.push(format!("{backend}: {mode} is {n} instructions an element against shuffled's {shuffled}"));
             }
@@ -377,15 +450,32 @@ fn a_big_tree_costs_about_what_a_small_one_does_a_node() {
             let (nodes, one) = total(depth);
             let trees = (1u64 << 20) >> depth;
             let at = depth.to_string();
-            let (n, _blocks) = per_op(backend, &binary, "trees", &[&at], trees * nodes, &format!("{}\n", one * trees));
+            let (n, _blocks) = per_op(
+                backend,
+                &binary,
+                "trees",
+                &[&at],
+                trees * nodes,
+                &format!("{}\n", one * trees),
+            );
             eprintln!("{backend}, depth {depth}: {n:?} instructions a node");
             cost.insert(depth, n);
         }
         // Blocks freed on threads that didn't allocate them.
         let (nodes, one) = total(12);
         let rounds = (1u64 << 17) >> 12;
-        per_op(backend, &binary, "parallel", &["12"], rounds * 8 * nodes, &format!("{}\n", one * 8 * rounds));
-        let (Some(Some(small)), Some(Some(big))) = (cost.get(&6).copied(), cost.get(&16).copied()) else { continue };
+        per_op(
+            backend,
+            &binary,
+            "parallel",
+            &["12"],
+            rounds * 8 * nodes,
+            &format!("{}\n", one * 8 * rounds),
+        );
+        let (Some(Some(small)), Some(Some(big))) = (cost.get(&6).copied(), cost.get(&16).copied())
+        else {
+            continue;
+        };
         if big * 10 > small * 18 {
             failures.push(format!("{backend}: a 2^16-node tree is {big} instructions a node against {small} for 63 nodes"));
         }

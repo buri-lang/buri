@@ -80,7 +80,13 @@ fn node(n: &Node, dialect: Dialect) -> Doc {
             let elements: Vec<(Doc, &Node)> = members
                 .iter()
                 .map(|m| {
-                    (Doc::Concat(vec![Doc::Text(format!("{}: ", m.key_raw)), node(&m.value, dialect)]), &m.value)
+                    (
+                        Doc::Concat(vec![
+                            Doc::Text(format!("{}: ", m.key_raw)),
+                            node(&m.value, dialect),
+                        ]),
+                        &m.value,
+                    )
                 })
                 .collect();
             list("{", "}", Doc::Line, elements, dangling, dialect)
@@ -108,7 +114,10 @@ fn list(
         } else {
             inner.push(Doc::Line);
             if n.blank_before {
-                inner.push(Doc::IfBreak(Box::new(Doc::SoftLine), Box::new(Doc::text(""))));
+                inner.push(Doc::IfBreak(
+                    Box::new(Doc::SoftLine),
+                    Box::new(Doc::text("")),
+                ));
             }
         }
         inner.extend(leading(&n.leading));
@@ -116,7 +125,10 @@ fn list(
         if i.saturating_add(1) < count {
             inner.push(Doc::text(","));
         } else if dialect == Dialect::Json5 {
-            inner.push(Doc::IfBreak(Box::new(Doc::text(",")), Box::new(Doc::text(""))));
+            inner.push(Doc::IfBreak(
+                Box::new(Doc::text(",")),
+                Box::new(Doc::text("")),
+            ));
         }
         inner.extend(trailing(&n.trailing));
     }
@@ -127,7 +139,12 @@ fn list(
         }
         inner.push(comment(c));
     }
-    Doc::Group(vec![Doc::text(open), Doc::Indent(inner), pad, Doc::text(close)])
+    Doc::Group(vec![
+        Doc::text(open),
+        Doc::Indent(inner),
+        pad,
+        Doc::text(close),
+    ])
 }
 
 #[cfg(test)]
@@ -141,15 +158,24 @@ mod tests {
 
     #[test]
     fn a_short_value_is_one_line() {
-        assert_eq!(fmt("{\"a\":[1,2],   \"b\":{}}", Dialect::Json), "{ \"a\": [1, 2], \"b\": {} }\n");
+        assert_eq!(
+            fmt("{\"a\":[1,2],   \"b\":{}}", Dialect::Json),
+            "{ \"a\": [1, 2], \"b\": {} }\n"
+        );
     }
 
     #[test]
     fn a_long_value_breaks_and_json5_gains_trailing_commas() {
         let long = "x".repeat(70);
         let text = format!("{{\"a\": \"{long}\", \"b\": [1, 2]}}");
-        assert_eq!(fmt(&text, Dialect::Json), format!("{{\n    \"a\": \"{long}\",\n    \"b\": [1, 2]\n}}\n"));
-        assert_eq!(fmt(&text, Dialect::Json5), format!("{{\n    \"a\": \"{long}\",\n    \"b\": [1, 2],\n}}\n"));
+        assert_eq!(
+            fmt(&text, Dialect::Json),
+            format!("{{\n    \"a\": \"{long}\",\n    \"b\": [1, 2]\n}}\n")
+        );
+        assert_eq!(
+            fmt(&text, Dialect::Json5),
+            format!("{{\n    \"a\": \"{long}\",\n    \"b\": [1, 2],\n}}\n")
+        );
     }
 
     #[test]

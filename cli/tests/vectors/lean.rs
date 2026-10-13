@@ -54,7 +54,10 @@ const BATCH: usize = 64;
 
 fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR is <root>/cli.
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 fn load() -> (Vec<String>, Vec<Vector>) {
@@ -83,12 +86,19 @@ fn load() -> (Vec<String>, Vec<Vector>) {
         let exhaustive = match fields[1] {
             "E" => true,
             "N" => false,
-            other => panic!("{}:{}: verdict must be E or N, found {other:?}", path.display(), lineno + 1),
+            other => panic!(
+                "{}:{}: verdict must be E or N, found {other:?}",
+                path.display(),
+                lineno + 1
+            ),
         };
         let unreachable = if fields[2] == "-" {
             Vec::new()
         } else {
-            fields[2].split(',').map(|n| n.parse().expect("arm index")).collect()
+            fields[2]
+                .split(',')
+                .map(|n| n.parse().expect("arm index"))
+                .collect()
         };
         vectors.push(Vector {
             id,
@@ -123,7 +133,10 @@ fn assemble(prelude: &[String], batch: &[Vector]) -> (String, Vec<Layout>) {
     for v in batch {
         src.push('\n');
         let start = src.len();
-        src.push_str(&format!("fn v{}(x: {}): Int {{\n  match (x) {{\n", v.id, v.scrutinee));
+        src.push_str(&format!(
+            "fn v{}(x: {}): Int {{\n  match (x) {{\n",
+            v.id, v.scrutinee
+        ));
         let mut arms = Vec::new();
         for arm in &v.arms {
             let arm_start = src.len();
@@ -131,7 +144,11 @@ fn assemble(prelude: &[String], batch: &[Vector]) -> (String, Vec<Layout>) {
             arms.push(arm_start..src.len());
         }
         src.push_str("  }\n}\n");
-        layouts.push(Layout { id: v.id, body: start..src.len(), arms });
+        layouts.push(Layout {
+            id: v.id,
+            body: start..src.len(),
+            arms,
+        });
     }
     (src, layouts)
 }
@@ -150,7 +167,15 @@ fn check_batch(prelude: &[String], batch: &[Vector]) -> Vec<(u32, Observed)> {
 
     let mut observed: Vec<(u32, Observed)> = layouts
         .iter()
-        .map(|l| (l.id, Observed { exhaustive: true, unreachable: Vec::new() }))
+        .map(|l| {
+            (
+                l.id,
+                Observed {
+                    exhaustive: true,
+                    unreachable: Vec::new(),
+                },
+            )
+        })
         .collect();
 
     for d in &analysis.diagnostics.items {
@@ -171,7 +196,9 @@ fn check_batch(prelude: &[String], batch: &[Vector]) -> Vec<(u32, Observed)> {
                     .arms
                     .iter()
                     .position(|r| r.contains(&at))
-                    .unwrap_or_else(|| panic!("an `unreachable-arm` at byte {at} belongs to no arm"));
+                    .unwrap_or_else(|| {
+                        panic!("an `unreachable-arm` at byte {at} belongs to no arm")
+                    });
                 observed[i].1.unreachable.push(arm);
             }
             // The Rust checker asks about each `|` alternative of an arm; the
@@ -223,8 +250,16 @@ fn lean_and_rust_agree_on_exhaustiveness() {
                 failures.push(format!(
                     "v{id} ({}: {arms}): Lean says {}, the checker says {}",
                     v.scrutinee,
-                    if v.exhaustive { "exhaustive" } else { "not exhaustive" },
-                    if observed.exhaustive { "exhaustive" } else { "not exhaustive" },
+                    if v.exhaustive {
+                        "exhaustive"
+                    } else {
+                        "not exhaustive"
+                    },
+                    if observed.exhaustive {
+                        "exhaustive"
+                    } else {
+                        "not exhaustive"
+                    },
                 ));
             }
             if observed.unreachable != v.unreachable {
@@ -291,8 +326,10 @@ fn the_bridge_can_detect_a_disagreement() {
 #[test]
 fn the_corpus_covers_the_nested_alternation() {
     let (_, vectors) = load();
-    let nested: Vec<&Vector> =
-        vectors.iter().filter(|v| v.arms.iter().any(|a| a.contains("(true | false)"))).collect();
+    let nested: Vec<&Vector> = vectors
+        .iter()
+        .filter(|v| v.arms.iter().any(|a| a.contains("(true | false)")))
+        .collect();
     assert!(
         nested.len() > 20,
         "expected the nested-alternation vectors, found {}",

@@ -240,7 +240,11 @@ mod tests {
             for i in 0..len {
                 let mut other = base.clone();
                 other[i] ^= 0x5a;
-                assert_ne!(hash_bytes(&other), h, "length {len}, byte {i} did not matter");
+                assert_ne!(
+                    hash_bytes(&other),
+                    h,
+                    "length {len}, byte {i} did not matter"
+                );
             }
         }
     }
@@ -251,7 +255,10 @@ mod tests {
     fn zeroes_do_not_collapse() {
         let mut seen = std::collections::HashSet::new();
         for len in 0..64usize {
-            assert!(seen.insert(hash_bytes(&vec![0u8; len])), "zeroes of length {len} collided");
+            assert!(
+                seen.insert(hash_bytes(&vec![0u8; len])),
+                "zeroes of length {len} collided"
+            );
         }
     }
 }

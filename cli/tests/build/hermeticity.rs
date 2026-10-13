@@ -34,7 +34,11 @@ use std::path::Path;
 /// The corpus: the closed platform enum, and `--check-reproducible`.
 #[test]
 fn hermeticity_rules() {
-    run_corpus(&tests_dir().join("repositories/hermeticity"), "hermeticity", 2);
+    run_corpus(
+        &tests_dir().join("repositories/hermeticity"),
+        "hermeticity",
+        2,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -51,9 +55,15 @@ fn hermeticity_rules() {
 fn an_action_is_spawned_with_an_explicit_environment() {
     let mut cmd = buri::build::spawn::command(&js_runtime())
         .unwrap_or_else(|| panic!("`{}` is not on PATH", js_runtime()));
-    let vars: Vec<String> =
-        cmd.get_envs().filter_map(|(k, v)| v.map(|_| k.to_string_lossy().to_string())).collect();
-    assert_eq!(vars.len(), 2, "an action's environment holds more than the clock: {vars:?}");
+    let vars: Vec<String> = cmd
+        .get_envs()
+        .filter_map(|(k, v)| v.map(|_| k.to_string_lossy().to_string()))
+        .collect();
+    assert_eq!(
+        vars.len(),
+        2,
+        "an action's environment holds more than the clock: {vars:?}"
+    );
     assert!(vars.contains(&"TZ".to_string()));
     assert!(vars.contains(&"SOURCE_DATE_EPOCH".to_string()));
 
@@ -70,7 +80,10 @@ fn an_action_is_spawned_with_an_explicit_environment() {
          console.log('at=' + new Date(0).toISOString());\n",
     )
     .expect("writing the probe");
-    let out = cmd.arg(&script).output().expect("the javascript runtime runs");
+    let out = cmd
+        .arg(&script)
+        .output()
+        .expect("the javascript runtime runs");
     let seen = String::from_utf8_lossy(&out.stdout).to_string();
     assert!(
         seen.contains("vars=SOURCE_DATE_EPOCH,TZ"),
@@ -115,7 +128,10 @@ fn a_perturbed_parent_environment_changes_neither_the_bytes_nor_the_verdict() {
     run(&dirty, &["build", "//cmd/web"], true).ok();
     let a = std::fs::read(clean.artifact("cmd/web")).expect("the clean artifact");
     let b = std::fs::read(dirty.artifact("cmd/web")).expect("the perturbed artifact");
-    assert!(!a.is_empty(), "the artifact is empty, so the comparison proves nothing");
+    assert!(
+        !a.is_empty(),
+        "the artifact is empty, so the comparison proves nothing"
+    );
     assert_eq!(
         buri::build::actions::first_difference(&a, &b),
         None,
@@ -128,7 +144,10 @@ fn a_perturbed_parent_environment_changes_neither_the_bytes_nor_the_verdict() {
     let dirty_tests = run(&dirty, &["test", "//lib/money", "--force"], true);
     clean_tests.ok();
     dirty_tests.ok();
-    assert!(clean_tests.tests_passed() >= 1, "the suite asserted nothing");
+    assert!(
+        clean_tests.tests_passed() >= 1,
+        "the suite asserted nothing"
+    );
     assert_eq!(
         clean_tests.tests_passed(),
         dirty_tests.tests_passed(),
@@ -149,8 +168,14 @@ fn a_test_source_cannot_import_a_host_module() {
     let module = "platform/host";
     {
         let scratch = Scratch::repo("host-import-in-a-test");
-        scratch.write("lib/probe/BUILD.buri", "library {\n  test { sources: [\"test/env.buri\"] }\n}\n");
-        scratch.write("lib/probe/lib.buri", "export fn identity(n: Int): Int { n }\n");
+        scratch.write(
+            "lib/probe/BUILD.buri",
+            "library {\n  test { sources: [\"test/env.buri\"] }\n}\n",
+        );
+        scratch.write(
+            "lib/probe/lib.buri",
+            "export fn identity(n: Int): Int { n }\n",
+        );
         scratch.write(
             "lib/probe/test/env.buri",
             &format!(
@@ -187,7 +212,10 @@ fn two_checkouts_of_one_tree_build_identical_bytes() {
 
     let a = std::fs::read(one.artifact("cmd/web")).expect("the first artifact");
     let b = std::fs::read(two.artifact("cmd/web")).expect("the second artifact");
-    assert!(!a.is_empty(), "the artifact is empty, so the comparison proves nothing");
+    assert!(
+        !a.is_empty(),
+        "the artifact is empty, so the comparison proves nothing"
+    );
     assert_eq!(
         buri::build::actions::first_difference(&a, &b),
         None,
@@ -196,8 +224,10 @@ fn two_checkouts_of_one_tree_build_identical_bytes() {
     );
 
     // And the flag that lets a repository ask the same question of itself.
-    one.run(&["build", "//cmd/web", "--check-reproducible"]).ok();
-    one.run(&["build", "//cmd/web", "--check-reproducible", "--release"]).ok();
+    one.run(&["build", "//cmd/web", "--check-reproducible"])
+        .ok();
+    one.run(&["build", "//cmd/web", "--check-reproducible", "--release"])
+        .ok();
 }
 
 /// A repository whose only source is written by a generator, for the two rows
@@ -214,7 +244,10 @@ fn generated_only(name: &str, reads_the_disk: bool) -> Scratch {
          visibility: [\"//visibility:public\"]\n}\n",
     );
     scratch.write("lib/wire/units.txt", "3\n");
-    scratch.write("lib/wire/lib.buri", "from \"//lib/wire/units\" export { width };\n");
+    scratch.write(
+        "lib/wire/lib.buri",
+        "from \"//lib/wire/units\" export { width };\n",
+    );
     scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
     scratch.write("tools/gen/tool.buri", &generator(reads_the_disk));
     scratch.write(
@@ -281,14 +314,18 @@ fn two_checkouts_of_a_generated_tree_build_identical_bytes() {
 
     let a = std::fs::read(one.artifact("cmd/app")).expect("the first artifact");
     let b = std::fs::read(two.artifact("cmd/app")).expect("the second artifact");
-    assert!(!a.is_empty(), "the artifact is empty, so the comparison proves nothing");
+    assert!(
+        !a.is_empty(),
+        "the artifact is empty, so the comparison proves nothing"
+    );
     assert_eq!(
         buri::build::actions::first_difference(&a, &b),
         None,
         "two checkouts of one generated tree produced different artifacts"
     );
 
-    one.run(&["build", "//cmd/app", "--check-reproducible"]).ok();
+    one.run(&["build", "//cmd/app", "--check-reproducible"])
+        .ok();
 }
 
 /// ...and the negative twin: a generator that asks for more than an allocator
@@ -301,9 +338,11 @@ fn two_checkouts_of_a_generated_tree_build_identical_bytes() {
 #[test]
 fn a_generator_that_asks_for_the_disk_is_refused() {
     let scratch = generated_only("reproducible-generated-disk", true);
-    scratch.run(&["run", "//cmd/app"]).exits(1).says("`generate` asks for `FileSystemRead`");
+    scratch
+        .run(&["run", "//cmd/app"])
+        .exits(1)
+        .says("`generate` asks for `FileSystemRead`");
 }
-
 
 // ---------------------------------------------------------------------------
 // Concurrency
@@ -326,7 +365,13 @@ fn two_concurrent_builds_leave_the_cache_intact() {
     // the native backend that does not exist yet.
     let spawn = || {
         buri_command()
-            .args(["build", "//cmd/web", "//lib/money", "//lib/ledger", "--color=never"])
+            .args([
+                "build",
+                "//cmd/web",
+                "//lib/money",
+                "//lib/ledger",
+                "--color=never",
+            ])
             .current_dir(&scratch.root)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -335,7 +380,9 @@ fn two_concurrent_builds_leave_the_cache_intact() {
     };
     let racing: Vec<_> = (0..4).map(|_| spawn()).collect();
     for (n, child) in racing.into_iter().enumerate() {
-        let out = child.wait_with_output().expect("a concurrent build finishes");
+        let out = child
+            .wait_with_output()
+            .expect("a concurrent build finishes");
         assert!(
             out.status.success(),
             "concurrent build {n} exited {:?}:\n{}",
@@ -349,7 +396,11 @@ fn two_concurrent_builds_leave_the_cache_intact() {
     let mut entries = 0usize;
     let mut leftovers = Vec::new();
     walk(&scratch.path(".buri/cache"), &mut |p| {
-        let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = p
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         if name.starts_with('.') {
             return;
         }
@@ -364,8 +415,14 @@ fn two_concurrent_builds_leave_the_cache_intact() {
             p.display()
         );
     });
-    assert!(leftovers.is_empty(), "half-written cache entries: {leftovers:?}");
-    assert!(entries > 0, "the two builds wrote nothing, so the cache proves nothing");
+    assert!(
+        leftovers.is_empty(),
+        "half-written cache entries: {leftovers:?}"
+    );
+    assert!(
+        entries > 0,
+        "the two builds wrote nothing, so the cache proves nothing"
+    );
 
     // And the cache still answers, with the artifact the program's behaviour
     // says it should be.
@@ -387,12 +444,22 @@ fn two_concurrent_builds_leave_the_cache_intact() {
 /// with the other's object from the cache, and the program says the new answer.
 #[test]
 fn concurrent_native_builds_each_link_from_the_cache_and_run() {
-    let host = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let host = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     let scratch = Scratch::repo("concurrent-native-build");
     scratch.write(
         "cmd/c/BUILD.buri",
-        &format!("binary {{\n  outputs: [{{ platform: \"native\", variant: \"{host}-{arch}\" }}]\n}}\n"),
+        &format!(
+            "binary {{\n  outputs: [{{ platform: \"native\", variant: \"{host}-{arch}\" }}]\n}}\n"
+        ),
     );
     scratch.write("cmd/c/helper.buri", "export fn answer(): Int { 6 * 7 }\n");
     scratch.write(
@@ -405,9 +472,13 @@ fn concurrent_native_builds_each_link_from_the_cache_and_run() {
          let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n  \
          let _ = io.println(ctx, \"answer=${answer()}\").ignore();\n  .Ok(())\n}\n",
     );
-    let exe = scratch.root.join(format!(".buri/out/native/{host}-{arch}/cmd/c/c"));
+    let exe = scratch
+        .root
+        .join(format!(".buri/out/native/{host}-{arch}/cmd/c/c"));
     let answer = || {
-        let out = std::process::Command::new(&exe).output().expect("the artifact runs");
+        let out = std::process::Command::new(&exe)
+            .output()
+            .expect("the artifact runs");
         String::from_utf8_lossy(&out.stdout).to_string()
     };
 
@@ -422,14 +493,20 @@ fn concurrent_native_builds_each_link_from_the_cache_and_run() {
     };
     let racing: Vec<_> = (0..4).map(|_| spawn()).collect();
     for (n, child) in racing.into_iter().enumerate() {
-        let out = child.wait_with_output().expect("a concurrent build finishes");
+        let out = child
+            .wait_with_output()
+            .expect("a concurrent build finishes");
         assert!(
             out.status.success(),
             "concurrent build {n} exited {:?}:\n{}",
             out.status.code(),
             indent(&String::from_utf8_lossy(&out.stderr))
         );
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "answer=42\n", "concurrent build {n}");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "answer=42\n",
+            "concurrent build {n}"
+        );
     }
     scratch.run(&["build", "//cmd/c"]).ok().says("cached");
     assert_eq!(answer(), "answer=42\n");
@@ -461,12 +538,19 @@ fn the_toolchain_is_named_by_its_linker_id() {
         named.starts_with("macho-uuid:") || named.starts_with("elf-build-id:"),
         "{named}"
     );
-    assert_eq!(linker_identity(compiler).as_deref(), Some(&*named), "one binary, two names");
+    assert_eq!(
+        linker_identity(compiler).as_deref(),
+        Some(&*named),
+        "one binary, two names"
+    );
     let different = linker_identity(&other).expect("the test binary carries no linker id");
     assert_ne!(named, different, "two different binaries share an identity");
 
     let nowhere = Scratch::empty("toolchain-identity");
-    nowhere.run(&["version", "--verbose"]).ok().says(&format!("this executable: {named}\n"));
+    nowhere
+        .run(&["version", "--verbose"])
+        .ok()
+        .says(&format!("this executable: {named}\n"));
 }
 
 // ---------------------------------------------------------------------------
@@ -507,17 +591,29 @@ fn counting_driver(scratch: &Scratch, log: &Path, padding: &str) {
 fn driver_env(scratch: &Scratch) -> Vec<(String, String)> {
     let path = std::env::var("PATH").unwrap_or_default();
     vec![
-        ("PATH".into(), format!("{}:{path}", scratch.path("bin").display())),
+        (
+            "PATH".into(),
+            format!("{}:{path}", scratch.path("bin").display()),
+        ),
         ("CC".into(), "cc".into()),
-        ("BURI_HOME".into(), scratch.path("home").display().to_string()),
+        (
+            "BURI_HOME".into(),
+            scratch.path("home").display().to_string(),
+        ),
     ]
 }
 
 /// One test package whose library returns `n`.
 #[cfg(unix)]
 fn one_suite(scratch: &Scratch, n: i64) {
-    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
-    scratch.write("lib/a/lib.buri", &format!("export fn one(): Int {{ {n} }}\n"));
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n  test { sources: [\"test/a.buri\"] }\n}\n",
+    );
+    scratch.write(
+        "lib/a/lib.buri",
+        &format!("export fn one(): Int {{ {n} }}\n"),
+    );
     scratch.write(
         "lib/a/test/a.buri",
         &format!(
@@ -534,7 +630,9 @@ fn one_suite(scratch: &Scratch, n: i64) {
 fn test_with_driver(scratch: &Scratch, env: &[(String, String)]) -> Option<()> {
     let env: Vec<(&str, &str)> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     let run = scratch.run_with_env(&["test", "//lib/a"], &env);
-    if run.stderr.contains("native-run-not-available") || run.stderr.contains("test-run-unavailable") {
+    if run.stderr.contains("native-run-not-available")
+        || run.stderr.contains("test-run-unavailable")
+    {
         return None;
     }
     run.ok();
@@ -544,7 +642,11 @@ fn test_with_driver(scratch: &Scratch, env: &[(String, String)]) -> Option<()> {
 
 #[cfg(unix)]
 fn count(log: &Path, needle: &str) -> usize {
-    std::fs::read_to_string(log).unwrap_or_default().lines().filter(|l| l.contains(needle)).count()
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| l.contains(needle))
+        .count()
 }
 
 /// The C driver's version is asked once per toolchain, not once per `buri`
@@ -569,13 +671,19 @@ fn the_c_drivers_version_is_asked_once_per_toolchain() {
         return;
     }
     let asked = count(&log, "--version");
-    assert_eq!(asked, 1, "the first run asked the driver's version {asked} times");
+    assert_eq!(
+        asked, 1,
+        "the first run asked the driver's version {asked} times"
+    );
 
     // A second process, with a link of its own to key.
     one_suite(&scratch, 2);
     test_with_driver(&scratch, &env).expect("the second run ran where the first did");
     let asked = count(&log, "--version");
-    assert_eq!(asked, 1, "a second process asked the driver's version again");
+    assert_eq!(
+        asked, 1,
+        "a second process asked the driver's version again"
+    );
 
     // The same driver written again: its time moves, so it is asked again.
     std::thread::sleep(std::time::Duration::from_millis(20));
@@ -583,7 +691,10 @@ fn the_c_drivers_version_is_asked_once_per_toolchain() {
     one_suite(&scratch, 3);
     test_with_driver(&scratch, &env).expect("the third run ran where the first did");
     let asked = count(&log, "--version");
-    assert_eq!(asked, 2, "a driver written anew was not asked its version again");
+    assert_eq!(
+        asked, 2,
+        "a driver written anew was not asked its version again"
+    );
 
     // A different driver: its size moves.
     counting_driver(&scratch, &log, "# a different driver\n");
@@ -630,9 +741,15 @@ fn a_run_that_never_links_still_remembers_the_drivers_version() {
         crate::harness::ci::skipped("build", "this toolchain cannot run a suite on its own host");
         return;
     }
-    assert_eq!(first, 1, "the run that linked nothing asked the driver's version {first} times");
+    assert_eq!(
+        first, 1,
+        "the run that linked nothing asked the driver's version {first} times"
+    );
     let asked = count(&log, "--version");
-    assert_eq!(asked, 1, "the driver was asked its version {asked} times; the first run's answer was lost");
+    assert_eq!(
+        asked, 1,
+        "the driver was asked its version {asked} times; the first run's answer was lost"
+    );
 }
 
 /// A second repository links without starting the C driver.
@@ -647,7 +764,9 @@ fn a_run_that_never_links_still_remembers_the_drivers_version() {
 #[cfg(unix)]
 #[test]
 fn a_second_repository_links_without_starting_the_c_driver() {
-    let banner = std::process::Command::new(real_c_driver()).arg("--version").output();
+    let banner = std::process::Command::new(real_c_driver())
+        .arg("--version")
+        .output();
     if !banner.is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains("clang"))
         && crate::harness::ci::skipped("build", "the C driver is not a clang")
     {
@@ -670,13 +789,24 @@ fn a_second_repository_links_without_starting_the_c_driver() {
 
     let calls = std::fs::read_to_string(&log).unwrap_or_default();
     let asked = count(&log, &format!("-{}", "###"));
-    let linked = calls.lines().filter(|l| !l.contains("###") && l.contains("-o artifact")).count();
-    assert_eq!(asked, 1, "the driver was asked what it would run {asked} times:\n{calls}");
-    assert_eq!(linked, 0, "two links started the C driver {linked} times:\n{calls}");
+    let linked = calls
+        .lines()
+        .filter(|l| !l.contains("###") && l.contains("-o artifact"))
+        .count();
+    assert_eq!(
+        asked, 1,
+        "the driver was asked what it would run {asked} times:\n{calls}"
+    );
+    assert_eq!(
+        linked, 0,
+        "two links started the C driver {linked} times:\n{calls}"
+    );
 }
 
 fn walk(dir: &Path, f: &mut dyn FnMut(&Path)) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.filter_map(Result::ok) {
         let p = e.path();
         if p.is_dir() {

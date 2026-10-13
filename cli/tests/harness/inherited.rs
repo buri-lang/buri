@@ -20,7 +20,9 @@ extern "C" fn close_inherited_pipes() {
     }
     const F_GETFD: i32 = 1;
     // Collected first: the listing's own descriptor is closed before the loop.
-    let Ok(entries) = std::fs::read_dir("/dev/fd") else { return };
+    let Ok(entries) = std::fs::read_dir("/dev/fd") else {
+        return;
+    };
     let fds: Vec<i32> = entries
         .flatten()
         .filter_map(|e| e.file_name().to_str()?.parse().ok())

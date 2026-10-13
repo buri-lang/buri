@@ -302,14 +302,18 @@ fn seeds() -> Vec<Source> {
     out.retain(|s| {
         s.text.len() <= pinned::SEED_BYTES
             && !s.text.contains("from \"//")
-            && buri::parsing::parser::parse(&s.text, FileId(0)).errors.is_empty()
+            && buri::parsing::parser::parse(&s.text, FileId(0))
+                .errors
+                .is_empty()
     });
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
 }
 
 fn walk(dir: &Path, root: &Path, out: &mut Vec<Source>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut paths: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
     paths.sort();
     for p in paths {
@@ -317,11 +321,17 @@ fn walk(dir: &Path, root: &Path, out: &mut Vec<Source>) {
             walk(&p, root, out);
             continue;
         }
-        let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = p
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         if !name.ends_with(".buri") || name == "BUILD.buri" || name == "REPO.buri" {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(&p) else { continue };
+        let Ok(text) = std::fs::read_to_string(&p) else {
+            continue;
+        };
         out.push(Source {
             name: p.strip_prefix(root).unwrap_or(&p).display().to_string(),
             text,
@@ -385,7 +395,11 @@ fn is_a_rule(code: &str) -> bool {
 fn fixture(
     label: &str,
     sources: &[(String, String)],
-) -> (Scratch, buri::build::session::Session, Vec<buri::build::workspace::TargetId>) {
+) -> (
+    Scratch,
+    buri::build::session::Session,
+    Vec<buri::build::workspace::TargetId>,
+) {
     let scratch = Scratch::repo(label);
     for (name, text) in sources {
         let (build, file) = shape_of(text);
@@ -484,7 +498,11 @@ fn usable_seeds() -> Vec<Source> {
     let findings = lint_all("linting-seeds", &batch);
     all.into_iter()
         .enumerate()
-        .filter(|(i, _)| findings.get(&format!("seed{i:04}")).is_none_or(|f| f.errors == 0))
+        .filter(|(i, _)| {
+            findings
+                .get(&format!("seed{i:04}"))
+                .is_none_or(|f| f.errors == 0)
+        })
         .map(|(_, s)| s)
         .collect()
 }
@@ -510,7 +528,9 @@ fn population(total: usize, per_kind: usize, per_cell: usize) -> (Vec<Source>, V
         sources.len()
     );
     let mut keep = |m: &mutation::Mutation| {
-        !buri::parsing::parser::parse(&m.source, FileId(0)).errors.is_empty()
+        !buri::parsing::parser::parse(&m.source, FileId(0))
+            .errors
+            .is_empty()
     };
     let picks = pinned::select_with(&sources, BASE_SEED, total, per_kind, per_cell, &mut keep);
     (sources, picks)
@@ -635,7 +655,11 @@ fn a_broken_file_reports_what_is_recorded() {
             ));
             continue;
         }
-        g.check(&case.join("expected.txt"), &format!("{}/expected.txt", c.name), &c.text);
+        g.check(
+            &case.join("expected.txt"),
+            &format!("{}/expected.txt", c.name),
+            &c.text,
+        );
     }
     g.finish("linting", cases.len());
 }
@@ -726,7 +750,11 @@ fn the_invariants_hold_over_the_wider_population() {
         "linting population: {} cases, {invented} invent a finding, {lost} lose one",
         cases.len()
     );
-    assert!(cases.len() > 1_000, "the wider population is {} cases", cases.len());
+    assert!(
+        cases.len() > 1_000,
+        "the wider population is {} cases",
+        cases.len()
+    );
     assert!(
         invented.saturating_mul(100) / n <= INVENTED_CEILING,
         "{invented} of {} cases invent a finding, over the {INVENTED_CEILING}% ceiling",
@@ -771,13 +799,19 @@ fn the_generated_corpus_is_what_the_generator_writes() {
         missing.len(),
         missing.iter().take(8).collect::<Vec<_>>()
     );
-    assert!(cases.len() >= FLOOR, "the sampler chose {} cases, and the floor is {FLOOR}", cases.len());
+    assert!(
+        cases.len() >= FLOOR,
+        "the sampler chose {} cases, and the floor is {FLOOR}",
+        cases.len()
+    );
     let rows = pinned::coverage_rows(cases.iter().map(|c| c.cell.as_str()));
     eprintln!(
         "linting: {} cases over {} shapes\n{}",
         cases.len(),
         rows.len(),
-        rows.iter().map(|(row, n)| format!("  {row:<28} {n:>5} cases\n")).collect::<String>()
+        rows.iter()
+            .map(|(row, n)| format!("  {row:<28} {n:>5} cases\n"))
+            .collect::<String>()
     );
 }
 
@@ -845,8 +879,10 @@ fn keyed(
 #[test]
 fn the_editor_and_the_terminal_report_the_same_findings() {
     let cases: &[Case] = corpus();
-    let batch: Vec<(String, String)> =
-        cases.iter().map(|c| (c.name.clone(), c.source.clone())).collect();
+    let batch: Vec<(String, String)> = cases
+        .iter()
+        .map(|c| (c.name.clone(), c.source.clone()))
+        .collect();
     let flags = Flags::default();
     let (_scratch, mut session, targets) = fixture("linting-parity", &batch);
 
@@ -861,8 +897,12 @@ fn the_editor_and_the_terminal_report_the_same_findings() {
 
     let only_editor: Vec<&String> = editor.difference(&terminal).collect();
     let only_terminal: Vec<&String> = terminal.difference(&editor).collect();
-    let sample =
-        |v: &[&String]| v.iter().take(8).map(|s| format!("\n  {s}")).collect::<String>();
+    let sample = |v: &[&String]| {
+        v.iter()
+            .take(8)
+            .map(|s| format!("\n  {s}"))
+            .collect::<String>()
+    };
     assert!(
         only_editor.is_empty() && only_terminal.is_empty(),
         "the two routes to the catalogue disagree over {} broken sources.\n\
@@ -874,5 +914,9 @@ fn the_editor_and_the_terminal_report_the_same_findings() {
         only_terminal.len(),
         sample(&only_terminal),
     );
-    eprintln!("linting: {} findings agreed over {} broken sources", terminal.len(), cases.len());
+    eprintln!(
+        "linting: {} findings agreed over {} broken sources",
+        terminal.len(),
+        cases.len()
+    );
 }

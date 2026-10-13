@@ -20,7 +20,10 @@ pub enum Target {
     /// A heading in the page the link was written in.
     SameDocument { anchor: String },
     /// Another page of the site.
-    Page { route: String, anchor: Option<String> },
+    Page {
+        route: String,
+        anchor: Option<String>,
+    },
     /// A file or a directory in the repository, which the site does not
     /// publish. It is still a real path, and `--check` says so if it is not.
     Repository { path: String, directory: bool },
@@ -47,12 +50,20 @@ pub struct Resolver<'a> {
 impl<'a> Resolver<'a> {
     /// Resolving a page's own prose.
     pub fn for_page(site: &'a Site, page: &Page) -> Resolver<'a> {
-        Resolver { site, base: base_of(page), route: page.route.clone() }
+        Resolver {
+            site,
+            base: base_of(page),
+            route: page.route.clone(),
+        }
     }
 
     /// Resolving prose lifted from `written` onto the page at `shown`.
     pub fn for_quotation(site: &'a Site, shown: &Page, written: &Page) -> Resolver<'a> {
-        Resolver { site, base: base_of(written), route: shown.route.clone() }
+        Resolver {
+            site,
+            base: base_of(written),
+            route: shown.route.clone(),
+        }
     }
 
     /// Where a destination written in this page points.
@@ -61,10 +72,14 @@ impl<'a> Resolver<'a> {
             || destination.starts_with("https://")
             || destination.starts_with("mailto:")
         {
-            return Target::External { url: destination.to_string() };
+            return Target::External {
+                url: destination.to_string(),
+            };
         }
         if let Some(anchor) = destination.strip_prefix('#') {
-            return Target::SameDocument { anchor: anchor.to_string() };
+            return Target::SameDocument {
+                anchor: anchor.to_string(),
+            };
         }
         if destination.is_empty() {
             return Target::Nowhere;
@@ -76,12 +91,21 @@ impl<'a> Resolver<'a> {
         let directory = path.ends_with('/');
         let resolved = resolve(&self.base, path);
         if let Some(route) = self.site.route_of_source(&resolved) {
-            return Target::Page { route: route.to_string(), anchor };
+            return Target::Page {
+                route: route.to_string(),
+                anchor,
+            };
         }
         if let Some(route) = self.site.route_of_directory(&resolved) {
-            return Target::Page { route: route.to_string(), anchor };
+            return Target::Page {
+                route: route.to_string(),
+                anchor,
+            };
         }
-        Target::Repository { path: resolved, directory }
+        Target::Repository {
+            path: resolved,
+            directory,
+        }
     }
 
     /// The `href` a target is written as, from this page.
@@ -167,7 +191,11 @@ fn resolve(from: &str, path: &str) -> String {
 /// Relative rather than absolute so that the site works unchanged at the root
 /// of a domain, under a project path, and opened straight off the disk.
 pub fn relative(from: &str, to: &str) -> String {
-    let depth = if from.is_empty() { 0 } else { from.split('/').count() };
+    let depth = if from.is_empty() {
+        0
+    } else {
+        from.split('/').count()
+    };
     let mut href = String::new();
     for _ in 0..depth {
         href.push_str("../");
@@ -212,23 +240,35 @@ mod tests {
     #[test]
     fn a_relative_path_resolves_against_the_file_it_was_written_in() {
         assert_eq!(
-            resolve("crates/docs/src/docs/reference/build/tags.md", "./testing.md"),
+            resolve(
+                "crates/docs/src/docs/reference/build/tags.md",
+                "./testing.md"
+            ),
             "crates/docs/src/docs/reference/build/testing.md"
         );
         assert_eq!(
             resolve("crates/docs/src/docs/language/types.md", "../grammar.ebnf"),
             "crates/docs/src/docs/grammar.ebnf"
         );
-        assert_eq!(resolve("README.md", "./crates/docs/src/docs/grammar.ebnf"), "crates/docs/src/docs/grammar.ebnf");
         assert_eq!(
-            resolve("crates/docs/src/docs/reference/build/tags.md", "../../../../../../cli/tests/example/"),
+            resolve("README.md", "./crates/docs/src/docs/grammar.ebnf"),
+            "crates/docs/src/docs/grammar.ebnf"
+        );
+        assert_eq!(
+            resolve(
+                "crates/docs/src/docs/reference/build/tags.md",
+                "../../../../../../cli/tests/example/"
+            ),
             "cli/tests/example"
         );
     }
 
     #[test]
     fn an_href_climbs_out_of_the_directory_the_page_is_written_into() {
-        assert_eq!(relative("", "getting-started/installing"), "getting-started/installing/");
+        assert_eq!(
+            relative("", "getting-started/installing"),
+            "getting-started/installing/"
+        );
         assert_eq!(
             relative("reference/errors/circular-import", "language/lexical"),
             "../../../language/lexical/"

@@ -14,9 +14,9 @@
 
 use super::jit::{Jit, V};
 use crate::compiler::middle::ir;
-use crate::diagnostics::Invariant;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 use crate::compiler::semantics::types::{Ty, TyKind};
+use crate::diagnostics::Invariant;
 
 impl Jit<'_> {
     /// A `[T]`'s stride, element width and whether the element is counted.
@@ -41,7 +41,6 @@ pub(crate) fn element_of(prog: &ir::Program, t: ir::Type) -> Ty {
 }
 
 impl Jit<'_> {
-
     /// `frame[dst] = *(base + i * stride)`, `bytes` wide.
     pub(crate) fn elem_load(&mut self, dst: u32, base: u32, i: u32, stride: u32, bytes: u32) {
         // An element narrower than a frame word has to arrive **zero-extended**
@@ -142,10 +141,14 @@ impl Jit<'_> {
 /// (`middle/layout.rs`'s `build_enum`), so the offset is zero.
 pub(crate) fn payload_at(l: &Layout, v: usize) -> u32 {
     match &l.repr {
-        Repr::Enum { repr: EnumRepr::Niche { .. }, .. } => 0,
-        Repr::Enum { variants, .. } => {
-            variants.get(v).and_then(|f| f.first().copied()).unwrap_or(0)
-        }
+        Repr::Enum {
+            repr: EnumRepr::Niche { .. },
+            ..
+        } => 0,
+        Repr::Enum { variants, .. } => variants
+            .get(v)
+            .and_then(|f| f.first().copied())
+            .unwrap_or(0),
         _ => 0,
     }
 }

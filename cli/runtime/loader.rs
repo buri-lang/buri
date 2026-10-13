@@ -89,7 +89,9 @@ pub unsafe extern "C" fn buri_rt_test_host(
             unsafe { std::env::remove_var(IMAGE) };
             std::path::PathBuf::from(path)
         }
-        None => std::env::current_exe().unwrap_or_default().with_extension("image"),
+        None => std::env::current_exe()
+            .unwrap_or_default()
+            .with_extension("image"),
     };
     let loaded = std::fs::read(&path)
         .map_err(|e| format!("cannot read {}: {e}", std::path::Path::new(&path).display()))
@@ -102,7 +104,10 @@ pub unsafe extern "C" fn buri_rt_test_host(
     }
 }
 
-#[expect(clippy::print_stderr, reason = "the host's one line, which `buri` reports as the failed start")]
+#[expect(
+    clippy::print_stderr,
+    reason = "the host's one line, which `buri` reports as the failed start"
+)]
 fn fail(why: &str) -> c_int {
     eprintln!("buri test host: {why}");
     CANNOT_LOAD
@@ -133,7 +138,10 @@ struct Reader<'a> {
 impl<'a> Reader<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8], String> {
         let end = self.at.checked_add(n).ok_or("the image is cut short")?;
-        let got = self.bytes.get(self.at..end).ok_or("the image is cut short")?;
+        let got = self
+            .bytes
+            .get(self.at..end)
+            .ok_or("the image is cut short")?;
         self.at = end;
         Ok(got)
     }
@@ -182,7 +190,9 @@ fn load(bytes: &[u8]) -> Result<Main, String> {
     }
     let version = r.u32()?;
     if version != VERSION {
-        return Err(format!("the image is format {version}, and this host reads {VERSION}"));
+        return Err(format!(
+            "the image is format {version}, and this host reads {VERSION}"
+        ));
     }
     let _flags = r.u32()?;
     // The host's key, which `buri` checks before it starts one.
@@ -200,11 +210,19 @@ fn load(bytes: &[u8]) -> Result<Main, String> {
     let imports = r.u32()?;
     let fixups = r.u32()?;
     let ordered = l.text <= l.const_at
-        && l.const_at.checked_add(l.consts).is_some_and(|end| end <= l.data_at)
-        && l.data_at.checked_add(l.data).is_some_and(|end| end <= l.total)
-        && [l.const_at, l.data_at, l.total].iter().all(|at| at % PAGE == 0)
+        && l.const_at
+            .checked_add(l.consts)
+            .is_some_and(|end| end <= l.data_at)
+        && l.data_at
+            .checked_add(l.data)
+            .is_some_and(|end| end <= l.total)
+        && [l.const_at, l.data_at, l.total]
+            .iter()
+            .all(|at| at % PAGE == 0)
         && l.entry < l.text
-        && l.stubs.checked_add(STUB_BYTES.saturating_mul(imports as usize)).is_some_and(|end| end <= l.text);
+        && l.stubs
+            .checked_add(STUB_BYTES.saturating_mul(imports as usize))
+            .is_some_and(|end| end <= l.text);
     if !ordered {
         return Err("the image's regions overlap".into());
     }
@@ -223,7 +241,12 @@ fn load(bytes: &[u8]) -> Result<Main, String> {
     }
     let mut list = Vec::with_capacity(fixups as usize);
     for _ in 0..fixups {
-        list.push(Fixup { at: r.size()?, kind: r.u32()?, import: r.u32()?, addend: r.u64()?.cast_signed() });
+        list.push(Fixup {
+            at: r.size()?,
+            kind: r.u32()?,
+            import: r.u32()?,
+            addend: r.u64()?.cast_signed(),
+        });
     }
     let text = r.take(l.text)?;
     let consts = r.take(l.consts)?;
@@ -234,17 +257,30 @@ fn load(bytes: &[u8]) -> Result<Main, String> {
     // SAFETY: the read-write mapping this value owns, `total - const_at` long,
     // which the header check above says holds the constants and the data.
     let rest = unsafe { std::slice::from_raw_parts_mut(image.rest, l.total - l.const_at) };
-    rest.get_mut(..l.consts).ok_or("the constants don't fit")?.copy_from_slice(consts);
+    rest.get_mut(..l.consts)
+        .ok_or("the constants don't fit")?
+        .copy_from_slice(consts);
     let data_at = l.data_at - l.const_at;
-    rest.get_mut(data_at..data_at + l.data).ok_or("the data doesn't fit")?.copy_from_slice(data);
+    rest.get_mut(data_at..data_at + l.data)
+        .ok_or("the data doesn't fit")?
+        .copy_from_slice(data);
     image.text.writable(|code| {
-        code.get_mut(..l.text).ok_or("the code doesn't fit")?.copy_from_slice(text);
+        code.get_mut(..l.text)
+            .ok_or("the code doesn't fit")?
+            .copy_from_slice(text);
         for f in &list {
             let target = match f.import {
                 SELF => base,
                 i => *targets.get(i as usize).ok_or("a fixup names no import")?,
             };
-            fix(code, rest, &l, base, f, target.wrapping_add_signed(f.addend))?;
+            fix(
+                code,
+                rest,
+                &l,
+                base,
+                f,
+                target.wrapping_add_signed(f.addend),
+            )?;
         }
         Ok(())
     })?;
@@ -256,7 +292,14 @@ fn load(bytes: &[u8]) -> Result<Main, String> {
 
 /// Applies one fixup, whose place is in `code` (at the image's start) or in
 /// `rest` (from the constants on), for an image at `base`.
-fn fix(code: &mut [u8], rest: &mut [u8], l: &Layout, base: u64, f: &Fixup, target: u64) -> Result<(), String> {
+fn fix(
+    code: &mut [u8],
+    rest: &mut [u8],
+    l: &Layout,
+    base: u64,
+    f: &Fixup,
+    target: u64,
+) -> Result<(), String> {
     let place = base.wrapping_add(f.at as u64);
     match f.kind {
         ABS64 if f.at < l.text => put(code, f.at, 8, |_| target),
@@ -271,7 +314,9 @@ fn fix(code: &mut [u8], rest: &mut [u8], l: &Layout, base: u64, f: &Fixup, targe
                 base + stub as u64
             };
             let words = (to.wrapping_sub(place).cast_signed() >> 2).cast_unsigned();
-            put(code, f.at, 4, |insn| (insn & 0xfc00_0000) | (words & 0x03ff_ffff))
+            put(code, f.at, 4, |insn| {
+                (insn & 0xfc00_0000) | (words & 0x03ff_ffff)
+            })
         }
         kind => Err(format!("a fixup of kind {kind} at {:#x}", f.at)),
     }
@@ -284,16 +329,28 @@ fn reaches(place: u64, target: u64) -> bool {
 
 /// Rewrites `width` bytes at `at` with `f` of what they held.
 fn put(buffer: &mut [u8], at: usize, width: usize, f: impl Fn(u64) -> u64) -> Result<(), String> {
-    let field = at.checked_add(width).and_then(|end| buffer.get_mut(at..end)).ok_or("a fixup is out of range")?;
+    let field = at
+        .checked_add(width)
+        .and_then(|end| buffer.get_mut(at..end))
+        .ok_or("a fixup is out of range")?;
     let mut old = [0u8; 8];
-    old.get_mut(..width).ok_or("a fixup is too wide")?.copy_from_slice(field);
+    old.get_mut(..width)
+        .ok_or("a fixup is too wide")?
+        .copy_from_slice(field);
     let new = f(u64::from_le_bytes(old)).to_le_bytes();
     field.copy_from_slice(new.get(..width).ok_or("a fixup is too wide")?);
     Ok(())
 }
 
 unsafe extern "C" {
-    fn mmap(addr: *mut c_void, len: usize, prot: c_int, flags: c_int, fd: c_int, offset: i64) -> *mut c_void;
+    fn mmap(
+        addr: *mut c_void,
+        len: usize,
+        prot: c_int,
+        flags: c_int,
+        fd: c_int,
+        offset: i64,
+    ) -> *mut c_void;
     fn munmap(addr: *mut c_void, len: usize) -> c_int;
     fn mprotect(addr: *mut c_void, len: usize, prot: c_int) -> c_int;
     fn pthread_jit_write_protect_np(enabled: c_int);
@@ -377,11 +434,26 @@ struct Jit {
 impl Jit {
     fn map(at: *mut c_void, len: usize) -> Result<Jit, String> {
         // SAFETY: a new private mapping, at a hint or anywhere.
-        let p = unsafe { mmap(at, len, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0) };
+        let p = unsafe {
+            mmap(
+                at,
+                len,
+                PROT_READ | PROT_WRITE | PROT_EXEC,
+                MAP_PRIVATE | MAP_ANON | MAP_JIT,
+                -1,
+                0,
+            )
+        };
         if failed(p) {
-            return Err(format!("cannot map code memory: {}", std::io::Error::last_os_error()));
+            return Err(format!(
+                "cannot map code memory: {}",
+                std::io::Error::last_os_error()
+            ));
         }
-        Ok(Jit { base: p.cast(), len })
+        Ok(Jit {
+            base: p.cast(),
+            len,
+        })
     }
 
     /// Runs `f` over the code while this thread can write it, and so can't
@@ -416,7 +488,10 @@ impl Image {
         for step in 0..32u64 {
             let hint = end.wrapping_add(step * (64 << 20)) as *mut c_void;
             match Image::map_at(hint, code, total) {
-                Ok(image) if (image.text.base as u64).abs_diff(host) + total as u64 + (1 << 26) < (1 << 32) => {
+                Ok(image)
+                    if (image.text.base as u64).abs_diff(host) + total as u64 + (1 << 26)
+                        < (1 << 32) =>
+                {
                     return Ok(image);
                 }
                 Ok(image) => {
@@ -437,17 +512,36 @@ impl Image {
         unsafe {
             let r = mmap(hint, total, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
             if failed(r) {
-                return Err(format!("cannot reserve {total} bytes: {}", std::io::Error::last_os_error()));
+                return Err(format!(
+                    "cannot reserve {total} bytes: {}",
+                    std::io::Error::last_os_error()
+                ));
             }
             let rest = r.cast::<u8>().add(code);
             let rest_len = total - code;
-            if rest_len > 0 && failed(mmap(rest.cast(), rest_len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0)) {
+            if rest_len > 0
+                && failed(mmap(
+                    rest.cast(),
+                    rest_len,
+                    PROT_READ | PROT_WRITE,
+                    MAP_PRIVATE | MAP_ANON | MAP_FIXED,
+                    -1,
+                    0,
+                ))
+            {
                 munmap(r, total);
-                return Err(format!("cannot map the image's data: {}", std::io::Error::last_os_error()));
+                return Err(format!(
+                    "cannot map the image's data: {}",
+                    std::io::Error::last_os_error()
+                ));
             }
             munmap(r, code);
             match Jit::map(r, code) {
-                Ok(text) if text.base == r.cast() => Ok(Image { text, rest, rest_len }),
+                Ok(text) if text.base == r.cast() => Ok(Image {
+                    text,
+                    rest,
+                    rest_len,
+                }),
                 Ok(text) => {
                     munmap(text.base.cast(), code);
                     munmap(rest.cast(), rest_len);
@@ -475,7 +569,10 @@ impl Image {
         let len = len.next_multiple_of(PAGE).min(self.rest_len);
         // SAFETY: the start of the read-write mapping this value owns.
         if len > 0 && unsafe { mprotect(self.rest.cast(), len, PROT_READ) } != 0 {
-            return Err(format!("cannot make the constants read-only: {}", std::io::Error::last_os_error()));
+            return Err(format!(
+                "cannot make the constants read-only: {}",
+                std::io::Error::last_os_error()
+            ));
         }
         Ok(())
     }
@@ -486,11 +583,25 @@ mod tests {
     use super::*;
 
     fn layout() -> Layout {
-        Layout { text: 0x100, const_at: PAGE, consts: 16, data_at: 2 * PAGE, data: 0, total: 3 * PAGE, entry: 0, stubs: 0xe0 }
+        Layout {
+            text: 0x100,
+            const_at: PAGE,
+            consts: 16,
+            data_at: 2 * PAGE,
+            data: 0,
+            total: 3 * PAGE,
+            entry: 0,
+            stubs: 0xe0,
+        }
     }
 
     fn word(buffer: &[u8], at: usize) -> u32 {
-        u32::from_le_bytes(buffer.get(at..at + 4).and_then(|b| b.try_into().ok()).unwrap_or_default())
+        u32::from_le_bytes(
+            buffer
+                .get(at..at + 4)
+                .and_then(|b| b.try_into().ok())
+                .unwrap_or_default(),
+        )
     }
 
     /// A call the runtime is in reach of goes straight there.
@@ -501,8 +612,23 @@ mod tests {
         if let Some(w) = code.get_mut(8..12) {
             w.copy_from_slice(&bl);
         }
-        let f = Fixup { at: 8, kind: BRANCH26, import: 1, addend: 0 };
-        assert!(fix(&mut code, &mut rest, &layout(), 0x1_0000_0000, &f, 0x1_0000_1008).is_ok());
+        let f = Fixup {
+            at: 8,
+            kind: BRANCH26,
+            import: 1,
+            addend: 0,
+        };
+        assert!(
+            fix(
+                &mut code,
+                &mut rest,
+                &layout(),
+                0x1_0000_0000,
+                &f,
+                0x1_0000_1008
+            )
+            .is_ok()
+        );
         assert_eq!(word(&code, 8), 0x9400_0400);
         assert_eq!(word(&code, 0xe0 + 16), 0, "no stub");
     }
@@ -514,7 +640,12 @@ mod tests {
         if let Some(w) = code.get_mut(8..12) {
             w.copy_from_slice(&0x9400_0000u32.to_le_bytes());
         }
-        let f = Fixup { at: 8, kind: BRANCH26, import: 1, addend: 0 };
+        let f = Fixup {
+            at: 8,
+            kind: BRANCH26,
+            import: 1,
+            addend: 0,
+        };
         let far = 0x2_0000_0000;
         assert!(fix(&mut code, &mut rest, &layout(), 0x1_0000_0000, &f, far).is_ok());
         // `bl` to the second stub, 0xf0 bytes on: 0xe8 bytes past the call.
@@ -528,7 +659,12 @@ mod tests {
     #[test]
     fn words() {
         let (mut code, mut rest) = (vec![0u8; 0x100], vec![0u8; 2 * PAGE]);
-        let abs = Fixup { at: PAGE + 8, kind: ABS64, import: SELF, addend: 0 };
+        let abs = Fixup {
+            at: PAGE + 8,
+            kind: ABS64,
+            import: SELF,
+            addend: 0,
+        };
         assert!(fix(&mut code, &mut rest, &layout(), 0x1_0000_0000, &abs, 0x1234).is_ok());
         assert_eq!(rest.get(8..16), Some(&0x1234u64.to_le_bytes()[..]));
     }

@@ -48,13 +48,22 @@ fn generated() -> Vec<(String, String)> {
     generator::shapes(SEED, COUNT)
         .iter()
         .enumerate()
-        .map(|(id, shape)| (file_name(id), generator::source(id, shape, generator::blocks(shape))))
+        .map(|(id, shape)| {
+            (
+                file_name(id),
+                generator::source(id, shape, generator::blocks(shape)),
+            )
+        })
         .collect()
 }
 
 #[test]
 fn the_checked_in_cases_are_up_to_date() {
-    assert_eq!(BATCHES, COUNT.div_ceil(PER_BATCH), "`BATCHES` must cover `COUNT`");
+    assert_eq!(
+        BATCHES,
+        COUNT.div_ceil(PER_BATCH),
+        "`BATCHES` must cover `COUNT`"
+    );
     let want = generated();
     let dir = corpus();
     if std::env::var("BURI_BLESS").is_ok_and(|v| v == "1") {
@@ -71,7 +80,12 @@ fn the_checked_in_cases_are_up_to_date() {
         .collect();
     have.sort();
     let names: Vec<String> = want.iter().map(|(n, _)| n.clone()).collect();
-    assert_eq!(have, names, "the files in {} are not the generator's; run it with BURI_BLESS=1", dir.display());
+    assert_eq!(
+        have,
+        names,
+        "the files in {} are not the generator's; run it with BURI_BLESS=1",
+        dir.display()
+    );
     for (name, text) in &want {
         let on_disk = std::fs::read_to_string(dir.join(name)).unwrap();
         assert!(
@@ -86,7 +100,11 @@ fn the_checked_in_cases_are_up_to_date() {
 #[test]
 fn the_cases_cover_every_pair_of_shapes() {
     let (missing, total) = generator::uncovered(&generator::shapes(SEED, COUNT));
-    assert!(missing.is_empty(), "{} of {total} pairs are in no case: {missing:?}", missing.len());
+    assert!(
+        missing.is_empty(),
+        "{} of {total} pairs are in no case: {missing:?}",
+        missing.len()
+    );
 }
 
 /// One checked-in case: its declarations, the line it prints, and its bound.
@@ -119,9 +137,17 @@ fn parse_case(id: usize, name: String, text: &str) -> Case {
         .rfind("\nfrom ")
         .and_then(|at| text[at + 1..].find('\n').map(|end| at + 1 + end))
         .unwrap_or_else(|| panic!("{name} has no imports"));
-    let main = text.find(generator::MAIN_START).unwrap_or_else(|| panic!("{name} has no `main`"));
+    let main = text
+        .find(generator::MAIN_START)
+        .unwrap_or_else(|| panic!("{name} has no `main`"));
     let decls = text[imports..main].to_string();
-    Case { name, id, decls, expect, blocks }
+    Case {
+        name,
+        id,
+        decls,
+        expect,
+        blocks,
+    }
 }
 
 /// The cases as one program printing a line each, and the lines it prints.
@@ -151,8 +177,9 @@ fn bound(cases: &[Case]) -> u64 {
 }
 
 fn batch(index: usize) {
-    let cases: Vec<Case> =
-        (index * PER_BATCH..((index + 1) * PER_BATCH).min(COUNT)).map(read_case).collect();
+    let cases: Vec<Case> = (index * PER_BATCH..((index + 1) * PER_BATCH).min(COUNT))
+        .map(read_case)
+        .collect();
     let name = format!("growth-{index:02}");
     let (source, expected) = program(&cases);
 
@@ -166,10 +193,17 @@ fn batch(index: usize) {
         if let Some(n) = crate::shared::leaked_blocks(r.status, &r.stderr) {
             panic!("{name} on {backend} leaked {n} block(s)");
         }
-        assert_eq!(r.status, 0, "{name} on {backend} exited {}: {}", r.status, r.stderr);
+        assert_eq!(
+            r.status, 0,
+            "{name} on {backend} exited {}: {}",
+            r.status, r.stderr
+        );
         assert_lines(&name, backend, &cases, &r.stdout, &expected);
         let (blocks, live) = probed(&r.stderr);
-        assert_eq!(live, 0, "{name} on {backend}: {live} blocks still live at exit");
+        assert_eq!(
+            live, 0,
+            "{name} on {backend}: {live} blocks still live at exit"
+        );
         if blocks > bound(&cases) {
             let over: Vec<String> = cases
                 .iter()
@@ -178,7 +212,8 @@ fn batch(index: usize) {
                     let r = ran_checked(&build(&format!("growth-{}", case.id), &alone));
                     let (blocks, _) = probed(&r.stderr);
                     let allowed = case.blocks + generator::BATCH_BLOCKS;
-                    (blocks > allowed).then(|| format!("{} allocated {blocks}, at most {allowed}", case.name))
+                    (blocks > allowed)
+                        .then(|| format!("{} allocated {blocks}, at most {allowed}", case.name))
                 })
                 .collect();
             panic!(
@@ -199,7 +234,11 @@ fn assert_lines(name: &str, backend: &str, cases: &[Case], stdout: &str, expecte
     let got: Vec<&str> = stdout.lines().collect();
     for (at, case) in cases.iter().enumerate() {
         let line = got.get(at).copied().unwrap_or("<nothing>");
-        assert_eq!(line, case.expect, "{name} on {backend}: {} printed something else", case.name);
+        assert_eq!(
+            line, case.expect,
+            "{name} on {backend}: {} printed something else",
+            case.name
+        );
     }
     panic!("{name} on {backend} printed more than its cases:\n{stdout}");
 }

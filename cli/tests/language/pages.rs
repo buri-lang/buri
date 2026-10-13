@@ -231,11 +231,13 @@ fn drive(name: &str, source: &str, driver: &str) -> String {
     );
     scratch.write("cmd/page/main.buri", source);
     scratch.run(&["build", "//cmd/page"]).ok();
-    let script = format!(
-        "{BROWSER}\nawait import(\"./.buri/out/web/cmd/page/main.mjs\");\n{driver}"
-    );
+    let script =
+        format!("{BROWSER}\nawait import(\"./.buri/out/web/cmd/page/main.mjs\");\n{driver}");
     let path = scratch.write("drive.mjs", &script);
-    let out = Command::new(js_runtime()).arg(&path).output().expect("the javascript runtime runs");
+    let out = Command::new(js_runtime())
+        .arg(&path)
+        .output()
+        .expect("the javascript runtime runs");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     assert_eq!(
         out.status.code(),

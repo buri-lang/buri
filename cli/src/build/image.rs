@@ -85,7 +85,11 @@ impl HostSymbols {
     /// The external symbols an executable defines.
     pub fn of_executable(bytes: &[u8]) -> Result<HostSymbols, String> {
         let file = MachO::parse(bytes)?;
-        let text = file.segments.iter().find(|s| s.name == "__TEXT").map(|s| s.vmaddr);
+        let text = file
+            .segments
+            .iter()
+            .find(|s| s.name == "__TEXT")
+            .map(|s| s.vmaddr);
         let text = text.ok_or("the host has no __TEXT segment")?;
         let mut map = HashMap::default();
         for sym in &file.symbols {
@@ -98,7 +102,11 @@ impl HostSymbols {
 
     /// One `name offset` line each, sorted, as kept beside the host.
     pub fn to_text(&self) -> String {
-        let mut lines: Vec<String> = self.0.iter().map(|(name, at)| format!("{name} {at:x}\n")).collect();
+        let mut lines: Vec<String> = self
+            .0
+            .iter()
+            .map(|(name, at)| format!("{name} {at:x}\n"))
+            .collect();
         lines.sort();
         lines.concat()
     }
@@ -170,14 +178,20 @@ struct MachO<'a> {
 }
 
 fn u32_at(bytes: &[u8], at: usize) -> Result<u32, String> {
-    let b = at.checked_add(4).and_then(|end| bytes.get(at..end)).ok_or("a Mach-O file is cut short")?;
+    let b = at
+        .checked_add(4)
+        .and_then(|end| bytes.get(at..end))
+        .ok_or("a Mach-O file is cut short")?;
     let mut w = [0u8; 4];
     w.copy_from_slice(b);
     Ok(u32::from_le_bytes(w))
 }
 
 fn u64_at(bytes: &[u8], at: usize) -> Result<u64, String> {
-    let b = at.checked_add(8).and_then(|end| bytes.get(at..end)).ok_or("a Mach-O file is cut short")?;
+    let b = at
+        .checked_add(8)
+        .and_then(|end| bytes.get(at..end))
+        .ok_or("a Mach-O file is cut short")?;
     let mut w = [0u8; 8];
     w.copy_from_slice(b);
     Ok(u64::from_le_bytes(w))
@@ -186,7 +200,8 @@ fn u64_at(bytes: &[u8], at: usize) -> Result<u64, String> {
 fn name16(bytes: &[u8], at: usize) -> Result<&str, String> {
     let b = bytes.get(at..at + 16).ok_or("a Mach-O file is cut short")?;
     let end = b.iter().position(|&c| c == 0).unwrap_or(16);
-    std::str::from_utf8(b.get(..end).unwrap_or_default()).map_err(|_| "a section name isn't text".to_string())
+    std::str::from_utf8(b.get(..end).unwrap_or_default())
+        .map_err(|_| "a section name isn't text".to_string())
 }
 
 impl<'a> MachO<'a> {
@@ -196,11 +211,20 @@ impl<'a> MachO<'a> {
         }
         let (filetype, ncmds) = (u32_at(bytes, 12)?, u32_at(bytes, 16)?);
         let mut at = 32usize;
-        let mut file = MachO { bytes, filetype, sections: Vec::new(), segments: Vec::new(), symbols: Vec::new() };
+        let mut file = MachO {
+            bytes,
+            filetype,
+            sections: Vec::new(),
+            segments: Vec::new(),
+            symbols: Vec::new(),
+        };
         for _ in 0..ncmds {
             let (cmd, size) = (u32_at(bytes, at)?, u32_at(bytes, at + 4)? as usize);
             if cmd == LC_SEGMENT_64 {
-                file.segments.push(Segment { name: name16(bytes, at + 8)?, vmaddr: u64_at(bytes, at + 24)? });
+                file.segments.push(Segment {
+                    name: name16(bytes, at + 8)?,
+                    vmaddr: u64_at(bytes, at + 24)?,
+                });
                 for i in 0..u32_at(bytes, at + 64)? as usize {
                     let s = at + 72 + 80 * i;
                     let segname = name16(bytes, s + 16)?;
@@ -227,19 +251,41 @@ impl<'a> MachO<'a> {
                     });
                 }
             } else if cmd == LC_SYMTAB {
-                let (symoff, nsyms, stroff) =
-                    (u32_at(bytes, at + 8)? as usize, u32_at(bytes, at + 12)? as usize, u32_at(bytes, at + 16)? as usize);
+                let (symoff, nsyms, stroff) = (
+                    u32_at(bytes, at + 8)? as usize,
+                    u32_at(bytes, at + 12)? as usize,
+                    u32_at(bytes, at + 16)? as usize,
+                );
                 for i in 0..nsyms {
                     let n = symoff + 16 * i;
                     let strx = stroff + u32_at(bytes, n)? as usize;
-                    let tail = bytes.get(strx..).ok_or("a symbol's name is outside the file")?;
-                    let end = tail.iter().position(|&c| c == 0).ok_or("a symbol's name never ends")?;
+                    let tail = bytes
+                        .get(strx..)
+                        .ok_or("a symbol's name is outside the file")?;
+                    let end = tail
+                        .iter()
+                        .position(|&c| c == 0)
+                        .ok_or("a symbol's name never ends")?;
                     let name = std::str::from_utf8(tail.get(..end).unwrap_or_default())
                         .map_err(|_| "a symbol's name isn't text".to_string())?;
-                    let head = bytes.get(n + 4..n + 8).ok_or("the symbol table is cut short")?;
-                    let (n_type, n_sect) = (head.first().copied().unwrap_or(0), head.get(1).copied().unwrap_or(0));
-                    let n_desc = u16::from_le_bytes([head.get(2).copied().unwrap_or(0), head.get(3).copied().unwrap_or(0)]);
-                    file.symbols.push(Symbol { name, n_type, n_sect, n_desc, n_value: u64_at(bytes, n + 8)? });
+                    let head = bytes
+                        .get(n + 4..n + 8)
+                        .ok_or("the symbol table is cut short")?;
+                    let (n_type, n_sect) = (
+                        head.first().copied().unwrap_or(0),
+                        head.get(1).copied().unwrap_or(0),
+                    );
+                    let n_desc = u16::from_le_bytes([
+                        head.get(2).copied().unwrap_or(0),
+                        head.get(3).copied().unwrap_or(0),
+                    ]);
+                    file.symbols.push(Symbol {
+                        name,
+                        n_type,
+                        n_sect,
+                        n_desc,
+                        n_value: u64_at(bytes, n + 8)?,
+                    });
                 }
             }
             at += size;
@@ -267,9 +313,14 @@ struct Import {
 /// is `host_key`.
 pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec<u8>, String> {
     invariant(host_key.len() == HEAD - 16, "a test host's key is a digest");
-    let mut files: Vec<MachO<'_>> = objects.iter().map(|bytes| MachO::parse(bytes)).collect::<Result<_, _>>()?;
+    let mut files: Vec<MachO<'_>> = objects
+        .iter()
+        .map(|bytes| MachO::parse(bytes))
+        .collect::<Result<_, _>>()?;
     invariant(
-        files.iter().all(|f| (f.filetype == MH_OBJECT) & f.sections.iter().all(|s| s.area != Area::Other)),
+        files
+            .iter()
+            .all(|f| (f.filetype == MH_OBJECT) & f.sections.iter().all(|s| s.area != Area::Other)),
         "a test suite's objects are objects in the segments stencil writes",
     );
 
@@ -278,10 +329,15 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
     let mut globals: HashMap<&str, (usize, usize)> = HashMap::default();
     for weak in [false, true] {
         for (o, file) in files.iter().enumerate() {
-            let defined = |(_, sym): &(usize, &Symbol<'_>)| sym.global() & ((sym.n_desc & N_WEAK_DEF != 0) == weak);
+            let defined = |(_, sym): &(usize, &Symbol<'_>)| {
+                sym.global() & ((sym.n_desc & N_WEAK_DEF != 0) == weak)
+            };
             for (i, sym) in file.symbols.iter().enumerate().filter(defined) {
                 let first = *globals.entry(sym.name).or_insert((o, i));
-                invariant(weak | (first == (o, i)), "a global has one strong definition");
+                invariant(
+                    weak | (first == (o, i)),
+                    "a global has one strong definition",
+                );
             }
         }
     }
@@ -292,15 +348,23 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
     for file in &files {
         for section in &file.sections {
             for r in relocations(file.bytes, section)? {
-                let Some(sym) = file.symbols.get(r.symbol) else { continue };
-                if r.kind == ARM64_RELOC_ADDEND || sym.n_type & N_TYPE == N_SECT || globals.contains_key(sym.name) {
+                let Some(sym) = file.symbols.get(r.symbol) else {
+                    continue;
+                };
+                if r.kind == ARM64_RELOC_ADDEND
+                    || sym.n_type & N_TYPE == N_SECT
+                    || globals.contains_key(sym.name)
+                {
                     continue;
                 }
                 if !import_of.contains_key(sym.name) {
                     let index = u32::try_from(imports.len()).map_err(|_| "too many imports")?;
                     import_of.insert(sym.name, index);
                     let name = sym.name.strip_prefix('_').unwrap_or(sym.name).to_string();
-                    imports.push(Import { name, host: host.get(sym.name) });
+                    imports.push(Import {
+                        name,
+                        host: host.get(sym.name),
+                    });
                 }
             }
         }
@@ -323,32 +387,54 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
     place(&mut files, Area::Zero, &mut cursor)?;
     let total = cursor.next_multiple_of(PAGE).max(data_at + PAGE);
 
-    let mut bytes = vec![0u8; usize::try_from(data_at + data).map_err(|_| "the image is too large")?];
+    let mut bytes =
+        vec![0u8; usize::try_from(data_at + data).map_err(|_| "the image is too large")?];
     for file in &files {
         for s in file.sections.iter().filter(|s| s.area != Area::Zero) {
             let from = s.offset as usize;
-            let src = from.checked_add(s.size as usize).and_then(|end| file.bytes.get(from..end));
+            let src = from
+                .checked_add(s.size as usize)
+                .and_then(|end| file.bytes.get(from..end));
             let src = src.ok_or("a section's bytes are outside its object")?;
             image_slice(&mut bytes, s.placed, src.len())?.copy_from_slice(src);
         }
     }
 
     let address = |o: usize, sym: &Symbol<'_>| -> Option<u64> {
-        let s = files.get(o)?.sections.get(usize::from(sym.n_sect).checked_sub(1)?)?;
+        let s = files
+            .get(o)?
+            .sections
+            .get(usize::from(sym.n_sect).checked_sub(1)?)?;
         Some(s.placed + sym.n_value.wrapping_sub(s.addr))
     };
     let resolve = |o: usize, index: usize| -> Result<Resolved, String> {
-        let sym = files.get(o).and_then(|f| f.symbols.get(index)).ok_or("a relocation names no symbol")?;
+        let sym = files
+            .get(o)
+            .and_then(|f| f.symbols.get(index))
+            .ok_or("a relocation names no symbol")?;
         let defined_here = sym.n_type & N_TYPE == N_SECT;
         // A file's own local symbol may share a global's name.
-        if let Some(&(g, i)) = globals.get(sym.name).filter(|_| sym.n_type & (N_EXT | N_TYPE) != N_SECT) {
-            let def = files.get(g).and_then(|f| f.symbols.get(i)).ok_or("a global names no symbol")?;
-            return address(g, def).map(Resolved::Image).ok_or_else(|| format!("{} is in no section", sym.name));
+        if let Some(&(g, i)) = globals
+            .get(sym.name)
+            .filter(|_| sym.n_type & (N_EXT | N_TYPE) != N_SECT)
+        {
+            let def = files
+                .get(g)
+                .and_then(|f| f.symbols.get(i))
+                .ok_or("a global names no symbol")?;
+            return address(g, def)
+                .map(Resolved::Image)
+                .ok_or_else(|| format!("{} is in no section", sym.name));
         }
         if defined_here {
-            return address(o, sym).map(Resolved::Image).ok_or_else(|| format!("{} is in no section", sym.name));
+            return address(o, sym)
+                .map(Resolved::Image)
+                .ok_or_else(|| format!("{} is in no section", sym.name));
         }
-        import_of.get(sym.name).map(|&i| Resolved::Import(i)).ok_or_else(|| format!("{} is never defined", sym.name))
+        import_of
+            .get(sym.name)
+            .map(|&i| Resolved::Import(i))
+            .ok_or_else(|| format!("{} is never defined", sym.name))
     };
 
     let mut fixups: Vec<(u64, u32, u32, i64)> = Vec::new();
@@ -362,39 +448,61 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
                     continue;
                 }
                 let a = std::mem::take(&mut addend);
-                invariant(r.external, "stencil relocates against symbols, never sections");
+                invariant(
+                    r.external,
+                    "stencil relocates against symbols, never sections",
+                );
                 let place = s.placed + u64::from(r.address);
                 let target = resolve(o, r.symbol)?;
                 match (r.kind, target) {
                     (ARM64_RELOC_UNSIGNED, _) => {
-                        invariant(r.length == 3, "stencil's absolute relocations are eight bytes");
+                        invariant(
+                            r.length == 3,
+                            "stencil's absolute relocations are eight bytes",
+                        );
                         let implicit = u64::from_le_bytes(word8(&bytes, place)?).cast_signed();
                         image_slice(&mut bytes, place, 8)?.fill(0);
                         match target {
-                            Resolved::Image(t) => fixups.push((place, ABS64, SELF, t.cast_signed() + implicit + a)),
+                            Resolved::Image(t) => {
+                                fixups.push((place, ABS64, SELF, t.cast_signed() + implicit + a))
+                            }
                             Resolved::Import(i) => fixups.push((place, ABS64, i, implicit + a)),
                         }
                     }
                     (ARM64_RELOC_BRANCH26, Resolved::Image(t)) => {
                         let delta = t.wrapping_add_signed(a).wrapping_sub(place).cast_signed();
                         let reach = (-(1i64 << 27)..(1i64 << 27)).contains(&delta);
-                        let words = reach.then_some(delta >> 2).ok_or("a branch inside the image is out of reach")?;
+                        let words = reach
+                            .then_some(delta >> 2)
+                            .ok_or("a branch inside the image is out of reach")?;
                         let words = words.cast_unsigned();
-                        patch(&mut bytes, place, |insn| (insn & 0xfc00_0000) | (words as u32 & 0x03ff_ffff))?;
+                        patch(&mut bytes, place, |insn| {
+                            (insn & 0xfc00_0000) | (words as u32 & 0x03ff_ffff)
+                        })?;
                     }
-                    (ARM64_RELOC_BRANCH26, Resolved::Import(i)) => fixups.push((place, BRANCH26, i, a)),
+                    (ARM64_RELOC_BRANCH26, Resolved::Import(i)) => {
+                        fixups.push((place, BRANCH26, i, a))
+                    }
                     (ARM64_RELOC_PAGE21, Resolved::Image(t)) => {
-                        let pages = (t.wrapping_add_signed(a) >> 12).wrapping_sub(place >> 12).cast_signed();
+                        let pages = (t.wrapping_add_signed(a) >> 12)
+                            .wrapping_sub(place >> 12)
+                            .cast_signed();
                         let reach = (-(1i64 << 20)..(1i64 << 20)).contains(&pages);
-                        let pages = reach.then_some(pages).ok_or("a page reference inside the image is out of reach")?;
+                        let pages = reach
+                            .then_some(pages)
+                            .ok_or("a page reference inside the image is out of reach")?;
                         let p = pages.cast_unsigned() as u32;
-                        patch(&mut bytes, place, |insn| (insn & 0x9f00_001f) | ((p & 3) << 29) | (((p >> 2) & 0x7_ffff) << 5))?;
+                        patch(&mut bytes, place, |insn| {
+                            (insn & 0x9f00_001f) | ((p & 3) << 29) | (((p >> 2) & 0x7_ffff) << 5)
+                        })?;
                     }
                     (ARM64_RELOC_PAGEOFF12, Resolved::Image(t)) => {
                         let low = (t.wrapping_add_signed(a) & 0xfff) as u32;
                         patch(&mut bytes, place, |insn| pageoff12(insn, low))?;
                     }
-                    (kind, _) => ice(&format!("stencil wrote a relocation of type {kind} against {target:?}")),
+                    (kind, _) => ice(&format!(
+                        "stencil wrote a relocation of type {kind} against {target:?}"
+                    )),
                 }
             }
         }
@@ -415,7 +523,11 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
         out.extend_from_slice(&v.to_le_bytes());
     }
     out.extend_from_slice(&(imports.len() as u32).to_le_bytes());
-    out.extend_from_slice(&u32::try_from(fixups.len()).map_err(|_| "too many fixups")?.to_le_bytes());
+    out.extend_from_slice(
+        &u32::try_from(fixups.len())
+            .map_err(|_| "too many fixups")?
+            .to_le_bytes(),
+    );
     for import in &imports {
         out.extend_from_slice(&(if import.host.is_some() { HOST } else { NAMED }).to_le_bytes());
         out.extend_from_slice(&(import.name.len() as u32).to_le_bytes());
@@ -430,7 +542,10 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
     }
     let (code, rest) = bytes.split_at(usize::try_from(text).map_err(|_| "the image is too large")?);
     out.extend_from_slice(code);
-    out.extend_from_slice(rest.get((const_at - text) as usize..(const_at - text + consts) as usize).unwrap_or_default());
+    out.extend_from_slice(
+        rest.get((const_at - text) as usize..(const_at - text + consts) as usize)
+            .unwrap_or_default(),
+    );
     out.extend_from_slice(rest.get((data_at - text) as usize..).unwrap_or_default());
     Ok(out)
 }
@@ -439,7 +554,10 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
 fn place(files: &mut [MachO<'_>], area: Area, cursor: &mut u64) -> Result<(), String> {
     for file in files {
         for s in file.sections.iter_mut().filter(|s| s.area == area) {
-            invariant(s.align <= 15, "stencil's sections ask for at most a page's alignment");
+            invariant(
+                s.align <= 15,
+                "stencil's sections ask for at most a page's alignment",
+            );
             *cursor = cursor.next_multiple_of(1 << s.align);
             s.placed = *cursor;
             *cursor += s.size;
@@ -450,13 +568,19 @@ fn place(files: &mut [MachO<'_>], area: Area, cursor: &mut u64) -> Result<(), St
 
 fn image_slice(bytes: &mut [u8], at: u64, len: usize) -> Result<&mut [u8], String> {
     let at = usize::try_from(at).map_err(|_| "an offset past the image")?;
-    at.checked_add(len).and_then(|end| bytes.get_mut(at..end)).ok_or_else(|| "an offset past the image".to_string())
+    at.checked_add(len)
+        .and_then(|end| bytes.get_mut(at..end))
+        .ok_or_else(|| "an offset past the image".to_string())
 }
 
 fn word8(bytes: &[u8], at: u64) -> Result<[u8; 8], String> {
     let at = usize::try_from(at).map_err(|_| "an offset past the image")?;
     let mut w = [0u8; 8];
-    w.copy_from_slice(at.checked_add(8).and_then(|end| bytes.get(at..end)).ok_or("an offset past the image")?);
+    w.copy_from_slice(
+        at.checked_add(8)
+            .and_then(|end| bytes.get(at..end))
+            .ok_or("an offset past the image")?,
+    );
     Ok(w)
 }
 
@@ -474,9 +598,15 @@ fn patch(bytes: &mut [u8], at: u64, f: impl FnOnce(u32) -> u32) -> Result<(), St
 /// only to what its access size aligns.
 fn pageoff12(insn: u32, low: u32) -> u32 {
     let load = insn & 0x3b00_0000 == 0x3900_0000;
-    invariant(!load | (insn & 0x0400_0000 == 0), "stencil's page offsets load general registers");
+    invariant(
+        !load | (insn & 0x0400_0000 == 0),
+        "stencil's page offsets load general registers",
+    );
     let scale = u32::from(load) * (insn >> 30);
-    invariant(low.is_multiple_of(1 << scale), "stencil's page offsets are aligned to their access");
+    invariant(
+        low.is_multiple_of(1 << scale),
+        "stencil's page offsets are aligned to their access",
+    );
     (insn & !(0xfff << 10)) | ((low >> scale) << 10)
 }
 

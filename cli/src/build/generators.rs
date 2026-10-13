@@ -28,8 +28,8 @@ use crate::commands::arguments::Flags;
 use crate::diagnostics::{Invariant as _, Span};
 use crate::json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 /// The `code` of a [`Diagnostic`] whose `message` is already the whole
@@ -69,7 +69,10 @@ pub struct Anchor {
 
 impl Anchor {
     pub fn origin(&self) -> Origin {
-        Origin { file: self.file.clone(), span: self.span }
+        Origin {
+            file: self.file.clone(),
+            span: self.span,
+        }
     }
 }
 
@@ -89,7 +92,9 @@ impl GeneratedModule {
     /// is one. This is what turns a position in generated text into a position
     /// in the input the generator read.
     pub fn anchor_at(&self, offset: usize) -> Option<&Anchor> {
-        self.anchors.iter().rfind(|a| a.start <= offset && offset < a.end)
+        self.anchors
+            .iter()
+            .rfind(|a| a.start <= offset && offset < a.end)
     }
 }
 
@@ -142,7 +147,9 @@ fn read_span(value: &Value) -> Option<(usize, usize)> {
 fn items<'v>(value: &'v Value, name: &str) -> Result<&'v [Value], String> {
     match present(value, name) {
         None => Ok(&[]),
-        Some(list) => list.as_array().ok_or_else(|| format!("`{name}` is not a list")),
+        Some(list) => list
+            .as_array()
+            .ok_or_else(|| format!("`{name}` is not a list")),
     }
 }
 
@@ -158,8 +165,14 @@ pub fn diagnostics(value: &Value) -> Result<Vec<Diagnostic>, String> {
             None => None,
             Some(o) => {
                 let file = text(o, "file").ok_or("an origin has no `file`")?;
-                let span = o.get("span").and_then(read_span).ok_or("an origin has no `span`")?;
-                Some(Origin { file: file.to_string(), span })
+                let span = o
+                    .get("span")
+                    .and_then(read_span)
+                    .ok_or("an origin has no `span`")?;
+                Some(Origin {
+                    file: file.to_string(),
+                    span,
+                })
             }
         };
         diagnostics.push(Diagnostic {
@@ -190,8 +203,16 @@ impl Response {
                 let start = offset(a, "start").ok_or("an anchor has no `start`")?;
                 let end = offset(a, "end").ok_or("an anchor has no `end`")?;
                 let file = text(a, "file").ok_or("an anchor has no `file`")?;
-                let span = a.get("span").and_then(read_span).ok_or("an anchor has no `span`")?;
-                anchors.push(Anchor { start, end, file: file.to_string(), span });
+                let span = a
+                    .get("span")
+                    .and_then(read_span)
+                    .ok_or("an anchor has no `span`")?;
+                anchors.push(Anchor {
+                    start,
+                    end,
+                    file: file.to_string(),
+                    span,
+                });
             }
             modules.push(GeneratedModule {
                 name: name.to_string(),
@@ -199,7 +220,10 @@ impl Response {
                 anchors,
             });
         }
-        Ok(Response { modules, diagnostics: diagnostics(json)? })
+        Ok(Response {
+            modules,
+            diagnostics: diagnostics(json)?,
+        })
     }
 }
 
@@ -296,22 +320,17 @@ impl Store {
         self.read().by_path.contains_key(path)
     }
 
-    fn record(
-        &self,
-        workspace: &Workspace,
-        target: TargetId,
-        key: String,
-        outcome: Outcome,
-    ) {
+    fn record(&self, workspace: &Workspace, target: TargetId, key: String, outcome: Outcome) {
         let package = workspace.package(target.package);
         let mut inner = self.read();
         // A rule's previous answer goes with it: a module the generator has
         // stopped producing must stop resolving.
         inner.by_path.retain(|_, (owner, _)| *owner != target);
         for module in &outcome.modules {
-            inner
-                .by_path
-                .insert(package.module_path(&module.name), (target, Arc::clone(module)));
+            inner.by_path.insert(
+                package.module_path(&module.name),
+                (target, Arc::clone(module)),
+            );
         }
         inner.by_target.insert(target, (key, outcome));
     }
@@ -319,7 +338,9 @@ impl Store {
 
 impl std::fmt::Debug for Store {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Store").field("modules", &self.read().by_path.len()).finish()
+        f.debug_struct("Store")
+            .field("modules", &self.read().by_path.len())
+            .finish()
     }
 }
 
@@ -331,8 +352,18 @@ impl std::fmt::Debug for Store {
 pub fn declared(workspace: &Workspace, target: TargetId) -> &[Generator] {
     let p = workspace.package(target.package);
     match target.kind {
-        RuleKind::Library => p.build.library.as_ref().map(|l| &l.generators[..]).unwrap_or(&[]),
-        RuleKind::Binary => p.build.binary.as_ref().map(|b| &b.generators[..]).unwrap_or(&[]),
+        RuleKind::Library => p
+            .build
+            .library
+            .as_ref()
+            .map(|l| &l.generators[..])
+            .unwrap_or(&[]),
+        RuleKind::Binary => p
+            .build
+            .binary
+            .as_ref()
+            .map(|b| &b.generators[..])
+            .unwrap_or(&[]),
         RuleKind::Tool => &[],
     }
 }
@@ -359,7 +390,11 @@ pub fn inputs(workspace: &Workspace, target: TargetId) -> Vec<String> {
 /// generator — so a caller folding these into a key gets nothing for a rule
 /// that has none.
 pub fn modules_of(workspace: &Workspace, target: TargetId) -> Vec<Arc<GeneratedModule>> {
-    workspace.generated.outcome(target).map(|o| o.modules).unwrap_or_default()
+    workspace
+        .generated
+        .outcome(target)
+        .map(|o| o.modules)
+        .unwrap_or_default()
 }
 
 /// The key `--explain` reports for one rule's generators.
@@ -367,12 +402,7 @@ pub fn modules_of(workspace: &Workspace, target: TargetId) -> Vec<Arc<GeneratedM
 /// One line per rule rather than one per entry: what a reader is asking is
 /// whether *this rule's* generated code moved. The tool is in it as its
 /// program key, so editing the tool moves this line too.
-pub fn rule_key(
-    session: &Session,
-    target: TargetId,
-    output: &Output,
-    flags: &Flags,
-) -> ActionKey {
+pub fn rule_key(session: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Generate, flags.mode);
     k.platform(output.platform(), output.arch());
     let package = session.workspace.package(target.package);
@@ -387,7 +417,10 @@ pub fn rule_key(
     }
     for rel in &paths {
         let full = package.dir.join(rel);
-        k.file(&session.workspace.rel_of(&full), std::fs::read(&full).ok().as_deref());
+        k.file(
+            &session.workspace.rel_of(&full),
+            std::fs::read(&full).ok().as_deref(),
+        );
     }
     k.finish()
 }
@@ -396,7 +429,12 @@ pub fn rule_key(
 /// generates into it.
 pub fn has_contracts(workspace: &Workspace, target: TargetId) -> bool {
     target.kind == RuleKind::Tool
-        && workspace.package(target.package).build.tool.as_ref().is_some_and(|t| t.contracts().next().is_some())
+        && workspace
+            .package(target.package)
+            .build
+            .tool
+            .as_ref()
+            .is_some_and(|t| t.contracts().next().is_some())
 }
 
 /// The contract a file is checked under: the first `generators` entry listing
@@ -406,10 +444,16 @@ pub fn contract_for(workspace: &Workspace, rel: &str) -> Option<tools::Contract>
     for target in workspace.targets() {
         let dir = &workspace.package(target.package).dir;
         for g in declared(workspace, target) {
-            if !g.inputs.iter().any(|i| workspace.rel_of(&dir.join(&i.value)) == rel) {
+            if !g
+                .inputs
+                .iter()
+                .any(|i| workspace.rel_of(&dir.join(&i.value)) == rel)
+            {
                 continue;
             }
-            let Ok(tool) = tools::resolve(workspace, &g.tool.value) else { continue };
+            let Ok(tool) = tools::resolve(workspace, &g.tool.value) else {
+                continue;
+            };
             if let Some(c) = tools::Contract::of(workspace, tool, "generate", &language) {
                 return Some(c);
             }
@@ -468,7 +512,9 @@ impl KeptProcess {
     /// Ends the tool the way a one-off run does: its input closes, and it
     /// exits once it reads the end.
     fn finish(self) {
-        let KeptProcess { mut child, stdin, .. } = self;
+        let KeptProcess {
+            mut child, stdin, ..
+        } = self;
         drop(stdin);
         let _ = child.wait();
     }
@@ -479,7 +525,10 @@ impl KeptProcess {
     }
 }
 
-static KEPT: Mutex<Kept> = Mutex::new(Kept { holders: 0, idle: Vec::new() });
+static KEPT: Mutex<Kept> = Mutex::new(Kept {
+    holders: 0,
+    idle: Vec::new(),
+});
 
 /// A pass over generators: while one is held, each tool process answers the
 /// requests after its first too. Starting the JavaScript runtime and loading a
@@ -539,17 +588,26 @@ fn ask_kept(artifact: &std::path::Path, request: &str) -> Option<String> {
             let program = crate::commands::test::js_runtime();
             let mut cmd = crate::build::spawn::command(&program)?;
             let mut child = crate::build::spawn::start_alone(
-                cmd.arg(artifact).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()),
+                cmd.arg(artifact)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null()),
             )
             .ok()?;
             let stdin = child.stdin.take().or_ice("a kept tool's input is piped");
             let stdout = child.stdout.take().or_ice("a kept tool's output is piped");
-            KeptProcess { artifact: artifact.to_path_buf(), child, stdin, stdout: std::io::BufReader::new(stdout) }
+            KeptProcess {
+                artifact: artifact.to_path_buf(),
+                child,
+                stdin,
+                stdout: std::io::BufReader::new(stdout),
+            }
         }
     };
     let asked = writeln!(process.stdin, "{request}").and_then(|()| process.stdin.flush());
     let mut line = String::new();
-    let answered = asked.is_ok() && matches!(process.stdout.read_line(&mut line), Ok(n) if n > 0 && line.ends_with('\n'));
+    let answered = asked.is_ok()
+        && matches!(process.stdout.read_line(&mut line), Ok(n) if n > 0 && line.ends_with('\n'));
     let line = line.trim_end_matches('\n').trim_end_matches('\r');
     if !answered || line.trim().is_empty() {
         process.kill();
@@ -581,7 +639,10 @@ fn run_once(artifact: &std::path::Path, request: &str) -> Result<String, String>
         ));
     };
     let mut child = crate::build::spawn::start_alone(
-        cmd.arg(artifact).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()),
+        cmd.arg(artifact)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
     )
     .map_err(|e| format!("{program}: {e}"))?;
     // Each pipe on a thread of its own, and none of them read after the wait.
@@ -606,8 +667,15 @@ fn run_once(artifact: &std::path::Path, request: &str) -> Result<String, String>
             text
         })
     };
-    let reading_out = drain(Box::new(child.stdout.take().or_ice("a tool's output is piped")));
-    let reading_err = drain(Box::new(child.stderr.take().or_ice("a tool's standard error is piped")));
+    let reading_out = drain(Box::new(
+        child.stdout.take().or_ice("a tool's output is piped"),
+    ));
+    let reading_err = drain(Box::new(
+        child
+            .stderr
+            .take()
+            .or_ice("a tool's standard error is piped"),
+    ));
     // **Waited for, not timed.** This used to poll under a sixty-second
     // deadline and kill the tool at it, and that number could only ever measure
     // the machine: a two-thousand-field schema is five seconds on an idle
@@ -626,7 +694,10 @@ fn run_once(artifact: &std::path::Path, request: &str) -> Result<String, String>
     let stdout = reading_out.join().unwrap_or_default();
     let stderr = reading_err.join().unwrap_or_default();
     if !status.success() {
-        return Err(said(&format!("the tool {}", how_it_ended(&status)), &stderr));
+        return Err(said(
+            &format!("the tool {}", how_it_ended(&status)),
+            &stderr,
+        ));
     }
     // One line out. Anything before it is the tool talking to a person, which
     // is not this protocol — the response is the last non-empty line.
@@ -736,7 +807,9 @@ fn said(sentence: &str, stderr: &str) -> String {
     let skip = text.len().saturating_sub(STDERR_TAIL);
     // Forward to the next character boundary, so a note is never cut through
     // the middle of a character. `len()` is one, so the search always ends.
-    let cut = (skip..=text.len()).find(|&i| text.is_char_boundary(i)).unwrap_or(text.len());
+    let cut = (skip..=text.len())
+        .find(|&i| text.is_char_boundary(i))
+        .unwrap_or(text.len());
     let tail = text.get(cut..).unwrap_or_default();
     format!("{sentence}\n(the first {cut} bytes of standard error are not shown)\n{tail}")
 }
@@ -749,7 +822,8 @@ fn is_frame(line: &str) -> bool {
     }
     let place = line.trim_end().trim_end_matches(')');
     let mut parts = place.rsplitn(3, ':');
-    let digits = |p: Option<&str>| p.is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
+    let digits =
+        |p: Option<&str>| p.is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
     digits(parts.next()) && digits(parts.next()) && parts.next().is_some()
 }
 
@@ -781,8 +855,12 @@ fn restates(header: &str, above: Option<&str>) -> bool {
 /// tool produce now is left alone, so a second session costs the keys rather
 /// than a second run of the tool.
 pub fn prepare(session: &mut Session, flags: &Flags, overlay: &Overlay) {
-    let targets: Vec<TargetId> =
-        session.workspace.targets().into_iter().filter(|t| generates(&session.workspace, *t)).collect();
+    let targets: Vec<TargetId> = session
+        .workspace
+        .targets()
+        .into_iter()
+        .filter(|t| generates(&session.workspace, *t))
+        .collect();
     prepare_rules(session, flags, overlay, targets);
 }
 
@@ -803,12 +881,20 @@ pub fn prepare_for(session: &mut Session, flags: &Flags, targets: &[TargetId]) {
     let mut roots: Vec<TargetId> = Vec::new();
     for &target in targets {
         roots.push(target);
-        roots.extend(workspace.test_dep_edges(target).into_iter().map(|(dep, _)| dep));
+        roots.extend(
+            workspace
+                .test_dep_edges(target)
+                .into_iter()
+                .map(|(dep, _)| dep),
+        );
     }
     let mut reached = workspace.union_closure(roots);
     let mut seen: BTreeSet<TargetId> = BTreeSet::new();
-    let every_rule: Vec<TargetId> =
-        workspace.targets().into_iter().filter(|t| generates(&workspace, *t)).collect();
+    let every_rule: Vec<TargetId> = workspace
+        .targets()
+        .into_iter()
+        .filter(|t| generates(&workspace, *t))
+        .collect();
     loop {
         while let Some(target) = reached.pop() {
             if !seen.insert(target) {
@@ -831,7 +917,10 @@ pub fn prepare_for(session: &mut Session, flags: &Flags, targets: &[TargetId]) {
             break;
         }
     }
-    let rules = every_rule.into_iter().filter(|t| seen.contains(t)).collect();
+    let rules = every_rule
+        .into_iter()
+        .filter(|t| seen.contains(t))
+        .collect();
     prepare_rules(session, flags, &Overlay::new(), rules);
 }
 
@@ -859,7 +948,11 @@ fn imported_but_undeclared(workspace: &Workspace, seen: &BTreeSet<TargetId>) -> 
 /// Whether every rule with generators has an answer recorded: false after a
 /// [`prepare_for`] that left some out.
 pub fn all_prepared(workspace: &Workspace) -> bool {
-    workspace.targets().into_iter().filter(|t| generates(workspace, *t)).all(|t| workspace.generated.key_of(t).is_some())
+    workspace
+        .targets()
+        .into_iter()
+        .filter(|t| generates(workspace, *t))
+        .all(|t| workspace.generated.key_of(t).is_some())
 }
 
 /// Whether a rule has anything for [`prepare`] to run: generators, or a tool's
@@ -882,9 +975,15 @@ fn prepare_rules(session: &mut Session, flags: &Flags, overlay: &Overlay, target
         let mut ready: Vec<TargetId> = Vec::new();
         let mut rest: Vec<TargetId> = Vec::new();
         for &t in &waiting {
-            let free = needs(&session.workspace, t, &targets).iter().all(|n| done.contains(n))
+            let free = needs(&session.workspace, t, &targets)
+                .iter()
+                .all(|n| done.contains(n))
                 && !ready.iter().chain(&rest).any(|r| r.package == t.package);
-            if free { ready.push(t) } else { rest.push(t) }
+            if free {
+                ready.push(t)
+            } else {
+                rest.push(t)
+            }
         }
         if ready.is_empty() {
             // Rules whose tools are built from each other's generated code:
@@ -936,7 +1035,12 @@ fn needs(workspace: &Workspace, target: TargetId, rules: &[TargetId]) -> Vec<Tar
         }
         // A tool's closure holds the tool itself, and not `target`, or that
         // would be the cycle passed over above.
-        out.extend(workspace.closure(tool).into_iter().filter(|m| rules.contains(m)));
+        out.extend(
+            workspace
+                .closure(tool)
+                .into_iter()
+                .filter(|m| rules.contains(m)),
+        );
     }
     out
 }
@@ -980,22 +1084,39 @@ fn tools_run_by(workspace: &Workspace, target: TargetId) -> Vec<Tool> {
     let check_of = |language: &crate::languages::Language| match &language.kind {
         crate::languages::Kind::Proto => Some(Tool::Proto),
         crate::languages::Kind::Textproto => Some(Tool::Textproto),
-        crate::languages::Kind::Custom(own) => {
-            own.check.as_ref().and_then(|c| tools::resolve(workspace, &c.value).ok())
-        }
+        crate::languages::Kind::Custom(own) => own
+            .check
+            .as_ref()
+            .and_then(|c| tools::resolve(workspace, &c.value).ok()),
         crate::languages::Kind::BuiltIn(_) => None,
     };
     let mut out: Vec<Tool> = Vec::new();
     for generator in declared(workspace, target) {
         out.extend(tools::resolve(workspace, &generator.tool.value).ok());
-        out.extend(generator.inputs.iter().filter_map(|i| languages.of(&i.value).and_then(check_of)));
+        out.extend(
+            generator
+                .inputs
+                .iter()
+                .filter_map(|i| languages.of(&i.value).and_then(check_of)),
+        );
     }
-    if let Some(rule) = workspace.package(target.package).build.tool.as_ref().filter(|_| target.kind == RuleKind::Tool) {
+    if let Some(rule) = workspace
+        .package(target.package)
+        .build
+        .tool
+        .as_ref()
+        .filter(|_| target.kind == RuleKind::Tool)
+    {
         for a in rule.contracts() {
-            let Some(language) = languages.named(&a.language.value) else { continue };
+            let Some(language) = languages.named(&a.language.value) else {
+                continue;
+            };
             out.extend(match language.kind {
                 crate::languages::Kind::Textproto => Some(Tool::Textproto),
-                _ => language.tools().and_then(|t| t.generate.as_ref()).and_then(|g| tools::resolve(workspace, &g.value).ok()),
+                _ => language
+                    .tools()
+                    .and_then(|t| t.generate.as_ref())
+                    .and_then(|g| tools::resolve(workspace, &g.value).ok()),
             });
         }
     }
@@ -1039,16 +1160,30 @@ fn ensure(
 /// are compiled into this binary, and its identity is the toolchain version.
 fn tools_of(workspace: &Workspace, target: TargetId) -> Vec<TargetId> {
     let mut tools: Vec<TargetId> = Vec::new();
-    if let Some(rule) = workspace.package(target.package).build.tool.as_ref().filter(|_| target.kind == RuleKind::Tool) {
+    if let Some(rule) = workspace
+        .package(target.package)
+        .build
+        .tool
+        .as_ref()
+        .filter(|_| target.kind == RuleKind::Tool)
+    {
         for a in rule.contracts() {
-            let generate = workspace.repo.languages.named(&a.language.value).and_then(|l| l.tools()?.generate.clone());
+            let generate = workspace
+                .repo
+                .languages
+                .named(&a.language.value)
+                .and_then(|l| l.tools()?.generate.clone());
             tools.extend(generate.and_then(|g| tool_target(workspace, &g.value)));
         }
     }
     for generator in declared(workspace, target) {
         tools.extend(tool_target(workspace, &generator.tool.value));
         for input in &generator.inputs {
-            let check = workspace.repo.languages.of(&input.value).and_then(|l| l.tools()?.check.clone());
+            let check = workspace
+                .repo
+                .languages
+                .of(&input.value)
+                .and_then(|l| l.tools()?.check.clone());
             tools.extend(check.and_then(|c| tool_target(workspace, &c.value)));
         }
     }
@@ -1086,12 +1221,20 @@ fn walk_worked_out_from(
     }
     let dir = &workspace.package(rule.package).dir;
     files.extend(inputs(workspace, rule).iter().map(|input| dir.join(input)));
-    let reads = workspace.generated.outcome(rule).map(|o| o.reads).unwrap_or_default();
+    let reads = workspace
+        .generated
+        .outcome(rule)
+        .map(|o| o.reads)
+        .unwrap_or_default();
     files.extend(reads.iter().map(|rel| workspace.root.join(rel)));
     for tool in tools_of(workspace, rule) {
         for member in workspace.closure(tool).into_iter().chain([tool]) {
             let package = &workspace.package(member.package).dir;
-            files.extend(crate::build::actions::rule_files(workspace, member).iter().map(|f| package.join(f)));
+            files.extend(
+                crate::build::actions::rule_files(workspace, member)
+                    .iter()
+                    .map(|f| package.join(f)),
+            );
             if !declared(workspace, member).is_empty() || has_contracts(workspace, member) {
                 walk_worked_out_from(workspace, member, seen, files);
             }
@@ -1115,13 +1258,22 @@ fn run_contracts(session: &Session, target: TargetId, flags: &Flags, overlay: &O
     let mut fingerprint = String::new();
     let mut outcome = Outcome::default();
     let mut produced: Vec<GeneratedModule> = Vec::new();
-    let mut asks: Vec<(&buildfile::Accepts, tools::Contract, &crate::languages::Language)> = Vec::new();
+    let mut asks: Vec<(
+        &buildfile::Accepts,
+        tools::Contract,
+        &crate::languages::Language,
+    )> = Vec::new();
     for a in rule.contracts() {
         if !seen.insert(a.language.value.clone()) {
             continue;
         }
-        let Some(language) = languages.named(&a.language.value) else { continue };
-        let contract = tools::Contract { package: package.path.clone(), type_schema: a.type_schema.value.clone() };
+        let Some(language) = languages.named(&a.language.value) else {
+            continue;
+        };
+        let contract = tools::Contract {
+            package: package.path.clone(),
+            type_schema: a.type_schema.value.clone(),
+        };
         asks.push((a, contract, language));
     }
     // What decides the answer: each schema and every file it reaches for a
@@ -1132,7 +1284,10 @@ fn run_contracts(session: &Session, target: TargetId, flags: &Flags, overlay: &O
         match language.dialect() {
             Some(_) => {
                 let Some(path) = contract.json_path() else {
-                    answers.push(Err(vec![(not_local(&a.type_schema.value), a.type_schema.span)]));
+                    answers.push(Err(vec![(
+                        not_local(&a.type_schema.value),
+                        a.type_schema.span,
+                    )]));
                     continue;
                 };
                 let mut asked = BTreeSet::new();
@@ -1141,16 +1296,21 @@ fn run_contracts(session: &Session, target: TargetId, flags: &Flags, overlay: &O
                     read(p)
                 };
                 let dialect_of = |p: &str| languages.dialect_of(p);
-                let files = crate::languages::json::schema_closure(&path, &dialect_of, &mut recording);
+                let files =
+                    crate::languages::json::schema_closure(&path, &dialect_of, &mut recording);
                 for p in &asked {
-                    let hash = crate::build::cache::hash_bytes(files.get(p).map_or(&b""[..], |t| t.as_bytes()));
+                    let hash = crate::build::cache::hash_bytes(
+                        files.get(p).map_or(&b""[..], |t| t.as_bytes()),
+                    );
                     fingerprint.push_str(&format!("read {p}: {hash}\n"));
                 }
                 outcome.reads.extend(asked);
                 match crate::languages::json::contract(&path, &dialect_of, &files) {
                     Ok(module) => answers.push(Ok(module_of(&a.language.value, module))),
                     Err(findings) => {
-                        outcome.findings.extend(findings.into_iter().map(|f| (f, a.type_schema.span)));
+                        outcome
+                            .findings
+                            .extend(findings.into_iter().map(|f| (f, a.type_schema.span)));
                         answers.push(Err(Vec::new()));
                     }
                 }
@@ -1166,7 +1326,10 @@ fn run_contracts(session: &Session, target: TargetId, flags: &Flags, overlay: &O
                 let ask = tools::Ask {
                     tool,
                     entry: "generate",
-                    fields: vec![("inputs", crate::json::Value::Array(Vec::new())), ("typesOf", contract.value())],
+                    fields: vec![
+                        ("inputs", crate::json::Value::Array(Vec::new())),
+                        ("typesOf", contract.value()),
+                    ],
                     label: &label,
                 };
                 let failed = |why: String| Diagnostic {
@@ -1183,16 +1346,25 @@ fn run_contracts(session: &Session, target: TargetId, flags: &Flags, overlay: &O
                         fingerprint.push('\n');
                         outcome.reads.extend(x.asked.iter().cloned());
                         outcome.generated_reads.extend(x.asked);
-                        let mut problems: Vec<(Diagnostic, Span)> =
-                            response.diagnostics.into_iter().map(|d| (d, a.type_schema.span)).collect();
-                        problems.extend(x.outside.iter().map(|p| (needed_outside(p), a.type_schema.span)));
+                        let mut problems: Vec<(Diagnostic, Span)> = response
+                            .diagnostics
+                            .into_iter()
+                            .map(|d| (d, a.type_schema.span))
+                            .collect();
+                        problems.extend(
+                            x.outside
+                                .iter()
+                                .map(|p| (needed_outside(p), a.type_schema.span)),
+                        );
                         match (response.modules.into_iter().next(), problems.is_empty()) {
                             (Some(mut module), true) => {
                                 module.name = a.language.value.clone();
                                 answers.push(Ok(module));
                             }
                             (None, true) => answers.push(Err(vec![(
-                                failed("its `generate` answered `typesOf` with no module".to_string()),
+                                failed(
+                                    "its `generate` answered `typesOf` with no module".to_string(),
+                                ),
                                 a.type_schema.span,
                             )])),
                             (_, false) => answers.push(Err(problems)),
@@ -1213,7 +1385,9 @@ fn run_contracts(session: &Session, target: TargetId, flags: &Flags, overlay: &O
         }
     }
     outcome.modules = produced.into_iter().map(Arc::new).collect();
-    workspace.generated.record(&workspace, target, fingerprint, outcome);
+    workspace
+        .generated
+        .record(&workspace, target, fingerprint, outcome);
 }
 
 fn not_local(path: &str) -> Diagnostic {
@@ -1221,15 +1395,26 @@ fn not_local(path: &str) -> Diagnostic {
         code: "schema-outside-repository".to_string(),
         message: format!("`{path}` is not a file in this repository"),
         note: None,
-        fix: Some("check the schema in, and name it by a path relative to the tool or a `//` path".to_string()),
+        fix: Some(
+            "check the schema in, and name it by a path relative to the tool or a `//` path"
+                .to_string(),
+        ),
         origin: None,
     }
 }
 
 /// A path a tool `needs` that isn't in this repository, in its page's words.
 fn needed_outside(path: &str) -> Diagnostic {
-    let said = crate::diagnostics::Diagnostic::templated("needs-outside-repository", Span::default()).with_bind("path", path);
-    Diagnostic { code: said.code.unwrap_or_default(), message: said.message, note: said.notes.into_iter().next(), fix: said.fix, origin: None }
+    let said =
+        crate::diagnostics::Diagnostic::templated("needs-outside-repository", Span::default())
+            .with_bind("path", path);
+    Diagnostic {
+        code: said.code.unwrap_or_default(),
+        message: said.message,
+        note: said.notes.into_iter().next(),
+        fix: said.fix,
+        origin: None,
+    }
 }
 
 /// A module the `json` tool generated, under `name`.
@@ -1240,7 +1425,12 @@ fn module_of(name: &str, module: crate::languages::json::types::Module) -> Gener
         anchors: module
             .anchors
             .into_iter()
-            .map(|(start, end, file, span)| Anchor { start, end, file, span })
+            .map(|(start, end, file, span)| Anchor {
+                start,
+                end,
+                file,
+                span,
+            })
             .collect(),
     }
 }
@@ -1253,7 +1443,9 @@ fn module_of(name: &str, module: crate::languages::json::types::Module) -> Gener
 /// `circular-import` reports one.
 fn cycle(workspace: &Workspace, target: TargetId, tool: TargetId) -> Option<CyclePath> {
     workspace.closure(tool).contains(&target).then(|| {
-        workspace.dep_path(tool, target).unwrap_or_else(|| vec![(tool, None), (target, None)])
+        workspace
+            .dep_path(tool, target)
+            .unwrap_or_else(|| vec![(tool, None), (target, None)])
     })
 }
 
@@ -1287,7 +1479,11 @@ fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overla
         for input in &generator.inputs {
             let full = package.dir.join(&input.value);
             let rel = workspace.rel_of(&full);
-            match checks.texts.get(&full).or_ice("`Checks::start` read every input") {
+            match checks
+                .texts
+                .get(&full)
+                .or_ice("`Checks::start` read every input")
+            {
                 Ok(text) => inputs.push((rel, text.clone())),
                 Err(e) => {
                     unreadable = true;
@@ -1326,8 +1522,10 @@ fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overla
         // file that fails. A tool with a contract has its inputs checked
         // against the contract's schema.
         let tool = tools::resolve(&workspace, &generator.tool.value).ok();
-        let contracts: Vec<Option<tools::Contract>> =
-            inputs.iter().map(|(rel, _)| contract_of(&workspace, tool, rel)).collect();
+        let contracts: Vec<Option<tools::Contract>> = inputs
+            .iter()
+            .map(|(rel, _)| contract_of(&workspace, tool, rel))
+            .collect();
         let mut failed = false;
         for (((rel, _), contract), input) in inputs.iter().zip(&contracts).zip(&generator.inputs) {
             let kind = workspace.repo.languages.of(rel).map(|l| &l.kind);
@@ -1354,7 +1552,9 @@ fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overla
                 }
                 Some(_) => {}
                 None => {
-                    checks.contracts.insert(rel.clone(), (identity, generator.tool.value.clone()));
+                    checks
+                        .contracts
+                        .insert(rel.clone(), (identity, generator.tool.value.clone()));
                 }
             }
             let (key, found) = checks.check(rel, contract.as_ref());
@@ -1364,19 +1564,35 @@ fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overla
             }
             if !found.is_empty() {
                 failed = true;
-                checks.findings.extend(found.into_iter().map(|f| (f, generator.span)));
+                checks
+                    .findings
+                    .extend(found.into_iter().map(|f| (f, generator.span)));
             }
         }
         if failed {
             continue;
         }
-        fingerprint.push_str(generate_key(session, target, &generator.tool.value, &inputs, flags).as_str());
+        fingerprint.push_str(
+            generate_key(session, target, &generator.tool.value, &inputs, flags).as_str(),
+        );
         fingerprint.push('\n');
-        entries.push(Entry { generator: generator.clone(), inputs, contracts });
+        entries.push(Entry {
+            generator: generator.clone(),
+            inputs,
+            contracts,
+        });
     }
-    for path in workspace.generated.outcome(target).map(|o| o.generated_reads).unwrap_or_default() {
+    for path in workspace
+        .generated
+        .outcome(target)
+        .map(|o| o.generated_reads)
+        .unwrap_or_default()
+    {
         let contents = read(&path);
-        fingerprint.push_str(&format!("read {path}: {}\n", crate::build::cache::hash_bytes(contents.unwrap_or_default().as_bytes())));
+        fingerprint.push_str(&format!(
+            "read {path}: {}\n",
+            crate::build::cache::hash_bytes(contents.unwrap_or_default().as_bytes())
+        ));
     }
 
     if workspace.generated.key_of(target).as_deref() == Some(fingerprint.as_str()) && !flags.force {
@@ -1393,7 +1609,9 @@ fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overla
     for entry in entries {
         match answer(session, &workspace, target, &entry, &read, flags) {
             Ok((response, asked, findings)) => {
-                outcome.findings.extend(findings.into_iter().map(|f| (f, entry.generator.span)));
+                outcome
+                    .findings
+                    .extend(findings.into_iter().map(|f| (f, entry.generator.span)));
                 for module in response.modules {
                     produced.push((module, entry.generator.span));
                 }
@@ -1414,9 +1632,13 @@ fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overla
             )),
         }
     }
-    outcome.reads.extend(outcome.generated_reads.iter().cloned());
+    outcome
+        .reads
+        .extend(outcome.generated_reads.iter().cloned());
     keep_the_names_that_are_free(&workspace, target, produced, &mut outcome);
-    workspace.generated.record(&workspace, target, fingerprint, outcome);
+    workspace
+        .generated
+        .record(&workspace, target, fingerprint, outcome);
 }
 
 /// A check's key, where it has one, and what it found.
@@ -1477,8 +1699,10 @@ impl Checks {
             for input in &generator.inputs {
                 let full = package.dir.join(&input.value);
                 let rel = workspace.rel_of(&full);
-                let held =
-                    self.texts.entry(full.clone()).or_insert_with(|| input_text(overlay, &full));
+                let held = self
+                    .texts
+                    .entry(full.clone())
+                    .or_insert_with(|| input_text(overlay, &full));
                 let Ok(text) = held else { continue };
                 let text = text.clone();
                 let contract = contract_of(workspace, tool, &rel);
@@ -1561,7 +1785,9 @@ fn answer(
     let answer = tools::exchange(session, &ask, read, flags)?;
     let mut response = Response::from_value(&answer.value)
         .map_err(|e| format!("the tool's answer is not one `generate` gives: {e}"))?;
-    response.diagnostics.extend(answer.outside.iter().map(|p| needed_outside(p)));
+    response
+        .diagnostics
+        .extend(answer.outside.iter().map(|p| needed_outside(p)));
     Ok((response, answer.asked, Vec::new()))
 }
 
@@ -1578,7 +1804,11 @@ fn generate_json(
     let mut findings = Vec::new();
     let dialect_of = |p: &str| languages.dialect_of(p);
     for ((rel, text), input) in entry.inputs.iter().zip(&entry.generator.inputs) {
-        if languages.of(rel).and_then(crate::languages::Language::dialect).is_none() {
+        if languages
+            .of(rel)
+            .and_then(crate::languages::Language::dialect)
+            .is_none()
+        {
             findings.push(crate::languages::Finding::new(
                 "json-untyped-keyword",
                 rel,
@@ -1594,7 +1824,8 @@ fn generate_json(
             asked.insert(p.to_string());
             read(p)
         };
-        let files = crate::languages::json::schema_files(rel, text, None, &dialect_of, &mut recording);
+        let files =
+            crate::languages::json::schema_files(rel, text, None, &dialect_of, &mut recording);
         match crate::languages::json::generate(rel, text, &dialect_of, &files) {
             Ok(module) => response.modules.push(module_of(&input.value, module)),
             // A schema and a data file naming it find the same problems once.
@@ -1631,7 +1862,6 @@ fn generate_key(
     }
     k.finish()
 }
-
 
 /// Moves the modules whose names are the generator's own into the outcome, and
 /// reports the ones that are not.
@@ -1704,7 +1934,10 @@ pub type CyclePath = Vec<(TargetId, Option<Span>)>;
 
 /// The path a cycle took, one label to the next.
 pub fn cycle_sentence(workspace: &Workspace, path: &[(TargetId, Option<Span>)]) -> String {
-    path.iter().map(|(t, _)| workspace.label(*t)).collect::<Vec<_>>().join(" -> ")
+    path.iter()
+        .map(|(t, _)| workspace.label(*t))
+        .collect::<Vec<_>>()
+        .join(" -> ")
 }
 
 /// The cycle a rule's generator closes, if it closes one.
@@ -1714,7 +1947,9 @@ pub fn cycle_sentence(workspace: &Workspace, path: &[(TargetId, Option<Span>)]) 
 /// build layer has no `SourceMap` to render.
 pub fn cycle_of(workspace: &Workspace, target: TargetId) -> Option<(&Generator, CyclePath)> {
     for generator in declared(workspace, target) {
-        let Some(tool) = tool_target(workspace, &generator.tool.value) else { continue };
+        let Some(tool) = tool_target(workspace, &generator.tool.value) else {
+            continue;
+        };
         if let Some(path) = cycle(workspace, target, tool) {
             return Some((generator, path));
         }
@@ -1746,10 +1981,14 @@ mod tests {
             .enumerate()
             .map(|(i, s)| tools::input(&format!("lib/x/{i}.schema"), "", s))
             .collect();
-        let request = crate::json::Value::object(vec![("inputs", crate::json::Value::Array(inputs))]);
+        let request =
+            crate::json::Value::object(vec![("inputs", crate::json::Value::Array(inputs))]);
         let line = request.to_string();
         assert!(!line.contains('\n'), "the request is one line: {line}");
-        assert_eq!(crate::json::parse(&line).expect("the request decodes"), request);
+        assert_eq!(
+            crate::json::parse(&line).expect("the request decodes"),
+            request
+        );
     }
 
     #[test]
@@ -1775,7 +2014,10 @@ mod tests {
                     message: "a \"message\" with\na newline".to_string(),
                     note: Some("a note".to_string()),
                     fix: Some("a fix".to_string()),
-                    origin: Some(Origin { file: "lib/x/0.schema".to_string(), span: (18, 29) }),
+                    origin: Some(Origin {
+                        file: "lib/x/0.schema".to_string(),
+                        span: (18, 29),
+                    }),
                 },
                 Diagnostic {
                     code: "tool-diagnostic".to_string(),
@@ -1787,7 +2029,10 @@ mod tests {
             ],
         };
         let span = |(start, end): (usize, usize)| {
-            Value::object(vec![("start", Value::number(start as i64)), ("end", Value::number(end as i64))])
+            Value::object(vec![
+                ("start", Value::number(start as i64)),
+                ("end", Value::number(end as i64)),
+            ])
         };
         let optional = |v: &Option<String>| v.clone().map_or(Value::Null, Value::Str);
         let modules = response.modules.iter().map(|m| {
@@ -1823,7 +2068,10 @@ mod tests {
         ])
         .to_string();
         assert!(!line.contains('\n'), "the response is one line: {line}");
-        assert_eq!(Response::decode(&line).expect("the response decodes"), response);
+        assert_eq!(
+            Response::decode(&line).expect("the response decodes"),
+            response
+        );
     }
 
     /// The shape the protocol is specified in, written by hand rather than by
@@ -1843,21 +2091,29 @@ mod tests {
         let module = response.modules.first().expect("one module");
         assert_eq!(module.name, "point.proto");
         assert_eq!(module.text, "export struct Point {}\n");
-        assert_eq!(module.anchor_at(0).map(Anchor::origin).map(|o| o.span), Some((18, 29)));
+        assert_eq!(
+            module.anchor_at(0).map(Anchor::origin).map(|o| o.span),
+            Some((18, 29))
+        );
         assert_eq!(module.anchor_at(24), None);
         let d = response.diagnostics.first().expect("one diagnostic");
         assert_eq!(d.note, None);
-        assert_eq!(d.origin.as_ref().map(|o| o.file.as_str()), Some("lib/wire/point.proto"));
+        assert_eq!(
+            d.origin.as_ref().map(|o| o.file.as_str()),
+            Some("lib/wire/point.proto")
+        );
     }
 
     /// A `\u` escape and a surrogate pair, which a generator written against a
     /// JSON library may well produce even where this encoder would not.
     #[test]
     fn escaped_scalars_decode() {
-        let response =
-            Response::decode(r#"{"modules":[{"name":"m","text":"é🧪","anchors":[]}]}"#)
-                .expect("escapes decode");
-        assert_eq!(response.modules.first().map(|m| m.text.as_str()), Some("é🧪"));
+        let response = Response::decode(r#"{"modules":[{"name":"m","text":"é🧪","anchors":[]}]}"#)
+            .expect("escapes decode");
+        assert_eq!(
+            response.modules.first().map(|m| m.text.as_str()),
+            Some("é🧪")
+        );
     }
 
     #[test]
@@ -1871,7 +2127,10 @@ mod tests {
             r#"{"modules":[{"name":"m","text":"x","anchors":[{"start":0}]}]}"#,
             r#"{"modules":"a string"}"#,
         ] {
-            assert!(Response::decode(bad).is_err(), "`{bad}` decoded as a response");
+            assert!(
+                Response::decode(bad).is_err(),
+                "`{bad}` decoded as a response"
+            );
         }
     }
 
@@ -1888,7 +2147,10 @@ mod tests {
         assert_eq!(note, "the generator was killed by SIGSEGV (signal 11)");
 
         let out_of_memory = std::process::ExitStatus::from_raw(9);
-        let note = said(&format!("the generator {}", how_it_ended(&out_of_memory)), "");
+        let note = said(
+            &format!("the generator {}", how_it_ended(&out_of_memory)),
+            "",
+        );
         assert_eq!(note, "the generator was killed by SIGKILL (signal 9)");
 
         // A number the two platforms disagree about goes unnamed rather than
@@ -1949,7 +2211,11 @@ mod tests {
     fn a_flood_on_standard_error_is_cut_to_its_tail() {
         let flood = format!("{}the last line", "x".repeat(20_000));
         let note = said("the generator exited with 1", &flood);
-        assert!(note.len() < STDERR_TAIL + 200, "the note is bounded: {} bytes", note.len());
+        assert!(
+            note.len() < STDERR_TAIL + 200,
+            "the note is bounded: {} bytes",
+            note.len()
+        );
         assert!(note.starts_with("the generator exited with 1\n"), "{note}");
         assert!(note.ends_with("the last line"), "the tail is what is kept");
         assert!(
@@ -1962,7 +2228,10 @@ mod tests {
         let wide = "é".repeat(20_000);
         let note = said("the generator exited with 1", &wide);
         assert!(note.ends_with('é'), "the tail ends on a character");
-        assert!(note.chars().all(|c| c != '\u{fffd}'), "no character was cut in half");
+        assert!(
+            note.chars().all(|c| c != '\u{fffd}'),
+            "no character was cut in half"
+        );
     }
 
     #[test]
@@ -1971,9 +2240,24 @@ mod tests {
             name: "m".to_string(),
             text: "0123456789".to_string(),
             anchors: vec![
-                Anchor { start: 0, end: 10, file: "a".into(), span: (0, 1) },
-                Anchor { start: 0, end: 4, file: "a".into(), span: (2, 3) },
-                Anchor { start: 6, end: 8, file: "a".into(), span: (4, 5) },
+                Anchor {
+                    start: 0,
+                    end: 10,
+                    file: "a".into(),
+                    span: (0, 1),
+                },
+                Anchor {
+                    start: 0,
+                    end: 4,
+                    file: "a".into(),
+                    span: (2, 3),
+                },
+                Anchor {
+                    start: 6,
+                    end: 8,
+                    file: "a".into(),
+                    span: (4, 5),
+                },
             ],
         };
         assert_eq!(module.anchor_at(1).map(|a| a.span), Some((2, 3)));

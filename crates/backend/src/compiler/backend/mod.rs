@@ -370,7 +370,10 @@ pub fn cryptography_gap_when(program: &Program, crypto: bool) -> Vec<String> {
 /// `build::actions` hands the target's own `net` here rather than the baked
 /// constant `split_networking` reads.
 pub fn split_networking_when(missing: &[String], net: bool) -> (Vec<String>, Vec<String>) {
-    missing.iter().cloned().partition(|key| !net && runtime_native::net_intrinsic(key))
+    missing
+        .iter()
+        .cloned()
+        .partition(|key| !net && runtime_native::net_intrinsic(key))
 }
 
 /// The refusal for operations this toolchain's runtime has no networking for.
@@ -388,7 +391,10 @@ pub fn no_networking(operations: &[String], span: Span) -> Diagnostic {
 /// `pub` for [`split_networking_when`]'s reason: `build::actions` supplies the
 /// cross target's own `crypto`, which is off on the first cross target.
 pub fn split_cryptography_when(missing: &[String], crypto: bool) -> (Vec<String>, Vec<String>) {
-    missing.iter().cloned().partition(|key| !crypto && runtime_native::crypto_intrinsic(key))
+    missing
+        .iter()
+        .cloned()
+        .partition(|key| !crypto && runtime_native::crypto_intrinsic(key))
 }
 
 /// The refusal for operations this toolchain's runtime has no cryptography for.

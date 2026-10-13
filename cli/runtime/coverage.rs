@@ -6,9 +6,9 @@
 //! one `key count` line each, which is what `runtime.js`'s `$coverage_hit`
 //! writes too. An abort leaves through `exit`, so its lines count as well.
 
+use crate::sync::Mutex;
 use std::collections::HashMap;
 use std::io::Write as _;
-use crate::sync::Mutex;
 use std::sync::PoisonError;
 
 static COUNTS: Mutex<Option<HashMap<i64, u64>>> = Mutex::new(None);
@@ -44,7 +44,11 @@ extern "C" fn write() {
     let pid = std::process::id();
     for i in 0u32.. {
         let path = dir.join(format!("{pid}-{i}.hits"));
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
             Ok(mut file) => {
                 let _ = file.write_all(text.as_bytes());
                 return;

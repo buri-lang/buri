@@ -219,7 +219,9 @@ pub fn connect(sock: TcpStream, host: &str) -> Result<TlsStream, NetFail> {
     let config = ClientConfig::builder_with_provider(provider())
         .with_safe_default_protocol_versions()
         .map_err(|e| {
-            NetFail::Transport(format!("tls: this runtime's TLS configuration is not usable: {e}"))
+            NetFail::Transport(format!(
+                "tls: this runtime's TLS configuration is not usable: {e}"
+            ))
         })?
         .with_root_certificates(store)
         .with_no_client_auth();
@@ -239,7 +241,9 @@ pub fn connect(sock: TcpStream, host: &str) -> Result<TlsStream, NetFail> {
     let mut stream = StreamOwned::new(conn, sock);
     match handshaken(&mut stream.conn, &mut stream.sock, until) {
         Ok(true) => Ok(stream),
-        Ok(false) => Err(NetFail::Transport(String::from("tls: the handshake did not finish"))),
+        Ok(false) => Err(NetFail::Transport(String::from(
+            "tls: the handshake did not finish",
+        ))),
         Err(e) => Err(handshake_failure(&e, &source)),
     }
 }
@@ -282,7 +286,12 @@ fn handshaken<D>(
 
 /// When a handshake on `sock` has to be over by: its read deadline from now.
 fn deadline_of(sock: &TcpStream) -> Instant {
-    Instant::now() + sock.read_timeout().ok().flatten().unwrap_or(HANDSHAKE_DEADLINE)
+    Instant::now()
+        + sock
+            .read_timeout()
+            .ok()
+            .flatten()
+            .unwrap_or(HANDSHAKE_DEADLINE)
 }
 
 /// What a handshake gets if its socket carries no deadline of its own.
@@ -328,7 +337,10 @@ fn bound(sock: &TcpStream) {
 /// second distinction is a downcast rather than a string match; the first is
 /// the socket's own deadline surfacing, so it is an `ErrorKind`.
 fn handshake_failure(e: &std::io::Error, source: &str) -> NetFail {
-    if matches!(e.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock) {
+    if matches!(
+        e.kind(),
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+    ) {
         return NetFail::Timeout;
     }
     let Some(inner) = e.get_ref().and_then(|i| i.downcast_ref::<rustls::Error>()) else {
@@ -357,9 +369,11 @@ fn trust_anchors() -> Result<Roots, String> {
             (text, path.display().to_string())
         }
         None => {
-            let found = BUNDLES
-                .iter()
-                .find_map(|c| std::fs::read_to_string(c).ok().map(|text| (text, (*c).to_string())));
+            let found = BUNDLES.iter().find_map(|c| {
+                std::fs::read_to_string(c)
+                    .ok()
+                    .map(|text| (text, (*c).to_string()))
+            });
             match found {
                 Some(pair) => pair,
                 None => {
@@ -368,7 +382,7 @@ fn trust_anchors() -> Result<Roots, String> {
                          — none of {} could be read. Set {CERT_FILE_ENV} to a PEM bundle of the \
                          roots this program should trust.",
                         BUNDLES.join(", ")
-                    ))
+                    ));
                 }
             }
         }
@@ -416,7 +430,11 @@ pub(crate) fn blocks_in(pem: &str, label: &str) -> Vec<Vec<u8>> {
     let end = format!("-----END {label}-----");
     pem.split(begin.as_str())
         .skip(1)
-        .filter_map(|block| block.split_once(end.as_str()).and_then(|(body, _)| base64(body)))
+        .filter_map(|block| {
+            block
+                .split_once(end.as_str())
+                .and_then(|(body, _)| base64(body))
+        })
         .collect()
 }
 
@@ -497,18 +515,27 @@ pub fn server_config(
     alpn: Vec<Vec<u8>>,
 ) -> Result<ServerConfig, String> {
     let cert_pem = std::fs::read_to_string(certificate).map_err(|e| {
-        format!("tls: the certificate at {} could not be read: {e}", certificate.display())
+        format!(
+            "tls: the certificate at {} could not be read: {e}",
+            certificate.display()
+        )
     })?;
-    let chain: Vec<CertificateDer<'static>> =
-        certificates_in(&cert_pem).into_iter().map(CertificateDer::from).collect();
+    let chain: Vec<CertificateDer<'static>> = certificates_in(&cert_pem)
+        .into_iter()
+        .map(CertificateDer::from)
+        .collect();
     if chain.is_empty() {
         return Err(format!(
             "tls: {} holds no CERTIFICATE block, so this server has no identity to present",
             certificate.display()
         ));
     }
-    let key_pem = std::fs::read_to_string(key)
-        .map_err(|e| format!("tls: the private key at {} could not be read: {e}", key.display()))?;
+    let key_pem = std::fs::read_to_string(key).map_err(|e| {
+        format!(
+            "tls: the private key at {} could not be read: {e}",
+            key.display()
+        )
+    })?;
     let private = private_key_in(&key_pem).ok_or_else(|| {
         format!(
             "tls: {} holds no PRIVATE KEY, RSA PRIVATE KEY or EC PRIVATE KEY block this runtime \
@@ -567,10 +594,7 @@ fn private_key_in(pem: &str) -> Option<PrivateKeyDer<'static>> {
 /// arrives without one, for the reason it does on the client side: a stranger
 /// who completes the TCP handshake and then says nothing must not be able to
 /// keep a thread.
-pub fn accept(
-    config: Arc<ServerConfig>,
-    sock: &mut TcpStream,
-) -> Result<ServerConnection, String> {
+pub fn accept(config: Arc<ServerConfig>, sock: &mut TcpStream) -> Result<ServerConnection, String> {
     let mut conn = ServerConnection::new(config)
         .map_err(|e| format!("tls: the connection could not be started: {e}"))?;
     bound(sock);
@@ -661,7 +685,11 @@ impl AsyncTls {
         let _ = sock.set_read_timeout(None);
         let _ = sock.set_write_timeout(None);
         let sock = tokio::net::TcpStream::from_std(sock)?;
-        Ok(AsyncTls { sock, conn: conn.into(), goodbye: false })
+        Ok(AsyncTls {
+            sock,
+            conn: conn.into(),
+            goodbye: false,
+        })
     }
 
     /// Push out everything `rustls` wants to say.
@@ -990,10 +1018,14 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         provider: Arc<rustls::crypto::CryptoProvider>,
         response: &'static str,
     ) -> (u16, std::thread::JoinHandle<String>) {
-        let der = blocks_in(LEAF_KEY_PEM, "PRIVATE KEY").pop().expect("the fixture key");
+        let der = blocks_in(LEAF_KEY_PEM, "PRIVATE KEY")
+            .pop()
+            .expect("the fixture key");
         let key = rustls::pki_types::PrivateKeyDer::Pkcs8(der.into());
-        let chain: Vec<CertificateDer<'static>> =
-            certificates_in(LEAF_PEM).into_iter().map(CertificateDer::from).collect();
+        let chain: Vec<CertificateDer<'static>> = certificates_in(LEAF_PEM)
+            .into_iter()
+            .map(CertificateDer::from)
+            .collect();
         let config = rustls::ServerConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
             .unwrap()
@@ -1003,7 +1035,9 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
 
         let (port, listeners) = loopback();
         let handle = std::thread::spawn(move || {
-            let Some(sock) = accept_within(&listeners, PATIENCE) else { return String::new() };
+            let Some(sock) = accept_within(&listeners, PATIENCE) else {
+                return String::new();
+            };
             // The reads and the write below get the same bound the accept had,
             // so a client that connects and then stops talking — which is what
             // a refusal looks like from this side — cannot hold this thread
@@ -1036,8 +1070,8 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
 
     /// A PEM file under the temporary directory, named for this process.
     pub(crate) fn bundle(name: &str, pem: &str) -> PathBuf {
-        let path = std::env::temp_dir()
-            .join(format!("buri-rt-tls-{}-{name}.pem", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("buri-rt-tls-{}-{name}.pem", std::process::id()));
         std::fs::write(&path, pem).unwrap();
         path
     }
@@ -1141,7 +1175,12 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         );
         assert_eq!(response.status, 200);
         assert_eq!(response.body, b"hello");
-        assert!(response.headers.iter().any(|(n, v)| n == "content-type" && v == "text/plain"));
+        assert!(
+            response
+                .headers
+                .iter()
+                .any(|(n, v)| n == "content-type" && v == "text/plain")
+        );
 
         // 2. The same certificate, reached by an address it does not cover.
         //    `localhost` is a DNS SAN and `127.0.0.1` is not an IP SAN, so this
@@ -1150,7 +1189,9 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         let url = format!("https://127.0.0.1:{port}/probe");
         let answer = crate::http::fetch(crate::http::bound(0), 0, &url, &[], b"");
         let _ = server.join();
-        let message = answer.err().expect("a certificate for localhost is not one for 127.0.0.1");
+        let message = answer
+            .err()
+            .expect("a certificate for localhost is not one for 127.0.0.1");
         assert_eq!(
             message.message(),
             format!(
@@ -1170,7 +1211,9 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         let url = format!("https://localhost:{port}/probe");
         let answer = crate::http::fetch(crate::http::bound(0), 0, &url, &[], b"");
         let _ = server.join();
-        let message = answer.err().expect("an untrusted issuer is not a trusted one");
+        let message = answer
+            .err()
+            .expect("an untrusted issuer is not a trusted one");
         assert_eq!(
             message.message(),
             format!(
@@ -1212,11 +1255,14 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         let url = format!("https://localhost:{port}/probe");
         let answer = crate::http::fetch(crate::http::bound(0), 0, &url, &[], b"");
         let _ = server.join();
-        let message = answer.err().expect("an unreadable bundle is not a trust set");
+        let message = answer
+            .err()
+            .expect("an unreadable bundle is not a trust set");
         assert!(
-            message
-                .message()
-                .starts_with(&format!("tls: SSL_CERT_FILE names {}, which could not be read", missing.display())),
+            message.message().starts_with(&format!(
+                "tls: SSL_CERT_FILE names {}, which could not be read",
+                missing.display()
+            )),
             "the message was: {}",
             message.message()
         );
@@ -1258,7 +1304,9 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     /// [`peer`] with X25519 as its only group: a peer that has no ML-KEM.
     fn classical() -> Arc<rustls::crypto::CryptoProvider> {
         let mut provider = Arc::unwrap_or_clone(peer());
-        provider.kx_groups.retain(|group| group.name() == rustls::NamedGroup::X25519);
+        provider
+            .kx_groups
+            .retain(|group| group.name() == rustls::NamedGroup::X25519);
         Arc::new(provider)
     }
 
@@ -1280,12 +1328,20 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
                 Ok(stream) => stream,
                 Err(e) => panic!("the handshake failed: tag {} {}", e.tag(), e.message()),
             };
-            let group = stream.conn.negotiated_key_exchange_group().map(|g| g.name());
-            stream.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+            let group = stream
+                .conn
+                .negotiated_key_exchange_group()
+                .map(|g| g.name());
+            stream
+                .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                .unwrap();
             let mut answer = Vec::new();
             let _ = stream.read_to_end(&mut answer);
             let request = served.join().unwrap();
-            assert!(request.starts_with("GET / HTTP/1.1\r\n"), "the server saw:\n{request}");
+            assert!(
+                request.starts_with("GET / HTTP/1.1\r\n"),
+                "the server saw:\n{request}"
+            );
             assert_eq!(group, Some(expected));
         }
         unsafe { std::env::remove_var(CERT_FILE_ENV) };
@@ -1326,9 +1382,15 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
             sock.set_read_timeout(Some(PATIENCE)).unwrap();
             let mut stream = StreamOwned::new(conn, sock);
             while stream.conn.is_handshaking() {
-                stream.conn.complete_io(&mut stream.sock).expect("the handshake");
+                stream
+                    .conn
+                    .complete_io(&mut stream.sock)
+                    .expect("the handshake");
             }
-            let group = stream.conn.negotiated_key_exchange_group().map(|g| g.name());
+            let group = stream
+                .conn
+                .negotiated_key_exchange_group()
+                .map(|g| g.name());
             assert_eq!(group, Some(expected), "the client's view");
             assert_eq!(served.join().unwrap(), Some(expected), "the server's view");
         }
@@ -1351,7 +1413,10 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     fn without_graviola_the_runtime_falls_back_to_x25519_through_ring() {
         GRAVIOLA_RUNS.with(|runs| runs.set(Some(false)));
         let groups: Vec<_> = provider().kx_groups.iter().map(|g| g.name()).collect();
-        assert!(!groups.contains(&rustls::NamedGroup::X25519MLKEM768), "{groups:?}");
+        assert!(
+            !groups.contains(&rustls::NamedGroup::X25519MLKEM768),
+            "{groups:?}"
+        );
 
         // The client, against a server that prefers the hybrid group where it can.
         {
@@ -1364,8 +1429,13 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
                 Ok(stream) => stream,
                 Err(e) => panic!("the handshake failed: tag {} {}", e.tag(), e.message()),
             };
-            let group = stream.conn.negotiated_key_exchange_group().map(|g| g.name());
-            stream.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+            let group = stream
+                .conn
+                .negotiated_key_exchange_group()
+                .map(|g| g.name());
+            stream
+                .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                .unwrap();
             let mut answer = Vec::new();
             let _ = stream.read_to_end(&mut answer);
             let _ = served.join();
@@ -1399,7 +1469,10 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         sock.set_read_timeout(Some(PATIENCE)).unwrap();
         let mut stream = StreamOwned::new(conn, sock);
         while stream.conn.is_handshaking() {
-            stream.conn.complete_io(&mut stream.sock).expect("the handshake");
+            stream
+                .conn
+                .complete_io(&mut stream.sock)
+                .expect("the handshake");
         }
         assert_eq!(served.join().unwrap(), Some(rustls::NamedGroup::X25519));
         let _ = std::fs::remove_file(certificate);
@@ -1422,12 +1495,14 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
             .find_map(|entry| {
                 let mut fields = entry.lines().map(str::trim);
                 fields.find(|line| *line == "name = \"graviola\"")?;
-                fields.find_map(|line| line.strip_prefix("version = \""))?.strip_suffix('"')
+                fields
+                    .find_map(|line| line.strip_prefix("version = \""))?
+                    .strip_suffix('"')
             })
             .expect("Cargo.lock pins graviola");
-        let home = std::env::var_os("CARGO_HOME").map(PathBuf::from).unwrap_or_else(|| {
-            Path::new(&std::env::var_os("HOME").expect("HOME")).join(".cargo")
-        });
+        let home = std::env::var_os("CARGO_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| Path::new(&std::env::var_os("HOME").expect("HOME")).join(".cargo"));
         // One directory per registry, and the build extracted graviola into one.
         let registries = home.join("registry/src");
         let source_dir = std::fs::read_dir(&registries)
@@ -1437,9 +1512,16 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
             .map(|registry| registry.path().join(format!("graviola-{version}")))
             .find(|dir| dir.is_dir())
             .unwrap_or_else(|| {
-                panic!("graviola {version}'s source is not under {}", registries.display())
+                panic!(
+                    "graviola {version}'s source is not under {}",
+                    registries.display()
+                )
             });
-        let arch = if cfg!(target_arch = "x86_64") { "x86_64" } else { "aarch64" };
+        let arch = if cfg!(target_arch = "x86_64") {
+            "x86_64"
+        } else {
+            "aarch64"
+        };
         let cpu = source_dir.join(format!("src/low/{arch}/cpu.rs"));
         let source = std::fs::read_to_string(&cpu).expect("graviola's cpu.rs");
         let body = source
@@ -1456,7 +1538,12 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         let mut ours = GRAVIOLA_NEEDS.to_vec();
         asserted.sort_unstable();
         ours.sort_unstable();
-        assert_eq!(ours, asserted, "graviola asserts a different set in {}", cpu.display());
+        assert_eq!(
+            ours,
+            asserted,
+            "graviola asserts a different set in {}",
+            cpu.display()
+        );
     }
 
     /// The PEM reader takes the certificates and leaves everything else.
@@ -1471,10 +1558,12 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         // The private key is not a certificate.
         assert!(certificates_in(LEAF_KEY_PEM).is_empty());
         // A block that is not base64 is skipped rather than half-decoded.
-        assert!(certificates_in(
-            "-----BEGIN CERTIFICATE-----\nnot base64!\n-----END CERTIFICATE-----\n"
-        )
-        .is_empty());
+        assert!(
+            certificates_in(
+                "-----BEGIN CERTIFICATE-----\nnot base64!\n-----END CERTIFICATE-----\n"
+            )
+            .is_empty()
+        );
     }
 
     /// Base64 against the three residues, because the tail is where a
@@ -1546,9 +1635,16 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         let sock = TcpStream::connect(("127.0.0.1", port)).expect("the loopback server");
         sock.set_read_timeout(Some(PATIENCE)).unwrap();
         let mut stream = StreamOwned::new(conn, sock);
-        let client = handshaken(&mut stream.conn, &mut stream.sock, Instant::now() + PATIENCE);
+        let client = handshaken(
+            &mut stream.conn,
+            &mut stream.sock,
+            Instant::now() + PATIENCE,
+        );
         assert_eq!(served.join().unwrap(), Ok(true), "the server's handshake");
-        assert!(matches!(client, Ok(true)), "the client's handshake: {client:?}");
+        assert!(
+            matches!(client, Ok(true)),
+            "the client's handshake: {client:?}"
+        );
         let _ = std::fs::remove_file(certificate);
         let _ = std::fs::remove_file(key);
     }
@@ -1564,8 +1660,14 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
             .with_no_client_auth();
         let name = ServerName::try_from("localhost").unwrap();
         let mut conn = ClientConnection::new(Arc::new(config), name).unwrap();
-        let mut io = Interrupting { io: std::io::Cursor::new(Vec::new()), left: usize::MAX };
+        let mut io = Interrupting {
+            io: std::io::Cursor::new(Vec::new()),
+            left: usize::MAX,
+        };
         let answer = handshaken(&mut conn, &mut io, Instant::now());
-        assert_eq!(answer.map_err(|e| e.kind()), Err(std::io::ErrorKind::TimedOut));
+        assert_eq!(
+            answer.map_err(|e| e.kind()),
+            Err(std::io::ErrorKind::TimedOut)
+        );
     }
 }

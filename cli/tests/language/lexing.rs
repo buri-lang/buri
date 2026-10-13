@@ -53,20 +53,27 @@ fn an_integer_wider_than_any_type_is_reported() {
 /// and when it begins with a keyword.
 #[test]
 fn a_word_is_read_whole_wherever_it_ends() {
-    for word in ["abcdefgh", "abcdefghi", "lets", "selfish", "Selfie", "fnord", "unreachables"] {
+    for word in [
+        "abcdefgh",
+        "abcdefghi",
+        "lets",
+        "selfish",
+        "Selfie",
+        "fnord",
+        "unreachables",
+    ] {
         let scratch = app(&format!(
             "from \"node\" import {{ NodeHost }};\n\n\
              export fn main(host: NodeHost): Result<(), Str> {{\n    .Ok(())\n}}\n{word}"
         ));
         let run = scratch.run(&["build", "//app"]);
         run.exits(1);
-        run.says(&format!("found `{word}`")).says("app/main.buri:6:1");
+        run.says(&format!("found `{word}`"))
+            .says("app/main.buri:6:1");
     }
     // A reserved word longer than eight bytes, last in the file.
-    let scratch = app(
-        "from \"node\" import { NodeHost };\n\n\
-         export fn main(host: NodeHost): Result<(), Str> {\n    .Ok(())\n}\nunreachable",
-    );
+    let scratch = app("from \"node\" import { NodeHost };\n\n\
+         export fn main(host: NodeHost): Result<(), Str> {\n    .Ok(())\n}\nunreachable");
     let run = scratch.run(&["build", "//app"]);
     run.exits(1);
     run.says("[reserved-word]").says("app/main.buri:6:1");

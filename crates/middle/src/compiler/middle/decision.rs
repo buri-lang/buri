@@ -67,12 +67,10 @@
 
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::typed::{
-    self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern,
-};
+use crate::compiler::semantics::typed::{self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern};
 use crate::compiler::semantics::types::{LocalId, Ty, TyConId};
-use crate::hash::Map;
 use crate::diagnostics::Invariant as _;
+use crate::hash::Map;
 
 /// Rewrites every `Match` whose arms discriminate on a scrutinee into a tree
 /// of discriminant tests.
@@ -166,7 +164,10 @@ fn group(locals: &mut Vec<typed::Local>, arms: &mut Vec<Arm>, ty: &Ty) {
     if arms.len() < 2 {
         return;
     }
-    let Some(heads) = arms.iter().map(|a| head(&a.pattern)).collect::<Option<Vec<Head>>>()
+    let Some(heads) = arms
+        .iter()
+        .map(|a| head(&a.pattern))
+        .collect::<Option<Vec<Head>>>()
     else {
         return;
     };
@@ -201,7 +202,10 @@ fn group(locals: &mut Vec<typed::Local>, arms: &mut Vec<Arm>, ty: &Ty) {
             groups.push(Vec::new());
             groups.len().saturating_sub(1)
         });
-        #[expect(clippy::indexing_slicing, reason = "`slot` was handed out as an index into `groups`")]
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "`slot` was handed out as an index into `groups`"
+        )]
         groups[slot].push(i);
     }
     // Nothing to hoist: one test is one test however it is emitted.
@@ -259,7 +263,10 @@ fn group(locals: &mut Vec<typed::Local>, arms: &mut Vec<Arm>, ty: &Ty) {
 
 /// Whether an arm, having matched its head, cannot then fail.
 fn total(a: &Arm) -> bool {
-    a.guard.is_none() && fields_of(&a.pattern).iter().all(|f| always_matches(&f.pattern))
+    a.guard.is_none()
+        && fields_of(&a.pattern)
+            .iter()
+            .all(|f| always_matches(&f.pattern))
 }
 
 fn fields_of(p: &Pattern) -> &[FieldPat] {
@@ -277,7 +284,9 @@ fn fields_of(p: &Pattern) -> &[FieldPat] {
 /// allocation this pass would be adding rather than removing.
 fn column(rows: &[&Arm]) -> Option<usize> {
     let first = rows.first()?;
-    let PatKind::Variant { .. } = &first.pattern.kind else { return None };
+    let PatKind::Variant { .. } = &first.pattern.kind else {
+        return None;
+    };
     let mut tested: Option<usize> = None;
     for row in rows {
         for f in fields_of(&row.pattern) {
@@ -307,7 +316,9 @@ fn column(rows: &[&Arm]) -> Option<usize> {
     // The collapsed arm keeps only the column's pattern from each row, so a
     // name a row binds in any other field would be lost (buri-lang/buri#239).
     let elsewhere = |row: &&Arm| {
-        fields_of(&row.pattern).iter().any(|f| f.index != column && binds_any(&f.pattern))
+        fields_of(&row.pattern)
+            .iter()
+            .any(|f| f.index != column && binds_any(&f.pattern))
     };
     if rows.iter().any(elsewhere) {
         return None;
@@ -340,8 +351,7 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
         _ => None,
     }
     .or_ice("a collapsed group tests a variant");
-    let (head_ty, head_span, arm_span) =
-        (first.pattern.ty, first.pattern.span, first.span);
+    let (head_ty, head_span, arm_span) = (first.pattern.ty, first.pattern.span, first.span);
 
     // Each row's pattern on the column, moved out of it. A row that does not
     // name the column matches anything there.
@@ -354,22 +364,39 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
         match found {
             Some(f) => std::mem::replace(
                 &mut f.pattern,
-                Pattern { kind: PatKind::Wild, ty: Ty::UNIT, span },
+                Pattern {
+                    kind: PatKind::Wild,
+                    ty: Ty::UNIT,
+                    span,
+                },
             ),
-            None => Pattern { kind: PatKind::Wild, ty: head_ty, span },
+            None => Pattern {
+                kind: PatKind::Wild,
+                ty: head_ty,
+                span,
+            },
         }
     };
     let mut arms: Vec<Arm> = Vec::with_capacity(rows.len());
     for mut row in rows {
         let pattern = sub(&mut row);
-        arms.push(Arm { pattern, guard: row.guard, body: row.body, span: row.span });
+        arms.push(Arm {
+            pattern,
+            guard: row.guard,
+            body: row.body,
+            span: row.span,
+        });
     }
     // The fresh local takes its type from the pattern that was matching it,
     // which is the one place a type is available without the type tables.
     let bound = &arms.first()?.pattern;
     let (bound_ty, bound_span) = (bound.ty, bound.span);
     let held = LocalId(locals.len() as u32);
-    locals.push(typed::Local { name: Name::new("col"), ty: bound_ty, span: bound_span });
+    locals.push(typed::Local {
+        name: Name::new("col"),
+        ty: bound_ty,
+        span: bound_span,
+    });
 
     let mut body = Expr::new(
         ExprKind::Match {
@@ -391,7 +418,10 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
                 fields: vec![FieldPat {
                     index: column,
                     pattern: Pattern {
-                        kind: PatKind::Bind { local: held, sub: None },
+                        kind: PatKind::Bind {
+                            local: held,
+                            sub: None,
+                        },
                         ty: bound_ty,
                         span: bound_span,
                     },
@@ -409,8 +439,8 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
 #[cfg(test)]
 mod tests {
     use super::run;
-    use crate::compiler::semantics::name::Name;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
+    use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{
         Arm, Expr, ExprKind, FieldPat, Local, Magnitude, PatKind, Pattern,
     };
@@ -425,7 +455,11 @@ mod tests {
     }
 
     fn pat(kind: PatKind) -> Pattern {
-        Pattern { kind, ty: Ty::UNIT, span: Span::default() }
+        Pattern {
+            kind,
+            ty: Ty::UNIT,
+            span: Span::default(),
+        }
     }
 
     /// `.V(sub)`, the one-field variant every case here is written over.
@@ -433,12 +467,20 @@ mod tests {
         pat(PatKind::Variant {
             con: CON,
             variant: v,
-            fields: vec![FieldPat { index: 0, pattern: pat(sub) }],
+            fields: vec![FieldPat {
+                index: 0,
+                pattern: pat(sub),
+            }],
         })
     }
 
     fn arm(pattern: Pattern, guard: Option<Expr>, body: u128) -> Arm {
-        Arm { pattern, guard, body: e(ExprKind::Int(Magnitude::new(body), false)), span: Span::default() }
+        Arm {
+            pattern,
+            guard,
+            body: e(ExprKind::Int(Magnitude::new(body), false)),
+            span: Span::default(),
+        }
     }
 
     /// One function whose whole body is the match under test.
@@ -497,7 +539,10 @@ mod tests {
         ]);
         run(&mut p);
         assert_eq!(arms_of(&p).len(), 2);
-        assert!(matches!(arms_of(&p)[0].pattern.kind, PatKind::Variant { variant: 0, .. }));
+        assert!(matches!(
+            arms_of(&p)[0].pattern.kind,
+            PatKind::Variant { variant: 0, .. }
+        ));
     }
 
     /// Two arms on one constructor become one test of it and a match on the
@@ -513,10 +558,16 @@ mod tests {
         let arms = arms_of(&p);
         assert_eq!(arms.len(), 2);
         // The group's own arm binds the column rather than testing it.
-        let PatKind::Variant { variant: 0, fields, .. } = &arms[0].pattern.kind else {
+        let PatKind::Variant {
+            variant: 0, fields, ..
+        } = &arms[0].pattern.kind
+        else {
             panic!("the group tests its constructor")
         };
-        assert!(matches!(fields[0].pattern.kind, PatKind::Bind { sub: None, .. }));
+        assert!(matches!(
+            fields[0].pattern.kind,
+            PatKind::Bind { sub: None, .. }
+        ));
         // And the two rows are inside, in the order they were written.
         let ExprKind::Match { arms: inner, .. } = &arms[0].body.kind else {
             panic!("the column is a match")
@@ -541,7 +592,10 @@ mod tests {
         run(&mut p);
         let arms = arms_of(&p);
         assert_eq!(arms.len(), 2);
-        assert!(arms[0].guard.is_none(), "the group's own test is not guarded");
+        assert!(
+            arms[0].guard.is_none(),
+            "the group's own test is not guarded"
+        );
         let ExprKind::Match { arms: inner, .. } = &arms[0].body.kind else {
             panic!("the column is a match")
         };
@@ -561,7 +615,10 @@ mod tests {
         ]);
         run(&mut p);
         assert_eq!(arms_of(&p).len(), 3);
-        assert!(matches!(arms_of(&p)[0].pattern.kind, PatKind::Variant { .. }));
+        assert!(matches!(
+            arms_of(&p)[0].pattern.kind,
+            PatKind::Variant { .. }
+        ));
     }
 
     /// An arm that matches anything hides every arm after it, and this pass
@@ -584,7 +641,10 @@ mod tests {
     fn an_or_pattern_head_is_declined() {
         let mut p = matched(vec![
             arm(
-                pat(PatKind::Or(vec![variant(0, PatKind::Wild), variant(1, PatKind::Wild)])),
+                pat(PatKind::Or(vec![
+                    variant(0, PatKind::Wild),
+                    variant(1, PatKind::Wild),
+                ])),
                 None,
                 10,
             ),

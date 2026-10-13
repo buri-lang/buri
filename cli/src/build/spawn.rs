@@ -128,7 +128,9 @@ pub fn resolve(program: &str) -> Option<PathBuf> {
         return std::fs::canonicalize(candidate).ok();
     }
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|d| d.join(program)).find(|p| p.is_file())
+    std::env::split_paths(&path)
+        .map(|d| d.join(program))
+        .find(|p| p.is_file())
 }
 
 /// Held shared while an executable is open for writing, and alone while a
@@ -208,16 +210,23 @@ const REAPER: &str = "while read -r _; do :; done; kill -s KILL 0";
 /// signal handler would miss `SIGKILL`, and macOS has no parent-death signal.
 fn reaper() -> std::io::Result<i32> {
     use std::os::unix::process::CommandExt as _;
-    static STARTED: std::sync::OnceLock<Option<(i32, std::process::ChildStdin)>> = std::sync::OnceLock::new();
+    static STARTED: std::sync::OnceLock<Option<(i32, std::process::ChildStdin)>> =
+        std::sync::OnceLock::new();
     let started = STARTED.get_or_init(|| {
         let mut shell = Command::new("/bin/sh");
         shell.args(["-c", REAPER]).process_group(0);
-        shell.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null());
+        shell
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
         // Alone, so no process started beside it inherits the write end.
         let mut child = start_alone(&mut shell).ok()?;
         Some((i32::try_from(child.id()).ok()?, child.stdin.take()?))
     });
-    started.as_ref().map(|(group, _)| *group).ok_or_else(|| std::io::Error::other("cannot start /bin/sh"))
+    started
+        .as_ref()
+        .map(|(group, _)| *group)
+        .ok_or_else(|| std::io::Error::other("cannot start /bin/sh"))
 }
 
 fn start_holding(command: &mut Command, alone: bool) -> std::io::Result<Child> {
@@ -247,7 +256,10 @@ fn start_holding(command: &mut Command, alone: bool) -> std::io::Result<Child> {
 
 /// `Command::output` through [`start`]: empty stdin, both outputs captured.
 pub fn output(command: &mut Command) -> std::io::Result<Output> {
-    command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     finish(start(command)?)
 }
 
@@ -269,10 +281,18 @@ pub fn finish(mut child: Child) -> std::io::Result<Output> {
         bytes
     });
     let mut stdout = Vec::new();
-    child.stdout.take().expect("standard output is piped").read_to_end(&mut stdout)?;
+    child
+        .stdout
+        .take()
+        .expect("standard output is piped")
+        .read_to_end(&mut stdout)?;
     let stderr = reading_err.join().unwrap_or_default();
     crate::profile::reaped(child.id());
-    Ok(Output { status: child.wait()?, stdout, stderr })
+    Ok(Output {
+        status: child.wait()?,
+        stdout,
+        stderr,
+    })
 }
 
 #[cfg(test)]
@@ -284,22 +304,26 @@ mod tests {
         // A change to the runtime that renames one of these leaves the guard
         // finding nothing and the clock running, which is exactly the silent
         // failure this names.
-        for name in
-            [
-                "Date.now",
-                "$host_HostClock_nowMilliseconds",
-                "$host_HostClock_sleepMilliseconds",
-                "$host_HostClock_monotonicNanoseconds",
-                "Math.random",
-            ]
-        {
-            assert!(FIXED_CLOCK_JS.contains(name), "the fixed clock does not freeze {name}");
+        for name in [
+            "Date.now",
+            "$host_HostClock_nowMilliseconds",
+            "$host_HostClock_sleepMilliseconds",
+            "$host_HostClock_monotonicNanoseconds",
+            "Math.random",
+        ] {
+            assert!(
+                FIXED_CLOCK_JS.contains(name),
+                "the fixed clock does not freeze {name}"
+            );
         }
     }
 
     #[test]
     fn an_absolute_program_resolves_to_itself_and_a_missing_one_to_nothing() {
-        assert_eq!(resolve("/usr/bin/true"), Some(PathBuf::from("/usr/bin/true")));
+        assert_eq!(
+            resolve("/usr/bin/true"),
+            Some(PathBuf::from("/usr/bin/true"))
+        );
         assert_eq!(resolve("/no/such/program"), None);
         assert_eq!(resolve("buri-does-not-ship-this"), None);
     }
@@ -310,9 +334,15 @@ mod tests {
     #[test]
     fn a_spawned_action_carries_no_inherited_variable() {
         let cmd = command("/usr/bin/true").expect("/usr/bin/true resolves");
-        let vars: Vec<String> =
-            cmd.get_envs().filter_map(|(k, v)| v.map(|_| k.to_string_lossy().to_string())).collect();
-        assert_eq!(vars.len(), 2, "an action's environment holds more than the clock: {vars:?}");
+        let vars: Vec<String> = cmd
+            .get_envs()
+            .filter_map(|(k, v)| v.map(|_| k.to_string_lossy().to_string()))
+            .collect();
+        assert_eq!(
+            vars.len(),
+            2,
+            "an action's environment holds more than the clock: {vars:?}"
+        );
         assert!(vars.contains(&"TZ".to_string()));
         assert!(vars.contains(&"SOURCE_DATE_EPOCH".to_string()));
     }

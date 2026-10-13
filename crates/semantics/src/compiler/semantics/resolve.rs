@@ -24,15 +24,17 @@ use crate::compiler::semantics::layered::{IdMap, Layered};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
-use crate::diagnostics::{counted, were_given, Diagnostic, Diagnostics, FileId, Invariant as _, Span, SecondarySpan};
+use crate::diagnostics::{
+    counted, were_given, Diagnostic, Diagnostics, FileId, Invariant as _, SecondarySpan, Span,
+};
+use crate::hash::{Map as HashMap, Set as HashSet};
 use crate::parsing::flat::{self, TypeId};
 use crate::parsing::tree;
-use crate::hash::{Map as HashMap, Set as HashSet};
 use std::collections::BTreeSet;
 
-mod platforms;
 mod constructible;
 mod endless;
+mod platforms;
 pub use platforms::{declared_host, is_effect_package_module, is_effect_package_path, js_structs};
 
 /// What a name in scope refers to.
@@ -58,7 +60,12 @@ pub enum Sym {
 ///
 /// `None` for every compilation that did not, which is every program that is
 /// not a user interface.
-pub fn own_type(loaded: &Loaded, scopes: &Layered<ModuleScope>, module: &str, name: &str) -> Option<TyConId> {
+pub fn own_type(
+    loaded: &Loaded,
+    scopes: &Layered<ModuleScope>,
+    module: &str,
+    name: &str,
+) -> Option<TyConId> {
     match own_sym(loaded, scopes, module, name)? {
         Sym::Ty(id) => Some(*id),
         _ => None,
@@ -67,14 +74,24 @@ pub fn own_type(loaded: &Loaded, scopes: &Layered<ModuleScope>, module: &str, na
 
 /// One module's own function, by name, when this compilation loaded the
 /// module.
-pub fn own_fn(loaded: &Loaded, scopes: &Layered<ModuleScope>, module: &str, name: &str) -> Option<FnId> {
+pub fn own_fn(
+    loaded: &Loaded,
+    scopes: &Layered<ModuleScope>,
+    module: &str,
+    name: &str,
+) -> Option<FnId> {
     match own_sym(loaded, scopes, module, name)? {
         Sym::Fn(id) => Some(*id),
         _ => None,
     }
 }
 
-fn own_sym<'s>(loaded: &Loaded, scopes: &'s Layered<ModuleScope>, module: &str, name: &str) -> Option<&'s Sym> {
+fn own_sym<'s>(
+    loaded: &Loaded,
+    scopes: &'s Layered<ModuleScope>,
+    module: &str,
+    name: &str,
+) -> Option<&'s Sym> {
     scopes.get(loaded.find(module)?.index())?.own.get(name)
 }
 
@@ -105,18 +122,28 @@ impl ModuleScope {
     /// What `name` means unqualified inside this module: an explicit import
     /// first, then the module's own declaration, then the prelude.
     pub fn name(&self, name: &str) -> Option<&Sym> {
-        self.imported.get(name).or_else(|| self.own.get(name)).or_else(|| self.prelude.get(name))
+        self.imported
+            .get(name)
+            .or_else(|| self.own.get(name))
+            .or_else(|| self.prelude.get(name))
     }
 
     /// Every name visible unqualified inside this module, once each, with what
     /// [`ModuleScope::name`] says it means. In no particular order.
     pub fn visible(&self) -> impl Iterator<Item = (&str, &Sym)> {
-        let own = self.own.iter().filter(|(k, _)| !self.imported.contains_key(*k));
+        let own = self
+            .own
+            .iter()
+            .filter(|(k, _)| !self.imported.contains_key(*k));
         let prelude = self
             .prelude
             .iter()
             .filter(|(k, _)| !self.imported.contains_key(*k) && !self.own.contains_key(*k));
-        self.imported.iter().chain(own).chain(prelude).map(|(k, s)| (k.as_str(), s))
+        self.imported
+            .iter()
+            .chain(own)
+            .chain(prelude)
+            .map(|(k, s)| (k.as_str(), s))
     }
 
     /// Whether `name` is what a failed import would have bound here, which
@@ -219,8 +246,20 @@ pub struct Checked {
 /// tell a method that is missing because nobody wrote it from one that is
 /// missing because the type did not derive the trait it comes from.
 pub const DERIVABLE: &[&str] = &[
-    "Equal", "Ordered", "Show", "Hash", "ToJson", "FromJson", "Add", "Subtract", "Multiply", "Divide", "Remainder", "Negate",
-    "Flags", "Index",
+    "Equal",
+    "Ordered",
+    "Show",
+    "Hash",
+    "ToJson",
+    "FromJson",
+    "Add",
+    "Subtract",
+    "Multiply",
+    "Divide",
+    "Remainder",
+    "Negate",
+    "Flags",
+    "Index",
 ];
 
 /// The module `Flags` is declared in. A `derive Flags` changes how the type is
@@ -422,7 +461,10 @@ impl Walked {
     }
 
     /// The constants the base didn't walk, in id order.
-    pub fn unsettled_constants<'m>(&self, consts: &'m ConstMap) -> impl Iterator<Item = (ConstId, &'m typed::Expr)> {
+    pub fn unsettled_constants<'m>(
+        &self,
+        consts: &'m ConstMap,
+    ) -> impl Iterator<Item = (ConstId, &'m typed::Expr)> {
         consts.iter_from(self.consts_from)
     }
 
@@ -432,7 +474,8 @@ impl Walked {
         tables: &'m Tables,
         bodies: &'m BodyMap,
     ) -> impl Iterator<Item = (FnId, &'m std::sync::Arc<typed::Body>)> {
-        self.unsettled(bodies).filter(|(id, _)| self.wants(tables.fn_info(*id).span.file))
+        self.unsettled(bodies)
+            .filter(|(id, _)| self.wants(tables.fn_info(*id).span.file))
     }
 
     /// The constants a pass walks, in id order.
@@ -441,7 +484,9 @@ impl Walked {
         tables: &'m Tables,
         consts: &'m ConstMap,
     ) -> impl Iterator<Item = (ConstId, &'m typed::Expr)> {
-        consts.iter_from(self.consts_from).filter(|(id, _)| self.wants(tables.const_(*id).span.file))
+        consts
+            .iter_from(self.consts_from)
+            .filter(|(id, _)| self.wants(tables.const_(*id).span.file))
     }
 
     fn wants(&self, file: FileId) -> bool {
@@ -581,8 +626,14 @@ impl<'a> Checker<'a> {
             );
             // What the pass rewrote is what it wrote into its own layer.
             styled = crate::compiler::semantics::styles::Styled {
-                bodies: bodies.written().map(|(id, body)| (id, std::sync::Arc::clone(body))).collect(),
-                consts: consts.written().map(|(id, init)| (id, init.clone())).collect(),
+                bodies: bodies
+                    .written()
+                    .map(|(id, body)| (id, std::sync::Arc::clone(body)))
+                    .collect(),
+                consts: consts
+                    .written()
+                    .map(|(id, init)| (id, init.clone()))
+                    .collect(),
                 ..found
             };
         }
@@ -632,7 +683,9 @@ impl<'a> Checker<'a> {
     /// How many constants and `context` declarations the base checked: the
     /// ones whose ids come first.
     pub(crate) fn base_counts(&self) -> (usize, usize) {
-        self.base.map_or((0, 0), |b| (b.tables.consts.len(), b.tables.ctx_decls.len()))
+        self.base.map_or((0, 0), |b| {
+            (b.tables.consts.len(), b.tables.ctx_decls.len())
+        })
     }
 
     /// Narrows step 5 to the bodies written in one set of files.
@@ -675,9 +728,17 @@ impl<'a> Checker<'a> {
         );
         let (styles, style_sources) = match settled {
             Some(base) => found.after(&base.styled, &mut self.bodies, &mut self.const_values),
-            None => (found.const_rules.into_iter().chain(found.body_rules).collect(), found.sources),
+            None => (
+                found
+                    .const_rules
+                    .into_iter()
+                    .chain(found.body_rules)
+                    .collect(),
+                found.sources,
+            ),
         };
-        let classify_fns = crate::compiler::semantics::styles::classifiers(self.loaded, &self.scopes);
+        let classify_fns =
+            crate::compiler::semantics::styles::classifiers(self.loaded, &self.scopes);
         // `ui/theme`'s one opaque type, looked up the way `styles::run` looks
         // up `Style`: by module path in the loaded set, then by name in that
         // module's own scope. `None` for every compilation that did not load
@@ -726,7 +787,11 @@ impl<'a> Checker<'a> {
 
     /// The two passes after checking that only report, and answer which
     /// functions wait on a `load` — starting from `waiting`, the base's answer.
-    fn check_icons_and_builders(&mut self, walked: &Walked, waiting: &HashSet<FnId>) -> HashSet<FnId> {
+    fn check_icons_and_builders(
+        &mut self,
+        walked: &Walked,
+        waiting: &HashSet<FnId>,
+    ) -> HashSet<FnId> {
         // Before extraction, so the folder reads bodies nothing has rewritten.
         crate::compiler::semantics::icons::run(
             self.loaded,
@@ -794,17 +859,24 @@ impl<'a> Checker<'a> {
     /// `.bind(…)` for each `{placeholder}` the page names.
     pub fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
         self.diags.items.push(Diagnostic::templated(code, span));
-        self.diags.items.last_mut().or_ice("the diagnostic just pushed is the last one")
+        self.diags
+            .items
+            .last_mut()
+            .or_ice("the diagnostic just pushed is the last one")
     }
 
     /// One module's scope. `new` sizes this table to `loaded.modules`, which is
     /// the same table every `ModuleId` indexes, so the id is always in range.
     pub fn scope(&self, module: ModuleId) -> &ModuleScope {
-        self.scopes.get(module.index()).or_ice("every ModuleId indexes the loaded module list")
+        self.scopes
+            .get(module.index())
+            .or_ice("every ModuleId indexes the loaded module list")
     }
 
     fn scope_mut(&mut self, module: ModuleId) -> &mut ModuleScope {
-        self.scopes.get_mut(module.index()).or_ice("every ModuleId indexes the loaded module list")
+        self.scopes
+            .get_mut(module.index())
+            .or_ice("every ModuleId indexes the loaded module list")
     }
 
     /// The borrow is `'a`, not `&self` — the modules live in `loaded`, which
@@ -885,7 +957,10 @@ impl<'a> Checker<'a> {
     }
 
     fn collect_item(&mut self, module: ModuleId, index: u32, item: &tree::Item) {
-        let ast_ref = AstRef::Item { module, item: index };
+        let ast_ref = AstRef::Item {
+            module,
+            item: index,
+        };
         let t = self.tree(module);
         match item {
             tree::Item::Struct(d) => {
@@ -1162,16 +1237,20 @@ impl<'a> Checker<'a> {
         let Some(from) = self.loaded.find(&imp.path) else {
             let names: Vec<String> = match &imp.clause {
                 tree::ImportClause::Namespace(alias) => vec![t.name(*alias).to_string()],
-                tree::ImportClause::Named(specs) => {
-                    t.list(*specs).iter().map(|s| t.name(s.local()).to_string()).collect()
-                }
+                tree::ImportClause::Named(specs) => t
+                    .list(*specs)
+                    .iter()
+                    .map(|s| t.name(s.local()).to_string())
+                    .collect(),
             };
             self.scope_mut(module).failed.extend(names);
             return;
         };
         match &imp.clause {
             tree::ImportClause::Namespace(alias) => {
-                self.scope_mut(module).namespaces.insert(t.name(*alias).to_string(), from);
+                self.scope_mut(module)
+                    .namespaces
+                    .insert(t.name(*alias).to_string(), from);
             }
             tree::ImportClause::Named(specs) => {
                 let platform = self.loaded.module(from).path.clone();
@@ -1250,7 +1329,9 @@ impl<'a> Checker<'a> {
     }
 
     fn apply_reexport(&mut self, module: ModuleId, re: &tree::ReExport) {
-        let Some(from) = self.loaded.find(&re.path) else { return };
+        let Some(from) = self.loaded.find(&re.path) else {
+            return;
+        };
         let t = self.tree(module);
         for spec in t.list(re.specs) {
             let Some(sym) = self.lookup_export(from, t.name(spec.name)) else {
@@ -1260,7 +1341,9 @@ impl<'a> Checker<'a> {
                 // not there, and only the first is answered by `export`.
                 let note;
                 let fix = if self.scope(from).own.contains_key(&name) {
-                    note = Some(format!("`{name}` is declared in \"{path}\" but not exported"));
+                    note = Some(format!(
+                        "`{name}` is declared in \"{path}\" but not exported"
+                    ));
                     format!(
                         "add `export` to `{name}`'s declaration in \"{path}\", or drop it from \
                          this list"
@@ -1277,7 +1360,8 @@ impl<'a> Checker<'a> {
                     .bind("path", path)
                     .bind("name", name)
                     .fix(fix);
-                d.notes.push("a re-export may name only what its module path exports".into());
+                d.notes
+                    .push("a re-export may name only what its module path exports".into());
                 if let Some(n) = note {
                     d.notes.push(n);
                 }
@@ -1318,7 +1402,9 @@ impl<'a> Checker<'a> {
         }
         self.resolving.pop();
         if let Some(sym) = &found {
-            self.scope_mut(module).exports.insert(name.to_string(), sym.clone());
+            self.scope_mut(module)
+                .exports
+                .insert(name.to_string(), sym.clone());
         }
         found
     }
@@ -1342,7 +1428,9 @@ impl<'a> Checker<'a> {
             true => format!("use what \"{path}\" exports instead; `buri docs {path}` lists it"),
             false => format!("add `export` to `{name}`'s declaration in \"{path}\", if it is meant to be part of the API"),
         };
-        self.templated("private-to-module", span).bind("declaration", format!("`{name}`")).fix(fix);
+        self.templated("private-to-module", span)
+            .bind("declaration", format!("`{name}`"))
+            .fix(fix);
     }
 
     /// The path a file imports a module by: a `lib.buri` by its directory.
@@ -1352,8 +1440,12 @@ impl<'a> Checker<'a> {
     }
 
     pub(crate) fn nearest_export(&self, module: ModuleId, name: &str) -> Option<String> {
-        let names: Vec<&str> =
-            self.scope(module).exports.keys().map(|s| s.as_str()).collect();
+        let names: Vec<&str> = self
+            .scope(module)
+            .exports
+            .keys()
+            .map(|s| s.as_str())
+            .collect();
         crate::build::buildfile::nearest(name, &names).map(|s| s.to_string())
     }
 
@@ -1391,10 +1483,15 @@ impl<'a> Checker<'a> {
             .bind("path", path.clone())
             .bind("name", name)
             .note(format!("the module exports {listed}"))
-            .fix(format!("correct the member name, or check `buri docs {path}`"));
+            .fix(format!(
+                "correct the member name, or check `buri docs {path}`"
+            ));
         if let Some(n) = near {
             d.notes.push(format!("did you mean `{n}`?"));
-            d.fix(crate::diagnostics::candidate_fix(&n, &Self::where_the_surface_is(&path)));
+            d.fix(crate::diagnostics::candidate_fix(
+                &n,
+                &Self::where_the_surface_is(&path),
+            ));
         }
     }
 
@@ -1426,7 +1523,8 @@ impl<'a> Checker<'a> {
                         self.tables.tycon_mut(con).generics = generics.clone();
                         let def = match &d.body {
                             tree::StructBody::Record(fields) => TyDef::Struct {
-                                fields: t.list(*fields)
+                                fields: t
+                                    .list(*fields)
                                     .iter()
                                     .map(|f| FieldInfo {
                                         name: t.name(f.name).to_string(),
@@ -1438,7 +1536,8 @@ impl<'a> Checker<'a> {
                                 record: true,
                             },
                             tree::StructBody::Tuple(fields) => TyDef::Struct {
-                                fields: t.list(*fields)
+                                fields: t
+                                    .list(*fields)
                                     .iter()
                                     .enumerate()
                                     .map(|(i, f)| FieldInfo {
@@ -1488,7 +1587,8 @@ impl<'a> Checker<'a> {
                                     // A payload field has no `export` of its
                                     // own; the enum's is the whole answer.
                                     tree::VariantPayload::Record(fs) => (
-                                        t.list(*fs).iter()
+                                        t.list(*fs)
+                                            .iter()
                                             .map(|f| FieldInfo {
                                                 name: t.name(f.name).to_string(),
                                                 ty: self.elaborate(id, &generics, f.ty),
@@ -1559,17 +1659,13 @@ impl<'a> Checker<'a> {
                         // context, or names one `env`, is the same mistake
                         // wherever the body ends up being written.
                         let count = self.tables.trait_(tid).methods.len();
-                        self.pending_ctx_rules.extend(
-                            (0..count).map(|slot| PendingCtxRule::Signature(tid, slot)),
-                        );
+                        self.pending_ctx_rules
+                            .extend((0..count).map(|slot| PendingCtxRule::Signature(tid, slot)));
                     }
                     tree::Item::Fn(d) => {
-                        let sym = self
-                            .scope(id)
-                            .own
-                            .get(t.name(d.name))
-                            .cloned()
-                            .or_ice("`collect_declarations` declared every function under its name");
+                        let sym = self.scope(id).own.get(t.name(d.name)).cloned().or_ice(
+                            "`collect_declarations` declared every function under its name",
+                        );
                         // A refused redeclaration was never added, and the
                         // name is the first declaration's.
                         let Sym::Fn(fid) = sym else { continue };
@@ -1595,19 +1691,16 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn elaborate_fn_signature(
-        &mut self,
-        module: ModuleId,
-        item: u32,
-        fid: FnId,
-        d: &tree::FnDecl,
-    ) {
+    fn elaborate_fn_signature(&mut self, module: ModuleId, item: u32, fid: FnId, d: &tree::FnDecl) {
         // The shells `collect_item` named are completed in place: only their
         // bounds were missing.
         let mut generics = std::mem::take(&mut self.tables.fn_info_mut(fid).generics);
         let written = self.tree(module).list(d.generics);
         if !written.is_empty() {
-            for (g, p) in std::sync::Arc::make_mut(&mut generics).iter_mut().zip(written) {
+            for (g, p) in std::sync::Arc::make_mut(&mut generics)
+                .iter_mut()
+                .zip(written)
+            {
                 g.bounds = self.bounds_of(module, p);
             }
         }
@@ -1615,8 +1708,10 @@ impl<'a> Checker<'a> {
         let ret = self.elaborate(module, &generics, d.ret);
         // A method is declared inside an `impl` block for its type, so a
         // `self` parameter at the top level has no receiver type to attach to.
-        let stray_self =
-            params.first().filter(|p| p.role == ParamRole::SelfParam).map(|p| p.span);
+        let stray_self = params
+            .first()
+            .filter(|p| p.role == ParamRole::SelfParam)
+            .map(|p| p.span);
         let info = self.tables.fn_info_mut(fid);
         info.generics = generics;
         info.params = params;
@@ -1627,7 +1722,8 @@ impl<'a> Checker<'a> {
             self.templated("method-outside-impl", span).bind("name", n);
         }
 
-        self.pending_ctx_rules.push(PendingCtxRule::Free(fid, module, item));
+        self.pending_ctx_rules
+            .push(PendingCtxRule::Free(fid, module, item));
         self.record_intrinsic(fid, module, d);
     }
 
@@ -1679,12 +1775,10 @@ impl<'a> Checker<'a> {
                 (&info.params, &info.generics)
             }
             PendingCtxRule::Signature(trait_id, slot) => {
-                let m = self
-                    .tables
-                    .trait_(trait_id)
-                    .methods
-                    .get(slot)
-                    .or_ice("a trait's slots are minted from the methods its declaration wrote");
+                let m =
+                    self.tables.trait_(trait_id).methods.get(slot).or_ice(
+                        "a trait's slots are minted from the methods its declaration wrote",
+                    );
                 (m.params.as_slice(), m.generics.as_slice())
             }
         }
@@ -1702,7 +1796,10 @@ impl<'a> Checker<'a> {
         }
         let name = self.tables.fn_info(fid).name.clone();
         self.entries.insert(name.clone(), fid);
-        self.module_entries.entry(module).or_default().insert(name.clone(), fid);
+        self.module_entries
+            .entry(module)
+            .or_default()
+            .insert(name.clone(), fid);
         if name == "main" {
             self.entry = Some(fid);
         }
@@ -1764,7 +1861,10 @@ impl<'a> Checker<'a> {
         // function to that platform's declaration instead.
         let mut custom = false;
         if let (Some(ws), Some(pkg)) = (self.ws, self.module(module).pkg) {
-            let target = TargetId { package: pkg, kind: RuleKind::Binary };
+            let target = TargetId {
+                package: pkg,
+                kind: RuleKind::Binary,
+            };
             for entry in ws.declared_entries(target) {
                 outputs = true;
                 if entry.custom.is_some() {
@@ -1774,7 +1874,8 @@ impl<'a> Checker<'a> {
                     continue;
                 }
                 // `native` is two platforms here, Linux and macOS, and one host.
-                let same = |p: &Option<Platform>| p.map(Platform::slug) == Some(entry.platform.slug());
+                let same =
+                    |p: &Option<Platform>| p.map(Platform::slug) == Some(entry.platform.slug());
                 if entry.name == name && !declared.iter().any(same) {
                     declared.push(Some(entry.platform));
                 }
@@ -1806,8 +1907,13 @@ impl<'a> Checker<'a> {
         if name == "main" {
             return true;
         }
-        let (Some(ws), Some(pkg)) = (self.ws, self.module(module).pkg) else { return false };
-        let target = TargetId { package: pkg, kind: RuleKind::Binary };
+        let (Some(ws), Some(pkg)) = (self.ws, self.module(module).pkg) else {
+            return false;
+        };
+        let target = TargetId {
+            package: pkg,
+            kind: RuleKind::Binary,
+        };
         // An output whose `function` names nothing the binary exports is
         // `unknown-entry-function`. The function named after the platform's
         // entry stands in for it here, so its context isn't reported as well.
@@ -1824,9 +1930,17 @@ impl<'a> Checker<'a> {
     /// binary's entry module.
     fn fills_custom_entry(&self, module: ModuleId, name: &str) -> bool {
         let ws = self.ws.or_ice("a build of one output reads a workspace");
-        let pkg = self.module(module).pkg.or_ice("a build's entry module is its binary's");
-        let target = TargetId { package: pkg, kind: RuleKind::Binary };
-        ws.declared_entries(target).iter().any(|e| e.name == name && e.custom.is_some())
+        let pkg = self
+            .module(module)
+            .pkg
+            .or_ice("a build's entry module is its binary's");
+        let target = TargetId {
+            package: pkg,
+            kind: RuleKind::Binary,
+        };
+        ws.declared_entries(target)
+            .iter()
+            .any(|e| e.name == name && e.custom.is_some())
     }
 
     /// Whether `module` exports a free function called `name`.
@@ -1839,7 +1953,11 @@ impl<'a> Checker<'a> {
 
     /// What `main` is held to where no output names it: the one shape every
     /// analysis expects, a documentation snippet included.
-    fn default_entry_platform(&self, name: &str, platform: Option<Platform>) -> Vec<Option<Platform>> {
+    fn default_entry_platform(
+        &self,
+        name: &str,
+        platform: Option<Platform>,
+    ) -> Vec<Option<Platform>> {
         match name {
             "main" => vec![platform],
             _ => Vec::new(),
@@ -1866,10 +1984,19 @@ impl<'a> Checker<'a> {
     }
 
     /// [`Checker::check_declared_entries`] for one binary's entry module.
-    fn check_declared_entries_of(&mut self, ws: &'a dyn Packages, module: ModuleId, pkg: PackageId) {
-        let target = TargetId { package: pkg, kind: RuleKind::Binary };
+    fn check_declared_entries_of(
+        &mut self,
+        ws: &'a dyn Packages,
+        module: ModuleId,
+        pkg: PackageId,
+    ) {
+        let target = TargetId {
+            package: pkg,
+            kind: RuleKind::Binary,
+        };
         let own = self.module_entries.get(&module);
-        let mut exported: Vec<String> = own.map(|m| m.keys().cloned().collect()).unwrap_or_default();
+        let mut exported: Vec<String> =
+            own.map(|m| m.keys().cloned().collect()).unwrap_or_default();
         exported.sort();
         let label = ws.package(pkg).label();
         let mut said: Vec<String> = Vec::new();
@@ -1900,8 +2027,12 @@ impl<'a> Checker<'a> {
                 ));
             }
             match exported.is_empty() {
-                true => d.notes.push("`main.buri` exports no function at all".into()),
-                false => d.notes.push(format!("`main.buri` exports: {}", exported.join(", "))),
+                true => d
+                    .notes
+                    .push("`main.buri` exports no function at all".into()),
+                false => d
+                    .notes
+                    .push(format!("`main.buri` exports: {}", exported.join(", "))),
             }
         }
     }
@@ -2101,7 +2232,9 @@ impl<'a> Checker<'a> {
     /// The bundled platform and host type `ty` is, when it is one of the three
     /// hosts the bundled platforms declare.
     fn bundled_host(&self, ty: &Ty) -> Option<(&'static str, &'static str)> {
-        let TyKind::Con(con, args) = ty.kind() else { return None };
+        let TyKind::Con(con, args) = ty.kind() else {
+            return None;
+        };
         if !args.is_empty() {
             return None;
         }
@@ -2122,7 +2255,9 @@ impl<'a> Checker<'a> {
         // this cannot mark a fenced signature as something the runtime is
         // expected to supply. Anything else bodyless was already reported by
         // the parser.
-        if crate::compiler::standard_library::find(&path).is_none() && !self.is_platform_surface(module) {
+        if crate::compiler::standard_library::find(&path).is_none()
+            && !self.is_platform_surface(module)
+        {
             return;
         }
         self.tables.fn_info_mut(fid).intrinsic = true;
@@ -2159,9 +2294,13 @@ impl<'a> Checker<'a> {
                     if self.type_answered(module, *b) {
                         continue;
                     }
-                    let shown = t.type_head(*b).map_or_else(|| crate::formatting::type_text(t, *b), str::to_string);
+                    let shown = t
+                        .type_head(*b)
+                        .map_or_else(|| crate::formatting::type_text(t, *b), str::to_string);
                     let at = t.type_span(*b);
-                    let d = self.templated("bound-not-trait", at).bind("name", shown.clone());
+                    let d = self
+                        .templated("bound-not-trait", at)
+                        .bind("name", shown.clone());
                     d.fix(format!(
                         "name a declared trait or effect, or declare `{shown}` as one"
                     ));
@@ -2174,7 +2313,9 @@ impl<'a> Checker<'a> {
     }
 
     fn resolve_trait(&mut self, module: ModuleId, id: TypeId) -> Option<TraitId> {
-        let flat::TypeView::Named { path, .. } = self.tree(module).ty(id) else { return None };
+        let flat::TypeView::Named { path, .. } = self.tree(module).ty(id) else {
+            return None;
+        };
         match self.resolve_path(module, path)? {
             Sym::Trait(t) => Some(t),
             _ => None,
@@ -2247,12 +2388,15 @@ impl<'a> Checker<'a> {
                 };
                 ty
             }
-            flat::TypeView::Array { elem, .. } => {
-                Ty::array(self.elaborate(module, generics, elem))
+            flat::TypeView::Array { elem, .. } => Ty::array(self.elaborate(module, generics, elem)),
+            flat::TypeView::Tuple { elems, .. } => {
+                Ty::tuple(elems.iter().map(|e| self.elaborate(module, generics, *e)))
             }
-            flat::TypeView::Tuple { elems, .. } => Ty::tuple(elems.iter().map(|e| self.elaborate(module, generics, *e))),
             flat::TypeView::Fn { params, ret, .. } => {
-                let ps: Vec<Ty> = params.iter().map(|p| self.elaborate(module, generics, *p)).collect();
+                let ps: Vec<Ty> = params
+                    .iter()
+                    .map(|p| self.elaborate(module, generics, *p))
+                    .collect();
                 Ty::func(ps, self.elaborate(module, generics, ret))
             }
             flat::TypeView::Named { path, args, span } => {
@@ -2274,8 +2418,10 @@ impl<'a> Checker<'a> {
                         return Ty::param(i as u32);
                     }
                 }
-                let elaborated_args: Vec<Ty> =
-                    args.iter().map(|a| self.elaborate(module, generics, *a)).collect();
+                let elaborated_args: Vec<Ty> = args
+                    .iter()
+                    .map(|a| self.elaborate(module, generics, *a))
+                    .collect();
 
                 // A type alias is transparent: `type UserId = Str` makes
                 // `UserId` and `Str` the same type. It expands in the module
@@ -2374,7 +2520,11 @@ impl<'a> Checker<'a> {
         let generics: Vec<GenericInfo> = t
             .list(alias.generics)
             .iter()
-            .map(|g| GenericInfo { name: t.name(g.name).to_string(), bounds: Vec::new(), span: g.span })
+            .map(|g| GenericInfo {
+                name: t.name(g.name).to_string(),
+                bounds: Vec::new(),
+                span: g.span,
+            })
             .collect();
         if args.len() != generics.len() {
             self.templated("type-argument-count", span)
@@ -2399,7 +2549,10 @@ impl<'a> Checker<'a> {
     /// way a reader sees the other file when the cycle crosses a module.
     fn report_alias_cycle(&mut self, at: usize, decl: Span) {
         let chain: Vec<(ModuleId, String)> = self.expanding.iter().skip(at).cloned().collect();
-        let head = chain.first().map(|(m, _)| *m).or_ice("`at` is a position in `expanding`, so the chain has a head");
+        let head = chain
+            .first()
+            .map(|(m, _)| *m)
+            .or_ice("`at` is a position in `expanding`, so the chain has a head");
         if chain.iter().any(|k| self.cyclic_aliases.contains(k)) {
             return;
         }
@@ -2424,7 +2577,9 @@ impl<'a> Checker<'a> {
                 Some((span, format!("`{n}`, next on the cycle, is declared here")))
             })
             .collect();
-        let d = self.templated("circular-type-alias", decl).bind("cycle", cycle);
+        let d = self
+            .templated("circular-type-alias", decl)
+            .bind("cycle", cycle);
         for (span, label) in others {
             d.secondary_span(span, label);
         }
@@ -2449,9 +2604,17 @@ impl<'a> Checker<'a> {
     /// other path, including one whose head names no namespace at all — a
     /// module that was never imported is a different mistake, and keeps the
     /// answer about the path as written.
-    pub(crate) fn path_answered(&mut self, module: ModuleId, path: &[flat::Location], span: Span) -> bool {
+    pub(crate) fn path_answered(
+        &mut self,
+        module: ModuleId,
+        path: &[flat::Location],
+        span: Span,
+    ) -> bool {
         let t = self.tree(module);
-        if path.first().is_some_and(|head| self.scope(module).import_failed(t.text(*head))) {
+        if path
+            .first()
+            .is_some_and(|head| self.scope(module).import_failed(t.text(*head)))
+        {
             return true;
         }
         let [ns, member] = path else { return false };
@@ -2561,7 +2724,11 @@ impl<'a> Checker<'a> {
         let (none, reported) = constructible::unconstructible(&self.tables, &cons, &self.valueless);
         self.valueless.extend(none);
         for (con, why) in reported {
-            let span = declared.iter().find(|(c, _)| *c == con).or_ice("reported from `declared`").1;
+            let span = declared
+                .iter()
+                .find(|(c, _)| *c == con)
+                .or_ice("reported from `declared`")
+                .1;
             let name = self.tables.tycon(con).name.clone();
             let (reason, fix) = match why {
                 constructible::Why::Variants => (
@@ -2573,22 +2740,47 @@ impl<'a> Checker<'a> {
                     format!("make `{field}` an `Option`, so `.None` can end the chain"),
                 ),
             };
-            self.templated("unconstructible-type", span).bind("name", name).bind("reason", reason).bind("fix", fix);
+            self.templated("unconstructible-type", span)
+                .bind("name", name)
+                .bind("reason", reason)
+                .bind("fix", fix);
         }
         // One that can't be built is reported once, above, whether or not it
         // also grows.
-        let buildable: Vec<TyConId> = cons.into_iter().filter(|c| !self.valueless.contains(c)).collect();
+        let buildable: Vec<TyConId> = cons
+            .into_iter()
+            .filter(|c| !self.valueless.contains(c))
+            .collect();
         for (con, args) in endless::endless(&self.tables, &buildable) {
-            let span = declared.iter().find(|(c, _)| *c == con).or_ice("reported from `declared`").1;
+            let span = declared
+                .iter()
+                .find(|(c, _)| *c == con)
+                .or_ice("reported from `declared`")
+                .1;
             let decl = self.tables.tycon(con);
-            let at = |args: &[Ty]| show(&self.tables, None, &decl.generics, &Ty::con(con, args.iter().copied()));
+            let at = |args: &[Ty]| {
+                show(
+                    &self.tables,
+                    None,
+                    &decl.generics,
+                    &Ty::con(con, args.iter().copied()),
+                )
+            };
             let params: Vec<Ty> = (0..decl.arity()).map(|i| Ty::param(i as u32)).collect();
             let again: Vec<Ty> = args.iter().map(|a| substitute(a, &args, None)).collect();
             let (mine, grown, grown_again) = (at(&params), at(&args), at(&again));
             let name = decl.name.clone();
             self.templated("endless-type", span)
-                .bind("growth", format!("`{mine}` contains `{grown}`, which contains `{grown_again}`, and so on"))
-                .bind("fix", format!("where `{name}` contains itself, give it its own parameters: `{mine}`"))
+                .bind(
+                    "growth",
+                    format!(
+                        "`{mine}` contains `{grown}`, which contains `{grown_again}`, and so on"
+                    ),
+                )
+                .bind(
+                    "fix",
+                    format!("where `{name}` contains itself, give it its own parameters: `{mine}`"),
+                )
                 .bind("name", name);
         }
     }
@@ -2605,8 +2797,15 @@ impl<'a> Checker<'a> {
     fn prelude(&self) -> std::sync::Arc<Prelude> {
         let mut out = Prelude::default();
         for (path, name) in standard_library::prelude() {
-            let from = self.loaded.find(path).or_ice("every loader loads the prelude's modules");
-            let sym = self.scope(from).exports.get(name).or_ice("a prelude module exports its prelude names");
+            let from = self
+                .loaded
+                .find(path)
+                .or_ice("every loader loads the prelude's modules");
+            let sym = self
+                .scope(from)
+                .exports
+                .get(name)
+                .or_ice("a prelude module exports its prelude names");
             // The first of two prelude entries of one name is the one seen.
             out.entry(name.to_string()).or_insert_with(|| sym.clone());
         }
@@ -2615,7 +2814,10 @@ impl<'a> Checker<'a> {
 
     fn register_known_names(&mut self) {
         for (path, name) in standard_library::prelude() {
-            let m = self.loaded.find(path).or_ice("every loader loads the prelude's modules");
+            let m = self
+                .loaded
+                .find(path)
+                .or_ice("every loader loads the prelude's modules");
             self.know(m, name);
         }
         // `core/json` is loaded on import rather than eagerly, so these are
@@ -2636,8 +2838,18 @@ impl<'a> Checker<'a> {
         // comparison against the ids rather than against a spelling a program
         // could shadow. `Scope` is the allocator that charges nothing, which a
         // test report renders a hand-written `Show` with.
-        let m = self.loaded.find("platform/effect").or_ice("every loader loads `platform/effect`");
-        for name in ["Allocator", "IoError", "Region", "Request", "Response", "Scope"] {
+        let m = self
+            .loaded
+            .find("platform/effect")
+            .or_ice("every loader loads `platform/effect`");
+        for name in [
+            "Allocator",
+            "IoError",
+            "Region",
+            "Request",
+            "Response",
+            "Scope",
+        ] {
             self.know(m, name);
         }
         self.option_con = self.known_types.get("Option").copied();
@@ -2683,7 +2895,9 @@ impl<'a> Checker<'a> {
         // A method may not share a name with a field of its `self` type.
         if self.tables.field_index(con, name).is_some() {
             let ty = self.tables.tycon(con).name.clone();
-            self.templated("duplicate-field", span).bind("name", name).bind("type", ty);
+            self.templated("duplicate-field", span)
+                .bind("name", name)
+                .bind("type", ty);
             return;
         }
         if let Some(prev) = self.tables.method(con, name) {
@@ -2693,7 +2907,10 @@ impl<'a> Checker<'a> {
                 .bind("type", ty)
                 .bind("name", name)
                 .secondary_spans
-                .push(SecondarySpan { span: prev_span, label: "first declared here".into() });
+                .push(SecondarySpan {
+                    span: prev_span,
+                    label: "first declared here".into(),
+                });
             return;
         }
         self.tables.add_method(con, name, fid);
@@ -2739,8 +2956,10 @@ impl<'a> Checker<'a> {
             }
             let t = self.tree(module);
             // `Self`, or a type with no name of its own, is quoted as written.
-            let shown =
-                t.type_head(trait_ref).map_or_else(|| crate::formatting::type_text(t, trait_ref), str::to_string);
+            let shown = t.type_head(trait_ref).map_or_else(
+                || crate::formatting::type_text(t, trait_ref),
+                str::to_string,
+            );
             let at = t.type_span(trait_ref);
             self.templated("bound-not-trait", at)
                 .bind("name", shown.clone())
@@ -2830,13 +3049,20 @@ impl<'a> Checker<'a> {
         if let Some((other, other_span)) = conflict {
             let name = self.tables.tycon(self_con).name.clone();
             let this = self.tables.trait_(trait_id).name.clone();
-            let (eff, tr) = if is_effect { (this, other) } else { (other, this) };
+            let (eff, tr) = if is_effect {
+                (this, other)
+            } else {
+                (other, this)
+            };
             self.templated("effect-and-trait", d.span)
                 .bind("type", name)
                 .bind("effect", eff)
                 .bind("trait", tr)
                 .secondary_spans
-            .push(SecondarySpan { span: other_span, label: "the other one".into() });
+                .push(SecondarySpan {
+                    span: other_span,
+                    label: "the other one".into(),
+                });
         }
 
         if self.tables.impls.contains_key(&(trait_id, self_con)) {
@@ -2855,8 +3081,11 @@ impl<'a> Checker<'a> {
         let mut supplied = vec![None; trait_methods.len()];
         for (sub, method) in self.tree(module).list(d.methods).iter().enumerate() {
             let mname = self.name_text(module, method.name);
-            let Some((slot, (cell, declared))) =
-                supplied.iter_mut().zip(&trait_methods).enumerate().find(|(_, (_, m))| m.name == mname)
+            let Some((slot, (cell, declared))) = supplied
+                .iter_mut()
+                .zip(&trait_methods)
+                .enumerate()
+                .find(|(_, (_, m))| m.name == mname)
             else {
                 let t = self.tables.trait_(trait_id).name.clone();
                 let n = mname.to_string();
@@ -2900,7 +3129,11 @@ impl<'a> Checker<'a> {
                 self_ty: Some(self_con),
                 head: Some(self_ty),
                 impl_of: Some((trait_id, slot)),
-                ast: AstRef::Method { module, item: index, sub: sub as u32 },
+                ast: AstRef::Method {
+                    module,
+                    item: index,
+                    sub: sub as u32,
+                },
                 intrinsic: method.body.is_none(),
             });
             self.pending_ctx_rules.push(PendingCtxRule::Method(fid));
@@ -2980,7 +3213,11 @@ impl<'a> Checker<'a> {
                     counted(*expected, "parameter"),
                     counted(*found, "parameter"),
                 ),
-                SignatureMismatch::Bounds { index, expected, found } => {
+                SignatureMismatch::Bounds {
+                    index,
+                    expected,
+                    found,
+                } => {
                     // Named by the `impl`'s spelling of the parameter, on both
                     // sides: what the trait called it is its own business, and
                     // a message that renamed it mid-sentence would read as two
@@ -2993,8 +3230,15 @@ impl<'a> Checker<'a> {
                         bound_phrase(&self.tables, name, found),
                     )
                 }
-                SignatureMismatch::Parameter { index, expected, found } => (
-                    supplied.params.get(*index).map_or(supplied.name_span, |p| p.span),
+                SignatureMismatch::Parameter {
+                    index,
+                    expected,
+                    found,
+                } => (
+                    supplied
+                        .params
+                        .get(*index)
+                        .map_or(supplied.name_span, |p| p.span),
                     shown(expected),
                     shown(found),
                 ),
@@ -3009,7 +3253,10 @@ impl<'a> Checker<'a> {
                 .bind("expected", expected)
                 .bind("found", found)
                 .secondary_spans
-                .push(SecondarySpan { span: declared.span, label: "declared here".into() });
+                .push(SecondarySpan {
+                    span: declared.span,
+                    label: "declared here".into(),
+                });
         }
     }
 
@@ -3034,7 +3281,8 @@ impl<'a> Checker<'a> {
             _ => {
                 let shown = show(&self.tables, None, generics, &self_ty);
                 let at = self.tree(module).type_span(d.self_ty);
-                self.templated("impl-target-not-declared-type", at).bind("type", shown);
+                self.templated("impl-target-not-declared-type", at)
+                    .bind("type", shown);
                 return;
             }
         };
@@ -3045,9 +3293,7 @@ impl<'a> Checker<'a> {
             // A primitive has no declaring module of its own, so its methods
             // belong to the `core` module named for it and nowhere else.
             let is_prim = match self.tables.tycon(con).def {
-                TyDef::Prim(p) => {
-                    standard_library::defining_module(p) == self.module(module).path
-                }
+                TyDef::Prim(p) => standard_library::defining_module(p) == self.module(module).path,
                 _ => false,
             };
             if owner != module && !is_prim {
@@ -3081,7 +3327,8 @@ impl<'a> Checker<'a> {
                 Some(p) if p.role == ParamRole::SelfParam => {}
                 _ => {
                     let n = mname.to_string();
-                    self.templated("impl-missing-self", method.name.span).bind("name", n);
+                    self.templated("impl-missing-self", method.name.span)
+                        .bind("name", n);
                     continue;
                 }
             }
@@ -3097,7 +3344,11 @@ impl<'a> Checker<'a> {
                 self_ty: target,
                 head: Some(self_ty),
                 impl_of: None,
-                ast: AstRef::Method { module, item: index, sub: sub as u32 },
+                ast: AstRef::Method {
+                    module,
+                    item: index,
+                    sub: sub as u32,
+                },
                 intrinsic: method.body.is_none(),
             });
             self.pending_ctx_rules.push(PendingCtxRule::Method(fid));
@@ -3137,7 +3388,9 @@ impl<'a> Checker<'a> {
             let at = self.tree(module).type_span(*ty);
             let Some(trait_id) = self.resolve_trait(module, *ty) else {
                 let t = self.tree(module);
-                let shown = t.type_head(*ty).map_or_else(|| crate::formatting::type_text(t, *ty), str::to_string);
+                let shown = t
+                    .type_head(*ty)
+                    .map_or_else(|| crate::formatting::type_text(t, *ty), str::to_string);
                 self.templated("derive-not-trait", at).bind("name", shown);
                 continue;
             };
@@ -3155,7 +3408,9 @@ impl<'a> Checker<'a> {
                         )
                     )
                 };
-                self.templated("trait-not-derivable", at).bind("trait", name).note(note);
+                self.templated("trait-not-derivable", at)
+                    .bind("trait", name)
+                    .note(note);
                 continue;
             }
             if self.tables.impls.contains_key(&(trait_id, self_con)) {
@@ -3194,7 +3449,9 @@ impl<'a> Checker<'a> {
                         .bind("subject", format!("`{n}`"))
                         .bind("expected", counted(arity, "type argument"))
                         .bind("given", were_given(args.len()))
-                        .fix(format!("a `derive` names the constructor alone: `derive ... for {n};`"));
+                        .fix(format!(
+                            "a `derive` names the constructor alone: `derive ... for {n};`"
+                        ));
                 }
                 Some(con)
             }
@@ -3244,9 +3501,10 @@ impl<'a> Checker<'a> {
             // is the one string this spells.
             let fails = |ty: &Ty| !self.component_can_satisfy(ty, tr, con);
             let failing = match &self.tables.tycon(con).def {
-                TyDef::Struct { fields, .. } => {
-                    fields.iter().find(|f| fails(&f.ty)).map(|f| (f.name.clone(), f.ty))
-                }
+                TyDef::Struct { fields, .. } => fields
+                    .iter()
+                    .find(|f| fails(&f.ty))
+                    .map(|f| (f.name.clone(), f.ty)),
                 TyDef::Enum { variants } => variants.iter().find_map(|v| {
                     let f = v.fields.iter().find(|f| fails(&f.ty))?;
                     Some((format!("{}.{}", v.name, f.name), f.ty))
@@ -3284,27 +3542,27 @@ impl<'a> Checker<'a> {
                     .bind("trait", t.clone())
                     .bind("field", name)
                     .bind("field_type", shown.clone())
-                .fix(if let Some(home) = home {
-                    format!(
+                    .fix(if let Some(home) = home {
+                        format!(
                         "drop `{t}` from this `derive`: `{lacking}` comes from `{home}`, which \
                          leaves it out, and `buri docs {home}` says what to use instead"
                     )
-                } else if let Some(head) = other_instance {
-                    format!(
+                    } else if let Some(head) = other_instance {
+                        format!(
                         "the `impl {t}` is for `{head}` only: widen it to cover `{lacking}`, or \
                          drop `{t}` from this `derive`"
                     )
-                } else if crate::compiler::semantics::types::is_derive_only(&t) {
-                    format!(
+                    } else if crate::compiler::semantics::types::is_derive_only(&t) {
+                        format!(
                         "make `{lacking}` satisfy `{t}` first — `derive {t} for {lacking};` in \
                          its own module — or drop `{t}` from this `derive`"
                     )
-                } else {
-                    format!(
+                    } else {
+                        format!(
                         "make `{lacking}` satisfy `{t}` first — `derive {t} for {lacking};` in \
                          its own module, or an `impl` — or drop `{t}` from this `derive`"
                     )
-                });
+                    });
             }
         }
     }
@@ -3344,9 +3602,10 @@ impl<'a> Checker<'a> {
         let tycon = self.tables.tycon(con);
         let name = tycon.name.clone();
         let field = match &tycon.def {
-            TyDef::Struct { record: true, fields } if !fields.is_empty() => {
-                Err("its fields are named".to_string())
-            }
+            TyDef::Struct {
+                record: true,
+                fields,
+            } if !fields.is_empty() => Err("its fields are named".to_string()),
             TyDef::Struct { fields, .. } => match fields.as_slice() {
                 [f] => Ok(f.ty),
                 _ => Err(format!("it has {}", counted(fields.len(), "field"))),
@@ -3355,9 +3614,16 @@ impl<'a> Checker<'a> {
         };
         match field {
             Err(reason) => {
-                self.templated("index-not-newtype", span).bind("type", name).bind("reason", reason);
+                self.templated("index-not-newtype", span)
+                    .bind("type", name)
+                    .bind("reason", reason);
             }
-            Ok(ty) if !matches!(self.tables.as_prim(&ty), Some(Prim::U8 | Prim::U16 | Prim::U32 | Prim::U64)) => {
+            Ok(ty)
+                if !matches!(
+                    self.tables.as_prim(&ty),
+                    Some(Prim::U8 | Prim::U16 | Prim::U32 | Prim::U64)
+                ) =>
+            {
                 let shown = show(&self.tables, None, &tycon.generics, &ty);
                 self.templated("index-field-not-unsigned", span)
                     .bind("type", name)
@@ -3371,7 +3637,10 @@ impl<'a> Checker<'a> {
     /// `path`.
     fn declared_in(&self, trait_id: TraitId, path: &str) -> bool {
         let module = self.tables.trait_(trait_id).module;
-        self.loaded.modules.get(module.index()).is_some_and(|m| m.path == path)
+        self.loaded
+            .modules
+            .get(module.index())
+            .is_some_and(|m| m.path == path)
     }
 
     /// The innermost part of a component that cannot satisfy the trait: an
@@ -3379,10 +3648,14 @@ impl<'a> Checker<'a> {
     fn lacking(&self, ty: &Ty, tr: TraitId, owner: TyConId) -> Ty {
         let inner = match ty.kind() {
             TyKind::Array(e) => Some(*e),
-            TyKind::Tuple(es) => es.iter().find(|e| !self.component_can_satisfy(e, tr, owner)).copied(),
-            TyKind::Con(id, args) if self.tables.impls.contains_key(&(tr, *id)) => {
-                args.iter().find(|a| !self.component_can_satisfy(a, tr, owner)).copied()
-            }
+            TyKind::Tuple(es) => es
+                .iter()
+                .find(|e| !self.component_can_satisfy(e, tr, owner))
+                .copied(),
+            TyKind::Con(id, args) if self.tables.impls.contains_key(&(tr, *id)) => args
+                .iter()
+                .find(|a| !self.component_can_satisfy(a, tr, owner))
+                .copied(),
             _ => None,
         };
         inner.map_or(*ty, |t| self.lacking(&t, tr, owner))
@@ -3406,14 +3679,22 @@ impl<'a> Checker<'a> {
                 if matches!(self.tables.tycon(*id).def, TyDef::Prim(Prim::Template)) {
                     return false;
                 }
-                let Some(imp) = self.tables.impls.get(&(tr, *id)) else { return false };
+                let Some(imp) = self.tables.impls.get(&(tr, *id)) else {
+                    return false;
+                };
                 // A hand-written `impl` may be for one instance only.
                 if !imp.is_derived()
-                    && !crate::compiler::semantics::inference::head_covers(&imp.head, ty, imp.generics.len(), true)
+                    && !crate::compiler::semantics::inference::head_covers(
+                        &imp.head,
+                        ty,
+                        imp.generics.len(),
+                        true,
+                    )
                 {
                     return false;
                 }
-                args.iter().all(|a| self.component_can_satisfy(a, tr, owner))
+                args.iter()
+                    .all(|a| self.component_can_satisfy(a, tr, owner))
             }
         }
     }
@@ -3451,7 +3732,8 @@ impl<'a> Checker<'a> {
             // one suite may use one title — they are separate modules, and a
             // report names the file — so the map is per module and not per
             // suite (TESTING.md, "Naming a test").
-            let mut titles: std::collections::HashMap<&str, Span> = std::collections::HashMap::new();
+            let mut titles: std::collections::HashMap<&str, Span> =
+                std::collections::HashMap::new();
             for item in items {
                 // `test` declarations are legal only in a test source.
                 if let tree::Item::Test(t) = item {
@@ -3521,29 +3803,60 @@ impl<'a> Checker<'a> {
             // is read from.
             let seen = endless::instantiations(&self.tables, cycle, 3);
             let from = &self.tables.fn_info(cycle.from).generics;
-            let at: Vec<usize> = seen.iter().enumerate().filter(|(_, (g, _))| *g == f).map(|(i, _)| i).collect();
+            let at: Vec<usize> = seen
+                .iter()
+                .enumerate()
+                .filter(|(_, (g, _))| *g == f)
+                .map(|(i, _)| i)
+                .collect();
             let nth = |n: usize| {
-                let i = *at.get(n).or_ice("a cycle reaches each function on it once a round");
+                let i = *at
+                    .get(n)
+                    .or_ice("a cycle reaches each function on it once a round");
                 let args = &seen.get(i).or_ice("found above").1;
-                let shown: Vec<String> = args.iter().map(|a| show(&self.tables, None, from, a)).collect();
+                let shown: Vec<String> = args
+                    .iter()
+                    .map(|a| show(&self.tables, None, from, a))
+                    .collect();
                 (i, format!("{name}<{}>", shown.join(", ")))
             };
             let ((first, mine_at), (second, grown), (_, grown_again)) = (nth(0), nth(1), nth(2));
             let mut through: Vec<String> = Vec::new();
-            if cycle.steps.iter().any(|s| matches!(s, endless::Step::Dispatch { .. })) {
-                through.extend(seen.get(first.saturating_add(1)..second).unwrap_or_default().iter().map(|(g, _)| format!("`{}`", name_of(*g))));
+            if cycle
+                .steps
+                .iter()
+                .any(|s| matches!(s, endless::Step::Dispatch { .. }))
+            {
+                through.extend(
+                    seen.get(first.saturating_add(1)..second)
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|(g, _)| format!("`{}`", name_of(*g))),
+                );
             }
-            let through = if through.is_empty() { String::new() } else { format!(" through {}", through.join(", ")) };
-            let own: Vec<String> =
-                (0..info.generics.len()).map(|i| show(&self.tables, None, &info.generics, &Ty::param(i as u32))).collect();
+            let through = if through.is_empty() {
+                String::new()
+            } else {
+                format!(" through {}", through.join(", "))
+            };
+            let own: Vec<String> = (0..info.generics.len())
+                .map(|i| show(&self.tables, None, &info.generics, &Ty::param(i as u32)))
+                .collect();
             let mine = format!("{name}<{}>", own.join(", "));
-            let growth = format!("`{mine_at}` calls `{grown}`{through}, which calls `{grown_again}`, and so on");
+            let growth = format!(
+                "`{mine_at}` calls `{grown}`{through}, which calls `{grown_again}`, and so on"
+            );
             reports.push((info.span, name, growth, mine));
         }
         for (span, name, growth, mine) in reports {
             self.templated("endless-function", span)
                 .bind("growth", growth)
-                .bind("fix", format!("where `{name}` calls itself, call it at its own type parameters: `{mine}`"))
+                .bind(
+                    "fix",
+                    format!(
+                        "where `{name}` calls itself, call it at its own type parameters: `{mine}`"
+                    ),
+                )
                 .bind("name", name);
         }
     }
@@ -3557,7 +3870,9 @@ impl<'a> Checker<'a> {
     /// it has no `impl` of `tr` at all. Nobody else can add one, so a fix that
     /// says "derive it in its own module" points at that module's page instead.
     pub fn toolchain_home(&self, ty: &Ty, tr: TraitId) -> Option<String> {
-        let TyKind::Con(con, _) = ty.kind() else { return None };
+        let TyKind::Con(con, _) = ty.kind() else {
+            return None;
+        };
         if self.tables.impls.contains_key(&(tr, *con)) {
             return None;
         }
@@ -3609,10 +3924,18 @@ enum SignatureMismatch {
     /// declaration and neither is reported against the other; carried in the
     /// order each side wrote them, so the message echoes the source rather
     /// than the comparison's own ordering.
-    Bounds { index: usize, expected: Vec<TraitId>, found: Vec<TraitId> },
+    Bounds {
+        index: usize,
+        expected: Vec<TraitId>,
+        found: Vec<TraitId>,
+    },
     /// Parameter `index` has a different type. `expected` is the trait's,
     /// already rewritten into the `impl`'s vocabulary.
-    Parameter { index: usize, expected: Ty, found: Ty },
+    Parameter {
+        index: usize,
+        expected: Ty,
+        found: Ty,
+    },
     /// A different return type, likewise rewritten.
     Return { expected: Ty, found: Ty },
 }
@@ -3666,8 +3989,9 @@ fn signature_mismatches(
     }
     // The trait's `Param(i)` is the method's own `i`th, which the `impl`
     // numbers after its head's.
-    let args: Vec<Ty> =
-        (0..declared_own).map(|i| Ty::param(impl_generics.saturating_add(i) as u32)).collect();
+    let args: Vec<Ty> = (0..declared_own)
+        .map(|i| Ty::param(impl_generics.saturating_add(i) as u32))
+        .collect();
     let mut out = Vec::new();
     // A bound is half of what a type parameter is. An `impl` that asks for
     // one the trait does not declare is asking for something its callers were
@@ -3678,7 +4002,11 @@ fn signature_mismatches(
         let expected = bounds_of(declared.generics.get(index));
         let found = bounds_of(supplied.generics.get(impl_generics.saturating_add(index)));
         if as_a_set(&expected) != as_a_set(&found) {
-            out.push(SignatureMismatch::Bounds { index, expected, found });
+            out.push(SignatureMismatch::Bounds {
+                index,
+                expected,
+                found,
+            });
         }
     }
     for (index, (d, s)) in declared.params.iter().zip(supplied.params).enumerate() {
@@ -3693,7 +4021,10 @@ fn signature_mismatches(
     }
     let expected = substitute(&declared.ret, &args, Some(self_ty));
     if !agrees(&expected, supplied.ret) {
-        out.push(SignatureMismatch::Return { expected, found: *supplied.ret });
+        out.push(SignatureMismatch::Return {
+            expected,
+            found: *supplied.ret,
+        });
     }
     out
 }
@@ -3732,7 +4063,10 @@ fn bound_phrase(tables: &Tables, name: &str, bounds: &[TraitId]) -> String {
     if bounds.is_empty() {
         return format!("`{name}` with no bounds");
     }
-    let named: Vec<&str> = bounds.iter().map(|t| tables.trait_(*t).name.as_str()).collect();
+    let named: Vec<&str> = bounds
+        .iter()
+        .map(|t| tables.trait_(*t).name.as_str())
+        .collect();
     format!("`{name}: {}`", named.join(" + "))
 }
 
@@ -3753,11 +4087,20 @@ mod tests {
     const ALLOCS: TraitId = TraitId(2);
 
     fn generic(name: &str, bounds: &[TraitId]) -> GenericInfo {
-        GenericInfo { name: name.to_string(), bounds: bounds.to_vec(), span: Span::NONE }
+        GenericInfo {
+            name: name.to_string(),
+            bounds: bounds.to_vec(),
+            span: Span::NONE,
+        }
     }
 
     fn param(ty: Ty) -> ParamInfo {
-        ParamInfo { name: "x".to_string(), ty, role: ParamRole::Normal, span: Span::NONE }
+        ParamInfo {
+            name: "x".to_string(),
+            ty,
+            role: ParamRole::Normal,
+            span: Span::NONE,
+        }
     }
 
     fn receiver() -> ParamInfo {
@@ -3770,7 +4113,13 @@ mod tests {
     }
 
     fn trait_method(generics: Vec<GenericInfo>, params: Vec<ParamInfo>, ret: Ty) -> TraitMethod {
-        TraitMethod { name: "m".to_string(), generics, params, ret, span: Span::NONE }
+        TraitMethod {
+            name: "m".to_string(),
+            generics,
+            params,
+            ret,
+            span: Span::NONE,
+        }
     }
 
     fn supplied<'s>(
@@ -3805,7 +4154,10 @@ mod tests {
         let params = [param(bag()), param(Ty::UNIT)];
         let ret = bag();
         let found = supplied(&[], &params, &ret);
-        assert_eq!(signature_mismatches(&declared, 0, &found, 0, &bag()), vec![]);
+        assert_eq!(
+            signature_mismatches(&declared, 0, &found, 0, &bag()),
+            vec![]
+        );
     }
 
     /// `impl<T> Show for [T]` supplying `show<C>`: the impl head's parameter is
@@ -3818,8 +4170,11 @@ mod tests {
     #[test]
     fn an_impl_heads_generics_are_not_the_methods_own() {
         let head = Ty::array(Ty::param(0));
-        let declared =
-            trait_method(vec![generic("C", &[])], vec![receiver(), param(Ty::param(0))], Ty::UNIT);
+        let declared = trait_method(
+            vec![generic("C", &[])],
+            vec![receiver(), param(Ty::param(0))],
+            Ty::UNIT,
+        );
         let generics = [generic("T", &[]), generic("C", &[])];
         let params = [param(head), param(Ty::param(1))];
         let ret = Ty::UNIT;
@@ -3833,14 +4188,20 @@ mod tests {
     /// them under.
     #[test]
     fn a_generic_count_is_the_whole_answer() {
-        let declared =
-            trait_method(vec![generic("T", &[])], vec![receiver(), param(Ty::param(0))], Ty::UNIT);
+        let declared = trait_method(
+            vec![generic("T", &[])],
+            vec![receiver(), param(Ty::param(0))],
+            Ty::UNIT,
+        );
         let params = [param(bag()), param(crate_ty())];
         let ret = Ty::UNIT;
         let found = supplied(&[], &params, &ret);
         assert_eq!(
             signature_mismatches(&declared, 0, &found, 0, &bag()),
-            vec![SignatureMismatch::GenericCount { expected: 1, found: 0 }],
+            vec![SignatureMismatch::GenericCount {
+                expected: 1,
+                found: 0
+            }],
         );
     }
 
@@ -3854,7 +4215,10 @@ mod tests {
         let found = supplied(&[], &params, &ret);
         assert_eq!(
             signature_mismatches(&declared, 0, &found, 0, &bag()),
-            vec![SignatureMismatch::Arity { expected: 1, found: 2 }],
+            vec![SignatureMismatch::Arity {
+                expected: 1,
+                found: 2
+            }],
         );
     }
 
@@ -3869,8 +4233,15 @@ mod tests {
         assert_eq!(
             signature_mismatches(&declared, 0, &found, 0, &bag()),
             vec![
-                SignatureMismatch::Parameter { index: 1, expected: Ty::UNIT, found: crate_ty() },
-                SignatureMismatch::Return { expected: bag(), found: crate_ty() },
+                SignatureMismatch::Parameter {
+                    index: 1,
+                    expected: Ty::UNIT,
+                    found: crate_ty()
+                },
+                SignatureMismatch::Return {
+                    expected: bag(),
+                    found: crate_ty()
+                },
             ],
         );
     }
@@ -3903,7 +4274,10 @@ mod tests {
         let params = [param(bag()), param(crate_ty())];
         let ret = Ty::ERROR;
         let found = supplied(&[], &params, &ret);
-        assert_eq!(signature_mismatches(&declared, 0, &found, 0, &bag()), vec![]);
+        assert_eq!(
+            signature_mismatches(&declared, 0, &found, 0, &bag()),
+            vec![]
+        );
     }
 
     /// Bounds are a set: the same ones in another order are the same
@@ -3919,7 +4293,10 @@ mod tests {
         let params = [param(bag()), param(Ty::param(0))];
         let ret = Ty::UNIT;
         let found = supplied(&generics, &params, &ret);
-        assert_eq!(signature_mismatches(&declared, 0, &found, 0, &bag()), vec![]);
+        assert_eq!(
+            signature_mismatches(&declared, 0, &found, 0, &bag()),
+            vec![]
+        );
     }
 
     /// A bound the trait does not declare is a requirement the `impl`'s
@@ -3955,6 +4332,9 @@ mod tests {
         let params = [param(crate_ty())];
         let ret = Ty::UNIT;
         let found = supplied(&[], &params, &ret);
-        assert_eq!(signature_mismatches(&declared, 1, &found, 0, &bag()), vec![]);
+        assert_eq!(
+            signature_mismatches(&declared, 1, &found, 0, &bag()),
+            vec![]
+        );
     }
 }

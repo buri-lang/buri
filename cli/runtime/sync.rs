@@ -44,7 +44,10 @@ mod reported {
                 if valgrind::helgrind() {
                     valgrind::acquired(lock);
                 }
-                MutexGuard { inner: Some(inner), lock }
+                MutexGuard {
+                    inner: Some(inner),
+                    lock,
+                }
             };
             match self.0.lock() {
                 Ok(inner) => Ok(taken(inner)),
@@ -58,13 +61,16 @@ mod reported {
                 if valgrind::helgrind() {
                     valgrind::acquired(lock);
                 }
-                MutexGuard { inner: Some(inner), lock }
+                MutexGuard {
+                    inner: Some(inner),
+                    lock,
+                }
             };
             match self.0.try_lock() {
                 Ok(inner) => Ok(taken(inner)),
-                Err(TryLockError::Poisoned(poisoned)) => {
-                    Err(TryLockError::Poisoned(PoisonError::new(taken(poisoned.into_inner()))))
-                }
+                Err(TryLockError::Poisoned(poisoned)) => Err(TryLockError::Poisoned(
+                    PoisonError::new(taken(poisoned.into_inner())),
+                )),
                 Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
             }
         }
@@ -125,13 +131,19 @@ mod reported {
             Condvar(std::sync::Condvar::new())
         }
 
-        pub(crate) fn wait<'a, T>(&self, guard: MutexGuard<'a, T>) -> LockResult<MutexGuard<'a, T>> {
+        pub(crate) fn wait<'a, T>(
+            &self,
+            guard: MutexGuard<'a, T>,
+        ) -> LockResult<MutexGuard<'a, T>> {
             let lock = guard.lock;
             let back = |inner| {
                 if valgrind::helgrind() {
                     valgrind::acquired(lock);
                 }
-                MutexGuard { inner: Some(inner), lock }
+                MutexGuard {
+                    inner: Some(inner),
+                    lock,
+                }
             };
             match self.0.wait(guard.release()) {
                 Ok(inner) => Ok(back(inner)),
@@ -149,7 +161,13 @@ mod reported {
                 if valgrind::helgrind() {
                     valgrind::acquired(lock);
                 }
-                (MutexGuard { inner: Some(inner), lock }, result)
+                (
+                    MutexGuard {
+                        inner: Some(inner),
+                        lock,
+                    },
+                    result,
+                )
             };
             match self.0.wait_timeout(guard.release(), timeout) {
                 Ok(pair) => Ok(back(pair)),

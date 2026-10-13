@@ -41,7 +41,7 @@
 
 use crate::build::session::Session;
 use crate::build::workspace::{RuleKind, TargetId};
-use crate::diagnostics::{Invariant as _, invariant};
+use crate::diagnostics::{invariant, Invariant as _};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -119,7 +119,8 @@ pub fn inputs(session: &Session, targets: &[TargetId]) -> Watched {
         // Every repository platform the binary's outputs name: its own files
         // and its dependencies, which `actions::contribute_platform` keys.
         for label in session.workspace.custom_platforms(target) {
-            let (pid, files, members) = crate::build::actions::platform_inputs(&session.workspace, &label);
+            let (pid, files, members) =
+                crate::build::actions::platform_inputs(&session.workspace, &label);
             let dir = &session.workspace.package(pid).dir;
             out.extend(files.iter().map(|f| dir.join(f)));
             for member in members {
@@ -142,7 +143,10 @@ pub fn inputs(session: &Session, targets: &[TargetId]) -> Watched {
         }
     }
     let listings = listings(session, targets, &mut out);
-    Watched { files: out.into_iter().collect(), listings }
+    Watched {
+        files: out.into_iter().collect(),
+        listings,
+    }
 }
 
 /// What `check_during_build`'s `unused-source` reads beyond the keys: each
@@ -179,12 +183,19 @@ fn declared_sources(session: &Session, member: TargetId, out: &mut BTreeSet<Path
     out.insert(package.build_path.clone());
     // A generator's inputs, and what its checks read: a schema is in the
     // check's key whatever its extension, without being anybody's input.
-    out.extend(crate::build::generators::worked_out_from(&session.workspace, member));
+    out.extend(crate::build::generators::worked_out_from(
+        &session.workspace,
+        member,
+    ));
     let dir = &package.dir;
     match member.kind {
         RuleKind::Library => {
             out.insert(dir.join("lib.buri"));
-            let lib = package.build.library.as_ref().or_ice("a library target has a library rule");
+            let lib = package
+                .build
+                .library
+                .as_ref()
+                .or_ice("a library target has a library rule");
             for x in lib.sources.iter() {
                 out.insert(dir.join(&x.value));
             }
@@ -197,14 +208,22 @@ fn declared_sources(session: &Session, member: TargetId, out: &mut BTreeSet<Path
         }
         RuleKind::Binary => {
             out.insert(dir.join("main.buri"));
-            let bin = package.build.binary.as_ref().or_ice("a binary target has a binary rule");
+            let bin = package
+                .build
+                .binary
+                .as_ref()
+                .or_ice("a binary target has a binary rule");
             for x in bin.sources.iter() {
                 out.insert(dir.join(&x.value));
             }
         }
         RuleKind::Tool => {
             out.insert(dir.join("tool.buri"));
-            let tool = package.build.tool.as_ref().or_ice("a tool target has a tool rule");
+            let tool = package
+                .build
+                .tool
+                .as_ref()
+                .or_ice("a tool target has a tool rule");
             for x in tool.sources.iter() {
                 out.insert(dir.join(&x.value));
             }
@@ -233,8 +252,16 @@ pub struct Stamp {
 
 fn stamp(path: &Path) -> Stamp {
     match std::fs::metadata(path) {
-        Ok(m) => Stamp { modified: m.modified().ok(), len: m.len(), present: true },
-        Err(_) => Stamp { modified: None, len: 0, present: false },
+        Ok(m) => Stamp {
+            modified: m.modified().ok(),
+            len: m.len(),
+            present: true,
+        },
+        Err(_) => Stamp {
+            modified: None,
+            len: 0,
+            present: false,
+        },
     }
 }
 
@@ -284,7 +311,10 @@ impl Snapshot {
 
     /// The set this snapshot sweeps.
     pub fn watched(&self) -> Watched {
-        Watched { files: self.stamps.keys().cloned().collect(), listings: self.listed.keys().cloned().collect() }
+        Watched {
+            files: self.stamps.keys().cloned().collect(),
+            listings: self.listed.keys().cloned().collect(),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -296,7 +326,10 @@ impl Snapshot {
     /// exactly the thing that wakes the loop. So does a file a listing found on
     /// one side only.
     pub fn difference(&self, other: &Snapshot) -> Vec<PathBuf> {
-        invariant(self.stamps.keys().eq(other.stamps.keys()), "two snapshots compared sweep one set");
+        invariant(
+            self.stamps.keys().eq(other.stamps.keys()),
+            "two snapshots compared sweep one set",
+        );
         let mut out = Vec::new();
         for (path, stamp) in &other.stamps {
             if self.stamps.get(path) != Some(stamp) {
@@ -305,7 +338,11 @@ impl Snapshot {
         }
         let none = BTreeSet::new();
         for (listing, found) in &other.listed {
-            out.extend(found.symmetric_difference(self.listed.get(listing).unwrap_or(&none)).cloned());
+            out.extend(
+                found
+                    .symmetric_difference(self.listed.get(listing).unwrap_or(&none))
+                    .cloned(),
+            );
         }
         out.sort();
         out.dedup();
@@ -435,7 +472,10 @@ impl Watch {
         let mut changed: Vec<PathBuf> = Vec::new();
         let mut n: usize = 1;
         loop {
-            let trigger = Trigger { pass: n, changed: std::mem::take(&mut changed) };
+            let trigger = Trigger {
+                pass: n,
+                changed: std::mem::take(&mut changed),
+            };
             let header = self.separator(&trigger);
             if self.header_first {
                 println!("{header}");
@@ -529,8 +569,7 @@ impl Watch {
     fn separator(&self, t: &Trigger) -> String {
         const WIDTH: usize = 64;
         let mut line = format!("── {}  run {}", clock(), t.pass);
-        let shown: Vec<String> =
-            t.changed.iter().take(2).map(|p| self.relative(p)).collect();
+        let shown: Vec<String> = t.changed.iter().take(2).map(|p| self.relative(p)).collect();
         if !shown.is_empty() {
             line.push_str("  ");
             line.push_str(&shown.join(" "));
@@ -549,7 +588,10 @@ impl Watch {
     }
 
     fn relative(&self, p: &Path) -> String {
-        p.strip_prefix(&self.root).unwrap_or(p).display().to_string()
+        p.strip_prefix(&self.root)
+            .unwrap_or(p)
+            .display()
+            .to_string()
     }
 }
 
@@ -560,9 +602,16 @@ impl Watch {
 /// worse than a UTC one that is labelled.
 fn clock() -> String {
     // A clock set before 1970 reads as midnight.
-    let since = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
+    let since = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
     let day = since.as_secs() % 86_400;
-    format!("{:02}:{:02}:{:02}Z", day / 3_600, day % 3_600 / 60, day % 60)
+    format!(
+        "{:02}:{:02}:{:02}Z",
+        day / 3_600,
+        day % 3_600 / 60,
+        day % 60
+    )
 }
 
 #[cfg(test)]
@@ -570,7 +619,10 @@ mod tests {
     use super::*;
 
     fn files(paths: &[PathBuf]) -> Watched {
-        Watched { files: paths.to_vec(), listings: Vec::new() }
+        Watched {
+            files: paths.to_vec(),
+            listings: Vec::new(),
+        }
     }
 
     fn scratch(name: &str) -> PathBuf {
@@ -590,7 +642,10 @@ mod tests {
         let set = files(&paths);
 
         let before = Snapshot::sweep(&set);
-        assert!(before.difference(&before).is_empty(), "a sweep differs from itself");
+        assert!(
+            before.difference(&before).is_empty(),
+            "a sweep differs from itself"
+        );
 
         let _ = std::fs::write(&path, "x");
         let present = Snapshot::sweep(&set);
@@ -658,7 +713,10 @@ mod tests {
             header_first: false,
             root: PathBuf::from("/repo"),
         };
-        let first = w.separator(&Trigger { pass: 1, changed: Vec::new() });
+        let first = w.separator(&Trigger {
+            pass: 1,
+            changed: Vec::new(),
+        });
         assert!(first.starts_with("── "), "{first}");
         assert!(first.contains("run 1"), "{first}");
         assert!(first.ends_with('─'), "{first}");
@@ -673,7 +731,10 @@ mod tests {
         });
         assert!(third.contains("lib/a/lib.buri"), "{third}");
         assert!(third.contains("+1 more"), "{third}");
-        assert!(!third.contains("/repo/"), "paths are repository-relative: {third}");
+        assert!(
+            !third.contains("/repo/"),
+            "paths are repository-relative: {third}"
+        );
     }
 
     /// The loop runs its opening pass without anything having changed, and the
@@ -692,7 +753,12 @@ mod tests {
         let mut seen = Vec::new();
         let code = w.drive(|t| {
             seen.push((t.pass, t.changed.len()));
-            Pass { code: 7, inputs: files(std::slice::from_ref(&path)), output: String::new(), quiet: true }
+            Pass {
+                code: 7,
+                inputs: files(std::slice::from_ref(&path)),
+                output: String::new(),
+                quiet: true,
+            }
         });
         assert_eq!(code, 7);
         assert_eq!(seen, vec![(1, 0)]);
@@ -723,7 +789,12 @@ mod tests {
         w.drive_armed(
             |t| {
                 triggers.push(t.changed.iter().map(|p| w.relative(p)).collect());
-                Pass { code: 0, inputs: files(std::slice::from_ref(&path)), output: String::new(), quiet: true }
+                Pass {
+                    code: 0,
+                    inputs: files(std::slice::from_ref(&path)),
+                    output: String::new(),
+                    quiet: true,
+                }
             },
             |pass| {
                 if pass == 1 {

@@ -67,8 +67,8 @@ use crate::compiler::middle::strongly_connected;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, Stmt};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
-use crate::hash::{Map as HashMap, Set as HashSet};
 use crate::diagnostics::Invariant as _;
+use crate::hash::{Map as HashMap, Set as HashSet};
 
 /// How one function is emitted.
 ///
@@ -135,7 +135,10 @@ fn tail_callees(e: &Expr, out: &mut Vec<usize>) {
 
 /// Whether a call sits in tail position within this expression tree — used to
 /// decide, at each node, whether to recurse with the tail flag still set.
-#[expect(clippy::indexing_slicing, reason = "a component's members are functions of the program, with one edge list and one strategy each")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "a component's members are functions of the program, with one edge list and one strategy each"
+)]
 fn analyze(program: &Program) -> Plan {
     let n = program.funcs.len();
     let mut edges: Vec<Vec<usize>> = vec![Vec::new(); n];
@@ -148,7 +151,10 @@ fn analyze(program: &Program) -> Plan {
     }
 
     let sccs = strongly_connected(&edges);
-    let mut plan = Plan { strategy: vec![Strategy::Plain; n], groups: Vec::new() };
+    let mut plan = Plan {
+        strategy: vec![Strategy::Plain; n],
+        groups: Vec::new(),
+    };
     for scc in sccs.iter() {
         if let [f] = *scc {
             if edges[f].contains(&f) {
@@ -177,7 +183,10 @@ fn analyze(program: &Program) -> Plan {
 /// Idempotent by construction rather than by a guard: a second run finds no
 /// tail *call* left to rewrite, because [`tail_callees`] counts `CallFn` and
 /// the first run replaced each one.
-#[expect(clippy::indexing_slicing, reason = "`f` ranges over the program's functions")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`f` ranges over the program's functions"
+)]
 pub fn rewrite(program: &mut Program) {
     let plan = analyze(program);
 
@@ -194,10 +203,14 @@ pub fn rewrite(program: &mut Program) {
             continue;
         }
         let func = &mut program.funcs[f];
-        let mut body = func.take_body().or_ice("a function that tail-calls itself has a body");
+        let mut body = func
+            .take_body()
+            .or_ice("a function that tail-calls itself has a body");
         // A self-loop's slots *are* its parameters, in order.
         let identity: Vec<usize> = (0..func.params.len()).collect();
-        rewrite_tails(&mut body, &|callee| (callee == f).then_some((0, &identity[..])));
+        rewrite_tails(&mut body, &|callee| {
+            (callee == f).then_some((0, &identity[..]))
+        });
         let mut entries = vec![body];
         let owned = [func.params.len()];
         snapshot_captures(&mut func.locals, &mut func.params, &mut entries, &owned);
@@ -247,14 +260,20 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
         .types
         .iter()
         .enumerate()
-        .map(|(j, ty)| typed::Local { name: Name::new(&format!("a{j}")), ty: *ty, span })
+        .map(|(j, ty)| typed::Local {
+            name: Name::new(&format!("a{j}")),
+            ty: *ty,
+            span,
+        })
         .collect();
     let mut params: Vec<LocalId> = (0..slots.types.len()).map(|j| LocalId(j as u32)).collect();
 
     let mut entries: Vec<Expr> = Vec::new();
     for (i, f) in group.iter().enumerate() {
         let func = &program.funcs[*f];
-        let body = func.body().or_ice("a member of a tail-call group has a body");
+        let body = func
+            .body()
+            .or_ice("a member of a tail-call group has a body");
         let offset = locals.len() as u32;
         locals.extend(func.locals.iter().cloned());
         let mut body = body.clone();
@@ -307,7 +326,10 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
             });
             dead.push(Stmt::Let {
                 pattern: typed::Pattern {
-                    kind: typed::PatKind::Bind { local: bound, sub: None },
+                    kind: typed::PatKind::Bind {
+                        local: bound,
+                        sub: None,
+                    },
                     ty: local.ty,
                     span: local.span,
                 },
@@ -318,7 +340,14 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
         if !dead.is_empty() {
             let ty = body.ty;
             let at = body.span;
-            body = Expr::new(ExprKind::Block { stmts: dead, tail: Some(Box::new(body)) }, ty, at);
+            body = Expr::new(
+                ExprKind::Block {
+                    stmts: dead,
+                    tail: Some(Box::new(body)),
+                },
+                ty,
+                at,
+            );
         }
         entries.push(body);
     }
@@ -379,7 +408,11 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
             .collect();
         let span = func.span;
         func.set_body(Expr::new(
-            ExprKind::Continue { func: Some(merged), entry: i, args },
+            ExprKind::Continue {
+                func: Some(merged),
+                entry: i,
+                args,
+            },
             ret_ty,
             span,
         ));
@@ -407,9 +440,16 @@ fn rewrite_tails<'a>(e: &mut Expr, jump: &impl Fn(usize) -> Option<(usize, &'a [
             // [`shared_slots`].
             if order.iter().enumerate().any(|(j, k)| j != *k) {
                 let mut taken: Vec<Option<Expr>> = args.drain(..).map(Some).collect();
-                args = order.iter().filter_map(|k| taken.get_mut(*k)?.take()).collect();
+                args = order
+                    .iter()
+                    .filter_map(|k| taken.get_mut(*k)?.take())
+                    .collect();
             }
-            e.kind = ExprKind::Continue { func: None, entry, args };
+            e.kind = ExprKind::Continue {
+                func: None,
+                entry,
+                args,
+            };
         }
         ExprKind::Block { tail: Some(t), .. } => rewrite_tails(t, jump),
         ExprKind::If { then, else_, .. } => {
@@ -466,7 +506,10 @@ fn substitute_locals(e: &mut Expr, onto: &HashMap<LocalId, LocalId>) {
 ///
 /// A parameter no closure captures is left alone, and so is one the loop only
 /// ever rebinds to itself: neither can be stale.
-#[expect(clippy::indexing_slicing, reason = "a parameter is a local of the function's own table")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "a parameter is a local of the function's own table"
+)]
 fn snapshot_captures(
     locals: &mut Vec<typed::Local>,
     params: &mut [LocalId],
@@ -478,7 +521,9 @@ fn snapshot_captures(
     for entry in entries.iter() {
         typed::walk(entry, &mut |e| match &e.kind {
             ExprKind::Lambda { captures, .. } => captured.extend(captures.iter().copied()),
-            ExprKind::Continue { func: None, args, .. } => {
+            ExprKind::Continue {
+                func: None, args, ..
+            } => {
                 for (arg, param) in args.iter().zip(params.iter()) {
                     if !matches!(&arg.kind, ExprKind::Local(l) if l == param) {
                         rebound.insert(*param);
@@ -509,7 +554,10 @@ fn snapshot_captures(
             j,
             Stmt::Let {
                 pattern: typed::Pattern {
-                    kind: typed::PatKind::Bind { local: param, sub: None },
+                    kind: typed::PatKind::Bind {
+                        local: param,
+                        sub: None,
+                    },
                     ty: local.ty,
                     span: local.span,
                 },
@@ -537,8 +585,14 @@ fn snapshot_captures(
         let ty = entry.ty;
         let span = entry.span;
         let inner = std::mem::replace(entry, Expr::new(ExprKind::Unit, ty, span));
-        *entry =
-            Expr::new(ExprKind::Block { stmts: mine, tail: Some(Box::new(inner)) }, ty, span);
+        *entry = Expr::new(
+            ExprKind::Block {
+                stmts: mine,
+                tail: Some(Box::new(inner)),
+            },
+            ty,
+            span,
+        );
     }
 }
 
@@ -569,7 +623,10 @@ struct Slots {
 /// caller leaves the group unmerged rather than putting two types in one slot.
 /// Issue #29 is what one slot at two types does — a `Walk` compared against
 /// `255` and released as a `U8`.
-#[expect(clippy::indexing_slicing, reason = "`k` is a position in `mine`, and `i` one in `group`")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`k` is a position in `mine`, and `i` one in `group`"
+)]
 fn shared_slots(program: &Program, group: &[usize]) -> Option<Slots> {
     let params: Vec<Vec<Ty>> = group
         .iter()
@@ -612,8 +669,8 @@ fn shared_slots(program: &Program, group: &[usize]) -> Option<Slots> {
 #[cfg(test)]
 mod tests {
     use super::rewrite;
-    use crate::compiler::semantics::name::Name;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
+    use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{Callee, Expr, ExprKind, Local, PatKind, Stmt};
     use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
     use crate::diagnostics::Span;
@@ -624,15 +681,26 @@ mod tests {
     }
 
     fn call(to: u32, args: Vec<Expr>) -> Expr {
-        e(ExprKind::CallFn { func: Callee::Func(FuncIdx(to)), args })
+        e(ExprKind::CallFn {
+            func: Callee::Func(FuncIdx(to)),
+            args,
+        })
     }
 
     fn local(name: &str) -> Local {
-        Local { name: Name::new(name), ty: Ty::UNIT, span: Span::default() }
+        Local {
+            name: Name::new(name),
+            ty: Ty::UNIT,
+            span: Span::default(),
+        }
     }
 
     fn typed(name: &str, ty: Ty) -> Local {
-        Local { name: Name::new(name), ty, span: Span::default() }
+        Local {
+            name: Name::new(name),
+            ty,
+            span: Span::default(),
+        }
     }
 
     /// Two types that are not `Ty::Unit` and not each other, which is all the
@@ -647,12 +715,17 @@ mod tests {
 
     /// The types of a function's parameters, in order.
     fn param_tys(f: &Func) -> Vec<Ty> {
-        f.params.iter().filter_map(|p| f.locals.get(p.index()).map(|l| l.ty)).collect()
+        f.params
+            .iter()
+            .filter_map(|p| f.locals.get(p.index()).map(|l| l.ty))
+            .collect()
     }
 
     /// Which local each argument of a `Continue` names, in order.
     fn arg_locals(e: &Expr) -> Vec<LocalId> {
-        let ExprKind::Continue { args, .. } = &e.kind else { panic!("a `Continue`") };
+        let ExprKind::Continue { args, .. } = &e.kind else {
+            panic!("a `Continue`")
+        };
         args.iter()
             .map(|a| match a.kind {
                 ExprKind::Local(l) => l,
@@ -711,7 +784,14 @@ mod tests {
             panic!("a self tail call is a loop");
         };
         assert_eq!(entries.len(), 1);
-        assert!(matches!(entries[0].kind, ExprKind::Continue { func: None, entry: 0, .. }));
+        assert!(matches!(
+            entries[0].kind,
+            ExprKind::Continue {
+                func: None,
+                entry: 0,
+                ..
+            }
+        ));
     }
 
     /// The right operand of `||` is the whole expression's value whenever it is
@@ -729,7 +809,9 @@ mod tests {
         let ExprKind::Loop { entries } = &p.funcs[0].body().unwrap().kind else {
             panic!("a tail call under `||` still loops");
         };
-        let ExprKind::Or { rhs, .. } = &entries[0].kind else { panic!("the operator stays") };
+        let ExprKind::Or { rhs, .. } = &entries[0].kind else {
+            panic!("the operator stays")
+        };
         assert!(matches!(rhs.kind, ExprKind::Continue { func: None, .. }));
     }
 
@@ -744,7 +826,10 @@ mod tests {
             e(ExprKind::Tuple(vec![call(0, Vec::new())])),
         )]);
         rewrite(&mut p);
-        assert!(matches!(p.funcs[0].body().unwrap().kind, ExprKind::Tuple(_)));
+        assert!(matches!(
+            p.funcs[0].body().unwrap().kind,
+            ExprKind::Tuple(_)
+        ));
     }
 
     /// Two functions that tail-call each other become one loop with two
@@ -752,8 +837,18 @@ mod tests {
     #[test]
     fn a_mutual_group_merges_into_one_function_with_two_entries() {
         let mut p = program(vec![
-            func("a", vec![0], vec![local("x")], call(1, vec![e(ExprKind::Local(LocalId(0)))])),
-            func("b", vec![0], vec![local("y")], call(0, vec![e(ExprKind::Local(LocalId(0)))])),
+            func(
+                "a",
+                vec![0],
+                vec![local("x")],
+                call(1, vec![e(ExprKind::Local(LocalId(0)))]),
+            ),
+            func(
+                "b",
+                vec![0],
+                vec![local("y")],
+                call(0, vec![e(ExprKind::Local(LocalId(0)))]),
+            ),
         ]);
         rewrite(&mut p);
         assert_eq!(p.funcs.len(), 3);
@@ -762,17 +857,39 @@ mod tests {
         };
         assert_eq!(entries.len(), 2);
         // Member 0's body jumps to entry 1, and member 1's to entry 0.
-        assert!(matches!(entries[0].kind, ExprKind::Continue { func: None, entry: 1, .. }));
-        assert!(matches!(entries[1].kind, ExprKind::Continue { func: None, entry: 0, .. }));
+        assert!(matches!(
+            entries[0].kind,
+            ExprKind::Continue {
+                func: None,
+                entry: 1,
+                ..
+            }
+        ));
+        assert!(matches!(
+            entries[1].kind,
+            ExprKind::Continue {
+                func: None,
+                entry: 0,
+                ..
+            }
+        ));
         // The members keep their symbols and forward at their own entry.
         assert_eq!(p.funcs[0].symbol, "a");
         assert!(matches!(
             p.funcs[0].body().unwrap().kind,
-            ExprKind::Continue { func: Some(FuncIdx(2)), entry: 0, .. }
+            ExprKind::Continue {
+                func: Some(FuncIdx(2)),
+                entry: 0,
+                ..
+            }
         ));
         assert!(matches!(
             p.funcs[1].body().unwrap().kind,
-            ExprKind::Continue { func: Some(FuncIdx(2)), entry: 1, .. }
+            ExprKind::Continue {
+                func: Some(FuncIdx(2)),
+                entry: 1,
+                ..
+            }
         ));
     }
 
@@ -811,7 +928,10 @@ mod tests {
         assert_eq!(param_tys(&p.funcs[2]), vec![a_ty(), b_ty()]);
         // `narrow` fills the one slot it owns; `wide` fills both, and its `a`
         // goes first because that is the slot's type.
-        assert_eq!(arg_locals(p.funcs[0].body().expect("a forwarder")), vec![LocalId(0)]);
+        assert_eq!(
+            arg_locals(p.funcs[0].body().expect("a forwarder")),
+            vec![LocalId(0)]
+        );
         assert_eq!(
             arg_locals(p.funcs[1].body().expect("a forwarder")),
             vec![LocalId(1), LocalId(0)]
@@ -825,8 +945,14 @@ mod tests {
             panic!("`narrow` jumps to `wide`")
         };
         assert_eq!(*entry, 1);
-        assert!(matches!(args[0].kind, ExprKind::Local(_)), "the `a` argument leads");
-        assert!(matches!(args[1].kind, ExprKind::Unit), "the `b` argument follows");
+        assert!(
+            matches!(args[0].kind, ExprKind::Local(_)),
+            "the `a` argument leads"
+        );
+        assert!(
+            matches!(args[1].kind, ExprKind::Unit),
+            "the `b` argument follows"
+        );
     }
 
     /// A group with **no** consistent assignment is left unmerged.
@@ -840,13 +966,29 @@ mod tests {
     #[test]
     fn a_group_with_no_consistent_slots_is_left_alone() {
         let mut p = program(vec![
-            func("a", vec![0], vec![typed("x", a_ty())], call(1, vec![e(ExprKind::Unit)])),
-            func("b", vec![0], vec![typed("y", b_ty())], call(0, vec![e(ExprKind::Unit)])),
+            func(
+                "a",
+                vec![0],
+                vec![typed("x", a_ty())],
+                call(1, vec![e(ExprKind::Unit)]),
+            ),
+            func(
+                "b",
+                vec![0],
+                vec![typed("y", b_ty())],
+                call(0, vec![e(ExprKind::Unit)]),
+            ),
         ]);
         rewrite(&mut p);
         assert_eq!(p.funcs.len(), 2, "nothing was merged");
-        assert!(matches!(p.funcs[0].body().expect("a body").kind, ExprKind::CallFn { .. }));
-        assert!(matches!(p.funcs[1].body().expect("a body").kind, ExprKind::CallFn { .. }));
+        assert!(matches!(
+            p.funcs[0].body().expect("a body").kind,
+            ExprKind::CallFn { .. }
+        ));
+        assert!(matches!(
+            p.funcs[1].body().expect("a body").kind,
+            ExprKind::CallFn { .. }
+        ));
     }
 
     /// An entry **binds and drops** every slot it owns and does not read.
@@ -882,14 +1024,22 @@ mod tests {
             panic!("the merged function loops")
         };
         // Entry 0 is `narrow`, which owns one slot and reads it.
-        assert!(matches!(entries[0].kind, ExprKind::Continue { .. }), "no disposal to write");
+        assert!(
+            matches!(entries[0].kind, ExprKind::Continue { .. }),
+            "no disposal to write"
+        );
         // Entry 1 is `wide`, which owns both and reads only the first.
         let ExprKind::Block { stmts, tail } = &entries[1].kind else {
             panic!("`wide` binds the slot it never reads")
         };
         assert_eq!(stmts.len(), 1, "one slot, one binding");
-        let Stmt::Let { value, .. } = &stmts[0] else { panic!("a binding") };
-        assert!(matches!(value.kind, ExprKind::Local(LocalId(1))), "it names the second slot");
+        let Stmt::Let { value, .. } = &stmts[0] else {
+            panic!("a binding")
+        };
+        assert!(
+            matches!(value.kind, ExprKind::Local(LocalId(1))),
+            "it names the second slot"
+        );
         assert!(matches!(
             tail.as_ref().expect("the body follows").kind,
             ExprKind::Continue { .. }
@@ -920,12 +1070,19 @@ mod tests {
         let ExprKind::Loop { entries } = &p.funcs[0].body().unwrap().kind else {
             panic!("it loops");
         };
-        let ExprKind::Block { stmts, .. } = &entries[0].kind else { panic!("prologue first") };
-        let crate::compiler::semantics::typed::Stmt::Let { pattern, value, .. } = &stmts[0]
-        else {
+        let ExprKind::Block { stmts, .. } = &entries[0].kind else {
+            panic!("prologue first")
+        };
+        let crate::compiler::semantics::typed::Stmt::Let { pattern, value, .. } = &stmts[0] else {
             panic!("the prologue binds")
         };
-        assert!(matches!(pattern.kind, PatKind::Bind { local: LocalId(0), .. }));
+        assert!(matches!(
+            pattern.kind,
+            PatKind::Bind {
+                local: LocalId(0),
+                ..
+            }
+        ));
         assert!(matches!(value.kind, ExprKind::Local(LocalId(1))));
     }
 

@@ -80,7 +80,11 @@ pub struct Source {
 /// that already broke something.
 pub fn corpus(root: &Path) -> Vec<Source> {
     let mut out: Vec<Source> = Vec::new();
-    for dir in ["cli/tests/conformance", "cli/tests/example", "cli/tests/formatting"] {
+    for dir in [
+        "cli/tests/conformance",
+        "cli/tests/example",
+        "cli/tests/formatting",
+    ] {
         walk(&root.join(dir), root, &mut out);
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -92,7 +96,9 @@ pub fn corpus(root: &Path) -> Vec<Source> {
 }
 
 fn walk(dir: &Path, root: &Path, out: &mut Vec<Source>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut paths: Vec<std::path::PathBuf> =
         entries.filter_map(Result::ok).map(|e| e.path()).collect();
     paths.sort();
@@ -108,12 +114,18 @@ fn walk(dir: &Path, root: &Path, out: &mut Vec<Source>) {
             walk(&p, root, out);
             continue;
         }
-        let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = p
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         // A build file is textproto, not Buri, and has its own parser.
         if !name.ends_with(".buri") || name == "BUILD.buri" || name == "REPO.buri" {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(&p) else { continue };
+        let Ok(text) = std::fs::read_to_string(&p) else {
+            continue;
+        };
         out.push(Source {
             name: p.strip_prefix(root).unwrap_or(&p).display().to_string(),
             text,
@@ -138,8 +150,12 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub const ALL: &'static [Kind] =
-        &[Kind::DeleteSeparator, Kind::DeleteCloser, Kind::InsertStray, Kind::SwapAdjacent];
+    pub const ALL: &'static [Kind] = &[
+        Kind::DeleteSeparator,
+        Kind::DeleteCloser,
+        Kind::InsertStray,
+        Kind::SwapAdjacent,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -300,7 +316,9 @@ pub fn mutations_of(src: &Source, base_seed: u64, per_kind: usize) -> Vec<Mutati
         if tokens.kind(i + 1) != TokenKind::Eof
             && ns > e
             && ne > ns
-            && text.get(e..ns).is_some_and(|gap| gap.chars().all(|c| c == ' '))
+            && text
+                .get(e..ns)
+                .is_some_and(|gap| gap.chars().all(|c| c == ' '))
         {
             by_kind[3].push(i);
         }
@@ -325,7 +343,11 @@ pub fn mutations_of(src: &Source, base_seed: u64, per_kind: usize) -> Vec<Mutati
             let origin = origin_of(&src.name, line);
             out.push(match shape {
                 0 => {
-                    let token = if tokens.kind(i) == TokenKind::Comma { "," } else { ";" };
+                    let token = if tokens.kind(i) == TokenKind::Comma {
+                        ","
+                    } else {
+                        ";"
+                    };
                     deletion(
                         Kind::DeleteSeparator,
                         nest[i],
@@ -354,7 +376,15 @@ pub fn mutations_of(src: &Source, base_seed: u64, per_kind: usize) -> Vec<Mutati
                 }
                 // The stray is taken from the index, so it is a function of
                 // the site rather than of the sampling order.
-                2 => insertion(nest[i], &src.name, origin, STRAY[i % STRAY.len()], text, &span, i),
+                2 => insertion(
+                    nest[i],
+                    &src.name,
+                    origin,
+                    STRAY[i % STRAY.len()],
+                    text,
+                    &span,
+                    i,
+                ),
                 _ => swap(nest[i], &src.name, origin, text, &span, i),
             });
         }
@@ -371,7 +401,10 @@ fn line_of(text: &str, at: usize) -> usize {
 }
 
 /// The mutated text, and the window in *its* coordinates, for a deleted token.
-#[allow(clippy::too_many_arguments, reason = "one call site; every field is a field of the result")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one call site; every field is a field of the result"
+)]
 fn deletion(
     kind: Kind,
     nest: Nest,

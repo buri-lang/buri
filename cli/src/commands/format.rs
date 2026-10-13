@@ -70,7 +70,10 @@ pub fn formatted(name: &str, text: &str) -> Option<crate::formatting::Formatted>
     let languages = crate::languages::Languages::default();
     if languages.of(name).is_some() {
         let text = crate::languages::format(&languages, name, text)?;
-        return Some(crate::formatting::Formatted { text, regions: Vec::new() });
+        return Some(crate::formatting::Formatted {
+            text,
+            regions: Vec::new(),
+        });
     }
     if is_build_file(name) {
         let parsed = textproto::parse(text, crate::diagnostics::FileId(0));
@@ -78,7 +81,10 @@ pub fn formatted(name: &str, text: &str) -> Option<crate::formatting::Formatted>
             return None;
         }
         let text = textproto::print(&parsed.document);
-        return Some(crate::formatting::Formatted { text, regions: Vec::new() });
+        return Some(crate::formatting::Formatted {
+            text,
+            regions: Vec::new(),
+        });
     }
     // A platform's surface declares its entries and production methods
     // without a body, as the standard library does.
@@ -149,8 +155,11 @@ fn select(
     if labels.is_empty() {
         return Ok((files, documents));
     }
-    let mut packages: Vec<PackageId> =
-        session.resolve_targets(&labels)?.iter().map(|t| t.package).collect();
+    let mut packages: Vec<PackageId> = session
+        .resolve_targets(&labels)?
+        .iter()
+        .map(|t| t.package)
+        .collect();
     packages.sort();
     packages.dedup();
     for id in packages {
@@ -159,7 +168,12 @@ fn select(
         for source in session.workspace.declared_sources(id) {
             files.push(package.dir.join(source));
         }
-        files.extend(referenced.iter().filter(|f| owned_by(session, id, f)).cloned());
+        files.extend(
+            referenced
+                .iter()
+                .filter(|f| owned_by(session, id, f))
+                .cloned(),
+        );
     }
     Ok((files, documents))
 }
@@ -190,7 +204,11 @@ fn owned_by(session: &session::Session, id: PackageId, file: &Path) -> bool {
         .targets()
         .into_iter()
         .filter(|t| t.package == id)
-        .any(|t| crate::build::generators::inputs(workspace, t).iter().any(|i| dir.join(i) == file))
+        .any(|t| {
+            crate::build::generators::inputs(workspace, t)
+                .iter()
+                .any(|i| dir.join(i) == file)
+        })
 }
 
 /// Formats `.buri` sources, build files, and the Buri written in documentation,
@@ -251,7 +269,9 @@ fn format_all(args: &arguments::Args) -> i32 {
     let cache = Cache::open(&session.root);
     let workspace = &*session.workspace;
     let work = crate::parallel::map(files.len(), |i| {
-        files.get(i).map_or(Work::Skip, |path| lay_out(workspace, &referenced, &cache, path, write))
+        files.get(i).map_or(Work::Skip, |path| {
+            lay_out(workspace, &referenced, &cache, path, write)
+        })
     });
 
     let mut changed = Vec::new();
@@ -266,7 +286,9 @@ fn format_all(args: &arguments::Args) -> i32 {
             Work::Skip => continue,
             Work::Done(rel, outcome) => (rel, outcome),
             Work::Tool(rel) => {
-                let Ok(text) = std::fs::read_to_string(path) else { continue };
+                let Ok(text) = std::fs::read_to_string(path) else {
+                    continue;
+                };
                 use crate::build::tools::Formatted;
                 match crate::build::tools::format_file(&session, &rel, &text, &args.flags) {
                     Formatted::Refused => refused.push(rel),
@@ -312,7 +334,11 @@ fn format_all(args: &arguments::Args) -> i32 {
         let rel = workspace.rel_of(path);
         let outcome = remembered(&cache, "document", &rel, &text, write, || {
             let out = crate::documentation::layout::format_document(&rel, &text);
-            Outcome { changed: out.is_some(), text: out, ..Outcome::default() }
+            Outcome {
+                changed: out.is_some(),
+                text: out,
+                ..Outcome::default()
+            }
         });
         Some((rel, outcome))
     });
@@ -360,34 +386,53 @@ fn lay_out(
         if matches!(language.kind, crate::languages::Kind::Custom(_)) {
             return Work::Tool(rel);
         }
-        let Ok(text) = std::fs::read_to_string(path) else { return Work::Skip };
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return Work::Skip;
+        };
         let settings = format!("{:?}", language.kind);
         let outcome = remembered(cache, &settings, &rel, &text, write, || {
             use crate::build::tools::Formatted;
             match crate::build::tools::format_in_process(&language.kind, &text) {
-                Some(Formatted::Refused) => Outcome { refused: true, ..Outcome::default() },
-                Some(Formatted::Text(out)) if out != text => {
-                    Outcome { changed: true, text: Some(out), ..Outcome::default() }
-                }
+                Some(Formatted::Refused) => Outcome {
+                    refused: true,
+                    ..Outcome::default()
+                },
+                Some(Formatted::Text(out)) if out != text => Outcome {
+                    changed: true,
+                    text: Some(out),
+                    ..Outcome::default()
+                },
                 _ => Outcome::default(),
             }
         });
         return Work::Done(rel, outcome);
     }
-    let Ok(text) = std::fs::read_to_string(path) else { return Work::Skip };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Work::Skip;
+    };
     let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
         return Work::Skip;
     };
     let outcome = remembered(cache, "buri", &rel, &text, write, || {
         let Some(out) = formatted(&name, &text) else {
-            return Outcome { broken_build: is_build_file(&name), refused: true, ..Outcome::default() };
+            return Outcome {
+                broken_build: is_build_file(&name),
+                refused: true,
+                ..Outcome::default()
+            };
         };
         // And the examples in this file's documentation comments, through the
         // same printer. The layout pass never reaches inside a comment, so the
         // fences are still where they were when this looks for them.
-        let laid_out = crate::documentation::layout::format_doc_comments(&out.text).unwrap_or(out.text);
+        let laid_out =
+            crate::documentation::layout::format_doc_comments(&out.text).unwrap_or(out.text);
         let changed = laid_out != text;
-        Outcome { changed, text: changed.then_some(laid_out), unread: !out.regions.is_empty(), ..Outcome::default() }
+        Outcome {
+            changed,
+            text: changed.then_some(laid_out),
+            unread: !out.regions.is_empty(),
+            ..Outcome::default()
+        }
     });
     Work::Done(rel, outcome)
 }
@@ -416,8 +461,15 @@ fn remembered(
     let key = k.finish();
     let hit = cache.get(&key).and_then(|bytes| {
         let flags = bytes.strip_prefix(VERDICT)?;
-        let [changed, unread, refused] = *flags else { return None };
-        Some(Outcome { changed: changed == 1, unread: unread == 1, refused: refused == 1, ..Outcome::default() })
+        let [changed, unread, refused] = *flags else {
+            return None;
+        };
+        Some(Outcome {
+            changed: changed == 1,
+            unread: unread == 1,
+            refused: refused == 1,
+            ..Outcome::default()
+        })
     });
     if let Some(hit) = hit {
         if !(write && hit.changed) {
@@ -473,16 +525,24 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>, schemas: bool) {
         }
         return;
     }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.filter_map(Result::ok) {
         let p = e.path();
-        let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         if name.starts_with('.') || name == "target" || name == "node_modules" {
             continue;
         }
         if p.is_dir() {
             walk(&p, out, schemas);
-        } else if p.extension().is_some_and(|x| x == "buri" || (schemas && x == "proto")) {
+        } else if p
+            .extension()
+            .is_some_and(|x| x == "buri" || (schemas && x == "proto"))
+        {
             out.push(p);
         }
     }

@@ -141,8 +141,7 @@ const ENUM_NAMES: &[&str] = &["Shape", "Token", "Signal", "Packet", "Reading"];
 const STRUCT_NAMES: &[&str] = &["Point", "Entry", "Frame", "Badge", "Slot"];
 const VARIANT_NAMES: &[&str] = &[
     "Alpha", "Bravo", "Delta", "Echo", "Foxtrot", "Golf", "Hotel", "India", "Juliet", "Kilo",
-    "Lima", "Mike", "November", "Oscar", "Papa", "Quebec", "Romeo", "Sierra", "Tango",
-    "Uniform",
+    "Lima", "Mike", "November", "Oscar", "Papa", "Quebec", "Romeo", "Sierra", "Tango", "Uniform",
 ];
 
 impl World {
@@ -153,7 +152,13 @@ impl World {
             Ty::Bool => String::from("Bool"),
             Ty::List(t) => format!("[{}]", self.text(t)),
             Ty::Tuple(ts) => {
-                format!("({})", ts.iter().map(|t| self.text(t)).collect::<Vec<_>>().join(", "))
+                format!(
+                    "({})",
+                    ts.iter()
+                        .map(|t| self.text(t))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
             Ty::Option(t) => format!("Option<{}>", self.text(t)),
             Ty::Result(t, e) => format!("Result<{}, {}>", self.text(t), self.text(e)),
@@ -178,7 +183,12 @@ impl World {
             Ty::Tuple(ts) => 1 + ts.iter().map(|t| self.depth(t)).max().unwrap_or(0),
             Ty::Result(t, e) => 1 + self.depth(t).max(self.depth(e)),
             Ty::Struct(i) => {
-                1 + self.structs[*i].fields.iter().map(|(_, t)| self.depth(t)).max().unwrap_or(0)
+                1 + self.structs[*i]
+                    .fields
+                    .iter()
+                    .map(|(_, t)| self.depth(t))
+                    .max()
+                    .unwrap_or(0)
             }
             Ty::Enum(i) => {
                 1 + self.enums[*i]
@@ -202,15 +212,15 @@ impl World {
                 World::leaf(rng)
             };
         }
-        let enums: Vec<usize> =
-            (0..self.enums.len()).filter(|i| self.depth(&Ty::Enum(*i)) <= depth).collect();
-        let structs: Vec<usize> =
-            (0..self.structs.len()).filter(|i| self.depth(&Ty::Struct(*i)) <= depth).collect();
+        let enums: Vec<usize> = (0..self.enums.len())
+            .filter(|i| self.depth(&Ty::Enum(*i)) <= depth)
+            .collect();
+        let structs: Vec<usize> = (0..self.structs.len())
+            .filter(|i| self.depth(&Ty::Struct(*i)) <= depth)
+            .collect();
         loop {
             match rng.below(7) {
-                0 => {
-                    return Ty::List(Box::new(if rng.percent(60) { Ty::Int } else { Ty::Str }))
-                }
+                0 => return Ty::List(Box::new(if rng.percent(60) { Ty::Int } else { Ty::Str })),
                 1 => {
                     let n = 2 + rng.below(2);
                     return Ty::Tuple((0..n).map(|_| self.draw(rng, depth - 1)).collect());
@@ -282,7 +292,10 @@ impl World {
                     };
                     variants.push((name, payload));
                 }
-                w.enums.push(EnumDef { name: ENUM_NAMES[k / 2].to_string(), variants });
+                w.enums.push(EnumDef {
+                    name: ENUM_NAMES[k / 2].to_string(),
+                    variants,
+                });
             } else {
                 let n = 1 + rng.below(3);
                 let tys: Vec<Ty> = (0..n).map(|_| w.draw(rng, 2)).collect();
@@ -315,8 +328,10 @@ impl World {
                             let _ = writeln!(out, "    {name}({}),", inner.join(", "));
                         }
                         Payload::Record(fields) => {
-                            let inner: Vec<String> =
-                                fields.iter().map(|(f, t)| format!("{f}: {}", self.text(t))).collect();
+                            let inner: Vec<String> = fields
+                                .iter()
+                                .map(|(f, t)| format!("{f}: {}", self.text(t)))
+                                .collect();
                             let _ = writeln!(out, "    {name} {{ {} }},", inner.join(", "));
                         }
                     }
@@ -325,8 +340,11 @@ impl World {
                 e += 1;
             } else {
                 let def = &self.structs[s];
-                let inner: Vec<String> =
-                    def.fields.iter().map(|(f, t)| format!("{f}: {}", self.text(t))).collect();
+                let inner: Vec<String> = def
+                    .fields
+                    .iter()
+                    .map(|(f, t)| format!("{f}: {}", self.text(t)))
+                    .collect();
                 let _ = writeln!(out, "struct {} {{ {} }}\n", def.name, inner.join(", "));
                 s += 1;
             }
@@ -384,9 +402,13 @@ impl World {
                     Val::Ok(Box::new(self.value(rng, t)))
                 }
             }
-            Ty::Struct(i) => {
-                Val::Struct(self.structs[*i].fields.iter().map(|(_, t)| self.value(rng, t)).collect())
-            }
+            Ty::Struct(i) => Val::Struct(
+                self.structs[*i]
+                    .fields
+                    .iter()
+                    .map(|(_, t)| self.value(rng, t))
+                    .collect(),
+            ),
             Ty::Enum(i) => {
                 let def = &self.enums[*i];
                 let v = rng.below(def.variants.len());
@@ -472,8 +494,11 @@ impl World {
                 }
             }
             (Ty::Tuple(ts), Val::Tuple(xs)) => {
-                let items: Vec<String> =
-                    ts.iter().zip(xs).map(|(t, x)| self.expr(rng, t, x)).collect();
+                let items: Vec<String> = ts
+                    .iter()
+                    .zip(xs)
+                    .map(|(t, x)| self.expr(rng, t, x))
+                    .collect();
                 format!("({})", items.join(", "))
             }
             (Ty::Option(t), Val::Some(x)) => format!("Option.Some({})", self.expr(rng, t, x)),
@@ -496,8 +521,11 @@ impl World {
                 match payload {
                     Payload::Unit => format!("{}.{name}", def.name),
                     Payload::Tuple(tys) => {
-                        let items: Vec<String> =
-                            tys.iter().zip(xs).map(|(t, x)| self.expr(rng, t, x)).collect();
+                        let items: Vec<String> = tys
+                            .iter()
+                            .zip(xs)
+                            .map(|(t, x)| self.expr(rng, t, x))
+                            .collect();
                         format!("{}.{name}({})", def.name, items.join(", "))
                     }
                     Payload::Record(fields) => {
@@ -563,7 +591,13 @@ impl World {
             Pat::Str(s) => format!("\"{s}\""),
             Pat::Bool(b) => b.to_string(),
             Pat::Tuple(ps) => {
-                format!("({})", ps.iter().map(|p| self.pat_text(p)).collect::<Vec<_>>().join(", "))
+                format!(
+                    "({})",
+                    ps.iter()
+                        .map(|p| self.pat_text(p))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
             Pat::Struct(i, fields, rest) => {
                 let def = &self.structs[*i];
@@ -587,7 +621,9 @@ impl World {
                         format!("{head}({})", items.join(", "))
                     }
                     VPat::Record(fields, rest) => {
-                        let Payload::Record(decl) = decl else { panic!() };
+                        let Payload::Record(decl) = decl else {
+                            panic!()
+                        };
                         let mut items: Vec<String> = fields
                             .iter()
                             .map(|(f, p)| format!("{}: {}", decl[*f].0, self.pat_text(p)))
@@ -612,7 +648,11 @@ impl World {
                 }
                 format!("[{}]", items.join(", "))
             }
-            Pat::Or(ps) => ps.iter().map(|p| self.pat_text(p)).collect::<Vec<_>>().join(" | "),
+            Pat::Or(ps) => ps
+                .iter()
+                .map(|p| self.pat_text(p))
+                .collect::<Vec<_>>()
+                .join(" | "),
             Pat::At(n, p) => format!("{n} @ {}", self.pat_text(p)),
         }
     }
@@ -744,7 +784,11 @@ impl Patterns<'_> {
             return Pat::Bind(self.fresh());
         }
         if depth == 0 {
-            return if binds { Pat::Bind(self.fresh()) } else { Pat::Wild };
+            return if binds {
+                Pat::Bind(self.fresh())
+            } else {
+                Pat::Wild
+            };
         }
         if roll < 40 && binds && !matches!(ty, Ty::Int | Ty::Str | Ty::Bool) {
             let inner = self.structural(rng, ty, v, depth, binds);
@@ -763,21 +807,26 @@ impl Patterns<'_> {
     fn structural(&mut self, rng: &mut Rng, ty: &Ty, v: &Val, depth: usize, binds: bool) -> Pat {
         let w = self.w;
         match (ty, v) {
-            (Ty::Int, Val::Int(n)) => {
-                Pat::Int(if rng.percent(75) { *n } else { *rng.pick(INTS) })
-            }
-            (Ty::Str, Val::Str(s)) => {
-                Pat::Str(if rng.percent(75) { s.clone() } else { rng.pick(STRS).to_string() })
-            }
+            (Ty::Int, Val::Int(n)) => Pat::Int(if rng.percent(75) { *n } else { *rng.pick(INTS) }),
+            (Ty::Str, Val::Str(s)) => Pat::Str(if rng.percent(75) {
+                s.clone()
+            } else {
+                rng.pick(STRS).to_string()
+            }),
             (Ty::Bool, Val::Bool(b)) => Pat::Bool(if rng.percent(80) { *b } else { !*b }),
             (Ty::List(t), Val::List(xs)) => {
                 if xs.is_empty() || rng.percent(40) {
-                    let ps = xs.iter().map(|x| self.from(rng, t, x, depth - 1, binds)).collect();
+                    let ps = xs
+                        .iter()
+                        .map(|x| self.from(rng, t, x, depth - 1, binds))
+                        .collect();
                     Pat::List(ps, Rest::Exact)
                 } else {
                     let k = 1 + rng.below(xs.len());
-                    let ps =
-                        xs[..k].iter().map(|x| self.from(rng, t, x, depth - 1, binds)).collect();
+                    let ps = xs[..k]
+                        .iter()
+                        .map(|x| self.from(rng, t, x, depth - 1, binds))
+                        .collect();
                     let rest = if binds && rng.percent(50) {
                         Rest::Named(self.fresh())
                     } else {
@@ -787,7 +836,10 @@ impl Patterns<'_> {
                 }
             }
             (Ty::Tuple(ts), Val::Tuple(xs)) => Pat::Tuple(
-                ts.iter().zip(xs).map(|(t, x)| self.from(rng, t, x, depth - 1, binds)).collect(),
+                ts.iter()
+                    .zip(xs)
+                    .map(|(t, x)| self.from(rng, t, x, depth - 1, binds))
+                    .collect(),
             ),
             (Ty::Option(t), Val::Some(x)) => {
                 if rng.percent(10) {
@@ -804,7 +856,9 @@ impl Patterns<'_> {
                     Pat::None
                 }
             }
-            (Ty::Result(t, _), Val::Ok(x)) => Pat::Ok(Box::new(self.from(rng, t, x, depth - 1, binds))),
+            (Ty::Result(t, _), Val::Ok(x)) => {
+                Pat::Ok(Box::new(self.from(rng, t, x, depth - 1, binds)))
+            }
             (Ty::Result(_, e), Val::Err(x)) => {
                 Pat::Err(Box::new(self.from(rng, e, x, depth - 1, binds)))
             }
@@ -847,7 +901,10 @@ impl Patterns<'_> {
         let payload = match &w.enums[e].variants[vi].1 {
             Payload::Unit => VPat::Unit,
             Payload::Tuple(tys) => VPat::Tuple(
-                tys.iter().zip(xs).map(|(t, x)| self.from(rng, t, x, depth - 1, binds)).collect(),
+                tys.iter()
+                    .zip(xs)
+                    .map(|(t, x)| self.from(rng, t, x, depth - 1, binds))
+                    .collect(),
             ),
             Payload::Record(fields) => {
                 let (named, rest) = self.some_fields(rng, fields.len());
@@ -890,7 +947,10 @@ impl Patterns<'_> {
             Ty::Bool => vec![Pat::Bool(true), Pat::Bool(false)],
             Ty::Option(t) => {
                 let mut out: Vec<Pat> = if rng.percent(40) {
-                    self.cover(rng, t, depth - 1).into_iter().map(|p| Pat::Some(Box::new(p))).collect()
+                    self.cover(rng, t, depth - 1)
+                        .into_iter()
+                        .map(|p| Pat::Some(Box::new(p)))
+                        .collect()
                 } else {
                     vec![Pat::Some(Box::new(loose(self, rng)))]
                 };
@@ -899,7 +959,10 @@ impl Patterns<'_> {
             }
             Ty::Result(t, _) => {
                 let mut out: Vec<Pat> = if rng.percent(40) {
-                    self.cover(rng, t, depth - 1).into_iter().map(|p| Pat::Ok(Box::new(p))).collect()
+                    self.cover(rng, t, depth - 1)
+                        .into_iter()
+                        .map(|p| Pat::Ok(Box::new(p)))
+                        .collect()
                 } else {
                     vec![Pat::Ok(Box::new(loose(self, rng)))]
                 };
@@ -907,8 +970,15 @@ impl Patterns<'_> {
                 out
             }
             Ty::List(_) => {
-                let rest = if rng.percent(50) { Rest::Named(self.fresh()) } else { Rest::Anonymous };
-                vec![Pat::List(Vec::new(), Rest::Exact), Pat::List(vec![loose(self, rng)], rest)]
+                let rest = if rng.percent(50) {
+                    Rest::Named(self.fresh())
+                } else {
+                    Rest::Anonymous
+                };
+                vec![
+                    Pat::List(Vec::new(), Rest::Exact),
+                    Pat::List(vec![loose(self, rng)], rest),
+                ]
             }
             Ty::Enum(e) => {
                 let def = &w.enums[*e];
@@ -953,7 +1023,10 @@ impl Patterns<'_> {
                 let fields = &w.structs[*i].fields;
                 let at = rng.below(fields.len());
                 let split = self.cover(rng, &fields[at].1, depth - 1);
-                split.into_iter().map(|q| Pat::Struct(*i, vec![(at, q)], true)).collect()
+                split
+                    .into_iter()
+                    .map(|q| Pat::Struct(*i, vec![(at, q)], true))
+                    .collect()
             }
             Ty::Int | Ty::Str => vec![loose(self, rng)],
         }
@@ -997,9 +1070,10 @@ fn norm(w: &World, p: &Pat, ty: &Ty) -> Np {
         (Pat::Int(n), _) => Np::C(Ct::Int(*n), Vec::new()),
         (Pat::Str(s), _) => Np::C(Ct::Str(s.clone()), Vec::new()),
         (Pat::Bool(b), _) => Np::C(Ct::Bool(*b), Vec::new()),
-        (Pat::Tuple(ps), Ty::Tuple(ts)) => {
-            Np::C(Ct::Single, ps.iter().zip(ts).map(|(q, t)| norm(w, q, t)).collect())
-        }
+        (Pat::Tuple(ps), Ty::Tuple(ts)) => Np::C(
+            Ct::Single,
+            ps.iter().zip(ts).map(|(q, t)| norm(w, q, t)).collect(),
+        ),
         (Pat::Struct(i, fields, _), _) => {
             let decl = &w.structs[*i].fields;
             let mut args = vec![Np::Wild; decl.len()];
@@ -1044,7 +1118,11 @@ fn norm(w: &World, p: &Pat, ty: &Ty) -> Np {
 fn sub_tys(w: &World, ty: &Ty, c: &Ct) -> Vec<Ty> {
     match (ty, c) {
         (Ty::Tuple(ts), Ct::Single) => ts.clone(),
-        (Ty::Struct(i), Ct::Single) => w.structs[*i].fields.iter().map(|(_, t)| t.clone()).collect(),
+        (Ty::Struct(i), Ct::Single) => w.structs[*i]
+            .fields
+            .iter()
+            .map(|(_, t)| t.clone())
+            .collect(),
         (Ty::Enum(e), Ct::Variant(v)) => w.enums[*e].variants[*v].1.tys(),
         (Ty::Option(t), Ct::Some) | (Ty::Result(t, _), Ct::Ok) => vec![(**t).clone()],
         (Ty::Result(_, e), Ct::Err) => vec![(**e).clone()],
@@ -1110,7 +1188,10 @@ fn useful(w: &World, rows: &[Vec<Np>], v: &[Np], tys: &[Ty]) -> bool {
     let rest_tys = &tys[1..];
     let try_ct = |c: &Ct, head_args: Vec<Np>| {
         let sub = sub_tys(w, &tys[0], c);
-        let srows: Vec<Vec<Np>> = rows.iter().filter_map(|r| specialize(r, c, sub.len())).collect();
+        let srows: Vec<Vec<Np>> = rows
+            .iter()
+            .filter_map(|r| specialize(r, c, sub.len()))
+            .collect();
         let mut sv = head_args;
         sv.extend_from_slice(&v[1..]);
         let mut stys = sub;
@@ -1245,7 +1326,11 @@ enum Guard {
 }
 
 fn lookup<'a>(env: &'a [(String, Val)], name: &str) -> &'a Val {
-    &env.iter().rev().find(|(n, _)| n == name).unwrap_or_else(|| panic!("`{name}` is not bound")).1
+    &env.iter()
+        .rev()
+        .find(|(n, _)| n == name)
+        .unwrap_or_else(|| panic!("`{name}` is not bound"))
+        .1
 }
 
 fn int_of(e: &IntE, env: &[(String, Val)], limit: i64) -> i64 {
@@ -1271,7 +1356,9 @@ impl Guard {
             Guard::StrEq(n, s, negated) => {
                 (matches!(lookup(env, n), Val::Str(x) if x == s)) != *negated
             }
-            Guard::StartsWith(n, s) => matches!(lookup(env, n), Val::Str(x) if x.starts_with(s.as_str())),
+            Guard::StartsWith(n, s) => {
+                matches!(lookup(env, n), Val::Str(x) if x.starts_with(s.as_str()))
+            }
             Guard::Flag(n, negated) => (matches!(lookup(env, n), Val::Bool(true))) != *negated,
             Guard::Probe(n, method, negated) => {
                 let v = lookup(env, n);
@@ -1324,16 +1411,14 @@ impl Guard {
 /// One guard over the names in `names`, or `None` where none of them is of a
 /// type a guard reads. It reads the values in `env` to draw its literals near
 /// them, so it passes for some calls and fails for others.
-fn atom(
-    rng: &mut Rng,
-    names: &[(String, Ty)],
-    env: &[(String, Val)],
-    limit: i64,
-) -> Option<Guard> {
+fn atom(rng: &mut Rng, names: &[(String, Ty)], env: &[(String, Val)], limit: i64) -> Option<Guard> {
     let usable: Vec<&(String, Ty)> = names
         .iter()
         .filter(|(_, t)| {
-            matches!(t, Ty::Int | Ty::Str | Ty::Bool | Ty::List(_) | Ty::Option(_) | Ty::Result(..))
+            matches!(
+                t,
+                Ty::Int | Ty::Str | Ty::Bool | Ty::List(_) | Ty::Option(_) | Ty::Result(..)
+            )
         })
         .collect();
     if usable.is_empty() {
@@ -1344,8 +1429,11 @@ fn atom(
     let g = match ty {
         Ty::Int => {
             let k = int_of(&IntE::Var(name.clone()), env, limit);
-            let ints: Vec<&(String, Ty)> =
-                usable.iter().copied().filter(|(n, t)| *t == Ty::Int && *n != name).collect();
+            let ints: Vec<&(String, Ty)> = usable
+                .iter()
+                .copied()
+                .filter(|(n, t)| *t == Ty::Int && *n != name)
+                .collect();
             let rhs = match rng.below(10) {
                 0..=1 => IntE::Limit,
                 2..=3 if !ints.is_empty() => IntE::Var(rng.pick(&ints).0.clone()),
@@ -1354,15 +1442,25 @@ fn atom(
             Guard::Cmp(IntE::Var(name), *rng.pick(OPS), rhs)
         }
         Ty::Str => {
-            let Val::Str(s) = lookup(env, &name).clone() else { panic!() };
+            let Val::Str(s) = lookup(env, &name).clone() else {
+                panic!()
+            };
             match rng.below(3) {
                 0 => {
-                    let lit = if rng.percent(50) { s } else { rng.pick(STRS).to_string() };
+                    let lit = if rng.percent(50) {
+                        s
+                    } else {
+                        rng.pick(STRS).to_string()
+                    };
                     Guard::StrEq(name, lit, rng.percent(25))
                 }
                 1 => {
                     let k = s.len() as i64;
-                    let len = if rng.percent(40) { IntE::Call("sized", name) } else { IntE::Len(name) };
+                    let len = if rng.percent(40) {
+                        IntE::Call("sized", name)
+                    } else {
+                        IntE::Len(name)
+                    };
                     Guard::Cmp(len, *rng.pick(OPS), IntE::Lit(near(rng, k)))
                 }
                 _ => Guard::StartsWith(name, rng.pick(&["a", "b", "c", "ab"]).to_string()),
@@ -1373,9 +1471,15 @@ fn atom(
             if rng.percent(50) {
                 Guard::Probe(name, "isEmpty", rng.percent(50))
             } else {
-                let Val::List(xs) = lookup(env, &name) else { panic!() };
+                let Val::List(xs) = lookup(env, &name) else {
+                    panic!()
+                };
                 let k = xs.len() as i64;
-                let len = if rng.percent(40) { IntE::Call("count", name) } else { IntE::Len(name) };
+                let len = if rng.percent(40) {
+                    IntE::Call("count", name)
+                } else {
+                    IntE::Len(name)
+                };
                 Guard::Cmp(len, *rng.pick(OPS), IntE::Lit(near(rng, k)))
             }
         }
@@ -1484,7 +1588,13 @@ impl Match {
     /// The match as source, each arm's answer handed to `wrap` — the
     /// identity for a match whose value is used, `say(ctx, ..)` for one used
     /// as a statement.
-    fn text(&self, w: &World, scrutinee: &str, prefix: &str, wrap: &dyn Fn(String) -> String) -> String {
+    fn text(
+        &self,
+        w: &World,
+        scrutinee: &str,
+        prefix: &str,
+        wrap: &dyn Fn(String) -> String,
+    ) -> String {
         let mut out = format!("match ({scrutinee}) {{\n");
         for arm in &self.arms {
             let mut line = w.pat_text(&arm.pat);
@@ -1532,7 +1642,11 @@ fn draw_match(
     let mut arms: Vec<Arm> = Vec::new();
     let wanted = 2 + rng.below(5);
     for _ in 0..wanted {
-        let source = if rng.percent(50) { &values[0] } else { rng.pick(values) };
+        let source = if rng.percent(50) {
+            &values[0]
+        } else {
+            rng.pick(values)
+        };
         let pat = if rng.percent(8) {
             // An arm whose whole pattern is an or-pattern.
             let other = w.value(rng, ty);
@@ -1590,7 +1704,11 @@ fn draw_match(
         m.arms.push(last);
     }
     for (i, a) in m.arms.iter_mut().enumerate() {
-        a.label = if nest { format!("a{i}") } else { format!("i{i}") };
+        a.label = if nest {
+            format!("a{i}")
+        } else {
+            format!("i{i}")
+        };
     }
     m
 }
@@ -1609,11 +1727,17 @@ fn arm(
     bound(w, &pat, ty, &mut bindings);
     let mut env = Vec::new();
     let matched = bind(&pat, source, &mut env);
-    let guard = if matched && rng.percent(40) { guard(rng, &bindings, &env, limit) } else { None };
+    let guard = if matched && rng.percent(40) {
+        guard(rng, &bindings, &env, limit)
+    } else {
+        None
+    };
     let mut shows = Vec::new();
     for (name, t) in &bindings {
         match t {
-            Ty::Int | Ty::Str | Ty::Bool if rng.percent(70) => shows.push(Show::Value(name.clone())),
+            Ty::Int | Ty::Str | Ty::Bool if rng.percent(70) => {
+                shows.push(Show::Value(name.clone()))
+            }
             Ty::List(_) if rng.percent(70) => shows.push(Show::Len(name.clone())),
             _ => {}
         }
@@ -1633,7 +1757,13 @@ fn arm(
             nested = Some((name, Box::new(inner)));
         }
     }
-    Arm { pat, guard, label: String::new(), shows, nested }
+    Arm {
+        pat,
+        guard,
+        label: String::new(),
+        shows,
+        nested,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1821,10 +1951,16 @@ pub fn batch(seed: u64, index: usize) -> Batch {
         }
         let limits: Vec<i64> = args.iter().map(|_| rng.below(5) as i64).collect();
         let s_ty = form.ty(&t);
-        let s_vals: Vec<Val> =
-            args.iter().zip(&limits).map(|(v, l)| form.value(v, *l)).collect();
+        let s_vals: Vec<Val> = args
+            .iter()
+            .zip(&limits)
+            .map(|(v, l)| form.value(v, *l))
+            .collect();
         let mut counter = 0;
-        let mut names = Patterns { w: &w, next: &mut counter };
+        let mut names = Patterns {
+            w: &w,
+            next: &mut counter,
+        };
         let m = draw_match(&mut rng, &mut names, &s_ty, &s_vals, limits[0], true);
         let (setup, scrutinee) = form.text(&w, &t);
         let t_text = w.text(&t);
@@ -1854,7 +1990,9 @@ pub fn batch(seed: u64, index: usize) -> Batch {
                 );
             }
             Use::Statement => {
-                let body = m.text(&w, &scrutinee, &format!("s{k} "), &|s| format!("say(ctx, {s})"));
+                let body = m.text(&w, &scrutinee, &format!("s{k} "), &|s| {
+                    format!("say(ctx, {s})")
+                });
                 let _ = writeln!(
                     functions,
                     "fn s{k}<C: Allocator + Stdout>(ctx: C, v: {t_text}, limit: Int): () {{\n{setup}\
@@ -1909,13 +2047,20 @@ pub fn batch(seed: u64, index: usize) -> Batch {
     source.push_str(&calls);
     source.push_str(".Ok(())\n}\n");
     let mut map = buri::diagnostics::SourceMap::new();
-    let id = map.add(String::from("main.buri"), std::path::PathBuf::from("main.buri"), source.clone());
+    let id = map.add(
+        String::from("main.buri"),
+        std::path::PathBuf::from("main.buri"),
+        source.clone(),
+    );
     let errors: String = buri::parsing::parser::parse(&source, id)
         .errors
         .iter()
         .map(|e| map.render(e, false))
         .collect();
-    assert!(errors.is_empty(), "batch {index} of seed {seed:#x} does not parse:\n{errors}\n{source}");
+    assert!(
+        errors.is_empty(),
+        "batch {index} of seed {seed:#x} does not parse:\n{errors}\n{source}"
+    );
     let source = buri::formatting::source(&source)
         .unwrap_or_else(|| panic!("batch {index} of seed {seed:#x} does not format:\n{source}"));
     Batch { source, expected }

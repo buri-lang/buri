@@ -109,8 +109,10 @@ pub fn encoded_range(
     to: u32,
 ) -> Vec<u32> {
     let all = pieces(analyzed, path, text);
-    let kept: Vec<Piece> =
-        all.into_iter().filter(|p| p.start < to && from < p.end).collect();
+    let kept: Vec<Piece> = all
+        .into_iter()
+        .filter(|p| p.start < to && from < p.end)
+        .collect();
     encode(text, &kept)
 }
 
@@ -128,10 +130,7 @@ pub fn numbers(data: &[u32]) -> Value {
 /// itself number for number.
 pub fn edits(previous: &[u32], current: &[u32]) -> Value {
     let mut head = 0usize;
-    while head < previous.len()
-        && head < current.len()
-        && previous.get(head) == current.get(head)
-    {
+    while head < previous.len() && head < current.len() && previous.get(head) == current.get(head) {
         head = head.saturating_add(1);
     }
     head = head.saturating_sub(head % 5);
@@ -149,7 +148,9 @@ pub fn edits(previous: &[u32], current: &[u32]) -> Value {
     tail = tail.saturating_sub(tail % 5);
 
     let delete = previous.len().saturating_sub(head).saturating_sub(tail);
-    let replacement = current.get(head..current.len().saturating_sub(tail)).unwrap_or(&[]);
+    let replacement = current
+        .get(head..current.len().saturating_sub(tail))
+        .unwrap_or(&[]);
     // Nothing to say is said as nothing, not as an empty splice.
     if delete == 0 && replacement.is_empty() {
         return Value::Array(Vec::new());
@@ -311,7 +312,9 @@ fn split(text: &str, start: u32, end: u32, kind: u32, modifiers: u32, out: &mut 
     let end = end.min(text.len() as u32);
     let mut at = start;
     while at < end {
-        let Some(rest) = text.get(at as usize..end as usize) else { return };
+        let Some(rest) = text.get(at as usize..end as usize) else {
+            return;
+        };
         let line_end = match rest.find('\n') {
             Some(i) => at.saturating_add(i as u32),
             None => end,
@@ -321,7 +324,12 @@ fn split(text: &str, start: u32, end: u32, kind: u32, modifiers: u32, out: &mut 
             cut = cut.saturating_sub(1);
         }
         if cut > at {
-            out.push(Piece { start: at, end: cut, kind, modifiers });
+            out.push(Piece {
+                start: at,
+                end: cut,
+                kind,
+                modifiers,
+            });
         }
         at = line_end.saturating_add(1);
     }
@@ -340,11 +348,7 @@ fn split(text: &str, start: u32, end: u32, kind: u32, modifiers: u32, out: &mut 
 /// module writes, both now paid once for the request. What is left is the walk
 /// of the declarations and of the typed bodies, which a different offset really
 /// does answer differently.
-fn resolved(
-    analyzed: &Analyzed,
-    resolver: &symbols::Resolver,
-    span: Span,
-) -> Option<(u32, u32)> {
+fn resolved(analyzed: &Analyzed, resolver: &symbols::Resolver, span: Span) -> Option<(u32, u32)> {
     let found = resolver.at(span.start)?;
     let tables = &analyzed.analysis.checked.tables;
     let kind = match &found.symbol {
@@ -407,15 +411,21 @@ fn encode(text: &str, pieces: &[Piece]) -> Vec<u32> {
     let offsets: Vec<u32> = pieces.iter().map(|p| p.start).collect();
     let positions = convert::positions_of(text, &offsets);
     let mut data = Vec::with_capacity(pieces.len().saturating_mul(5));
-    let mut previous = Position { line: 0, character: 0 };
+    let mut previous = Position {
+        line: 0,
+        character: 0,
+    };
     for (piece, at) in pieces.iter().zip(positions) {
         let length: u32 = text
             .get(piece.start as usize..piece.end as usize)
             .map(|s| s.chars().map(|c| c.len_utf16() as u32).sum())
             .unwrap_or(0);
         let line = at.line.saturating_sub(previous.line);
-        let character =
-            if line == 0 { at.character.saturating_sub(previous.character) } else { at.character };
+        let character = if line == 0 {
+            at.character.saturating_sub(previous.character)
+        } else {
+            at.character
+        };
         data.extend([line, character, length, piece.kind, piece.modifiers]);
         previous = at;
     }
@@ -433,7 +443,8 @@ mod tests {
 
     /// The five numbers of the `n`th token.
     fn record(data: &[u32], n: usize) -> &[u32] {
-        data.get(n.saturating_mul(5)..n.saturating_mul(5).saturating_add(5)).unwrap_or(&[])
+        data.get(n.saturating_mul(5)..n.saturating_mul(5).saturating_add(5))
+            .unwrap_or(&[])
     }
 
     #[test]
@@ -496,10 +507,15 @@ mod tests {
         let previous = [0, 0, 3, KEYWORD, 0, 1, 0, 2, NUMBER, 0, 1, 0, 3, KEYWORD, 0];
         let current = [0, 0, 3, KEYWORD, 0, 1, 0, 6, STRING, 0, 1, 0, 3, KEYWORD, 0];
         let out = edits(&previous, &current);
-        let Value::Array(items) = &out else { panic!("{}", out.to_string()) };
+        let Value::Array(items) = &out else {
+            panic!("{}", out.to_string())
+        };
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].get("start").and_then(|v| v.as_u32()), Some(5));
-        assert_eq!(items[0].get("deleteCount").and_then(|v| v.as_u32()), Some(5));
+        assert_eq!(
+            items[0].get("deleteCount").and_then(|v| v.as_u32()),
+            Some(5)
+        );
         assert_eq!(
             items[0].get("data").map(|d| d.to_string()),
             Some("[1,0,6,10,0]".to_string())
@@ -511,9 +527,14 @@ mod tests {
         let previous = [0, 0, 3, KEYWORD, 0];
         let current = [0, 0, 3, KEYWORD, 0, 1, 0, 2, NUMBER, 0];
         let out = edits(&previous, &current);
-        let Value::Array(items) = &out else { panic!("{}", out.to_string()) };
+        let Value::Array(items) = &out else {
+            panic!("{}", out.to_string())
+        };
         assert_eq!(items[0].get("start").and_then(|v| v.as_u32()), Some(5));
-        assert_eq!(items[0].get("deleteCount").and_then(|v| v.as_u32()), Some(0));
+        assert_eq!(
+            items[0].get("deleteCount").and_then(|v| v.as_u32()),
+            Some(0)
+        );
     }
 
     /// The legend is what a client indexes into, so every constant has to name

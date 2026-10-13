@@ -152,8 +152,8 @@ pub fn refuse_stencil_name(stencil: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::runtime;
+    use super::*;
 
     /// The name that was actually in the shipped `macos-arm64` library, and the
     /// one the ELF targets errored on. A synthetic hole rather than a compiled

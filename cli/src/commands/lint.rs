@@ -61,7 +61,10 @@ use std::path::{Path, PathBuf};
 pub fn command_lint(args: &arguments::Args) -> i32 {
     let code = lint_all(args);
     if crate::profile::enabled() {
-        eprintln!("targets linted {}", LINTED.load(std::sync::atomic::Ordering::Relaxed));
+        eprintln!(
+            "targets linted {}",
+            LINTED.load(std::sync::atomic::Ordering::Relaxed)
+        );
     }
     code
 }
@@ -79,7 +82,10 @@ fn lint_all(args: &arguments::Args) -> i32 {
     if args.flags.fix {
         let applied = apply_fixes(&mut session, &diagnostics);
         if applied > 0 {
-            println!("fixed {applied} finding{}", if applied == 1 { "" } else { "s" });
+            println!(
+                "fixed {applied} finding{}",
+                if applied == 1 { "" } else { "s" }
+            );
             // Everything is computed again from the files on disk rather than
             // subtracted from what was just reported: an edit can uncover a
             // finding the first pass could not see, and a count arrived at by
@@ -130,7 +136,9 @@ pub fn findings_reusing(
     flags: &arguments::Flags,
     mut analyses: Vec<(TargetId, crate::compiler::driver::Analysis)>,
 ) -> Diagnostics {
-    if !crate::build::generators::all_prepared(&session.workspace) && needs_every_generator(session, targets) {
+    if !crate::build::generators::all_prepared(&session.workspace)
+        && needs_every_generator(session, targets)
+    {
         crate::build::generators::prepare(session, flags, &crate::build::sources::Overlay::new());
     }
     let mut diagnostics = Diagnostics::new();
@@ -139,8 +147,10 @@ pub fn findings_reusing(
     let mut store = super::lint_cache::Store::open(&session.root, flags);
     // The records first, so that every target they cannot answer is analysed
     // in one compilation rather than one each.
-    let recalled: Vec<Option<super::lint_cache::Parts>> =
-        targets.iter().map(|target| store.recall(session, *target)).collect();
+    let recalled: Vec<Option<super::lint_cache::Parts>> = targets
+        .iter()
+        .map(|target| store.recall(session, *target))
+        .collect();
     let unanswered: Vec<TargetId> = targets
         .iter()
         .zip(&recalled)
@@ -151,7 +161,13 @@ pub fn findings_reusing(
     for (target, recalled) in targets.iter().zip(recalled) {
         if let Some(parts) = recalled {
             store.reused(session, *target);
-            replay(session, *target, parts, &mut seen_packages, &mut diagnostics);
+            replay(
+                session,
+                *target,
+                parts,
+                &mut seen_packages,
+                &mut diagnostics,
+            );
             continue;
         }
         let alone;
@@ -169,8 +185,14 @@ pub fn findings_reusing(
             },
         };
         LINTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let marks =
-            one_target(session, *target, &part, &mut seen_packages, &mut spoken, &mut diagnostics);
+        let marks = one_target(
+            session,
+            *target,
+            &part,
+            &mut seen_packages,
+            &mut spoken,
+            &mut diagnostics,
+        );
         let closure = part.reads(&session.workspace);
         store.remember(session, *target, &closure, &marks.parts(&diagnostics));
     }
@@ -297,13 +319,15 @@ pub fn reports(
 /// that ships inside this binary was never going to appear in one. The
 /// language server's lint pass rides the same analysis, which is what keeps
 /// the two reports the same set.
-pub fn analysis_of(
-    session: &mut Session,
-    target: TargetId,
-) -> crate::compiler::driver::Analysis {
+pub fn analysis_of(session: &mut Session, target: TargetId) -> crate::compiler::driver::Analysis {
     // A lint is not a build, so it does not refuse a program for an output it
     // was not asked about. See `Unit::platform`.
-    let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
+    let unit = Unit {
+        target: Some(target),
+        platform: None,
+        entry: None,
+        with_tests: true,
+    };
     crate::compiler::driver::analyze_program(
         Some(&session.workspace),
         &mut session.map,
@@ -350,7 +374,8 @@ impl Index {
         }
         let mut bodies = vec![Vec::new(); analysis.loaded.modules.len()];
         for (fid, _) in &analysis.checked.bodies {
-            if let Some(list) = bodies.get_mut(analysis.checked.tables.fn_info(fid).module.index()) {
+            if let Some(list) = bodies.get_mut(analysis.checked.tables.fn_info(fid).module.index())
+            {
                 list.push(fid);
             }
         }
@@ -398,20 +423,34 @@ impl<'a> Part<'a> {
         let whole = self.whole;
         let mut fids: Vec<FnId> = modules
             .iter()
-            .flat_map(|m| self.index.bodies.get(m.index()).into_iter().flatten().copied())
+            .flat_map(|m| {
+                self.index
+                    .bodies
+                    .get(m.index())
+                    .into_iter()
+                    .flatten()
+                    .copied()
+            })
             .collect();
         fids.sort_unstable();
-        fids.into_iter().filter_map(|f| whole.checked.bodies.get(&f).map(|b| (f, b))).collect()
+        fids.into_iter()
+            .filter_map(|f| whole.checked.bodies.get(&f).map(|b| (f, b)))
+            .collect()
     }
 
     fn holds(&self, module: ModuleId) -> bool {
-        self.holds.is_none_or(|holds| holds.get(module.index()).copied().unwrap_or(false))
+        self.holds
+            .is_none_or(|holds| holds.get(module.index()).copied().unwrap_or(false))
     }
 
     /// The modules this target's own compilation holds, in load order.
     fn modules(&self) -> impl Iterator<Item = &'a ModuleData> + '_ {
         let whole = self.whole;
-        whole.loaded.modules.iter().filter(move |m| self.holds(m.id))
+        whole
+            .loaded
+            .modules
+            .iter()
+            .filter(move |m| self.holds(m.id))
     }
 
     /// What this target's own compilation reported, in the order it sorts in.
@@ -492,7 +531,12 @@ impl Shared {
     fn of(session: &mut Session, targets: &[TargetId]) -> Option<Shared> {
         let units: Vec<Unit> = targets
             .iter()
-            .map(|t| Unit { target: Some(*t), platform: None, entry: None, with_tests: true })
+            .map(|t| Unit {
+                target: Some(*t),
+                platform: None,
+                entry: None,
+                with_tests: true,
+            })
             .collect();
         let shared = crate::compiler::driver::shared(
             &session.workspace,
@@ -505,9 +549,22 @@ impl Shared {
         let shares = shared
             .shares
             .into_iter()
-            .map(|(t, s)| (t, Share { holds: s.holds, reported: s.reported, generated_rules: s.generated_rules }))
+            .map(|(t, s)| {
+                (
+                    t,
+                    Share {
+                        holds: s.holds,
+                        reported: s.reported,
+                        generated_rules: s.generated_rules,
+                    },
+                )
+            })
             .collect();
-        Some(Shared { analysis: shared.analysis, shares, index })
+        Some(Shared {
+            analysis: shared.analysis,
+            shares,
+            index,
+        })
     }
 
     fn part(&self, target: TargetId) -> Option<Part<'_>> {
@@ -521,7 +578,6 @@ impl Shared {
         })
     }
 }
-
 
 /// Where `dead-code` has spoken so far in a report, which
 /// [`check_unused_declarations`] stays quiet about.
@@ -575,9 +631,8 @@ struct Marks {
 
 impl Marks {
     fn parts(&self, diagnostics: &Diagnostics) -> super::lint_cache::Parts {
-        let cut = |from: usize, to: usize| {
-            diagnostics.items.get(from..to).unwrap_or_default().to_vec()
-        };
+        let cut =
+            |from: usize, to: usize| diagnostics.items.get(from..to).unwrap_or_default().to_vec();
         super::lint_cache::Parts {
             analysis: cut(self.start, self.analysis_end),
             target: cut(self.package_end, diagnostics.items.len()),
@@ -612,7 +667,11 @@ fn one_target(
     crate::build::actions::check_tags(session, target, diagnostics);
     check_target_platforms(session, target, diagnostics);
     check_dependencies(session, target, analysis, spoken, diagnostics);
-    Marks { start, analysis_end, package_end }
+    Marks {
+        start,
+        analysis_end,
+        package_end,
+    }
 }
 
 /// The rules asked once per package rather than once per target.
@@ -646,9 +705,7 @@ fn keep_what_the_repository_runs(session: &Session, diagnostics: &mut Diagnostic
         return;
     }
     diagnostics.items.retain(|d| match d.code.as_deref() {
-        Some(code) => {
-            crate::documentation::lints::find(code).is_none() || rules.enabled(code)
-        }
+        Some(code) => crate::documentation::lints::find(code).is_none() || rules.enabled(code),
         None => true,
     });
 }
@@ -755,7 +812,9 @@ fn regenerate_build_files(session: &mut Session, diagnostics: &Diagnostics) -> u
             let p = session.workspace.package(t.package);
             let owns = p.build_file_id == d.span.file
                 || p.path.is_empty()
-                || name.strip_prefix(&p.path).is_some_and(|r| r.starts_with('/'));
+                || name
+                    .strip_prefix(&p.path)
+                    .is_some_and(|r| r.starts_with('/'));
             if owns && best.is_none_or(|(len, _)| p.path.len() > len) {
                 best = Some((p.path.len(), t.package));
             }
@@ -774,7 +833,10 @@ fn regenerate_build_files(session: &mut Session, diagnostics: &Diagnostics) -> u
                     eprintln!("error: writing {}: {err}", path.display());
                     continue;
                 }
-                println!("updated {}", session.workspace.file_in(package, "BUILD.buri"));
+                println!(
+                    "updated {}",
+                    session.workspace.file_in(package, "BUILD.buri")
+                );
                 for line in &update.summary {
                     println!("  {line}");
                 }
@@ -815,7 +877,11 @@ fn apply_fixes(session: &mut Session, diagnostics: &Diagnostics) -> usize {
             // elements is a single rewrite, and each of the findings about
             // that parameter carries it. Applying it once answers both, and
             // the count below says two because two findings went away.
-            if !row.0.iter().any(|had| had.at == e.at && had.replacement == e.replacement) {
+            if !row
+                .0
+                .iter()
+                .any(|had| had.at == e.at && had.replacement == e.replacement)
+            {
                 row.0.push(e.clone());
             }
             row.1.insert(i);
@@ -831,7 +897,10 @@ fn apply_fixes(session: &mut Session, diagnostics: &Diagnostics) -> usize {
         let edits = match crate::diagnostics::EditSet::new(id, session.map.text(id), edits) {
             Ok(set) => set,
             Err(why) => {
-                eprintln!("warning: {} has {why}, so none were applied", session.map.name(id));
+                eprintln!(
+                    "warning: {} has {why}, so none were applied",
+                    session.map.name(id)
+                );
                 continue;
             }
         };
@@ -873,7 +942,10 @@ fn check_target_platforms(session: &Session, target: TargetId, diagnostics: &mut
             .tags(target)
             .first()
             .map(|t| t.span)
-            .unwrap_or(Span::point(session.workspace.package(target.package).build_file_id, 0));
+            .unwrap_or(Span::point(
+                session.workspace.package(target.package).build_file_id,
+                0,
+            ));
         diagnostics
             .push(Diagnostic::templated("unsatisfiable-target", span).with_bind("target", label));
         return;
@@ -881,7 +953,9 @@ fn check_target_platforms(session: &Session, target: TargetId, diagnostics: &mut
     if target.kind != RuleKind::Binary {
         return;
     }
-    let Some(bin) = &session.workspace.package(target.package).build.binary else { return };
+    let Some(bin) = &session.workspace.package(target.package).build.binary else {
+        return;
+    };
     for output in &bin.outputs {
         let p = output.output_platform();
         if !allowed.contains(&p) {
@@ -901,9 +975,8 @@ fn check_test_suites(session: &Session, package: PackageId, diagnostics: &mut Di
         if !suite.sources.is_empty() {
             return;
         }
-        diagnostics.push(
-            Diagnostic::templated("empty-test-suite", suite.span).with_bind("rule", rule),
-        );
+        diagnostics
+            .push(Diagnostic::templated("empty-test-suite", suite.span).with_bind("rule", rule));
     };
     if let Some(l) = &p.build.library {
         report(l.test.as_ref(), "library");
@@ -936,7 +1009,8 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
 fn declared_sources(session: &Session, package: PackageId) -> Vec<(String, Span)> {
     let p = session.workspace.package(package);
     let mut declared: Vec<(String, Span)> = Vec::new();
-    let push = |list: &[crate::build::buildfile::Spanned<String>], out: &mut Vec<(String, Span)>| {
+    let push = |list: &[crate::build::buildfile::Spanned<String>],
+                out: &mut Vec<(String, Span)>| {
         for x in list {
             out.push((x.value.clone(), x.span));
         }
@@ -976,7 +1050,11 @@ fn declared_sources(session: &Session, package: PackageId) -> Vec<(String, Span)
 /// The files of a package no rule lists, which `unused-source` reports: a
 /// `.buri` file, or a file wearing an extension one of the package's
 /// generators reads that is neither an input nor a schema a check read.
-fn unlisted_files(session: &Session, package: PackageId, declared: &[(String, Span)]) -> Vec<String> {
+fn unlisted_files(
+    session: &Session,
+    package: PackageId,
+    declared: &[(String, Span)],
+) -> Vec<String> {
     let p = session.workspace.package(package);
     let mut on_disk = unclaimed(declared, package_files(session, package));
     if on_disk.is_empty() {
@@ -1011,7 +1089,10 @@ fn unclaimed(declared: &[(String, Span)], mut on_disk: Vec<String>) -> Vec<Strin
 /// Every file in a package `unused-source` could report, package-relative and
 /// sorted, from one walk of its directory.
 fn package_files(session: &Session, package: PackageId) -> Vec<String> {
-    listing(&session.workspace.package(package).dir, &generator_extensions(session, package))
+    listing(
+        &session.workspace.package(package).dir,
+        &generator_extensions(session, package),
+    )
 }
 
 /// What a package's generator inputs wear. A generator reads whatever it
@@ -1070,9 +1151,15 @@ pub fn package_reads(session: &Session, package: PackageId) -> (u64, Vec<PathBuf
         hasher.write_u8(0);
     }
     let mut files = Vec::new();
-    if unclaimed(&declared_sources(session, package), on_disk).iter().any(|rel| !rel.ends_with(".buri")) {
+    if unclaimed(&declared_sources(session, package), on_disk)
+        .iter()
+        .any(|rel| !rel.ends_with(".buri"))
+    {
         for target in session.workspace.targets() {
-            files.extend(crate::build::generators::worked_out_from(&session.workspace, target));
+            files.extend(crate::build::generators::worked_out_from(
+                &session.workspace,
+                target,
+            ));
         }
         files.sort();
         files.dedup();
@@ -1097,14 +1184,23 @@ pub fn needs_every_generator(session: &Session, targets: &[TargetId]) -> bool {
 }
 
 /// `unused-source` for each file [`unlisted_files`] names.
-fn report_unlisted(session: &Session, package: PackageId, declared: &[(String, Span)], diagnostics: &mut Diagnostics) {
+fn report_unlisted(
+    session: &Session,
+    package: PackageId,
+    declared: &[(String, Span)],
+    diagnostics: &mut Diagnostics,
+) {
     let p = session.workspace.package(package);
     for rel in unlisted_files(session, package, declared) {
         // Which field a file belongs in follows from what it is, and the fix
         // has to say which — the rule is the same rule ("everything is
         // declared"), so the code is the same code. Anything that is not a
         // `.buri` is nobody's but a generator's, a schema included.
-        let field = if rel.ends_with(".buri") { "sources" } else { "generators" };
+        let field = if rel.ends_with(".buri") {
+            "sources"
+        } else {
+            "generators"
+        };
         // And who makes the edit follows from the field. `buri gen` rewrites
         // `sources`; it never writes `generators`, because nothing tells it
         // which generator owns a file. A fix that offered `buri gen` for both
@@ -1130,12 +1226,17 @@ fn collect_package_sources(
     extensions: &BTreeSet<String>,
     out: &mut Vec<String>,
 ) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     LISTED.with(|n| n.set(n.get().saturating_add(1)));
     let mut items: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
     items.sort();
     for p in items {
-        let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         if name.starts_with('.') {
             continue;
         }
@@ -1148,7 +1249,8 @@ fn collect_package_sources(
         } else if (p.extension().is_some_and(|x| x == "buri")
             && !crate::build::regenerate::is_configuration(&name))
             || p.extension().is_some_and(|x| x == "proto")
-            || p.extension().is_some_and(|x| extensions.contains(&x.to_string_lossy().to_string()))
+            || p.extension()
+                .is_some_and(|x| extensions.contains(&x.to_string_lossy().to_string()))
         {
             let rel = p
                 .strip_prefix(root)
@@ -1208,7 +1310,9 @@ fn check_dependencies(
                 crate::parsing::tree::Item::ReExport(r) => (r.path.clone(), r.path_span),
                 _ => continue,
             };
-            let Some(wanted) = session.workspace.dependency_label(own, &path) else { continue };
+            let Some(wanted) = session.workspace.dependency_label(own, &path) else {
+                continue;
+            };
             // The loader already refused an import into another app, and
             // declaring it would not make it legal.
             if crosses_apps(session, own, &wanted) {
@@ -1264,7 +1368,6 @@ fn check_dependencies(
             ),
         );
     }
-
 }
 
 /// The hygiene and shape rules — `unused-import`, `ignored-result`,
@@ -1288,7 +1391,11 @@ fn modules_of(
     analysis: &Part<'_>,
     own: PackageId,
 ) -> BTreeSet<crate::compiler::semantics::types::ModuleId> {
-    analysis.package_modules(own).into_iter().map(|m| m.id).collect()
+    analysis
+        .package_modules(own)
+        .into_iter()
+        .map(|m| m.id)
+        .collect()
 }
 
 /// [`modules_of`], less the ones nobody can edit. The shape rules all end in
@@ -1386,14 +1493,19 @@ impl Unchecked {
         // the body as one inside it.
         for (fid, body) in &analysis.checked.bodies {
             let info = analysis.checked.tables.fn_info(fid);
-            let Some(in_file) = errors.get(&info.span.file) else { continue };
+            let Some(in_file) = errors.get(&info.span.file) else {
+                continue;
+            };
             if info.span.file != body.expr.span.file {
                 continue;
             }
             let start = info.span.start.min(body.expr.span.start) as usize;
             let end = info.span.end.max(body.expr.span.end) as usize;
             let extent = Span::new(info.span.file, start, end);
-            if in_file.iter().any(|e| e.start <= extent.end && e.end >= extent.start) {
+            if in_file
+                .iter()
+                .any(|e| e.start <= extent.end && e.end >= extent.start)
+            {
                 unchecked.bodies.insert(fid);
                 unchecked.ranges.push(extent);
             }
@@ -1421,14 +1533,18 @@ impl Unchecked {
         // what keeps this a lookup per module rather than a walk of every item
         // in the standard library.
         for m in &analysis.loaded.modules {
-            let Some(in_file) = errors.get(&m.file) else { continue };
+            let Some(in_file) = errors.get(&m.file) else {
+                continue;
+            };
             let doubtful = m.ast.items.iter().any(|i| {
                 use crate::parsing::tree::Item;
                 match i {
                     Item::Error(_) => true,
                     Item::Import(_) | Item::ReExport(_) => {
                         let at = i.span();
-                        in_file.iter().any(|e| e.start <= at.end && e.end >= at.start)
+                        in_file
+                            .iter()
+                            .any(|e| e.start <= at.end && e.end >= at.start)
                     }
                     _ => false,
                 }
@@ -1534,7 +1650,11 @@ impl Text {
         let mut seen: crate::hash::Set<&str> = crate::hash::Set::default();
         for at in idents.iter().copied() {
             let name = source.get(at.start as usize..at.end as usize).unwrap_or("");
-            if !imports.iter().any(|i| at.start >= i.start && at.end <= i.end) && !used.contains(name) {
+            if !imports
+                .iter()
+                .any(|i| at.start >= i.start && at.end <= i.end)
+                && !used.contains(name)
+            {
                 used.insert(name.to_string());
             }
             if !seen.contains(name) && !owned.declares(name, at) {
@@ -1563,24 +1683,36 @@ impl Text {
 struct Lexes<'s> {
     session: &'s Session,
     by_file: std::cell::RefCell<
-        std::collections::BTreeMap<crate::diagnostics::FileId, std::rc::Rc<crate::parsing::lexer::Lexed<'s>>>,
+        std::collections::BTreeMap<
+            crate::diagnostics::FileId,
+            std::rc::Rc<crate::parsing::lexer::Lexed<'s>>,
+        >,
     >,
 }
 
 impl<'s> Lexes<'s> {
     fn new(session: &'s Session) -> Lexes<'s> {
-        Lexes { session, by_file: std::cell::RefCell::default() }
+        Lexes {
+            session,
+            by_file: std::cell::RefCell::default(),
+        }
     }
 
     fn text(&self, file: crate::diagnostics::FileId) -> &'s str {
         self.session.map.text(file)
     }
 
-    fn of(&self, file: crate::diagnostics::FileId) -> std::rc::Rc<crate::parsing::lexer::Lexed<'s>> {
+    fn of(
+        &self,
+        file: crate::diagnostics::FileId,
+    ) -> std::rc::Rc<crate::parsing::lexer::Lexed<'s>> {
         let mut by_file = self.by_file.borrow_mut();
-        let lexed = by_file
-            .entry(file)
-            .or_insert_with(|| std::rc::Rc::new(crate::parsing::lexer::lex(self.session.map.text(file), file)));
+        let lexed = by_file.entry(file).or_insert_with(|| {
+            std::rc::Rc::new(crate::parsing::lexer::lex(
+                self.session.map.text(file),
+                file,
+            ))
+        });
         std::rc::Rc::clone(lexed)
     }
 }
@@ -1604,7 +1736,15 @@ fn check_hygiene(
         }
     }
     check_dead_code(session, target, analysis, &unchecked, &held, diagnostics);
-    check_unused_declarations(session, &lexes, target, analysis, &unchecked, spoken, diagnostics);
+    check_unused_declarations(
+        session,
+        &lexes,
+        target,
+        analysis,
+        &unchecked,
+        spoken,
+        diagnostics,
+    );
     check_ctx_rebindings(own, analysis, &unchecked, diagnostics);
     check_unused_contexts(session, &lexes, target, analysis, &unchecked, diagnostics);
     check_unused_context_bounds(session, target, analysis, &unchecked, diagnostics);
@@ -1644,7 +1784,13 @@ fn check_function_shapes(session: &Session, m: &ModuleData, diagnostics: &mut Di
         let name = m.ast.tree.name(d.name);
         // `self` is the receiver and `ctx` is the effect budget. Neither is
         // data a caller assembled, so neither is counted.
-        let parameters = m.ast.tree.list(d.params).iter().filter(|p| p.kind == ParamKind::Normal).count();
+        let parameters = m
+            .ast
+            .tree
+            .list(d.params)
+            .iter()
+            .filter(|p| p.kind == ParamKind::Normal)
+            .count();
         if parameters > MAXIMUM_PARAMETERS {
             diagnostics.push(
                 Diagnostic::templated("parameter-count", d.name.span)
@@ -1705,7 +1851,12 @@ fn tables_of(m: &ModuleData, file: &crate::diagnostics::SourceFile) -> Vec<(Span
     let tree = &m.ast.tree;
     let mut spans: Vec<Span> = (0..tree.nodes().len())
         .map(|i| ExprId(i as u32))
-        .filter(|id| matches!(tree.expr(*id), ExprView::Array { .. } | ExprView::Match { .. }))
+        .filter(|id| {
+            matches!(
+                tree.expr(*id),
+                ExprView::Array { .. } | ExprView::Match { .. }
+            )
+        })
         .map(|id| tree.span(id))
         .collect();
     spans.sort_by_key(|at| (at.start, std::cmp::Reverse(at.end)));
@@ -1784,10 +1935,16 @@ fn check_warning_comments(lexes: &Lexes<'_>, m: &ModuleData, diagnostics: &mut D
 
 /// Every marker in `text[from..to]`, as an offset into the whole file.
 fn markers_in(text: &str, from: usize, to: usize, out: &mut Vec<(usize, &'static str)>) {
-    let Some(gap) = text.get(from..to) else { return };
+    let Some(gap) = text.get(from..to) else {
+        return;
+    };
     // Nearly every gap is a space or an indent, which holds no marker's first
     // letter; searching it three times was most of what this rule cost.
-    if !gap.bytes().any(|b| WARNING_MARKERS.iter().any(|m| m.as_bytes().first() == Some(&b))) {
+    if !gap.bytes().any(|b| {
+        WARNING_MARKERS
+            .iter()
+            .any(|m| m.as_bytes().first() == Some(&b))
+    }) {
         return;
     }
     let is_word = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
@@ -1808,8 +1965,9 @@ fn markers_in(text: &str, from: usize, to: usize, out: &mut Vec<(usize, &'static
 }
 
 /// The sixteen hexadecimal digits, in the order a table of them is written.
-const HEX_DIGITS: [char; 16] =
-    ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
+const HEX_DIGITS: [char; 16] = [
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+];
 
 /// `hand-rolled-hex-digits`. A program that writes the digits out has written the
 /// half of a hexadecimal encoder that `core/character` already is, and the half
@@ -1836,7 +1994,11 @@ fn check_hex_digit_tables(lexes: &Lexes<'_>, m: &ModuleData, diagnostics: &mut D
             // used to be written.
             TokenKind::Str => {
                 let spelled = lexed.tokens.str_at(at).to_ascii_lowercase();
-                if spelled.contains(&alphabet) { Some(at + 1) } else { None }
+                if spelled.contains(&alphabet) {
+                    Some(at + 1)
+                } else {
+                    None
+                }
             }
             // A list of character literals, which is how both of the worked
             // monorepo's copies are.
@@ -1845,8 +2007,10 @@ fn check_hex_digit_tables(lexes: &Lexes<'_>, m: &ModuleData, diagnostics: &mut D
         };
         match found {
             Some(end) => {
-                diagnostics
-                    .push(Diagnostic::templated("hand-rolled-hex-digits", lexed.tokens.span(at)));
+                diagnostics.push(Diagnostic::templated(
+                    "hand-rolled-hex-digits",
+                    lexed.tokens.span(at),
+                ));
                 at = end;
             }
             None => at += 1,
@@ -1954,9 +2118,8 @@ fn check_time_unit_conversions(lexes: &Lexes<'_>, m: &ModuleData, diagnostics: &
         }
     }
     for (span, units) in found {
-        diagnostics.push(
-            Diagnostic::templated("time-unit-conversion", span).with_bind("units", units),
-        );
+        diagnostics
+            .push(Diagnostic::templated("time-unit-conversion", span).with_bind("units", units));
     }
 }
 
@@ -2019,7 +2182,9 @@ fn check_unused_variables(
 
         let mut bound: Vec<LocalId> = Vec::new();
         typed::walk(&body.expr, &mut |e| {
-            let typed::ExprKind::Block { stmts, .. } = &e.kind else { return };
+            let typed::ExprKind::Block { stmts, .. } = &e.kind else {
+                return;
+            };
             for s in stmts {
                 if let typed::Stmt::Let { pattern, .. } = s {
                     pattern.binds(&mut bound);
@@ -2031,7 +2196,9 @@ fn check_unused_variables(
             if read.contains(&local) {
                 continue;
             }
-            let Some(l) = body.locals.get(local.index()) else { continue };
+            let Some(l) = body.locals.get(local.index()) else {
+                continue;
+            };
             found.push((l.span, l.name.to_string()));
         }
     }
@@ -2045,11 +2212,7 @@ fn check_unused_variables(
 
 /// `deep-nesting`. Every enclosing branch is a condition the reader has to hold
 /// while reading the innermost one, and past a handful nobody holds them all.
-fn check_deep_nesting(
-    own: PackageId,
-    analysis: &Part<'_>,
-    diagnostics: &mut Diagnostics,
-) {
+fn check_deep_nesting(own: PackageId, analysis: &Part<'_>, diagnostics: &mut Diagnostics) {
     let mine = editable_modules_of(analysis, own);
     let mut found: Vec<(Span, usize)> = Vec::new();
     for (fid, body) in analysis.bodies_of(&mine) {
@@ -2115,11 +2278,7 @@ fn nesting(e: &typed::Expr, depth: usize, reported: bool, out: &mut Vec<(Span, u
 ///
 /// A warning rather than an error, because it is a matter of taste about the
 /// text and not a rule about the program: `duplicate-test` is the rule.
-fn check_test_titles(
-    own: PackageId,
-    analysis: &Part<'_>,
-    diagnostics: &mut Diagnostics,
-) {
+fn check_test_titles(own: PackageId, analysis: &Part<'_>, diagnostics: &mut Diagnostics) {
     let mine = modules_of(analysis, own);
     for case in &analysis.checked.tests {
         if !mine.contains(&case.module) || !case.name.contains('\n') {
@@ -2175,14 +2334,20 @@ fn check_dead_code(
     // unreached: the import that reaches it may be in the run of declarations
     // the parser skipped, and a name nothing in the tree mentions is not a
     // name nothing uses.
-    if modules_of(analysis, own).iter().any(|m| unchecked.module(*m)) {
+    if modules_of(analysis, own)
+        .iter()
+        .any(|m| unchecked.module(*m))
+    {
         return;
     }
-    let Some(surface) = analysis.checked.surfaces.get(&own) else { return };
+    let Some(surface) = analysis.checked.surfaces.get(&own) else {
+        return;
+    };
     let surface: BTreeSet<&str> = surface.iter().map(String::as_str).collect();
     let testing = testing_surface(session, analysis, own);
-    let testing: Option<BTreeSet<&str>> =
-        testing.as_ref().map(|names| names.iter().map(String::as_str).collect());
+    let testing: Option<BTreeSet<&str>> = testing
+        .as_ref()
+        .map(|names| names.iter().map(String::as_str).collect());
 
     // What a sibling module inside the same package imports or re-exports, and
     // which sibling modules are taken whole by `import * as x`. A namespace
@@ -2206,7 +2371,9 @@ fn check_dead_code(
                 crate::parsing::tree::Item::ReExport(r) => (&r.path, &r.specs),
                 _ => continue,
             };
-            let Ok(loc) = session.workspace.resolve_module(path) else { continue };
+            let Ok(loc) = session.workspace.resolve_module(path) else {
+                continue;
+            };
             if loc.in_package().map(|m| m.package) != Some(own) {
                 continue;
             }
@@ -2247,7 +2414,9 @@ fn check_dead_code(
             continue;
         }
         for item in &m.ast.items {
-            let Some((name, span)) = exported_name(&m.ast.tree, item) else { continue };
+            let Some((name, span)) = exported_name(&m.ast.tree, item) else {
+                continue;
+            };
             if published.contains(name)
                 || wanted.contains(name)
                 || held.elsewhere(analysis, m.id, name)
@@ -2412,8 +2581,7 @@ fn check_unused_declarations(
         // Published, or possibly published: either way this rule does not ask
         // about it, and neither does it ask about the exported fields and the
         // variants underneath, which are the shape a consumer reaches through.
-        let exempt =
-            con.exported && (surface_in_doubt || published(con.module, con.name.as_str()));
+        let exempt = con.exported && (surface_in_doubt || published(con.module, con.name.as_str()));
         if !census.built.contains(&id) && !names.written.contains(con.name.as_str()) {
             if !exempt {
                 diagnostics.push(
@@ -2427,7 +2595,10 @@ fn check_unused_declarations(
             // A tuple struct's fields have no names to report and no
             // declarations of their own to point at; `.0` is the whole of what
             // a reader writes, and the type is the finding.
-            TyDef::Struct { fields, record: true } => {
+            TyDef::Struct {
+                fields,
+                record: true,
+            } => {
                 if census.read_whole.contains(&id) {
                     continue;
                 }
@@ -2447,7 +2618,8 @@ fn check_unused_declarations(
             }
             TyDef::Enum { variants } if !exempt => {
                 for (i, v) in variants.iter().enumerate() {
-                    if census.variants.contains(&(id, i)) || names.doubted.contains(v.name.as_str()) {
+                    if census.variants.contains(&(id, i)) || names.doubted.contains(v.name.as_str())
+                    {
                         continue;
                     }
                     diagnostics.push(
@@ -2493,7 +2665,10 @@ impl<'s> Names<'s> {
         unchecked: &Unchecked,
     ) -> Names<'s> {
         use crate::parsing::tree::Item;
-        let mut names = Names { written: crate::hash::Set::default(), doubted: crate::hash::Set::default() };
+        let mut names = Names {
+            written: crate::hash::Set::default(),
+            doubted: crate::hash::Set::default(),
+        };
         // The bodies whose typed tree is short, by file. The *expression* and
         // not [`Unchecked`]'s declaration extent: a signature is text the
         // parser read whole and it holds no reads, so a type named in the
@@ -2503,7 +2678,10 @@ impl<'s> Names<'s> {
             std::collections::BTreeMap::new();
         for fid in &unchecked.bodies {
             if let Some(body) = analysis.checked.bodies.get(fid) {
-                broken.entry(body.expr.span.file).or_default().push(body.expr.span);
+                broken
+                    .entry(body.expr.span.file)
+                    .or_default()
+                    .push(body.expr.span);
             }
         }
         for m in &analysis.loaded.modules {
@@ -2523,13 +2701,18 @@ impl<'s> Names<'s> {
             // Nothing in doubt: what the module writes is what its text says,
             // and the text kept that from the last pass.
             if unreadable.is_empty() {
-                names.written.extend(read.undeclared.iter().map(|at| name_at(*at)));
+                names
+                    .written
+                    .extend(read.undeclared.iter().map(|at| name_at(*at)));
                 continue;
             }
             let owned = Owned::of(m);
             for at in read.idents.iter().copied() {
                 let name = name_at(at);
-                if unreadable.iter().any(|r| at.start >= r.start && at.end <= r.end) {
+                if unreadable
+                    .iter()
+                    .any(|r| at.start >= r.start && at.end <= r.end)
+                {
                     names.doubted.insert(name);
                 }
                 if !owned.declares(name, at) {
@@ -2581,19 +2764,28 @@ impl<'m> Owned<'m> {
             [(_, a), (_, b)] => a.end <= b.start,
             _ => true,
         });
-        Owned { by_start: owned, disjoint }
+        Owned {
+            by_start: owned,
+            disjoint,
+        }
     }
 
     /// Whether the token `name` at `at` is a type's mention of itself.
     fn declares(&self, name: &str, at: Span) -> bool {
-        let holds =
-            |(owner, range): &(&str, Span)| *owner == name && at.start >= range.start && at.end <= range.end;
+        let holds = |(owner, range): &(&str, Span)| {
+            *owner == name && at.start >= range.start && at.end <= range.end
+        };
         // Declarations do not overlap, so the one that can hold a token is
         // the last to start at or before it. Where they do overlap, every
         // one is asked.
         if self.disjoint {
-            let after = self.by_start.partition_point(|(_, range)| range.start <= at.start);
-            after.checked_sub(1).and_then(|i| self.by_start.get(i)).is_some_and(holds)
+            let after = self
+                .by_start
+                .partition_point(|(_, range)| range.start <= at.start);
+            after
+                .checked_sub(1)
+                .and_then(|i| self.by_start.get(i))
+                .is_some_and(holds)
         } else {
             self.by_start.iter().any(holds)
         }
@@ -2708,7 +2900,11 @@ impl Census {
                     self.pattern(&f.pattern);
                 }
             }
-            typed::PatKind::Variant { con, variant, fields } => {
+            typed::PatKind::Variant {
+                con,
+                variant,
+                fields,
+            } => {
                 self.builds(*con);
                 self.variants.insert((*con, *variant));
                 for f in fields {
@@ -2752,7 +2948,8 @@ impl Census {
 /// module doing it, and [`check_unused_imports`] counts it as a use of an
 /// import of the enum's name.
 struct Held {
-    by_module: std::collections::BTreeMap<ModuleId, BTreeSet<crate::compiler::semantics::types::TyConId>>,
+    by_module:
+        std::collections::BTreeMap<ModuleId, BTreeSet<crate::compiler::semantics::types::TyConId>>,
 }
 
 impl Held {
@@ -2781,13 +2978,16 @@ impl Held {
         name: &str,
     ) -> bool {
         let tycons = &analysis.checked.tables.tycons;
-        self.by_module.iter().filter(|(m, _)| **m != declared_in).any(|(_, cons)| {
-            cons.iter().any(|con| {
-                tycons
-                    .get(con.0 as usize)
-                    .is_some_and(|c| c.module == declared_in && c.name == name)
+        self.by_module
+            .iter()
+            .filter(|(m, _)| **m != declared_in)
+            .any(|(_, cons)| {
+                cons.iter().any(|con| {
+                    tycons
+                        .get(con.0 as usize)
+                        .is_some_and(|c| c.module == declared_in && c.name == name)
+                })
             })
-        })
     }
 }
 
@@ -2808,7 +3008,12 @@ fn cons_in(
             params.iter().for_each(|t| cons_in(t, out));
             cons_in(ret, out);
         }
-        TyKind::Var(_) | TyKind::Param(_) | TyKind::Unit | TyKind::Ctx(_) | TyKind::SelfTy | TyKind::Error => {}
+        TyKind::Var(_)
+        | TyKind::Param(_)
+        | TyKind::Unit
+        | TyKind::Ctx(_)
+        | TyKind::SelfTy
+        | TyKind::Error => {}
     }
 }
 
@@ -2880,7 +3085,9 @@ fn check_unused_imports(
     };
 
     for item in &m.ast.items {
-        let crate::parsing::tree::Item::Import(i) = item else { continue };
+        let crate::parsing::tree::Item::Import(i) = item else {
+            continue;
+        };
         let specs: Vec<(&str, Span, bool)> = match &i.clause {
             crate::parsing::tree::ImportClause::Named(specs) => m
                 .ast
@@ -2899,7 +3106,10 @@ fn check_unused_imports(
         // applier refuses on overlap rather than guessing. Rewriting the whole
         // clause has one answer whatever the pattern of unused names is.
         let survivors: Vec<String> = match &i.clause {
-            crate::parsing::tree::ImportClause::Named(specs) => m.ast.tree.list(*specs)
+            crate::parsing::tree::ImportClause::Named(specs) => m
+                .ast
+                .tree
+                .list(*specs)
                 .iter()
                 .filter(|sp| is_used(sp))
                 .map(|sp| match sp.alias {
@@ -2947,7 +3157,9 @@ fn check_unused_imports(
 /// The offset just past the newline ending the line `at` sits on.
 fn line_end(text: &str, at: u32) -> u32 {
     let from = at as usize;
-    let Some(rest) = text.get(from..) else { return at };
+    let Some(rest) = text.get(from..) else {
+        return at;
+    };
     match rest.find('\n') {
         Some(offset) => (from + offset + 1) as u32,
         // The last line of a file need not end in a newline, and then the end
@@ -3051,7 +3263,8 @@ fn check_unused_contexts(
 ) {
     use crate::compiler::semantics::types::ParamRole;
     let mine = editable_modules_of(analysis, target.package);
-    let mut compiled: std::collections::BTreeMap<ModuleId, bool> = std::collections::BTreeMap::new();
+    let mut compiled: std::collections::BTreeMap<ModuleId, bool> =
+        std::collections::BTreeMap::new();
     let mut found: Vec<(Span, FnId, usize)> = Vec::new();
     for (fid, body) in analysis.bodies_of(&mine) {
         let info = analysis.checked.tables.fn_info(fid);
@@ -3113,10 +3326,7 @@ fn check_unused_contexts(
 /// The same extent [`Unchecked::of`] takes, and for the same reason: an error
 /// on a parameter's type is as much a reason not to read the body as one
 /// inside it, so the two questions have to be asked about one region.
-fn extent_of(
-    info: &crate::compiler::semantics::types::FnInfo,
-    body: &typed::Body,
-) -> Span {
+fn extent_of(info: &crate::compiler::semantics::types::FnInfo, body: &typed::Body) -> Span {
     if info.span.file != body.expr.span.file {
         return info.span;
     }
@@ -3177,8 +3387,12 @@ fn compiled_by(
     target: TargetId,
     module: ModuleId,
 ) -> bool {
-    let Some(m) = analysis.loaded.modules.get(module.index()) else { return false };
-    let Some(rel) = package_relative(session, target.package, &m.path) else { return true };
+    let Some(m) = analysis.loaded.modules.get(module.index()) else {
+        return false;
+    };
+    let Some(rel) = package_relative(session, target.package, &m.path) else {
+        return true;
+    };
     match session.workspace.rule_of_file(target.package, &rel) {
         Some(kind) => kind == target.kind,
         None => true,
@@ -3249,8 +3463,12 @@ fn context_edits(
         if published.contains(info.name.as_str()) {
             continue;
         }
-        let Some(param) = info.params.get(*index) else { continue };
-        let Some(declaration) = dropped_from_list(session, param.span) else { continue };
+        let Some(param) = info.params.get(*index) else {
+            continue;
+        };
+        let Some(declaration) = dropped_from_list(session, param.span) else {
+            continue;
+        };
         wanted.insert(*func, (*index, vec![declaration]));
     }
     if wanted.is_empty() {
@@ -3272,8 +3490,13 @@ fn context_edits(
             }
             typed::ExprKind::CallFn { func: callee, args } => {
                 let Some(func) = callee.decl() else { return };
-                let Some((index, edits)) = wanted.get_mut(&func) else { return };
-                match args.get(*index).and_then(|a| dropped_from_list(session, a.span)) {
+                let Some((index, edits)) = wanted.get_mut(&func) else {
+                    return;
+                };
+                match args
+                    .get(*index)
+                    .and_then(|a| dropped_from_list(session, a.span))
+                {
                     Some(edit) => edits.push(edit),
                     None => {
                         refused.insert(func);
@@ -3293,11 +3516,7 @@ fn context_edits(
 
 /// Every name the package publishes: its `lib.buri` surface, and the
 /// `testing/lib.buri` beside it, which a test source anywhere may import.
-fn published_by(
-    session: &Session,
-    analysis: &Part<'_>,
-    own: PackageId,
-) -> BTreeSet<String> {
+fn published_by(session: &Session, analysis: &Part<'_>, own: PackageId) -> BTreeSet<String> {
     let mut out: BTreeSet<String> = analysis
         .checked
         .surfaces
@@ -3327,8 +3546,14 @@ fn testing_surface(
     analysis: &Part<'_>,
     own: PackageId,
 ) -> Option<BTreeSet<String>> {
-    let path = session.workspace.package(own).module_path("testing/lib.buri");
-    let m = analysis.package_modules(own).into_iter().find(|m| m.path == path)?;
+    let path = session
+        .workspace
+        .package(own)
+        .module_path("testing/lib.buri");
+    let m = analysis
+        .package_modules(own)
+        .into_iter()
+        .find(|m| m.path == path)?;
     let mut out = BTreeSet::new();
     for item in &m.ast.items {
         // Both halves of a surface, as `Checker::compute_surfaces` reads the
@@ -3336,7 +3561,13 @@ fn testing_surface(
         // and the ones it declares and exports itself.
         match item {
             crate::parsing::tree::Item::ReExport(r) => {
-                out.extend(m.ast.tree.list(r.specs).iter().map(|sp| m.ast.tree.name(sp.name).to_string()));
+                out.extend(
+                    m.ast
+                        .tree
+                        .list(r.specs)
+                        .iter()
+                        .map(|sp| m.ast.tree.name(sp.name).to_string()),
+                );
             }
             other => {
                 if let Some((name, _)) = exported_name(&m.ast.tree, other) {
@@ -3394,7 +3625,10 @@ fn dropped_from_list(session: &Session, at: Span) -> Option<crate::diagnostics::
 
 /// A deletion of `from..to` in the file `at` names.
 fn deletion(at: Span, from: usize, to: usize) -> crate::diagnostics::Edit {
-    crate::diagnostics::Edit { at: Span::new(at.file, from, to), replacement: String::new() }
+    crate::diagnostics::Edit {
+        at: Span::new(at.file, from, to),
+        replacement: String::new(),
+    }
 }
 
 /// `unused-context-bound`. A `ctx` parameter says a function touches the
@@ -3469,12 +3703,21 @@ fn check_unused_context_bounds(
         let Some(index) = info.params.iter().position(|p| p.role == ParamRole::Ctx) else {
             continue;
         };
-        let Some(TyKind::Param(gi)) = info.params.get(index).map(|p| p.ty.kind()) else { continue };
-        let Some(generic) = info.generics.get(*gi as usize) else { continue };
+        let Some(TyKind::Param(gi)) = info.params.get(index).map(|p| p.ty.kind()) else {
+            continue;
+        };
+        let Some(generic) = info.generics.get(*gi as usize) else {
+            continue;
+        };
         if !generic.bounds.iter().any(|b| tables.trait_(*b).is_effect) {
             continue;
         }
-        if !body.params.get(index).copied().is_some_and(|local| reads_ctx(body, local)) {
+        if !body
+            .params
+            .get(index)
+            .copied()
+            .is_some_and(|local| reads_ctx(body, local))
+        {
             continue;
         }
         let used = bounds_used(analysis, body, *gi, &generic.bounds);
@@ -3492,7 +3735,9 @@ fn check_unused_context_bounds(
         // finding this rule makes always points at a file in `mine` — which is
         // what keeps it out of `core/…`, where a span would defeat the lint
         // cache for the target rather than merely misplace the caret.
-        let Some(spans) = bound_spans(analysis, info, *gi as usize) else { continue };
+        let Some(spans) = bound_spans(analysis, info, *gi as usize) else {
+            continue;
+        };
         if spans.len() != generic.bounds.len() {
             continue;
         }
@@ -3548,11 +3793,21 @@ fn bounds_used(
     use crate::compiler::semantics::types::TyKind;
     let tables = &analysis.checked.tables;
     // What the checker relied on, which is what removing a bound would break.
-    let mut used: BTreeSet<_> =
-        body.bounds_used.iter().filter(|(i, _)| *i == gi).map(|(_, t)| *t).collect();
+    let mut used: BTreeSet<_> = body
+        .bounds_used
+        .iter()
+        .filter(|(i, _)| *i == gi)
+        .map(|(_, t)| *t)
+        .collect();
     typed::walk(&body.expr, &mut |e| match &e.kind {
         // A method the bound declares, called on the context.
-        typed::ExprKind::CallTrait { trait_id, method, recv, targs, .. } => {
+        typed::ExprKind::CallTrait {
+            trait_id,
+            method,
+            recv,
+            targs,
+            ..
+        } => {
             if matches!(recv.kind(), TyKind::Param(i) if *i == gi) {
                 used.insert(*trait_id);
             }
@@ -3569,7 +3824,10 @@ fn bounds_used(
         }
         // A function-typed parameter, which uses every bound.
         typed::ExprKind::CallValue { args, .. } => {
-            if args.iter().any(|a| matches!(a.ty.kind(), TyKind::Param(i) if *i == gi)) {
+            if args
+                .iter()
+                .any(|a| matches!(a.ty.kind(), TyKind::Param(i) if *i == gi))
+            {
                 used.extend(bounds.iter().copied());
             }
         }
@@ -3635,7 +3893,12 @@ fn bound_spans(
     };
     let g = m.ast.tree.list(decl.generics).get(gi)?;
     let t = &m.ast.tree;
-    Some(t.type_list(g.bounds).iter().map(|b| t.type_span(*b)).collect())
+    Some(
+        t.type_list(g.bounds)
+            .iter()
+            .map(|b| t.type_span(*b))
+            .collect(),
+    )
 }
 
 /// The bytes that take a set of bounds out of one type parameter's list.
@@ -3661,7 +3924,9 @@ fn dropped_bounds(
     spans: &[Span],
     removed: &[usize],
 ) -> Vec<crate::diagnostics::Edit> {
-    let Some(first) = spans.first() else { return Vec::new() };
+    let Some(first) = spans.first() else {
+        return Vec::new();
+    };
     let text = session.map.text(first.file);
     let mut edits = Vec::new();
     let mut rest: &[usize] = removed;
@@ -3677,7 +3942,9 @@ fn dropped_bounds(
             b = next;
             rest = more;
         }
-        let (Some(head), Some(tail)) = (spans.get(a), spans.get(b)) else { return Vec::new() };
+        let (Some(head), Some(tail)) = (spans.get(a), spans.get(b)) else {
+            return Vec::new();
+        };
         let (from, to) = if a > 0 {
             match spans.get(a - 1) {
                 Some(before) => (before.end as usize, tail.end as usize),
@@ -3687,8 +3954,12 @@ fn dropped_bounds(
             (head.start as usize, after.start as usize)
         } else {
             // Every bound goes, so the `:` that introduced them goes as well.
-            let Some(before) = text.get(..head.start as usize) else { return Vec::new() };
-            let Some(colon) = before.trim_end().strip_suffix(':') else { return Vec::new() };
+            let Some(before) = text.get(..head.start as usize) else {
+                return Vec::new();
+            };
+            let Some(colon) = before.trim_end().strip_suffix(':') else {
+                return Vec::new();
+            };
             (colon.trim_end().len(), tail.end as usize)
         };
         if !only_separators(text, from, to, spans) {
@@ -3702,10 +3973,14 @@ fn dropped_bounds(
 /// Whether `from..to` holds nothing but bounds, the punctuation that joins
 /// them, and space.
 fn only_separators(text: &str, from: usize, to: usize, spans: &[Span]) -> bool {
-    let Some(region) = text.get(from..to) else { return false };
+    let Some(region) = text.get(from..to) else {
+        return false;
+    };
     region.char_indices().all(|(offset, c)| {
         let at = from + offset;
-        spans.iter().any(|s| at >= s.start as usize && at < s.end as usize)
+        spans
+            .iter()
+            .any(|s| at >= s.start as usize && at < s.end as usize)
             || c.is_whitespace()
             || c == '+'
             || c == ':'
@@ -3725,11 +4000,7 @@ fn only_separators(text: &str, from: usize, to: usize, spans: &[Span]) -> bool {
 /// any other. It is reported like any other: the rule is that somebody
 /// decided, and a program whose report is all prints is a program that decided
 /// that many times.
-fn check_discarded_results(
-    own: PackageId,
-    analysis: &Part<'_>,
-    diagnostics: &mut Diagnostics,
-) {
+fn check_discarded_results(own: PackageId, analysis: &Part<'_>, diagnostics: &mut Diagnostics) {
     for (span, _) in calls_into(analysis, own, "core/result", &["ignore"]) {
         diagnostics.push(Diagnostic::templated("ignored-result", span));
     }
@@ -3755,7 +4026,9 @@ fn calls_into(
             };
             let Some(called) = called else { return };
             let info = analysis.checked.tables.fn_info(called);
-            let Some(m) = analysis.loaded.modules.get(info.module.index()) else { return };
+            let Some(m) = analysis.loaded.modules.get(info.module.index()) else {
+                return;
+            };
             if m.path == module && names.contains(&info.name.as_str()) {
                 out.push((e.span, info.name.clone()));
             }
@@ -3780,10 +4053,16 @@ fn declared_by(
     module: &str,
     name: &str,
 ) -> bool {
-    let crate::compiler::semantics::types::TyKind::Con(id, _) = ty.kind() else { return false };
+    let crate::compiler::semantics::types::TyKind::Con(id, _) = ty.kind() else {
+        return false;
+    };
     let con = analysis.checked.tables.tycon(*id);
     con.name == name
-        && analysis.loaded.modules.get(con.module.index()).is_some_and(|m| m.path == module)
+        && analysis
+            .loaded
+            .modules
+            .get(con.module.index())
+            .is_some_and(|m| m.path == module)
 }
 
 /// The expression a block of one tail and no statements is, so that a rule
@@ -3791,7 +4070,10 @@ fn declared_by(
 /// with braces or without them.
 fn tail_of(e: &typed::Expr) -> &typed::Expr {
     match &e.kind {
-        typed::ExprKind::Block { stmts, tail: Some(t) } if stmts.is_empty() => tail_of(t),
+        typed::ExprKind::Block {
+            stmts,
+            tail: Some(t),
+        } if stmts.is_empty() => tail_of(t),
         _ => e,
     }
 }
@@ -3803,11 +4085,22 @@ fn order_variant<'a>(
     e: &typed::Expr,
 ) -> Option<&'a str> {
     let written = tail_of(e);
-    let typed::ExprKind::EnumLit { con, variant, args, .. } = &written.kind else { return None };
+    let typed::ExprKind::EnumLit {
+        con, variant, args, ..
+    } = &written.kind
+    else {
+        return None;
+    };
     if !args.is_empty() || !declared_by(analysis, &written.ty, "core/order", "Order") {
         return None;
     }
-    analysis.checked.tables.tycon(*con).variants().get(*variant).map(|v| v.name.as_str())
+    analysis
+        .checked
+        .tables
+        .tycon(*con)
+        .variants()
+        .get(*variant)
+        .map(|v| v.name.as_str())
 }
 
 /// A two-operand primitive operation: which operation, at which primitive, on
@@ -3821,8 +4114,12 @@ type Operands<'a> = (
 );
 
 fn prim_operation(e: &typed::Expr) -> Option<Operands<'_>> {
-    let typed::ExprKind::Prim { op, prim, args } = &tail_of(e).kind else { return None };
-    let [lhs, rhs] = args.as_slice() else { return None };
+    let typed::ExprKind::Prim { op, prim, args } = &tail_of(e).kind else {
+        return None;
+    };
+    let [lhs, rhs] = args.as_slice() else {
+        return None;
+    };
     Some((*op, *prim, lhs, rhs))
 }
 
@@ -3858,8 +4155,10 @@ fn same_text(session: &Session, a: Span, b: Span) -> bool {
         return false;
     }
     let text = session.map.text(a.file);
-    let (left, right) =
-        (text.get(a.start as usize..a.end as usize), text.get(b.start as usize..b.end as usize));
+    let (left, right) = (
+        text.get(a.start as usize..a.end as usize),
+        text.get(b.start as usize..b.end as usize),
+    );
     match (left, right) {
         (Some(l), Some(r)) => l == r,
         _ => false,
@@ -3897,7 +4196,9 @@ fn check_hand_rolled_comparators(
         if !declared_by(analysis, &info.ret, "core/order", "Order") {
             continue;
         }
-        let Some(named) = comparator_chain(session, analysis, &body.expr) else { continue };
+        let Some(named) = comparator_chain(session, analysis, &body.expr) else {
+            continue;
+        };
         found.push((info.span, named));
     }
     found.sort_by_key(|(span, _)| (span.file.0, span.start));
@@ -3915,10 +4216,16 @@ fn comparator_chain(
     analysis: &crate::compiler::driver::Analysis,
     body: &typed::Expr,
 ) -> Option<&'static str> {
-    let typed::ExprKind::If { cond, then, else_ } = &tail_of(body).kind else { return None };
+    let typed::ExprKind::If { cond, then, else_ } = &tail_of(body).kind else {
+        return None;
+    };
     let (op, prim, lhs, rhs) = prim_operation(cond)?;
     let named = comparator_for(prim)?;
-    let typed::ExprKind::If { cond: second, then: then2, else_: last } = &tail_of(else_).kind
+    let typed::ExprKind::If {
+        cond: second,
+        then: then2,
+        else_: last,
+    } = &tail_of(else_).kind
     else {
         return None;
     };
@@ -3997,11 +4304,15 @@ fn check_hand_rolled_discards(
 
 /// Whether an expression is the two-armed `match` that drops a `Result`.
 fn discards_by_hand(analysis: &crate::compiler::driver::Analysis, e: &typed::Expr) -> bool {
-    let typed::ExprKind::Match { scrutinee, arms } = &e.kind else { return false };
+    let typed::ExprKind::Match { scrutinee, arms } = &e.kind else {
+        return false;
+    };
     if !declared_by(analysis, &scrutinee.ty, "core/result", "Result") {
         return false;
     }
-    let [first, second] = arms.as_slice() else { return false };
+    let [first, second] = arms.as_slice() else {
+        return false;
+    };
     if first.guard.is_some() || second.guard.is_some() {
         return false;
     }
@@ -4011,7 +4322,14 @@ fn discards_by_hand(analysis: &crate::compiler::driver::Analysis, e: &typed::Exp
         return false;
     }
     let named = |p: &typed::Pattern| -> Option<String> {
-        let typed::PatKind::Variant { con, variant, fields } = &p.kind else { return None };
+        let typed::PatKind::Variant {
+            con,
+            variant,
+            fields,
+        } = &p.kind
+        else {
+            return None;
+        };
         // Nothing may be read out of the payload: `.Err(.NotFound)` is a match
         // on which failure it was rather than a drop of it.
         let plain = |f: &typed::FieldPat| {
@@ -4023,7 +4341,13 @@ fn discards_by_hand(analysis: &crate::compiler::driver::Analysis, e: &typed::Exp
         if !fields.iter().all(plain) {
             return None;
         }
-        analysis.checked.tables.tycon(*con).variants().get(*variant).map(|v| v.name.clone())
+        analysis
+            .checked
+            .tables
+            .tycon(*con)
+            .variants()
+            .get(*variant)
+            .map(|v| v.name.clone())
     };
     let (Some(a), Some(b)) = (named(&first.pattern), named(&second.pattern)) else {
         return false;
@@ -4053,7 +4377,9 @@ fn check_tests_assert(
     // `assert.none`, so the walk below reaches the assert module on its own.
     let asserts = |f: FnId| -> bool {
         let info = analysis.checked.tables.fn_info(f);
-        let Some(module) = analysis.loaded.modules.get(info.module.index()) else { return false };
+        let Some(module) = analysis.loaded.modules.get(info.module.index()) else {
+            return false;
+        };
         match module.path.as_str() {
             "core/testing/assert" => true,
             "platform/effect/testing" => info.name == "snapshot",
@@ -4085,7 +4411,9 @@ fn check_tests_assert(
                 found = true;
                 break;
             }
-            let Some(body) = analysis.checked.bodies.get(&f) else { continue };
+            let Some(body) = analysis.checked.bodies.get(&f) else {
+                continue;
+            };
             crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
                 match &e.kind {
                     typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => {
@@ -4126,7 +4454,9 @@ pub(crate) fn reached_by_resolution(
             };
             let Some(f) = called else { return };
             let callee = analysis.checked.tables.fn_info(f);
-            let Some(m) = analysis.loaded.modules.get(callee.module.index()) else { return };
+            let Some(m) = analysis.loaded.modules.get(callee.module.index()) else {
+                return;
+            };
             let Some(package) = m.pkg else { return };
             if package == own {
                 return;
@@ -4167,7 +4497,12 @@ fn check_cycles(session: &Session, diagnostics: &mut Diagnostics) {
                 continue;
             }
             // A closure is sorted, and shared rather than copied.
-            if session.workspace.shared_closure(dep).binary_search(&t).is_err() {
+            if session
+                .workspace
+                .shared_closure(dep)
+                .binary_search(&t)
+                .is_err()
+            {
                 continue;
             }
             let mut members: Vec<TargetId> = session
@@ -4175,7 +4510,13 @@ fn check_cycles(session: &Session, diagnostics: &mut Diagnostics) {
                 .shared_closure(t)
                 .iter()
                 .copied()
-                .filter(|m| session.workspace.shared_closure(*m).binary_search(&t).is_ok())
+                .filter(|m| {
+                    session
+                        .workspace
+                        .shared_closure(*m)
+                        .binary_search(&t)
+                        .is_ok()
+                })
                 .collect();
             members.sort();
             if !reported.insert(members) {

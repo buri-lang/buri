@@ -28,13 +28,26 @@ impl Built {
 }
 
 fn host_variant() -> String {
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     format!("{os}-{arch}")
 }
 
 fn build(root: &Path, args: &[&str]) {
-    let out = Command::new(env!("CARGO_BIN_EXE_buri")).current_dir(root).arg("build").args(args).output().unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_buri"))
+        .current_dir(root)
+        .arg("build")
+        .args(args)
+        .output()
+        .unwrap();
     assert!(
         out.status.success(),
         "`buri build {}` failed:\n{}\n{}",
@@ -51,21 +64,38 @@ fn built(name: &str, source: &str) -> Vec<Built> {
     match crate::shared::js_engine() {
         Some(engine) => {
             let root = scratch(name);
-            write(&root, "cmd/js/BUILD.buri", "binary {\n  outputs: [{ platform: \"node\" }]\n}\n");
-            write(&root, "cmd/js/main.buri", &source.replace("HOST_MODULE", "node").replace("HOST", "NodeHost"));
+            write(
+                &root,
+                "cmd/js/BUILD.buri",
+                "binary {\n  outputs: [{ platform: \"node\" }]\n}\n",
+            );
+            write(
+                &root,
+                "cmd/js/main.buri",
+                &source
+                    .replace("HOST_MODULE", "node")
+                    .replace("HOST", "NodeHost"),
+            );
             build(&root, &["//cmd/js"]);
             let artifact = root.join(".buri/out/node/cmd/js/js.mjs");
-            out.push(Built { backend: "javascript", program: vec![engine, artifact.display().to_string()] });
+            out.push(Built {
+                backend: "javascript",
+                program: vec![engine, artifact.display().to_string()],
+            });
         }
         None => {
-            crate::ci::skipped("closed pipes on JavaScript", "no JavaScript engine (`bun` or `node`) is on PATH");
+            crate::ci::skipped(
+                "closed pipes on JavaScript",
+                "no JavaScript engine (`bun` or `node`) is on PATH",
+            );
         }
     }
     out
 }
 
 fn scratch(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("closed-pipe-{name}-{}", std::process::id()))
+    PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("closed-pipe-{name}-{}", std::process::id()))
 }
 
 fn write(root: &Path, rel: &str, text: &str) {
@@ -82,9 +112,18 @@ fn built_natively(name: &str, source: &str) -> Vec<Built> {
     write(
         &root,
         "cmd/native/BUILD.buri",
-        &format!("binary {{\n  outputs: [{{ platform: \"native\", variant: \"{}\" }}]\n}}\n", host_variant()),
+        &format!(
+            "binary {{\n  outputs: [{{ platform: \"native\", variant: \"{}\" }}]\n}}\n",
+            host_variant()
+        ),
     );
-    write(&root, "cmd/native/main.buri", &source.replace("HOST_MODULE", "native").replace("HOST", "NativeHost"));
+    write(
+        &root,
+        "cmd/native/main.buri",
+        &source
+            .replace("HOST_MODULE", "native")
+            .replace("HOST", "NativeHost"),
+    );
 
     let mut out = Vec::new();
     for (backend, mode) in crate::e2e::build_modes() {
@@ -95,9 +134,19 @@ fn built_natively(name: &str, source: &str) -> Vec<Built> {
         // not a copy: a child another test forks mid-copy inherits the open file,
         // and Linux refuses to run a file open for writing (`ETXTBSY`).
         let kept = root.join(backend);
-        std::fs::rename(root.join(format!(".buri/out/native/{}/cmd/native/native", host_variant())), &kept).unwrap();
+        std::fs::rename(
+            root.join(format!(
+                ".buri/out/native/{}/cmd/native/native",
+                host_variant()
+            )),
+            &kept,
+        )
+        .unwrap();
         crate::shared::admitted(&kept);
-        out.push(Built { backend, program: vec![kept.display().to_string()] });
+        out.push(Built {
+            backend,
+            program: vec![kept.display().to_string()],
+        });
     }
     out
 }
@@ -115,15 +164,29 @@ struct Ended {
 fn piped(mut cmd: Command, reader: impl FnOnce(std::io::PipeReader) -> String) -> Ended {
     use std::os::unix::process::ExitStatusExt;
     let (read, write) = std::io::pipe().expect("a pipe");
-    let mut child = crate::shared::started(cmd.stdin(Stdio::null()).stdout(write).stderr(Stdio::piped()));
+    let mut child = crate::shared::started(
+        cmd.stdin(Stdio::null())
+            .stdout(write)
+            .stderr(Stdio::piped()),
+    );
     // The child holds the write end; ours has to go, or the reader never sees
     // the end of the stream.
     drop(cmd);
     let stdout = reader(read);
     let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
     let mut stderr = String::new();
-    child.stderr.take().expect("a piped stderr").read_to_string(&mut stderr).expect("stderr");
-    Ended { code: status.code(), signal: status.signal(), stdout, stderr }
+    child
+        .stderr
+        .take()
+        .expect("a piped stderr")
+        .read_to_string(&mut stderr)
+        .expect("stderr");
+    Ended {
+        code: status.code(),
+        signal: status.signal(),
+        stdout,
+        stderr,
+    }
 }
 
 /// A reader that is gone before the program writes anything.
@@ -135,7 +198,9 @@ fn gone(read: std::io::PipeReader) -> String {
 /// A reader that leaves after one line.
 fn one_line(read: std::io::PipeReader) -> String {
     let mut first = String::new();
-    std::io::BufReader::new(read).read_line(&mut first).expect("one line reads");
+    std::io::BufReader::new(read)
+        .read_line(&mut first)
+        .expect("one line reads");
     first
 }
 
@@ -185,7 +250,10 @@ export fn main(host: HOST): Result<(), Str> {
 fn a_program_that_handles_a_failed_print_ends_its_own_way() {
     for program in built("stops", STOPS) {
         let backend = program.backend;
-        for (reader, how) in [(gone as fn(_) -> _, "before it started"), (one_line, "after one line")] {
+        for (reader, how) in [
+            (gone as fn(_) -> _, "before it started"),
+            (one_line, "after one line"),
+        ] {
             let ended = piped(program.command(), reader);
             assert_eq!(
                 (ended.code, ended.signal, ended.stderr.as_str()),
@@ -225,7 +293,10 @@ export fn main(host: HOST): Result<(), Str> {
 fn a_program_that_ignores_failed_prints_runs_to_its_end() {
     for program in built("keeps-going", KEEPS_GOING) {
         let backend = program.backend;
-        for (reader, how) in [(gone as fn(_) -> _, "before it started"), (one_line, "after one line")] {
+        for (reader, how) in [
+            (gone as fn(_) -> _, "before it started"),
+            (one_line, "after one line"),
+        ] {
             let mut cmd = program.command();
             crate::shared::heap_checked(&mut cmd);
             let ended = piped(cmd, reader);
@@ -239,7 +310,11 @@ fn a_program_that_ignores_failed_prints_runs_to_its_end() {
         let mut cmd = program.command();
         crate::shared::heap_checked(&mut cmd);
         let ended = piped(cmd, everything);
-        assert_eq!((ended.code, ended.stderr.as_str()), (Some(0), "finished, some failed: false\n"), "on {backend}");
+        assert_eq!(
+            (ended.code, ended.stderr.as_str()),
+            (Some(0), "finished, some failed: false\n"),
+            "on {backend}"
+        );
         assert_eq!(ended.stdout.lines().count(), 200_000, "on {backend}");
     }
 }

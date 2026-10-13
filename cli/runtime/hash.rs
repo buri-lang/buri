@@ -115,8 +115,14 @@ pub extern "C" fn buri_rt_hash_f64(h: u64, x: f64) -> u64 {
     if x.trunc() == x && (-2_147_483_648.0..4_294_967_296.0).contains(&x) {
         return buri_rt_mix(h, x as i64 as u32);
     }
-    let bits = if x.is_nan() { 0x7ff8_0000_0000_0000 } else { x.to_bits() };
-    bits.to_le_bytes().iter().fold(h, |h, &b| buri_rt_mix(h, u32::from(b)))
+    let bits = if x.is_nan() {
+        0x7ff8_0000_0000_0000
+    } else {
+        x.to_bits()
+    };
+    bits.to_le_bytes()
+        .iter()
+        .fold(h, |h, &b| buri_rt_mix(h, u32::from(b)))
 }
 
 /// `$hashInto` at a `Str`: one mix per UTF-16 code unit.
@@ -125,12 +131,7 @@ pub extern "C" fn buri_rt_hash_f64(h: u64, x: f64) -> u64 {
 /// `ptr` must point at `len & BURI_RT_STR_LEN_MASK` readable bytes, or be null
 /// with a zero length.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_hash_str(
-    h: u64,
-    _base: *mut u8,
-    ptr: *const u8,
-    len: u64,
-) -> u64 {
+pub unsafe extern "C" fn buri_rt_hash_str(h: u64, _base: *mut u8, ptr: *const u8, len: u64) -> u64 {
     let n = (len & BURI_RT_STR_LEN_MASK) as usize;
     if ptr.is_null() || n == 0 {
         return h;
@@ -139,7 +140,9 @@ pub unsafe extern "C" fn buri_rt_hash_str(
     let bytes = unsafe { std::slice::from_raw_parts(ptr, n) };
     // ASCII is one code unit per byte, and so is a run of it in any string.
     if len & BURI_RT_STR_ASCII != 0 || bytes.is_ascii() {
-        return bytes.iter().fold(h, |acc, &b| buri_rt_mix(acc, u32::from(b)));
+        return bytes
+            .iter()
+            .fold(h, |acc, &b| buri_rt_mix(acc, u32::from(b)));
     }
     let text = String::from_utf8_lossy(bytes);
     let mut acc = h;
@@ -210,9 +213,15 @@ mod tests {
         assert_eq!(buri_rt_hash_i64(s, -1), mix(s, u32::MAX));
         assert_eq!(buri_rt_hash_i64(s, 1 << 32), mix(mix(s, 0), 1));
         assert_eq!(buri_rt_hash_i64(s, 1 << 31), mix(mix(s, 1 << 31), 0));
-        assert_eq!(buri_rt_hash_i64(s, -(1 << 31) - 1), mix(mix(s, i32::MAX as u32), u32::MAX));
+        assert_eq!(
+            buri_rt_hash_i64(s, -(1 << 31) - 1),
+            mix(mix(s, i32::MAX as u32), u32::MAX)
+        );
         assert_eq!(buri_rt_hash_u64(s, 7), mix(s, 7));
-        assert_eq!(buri_rt_hash_u64(s, u64::MAX), mix(mix(mix(s, u32::MAX), u32::MAX), 0));
+        assert_eq!(
+            buri_rt_hash_u64(s, u64::MAX),
+            mix(mix(mix(s, u32::MAX), u32::MAX), 0)
+        );
         assert_eq!(buri_rt_hash_i128(s, u64::MAX, u64::MAX), mix(s, u32::MAX));
         assert_eq!(buri_rt_hash_i128(s, 0, 1), mix(mix(mix(s, 0), 0), 1));
         let all = (0..4).fold(s, |h, _| mix(h, u32::MAX));
@@ -227,8 +236,14 @@ mod tests {
         assert_eq!(buri_rt_hash_f64(s, 0.0), buri_rt_mix(s, 0));
         assert_eq!(buri_rt_hash_f64(s, -0.0), buri_rt_mix(s, 0));
         assert_eq!(buri_rt_hash_f64(s, -1.0), buri_rt_mix(s, u32::MAX));
-        assert_eq!(buri_rt_hash_f64(s, -2_147_483_648.0), buri_rt_mix(s, 1 << 31));
-        assert_eq!(buri_rt_hash_f64(s, 4_294_967_295.0), buri_rt_mix(s, u32::MAX));
+        assert_eq!(
+            buri_rt_hash_f64(s, -2_147_483_648.0),
+            buri_rt_mix(s, 1 << 31)
+        );
+        assert_eq!(
+            buri_rt_hash_f64(s, 4_294_967_295.0),
+            buri_rt_mix(s, u32::MAX)
+        );
     }
 
     /// Any other float mixes its eight bytes, low first, and every NaN mixes
@@ -236,12 +251,29 @@ mod tests {
     #[test]
     fn a_float_mixes_every_bit() {
         let s = BURI_RT_HASH_SEED;
-        let bytes = |x: f64| (0..8).fold(s, |h, i| buri_rt_mix(h, (x.to_bits() >> (8 * i)) as u32 & 255));
-        for x in [0.5, 1.9, -2.75, 4_294_967_296.0, -2_147_483_649.0, f64::INFINITY, f64::MIN_POSITIVE] {
+        let bytes = |x: f64| {
+            (0..8).fold(s, |h, i| {
+                buri_rt_mix(h, (x.to_bits() >> (8 * i)) as u32 & 255)
+            })
+        };
+        for x in [
+            0.5,
+            1.9,
+            -2.75,
+            4_294_967_296.0,
+            -2_147_483_649.0,
+            f64::INFINITY,
+            f64::MIN_POSITIVE,
+        ] {
             assert_eq!(buri_rt_hash_f64(s, x), bytes(x), "{x}");
         }
         let nan = bytes(f64::from_bits(0x7ff8_0000_0000_0000));
-        for bits in [0x7ff8_0000_0000_0000u64, 0xfff8_0000_0000_0000, 0x7ff0_0000_0000_0001, u64::MAX] {
+        for bits in [
+            0x7ff8_0000_0000_0000u64,
+            0xfff8_0000_0000_0000,
+            0x7ff0_0000_0000_0001,
+            u64::MAX,
+        ] {
             assert_eq!(buri_rt_hash_f64(s, f64::from_bits(bits)), nan, "{bits:#x}");
         }
         assert_ne!(buri_rt_hash_f64(s, 0.1), buri_rt_hash_f64(s, 0.2));
@@ -276,9 +308,8 @@ mod tests {
     fn a_string_hashes_unit_by_unit() {
         let s = "ab";
         // SAFETY: `s` outlives the call.
-        let got = unsafe {
-            buri_rt_hash_str(BURI_RT_HASH_SEED, std::ptr::null_mut(), s.as_ptr(), 2)
-        };
+        let got =
+            unsafe { buri_rt_hash_str(BURI_RT_HASH_SEED, std::ptr::null_mut(), s.as_ptr(), 2) };
         let want = buri_rt_mix(buri_rt_mix(BURI_RT_HASH_SEED, 0x61), 0x62);
         assert_eq!(got, want);
     }
@@ -286,13 +317,29 @@ mod tests {
     /// The ASCII shortcut mixes what the code-unit walk mixes, flagged or not.
     #[test]
     fn every_string_hashes_by_its_utf16_units() {
-        for text in ["", "a", "key-123", "héllo", "日本語", "a😀b", "\u{7f}\u{80}"] {
-            let by_units = text.encode_utf16().fold(BURI_RT_HASH_SEED, |h, u| buri_rt_mix(h, u32::from(u)));
+        for text in [
+            "",
+            "a",
+            "key-123",
+            "héllo",
+            "日本語",
+            "a😀b",
+            "\u{7f}\u{80}",
+        ] {
+            let by_units = text
+                .encode_utf16()
+                .fold(BURI_RT_HASH_SEED, |h, u| buri_rt_mix(h, u32::from(u)));
             let n = text.len() as u64;
-            let flag = if text.is_ascii() { BURI_RT_STR_ASCII } else { 0 };
+            let flag = if text.is_ascii() {
+                BURI_RT_STR_ASCII
+            } else {
+                0
+            };
             for len in [n, n | flag] {
                 // SAFETY: `text` covers `n` bytes.
-                let got = unsafe { buri_rt_hash_str(BURI_RT_HASH_SEED, std::ptr::null_mut(), text.as_ptr(), len) };
+                let got = unsafe {
+                    buri_rt_hash_str(BURI_RT_HASH_SEED, std::ptr::null_mut(), text.as_ptr(), len)
+                };
                 assert_eq!(got, by_units, "{text:?}");
             }
         }

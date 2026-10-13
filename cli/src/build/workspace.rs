@@ -36,7 +36,12 @@ pub struct Workspace {
     by_path: HashMap<String, PackageId>,
     /// `actions::graph_key` per mode, worked out once: it is the build files'
     /// bytes, and a workspace is loaded anew whenever one of them moves.
-    pub graph_keys: std::sync::Mutex<Vec<(crate::commands::arguments::BuildMode, crate::build::cache::ActionKey)>>,
+    pub graph_keys: std::sync::Mutex<
+        Vec<(
+            crate::commands::arguments::BuildMode,
+            crate::build::cache::ActionKey,
+        )>,
+    >,
     /// Each target's [`Workspace::closure`], walked once: the edges are the
     /// build files', and they don't move while a workspace is loaded.
     closures: std::sync::Mutex<HashMap<TargetId, std::sync::Arc<[TargetId]>>>,
@@ -96,14 +101,23 @@ pub fn app_of(package_path: &str) -> Option<&str> {
 /// A package under `apps/<a>/` reaches its own app and shared packages. A
 /// shared package, anything outside `apps/`, reaches no app at all. `reaches`
 /// is the verb the message uses: "depends on" or "imports".
-pub fn reach_refusal(from: &Package, to: &Package, reaches: &str, span: Span) -> Option<Diagnostic> {
+pub fn reach_refusal(
+    from: &Package,
+    to: &Package,
+    reaches: &str,
+    span: Span,
+) -> Option<Diagnostic> {
     let other = app_of(&to.path)?;
     let d = match app_of(&from.path) {
         Some(app) if app == other => return None,
         Some(app) => Diagnostic::templated("cross-app-dependency", span).with_bind("app", app),
         None => Diagnostic::templated("shared-depends-on-app", span),
     };
-    Some(d.with_bind("from", from.label()).with_bind("reaches", reaches).with_bind("to", to.label()))
+    Some(
+        d.with_bind("from", from.label())
+            .with_bind("reaches", reaches)
+            .with_bind("to", to.label()),
+    )
 }
 
 /// Where a misplaced tool package belongs. A package under the old `tool/`
@@ -129,7 +143,11 @@ fn is_platform_directory(package_path: &str) -> bool {
 /// Walks up from `start` looking for the `REPO.buri` whose presence makes a
 /// directory a repository root.
 pub fn find_root(start: &Path) -> Option<PathBuf> {
-    let mut dir = if start.is_dir() { start.to_path_buf() } else { start.parent()?.to_path_buf() };
+    let mut dir = if start.is_dir() {
+        start.to_path_buf()
+    } else {
+        start.parent()?.to_path_buf()
+    };
     loop {
         if dir.join("REPO.buri").is_file() {
             return Some(dir);
@@ -153,7 +171,9 @@ impl Workspace {
         diagnostics: &mut Diagnostics,
     ) -> std::io::Result<Workspace> {
         let repo_path = root.join("REPO.buri");
-        let repo_id = map.load("REPO.buri", &repo_path).map_err(|e| unreadable("REPO.buri", &e))?;
+        let repo_id = map
+            .load("REPO.buri", &repo_path)
+            .map_err(|e| unreadable("REPO.buri", &e))?;
         let read = buildfile::read_repo_config(map.text(repo_id), repo_id);
         diagnostics.extend(read.errors);
         let repo = read.value;
@@ -168,22 +188,37 @@ impl Workspace {
         // output that names an entry the rule lost.
         let mut refused: Vec<String> = Vec::new();
         for path in dirs {
-            let dir = if path.is_empty() { root.to_path_buf() } else { root.join(&path) };
+            let dir = if path.is_empty() {
+                root.to_path_buf()
+            } else {
+                root.join(&path)
+            };
             let build_path = dir.join("BUILD.buri");
             let rel = if path.is_empty() {
                 "BUILD.buri".to_string()
             } else {
                 format!("{path}/BUILD.buri")
             };
-            let id = map.load(&rel, &build_path).map_err(|e| unreadable(&rel, &e))?;
+            let id = map
+                .load(&rel, &build_path)
+                .map_err(|e| unreadable(&rel, &e))?;
             let read = buildfile::read_build_file(map.text(id), id);
             if read.value.platform.is_some() && !read.errors.is_empty() {
                 refused.push(path.clone());
             }
             diagnostics.extend(read.errors);
-            let name = path.rsplit('/').next().filter(|n| !n.is_empty()).unwrap_or("<name>");
+            let name = path
+                .rsplit('/')
+                .next()
+                .filter(|n| !n.is_empty())
+                .unwrap_or("<name>");
             let misplaced = [
-                ("tool", read.value.tool.is_some() && !is_tool_directory(&path), "outside //tools/", tool_destination(&path, name)),
+                (
+                    "tool",
+                    read.value.tool.is_some() && !is_tool_directory(&path),
+                    "outside //tools/",
+                    tool_destination(&path, name),
+                ),
                 (
                     "platform",
                     read.value.platform.is_some() && !is_platform_directory(&path),
@@ -192,14 +227,21 @@ impl Workspace {
                     } else {
                         "outside //platform/"
                     },
-                    format!("//platform/{}", if name == "effect" { "<name>" } else { name }),
+                    format!(
+                        "//platform/{}",
+                        if name == "effect" { "<name>" } else { name }
+                    ),
                 ),
             ];
             for (rule, wrong, directory, destination) in misplaced {
                 if !wrong {
                     continue;
                 }
-                let span = read.document.as_message().get(rule).map_or(Span::point(id, 0), |f| f.name_span);
+                let span = read
+                    .document
+                    .as_message()
+                    .get(rule)
+                    .map_or(Span::point(id, 0), |f| f.name_span);
                 diagnostics.push(
                     Diagnostic::templated("misplaced-rule", span)
                         .with_bind("package", format!("//{path}"))
@@ -236,17 +278,16 @@ impl Workspace {
         resolve_custom_outputs(&mut packages, &by_path, &refused, diagnostics);
         check_artifact_paths(root, &packages, diagnostics);
 
-        let workspace =
-            Workspace {
-                root: root.to_path_buf(),
-                repo,
-                packages,
-                by_path,
-                generated: crate::build::generators::Store::default(),
-                graph_keys: std::sync::Mutex::new(Vec::new()),
-                closures: std::sync::Mutex::new(HashMap::new()),
-                edges: std::sync::Mutex::new(HashMap::new()),
-            };
+        let workspace = Workspace {
+            root: root.to_path_buf(),
+            repo,
+            packages,
+            by_path,
+            generated: crate::build::generators::Store::default(),
+            graph_keys: std::sync::Mutex::new(Vec::new()),
+            closures: std::sync::Mutex::new(HashMap::new()),
+            edges: std::sync::Mutex::new(HashMap::new()),
+        };
         // Only once the build file it names has been read can a tool name be
         // resolved, so the references are checked here rather than by the
         // reader.
@@ -278,13 +319,22 @@ impl Workspace {
         for id in self.ids() {
             let p = self.package(id);
             if p.has_library() {
-                out.push(TargetId { package: id, kind: RuleKind::Library });
+                out.push(TargetId {
+                    package: id,
+                    kind: RuleKind::Library,
+                });
             }
             if p.has_binary() {
-                out.push(TargetId { package: id, kind: RuleKind::Binary });
+                out.push(TargetId {
+                    package: id,
+                    kind: RuleKind::Binary,
+                });
             }
             if p.has_tool() {
-                out.push(TargetId { package: id, kind: RuleKind::Tool });
+                out.push(TargetId {
+                    package: id,
+                    kind: RuleKind::Tool,
+                });
             }
         }
         out
@@ -298,9 +348,24 @@ impl Workspace {
     pub fn declared_deps(&self, target: TargetId) -> &[Spanned<String>] {
         let p = self.package(target.package);
         match target.kind {
-            RuleKind::Library => p.build.library.as_ref().map(|l| &l.dependencies[..]).unwrap_or(&[]),
-            RuleKind::Binary => p.build.binary.as_ref().map(|b| &b.dependencies[..]).unwrap_or(&[]),
-            RuleKind::Tool => p.build.tool.as_ref().map(|t| &t.dependencies[..]).unwrap_or(&[]),
+            RuleKind::Library => p
+                .build
+                .library
+                .as_ref()
+                .map(|l| &l.dependencies[..])
+                .unwrap_or(&[]),
+            RuleKind::Binary => p
+                .build
+                .binary
+                .as_ref()
+                .map(|b| &b.dependencies[..])
+                .unwrap_or(&[]),
+            RuleKind::Tool => p
+                .build
+                .tool
+                .as_ref()
+                .map(|t| &t.dependencies[..])
+                .unwrap_or(&[]),
         }
     }
 
@@ -324,12 +389,20 @@ impl Workspace {
 
     /// [`Workspace::dep_edges`], shared rather than copied.
     pub fn shared_dep_edges(&self, target: TargetId) -> Edges {
-        let known = self.edges.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&target).cloned();
+        let known = self
+            .edges
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&target)
+            .cloned();
         if let Some(known) = known {
             return known;
         }
         let read: Edges = self.read_dep_edges(target).into();
-        self.edges.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(target, std::sync::Arc::clone(&read));
+        self.edges
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(target, std::sync::Arc::clone(&read));
         read
     }
 
@@ -337,7 +410,13 @@ impl Workspace {
         count_graph_work(1);
         let mut out = Vec::new();
         if target.kind != RuleKind::Library && self.package(target.package).has_library() {
-            out.push((TargetId { package: target.package, kind: RuleKind::Library }, None));
+            out.push((
+                TargetId {
+                    package: target.package,
+                    kind: RuleKind::Library,
+                },
+                None,
+            ));
         }
         for dep in self.declared_deps(target) {
             if let Some(id) = self.dep_target(&dep.value) {
@@ -368,11 +447,26 @@ impl Workspace {
                 .library
                 .iter()
                 .flat_map(|l| {
-                    l.test.iter().flat_map(|t| t.dependencies.iter()).chain(l.testing.iter().flat_map(|t| t.dependencies.iter()))
+                    l.test
+                        .iter()
+                        .flat_map(|t| t.dependencies.iter())
+                        .chain(l.testing.iter().flat_map(|t| t.dependencies.iter()))
                 })
                 .collect(),
-            RuleKind::Binary => p.build.binary.iter().flat_map(|b| b.test.iter()).flat_map(|t| t.dependencies.iter()).collect(),
-            RuleKind::Tool => p.build.tool.iter().flat_map(|t| t.test.iter()).flat_map(|t| t.dependencies.iter()).collect(),
+            RuleKind::Binary => p
+                .build
+                .binary
+                .iter()
+                .flat_map(|b| b.test.iter())
+                .flat_map(|t| t.dependencies.iter())
+                .collect(),
+            RuleKind::Tool => p
+                .build
+                .tool
+                .iter()
+                .flat_map(|t| t.test.iter())
+                .flat_map(|t| t.dependencies.iter())
+                .collect(),
         };
         let mut out = Vec::new();
         for dep in declared {
@@ -391,7 +485,10 @@ impl Workspace {
         let path = label.strip_prefix("//")?;
         if let Some(id) = self.package_by_path(path) {
             if self.package(id).has_library() {
-                return Some(TargetId { package: id, kind: RuleKind::Library });
+                return Some(TargetId {
+                    package: id,
+                    kind: RuleKind::Library,
+                });
             }
             return None;
         }
@@ -403,7 +500,10 @@ impl Workspace {
             .library
             .as_ref()
             .filter(|l| l.testing.is_some())
-            .map(|_| TargetId { package: id, kind: RuleKind::Library })
+            .map(|_| TargetId {
+                package: id,
+                kind: RuleKind::Library,
+            })
     }
 
     /// Every source file this package's rules declare, package-relative.
@@ -423,7 +523,12 @@ impl Workspace {
         if let Some(l) = &p.build.library {
             out.push("lib.buri".into());
             out.extend(l.sources.iter().map(|s| s.value.clone()));
-            out.extend(l.test.iter().flat_map(|t| t.sources.iter()).map(|s| s.value.clone()));
+            out.extend(
+                l.test
+                    .iter()
+                    .flat_map(|t| t.sources.iter())
+                    .map(|s| s.value.clone()),
+            );
             if let Some(testing) = &l.testing {
                 out.push("testing/lib.buri".into());
                 out.extend(testing.sources.iter().map(|s| s.value.clone()));
@@ -432,12 +537,22 @@ impl Workspace {
         if let Some(b) = &p.build.binary {
             out.push("main.buri".into());
             out.extend(b.sources.iter().map(|s| s.value.clone()));
-            out.extend(b.test.iter().flat_map(|t| t.sources.iter()).map(|s| s.value.clone()));
+            out.extend(
+                b.test
+                    .iter()
+                    .flat_map(|t| t.sources.iter())
+                    .map(|s| s.value.clone()),
+            );
         }
         if let Some(t) = &p.build.tool {
             out.push("tool.buri".into());
             out.extend(t.sources.iter().map(|s| s.value.clone()));
-            out.extend(t.test.iter().flat_map(|t| t.sources.iter()).map(|s| s.value.clone()));
+            out.extend(
+                t.test
+                    .iter()
+                    .flat_map(|t| t.sources.iter())
+                    .map(|s| s.value.clone()),
+            );
         }
         out
     }
@@ -463,7 +578,10 @@ impl Workspace {
             _ => {}
         }
         if let Some(t) = &p.build.tool {
-            if t.sources.iter().chain(t.test.iter().flat_map(|t| t.sources.iter())).any(|s| s.value == rel)
+            if t.sources
+                .iter()
+                .chain(t.test.iter().flat_map(|t| t.sources.iter()))
+                .any(|s| s.value == rel)
             {
                 return Some(RuleKind::Tool);
             }
@@ -497,7 +615,12 @@ impl Workspace {
 
     /// [`Workspace::closure`], shared rather than copied.
     pub fn shared_closure(&self, target: TargetId) -> std::sync::Arc<[TargetId]> {
-        let known = self.closures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&target).cloned();
+        let known = self
+            .closures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&target)
+            .cloned();
         if let Some(known) = known {
             return known;
         }
@@ -528,7 +651,13 @@ impl Workspace {
     /// however many closures hold it. A target in a cycle is walked on its
     /// own instead, since its closure is its cycle's.
     fn walk_closure(&self, target: TargetId) -> Vec<TargetId> {
-        let known = |t: &TargetId| self.closures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(t).cloned();
+        let known = |t: &TargetId| {
+            self.closures
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(t)
+                .cloned()
+        };
         let mut open: Vec<TargetId> = Vec::new();
         let mut stack: Vec<(TargetId, bool)> = vec![(target, false)];
         while let Some((cur, done)) = stack.pop() {
@@ -558,7 +687,10 @@ impl Workspace {
                 }
             }
             let closure: std::sync::Arc<[TargetId]> = seen.into_iter().collect::<Vec<_>>().into();
-            self.closures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(cur, closure);
+            self.closures
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(cur, closure);
         }
         known(&target).map_or_else(|| self.walk_alone(target), |c| c.to_vec())
     }
@@ -632,7 +764,11 @@ impl Workspace {
             return None;
         }
         let label = self.package(loc.package).label();
-        Some(if is_test_only_path(path) { format!("{label}/testing") } else { label })
+        Some(if is_test_only_path(path) {
+            format!("{label}/testing")
+        } else {
+            label
+        })
     }
 
     /// Resolves a module path written in an import.
@@ -665,7 +801,9 @@ impl Workspace {
             // `Allocator`. A path the library does not have keeps its spelling, so
             // that `unknown-module` quotes back what was written.
             let canonical = crate::compiler::standard_library::canonical(path).unwrap_or(path);
-            return Ok(ModuleLocation::Std { path: canonical.to_string() });
+            return Ok(ModuleLocation::Std {
+                path: canonical.to_string(),
+            });
         }
         if path == "core" {
             return Err("\"core\" is not a module; name one, as in \"core/list\"".into());
@@ -715,14 +853,16 @@ impl Workspace {
             // the platform's label as a library is by its own.
             let platform = package.build.platform.is_some() && is_platform_directory(package_path);
             let (kind, file) = match remainder {
-                "" | "platform.buri" if platform => {
-                    (ModuleKind::PlatformSurface, package.dir.join("platform.buri"))
-                }
+                "" | "platform.buri" if platform => (
+                    ModuleKind::PlatformSurface,
+                    package.dir.join("platform.buri"),
+                ),
                 "" => (ModuleKind::LibrarySurface, package.dir.join("lib.buri")),
                 "lib.buri" => (ModuleKind::LibrarySurface, package.dir.join("lib.buri")),
-                "testing" | "testing/lib.buri" => {
-                    (ModuleKind::TestingSurface, package.dir.join("testing/lib.buri"))
-                }
+                "testing" | "testing/lib.buri" => (
+                    ModuleKind::TestingSurface,
+                    package.dir.join("testing/lib.buri"),
+                ),
                 "main" | "main.buri" => (ModuleKind::BinaryEntry, package.dir.join("main.buri")),
                 // A `.proto` names a schema, and a schema is a generator's
                 // input rather than a module of its own. The only module one
@@ -736,7 +876,11 @@ impl Workspace {
                         .targets()
                         .into_iter()
                         .filter(|t| t.package == id)
-                        .any(|t| crate::build::generators::inputs(self, t).iter().any(|i| i == r));
+                        .any(|t| {
+                            crate::build::generators::inputs(self, t)
+                                .iter()
+                                .any(|i| i == r)
+                        });
                     if listed && file.is_file() {
                         return Err(SCHEMA_HAS_ERRORS.to_string());
                     }
@@ -794,7 +938,11 @@ impl Workspace {
     }
 
     pub fn rel_of(&self, p: &Path) -> String {
-        p.strip_prefix(&self.root).unwrap_or(p).display().to_string().replace('\\', "/")
+        p.strip_prefix(&self.root)
+            .unwrap_or(p)
+            .display()
+            .to_string()
+            .replace('\\', "/")
     }
 
     /// A file of a package, by its path from the repository root. Joined on
@@ -827,7 +975,10 @@ impl Workspace {
     /// `BUILD.buri`.
     pub fn owning_package(&self, p: &Path) -> Option<PackageId> {
         let rel = self.rel_of(p);
-        let mut dir = rel.rsplit_once('/').map(|(d, _)| d.to_string()).unwrap_or_default();
+        let mut dir = rel
+            .rsplit_once('/')
+            .map(|(d, _)| d.to_string())
+            .unwrap_or_default();
         loop {
             if let Some(id) = self.package_by_path(&dir) {
                 return Some(id);
@@ -866,9 +1017,12 @@ impl Workspace {
 
     pub fn visibility_list(&self, to: TargetId) -> String {
         match &self.package(to.package).build.library {
-            Some(l) if !l.visibility.is_empty() => {
-                l.visibility.iter().map(|v| v.value.spelling()).collect::<Vec<_>>().join(", ")
-            }
+            Some(l) if !l.visibility.is_empty() => l
+                .visibility
+                .iter()
+                .map(|v| v.value.spelling())
+                .collect::<Vec<_>>()
+                .join(", "),
             // A rule that omits `visibility` is `//visibility:private`. There
             // is no package default and no repository default.
             _ => "//visibility:private (nothing, outside its own package)".into(),
@@ -953,13 +1107,24 @@ impl Workspace {
     /// Every platform an output here can be built for: each bundled one, and
     /// each repository platform with every backend its entries are built by.
     pub fn every_platform(&self) -> BTreeSet<OutputPlatform> {
-        let mut out: BTreeSet<OutputPlatform> = Platform::ALL.into_iter().map(OutputPlatform::Bundled).collect();
+        let mut out: BTreeSet<OutputPlatform> = Platform::ALL
+            .into_iter()
+            .map(OutputPlatform::Bundled)
+            .collect();
         for p in &self.packages {
-            let Some(rule) = p.build.platform.as_ref().filter(|_| is_platform_directory(&p.path)) else {
+            let Some(rule) = p
+                .build
+                .platform
+                .as_ref()
+                .filter(|_| is_platform_directory(&p.path))
+            else {
                 continue;
             };
             for entry in &rule.entries {
-                out.insert(OutputPlatform::Repository { label: format!("//{}", p.path), backend: entry.backend.value });
+                out.insert(OutputPlatform::Repository {
+                    label: format!("//{}", p.path),
+                    backend: entry.backend.value,
+                });
             }
         }
         out
@@ -1002,10 +1167,16 @@ impl Workspace {
             .or_ice("`buri test` runs only a target with a `test` block");
         let allowed = self.platforms(target);
         let admits = |p: &Platform| allowed.contains(&OutputPlatform::Bundled(*p));
-        let declared: Vec<Platform> = match (target.kind, &self.package(target.package).build.binary) {
-            (RuleKind::Binary, Some(bin)) => bin.outputs.iter().filter(|o| o.custom.is_none()).map(|o| o.platform()).collect(),
-            _ => Vec::new(),
-        };
+        let declared: Vec<Platform> =
+            match (target.kind, &self.package(target.package).build.binary) {
+                (RuleKind::Binary, Some(bin)) => bin
+                    .outputs
+                    .iter()
+                    .filter(|o| o.custom.is_none())
+                    .map(|o| o.platform())
+                    .collect(),
+                _ => Vec::new(),
+            };
         let mut out = Vec::new();
         for backend in &suite.backends {
             let candidates = match backend.value {
@@ -1037,18 +1208,28 @@ impl Workspace {
         }
         allowed
             .into_iter()
-            .find(|p| matches!(p, OutputPlatform::Repository { .. }) && p.backend() == platform.backend())
+            .find(|p| {
+                matches!(p, OutputPlatform::Repository { .. }) && p.backend() == platform.backend()
+            })
             .unwrap_or(bundled)
     }
 
     /// Explains why `platform` is not available to `target`: the member of the
     /// closure that rules it out, and how it was reached.
-    pub fn platform_blocker(&self, target: TargetId, platform: &OutputPlatform) -> Option<PlatformBlocker> {
+    pub fn platform_blocker(
+        &self,
+        target: TargetId,
+        platform: &OutputPlatform,
+    ) -> Option<PlatformBlocker> {
         self.platform_blocker_of(&self.closure(target), platform)
     }
 
     /// The same, over any set of targets.
-    pub fn platform_blocker_of(&self, members: &[TargetId], platform: &OutputPlatform) -> Option<PlatformBlocker> {
+    pub fn platform_blocker_of(
+        &self,
+        members: &[TargetId],
+        platform: &OutputPlatform,
+    ) -> Option<PlatformBlocker> {
         for &member in members {
             if let Some(lib) = &self.package(member.package).build.library {
                 if member.kind == RuleKind::Library && !lib.admits.admits(platform) {
@@ -1114,7 +1295,10 @@ impl Workspace {
     /// over the closure rather than a path — a binary that pulls client-only
     /// code down one dependency and server-only code down another is an error
     /// even though neither reaches the other. `members` is the closure.
-    pub fn forbidden_pair_of(&self, members: &[TargetId]) -> Option<(String, TargetId, String, TargetId)> {
+    pub fn forbidden_pair_of(
+        &self,
+        members: &[TargetId],
+    ) -> Option<(String, TargetId, String, TargetId)> {
         let carried = self.tags_of(members);
         for (a, a_by) in &carried {
             for (b, b_by) in &carried {
@@ -1138,7 +1322,10 @@ impl Workspace {
     }
 
     pub fn tag_doc(&self, name: &str) -> String {
-        self.repo.tag(name).map(|t| t.doc.clone()).unwrap_or_default()
+        self.repo
+            .tag(name)
+            .map(|t| t.doc.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -1163,7 +1350,9 @@ fn resolve_custom_outputs(
         .filter_map(|p| Some((p.path.clone(), p.build.platform.clone()?)))
         .collect();
     for package in packages.iter_mut() {
-        let Some(binary) = package.build.binary.as_mut() else { continue };
+        let Some(binary) = package.build.binary.as_mut() else {
+            continue;
+        };
         let mut resolved = Vec::new();
         for output in std::mem::take(&mut binary.outputs) {
             let Some(custom) = output.custom.clone() else {
@@ -1182,9 +1371,13 @@ fn resolve_custom_outputs(
             };
             let label = custom.label.value.as_str();
             let variant = custom.variant.as_ref();
-            if let Some(d) =
-                buildfile::check_variant(label, &rule.variants(), rule.variant_required(), variant, output.span)
-            {
+            if let Some(d) = buildfile::check_variant(
+                label,
+                &rule.variants(),
+                rule.variant_required(),
+                variant,
+                output.span,
+            ) {
                 diagnostics.push(d);
                 continue;
             }
@@ -1192,11 +1385,16 @@ fn resolve_custom_outputs(
                 diagnostics.push(d);
                 continue;
             }
-            if let Some(d) = output.artifact_name.as_ref().and_then(|n| buildfile::check_artifact_name(label, rule, n)) {
+            if let Some(d) = output
+                .artifact_name
+                .as_ref()
+                .and_then(|n| buildfile::check_artifact_name(label, rule, n))
+            {
                 diagnostics.push(d);
                 continue;
             }
-            let (filled, errors) = buildfile::check_entries(label, &rule.entry_names(), &custom.entries);
+            let (filled, errors) =
+                buildfile::check_entries(label, &rule.entry_names(), &custom.entries);
             if !errors.is_empty() {
                 for d in errors {
                     diagnostics.push(d);
@@ -1215,15 +1413,22 @@ fn resolve_custom_outputs(
                     // `<os>-<arch>`, and the checks above held the output's
                     // variant to the entry's, so a written one parses.
                     Backend::Native => match custom.variant.as_ref().and_then(|v| {
-                        buildfile::native_variant(&v.value).map(|(os, arch)| (os, Spanned::new(arch, v.span)))
+                        buildfile::native_variant(&v.value)
+                            .map(|(os, arch)| (os, Spanned::new(arch, v.span)))
                     }) {
-                        Some((os, arch)) => OutputTarget::Native { platform: os, arch: Some(arch) },
+                        Some((os, arch)) => OutputTarget::Native {
+                            platform: os,
+                            arch: Some(arch),
+                        },
                         None => {
                             let os = match crate::compiler::driver::host_native_platform() {
                                 Platform::Macos => NativePlatform::Macos,
                                 _ => NativePlatform::Linux,
                             };
-                            OutputTarget::Native { platform: os, arch: None }
+                            OutputTarget::Native {
+                                platform: os,
+                                arch: None,
+                            }
                         }
                     },
                 };
@@ -1244,7 +1449,9 @@ fn resolve_custom_outputs(
 /// path, where the second would overwrite the first.
 fn check_artifact_paths(root: &Path, packages: &[Package], diagnostics: &mut Diagnostics) {
     for package in packages {
-        let Some(binary) = package.build.binary.as_ref() else { continue };
+        let Some(binary) = package.build.binary.as_ref() else {
+            continue;
+        };
         let mut seen: Vec<(PathBuf, &buildfile::Output)> = Vec::new();
         // One written output repeats per entry; it is told about once.
         let mut said: Vec<Span> = Vec::new();
@@ -1291,7 +1498,10 @@ fn check_artifact_paths(root: &Path, packages: &[Package], diagnostics: &mut Dia
 /// Whether an output's platform ships assets, which name its artifacts.
 fn ships_assets(packages: &[Package], output: &buildfile::Output) -> bool {
     let rule = match &output.custom {
-        Some(custom) => packages.iter().find(|p| p.path == custom.package_path()).and_then(|p| p.build.platform.as_ref()),
+        Some(custom) => packages
+            .iter()
+            .find(|p| p.path == custom.package_path())
+            .and_then(|p| p.build.platform.as_ref()),
         None => crate::build::platforms::bundled(output.platform().slug()),
     };
     rule.is_some_and(|r| !r.assets.is_empty())
@@ -1301,9 +1511,16 @@ fn ships_assets(packages: &[Package], output: &buildfile::Output) -> bool {
 /// `//platform/`. `rules` are the package paths holding a `platform` rule.
 fn no_such_platform(label: &Spanned<String>, rules: &[&str]) -> Diagnostic {
     let path = label.value.strip_prefix("//").unwrap_or(&label.value);
-    let mut names: Vec<String> =
-        buildfile::PlatformName::BUNDLED.iter().map(|p| format!("\"{}\"", p.name())).collect();
-    names.extend(rules.iter().filter(|k| is_platform_directory(k)).map(|k| format!("\"//{k}\"")));
+    let mut names: Vec<String> = buildfile::PlatformName::BUNDLED
+        .iter()
+        .map(|p| format!("\"{}\"", p.name()))
+        .collect();
+    names.extend(
+        rules
+            .iter()
+            .filter(|k| is_platform_directory(k))
+            .map(|k| format!("\"//{k}\"")),
+    );
     names.sort();
     Diagnostic::templated("unknown-platform", label.span)
         .with_bind("platform", label.value.as_str())
@@ -1324,15 +1541,28 @@ fn check_platform_labels(workspace: &Workspace) -> Vec<Diagnostic> {
         .filter(|p| p.build.platform.is_some() && is_platform_directory(&p.path))
         .map(|p| p.path.as_str())
         .collect();
-    let libraries = workspace.packages.iter().filter_map(|p| p.build.library.as_ref()).map(|l| &l.admits);
-    let tags = workspace.repo.tags.iter().flat_map(|t| [&t.requires, &t.forbids]);
+    let libraries = workspace
+        .packages
+        .iter()
+        .filter_map(|p| p.build.library.as_ref())
+        .map(|l| &l.admits);
+    let tags = workspace
+        .repo
+        .tags
+        .iter()
+        .flat_map(|t| [&t.requires, &t.forbids]);
     let mut out = Vec::new();
     for admitted in libraries.chain(tags) {
         for written in &admitted.platforms {
-            let PlatformRef::Repository(label) = &written.value else { continue };
+            let PlatformRef::Repository(label) = &written.value else {
+                continue;
+            };
             let path = label.strip_prefix("//").unwrap_or(label);
             if !rules.contains(&path) {
-                out.push(no_such_platform(&Spanned::new(label.clone(), written.span), &rules));
+                out.push(no_such_platform(
+                    &Spanned::new(label.clone(), written.span),
+                    &rules,
+                ));
             }
         }
     }
@@ -1389,10 +1619,14 @@ fn check_dependency_labels(workspace: &Workspace) -> Vec<Diagnostic> {
 
 /// Why `dep` names no library, and the one it may have meant.
 fn unknown_dependency(workspace: &Workspace, dep: &Spanned<String>, known: &[&str]) -> Diagnostic {
-    let mut d = Diagnostic::templated("unknown-dependency", dep.span).with_bind("dependency", dep.value.as_str());
+    let mut d = Diagnostic::templated("unknown-dependency", dep.span)
+        .with_bind("dependency", dep.value.as_str());
     let why = match dep.value.strip_prefix("//") {
         None => String::from("a dependency is a `//` label, as in \"//lib/money\""),
-        Some(path) => match (workspace.package_by_path(path), path.strip_suffix("/testing")) {
+        Some(path) => match (
+            workspace.package_by_path(path),
+            path.strip_suffix("/testing"),
+        ) {
             (Some(id), _) => format!(
                 "{} declares no `library` rule, and only a library can be depended on",
                 workspace.package(id).label()
@@ -1405,7 +1639,10 @@ fn unknown_dependency(workspace: &Workspace, dep: &Spanned<String>, known: &[&st
     };
     d = d.with_note(why);
     if let Some(near) = buildfile::nearest(&dep.value, known) {
-        d = d.with_fix(crate::diagnostics::candidate_fix(near, "drop it, or name a library this repository has"));
+        d = d.with_fix(crate::diagnostics::candidate_fix(
+            near,
+            "drop it, or name a library this repository has",
+        ));
     }
     d
 }
@@ -1416,10 +1653,19 @@ fn unknown_dependency(workspace: &Workspace, dep: &Spanned<String>, known: &[&st
 fn check_platform_reach(workspace: &Workspace) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     for platform in &workspace.packages {
-        let Some(rule) = &platform.build.platform else { continue };
+        let Some(rule) = &platform.build.platform else {
+            continue;
+        };
         for dep in &rule.dependencies {
-            let Some(target) = workspace.dep_target(&dep.value) else { continue };
-            out.extend(reach_refusal(platform, workspace.package(target.package), "depends on", dep.span));
+            let Some(target) = workspace.dep_target(&dep.value) else {
+                continue;
+            };
+            out.extend(reach_refusal(
+                platform,
+                workspace.package(target.package),
+                "depends on",
+                dep.span,
+            ));
         }
     }
     out
@@ -1427,16 +1673,32 @@ fn check_platform_reach(workspace: &Workspace) -> Vec<Diagnostic> {
 
 /// Walks the tree collecting every directory that holds a `BUILD.buri`.
 fn collect_packages(root: &Path, dir: &Path, out: &mut Vec<String>) {
-    let entries = std::fs::read_dir(dir).ok().map(|e| e.filter_map(Result::ok).collect::<Vec<_>>());
+    let entries = std::fs::read_dir(dir)
+        .ok()
+        .map(|e| e.filter_map(Result::ok).collect::<Vec<_>>());
     // The listing's own file types answer `is_file` and `is_dir` without a
     // `stat` per entry. A symbolic link is asked about what it points at, as
     // `Path::is_dir` would.
     let is = |entry: &std::fs::DirEntry, dir_wanted: bool| match entry.file_type() {
-        Ok(t) if !t.is_symlink() => if dir_wanted { t.is_dir() } else { t.is_file() },
-        _ => if dir_wanted { entry.path().is_dir() } else { entry.path().is_file() },
+        Ok(t) if !t.is_symlink() => {
+            if dir_wanted {
+                t.is_dir()
+            } else {
+                t.is_file()
+            }
+        }
+        _ => {
+            if dir_wanted {
+                entry.path().is_dir()
+            } else {
+                entry.path().is_file()
+            }
+        }
     };
     let has_build_file = match &entries {
-        Some(entries) => entries.iter().any(|e| e.file_name() == "BUILD.buri" && is(e, false)),
+        Some(entries) => entries
+            .iter()
+            .any(|e| e.file_name() == "BUILD.buri" && is(e, false)),
         None => dir.join("BUILD.buri").is_file(),
     };
     if has_build_file {
@@ -1472,10 +1734,18 @@ mod tests {
     #[test]
     fn label_patterns() {
         assert_eq!(Pattern::parse("//...").unwrap(), Pattern::All);
-        assert_eq!(Pattern::parse("//lib/...").unwrap(), Pattern::Recursive("lib".into()));
-        assert_eq!(Pattern::parse("//lib/money").unwrap(), Pattern::Package("lib/money".into()));
+        assert_eq!(
+            Pattern::parse("//lib/...").unwrap(),
+            Pattern::Recursive("lib".into())
+        );
+        assert_eq!(
+            Pattern::parse("//lib/money").unwrap(),
+            Pattern::Package("lib/money".into())
+        );
         assert!(Pattern::parse("lib/money").is_err());
-        assert!(Pattern::parse("@other//lib").unwrap_err().contains("external repository"));
+        assert!(Pattern::parse("@other//lib")
+            .unwrap_err()
+            .contains("external repository"));
     }
 
     #[test]
@@ -1489,8 +1759,12 @@ mod tests {
 
     #[test]
     fn visibility_forms() {
-        assert!(Visibility::parse("//visibility:public").unwrap().allows("anything"));
-        assert!(!Visibility::parse("//visibility:private").unwrap().allows("other"));
+        assert!(Visibility::parse("//visibility:public")
+            .unwrap()
+            .allows("anything"));
+        assert!(!Visibility::parse("//visibility:private")
+            .unwrap()
+            .allows("other"));
         let v = Visibility::parse("//cmd/...").unwrap();
         assert!(v.allows("cmd"));
         assert!(v.allows("cmd/server"));
@@ -1519,8 +1793,8 @@ mod tests {
     /// A repository with a library, a module inside it and a testing surface,
     /// for the two spellings to be resolved against.
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("buri-workspace-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("buri-workspace-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(dir.join("lib/money/testing"));
         let _ = std::fs::write(dir.join("REPO.buri"), "name: \"scratch\"\n");
@@ -1546,19 +1820,37 @@ mod tests {
         let mut diags = Diagnostics::default();
         let ws = Workspace::load(&dir, &mut map, &mut diags).expect("the scratch repository loads");
         let pairs = [
-            ("//lib/money", "//lib/money/lib.buri", ModuleKind::LibrarySurface),
-            ("//lib/money/testing", "//lib/money/testing/lib.buri", ModuleKind::TestingSurface),
+            (
+                "//lib/money",
+                "//lib/money/lib.buri",
+                ModuleKind::LibrarySurface,
+            ),
+            (
+                "//lib/money/testing",
+                "//lib/money/testing/lib.buri",
+                ModuleKind::TestingSurface,
+            ),
             // And the extensionless inner path, which is legal to resolve so
             // that both diagnostics about it can name the file it meant.
-            ("//lib/money/cents", "//lib/money/cents.buri", ModuleKind::Internal),
+            (
+                "//lib/money/cents",
+                "//lib/money/cents.buri",
+                ModuleKind::Internal,
+            ),
         ];
         for (module_form, file_form, kind) in pairs {
             let a = ws.resolve_module(module_form).expect(module_form);
             let b = ws.resolve_module(file_form).expect(file_form);
-            let (a, b) = (a.in_package().expect(module_form).clone(), b.in_package().expect(file_form).clone());
+            let (a, b) = (
+                a.in_package().expect(module_form).clone(),
+                b.in_package().expect(file_form).clone(),
+            );
             assert_eq!(a.path, file_form, "{module_form} is not canonicalised");
             assert_eq!(b.path, file_form);
-            assert_eq!(a.file, b.file, "{module_form} and {file_form} are different files");
+            assert_eq!(
+                a.file, b.file,
+                "{module_form} and {file_form} are different files"
+            );
             assert_eq!(a.kind, kind);
             assert_eq!(b.kind, kind);
         }
@@ -1569,16 +1861,26 @@ mod tests {
     #[test]
     fn the_longest_package_owns_a_path() {
         let dir = scratch("longest");
-        let _ = std::fs::write(dir.join("BUILD.buri"), "library {\n  sources: [\"top.buri\"]\n}\n");
+        let _ = std::fs::write(
+            dir.join("BUILD.buri"),
+            "library {\n  sources: [\"top.buri\"]\n}\n",
+        );
         let _ = std::fs::write(dir.join("top.buri"), "");
-        let _ = std::fs::write(dir.join("lib/BUILD.buri"), "library {\n  sources: [\"moneyx/a.buri\"]\n}\n");
+        let _ = std::fs::write(
+            dir.join("lib/BUILD.buri"),
+            "library {\n  sources: [\"moneyx/a.buri\"]\n}\n",
+        );
         let _ = std::fs::create_dir_all(dir.join("lib/moneyx"));
         let _ = std::fs::write(dir.join("lib/moneyx/a.buri"), "");
         let mut map = crate::diagnostics::SourceMap::default();
         let mut diags = Diagnostics::default();
         let ws = Workspace::load(&dir, &mut map, &mut diags).expect("the scratch repository loads");
         for (path, package, file) in [
-            ("//lib/money/cents.buri", "lib/money", "lib/money/cents.buri"),
+            (
+                "//lib/money/cents.buri",
+                "lib/money",
+                "lib/money/cents.buri",
+            ),
             ("//lib/money", "lib/money", "lib/money/lib.buri"),
             ("//lib/moneyx/a.buri", "lib", "lib/moneyx/a.buri"),
             ("//top.buri", "", "top.buri"),

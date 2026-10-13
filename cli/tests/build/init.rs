@@ -17,8 +17,15 @@ fn a_generated_repository_builds_and_tests() {
     // Deliberately not `Scratch::repo`: `buri init` is refused inside one, and
     // this directory is the empty one a user starts from.
     let scratch = Scratch::empty("init");
-    scratch.run(&["init"]).ok().says("wrote REPO.buri").says("wrote apps/hello/main.buri");
-    assert!(scratch.path(".gitignore").is_file(), "the ignore file lands with its dot");
+    scratch
+        .run(&["init"])
+        .ok()
+        .says("wrote REPO.buri")
+        .says("wrote apps/hello/main.buri");
+    assert!(
+        scratch.path(".gitignore").is_file(),
+        "the ignore file lands with its dot"
+    );
     assert!(
         scratch.path(".agent/skills/buri-cli/SKILL.md").is_file(),
         "`buri init` installs the agent skills"
@@ -27,7 +34,10 @@ fn a_generated_repository_builds_and_tests() {
     scratch.run(&["build", "//..."]).ok();
     let tested = scratch.run(&["test", "//..."]);
     tested.ok();
-    assert!(tested.tests_passed() >= 1, "the generated suite must actually run a test");
+    assert!(
+        tested.tests_passed() >= 1,
+        "the generated suite must actually run a test"
+    );
 
     // The other three claims `buri docs cli init` makes, in the same run: the
     // scaffold is the formatter's own output, so a first `format --check` and
@@ -38,18 +48,27 @@ fn a_generated_repository_builds_and_tests() {
 
     // A second run is the safety contract, and it is the CLI's exit code that
     // carries it.
-    scratch.run(&["init"]).exits(2).says("already a Buri repository");
+    scratch
+        .run(&["init"])
+        .exits(2)
+        .says("already a Buri repository");
 
     // The other half of that contract, and the one that is not a collision: a
     // `REPO.buri` nested inside a repository is no root at all, so writing one
     // would leave the enclosing repository worse than `buri init` found it.
     // Once with a relative target, once from a subdirectory, because those are
     // the two spellings whose upward walk had to be made to work.
-    scratch.run(&["init", "packages/nested"]).exits(2).says("is inside the Buri repository at");
+    scratch
+        .run(&["init", "packages/nested"])
+        .exits(2)
+        .says("is inside the Buri repository at");
     run_in(&scratch.path("libs/greeting"), &["init"])
         .exits(2)
         .says("is inside the Buri repository at");
-    assert!(!scratch.path("packages").exists(), "a refused run writes nothing at all");
+    assert!(
+        !scratch.path("packages").exists(),
+        "a refused run writes nothing at all"
+    );
 }
 
 /// The one collision that is not a refusal. `git init` before `buri init` is
@@ -61,12 +80,28 @@ fn an_existing_gitignore_is_merged_into() {
     let scratch = Scratch::empty("init-gitignore");
     scratch.write(".gitignore", "# mine\nnode_modules/\n");
 
-    scratch.run(&["init"]).ok().says("wrote REPO.buri").says("updated .gitignore");
+    scratch
+        .run(&["init"])
+        .ok()
+        .says("wrote REPO.buri")
+        .says("updated .gitignore");
     let merged = scratch.read(".gitignore");
-    assert!(merged.starts_with("# mine\nnode_modules/\n"), "the user's lines come through first");
-    assert!(merged.contains(".buri/"), "the build's entries are appended: {merged}");
-    assert!(merged.contains("\nout\n"), "the build's entries are appended: {merged}");
-    assert!(merged.contains("\n*.diff.png\n"), "a failed snapshot's picture too: {merged}");
+    assert!(
+        merged.starts_with("# mine\nnode_modules/\n"),
+        "the user's lines come through first"
+    );
+    assert!(
+        merged.contains(".buri/"),
+        "the build's entries are appended: {merged}"
+    );
+    assert!(
+        merged.contains("\nout\n"),
+        "the build's entries are appended: {merged}"
+    );
+    assert!(
+        merged.contains("\n*.diff.png\n"),
+        "a failed snapshot's picture too: {merged}"
+    );
 
     // What came out is still a working repository.
     scratch.run(&["build", "//..."]).ok();

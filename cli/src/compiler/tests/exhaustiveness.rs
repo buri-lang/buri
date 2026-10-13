@@ -48,7 +48,10 @@ fn a_dead_alternative_beside_a_live_one_is_reported() {
     );
     assert_eq!(
         findings(&src),
-        vec![("unreachable-alternative".to_string(), "Hello.Now(_)".to_string())],
+        vec![(
+            "unreachable-alternative".to_string(),
+            "Hello.Now(_)".to_string()
+        )],
         "the second arm's first alternative is dead and the arm is not"
     );
 }
@@ -65,7 +68,10 @@ fn a_dead_middle_alternative_is_reported() {
     );
     assert_eq!(
         findings(&src),
-        vec![("unreachable-alternative".to_string(), "Hello.Now(true)".to_string())]
+        vec![(
+            "unreachable-alternative".to_string(),
+            "Hello.Now(true)".to_string()
+        )]
     );
 }
 
@@ -113,7 +119,10 @@ fn an_alternative_repeated_within_one_arm_is_reported() {
     );
     assert_eq!(
         findings(&src),
-        vec![("unreachable-alternative".to_string(), "Hello.World".to_string())]
+        vec![(
+            "unreachable-alternative".to_string(),
+            "Hello.World".to_string()
+        )]
     );
 }
 
@@ -130,7 +139,10 @@ fn a_parenthesised_alternation_is_flattened() {
     );
     assert_eq!(
         findings(&src),
-        vec![("unreachable-alternative".to_string(), "Hello.Now(true)".to_string())]
+        vec![(
+            "unreachable-alternative".to_string(),
+            "Hello.Now(true)".to_string()
+        )]
     );
 }
 
@@ -174,7 +186,10 @@ fn a_guard_does_not_save_an_alternative_from_its_own_arm() {
     );
     assert_eq!(
         findings(&src),
-        vec![("unreachable-alternative".to_string(), "Hello.World".to_string())]
+        vec![(
+            "unreachable-alternative".to_string(),
+            "Hello.World".to_string()
+        )]
     );
 }
 

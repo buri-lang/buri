@@ -334,8 +334,9 @@ fn escaped_for_style(css: &str) -> String {
     while let Some(at) = rest.find("</") {
         let (before, from) = rest.split_at(at);
         out.push_str(before);
-        let closes_the_element =
-            from.get(..7).is_some_and(|tag| tag.eq_ignore_ascii_case("</style"));
+        let closes_the_element = from
+            .get(..7)
+            .is_some_and(|tag| tag.eq_ignore_ascii_case("</style"));
         out.push_str(if closes_the_element { "<\\/" } else { "</" });
         rest = from.get(2..).unwrap_or("");
     }
@@ -590,9 +591,16 @@ mod tests {
 
     #[test]
     fn there_are_enough_schemes_and_the_default_is_one_of_them() {
-        assert!(THEMES.len() >= 6 && THEMES.len() <= 10, "{} schemes", THEMES.len());
+        assert!(
+            THEMES.len() >= 6 && THEMES.len() <= 10,
+            "{} schemes",
+            THEMES.len()
+        );
         assert!(find(DEFAULT).is_some());
-        assert!(find("catppuccin-mocha").is_some(), "the one the maintainer asked for by name");
+        assert!(
+            find("catppuccin-mocha").is_some(),
+            "the one the maintainer asked for by name"
+        );
     }
 
     /// A colour written as anything but a six-digit hex is a colour somebody
@@ -625,7 +633,8 @@ mod tests {
                     colour.len() == 7
                         && colour.starts_with('#')
                         && colour.get(1..).is_some_and(|rest| {
-                            rest.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+                            rest.chars()
+                                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
                         }),
                     "`{}` carries `{colour}`, which is not a lowercase six-digit hex",
                     theme.id
@@ -638,7 +647,11 @@ mod tests {
     fn every_identifier_is_unique_and_url_safe() {
         let mut seen: Vec<&str> = Vec::new();
         for theme in THEMES {
-            assert!(!seen.contains(&theme.id), "`{}` is registered twice", theme.id);
+            assert!(
+                !seen.contains(&theme.id),
+                "`{}` is registered twice",
+                theme.id
+            );
             assert!(
                 theme.id.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
                 "`{}` is not a plain identifier",
@@ -653,9 +666,16 @@ mod tests {
     fn the_stylesheet_defines_a_block_for_every_scheme() {
         let css = stylesheet();
         for theme in THEMES {
-            assert!(css.contains(&format!("[data-theme=\"{}\"]", theme.id)), "{}", theme.id);
+            assert!(
+                css.contains(&format!("[data-theme=\"{}\"]", theme.id)),
+                "{}",
+                theme.id
+            );
         }
-        assert!(css.contains("pre .keyword"), "the code classes read the palette");
+        assert!(
+            css.contains("pre .keyword"),
+            "the code classes read the palette"
+        );
     }
 
     /// The sheet is written inside a `<style>` on every page, so a rule that

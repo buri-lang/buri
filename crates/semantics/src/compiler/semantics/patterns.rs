@@ -26,12 +26,18 @@ impl<'a, 'b> Infer<'a, 'b> {
             // syntax error it was.
             P::Error { .. } => typed::PatKind::Error,
 
-            P::Bind { name, name_span, sub, .. } => {
+            P::Bind {
+                name,
+                name_span,
+                sub,
+                ..
+            } => {
                 // Each name a pattern binds is bound once. `(a, a)` is a
                 // mistake, not a shorthand for "equal".
                 if self.or_scope.is_none() && self.bound_already(name) {
                     let bound = name.to_string();
-                    self.templated("duplicate-pattern-binding", name_span).bind("name", bound);
+                    self.templated("duplicate-pattern-binding", name_span)
+                        .bind("name", bound);
                 }
                 self.pattern_names.push(name);
                 let local = self.shared_local(name, &ty, name_span);
@@ -41,7 +47,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 typed::PatKind::Bind { local, sub }
             }
 
-            P::LitInt { value, negative, raw, .. } => {
+            P::LitInt {
+                value,
+                negative,
+                raw,
+                ..
+            } => {
                 let lit = self.subst.fresh_num(NumClass::Int, span);
                 self.unify_at(span, &lit, &ty, "the scrutinee");
                 self.lit_checks.push(LitCheck {
@@ -53,7 +64,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 });
                 typed::PatKind::Int(typed::Magnitude::new(value), negative)
             }
-            P::LitFloat { value, negative, .. } => {
+            P::LitFloat {
+                value, negative, ..
+            } => {
                 let lit = self.subst.fresh_num(NumClass::Float, span);
                 self.unify_at(span, &lit, &ty, "the scrutinee");
                 typed::PatKind::Float(if negative { -value } else { value })
@@ -114,8 +127,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                         Ty::ERROR
                     }
                 };
-                let checked: Vec<typed::Pattern> =
-                    elems.iter().map(|e| self.check_pattern(*e, &elem_ty)).collect();
+                let checked: Vec<typed::Pattern> = elems
+                    .iter()
+                    .map(|e| self.check_pattern(*e, &elem_ty))
+                    .collect();
                 let rest_local = match rest {
                     None => typed::ArrayRest::None,
                     Some(None) => typed::ArrayRest::Ignored,
@@ -134,7 +149,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                         typed::ArrayRest::Bound(l)
                     }
                 };
-                typed::PatKind::Array { elems: checked, rest: rest_local }
+                typed::PatKind::Array {
+                    elems: checked,
+                    rest: rest_local,
+                }
             }
 
             P::Or { alts, .. } => {
@@ -144,9 +162,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // outer alternative's bindings, so a name both bind is one
                 // local.
                 let enclosing = self.or_scope.as_ref().map(|s| s.current.clone());
-                let saved = self
-                    .or_scope
-                    .replace(OrScope { first: enclosing, ..OrScope::default() });
+                let saved = self.or_scope.replace(OrScope {
+                    first: enclosing,
+                    ..OrScope::default()
+                });
                 let mut names: Option<Vec<String>> = None;
                 // Every name some alternative binds, for the enclosing
                 // or-pattern: one mistake in here isn't another out there.
@@ -154,7 +173,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 for alt in alts {
                     // Each alternative starts from the same set, so a name
                     // bound by the first is reused rather than redeclared.
-                    let scope = self.or_scope.as_mut().or_ice("an or-pattern's scope is open");
+                    let scope = self
+                        .or_scope
+                        .as_mut()
+                        .or_ice("an or-pattern's scope is open");
                     scope.current = scope.first.clone().unwrap_or_default();
                     scope.named.clear();
                     let checked = self.check_pattern(*alt, &ty);
@@ -166,7 +188,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     these.sort();
                     these.dedup();
                     for name in &these {
-                        let local = *bound.get(name).or_ice("a name the alternative binds is among its bindings");
+                        let local = *bound
+                            .get(name)
+                            .or_ice("a name the alternative binds is among its bindings");
                         if !joined.iter().any(|(n, _)| n == name) {
                             joined.push((name.clone(), local));
                         }
@@ -174,7 +198,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                     match &names {
                         None => {
                             names = Some(these);
-                            self.or_scope.as_mut().or_ice("an or-pattern's scope is open").first = Some(bound);
+                            self.or_scope
+                                .as_mut()
+                                .or_ice("an or-pattern's scope is open")
+                                .first = Some(bound);
                         }
                         Some(first) if first != &these => {
                             let missing: Vec<&String> =
@@ -219,9 +246,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 typed::PatKind::Or(out)
             }
 
-            P::Path { path, dotted, payload, .. } => {
-                self.check_path_pattern(path, dotted, payload, &ty, span)
-            }
+            P::Path {
+                path,
+                dotted,
+                payload,
+                ..
+            } => self.check_path_pattern(path, dotted, payload, &ty, span),
         };
         typed::Pattern { kind, ty, span }
     }
@@ -281,8 +311,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
     ) -> typed::PatKind {
         let t = self.tree();
-        let (head, rest) =
-            path.split_first().or_ice("the parser builds every path pattern from at least one identifier");
+        let (head, rest) = path
+            .split_first()
+            .or_ice("the parser builds every path pattern from at least one identifier");
         let head = t.text(*head);
         // `.Variant` — the scrutinee's type supplies the enum.
         if dotted {
@@ -378,7 +409,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                 typed::PatKind::Error
             }
             _ => {
-                let shown = path.iter().map(|i| t.text(*i)).collect::<Vec<_>>().join(".");
+                let shown = path
+                    .iter()
+                    .map(|i| t.text(*i))
+                    .collect::<Vec<_>>()
+                    .join(".");
                 self.templated("unknown-type", span)
                     .bind("name", shown)
                     .note(
@@ -456,10 +491,16 @@ impl<'a, 'b> Infer<'a, 'b> {
             let v = variant.name.clone();
             self.templated("private-to-module", span)
                 .bind("declaration", format!("variant `{v}` of `{t}`"))
-                .fix(format!("add `export` to `{t}`, or match through a function `{t}`'s module provides"));
+                .fix(format!(
+                    "add `export` to `{t}`, or match through a function `{t}`'s module provides"
+                ));
         }
         let fields = self.payload_patterns(Fields::Variant(con, index), args, payload, span);
-        typed::PatKind::Variant { con, variant: index, fields }
+        typed::PatKind::Variant {
+            con,
+            variant: index,
+            fields,
+        }
     }
 
     fn struct_field_patterns(
@@ -478,7 +519,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let (fname, name) = (f.name.clone(), tycon.name.clone());
                 self.templated("private-to-module", span)
                     .bind("declaration", format!("field `{fname}` of `{name}`"))
-                    .fix(format!("add `export` to `{fname}`, or read it through a method"));
+                    .fix(format!(
+                        "add `export` to `{fname}`, or read it through a method"
+                    ));
             }
         }
         self.payload_patterns(Fields::Struct(con), args, payload, span)
@@ -491,16 +534,22 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// mutably, and the copy was a name and a field list per pattern.
     fn field_decls(&self, of: Fields) -> &[FieldInfo] {
         match of {
-            Fields::Variant(con, index) => {
-                self.c.tables.tycon(con).variants().get(index).map_or(&[], |v| &v.fields)
-            }
+            Fields::Variant(con, index) => self
+                .c
+                .tables
+                .tycon(con)
+                .variants()
+                .get(index)
+                .map_or(&[], |v| &v.fields),
             Fields::Struct(con) => self.c.tables.tycon(con).fields(),
         }
     }
 
     /// The declared field type at `index`, with the type's arguments put in.
     fn field_ty(&self, of: Fields, index: usize, args: &[Ty]) -> Ty {
-        self.field_decls(of).get(index).map_or(Ty::ERROR, |d| substitute(&d.ty, args, None))
+        self.field_decls(of)
+            .get(index)
+            .map_or(Ty::ERROR, |d| substitute(&d.ty, args, None))
     }
 
     /// What a diagnostic about the payload calls the type or the variant.
@@ -571,7 +620,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .enumerate()
                     .map(|(i, p)| {
                         let ty = self.field_ty(of, i, args);
-                        typed::FieldPat { index: i, pattern: self.check_pattern(*p, &ty) }
+                        typed::FieldPat {
+                            index: i,
+                            pattern: self.check_pattern(*p, &ty),
+                        }
                     })
                     .collect()
             }
@@ -625,7 +677,8 @@ impl<'a, 'b> Infer<'a, 'b> {
                         .collect();
                     if !missing.is_empty() {
                         let missing = crate::diagnostics::names(&missing);
-                        self.templated("missing-field-pattern", span).bind("fields", missing);
+                        self.templated("missing-field-pattern", span)
+                            .bind("fields", missing);
                     }
                     return out;
                 }
@@ -646,7 +699,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                     let ty = self.field_ty(of, i, args);
                     out.push(typed::FieldPat {
                         index: i,
-                        pattern: typed::Pattern { kind: typed::PatKind::Wild, ty, span },
+                        pattern: typed::Pattern {
+                            kind: typed::PatKind::Wild,
+                            ty,
+                            span,
+                        },
                     });
                 }
                 out
@@ -676,8 +733,12 @@ pub(crate) fn no_variant_advice(
     name: &str,
 ) -> (Option<String>, Option<String>) {
     let ty = tables.tycon(con).name.clone();
-    let variants: Vec<String> =
-        tables.tycon(con).variants().iter().map(|v| v.name.clone()).collect();
+    let variants: Vec<String> = tables
+        .tycon(con)
+        .variants()
+        .iter()
+        .map(|v| v.name.clone())
+        .collect();
     let refs: Vec<&str> = variants.iter().map(|s| s.as_str()).collect();
     match crate::build::buildfile::nearest(name, &refs) {
         Some(x) => (
@@ -687,9 +748,13 @@ pub(crate) fn no_variant_advice(
                 &format!("`{ty}`'s declaration lists its variants"),
             )),
         ),
-        None if !variants.is_empty() => {
-            (Some(format!("its variants are {}", crate::diagnostics::names(&variants))), None)
-        }
+        None if !variants.is_empty() => (
+            Some(format!(
+                "its variants are {}",
+                crate::diagnostics::names(&variants)
+            )),
+            None,
+        ),
         None => (None, None),
     }
 }

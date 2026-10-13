@@ -319,29 +319,44 @@ fn seed_corpus() -> Vec<(String, String)> {
         walk_sources(&root.join(dir), &root, &mut out);
     }
     out.sort();
-    assert!(out.len() > 200, "expected the checked-in sources, found {}", out.len());
+    assert!(
+        out.len() > 200,
+        "expected the checked-in sources, found {}",
+        out.len()
+    );
     out
 }
 
 fn walk_sources(dir: &Path, root: &Path, out: &mut Vec<(String, String)>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.filter_map(Result::ok) {
         let p = e.path();
         if p.is_dir() {
             walk_sources(&p, root, out);
             continue;
         }
-        let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = p
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         if !name.ends_with(".buri") || name == "BUILD.buri" || name == "REPO.buri" {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(&p) else { continue };
+        let Ok(text) = std::fs::read_to_string(&p) else {
+            continue;
+        };
         // A seed larger than a screenful minimises into a case nobody can
         // read, and the corpus has hundreds of files under that size.
         if text.len() > 8_000 {
             continue;
         }
-        out.push((p.strip_prefix(root).unwrap_or(&p).display().to_string(), text));
+        out.push((
+            p.strip_prefix(root).unwrap_or(&p).display().to_string(),
+            text,
+        ));
     }
 }
 
@@ -358,8 +373,15 @@ fn donors() -> Vec<String> {
         .filter(|p| p.extension().is_some_and(|e| e == "buri"))
         .collect();
     paths.sort();
-    let out: Vec<String> = paths.iter().filter_map(|p| std::fs::read_to_string(p).ok()).collect();
-    assert!(out.len() > 20, "expected the standard library's sources, found {}", out.len());
+    let out: Vec<String> = paths
+        .iter()
+        .filter_map(|p| std::fs::read_to_string(p).ok())
+        .collect();
+    assert!(
+        out.len() > 20,
+        "expected the standard library's sources, found {}",
+        out.len()
+    );
     out
 }
 
@@ -386,7 +408,10 @@ fn mutants<'a>(
             .iter()
             .map(|seed| {
                 let h = fnv(seed.1.as_bytes(), fnv(seed.0.as_bytes(), salt) ^ 0xFF);
-                (Rng(h ^ round.wrapping_mul(0x9E37_79B9_7F4A_7C15)).next(), seed)
+                (
+                    Rng(h ^ round.wrapping_mul(0x9E37_79B9_7F4A_7C15)).next(),
+                    seed,
+                )
             })
             .filter(|(key, _)| soaking || key % 1000 < per_mille)
             .collect();
@@ -425,14 +450,99 @@ fn fnv(bytes: &[u8], mut h: u64) -> u64 {
 /// punctuators that open and close, and the literal forms with their own
 /// scanner path — which is the cheap half of grammar-aware fuzzing.
 const VOCABULARY: &[&str] = &[
-    "as", "const", "context", "ctx", "derive", "effect", "else", "enum", "export", "false",
-    "fn", "for", "from", "if", "impl", "import", "let", "match", "self", "Self", "struct",
-    "test", "trait", "true", "type", "{", "}", "(", ")", "[", "]", "<", ">", "=>", "->", "?",
-    "??", "..", "...", ".", ",", ";", ":", "::", "=", "==", "!", "-", "+", "*", "/", "%", "&&",
-    "||", "|", "&", "^", "~", "#", "@", "$", "\\", "\"", "'", "`", "${", "\\u{", "//", "/*",
-    "*/", "///", "//!", "0x", "0b", "1e999", "'a'", "\"s\"", "Int", "Str", "Float", "Bool",
-    "Option", "Result", ".Some", ".None", ".Ok", ".Err", "_", "\u{a0}", "\u{200f}", "\u{0}",
-    "\u{1f600}", "×",
+    "as",
+    "const",
+    "context",
+    "ctx",
+    "derive",
+    "effect",
+    "else",
+    "enum",
+    "export",
+    "false",
+    "fn",
+    "for",
+    "from",
+    "if",
+    "impl",
+    "import",
+    "let",
+    "match",
+    "self",
+    "Self",
+    "struct",
+    "test",
+    "trait",
+    "true",
+    "type",
+    "{",
+    "}",
+    "(",
+    ")",
+    "[",
+    "]",
+    "<",
+    ">",
+    "=>",
+    "->",
+    "?",
+    "??",
+    "..",
+    "...",
+    ".",
+    ",",
+    ";",
+    ":",
+    "::",
+    "=",
+    "==",
+    "!",
+    "-",
+    "+",
+    "*",
+    "/",
+    "%",
+    "&&",
+    "||",
+    "|",
+    "&",
+    "^",
+    "~",
+    "#",
+    "@",
+    "$",
+    "\\",
+    "\"",
+    "'",
+    "`",
+    "${",
+    "\\u{",
+    "//",
+    "/*",
+    "*/",
+    "///",
+    "//!",
+    "0x",
+    "0b",
+    "1e999",
+    "'a'",
+    "\"s\"",
+    "Int",
+    "Str",
+    "Float",
+    "Bool",
+    "Option",
+    "Result",
+    ".Some",
+    ".None",
+    ".Ok",
+    ".Err",
+    "_",
+    "\u{a0}",
+    "\u{200f}",
+    "\u{0}",
+    "\u{1f600}",
+    "×",
 ];
 
 /// One edit to one file.
@@ -586,7 +696,9 @@ fn fires(property: &str, input: &str, expects: Option<&str>) -> Option<String> {
         "deterministic" => deterministic_fires(input),
         "output" => output_fires(input, expects.unwrap_or_default()),
         "generated" => generated_fires(input),
-        other => Some(format!("`{other}` is not a property; they are {PROPERTIES:?}")),
+        other => Some(format!(
+            "`{other}` is not a property; they are {PROPERTIES:?}"
+        )),
     }
 }
 
@@ -642,7 +754,10 @@ fn safety_fires(input: &str) -> Option<String> {
         return Some(format!("the toolchain panicked:\n{}", indent(&all)));
     }
     if said(&all, input, "overflowed its stack") || said(&all, input, "stack overflow") {
-        return Some(format!("the toolchain overflowed its stack:\n{}", indent(&all)));
+        return Some(format!(
+            "the toolchain overflowed its stack:\n{}",
+            indent(&all)
+        ));
     }
     if said(&all, input, "internal compiler error") {
         return Some(format!(
@@ -707,11 +822,15 @@ fn run_watched(dir: &Path, args: &[&str], cap: Duration) -> Result<String, Strin
         .stderr(Stdio::from(err_file))
         .spawn()
         .expect("the buri binary runs");
-    let status =
-        match harness::hang::watch(&mut child, "the toolchain", cap, Some(TOOLCHAIN_CPU_CEILING)) {
-            Ok(status) => status,
-            Err(killed) => return Err(killed.verdict()),
-        };
+    let status = match harness::hang::watch(
+        &mut child,
+        "the toolchain",
+        cap,
+        Some(TOOLCHAIN_CPU_CEILING),
+    ) {
+        Ok(status) => status,
+        Err(killed) => return Err(killed.verdict()),
+    };
     let text = format!(
         "{}{}",
         std::fs::read_to_string(&out_path).unwrap_or_default(),
@@ -720,7 +839,10 @@ fn run_watched(dir: &Path, args: &[&str], cap: Duration) -> Result<String, Strin
     // A process killed by a signal has no code, which is what a stack overflow
     // and an out-of-memory kill look like from outside.
     if status.code().is_none() {
-        return Err(format!("killed by a signal rather than exiting:\n{}", indent(&text)));
+        return Err(format!(
+            "killed by a signal rather than exiting:\n{}",
+            indent(&text)
+        ));
     }
     Ok(text)
 }
@@ -736,7 +858,11 @@ fn run_watched(dir: &Path, args: &[&str], cap: Duration) -> Result<String, Strin
 fn safety_in_process(input: &str, cache: &mut buri::parsing::parser::Cache) -> Option<String> {
     caught(|| {
         let mut map = SourceMap::new();
-        let id = map.add(String::from("fuzz"), PathBuf::from("fuzz.buri"), input.to_string());
+        let id = map.add(
+            String::from("fuzz"),
+            PathBuf::from("fuzz.buri"),
+            input.to_string(),
+        );
         let parsed = buri::parsing::parser::parse(input, id);
         // The formatter is on the hostile path too: `buri format` reads a file
         // nobody promised was valid, and `source_unchecked` is the printer with
@@ -748,8 +874,16 @@ fn safety_in_process(input: &str, cache: &mut buri::parsing::parser::Cache) -> O
         // A build file is the other text the toolchain reads.
         std::hint::black_box(textproto::parse(input, FileId(0)));
         let mut map = SourceMap::new();
-        let analysis =
-            driver::analyze_snippet_on(None, None, &mut map, cache, "main", input, Role::Entry, None);
+        let analysis = driver::analyze_snippet_on(
+            None,
+            None,
+            &mut map,
+            cache,
+            "main",
+            input,
+            Role::Entry,
+            None,
+        );
         for d in &analysis.diagnostics.items {
             std::hint::black_box(map.render(d, false));
         }
@@ -841,7 +975,10 @@ fn comments_sorted(text: &str) -> Vec<Shape> {
 /// there. That is what makes it usable over mutated input: most mutants do
 /// not parse, and the ones that do are exactly the interesting ones.
 fn roundtrip_fires(input: &str) -> Option<String> {
-    if !buri::parsing::parser::parse(input, FileId(0)).errors.is_empty() {
+    if !buri::parsing::parser::parse(input, FileId(0))
+        .errors
+        .is_empty()
+    {
         return None;
     }
     let Some(once) = source(input) else {
@@ -859,10 +996,17 @@ fn roundtrip_fires(input: &str) -> Option<String> {
         } else {
             format!(
                 "its output does not parse: {}",
-                reparsed.errors.first().map(|e| e.message.clone()).unwrap_or_default()
+                reparsed
+                    .errors
+                    .first()
+                    .map(|e| e.message.clone())
+                    .unwrap_or_default()
             )
         };
-        return Some(format!("`format` refused its own output — {why}\nit printed:\n{}", indent(&printed)));
+        return Some(format!(
+            "`format` refused its own output — {why}\nit printed:\n{}",
+            indent(&printed)
+        ));
     };
     let twice = source(&once)?;
     if twice != once {
@@ -909,7 +1053,10 @@ fn compiles_fires(input: &str) -> Option<String> {
         .map(|d| map.render(d, false))
         .collect();
     if !errors.is_empty() {
-        return Some(format!("the source does not compile:\n{}", indent(&errors.join(""))));
+        return Some(format!(
+            "the source does not compile:\n{}",
+            indent(&errors.join(""))
+        ));
     }
     if analysis.checked.entry.is_none() {
         return Some(String::from("the source exports no `main`"));
@@ -967,7 +1114,12 @@ fn deterministic_fires(input: &str) -> Option<String> {
 fn diagnostics_of(input: &str) -> String {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, "main", input, Role::Entry);
-    analysis.diagnostics.items.iter().map(|d| map.render(d, false)).collect()
+    analysis
+        .diagnostics
+        .items
+        .iter()
+        .map(|d| map.render(d, false))
+        .collect()
 }
 
 // -- output -----------------------------------------------------------------
@@ -1065,13 +1217,25 @@ fn run_on_js(input: &str) -> Result<Option<String>, String> {
     if analysis.diagnostics.has_errors() {
         return Err(format!(
             "the JavaScript backend produced no answer:\n{}",
-            indent(&analysis.diagnostics.items.iter().map(|d| map.render(d, false)).collect::<String>())
+            indent(
+                &analysis
+                    .diagnostics
+                    .items
+                    .iter()
+                    .map(|d| map.render(d, false))
+                    .collect::<String>()
+            )
         ));
     }
     let Some(entry) = analysis.checked.entry else {
         return Err(String::from("the program exports no `main`"));
     };
-    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = buri::diagnostics::Diagnostics::new();
     let mut program = buri::compiler::middle::monomorphize::run(
         &analysis.checked,
@@ -1088,8 +1252,11 @@ fn run_on_js(input: &str) -> Result<Option<String>, String> {
     };
     buri::build::actions::prepare(&mut program, target);
     let profile = buri::compiler::backend::Profile::Debug;
-    let opts =
-        buri::compiler::backend::Options { profile, target, unit_prefix: "" };
+    let opts = buri::compiler::backend::Options {
+        profile,
+        target,
+        unit_prefix: "",
+    };
     let mut backend = buri::compiler::backend::select(target, profile)
         .map_err(|e| format!("no JavaScript backend: {e}"))?;
     let units = backend
@@ -1097,7 +1264,11 @@ fn run_on_js(input: &str) -> Result<Option<String>, String> {
         .map_err(|d| {
             format!(
                 "the JavaScript backend refused the program: {}",
-                d.items.iter().map(|i| i.message.clone()).collect::<Vec<_>>().join("; ")
+                d.items
+                    .iter()
+                    .map(|i| i.message.clone())
+                    .collect::<Vec<_>>()
+                    .join("; ")
             )
         })?;
     // A directory of this call's own, because this binary runs its tests in
@@ -1153,7 +1324,11 @@ fn waited_out(
     let (out, err) = harness::hang::drain(&mut child);
     let status = harness::hang::watch(&mut child, what, cap, Some(ceiling))
         .map_err(|killed| killed.verdict())?;
-    Ok(std::process::Output { status, stdout: out.take(), stderr: err.take() })
+    Ok(std::process::Output {
+        status,
+        stdout: out.take(),
+        stderr: err.take(),
+    })
 }
 
 fn engine_present() -> bool {
@@ -1200,8 +1375,16 @@ mod native {
 
     pub fn host_target() -> Target {
         Target {
-            platform: if cfg!(target_os = "macos") { Platform::Macos } else { Platform::Linux },
-            arch: Some(if cfg!(target_arch = "aarch64") { Arch::Arm64 } else { Arch::X86_64 }),
+            platform: if cfg!(target_os = "macos") {
+                Platform::Macos
+            } else {
+                Platform::Linux
+            },
+            arch: Some(if cfg!(target_arch = "aarch64") {
+                Arch::Arm64
+            } else {
+                Arch::X86_64
+            }),
         }
     }
 
@@ -1349,7 +1532,12 @@ mod native {
     fn watched(binary: &Path, name: &str) -> Result<std::process::Output, String> {
         let mut cmd = Command::new(binary);
         cmd.env("BURI_RT_HEAP_CHECK", "1");
-        super::waited_out(cmd, &format!("the {name} program"), NATIVE_DEADLINE, NATIVE_CPU_CEILING)
+        super::waited_out(
+            cmd,
+            &format!("the {name} program"),
+            NATIVE_DEADLINE,
+            NATIVE_CPU_CEILING,
+        )
     }
 
     /// The exit status the runtime's heap check stops a program with.
@@ -1382,9 +1570,15 @@ mod native {
         if analysis.diagnostics.has_errors() {
             return out;
         }
-        let Some(entry) = analysis.checked.entry else { return out };
-        let paths: Vec<String> =
-            analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+        let Some(entry) = analysis.checked.entry else {
+            return out;
+        };
+        let paths: Vec<String> = analysis
+            .loaded
+            .modules
+            .iter()
+            .map(|m| m.path.clone())
+            .collect();
         for (name, profile) in NATIVES {
             if unavailable(name).is_some() {
                 continue;
@@ -1402,8 +1596,14 @@ mod native {
             }
             let target = host_target();
             actions::prepare(&mut program, target);
-            let opts = Options { profile: *profile, target, unit_prefix: "" };
-            let Some(mut backend) = select(name, target, *profile) else { continue };
+            let opts = Options {
+                profile: *profile,
+                target,
+                unit_prefix: "",
+            };
+            let Some(mut backend) = select(name, target, *profile) else {
+                continue;
+            };
             let missing = backend.missing_intrinsics(&program, &analysis.checked.tables);
             if !missing.is_empty() {
                 out.push((*name, format!("missing {missing:?}")));
@@ -1412,7 +1612,11 @@ mod native {
             if let Err(d) = backend.emit(&program, &analysis.checked.tables, &opts) {
                 out.push((
                     *name,
-                    d.items.iter().map(|i| i.message.clone()).collect::<Vec<_>>().join("; "),
+                    d.items
+                        .iter()
+                        .map(|i| i.message.clone())
+                        .collect::<Vec<_>>()
+                        .join("; "),
                 ));
             }
         }
@@ -1445,8 +1649,12 @@ mod native {
             return None;
         }
         let entry = analysis.checked.entry?;
-        let paths: Vec<String> =
-            analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+        let paths: Vec<String> = analysis
+            .loaded
+            .modules
+            .iter()
+            .map(|m| m.path.clone())
+            .collect();
         let mut out = Vec::new();
         for (name, profile) in NATIVES {
             let mut diagnostics = Diagnostics::new();
@@ -1461,14 +1669,23 @@ mod native {
             }
             let target = host_target();
             actions::prepare(&mut program, target);
-            let opts = Options { profile: *profile, target, unit_prefix: "" };
+            let opts = Options {
+                profile: *profile,
+                target,
+                unit_prefix: "",
+            };
             // A backend with no seat on this host refuses every program, which
             // is a fact about the host rather than a disagreement.
             if unavailable(name).is_some() {
                 continue;
             }
-            let Some(mut backend) = select(name, target, *profile) else { continue };
-            if !backend.missing_intrinsics(&program, &analysis.checked.tables).is_empty() {
+            let Some(mut backend) = select(name, target, *profile) else {
+                continue;
+            };
+            if !backend
+                .missing_intrinsics(&program, &analysis.checked.tables)
+                .is_empty()
+            {
                 continue;
             }
             let Ok(units) = backend.emit(&program, &analysis.checked.tables, &opts) else {
@@ -1539,7 +1756,11 @@ mod native {
                 )),
             };
             ANSWERED.fetch_add(1, Ordering::Relaxed);
-            out.push((*name, String::from_utf8_lossy(&ran.stdout).to_string(), trouble));
+            out.push((
+                *name,
+                String::from_utf8_lossy(&ran.stdout).to_string(),
+                trouble,
+            ));
         }
         Some(out)
     }
@@ -1562,7 +1783,9 @@ mod native {
 /// step against the *same* message class rather than merely "still fails", so
 /// shrinking cannot silently walk from one bug to another.
 fn minimize(property: &str, input: &str, expects: Option<&str>) -> String {
-    let Some(first) = fires(property, input, expects) else { return input.to_string() };
+    let Some(first) = fires(property, input, expects) else {
+        return input.to_string();
+    };
     let signature = signature_of(&first);
     let deadline = Instant::now() + MINIMISE_CEILING;
     let still = |candidate: &str| -> bool {
@@ -1700,8 +1923,12 @@ fn minimize(property: &str, input: &str, expects: Option<&str>) -> String {
     // ends of what is left.
     let mut at = 0;
     while at < best.chars().count() {
-        let candidate: String =
-            best.chars().enumerate().filter(|(i, _)| *i != at).map(|(_, c)| c).collect();
+        let candidate: String = best
+            .chars()
+            .enumerate()
+            .filter(|(i, _)| *i != at)
+            .map(|(_, c)| c)
+            .collect();
         if still(&candidate) {
             best = candidate;
         } else {
@@ -1792,7 +2019,9 @@ fn corpus_dir() -> PathBuf {
 /// [`the_corpus_is_wired_up`] is what says the reader works.
 fn recorded() -> Vec<Recorded> {
     let dir = corpus_dir();
-    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
     let mut dirs: Vec<PathBuf> = entries
         .filter_map(Result::ok)
         .map(|e| e.path())
@@ -1803,22 +2032,35 @@ fn recorded() -> Vec<Recorded> {
 }
 
 fn read_case(dir: &Path) -> Recorded {
-    let name = dir.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let name = dir
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
     let text = std::fs::read_to_string(dir.join("CASE.textproto"))
         .unwrap_or_else(|e| panic!("{name}: cannot read CASE.textproto: {e}"));
     let parsed = textproto::parse(&text, FileId(0));
     assert!(
         parsed.errors.is_empty(),
         "{name}: CASE.textproto does not read: {:?}",
-        parsed.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
+        parsed
+            .errors
+            .iter()
+            .map(|e| e.message.clone())
+            .collect::<Vec<_>>()
     );
     let field = |key: &str| -> Option<String> {
-        parsed.document.fields.iter().find(|f| f.name == key).map(|f| match &f.value {
-            textproto::Value::Str(s, _) => s.clone(),
-            textproto::Value::Ident(s, _) => s.clone(),
-            textproto::Value::Int(n, _) => n.to_string(),
-            _ => String::new(),
-        })
+        parsed
+            .document
+            .fields
+            .iter()
+            .find(|f| f.name == key)
+            .map(|f| match &f.value {
+                textproto::Value::Str(s, _) => s.clone(),
+                textproto::Value::Ident(s, _) => s.clone(),
+                textproto::Value::Int(n, _) => n.to_string(),
+                _ => String::new(),
+            })
     };
     let status = field("status").unwrap_or_default();
     assert!(
@@ -1880,16 +2122,24 @@ fn record(name: &str, doc: &str, property: &str, input: &str, expects: Option<&s
 /// reading its directory.
 fn case_name(property: &str, why: &str) -> String {
     let signature = signature_of(why);
-    let readable = signature.split_once(" | ").map_or(signature.as_str(), |(head, first)| {
-        if first.trim().is_empty() {
-            head
-        } else {
-            first
-        }
-    });
+    let readable = signature
+        .split_once(" | ")
+        .map_or(signature.as_str(), |(head, first)| {
+            if first.trim().is_empty() {
+                head
+            } else {
+                first
+            }
+        });
     let head: String = readable
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect();
     let mut slug = String::new();
     let mut last_underscore = false;
@@ -1954,7 +2204,10 @@ struct Seen {
 
 impl Seen {
     fn new() -> Seen {
-        Seen { known: known_signatures(), skipped: 0 }
+        Seen {
+            known: known_signatures(),
+            skipped: 0,
+        }
     }
 
     fn report(&self, what: &str) {
@@ -2010,7 +2263,9 @@ fn replay_the_regression_corpus() {
         match (case.open, fired) {
             (false, Some(why)) => failures.push(format!(
                 "{}: a FIXED case broke again — {}\n{}",
-                case.name, case.doc, indent(&why)
+                case.name,
+                case.doc,
+                indent(&why)
             )),
             (true, None) => failures.push(format!(
                 "{}: an OPEN case no longer fires, so it is fixed — {}\n  \
@@ -2022,7 +2277,12 @@ fn replay_the_regression_corpus() {
             (false, None) => {}
         }
     }
-    assert!(failures.is_empty(), "{} case(s):\n\n{}", failures.len(), failures.join("\n\n"));
+    assert!(
+        failures.is_empty(),
+        "{} case(s):\n\n{}",
+        failures.len(),
+        failures.join("\n\n")
+    );
     eprintln!("fuzz corpus: {} cases, {open} still open", cases.len());
 }
 
@@ -2052,7 +2312,10 @@ fn the_corpus_is_wired_up() {
             ));
         }
         if case.doc.len() < 20 {
-            wrong.push(format!("{}: `doc` says almost nothing — {:?}", case.name, case.doc));
+            wrong.push(format!(
+                "{}: `doc` says almost nothing — {:?}",
+                case.name, case.doc
+            ));
         }
         for (other, doc) in &docs {
             if *doc == case.doc {
@@ -2068,7 +2331,12 @@ fn the_corpus_is_wired_up() {
         }
         docs.push((case.name.clone(), case.doc.clone()));
     }
-    assert!(wrong.is_empty(), "{} case(s) malformed:\n  {}", wrong.len(), wrong.join("\n  "));
+    assert!(
+        wrong.is_empty(),
+        "{} case(s) malformed:\n  {}",
+        wrong.len(),
+        wrong.join("\n  ")
+    );
 }
 
 /// **A new seed only adds mutants.** Every other seed's mutants stay as they
@@ -2094,16 +2362,31 @@ fn a_new_seed_leaves_every_other_seeds_mutants_alone() {
             .env_remove("BURI_FUZZ_RECORD")
             .output()
             .unwrap();
-        assert!(run.status.success(), "the search failed:\n{}", String::from_utf8_lossy(&run.stderr));
+        assert!(
+            run.status.success(),
+            "the search failed:\n{}",
+            String::from_utf8_lossy(&run.stderr)
+        );
         let mut files = Vec::new();
         collect(&out.root, &out.root, &mut files);
         files.into_iter().collect()
     };
     let before = mutants_of("fuzz-before");
-    assert!(before.len() > 10, "the search drew only {} mutants", before.len());
-    assert_eq!(before, mutants_of("fuzz-again"), "two runs drew different mutants");
+    assert!(
+        before.len() > 10,
+        "the search drew only {} mutants",
+        before.len()
+    );
+    assert_eq!(
+        before,
+        mutants_of("fuzz-again"),
+        "two runs drew different mutants"
+    );
 
-    corpus.write("seeds/added.buri", "enum Added { A, B(Int) }\n\nfn g() -> Int { 1 }\n");
+    corpus.write(
+        "seeds/added.buri",
+        "enum Added { A, B(Int) }\n\nfn g() -> Int { 1 }\n",
+    );
     let mut after = mutants_of("fuzz-after");
     after.retain(|name, _| !name.contains("added.buri"));
     assert_eq!(before, after, "adding a seed moved another seed's mutants");
@@ -2154,7 +2437,11 @@ fn mutation_never_panics_the_toolchain() {
                 None,
                 &format!(
                     "{from} panicked the toolchain {}",
-                    if seen_by_binary { "through the binary" } else { "in process" }
+                    if seen_by_binary {
+                        "through the binary"
+                    } else {
+                        "in process"
+                    }
                 ),
             );
         }
@@ -2218,7 +2505,14 @@ fn token_soup_never_panics_the_toolchain() {
             }
         }
         if let Some(why) = safety_in_process(&soup, &mut cache) {
-            triage(&mut seen, "safety", &soup, &why, None, "a file drawn from the token table");
+            triage(
+                &mut seen,
+                "safety",
+                &soup,
+                &why,
+                None,
+                "a file drawn from the token table",
+            );
         }
         done += 1;
     }
@@ -2260,14 +2554,20 @@ fn formatting_round_trips_on_generated_and_mutated_source() {
                 let params = random_params(&mut rng, 120);
                 let program = generate::program(&params);
                 let module = rng.pick(&program.modules);
-                (format!("a generated module ({})", params.delta()), module.text.clone())
+                (
+                    format!("a generated module ({})", params.delta()),
+                    module.text.clone(),
+                )
             }
             None => break,
         };
         // Most mutants do not parse, and a file that does not parse is not
         // formatted at all — so the count that matters is how many reached the
         // formatter, not how many were drawn.
-        if buri::parsing::parser::parse(&text, FileId(0)).errors.is_empty() {
+        if buri::parsing::parser::parse(&text, FileId(0))
+            .errors
+            .is_empty()
+        {
             parsed += 1;
             if let Some(why) = roundtrip_fires(&text) {
                 triage(&mut seen, "roundtrip", &text, &why, None, &from);
@@ -2325,8 +2625,11 @@ fn every_generated_program_compiles() {
 /// minimisation: deleting a line resets a dimension to its default, and what
 /// survives is the smallest set of dimensions that still reproduces.
 fn point_of(params: &generate::Params) -> String {
-    let mut out: Vec<String> =
-        params.delta().split_whitespace().map(str::to_string).collect();
+    let mut out: Vec<String> = params
+        .delta()
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
     if params.shape != generate::Shape::Mixed {
         out.push(format!("shape={}", shape_name(params.shape)));
     }
@@ -2481,7 +2784,10 @@ fn program_compiles(program: &generate::Program) -> Option<String> {
         .map(|d| format!("error: {}: {}", map.name(d.span.file), d.message))
         .collect();
     if !errors.is_empty() {
-        return Some(format!("the program does not compile:\n{}", indent(&errors.join("\n"))));
+        return Some(format!(
+            "the program does not compile:\n{}",
+            indent(&errors.join("\n"))
+        ));
     }
     if checked.entry.is_none() {
         return Some(String::from("the program exports no `main`"));
@@ -2675,8 +2981,11 @@ fn printer(rng: &mut Rng) -> Printer {
     text.push_str(" }\n\n");
     let values: Vec<i64> = (0..fields).map(|_| rng.below(100) as i64).collect();
     let sum: i64 = values.iter().sum::<i64>() % MODULUS;
-    let inits: Vec<String> =
-        values.iter().enumerate().map(|(f, v)| format!("f{f}: {v}")).collect();
+    let inits: Vec<String> = values
+        .iter()
+        .enumerate()
+        .map(|(f, v)| format!("f{f}: {v}"))
+        .collect();
     let reads: Vec<String> = (0..fields).map(|f| format!("r.f{f}")).collect();
     text.push_str(&format!(
         "fn build(): Int {{\n  let r = Rec {{ {} }};\n  ({}) % {MODULUS}\n}}\n\n",
@@ -2702,15 +3011,21 @@ fn printer(rng: &mut Rng) -> Printer {
         }
         body.push_str("  x\n");
         text.push_str(&format!("fn f{i}(x: Int): Int {{\n{body}}}\n\n"));
-        lines.push(format!("    let _ = io.println(ctx, \"${{f{i}({arg})}}\").ignore();\n"));
+        lines.push(format!(
+            "    let _ = io.println(ctx, \"${{f{i}({arg})}}\").ignore();\n"
+        ));
         expected.push(last.to_string());
     }
 
     let tag = rng.below(variants);
     let payload = rng.below(100) as i64;
-    lines.push(format!("    let _ = io.println(ctx, \"${{weigh(Tag.V{tag}({payload}))}}\").ignore();\n"));
+    lines.push(format!(
+        "    let _ = io.println(ctx, \"${{weigh(Tag.V{tag}({payload}))}}\").ignore();\n"
+    ));
     expected.push(((payload + weights[tag]) % MODULUS).to_string());
-    lines.push(String::from("    let _ = io.println(ctx, \"${build()}\").ignore();\n"));
+    lines.push(String::from(
+        "    let _ = io.println(ctx, \"${build()}\").ignore();\n",
+    ));
     expected.push(sum.to_string());
 
     text.push_str(
@@ -2723,7 +3038,10 @@ export fn main(host: NodeHost): Result<(), Str> {\n  \
         text.push_str(l);
     }
     text.push_str("  .Ok(())\n}\n");
-    Printer { text, expected: format!("{}\n", expected.join("\n")) }
+    Printer {
+        text,
+        expected: format!("{}\n", expected.join("\n")),
+    }
 }
 
 /// **The backends agree, and they agree on the right answer.**
@@ -2792,10 +3110,11 @@ fn report_native_participation(done: usize) {
     #[cfg(not(any(feature = "backend-stencil", feature = "backend-llvm")))]
     {
         let _ = done;
-        eprintln!("fuzz differential: built with no native backend, so JavaScript is the whole of it");
+        eprintln!(
+            "fuzz differential: built with no native backend, so JavaScript is the whole of it"
+        );
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // The ownership generator
@@ -3054,7 +3373,10 @@ fn rc_shapes(rng: &mut Rng) -> Printer {
         text.push_str(l);
     }
     text.push_str("  .Ok(())\n}\n");
-    Printer { text, expected: format!("{}\n", expected.join("\n")) }
+    Printer {
+        text,
+        expected: format!("{}\n", expected.join("\n")),
+    }
 }
 
 /// One call `main` makes, and the line it prints.
@@ -3069,10 +3391,7 @@ fn rc_line(rng: &mut Rng) -> (String, String) {
     // list of four while costing the JavaScript engine forty string builds.
     let n = 1 + rng.below(5) as i64;
     match rng.below(9) {
-        0 => (
-            format!("\"${{projectedInline(ctx, {n})}}\""),
-            n.to_string(),
-        ),
+        0 => (format!("\"${{projectedInline(ctx, {n})}}\""), n.to_string()),
         1 => (format!("\"${{projectedBound(ctx, {n})}}\""), n.to_string()),
         2 => (format!("\"${{projectedTwice(ctx, {n})}}\""), n.to_string()),
         3 => {
@@ -3099,7 +3418,11 @@ fn rc_line(rng: &mut Rng) -> (String, String) {
                 let at = rng.below(octets.len());
                 octets[at] = 255;
             }
-            let list = octets.iter().map(i64::to_string).collect::<Vec<_>>().join(", ");
+            let list = octets
+                .iter()
+                .map(i64::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
             let answer = if octets.contains(&255) {
                 String::from("corrupt")
             } else {
@@ -3115,8 +3438,10 @@ fn rc_line(rng: &mut Rng) -> (String, String) {
             let present = rng.chance(4);
             // `1..=n`, which every element of fits a `U8` because `n` is at
             // most five.
-            let bytes =
-                (1..=n).map(|b| b.to_string()).collect::<Vec<_>>().join(", ");
+            let bytes = (1..=n)
+                .map(|b| b.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
             let (call, answer) = match rng.below(4) {
                 0 if present => (format!("defaulted(.Some([{bytes}]))"), n),
                 0 => (String::from("defaulted(.None)"), 0),
@@ -3153,13 +3478,15 @@ fn rc_line(rng: &mut Rng) -> (String, String) {
                 // this search is what found it (`backend/llvm/emit.rs`'s
                 // `empty_list`, and `native/llvm.rs`'s
                 // `an_empty_list_is_not_a_block`).
-                2 if present => {
-                    (format!("wrapped(.Some(Wrapper {{ octets: [{bytes}] }}))"), n)
-                }
+                2 if present => (
+                    format!("wrapped(.Some(Wrapper {{ octets: [{bytes}] }}))"),
+                    n,
+                ),
                 2 => (String::from("wrapped(.None)"), 0),
-                _ if present => {
-                    (format!("wrappedMatch(.Some(Wrapper {{ octets: [{bytes}] }}))"), n)
-                }
+                _ if present => (
+                    format!("wrappedMatch(.Some(Wrapper {{ octets: [{bytes}] }}))"),
+                    n,
+                ),
                 _ => (String::from("wrappedMatch(.None)"), 0),
             };
             (format!("\"${{{call}}}\""), answer.to_string())
@@ -3306,7 +3633,14 @@ fn dead_code_does_not_change_what_a_program_prints() {
         // program the backends already disagree about is the other property's
         // finding, not this one's.
         if let Some(why) = output_fires(&p.text, &p.expected) {
-            triage(&mut seen, "output", &p.text, &why, Some(&p.expected), "the program EMI started from");
+            triage(
+                &mut seen,
+                "output",
+                &p.text,
+                &why,
+                Some(&p.expected),
+                "the program EMI started from",
+            );
         }
         let twin = with_dead_code(&p.text, &mut rng);
         if let Some(why) = output_fires(&twin, &p.expected) {
@@ -3343,9 +3677,8 @@ fn with_dead_code(text: &str, rng: &mut Rng) -> String {
     // dead — and it is dead as a *fact about the program* rather than as a
     // literal the parser can fold, which is what makes the arm reach the
     // middle end at all.
-    let guard = format!(
-        "  let dead = (x * 0);\n  let _ = if (dead == 1) {{ {more} }} else {{ 0 }};\n"
-    );
+    let guard =
+        format!("  let dead = (x * 0);\n  let _ = if (dead == 1) {{ {more} }} else {{ 0 }};\n");
     let mut out = String::new();
     let mut injected = false;
     for line in text.lines() {

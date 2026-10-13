@@ -10,14 +10,14 @@
 //! Completion asks the same tables a different question — what could be
 //! written here — and is [`super::completion`].
 
-use crate::compiler::semantics::types;
-use crate::json::Value;
-use crate::parsing::tree::Item;
-use std::path::Path;
 use super::convert::{self, Position};
 use super::origins;
 use super::state::Analyzed;
 use super::symbols;
+use crate::compiler::semantics::types;
+use crate::json::Value;
+use crate::parsing::tree::Item;
+use std::path::Path;
 
 /// Which `MarkupKind` the client said it can render, from its `initialize`.
 ///
@@ -50,7 +50,10 @@ pub fn hover(
     kind: Markup,
 ) -> Option<Value> {
     let offset = convert::offset_of(text, position);
-    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
+    let file = analyzed
+        .session
+        .map
+        .find(&analyzed.session.workspace.rel_of(path))?;
 
     // A name renders as its signature plus its doc comment, at the use as well
     // as at the declaration — pointing at a call is the commonest way to ask
@@ -85,7 +88,9 @@ pub fn hover(
     // first of equally narrow expressions wins.
     let best = walked
         .into_iter()
-        .filter(|(span, ty)| span.file == file && span.start <= offset && offset <= span.end && !ty.has_error())
+        .filter(|(span, ty)| {
+            span.file == file && span.start <= offset && offset <= span.end && !ty.has_error()
+        })
         .min_by_key(|(span, _)| span.end.saturating_sub(span.start));
     if let Some((span, ty)) = best {
         let ty = types::show(&analyzed.analysis.checked.tables, None, &[], &ty);
@@ -94,13 +99,29 @@ pub fn hover(
 
     // Above the first declaration there is nothing to point at but the file,
     // which is exactly where its `//!` lines are written.
-    let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
-    let first = module.ast.items.first().map_or(u32::MAX, |item| item.span().start);
+    let module = analyzed
+        .analysis
+        .loaded
+        .modules
+        .iter()
+        .find(|m| m.file == file)?;
+    let first = module
+        .ast
+        .items
+        .first()
+        .map_or(u32::MAX, |item| item.span().start);
     if module.ast.docs.is_empty() || offset > first {
         return None;
     }
     let at = crate::diagnostics::Span::point(file, offset as usize);
-    Some(rendered(text, "buri", &format!("from \"{}\"", module.path), &module.ast.tree.docs(module.ast.docs), at, kind))
+    Some(rendered(
+        text,
+        "buri",
+        &format!("from \"{}\"", module.path),
+        &module.ast.tree.docs(module.ast.docs),
+        at,
+        kind,
+    ))
 }
 
 /// The hover payload: the signature in a fence, then the doc comment under it.
@@ -126,7 +147,9 @@ pub(super) fn rendered(
     };
     if !docs.is_empty() {
         value.push_str("\n\n");
-        value.push_str(crate::documentation::examples::shown(&docs.join("\n")).trim_end_matches('\n'));
+        value.push_str(
+            crate::documentation::examples::shown(&docs.join("\n")).trim_end_matches('\n'),
+        );
     }
     Value::object(vec![
         ("contents", markup(kind, &value)),
@@ -135,7 +158,10 @@ pub(super) fn rendered(
 }
 
 fn markup(kind: Markup, value: &str) -> Value {
-    Value::object(vec![("kind", Value::str(kind.named())), ("value", Value::str(value))])
+    Value::object(vec![
+        ("kind", Value::str(kind.named())),
+        ("value", Value::str(value)),
+    ])
 }
 
 /// Where the name under the cursor was declared.
@@ -160,8 +186,16 @@ pub fn definition(
 /// offset. The span is the one every import diagnostic is anchored on, so
 /// "inside the path" means the string with its quotes.
 fn import_path_at(analyzed: &Analyzed, path: &Path, offset: u32) -> Option<String> {
-    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
-    let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
+    let file = analyzed
+        .session
+        .map
+        .find(&analyzed.session.workspace.rel_of(path))?;
+    let module = analyzed
+        .analysis
+        .loaded
+        .modules
+        .iter()
+        .find(|m| m.file == file)?;
     module.ast.items.iter().find_map(|item| {
         let (written, span) = match item {
             Item::Import(i) => (&i.path, i.path_span),
@@ -187,11 +221,17 @@ fn import_path_at(analyzed: &Analyzed, path: &Path, offset: u32) -> Option<Strin
 /// read is the answer, which is the file the module's first anchor names, and a
 /// module that anchored nothing has nowhere to send anybody.
 fn import_target(analyzed: &Analyzed, module_path: &str) -> Option<Value> {
-    let resolved = analyzed.session.workspace.resolve_module(module_path).ok()?;
+    let resolved = analyzed
+        .session
+        .workspace
+        .resolve_module(module_path)
+        .ok()?;
     let module = resolved.in_package()?;
     if let Some(generated) = analyzed.session.workspace.generated.module(&module.path) {
         let anchor = generated.anchors.first()?;
-        return Some(convert::top_of(&analyzed.session.workspace.root.join(&anchor.file)));
+        return Some(convert::top_of(
+            &analyzed.session.workspace.root.join(&anchor.file),
+        ));
     }
     Some(convert::top_of(&module.file))
 }
@@ -235,7 +275,11 @@ pub(super) fn locations(analyzed: &Analyzed, spans: Vec<crate::diagnostics::Span
         .into_iter()
         .filter_map(|span| Some((uri_of(analyzed, span)?, span)))
         .collect();
-    out.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.start.cmp(&b.1.start)).then(a.1.end.cmp(&b.1.end)));
+    out.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then(a.1.start.cmp(&b.1.start))
+            .then(a.1.end.cmp(&b.1.end))
+    });
     out.dedup_by(|a, b| a.0 == b.0 && a.1.start == b.1.start && a.1.end == b.1.end);
     Value::Array(
         out.iter()
@@ -309,7 +353,10 @@ pub fn document_highlight(
     position: Position,
 ) -> Option<Value> {
     let offset = convert::offset_of(text, position);
-    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
+    let file = analyzed
+        .session
+        .map
+        .find(&analyzed.session.workspace.rel_of(path))?;
     let found = symbols::at(analyzed, path, text, offset)?;
     let mut spans = symbols::references(analyzed, &found.symbol);
     // The name rather than the whole declaration: a highlight is painted on
@@ -380,7 +427,10 @@ pub fn moniker(analyzed: &Analyzed, path: &Path, text: &str, position: Position)
         ("unique", Value::str("scheme")),
         // The protocol's two answers for a name it can see: one the rest of
         // the world may resolve, and one that never leaves the project.
-        ("kind", Value::str(if exported { "export" } else { "local" })),
+        (
+            "kind",
+            Value::str(if exported { "export" } else { "local" }),
+        ),
     ])]))
 }
 
@@ -415,7 +465,11 @@ fn named(analyzed: &Analyzed, symbol: &symbols::Symbol) -> Option<(String, bool)
         Symbol::TraitMethod { trait_id, method } => {
             let info = tables.trait_(*trait_id);
             let m = info.methods.get(*method)?;
-            (info.module, format!("{}.{}", info.name, m.name), info.exported)
+            (
+                info.module,
+                format!("{}.{}", info.name, m.name),
+                info.exported,
+            )
         }
         Symbol::Const(id) => {
             let info = tables.const_(*id);
@@ -425,7 +479,11 @@ fn named(analyzed: &Analyzed, symbol: &symbols::Symbol) -> Option<(String, bool)
             let info = tables.ctx_decls.get(id.index())?;
             (info.module, info.name.clone(), info.exported)
         }
-        Symbol::Field { con, variant, index } => {
+        Symbol::Field {
+            con,
+            variant,
+            index,
+        } => {
             let info = tables.tycon(*con);
             let field = match variant {
                 Some(v) => info.variants().get(*v)?.fields.get(*index)?,
@@ -433,7 +491,12 @@ fn named(analyzed: &Analyzed, symbol: &symbols::Symbol) -> Option<(String, bool)
             };
             let declared = match variant {
                 Some(v) => {
-                    format!("{}.{}.{}", info.name, info.variants().get(*v)?.name, field.name)
+                    format!(
+                        "{}.{}.{}",
+                        info.name,
+                        info.variants().get(*v)?.name,
+                        field.name
+                    )
                 }
                 None => format!("{}.{}", info.name, field.name),
             };
@@ -442,14 +505,21 @@ fn named(analyzed: &Analyzed, symbol: &symbols::Symbol) -> Option<(String, bool)
         Symbol::Variant { con, index } => {
             let info = tables.tycon(*con);
             let variant = info.variants().get(*index)?;
-            (info.module, format!("{}.{}", info.name, variant.name), variant.exported)
+            (
+                info.module,
+                format!("{}.{}", info.name, variant.name),
+                variant.exported,
+            )
         }
         // A module is named by a path and a local or a generic parameter is
         // named only inside the declaration that binds it, so no index
         // anywhere else could resolve a moniker for either.
         Symbol::Module(_) | Symbol::Local { .. } | Symbol::Generic { .. } => return None,
     };
-    Some((format!("{}{declared}", reached_by(analyzed, module)?), exported))
+    Some((
+        format!("{}{declared}", reached_by(analyzed, module)?),
+        exported,
+    ))
 }
 
 /// Everything in a moniker before the declaration's own name: what an import
@@ -459,9 +529,15 @@ fn reached_by(
     module: crate::compiler::semantics::types::ModuleId,
 ) -> Option<String> {
     let data = analyzed.analysis.loaded.modules.get(module.index())?;
-    let package = data.pkg.map(|p| analyzed.session.workspace.package(p).label());
+    let package = data
+        .pkg
+        .map(|p| analyzed.session.workspace.package(p).label());
     let inside = match &package {
-        Some(label) => data.path.strip_prefix(label.as_str()).unwrap_or("").trim_start_matches('/'),
+        Some(label) => data
+            .path
+            .strip_prefix(label.as_str())
+            .unwrap_or("")
+            .trim_start_matches('/'),
         // No package is the standard library, whose path is what an import
         // writes and so is the whole of the left-hand side.
         None => "",
@@ -469,7 +545,11 @@ fn reached_by(
     // `lib.buri` is the package's surface, which an import reaches by the label alone.
     let inside = if inside == "lib.buri" { "" } else { inside };
     let label = package.unwrap_or_else(|| data.path.clone());
-    Some(if inside.is_empty() { format!("{label}:") } else { format!("{label}:{inside}.") })
+    Some(if inside.is_empty() {
+        format!("{label}:")
+    } else {
+        format!("{label}:{inside}.")
+    })
 }
 
 /// Every declaration in the repository whose name contains `query`.
@@ -524,10 +604,7 @@ pub fn workspace_symbols(analyzed: &Analyzed, query: &str) -> Value {
                     }
                     continue;
                 }
-                Item::Import(_)
-                | Item::ReExport(_)
-                | Item::Derive(_)
-                | Item::Error(_) => continue,
+                Item::Import(_) | Item::ReExport(_) | Item::Derive(_) | Item::Error(_) => continue,
             };
             if matches(&name, &wanted) {
                 let span = declared_name_span(item);

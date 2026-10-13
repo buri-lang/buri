@@ -83,7 +83,12 @@ pub fn render(doc: &Doc) -> String {
                 let flat = !forced
                     && (mode == Mode::Flat
                         || fits(&stack, xs, ind, WIDTH.saturating_sub(pos), &broken));
-                push_all(&mut stack, ind, if flat { Mode::Flat } else { Mode::Break }, xs);
+                push_all(
+                    &mut stack,
+                    ind,
+                    if flat { Mode::Flat } else { Mode::Break },
+                    xs,
+                );
             }
             Doc::IfBreak(b, f) => {
                 stack.push((ind, mode, if mode == Mode::Break { b } else { f }));
@@ -187,7 +192,9 @@ fn fits(
             // A newline ends the line being measured, so only the text before
             // it has to fit.
             Doc::Text(s) => {
-                let (line, ended) = s.split_once('\n').map_or((s.as_str(), false), |(l, _)| (l, true));
+                let (line, ended) = s
+                    .split_once('\n')
+                    .map_or((s.as_str(), false), |(l, _)| (l, true));
                 match left.checked_sub(line.chars().count()) {
                     Some(l) => left = l,
                     None => return false,
@@ -198,7 +205,11 @@ fn fits(
             }
             Doc::Concat(xs) | Doc::Indent(xs) => push_all(&mut local, ind, mode, xs),
             Doc::Group(xs) => {
-                let m = if broken.contains(&(d as *const Doc)) { Mode::Break } else { mode };
+                let m = if broken.contains(&(d as *const Doc)) {
+                    Mode::Break
+                } else {
+                    mode
+                };
                 push_all(&mut local, ind, m, xs);
             }
             Doc::IfBreak(b, f) => local.push((ind, mode, if mode == Mode::Break { b } else { f })),
@@ -234,8 +245,16 @@ mod tests {
             }
             inner.push(Doc::text(*item));
         }
-        inner.push(Doc::IfBreak(Box::new(Doc::text(",")), Box::new(Doc::text(""))));
-        Doc::Group(vec![Doc::text("["), Doc::Indent(inner), Doc::SoftLine, Doc::text("]")])
+        inner.push(Doc::IfBreak(
+            Box::new(Doc::text(",")),
+            Box::new(Doc::text("")),
+        ));
+        Doc::Group(vec![
+            Doc::text("["),
+            Doc::Indent(inner),
+            Doc::SoftLine,
+            Doc::text("]"),
+        ])
     }
 
     #[test]
@@ -274,7 +293,13 @@ mod tests {
         let long = "y".repeat(80);
         let doc = Doc::Group(vec![
             Doc::text("{"),
-            Doc::Indent(vec![Doc::Line, list(&["1", "2"]), Doc::text(","), Doc::Line, Doc::text(long.clone())]),
+            Doc::Indent(vec![
+                Doc::Line,
+                list(&["1", "2"]),
+                Doc::text(","),
+                Doc::Line,
+                Doc::text(long.clone()),
+            ]),
             Doc::Line,
             Doc::text("}"),
         ]);
@@ -283,7 +308,12 @@ mod tests {
 
     #[test]
     fn a_hard_line_breaks_its_group_and_leaves_no_trailing_space() {
-        let doc = Doc::Group(vec![Doc::text("a"), Doc::Line, Doc::HardLine, Doc::text("b")]);
+        let doc = Doc::Group(vec![
+            Doc::text("a"),
+            Doc::Line,
+            Doc::HardLine,
+            Doc::text("b"),
+        ]);
         assert_eq!(render(&doc), "a\n\nb");
     }
 }

@@ -34,8 +34,14 @@ pub(crate) fn repository(name: &str, test: &str) -> PathBuf {
         "library {\n    sources: [\"unused.buri\"]\n\n    test {\n        \
          sources: [\"test/lib_test.buri\"]\n    }\n}\n",
     );
-    write(&repo.join("lib/lib.buri"), "from \"//lib/unused.buri\" export { unused };\n");
-    write(&repo.join("lib/unused.buri"), "export fn unused(): Int {\n    0\n}\n");
+    write(
+        &repo.join("lib/lib.buri"),
+        "from \"//lib/unused.buri\" export { unused };\n",
+    );
+    write(
+        &repo.join("lib/unused.buri"),
+        "export fn unused(): Int {\n    0\n}\n",
+    );
     write(&repo.join("lib/test/lib_test.buri"), test);
     repo
 }
@@ -49,7 +55,11 @@ pub(crate) fn every_backend(repo: &Path) -> Vec<(&'static str, i32, String, Stri
         .into_iter()
         .map(|(backend, flags)| {
             let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-            cmd.current_dir(repo).arg("test").args(flags).arg("//lib").arg("--force");
+            cmd.current_dir(repo)
+                .arg("test")
+                .args(flags)
+                .arg("//lib")
+                .arg("--force");
             let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
             (backend, ran.status, ran.stdout, ran.stderr)
         })
@@ -170,9 +180,15 @@ fn a_failing_assert_renders_values_through_their_show_on_every_backend() {
         let context = format!("{backend}:\n{stdout}\n{stderr}");
         assert_eq!(status, 1, "{context}");
         assert!(stdout.contains("1 passed, 7 failed"), "{context}");
-        assert!(!stdout.contains("hunter2") && !stdout.contains("swordfish"), "{context}");
+        assert!(
+            !stdout.contains("hunter2") && !stdout.contains("swordfish"),
+            "{context}"
+        );
         for line in expected {
-            assert!(stdout.contains(line), "{backend}: missing\n{line}\nin\n{stdout}\n{stderr}");
+            assert!(
+                stdout.contains(line),
+                "{backend}: missing\n{line}\nin\n{stdout}\n{stderr}"
+            );
         }
     }
 }
@@ -405,7 +421,10 @@ fn a_map_whose_values_lack_show_or_equal_is_walked_on_every_backend() {
         let context = format!("{backend}:\n{stdout}\n{stderr}");
         assert_eq!(status, 1, "{context}");
         assert!(stdout.contains("2 passed, 1 failed"), "{context}");
-        assert!(stdout.contains("actual:   .Some(Vault { secrets: {1: ***} })\n"), "{context}");
+        assert!(
+            stdout.contains("actual:   .Some(Vault { secrets: {1: ***} })\n"),
+            "{context}"
+        );
         assert!(!stdout.contains("hunter2"), "{context}");
     }
 }
@@ -492,13 +511,23 @@ fn a_hand_written_impl_whose_bounds_fail_is_walked_by_shape_on_every_backend() {
         let context = format!("{backend}:\n{stdout}\n{stderr}");
         assert_eq!(status, 1, "{context}");
         assert!(stdout.contains("2 passed, 2 failed"), "{context}");
-        assert!(stdout.contains("assert.some failed\n    actual:   .None\n"), "{context}");
-        let failure = stdout.split("assert.none failed").nth(1).unwrap_or_default();
+        assert!(
+            stdout.contains("assert.some failed\n    actual:   .None\n"),
+            "{context}"
+        );
+        let failure = stdout
+            .split("assert.none failed")
+            .nth(1)
+            .unwrap_or_default();
         let shown = failure.lines().nth(1).unwrap_or_default().to_string();
         assert!(shown.contains("Count { n: 1 }"), "{context}");
         printed.push((backend, shown));
     }
     for (backend, shown) in &printed {
-        assert_eq!(shown, &printed[0].1, "{backend} disagrees with {}", printed[0].0);
+        assert_eq!(
+            shown, &printed[0].1,
+            "{backend} disagrees with {}",
+            printed[0].0
+        );
     }
 }

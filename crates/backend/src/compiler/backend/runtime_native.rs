@@ -99,12 +99,21 @@ use crate::diagnostics::invariant;
 /// of it. A fieldless variant therefore keeps an empty `Str` it never reads.
 /// `cli/runtime/host.rs`'s `fail` is the runtime's side.
 pub fn error_message_offset(err: &Layout) -> Option<u32> {
-    let Repr::Enum { repr: EnumRepr::Tagged { payload, .. }, variants } = &err.repr else {
+    let Repr::Enum {
+        repr: EnumRepr::Tagged { payload, .. },
+        variants,
+    } = &err.repr
+    else {
         return None;
     };
     let carries = |fields: &Vec<u32>| fields.len() == 1 && fields.first() == Some(payload);
     let shaped = "a tagged error the runtime answers keeps one `Str` at its payload's start";
-    invariant(variants.iter().all(|fields| fields.is_empty() || carries(fields)), shaped);
+    invariant(
+        variants
+            .iter()
+            .all(|fields| fields.is_empty() || carries(fields)),
+        shaped,
+    );
     invariant(variants.iter().any(carries), shaped);
     invariant(err.size.checked_sub(*payload) == Some(STR_BYTES), shaped);
     Some(*payload)
@@ -180,9 +189,14 @@ pub fn net_intrinsic(key: &str) -> bool {
         return true;
     }
     // A host effect's operations, `host.<Effect>.<operation>`.
-    ["host.HostListen.", "host.HostSockets.", "host.HostTasks.", "host.HostWebSocketClient."]
-        .iter()
-        .any(|effect| key.starts_with(effect))
+    [
+        "host.HostListen.",
+        "host.HostSockets.",
+        "host.HostTasks.",
+        "host.HostWebSocketClient.",
+    ]
+    .iter()
+    .any(|effect| key.starts_with(effect))
 }
 
 /// Whether an intrinsic key is one only a `crypto` runtime answers.
@@ -239,7 +253,10 @@ mod tests {
             "HostListen.listen",
             "host.HostListener.listen",
         ] {
-            assert!(!net_intrinsic(key), "{key} is not networking and was claimed");
+            assert!(
+                !net_intrinsic(key),
+                "{key} is not networking and was claimed"
+            );
         }
     }
 
@@ -247,8 +264,14 @@ mod tests {
     /// and the link name the same thing.
     #[test]
     fn a_networking_key_mangles_like_any_other() {
-        assert_eq!(symbol_for("host.HostListen.listen"), "buri_rt_host_listen_listen");
-        assert_eq!(symbol_for("host.HostTasks.parallel"), "buri_rt_host_tasks_parallel");
+        assert_eq!(
+            symbol_for("host.HostListen.listen"),
+            "buri_rt_host_listen_listen"
+        );
+        assert_eq!(
+            symbol_for("host.HostTasks.parallel"),
+            "buri_rt_host_tasks_parallel"
+        );
     }
 
     /// The cryptography family is one effect, and the doubles are not in it.
@@ -273,7 +296,10 @@ mod tests {
             "host.HostEntropy",
             "HostEntropy.bytes",
         ] {
-            assert!(!crypto_intrinsic(key), "{key} is not cryptography and was claimed");
+            assert!(
+                !crypto_intrinsic(key),
+                "{key} is not cryptography and was claimed"
+            );
         }
         // And the two families never claim each other's keys, which is what
         // lets `backend::split_cryptography` run over what
@@ -286,7 +312,10 @@ mod tests {
     /// would have looked for are the same thing said twice.
     #[test]
     fn the_entropy_key_mangles_like_any_other() {
-        assert_eq!(symbol_for("host.HostEntropy.bytes"), "buri_rt_host_entropy_bytes");
+        assert_eq!(
+            symbol_for("host.HostEntropy.bytes"),
+            "buri_rt_host_entropy_bytes"
+        );
         assert_eq!(
             symbol_for("host_testing.TestEntropy.bytes"),
             "buri_rt_host_testing_test_entropy_bytes"
@@ -312,7 +341,10 @@ mod tests {
             stride: size,
             fields: Vec::new(),
             repr: Repr::Enum {
-                repr: EnumRepr::Tagged { tag: Scalar::I8, payload: 8 },
+                repr: EnumRepr::Tagged {
+                    tag: Scalar::I8,
+                    payload: 8,
+                },
                 variants,
             },
         }
@@ -321,7 +353,10 @@ mod tests {
     /// `IoError`: six variants carrying nothing and a seventh carrying a `Str`.
     #[test]
     fn one_trailing_str_variant_is_the_message_shape() {
-        let io_error = tagged(32, vec![vec![], vec![], vec![], vec![], vec![], vec![], vec![8]]);
+        let io_error = tagged(
+            32,
+            vec![vec![], vec![], vec![], vec![], vec![], vec![], vec![8]],
+        );
         assert_eq!(error_message_offset(&io_error), Some(8));
     }
 

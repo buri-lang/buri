@@ -12,8 +12,8 @@
 //! lines almost by construction — it re-indents, re-wraps and re-orders lines —
 //! so a finer diff would spend more and land in the same places.
 
-use crate::json::Value;
 use super::convert::{self, Position};
+use crate::json::Value;
 
 /// The whole file as one edit, or an empty array when there is nothing to do.
 ///
@@ -21,7 +21,9 @@ use super::convert::{self, Position};
 /// `textDocument/willSaveWaitUntil` answers, and they are one function because
 /// format-on-save and format-the-file are the same act at two moments.
 pub fn whole_file(text: &str, formatted: Option<String>) -> Value {
-    let Some(formatted) = formatted.filter(|f| f != text) else { return Value::Array(Vec::new()) };
+    let Some(formatted) = formatted.filter(|f| f != text) else {
+        return Value::Array(Vec::new());
+    };
     Value::Array(vec![edit(
         text,
         0,
@@ -36,7 +38,9 @@ pub fn whole_file(text: &str, formatted: Option<String>) -> Value {
 /// and one at the caret is exactly the edit a reader who selected up to there
 /// asked for.
 pub fn ranged(text: &str, formatted: Option<String>, from: u32, to: u32) -> Value {
-    let Some(formatted) = formatted.filter(|f| f != text) else { return Value::Array(Vec::new()) };
+    let Some(formatted) = formatted.filter(|f| f != text) else {
+        return Value::Array(Vec::new());
+    };
     let (low, high) = if from <= to { (from, to) } else { (to, from) };
     Value::Array(
         hunks(text, &formatted)
@@ -69,11 +73,21 @@ pub fn enclosing_item(text: &str, offset: u32) -> Option<(u32, u32)> {
 /// A file in a repository's own language goes to the tool that formats it,
 /// exactly as `buri format` sends it; everything else to the printer
 /// `buri format` picks by name.
-pub fn formatted(state: &mut super::state::State, path: &std::path::Path, text: &str) -> Option<String> {
+pub fn formatted(
+    state: &mut super::state::State,
+    path: &std::path::Path,
+    text: &str,
+) -> Option<String> {
     let name = path.file_name()?.to_string_lossy().to_string();
     if let Some(session) = state.session_for(path) {
         let rel = session.workspace.rel_of(path);
-        if session.workspace.repo.languages.of(&rel).is_some_and(|l| l.tools().is_some()) {
+        if session
+            .workspace
+            .repo
+            .languages
+            .of(&rel)
+            .is_some_and(|l| l.tools().is_some())
+        {
             let flags = crate::commands::arguments::Flags::default();
             return match crate::build::tools::format_file(&session, &rel, text, &flags) {
                 crate::build::tools::Formatted::Text(out) => Some(out),
@@ -101,7 +115,10 @@ fn edit(text: &str, start: u32, end: u32, new_text: &str) -> Value {
 /// for, and asking it would walk the file to answer `0, 0`.
 fn position(text: &str, offset: u32) -> Position {
     if offset == 0 {
-        return Position { line: 0, character: 0 };
+        return Position {
+            line: 0,
+            character: 0,
+        };
     }
     convert::position_of(text, offset)
 }
@@ -165,8 +182,14 @@ fn cut(
     if removed_from == removed_to && added_from == added_to {
         return;
     }
-    let start = starts.get(head.saturating_add(removed_from)).copied().unwrap_or(0);
-    let end = starts.get(head.saturating_add(removed_to)).copied().unwrap_or(start);
+    let start = starts
+        .get(head.saturating_add(removed_from))
+        .copied()
+        .unwrap_or(0);
+    let end = starts
+        .get(head.saturating_add(removed_to))
+        .copied()
+        .unwrap_or(start);
     out.push(Hunk {
         start,
         end,
@@ -241,7 +264,10 @@ mod tests {
     use super::*;
 
     fn hunk_text(text: &str, formatted: &str) -> Vec<(u32, u32, String)> {
-        hunks(text, formatted).into_iter().map(|h| (h.start, h.end, h.new_text)).collect()
+        hunks(text, formatted)
+            .into_iter()
+            .map(|h| (h.start, h.end, h.new_text))
+            .collect()
     }
 
     #[test]

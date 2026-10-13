@@ -28,7 +28,9 @@ impl Repo {
     /// a binary beside this one, takes an old directory whole. A shared
     /// `merge/` was taken mid-test that way.
     fn new(name: &str) -> Repo {
-        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("merge-{}", std::process::id())).join(name);
+        let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("merge-{}", std::process::id()))
+            .join(name);
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("coverage")).unwrap();
         std::fs::create_dir_all(root.join("shards")).unwrap();
@@ -42,7 +44,10 @@ impl Repo {
 
     /// One shard's artifact, as `--shard` writes it.
     fn shard(&self, host: &str, which: &str, coverage: &str) {
-        let dir = self.root.join("shards").join(format!("coverage-shard-{host}-{}", which.replace('/', "-")));
+        let dir = self
+            .root
+            .join("shards")
+            .join(format!("coverage-shard-{host}-{}", which.replace('/', "-")));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("shard"), format!("{host} {which}\n")).unwrap();
         std::fs::write(dir.join("coverage.txt"), coverage).unwrap();
@@ -80,13 +85,21 @@ fn file(path: &str, lines: &[(u32, u64)], branches: &[(u32, u32, u32, u64)]) -> 
 }
 
 /// `file`, with `folded` sides that are constant and so never count.
-fn folded(path: &str, folded: u64, lines: &[(u32, u64)], branches: &[(u32, u32, u32, u64)]) -> String {
+fn folded(
+    path: &str,
+    folded: u64,
+    lines: &[(u32, u64)],
+    branches: &[(u32, u32, u32, u64)],
+) -> String {
     let mut out = format!("file {folded} {path}\n");
     for (line, hits) in lines {
         out.push_str(&format!("line {line} {hits}\n"));
     }
     for (line, column, side, taken) in branches {
-        out.push_str(&format!("branch 1 1 {line} {column} {line} {} 0 {side} {taken}\n", column + 4));
+        out.push_str(&format!(
+            "branch 1 1 {line} {column} {line} {} 0 {side} {taken}\n",
+            column + 4
+        ));
     }
     out
 }
@@ -105,26 +118,45 @@ fn passed(out: &Output) -> String {
 }
 
 fn failed(out: &Output) -> String {
-    assert_eq!(out.status.code(), Some(1), "{}\n{}", stdout(out), stderr(out));
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{}\n{}",
+        stdout(out),
+        stderr(out)
+    );
     format!("{}{}", stdout(out), stderr(out))
 }
 
-const THREE: &str = "hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu\n";
+const THREE: &str =
+    "hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu\n";
 
 #[test]
 fn a_branch_counts_as_covered_if_any_platform_took_it() {
     let repo = Repo::new("any_platform");
-    let one_side = |taken: (u64, u64)| file(LEXER, &[(3, 1)], &[(3, 0, 0, taken.0), (3, 0, 1, taken.1)]);
+    let one_side =
+        |taken: (u64, u64)| file(LEXER, &[(3, 1)], &[(3, 0, 0, taken.0), (3, 0, 1, taken.1)]);
     repo.everywhere(&one_side((1, 0)), &one_side((1, 0)), &one_side((0, 1)));
     let out = passed(&repo.merge());
-    assert!(out.contains("merged from aarch64-apple-darwin, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu"), "{out}");
+    assert!(
+        out.contains(
+            "merged from aarch64-apple-darwin, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu"
+        ),
+        "{out}"
+    );
 
     let measured = repo.read("target/coverage/compiler-branches.txt");
     assert!(measured.starts_with("# "), "{measured}");
     assert!(measured.contains(THREE), "{measured}");
     assert!(measured.contains("\ntotal 2 2 100.00%\n"), "{measured}");
-    assert!(measured.contains("\narea crates/syntax 2 2 100.00%\n"), "{measured}");
-    assert!(measured.contains("\n2 2 crates/syntax/src/lexer.rs\n"), "{measured}");
+    assert!(
+        measured.contains("\narea crates/syntax 2 2 100.00%\n"),
+        "{measured}"
+    );
+    assert!(
+        measured.contains("\n2 2 crates/syntax/src/lexer.rs\n"),
+        "{measured}"
+    );
 }
 
 #[test]
@@ -132,22 +164,37 @@ fn a_branch_one_platform_compiles_counts_once() {
     let repo = Repo::new("one_platform");
     let shared = file(LINK, &[(1, 1)], &[(1, 0, 0, 1), (1, 0, 1, 1)]);
     // The Mach-O writer's `if`, which only macOS compiles, took one side.
-    let mac = file(LINK, &[(1, 1), (9, 1)], &[(1, 0, 0, 1), (1, 0, 1, 1), (9, 0, 0, 1), (9, 0, 1, 0)]);
+    let mac = file(
+        LINK,
+        &[(1, 1), (9, 1)],
+        &[(1, 0, 0, 1), (1, 0, 1, 1), (9, 0, 0, 1), (9, 0, 1, 0)],
+    );
     repo.everywhere(&shared, &shared, &mac);
     passed(&repo.merge());
     let measured = repo.read("target/coverage/compiler-branches.txt");
-    assert!(measured.contains("\narea cli/build 3 4 75.00%\n"), "{measured}");
+    assert!(
+        measured.contains("\narea cli/build 3 4 75.00%\n"),
+        "{measured}"
+    );
 }
 
 #[test]
 fn a_folded_side_never_counts() {
     let repo = Repo::new("folded");
     // `while true`'s false side is constant, so it's folded.
-    let shard = folded(LEXER, 1, &[(5, 1)], &[(5, 0, 0, 3), (5, 0, 1, 0), (6, 0, 0, 1), (6, 0, 1, 1)]);
+    let shard = folded(
+        LEXER,
+        1,
+        &[(5, 1)],
+        &[(5, 0, 0, 3), (5, 0, 1, 0), (6, 0, 0, 1), (6, 0, 1, 1)],
+    );
     repo.everywhere(&shard, &shard, &shard);
     passed(&repo.merge());
     let measured = repo.read("target/coverage/compiler-branches.txt");
-    assert!(measured.contains("\n3 3 crates/syntax/src/lexer.rs\n"), "{measured}");
+    assert!(
+        measured.contains("\n3 3 crates/syntax/src/lexer.rs\n"),
+        "{measured}"
+    );
 }
 
 #[test]
@@ -156,7 +203,10 @@ fn lines_count_as_covered_if_any_platform_ran_them() {
     let ran = |hits: u64| file(LEXER, &[(1, 1), (2, hits)], &[]);
     repo.everywhere(&ran(0), &ran(0), &ran(4));
     let out = passed(&repo.merge());
-    let row = out.lines().find(|l| l.starts_with("crates/syntax ")).unwrap_or_else(|| panic!("{out}"));
+    let row = out
+        .lines()
+        .find(|l| l.starts_with("crates/syntax "))
+        .unwrap_or_else(|| panic!("{out}"));
     assert!(row.contains("2/2"), "{row}");
 }
 
@@ -169,7 +219,11 @@ fn every_shard_of_every_platform_must_be_there() {
     repo.shard(MAC, "1/1", &shard);
     let out = repo.merge();
     assert!(!out.status.success());
-    assert!(stderr(&out).contains("x86_64-unknown-linux-gnu is missing shard [2] of 2"), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("x86_64-unknown-linux-gnu is missing shard [2] of 2"),
+        "{}",
+        stderr(&out)
+    );
 }
 
 #[test]
@@ -180,7 +234,12 @@ fn a_platform_the_baseline_has_must_be_there() {
     repo.shard(X86, "1/1", &shard);
     repo.shard(ARM, "1/1", &shard);
     let out = failed(&repo.merge());
-    assert!(out.contains("The baseline merges aarch64-apple-darwin, and this run has no shard from it."), "{out}");
+    assert!(
+        out.contains(
+            "The baseline merges aarch64-apple-darwin, and this run has no shard from it."
+        ),
+        "{out}"
+    );
 }
 
 #[test]
@@ -192,8 +251,14 @@ fn a_fall_in_an_area_fails_and_names_it() {
     let half = file(LEXER, &[(3, 1)], &[(3, 0, 0, 1), (3, 0, 1, 0)]);
     repo.everywhere(&half, &half, &half);
     let out = failed(&repo.merge());
-    assert!(out.contains("Branch coverage fell:\n  the total: 100.00% (2/2) -> 50.00% (1/2)"), "{out}");
-    assert!(out.contains("crates/syntax: 100.00% (2/2) -> 50.00% (1/2)"), "{out}");
+    assert!(
+        out.contains("Branch coverage fell:\n  the total: 100.00% (2/2) -> 50.00% (1/2)"),
+        "{out}"
+    );
+    assert!(
+        out.contains("crates/syntax: 100.00% (2/2) -> 50.00% (1/2)"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -204,21 +269,36 @@ fn a_rise_names_what_rose_and_the_ratchet_commits_it() {
     repo.everywhere(&half, &half, &half);
     passed(&repo.merge());
     passed(&repo.run("--raise"));
-    assert!(repo.read("coverage/compiler-branches.txt").contains("\narea crates/syntax 1 2 50.00%\n"));
+    assert!(repo
+        .read("coverage/compiler-branches.txt")
+        .contains("\narea crates/syntax 1 2 50.00%\n"));
 
     repo.everywhere(&half, &both, &half);
     let out = passed(&repo.merge());
-    assert!(out.contains("Branch coverage rose: the total, crates/syntax."), "{out}");
+    assert!(
+        out.contains("Branch coverage rose: the total, crates/syntax."),
+        "{out}"
+    );
 
     let out = passed(&repo.run("--raise"));
-    assert!(out.contains("raised the baseline of the total, crates/syntax\n"), "{out}");
+    assert!(
+        out.contains("raised the baseline of the total, crates/syntax\n"),
+        "{out}"
+    );
     let checked_in = repo.read("coverage/compiler-branches.txt");
-    assert!(checked_in.contains("\narea crates/syntax 2 2 100.00%\n"), "{checked_in}");
-    assert_eq!(repo.read("coverage/compiler.txt"), repo.read("target/coverage/compiler.txt"));
+    assert!(
+        checked_in.contains("\narea crates/syntax 2 2 100.00%\n"),
+        "{checked_in}"
+    );
+    assert_eq!(
+        repo.read("coverage/compiler.txt"),
+        repo.read("target/coverage/compiler.txt")
+    );
 }
 
 /// The baseline before this gate merged platforms: x86_64 Linux's alone.
-const OLD: &str = "host x86_64-unknown-linux-gnu\ntotal 1 2 50.00%\narea crates/syntax 1 2 50.00%\n\
+const OLD: &str =
+    "host x86_64-unknown-linux-gnu\ntotal 1 2 50.00%\narea crates/syntax 1 2 50.00%\n\
                    1 2 crates/syntax/src/lexer.rs\n";
 
 #[test]
@@ -235,7 +315,10 @@ fn a_baseline_of_fewer_platforms_is_held_to_those_platforms_alone() {
         out.contains("The baseline is x86_64-unknown-linux-gnu's alone, so this run's x86_64-unknown-linux-gnu alone was compared with it."),
         "{out}"
     );
-    assert!(out.contains("branch coverage: 50.00% (1/2) in the baseline, 50.00% (1/2) now"), "{out}");
+    assert!(
+        out.contains("branch coverage: 50.00% (1/2) in the baseline, 50.00% (1/2) now"),
+        "{out}"
+    );
 
     // On main, the ratchet's first run writes the merged baseline outright.
     let out = passed(&repo.run("--raise"));
@@ -254,7 +337,10 @@ fn a_baseline_of_fewer_platforms_still_fails_a_fall_on_them() {
     let both = file(LEXER, &[(3, 1)], &[(3, 0, 0, 1), (3, 0, 1, 1)]);
     repo.everywhere(&none, &both, &both);
     let out = failed(&repo.merge());
-    assert!(out.contains("crates/syntax: 50.00% (1/2) -> 0.00% (0/2)"), "{out}");
+    assert!(
+        out.contains("crates/syntax: 50.00% (1/2) -> 0.00% (0/2)"),
+        "{out}"
+    );
 }
 
 #[test]
@@ -263,17 +349,29 @@ fn the_ratchet_never_takes_a_run_of_fewer_platforms() {
     let shard = file(LEXER, &[(3, 1)], &[(3, 0, 0, 1), (3, 0, 1, 1)]);
     repo.shard(X86, "1/1", &shard);
     passed(&repo.merge());
-    repo.baseline(&format!("{THREE}total 1 2 50.00%\narea crates/syntax 1 2 50.00%\n"));
+    repo.baseline(&format!(
+        "{THREE}total 1 2 50.00%\narea crates/syntax 1 2 50.00%\n"
+    ));
     let out = passed(&repo.run("--raise"));
     assert!(out.contains("this run has no shard from aarch64-apple-darwin, aarch64-unknown-linux-gnu; the baseline stays"), "{out}");
-    assert!(repo.read("coverage/compiler-branches.txt").contains("total 1 2 50.00%"));
+    assert!(repo
+        .read("coverage/compiler-branches.txt")
+        .contains("total 1 2 50.00%"));
 }
 
 #[test]
 fn each_platforms_lcov_merges_its_shards() {
     let repo = Repo::new("lcov");
-    repo.shard(X86, "1/2", &file(LEXER, &[(1, 2), (2, 0)], &[(2, 0, 0, 1), (2, 0, 1, 0)]));
-    repo.shard(X86, "2/2", &file(LEXER, &[(1, 0), (2, 3)], &[(2, 0, 0, 0), (2, 0, 1, 5)]));
+    repo.shard(
+        X86,
+        "1/2",
+        &file(LEXER, &[(1, 2), (2, 0)], &[(2, 0, 0, 1), (2, 0, 1, 0)]),
+    );
+    repo.shard(
+        X86,
+        "2/2",
+        &file(LEXER, &[(1, 0), (2, 3)], &[(2, 0, 0, 0), (2, 0, 1, 5)]),
+    );
     let other = file(LEXER, &[(1, 0), (2, 0)], &[(2, 0, 0, 0), (2, 0, 1, 0)]);
     repo.shard(ARM, "1/1", &other);
     repo.shard(MAC, "1/1", &other);
@@ -291,8 +389,16 @@ fn each_platforms_lcov_merges_its_shards() {
 #[test]
 fn the_merged_lcov_has_what_any_platform_took() {
     let repo = Repo::new("merged_lcov");
-    let x86 = file(LEXER, &[(1, 2), (2, 0)], &[(2, 0, 0, 1), (2, 0, 1, 0), (3, 0, 0, 0), (3, 0, 1, 0)]);
-    let mac = file(LEXER, &[(1, 0), (2, 3)], &[(2, 0, 0, 0), (2, 0, 1, 5), (3, 0, 0, 0), (3, 0, 1, 0)]);
+    let x86 = file(
+        LEXER,
+        &[(1, 2), (2, 0)],
+        &[(2, 0, 0, 1), (2, 0, 1, 0), (3, 0, 0, 0), (3, 0, 1, 0)],
+    );
+    let mac = file(
+        LEXER,
+        &[(1, 0), (2, 3)],
+        &[(2, 0, 0, 0), (2, 0, 1, 5), (3, 0, 0, 0), (3, 0, 1, 0)],
+    );
     repo.everywhere(&x86, &x86, &mac);
     passed(&repo.merge());
     assert_eq!(

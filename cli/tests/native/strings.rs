@@ -83,7 +83,9 @@ export fn main(host: NativeHost): Result<(), Str> {
   .Ok(())
 }
 "#;
-    let Some(r) = run("scan-per-scalar", source) else { return };
+    let Some(r) = run("scan-per-scalar", source) else {
+        return;
+    };
     assert_eq!(r.stdout, "20001 20002 10\n", "stderr: {}", r.stderr);
     let (_, live) = probed(&r.stderr);
     assert_eq!(live, 0, "blocks still live at exit");
@@ -203,8 +205,14 @@ export fn main(host: NativeHost): Result<(), Str> {
   .Ok(())
 }
 "#;
-    let Some(r) = run("grown-over-index", source) else { return };
-    assert_eq!(r.stdout, "310 233,97,98,-1 abc abc 12\n", "stderr: {}", r.stderr);
+    let Some(r) = run("grown-over-index", source) else {
+        return;
+    };
+    assert_eq!(
+        r.stdout, "310 233,97,98,-1 abc abc 12\n",
+        "stderr: {}",
+        r.stderr
+    );
     let (_, live) = probed(&r.stderr);
     assert_eq!(live, 0, "blocks still live at exit");
 }

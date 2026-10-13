@@ -47,7 +47,10 @@ impl Value {
 }
 
 pub fn parse(text: &str) -> Result<Value, String> {
-    let mut parser = Parser { bytes: text.as_bytes(), at: 0 };
+    let mut parser = Parser {
+        bytes: text.as_bytes(),
+        at: 0,
+    };
     let value = parser.value()?;
     parser.space();
     if parser.at != parser.bytes.len() {
@@ -137,11 +140,17 @@ impl Parser<'_> {
             Some(b'n') => self.literal("null", Value::Null),
             Some(_) => {
                 let start = self.at;
-                while self.bytes.get(self.at).is_some_and(|b| b"+-.eE0123456789".contains(b)) {
+                while self
+                    .bytes
+                    .get(self.at)
+                    .is_some_and(|b| b"+-.eE0123456789".contains(b))
+                {
                     self.at += 1;
                 }
                 let text = std::str::from_utf8(&self.bytes[start..self.at]).unwrap_or("");
-                text.parse().map(Value::Number).map_err(|_| format!("not a number at byte {start}"))
+                text.parse()
+                    .map(Value::Number)
+                    .map_err(|_| format!("not a number at byte {start}"))
             }
             None => Err("unexpected end".to_string()),
         }
@@ -151,12 +160,16 @@ impl Parser<'_> {
         self.expect(b'"')?;
         let mut out = Vec::new();
         loop {
-            let Some(&byte) = self.bytes.get(self.at) else { return Err("unterminated string".to_string()) };
+            let Some(&byte) = self.bytes.get(self.at) else {
+                return Err("unterminated string".to_string());
+            };
             self.at += 1;
             match byte {
                 b'"' => return String::from_utf8(out).map_err(|e| e.to_string()),
                 b'\\' => {
-                    let Some(&escaped) = self.bytes.get(self.at) else { return Err("unterminated string".to_string()) };
+                    let Some(&escaped) = self.bytes.get(self.at) else {
+                        return Err("unterminated string".to_string());
+                    };
                     self.at += 1;
                     let plain = match escaped {
                         b'n' => b'\n',
@@ -165,10 +178,14 @@ impl Parser<'_> {
                         b'b' => 8,
                         b'f' => 12,
                         b'u' => {
-                            let hex = self.bytes.get(self.at..self.at + 4).ok_or("short \\u escape")?;
+                            let hex = self
+                                .bytes
+                                .get(self.at..self.at + 4)
+                                .ok_or("short \\u escape")?;
                             self.at += 4;
-                            let code = u32::from_str_radix(std::str::from_utf8(hex).unwrap_or(""), 16)
-                                .map_err(|e| e.to_string())?;
+                            let code =
+                                u32::from_str_radix(std::str::from_utf8(hex).unwrap_or(""), 16)
+                                    .map_err(|e| e.to_string())?;
                             let c = char::from_u32(code).unwrap_or(char::REPLACEMENT_CHARACTER);
                             out.extend_from_slice(c.to_string().as_bytes());
                             continue;
@@ -189,7 +206,9 @@ mod tests {
 
     #[test]
     fn llvm_covs_shapes_parse() {
-        let value = parse(r#" {"a": [1, -2.5e1, "x\"A\n"], "b": {"c": true, "d": null}, "e": []} "#).unwrap();
+        let value =
+            parse(r#" {"a": [1, -2.5e1, "x\"A\n"], "b": {"c": true, "d": null}, "e": []} "#)
+                .unwrap();
         assert_eq!(value.get("a").unwrap().items()[0].u64(), 1);
         assert_eq!(value.get("a").unwrap().items()[1], Value::Number(-25.0));
         assert_eq!(value.get("a").unwrap().items()[2].str(), "x\"A\n");

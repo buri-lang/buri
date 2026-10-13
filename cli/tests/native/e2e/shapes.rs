@@ -34,7 +34,11 @@ fn prints(name: &str, source: &str, expected: &[String]) {
     }
     let (checked, paths) = crate::agreement::analyze(name, source);
     let js = crate::agreement::run_js(name, &checked, &paths);
-    assert_eq!(js.status, 0, "javascript exited {}:\n{}", js.status, js.stderr);
+    assert_eq!(
+        js.status, 0,
+        "javascript exited {}:\n{}",
+        js.status, js.stderr
+    );
     let lines: Vec<String> = js.stdout.lines().map(str::to_string).collect();
     assert_eq!(lines, expected, "javascript, stderr:\n{}", js.stderr);
 }
@@ -48,15 +52,22 @@ where
 
 /// `nth(i)` as an `n`-arm match from an `Int`.
 fn nth(n: usize) -> String {
-    let arms: String = (0..n - 1).map(|i| format!("        {i} => .V{i},\n")).collect();
-    format!("fn nth(i: Int): E {{\n    match (i) {{\n{arms}        _ => .V{},\n    }}\n}}\n", n - 1)
+    let arms: String = (0..n - 1)
+        .map(|i| format!("        {i} => .V{i},\n"))
+        .collect();
+    format!(
+        "fn nth(i: Int): E {{\n    match (i) {{\n{arms}        _ => .V{},\n    }}\n}}\n",
+        n - 1
+    )
 }
 
 /// An enum of `n` unit variants with every derive, built from an index and
 /// matched in full.
 fn unit_enum(n: usize) -> (String, Vec<String>) {
     let variants: String = (0..n).map(|i| format!("    V{i},\n")).collect();
-    let codes: String = (0..n).map(|i| format!("        .V{i} => {},\n", i * 7 % 1000 + 3)).collect();
+    let codes: String = (0..n)
+        .map(|i| format!("        .V{i} => {},\n", i * 7 % 1000 + 3))
+        .collect();
     let source = format!(
         "{HEAD}\nenum E {{\n{variants}}}\n\nderive Equal, Hash, Show, Ordered for E;\n\n{}\n\
          fn code(e: E): Int {{\n    match (e) {{\n{codes}    }}\n}}\n\n{MAIN}\
@@ -161,13 +172,49 @@ fn kinds(n: usize) -> Vec<bool> {
 fn wide_payload(n: usize) -> (String, Vec<String>) {
     let strs = kinds(n);
     let types = join(strs.iter().map(|s| if *s { "Str" } else { "Int" }), ", ");
-    let fields = join(strs.iter().enumerate().map(|(i, s)| format!("f{i}: {}", if *s { "Str" } else { "Int" })), ", ");
-    let values = join(strs.iter().enumerate().map(|(i, s)| if *s { String::from("s") } else { format!("k + {i}") }), ", ");
-    let named = join(strs.iter().enumerate().map(|(i, s)| if *s { format!("f{i}: s") } else { format!("f{i}: k + {i}") }), ", ");
+    let fields = join(
+        strs.iter()
+            .enumerate()
+            .map(|(i, s)| format!("f{i}: {}", if *s { "Str" } else { "Int" })),
+        ", ",
+    );
+    let values = join(
+        strs.iter().enumerate().map(|(i, s)| {
+            if *s {
+                String::from("s")
+            } else {
+                format!("k + {i}")
+            }
+        }),
+        ", ",
+    );
+    let named = join(
+        strs.iter().enumerate().map(|(i, s)| {
+            if *s {
+                format!("f{i}: s")
+            } else {
+                format!("f{i}: k + {i}")
+            }
+        }),
+        ", ",
+    );
     let binds = join((0..n).map(|i| format!("a{i}")), ", ");
-    let summed = join(strs.iter().enumerate().map(|(i, s)| if *s { format!("a{i}.length()") } else { format!("a{i}") }), " + ");
+    let summed = join(
+        strs.iter().enumerate().map(|(i, s)| {
+            if *s {
+                format!("a{i}.length()")
+            } else {
+                format!("a{i}")
+            }
+        }),
+        " + ",
+    );
     let last = n - 1;
-    let read_last = if strs[last] { format!("f{last}.length()") } else { format!("f{last}") };
+    let read_last = if strs[last] {
+        format!("f{last}.length()")
+    } else {
+        format!("f{last}")
+    };
     // Equal up to the last `Int`, which is `x`.
     let late = strs.iter().rposition(|s| !*s).unwrap_or(0);
     let lates = join(
@@ -199,17 +246,41 @@ fn wide_payload(n: usize) -> (String, Vec<String>) {
         .map(|k| {
             let len = (k % 3 + 1) as i64;
             match k % 3 {
-                0 => strs.iter().enumerate().map(|(i, s)| if *s { len } else { (k + i) as i64 }).sum(),
-                1 => if strs[last] { len } else { (k + last) as i64 },
+                0 => strs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| if *s { len } else { (k + i) as i64 })
+                    .sum(),
+                1 => {
+                    if strs[last] {
+                        len
+                    } else {
+                        (k + last) as i64
+                    }
+                }
                 _ => -1,
             }
         })
         .sum();
     let shown = format!(
         ".Tuple({})",
-        join(strs.iter().enumerate().map(|(i, s)| if *s { String::from("\"ww\"") } else { (1 + i).to_string() }), ", ")
+        join(
+            strs.iter().enumerate().map(|(i, s)| if *s {
+                String::from("\"ww\"")
+            } else {
+                (1 + i).to_string()
+            }),
+            ", "
+        )
     );
-    (source, vec![format!("{total} true true true"), format!("true true {shown}"), String::from("true false true true true false")])
+    (
+        source,
+        vec![
+            format!("{total} true true true"),
+            format!("true true {shown}"),
+            String::from("true false true true true false"),
+        ],
+    )
 }
 
 /// `Option<Result<Option<…Int…>, Str>>`, `depth` levels, in a struct, matched
@@ -219,12 +290,20 @@ fn nested_generic(depth: usize) -> (String, Vec<String>) {
     let wrap = |inner: &str| {
         let mut v = inner.to_string();
         for j in 0..depth {
-            v = if j % 2 == 0 { format!(".Some({v})") } else { format!(".Ok({v})") };
+            v = if j % 2 == 0 {
+                format!(".Some({v})")
+            } else {
+                format!(".Ok({v})")
+            };
         }
         v
     };
     for j in 0..depth {
-        ty = if j % 2 == 0 { format!("Option<{ty}>") } else { format!("Result<{ty}, Str>") };
+        ty = if j % 2 == 0 {
+            format!("Option<{ty}>")
+        } else {
+            format!("Result<{ty}, Str>")
+        };
     }
     let source = format!(
         "{HEAD}\nstruct Deep {{\n    v: {ty},\n    tag: Str,\n}}\n\n\
@@ -238,7 +317,13 @@ fn nested_generic(depth: usize) -> (String, Vec<String>) {
         say("\"${[c, a, b].sort(ctx).first() == .Some(a)} ${a}\""),
     );
     let shown = format!("Deep {{ v: {}, tag: \"tt\" }}", wrap("7"));
-    (source, vec![String::from("7 9 true false true true"), format!("true {shown}")])
+    (
+        source,
+        vec![
+            String::from("7 9 true false true true"),
+            format!("true {shown}"),
+        ],
+    )
 }
 
 /// `n` enums, each wrapping the one before, with every derive on each.
@@ -262,7 +347,13 @@ fn enum_chain(n: usize) -> (String, Vec<String>) {
         say("\"${open(a)} ${open(stopped)} ${a == b} ${a == c} ${a < c} ${a.hash() == b.hash()} ${stopped < a}\""),
         say("\"${a} ${stopped}\""),
     );
-    (source, vec![String::from("3 -1 true false true true false"), format!("{} .Stop(\"sss\")", wrap("3"))])
+    (
+        source,
+        vec![
+            String::from("3 -1 true false true true false"),
+            format!("{} .Stop(\"sss\")", wrap("3")),
+        ],
+    )
 }
 
 /// `n` structs, each holding the one before inline, built and read back
@@ -288,9 +379,27 @@ fn struct_chain(n: usize) -> (String, Vec<String>) {
 fn long_tuple(n: usize) -> (String, Vec<String>) {
     let strs = kinds(n);
     let types = join(strs.iter().map(|s| if *s { "Str" } else { "Int" }), ", ");
-    let values = join(strs.iter().enumerate().map(|(i, s)| if *s { String::from("s") } else { format!("k + {i}") }), ", ");
+    let values = join(
+        strs.iter().enumerate().map(|(i, s)| {
+            if *s {
+                String::from("s")
+            } else {
+                format!("k + {i}")
+            }
+        }),
+        ", ",
+    );
     let binds = join((0..n).map(|i| format!("a{i}")), ", ");
-    let summed = join(strs.iter().enumerate().map(|(i, s)| if *s { format!("a{i}.length()") } else { format!("a{i}") }), " + ");
+    let summed = join(
+        strs.iter().enumerate().map(|(i, s)| {
+            if *s {
+                format!("a{i}.length()")
+            } else {
+                format!("a{i}")
+            }
+        }),
+        " + ",
+    );
     let source = format!(
         "{HEAD}\nfn make<C: Allocator>(ctx: C, k: Int): ({types}) {{\n    \
          let s = \"u\".repeat(ctx, k % 3 + 1);\n    ({values})\n}}\n\n\
@@ -299,12 +408,28 @@ fn long_tuple(n: usize) -> (String, Vec<String>) {
         say(&format!("\"${{sum(a)}} ${{a == b}} ${{a == c}} ${{a < c}} ${{a.{}}}\"", n - 2)),
         say("\"${[c, a, b].sort(ctx).first() == .Some(a)} ${a}\""),
     );
-    let parts: Vec<String> =
-        strs.iter().enumerate().map(|(i, s)| if *s { String::from("\"uu\"") } else { (1 + i).to_string() }).collect();
-    let total: usize = strs.iter().enumerate().map(|(i, s)| if *s { 2 } else { 1 + i }).sum();
+    let parts: Vec<String> = strs
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            if *s {
+                String::from("\"uu\"")
+            } else {
+                (1 + i).to_string()
+            }
+        })
+        .collect();
+    let total: usize = strs
+        .iter()
+        .enumerate()
+        .map(|(i, s)| if *s { 2 } else { 1 + i })
+        .sum();
     (
         source,
-        vec![format!("{total} true false true {}", parts[n - 2]), format!("true ({})", parts.join(", "))],
+        vec![
+            format!("{total} true false true {}", parts[n - 2]),
+            format!("true ({})", parts.join(", ")),
+        ],
     )
 }
 
@@ -312,13 +437,26 @@ fn long_tuple(n: usize) -> (String, Vec<String>) {
 /// a map by the whole record.
 fn records(fields: usize, count: usize) -> (String, Vec<String>) {
     let strs: Vec<bool> = (0..fields).map(|i| i % 3 == 1).collect();
-    let decl: String =
-        strs.iter().enumerate().map(|(i, s)| format!("    f{i}: {},\n", if *s { "Str" } else { "Int" })).collect();
+    let decl: String = strs
+        .iter()
+        .enumerate()
+        .map(|(i, s)| format!("    f{i}: {},\n", if *s { "Str" } else { "Int" }))
+        .collect();
     let values = join(
-        strs.iter().enumerate().map(|(i, s)| if *s { format!("f{i}: s") } else { format!("f{i}: k * {}", i + 1) }),
+        strs.iter().enumerate().map(|(i, s)| {
+            if *s {
+                format!("f{i}: s")
+            } else {
+                format!("f{i}: k * {}", i + 1)
+            }
+        }),
         ", ",
     );
-    let last = if strs[fields - 1] { fields - 2 } else { fields - 1 };
+    let last = if strs[fields - 1] {
+        fields - 2
+    } else {
+        fields - 1
+    };
     let source = format!(
         "{HEAD}\nstruct R {{\n{decl}}}\n\nderive Equal, Hash, Show, Ordered for R;\n\n\
          fn make<C: Allocator>(ctx: C, k: Int): R {{\n    let s = str.format(ctx, \"r${{k}}\");\n    R {{ {values} }}\n}}\n\n{MAIN}\
@@ -336,18 +474,33 @@ fn records(fields: usize, count: usize) -> (String, Vec<String>) {
     let present: std::collections::BTreeSet<usize> = keys.iter().copied().collect();
     let distinct = present.len();
     // When 7 divides `count`, only some keys are made; each miss adds -1000.
-    let found: i64 = (0..count).map(|k| if present.contains(&k) { k as i64 } else { -1000 }).sum();
+    let found: i64 = (0..count)
+        .map(|k| {
+            if present.contains(&k) {
+                k as i64
+            } else {
+                -1000
+            }
+        })
+        .sum();
     let total: usize = keys.iter().map(|k| k * (last + 1)).sum();
     let shown = format!(
         "R {{ {} }}",
         join(
-            strs.iter().enumerate().map(|(i, s)| if *s { format!("f{i}: \"r3\"") } else { format!("f{i}: {}", 3 * (i + 1)) }),
+            strs.iter().enumerate().map(|(i, s)| if *s {
+                format!("f{i}: \"r3\"")
+            } else {
+                format!("f{i}: {}", 3 * (i + 1))
+            }),
             ", "
         )
     );
     (
         source,
-        vec![format!("true true {distinct} {distinct} {found} {total}"), format!("true true {shown}")],
+        vec![
+            format!("true true {distinct} {distinct} {found} {total}"),
+            format!("true true {shown}"),
+        ],
     )
 }
 
@@ -356,13 +509,19 @@ fn records(fields: usize, count: usize) -> (String, Vec<String>) {
 /// literals and guards.
 fn long_match(n: usize) -> (String, Vec<String>) {
     let variants: String = (0..n).map(|i| format!("    V{i},\n")).collect();
-    let pairs: String = (0..n).map(|i| format!("        (.V{i}, .V{i}) => {i},\n")).collect();
+    let pairs: String = (0..n)
+        .map(|i| format!("        (.V{i}, .V{i}) => {i},\n"))
+        .collect();
     let groups: String = (0..n.saturating_sub(3))
         .step_by(3)
         .map(|i| format!("        .V{i} | .V{} | .V{} => {},\n", i + 1, i + 2, i / 3))
         .collect();
-    let words: String = (0..n).map(|i| format!("        \"w{i}\" => {i},\n")).collect();
-    let guards: String = (0..n).map(|i| format!("        .V{i} if k > {i} => {i},\n")).collect();
+    let words: String = (0..n)
+        .map(|i| format!("        \"w{i}\" => {i},\n"))
+        .collect();
+    let guards: String = (0..n)
+        .map(|i| format!("        .V{i} if k > {i} => {i},\n"))
+        .collect();
     let source = format!(
         "{HEAD}\nenum E {{\n{variants}}}\n\n{}\n\
          fn same(a: E, b: E): Int {{\n    match ((a, b)) {{\n{pairs}        _ => 0 - 1,\n    }}\n}}\n\n\
@@ -388,7 +547,10 @@ fn long_match(n: usize) -> (String, Vec<String>) {
     }
     let groups: i64 = group.iter().sum();
     let guards: i64 = (0..n).map(|i| if n / 2 > i { i as i64 } else { -1 }).sum();
-    (source, vec![format!("{all} {} {groups} {all} {guards} -1", -(n as i64))])
+    (
+        source,
+        vec![format!("{all} {} {groups} {all} {guards} -1", -(n as i64))],
+    )
 }
 
 /// A template of `n` holes, half numbers and half strings built at run time,
@@ -410,7 +572,16 @@ fn long_template(n: usize) -> (String, Vec<String>) {
         say("\"${line.length()}\""),
         say(&format!("\"{holes}\"")),
     );
-    let parts = join((0..n).map(|i| if i % 2 == 0 { (i * 3).to_string() } else { format!("p{i}p{i}") }), "|");
+    let parts = join(
+        (0..n).map(|i| {
+            if i % 2 == 0 {
+                (i * 3).to_string()
+            } else {
+                format!("p{i}p{i}")
+            }
+        }),
+        "|",
+    );
     let line = format!("<{parts}>");
     (source, vec![line.clone(), line.len().to_string(), parts])
 }
@@ -476,7 +647,9 @@ fn a_chain_of_thousands_of_structs_each_holding_the_last_builds_and_runs() {
         std::fs::create_dir_all(&dir).unwrap();
         let build = format!("binary {{\n  outputs: [{{ platform: \"{platform}\" }}]\n}}\n");
         std::fs::write(dir.join("BUILD.buri"), build).unwrap();
-        let program = source.replace("\"native\"", &format!("\"{platform}\"")).replace("NativeHost", host);
+        let program = source
+            .replace("\"native\"", &format!("\"{platform}\""))
+            .replace("NativeHost", host);
         std::fs::write(dir.join("main.buri"), program).unwrap();
         let ran = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
             .current_dir(&root)
@@ -485,7 +658,11 @@ fn a_chain_of_thousands_of_structs_each_holding_the_last_builds_and_runs() {
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&ran.stdout);
-        assert!(ran.status.success(), "{platform}: {}", String::from_utf8_lossy(&ran.stderr));
+        assert!(
+            ran.status.success(),
+            "{platform}: {}",
+            String::from_utf8_lossy(&ran.stderr)
+        );
         assert_eq!(stdout.lines().collect::<Vec<_>>(), expected, "{platform}");
     }
     let _ = std::fs::remove_dir_all(&root);
@@ -503,7 +680,11 @@ fn a_type_that_grows_its_own_argument_stops_the_run_with_an_error() {
     let dir = root.join("cmd").join("grow");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(root.join("REPO.buri"), "").unwrap();
-    std::fs::write(dir.join("BUILD.buri"), "binary {\n  outputs: [{ platform: \"native\" }]\n}\n").unwrap();
+    std::fs::write(
+        dir.join("BUILD.buri"),
+        "binary {\n  outputs: [{ platform: \"native\" }]\n}\n",
+    )
+    .unwrap();
     let program = format!(
         "{HEAD}\nenum Grow<T> {{\n    Deeper(Grow<Option<T>>),\n    Here(T),\n}}\n\n\
          fn depth(g: Grow<Int>): Int {{\n    match (g) {{\n        .Deeper(_) => 1,\n        .Here(_) => 0,\n    }}\n}}\n\n\
@@ -517,7 +698,11 @@ fn a_type_that_grows_its_own_argument_stops_the_run_with_an_error() {
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&ran.stderr);
-    assert!(!ran.status.success(), "ran: {}", String::from_utf8_lossy(&ran.stdout));
+    assert!(
+        !ran.status.success(),
+        "ran: {}",
+        String::from_utf8_lossy(&ran.stdout)
+    );
     assert!(
         stderr.contains(
             "`Grow` needs endless instantiations: `Grow<T>` contains `Grow<Option<T>>`, which contains \
@@ -540,7 +725,11 @@ fn a_function_that_grows_its_own_type_argument_stops_the_run_with_an_error() {
     let dir = root.join("cmd").join("nest");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(root.join("REPO.buri"), "").unwrap();
-    std::fs::write(dir.join("BUILD.buri"), "binary {\n  outputs: [{ platform: \"native\" }]\n}\n").unwrap();
+    std::fs::write(
+        dir.join("BUILD.buri"),
+        "binary {\n  outputs: [{ platform: \"native\" }]\n}\n",
+    )
+    .unwrap();
     let program = format!(
         "{HEAD}\nfn nest<T>(x: T, n: Int): Int {{\n    \
          if (n == 0) {{ 0 }} else {{ nest(Option.Some(x), n - 1) + 1 }}\n}}\n\n{MAIN}{}    .Ok(())\n}}\n",
@@ -553,7 +742,11 @@ fn a_function_that_grows_its_own_type_argument_stops_the_run_with_an_error() {
         .output()
         .unwrap();
     let stderr = String::from_utf8_lossy(&ran.stderr);
-    assert!(!ran.status.success(), "ran: {}", String::from_utf8_lossy(&ran.stdout));
+    assert!(
+        !ran.status.success(),
+        "ran: {}",
+        String::from_utf8_lossy(&ran.stdout)
+    );
     assert!(
         stderr.contains(
             "`nest` needs endless instantiations: `nest<T>` calls `nest<Option<T>>`, which calls \
@@ -580,7 +773,11 @@ fn generic_functions_that_call_themselves_at_their_own_type_arguments_run() {
          {MAIN}{}    .Ok(())\n}}\n",
         say("\"${count(\"a\", 4)} ${swap(1, true, 5)} ${ping([1, 2], 4)} ${Boxed { value: 1 }.depth(2)}\""),
     );
-    prints("e2e-shape-same-type-recursion", &source, &["4 10 2 6".to_string()]);
+    prints(
+        "e2e-shape-same-type-recursion",
+        &source,
+        &["4 10 2 6".to_string()],
+    );
 }
 
 /// **Trait methods that call back through generic functions, the standard
@@ -616,7 +813,11 @@ fn trait_methods_that_call_back_at_their_own_type_run() {
          let other = Flat {{ value: 1 }} == Flat {{ value: 2 }};\n{}    .Ok(())\n}}\n",
         say("\"${measure(pair, 3)} ${measure(boxes, 2)} ${same} ${other}\""),
     );
-    prints("e2e-shape-trait-recursion", &source, &["3 6 true false".to_string()]);
+    prints(
+        "e2e-shape-trait-recursion",
+        &source,
+        &["3 6 true false".to_string()],
+    );
 }
 
 /// **A tuple of twenty-four elements, taken apart, compared, sorted and shown.**

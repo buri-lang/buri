@@ -171,8 +171,8 @@ use inkwell::values::{CallSiteValue, FunctionValue};
 use crate::compiler::middle::ir;
 
 use super::repr::{Machine, Slot, SlotTy};
-use crate::diagnostics::Invariant;
 use crate::compiler::middle::layout::Scalar;
+use crate::diagnostics::Invariant;
 
 // ---------------------------------------------------------------------------
 // The `memory(...)` encoding hazard — CODEGEN-LLVM.md §3.5
@@ -490,7 +490,11 @@ fn memory_effects(facts: &ir::Facts, observed: Observed) -> MemoryEffects {
             }
         }
     };
-    let base = if allocates { base.and_allocates() } else { base };
+    let base = if allocates {
+        base.and_allocates()
+    } else {
+        base
+    };
     // The default location, for a count adjusted through a pointer that is not
     // based on a parameter and for an element read out of a block this function
     // allocated. Naming it at `ModRef` *is* `memory(readwrite)`, and
@@ -516,8 +520,9 @@ fn memory_effects(facts: &ir::Facts, observed: Observed) -> MemoryEffects {
 /// parameter wearing an integer's type, and the only signature this narrows to
 /// `memory(none)` is one that is genuinely all-scalar.
 fn narrow_for_params(effects: MemoryEffects, params: &[Slot]) -> MemoryEffects {
-    let reaches_memory =
-        params.iter().any(|s| s.ty.is_pointer() || matches!(s.ty, SlotTy::Blob(_)));
+    let reaches_memory = params
+        .iter()
+        .any(|s| s.ty.is_pointer() || matches!(s.ty, SlotTy::Blob(_)));
     if effects.is_everything() || reaches_memory {
         effects
     } else {
@@ -566,7 +571,11 @@ pub fn decorate(
     // The `sret` pointer is argument memory the function writes, so a
     // signature with one is never narrowed to having none.
     let effects = memory_effects(facts, observed);
-    let effects = if sig.sret.is_some() { effects } else { narrow_for_params(effects, &sig.params) };
+    let effects = if sig.sret.is_some() {
+        effects
+    } else {
+        narrow_for_params(effects, &sig.params)
+    };
     memory(ctx, f, effects);
 
     // `willreturn` and `mustprogress` follow one fact — that the function
@@ -629,8 +638,13 @@ pub fn decorate(
     // (`rc.rs`'s `FuncPlan::reuse` never reaches `lower`), so it is not
     // emitted. Emitting `noalias` where aliasing is possible is a miscompile
     // that shows up as a wrong answer months later.
-    let pointers: Vec<usize> =
-        sig.params.iter().enumerate().filter(|(_, s)| s.ty.is_pointer()).map(|(i, _)| i).collect();
+    let pointers: Vec<usize> = sig
+        .params
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.ty.is_pointer())
+        .map(|(i, _)| i)
+        .collect();
     if let ([only], None) = (pointers.as_slice(), sig.sret) {
         enum_attr_at(ctx, f, AttributeLoc::Param(*only as u32), "noalias", 0);
     }
@@ -764,7 +778,11 @@ mod tests {
     use super::*;
 
     fn facts(purity: ir::Purity, can_abort: bool) -> ir::Facts {
-        ir::Facts { params: Vec::new(), purity, can_abort }
+        ir::Facts {
+            params: Vec::new(),
+            purity,
+            can_abort,
+        }
     }
 
     /// The bits, against `llvm/Support/ModRef.h` of the pinned LLVM. These are
@@ -779,7 +797,10 @@ mod tests {
         // `argmem: read` (0b01), `inaccessiblemem: readwrite` (0b11 << 2),
         // `errnomem: readwrite` (0b11 << 4) and the default location at `Mod`
         // (0b10 << 6) — the three the allocator touches beside its argument.
-        assert_eq!(MemoryEffects::arg_read().and_allocates().bits(), 0b1011_1101);
+        assert_eq!(
+            MemoryEffects::arg_read().and_allocates().bits(),
+            0b1011_1101
+        );
         // Four locations at two bits each, all `ModRef`.
         assert_eq!(MemoryEffects::everything().bits(), 0xFF);
     }
@@ -801,11 +822,23 @@ mod tests {
     #[test]
     fn a_pure_scalar_function_is_memory_none() {
         let e = memory_effects(&facts(ir::Purity::Pure, false), Observed::clean());
-        let scalar = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::I64) };
-        assert_eq!(narrow_for_params(e, &[scalar, scalar]), MemoryEffects::none());
+        let scalar = Slot {
+            offset: 0,
+            ty: SlotTy::Scalar(Scalar::I64),
+        };
+        assert_eq!(
+            narrow_for_params(e, &[scalar, scalar]),
+            MemoryEffects::none()
+        );
 
-        let pointer = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) };
-        assert_eq!(narrow_for_params(e, &[scalar, pointer]), MemoryEffects::arg_read());
+        let pointer = Slot {
+            offset: 0,
+            ty: SlotTy::Scalar(Scalar::Ptr),
+        };
+        assert_eq!(
+            narrow_for_params(e, &[scalar, pointer]),
+            MemoryEffects::arg_read()
+        );
     }
 
     /// An effectful function keeps the default, and the default is never
@@ -814,7 +847,10 @@ mod tests {
     fn an_effectful_function_gets_no_memory_attribute() {
         let e = memory_effects(&facts(ir::Purity::Effectful, true), Observed::clean());
         assert!(e.is_everything());
-        let scalar = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::I64) };
+        let scalar = Slot {
+            offset: 0,
+            ty: SlotTy::Scalar(Scalar::I64),
+        };
         assert!(narrow_for_params(e, &[scalar]).is_everything());
     }
 
@@ -826,8 +862,10 @@ mod tests {
         let clean = memory_effects(&facts(ir::Purity::Pure, false), Observed::clean());
         assert_eq!(clean, MemoryEffects::arg_read());
 
-        let counting =
-            Observed { writes_args: true, ..Observed::clean() };
+        let counting = Observed {
+            writes_args: true,
+            ..Observed::clean()
+        };
         let e = memory_effects(&facts(ir::Purity::Pure, false), counting);
         assert_eq!(e, MemoryEffects::arg_readwrite());
         assert_ne!(e, MemoryEffects::arg_read());
@@ -841,7 +879,11 @@ mod tests {
     /// location is the one that is never written out.
     #[test]
     fn counting_anything_else_gives_up_the_memory_attribute() {
-        let far = Observed { reads_far: true, writes_far: true, ..Observed::clean() };
+        let far = Observed {
+            reads_far: true,
+            writes_far: true,
+            ..Observed::clean()
+        };
         let e = memory_effects(&facts(ir::Purity::Pure, false), far);
         // The default location at `ModRef` is what `memory(readwrite)` means,
         // so nothing narrower than the default survives for the heap. What is
@@ -858,9 +900,18 @@ mod tests {
     #[test]
     fn a_payload_blob_parameter_is_still_argument_memory() {
         let e = memory_effects(&facts(ir::Purity::Pure, false), Observed::clean());
-        let blob = Slot { offset: 0, ty: SlotTy::Blob(24) };
-        let tag = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::I8) };
-        assert_eq!(narrow_for_params(e, &[tag, blob]), MemoryEffects::arg_read());
+        let blob = Slot {
+            offset: 0,
+            ty: SlotTy::Blob(24),
+        };
+        let tag = Slot {
+            offset: 0,
+            ty: SlotTy::Scalar(Scalar::I8),
+        };
+        assert_eq!(
+            narrow_for_params(e, &[tag, blob]),
+            MemoryEffects::arg_read()
+        );
         assert_eq!(narrow_for_params(e, &[tag]), MemoryEffects::none());
     }
 
@@ -876,7 +927,6 @@ mod tests {
         assert_eq!(o, Observed::opaque());
     }
 
-
     /// **The gate the miscompile was behind.** Same facts, same purity, same
     /// signature; the only difference is whether this backend proved the
     /// function returns, and it decides all three attributes.
@@ -890,7 +940,10 @@ mod tests {
         let ctx = Context::create();
         let module = ctx.create_module("attrs");
         let i64t = ctx.i64_type();
-        let slot = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::I64) };
+        let slot = Slot {
+            offset: 0,
+            ty: SlotTy::Scalar(Scalar::I64),
+        };
         let decorated = |name: &str, observed: Observed| {
             let f = module.add_function(name, i64t.fn_type(&[i64t.into()], false), None);
             let sig = Machine::of(&[vec![slot]], vec![slot]);
@@ -898,8 +951,11 @@ mod tests {
             f
         };
         let has = |f: FunctionValue<'_>, name: &str| {
-            f.get_enum_attribute(AttributeLoc::Function, Attribute::get_named_enum_kind_id(name))
-                .is_some()
+            f.get_enum_attribute(
+                AttributeLoc::Function,
+                Attribute::get_named_enum_kind_id(name),
+            )
+            .is_some()
         };
 
         let proven = decorated("proven", Observed::clean());
@@ -907,10 +963,25 @@ mod tests {
         assert!(has(proven, "mustprogress"));
         assert!(has(proven, "speculatable"));
 
-        let cyclic = decorated("cyclic", Observed { may_diverge: true, ..Observed::clean() });
-        assert!(!has(cyclic, "willreturn"), "a function that may not return claims `willreturn`");
-        assert!(!has(cyclic, "mustprogress"), "`mustprogress` lets LLVM delete a diverging loop");
-        assert!(!has(cyclic, "speculatable"), "`speculatable` is what hoists the call");
+        let cyclic = decorated(
+            "cyclic",
+            Observed {
+                may_diverge: true,
+                ..Observed::clean()
+            },
+        );
+        assert!(
+            !has(cyclic, "willreturn"),
+            "a function that may not return claims `willreturn`"
+        );
+        assert!(
+            !has(cyclic, "mustprogress"),
+            "`mustprogress` lets LLVM delete a diverging loop"
+        );
+        assert!(
+            !has(cyclic, "speculatable"),
+            "`speculatable` is what hoists the call"
+        );
 
         // The rest of the discipline is untouched, which is what keeps this a
         // correction rather than a retreat: `memory(none)` is a statement about
@@ -931,7 +1002,10 @@ mod tests {
     /// widens it.
     #[test]
     fn an_allocation_the_middle_end_missed_demotes_the_attribute() {
-        let observed = Observed { allocates: true, ..Observed::clean() };
+        let observed = Observed {
+            allocates: true,
+            ..Observed::clean()
+        };
         let e = memory_effects(&facts(ir::Purity::Pure, false), observed);
         assert_eq!(e, MemoryEffects::arg_read().and_allocates());
         assert_ne!(e, MemoryEffects::none());

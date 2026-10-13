@@ -20,7 +20,11 @@ use std::path::{Path, PathBuf};
 /// the declaration and the code disagree.
 #[test]
 fn build_file_rules() {
-    run_corpus(&tests_dir().join("repositories/build-files"), "build-files", 14);
+    run_corpus(
+        &tests_dir().join("repositories/build-files"),
+        "build-files",
+        14,
+    );
 }
 
 /// LIBRARIES.md: `lib.buri` is a library's entire public surface, and the
@@ -62,7 +66,11 @@ fn cli_contract() {
 /// without networking or cryptography can't compile.
 #[test]
 fn operation_refusals() {
-    run_corpus(&tests_dir().join("repositories/diagnostics"), "diagnostics", 1);
+    run_corpus(
+        &tests_dir().join("repositories/diagnostics"),
+        "diagnostics",
+        1,
+    );
 }
 
 /// CLI.md's `docs`: what `buri docs` shows a repository's own code as, and
@@ -70,7 +78,11 @@ fn operation_refusals() {
 /// being wrong at a time.
 #[test]
 fn documentation() {
-    run_corpus(&tests_dir().join("repositories/documentation"), "documentation", 5);
+    run_corpus(
+        &tests_dir().join("repositories/documentation"),
+        "documentation",
+        5,
+    );
 }
 
 /// CLI.md's `query`: what the graph says, asked without building anything.
@@ -138,7 +150,11 @@ fn proto_schemas() {
 /// tool, is not served once the input is back or the tool has moved.
 #[test]
 fn generators() {
-    run_corpus(&tests_dir().join("repositories/generators"), "generators", 8);
+    run_corpus(
+        &tests_dir().join("repositories/generators"),
+        "generators",
+        8,
+    );
 }
 
 /// The files a rule references that are not Buri: JSON, JSONC and JSON5 in a
@@ -268,11 +284,18 @@ fn test_coverage() {
 /// the rows move with every edit to the standard library.
 #[test]
 fn coverage_counts_the_standard_library_only_when_asked() {
-    let scratch = Scratch::copy_of("coverage-std", &tests_dir().join("repositories/coverage/mcdc/repo"));
+    let scratch = Scratch::copy_of(
+        "coverage-std",
+        &tests_dir().join("repositories/coverage/mcdc/repo"),
+    );
     let args = ["test", "//lib/d", "--coverage=mcdc"];
     let mine = scratch.run(&args);
     assert_eq!(mine.code, 0, "{}", indent(&mine.all()));
-    assert!(!mine.stdout.contains("core/"), "the standard library counted unasked:\n{}", indent(&mine.stdout));
+    assert!(
+        !mine.stdout.contains("core/"),
+        "the standard library counted unasked:\n{}",
+        indent(&mine.stdout)
+    );
     let all = scratch.run_with_env(&args, &[("BURI_COVERAGE_STD", "1")]);
     assert_eq!(all.code, 0, "{}", indent(&all.all()));
     assert!(
@@ -280,8 +303,16 @@ fn coverage_counts_the_standard_library_only_when_asked() {
         "no row for the standard library:\n{}",
         indent(&all.stdout)
     );
-    assert!(all.stdout.lines().any(|l| l.starts_with("  lib/d/d.buri ")), "{}", indent(&all.stdout));
-    assert!(!all.stdout.contains("core/testing/"), "a platform module counted:\n{}", indent(&all.stdout));
+    assert!(
+        all.stdout.lines().any(|l| l.starts_with("  lib/d/d.buri ")),
+        "{}",
+        indent(&all.stdout)
+    );
+    assert!(
+        !all.stdout.contains("core/testing/"),
+        "a platform module counted:\n{}",
+        indent(&all.stdout)
+    );
     let lcov = std::fs::read_to_string(scratch.path(".buri/coverage/lcov.info")).unwrap();
     assert!(lcov.contains("SF:core/order\n"), "{lcov}");
 }
@@ -290,17 +321,29 @@ fn coverage_counts_the_standard_library_only_when_asked() {
 /// they were.
 #[test]
 fn coverage_says_when_it_cannot_write_the_report() {
-    let scratch = Scratch::copy_of("coverage-unwritable", &tests_dir().join("repositories/coverage/partly_covered/repo"));
+    let scratch = Scratch::copy_of(
+        "coverage-unwritable",
+        &tests_dir().join("repositories/coverage/partly_covered/repo"),
+    );
     std::fs::create_dir_all(scratch.path(".buri/coverage/lcov.info")).unwrap();
     let ran = scratch.run(&["test", "//lib/shapes", "--coverage"]);
     assert_eq!(ran.code, 0, "{}", indent(&ran.all()));
-    assert!(ran.stdout.contains("3 passed, 0 failed"), "{}", indent(&ran.stdout));
     assert!(
-        ran.stdout.contains("coverage: cannot write .buri/coverage/lcov.info: "),
+        ran.stdout.contains("3 passed, 0 failed"),
+        "{}",
+        indent(&ran.stdout)
+    );
+    assert!(
+        ran.stdout
+            .contains("coverage: cannot write .buri/coverage/lcov.info: "),
         "no word of the report it couldn't write:\n{}",
         indent(&ran.stdout)
     );
-    assert!(!ran.stdout.contains("branch coverage"), "a summary of a report nobody has:\n{}", indent(&ran.stdout));
+    assert!(
+        !ran.stdout.contains("branch coverage"),
+        "a summary of a report nobody has:\n{}",
+        indent(&ran.stdout)
+    );
 }
 
 /// The concurrency-and-servers surface, driven the way a person drives it: a
@@ -320,7 +363,11 @@ fn coverage_says_when_it_cannot_write_the_report() {
 /// so what is recorded is the real answer and not an assertion about one.
 #[test]
 fn concurrency_and_memory() {
-    run_corpus(&tests_dir().join("repositories/concurrency"), "concurrency", 8);
+    run_corpus(
+        &tests_dir().join("repositories/concurrency"),
+        "concurrency",
+        8,
+    );
 }
 
 /// The host a program is handed, on the platform this toolchain does not build
@@ -349,7 +396,11 @@ fn the_host_on_node() {
 /// honest.
 #[test]
 fn custom_platforms() {
-    run_corpus(&tests_dir().join("repositories/custom-platforms"), "custom-platforms", 5);
+    run_corpus(
+        &tests_dir().join("repositories/custom-platforms"),
+        "custom-platforms",
+        5,
+    );
 }
 
 /// `buri run` on a page: the flags that belong to the server it starts, and
@@ -611,15 +662,21 @@ fn the_protocol_surface_is_covered() {
     let source = std::fs::read_to_string(repo_root().join("cli/src/language_server/mod.rs"))
         .expect("the dispatch's own module");
     let arms = dispatch_arms(&source);
-    assert!(arms.len() > 40, "{} arms read out of the dispatch; the scan is broken", arms.len());
+    assert!(
+        arms.len() > 40,
+        "{} arms read out of the dispatch; the scan is broken",
+        arms.len()
+    );
     for method in NOTIFICATIONS {
         assert!(
             surface.contains(method),
             "`{method}` is not a method a client sends; the notification list is stale"
         );
     }
-    let (notifications, requests): (Vec<&str>, Vec<&str>) =
-        surface.iter().copied().partition(|m| NOTIFICATIONS.contains(m));
+    let (notifications, requests): (Vec<&str>, Vec<&str>) = surface
+        .iter()
+        .copied()
+        .partition(|m| NOTIFICATIONS.contains(m));
 
     let scratch = Scratch::repo("lsp-surface");
     scratch.binary_package("cmd/app", SURFACE_PROGRAM);
@@ -652,8 +709,14 @@ fn the_protocol_surface_is_covered() {
         missing.push("  exit: no arm in the dispatch's match".to_string());
     }
     editor.notify("exit", &params);
-    let stopped = editor.process.wait().expect("the language server did not stop");
-    assert!(stopped.success(), "the server left the whole surface badly: {stopped}");
+    let stopped = editor
+        .process
+        .wait()
+        .expect("the language server did not stop");
+    assert!(
+        stopped.success(),
+        "the server left the whole surface badly: {stopped}"
+    );
 
     for method in surface {
         let sent = sessions.contains(&format!("{q}method{q}: {q}{method}{q}", q = '"'))
@@ -672,7 +735,10 @@ fn the_protocol_surface_is_covered() {
         surface.len(),
         missing.join("\n")
     );
-    eprintln!("protocol surface: {} client methods, all dispatched and all sent", surface.len());
+    eprintln!(
+        "protocol surface: {} client methods, all dispatched and all sent",
+        surface.len()
+    );
 }
 
 /// One request put to a live server, and what is wrong with the answer.
@@ -833,11 +899,17 @@ fn recorded_sessions() -> (String, String, usize) {
     let mut sessions = String::new();
     let mut refusals = String::new();
     let mut cases = 0;
-    for entry in std::fs::read_dir(&dir).expect("the lsp corpus").filter_map(Result::ok) {
+    for entry in std::fs::read_dir(&dir)
+        .expect("the lsp corpus")
+        .filter_map(Result::ok)
+    {
         cases += 1;
         // A case may record several sessions — `session.jsonl` and the
         // `session_*.jsonl` beside it, each a different client.
-        let files = std::fs::read_dir(entry.path()).into_iter().flatten().filter_map(Result::ok);
+        let files = std::fs::read_dir(entry.path())
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok);
         for file in files {
             let path = file.path();
             let named = path.file_name().is_some_and(|n| {
@@ -920,7 +992,10 @@ fn best_of(
 
     let mut best = session();
     for attempt in 2..=ATTEMPTS {
-        let over = best.iter().filter(|(what, took)| *took > budget(what)).count();
+        let over = best
+            .iter()
+            .filter(|(what, took)| *took > budget(what))
+            .count();
         if over == 0 {
             break;
         }
@@ -984,38 +1059,49 @@ fn language_server_speed() {
         return;
     }
     let budget = language_server_budget();
-    let mut timings = best_of(|_| budget, || {
-        let scratch = Scratch::copy_of("lsp-speed", &example_repo());
-        let mut editor = Editor::warmed(&scratch);
+    let mut timings = best_of(
+        |_| budget,
+        || {
+            let scratch = Scratch::copy_of("lsp-speed", &example_repo());
+            let mut editor = Editor::warmed(&scratch);
 
-        let mut timings = Vec::new();
-        for file in sources_of(&scratch.root) {
-            timings.push(editor.opened(&file));
-        }
-        let watched = ["lib/money/cents.buri", "lib/store/codec.buri", "cmd/server/routes.buri"];
-        editor.timed("workspace/diagnostic", r#"{"previousResultIds":[]}"#);
+            let mut timings = Vec::new();
+            for file in sources_of(&scratch.root) {
+                timings.push(editor.opened(&file));
+            }
+            let watched = [
+                "lib/money/cents.buri",
+                "lib/store/codec.buri",
+                "cmd/server/routes.buri",
+            ];
+            editor.timed("workspace/diagnostic", r#"{"previousResultIds":[]}"#);
 
-        for round in 1..=3u32 {
-            editor.typed("lib/money/cents.buri", round);
-            for file in watched {
-                timings.push(editor.pull(file));
+            for round in 1..=3u32 {
+                editor.typed("lib/money/cents.buri", round);
+                for file in watched {
+                    timings.push(editor.pull(file));
+                }
+                timings.push(editor.timed("workspace/diagnostic", r#"{"previousResultIds":[]}"#));
+                for method in [
+                    "textDocument/documentHighlight",
+                    "textDocument/documentLink",
+                    "textDocument/documentColor",
+                    "textDocument/codeAction",
+                ] {
+                    timings.push(editor.at(method, "lib/money/cents.buri"));
+                }
             }
-            timings.push(editor.timed("workspace/diagnostic", r#"{"previousResultIds":[]}"#));
-            for method in [
-                "textDocument/documentHighlight",
-                "textDocument/documentLink",
-                "textDocument/documentColor",
-                "textDocument/codeAction",
-            ] {
-                timings.push(editor.at(method, "lib/money/cents.buri"));
-            }
-        }
-        editor.close();
-        timings
-    });
+            editor.close();
+            timings
+        },
+    );
 
     timings.sort_by_key(|(_, took)| std::cmp::Reverse(*took));
-    let over: Vec<_> = timings.iter().filter(|(_, took)| *took > budget).cloned().collect();
+    let over: Vec<_> = timings
+        .iter()
+        .filter(|(_, took)| *took > budget)
+        .cloned()
+        .collect();
     let five = listed(&timings[..timings.len().min(5)]);
     // Printed on a pass too: a run that stayed under the bar is the record a
     // later recalibration reads.
@@ -1071,18 +1157,25 @@ fn language_server_open_cost() {
         return;
     }
     let budget = language_server_budget();
-    let timings = best_of(|_| budget, || {
-        let scratch = generated_repository("lsp-open-scale", 24, 4, 86);
-        let mut editor = Editor::warmed(&scratch);
-        let mut timings = Vec::new();
-        for file in sources_of(&scratch.root) {
-            timings.push(editor.opened(&file));
-        }
-        editor.close();
-        timings
-    });
+    let timings = best_of(
+        |_| budget,
+        || {
+            let scratch = generated_repository("lsp-open-scale", 24, 4, 86);
+            let mut editor = Editor::warmed(&scratch);
+            let mut timings = Vec::new();
+            for file in sources_of(&scratch.root) {
+                timings.push(editor.opened(&file));
+            }
+            editor.close();
+            timings
+        },
+    );
 
-    let over: Vec<_> = timings.iter().filter(|(_, took)| *took > budget).cloned().collect();
+    let over: Vec<_> = timings
+        .iter()
+        .filter(|(_, took)| *took > budget)
+        .cloned()
+        .collect();
     let mut slowest = timings.clone();
     slowest.sort_by_key(|(_, took)| std::cmp::Reverse(*took));
     let five = listed(&slowest[..slowest.len().min(5)]);
@@ -1104,8 +1197,9 @@ fn language_server_open_cost() {
         budget.as_millis(),
         listed(&over),
     );
-    let allowed =
-        first.saturating_mul(RESTORE_DRIFT).saturating_add(std::time::Duration::from_millis(10));
+    let allowed = first
+        .saturating_mul(RESTORE_DRIFT)
+        .saturating_add(std::time::Duration::from_millis(10));
     assert!(
         last <= allowed,
         "the restore's second half costs {}ms an open against its first half's {}ms, \
@@ -1186,13 +1280,20 @@ fn monorepo_test_budget() {
             assert_eq!(run.tests_passed(), 24 * 20 + 2, "{}", indent(&run.all()));
         };
         timed("cold");
-        scratch.write("libs/base/lib.buri", &format!("// Where every value starts.\n{BASE_SOURCE}"));
+        scratch.write(
+            "libs/base/lib.buri",
+            &format!("// Where every value starts.\n{BASE_SOURCE}"),
+        );
         timed("comment edit");
         timed("warm");
         timings
     });
     eprintln!("buri test //...:\n{}", listed(&timings));
-    let over: Vec<_> = timings.iter().filter(|(what, took)| *took > budget(what)).cloned().collect();
+    let over: Vec<_> = timings
+        .iter()
+        .filter(|(what, took)| *took > budget(what))
+        .cloned()
+        .collect();
     assert!(
         over.is_empty(),
         "these runs took longer than their bars ({}s cold, {}ms after a comment edit, {}ms warm):\n{}",
@@ -1211,7 +1312,10 @@ const BASE_SOURCE: &str = "export fn base(n: Int): Int {\n  n * 2\n}\n";
 /// failing test and a package whose module a tool of the repository generates.
 fn monorepo_shaped(name: &str, packages: usize, functions: usize, tests: usize) -> Scratch {
     let scratch = Scratch::repo(name);
-    scratch.write("libs/base/BUILD.buri", "library {\n  visibility: [\"//...\"]\n}\n");
+    scratch.write(
+        "libs/base/BUILD.buri",
+        "library {\n  visibility: [\"//...\"]\n}\n",
+    );
     scratch.write("libs/base/lib.buri", BASE_SOURCE);
     let suite = |dir: &str, extra: &str| {
         format!(
@@ -1252,9 +1356,15 @@ fn monorepo_shaped(name: &str, packages: usize, functions: usize, tests: usize) 
     );
     scratch.write(
         "libs/wire/BUILD.buri",
-        &suite("wire", "  generators: [\n    { tool: \"//tools/gen\", inputs: [\"size.txt\"] },\n  ]\n"),
+        &suite(
+            "wire",
+            "  generators: [\n    { tool: \"//tools/gen\", inputs: [\"size.txt\"] },\n  ]\n",
+        ),
     );
-    scratch.write("libs/wire/lib.buri", "from \"//libs/wire/units\" export { size };\n");
+    scratch.write(
+        "libs/wire/lib.buri",
+        "from \"//libs/wire/units\" export { size };\n",
+    );
     scratch.write("libs/wire/size.txt", "four");
     scratch.write(
         "libs/wire/test/wire.buri",
@@ -1264,9 +1374,9 @@ fn monorepo_shaped(name: &str, packages: usize, functions: usize, tests: usize) 
     scratch.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
     scratch.write(
         "tools/gen/tool.buri",
-        &std::fs::read_to_string(
-            tests_dir().join("repositories/generators/only_the_generators_a_command_reads/repo/tools/gen/tool.buri"),
-        )
+        &std::fs::read_to_string(tests_dir().join(
+            "repositories/generators/only_the_generators_a_command_reads/repo/tools/gen/tool.buri",
+        ))
         .unwrap(),
     );
     scratch
@@ -1295,7 +1405,9 @@ fn sources_of(root: &Path) -> Vec<String> {
     let mut found = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
@@ -1321,12 +1433,7 @@ fn sources_of(root: &Path) -> Vec<String> {
 /// functions that compile and depend on nothing — the size is the point, and a
 /// dependency between two of them would only put a second target's compilation
 /// inside the first's open.
-fn generated_repository(
-    name: &str,
-    packages: usize,
-    modules: usize,
-    functions: usize,
-) -> Scratch {
+fn generated_repository(name: &str, packages: usize, modules: usize, functions: usize) -> Scratch {
     let scratch = Scratch::empty(name);
     scratch.write(
         "REPO.buri",
@@ -1355,8 +1462,9 @@ fn generated_repository(
             // Every name re-exported: a library's surface is `lib.buri`, and a
             // function nothing reaches is a `dead-code` finding rather than the
             // clean repository this is meant to time an open against.
-            let names: Vec<String> =
-                (0..functions).map(|f| format!("p{package}m{module}f{f}")).collect();
+            let names: Vec<String> = (0..functions)
+                .map(|f| format!("p{package}m{module}f{f}"))
+                .collect();
             exports.push_str(&format!(
                 "from \"//lib/p{package}/m{module}.buri\" export {{ {} }};\n",
                 names.join(", ")
@@ -1530,7 +1638,9 @@ impl Editor {
     }
 
     fn notify(&mut self, method: &str, params: &str) {
-        self.write(&format!(r#"{{"jsonrpc":"2.0","method":"{method}","params":{params}}}"#));
+        self.write(&format!(
+            r#"{{"jsonrpc":"2.0","method":"{method}","params":{params}}}"#
+        ));
     }
 
     fn close(&mut self) {
@@ -1541,7 +1651,11 @@ impl Editor {
 
     fn write(&mut self, body: &str) {
         use std::io::Write;
-        let stdin = self.process.stdin.as_mut().expect("the server's stdin is a pipe");
+        let stdin = self
+            .process
+            .stdin
+            .as_mut()
+            .expect("the server's stdin is a pipe");
         write!(stdin, "Content-Length: {}\r\n\r\n{body}", body.len()).unwrap();
         stdin.flush().unwrap();
     }
@@ -1550,11 +1664,19 @@ impl Editor {
     /// body that follows them is not swallowed.
     fn read(&mut self) -> String {
         use std::io::Read;
-        let stdout = self.process.stdout.as_mut().expect("the server's stdout is a pipe");
+        let stdout = self
+            .process
+            .stdout
+            .as_mut()
+            .expect("the server's stdout is a pipe");
         let mut headers = String::new();
         while !headers.ends_with("\r\n\r\n") {
             let mut byte = [0u8; 1];
-            assert_eq!(stdout.read(&mut byte).unwrap(), 1, "the server closed the stream");
+            assert_eq!(
+                stdout.read(&mut byte).unwrap(),
+                1,
+                "the server closed the stream"
+            );
             headers.push(byte[0] as char);
         }
         let length: usize = headers

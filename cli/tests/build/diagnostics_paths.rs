@@ -111,8 +111,11 @@ fn a_message_that_is_not_json_says_why() {
     // `shutdown` before `initialize` is refused, so `exit` comes without a
     // shutdown, which the protocol says exits 1.
     run.exits(1);
-    let said: Vec<&str> =
-        run.stderr.lines().filter_map(|l| l.strip_prefix("buri lsp: unparseable message: ")).collect();
+    let said: Vec<&str> = run
+        .stderr
+        .lines()
+        .filter_map(|l| l.strip_prefix("buri lsp: unparseable message: "))
+        .collect();
     let want: Vec<&str> = cases.iter().map(|(_, why)| *why).collect();
     assert_eq!(said, want);
 }
@@ -122,17 +125,30 @@ fn a_message_that_is_not_json_says_why() {
 #[test]
 fn a_source_file_too_big_to_hold_is_refused() {
     let scratch = Scratch::repo("diagnostics-huge-file");
-    scratch.write("cmd/app/BUILD.buri", "binary {\n    outputs: [{ platform: \"node\" }]\n}\n");
+    scratch.write(
+        "cmd/app/BUILD.buri",
+        "binary {\n    outputs: [{ platform: \"node\" }]\n}\n",
+    );
     let file = std::fs::File::create(scratch.path("cmd/app/main.buri")).unwrap();
     file.set_len(5 << 30).unwrap();
-    let json = scratch.run_with_env(&["build", "//cmd/app", "--error-format=json"], &[("BURI_PROFILE", "1")]);
+    let json = scratch.run_with_env(
+        &["build", "//cmd/app", "--error-format=json"],
+        &[("BURI_PROFILE", "1")],
+    );
     json.exits(1);
     assert_eq!(
         json.stderr.lines().next().unwrap_or_default(),
         r#"{"severity":"error","message":"cannot read cmd/app/main.buri: the file is larger than 4294967295 bytes, which is the most one source file may hold","location":null,"fix":"check the file exists and is readable","notes":[],"related":[]}"#
     );
-    let keyed = json.stderr.lines().find_map(|l| l.strip_prefix("bytes keyed ")).expect("a `bytes keyed` count");
-    assert!(keyed.parse::<u64>().unwrap() < 1 << 20, "the build read the file into a key: {keyed} bytes");
+    let keyed = json
+        .stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("bytes keyed "))
+        .expect("a `bytes keyed` count");
+    assert!(
+        keyed.parse::<u64>().unwrap() < 1 << 20,
+        "the build read the file into a key: {keyed} bytes"
+    );
 }
 
 /// A mistake on a long line of two-byte characters is shown as a window cut
@@ -140,7 +156,10 @@ fn a_source_file_too_big_to_hold_is_refused() {
 #[test]
 fn a_long_line_of_wide_characters_is_cut_between_them() {
     let scratch = Scratch::repo("diagnostics-wide-line");
-    scratch.write("cmd/app/BUILD.buri", "binary {\n    outputs: [{ platform: \"node\" }]\n}\n");
+    scratch.write(
+        "cmd/app/BUILD.buri",
+        "binary {\n    outputs: [{ platform: \"node\" }]\n}\n",
+    );
     // The variable's name moves the cut by a byte at a time, so one of these
     // lands each edge of the window inside a character.
     let functions: Vec<String> = (1..=4)
@@ -153,10 +172,17 @@ fn a_long_line_of_wide_characters_is_cut_between_them() {
             )
         })
         .collect();
-    scratch.write("cmd/app/main.buri", &format!("{}\n", functions.join("\n\n")));
+    scratch.write(
+        "cmd/app/main.buri",
+        &format!("{}\n", functions.join("\n\n")),
+    );
     let run = scratch.run(&["build", "//cmd/app"]);
     run.exits(1);
-    let shown: Vec<&str> = run.stderr.lines().filter(|l| l.contains("Int = \"x\"")).collect();
+    let shown: Vec<&str> = run
+        .stderr
+        .lines()
+        .filter(|l| l.contains("Int = \"x\""))
+        .collect();
     assert_eq!(shown.len(), 4, "{}", run.stderr);
     for line in shown {
         let text = line.split_once(" | ").unwrap().1;
@@ -168,12 +194,18 @@ fn a_long_line_of_wide_characters_is_cut_between_them() {
 #[test]
 fn an_empty_profile_variable_prints_no_profile() {
     let scratch = Scratch::repo("diagnostics-empty-profile");
-    scratch.write("cmd/app/BUILD.buri", "binary {\n    outputs: [{ platform: \"node\" }]\n}\n");
+    scratch.write(
+        "cmd/app/BUILD.buri",
+        "binary {\n    outputs: [{ platform: \"node\" }]\n}\n",
+    );
     scratch.write(
         "cmd/app/main.buri",
         "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n    .Ok(())\n}\n",
     );
-    scratch.run_with_env(&["build", "//cmd/app"], &[("BURI_PROFILE", "")]).ok().silent_about("buri profile");
+    scratch
+        .run_with_env(&["build", "//cmd/app"], &[("BURI_PROFILE", "")])
+        .ok()
+        .silent_about("buri profile");
 }
 
 /// A native build's record whose link key was damaged is passed over: the
@@ -181,7 +213,10 @@ fn an_empty_profile_variable_prints_no_profile() {
 #[test]
 fn a_damaged_build_record_is_passed_over() {
     let scratch = Scratch::repo("diagnostics-damaged-record");
-    scratch.write("cmd/app/BUILD.buri", "binary {\n    outputs: [{ platform: \"native\" }]\n}\n");
+    scratch.write(
+        "cmd/app/BUILD.buri",
+        "binary {\n    outputs: [{ platform: \"native\" }]\n}\n",
+    );
     scratch.write(
         "cmd/app/main.buri",
         "from \"core/io\" import * as io;\nfrom \"native\" import { NativeHost };\nfrom \"platform/effect\" import { Allocator, Stdout };\n\nexport fn main(host: NativeHost): Result<(), Str> {\n    let ctx = context {\n        Allocator: host.alloc,\n        Stdout: host.stdout,\n    };\n    io.println(ctx, \"native\").mapErr(fn(_e) => \"could not write\")\n}\n",
@@ -189,10 +224,17 @@ fn a_damaged_build_record_is_passed_over() {
     scratch.run(&["build", "//cmd/app"]).ok();
     // A record opens with its parts' count and the link key's length.
     let mut damaged = 0;
-    for dir in std::fs::read_dir(scratch.path(".buri/cache")).unwrap().flatten() {
-        let Ok(entries) = std::fs::read_dir(dir.path()) else { continue };
+    for dir in std::fs::read_dir(scratch.path(".buri/cache"))
+        .unwrap()
+        .flatten()
+    {
+        let Ok(entries) = std::fs::read_dir(dir.path()) else {
+            continue;
+        };
         for entry in entries.flatten() {
-            let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+            let Ok(text) = std::fs::read_to_string(entry.path()) else {
+                continue;
+            };
             if let Some(rest) = text.strip_prefix("3\n64\n") {
                 std::fs::write(entry.path(), format!("3\n63\n{}", &rest[1..])).unwrap();
                 damaged += 1;
@@ -210,9 +252,15 @@ fn a_damaged_build_record_is_passed_over() {
 fn a_literal_s_invisible_character_is_written_as_an_escape() {
     let scratch = Scratch::repo("diagnostics-literal-escape");
     scratch.write("lib/a/BUILD.buri", "library {}\n");
-    scratch.write("lib/a/lib.buri", "export fn f(): Str {\n    \"café \u{200b}\"\n}\n");
+    scratch.write(
+        "lib/a/lib.buri",
+        "export fn f(): Str {\n    \"café \u{200b}\"\n}\n",
+    );
     scratch.run(&["format", "lib/a/lib.buri"]).ok();
-    assert_eq!(scratch.read("lib/a/lib.buri"), "export fn f(): Str {\n    \"café \\u{200b}\"\n}\n");
+    assert_eq!(
+        scratch.read("lib/a/lib.buri"),
+        "export fn f(): Str {\n    \"café \\u{200b}\"\n}\n"
+    );
 }
 
 /// A block cut off by a `)` is reported once, as unclosed, and a mistake in
@@ -226,5 +274,8 @@ fn a_mistake_beside_an_unclosed_block_is_still_reported() {
         "fn id(a: Int): Int {\n    a\n}\n\nexport fn f(): Int {\n    let x: Int = \"s\";\n    let y = id({ 1 );\n    0\n}\n",
     );
     let run = scratch.run(&["build", "//lib/a"]);
-    run.exits(1).says("[type-mismatch]").says("lib/a/lib.buri:6:18").says("this block is missing its closing `}`");
+    run.exits(1)
+        .says("[type-mismatch]")
+        .says("lib/a/lib.buri:6:18")
+        .says("this block is missing its closing `}`");
 }

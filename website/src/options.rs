@@ -72,8 +72,10 @@ pub fn parse(arguments: &[String]) -> Result<Options, String> {
         at = at.saturating_add(1);
         // The separated form of a flag that takes a value; `None` for the rest.
         let mut following = || -> Result<String, String> {
-            let value =
-                arguments.get(at).cloned().ok_or_else(|| format!("`{argument}` takes a value"))?;
+            let value = arguments
+                .get(at)
+                .cloned()
+                .ok_or_else(|| format!("`{argument}` takes a value"))?;
             at = at.saturating_add(1);
             Ok(value)
         };
@@ -102,7 +104,8 @@ pub fn parse(arguments: &[String]) -> Result<Options, String> {
 }
 
 fn port(raw: &str) -> Result<u16, String> {
-    raw.parse().map_err(|_| format!("`--port` takes a number, not `{raw}`"))
+    raw.parse()
+        .map_err(|_| format!("`--port` takes a number, not `{raw}`"))
 }
 
 #[cfg(test)]
@@ -126,8 +129,14 @@ mod tests {
 
     #[test]
     fn a_value_may_be_written_either_way_round() {
-        assert_eq!(parsed(&["--out", "/tmp/site"]).out, Some(PathBuf::from("/tmp/site")));
-        assert_eq!(parsed(&["--out=/tmp/site"]).out, Some(PathBuf::from("/tmp/site")));
+        assert_eq!(
+            parsed(&["--out", "/tmp/site"]).out,
+            Some(PathBuf::from("/tmp/site"))
+        );
+        assert_eq!(
+            parsed(&["--out=/tmp/site"]).out,
+            Some(PathBuf::from("/tmp/site"))
+        );
         assert_eq!(parsed(&["serve", "--port=9000", "--watch"]).port, 9000);
         assert!(parsed(&["serve", "--watch"]).watch);
     }

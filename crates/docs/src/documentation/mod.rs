@@ -84,7 +84,10 @@ pub fn explanation_of(page: &frontmatter::Page) -> String {
     let mut fence_empty = false;
     for (index, line) in page.body.lines().enumerate() {
         let number = index.saturating_add(1);
-        if dropped.iter().any(|(first, last)| number >= *first && number <= *last) {
+        if dropped
+            .iter()
+            .any(|(first, last)| number >= *first && number <= *last)
+        {
             continue;
         }
         let trimmed = line.trim_start();
@@ -100,7 +103,11 @@ pub fn explanation_of(page: &frontmatter::Page) -> String {
             fence_empty = false;
         }
         if !in_fence && !delimiter && trimmed.starts_with('#') {
-            pending = if trimmed.starts_with("# ") { None } else { Some(line) };
+            pending = if trimmed.starts_with("# ") {
+                None
+            } else {
+                Some(line)
+            };
             continue;
         }
         if trimmed.is_empty() && !in_fence {
@@ -144,5 +151,8 @@ fn quoted_lines(page: &frontmatter::Page) -> Vec<(usize, usize)> {
 /// `$COLUMNS`, or eighty. Public because a diagnostic's explanation is wrapped
 /// to the same width as a documentation page, being the same text.
 pub fn terminal_width() -> usize {
-    std::env::var("COLUMNS").ok().and_then(|c| c.parse().ok()).unwrap_or(80)
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(80)
 }

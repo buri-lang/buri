@@ -31,10 +31,9 @@
 //! `unreachable-arm`: the finer code is for the case the coarser one cannot
 //! see, and the two never fire on the same arm.
 
-
 use crate::compiler::semantics::inference::Infer;
 use crate::compiler::semantics::typed::{self, PatKind, Pattern};
-use crate::compiler::semantics::types::{Prim, Ty, TyKind, TyConId, TyDef};
+use crate::compiler::semantics::types::{Prim, Ty, TyConId, TyDef, TyKind};
 use crate::diagnostics::{Diagnostic, Invariant as _, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
 
@@ -83,9 +82,11 @@ impl Ctor {
     /// How many sub-patterns this constructor holds, for a given type.
     fn arity(&self, tables: &crate::compiler::semantics::types::Tables, ty: &Ty) -> usize {
         match self {
-            Ctor::Variant(con, v) => {
-                tables.tycon(*con).variants().get(*v).map_or(0, |x| x.fields.len())
-            }
+            Ctor::Variant(con, v) => tables
+                .tycon(*con)
+                .variants()
+                .get(*v)
+                .map_or(0, |x| x.fields.len()),
             Ctor::Single => match ty.kind() {
                 TyKind::Tuple(ts) => ts.len(),
                 TyKind::Con(con, _) => tables.tycon(*con).fields().len(),
@@ -111,13 +112,21 @@ impl Ctor {
                     TyKind::Con(_, a) => a,
                     _ => &[],
                 };
-                let variant = tables.tycon(*con).variants().get(*v).or_ice("a variant constructor's index is one of its type's variants");
+                let variant = tables
+                    .tycon(*con)
+                    .variants()
+                    .get(*v)
+                    .or_ice("a variant constructor's index is one of its type's variants");
                 out.extend(variant.fields.iter().map(|f| substitute(&f.ty, args, None)));
             }
             Ctor::Single => match ty.kind() {
                 TyKind::Tuple(ts) => out.extend_from_slice(ts),
                 TyKind::Con(con, args) => out.extend(
-                    tables.tycon(*con).fields().iter().map(|f| substitute(&f.ty, args, None)),
+                    tables
+                        .tycon(*con)
+                        .fields()
+                        .iter()
+                        .map(|f| substitute(&f.ty, args, None)),
                 ),
                 _ => {}
             },
@@ -200,7 +209,10 @@ impl<'p> Rows<'p> {
         if self.len == 0 {
             self.width = width;
         }
-        debug_assert_eq!(width, self.width, "every row of a matrix is as wide as the first");
+        debug_assert_eq!(
+            width, self.width,
+            "every row of a matrix is as wide as the first"
+        );
         self.len = self.len.saturating_add(1);
     }
 
@@ -216,8 +228,16 @@ impl<'p> Rows<'p> {
     /// The first `k` rows, as rows of their own.
     fn prefix(&self, k: usize) -> Rows<'p> {
         let len = k.min(self.len);
-        let cells = self.cells.get(..len.saturating_mul(self.width)).unwrap_or_default().to_vec();
-        Rows { cells, width: self.width, len }
+        let cells = self
+            .cells
+            .get(..len.saturating_mul(self.width))
+            .unwrap_or_default()
+            .to_vec();
+        Rows {
+            cells,
+            width: self.width,
+            len,
+        }
     }
 }
 
@@ -233,34 +253,51 @@ fn lower(p: &Pattern) -> Pat {
         PatKind::Bool(b) => Pat::Ctor(Ctor::Bool(*b), Vec::new()),
         PatKind::Int(v, neg) => Pat::Ctor(Ctor::Lit(LitValue::Int(v.get(), *neg)), Vec::new()),
         // `+0.0 == -0.0`, so they are one constructor rather than two.
-        PatKind::Float(v) => {
-            Pat::Ctor(Ctor::Lit(LitValue::Float((v + 0.0).to_bits())), Vec::new())
-        }
+        PatKind::Float(v) => Pat::Ctor(Ctor::Lit(LitValue::Float((v + 0.0).to_bits())), Vec::new()),
         PatKind::Str(v) => Pat::Ctor(Ctor::Lit(LitValue::Str(v.clone())), Vec::new()),
         PatKind::Char(v) => Pat::Ctor(Ctor::Lit(LitValue::Char(*v)), Vec::new()),
         PatKind::Tuple(ps) => Pat::Ctor(Ctor::Single, ps.iter().map(lower).collect()),
         PatKind::Struct { con, fields } => {
-            let n = fields.iter().map(|f| f.index.saturating_add(1)).max().unwrap_or(0);
+            let n = fields
+                .iter()
+                .map(|f| f.index.saturating_add(1))
+                .max()
+                .unwrap_or(0);
             let total = n.max(fields.len());
             let mut subs = vec![Pat::Wild; total];
             for f in fields {
-                *subs.get_mut(f.index).or_ice("`total` is past every field's index") = lower(&f.pattern);
+                *subs
+                    .get_mut(f.index)
+                    .or_ice("`total` is past every field's index") = lower(&f.pattern);
             }
             let _ = con;
             Pat::Ctor(Ctor::Single, subs)
         }
-        PatKind::Variant { con, variant, fields } => {
-            let total = fields.iter().map(|f| f.index.saturating_add(1)).max().unwrap_or(0);
+        PatKind::Variant {
+            con,
+            variant,
+            fields,
+        } => {
+            let total = fields
+                .iter()
+                .map(|f| f.index.saturating_add(1))
+                .max()
+                .unwrap_or(0);
             let mut subs = vec![Pat::Wild; total];
             for f in fields {
-                *subs.get_mut(f.index).or_ice("`total` is past every field's index") = lower(&f.pattern);
+                *subs
+                    .get_mut(f.index)
+                    .or_ice("`total` is past every field's index") = lower(&f.pattern);
             }
             Pat::Ctor(Ctor::Variant(*con, *variant), subs)
         }
         PatKind::Array { elems, rest } => {
             let subs: Vec<Pat> = elems.iter().map(lower).collect();
-            let ctor =
-                if rest.is_open() { Ctor::ArrayRest(subs.len()) } else { Ctor::Array(subs.len()) };
+            let ctor = if rest.is_open() {
+                Ctor::ArrayRest(subs.len())
+            } else {
+                Ctor::Array(subs.len())
+            };
             Pat::Ctor(ctor, subs)
         }
         PatKind::Or(alts) => Pat::Or(alts.iter().map(lower).collect()),
@@ -289,12 +326,9 @@ fn length_limit(p: &Pat) -> usize {
 fn expand_lengths(p: Pat, limit: usize) -> Pat {
     match p {
         Pat::Wild => Pat::Wild,
-        Pat::Or(alts) => {
-            Pat::Or(alts.into_iter().map(|a| expand_lengths(a, limit)).collect())
-        }
+        Pat::Or(alts) => Pat::Or(alts.into_iter().map(|a| expand_lengths(a, limit)).collect()),
         Pat::Ctor(Ctor::ArrayRest(n), subs) => {
-            let subs: Vec<Pat> =
-                subs.into_iter().map(|s| expand_lengths(s, limit)).collect();
+            let subs: Vec<Pat> = subs.into_iter().map(|s| expand_lengths(s, limit)).collect();
             let alts: Vec<Pat> = (n..=limit.max(n))
                 .map(|len| {
                     let mut fields = subs.clone();
@@ -310,9 +344,10 @@ fn expand_lengths(p: Pat, limit: usize) -> Pat {
                 Err(alts) => Pat::Or(alts),
             }
         }
-        Pat::Ctor(c, subs) => {
-            Pat::Ctor(c, subs.into_iter().map(|s| expand_lengths(s, limit)).collect())
-        }
+        Pat::Ctor(c, subs) => Pat::Ctor(
+            c,
+            subs.into_iter().map(|s| expand_lengths(s, limit)).collect(),
+        ),
     }
 }
 
@@ -330,7 +365,9 @@ fn expand(row: Vec<Pat>) -> Vec<Vec<Pat>> {
     let mut out = Vec::new();
     for alt in alts {
         let mut next = row.clone();
-        *next.get_mut(pos).or_ice("`pos` is where the alternation was found") = alt;
+        *next
+            .get_mut(pos)
+            .or_ice("`pos` is where the alternation was found") = alt;
         out.extend(expand(next));
     }
     out
@@ -417,8 +454,10 @@ impl Index {
         let a = self.by_ctor.get(ctor).map_or(&[][..], Vec::as_slice);
         let b = self.open.as_slice();
         Merge {
-            a: a.get(a.partition_point(|&r| r < from)..).unwrap_or_default(),
-            b: b.get(b.partition_point(|&r| r < from)..).unwrap_or_default(),
+            a: a.get(a.partition_point(|&r| r < from)..)
+                .unwrap_or_default(),
+            b: b.get(b.partition_point(|&r| r < from)..)
+                .unwrap_or_default(),
         }
     }
 }
@@ -458,7 +497,11 @@ impl Iterator for Merge<'_> {
 
 impl<'p> Matrix<'p> {
     fn new(rows: Rows<'p>) -> Self {
-        let mut m = Matrix { rows, index: None, memo: None };
+        let mut m = Matrix {
+            rows,
+            index: None,
+            memo: None,
+        };
         if m.rows.len() >= INDEX_THRESHOLD {
             m.build_index();
         }
@@ -495,7 +538,11 @@ impl<'p> Matrix<'p> {
         if self.index.is_some() {
             self.build_index();
         }
-        self.memo.as_ref().or_ice("the reachability loop's matrix memoizes").borrow_mut().clear();
+        self.memo
+            .as_ref()
+            .or_ice("the reachability loop's matrix memoizes")
+            .borrow_mut()
+            .clear();
     }
 
     fn build_index(&mut self) {
@@ -506,9 +553,15 @@ impl<'p> Matrix<'p> {
     }
 
     fn index_row(&mut self, at: usize) {
-        let row = self.rows.get(at).or_ice("a row is indexed as it is pushed, so `at` is in range");
+        let row = self
+            .rows
+            .get(at)
+            .or_ice("a row is indexed as it is pushed, so `at` is in range");
         let Some(&head) = row.first() else { return };
-        let ix = self.index.as_mut().or_ice("a row is indexed only once the index exists");
+        let ix = self
+            .index
+            .as_mut()
+            .or_ice("a row is indexed only once the index exists");
         match head {
             Pat::Wild | Pat::Or(_) => ix.open.push(at),
             Pat::Ctor(c, _) => ix.by_ctor.entry(c.clone()).or_default().push(at),
@@ -521,7 +574,10 @@ impl<'p> Matrix<'p> {
     fn mentions(&self, c: &Ctor) -> bool {
         match self.index.as_ref() {
             Some(ix) => ix.heads.contains(c),
-            None => self.rows.iter().any(|row| row.first().is_some_and(|&head| head_mentions(head, c))),
+            None => self
+                .rows
+                .iter()
+                .any(|row| row.first().is_some_and(|&head| head_mentions(head, c))),
         }
     }
 }
@@ -570,9 +626,11 @@ impl<'a> Ctx<'a> {
     fn all_ctors(&self, ty: &Ty) -> Option<Vec<Ctor>> {
         match ty.kind() {
             TyKind::Con(con, _) => match &self.tables.tycon(*con).def {
-                TyDef::Enum { variants } => {
-                    Some((0..variants.len()).map(|i| Ctor::Variant(*con, i)).collect())
-                }
+                TyDef::Enum { variants } => Some(
+                    (0..variants.len())
+                        .map(|i| Ctor::Variant(*con, i))
+                        .collect(),
+                ),
                 TyDef::Struct { .. } => Some(vec![Ctor::Single]),
                 TyDef::Prim(Prim::Bool) => Some(vec![Ctor::Bool(false), Ctor::Bool(true)]),
                 // Integers, strings, chars and floats need a `_` arm.
@@ -634,7 +692,10 @@ impl<'a> Ctx<'a> {
         match matrix.index.as_ref() {
             Some(ix) => {
                 for at in ix.rows_for_from(ctor, from) {
-                    let row = matrix.rows.get(at).or_ice("the index holds the matrix's own rows");
+                    let row = matrix
+                        .rows
+                        .get(at)
+                        .or_ice("the index holds the matrix's own rows");
                     self.specialize_row(row, ctor, arity, out);
                 }
             }
@@ -646,14 +707,10 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    fn specialize_row<'p>(
-        &self,
-        row: &[&'p Pat],
-        ctor: &Ctor,
-        arity: usize,
-        out: &mut Rows<'p>,
-    ) {
-        let (&head, rest) = row.split_first().or_ice("a matrix row is as wide as the vector it's specialized for");
+    fn specialize_row<'p>(&self, row: &[&'p Pat], ctor: &Ctor, arity: usize, out: &mut Rows<'p>) {
+        let (&head, rest) = row
+            .split_first()
+            .or_ice("a matrix row is as wide as the vector it's specialized for");
         match head {
             Pat::Wild => out.push_with(|cells| {
                 cells.resize(cells.len().saturating_add(arity), &WILD);
@@ -686,7 +743,10 @@ impl<'a> Ctx<'a> {
         match matrix.index.as_ref() {
             Some(ix) => {
                 for &at in &ix.open {
-                    let row = matrix.rows.get(at).or_ice("the index holds the matrix's own rows");
+                    let row = matrix
+                        .rows
+                        .get(at)
+                        .or_ice("the index holds the matrix's own rows");
                     self.default_row(row, &mut out);
                 }
             }
@@ -700,7 +760,9 @@ impl<'a> Ctx<'a> {
     }
 
     fn default_row<'p>(&self, row: &[&'p Pat], out: &mut Rows<'p>) {
-        let (&head, rest) = row.split_first().or_ice("a matrix row is as wide as the vector it's defaulted for");
+        let (&head, rest) = row
+            .split_first()
+            .or_ice("a matrix row is as wide as the vector it's defaulted for");
         match head {
             Pat::Wild => out.push(rest),
             // Distribute, for the same reason `specialize` does. An
@@ -719,12 +781,7 @@ impl<'a> Ctx<'a> {
     /// it does, so a diagnostic can name the missing case — when `witnesses`
     /// is on; otherwise the answer is only whether there is one.
     ///
-    fn useful<'p>(
-        &self,
-        matrix: &Matrix<'p>,
-        v: &[&'p Pat],
-        types: &[Ty],
-    ) -> Option<Vec<Witness>> {
+    fn useful<'p>(&self, matrix: &Matrix<'p>, v: &[&'p Pat], types: &[Ty]) -> Option<Vec<Witness>> {
         let Some((&head, tail)) = v.split_first() else {
             return matrix.is_empty().then(Vec::new);
         };
@@ -794,11 +851,7 @@ impl<'a> Ctx<'a> {
                             .and_then(|all| all.into_iter().find(|c| !matrix.mentions(c)))
                             .map(|c| {
                                 let arity = c.arity(self.tables, head_ty);
-                                Witness::Ctor(
-                                    c,
-                                    *head_ty,
-                                    vec![Witness::Wild; arity],
-                                )
+                                Witness::Ctor(c, *head_ty, vec![Witness::Wild; arity])
                             })
                             .unwrap_or(Witness::Wild);
                         let mut out = vec![missing];
@@ -857,7 +910,8 @@ impl<'a> Ctx<'a> {
             }
         }
         // Every type has a value, so no pattern is useless against no rows.
-        lo.checked_sub(1).or_ice("a dead pattern is covered by some row before it")
+        lo.checked_sub(1)
+            .or_ice("a dead pattern is covered by some row before it")
     }
 }
 
@@ -925,9 +979,14 @@ fn plainly_covered(
         let key = match (&p.kind, of) {
             (PatKind::Wild | PatKind::Bind { sub: None, .. }, _) => return Some(None),
             (PatKind::Bind { sub: Some(s), .. }, _) => return head(s, of),
-            (PatKind::Variant { con, variant, fields }, Of::Enum(e))
-                if *con == e && fields.iter().all(|f| names_only(&f.pattern)) =>
-            {
+            (
+                PatKind::Variant {
+                    con,
+                    variant,
+                    fields,
+                },
+                Of::Enum(e),
+            ) if *con == e && fields.iter().all(|f| names_only(&f.pattern)) => {
                 Key::Variant(*variant)
             }
             (PatKind::Bool(b), Of::Bool) => Key::Bool(*b),
@@ -941,7 +1000,9 @@ fn plainly_covered(
         Some(Some(key))
     }
 
-    let TyKind::Con(con, _) = scrutinee.kind() else { return false };
+    let TyKind::Con(con, _) = scrutinee.kind() else {
+        return false;
+    };
     let (of, finite) = match &tables.tycon(*con).def {
         TyDef::Enum { variants } => (Of::Enum(*con), Some(variants.len())),
         TyDef::Prim(Prim::Bool) => (Of::Bool, Some(2)),
@@ -1001,7 +1062,9 @@ enum Witness {
 /// variant holding an enum refused for having no variants does. That error is
 /// already reported, and the case may well be one nobody means to have.
 fn holds_error(tables: &crate::compiler::semantics::types::Tables, w: &Witness) -> bool {
-    let Witness::Ctor(c, ty, subs) = w else { return false };
+    let Witness::Ctor(c, ty, subs) = w else {
+        return false;
+    };
     let mut fields = Vec::new();
     c.field_types_into(tables, ty, &mut fields);
     fields.iter().any(|f| f.has_error()) || subs.iter().any(|s| holds_error(tables, s))
@@ -1012,7 +1075,11 @@ fn render(tables: &crate::compiler::semantics::types::Tables, w: &Witness) -> St
         Witness::Wild => "_".into(),
         Witness::Ctor(c, ty, subs) => match c {
             Ctor::Variant(con, v) => {
-                let variant = tables.tycon(*con).variants().get(*v).or_ice("a variant constructor's index is one of its type's variants");
+                let variant = tables
+                    .tycon(*con)
+                    .variants()
+                    .get(*v)
+                    .or_ice("a variant constructor's index is one of its type's variants");
                 if subs.is_empty() {
                     format!(".{}", variant.name)
                 } else if variant.record {
@@ -1040,7 +1107,8 @@ fn render(tables: &crate::compiler::semantics::types::Tables, w: &Witness) -> St
                         name.clone()
                     } else {
                         let fields = tables.tycon(*con).fields();
-                        let record = matches!(tables.tycon(*con).def, TyDef::Struct { record: true, .. });
+                        let record =
+                            matches!(tables.tycon(*con).def, TyDef::Struct { record: true, .. });
                         if record {
                             let parts: Vec<String> = fields
                                 .iter()
@@ -1098,7 +1166,11 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
                 .collect()
         })
         .collect();
-    let ctx = Ctx { tables: &inf.c.tables, limit, witnesses: false };
+    let ctx = Ctx {
+        tables: &inf.c.tables,
+        limit,
+        witnesses: false,
+    };
     let types = [*scrutinee];
     let recovered = arms.iter().any(|a| has_error(&a.pattern));
 
@@ -1109,7 +1181,10 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
     // `origin` runs alongside the matrix's rows: which alternative put each one
     // there, so that a dead alternative can be shown the pattern that subsumes
     // it rather than told to go and find it.
-    let mut covering = Matrix { memo: Some(Default::default()), ..Matrix::default() };
+    let mut covering = Matrix {
+        memo: Some(Default::default()),
+        ..Matrix::default()
+    };
     let mut origin: Vec<Span> = Vec::new();
     let mut reported = Vec::new();
     for (arm, alts) in arms.iter().zip(&alternatives) {
@@ -1127,7 +1202,10 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
             for r in owned {
                 rows.push_with(|cells| cells.extend(r.iter()));
             }
-            if rows.iter().any(|r| ctx.useful(&covering, r, &types).is_some()) {
+            if rows
+                .iter()
+                .any(|r| ctx.useful(&covering, r, &types).is_some())
+            {
                 alive = true;
             } else {
                 dead.push((*at, rows.clone(), before));
@@ -1155,7 +1233,9 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
                 .map(|(_, rows, before)| ctx.covered_by(&covering.rows, *before, rows, &types))
                 .max()
                 .or_ice("a dead arm has a dead alternative");
-            let span = origin.get(culprit).or_ice("every covering row has an origin");
+            let span = origin
+                .get(culprit)
+                .or_ice("every covering row has an origin");
             reported.push(
                 Diagnostic::templated("unreachable-arm", arm.span)
                     .with_secondary_span(*span, "already covered here"),
@@ -1168,7 +1248,9 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
                 } else {
                     "an arm above already covers everything it matches"
                 };
-                let span = origin.get(culprit).or_ice("every covering row has an origin");
+                let span = origin
+                    .get(culprit)
+                    .or_ice("every covering row has an origin");
                 reported.push(
                     Diagnostic::templated("unreachable-alternative", at)
                         .with_bind("why", why)
@@ -1186,7 +1268,11 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
     }
 
     // A non-exhaustive match is a compile error that names a missing case.
-    let ctx = Ctx { tables: &inf.c.tables, limit, witnesses: true };
+    let ctx = Ctx {
+        tables: &inf.c.tables,
+        limit,
+        witnesses: true,
+    };
     if let Some(witness) = ctx.useful(&covering, &[&WILD], &types) {
         if witness.iter().any(|w| holds_error(&inf.c.tables, w)) {
             return;
@@ -1204,7 +1290,9 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         } else {
             d = d
                 .with_note("every `match` must cover its scrutinee's type")
-                .with_fix(format!("add an arm for `{shown}`, or a `_` arm for everything left"));
+                .with_fix(format!(
+                    "add an arm for `{shown}`, or a `_` arm for everything left"
+                ));
         }
         inf.c.diags.push(d);
     }

@@ -86,10 +86,25 @@ fn json_readers_accept_and_refuse_what_each_dialect_says() {
     s.write("tools/gen/BUILD.buri", "tool {\n    generate {}\n}\n");
     s.write("tools/gen/tool.buri", crate::json_schema_suite::GENERATOR);
     s.write("lib/j/lib.buri", "export let nothing: Int = 0;\n");
-    s.write("lib/j/any.schema.json", "{\"$schema\": \"https://json-schema.org/draft/2020-12/schema\"}\n");
-    let mut rows: Vec<(String, String, Option<String>)> =
-        ROWS.iter().map(|(ext, text, problem)| (ext.to_string(), text.replace('S', S), problem.map(str::to_string))).collect();
-    rows.push(("json".into(), "[".repeat(300), Some("values nest more than 256 deep here".into())));
+    s.write(
+        "lib/j/any.schema.json",
+        "{\"$schema\": \"https://json-schema.org/draft/2020-12/schema\"}\n",
+    );
+    let mut rows: Vec<(String, String, Option<String>)> = ROWS
+        .iter()
+        .map(|(ext, text, problem)| {
+            (
+                ext.to_string(),
+                text.replace('S', S),
+                problem.map(str::to_string),
+            )
+        })
+        .collect();
+    rows.push((
+        "json".into(),
+        "[".repeat(300),
+        Some("values nest more than 256 deep here".into()),
+    ));
     let mut inputs = String::new();
     for (i, (ext, text, _)) in rows.iter().enumerate() {
         s.write(&format!("lib/j/r{i}.{ext}"), text);
@@ -103,19 +118,41 @@ fn json_readers_accept_and_refuse_what_each_dialect_says() {
     let run = s.run(&["lint", "//lib/j", "--error-format=json"]);
     run.exits(1);
     let mut found: Vec<(String, String)> = Vec::new();
-    for line in run.stdout.lines().chain(run.stderr.lines()).filter(|l| l.starts_with('{')) {
+    for line in run
+        .stdout
+        .lines()
+        .chain(run.stderr.lines())
+        .filter(|l| l.starts_with('{'))
+    {
         let d = buri::json::parse(line).unwrap();
-        let text = |path: &str| d.at(path).and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        found.push((text("location.file"), format!("{} {}", text("code"), text("message"))));
+        let text = |path: &str| {
+            d.at(path)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
+        found.push((
+            text("location.file"),
+            format!("{} {}", text("code"), text("message")),
+        ));
     }
     let mut failures = Vec::new();
     for (i, (ext, text, problem)) in rows.iter().enumerate() {
         let file = format!("lib/j/r{i}.{ext}");
-        let said: Vec<&str> = found.iter().filter(|(f, _)| *f == file).map(|(_, m)| m.as_str()).collect();
+        let said: Vec<&str> = found
+            .iter()
+            .filter(|(f, _)| *f == file)
+            .map(|(_, m)| m.as_str())
+            .collect();
         let want: Vec<String> = problem.iter().map(|p| format!("json-syntax {p}")).collect();
         if said != want {
             failures.push(format!("{ext} {text:?}: expected {want:?}, found {said:?}"));
         }
     }
-    assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }

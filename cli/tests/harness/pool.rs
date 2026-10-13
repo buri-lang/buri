@@ -34,7 +34,9 @@ use std::time::Duration;
 
 /// How many cases may be running anywhere in this test run at once.
 fn width() -> usize {
-    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
 }
 
 /// The seats every process in a run shares, and this process's count of them.
@@ -105,19 +107,35 @@ impl<'p> Seats<'p> {
         let handles = pool
             .seats
             .iter()
-            .map(|seat| File::options().create(true).append(true).open(seat).unwrap())
+            .map(|seat| {
+                File::options()
+                    .create(true)
+                    .append(true)
+                    .open(seat)
+                    .unwrap()
+            })
             .collect();
-        Seats { pool, handles, slot: SLOTS.fetch_add(1, Ordering::Relaxed).into() }
+        Seats {
+            pool,
+            handles,
+            slot: SLOTS.fetch_add(1, Ordering::Relaxed).into(),
+        }
     }
 
     fn take(&self) -> Permit<'_> {
-        let mut queued = Queued { seats: self, byte: None };
+        let mut queued = Queued {
+            seats: self,
+            byte: None,
+        };
         loop {
             let held = self.pool.held.load(Ordering::SeqCst);
             if !self.pool.someone_poorer_waits(held) {
                 if let Some(seat) = self.handles.iter().find(|seat| seat.try_lock().is_ok()) {
                     self.pool.held.fetch_add(1, Ordering::SeqCst);
-                    return Permit { seat, pool: self.pool };
+                    return Permit {
+                        seat,
+                        pool: self.pool,
+                    };
                 }
             }
             queued.at(held);
@@ -222,7 +240,13 @@ mod lock {
     const WRITE: i16 = 1;
 
     fn call(file: &File, cmd: i32, kind: i16, start: i64, len: i64) -> Flock {
-        let mut lock = Flock { kind, whence: 0, start, len, pid: 0 };
+        let mut lock = Flock {
+            kind,
+            whence: 0,
+            start,
+            len,
+            pid: 0,
+        };
         // SAFETY: `lock` is a `struct flock` and outlives the call.
         let status = unsafe { fcntl(file.as_raw_fd(), cmd, &mut lock as *mut Flock) };
         assert_eq!(status, 0, "fcntl: {}", std::io::Error::last_os_error());
@@ -274,7 +298,9 @@ fn map_in<T: Sync, R: Send>(pool: &Pool, items: &[T], f: impl Fn(&T) -> R + Sync
                         let _permit = seats.take();
                         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(item)))
                     };
-                    done.lock().unwrap_or_else(|e| e.into_inner()).push((at, answer));
+                    done.lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push((at, answer));
                 }
             });
         }
@@ -305,7 +331,10 @@ mod pool_tests {
     #[test]
     fn the_answers_come_back_in_the_order_the_items_were_in() {
         let items: Vec<usize> = (0..200).collect();
-        assert_eq!(map(&items, |n| n * 2), items.iter().map(|n| n * 2).collect::<Vec<_>>());
+        assert_eq!(
+            map(&items, |n| n * 2),
+            items.iter().map(|n| n * 2).collect::<Vec<_>>()
+        );
     }
 
     /// Never more cases in flight than the machine is wide, which is the claim
@@ -342,7 +371,10 @@ mod pool_tests {
             })
         })
         .expect_err("a panicking case fails the run");
-        let said = raised.downcast_ref::<String>().map(String::as_str).unwrap_or_default();
+        let said = raised
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .unwrap_or_default();
         assert_eq!(said, "case 7 is broken");
     }
 
@@ -370,7 +402,10 @@ mod pool_tests {
         let pool = &Pool::at(&dir, 2);
         let this = module_path!().split_once("::").unwrap().1;
         let mut child = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", &format!("{this}::a_waiting_process_gets_the_next_seat_a_busy_one_frees")])
+            .args([
+                "--exact",
+                &format!("{this}::a_waiting_process_gets_the_next_seat_a_busy_one_frees"),
+            ])
             .arg("--nocapture")
             .env(BUSY, &dir)
             .stdin(Stdio::piped())
@@ -390,7 +425,11 @@ mod pool_tests {
             }
         });
         // Only a hang guard: the order of events is the assertion.
-        let next = || events.recv_timeout(Duration::from_secs(120)).expect("the pool hung");
+        let next = || {
+            events
+                .recv_timeout(Duration::from_secs(120))
+                .expect("the pool hung")
+        };
         assert_eq!((next(), next()), (Seen::BusyTook, Seen::BusyTook));
 
         let (release, released) = mpsc::channel::<()>();
@@ -419,7 +458,10 @@ mod pool_tests {
         });
         assert!(child.wait().unwrap().success());
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(taken_back, 0, "the busy process took back {taken_back} seats while another waited");
+        assert_eq!(
+            taken_back, 0,
+            "the busy process took back {taken_back} seats while another waited"
+        );
     }
 
     /// Fills both seats of the pool at `dir` and keeps them filled, ending one

@@ -36,7 +36,9 @@ pub fn is_2020_12(uri: &str) -> bool {
 
 /// Whether a string is a URI with a scheme, like `https://…` or `urn:…`.
 pub fn has_scheme(s: &str) -> bool {
-    let Some((scheme, _)) = s.split_once(':') else { return false };
+    let Some((scheme, _)) = s.split_once(':') else {
+        return false;
+    };
     let mut chars = scheme.chars();
     chars.next().is_some_and(|c| c.is_ascii_alphabetic())
         && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
@@ -53,7 +55,10 @@ pub fn local_path(from: &str, reference: &str) -> Option<String> {
                 return None;
             }
             let dir = from.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
-            (dir.split('/').filter(|s| !s.is_empty()).collect(), reference.as_str())
+            (
+                dir.split('/').filter(|s| !s.is_empty()).collect(),
+                reference.as_str(),
+            )
         }
     };
     for seg in rest.split('/') {
@@ -83,7 +88,10 @@ fn resolve_uri(base: &str, reference: &str) -> String {
     let (authority, path) = match rest.strip_prefix("//") {
         Some(r) => {
             let at = r.find('/').unwrap_or(r.len());
-            (format!("//{}", r.get(..at).unwrap_or_default()), r.get(at..).unwrap_or_default())
+            (
+                format!("//{}", r.get(..at).unwrap_or_default()),
+                r.get(at..).unwrap_or_default(),
+            )
         }
         None => (String::new(), rest),
     };
@@ -130,7 +138,10 @@ fn percent_decode(s: &str) -> String {
     while let Some(&b) = bytes.get(i) {
         if b == b'%' {
             let hex = bytes.get(i.saturating_add(1)..i.saturating_add(3));
-            if let Some(v) = hex.and_then(|h| std::str::from_utf8(h).ok()).and_then(|h| u8::from_str_radix(h, 16).ok()) {
+            if let Some(v) = hex
+                .and_then(|h| std::str::from_utf8(h).ok())
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+            {
                 out.push(v);
                 i = i.saturating_add(3);
                 continue;
@@ -208,7 +219,9 @@ pub struct Registry<'r> {
     problems: Vec<Finding>,
 }
 
-const TYPES: &[&str] = &["null", "boolean", "object", "array", "number", "string", "integer"];
+const TYPES: &[&str] = &[
+    "null", "boolean", "object", "array", "number", "string", "integer",
+];
 
 const SCHEMA_KEYWORDS: &[&str] = &[
     "additionalProperties",
@@ -223,7 +236,13 @@ const SCHEMA_KEYWORDS: &[&str] = &[
     "unevaluatedProperties",
 ];
 
-const SCHEMA_MAPS: &[&str] = &["properties", "patternProperties", "$defs", "definitions", "dependentSchemas"];
+const SCHEMA_MAPS: &[&str] = &[
+    "properties",
+    "patternProperties",
+    "$defs",
+    "definitions",
+    "dependentSchemas",
+];
 
 const SCHEMA_LISTS: &[&str] = &["allOf", "anyOf", "oneOf", "prefixItems"];
 
@@ -242,8 +261,14 @@ const BOUNDS: &[&str] = &["maximum", "exclusiveMaximum", "minimum", "exclusiveMi
 
 /// The draft-07 keywords 2020-12 replaced, with what replaced them.
 const RETIRED: &[(&str, &str)] = &[
-    ("additionalItems", "use `items`, which holds the schema for the items after `prefixItems`"),
-    ("dependencies", "use `dependentRequired` for a list of names, and `dependentSchemas` for a schema"),
+    (
+        "additionalItems",
+        "use `items`, which holds the schema for the items after `prefixItems`",
+    ),
+    (
+        "dependencies",
+        "use `dependentRequired` for a list of names, and `dependentSchemas` for a schema",
+    ),
     ("$recursiveRef", "use `$dynamicRef`"),
     ("$recursiveAnchor", "use `$dynamicAnchor`"),
 ];
@@ -293,8 +318,12 @@ impl<'r> Registry<'r> {
             match reg.resolve(&reference, resource) {
                 Ok((target_resource, target)) => {
                     if !reg.location.contains_key(&(target as *const Node)) {
-                        let pointer = reference.split_once('#').map(|(_, f)| f.to_string()).unwrap_or_default();
-                        let target_file = reg.resources.get(target_resource).map_or(file, |r| r.file);
+                        let pointer = reference
+                            .split_once('#')
+                            .map(|(_, f)| f.to_string())
+                            .unwrap_or_default();
+                        let target_file =
+                            reg.resources.get(target_resource).map_or(file, |r| r.file);
                         reg.walk(target, target_file, pointer, target_resource, &mut refs);
                     }
                 }
@@ -315,7 +344,10 @@ impl<'r> Registry<'r> {
 
     /// The resource `node` is in, given the one its parent is in.
     pub fn enter(&self, node: &Node, current: usize) -> usize {
-        self.root_of.get(&(node as *const Node)).copied().unwrap_or(current)
+        self.root_of
+            .get(&(node as *const Node))
+            .copied()
+            .unwrap_or(current)
     }
 
     /// The schema a `$ref` names from inside `resource`, and its resource.
@@ -325,7 +357,10 @@ impl<'r> Registry<'r> {
 
     /// The repository path of the file a resource is in.
     pub fn file_of(&self, resource: usize) -> String {
-        self.resources.get(resource).map(|r| self.path_of(r.file)).unwrap_or_default()
+        self.resources
+            .get(resource)
+            .map(|r| self.path_of(r.file))
+            .unwrap_or_default()
     }
 
     fn add_resource(&mut self, file: usize, root: &'r Node, id: Option<String>) -> usize {
@@ -333,16 +368,31 @@ impl<'r> Registry<'r> {
         if let Some(id) = &id {
             self.by_id.insert(id.clone(), index);
         }
-        self.resources.push(Resource { file, root, id, anchors: HashMap::new(), dynamic_anchors: HashMap::new() });
+        self.resources.push(Resource {
+            file,
+            root,
+            id,
+            anchors: HashMap::new(),
+            dynamic_anchors: HashMap::new(),
+        });
         self.root_of.insert(root as *const Node, index);
         index
     }
 
     fn path_of(&self, file: usize) -> String {
-        self.files.get(file).map(|f| f.path.clone()).unwrap_or_default()
+        self.files
+            .get(file)
+            .map(|f| f.path.clone())
+            .unwrap_or_default()
     }
 
-    fn problem(&mut self, file: usize, span: Range, problem: impl Into<String>, remedy: impl Into<String>) {
+    fn problem(
+        &mut self,
+        file: usize,
+        span: Range,
+        problem: impl Into<String>,
+        remedy: impl Into<String>,
+    ) {
         self.problems.push(Finding::new(
             "json-invalid-schema",
             &self.path_of(file),
@@ -354,15 +404,28 @@ impl<'r> Registry<'r> {
     fn unresolved(&mut self, file: usize, span: Range, reference: &str, e: Unresolved) {
         let path = self.path_of(file);
         let finding = match e {
-            Unresolved::NotLocal => Finding::new("schema-outside-repository", &path, span, vec![("schema", reference.to_string())]),
-            Unresolved::NoFile(missing) => Finding::new("unknown-schema", &path, span, vec![("path", missing)]),
+            Unresolved::NotLocal => Finding::new(
+                "schema-outside-repository",
+                &path,
+                span,
+                vec![("schema", reference.to_string())],
+            ),
+            Unresolved::NoFile(missing) => {
+                Finding::new("unknown-schema", &path, span, vec![("path", missing)])
+            }
             Unresolved::NoTarget => Finding::new(
                 "json-invalid-schema",
                 &path,
                 span,
                 vec![
-                    ("problem", format!("`{reference}` points at nothing in the schema")),
-                    ("remedy", "correct the pointer or the anchor it names".to_string()),
+                    (
+                        "problem",
+                        format!("`{reference}` points at nothing in the schema"),
+                    ),
+                    (
+                        "remedy",
+                        "correct the pointer or the anchor it names".to_string(),
+                    ),
                 ],
             ),
         };
@@ -398,12 +461,18 @@ impl<'r> Registry<'r> {
         if self.location.contains_key(&(node as *const Node)) {
             return;
         }
-        self.location.insert(node as *const Node, (file, pointer.clone(), resource));
+        self.location
+            .insert(node as *const Node, (file, pointer.clone(), resource));
         let members = match &node.value {
             Value::Bool(_) => return,
             Value::Object(members, _) => members,
             _ => {
-                return self.problem(file, node.span, "a schema is an object or `true` or `false`", "write an object here");
+                return self.problem(
+                    file,
+                    node.span,
+                    "a schema is an object or `true` or `false`",
+                    "write an object here",
+                );
             }
         };
         let mut resource = resource;
@@ -420,7 +489,11 @@ impl<'r> Registry<'r> {
                 Some(_) if pointer.is_empty() => {}
                 // Under an absolute `$id`, a relative one resolves against it.
                 Some(s) if self.resources.get(resource).is_some_and(|r| r.id.is_some()) => {
-                    let base = self.resources.get(resource).and_then(|r| r.id.clone()).unwrap_or_default();
+                    let base = self
+                        .resources
+                        .get(resource)
+                        .and_then(|r| r.id.clone())
+                        .unwrap_or_default();
                     let id = resolve_uri(&base, s).trim_end_matches('#').to_string();
                     resource = self.add_resource(file, node, Some(id));
                 }
@@ -430,14 +503,32 @@ impl<'r> Registry<'r> {
                     format!("`\"$id\": \"{s}\"` is relative, which only a schema's root may be"),
                     "give the subschema an absolute `$id`, or move it to a file of its own",
                 ),
-                None => self.problem(file, id.value.span, "`$id` is a string", "write the URI as a string"),
+                None => self.problem(
+                    file,
+                    id.value.span,
+                    "`$id` is a string",
+                    "write the URI as a string",
+                ),
             }
         }
         // An anchor names the schema object it is written in.
         for key in ["$anchor", "$dynamicAnchor"] {
-            let Some(name) = node.get(key).and_then(Node::as_str).filter(|n| is_anchor(n)) else { continue };
-            let r = self.resources.get_mut(resource).or_ice("a walk is always inside a resource it added");
-            let map = if key == "$anchor" { &mut r.anchors } else { &mut r.dynamic_anchors };
+            let Some(name) = node
+                .get(key)
+                .and_then(Node::as_str)
+                .filter(|n| is_anchor(n))
+            else {
+                continue;
+            };
+            let r = self
+                .resources
+                .get_mut(resource)
+                .or_ice("a walk is always inside a resource it added");
+            let map = if key == "$anchor" {
+                &mut r.anchors
+            } else {
+                &mut r.dynamic_anchors
+            };
             map.insert(name.to_string(), node);
         }
         for m in members {
@@ -457,7 +548,12 @@ impl<'r> Registry<'r> {
         let here = format!("{pointer}/{}", escape_pointer(&m.key));
         let key = m.key.as_str();
         if let Some((_, remedy)) = RETIRED.iter().find(|(k, _)| *k == key) {
-            return self.problem(file, m.key_span, format!("`{key}` is not a JSON Schema 2020-12 keyword"), *remedy);
+            return self.problem(
+                file,
+                m.key_span,
+                format!("`{key}` is not a JSON Schema 2020-12 keyword"),
+                *remedy,
+            );
         }
         match key {
             "$schema" => {
@@ -466,23 +562,36 @@ impl<'r> Registry<'r> {
                         "json-schema-draft-unsupported",
                         &self.path_of(file),
                         v.span,
-                        vec![("draft", v.as_str().map_or_else(|| v.raw.clone(), str::to_string))],
+                        vec![(
+                            "draft",
+                            v.as_str().map_or_else(|| v.raw.clone(), str::to_string),
+                        )],
                     ));
                 }
             }
             "$ref" | "$dynamicRef" => match v.as_str() {
                 Some(s) => refs.push((file, v.span, s.to_string(), resource)),
-                None => self.problem(file, v.span, format!("`{key}` is a string"), "write the reference as a string"),
+                None => self.problem(
+                    file,
+                    v.span,
+                    format!("`{key}` is a string"),
+                    "write the reference as a string",
+                ),
             },
             "$anchor" | "$dynamicAnchor" if !v.as_str().is_some_and(is_anchor) => self.problem(
                 file,
                 v.span,
-                format!("`{key}` is a name: a letter or `_`, then letters, digits, `-`, `.` or `_`"),
+                format!(
+                    "`{key}` is a name: a letter or `_`, then letters, digits, `-`, `.` or `_`"
+                ),
                 "rename the anchor",
             ),
-            "items" if matches!(v.value, Value::Array(..)) => {
-                self.problem(file, m.key_span, "`items` holds one schema in 2020-12", "use `prefixItems` for a list of schemas, one per position")
-            }
+            "items" if matches!(v.value, Value::Array(..)) => self.problem(
+                file,
+                m.key_span,
+                "`items` holds one schema in 2020-12",
+                "use `prefixItems` for a list of schemas, one per position",
+            ),
             k if SCHEMA_KEYWORDS.contains(&k) => self.walk(v, file, here, resource, refs),
             k if SCHEMA_MAPS.contains(&k) => match &v.value {
                 Value::Object(entries, _) => {
@@ -490,10 +599,21 @@ impl<'r> Registry<'r> {
                         if k == "patternProperties" {
                             self.regex(file, e.key_span, &e.key);
                         }
-                        self.walk(&e.value, file, format!("{here}/{}", escape_pointer(&e.key)), resource, refs);
+                        self.walk(
+                            &e.value,
+                            file,
+                            format!("{here}/{}", escape_pointer(&e.key)),
+                            resource,
+                            refs,
+                        );
                     }
                 }
-                _ => self.problem(file, v.span, format!("`{k}` is an object of schemas"), "write an object"),
+                _ => self.problem(
+                    file,
+                    v.span,
+                    format!("`{k}` is an object of schemas"),
+                    "write an object",
+                ),
             },
             k if SCHEMA_LISTS.contains(&k) => match &v.value {
                 Value::Array(items, _) if !items.is_empty() => {
@@ -501,7 +621,12 @@ impl<'r> Registry<'r> {
                         self.walk(item, file, format!("{here}/{i}"), resource, refs);
                     }
                 }
-                _ => self.problem(file, v.span, format!("`{k}` is a non-empty array of schemas"), "write an array with at least one schema"),
+                _ => self.problem(
+                    file,
+                    v.span,
+                    format!("`{k}` is a non-empty array of schemas"),
+                    "write an array with at least one schema",
+                ),
             },
             "type" => {
                 let ok = match &v.value {
@@ -516,41 +641,73 @@ impl<'r> Registry<'r> {
                     _ => false,
                 };
                 if !ok {
-                    self.problem(file, v.span, format!("`type` is one of {}, or a list of them", TYPES.join(", ")), "correct the type's name");
+                    self.problem(
+                        file,
+                        v.span,
+                        format!("`type` is one of {}, or a list of them", TYPES.join(", ")),
+                        "correct the type's name",
+                    );
                 }
             }
-            "enum" if !matches!(v.value, Value::Array(..)) => {
-                self.problem(file, v.span, "`enum` is an array", "write the allowed values in an array")
-            }
+            "enum" if !matches!(v.value, Value::Array(..)) => self.problem(
+                file,
+                v.span,
+                "`enum` is an array",
+                "write the allowed values in an array",
+            ),
             "multipleOf" => {
                 let positive = matches!(&v.value, Value::Number(super::number::Number::Finite(d)) if !d.is_zero() && !d.is_negative());
                 if !positive {
-                    self.problem(file, v.span, "`multipleOf` is a number greater than zero", "write a positive number");
+                    self.problem(
+                        file,
+                        v.span,
+                        "`multipleOf` is a number greater than zero",
+                        "write a positive number",
+                    );
                 }
             }
             k if BOUNDS.contains(&k) && !is_finite_number(v) => {
                 self.problem(file, v.span, format!("`{k}` is a number"), "write a number")
             }
-            k if COUNTS.contains(&k) && !is_count(v) => {
-                self.problem(file, v.span, format!("`{k}` is a whole number, zero or more"), "write a whole number")
-            }
-            "uniqueItems" if !matches!(v.value, Value::Bool(_)) => {
-                self.problem(file, v.span, "`uniqueItems` is `true` or `false`", "write a boolean")
-            }
+            k if COUNTS.contains(&k) && !is_count(v) => self.problem(
+                file,
+                v.span,
+                format!("`{k}` is a whole number, zero or more"),
+                "write a whole number",
+            ),
+            "uniqueItems" if !matches!(v.value, Value::Bool(_)) => self.problem(
+                file,
+                v.span,
+                "`uniqueItems` is `true` or `false`",
+                "write a boolean",
+            ),
             "pattern" => match v.as_str() {
                 Some(p) => self.regex(file, v.span, p),
-                None => self.problem(file, v.span, "`pattern` is a string", "write the pattern as a string"),
+                None => self.problem(
+                    file,
+                    v.span,
+                    "`pattern` is a string",
+                    "write the pattern as a string",
+                ),
             },
-            "required" if !is_name_list(v) => {
-                self.problem(file, v.span, "`required` is an array of property names, each once", "write the names as strings")
-            }
+            "required" if !is_name_list(v) => self.problem(
+                file,
+                v.span,
+                "`required` is an array of property names, each once",
+                "write the names as strings",
+            ),
             "dependentRequired" => {
                 let ok = match &v.value {
                     Value::Object(entries, _) => entries.iter().all(|e| is_name_list(&e.value)),
                     _ => false,
                 };
                 if !ok {
-                    self.problem(file, v.span, "`dependentRequired` maps a property name to an array of names", "write an object of arrays of names");
+                    self.problem(
+                        file,
+                        v.span,
+                        "`dependentRequired` maps a property name to an array of names",
+                        "write an object of arrays of names",
+                    );
                 }
             }
             _ => {}
@@ -579,9 +736,11 @@ impl<'r> Registry<'r> {
                 let seg = raw.replace("~1", "/").replace("~0", "~");
                 node = match &node.value {
                     Value::Object(..) => node.get(&seg).ok_or(Unresolved::NoTarget)?,
-                    Value::Array(items, _) => {
-                        seg.parse::<usize>().ok().and_then(|i| items.get(i)).ok_or(Unresolved::NoTarget)?
-                    }
+                    Value::Array(items, _) => seg
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|i| items.get(i))
+                        .ok_or(Unresolved::NoTarget)?,
                     _ => return Err(Unresolved::NoTarget),
                 };
             }
@@ -592,13 +751,21 @@ impl<'r> Registry<'r> {
             let owner = self.root_of.get(&ptr).copied().or(inside).unwrap_or(target);
             return Ok((owner, node));
         }
-        let node = r.anchors.get(&fragment).or_else(|| r.dynamic_anchors.get(&fragment)).ok_or(Unresolved::NoTarget)?;
+        let node = r
+            .anchors
+            .get(&fragment)
+            .or_else(|| r.dynamic_anchors.get(&fragment))
+            .ok_or(Unresolved::NoTarget)?;
         Ok((target, node))
     }
 
     fn resource_named(&self, base: &str, from: usize) -> Result<usize, Unresolved> {
         if has_scheme(base) {
-            return self.by_id.get(base.trim_end_matches('#')).copied().ok_or(Unresolved::NotLocal);
+            return self
+                .by_id
+                .get(base.trim_end_matches('#'))
+                .copied()
+                .ok_or(Unresolved::NotLocal);
         }
         let r = self.resources.get(from).ok_or(Unresolved::NoTarget)?;
         if let Some(id) = &r.id {
@@ -608,12 +775,19 @@ impl<'r> Registry<'r> {
         }
         let from_path = self.path_of(r.file);
         let path = local_path(&from_path, base).ok_or(Unresolved::NotLocal)?;
-        self.by_file.get(&path).copied().ok_or(Unresolved::NoFile(path))
+        self.by_file
+            .get(&path)
+            .copied()
+            .ok_or(Unresolved::NoFile(path))
     }
 
     fn keyword_location(&self, schema: &Node, keyword: &str) -> String {
         match self.location.get(&(schema as *const Node)) {
-            Some((file, pointer, _)) => format!("{}#{pointer}/{}", self.path_of(*file), escape_pointer(keyword)),
+            Some((file, pointer, _)) => format!(
+                "{}#{pointer}/{}",
+                self.path_of(*file),
+                escape_pointer(keyword)
+            ),
             None => keyword.to_string(),
         }
     }
@@ -621,7 +795,9 @@ impl<'r> Registry<'r> {
 
 fn is_anchor(name: &str) -> bool {
     let mut chars = name.chars();
-    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_'))
 }
 
@@ -691,9 +867,17 @@ struct Checker<'a, 'r> {
 
 /// Checks `instance` against the root of the schema file `schema`.
 pub fn validate(reg: &Registry, schema: usize, instance: &Node) -> Vec<Violation> {
-    let root = reg.files.get(schema).map(|f| &f.root).or_ice("the schema is one of the registry's files");
+    let root = reg
+        .files
+        .get(schema)
+        .map(|f| &f.root)
+        .or_ice("the schema is one of the registry's files");
     let resource = reg.by_file.get(&reg.path_of(schema)).copied().unwrap_or(0);
-    let mut c = Checker { reg, dynamic: Vec::new(), depth: 0 };
+    let mut c = Checker {
+        reg,
+        dynamic: Vec::new(),
+        depth: 0,
+    };
     let mut out = Vec::new();
     c.check(root, resource, instance, &mut out);
     out.truncate(MAX_VIOLATIONS);
@@ -728,7 +912,9 @@ fn has_type(v: &Node, t: &str) -> bool {
     use super::number::Number;
     match (t, &v.value) {
         ("null", Value::Null) | ("boolean", Value::Bool(_)) | ("string", Value::Str(_)) => true,
-        ("object", Value::Object(..)) | ("array", Value::Array(..)) | ("number", Value::Number(_)) => true,
+        ("object", Value::Object(..))
+        | ("array", Value::Array(..))
+        | ("number", Value::Number(_)) => true,
         ("integer", Value::Number(Number::Finite(d))) => d.is_integer(),
         _ => false,
     }
@@ -757,9 +943,13 @@ fn equal(a: &Node, b: &Node) -> bool {
         (Value::Bool(x), Value::Bool(y)) => x == y,
         (Value::Number(x), Value::Number(y)) => x == y,
         (Value::Str(x), Value::Str(y)) => x == y,
-        (Value::Array(x, _), Value::Array(y, _)) => x.len() == y.len() && x.iter().zip(y).all(|(a, b)| equal(a, b)),
+        (Value::Array(x, _), Value::Array(y, _)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(a, b)| equal(a, b))
+        }
         (Value::Object(x, _), Value::Object(y, _)) => {
-            x.len() == y.len() && x.iter().all(|m| b.get(&m.key).is_some_and(|other| equal(&m.value, other)))
+            x.len() == y.len()
+                && x.iter()
+                    .all(|m| b.get(&m.key).is_some_and(|other| equal(&m.value, other)))
         }
         _ => false,
     }
@@ -783,8 +973,21 @@ fn plural(n: usize, one: &str, many: &str) -> String {
 }
 
 impl<'a, 'r> Checker<'a, 'r> {
-    fn violation(&self, out: &mut Vec<Violation>, schema: &Node, keyword: &str, span: Range, problem: String, remedy: impl Into<String>) {
-        out.push(Violation { span, problem, remedy: remedy.into(), location: self.reg.keyword_location(schema, keyword) });
+    fn violation(
+        &self,
+        out: &mut Vec<Violation>,
+        schema: &Node,
+        keyword: &str,
+        span: Range,
+        problem: String,
+        remedy: impl Into<String>,
+    ) {
+        out.push(Violation {
+            span,
+            problem,
+            remedy: remedy.into(),
+            location: self.reg.keyword_location(schema, keyword),
+        });
     }
 
     /// Whether `instance` passes `schema`, reporting nothing.
@@ -794,23 +997,51 @@ impl<'a, 'r> Checker<'a, 'r> {
         (scratch.is_empty(), e)
     }
 
-    fn check(&mut self, schema: &'r Node, resource: usize, instance: &Node, out: &mut Vec<Violation>) -> Evaluated {
+    fn check(
+        &mut self,
+        schema: &'r Node,
+        resource: usize,
+        instance: &Node,
+        out: &mut Vec<Violation>,
+    ) -> Evaluated {
         let members = match &schema.value {
             Value::Bool(true) => return Evaluated::default(),
             Value::Bool(false) => {
-                self.violation(out, schema, "", instance.span, format!("the schema allows no value here, and this is {}", kind(instance)), "delete it");
+                self.violation(
+                    out,
+                    schema,
+                    "",
+                    instance.span,
+                    format!(
+                        "the schema allows no value here, and this is {}",
+                        kind(instance)
+                    ),
+                    "delete it",
+                );
                 return Evaluated::default();
             }
             Value::Object(members, _) => members,
             _ => return Evaluated::default(),
         };
         if self.depth > MAX_DEPTH {
-            self.violation(out, schema, "$ref", instance.span, "the schema refers to itself without end at this value".to_string(), "break the loop of `$ref`s in the schema");
+            self.violation(
+                out,
+                schema,
+                "$ref",
+                instance.span,
+                "the schema refers to itself without end at this value".to_string(),
+                "break the loop of `$ref`s in the schema",
+            );
             return Evaluated::default();
         }
         self.depth = self.depth.saturating_add(1);
         // A resource's root, or any schema in a resource a `$ref` just entered.
-        let entered = self.reg.root_of.get(&(schema as *const Node)).copied().or_else(|| (self.dynamic.last() != Some(&resource)).then_some(resource));
+        let entered = self
+            .reg
+            .root_of
+            .get(&(schema as *const Node))
+            .copied()
+            .or_else(|| (self.dynamic.last() != Some(&resource)).then_some(resource));
         let resource = entered.unwrap_or(resource);
         if let Some(r) = entered {
             self.dynamic.push(r);
@@ -822,8 +1053,11 @@ impl<'a, 'r> Checker<'a, 'r> {
         // Last, because they ask what everything else looked at.
         for m in members {
             match m.key.as_str() {
-                "unevaluatedProperties" => self.unevaluated_properties(schema, resource, &m.value, instance, out, &mut seen),
-                "unevaluatedItems" => self.unevaluated_items(schema, resource, &m.value, instance, out, &mut seen),
+                "unevaluatedProperties" => self
+                    .unevaluated_properties(schema, resource, &m.value, instance, out, &mut seen),
+                "unevaluatedItems" => {
+                    self.unevaluated_items(schema, resource, &m.value, instance, out, &mut seen)
+                }
                 _ => {}
             }
         }
@@ -834,8 +1068,19 @@ impl<'a, 'r> Checker<'a, 'r> {
         seen
     }
 
-    #[allow(clippy::too_many_lines, reason = "one arm per keyword, in the order the vocabularies list them")]
-    fn keyword(&mut self, schema: &'r Node, resource: usize, m: &'r Member, v: &Node, out: &mut Vec<Violation>, seen: &mut Evaluated) {
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one arm per keyword, in the order the vocabularies list them"
+    )]
+    fn keyword(
+        &mut self,
+        schema: &'r Node,
+        resource: usize,
+        m: &'r Member,
+        v: &Node,
+        out: &mut Vec<Violation>,
+        seen: &mut Evaluated,
+    ) {
         let k = m.key.as_str();
         let s = &m.value;
         match (k, &v.value) {
@@ -871,7 +1116,14 @@ impl<'a, 'r> Checker<'a, 'r> {
                     }
                 }
                 if !any {
-                    self.violation(out, schema, k, v.span, format!("{} matches none of the schemas in `anyOf`", show(v)), "change it to match one of them");
+                    self.violation(
+                        out,
+                        schema,
+                        k,
+                        v.span,
+                        format!("{} matches none of the schemas in `anyOf`", show(v)),
+                        "change it to match one of them",
+                    );
                 }
             }
             ("oneOf", _) => {
@@ -884,13 +1136,37 @@ impl<'a, 'r> Checker<'a, 'r> {
                 }
                 match matched.len() {
                     1 => matched.into_iter().for_each(|e| seen.merge(e)),
-                    0 => self.violation(out, schema, k, v.span, format!("{} matches none of the schemas in `oneOf`", show(v)), "change it to match exactly one of them"),
-                    n => self.violation(out, schema, k, v.span, format!("{} matches {n} of the schemas in `oneOf`, and may match only one", show(v)), "change it to match exactly one of them"),
+                    0 => self.violation(
+                        out,
+                        schema,
+                        k,
+                        v.span,
+                        format!("{} matches none of the schemas in `oneOf`", show(v)),
+                        "change it to match exactly one of them",
+                    ),
+                    n => self.violation(
+                        out,
+                        schema,
+                        k,
+                        v.span,
+                        format!(
+                            "{} matches {n} of the schemas in `oneOf`, and may match only one",
+                            show(v)
+                        ),
+                        "change it to match exactly one of them",
+                    ),
                 }
             }
             ("not", _) => {
                 if self.passes(s, resource, v).0 {
-                    self.violation(out, schema, k, v.span, format!("{} matches the schema in `not`", show(v)), "change it so it does not");
+                    self.violation(
+                        out,
+                        schema,
+                        k,
+                        v.span,
+                        format!("{} matches the schema in `not`", show(v)),
+                        "change it so it does not",
+                    );
                 }
             }
             ("if", _) => {
@@ -921,35 +1197,87 @@ impl<'a, 'r> Checker<'a, 'r> {
                     _ => Vec::new(),
                 };
                 if !names.is_empty() && !names.iter().any(|t| has_type(v, t)) {
-                    let expected = names.iter().map(|t| type_phrase(t)).collect::<Vec<_>>().join(" or ");
-                    self.violation(out, schema, k, v.span, format!("expected {expected}, found {}", kind(v)), format!("write {expected} here"));
+                    let expected = names
+                        .iter()
+                        .map(|t| type_phrase(t))
+                        .collect::<Vec<_>>()
+                        .join(" or ");
+                    self.violation(
+                        out,
+                        schema,
+                        k,
+                        v.span,
+                        format!("expected {expected}, found {}", kind(v)),
+                        format!("write {expected} here"),
+                    );
                 }
             }
             ("enum", _) => {
                 let allowed = list(s);
                 if !allowed.iter().any(|a| equal(a, v)) {
-                    let mut shown: Vec<String> = allowed.iter().take(10).map(|a| format!("`{}`", a.raw.chars().take(40).collect::<String>())).collect();
+                    let mut shown: Vec<String> = allowed
+                        .iter()
+                        .take(10)
+                        .map(|a| format!("`{}`", a.raw.chars().take(40).collect::<String>()))
+                        .collect();
                     if allowed.len() > 10 {
                         shown.push("…".to_string());
                     }
                     let values = shown.join(", ");
-                    self.violation(out, schema, k, v.span, format!("{} is not one of the values `enum` allows: {values}", show(v)), "write one of the allowed values");
+                    self.violation(
+                        out,
+                        schema,
+                        k,
+                        v.span,
+                        format!(
+                            "{} is not one of the values `enum` allows: {values}",
+                            show(v)
+                        ),
+                        "write one of the allowed values",
+                    );
                 }
             }
             ("const", _) => {
                 if !equal(s, v) {
-                    self.violation(out, schema, k, v.span, format!("expected {}, found {}", show(s), show(v)), format!("write {}", show(s)));
+                    self.violation(
+                        out,
+                        schema,
+                        k,
+                        v.span,
+                        format!("expected {}, found {}", show(s), show(v)),
+                        format!("write {}", show(s)),
+                    );
                 }
             }
-            ("multipleOf" | "maximum" | "exclusiveMaximum" | "minimum" | "exclusiveMinimum", Value::Number(n)) => {
+            (
+                "multipleOf" | "maximum" | "exclusiveMaximum" | "minimum" | "exclusiveMinimum",
+                Value::Number(n),
+            ) => {
                 self.number(schema, k, s, n, v, out);
             }
             ("maxLength" | "minLength", Value::Str(text)) => {
                 let len = text.chars().count();
                 let bound = count(s);
-                let (bad, word) = if k == "maxLength" { (len > bound, "at most") } else { (len < bound, "at least") };
+                let (bad, word) = if k == "maxLength" {
+                    (len > bound, "at most")
+                } else {
+                    (len < bound, "at least")
+                };
                 if bad {
-                    self.violation(out, schema, k, v.span, format!("the string is {} long, and the schema asks for {word} {bound}", plural(len, "character", "characters")), format!("write a string of {word} {}", plural(bound, "character", "characters")));
+                    self.violation(
+                        out,
+                        schema,
+                        k,
+                        v.span,
+                        format!(
+                            "the string is {} long, and the schema asks for {word} {bound}",
+                            plural(len, "character", "characters")
+                        ),
+                        format!(
+                            "write a string of {word} {}",
+                            plural(bound, "character", "characters")
+                        ),
+                    );
                 }
             }
             ("pattern", Value::Str(text)) => {
@@ -967,7 +1295,18 @@ impl<'a, 'r> Checker<'a, 'r> {
                 let skip = schema.get("prefixItems").map_or(0, |p| list(p).len());
                 for (i, item) in items.iter().enumerate().skip(skip) {
                     if matches!(s.value, Value::Bool(false)) {
-                        self.violation(out, schema, k, item.span, format!("the array may hold {}, and this is item {}", plural(skip, "item", "items"), i.saturating_add(1)), "delete it");
+                        self.violation(
+                            out,
+                            schema,
+                            k,
+                            item.span,
+                            format!(
+                                "the array may hold {}, and this is item {}",
+                                plural(skip, "item", "items"),
+                                i.saturating_add(1)
+                            ),
+                            "delete it",
+                        );
                     } else {
                         self.check(s, resource, item, out);
                     }
@@ -985,18 +1324,53 @@ impl<'a, 'r> Checker<'a, 'r> {
                 let min = schema.get("minContains").map_or(1, count);
                 let max = schema.get("maxContains").map(count);
                 if matched < min {
-                    let found = if matched == 0 { "no item matches".to_string() } else { format!("{} match", plural(matched, "item", "items")) };
-                    self.violation(out, schema, k, v.span, format!("{found} `contains`, and the schema asks for at least {min}"), "add an item that matches `contains`");
+                    let found = if matched == 0 {
+                        "no item matches".to_string()
+                    } else {
+                        format!("{} match", plural(matched, "item", "items"))
+                    };
+                    self.violation(
+                        out,
+                        schema,
+                        k,
+                        v.span,
+                        format!("{found} `contains`, and the schema asks for at least {min}"),
+                        "add an item that matches `contains`",
+                    );
                 }
                 if let Some(max) = max.filter(|max| matched > *max) {
-                    self.violation(out, schema, "maxContains", v.span, format!("{} match `contains`, and the schema allows at most {max}", plural(matched, "item", "items")), "remove the items that match");
+                    self.violation(
+                        out,
+                        schema,
+                        "maxContains",
+                        v.span,
+                        format!(
+                            "{} match `contains`, and the schema allows at most {max}",
+                            plural(matched, "item", "items")
+                        ),
+                        "remove the items that match",
+                    );
                 }
             }
             ("maxItems" | "minItems", Value::Array(items, _)) => {
                 let bound = count(s);
-                let (bad, word) = if k == "maxItems" { (items.len() > bound, "at most") } else { (items.len() < bound, "at least") };
+                let (bad, word) = if k == "maxItems" {
+                    (items.len() > bound, "at most")
+                } else {
+                    (items.len() < bound, "at least")
+                };
                 if bad {
-                    self.violation(out, schema, k, v.span, format!("the array has {}, and the schema asks for {word} {bound}", plural(items.len(), "item", "items")), format!("write {word} {}", plural(bound, "item", "items")));
+                    self.violation(
+                        out,
+                        schema,
+                        k,
+                        v.span,
+                        format!(
+                            "the array has {}, and the schema asks for {word} {bound}",
+                            plural(items.len(), "item", "items")
+                        ),
+                        format!("write {word} {}", plural(bound, "item", "items")),
+                    );
                 }
             }
             ("uniqueItems", Value::Array(items, _)) => {
@@ -1004,7 +1378,18 @@ impl<'a, 'r> Checker<'a, 'r> {
                     'outer: for (j, b) in items.iter().enumerate() {
                         for (i, a) in items.iter().enumerate().take(j) {
                             if equal(a, b) {
-                                self.violation(out, schema, k, b.span, format!("item {} repeats item {}, and the items must be unique", j.saturating_add(1), i.saturating_add(1)), "delete one of them");
+                                self.violation(
+                                    out,
+                                    schema,
+                                    k,
+                                    b.span,
+                                    format!(
+                                        "item {} repeats item {}, and the items must be unique",
+                                        j.saturating_add(1),
+                                        i.saturating_add(1)
+                                    ),
+                                    "delete one of them",
+                                );
                                 break 'outer;
                             }
                         }
@@ -1023,7 +1408,12 @@ impl<'a, 'r> Checker<'a, 'r> {
                 if let Value::Object(patterns, _) = &s.value {
                     for member in members {
                         for p in patterns {
-                            if self.reg.regexes.get(&p.key).is_some_and(|r| r.is_match(&member.key) == Ok(true)) {
+                            if self
+                                .reg
+                                .regexes
+                                .get(&p.key)
+                                .is_some_and(|r| r.is_match(&member.key) == Ok(true))
+                            {
                                 self.check(&p.value, resource, &member.value, out);
                                 seen.props.insert(member.key.clone());
                             }
@@ -1033,10 +1423,15 @@ impl<'a, 'r> Checker<'a, 'r> {
             }
             ("additionalProperties", Value::Object(members, _)) => {
                 for member in members {
-                    let declared = schema.get("properties").is_some_and(|p| p.get(&member.key).is_some());
+                    let declared = schema
+                        .get("properties")
+                        .is_some_and(|p| p.get(&member.key).is_some());
                     let patterned = match schema.get("patternProperties").map(|p| &p.value) {
                         Some(Value::Object(patterns, _)) => patterns.iter().any(|p| {
-                            self.reg.regexes.get(&p.key).is_some_and(|r| r.is_match(&member.key) == Ok(true))
+                            self.reg
+                                .regexes
+                                .get(&p.key)
+                                .is_some_and(|r| r.is_match(&member.key) == Ok(true))
                         }),
                         _ => false,
                     };
@@ -1062,26 +1457,59 @@ impl<'a, 'r> Checker<'a, 'r> {
             }
             ("maxProperties" | "minProperties", Value::Object(members, _)) => {
                 let bound = count(s);
-                let (bad, word) = if k == "maxProperties" { (members.len() > bound, "at most") } else { (members.len() < bound, "at least") };
+                let (bad, word) = if k == "maxProperties" {
+                    (members.len() > bound, "at most")
+                } else {
+                    (members.len() < bound, "at least")
+                };
                 if bad {
-                    self.violation(out, schema, k, v.span, format!("the object has {}, and the schema asks for {word} {bound}", plural(members.len(), "property", "properties")), format!("write {word} {}", plural(bound, "property", "properties")));
+                    self.violation(
+                        out,
+                        schema,
+                        k,
+                        v.span,
+                        format!(
+                            "the object has {}, and the schema asks for {word} {bound}",
+                            plural(members.len(), "property", "properties")
+                        ),
+                        format!("write {word} {}", plural(bound, "property", "properties")),
+                    );
                 }
             }
             ("required", Value::Object(..)) => {
                 for name in list(s).iter().filter_map(|n| n.as_str()) {
                     if v.get(name).is_none() {
                         let open = (v.span.0, v.span.0.saturating_add(1));
-                        self.violation(out, schema, k, open, format!("the object has no `\"{name}\"`"), format!("add `\"{name}\"`"));
+                        self.violation(
+                            out,
+                            schema,
+                            k,
+                            open,
+                            format!("the object has no `\"{name}\"`"),
+                            format!("add `\"{name}\"`"),
+                        );
                     }
                 }
             }
             ("dependentRequired", Value::Object(members, _)) => {
                 if let Value::Object(entries, _) = &s.value {
                     for e in entries {
-                        let Some(present) = members.iter().find(|m| m.key == e.key) else { continue };
+                        let Some(present) = members.iter().find(|m| m.key == e.key) else {
+                            continue;
+                        };
                         for name in list(&e.value).iter().filter_map(|n| n.as_str()) {
                             if v.get(name).is_none() {
-                                self.violation(out, schema, k, present.key_span, format!("`\"{name}\"` is required when `\"{}\"` is present", e.key), format!("add `\"{name}\"`, or delete `\"{}\"`", e.key));
+                                self.violation(
+                                    out,
+                                    schema,
+                                    k,
+                                    present.key_span,
+                                    format!(
+                                        "`\"{name}\"` is required when `\"{}\"` is present",
+                                        e.key
+                                    ),
+                                    format!("add `\"{name}\"`, or delete `\"{}\"`", e.key),
+                                );
                             }
                         }
                     }
@@ -1091,16 +1519,41 @@ impl<'a, 'r> Checker<'a, 'r> {
         }
     }
 
-    fn extra_property(&mut self, schema: &'r Node, resource: usize, k: &str, s: &'r Node, member: &Member, out: &mut Vec<Violation>) {
+    fn extra_property(
+        &mut self,
+        schema: &'r Node,
+        resource: usize,
+        k: &str,
+        s: &'r Node,
+        member: &Member,
+        out: &mut Vec<Violation>,
+    ) {
         if matches!(s.value, Value::Bool(false)) {
-            self.violation(out, schema, k, member.key_span, format!("`{}` is not a property the schema declares", member.key_raw), "delete it, or declare it in the schema's `properties`");
+            self.violation(
+                out,
+                schema,
+                k,
+                member.key_span,
+                format!("`{}` is not a property the schema declares", member.key_raw),
+                "delete it, or declare it in the schema's `properties`",
+            );
         } else {
             self.check(s, resource, &member.value, out);
         }
     }
 
-    fn unevaluated_properties(&mut self, schema: &'r Node, resource: usize, s: &'r Node, v: &Node, out: &mut Vec<Violation>, seen: &mut Evaluated) {
-        let Value::Object(members, _) = &v.value else { return };
+    fn unevaluated_properties(
+        &mut self,
+        schema: &'r Node,
+        resource: usize,
+        s: &'r Node,
+        v: &Node,
+        out: &mut Vec<Violation>,
+        seen: &mut Evaluated,
+    ) {
+        let Value::Object(members, _) = &v.value else {
+            return;
+        };
         if seen.all_props {
             return;
         }
@@ -1112,8 +1565,18 @@ impl<'a, 'r> Checker<'a, 'r> {
         seen.all_props = true;
     }
 
-    fn unevaluated_items(&mut self, schema: &'r Node, resource: usize, s: &'r Node, v: &Node, out: &mut Vec<Violation>, seen: &mut Evaluated) {
-        let Value::Array(items, _) = &v.value else { return };
+    fn unevaluated_items(
+        &mut self,
+        schema: &'r Node,
+        resource: usize,
+        s: &'r Node,
+        v: &Node,
+        out: &mut Vec<Violation>,
+        seen: &mut Evaluated,
+    ) {
+        let Value::Array(items, _) = &v.value else {
+            return;
+        };
         if seen.all_items {
             return;
         }
@@ -1122,7 +1585,17 @@ impl<'a, 'r> Checker<'a, 'r> {
                 continue;
             }
             if matches!(s.value, Value::Bool(false)) {
-                self.violation(out, schema, "unevaluatedItems", item.span, format!("item {} is not one the schema describes", i.saturating_add(1)), "delete it, or describe it in the schema");
+                self.violation(
+                    out,
+                    schema,
+                    "unevaluatedItems",
+                    item.span,
+                    format!(
+                        "item {} is not one the schema describes",
+                        i.saturating_add(1)
+                    ),
+                    "delete it, or describe it in the schema",
+                );
             } else {
                 self.check(s, resource, item, out);
             }
@@ -1130,46 +1603,135 @@ impl<'a, 'r> Checker<'a, 'r> {
         seen.all_items = true;
     }
 
-    fn number(&mut self, schema: &Node, k: &str, s: &Node, n: &super::number::Number, v: &Node, out: &mut Vec<Violation>) {
+    fn number(
+        &mut self,
+        schema: &Node,
+        k: &str,
+        s: &Node,
+        n: &super::number::Number,
+        v: &Node,
+        out: &mut Vec<Violation>,
+    ) {
         use super::number::Number;
-        let Value::Number(Number::Finite(bound)) = &s.value else { return };
+        let Value::Number(Number::Finite(bound)) = &s.value else {
+            return;
+        };
         let Number::Finite(x) = n else {
             // `Infinity` and `NaN` pass `type: number` and nothing else.
-            self.violation(out, schema, k, v.span, format!("{} is not a finite number, and `{k}` asks for one", show(v)), "write a finite number");
+            self.violation(
+                out,
+                schema,
+                k,
+                v.span,
+                format!("{} is not a finite number, and `{k}` asks for one", show(v)),
+                "write a finite number",
+            );
             return;
         };
         let (bad, problem) = match k {
-            "multipleOf" => (!x.is_multiple_of(bound), format!("{} is not a multiple of `{}`", show(v), s.raw)),
-            "maximum" => (x > bound, format!("{} is greater than the maximum, `{}`", show(v), s.raw)),
-            "exclusiveMaximum" => (x >= bound, format!("{} is not less than `{}`, the exclusive maximum", show(v), s.raw)),
-            "minimum" => (x < bound, format!("{} is less than the minimum, `{}`", show(v), s.raw)),
-            _ => (x <= bound, format!("{} is not greater than `{}`, the exclusive minimum", show(v), s.raw)),
+            "multipleOf" => (
+                !x.is_multiple_of(bound),
+                format!("{} is not a multiple of `{}`", show(v), s.raw),
+            ),
+            "maximum" => (
+                x > bound,
+                format!("{} is greater than the maximum, `{}`", show(v), s.raw),
+            ),
+            "exclusiveMaximum" => (
+                x >= bound,
+                format!(
+                    "{} is not less than `{}`, the exclusive maximum",
+                    show(v),
+                    s.raw
+                ),
+            ),
+            "minimum" => (
+                x < bound,
+                format!("{} is less than the minimum, `{}`", show(v), s.raw),
+            ),
+            _ => (
+                x <= bound,
+                format!(
+                    "{} is not greater than `{}`, the exclusive minimum",
+                    show(v),
+                    s.raw
+                ),
+            ),
         };
         if bad {
-            self.violation(out, schema, k, v.span, problem, format!("write a number `{k}` allows"));
+            self.violation(
+                out,
+                schema,
+                k,
+                v.span,
+                problem,
+                format!("write a number `{k}` allows"),
+            );
         }
     }
 
-    fn pattern(&mut self, schema: &Node, k: &str, pattern: &str, text: &str, v: &Node, out: &mut Vec<Violation>) {
-        let Some(regex) = self.reg.regexes.get(pattern) else { return };
+    fn pattern(
+        &mut self,
+        schema: &Node,
+        k: &str,
+        pattern: &str,
+        text: &str,
+        v: &Node,
+        out: &mut Vec<Violation>,
+    ) {
+        let Some(regex) = self.reg.regexes.get(pattern) else {
+            return;
+        };
         match regex.is_match(text) {
             Ok(true) => {}
-            Ok(false) => self.violation(out, schema, k, v.span, format!("{} does not match the pattern `{pattern}`", show(v)), "write a string the pattern matches"),
-            Err(TooCostly) => self.violation(out, schema, k, v.span, format!("the pattern `{pattern}` is too costly to match against {}", show(v)), "simplify the pattern"),
+            Ok(false) => self.violation(
+                out,
+                schema,
+                k,
+                v.span,
+                format!("{} does not match the pattern `{pattern}`", show(v)),
+                "write a string the pattern matches",
+            ),
+            Err(TooCostly) => self.violation(
+                out,
+                schema,
+                k,
+                v.span,
+                format!(
+                    "the pattern `{pattern}` is too costly to match against {}",
+                    show(v)
+                ),
+                "simplify the pattern",
+            ),
         }
     }
 
     /// `$dynamicRef`: the outermost resource in scope with a matching
     /// `$dynamicAnchor`, when the reference first lands on one.
-    fn dynamic_target(&self, reference: &str, resource: usize) -> Result<(usize, &'r Node), Unresolved> {
+    fn dynamic_target(
+        &self,
+        reference: &str,
+        resource: usize,
+    ) -> Result<(usize, &'r Node), Unresolved> {
         let (r, target) = self.reg.resolve(reference, resource)?;
-        let Some(name) = reference.split_once('#').map(|(_, f)| f) else { return Ok((r, target)) };
-        let dynamic = self.reg.resources.get(r).is_some_and(|res| res.dynamic_anchors.get(name).is_some_and(|n| std::ptr::eq(*n, target)));
+        let Some(name) = reference.split_once('#').map(|(_, f)| f) else {
+            return Ok((r, target));
+        };
+        let dynamic = self.reg.resources.get(r).is_some_and(|res| {
+            res.dynamic_anchors
+                .get(name)
+                .is_some_and(|n| std::ptr::eq(*n, target))
+        });
         if !dynamic {
             return Ok((r, target));
         }
         for scope in &self.dynamic {
-            if let Some(n) = self.reg.resources.get(*scope).and_then(|res| res.dynamic_anchors.get(name)) {
+            if let Some(n) = self
+                .reg
+                .resources
+                .get(*scope)
+                .and_then(|res| res.dynamic_anchors.get(name))
+            {
                 return Ok((*scope, n));
             }
         }

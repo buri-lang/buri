@@ -14,7 +14,9 @@ pub struct Held {
 
 impl Held {
     pub fn new(name: &str) -> Held {
-        Held { scratch: Scratch::empty(&format!("{name}-held")) }
+        Held {
+            scratch: Scratch::empty(&format!("{name}-held")),
+        }
     }
 
     /// What `BURI_HOLD` is set to.
@@ -27,7 +29,8 @@ impl Held {
         unsafe extern "C" {
             fn mkfifo(path: *const std::ffi::c_char, mode: u32) -> i32;
         }
-        let name = std::ffi::CString::new(self.file(point, n).as_os_str().as_encoded_bytes()).unwrap();
+        let name =
+            std::ffi::CString::new(self.file(point, n).as_os_str().as_encoded_bytes()).unwrap();
         // SAFETY: a NUL-terminated path, and a mode.
         assert_eq!(unsafe { mkfifo(name.as_ptr(), 0o644) }, 0, "mkfifo failed");
     }
@@ -55,16 +58,27 @@ impl Held {
     /// until [`Holding::go`].
     pub fn reached(&self, point: &str, n: usize) -> Holding {
         use std::os::unix::fs::OpenOptionsExt as _;
-        const O_NONBLOCK: i32 = if cfg!(target_os = "macos") { 0x4 } else { 0o4000 };
+        const O_NONBLOCK: i32 = if cfg!(target_os = "macos") {
+            0x4
+        } else {
+            0o4000
+        };
         const DEADLINE: Duration = Duration::from_secs(240);
         let path = self.file(point, n);
         // A writer that won't wait is refused until `buri` has the FIFO open.
         let started = std::time::Instant::now();
         loop {
-            if let Ok(file) = std::fs::OpenOptions::new().write(true).custom_flags(O_NONBLOCK).open(&path) {
+            if let Ok(file) = std::fs::OpenOptions::new()
+                .write(true)
+                .custom_flags(O_NONBLOCK)
+                .open(&path)
+            {
                 return Holding(file);
             }
-            assert!(started.elapsed() < DEADLINE, "`buri` never reached {point} {n} within {DEADLINE:?}");
+            assert!(
+                started.elapsed() < DEADLINE,
+                "`buri` never reached {point} {n} within {DEADLINE:?}"
+            );
             std::thread::sleep(Duration::from_millis(5));
         }
     }

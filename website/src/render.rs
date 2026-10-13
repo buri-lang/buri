@@ -56,7 +56,12 @@ pub fn document(site: &Site, page: &Page) -> (String, PageLinks) {
             let title = entry.map_or("", |s| s.title);
             let blurb = entry.map_or("", |s| s.blurb);
             let mut out = titled(title, blurb, &resolver, &mut targets, &mut anchors);
-            out.push_str(&entries(site, page, site.in_section(*section), &mut targets));
+            out.push_str(&entries(
+                site,
+                page,
+                site.in_section(*section),
+                &mut targets,
+            ));
             out
         }
         Content::Groups => {
@@ -81,7 +86,12 @@ pub fn document(site: &Site, page: &Page) -> (String, PageLinks) {
                 targets.extend(blurb.links);
                 out.push_str(&format!("<p>{}</p>\n", blurb.html));
                 if group.index.is_none() {
-                    out.push_str(&entries(site, page, site.navigation_of(index), &mut targets));
+                    out.push_str(&entries(
+                        site,
+                        page,
+                        site.navigation_of(index),
+                        &mut targets,
+                    ));
                 }
             }
             out
@@ -111,7 +121,9 @@ pub fn document(site: &Site, page: &Page) -> (String, PageLinks) {
 
     let stylesheet = themes::inline_stylesheet();
     let mut out = String::with_capacity(
-        body.len().saturating_add(stylesheet.len()).saturating_add(16 * 1024),
+        body.len()
+            .saturating_add(stylesheet.len())
+            .saturating_add(16 * 1024),
     );
     out.push_str("<!doctype html>\n<html lang=\"en\" data-theme=\"");
     out.push_str(themes::DEFAULT);
@@ -135,7 +147,10 @@ pub fn document(site: &Site, page: &Page) -> (String, PageLinks) {
     out.push_str(&facts);
     out.push_str(&body);
     if let Some(source) = &page.adapted_from {
-        out.push_str(&format!("<p class=\"adapted\">Adapted from {}.</p>\n", escaped(source)));
+        out.push_str(&format!(
+            "<p class=\"adapted\">Adapted from {}.</p>\n",
+            escaped(source)
+        ));
     }
     out.push_str(&also(site, page, &mut targets));
     out.push_str("</article>\n");
@@ -144,7 +159,15 @@ pub fn document(site: &Site, page: &Page) -> (String, PageLinks) {
     out.push_str(&format!("<script>{NAVIGATION_SCRIPT}</script>\n"));
     out.push_str("</body>\n</html>\n");
 
-    (out, PageLinks { route: page.route.clone(), source: page.source.clone(), anchors, targets })
+    (
+        out,
+        PageLinks {
+            route: page.route.clone(),
+            source: page.source.clone(),
+            anchors,
+            targets,
+        },
+    )
 }
 
 /// The heading a page needs and its own text does not give it.
@@ -159,9 +182,15 @@ pub fn document(site: &Site, page: &Page) -> (String, PageLinks) {
 /// which is what makes "already titled" mean the same thing in both places.
 fn own_heading(text: &str, title: &str) -> Option<(String, String)> {
     let normalize = |text: &str| text.replace(['`', ':'], "").to_lowercase();
-    let first = buri::documentation::markdown::headings(text).first().map(|heading| {
-        heading.title.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.').trim().to_string()
-    });
+    let first = buri::documentation::markdown::headings(text)
+        .first()
+        .map(|heading| {
+            heading
+                .title
+                .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
+                .trim()
+                .to_string()
+        });
     if let Some(written) = first {
         let (written, wanted) = (normalize(&written), normalize(title));
         if written.starts_with(&wanted) || wanted.starts_with(&written) {
@@ -189,8 +218,10 @@ fn title_of(page: &Page) -> String {
 /// A description meta tag is one line, and a summary lifted from prose is
 /// whatever the prose was.
 fn one_line(text: &str) -> String {
-    let flattened: String =
-        text.chars().map(|c| if c.is_whitespace() { ' ' } else { c }).collect();
+    let flattened: String = text
+        .chars()
+        .map(|c| if c.is_whitespace() { ' ' } else { c })
+        .collect();
     let mut squeezed = String::with_capacity(flattened.len());
     let mut space = false;
     for character in flattened.chars() {
@@ -208,26 +239,50 @@ fn one_line(text: &str) -> String {
 }
 
 fn link(page: &Page, route: &str, label: &str, current: bool, targets: &mut Vec<Target>) -> String {
-    let target = Target::Page { route: route.to_string(), anchor: None };
+    let target = Target::Page {
+        route: route.to_string(),
+        anchor: None,
+    };
     let href = href_from(&page.route, &target).unwrap_or_default();
     targets.push(target);
-    let mark = if current { " aria-current=\"page\"" } else { "" };
-    format!("<a href=\"{}\"{mark}>{}</a>", escaped(&href), markdown::title(label))
+    let mark = if current {
+        " aria-current=\"page\""
+    } else {
+        ""
+    };
+    format!(
+        "<a href=\"{}\"{mark}>{}</a>",
+        escaped(&href),
+        markdown::title(label)
+    )
 }
 
 fn masthead(page: &Page, targets: &mut Vec<Target>) -> String {
     let mut out = String::from("<header class=\"masthead\">\n");
-    let home = Target::Page { route: String::new(), anchor: None };
+    let home = Target::Page {
+        route: String::new(),
+        anchor: None,
+    };
     let href = href_from(&page.route, &home).unwrap_or_default();
     targets.push(home);
-    out.push_str(&format!("<a class=\"wordmark\" href=\"{}\">Buri</a>\n", escaped(&href)));
+    out.push_str(&format!(
+        "<a class=\"wordmark\" href=\"{}\">Buri</a>\n",
+        escaped(&href)
+    ));
     out.push_str("<nav aria-label=\"Sections\">\n");
     for (index, section) in SECTIONS.iter().enumerate() {
         let current = page.section == Some(index);
-        let target = Target::Page { route: section.slug.to_string(), anchor: None };
+        let target = Target::Page {
+            route: section.slug.to_string(),
+            anchor: None,
+        };
         let href = href_from(&page.route, &target).unwrap_or_default();
         targets.push(target);
-        let mark = if current { " aria-current=\"true\"" } else { "" };
+        let mark = if current {
+            " aria-current=\"true\""
+        } else {
+            ""
+        };
         out.push_str(&format!(
             "<a href=\"{}\"{mark}>{}</a>\n",
             escaped(&href),
@@ -268,18 +323,36 @@ fn picker() -> String {
 /// siblings.
 fn sidebar(site: &Site, page: &Page, targets: &mut Vec<Target>) -> String {
     let mut out = String::from("<nav class=\"sidebar\" aria-label=\"Documentation\">\n");
-    match page.section.and_then(|index| SECTIONS.get(index).map(|s| (index, s))) {
+    match page
+        .section
+        .and_then(|index| SECTIONS.get(index).map(|s| (index, s)))
+    {
         Some((index, section)) => {
-            out.push_str(&format!("<div>\n<h2>{}</h2>\n<ul>\n", escaped(section.title)));
+            out.push_str(&format!(
+                "<div>\n<h2>{}</h2>\n<ul>\n",
+                escaped(section.title)
+            ));
             out.push_str(&format!(
                 "<li>{}</li>\n",
-                link(page, section.slug, "Overview", page.route == section.slug, targets)
+                link(
+                    page,
+                    section.slug,
+                    "Overview",
+                    page.route == section.slug,
+                    targets
+                )
             ));
             if !grouped(index) {
                 for other in site.in_section(index) {
                     out.push_str(&format!(
                         "<li>{}</li>\n",
-                        link(page, &other.route, &other.title, other.route == page.route, targets)
+                        link(
+                            page,
+                            &other.route,
+                            &other.title,
+                            other.route == page.route,
+                            targets
+                        )
                     ));
                 }
             }
@@ -328,8 +401,10 @@ fn crumbs(page: &Page, targets: &mut Vec<Target>) -> String {
     if page.route == section.slug {
         return String::new();
     }
-    let mut out =
-        format!("<p class=\"crumbs\">{}", link(page, section.slug, section.title, false, targets));
+    let mut out = format!(
+        "<p class=\"crumbs\">{}",
+        link(page, section.slug, section.title, false, targets)
+    );
     if let Some(group) = page.group.and_then(|index| GROUPS.get(index)) {
         match &group.index {
             Some(catalogue) if catalogue.route != page.route => {
@@ -355,19 +430,30 @@ fn also(site: &Site, page: &Page, targets: &mut Vec<Target>) -> String {
     }
     let mut out = String::from("<nav class=\"also\">\n<h2>See also</h2>\n<ul>\n");
     for route in &page.see_also {
-        let Some(other) = site.page(route) else { continue };
-        out.push_str(&format!("<li>{}</li>\n", link(page, route, &other.title, false, targets)));
+        let Some(other) = site.page(route) else {
+            continue;
+        };
+        out.push_str(&format!(
+            "<li>{}</li>\n",
+            link(page, route, &other.title, false, targets)
+        ));
     }
     out.push_str("</ul>\n</nav>\n");
     out
 }
 
 fn colophon(page: &Page, targets: &mut Vec<Target>) -> String {
-    let target =
-        Target::Repository { path: page.source.path.clone(), directory: page.source.directory };
+    let target = Target::Repository {
+        path: page.source.path.clone(),
+        directory: page.source.directory,
+    };
     let href = href_from(&page.route, &target).unwrap_or_default();
     targets.push(target);
-    let verb = if page.source.directory { "Browse this section" } else { "Edit this page" };
+    let verb = if page.source.directory {
+        "Browse this section"
+    } else {
+        "Edit this page"
+    };
     format!(
         "<footer class=\"colophon\">\n\
          <a href=\"{}\" rel=\"noreferrer\">{verb} on GitHub</a>\n\
@@ -614,10 +700,22 @@ mod tests {
     fn a_rendered_page_carries_the_hover_preload() {
         let (site, page) = a_page();
         let (html, _) = document(&site, &page);
-        for marker in ["preloadOnHover", "\"mouseover\"", "\"touchstart\"", "saveData", "passive"] {
-            assert!(html.contains(marker), "the rendered page is missing `{marker}`");
+        for marker in [
+            "preloadOnHover",
+            "\"mouseover\"",
+            "\"touchstart\"",
+            "saveData",
+            "passive",
+        ] {
+            assert!(
+                html.contains(marker),
+                "the rendered page is missing `{marker}`"
+            );
         }
-        assert!(!html.contains("<script src="), "the page loads an external script");
+        assert!(
+            !html.contains("<script src="),
+            "the page loads an external script"
+        );
     }
 
     /// The stylesheet is written into the document rather than linked, so a
@@ -628,15 +726,26 @@ mod tests {
         let (site, page) = a_page();
         let (html, _) = document(&site, &page);
         let (head, _) = html.split_once("</head>").expect("a head");
-        let (_, rest) = head.split_once("<style>").expect("a style element in the head");
+        let (_, rest) = head
+            .split_once("<style>")
+            .expect("a style element in the head");
         let (css, _) = rest.split_once("</style>").expect("the style element ends");
-        assert!(css.contains("pre .keyword"), "the style element is not the stylesheet");
+        assert!(
+            css.contains("pre .keyword"),
+            "the style element is not the stylesheet"
+        );
         assert!(
             css.contains(&format!("[data-theme=\"{}\"]", themes::DEFAULT)),
             "the inlined sheet has no palette for the default scheme"
         );
-        assert!(!html.contains("<link rel=\"stylesheet\""), "the page still links a stylesheet");
-        assert!(!html.contains("site.css"), "the page still names a stylesheet file");
+        assert!(
+            !html.contains("<link rel=\"stylesheet\""),
+            "the page still links a stylesheet"
+        );
+        assert!(
+            !html.contains("site.css"),
+            "the page still names a stylesheet file"
+        );
     }
 
     /// A hover and the click after it must be one request, the map must not
@@ -655,8 +764,15 @@ mod tests {
             NAVIGATION_SCRIPT.contains("pages.delete(pages.keys().next().value);"),
             "the map no longer evicts its oldest entry"
         );
-        for kept in ["history.pushState", "document.title = parsed.title", "scroll(address.hash)"] {
-            assert!(NAVIGATION_SCRIPT.contains(kept), "the swap no longer does `{kept}`");
+        for kept in [
+            "history.pushState",
+            "document.title = parsed.title",
+            "scroll(address.hash)",
+        ] {
+            assert!(
+                NAVIGATION_SCRIPT.contains(kept),
+                "the swap no longer does `{kept}`"
+            );
         }
         assert!(
             NAVIGATION_SCRIPT.contains("window.addEventListener(\"popstate\""),

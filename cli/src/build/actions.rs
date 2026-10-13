@@ -54,10 +54,17 @@ pub fn build_target(
 ///
 /// A bundled platform's assets are embedded in the toolchain, as its build
 /// file is; a repository platform's are read from its package.
-fn copy_assets(session: &Session, target: TargetId, output: &Output, diagnostics: &mut Diagnostics) -> bool {
+fn copy_assets(
+    session: &Session,
+    target: TargetId,
+    output: &Output,
+    diagnostics: &mut Diagnostics,
+) -> bool {
     let rule = platform_rule(session, output);
     let path = artifact_path(session, target, output);
-    let into = path.parent().or_ice("an artifact's path is a file in its output's directory");
+    let into = path
+        .parent()
+        .or_ice("an artifact's path is a file in its output's directory");
     for asset in &rule.assets {
         let destination = into.join(&asset.value);
         crate::build::create_parent(&destination);
@@ -98,7 +105,10 @@ pub fn platform_rule<'s>(session: &'s Session, output: &Output) -> &'s PlatformR
 /// Whether an output is a page: its platform ships an `index.html` beside
 /// every entry, which `buri run` serves instead of starting the entry.
 pub fn is_page(session: &Session, output: &Output) -> bool {
-    platform_rule(session, output).assets.iter().any(|a| a.value == PAGE)
+    platform_rule(session, output)
+        .assets
+        .iter()
+        .any(|a| a.value == PAGE)
 }
 
 /// The document `buri run` serves an output's directory by.
@@ -174,7 +184,12 @@ fn build_artifact(
                 {
                     explain_link(crate::build::cache::Status::Cached);
                     link_out_symlink(session, output);
-                    return Ok(Artifact { target, path, bytes: module.len(), cached: true });
+                    return Ok(Artifact {
+                        target,
+                        path,
+                        bytes: module.len(),
+                        cached: true,
+                    });
                 }
             }
         }
@@ -183,7 +198,9 @@ fn build_artifact(
 
     let compiled = compile_artifact(session, target, output, flags, &mut diagnostics)?;
     let reads = encode_reads(session, &compiled.unkeyed);
-    let parts = [&reads, &compiled.module, &compiled.stylesheet].into_iter().chain(&compiled.chunks);
+    let parts = [&reads, &compiled.module, &compiled.stylesheet]
+        .into_iter()
+        .chain(&compiled.chunks);
     cache.put(&key, &encode_parts(parts.map(String::as_str)));
     crate::build::create_parent(&path);
     if let Err(e) = std::fs::write(&path, &compiled.module) {
@@ -193,11 +210,21 @@ fn build_artifact(
         );
         return Err(diagnostics);
     }
-    if !write_companions(&path, &compiled.stylesheet, &compiled.chunks, &mut diagnostics) {
+    if !write_companions(
+        &path,
+        &compiled.stylesheet,
+        &compiled.chunks,
+        &mut diagnostics,
+    ) {
         return Err(diagnostics);
     }
     link_out_symlink(session, output);
-    Ok(Artifact { target, path, bytes: compiled.module.len(), cached: false })
+    Ok(Artifact {
+        target,
+        path,
+        bytes: compiled.module.len(),
+        cached: false,
+    })
 }
 
 /// One compiled JavaScript artifact: the module, and the stylesheet its static
@@ -276,8 +303,12 @@ fn monomorphized_entry(
         return Err(std::mem::take(diagnostics));
     };
 
-    let module_paths: Vec<String> =
-        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let module_paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let program = monomorphize::run(
         &analysis.checked,
         module_paths,
@@ -319,19 +350,34 @@ pub fn compile_artifact(
     // The arch is `None` until a native backend has one to vary on: every
     // `Output` carries it and it is already in every key, but nothing below
     // here reads it while the only backend is JavaScript.
-    let target = Target { platform, arch: None };
+    let target = Target {
+        platform,
+        arch: None,
+    };
     // Read before `emit`, which takes the program by `&mut`. It is the same
     // text the backend is about to write into the module as `$ui_sheet`, so
     // the `.css` a WEB output writes and the `<style>` `mount` installs are
     // one string produced once.
     let stylesheet = program.stylesheet.clone();
-    let (module, chunks) =
-        emit_all(&mut program, &analysis.checked.tables, target, flags, diagnostics)?;
+    let (module, chunks) = emit_all(
+        &mut program,
+        &analysis.checked.tables,
+        target,
+        flags,
+        diagnostics,
+    )?;
     let module = match host_file {
-        Some(file) => crate::build::hosted::bundle(&module, &file.text, &file.exports, &file.structs),
+        Some(file) => {
+            crate::build::hosted::bundle(&module, &file.text, &file.exports, &file.structs)
+        }
         None => module,
     };
-    Ok(Compiled { module, stylesheet, chunks, unkeyed })
+    Ok(Compiled {
+        module,
+        stylesheet,
+        chunks,
+        unkeyed,
+    })
 }
 
 /// An entry's `js` file, read and held to the production structs it
@@ -351,13 +397,17 @@ fn needed_structs(
     module: &str,
     point: &str,
 ) -> Vec<crate::build::hosted::Needed> {
-    use crate::compiler::semantics::resolve::{declared_host, js_structs, own_fn};
     use crate::build::hosted::{Method, Needed};
+    use crate::compiler::semantics::resolve::{declared_host, js_structs, own_fn};
     let tables = &analysis.checked.tables;
     // The entry takes the platform's host, so its module is loaded.
-    let platform = analysis.loaded.find(module).or_ice("an output's platform module is loaded");
+    let platform = analysis
+        .loaded
+        .find(module)
+        .or_ice("an output's platform module is loaded");
     let decl = own_fn(&analysis.loaded, &analysis.checked.scopes, module, point);
-    let Some(host) = decl.and_then(|d| declared_host(tables, platform, &tables.fn_info(d).params)) else {
+    let Some(host) = decl.and_then(|d| declared_host(tables, platform, &tables.fn_info(d).params))
+    else {
         return Vec::new();
     };
     let structs = js_structs(tables, &analysis.checked.bodies, platform, host);
@@ -366,12 +416,17 @@ fn needed_structs(
     let method = |owner: &str, f: &crate::compiler::semantics::types::FnInfo| Method {
         name: f.name.clone(),
         params: f.params.len(),
-        effect: f.impl_of.map_or_else(|| owner.to_string(), |(t, _)| tables.trait_(t).name.clone()),
+        effect: f
+            .impl_of
+            .map_or_else(|| owner.to_string(), |(t, _)| tables.trait_(t).name.clone()),
     };
     structs
         .map(|(con, methods)| {
             let name = tables.tycon(con).name.clone();
-            let methods = methods.into_iter().map(|f| method(&name, tables.fn_info(f))).collect();
+            let methods = methods
+                .into_iter()
+                .map(|f| method(&name, tables.fn_info(f)))
+                .collect();
             Needed { name, methods }
         })
         .collect()
@@ -392,7 +447,10 @@ fn host_file(
 ) -> Result<Option<HostFile>, Diagnostics> {
     let point = output.entry_point();
     let (module, js) = match &output.custom {
-        Some(custom) => (format!("//{}/platform.buri", custom.package_path()), custom.js.clone()),
+        Some(custom) => (
+            format!("//{}/platform.buri", custom.package_path()),
+            custom.js.clone(),
+        ),
         None => {
             let name = output.platform().slug();
             let js = crate::build::platforms::bundled(name)
@@ -441,13 +499,24 @@ fn host_file(
     // `buri:program` holds this artifact's entry and nothing else, and
     // `buri:ui` its two functions. Any other name would arrive `undefined`.
     for (module, name, at) in &exports.named {
-        let offered: &[&str] = if *module == "buri:program" { &[point] } else { &["signal", "write"] };
+        let offered: &[&str] = if *module == "buri:program" {
+            &[point]
+        } else {
+            &["signal", "write"]
+        };
         if !offered.contains(&name.as_str()) {
             diagnostics.push(
                 Diagnostic::templated("unknown-export", Span::new(file, *at, *at))
                     .with_bind("path", *module)
                     .with_bind("name", name.as_str())
-                    .with_note(format!("`{module}` exports {}", offered.iter().map(|o| format!("`{o}`")).collect::<Vec<_>>().join(" and "))),
+                    .with_note(format!(
+                        "`{module}` exports {}",
+                        offered
+                            .iter()
+                            .map(|o| format!("`{o}`"))
+                            .collect::<Vec<_>>()
+                            .join(" and ")
+                    )),
             );
         }
     }
@@ -456,9 +525,10 @@ fn host_file(
     }
     let gaps = crate::build::hosted::gaps(&exports, &needed);
     for gap in &gaps {
-        let mut d = Diagnostic::templated("host-file-missing-method", Span::new(file, gap.at, gap.at))
-            .with_bind("file", js.as_str())
-            .with_bind("gap", gap.gap.as_str());
+        let mut d =
+            Diagnostic::templated("host-file-missing-method", Span::new(file, gap.at, gap.at))
+                .with_bind("file", js.as_str())
+                .with_bind("gap", gap.gap.as_str());
         if let Some(note) = &gap.note {
             d = d.with_note(note.clone());
         }
@@ -467,7 +537,11 @@ fn host_file(
     if !gaps.is_empty() {
         return Err(std::mem::take(diagnostics));
     }
-    Ok(Some(HostFile { text, exports, structs: needed.into_iter().map(|n| n.name).collect() }))
+    Ok(Some(HostFile {
+        text,
+        exports,
+        structs: needed.into_iter().map(|n| n.name).collect(),
+    }))
 }
 
 /// The first byte at which two artifacts differ, or `None` when they are the
@@ -549,7 +623,13 @@ pub fn unkeyed_reads(
     rule_paths: &mut RulePaths,
 ) -> Vec<PathBuf> {
     let modules: Vec<&crate::compiler::modules::ModuleData> = loaded.modules.iter().collect();
-    unkeyed_reads_over(session, target, &loaded.generated_rules, &modules, rule_paths)
+    unkeyed_reads_over(
+        session,
+        target,
+        &loaded.generated_rules,
+        &modules,
+        rule_paths,
+    )
 }
 
 /// [`unkeyed_reads`] for one target's share of a compilation of several: the
@@ -562,7 +642,8 @@ fn unkeyed_reads_over(
     rule_paths: &mut RulePaths,
 ) -> Vec<PathBuf> {
     let workspace = &session.workspace;
-    let mut members: std::collections::HashSet<TargetId> = workspace.closure(target).into_iter().collect();
+    let mut members: std::collections::HashSet<TargetId> =
+        workspace.closure(target).into_iter().collect();
     let mut extra: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     for label in workspace.custom_platforms(target) {
         let (pid, files, platform_members) = platform_inputs(workspace, &label);
@@ -570,7 +651,9 @@ fn unkeyed_reads_over(
         extra.extend(files.iter().map(|rel| dir.join(rel)));
         members.extend(platform_members);
     }
-    let files = modules.iter().filter_map(|m| Some((m.disk.clone()?, m.pkg)));
+    let files = modules
+        .iter()
+        .filter_map(|m| Some((m.disk.clone()?, m.pkg)));
     let worked = worked_out_over(session, generated_rules, modules.iter().copied(), |_| true);
     unlisted(session, &members, &extra, files, worked, rule_paths)
 }
@@ -589,24 +672,37 @@ pub fn suite_unkeyed_reads(
     rule_paths: &mut RulePaths,
 ) -> Vec<PathBuf> {
     let workspace = &session.workspace;
-    let mut members: std::collections::HashSet<TargetId> = workspace.closure(target).into_iter().collect();
+    let mut members: std::collections::HashSet<TargetId> =
+        workspace.closure(target).into_iter().collect();
     for (dep, _) in workspace.test_dep_edges(target) {
         members.extend(workspace.closure(dep));
     }
     let package = workspace.package(target.package);
     let extra: std::collections::HashSet<PathBuf> = package
         .test_suite(target.kind)
-        .map(|suite| suite.sources.iter().map(|x| package.dir.join(&x.value)).collect())
+        .map(|suite| {
+            suite
+                .sources
+                .iter()
+                .map(|x| package.dir.join(&x.value))
+                .collect()
+        })
         .unwrap_or_default();
-    let reached: Vec<&crate::compiler::modules::ModuleData> =
-        imports.reached_from(loaded, target.package).filter_map(|i| loaded.modules.get(i)).collect();
-    let files = reached.iter().filter_map(|m| Some((m.disk.clone()?, m.pkg)));
+    let reached: Vec<&crate::compiler::modules::ModuleData> = imports
+        .reached_from(loaded, target.package)
+        .filter_map(|i| loaded.modules.get(i))
+        .collect();
+    let files = reached
+        .iter()
+        .filter_map(|m| Some((m.disk.clone()?, m.pkg)));
     let owners: Vec<TargetId> = reached
         .iter()
         .filter(|m| m.disk.is_none())
         .filter_map(|m| workspace.generated.owner(&m.path))
         .collect();
-    let worked = worked_out(session, loaded, |rule| members.contains(&rule) || owners.contains(&rule));
+    let worked = worked_out(session, loaded, |rule| {
+        members.contains(&rule) || owners.contains(&rule)
+    });
     unlisted(session, &members, &extra, files, worked, rule_paths)
 }
 
@@ -620,8 +716,12 @@ pub struct Imports {
 impl Imports {
     pub fn of(loaded: &crate::compiler::modules::Loaded) -> Imports {
         use crate::parsing::tree::Item;
-        let at: std::collections::HashMap<&str, usize> =
-            loaded.modules.iter().enumerate().map(|(i, m)| (m.path.as_str(), i)).collect();
+        let at: std::collections::HashMap<&str, usize> = loaded
+            .modules
+            .iter()
+            .enumerate()
+            .map(|(i, m)| (m.path.as_str(), i))
+            .collect();
         let edges = loaded
             .modules
             .iter()
@@ -659,8 +759,13 @@ impl Imports {
         package: crate::build::workspace::PackageId,
     ) -> impl Iterator<Item = usize> {
         let mut seen = vec![false; self.edges.len()];
-        let mut stack: Vec<usize> =
-            loaded.modules.iter().enumerate().filter(|(_, m)| m.pkg == Some(package)).map(|(i, _)| i).collect();
+        let mut stack: Vec<usize> = loaded
+            .modules
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.pkg == Some(package))
+            .map(|(i, _)| i)
+            .collect();
         while let Some(i) = stack.pop() {
             match seen.get_mut(i) {
                 Some(s) if !*s => *s = true,
@@ -668,7 +773,10 @@ impl Imports {
             }
             stack.extend(self.edges.get(i).into_iter().flatten());
         }
-        seen.into_iter().enumerate().filter(|(_, s)| *s).map(|(i, _)| i)
+        seen.into_iter()
+            .enumerate()
+            .filter(|(_, s)| *s)
+            .map(|(i, _)| i)
     }
 }
 
@@ -680,10 +788,18 @@ pub fn tool_unkeyed_reads<'p>(
     read: impl Iterator<Item = &'p Path>,
 ) -> Vec<PathBuf> {
     let workspace = &session.workspace;
-    let members: std::collections::HashSet<TargetId> = workspace.closure(tool).into_iter().collect();
+    let members: std::collections::HashSet<TargetId> =
+        workspace.closure(tool).into_iter().collect();
     let files = read.map(|p| (p.to_path_buf(), workspace.owning_package(p)));
     let none = std::collections::HashSet::new();
-    unlisted(session, &members, &none, files, Vec::new(), &mut RulePaths::new())
+    unlisted(
+        session,
+        &members,
+        &none,
+        files,
+        Vec::new(),
+        &mut RulePaths::new(),
+    )
 }
 
 /// The files a load's generators read: every rule whose generators it reported
@@ -693,7 +809,12 @@ fn worked_out(
     loaded: &crate::compiler::modules::Loaded,
     wanted: impl Fn(TargetId) -> bool,
 ) -> Vec<PathBuf> {
-    worked_out_over(session, &loaded.generated_rules, loaded.modules.iter(), wanted)
+    worked_out_over(
+        session,
+        &loaded.generated_rules,
+        loaded.modules.iter(),
+        wanted,
+    )
 }
 
 /// [`worked_out`] over some of a compilation's modules.
@@ -704,9 +825,16 @@ fn worked_out_over<'m>(
     wanted: impl Fn(TargetId) -> bool,
 ) -> Vec<PathBuf> {
     let workspace = &session.workspace;
-    let owners = modules.filter(|m| m.disk.is_none()).filter_map(|m| workspace.generated.owner(&m.path));
+    let owners = modules
+        .filter(|m| m.disk.is_none())
+        .filter_map(|m| workspace.generated.owner(&m.path));
     let mut worked = Vec::new();
-    for rule in generated_rules.iter().copied().chain(owners).filter(|r| wanted(*r)) {
+    for rule in generated_rules
+        .iter()
+        .copied()
+        .chain(owners)
+        .filter(|r| wanted(*r))
+    {
         worked.extend(crate::build::generators::worked_out_from(workspace, rule));
     }
     worked
@@ -734,7 +862,10 @@ fn unlisted(
                 .entry(member)
                 .or_insert_with(|| {
                     let dir = &workspace.package(member.package).dir;
-                    rule_files(workspace, member).iter().map(|rel| dir.join(rel)).collect()
+                    rule_files(workspace, member)
+                        .iter()
+                        .map(|rel| dir.join(rel))
+                        .collect()
                 })
                 .contains(path)
     };
@@ -746,7 +877,9 @@ fn unlisted(
             continue;
         }
         let listed = match package {
-            Some(package) => KINDS.iter().any(|&kind| keyed_by(TargetId { package, kind }, &path)),
+            Some(package) => KINDS
+                .iter()
+                .any(|&kind| keyed_by(TargetId { package, kind }, &path)),
             None => all.iter().any(|&m| keyed_by(m, &path)),
         };
         if !listed {
@@ -800,7 +933,8 @@ pub type RulePaths = std::collections::HashMap<TargetId, std::collections::HashS
 pub fn encode_reads(session: &Session, files: &[PathBuf]) -> String {
     let mut out = String::new();
     for path in files {
-        let digest = crate::build::read_source(path).map_or_else(|_| "absent".to_string(), |b| hash_bytes(&b));
+        let digest = crate::build::read_source(path)
+            .map_or_else(|_| "absent".to_string(), |b| hash_bytes(&b));
         out.push_str(&session.workspace.rel_of(path));
         out.push('\t');
         out.push_str(&digest);
@@ -812,8 +946,11 @@ pub fn encode_reads(session: &Session, files: &[PathBuf]) -> String {
 /// Whether every file [`encode_reads`] recorded still holds the bytes it did.
 pub fn reads_hold(root: &Path, record: &str) -> bool {
     record.lines().all(|line| {
-        let Some((rel, digest)) = line.split_once('\t') else { return false };
-        let now = crate::build::read_source(&root.join(rel)).map_or_else(|_| "absent".to_string(), |b| hash_bytes(&b));
+        let Some((rel, digest)) = line.split_once('\t') else {
+            return false;
+        };
+        let now = crate::build::read_source(&root.join(rel))
+            .map_or_else(|_| "absent".to_string(), |b| hash_bytes(&b));
         now == digest
     })
 }
@@ -875,7 +1012,12 @@ fn closure_fold(
     let mut k = KeyBuilder::new(Action::Check, flags.mode);
     k.input("closure", b"");
     contribute(session, target, &mut k);
-    let mut deps: Vec<TargetId> = session.workspace.shared_dep_edges(target).iter().map(|&(d, _)| d).collect();
+    let mut deps: Vec<TargetId> = session
+        .workspace
+        .shared_dep_edges(target)
+        .iter()
+        .map(|&(d, _)| d)
+        .collect();
     deps.sort();
     deps.dedup();
     for dep in deps {
@@ -895,8 +1037,12 @@ fn closure_fold(
 /// Whether a check recorded under `key` found nothing, and every module no
 /// rule lists that it read still holds the bytes it did.
 pub fn clean_check_holds(session: &Session, key: &ActionKey) -> bool {
-    let Some(record) = Cache::open(&session.root).get(key) else { return false };
-    let record = std::str::from_utf8(&record).ok().and_then(|r| r.strip_prefix(CLEAN));
+    let Some(record) = Cache::open(&session.root).get(key) else {
+        return false;
+    };
+    let record = std::str::from_utf8(&record)
+        .ok()
+        .and_then(|r| r.strip_prefix(CLEAN));
     record.is_some_and(|reads| reads_hold(&session.root, reads))
 }
 
@@ -911,7 +1057,10 @@ pub fn record_clean_check(
     analysis: &crate::compiler::driver::Analysis,
     rule_paths: &mut RulePaths,
 ) {
-    let reads = encode_reads(session, &unkeyed_reads(session, target, &analysis.loaded, rule_paths));
+    let reads = encode_reads(
+        session,
+        &unkeyed_reads(session, target, &analysis.loaded, rule_paths),
+    );
     Cache::open(&session.root).put(key, format!("{CLEAN}{reads}").as_bytes());
 }
 
@@ -928,7 +1077,13 @@ pub fn record_clean_share(
     let modules: Vec<&crate::compiler::modules::ModuleData> = share.modules(analysis).collect();
     let reads = encode_reads(
         session,
-        &unkeyed_reads_over(session, target, &share.generated_rules, &modules, rule_paths),
+        &unkeyed_reads_over(
+            session,
+            target,
+            &share.generated_rules,
+            &modules,
+            rule_paths,
+        ),
     );
     Cache::open(&session.root).put(key, format!("{CLEAN}{reads}").as_bytes());
 }
@@ -941,7 +1096,10 @@ fn contribute_platform(session: &Session, label: &str, closure: &[TargetId], k: 
     k.rule_identity(&package.label(), "platform", &files);
     for rel in &files {
         let disk = package.dir.join(rel);
-        k.file(&workspace.rel_of(&disk), crate::build::read_source(&disk).ok().as_deref());
+        k.file(
+            &workspace.rel_of(&disk),
+            crate::build::read_source(&disk).ok().as_deref(),
+        );
     }
     for member in members.into_iter().filter(|m| !closure.contains(m)) {
         contribute(session, member, k);
@@ -956,11 +1114,19 @@ fn contribute_platform(session: &Session, label: &str, closure: &[TargetId], k: 
 pub fn platform_inputs(
     workspace: &crate::build::workspace::Workspace,
     label: &str,
-) -> (crate::build::workspace::PackageId, Vec<String>, Vec<TargetId>) {
+) -> (
+    crate::build::workspace::PackageId,
+    Vec<String>,
+    Vec<TargetId>,
+) {
     let (pid, rule) = workspace.platform_rule(label);
     let mut files: Vec<String> = vec![String::from("BUILD.buri"), String::from("platform.buri")];
     files.extend(rule.sources.iter().map(|s| s.value.clone()));
-    files.extend(rule.entries.iter().filter_map(|e| e.js.as_ref().map(|j| j.value.clone())));
+    files.extend(
+        rule.entries
+            .iter()
+            .filter_map(|e| e.js.as_ref().map(|j| j.value.clone())),
+    );
     files.extend(rule.assets.iter().map(|a| a.value.clone()));
     files.sort();
     files.dedup();
@@ -998,8 +1164,9 @@ pub enum Content {
 /// program text, any other file's bytes, tagged so the two readings never meet.
 pub fn read_as(rel: &str, bytes: Vec<u8>) -> Vec<u8> {
     if rel.ends_with(".buri") {
-        if let Some(mut text) =
-            std::str::from_utf8(&bytes).ok().and_then(crate::parsing::lexer::program_text)
+        if let Some(mut text) = std::str::from_utf8(&bytes)
+            .ok()
+            .and_then(crate::parsing::lexer::program_text)
         {
             text.insert(0, b'p');
             return text;
@@ -1019,8 +1186,10 @@ fn contribute_as(session: &Session, member: TargetId, k: &mut KeyBuilder, conten
 /// sources read in one batch.
 fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, content: Content) {
     let workspace = &session.workspace;
-    let rules: Vec<(TargetId, Vec<String>)> =
-        members.iter().map(|&member| (member, rule_files(workspace, member))).collect();
+    let rules: Vec<(TargetId, Vec<String>)> = members
+        .iter()
+        .map(|&member| (member, rule_files(workspace, member)))
+        .collect();
     let files: Vec<(&std::path::Path, &str)> = rules
         .iter()
         .flat_map(|(member, sources)| {
@@ -1038,10 +1207,16 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
     };
     let path = |i: usize| files.get(i).map(|(dir, rel)| (dir.join(rel), content));
     let mut contents: Vec<Option<Option<std::sync::Arc<Vec<u8>>>>> = {
-        let memo = READS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        (0..files.len()).map(|i| memo.as_ref().and_then(|m| m.get(&path(i)?).cloned())).collect()
+        let memo = READS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (0..files.len())
+            .map(|i| memo.as_ref().and_then(|m| m.get(&path(i)?).cloned()))
+            .collect()
     };
-    let missing: Vec<usize> = (0..files.len()).filter(|&i| contents.get(i).is_some_and(Option::is_none)).collect();
+    let missing: Vec<usize> = (0..files.len())
+        .filter(|&i| contents.get(i).is_some_and(Option::is_none))
+        .collect();
     // Read in parallel, hashed in order. A key is a fold over the sources in
     // sorted order and that fold stays exactly where it was, on this thread; a
     // library of three hundred and sixty files is three hundred and sixty
@@ -1055,15 +1230,20 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
         crate::parallel::map(missing.len(), |j| read(*missing.get(j)?))
     };
     {
-        let mut memo = READS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut memo = READS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         for (&i, bytes) in missing.iter().zip(fresh) {
             if let (Some(memo), Some(at)) = (memo.as_mut(), path(i)) {
                 memo.insert(at, bytes.clone());
             }
-            *contents.get_mut(i).or_ice("`missing` holds positions in `contents`") = Some(bytes);
+            *contents
+                .get_mut(i)
+                .or_ice("`missing` holds positions in `contents`") = Some(bytes);
         }
     }
-    let contents: Vec<Option<std::sync::Arc<Vec<u8>>>> = contents.into_iter().map(Option::flatten).collect();
+    let contents: Vec<Option<std::sync::Arc<Vec<u8>>>> =
+        contents.into_iter().map(Option::flatten).collect();
     let mut contents = contents.iter();
     for (member, sources) in &rules {
         let package = workspace.package(member.package);
@@ -1075,10 +1255,16 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
         // *is*. Without it, editing the tool left every dependent's `link` key
         // where it was and the cache served the old artifact.
         for module in crate::build::generators::modules_of(workspace, *member) {
-            k.input(&format!("{}/{}", package.label(), module.name), module.text.as_bytes());
+            k.input(
+                &format!("{}/{}", package.label(), module.name),
+                module.text.as_bytes(),
+            );
         }
         for (rel, read) in sources.iter().zip(contents.by_ref()) {
-            k.file(&workspace.rel_of(&package.dir.join(rel)), read.as_deref().map(Vec::as_slice));
+            k.file(
+                &workspace.rel_of(&package.dir.join(rel)),
+                read.as_deref().map(Vec::as_slice),
+            );
         }
     }
 }
@@ -1099,7 +1285,9 @@ static READS: std::sync::Mutex<Option<Reads>> = std::sync::Mutex::new(None);
 /// closures that overlap, and nothing it does writes a source. A process that
 /// answers again after the disk may have moved never calls this.
 pub fn remember_reads() {
-    let mut memo = READS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut memo = READS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     memo.get_or_insert_with(Reads::new);
 }
 
@@ -1125,7 +1313,11 @@ pub fn rule_files(workspace: &crate::build::workspace::Workspace, member: Target
     let mut files: Vec<String> = vec![entry.to_string()];
     match member.kind {
         RuleKind::Library => {
-            let lib = package.build.library.as_ref().or_ice("a library target's package has a library rule");
+            let lib = package
+                .build
+                .library
+                .as_ref()
+                .or_ice("a library target's package has a library rule");
             files.extend(lib.sources.iter().map(|x| x.value.clone()));
             if let Some(testing) = &lib.testing {
                 files.push("testing/lib.buri".into());
@@ -1133,11 +1325,19 @@ pub fn rule_files(workspace: &crate::build::workspace::Workspace, member: Target
             }
         }
         RuleKind::Binary => {
-            let bin = package.build.binary.as_ref().or_ice("a binary target's package has a binary rule");
+            let bin = package
+                .build
+                .binary
+                .as_ref()
+                .or_ice("a binary target's package has a binary rule");
             files.extend(bin.sources.iter().map(|x| x.value.clone()));
         }
         RuleKind::Tool => {
-            let tool = package.build.tool.as_ref().or_ice("a tool target's package has a tool rule");
+            let tool = package
+                .build
+                .tool
+                .as_ref()
+                .or_ice("a tool target's package has a tool rule");
             files.extend(tool.sources.iter().map(|x| x.value.clone()));
         }
     }
@@ -1274,15 +1474,26 @@ pub fn test_build_key(
 /// the graph's order. See [`test_build_key`].
 pub fn graph_key(session: &Session, flags: &Flags) -> ActionKey {
     let workspace = &session.workspace;
-    let mut known = workspace.graph_keys.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut known = workspace
+        .graph_keys
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some((_, key)) = known.iter().find(|(mode, _)| *mode == flags.mode) {
         return key.clone();
     }
     let mut k = KeyBuilder::new(Action::Build, flags.mode);
-    k.file("REPO.buri", crate::build::read_source(&workspace.root.join("REPO.buri")).ok().as_deref());
+    k.file(
+        "REPO.buri",
+        crate::build::read_source(&workspace.root.join("REPO.buri"))
+            .ok()
+            .as_deref(),
+    );
     for package in &workspace.packages {
         let file = package.dir.join("BUILD.buri");
-        k.file(&workspace.rel_of(&file), crate::build::read_source(&file).ok().as_deref());
+        k.file(
+            &workspace.rel_of(&file),
+            crate::build::read_source(&file).ok().as_deref(),
+        );
     }
     let key = k.finish();
     known.push((flags.mode, key.clone()));
@@ -1336,7 +1547,9 @@ fn suite_key(
     k.rule_identity(&package.label(), "test", &files);
     for rel in &files {
         let full = package.dir.join(rel);
-        let contents = crate::build::read_source(&full).ok().map(|b| read_as(rel, b));
+        let contents = crate::build::read_source(&full)
+            .ok()
+            .map(|b| read_as(rel, b));
         k.file(rel, contents.as_deref());
     }
     k
@@ -1404,7 +1617,13 @@ pub fn emit_test_bundle(
     flags: &Flags,
     diagnostics: &mut Diagnostics,
 ) -> Result<String, Diagnostics> {
-    prepare(program, Target { platform: crate::build::buildfile::Platform::Js, arch: None });
+    prepare(
+        program,
+        Target {
+            platform: crate::build::buildfile::Platform::Js,
+            arch: None,
+        },
+    );
     let emitting = crate::profile::enter(crate::profile::Phase::Emit);
     let units = match crate::compiler::backend::js::Js.emit_unminified(
         program,
@@ -1418,7 +1637,11 @@ pub fn emit_test_bundle(
         }
     };
     drop(emitting);
-    match units.into_iter().next().map(|unit| String::from_utf8(unit.bytes)) {
+    match units
+        .into_iter()
+        .next()
+        .map(|unit| String::from_utf8(unit.bytes))
+    {
         Some(Ok(module)) if flags.coverage => Ok(module + crate::build::coverage::JS),
         Some(Ok(module)) => Ok(module),
         _ => {
@@ -1462,7 +1685,11 @@ pub fn emit_all(
             return Err(std::mem::take(diagnostics));
         }
     };
-    let opts = BackendOptions { profile, target, unit_prefix: "" };
+    let opts = BackendOptions {
+        profile,
+        target,
+        unit_prefix: "",
+    };
     let emitting = crate::profile::enter(crate::profile::Phase::Emit);
     let units = match backend.emit(program, tables, &opts) {
         Ok(units) => units,
@@ -1533,7 +1760,9 @@ pub fn prepare(
     // writes files can have one. `middle::chunks` takes `core/lazy`'s `load`
     // back out everywhere else, which is the identity the module promises.
     let _phase = crate::profile::enter(crate::profile::Phase::Middle);
-    let opts = middle::Options { split_lazy: !target.platform.is_native() };
+    let opts = middle::Options {
+        split_lazy: !target.platform.is_native(),
+    };
     middle::run(program, &opts);
     // The native branch is chosen by what the artifact *is*, and a WEB artifact
     // is JavaScript: closure conversion and reference counting are the same
@@ -1548,12 +1777,19 @@ pub fn prepare(
 /// three things — inlining budget, defensive aborts, and name mangling — and
 /// they must not be able to disagree about which build this is.
 pub fn profile_of(flags: &Flags) -> Profile {
-    if flags.mode.is_release() { Profile::Release } else { Profile::Debug }
+    if flags.mode.is_release() {
+        Profile::Release
+    } else {
+        Profile::Debug
+    }
 }
 
 /// What an `Output` names, in the form a backend wants it.
 pub fn target_of(output: &Output) -> Target {
-    Target { platform: output.platform(), arch: output.arch() }
+    Target {
+        platform: output.platform(),
+        arch: output.arch(),
+    }
 }
 
 /// The key for one codegen unit.
@@ -1672,7 +1908,13 @@ pub fn link_key(
     unit_keys: &[ActionKey],
     runtime: link::RuntimeArchive,
 ) -> ActionKey {
-    link_key_of(flags.mode, target_of(output), &linker.identity(), unit_keys, runtime)
+    link_key_of(
+        flags.mode,
+        target_of(output),
+        &linker.identity(),
+        unit_keys,
+        runtime,
+    )
 }
 
 /// [`link_key`] without a repository, which is what makes the three claims it
@@ -1846,7 +2088,11 @@ pub fn native_gap(target: Target, profile: Profile) -> Option<NativeGap> {
         } else {
             format!("declare an output this toolchain can build, or {js}")
         };
-        return Some(NativeGap { output, reason, fix });
+        return Some(NativeGap {
+            output,
+            reason,
+            fix,
+        });
     }
     None
 }
@@ -1904,7 +2150,10 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
     // `units * funcs`, which is the whole program re-walked for every unit.
     let mut members: Vec<Vec<(usize, &ir::Func)>> = vec![Vec::new(); program.units.len()];
     for (i, func) in program.funcs.iter().enumerate() {
-        members.get_mut(func.unit as usize).or_ice("every function is in one of the program's units").push((i, func));
+        members
+            .get_mut(func.unit as usize)
+            .or_ice("every function is in one of the program's units")
+            .push((i, func));
     }
     let elsewhere = crate::compiler::backend::linkage::named_elsewhere(program);
     // A unit at a time, over the cores this machine has. Each unit's two hashes
@@ -1932,10 +2181,16 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
             }
             types.sort_unstable();
             types.dedup();
-            let seeds =
-                types.iter().filter_map(|id| program.types.get(*id)).map(|info| info.ty);
+            let seeds = types
+                .iter()
+                .filter_map(|id| program.types.get(*id))
+                .map(|info| info.ty);
             let shapes = layout_closure_signature(layouts, tables, seeds);
-            (name, hash_bytes(text.as_bytes()), hash_bytes(shapes.as_bytes()))
+            (
+                name,
+                hash_bytes(text.as_bytes()),
+                hash_bytes(shapes.as_bytes()),
+            )
         },
     )
 }
@@ -1972,13 +2227,20 @@ fn layout_closure_signature(
         // Only the shaped types have a layout worth folding in; a bare
         // parameter or an inference variable has none and cannot be reached in
         // a monomorphized program anyway.
-        if matches!(ty.kind(), TyKind::Var(_) | TyKind::Param(_) | TyKind::SelfTy | TyKind::Error) {
+        if matches!(
+            ty.kind(),
+            TyKind::Var(_) | TyKind::Param(_) | TyKind::SelfTy | TyKind::Error
+        ) {
             continue;
         }
         if !seen.insert(ty) {
             continue;
         }
-        lines.push(format!("{} {:?}\n", types::show(tables, None, &[], &ty), layouts.of(ty)));
+        lines.push(format!(
+            "{} {:?}\n",
+            types::show(tables, None, &[], &ty),
+            layouts.of(ty)
+        ));
         // The types this one reaches: its arguments and its constituent parts,
         // then — for a nominal type — the types of its fields or its variants'
         // fields, which is where a shape reached only across a pointer lives.
@@ -2123,12 +2385,16 @@ fn codegen_units_for<F>(
 where
     F: FnMut(&[u32]) -> Result<Vec<Emitted>, Diagnostics>,
 {
-    let mut hits: Vec<Option<Vec<u8>>> =
-        keys.iter().map(|(_, k)| if force { None } else { cache.get_checked(k) }).collect();
+    let mut hits: Vec<Option<Vec<u8>>> = keys
+        .iter()
+        .map(|(_, k)| if force { None } else { cache.get_checked(k) })
+        .collect();
     let mut fresh = vec![false; keys.len()];
     // `keys` is in unit order, because `unit_hashes` walks `Program::units`, so
     // a position in it is the `Func::unit` the backend selects on.
-    let missing: Vec<usize> = (0..keys.len()).filter(|&i| hits.get(i).is_some_and(Option::is_none)).collect();
+    let missing: Vec<usize> = (0..keys.len())
+        .filter(|&i| hits.get(i).is_some_and(Option::is_none))
+        .collect();
     let (mine, theirs) = Flights::claim(cache, keys, &missing);
     emit_into(cache, keys, &mine.units, &mut emit, &mut hits, &mut fresh)?;
     drop(mine);
@@ -2144,7 +2410,14 @@ where
     let mut out = Vec::with_capacity(keys.len());
     for (((name, key), bytes), fresh) in keys.iter().zip(hits).zip(fresh) {
         let bytes = bytes.unwrap_or_default();
-        out.push((Emitted { name: object_name(name), key: Some(key.clone()), bytes }, !fresh));
+        out.push((
+            Emitted {
+                name: object_name(name),
+                key: Some(key.clone()),
+                bytes,
+            },
+            !fresh,
+        ));
     }
     Ok(out)
 }
@@ -2165,7 +2438,10 @@ where
     if wanted.is_empty() {
         return Ok(());
     }
-    let units: Vec<u32> = wanted.iter().filter_map(|&i| u32::try_from(i).ok()).collect();
+    let units: Vec<u32> = wanted
+        .iter()
+        .filter_map(|&i| u32::try_from(i).ok())
+        .collect();
     let emitted = emit(&units)?;
     for &i in wanted {
         let (name, key) = keys.get(i).or_ice("a wanted unit is a position in `keys`");
@@ -2197,9 +2473,15 @@ struct Flight {
 
 impl Flight {
     fn wait(&self) {
-        let mut done = self.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut done = self
+            .done
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         while !*done {
-            done = self.ended.wait(done).unwrap_or_else(std::sync::PoisonError::into_inner);
+            done = self
+                .ended
+                .wait(done)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 }
@@ -2215,8 +2497,12 @@ type FlightMap = std::collections::HashMap<PathBuf, std::sync::Arc<Flight>>;
 
 impl Flights {
     fn map() -> std::sync::MutexGuard<'static, FlightMap> {
-        static FLIGHTS: std::sync::OnceLock<std::sync::Mutex<FlightMap>> = std::sync::OnceLock::new();
-        FLIGHTS.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        static FLIGHTS: std::sync::OnceLock<std::sync::Mutex<FlightMap>> =
+            std::sync::OnceLock::new();
+        FLIGHTS
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// The units of `missing` this build emits, and the ones it waits for.
@@ -2225,7 +2511,11 @@ impl Flights {
         keys: &[(String, ActionKey)],
         missing: &[usize],
     ) -> (Claimed, Vec<(usize, std::sync::Arc<Flight>)>) {
-        let mut mine = Claimed { units: Vec::new(), names: Vec::new(), flights: Vec::new() };
+        let mut mine = Claimed {
+            units: Vec::new(),
+            names: Vec::new(),
+            flights: Vec::new(),
+        };
         let mut theirs = Vec::new();
         let mut flights = Flights::map();
         for &i in missing {
@@ -2234,8 +2524,10 @@ impl Flights {
             match flights.get(&name) {
                 Some(flight) => theirs.push((i, std::sync::Arc::clone(flight))),
                 None => {
-                    let flight =
-                        std::sync::Arc::new(Flight { done: std::sync::Mutex::new(false), ended: std::sync::Condvar::new() });
+                    let flight = std::sync::Arc::new(Flight {
+                        done: std::sync::Mutex::new(false),
+                        ended: std::sync::Condvar::new(),
+                    });
                     flights.insert(name.clone(), std::sync::Arc::clone(&flight));
                     mine.units.push(i);
                     mine.names.push(name);
@@ -2255,7 +2547,10 @@ impl Drop for Claimed {
         }
         drop(flights);
         for flight in &self.flights {
-            *flight.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+            *flight
+                .done
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
             flight.ended.notify_all();
         }
     }
@@ -2277,7 +2572,9 @@ where
 {
     // Asked again only for a unit another build failed, which a test never has.
     let mut emit = Some(emit);
-    codegen_units_for(cache, keys, force, |_| emit.take().map_or_else(|| Ok(Vec::new()), |emit| emit()))
+    codegen_units_for(cache, keys, force, |_| {
+        emit.take().map_or_else(|| Ok(Vec::new()), |emit| emit())
+    })
 }
 
 /// `core_list` -> `core_list.o`. One rule, because the manifest names the unit
@@ -2331,7 +2628,15 @@ pub fn compile_objects(
     diagnostics: &mut Diagnostics,
 ) -> Result<Objects, Diagnostics> {
     let (analysis, mut program) = monomorphized_entry(session, target, output, diagnostics)?;
-    objects_of(session, target, output, flags, &mut program, &analysis.checked.tables, diagnostics)
+    objects_of(
+        session,
+        target,
+        output,
+        flags,
+        &mut program,
+        &analysis.checked.tables,
+        diagnostics,
+    )
 }
 
 /// The middle end, the codegen keys and the objects, over a program somebody
@@ -2358,7 +2663,16 @@ pub fn objects_of(
     // ARCHITECTURE.md §7 calls out by name.
     let prefix = session.workspace.package(target.package).path.clone();
     let label = session.workspace.label(target);
-    objects_named(&session.root, &prefix, &label, output, flags, program, tables, diagnostics)
+    objects_named(
+        &session.root,
+        &prefix,
+        &label,
+        output,
+        flags,
+        program,
+        tables,
+        diagnostics,
+    )
 }
 
 /// [`objects_of`] with the two things it takes a target for named directly: the
@@ -2485,9 +2799,20 @@ fn objects_named(
                 }
                 _ => ir_hash,
             };
-            let ir_hash =
-                if shares { hash_bytes(format!("{ir_hash}\nshares-counts").as_bytes()) } else { ir_hash };
-            let key = codegen_key(output, flags, &name, &identity, prefix, &ir_hash, &layout_hash);
+            let ir_hash = if shares {
+                hash_bytes(format!("{ir_hash}\nshares-counts").as_bytes())
+            } else {
+                ir_hash
+            };
+            let key = codegen_key(
+                output,
+                flags,
+                &name,
+                &identity,
+                prefix,
+                &ir_hash,
+                &layout_hash,
+            );
             (unit, key)
         })
         .collect();
@@ -2497,12 +2822,19 @@ fn objects_named(
     backend.adopt_lowering(lowered);
     let cache = Cache::open(root);
     let emitted = codegen_units_for(&cache, &keys, flags.force, |wanted| {
-        let opts = BackendOptions { profile, target: back_target, unit_prefix: prefix };
+        let opts = BackendOptions {
+            profile,
+            target: back_target,
+            unit_prefix: prefix,
+        };
         // `Units::Only` is a membership test per unit, so a build that wants
         // every unit — a first build, or `--force` — says so rather than
         // scanning a list of every unit once per unit.
-        let selection =
-            if wanted.len() == keys.len() { Units::All } else { Units::Only(wanted) };
+        let selection = if wanted.len() == keys.len() {
+            Units::All
+        } else {
+            Units::Only(wanted)
+        };
         let _phase = crate::profile::enter(crate::profile::Phase::Emit);
         backend.emit_units(program, tables, &opts, selection)
     })?;
@@ -2512,16 +2844,28 @@ fn objects_named(
     for ((unit, key), (object, cached)) in keys.iter().zip(emitted) {
         crate::build::cache::explain(
             flags.explain,
-            if cached { crate::build::cache::Status::Cached } else { crate::build::cache::Status::Run },
+            if cached {
+                crate::build::cache::Status::Cached
+            } else {
+                crate::build::cache::Status::Run
+            },
             Action::Codegen,
             &format!("{label}:{unit}"),
             &output.platform_label(),
             key,
         );
-        rows.push(link::Row { unit: unit.clone(), key: key.as_str().to_string(), cached });
+        rows.push(link::Row {
+            unit: unit.clone(),
+            key: key.as_str().to_string(),
+            cached,
+        });
         units.push(object);
     }
-    Ok(Objects { units, rows, keys: keys.into_iter().map(|(_, k)| k).collect() })
+    Ok(Objects {
+        units,
+        rows,
+        keys: keys.into_iter().map(|(_, k)| k).collect(),
+    })
 }
 
 /// A native build: codegen per unit, then one full link.
@@ -2533,24 +2877,53 @@ fn build_native(
     mut diagnostics: Diagnostics,
 ) -> Result<Artifact, Diagnostics> {
     let path = artifact_path(session, target, output);
-    let Some(linker) = linker_for(output, &mut diagnostics) else { return Err(diagnostics) };
+    let Some(linker) = linker_for(output, &mut diagnostics) else {
+        return Err(diagnostics);
+    };
 
     explain_closure(session, target, output, flags);
     let label = session.workspace.label(target);
     let front = native_front_key(session, target, output, flags, &linker);
     let cache = Cache::open(&session.root);
     if !flags.force {
-        if let Some(artifact) = native_from_record(session, &cache, &front, &label, output, flags, &path) {
+        if let Some(artifact) =
+            native_from_record(session, &cache, &front, &label, output, flags, &path)
+        {
             link_out_symlink(session, output);
-            return Ok(Artifact { target, path, bytes: artifact, cached: true });
+            return Ok(Artifact {
+                target,
+                path,
+                bytes: artifact,
+                cached: true,
+            });
         }
     }
     let (analysis, mut program) = monomorphized_entry(session, target, output, &mut diagnostics)?;
-    let reads = encode_reads(session, &unkeyed_reads(session, target, &analysis.loaded, &mut RulePaths::new()));
+    let reads = encode_reads(
+        session,
+        &unkeyed_reads(session, target, &analysis.loaded, &mut RulePaths::new()),
+    );
     let tables = &analysis.checked.tables;
-    let objects = objects_of(session, target, output, flags, &mut program, tables, &mut diagnostics)?;
+    let objects = objects_of(
+        session,
+        target,
+        output,
+        flags,
+        &mut program,
+        tables,
+        &mut diagnostics,
+    )?;
     let prefix = session.workspace.package(target.package).path.clone();
-    let hit = match link_cached(&session.root, &label, output, flags, linker, &objects, &path, &prefix) {
+    let hit = match link_cached(
+        &session.root,
+        &label,
+        output,
+        flags,
+        linker,
+        &objects,
+        &path,
+        &prefix,
+    ) {
         Ok((key, hit)) => {
             cache.put(&front, &encode_native_record(&key, &objects.rows, &reads));
             hit
@@ -2571,7 +2944,12 @@ fn build_native(
         }
     };
     link_out_symlink(session, output);
-    Ok(Artifact { target, path, bytes: usize::try_from(size).unwrap_or(usize::MAX), cached: hit.is_some() })
+    Ok(Artifact {
+        target,
+        path,
+        bytes: usize::try_from(size).unwrap_or(usize::MAX),
+        cached: hit.is_some(),
+    })
 }
 
 /// The key a native artifact's record is filed under: the closure's sources,
@@ -2607,7 +2985,10 @@ fn native_front_key(
 /// one per line, and the files the build read that the key does not hash
 /// ([`encode_reads`]).
 fn encode_native_record(link: &ActionKey, rows: &[link::Row], reads: &str) -> Vec<u8> {
-    let units: String = rows.iter().map(|row| format!("{}\t{}\n", row.unit, row.key)).collect();
+    let units: String = rows
+        .iter()
+        .map(|row| format!("{}\t{}\n", row.unit, row.key))
+        .collect();
     encode_parts([link.as_str(), &units, reads].into_iter())
 }
 
@@ -2640,7 +3021,14 @@ fn native_from_record(
     let platform = output.platform_label();
     let cached = crate::build::cache::Status::Cached;
     for (unit, key) in &keys {
-        crate::build::cache::explain(flags.explain, cached, Action::Codegen, &format!("{label}:{unit}"), &platform, key);
+        crate::build::cache::explain(
+            flags.explain,
+            cached,
+            Action::Codegen,
+            &format!("{label}:{unit}"),
+            &platform,
+            key,
+        );
     }
     crate::build::cache::explain(flags.explain, cached, Action::Link, label, &platform, &link);
     Some(usize::try_from(size).unwrap_or(usize::MAX))
@@ -2674,10 +3062,26 @@ fn link_cached(
     // Named for what is linked, not for the key: the next link of this output
     // takes the directory over, and every object it still uses is already
     // there ([`link::run`]).
-    let place = ActionKey::of(format!("{label}\n{}\n{}\n{prefix}", output.platform_label(), flags.mode.name()).as_bytes());
-    let linker = linker.in_dir(link::dir(root, place.as_str())).from_cache(cache.clone());
+    let place = ActionKey::of(
+        format!(
+            "{label}\n{}\n{}\n{prefix}",
+            output.platform_label(),
+            flags.mode.name()
+        )
+        .as_bytes(),
+    );
+    let linker = linker
+        .in_dir(link::dir(root, place.as_str()))
+        .from_cache(cache.clone());
     let explain_link = |status: crate::build::cache::Status| {
-        crate::build::cache::explain(flags.explain, status, Action::Link, label, &output.platform_label(), &key);
+        crate::build::cache::explain(
+            flags.explain,
+            status,
+            Action::Link,
+            label,
+            &output.platform_label(),
+            &key,
+        );
     };
     // "The fastest link is the one that does not run": every unit's key
     // unchanged means the ordered list in `key` is unchanged, so the executable
@@ -2692,7 +3096,11 @@ fn link_cached(
         }
     }
     explain_link(crate::build::cache::Status::Run);
-    let opts = LinkOptions { profile: profile_of(flags), target: target_of(output), unit_prefix: prefix };
+    let opts = LinkOptions {
+        profile: profile_of(flags),
+        target: target_of(output),
+        unit_prefix: prefix,
+    };
     let staged = link::run(&objects.units, &objects.rows, &linker, path, &opts)?;
     // The linker's own output, moved into the entry rather than a second copy
     // of it written from a full read of the artifact just placed. See
@@ -2759,7 +3167,10 @@ impl Drop for Claim {
     fn drop(&mut self) {
         // Settled before the lock goes, so no link claims the file in between.
         if self.keep.load(std::sync::atomic::Ordering::Relaxed) {
-            let _ = std::fs::OpenOptions::new().create_new(true).write(true).open(&self.kept);
+            let _ = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&self.kept);
         } else {
             let _ = std::fs::remove_file(&self.kept);
         }
@@ -2805,7 +3216,11 @@ const CLAIM_STALE: std::time::Duration = std::time::Duration::from_secs(900);
 fn claim_runner(dir: &std::path::Path, private: PathBuf) -> TestBinary {
     if dir.join(KEPT).exists() {
         crate::build::create_parent(&private);
-        return TestBinary { path: private, claim: None, loaded: None };
+        return TestBinary {
+            path: private,
+            claim: None,
+            loaded: None,
+        };
     }
     claim_runner_after(dir, private, CLAIM_STALE)
 }
@@ -2834,15 +3249,31 @@ fn claim_runner_after(
     if abandoned {
         let _ = std::fs::remove_file(&lock);
     }
-    match std::fs::OpenOptions::new().create_new(true).write(true).open(&lock) {
+    match std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&lock)
+    {
         Ok(_) => {
             let keep = std::sync::atomic::AtomicBool::new(false);
-            let claim = Claim { lock, keep, kept: dir.join(KEPT) };
-            TestBinary { path: dir.join("test-runner"), claim: Some(std::sync::Arc::new(claim)), loaded: None }
+            let claim = Claim {
+                lock,
+                keep,
+                kept: dir.join(KEPT),
+            };
+            TestBinary {
+                path: dir.join("test-runner"),
+                claim: Some(std::sync::Arc::new(claim)),
+                loaded: None,
+            }
         }
         Err(_) => {
             crate::build::create_parent(&private);
-            TestBinary { path: private, claim: None, loaded: None }
+            TestBinary {
+                path: private,
+                claim: None,
+                loaded: None,
+            }
         }
     }
 }
@@ -2879,15 +3310,28 @@ pub fn link_test_binary(
     let Some(linker) = linker_for(output, diagnostics) else {
         return Err(std::mem::take(diagnostics));
     };
-    let objects =
-        objects_named(root, prefix, label, output, flags, program, tables, diagnostics)?;
+    let objects = objects_named(
+        root,
+        prefix,
+        label,
+        output,
+        flags,
+        program,
+        tables,
+        diagnostics,
+    )?;
     if super::test_host::wanted(target_of(output), profile_of(flags)) {
-        let loaded = super::test_host::get(&linker)
-            .and_then(|host| image_cached(root, label, output, flags, &host, &objects).map(|got| (host, got)));
+        let loaded = super::test_host::get(&linker).and_then(|host| {
+            image_cached(root, label, output, flags, &host, &objects).map(|got| (host, got))
+        });
         match loaded {
             Ok((host, (key, image))) => {
                 crate::build::create_parent(&private);
-                let binary = TestBinary { path: private, claim: None, loaded: Some((host.path.clone(), image)) };
+                let binary = TestBinary {
+                    path: private,
+                    claim: None,
+                    loaded: Some((host.path.clone(), image)),
+                };
                 return Ok((binary, key));
             }
             Err(why) => super::test_host::fall_back(&why),
@@ -2896,7 +3340,16 @@ pub fn link_test_binary(
     // Claimed after the objects exist and before anything is written, so a run
     // that fails to compile never takes the shared file at all.
     let binary = claim_runner(&root.join(".buri/out").join(output.dir()), private);
-    match link_cached(root, label, output, flags, linker, &objects, binary.path(), prefix) {
+    match link_cached(
+        root,
+        label,
+        output,
+        flags,
+        linker,
+        &objects,
+        binary.path(),
+        prefix,
+    ) {
         Ok((key, _)) => {
             super::programs::settle(binary.path());
             Ok((binary, key))
@@ -2925,11 +3378,20 @@ pub fn restored_test_binary(
     let entry = Cache::open(root).entry(link)?;
     if let Some(key) = image_host(&entry) {
         // Only into the host it was linked against.
-        let host = super::test_host::for_target(target_of(output)).ok().filter(|h| h.key == key)?;
+        let host = super::test_host::for_target(target_of(output))
+            .ok()
+            .filter(|h| h.key == key)?;
         crate::build::create_parent(&private);
-        return Some(TestBinary { path: private, claim: None, loaded: Some((host.path.clone(), entry)) });
+        return Some(TestBinary {
+            path: private,
+            claim: None,
+            loaded: Some((host.path.clone(), entry)),
+        });
     }
-    Some(claim_runner(&root.join(".buri/out").join(output.dir()), private))
+    Some(claim_runner(
+        &root.join(".buri/out").join(output.dir()),
+        private,
+    ))
 }
 
 /// The test binary a run before this one linked under `link`, still at `at`,
@@ -2947,7 +3409,11 @@ pub fn kept_test_binary(
         return None;
     }
     if at != dir.join("test-runner") {
-        return Some(TestBinary { path: at.to_path_buf(), claim: None, loaded: None });
+        return Some(TestBinary {
+            path: at.to_path_buf(),
+            claim: None,
+            loaded: None,
+        });
     }
     let binary = claim_runner_after(&dir, PathBuf::new(), CLAIM_STALE);
     binary.claim.is_some().then_some(binary)
@@ -2966,7 +3432,11 @@ pub fn release_kept_runner(root: &std::path::Path, output: &Output) {
 /// Puts the test binary a run before this one linked under `link` at
 /// `binary`, from [`restored_test_binary`]. `None` when the cache no longer
 /// holds it.
-pub fn place_test_binary(root: &std::path::Path, link: &ActionKey, binary: TestBinary) -> Option<TestBinary> {
+pub fn place_test_binary(
+    root: &std::path::Path,
+    link: &ActionKey,
+    binary: TestBinary,
+) -> Option<TestBinary> {
     let entry = Cache::open(root).entry(link)?;
     if binary.loaded.is_some() {
         // Mapped from the cache where it is.
@@ -2982,7 +3452,10 @@ pub fn place_test_binary(root: &std::path::Path, link: &ActionKey, binary: TestB
 fn image_host(entry: &std::path::Path) -> Option<String> {
     use std::io::Read as _;
     let mut head = [0u8; super::image::HEAD];
-    std::fs::File::open(entry).ok()?.read_exact(&mut head).ok()?;
+    std::fs::File::open(entry)
+        .ok()?
+        .read_exact(&mut head)
+        .ok()?;
     super::image::host_of(&head).map(str::to_string)
 }
 
@@ -2999,7 +3472,16 @@ fn image_cached(
 ) -> Result<(ActionKey, PathBuf), String> {
     let key = image_key(flags.mode, target_of(output), &host.key, &objects.keys);
     let cache = Cache::open(root);
-    let explain = |status| crate::build::cache::explain(flags.explain, status, Action::Link, label, &output.platform_label(), &key);
+    let explain = |status| {
+        crate::build::cache::explain(
+            flags.explain,
+            status,
+            Action::Link,
+            label,
+            &output.platform_label(),
+            &key,
+        )
+    };
     if !flags.force {
         if let Some(entry) = cache.entry(&key) {
             explain(crate::build::cache::Status::Cached);
@@ -3068,19 +3550,27 @@ fn write_executable(entry: &std::path::Path, path: &std::path::Path) -> std::io:
 
 pub fn artifact_path(session: &Session, target: TargetId, output: &Output) -> PathBuf {
     let package = session.workspace.package(target.package);
-    session.root.join(artifact_relative(&session.root, &package.path, output))
+    session
+        .root
+        .join(artifact_relative(&session.root, &package.path, output))
 }
 
 /// Where an output's artifact lands, relative to the repository `root`, for
 /// the binary in the package at `package_path`.
 pub fn artifact_relative(root: &Path, package_path: &str, output: &Output) -> PathBuf {
     let dir_name = if package_path.is_empty() {
-        root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or("main".into())
+        root.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or("main".into())
     } else {
         // `rsplit` yields the whole string when there is no separator, so the
         // last segment is there for any non-empty path — and the branch above
         // is the empty one.
-        package_path.rsplit('/').next().unwrap_or(package_path).to_string()
+        package_path
+            .rsplit('/')
+            .next()
+            .unwrap_or(package_path)
+            .to_string()
     };
     // An output that enters somewhere other than `main` is named after the
     // function it enters through, because two outputs of one binary otherwise
@@ -3098,13 +3588,23 @@ pub fn artifact_relative(root: &Path, package_path: &str, output: &Output) -> Pa
         (None, "main") => dir_name,
         (None, entry) => entry.to_string(),
     };
-    let base = output.artifact_name.as_ref().map_or(default, |a| a.value.clone());
+    let base = output
+        .artifact_name
+        .as_ref()
+        .map_or(default, |a| a.value.clone());
     // The catch-all this used to end in would have given a WEB artifact no
     // extension at all. Every JavaScript platform writes an `.mjs`, and a
     // native one writes the bare name, so the match is over the two answers
     // rather than over one platform and everything else.
-    let name = if output.platform().is_javascript() { format!("{base}.mjs") } else { base };
-    Path::new(".buri/out").join(output.dir()).join(package_path).join(name)
+    let name = if output.platform().is_javascript() {
+        format!("{base}.mjs")
+    } else {
+        base
+    };
+    Path::new(".buri/out")
+        .join(output.dir())
+        .join(package_path)
+        .join(name)
 }
 
 /// Where chunk `n` of a module sits: `<artifact>.<n>.mjs`, beside it.
@@ -3122,7 +3622,11 @@ pub fn chunk_path(module: &Path, n: usize) -> PathBuf {
 
 /// Every chunk of a module, with the path each is written to.
 pub fn chunk_paths(module: &Path, chunks: &[String]) -> Vec<(PathBuf, String)> {
-    chunks.iter().enumerate().map(|(n, text)| (chunk_path(module, n), text.clone())).collect()
+    chunks
+        .iter()
+        .enumerate()
+        .map(|(n, text)| (chunk_path(module, n), text.clone()))
+        .collect()
 }
 
 /// A JavaScript artifact as the single blob the cache stores it under: the
@@ -3249,14 +3753,25 @@ pub fn check_policy(
 ) {
     check_visibility(session, target, diagnostics);
     check_platform_visibility(session, platform, diagnostics);
-    check_tags_of(session, target, &session.workspace.policy_members(target, platform), diagnostics);
+    check_tags_of(
+        session,
+        target,
+        &session.workspace.policy_members(target, platform),
+        diagnostics,
+    );
     check_platform(session, target, platform, diagnostics);
 }
 
 /// A repository platform's dependencies, held to visibility like a binary's:
 /// each is visible to the platform's package, and so is every edge below it.
-fn check_platform_visibility(session: &Session, platform: &OutputPlatform, diagnostics: &mut Diagnostics) {
-    let OutputPlatform::Repository { label, .. } = platform else { return };
+fn check_platform_visibility(
+    session: &Session,
+    platform: &OutputPlatform,
+    diagnostics: &mut Diagnostics,
+) {
+    let OutputPlatform::Repository { label, .. } = platform else {
+        return;
+    };
     let ws = &session.workspace;
     let (pid, rule) = ws.platform_rule(label);
     let mut edges: Vec<(crate::build::workspace::PackageId, TargetId, Span)> = Vec::new();
@@ -3310,7 +3825,10 @@ pub fn check_visibility(session: &Session, target: TargetId, diagnostics: &mut D
     let edges = closure
         .iter()
         .map(|&m| (m, session.workspace.shared_dep_edges(m)))
-        .chain(std::iter::once((target, session.workspace.test_dep_edges(target).into())));
+        .chain(std::iter::once((
+            target,
+            session.workspace.test_dep_edges(target).into(),
+        )));
     for (member, member_edges) in edges {
         for &(dep, span) in member_edges.iter() {
             let Some(span) = span else { continue };
@@ -3348,7 +3866,12 @@ pub fn check_apps(session: &Session, target: TargetId, diagnostics: &mut Diagnos
             let Some(span) = span else { continue };
             let from = ws.package(member.package);
             let to = ws.package(dep.package);
-            diagnostics.extend(crate::build::workspace::reach_refusal(from, to, "depends on", span));
+            diagnostics.extend(crate::build::workspace::reach_refusal(
+                from,
+                to,
+                "depends on",
+                span,
+            ));
         }
     }
 }
@@ -3358,18 +3881,33 @@ pub fn check_apps(session: &Session, target: TargetId, diagnostics: &mut Diagnos
 /// the interesting question is never "which library is tagged `server`" but
 /// "who dragged it in".
 pub fn check_tags(session: &Session, target: TargetId, diagnostics: &mut Diagnostics) {
-    check_tags_of(session, target, &session.workspace.closure(target), diagnostics);
+    check_tags_of(
+        session,
+        target,
+        &session.workspace.closure(target),
+        diagnostics,
+    );
 }
 
 /// [`check_tags`] over `members`: the target's closure, and for an output of
 /// a repository platform, the platform's dependencies too.
-fn check_tags_of(session: &Session, target: TargetId, members: &[TargetId], diagnostics: &mut Diagnostics) {
+fn check_tags_of(
+    session: &Session,
+    target: TargetId,
+    members: &[TargetId],
+    diagnostics: &mut Diagnostics,
+) {
     // A tag `REPO.buri` does not declare is an error, not a no-op.
     for &member in members {
         for tag in session.workspace.tags(member) {
             if session.workspace.repo.tag(&tag.value).is_none() {
-                let known: Vec<&str> =
-                    session.workspace.repo.tags.iter().map(|t| t.name.value.as_str()).collect();
+                let known: Vec<&str> = session
+                    .workspace
+                    .repo
+                    .tags
+                    .iter()
+                    .map(|t| t.name.value.as_str())
+                    .collect();
                 let mut d = Diagnostic::templated("unknown-tag", tag.span)
                     .with_bind("tag", tag.value.as_str());
                 // A near miss is a guess about which of the two fixes is meant,
@@ -3387,7 +3925,9 @@ fn check_tags_of(session: &Session, target: TargetId, members: &[TargetId], diag
         }
     }
 
-    let Some((a, a_by, b, b_by)) = session.workspace.forbidden_pair_of(members) else { return };
+    let Some((a, a_by, b, b_by)) = session.workspace.forbidden_pair_of(members) else {
+        return;
+    };
     let label = session.workspace.label(target);
     let a_label = session.workspace.label(a_by);
     let b_label = session.workspace.label(b_by);
@@ -3397,7 +3937,10 @@ fn check_tags_of(session: &Session, target: TargetId, members: &[TargetId], diag
         .iter()
         .map(|t| t.span)
         .next()
-        .unwrap_or(Span::point(session.workspace.package(target.package).build_file_id, 0));
+        .unwrap_or(Span::point(
+            session.workspace.package(target.package).build_file_id,
+            0,
+        ));
 
     let mut d = Diagnostic::templated("tag-conflict", span)
         .with_bind("target", label.as_str())
@@ -3416,8 +3959,10 @@ fn check_tags_of(session: &Session, target: TargetId, members: &[TargetId], diag
         };
         if let Some(path) = session.workspace.dep_path(target, by) {
             if path.len() > 1 {
-                let names: Vec<String> =
-                    path.iter().map(|(t, _)| session.workspace.label(*t)).collect();
+                let names: Vec<String> = path
+                    .iter()
+                    .map(|(t, _)| session.workspace.label(*t))
+                    .collect();
                 note.push_str(&format!("\n    reached by: {}", names.join(" -> ")));
             }
         }
@@ -3458,7 +4003,10 @@ pub fn check_platform(
         .as_ref()
         .and_then(|b| b.outputs.iter().find(|o| &o.output_platform() == platform))
         .map(|o| o.span)
-        .unwrap_or(Span::point(session.workspace.package(target.package).build_file_id, 0));
+        .unwrap_or(Span::point(
+            session.workspace.package(target.package).build_file_id,
+            0,
+        ));
 
     let mut d = Diagnostic::templated("platform-violation", span)
         .with_bind("target", label.as_str())
@@ -3479,8 +4027,10 @@ pub fn check_platform(
     }
     if let Some(path) = session.workspace.dep_path(target, blocker) {
         if path.len() > 1 {
-            let names: Vec<String> =
-                path.iter().map(|(t, _)| session.workspace.label(*t)).collect();
+            let names: Vec<String> = path
+                .iter()
+                .map(|(t, _)| session.workspace.label(*t))
+                .collect();
             d = d.with_note(format!("reached by: {}", names.join(" -> ")));
         }
     }
@@ -3507,7 +4057,10 @@ pub fn selected_outputs(session: &Session, target: TargetId, flags: &Flags) -> V
         outputs.push(Output::js(Span::NONE));
     }
     match &flags.output {
-        Some(selector) => outputs.into_iter().filter(|o| o.matches_selector(selector)).collect(),
+        Some(selector) => outputs
+            .into_iter()
+            .filter(|o| o.matches_selector(selector))
+            .collect(),
         None => outputs,
     }
 }
@@ -3515,8 +4068,8 @@ pub fn selected_outputs(session: &Session, target: TargetId, flags: &Flags) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::build::buildfile::Platform;
     use crate::build::buildfile::Arch;
+    use crate::build::buildfile::Platform;
 
     /// `--check-reproducible`'s red path. A build that is genuinely
     /// irreproducible is hard to arrange in a hermetic system — which is the
@@ -3548,7 +4101,15 @@ mod tests {
         let output = Output::for_platform(Platform::Macos, Span::NONE);
         let flags = Flags::default();
         let key = |prefix: &str| {
-            codegen_key(&output, &flags, "llvm", "llvm 21.1.2", prefix, "ir", "layout")
+            codegen_key(
+                &output,
+                &flags,
+                "llvm",
+                "llvm 21.1.2",
+                prefix,
+                "ir",
+                "layout",
+            )
         };
         assert_ne!(key(""), key("lib/money"));
         assert_ne!(key("lib/money"), key("cmd/server"));
@@ -3632,9 +4193,15 @@ mod tests {
         let failing = claim_runner(&dir, dir.join("a/test"));
         failing.keep();
         drop(failing);
-        assert_eq!(claim_runner(&dir, dir.join("b/test")).path(), dir.join("b/test"));
+        assert_eq!(
+            claim_runner(&dir, dir.join("b/test")).path(),
+            dir.join("b/test")
+        );
         drop(claim_runner_after(&dir, PathBuf::new(), CLAIM_STALE));
-        assert_eq!(claim_runner(&dir, dir.join("b/test")).path(), dir.join("test-runner"));
+        assert_eq!(
+            claim_runner(&dir, dir.join("b/test")).path(),
+            dir.join("test-runner")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3653,7 +4220,10 @@ mod tests {
         let held = claim_runner(&dir, dir.join("own/test"));
         assert_eq!(held.path(), dir.join("test-runner"));
         // Fresh, so it is somebody's, and this suite gets its own file.
-        assert_eq!(claim_runner(&dir, dir.join("other/test")).path(), dir.join("other/test"));
+        assert_eq!(
+            claim_runner(&dir, dir.join("other/test")).path(),
+            dir.join("other/test")
+        );
         // Old enough, so it is nobody's and it is taken back.
         let taken = claim_runner_after(&dir, dir.join("other/test"), std::time::Duration::ZERO);
         assert_eq!(taken.path(), dir.join("test-runner"));
@@ -3683,7 +4253,10 @@ mod tests {
             Some(Arch::X86_64) => Arch::Arm64,
             _ => Arch::X86_64,
         };
-        Target { platform: Platform::Macos, arch: Some(arch) }
+        Target {
+            platform: Platform::Macos,
+            arch: Some(arch),
+        }
     }
 
     /// A cross output is refused by the **host**, and the sentence says so —
@@ -3696,7 +4269,10 @@ mod tests {
         for profile in [Profile::Debug, Profile::Release] {
             let gap = native_gap(target, profile)
                 .unwrap_or_else(|| panic!("{target:?} was not refused in {profile:?}"));
-            assert_eq!(gap.output, format!("{}-{}", target.platform.machine(), arch.slug()));
+            assert_eq!(
+                gap.output,
+                format!("{}-{}", target.platform.machine(), arch.slug())
+            );
             assert!(gap.reason.contains("own host only"), "{}", gap.reason);
             assert!(
                 gap.fix.contains(&format!("on a {} host", gap.output)),
@@ -3723,7 +4299,10 @@ mod tests {
         // `--no-default-features` build has neither and refuses both.
         if !runtime_native::AVAILABLE
             || backend::select(
-                Target { platform: Platform::Linux, arch: Some(Arch::X86_64) },
+                Target {
+                    platform: Platform::Linux,
+                    arch: Some(Arch::X86_64),
+                },
                 Profile::Debug,
             )
             .is_err()
@@ -3731,7 +4310,10 @@ mod tests {
             return;
         }
         for arch in [Arch::X86_64, Arch::Arm64] {
-            let target = Target { platform: Platform::Linux, arch: Some(arch) };
+            let target = Target {
+                platform: Platform::Linux,
+                arch: Some(arch),
+            };
             assert!(
                 native_gap(target, Profile::Debug).is_none(),
                 "a Linux output should be ready from this host: {target:?}"
@@ -3748,9 +4330,17 @@ mod tests {
     /// the assertion that keeps a future edit from putting one back.
     #[test]
     fn a_recorded_refusal_names_no_triple_and_no_host() {
-        for target in [cross_target(), Target { platform: Platform::Macos, arch: None }] {
+        for target in [
+            cross_target(),
+            Target {
+                platform: Platform::Macos,
+                arch: None,
+            },
+        ] {
             for profile in [Profile::Debug, Profile::Release] {
-                let Some(gap) = native_gap(target, profile) else { continue };
+                let Some(gap) = native_gap(target, profile) else {
+                    continue;
+                };
                 for text in [&gap.output, &gap.reason, &gap.fix] {
                     for spelling in ["aarch64", "unknown-linux", "apple-darwin", "-musl"] {
                         assert!(
@@ -3772,7 +4362,10 @@ mod tests {
         let d = no_native_artifact(&gap, Span::NONE);
         assert_eq!(d.code.as_deref(), Some("native-artifact-unavailable"));
         assert!(d.message.contains(&gap.output), "{}", d.message);
-        assert_eq!(d.notes.first().map(String::as_str), Some(gap.reason.as_str()));
+        assert_eq!(
+            d.notes.first().map(String::as_str),
+            Some(gap.reason.as_str())
+        );
         assert_eq!(d.fix.as_deref(), Some(gap.fix.as_str()));
     }
 
@@ -3784,7 +4377,10 @@ mod tests {
         for platform in [Platform::Macos, Platform::Linux] {
             for arch in [Arch::Arm64, Arch::X86_64] {
                 for profile in [Profile::Debug, Profile::Release] {
-                    let target = Target { platform, arch: Some(arch) };
+                    let target = Target {
+                        platform,
+                        arch: Some(arch),
+                    };
                     assert_eq!(
                         native_ready(target, profile),
                         native_gap(target, profile).is_none(),
@@ -3800,7 +4396,13 @@ mod tests {
     #[test]
     fn every_javascript_platform_is_emitted_by_the_js_backend() {
         for platform in Platform::ALL {
-            let chosen = backend::select(Target { platform, arch: None }, Profile::Debug);
+            let chosen = backend::select(
+                Target {
+                    platform,
+                    arch: None,
+                },
+                Profile::Debug,
+            );
             assert_eq!(
                 chosen.is_ok() && chosen.map(|b| b.name() == "js").unwrap_or(false),
                 platform.is_javascript(),

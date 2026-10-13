@@ -51,7 +51,9 @@ fn sweep() -> Option<(u64, usize)> {
     .unwrap_or_else(|| panic!("BURI_MATCHES_SEED={raw} is not a number"));
     let batches = std::env::var("BURI_MATCHES_BATCHES")
         .ok()
-        .map_or(generate::BATCHES, |n| n.trim().parse().expect("BURI_MATCHES_BATCHES"));
+        .map_or(generate::BATCHES, |n| {
+            n.trim().parse().expect("BURI_MATCHES_BATCHES")
+        });
     Some((seed, batches))
 }
 
@@ -62,7 +64,11 @@ fn cases() -> Vec<Case> {
         return (0..batches)
             .map(|i| {
                 let b = generate::batch(seed, i);
-                Case { name: format!("seed {seed:#x} batch {i}"), source: b.source, expected: b.expected }
+                Case {
+                    name: format!("seed {seed:#x} batch {i}"),
+                    source: b.source,
+                    expected: b.expected,
+                }
             })
             .collect();
     }
@@ -78,7 +84,11 @@ fn cases() -> Vec<Case> {
                     )
                 })
             };
-            Case { name: batch_name(i), source: read("main.buri"), expected: read("expected.out") }
+            Case {
+                name: batch_name(i),
+                source: read("main.buri"),
+                expected: read("expected.out"),
+            }
         })
         .collect()
 }
@@ -99,9 +109,10 @@ fn check(case: &Case) -> Vec<String> {
     for native in agreement::natives(name) {
         match agreement::emitted(native, &program, &checked) {
             Ok(units) => said.push((native.name, agreement::link_and_run(name, native, &units))),
-            Err(refusal) => {
-                wrong.push(format!("{name}: `{}` refused the program: {refusal}", native.name))
-            }
+            Err(refusal) => wrong.push(format!(
+                "{name}: `{}` refused the program: {refusal}",
+                native.name
+            )),
         }
     }
     for (backend, ran) in said {
@@ -154,7 +165,12 @@ fn generated_shard(at: usize, count: usize) {
             });
         wrong.extend(found);
     }
-    assert!(wrong.is_empty(), "{} finding(s):\n\n{}", wrong.len(), wrong.join("\n\n"));
+    assert!(
+        wrong.is_empty(),
+        "{} finding(s):\n\n{}",
+        wrong.len(),
+        wrong.join("\n\n")
+    );
 }
 
 shards! {
@@ -191,7 +207,10 @@ fn the_checked_in_matches_are_what_the_generator_writes() {
     }
     let mut present: Vec<String> = std::fs::read_dir(&root)
         .map(|entries| {
-            entries.filter_map(Result::ok).map(|e| e.file_name().to_string_lossy().to_string()).collect()
+            entries
+                .filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().to_string())
+                .collect()
         })
         .unwrap_or_default();
     present.sort();
@@ -199,7 +218,10 @@ fn the_checked_in_matches_are_what_the_generator_writes() {
         if bless {
             std::fs::remove_dir_all(root.join(name)).unwrap();
         } else {
-            stale.push(format!("{} is not a batch the generator writes", root.join(name).display()));
+            stale.push(format!(
+                "{} is not a batch the generator writes",
+                root.join(name).display()
+            ));
         }
     }
     assert!(
