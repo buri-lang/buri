@@ -38,7 +38,7 @@ use crate::commands::watch;
 use crate::compiler::backend::js::javascript;
 use crate::compiler::middle::monomorphize;
 use crate::compiler::modules::Unit;
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
+use crate::diagnostics::{invariant, Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::json::Value;
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -89,8 +89,8 @@ struct Case {
     provenance: Provenance,
     name: String,
     module: String,
-    /// `None` when the runner reported no span for the test — which is a
-    /// different thing from a location that is the empty string.
+    /// `None` until [`locate`] places it, and for a verdict served from the
+    /// cache, which only ever passed.
     location: Option<String>,
     verdict: Verdict,
     /// How long the test took, in nanoseconds, as the runner timed it inside
@@ -560,12 +560,9 @@ fn one_pass(
     // cache, none failed, and nothing was asked for by name. `--explain` is
     // never silent — a transcript of what the cache did is exactly what
     // somebody running it wants to read.
-    let quiet = !args.flags.explain
-        && !hard_error
-        && failed == 0
-        && !printed
-        && passed > 0
-        && cached == passed;
+    // Only a failure prints between the lines, so `failed == 0` is also
+    // nothing printed.
+    let quiet = !args.flags.explain && !hard_error && failed == 0 && passed > 0 && cached == passed;
     let code = if hard_error || failed > 0 { 1 } else { 0 };
     watch::Pass {
         code,
@@ -1249,20 +1246,13 @@ type Held<'a> = crate::parallel::Held<'a>;
 struct Shared {
     root: std::path::PathBuf,
     flags: arguments::Flags,
-    /// Which suite is painting into each snapshot directory, and how many of
-    /// its processes are. Two suites never write one directory's goldens at
-    /// once, and a suite that paints runs one process at a time
-    /// ([`queue_members`]).
-    painting: std::sync::Mutex<Vec<Painter>>,
+    /// Which suite is painting into each snapshot directory, by slot. Two
+    /// suites never write one directory's goldens at once, and a suite that
+    /// paints runs one process at a time ([`queue_members`]), so a suite
+    /// never claims a directory it holds.
+    painting: std::sync::Mutex<Vec<(String, usize)>>,
     /// The graph a front end is checked against.
     workspace: std::sync::Arc<crate::build::workspace::Workspace>,
-}
-
-/// A suite painting into a snapshot directory.
-struct Painter {
-    dir: String,
-    slot: usize,
-    processes: usize,
 }
 
 impl Shared {
@@ -1272,15 +1262,10 @@ impl Shared {
             .painting
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        match painters.iter_mut().find(|p| p.dir == dir) {
-            Some(p) if p.slot == slot => p.processes += 1,
-            Some(_) => return false,
-            None => painters.push(Painter {
-                dir: dir.to_string(),
-                slot,
-                processes: 1,
-            }),
+        if painters.iter().any(|(d, _)| d == dir) {
+            return false;
         }
+        painters.push((dir.to_string(), slot));
         true
     }
 
@@ -1292,19 +1277,11 @@ impl Shared {
     }
 
     fn release(&self, dir: &str, slot: usize) {
-        let mut painters = self
-            .painting
+        self.painting
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // `&`: one decision. Which painters are left when a suite lets go is
-        // the pool's timing, so the half that `&&` would skip is not a branch.
-        if let Some(p) = painters
-            .iter_mut()
-            .find(|p| (p.dir == dir) & (p.slot == slot))
-        {
-            p.processes = p.processes.saturating_sub(1);
-        }
-        painters.retain(|p| p.processes > 0);
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            // `&`: one decision, and only the suite holding `dir` lets go of it.
+            .retain(|(d, s)| !((d == dir) & (*s == slot)));
     }
 }
 
@@ -2171,7 +2148,7 @@ fn js_processes(tests: usize, limit: Option<u32>, flags: &arguments::Flags) -> u
 fn start_js(suite: JsSuite, queue: &Queue, shared: &Shared) -> Done {
     let processes = js_processes(suite.roots.len(), suite.run.limit, &shared.flags);
     if processes == 1 {
-        let ran = run_bundle(suite.origin.bundle(), &suite.run, shared);
+        let ran = run_bundle(suite.origin.bundle(), &suite.run, &suite.roots, shared);
         return answer_js(&suite, ran, shared);
     }
     // `$pull` is `async`, and this is module top level of an `.mjs` file.
@@ -2255,8 +2232,10 @@ fn run_js_member(pulled: std::sync::Arc<JsPulled>, shared: &Shared) -> Done {
             state.broken.get_or_insert(d);
         }
     }
+    // Nothing waits once the loop has seen nothing waiting: tests are only
+    // ever handed out, and a broken suite stays broken.
     let mut state = js_state(&pulled);
-    if state.answered || state.running > 0 || state.waiting() {
+    if state.answered || state.running > 0 {
         return Done::Progress;
     }
     state.answered = true;
@@ -2270,9 +2249,13 @@ fn run_js_member(pulled: std::sync::Arc<JsPulled>, shared: &Shared) -> Done {
         .map(|r| r.as_deref().unwrap_or_default())
         .collect();
     let stdout = format!("[{}]", records.join(","));
-    // Joined from records `$pull` wrote, so always an array.
-    let cases = cases_of(&stdout, &pulled.suite.run, shared).unwrap_or_default();
-    answer_js(&pulled.suite, JsRan::Ran(Ok(cases)), shared)
+    // Joined from records `$pull` wrote, so an array, though perhaps of
+    // other tests.
+    let ran = match cases_of(&stdout, &pulled.suite.run, &pulled.suite.roots, shared) {
+        Some(cases) => JsRan::Ran(Ok(cases)),
+        None => JsRan::NotRun(did_not_run("")),
+    };
+    answer_js(&pulled.suite, ran, shared)
 }
 
 /// Runs one process of a pulled suite, handing it the suite's waiting tests
@@ -2386,9 +2369,11 @@ fn write_bundle(bundle: &str, run: &JsRun, driver: &str) -> Result<(), Diagnosti
     if holds {
         return Ok(());
     }
-    if let Some(dir) = run.path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
+    let _ = std::fs::create_dir_all(
+        run.path
+            .parent()
+            .or_ice("a bundle is written in a directory"),
+    );
     std::fs::write(&run.path, &source).map_err(|e| {
         let mut d = Diagnostics::new();
         d.push(
@@ -2412,19 +2397,37 @@ fn cannot_run(why: &str) -> Diagnostics {
 }
 
 fn did_not_run(stderr: &str) -> Diagnostics {
+    let message = stderr.trim();
+    let error = Diagnostic::error(Span::NONE, "the test binary did not run");
     let mut d = Diagnostics::new();
-    d.push(
-        Diagnostic::error(Span::NONE, "the test binary did not run")
-            .with_fix("read the runtime's own message below; it is what failed")
-            .with_note(stderr.trim().to_string()),
-    );
+    d.push(if message.is_empty() {
+        error.with_fix("the runtime wrote no message; check BURI_JS names a JavaScript runtime")
+    } else {
+        error
+            .with_fix("read the runtime's own message above; it is what failed")
+            .with_note(message.to_string())
+    });
     d
 }
 
 /// The cases in a suite's record array, stored with its build where
-/// [`may_cache`] allows. `None` when no array was written.
-fn cases_of(stdout: &str, run: &JsRun, shared: &Shared) -> Option<Vec<Case>> {
+/// [`may_cache`] allows. `None` when no array was written, or when it isn't
+/// a record of each test the filter keeps, in the suite's order: a runtime
+/// that answered for other tests ran nothing of this suite's.
+fn cases_of(stdout: &str, run: &JsRun, roots: &[Root], shared: &Shared) -> Option<Vec<Case>> {
     let cases = cases_in(&records_of(stdout)?);
+    let filter = shared.flags.filter.as_deref();
+    let kept = roots
+        .iter()
+        .filter(|t| filter.is_none_or(|f| t.name.contains(f)));
+    let answered = cases.len() == kept.clone().count()
+        && cases
+            .iter()
+            .zip(kept)
+            .all(|(c, t)| (&c.name, &c.module) == (&t.name, &t.module));
+    if !answered {
+        return None;
+    }
     if may_cache(&cases, &shared.flags) {
         let record = build_line(run.build) + stdout;
         store_verdict(&shared.root, &run.key, record.as_bytes());
@@ -2434,7 +2437,7 @@ fn cases_of(stdout: &str, run: &JsRun, shared: &Shared) -> Option<Vec<Case>> {
 
 /// Writes a bundle with this run's driver and runs it in one process, storing
 /// its verdicts where [`may_cache`] allows.
-fn run_bundle(bundle: &str, run: &JsRun, shared: &Shared) -> JsRan {
+fn run_bundle(bundle: &str, run: &JsRun, roots: &[Root], shared: &Shared) -> JsRan {
     let filter = shared
         .flags
         .filter
@@ -2453,7 +2456,7 @@ fn run_bundle(bundle: &str, run: &JsRun, shared: &Shared) -> JsRan {
     };
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     // A run that wrote no array ran nothing, however it exited.
-    let Some(cases) = cases_of(&stdout, run, shared) else {
+    let Some(cases) = cases_of(&stdout, run, roots, shared) else {
         return JsRan::NotRun(did_not_run(&String::from_utf8_lossy(&out.stderr)));
     };
     JsRan::Ran(Ok(cases))
@@ -2473,11 +2476,13 @@ fn native_ready(platform: Platform, flags: &arguments::Flags) -> bool {
     let target = actions::target_of(&output);
     // A test must *run*, so its artifact has to be one this host can execute —
     // its own. `buri build` cross-links a Linux artifact from a mac
-    // (ARCHITECTURE.md §9), but a test suite for that artifact could not be run
-    // where it was built, so `buri test` is refused for a cross platform even
-    // though `buri build` is not. `is_host_target` is that narrower question.
+    // (ARCHITECTURE.md §9), but a suite only ever names the host's own native
+    // platform ([`runs_of`]), so that is held rather than asked.
+    invariant(
+        crate::build::link::is_host_target(target),
+        "a native suite runs on this host",
+    );
     actions::native_ready(target, actions::profile_of(flags))
-        && crate::build::link::is_host_target(target)
         && crate::build::spawn::resolve(&linker_name()).is_some()
 }
 
@@ -2735,11 +2740,14 @@ fn gap_refusal(label: &str, gap: Gap) -> Diagnostics {
 }
 
 fn is_backend_gap(diagnostics: &Diagnostics) -> bool {
-    !diagnostics.items.is_empty()
-        && diagnostics
-            .items
-            .iter()
-            .all(|d| d.message.contains("has no implementation of"))
+    invariant(
+        !diagnostics.items.is_empty(),
+        "a failed link says why it failed",
+    );
+    diagnostics
+        .items
+        .iter()
+        .all(|d| d.message.contains("has no implementation of"))
 }
 
 /// The analyses `check_during_build` reuses.
@@ -2817,13 +2825,15 @@ thread_local! {
     static RULE_PATHS: std::cell::RefCell<actions::RulePaths> = std::cell::RefCell::new(actions::RulePaths::new());
 }
 
-/// Stores a verdict with its reads. One whose reads were never noted isn't
-/// stored.
+/// Stores a verdict with its reads, which the suite's load or its recalled
+/// build noted.
 fn store_verdict(root: &std::path::Path, key: &crate::build::cache::ActionKey, record: &[u8]) {
-    if let Some(reads) = noted_reads(key) {
-        crate::build::cache::Cache::open(root).put(key, &actions::with_reads(&reads, record));
-    }
+    let reads = noted_reads(key).or_ice(NOTED);
+    crate::build::cache::Cache::open(root).put(key, &actions::with_reads(&reads, record));
 }
+
+/// Every suite that runs was loaded ([`note_reads`]) or recalled ([`recall`]).
+const NOTED: &str = "a suite that ran had its reads noted";
 
 /// The verdicts the cache holds for this key, where it may serve them.
 ///
@@ -2973,7 +2983,10 @@ fn remember(
     let mut out = BUILD_FORMAT.to_vec();
     match built {
         Built::Refused => {
-            let Err(diagnostics) = answer else { return };
+            let diagnostics = answer
+                .as_ref()
+                .err()
+                .or_ice("a refused build has its diagnostics");
             out.push(0);
             put_u32(&mut out, count(diagnostics.items.len()));
             for d in &diagnostics.items {
@@ -3007,10 +3020,7 @@ fn remember(
             put_roots(&mut out, &session.map, &mut anchors, &b.roots);
         }
     }
-    // A build whose reads this run never noted is not recorded.
-    let Some(reads) = noted_reads(key) else {
-        return;
-    };
+    let reads = noted_reads(key).or_ice(NOTED);
     crate::build::cache::Cache::open(&session.root).put(at, &actions::with_reads(&reads, &out));
 }
 
@@ -3322,7 +3332,8 @@ fn rerun(
         crate::build::buildfile::Output,
     )> = Vec::new();
     for (i, slot) in slots.iter_mut().enumerate() {
-        if slot.answer.is_some() || slot.queued {
+        // Nothing is queued yet: this is the pass's first step ([`drive`]).
+        if slot.answer.is_some() {
             continue;
         }
         let Some(again) = slot.served.take() else {
@@ -4125,8 +4136,8 @@ fn batch(
         .filter(|(_, s)| {
             s.answer.is_none()
                 && !s.queued
+                // The default is the host's own platform ([`runs_of`]).
                 && s.chosen == Chosen::Default
-                && s.platform == platform
                 && may_batch(session, s.target)
         })
         .map(|(i, s)| (s.target, i))
@@ -4199,9 +4210,11 @@ fn broken_members(
 /// a way two suites would disagree about what building or running them means —
 /// a declared platform is a request rather than a preference, and a declared
 /// timeout has to bound one suite's process rather than several suites'.
+///
+/// A suite that declares its backends is never offered: it runs where it
+/// asked ([`Chosen::Asked`]), so only its timeout is asked here.
 fn may_batch(session: &Session, target: TargetId) -> bool {
-    let suite = suite(session, target);
-    suite.backends.is_empty() && suite.timeout_seconds.is_none()
+    suite(session, target).timeout_seconds.is_none()
 }
 /// Every tag that would be carried by a suite's own test binary: its production
 /// closure's, and its test dependencies' closures' too.
@@ -5147,8 +5160,10 @@ fn answer_member(
     spec: &MemberSpec,
     shared: &Shared,
 ) -> Done {
+    // Nothing waits once [`run_member`] has run: blocks are only ever handed
+    // out, and a failure or a timeout stays.
     let mut all = gathered_of(gathered);
-    if all.answered || all.running > 0 || all.waiting() {
+    if all.answered || all.running > 0 {
         return Done::Progress;
     }
     all.answered = true;
@@ -5643,16 +5658,15 @@ fn diff_of(value: &Value) -> Option<Diff> {
 /// `duplicate-test` refuses them before anything is compiled.
 fn locate(session: &Session, roots: &[Root], cases: &mut [Case]) {
     for c in cases.iter_mut() {
-        if let Some(t) = roots
+        // A runner's record is of a test it was handed ([`cases_of`]).
+        let t = roots
             .iter()
-            .find(|t| t.name == c.name && t.module == c.module)
-        {
-            if !t.span.is_none() {
-                let f = session.map.get(t.span.file);
-                let (line, col) = f.line_col(t.span.start);
-                c.location = Some(format!("{}:{line}:{col}", f.name));
-            }
-        }
+            .find(|t| (&t.name, &t.module) == (&c.name, &c.module))
+            .or_ice("a case is one of its suite's tests");
+        invariant(!t.span.is_none(), "a test block has a place");
+        let f = session.map.get(t.span.file);
+        let (line, col) = f.line_col(t.span.start);
+        c.location = Some(format!("{}:{line}:{col}", f.name));
     }
 }
 
@@ -5960,9 +5974,9 @@ fn report_failure(
     if let Some(note) = order {
         out.line(&indented(note));
     }
-    if let Some(loc) = &c.location {
-        out.line(&format!("  --> {loc}"));
-    }
+    // Only a passing verdict is served from the cache, unlocated.
+    let loc = c.location.as_ref().or_ice("a failed case was located");
+    out.line(&format!("  --> {loc}"));
 }
 
 #[cfg(test)]

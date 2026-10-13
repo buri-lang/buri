@@ -31,6 +31,7 @@
 //! | [`scheduling`] | scratch | That suites build and run side by side, report in suite order, and are reused across an edit that cannot change them. |
 //! | [`stencil`] | `repositories/stencil/` | That programs reaching the debug backend's rarer paths build and do what the language says. |
 //! | [`verbose`] | `repositories/testing/verbose/` | What `buri test --verbose`'s goldens blank out: the unit each time is spelled in, build times against the run, verdicts cached before there were times, and the list each pass of a watch loop prints. |
+//! | [`test_runners`] | scratch | What `buri test` says when a native test process fails the heap check, never starts, dies after its last block, writes stray lines, or can't be run at all. |
 //! | [`watch`] | scratch | What `buri watch` declares as its input set, and what it re-runs when one of them moves. |
 //! | [`serving`] | `repositories/serving/` | That `buri run` on a page builds the artifact and serves it — the shell for every route, the files beside it as themselves, and `--watch` rebuilding into the next request. |
 //! | [`web_storage`] | `repositories/platform/storage_on_a_page/` | That a page's `Storage` reaches IndexedDB through `web`'s `main.mjs`, survives a reload, and turns a full quota or a refusal into an error. |
@@ -109,6 +110,7 @@ mod serving;
 mod stencil;
 mod test_corners;
 mod test_host;
+mod test_runners;
 mod verbose;
 mod watch;
 mod web_storage;

@@ -198,6 +198,226 @@ fn a_javascript_runtime_that_dies_in_a_test_fails_the_suite() {
         .says("= died in test ");
 }
 
+/// A runtime whose records leave out a test of the suite, or name one it
+/// doesn't have, didn't run the suite: it fails rather than passing without
+/// the tests it left out. Lines that aren't the protocol's, and a record for a
+/// test nobody handed out, are passed over on the way.
+#[test]
+fn a_javascript_runtime_that_reports_other_tests_fails_the_suite() {
+    let scratch = javascript_suites("corners-js-others");
+    let empty = scratch.write_executable("empty", "#!/bin/sh\necho '[]'\n");
+    let stranger = scratch.write_executable(
+        "stranger",
+        "#!/bin/sh\necho '[{\"name\":\"stranger\",\"module\":\"m\",\"ok\":false}]'\n",
+    );
+    for runtime in [&empty, &stranger] {
+        scratch
+            .run_with_env(
+                &["test", "//lib/short"],
+                &[("BURI_JS", &runtime.display().to_string())],
+            )
+            .exits(1)
+            .says("error: the test binary did not run")
+            .says("= fix: the runtime wrote no message; check BURI_JS names a JavaScript runtime")
+            .silent_about("  = \n")
+            .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
+    }
+    let pulling = scratch.write_executable(
+        "pulling",
+        "#!/bin/sh\n\
+         echo 'a line that is not the protocol'\n\
+         echo '{\"ran\":7,\"record\":{}}'\n\
+         while :; do\n  \
+           echo '{\"next\":true}'\n  \
+           read test || exit 0\n  \
+           echo \"{\\\"ran\\\":$test,\\\"record\\\":{\\\"name\\\":\\\"stranger\\\",\\\"module\\\":\\\"m\\\",\\\"ok\\\":true}}\"\n\
+         done\n",
+    );
+    scratch
+        .run_with_env(
+            &["test", "//lib/long"],
+            &[("BURI_JS", &pulling.display().to_string())],
+        )
+        .exits(1)
+        .says("error: the test binary did not run")
+        .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
+}
+
+/// Bundles that can't be written where they run fail their suites, each
+/// saying where it tried.
+#[test]
+fn javascript_bundles_with_nowhere_to_go_fail_their_suites() {
+    let scratch = javascript_suites("corners-js-nowhere");
+    for suite in ["short", "long"] {
+        scratch.write(
+            &format!(".buri/out/node/lib/{suite}/test-library.mjs/held"),
+            "a directory where the bundle goes\n",
+        );
+    }
+    scratch
+        .run(&["test", "//lib/short", "//lib/long"])
+        .exits(1)
+        .says("error: cannot write ")
+        .says("lib/short/test-library.mjs: ")
+        .says("lib/long/test-library.mjs: ")
+        .says("0 passed, 0 failed, 0 skipped, 2 failed to compile");
+}
+
+/// A suite on both backends runs on each, with the lint checking during the
+/// build.
+#[test]
+fn a_suite_on_both_backends_runs_on_each_while_linting() {
+    let scratch = Scratch::repo("corners-two-backends-lint");
+    scratch.write("REPO.buri", "lint {\n    check_during_build: true\n}\n");
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.buri\"]\n        backends: [NATIVE, JS]\n",
+        &blocks("a", 1),
+    );
+    scratch
+        .run(&["test", "//lib/a"])
+        .ok()
+        .says("2 passed, 0 failed, 0 skipped");
+}
+
+/// Suites sharing one test binary, split one per part, each run only the
+/// tests `--filter` keeps.
+#[test]
+fn a_filter_reaches_each_part_of_a_split_binary() {
+    let scratch = Scratch::repo("corners-split-filter");
+    for name in ["a", "b"] {
+        library(
+            &scratch,
+            name,
+            "        sources: [\"test/t.buri\"]\n",
+            &format!(
+                "from \"//lib/{name}\" import {{ one }};\nfrom \"core/testing/assert\" import * as assert;\n\n\
+                 test \"kept {name}\" {{\n    assert.equal(one(), 1);\n}}\n\n\
+                 test \"left {name}\" {{\n    assert.equal(one(), 1);\n}}\n"
+            ),
+        );
+    }
+    scratch
+        .run_with_env(
+            &["test", "//lib/a", "//lib/b", "--filter=kept"],
+            &[("BURI_TEST_BATCH_BYTES", "1")],
+        )
+        .ok()
+        .says("2 passed, 0 failed, 2 skipped");
+}
+
+/// A C compiler that can't link fails each suite with what it said.
+#[cfg(unix)]
+#[test]
+fn a_link_that_fails_fails_each_suite() {
+    let scratch = Scratch::repo("corners-link-fails");
+    for name in ["a", "b"] {
+        library(
+            &scratch,
+            name,
+            "        sources: [\"test/t.buri\"]\n",
+            &blocks(name, 1),
+        );
+    }
+    let cc = scratch.write_executable(
+        "cc",
+        "#!/bin/sh\ncase \"$1\" in -###) exit 1 ;; esac\necho 'no linking today' >&2\nexit 1\n",
+    );
+    scratch
+        .run_with_env(
+            &["test", "//lib/a", "//lib/b"],
+            &[("CC", &cc.display().to_string()), LINKED],
+        )
+        .exits(1)
+        .says("no linking today")
+        .says("0 passed, 0 failed, 0 skipped, 2 failed to compile");
+}
+
+/// Suites with a timeout that failed, or ran out of time, run again from the
+/// binary they ran in, and say again what they said. A binary that fails the
+/// heap check on the second run is built again and reported.
+#[test]
+fn suites_with_a_timeout_run_again_from_their_binary() {
+    let scratch = Scratch::repo("corners-timeout-again");
+    library(
+        &scratch,
+        "f",
+        "        sources: [\"test/t.buri\"]\n        timeout_seconds: 600\n",
+        "from \"core/testing/assert\" import * as assert;\n\n\
+         test \"first\" {\n    assert.isTrue(true);\n}\n\n\
+         test \"second\" {\n    assert.equal(1, 2);\n}\n",
+    );
+    // A loop with no exit, so the one-second limit is certain to be reached.
+    library(
+        &scratch,
+        "s",
+        "        sources: [\"test/t.buri\"]\n        timeout_seconds: 1\n",
+        "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/s\" import { spin };\n\n\
+         test \"returns eventually\" {\n    assert.equal(spin(0), 0);\n}\n",
+    );
+    scratch.write(
+        "lib/s/lib.buri",
+        "export fn spin(n: I64): I64 {\n    spin(n + 1)\n}\n",
+    );
+    for pass in 0..2 {
+        let run = scratch.run_with_env(&["test", "//lib/f", "//lib/s", "--explain"], &[LINKED]);
+        run.exits(1)
+            .says("FAIL //lib/f  test/t.buri  \"second\"")
+            .says("--> lib/f/test/t.buri:7:1")
+            .says("error: //lib/s's test suite ran longer than 1s [test-timeout]")
+            .says("1 passed, 1 failed, 0 skipped, 1 failed to compile");
+        if pass == 1 {
+            run.says("cached build //lib/f native")
+                .says("cached build //lib/s native");
+        }
+    }
+    let leaks = scratch.write_executable("leaks", "#!/bin/sh\n\"$@\"\nexit 97\n");
+    scratch
+        .run_with_env(
+            &["test", "//lib/f"],
+            &[("BURI_TEST_RUNNER", &leaks.display().to_string()), LINKED],
+        )
+        .exits(1)
+        .says("error: the test binary for //lib/f failed the heap check")
+        .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
+}
+
+/// A suite with a timeout that takes a snapshot records it under `--update`,
+/// and passes against it after.
+#[test]
+fn a_suite_with_a_timeout_records_its_snapshot() {
+    let scratch = Scratch::repo("corners-timeout-snapshot");
+    scratch.write(
+        "lib/p/BUILD.buri",
+        "library {\n  sources: []\n  test {\n    sources: [\"test/p.buri\"]\n    timeout_seconds: 600\n  }\n}\n",
+    );
+    scratch.write(
+        "lib/p/lib.buri",
+        "// The package is its suite and nothing else.\n",
+    );
+    scratch.write(
+        "lib/p/test/p.buri",
+        "from \"platform/effect\" import { Allocator, Ui };\n\
+         from \"platform/effect/testing\" import { alloc, headless, snapshot };\n\
+         from \"ui/node\" import * as ui;\n\n\
+         test \"the panel\" {\n  \
+           let ctx = context { Allocator: alloc(), Ui: headless() };\n  \
+           snapshot(\n    ctx,\n    \"panel\",\n    \
+             ui.text({ content: .Const(\"p\"), headingLevel: .None, styles: .Some([]) }),\n    \
+             .Hover,\n    [],\n  );\n}\n",
+    );
+    scratch
+        .run_with_env(&["test", "//lib/p", "--update"], &[LINKED])
+        .ok()
+        .says("1 passed, 0 failed, 0 skipped");
+    assert!(scratch.path("lib/p/test/__snapshots__/panel.png").is_file());
+    scratch
+        .run_with_env(&["test", "//lib/p", "--force"], &[LINKED])
+        .ok()
+        .says("1 passed, 0 failed, 0 skipped");
+}
+
 /// A coverage run that can't make its directory says why and exits 2.
 #[test]
 fn a_coverage_run_with_nowhere_to_write_says_why() {
