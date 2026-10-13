@@ -540,17 +540,16 @@ bytes before the suite starts. So `BURI_CI=1` — set in the workflow's `env:`
 block, and therefore in every job — makes `harness/ci.rs::skipped` PANIC instead
 of returning. Set it locally to see what a runner sees.
 
-**Deferrals.** `repositories::language_server_speed`,
-`repositories::language_server_open_cost` and
+**Deferrals.** `repositories::language_server_speed` and
 `repositories::monorepo_test_budget` assert time rather than work, so they
 return early unless `BURI_PERF` is set, and they mean nothing outside
 `--release`:
 
 ```
-BURI_PERF=1 cargo test --release -p buri --test build -- repositories::language_server_ repositories::monorepo_test_budget
+BURI_PERF=1 cargo test --release -p buri --test build -- repositories::language_server_speed repositories::monorepo_test_budget
 ```
 
-The first two hold every editor request to 50 ms. The third holds a cold, a
+The first holds every editor request to 50 ms. The second holds a cold, a
 comment-edit and a warm `buri test //...` of a generated repository to bars of
 their own. None fails on a single reading: a run over the bar measures its
 whole session again, up to three times, and holds each measurement to the
