@@ -34,6 +34,7 @@ concurrency:
 # it — no repository-setting change is required for `contents: write`.
 permissions:
   contents: write
+  actions: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -52,6 +53,31 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - name: Refuse to release while main CI is red
+        # The newest finished ci.yml run on main decides. Cancelled and skipped
+        # runs say nothing (main's CI cancels itself on every newer push), and a
+        # run still in progress is passed over for the one before it. [skip ci]
+        # commits have no run, so the verdict falls back to the last real one.
+        # No finished run at all fails: nothing says main is green.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run=$(gh run list --workflow=ci.yml --branch "${{ github.event.repository.default_branch }}" \
+            --limit 50 --json databaseId,conclusion,status,headSha,url \
+            | jq -c '[.[] | select(.status == "completed" and .conclusion != "cancelled" and .conclusion != "skipped")][0] // empty')
+          if [ -z "$run" ]; then
+            echo "::error::no finished ci.yml run on main; refusing to release."
+            exit 1
+          fi
+          conclusion=$(jq -r .conclusion <<<"$run")
+          sha=$(jq -r '.headSha[0:9]' <<<"$run")
+          url=$(jq -r .url <<<"$run")
+          echo "newest finished ci.yml run on main: $conclusion at $sha ($url)"
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::main CI is red ($conclusion at $sha): $url"
+            exit 1
+          fi
       - id: compute
         # Patch increments off the latest v0.3.N tag; 0.3.1 when there are none.
         run: |
