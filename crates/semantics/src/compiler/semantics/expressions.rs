@@ -3798,17 +3798,13 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// imports it from — the first one declared, so the answer is the same on
     /// every run. A module's `lib.buri` is imported by its directory.
     fn exported_effect(&self, name: &str) -> Option<(TraitId, String)> {
-        let (index, info) = self
+        let (id, info) = self
             .c
             .tables
             .traits
-            .iter()
-            .enumerate()
+            .entries()
             .find(|(_, tr)| tr.is_effect && tr.exported && tr.name == name)?;
-        Some((
-            TraitId(u32::try_from(index).ok()?),
-            self.c.import_path(info.module),
-        ))
+        Some((id, self.c.import_path(info.module)))
     }
 
     /// The path of a module other than this one that declares an effect named

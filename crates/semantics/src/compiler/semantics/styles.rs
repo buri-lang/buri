@@ -507,7 +507,7 @@ pub fn run(
         recorded: HashSet::default(),
         diags,
         flow,
-        owner: Owner::Fn(FnId(0)),
+        owner: Owner::Fn(extracted),
         mode: Mode::Rewrite,
         wraps: false,
         directs: HashMap::default(),

@@ -85,13 +85,9 @@ pub fn js_structs(
             for field in tycon.fields().iter().chain(variants) {
                 reach.ty(field.ty);
             }
-            let methods = tables
-                .fns
-                .iter()
-                .enumerate()
-                .filter(|(_, f)| f.self_ty == Some(con));
-            for (i, _) in methods {
-                reach.fn_(FnId(i as u32));
+            let methods = tables.fns.entries().filter(|(_, f)| f.self_ty == Some(con));
+            for (id, _) in methods {
+                reach.fn_(id);
             }
         } else if let Some(&f) = reach.fns.get(next_fn) {
             next_fn = next_fn.saturating_add(1);
@@ -166,24 +162,18 @@ impl Reach<'_> {
 fn bodiless_structs(tables: &Tables, platform: ModuleId) -> Vec<(TyConId, Vec<FnId>)> {
     let cons = tables
         .tycons
-        .iter()
-        .enumerate()
+        .entries()
         .filter(|(_, t)| t.module == platform);
-    cons.map(|(i, _)| {
-        (
-            TyConId(i as u32),
-            bodiless_methods(tables, TyConId(i as u32)),
-        )
-    })
-    .filter(|(_, methods)| !methods.is_empty())
-    .collect()
+    cons.map(|(id, _)| (id, bodiless_methods(tables, id)))
+        .filter(|(_, methods)| !methods.is_empty())
+        .collect()
 }
 
 /// The methods a platform's own production struct declares without a body.
 fn bodiless_methods(tables: &Tables, con: TyConId) -> Vec<FnId> {
-    let fns = tables.fns.iter().enumerate();
+    let fns = tables.fns.entries();
     fns.filter(|(_, f)| f.self_ty == Some(con) && f.intrinsic)
-        .map(|(i, _)| FnId(i as u32))
+        .map(|(id, _)| id)
         .collect()
 }
 
@@ -548,7 +538,7 @@ impl<'a> Checker<'a> {
     pub(super) fn check_effect_test_implementations(&mut self) {
         let Some(ws) = self.ws else { return };
         let mut missing: Vec<(Span, String, String)> = Vec::new();
-        for (i, t) in self.tables.traits.iter().enumerate() {
+        for (id, t) in self.tables.traits.entries() {
             if !t.is_effect {
                 continue;
             }
@@ -569,7 +559,6 @@ impl<'a> Checker<'a> {
             if has_testing && !surface {
                 continue;
             }
-            let id = TraitId(i as u32);
             let implemented = self.tables.impls.keys().any(|(tr, con)| {
                 *tr == id
                     && self

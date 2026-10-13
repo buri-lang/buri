@@ -319,7 +319,10 @@ fn the_seed_list_is_the_blocking_host_calls_and_nothing_else() {
 #[test]
 fn a_call_through_a_function_value_is_answered_by_what_it_can_reach() {
     let plain = fn_ty(vec![Ty::UNIT], Ty::UNIT);
-    let carrying = fn_ty(vec![Ty::ctx(types::CtxTypeId(0))], Ty::UNIT);
+    let ctx = types::Tables::default().add_ctx_type(types::CtxType {
+        bindings: Vec::new(),
+    });
+    let carrying = fn_ty(vec![Ty::ctx(ctx)], Ty::UNIT);
     let program = hand_built(vec![
         body_func("main", calls(&[1, 2])),
         body_func("through a plain callback", call_value(call_to_ty(3, plain))),

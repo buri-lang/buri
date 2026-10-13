@@ -324,14 +324,15 @@ fn intern(probe: TyKindIn<'_>) -> Ty {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compiler::semantics::types::Prim;
 
     #[test]
     fn one_shape_is_one_entry() {
-        let a = Ty::con(TyConId(7), [Ty::UNIT, Ty::param(0)]);
-        let b = Ty::con(TyConId(7), vec![Ty::UNIT, Ty::param(0)]);
+        let a = Ty::con(Prim::U16.con(), [Ty::UNIT, Ty::param(0)]);
+        let b = Ty::con(Prim::U16.con(), vec![Ty::UNIT, Ty::param(0)]);
         assert_eq!(a, b);
         assert!(std::ptr::eq(a.kind(), b.kind()));
-        assert_ne!(a, Ty::con(TyConId(7), [Ty::param(0), Ty::UNIT]));
+        assert_ne!(a, Ty::con(Prim::U16.con(), [Ty::param(0), Ty::UNIT]));
     }
 
     #[test]
@@ -349,12 +350,12 @@ mod tests {
         assert!(f.has_vars() && !f.has_params());
         let g = Ty::array(Ty::tuple([Ty::SELF]));
         assert!(g.has_params() && !g.has_vars());
-        assert!(Ty::con(TyConId(1), [Ty::ERROR]).has_error());
+        assert!(Ty::con(Prim::I8.con(), [Ty::ERROR]).has_error());
     }
 
     #[test]
     fn debug_prints_the_structure() {
-        let t = Ty::array(Ty::con(TyConId(2), []));
+        let t = Ty::array(Ty::con(Prim::I16.con(), []));
         assert_eq!(format!("{t:?}"), "Array(Con(TyConId(2), []))");
     }
 }

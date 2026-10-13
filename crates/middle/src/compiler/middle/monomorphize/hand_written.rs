@@ -76,6 +76,8 @@ const GREATER: usize = 2;
 struct Deriving {
     trait_id: TraitId,
     op: Op,
+    /// What the function returns, which is always a type with no arguments.
+    ret_con: TyConId,
     ret: Ty,
     /// `Show`'s context, which every component's `show` is handed.
     ctx: Option<(LocalId, Ty)>,
@@ -209,17 +211,12 @@ impl Monomorphizer<'_> {
     /// is walked as it always was. Answers the generated function.
     fn unbounded_fn(&mut self, trait_name: &str, ty: Ty, ctx: Option<Ty>) -> Option<FuncIdx> {
         let module_paths = &self.module_paths;
-        let trait_id = self
-            .tables()
-            .traits
-            .iter()
-            .position(|t| {
-                t.name == trait_name
-                    && module_paths
-                        .get(t.module.index())
-                        .is_some_and(|m| m == "core/order")
-            })
-            .map(|i| TraitId(i as u32))?;
+        let (trait_id, _) = self.tables().traits.entries().find(|(_, t)| {
+            t.name == trait_name
+                && module_paths
+                    .get(t.module.index())
+                    .is_some_and(|m| m == "core/order")
+        })?;
         if !self.hand_written(trait_id, &ty) && !self.reaches_hand_written(trait_id, &ty, true) {
             return None;
         }
@@ -527,16 +524,18 @@ impl Monomorphizer<'_> {
         unbounded: bool,
     ) -> Option<Deriving> {
         let op = Op::of(&self.tables().trait_(trait_id).name)?;
-        let ret = match op {
-            Op::Show => self.tables().prim(Prim::Str),
-            Op::Equal => self.tables().prim(Prim::Bool),
-            Op::Hash => self.tables().prim(Prim::U64),
-            Op::Compare => Ty::con(*self.checked.known_types.get("Order")?, []),
+        let ret_con = match op {
+            Op::Show => Prim::Str.con(),
+            Op::Equal => Prim::Bool.con(),
+            Op::Hash => Prim::U64.con(),
+            Op::Compare => *self.checked.known_types.get("Order")?,
         };
+        let ret = Ty::con(ret_con, []);
         let ctx = ctx.map(|c| (self.new_local("ctx", c, Span::NONE), c));
         Some(Deriving {
             trait_id,
             op,
+            ret_con,
             ret,
             ctx,
             unbounded,
@@ -705,7 +704,7 @@ impl Monomorphizer<'_> {
     }
 
     fn order_lit(&self, d: &Deriving, variant: usize) -> Expr {
-        let con = d.ret.head().unwrap_or(TyConId(0));
+        let con = d.ret_con;
         Expr::new(
             ExprKind::EnumLit {
                 con,
@@ -819,7 +818,7 @@ impl Monomorphizer<'_> {
 
     /// `match (c) { .Equal => rest, c => c }`: the first difference decides.
     fn then(&mut self, d: &Deriving, c: Expr, rest: Expr) -> Expr {
-        let con = d.ret.head().unwrap_or(TyConId(0));
+        let con = d.ret_con;
         let held = self.new_local("c", d.ret, Span::NONE);
         let equal = Pattern {
             kind: PatKind::Variant {
@@ -1011,7 +1010,7 @@ impl Monomorphizer<'_> {
                             .iter()
                             .enumerate()
                             .map(|(j, (n, _))| {
-                                arm(self.tag_pattern(ty, j), self.int_lit(rank(j, n)))
+                                arm(self.tag_pattern(con, ty, j), self.int_lit(rank(j, n)))
                             })
                             .collect();
                         let int = self.tables().prim(Prim::I64);
@@ -1026,7 +1025,7 @@ impl Monomorphizer<'_> {
                         .iter()
                         .map(|p| self.new_local("a", p.ty, Span::NONE))
                         .collect();
-                    let a_pat = self.payload_pattern(ty, i, payload, &a_binds);
+                    let a_pat = self.payload_pattern(con, ty, i, payload, &a_binds);
                     let a_vals: Vec<Expr> = a_binds
                         .iter()
                         .zip(payload)
@@ -1055,7 +1054,7 @@ impl Monomorphizer<'_> {
                                 .iter()
                                 .map(|p| self.new_local("b", p.ty, Span::NONE))
                                 .collect();
-                            let b_pat = self.payload_pattern(ty, i, payload, &b_binds);
+                            let b_pat = self.payload_pattern(con, ty, i, payload, &b_binds);
                             let b_vals: Vec<Expr> = b_binds
                                 .iter()
                                 .zip(payload)
@@ -1128,8 +1127,7 @@ impl Monomorphizer<'_> {
         }
     }
 
-    fn tag_pattern(&self, ty: Ty, variant: usize) -> Pattern {
-        let con = ty.head().unwrap_or(TyConId(0));
+    fn tag_pattern(&self, con: TyConId, ty: Ty, variant: usize) -> Pattern {
         Pattern {
             kind: PatKind::Variant {
                 con,
@@ -1143,12 +1141,12 @@ impl Monomorphizer<'_> {
 
     fn payload_pattern(
         &self,
+        con: TyConId,
         ty: Ty,
         variant: usize,
         payload: &[Part],
         binds: &[LocalId],
     ) -> Pattern {
-        let con = ty.head().unwrap_or(TyConId(0));
         let fields = payload
             .iter()
             .zip(binds)

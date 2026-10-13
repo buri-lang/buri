@@ -32,9 +32,6 @@ use std::path::Path;
 /// modules it loaded.
 pub(super) const SCOPED: &str = "the checker gives every loaded module a scope";
 
-/// Why a context's entry is always there: its id was minted by the table.
-const CONTEXT: &str = "every context id names an entry of `ctx_decls`";
-
 /// Why a variant's entry is always there: the checker numbered it from its enum.
 const VARIANT: &str = "a checked variant is numbered from its own enum";
 
@@ -258,10 +255,7 @@ pub fn declaration(analyzed: &Analyzed, symbol: &Symbol) -> Span {
             .get(*method)
             .map_or(Span::NONE, |m| m.span),
         Symbol::Const(id) => tables.const_(*id).span,
-        Symbol::Context(id) => tables
-            .ctx_decls
-            .get(id.index())
-            .map_or(Span::NONE, |c| c.span),
+        Symbol::Context(id) => tables.ctx_decl(*id).span,
         Symbol::Field {
             con,
             variant,
@@ -366,7 +360,7 @@ pub fn name(analyzed: &Analyzed, symbol: &Symbol) -> Option<String> {
             .get(*method)
             .map(|m| m.name.clone()),
         Symbol::Const(id) => Some(tables.const_(*id).name.clone()),
-        Symbol::Context(id) => tables.ctx_decls.get(id.index()).map(|c| c.name.clone()),
+        Symbol::Context(id) => Some(tables.ctx_decl(*id).name.clone()),
         Symbol::Field {
             con,
             variant,
@@ -505,7 +499,7 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
             }
         }
         Symbol::Context(id) => {
-            let info = tables.ctx_decls.get(id.index()).or_ice(CONTEXT);
+            let info = tables.ctx_decl(*id);
             match item_syntax(analyzed, info.ast) {
                 Some((t, Item::Context(d))) => {
                     (format!("context {}", t.name(d.name)), t.docs(d.docs))
@@ -1267,10 +1261,10 @@ fn declared_here(analyzed: &Analyzed, file: FileId, offset: u32) -> Option<Found
     // reader wrote is the context rather than the function generated from it.
     // The contest keeps the first offer at an equal width, so the order is the
     // tie-break.
-    for (index, info) in tables.ctx_decls.iter().enumerate() {
-        offer(info.span, Symbol::Context(ContextDeclId(index as u32)));
+    for (id, info) in tables.ctx_decls.entries() {
+        offer(info.span, Symbol::Context(id));
     }
-    for (index, info) in tables.fns.iter().enumerate() {
+    for (id, info) in tables.fns.entries() {
         if info.span.file != file || info.span.start > offset || offset > info.span.end {
             continue;
         }
@@ -1279,10 +1273,9 @@ fn declared_here(analyzed: &Analyzed, file: FileId, offset: u32) -> Option<Found
         // would make a call written inside a test resolve to the test, and a
         // word inside the sentence resolve to it too. Its name is the sentence.
         let named = test_sentence(analyzed, info).unwrap_or(info.span);
-        offer(named, Symbol::Function(FnId(index as u32)));
+        offer(named, Symbol::Function(id));
     }
-    for (index, con) in tables.tycons.iter().enumerate() {
-        let id = TyConId(index as u32);
+    for (id, con) in tables.tycons.entries() {
         offer(con.span, Symbol::Type(id));
         for (i, f) in con.fields().iter().enumerate() {
             offer(
@@ -1308,8 +1301,7 @@ fn declared_here(analyzed: &Analyzed, file: FileId, offset: u32) -> Option<Found
             }
         }
     }
-    for (index, info) in tables.traits.iter().enumerate() {
-        let id = TraitId(index as u32);
+    for (id, info) in tables.traits.entries() {
         offer(info.span, Symbol::Trait(id));
         for (i, m) in info.methods.iter().enumerate() {
             offer(
@@ -1321,8 +1313,8 @@ fn declared_here(analyzed: &Analyzed, file: FileId, offset: u32) -> Option<Found
             );
         }
     }
-    for (index, info) in tables.consts.iter().enumerate() {
-        offer(info.span, Symbol::Const(ConstId(index as u32)));
+    for (id, info) in tables.consts.entries() {
+        offer(info.span, Symbol::Const(id));
     }
     let (_, span, symbol) = best?;
     Some(Found { symbol, span })
@@ -1696,7 +1688,7 @@ fn expression_symbols(
             );
         }
         ExprKind::CtxCall { decl } => {
-            let info = tables.ctx_decls.get(decl.index()).or_ice(CONTEXT);
+            let info = tables.ctx_decl(*decl);
             out(info.name.clone(), Symbol::Context(*decl));
         }
         ExprKind::CtxGet { trait_id, .. } => {

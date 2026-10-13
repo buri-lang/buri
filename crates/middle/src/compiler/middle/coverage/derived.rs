@@ -433,7 +433,7 @@ impl Shadows<'_> {
                                 Expr::new(ExprKind::Bool(false), self.bool_ty, span),
                             );
                             let arms = vec![
-                                arm(variant(ty, vi, &ys, &types, span), same),
+                                arm(variant(con, ty, vi, &ys, &types, span), same),
                                 arm(
                                     Pattern {
                                         kind: PatKind::Wild,
@@ -472,7 +472,7 @@ impl Shadows<'_> {
                         }
                     };
                     arms.push(arm(
-                        variant(ty, vi, &xs, &types, span),
+                        variant(con, ty, vi, &xs, &types, span),
                         body.counted(&which, vi, inner),
                     ));
                 }
@@ -738,7 +738,14 @@ fn arm(pattern: Pattern, body: Expr) -> Arm {
     }
 }
 
-fn variant(ty: Ty, variant: usize, binds: &[LocalId], types: &[Ty], span: Span) -> Pattern {
+fn variant(
+    con: TyConId,
+    ty: Ty,
+    variant: usize,
+    binds: &[LocalId],
+    types: &[Ty],
+    span: Span,
+) -> Pattern {
     let fields = binds
         .iter()
         .zip(types)
@@ -755,7 +762,6 @@ fn variant(ty: Ty, variant: usize, binds: &[LocalId], types: &[Ty], span: Span) 
             },
         })
         .collect();
-    let con = ty.head().unwrap_or(TyConId(0));
     Pattern {
         kind: PatKind::Variant {
             con,

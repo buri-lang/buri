@@ -127,9 +127,135 @@ impl<'a, T> IntoIterator for &'a Layered<T> {
 }
 
 /// An id that indexes a dense table.
+///
+/// Only this module holds a [`Mint`], so an id comes from the index a
+/// [`Table`] handed out or an [`IdMap`] was given.
 pub trait DenseId: Copy {
-    fn from_index(i: usize) -> Self;
+    fn from_index(i: usize, mint: Mint) -> Self;
     fn to_index(self) -> usize;
+}
+
+/// What making an id from an index takes.
+pub struct Mint(());
+
+fn mint<I: DenseId>(i: usize) -> I {
+    I::from_index(i, Mint(()))
+}
+
+/// A [`Layered`] list whose ids it mints itself, so reading one is total.
+///
+/// An analysis's own ids follow its base's, so a base id means the same entry
+/// in every analysis layered on it, and an own id means something only in the
+/// analysis that minted it and the layers taken from that.
+pub struct Table<I, T> {
+    rows: Layered<T>,
+    id: std::marker::PhantomData<fn() -> I>,
+}
+
+impl<I, T> Default for Table<I, T> {
+    fn default() -> Self {
+        Table {
+            rows: Layered::default(),
+            id: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<I, T: Clone> Clone for Table<I, T> {
+    fn clone(&self) -> Self {
+        Table {
+            rows: self.rows.clone(),
+            id: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<I: DenseId, T> Table<I, T> {
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    pub fn push(&mut self, row: T) -> I {
+        let id = mint(self.rows.len());
+        self.rows.push(row);
+        id
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "only `push` mints an id, at the length it then grows past, and nothing shrinks a table"
+    )]
+    pub fn get(&self, id: I) -> &T {
+        let i = id.to_index();
+        match i.checked_sub(self.rows.base.len()) {
+            None => &self.rows.base[i],
+            Some(own) => &self.rows.own[own],
+        }
+    }
+
+    /// The entry for `id`. A base entry is shared, so changing one copies the
+    /// base first, and the change is this table's alone.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "only `push` mints an id, at the length it then grows past, and nothing shrinks a table"
+    )]
+    pub fn get_mut(&mut self, id: I) -> &mut T
+    where
+        T: Clone,
+    {
+        let i = id.to_index();
+        match i.checked_sub(self.rows.base.len()) {
+            None => &mut Arc::make_mut(&mut self.rows.base)[i],
+            Some(own) => &mut self.rows.own[own],
+        }
+    }
+
+    /// Every entry, in id order.
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.rows.iter()
+    }
+
+    /// Every entry with its id, in id order.
+    pub fn entries(&self) -> impl Iterator<Item = (I, &T)> {
+        self.rows.iter().enumerate().map(|(i, row)| (mint(i), row))
+    }
+
+    pub fn ids(&self) -> impl Iterator<Item = I> + use<I, T> {
+        (0..self.rows.len()).map(mint)
+    }
+
+    /// The ids this table minted itself, after its base's.
+    pub fn own_ids(&self) -> impl Iterator<Item = I> + use<I, T> {
+        (self.rows.base_len()..self.rows.len()).map(mint)
+    }
+
+    /// See [`Layered::freeze`].
+    pub fn freeze(&mut self)
+    where
+        T: Clone,
+    {
+        self.rows.freeze();
+    }
+
+    /// See [`Layered::layer`].
+    pub fn layer(&self) -> Table<I, T> {
+        Table {
+            rows: self.rows.layer(),
+            id: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'a, I, T> IntoIterator for &'a Table<I, T> {
+    type Item = &'a T;
+    type IntoIter = std::iter::Chain<std::slice::Iter<'a, T>, std::slice::Iter<'a, T>>;
+    fn into_iter(self) -> Self::IntoIter {
+        (&self.rows).into_iter()
+    }
 }
 
 /// A map from a dense id to a value, for tables most ids have an entry in.
@@ -249,13 +375,11 @@ impl<I: DenseId, T> IdMap<I, T> {
     /// what was written since [`IdMap::layer`]. Unordered.
     pub fn written(&self) -> impl Iterator<Item = (I, &T)> {
         let from = self.base.len();
-        let replaced = self
-            .replaced
-            .iter()
-            .map(|(i, value)| (I::from_index(*i), value));
-        let own = self.own.iter().enumerate().filter_map(move |(i, value)| {
-            Some((I::from_index(from.saturating_add(i)), value.as_ref()?))
-        });
+        let replaced = self.replaced.iter().map(|(i, value)| (mint(*i), value));
+        let own =
+            self.own.iter().enumerate().filter_map(move |(i, value)| {
+                Some((mint(from.saturating_add(i)), value.as_ref()?))
+            });
         replaced.chain(own)
     }
 
@@ -268,7 +392,7 @@ impl<I: DenseId, T> IdMap<I, T> {
     pub fn iter_from(&self, start: usize) -> impl Iterator<Item = (I, &T)> {
         let len = self.base.len().saturating_add(self.own.len());
         (start..len).filter_map(move |i| {
-            let id = I::from_index(i);
+            let id = mint(i);
             self.get(&id).map(|value| (id, value))
         })
     }
@@ -295,9 +419,7 @@ impl<I: DenseId, T> IdMap<I, T> {
         T: Clone,
     {
         let len = self.base.len().saturating_add(self.own.len());
-        let all: Vec<Option<T>> = (0..len)
-            .map(|i| self.get(&I::from_index(i)).cloned())
-            .collect();
+        let all: Vec<Option<T>> = (0..len).map(|i| self.get(&mint(i)).cloned()).collect();
         self.base = Arc::from(all);
         self.own = Vec::new();
         self.replaced = HashMap::default();
@@ -433,7 +555,7 @@ mod tests {
     #[derive(Clone, Copy, PartialEq, Debug)]
     struct Id(u32);
     impl DenseId for Id {
-        fn from_index(i: usize) -> Self {
+        fn from_index(i: usize, _: Mint) -> Self {
             Id(i as u32)
         }
         fn to_index(self) -> usize {

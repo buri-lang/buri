@@ -3451,7 +3451,7 @@ impl<'a> Checker<'a> {
             .map(|((t, c), i)| (*t, *c, i.span))
             .collect();
         let mut sorted = derived;
-        sorted.sort_by_key(|(t, c, _)| (t.0, c.0));
+        sorted.sort_by_key(|(t, c, _)| (*t, *c));
 
         for (tr, con, span) in sorted {
             if self.tables.trait_(tr).name == "Flags" {
@@ -3743,8 +3743,7 @@ impl<'a> Checker<'a> {
     /// of their `impl` methods is generic, the bodies the search reaches are
     /// walked whoever wrote them.
     fn check_endless_functions(&mut self) {
-        let fns: Vec<FnId> = (0..self.tables.fns.len())
-            .map(|i| FnId(i as u32))
+        let fns: Vec<FnId> = (self.tables.fns.ids())
             .filter(|&f| {
                 let info = self.tables.fn_info(f);
                 !info.generics.is_empty()
@@ -4050,13 +4049,23 @@ mod tests {
     // An `impl` method against the signature its trait declares
     // -----------------------------------------------------------------------
 
-    /// The two type constructors these tests name. Nothing here reads the
-    /// tables — the comparison is over elaborated types — so any two distinct
-    /// ids stand for any two distinct types.
-    const BAG: TyConId = TyConId(7);
-    const CRATE: TyConId = TyConId(8);
-    const SHOWN: TraitId = TraitId(1);
-    const ALLOCS: TraitId = TraitId(2);
+    /// Two traits, in id order. Nothing here reads the tables — the
+    /// comparison is over elaborated types — so any two distinct ids stand for
+    /// any two distinct traits, and any two primitives for two types.
+    fn shown_and_allocs() -> [TraitId; 2] {
+        let mut tables = Tables::default();
+        ["Shown", "Allocs"].map(|name| {
+            tables.add_trait(TraitInfo {
+                name: name.to_string(),
+                module: ModuleId(0),
+                generics: Vec::new(),
+                methods: Vec::new(),
+                is_effect: false,
+                exported: true,
+                span: Span::NONE,
+            })
+        })
+    }
 
     fn generic(name: &str, bounds: &[TraitId]) -> GenericInfo {
         GenericInfo {
@@ -4110,11 +4119,11 @@ mod tests {
     }
 
     fn bag() -> Ty {
-        Ty::con(BAG, [])
+        Ty::con(Prim::I8.con(), [])
     }
 
     fn crate_ty() -> Ty {
-        Ty::con(CRATE, [])
+        Ty::con(Prim::I16.con(), [])
     }
 
     /// The everyday shape: no generics anywhere, `self` on both sides. The
@@ -4256,12 +4265,13 @@ mod tests {
     /// declaration.
     #[test]
     fn bounds_in_another_order_agree() {
+        let [shown, allocs] = shown_and_allocs();
         let declared = trait_method(
-            vec![generic("C", &[SHOWN, ALLOCS])],
+            vec![generic("C", &[shown, allocs])],
             vec![receiver(), param(Ty::param(0))],
             Ty::UNIT,
         );
-        let generics = [generic("C", &[ALLOCS, SHOWN])];
+        let generics = [generic("C", &[allocs, shown])];
         let params = [param(bag()), param(Ty::param(0))];
         let ret = Ty::UNIT;
         let found = supplied(&generics, &params, &ret);
@@ -4276,8 +4286,9 @@ mod tests {
     /// side wrote it so the message can echo the source.
     #[test]
     fn a_bound_the_trait_does_not_declare_is_refused() {
-        let declared = trait_method(vec![generic("C", &[SHOWN])], vec![receiver()], Ty::UNIT);
-        let generics = [generic("C", &[SHOWN, ALLOCS])];
+        let [shown, allocs] = shown_and_allocs();
+        let declared = trait_method(vec![generic("C", &[shown])], vec![receiver()], Ty::UNIT);
+        let generics = [generic("C", &[shown, allocs])];
         let params = [param(bag())];
         let ret = Ty::UNIT;
         let found = supplied(&generics, &params, &ret);
@@ -4285,8 +4296,8 @@ mod tests {
             signature_mismatches(&declared, 0, &found, 0, &bag()),
             vec![SignatureMismatch::Bounds {
                 index: 0,
-                expected: vec![SHOWN],
-                found: vec![SHOWN, ALLOCS],
+                expected: vec![shown],
+                found: vec![shown, allocs],
             }],
         );
     }

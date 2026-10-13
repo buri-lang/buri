@@ -2662,7 +2662,7 @@ fn check_unused_declarations(
     spoken: &Spoken,
     diagnostics: &mut Diagnostics,
 ) {
-    use crate::compiler::semantics::types::{TyConId, TyDef};
+    use crate::compiler::semantics::types::TyDef;
 
     let own = target.package;
     let mine = modules_of(analysis, own);
@@ -2697,7 +2697,7 @@ fn check_unused_declarations(
         }
     };
 
-    for (index, con) in tables.tycons.iter().enumerate() {
+    for (id, con) in tables.tycons.entries() {
         if !reportable.contains(&con.module) {
             continue;
         }
@@ -2706,7 +2706,6 @@ fn check_unused_declarations(
         {
             continue;
         }
-        let id = TyConId(index as u32);
         // Published, or possibly published: either way this rule does not ask
         // about it, and neither does it ask about the exported fields and the
         // variants underneath, which are the shape a consumer reaches through.
@@ -3066,10 +3065,9 @@ impl Held {
             .iter()
             .filter(|(m, _)| **m != declared_in)
             .any(|(_, cons)| {
-                cons.iter().any(|con| {
-                    tycons
-                        .get(con.0 as usize)
-                        .is_some_and(|c| c.module == declared_in && c.name == name)
+                cons.iter().any(|&con| {
+                    let c = tycons.get(con);
+                    c.module == declared_in && c.name == name
                 })
             })
     }
@@ -3189,7 +3187,7 @@ fn check_unused_imports(
         .get(&m.id)
         .into_iter()
         .flatten()
-        .filter_map(|con| tycons.get(con.0 as usize).map(|c| c.name.as_str()))
+        .map(|&con| tycons.get(con).name.as_str())
         .collect();
     let is_used = |sp: &crate::parsing::tree::ImportSpec| {
         written(m.ast.tree.name(sp.local())) || held_here.contains(m.ast.tree.name(sp.name))
