@@ -3,10 +3,10 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15151 15639 96.88%
+total 15156 15633 96.95%
 area cli/build 1678 1695 99.00%
 area cli/documentation 477 480 99.38%
-area cli/format 89 100 89.00%
+area cli/format 94 94 100.00%
 area cli/language_server 1270 1406 90.33%
 area cli/lint 587 600 97.83%
 area cli/other 522 606 86.14%
@@ -51,7 +51,7 @@ area crates/syntax 1194 1196 99.83%
 37 44 cli/src/commands/arguments.rs
 90 90 cli/src/commands/build.rs
 10 10 cli/src/commands/clean.rs
-89 100 cli/src/commands/format.rs
+94 94 cli/src/commands/format.rs
 28 34 cli/src/commands/generate.rs
 24 32 cli/src/commands/init.rs
 1 2 cli/src/commands/interrupt.rs
