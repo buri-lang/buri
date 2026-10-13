@@ -171,6 +171,7 @@
               counters, and offsets inside a buffer that bounds them"
 )]
 
+use crate::allocator::valgrind;
 use crate::sync::{Condvar, Mutex, MutexGuard};
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
@@ -1473,10 +1474,10 @@ pub fn bind(
     let plan = Plan {
         limit: (limit >= 0).then_some(limit as u64),
         idle: (idle_millis >= 0).then_some(Duration::from_millis(idle_millis.max(0) as u64)),
-        head: HEAD_DEADLINE,
+        head: valgrind::patient(HEAD_DEADLINE),
         body_limit: BODY_LIMIT,
         drain: plan.drain.unwrap_or(DRAIN_DEADLINE),
-        answer: ANSWER_DEADLINE,
+        answer: valgrind::patient(ANSWER_DEADLINE),
         socket_buffer: plan.socket_buffer.unwrap_or(SOCKET_BUFFER),
     };
     let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
@@ -1523,7 +1524,7 @@ pub fn bind(
         // means "drain", and [`shutdown::listen`] is where that is argued.
         shutdown::listen();
     });
-    Ok((handle, bound, MAX_HANDLERS))
+    Ok((handle, bound, valgrind::hosts(MAX_HANDLERS)))
 }
 
 /// The acceptor thread: one per listener, and the only thing in this process
@@ -3921,6 +3922,11 @@ mod client {
     /// [`super::HEAD_DEADLINE`] does.
     const DEADLINE: Duration = Duration::from_secs(30);
 
+    /// [`DEADLINE`], stretched under a Valgrind tool.
+    fn deadline() -> Duration {
+        crate::allocator::valgrind::patient(DEADLINE)
+    }
+
     /// The largest handshake response head this client will read. The
     /// acceptor's own cap on a request head, read the other way round: a peer
     /// sending header fields for ever is a peer this side stops listening to.
@@ -4084,11 +4090,11 @@ mod client {
                     format!("{what} needs a thread, and one could not be started: {e}"),
                 )
             })?;
-        match wait.recv_timeout(DEADLINE) {
+        match wait.recv_timeout(deadline()) {
             Ok(value) => Ok(value),
             Err(RecvTimeoutError::Timeout) => Err(ServeErr::new(
                 ServeFail::Timeout,
-                format!("{what} did not answer within {}s", DEADLINE.as_secs()),
+                format!("{what} did not answer within {}s", deadline().as_secs()),
             )),
             Err(RecvTimeoutError::Disconnected) => Err(ServeErr::new(
                 ServeFail::Transport,
@@ -4100,10 +4106,10 @@ mod client {
     /// A connected socket with a deadline on every step of getting one.
     fn dial(host: &str, port: u16) -> Result<TcpStream, ServeErr> {
         let addrs = resolve(host, port)?;
-        let sock = crate::http::dial_any(&addrs, DEADLINE)
+        let sock = crate::http::dial_any(&addrs, deadline())
             .map_err(|e| ServeErr::io(&e, &format!("dialling {host}:{port}")))?;
-        sock.set_read_timeout(Some(DEADLINE))
-            .and_then(|()| sock.set_write_timeout(Some(DEADLINE)))
+        sock.set_read_timeout(Some(deadline()))
+            .and_then(|()| sock.set_write_timeout(Some(deadline())))
             .map_err(|e| ServeErr::io(&e, "setting the dial's deadlines"))?;
         // A handshake is one write and one read, so Nagle can only add a round
         // trip to the front of it.
@@ -4200,7 +4206,7 @@ mod client {
     /// `read_request` performs, for the same reason: `SO_RCVTIMEO` bounds one
     /// read and a server dripping a byte at a time restarts it for ever.
     fn read_head(wire: &mut Wire) -> Result<Answered, ServeErr> {
-        let until = Instant::now() + DEADLINE;
+        let until = Instant::now() + deadline();
         let mut buffer: Vec<u8> = Vec::with_capacity(1024);
         let head = loop {
             if let Some(at) = find(&buffer, b"\r\n\r\n") {
@@ -4219,7 +4225,7 @@ mod client {
                     ServeFail::Timeout,
                     format!(
                         "the server did not finish its handshake response within {}s",
-                        DEADLINE.as_secs()
+                        deadline().as_secs()
                     ),
                 ));
             }

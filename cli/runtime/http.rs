@@ -383,7 +383,7 @@ fn within<T: Send + 'static>(
 /// panic converting it.
 pub fn bound(millis: i64) -> Duration {
     match u64::try_from(millis) {
-        Ok(0) | Err(_) => DEADLINE,
+        Ok(0) | Err(_) => crate::allocator::valgrind::patient(DEADLINE),
         Ok(n) => Duration::from_millis(n),
     }
 }
