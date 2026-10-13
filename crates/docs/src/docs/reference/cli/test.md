@@ -180,9 +180,12 @@ A call of a built-in that picks a path for you counts too:
   `errToOption`;
 - list built-ins that call a predicate: `filter`, `filterCtx`, `filterMap`,
   `filterMapCtx`, `filterIndexed`, `any`, `all`, `find`, `findIndex`,
-  `findLast`, `count`, `takeWhile`, `dropWhile` and `partition`, where `Some`
-  counts as `true` and `None` as `false`;
-- `filter` on `Map`, `Set`, `OrderedMap` and `OrderedSet`.
+  `findLast`, `findLastIndex`, `count`, `takeWhile`, `dropWhile`, `partition`,
+  `partitionPoint`, `mapOption`, `mapOptionCtx`, `chunkBy`, `deduplicateBy`
+  and `unfold`, where `Some` counts as `true` and `None` as `false`;
+- `indexWhere` on `Str`;
+- `filter` on `Map`, `Set`, `OrderedMap` and `OrderedSet`, and `filterMapValues`
+  and `alter` on `Map` and `alter` on `OrderedMap`.
 
 ```buri
 export fn orZero(n: Option<Int>): Int {

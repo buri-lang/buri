@@ -1,4 +1,5 @@
 from "core/map" import * as map;
+from "core/orderedmap" import * as orderedmap;
 from "core/set" import * as set;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
@@ -31,4 +32,35 @@ test "map and set" {
     assert.equal(b.smallKeys(ctx, m).length(), 1);
     let s = set.of(ctx, ["hi", "hello"]);
     assert.equal(b.shortWords(ctx, s).length(), 1);
+}
+
+test "list predicates" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(b.allEven(ctx, [2, 4]), .Some([2, 4]));
+    assert.equal(b.allEven(ctx, [2, 3]), .None);
+    assert.equal(b.allPositive(ctx, [1]), .Some([1]));
+    assert.equal(b.allPositive(ctx, [0]), .None);
+    assert.equal(b.firstNonNegative([-2, -1, 0, 1]), 2);
+    assert.equal(b.lastNegative([-1, 1]), .Some(0));
+    assert.equal(b.runs(ctx, [1, 1, 2]), [[1, 1], [2]]);
+    assert.equal(b.distinctRuns(ctx, [1, 1, 2]), [1, 2]);
+    assert.equal(b.countdown(ctx, 2), [2, 1]);
+}
+
+test "map predicates" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = map.of(ctx, [("a", 1), ("b", 20)]);
+    assert.equal(b.keepSmall(ctx, m).length(), 1);
+    assert.equal(b.bump(ctx, m, "a").get("a"), .Some(2));
+    assert.equal(b.bump(ctx, m, "z").get("z"), .None);
+    let o = orderedmap.of(ctx, [("a", 1), ("b", 20)]);
+    assert.equal(b.bumpOrdered(ctx, o, "b").get("b"), .Some(20));
+    assert.equal(b.bumpOrdered(ctx, o, "a").get("a"), .None);
+    assert.equal(b.bumpOrdered(ctx, o, "z").get("z"), .None);
+    assert.equal(b.firstSpace("a b"), .Some(1));
+    assert.equal(b.firstSpace("ab"), .None);
 }

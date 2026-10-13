@@ -1,4 +1,6 @@
 from "//lib/builtins/builtins.buri" export {
-    doubledAboveOne, evens, halves, hasNegative, never, ok, orZero, positives,
-    shortWords, smallKeys, trimmed,
+    allEven, allPositive, bump, bumpOrdered, countdown, distinctRuns,
+    doubledAboveOne, evens, firstNonNegative, firstSpace, halves, hasNegative,
+    keepSmall, lastNegative, never, ok, orZero, positives, runs, shortWords,
+    smallKeys, trimmed,
 };

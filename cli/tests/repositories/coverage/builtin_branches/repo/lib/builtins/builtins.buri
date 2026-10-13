@@ -1,4 +1,6 @@
+from "core/list" import * as list;
 from "core/map" import { Map };
+from "core/orderedmap" import { OrderedMap };
 from "core/set" import { Set };
 from "platform/effect" import { Allocator };
 
@@ -48,4 +50,52 @@ export fn never(n: Option<Int>): Int {
 
 export fn trimmed(s: Str): Str {
     s.trim()
+}
+
+export fn allEven<C: Allocator>(ctx: C, xs: [Int]): Option<[Int]> {
+    xs.mapOption(ctx, fn(x) => if (isEven(x)) { .Some(x) } else { .None })
+}
+
+export fn allPositive<C: Allocator>(ctx: C, xs: [Int]): Option<[Int]> {
+    xs.mapOptionCtx(ctx, fn(_c, x) => if (x > 0) { .Some(x) } else { .None })
+}
+
+export fn firstNonNegative(xs: [Int]): Int {
+    xs.partitionPoint(fn(x) => x < 0)
+}
+
+export fn lastNegative(xs: [Int]): Option<Int> {
+    xs.findLastIndex(fn(x) => x < 0)
+}
+
+export fn runs<C: Allocator>(ctx: C, xs: [Int]): [[Int]] {
+    xs.chunkBy(ctx, fn(a, b) => a == b)
+}
+
+export fn distinctRuns<C: Allocator>(ctx: C, xs: [Int]): [Int] {
+    xs.deduplicateBy(ctx, fn(a, b) => a == b)
+}
+
+export fn countdown<C: Allocator>(ctx: C, start: Int): [Int] {
+    list.unfold(ctx, start, fn(n) => if (n > 0) { .Some((n, n - 1)) } else { .None })
+}
+
+export fn keepSmall<C: Allocator>(ctx: C, m: Map<Str, Int>): Map<Str, Int> {
+    m.filterMapValues(ctx, fn(v) => if (v < 10) { .Some(v) } else { .None })
+}
+
+export fn bump<C: Allocator>(ctx: C, m: Map<Str, Int>, key: Str): Map<Str, Int> {
+    m.alter(ctx, key, fn(old) => old.map(fn(v) => v + 1))
+}
+
+export fn bumpOrdered<C: Allocator>(
+    ctx: C,
+    m: OrderedMap<Str, Int>,
+    key: Str,
+): OrderedMap<Str, Int> {
+    m.alter(ctx, key, fn(old) => old.filter(fn(v) => v > 5))
+}
+
+export fn firstSpace(s: Str): Option<Int> {
+    s.indexWhere(fn(c) => c == ' ')
 }
