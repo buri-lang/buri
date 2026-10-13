@@ -276,11 +276,6 @@ pub struct Instance {
 pub struct Derives {
     /// Every generated function, in generation order.
     pub instances: Vec<Instance>,
-    /// Which function serves `(operation, descriptor)`. More rows than
-    /// [`Derives::instances`] exactly where two shapes share one function.
-    pub routes: Vec<(Op, usize, FuncIdx)>,
-    /// How many call sites became direct calls.
-    pub rewritten: usize,
     /// Descriptors `json.decode` was handed, each of which gets a decoder.
     pub from_json: Vec<usize>,
 }
@@ -300,12 +295,11 @@ pub fn run(program: &mut Program) -> Derives {
     let built = g.finish();
     program.funcs.extend(built.funcs);
     route_cells(program, &built.routed);
-    let mut out = built.out;
-    rewrite(program, &built.routed, &built.hash_ty, &mut out);
+    rewrite(program, &built.routed, &built.hash_ty);
     for f in &mut program.funcs {
         prim_to_json_body(f);
     }
-    out
+    built.out
 }
 
 /// Gives `ToJson::toJson` at a primitive — `str.toJson`, `number.U8.toJson` —
@@ -873,13 +867,6 @@ impl Generator {
             self.routed.retain(|_, f| !unbuilt.contains(f));
             self.out.instances.retain(|i| !unbuilt.contains(&i.func));
         }
-        let mut routes: Vec<(Op, usize, FuncIdx)> = self
-            .routed
-            .iter()
-            .map(|((op, d), f)| (*op, *d, *f))
-            .collect();
-        routes.sort_by_key(|(op, d, f)| (*op, *d, f.0));
-        self.out.routes = routes;
         let hash_ty = self.result_ty(Op::Hash);
         Built {
             funcs: self.funcs,
@@ -3565,19 +3552,12 @@ const ORDER_GREATER: usize = 2;
     clippy::indexing_slicing,
     reason = "`i` ranges over the program's functions"
 )]
-fn rewrite(
-    program: &mut Program,
-    routed: &HashMap<(Op, usize), FuncIdx>,
-    hash_ty: &Ty,
-    out: &mut Derives,
-) {
+fn rewrite(program: &mut Program, routed: &HashMap<(Op, usize), FuncIdx>, hash_ty: &Ty) {
     let index = program.desc_index.clone();
-    let mut rewritten = 0usize;
     for f in &mut program.funcs {
         let Some(body) = f.body_mut() else { continue };
-        rewrite_expr(body, routed, &index, hash_ty, &mut rewritten);
+        rewrite_expr(body, routed, &index, hash_ty);
     }
-    out.rewritten = rewritten;
     // The descriptors a rewritten program still needs: exactly the ones an
     // intrinsic *function* was handed, since no expression reads one any more.
     for i in 0..program.funcs.len() {
@@ -3737,10 +3717,9 @@ fn rewrite_expr(
     routed: &HashMap<(Op, usize), FuncIdx>,
     index: &HashMap<Ty, usize>,
     hash_ty: &Ty,
-    n: &mut usize,
 ) {
     // Children first: an argument may itself be a structural call.
-    typed::children_mut(e, &mut |c| rewrite_expr(c, routed, index, hash_ty, n));
+    typed::children_mut(e, &mut |c| rewrite_expr(c, routed, index, hash_ty));
     let replacement = match &e.kind {
         ExprKind::Intrinsic { name, args, .. } => {
             let op = Op::all().into_iter().find(|o| o.intrinsic() == name);
@@ -3777,6 +3756,5 @@ fn rewrite_expr(
     };
     if let Some(kind) = replacement {
         e.kind = kind;
-        *n += 1;
     }
 }

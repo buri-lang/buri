@@ -566,10 +566,8 @@ round-trip of `ui/test/tree.buri` from 17 s to 0.05 s.
 #### What is excluded, and why
 
 - **Aggregate-cell reuse — the `S { ..old, field: new }` that Perceus is
-  famous for — has no cell to reuse.** `middle::rc` computes the pairing
-  (`FuncPlan::reuse`, behind `Options::reuse`, on by default) and it is
-  correct as an analysis, but the construction it would rewrite does not
-  allocate:
+  famous for — has no cell to reuse.** The construction it would rewrite
+  doesn't allocate:
 
   ```buri ignore why="illustrative"
   match xs {
@@ -579,13 +577,13 @@ round-trip of `ui/test/tree.buri` from 17 s to 0.05 s.
   ```
 
   compiles to a frame range and a store, not to a heap cell and a `decref`.
-  The native suite's `a_struct_update_loop_allocates_nothing_per_iteration` is
-  the measurement: a thousand struct updates allocate exactly as many blocks
-  as ten. Emitting the conditional form — an `rc == 1` branch, a write, and an
+  `cli/tests/native/ownership.rs`'s
+  `a_value_a_match_takes_apart_and_rebuilds_allocates_nothing_new` is the
+  measurement: four thousand rebuilds allocate only the strings they move.
+  Emitting the conditional form — an `rc == 1` branch, a write, and an
   allocate-and-`decref` on the other side — would be two backends' worth of
-  new IR to save an allocation that is not happening. The pairing therefore
-  stays analysis, and that test is what would notice a layout change promoting
-  aggregates to the heap.
+  new IR to save an allocation that is not happening. That test would notice a
+  layout change that put aggregates on the heap.
 - **Cross-block reuse** — pairing a dying value with a construction in a
   different basic block — is a known extension and is not in v1. So is reuse
   across a function boundary.

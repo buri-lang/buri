@@ -686,7 +686,6 @@ fn a_plan_site_becomes_an_instruction_at_its_node() {
             purity: ir::Purity::Pure,
             can_abort: false,
             sites,
-            reuse: Vec::new(),
             unclassified: Vec::new(),
             inherits: Vec::new(),
             moved: Vec::new(),

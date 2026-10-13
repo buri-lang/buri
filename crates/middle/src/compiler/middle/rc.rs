@@ -1,4 +1,4 @@
-//! Reference counting: own/borrow inference, elision, and in-place reuse.
+//! Reference counting: own/borrow inference and elision.
 //!
 //! Non-atomic reference counting with static elision, over a size-class
 //! allocator. Non-atomic because the language has no threads, which is a
@@ -69,21 +69,17 @@
 //!    keeping true, that the caller holds the reference it is testing, and a
 //!    borrowed parameter does not. Two threads reading `1` off one borrowed
 //!    list would each take the licence. Failing the test on the mark is the
-//!    over-set direction again: it costs a copy, and it is why the elision and
-//!    reuse this pass plans stay sound with the baton gone. A list append
+//!    over-set direction again: it costs a copy, and it is why the elision
+//!    this pass plans stays sound with the baton gone. A list append
 //!    claims a marked block with a compare-and-swap instead
 //!    (`buri_rt_claim_unique`, #222), so only one of those threads wins.
 //!
-//! Three things, in order of how much they matter:
+//! Two things, in order of how much they matter:
 //!
 //!  * **Inference.** Each parameter is `own` or `borrow`. A borrowed parameter
 //!    needs no `incref` at the call and no `decref` at the end of the callee.
 //!  * **Elision.** A count that goes up and back down within one basic block,
 //!    with nothing between that can observe it, is removed entirely.
-//!  * **Reuse.** A uniquely-owned allocation whose last use is the construction
-//!    of a same-size-class value is written through instead of freed and
-//!    re-allocated. This is what makes a functional update of a list element
-//!    not copy the list.
 //!
 //! **Native branch only** (`middle::native`): JavaScript is garbage collected
 //! and has no use for any of it.
@@ -162,24 +158,14 @@
 //! replaced field read once ([`FuncPlan::moved`]), so a push through the field
 //! finds the list unique (`Scan::update_dying`).
 //!
-//! **Analysis only, and deliberately so.** [`FuncPlan::reuse`] pairs a dying
-//! value with a construction in the same arm (MEMORY.md §5.3's "same basic
-//! block, matching size class"), on the native branch.
-//! Nothing consumes it, and the reason is not that the transformation is hard:
-//! **the construction it would rewrite does not allocate.** A struct, a tuple,
-//! an enum and a closure record are register or stack values in both backends
-//! (`stencil/emit.rs`'s `MakeStruct` writes into the frame), so
-//! `.Cons(f(h), t)` writing into the matched cell has no cell to write into.
-//! The allocation probe in `cli/tests/native/` measures it: a thousand
-//! functional record updates allocate exactly as many blocks as ten.
-//!
-//! What *does* allocate is a `Str`'s bytes and a `[T]`'s elements, and the
-//! in-place growth for both landed where each operation lives —
-//! `cli/runtime/list.rs`'s `append_dest` for `push` and `concat`, and each
-//! backend's open-coded `str.concat`. MEMORY.md §5.3 has the list, the growth
-//! policy and what is excluded. This pairing stays here, correct and inert,
-//! against a layout change that puts aggregates on the heap; the test above is
-//! what would notice.
+//! **No cell reuse.** A struct, a tuple, an enum and a closure record are
+//! register or stack values in both backends (`stencil/emit.rs`'s `MakeStruct`
+//! writes into the frame), so a match that rebuilds a dying value has no cell
+//! to write into. What allocates is a `Str`'s bytes and a `[T]`'s elements, and
+//! both grow in place where each operation lives: `cli/runtime/list.rs`'s
+//! `append_dest` for `push` and `concat`, and each backend's open-coded
+//! `str.concat`. MEMORY.md §5.3 has the list and the growth policy.
+//! `cli/tests/native/ownership.rs` counts the blocks a rebuilt value takes.
 //!
 //! **Assumed, and written down because it is a contract with the runtime.**
 //! A runtime intrinsic **borrows** its arguments and returns a fresh count;
@@ -376,22 +362,6 @@ impl Site {
     }
 }
 
-/// A dying value paired with a construction that can be written into it.
-///
-/// MEMORY.md §5.3: the two have to be in the same basic block and the size
-/// classes have to match. "Same arm of one match" is the first half; the size
-/// class is a layout question, so `fields` is recorded and `lower` compares the
-/// classes.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Reuse {
-    /// The local whose allocation is about to be freed.
-    pub token: LocalId,
-    /// The construction that would allocate.
-    pub at: NodeId,
-    /// How many fields the construction writes, for the size-class test.
-    pub fields: usize,
-}
-
 /// Everything this pass learned about one function.
 #[derive(Clone, Debug)]
 pub struct FuncPlan {
@@ -401,7 +371,6 @@ pub struct FuncPlan {
     pub can_abort: bool,
     /// Sorted by `(node, position)`, and stable within one key.
     pub sites: Vec<Site>,
-    pub reuse: Vec<Reuse>,
     /// Types [`Counted`] could not answer for, which is why they carry no
     /// reference operations.
     pub unclassified: Vec<Ty>,
@@ -429,7 +398,6 @@ impl Default for FuncPlan {
             purity: ir::Purity::Effectful,
             can_abort: true,
             sites: Vec::new(),
-            reuse: Vec::new(),
             unclassified: Vec::new(),
             inherits: Vec::new(),
             moved: Vec::new(),
@@ -501,9 +469,6 @@ pub struct Options {
     ///  * A projection out of a **dying** parent records [`FuncPlan::inherits`]
     ///    rather than only a duplicating use, which is Perceus's drop
     ///    specialisation with the answer deferred to run time.
-    ///
-    /// It also leaves [`FuncPlan::reuse`] empty, because nothing on that
-    /// branch reads it.
     pub sharing: bool,
 }
 
@@ -951,7 +916,6 @@ fn scan_func(
             purity: purity.get(i).copied().unwrap_or(ir::Purity::Effectful),
             can_abort: can_abort.get(i).copied().unwrap_or(true),
             sites: Vec::new(),
-            reuse: Vec::new(),
             unclassified: Vec::new(),
             inherits: Vec::new(),
             moved: Vec::new(),
@@ -980,7 +944,6 @@ fn scan_func(
                 child_ids,
                 owned: HashSet::default(),
                 sites: Vec::new(),
-                reuse: Vec::new(),
                 unclassified: Vec::new(),
                 used: HashSet::default(),
                 pending: Vec::new(),
@@ -1055,7 +1018,6 @@ fn scan_func(
                 }
             }
             plan.sites = scan.sites;
-            plan.reuse = scan.reuse;
             plan.unclassified = scan.unclassified;
             plan.inherits = scan.inherits;
             plan.moved = scan.moved;
@@ -1092,8 +1054,7 @@ fn scan_func(
 /// few instructions and never shorten one; no user code runs between the sites
 /// at one key, so nothing can observe the difference; and a count that was
 /// balanced stays balanced, because only the order of the same operations
-/// changed (`check_balance` replays the plan and would say so). [`Reuse`] is
-/// planned separately in `FuncPlan::reuse` and is not ordered here at all.
+/// changed (`check_balance` replays the plan and would say so).
 ///
 /// The sort is stable, so sites that agree on all three components keep the
 /// order the scan pushed them in — which is the order two drops of two
@@ -1673,8 +1634,7 @@ fn collect_consuming<'e>(
         }
         // Taking a value apart and keeping a piece takes the whole: the piece
         // is a reference into it, and it outlives the match. This is where a
-        // uniquely-owned value becomes a dying one, and therefore where reuse
-        // becomes possible (MEMORY.md §5.3).
+        // uniquely-owned value becomes a dying one (MEMORY.md §5.3).
         ExprKind::Match { scrutinee, arms } => {
             let kept = arms.iter().any(|a| {
                 let mut bound = Vec::new();
@@ -2229,7 +2189,6 @@ struct Scan<'a> {
     /// Locals this function has an obligation to drop.
     owned: HashSet<LocalId>,
     sites: Vec<Site>,
-    reuse: Vec<Reuse>,
     unclassified: Vec<Ty>,
     /// Every local the body mentions at all, which is what decides whether a
     /// parameter is dropped where it arrives.
@@ -2471,7 +2430,7 @@ impl Scan<'_> {
     ///
     /// Without the release, **`crypto.sha256Text(ctx, "x").0` leaked the
     /// digest's `[U8]` block.** A struct is a stack value in both backends
-    /// (this module's header, on reuse), so there was nothing to free the
+    /// (this module's header, on cell reuse), so there was nothing to free the
     /// aggregate; its one counted field was handed on carrying the count the
     /// call had taken for it, and no site anywhere named the temporary the
     /// field came out of. It is `crypto/sha256.buri`'s five live blocks, and
@@ -2791,7 +2750,7 @@ impl Scan<'_> {
     /// of the local at all.
     ///
     /// A struct and a tuple are register or stack values in both backends (this
-    /// module's header, on reuse), so `out.at` is a word of `out`'s own value
+    /// module's header, on cell reuse), so `out.at` is a word of `out`'s own value
     /// and not a load through any block. Releasing `out` releases the blocks
     /// its counted fields name, and leaves `at` where it was. So the read needs
     /// neither a count nor `out` to be alive, and treating it as a use is what
@@ -3572,8 +3531,7 @@ impl Scan<'_> {
     ///
     /// If the scrutinee is a local whose last use this is, the match consumes
     /// it: the payloads it binds are increfed out of the value and the value
-    /// itself is dropped, which is MEMORY.md §5.3's dying value and the moment
-    /// reuse replaces the drop with a write.
+    /// itself is dropped, which is MEMORY.md §5.3's dying value.
     fn match_(
         &mut self,
         scrutinee: &Expr,
@@ -3922,15 +3880,6 @@ impl Scan<'_> {
             // would take the count to zero before the arm ran.
             if !live.contains(&t) {
                 self.push(bid, Position::Before, RcOp::DecRef, Target::Local(t));
-                if !self.opts.sharing {
-                    if let Some(fields) = construction(&a.body) {
-                        self.reuse.push(Reuse {
-                            token: t,
-                            at: bid,
-                            fields,
-                        });
-                    }
-                }
             }
         }
         for b in &bound {
@@ -4993,17 +4942,5 @@ pub fn child_modes(e: &Expr, n: usize, own: &[Vec<ir::Ownership>]) -> Vec<Mode> 
                 .collect()
         }
         _ => vec![Mode::Borrow; n],
-    }
-}
-
-/// Whether an arm's result is a construction, and how many fields it writes —
-/// the half of MEMORY.md §5.3's reuse condition that is visible in the tree.
-/// The size class is `lower`'s to compare, from the layout table.
-fn construction(body: &Expr) -> Option<usize> {
-    match &body.kind {
-        ExprKind::StructLit { fields, .. } => Some(fields.len()),
-        ExprKind::EnumLit { args, .. } => Some(args.len()),
-        ExprKind::Tuple(items) | ExprKind::Array(items) => Some(items.len()),
-        _ => None,
     }
 }

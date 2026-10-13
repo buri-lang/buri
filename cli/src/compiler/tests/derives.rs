@@ -226,6 +226,30 @@ fn remaining(program: &Program) -> Vec<String> {
     out
 }
 
+/// The program's direct calls to `op`'s generated functions, by callee. The
+/// generated functions' calls to each other aren't counted.
+fn calls(program: &Program, out: &Derives, op: Op) -> Vec<FuncIdx> {
+    let mut found = Vec::new();
+    for (i, f) in program.funcs.iter().enumerate() {
+        if out.instances.iter().any(|g| g.func.index() == i) {
+            continue;
+        }
+        let Some(body) = f.body() else { continue };
+        typed::walk(body, &mut |e| {
+            if let ExprKind::CallFn {
+                func: typed::Callee::Func(g),
+                ..
+            } = &e.kind
+            {
+                if out.instances.iter().any(|i| i.op == op && i.func == *g) {
+                    found.push(*g);
+                }
+            }
+        });
+    }
+    found
+}
+
 fn printed(program: &Program, out: &Derives, op: Op) -> Vec<String> {
     out.instances
         .iter()
@@ -244,11 +268,11 @@ fn every_derive_call_site_becomes_a_direct_call() {
     );
     let out = run(&mut program);
     assert_eq!(remaining(&program), Vec::<String>::new());
-    assert!(
-        out.rewritten >= 4,
-        "four operations at least: {}",
-        out.rewritten
-    );
+    let direct: usize = Op::all()
+        .into_iter()
+        .map(|op| calls(&program, &out, op).len())
+        .sum();
+    assert!(direct >= 4, "four operations at least: {direct}");
     for i in &out.instances {
         let f = program
             .funcs
@@ -474,25 +498,21 @@ export fn main(host: NodeHost): Result<(), Str> {
 "#;
     let (mut program, _) = compile(src);
     let out = run(&mut program);
-    let eq: Vec<FuncIdx> = out
-        .routes
-        .iter()
-        .filter(|(o, _, _)| *o == Op::Eq)
-        .map(|(_, _, f)| *f)
-        .collect();
-    assert_eq!(eq.len(), 2, "two descriptors ask for equality");
-    assert_eq!(eq.first(), eq.get(1), "and one function answers both");
-    let show: Vec<FuncIdx> = out
-        .routes
-        .iter()
-        .filter(|(o, _, _)| *o == Op::Show)
-        .map(|(_, _, f)| *f)
-        .collect();
-    assert_eq!(show.len(), 2);
-    assert_ne!(
-        show.first(),
-        show.get(1),
-        "rendering prints the name, so it does not share"
+    let mut eq = calls(&program, &out, Op::Eq);
+    assert!(
+        eq.len() >= 2,
+        "both types' equality is a direct call: {eq:?}"
+    );
+    eq.sort_by_key(|f| f.0);
+    eq.dedup();
+    assert_eq!(eq.len(), 1, "and one function answers both: {eq:?}");
+    let mut show = calls(&program, &out, Op::Show);
+    show.sort_by_key(|f| f.0);
+    show.dedup();
+    assert_eq!(
+        show.len(),
+        2,
+        "rendering prints the name, so it does not share: {show:?}"
     );
 }
 
@@ -620,7 +640,10 @@ export fn main(host: NodeHost): Result<(), Str> {
     );
     let out = run(&mut program);
     assert_eq!(remaining(&program), Vec::<String>::new());
-    assert!(out.rewritten > 0);
+    assert!(
+        !calls(&program, &out, Op::Eq).is_empty(),
+        "the derive inside the loop is a direct call"
+    );
 }
 
 /// The JavaScript path is the program *before* this pass, and it still has

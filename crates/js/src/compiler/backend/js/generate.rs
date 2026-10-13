@@ -279,8 +279,8 @@ impl<'a> Gen<'a> {
     /// pass over the tree.
     ///
     /// Only the increments are read. A release is what a garbage collector
-    /// does, and this backend emits none — the plan's `DecRef` sites, its
-    /// reuse pairings and its ownership column are all for the native branch.
+    /// does, and this backend emits none — the plan's `DecRef` sites and its
+    /// ownership column are all for the native branch.
     /// The marks for one body: the plan's node numbers, resolved to nodes by
     /// one pre-order pass.
     ///

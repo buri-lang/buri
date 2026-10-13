@@ -634,9 +634,8 @@ pub fn decorate(
     // `noalias` on a *parameter*, case 2 of §3.3: a function with exactly one
     // pointer parameter cannot alias any other, which is vacuous and free.
     // Case 1 is the return, above. Case 3 — a parameter `middle::rc` proved
-    // uniquely owned — has no representation in the landed `ir::Facts`
-    // (`rc.rs`'s `FuncPlan::reuse` never reaches `lower`), so it is not
-    // emitted. Emitting `noalias` where aliasing is possible is a miscompile
+    // uniquely owned — has no representation in the landed `ir::Facts`, so it
+    // is not emitted. Emitting `noalias` where aliasing is possible is a miscompile
     // that shows up as a wrong answer months later.
     let pointers: Vec<usize> = sig
         .params

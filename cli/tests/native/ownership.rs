@@ -6,6 +6,8 @@
 //! must find the list's count at one and grow it in place (MEMORY.md §5.3). A
 //! match arm whose guard reads a heap value it bound and then fails must leave
 //! that value for the arm the match falls through to.
+//! A match that rebuilds a value nothing reads again allocates nothing new,
+//! and gives back the old value's hold on the payloads it moved.
 //!
 //! The work is counted rather than timed, through the allocation probe: a push
 //! that copies allocates a block per push, and one that grows in place
@@ -670,5 +672,167 @@ export fn main(host: NativeHost): Result<(), Str> {
             live, 0,
             "{backend}: {blocks} blocks allocated and {live} still live at exit"
         );
+    }
+}
+
+/// A match that takes apart a value nothing reads again and builds a new one
+/// from its payloads, two thousand times over. The swapped value is a register
+/// or stack value, so swapping it allocates nothing: the two `Str`s are the
+/// only blocks the swaps touch, and they move from each value to the next.
+#[test]
+fn a_value_a_match_takes_apart_and_rebuilds_allocates_nothing_new() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+enum Pair { One(Str), Two(Str, Str) }
+
+fn swap(p: Pair): Pair {
+  match (p) {
+    .One(a) => .One(a),
+    .Two(a, b) => .Two(b, a),
+  }
+}
+
+fn spin(p: Pair, left: Int): Pair {
+  if (left == 0) { p } else { spin(swap(p), left - 1) }
+}
+
+fn first(p: Pair): Str {
+  match (p) {
+    .One(a) => a,
+    .Two(a, _b) => a,
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let two = spin(Pair.Two(str.format(ctx, "left-${1}"), str.format(ctx, "right-${2}")), 2001);
+  let one = spin(Pair.One(str.format(ctx, "only-${3}")), 2000);
+  let _ = io.println(host.stdout, "${first(two)} ${first(one)}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("match-rebuilds-dying-value", source) {
+        assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
+        assert_eq!(r.stdout, "right-2 only-3\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert!(
+            blocks < 50,
+            "{backend}: four thousand swaps allocated {blocks} blocks: a rebuilt value took a \
+             block of its own"
+        );
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
+/// A thousand fresh values, each of heap `Str`s, each taken apart and rebuilt
+/// by a match that is the last thing to read it. The payloads move into the
+/// new value and the old value's hold on them is given back, so every block
+/// is freed by exit.
+#[test]
+fn a_value_a_match_takes_apart_and_rebuilds_gives_its_payloads_back() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+enum Pair { One(Str), Two(Str, Str) }
+
+fn swap(p: Pair): Pair {
+  match (p) {
+    .One(a) => .One(a),
+    .Two(a, b) => .Two(b, a),
+  }
+}
+
+fn fresh<C: Allocator>(ctx: C, i: Int): Pair {
+  if (i % 2 == 0) {
+    .Two(str.format(ctx, "a-${i}"), str.format(ctx, "bb-${i}"))
+  } else {
+    .One(str.format(ctx, "ccc-${i}"))
+  }
+}
+
+fn churn<C: Allocator>(ctx: C, i: Int, seen: Int, last: Str): (Int, Str) {
+  if (i == 0) {
+    (seen, last)
+  } else {
+    let (n, head) = match (swap(fresh(ctx, i))) {
+      .One(a) => (a.length(), a),
+      .Two(a, b) => (a.length() + b.length(), a),
+    };
+    churn(ctx, i - 1, seen + n, head)
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let (total, last) = churn(host.alloc, 1000, 0, "none");
+  let _ = io.println(host.stdout, "${total} ${last}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("match-rebuild-releases", source) {
+        assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
+        assert_eq!(r.stdout, "8841 ccc-1\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+    }
+}
+
+/// A match rebuilds a value and the old value is **read again afterwards**, so
+/// it isn't dying where the new one is built. Both must read as they were
+/// built, a thousand times over, with each round's blocks freed and handed to
+/// the next round's allocations.
+#[test]
+fn a_value_read_after_a_match_rebuilt_it_keeps_its_payloads() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+enum Pair { One(Str), Two(Str, Str) }
+
+fn first(p: Pair): Str {
+  match (p) {
+    .One(a) => a,
+    .Two(a, _b) => a,
+  }
+}
+
+fn both<C: Allocator>(ctx: C, i: Int): Str {
+  let p = Pair.Two(str.format(ctx, "a-${i}"), str.format(ctx, "b-${i}"));
+  let q = match (p) {
+    .One(a) => Pair.One(a),
+    .Two(a, b) => Pair.Two(b, a),
+  };
+  str.format(ctx, "${first(q)}/${first(p)}")
+}
+
+fn rounds<C: Allocator>(ctx: C, i: Int, bad: Int, last: Str): (Int, Str) {
+  if (i == 0) {
+    (bad, last)
+  } else {
+    let shown = both(ctx, i);
+    let ok = shown == str.format(ctx, "b-${i}/a-${i}");
+    rounds(ctx, i - 1, if (ok) { bad } else { bad + 1 }, shown)
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let (bad, last) = rounds(host.alloc, 1000, 0, "none");
+  let _ = io.println(host.stdout, "${bad} ${last}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("match-rebuild-read-after", source) {
+        assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
+        assert_eq!(r.stdout, "0 b-1/a-1\n", "{backend}: {}", r.stderr);
+        let (blocks, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
     }
 }
