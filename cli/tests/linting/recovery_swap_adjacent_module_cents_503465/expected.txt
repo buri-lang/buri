@@ -1,11 +1,3 @@
-warning: nothing reads `Ledger.seal` [unused-field]
-  --> lib/recovery_swap_adjacent_module_cents_503465/lib.buri:13:5
-   |
-13 |     seal: Str,
-   |     ^^^^^^^^^
-   |
-   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
-   = fix: delete the field, or read it
 error: expected an identifier, found `export` [unexpected-token]
   --> lib/recovery_swap_adjacent_module_cents_503465/lib.buri:16:4
    |

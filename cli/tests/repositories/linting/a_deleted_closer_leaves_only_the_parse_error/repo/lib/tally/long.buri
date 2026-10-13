@@ -1,0 +1,54 @@
+// `first` loses its `}`, so `second` is read as part of it and the `a21` that
+// ends `first` is no longer a read the parser kept. It was never unused.
+
+from "//lib/tally/base.buri" import { one };
+
+export fn first(n: I64): I64 {
+    let a1 = n + one();
+    let a2 = a1 + 1;
+    let a3 = a2 + 1;
+    let a4 = a3 + 1;
+    let a5 = a4 + 1;
+    let a6 = a5 + 1;
+    let a7 = a6 + 1;
+    let a8 = a7 + 1;
+    let a9 = a8 + 1;
+    let a10 = a9 + 1;
+    let a11 = a10 + 1;
+    let a12 = a11 + 1;
+    let a13 = a12 + 1;
+    let a14 = a13 + 1;
+    let a15 = a14 + 1;
+    let a16 = a15 + 1;
+    let a17 = a16 + 1;
+    let a18 = a17 + 1;
+    let a19 = a18 + 1;
+    let a20 = a19 + 1;
+    let a21 = a20 + 1;
+    a21
+}
+
+export fn second(n: I64): I64 {
+    let a1 = n + one();
+    let a2 = a1 + 1;
+    let a3 = a2 + 1;
+    let a4 = a3 + 1;
+    let a5 = a4 + 1;
+    let a6 = a5 + 1;
+    let a7 = a6 + 1;
+    let a8 = a7 + 1;
+    let a9 = a8 + 1;
+    let a10 = a9 + 1;
+    let a11 = a10 + 1;
+    let a12 = a11 + 1;
+    let a13 = a12 + 1;
+    let a14 = a13 + 1;
+    let a15 = a14 + 1;
+    let a16 = a15 + 1;
+    let a17 = a16 + 1;
+    let a18 = a17 + 1;
+    let a19 = a18 + 1;
+    let a20 = a19 + 1;
+    let a21 = a20 + 1;
+    a21
+}

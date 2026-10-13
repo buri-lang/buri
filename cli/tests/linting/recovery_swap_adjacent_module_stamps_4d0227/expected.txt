@@ -7,11 +7,3 @@ error: expected `struct`, found `Ghost` [unexpected-token]
    = expected: `struct`
    = actual: `Ghost`
    = fix: write `struct` first: `struct Ghost`
-warning: nothing uses `Ghost` [unused-type]
-  --> lib/recovery_swap_adjacent_module_stamps_4d0227/lib.buri:18:1
-   |
-18 | Ghost struct {
-   | ^^^^^
-   |
-   = a type nothing names, builds or matches is a shape the program does not have
-   = fix: delete it, or use it — a type meant to be published belongs on the library's surface

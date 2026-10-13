@@ -125,6 +125,11 @@ pub const LINTS: &[LintDoc] = &[
     ),
     l!("unused-variable", "Every `let` binding is read"),
     l!("unused-variant", "Every variant is constructed or matched"),
+    l!(
+        "redundant-dependency",
+        "Each dependency is listed once, and never the package itself",
+        &["build/build-files"]
+    ),
 ];
 
 /// The `lint { rules { … } }` field a code is written as in a `REPO.buri`: the

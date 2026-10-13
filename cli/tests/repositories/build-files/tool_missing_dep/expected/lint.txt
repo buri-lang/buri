@@ -1,0 +1,7 @@
+warning: tools/gen/tool.buri imports //lib/money, which is not in dependencies [missing-dependency]
+ --> tools/gen/tool.buri:5:6
+  |
+5 | from "//lib/money" import { Cents, fromCents };
+  |      ^^^^^^^^^^^^^
+  |
+  = fix: add "//lib/money" to dependencies in tools/gen/BUILD.buri — `buri gen` leaves a tool's build file alone, so write the entry by hand

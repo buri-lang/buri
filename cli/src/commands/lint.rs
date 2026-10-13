@@ -681,6 +681,7 @@ fn one_target(
 /// than proving it has not moved would (buri-lang/buri#281).
 fn package_rules(session: &Session, package: PackageId, diagnostics: &mut Diagnostics) {
     check_sources_declared(session, package, diagnostics);
+    check_listed_dependencies(session, package, diagnostics);
     check_test_suites(session, package, diagnostics);
 }
 
@@ -993,6 +994,31 @@ fn check_test_suites(session: &Session, package: PackageId, diagnostics: &mut Di
     }
 }
 
+/// `redundant-dependency`: an entry in `dependencies` that names the package
+/// itself, or names a package a second time. Neither adds an edge, so the
+/// graph is the same with the entry gone.
+fn check_listed_dependencies(session: &Session, package: PackageId, diagnostics: &mut Diagnostics) {
+    let own = session.workspace.package(package).label();
+    for kind in [RuleKind::Library, RuleKind::Binary, RuleKind::Tool] {
+        let target = TargetId { package, kind };
+        let mut seen: BTreeSet<&str> = BTreeSet::new();
+        for dep in session.workspace.declared_deps(target) {
+            let fault = if dep.value == own {
+                "depends on itself".to_string()
+            } else if seen.insert(&dep.value) {
+                continue;
+            } else {
+                format!("lists {} more than once", dep.value)
+            };
+            diagnostics.push(
+                Diagnostic::templated("redundant-dependency", dep.span)
+                    .with_bind("target", own.as_str())
+                    .with_bind("fault", fault),
+            );
+        }
+    }
+}
+
 /// `unused-source` and `duplicate-source`: every `.buri` file in a package
 /// must appear in exactly one rule. A file that appears in none belongs to no
 /// library and no binary, so nothing ever builds it.
@@ -1299,6 +1325,7 @@ fn check_dependencies(
     let declared: Vec<crate::build::buildfile::Spanned<String>> =
         session.workspace.declared_deps(target).to_vec();
     let own = target.package;
+    let how = how_to_declare(session, target);
     // Use is what requires a dep, and an import is not the only way to use: a
     // method resolves through its receiver's type rather than through scope,
     // so a call that lands in another library counts even though no import
@@ -1326,14 +1353,13 @@ fn check_dependencies(
                 && !in_test_deps(session, target, &wanted)
             {
                 let importer = session.map.name(m.file).to_string();
-                let package_path = session.workspace.package(own).path.clone();
                 reported.insert(wanted.clone());
                 diagnostics.push(
                     Diagnostic::templated("missing-dependency", span)
                         .with_bind("user", importer)
                         .with_bind("reaches", "imports")
                         .with_bind("dependency", wanted.as_str())
-                        .with_bind("package_path", package_path)
+                        .with_bind("how", how.as_str())
                         .with_bind("build_file", session.workspace.file_in(own, "BUILD.buri")),
                 );
             }
@@ -1344,7 +1370,6 @@ fn check_dependencies(
     // there is nothing in a source file to point at — the claim that is wrong
     // is the one the build file makes, and that is where the span goes
     // (BUILD-FILES.md, "Dependencies": "an import is not the only way to use").
-    let package_path = session.workspace.package(own).path.clone();
     let own_label = session.workspace.package(own).label();
     for wanted in &resolved {
         if declared.iter().any(|d| &d.value == wanted)
@@ -1362,7 +1387,7 @@ fn check_dependencies(
             .with_bind("user", own_label.as_str())
             .with_bind("reaches", "uses")
             .with_bind("dependency", wanted.as_str())
-            .with_bind("package_path", package_path.as_str())
+            .with_bind("how", how.as_str())
             .with_bind("build_file", session.workspace.file_in(own, "BUILD.buri"))
             // Only this site: no import names the library, so the page cannot
             // carry the note — the other site would print it wrongly.
@@ -1371,6 +1396,18 @@ fn check_dependencies(
                  so no import names it",
             ),
         );
+    }
+}
+
+/// Who adds a missing dependency. `buri gen` writes a library's and a
+/// binary's `dependencies` and leaves a tool's alone, so a fix that sent a
+/// tool's author to it would leave the file exactly as it found it.
+fn how_to_declare(session: &Session, target: TargetId) -> String {
+    if target.kind == RuleKind::Tool {
+        "`buri gen` leaves a tool's build file alone, so write the entry by hand".to_string()
+    } else {
+        let path = &session.workspace.package(target.package).path;
+        format!("`buri gen //{path}` does this automatically")
     }
 }
 
@@ -1472,6 +1509,13 @@ struct Unchecked {
     /// Where those bodies are, for the rules that hold a span rather than a
     /// function.
     ranges: Vec<Span>,
+    /// Files where the parser lost its place, by where: an unclosed delimiter
+    /// or a token it could not use. What follows is read as something it was
+    /// not — a function runs on into the next one, a type ends early — so what
+    /// the text after that point uses is in doubt, and the parse error is the
+    /// whole of what is said about it. A recovered `;` or `,` is not here: the
+    /// parser stayed where it was, and the tree is the one written.
+    lost: std::collections::BTreeMap<crate::diagnostics::FileId, (u32, u32)>,
 }
 
 impl Unchecked {
@@ -1488,6 +1532,27 @@ impl Unchecked {
             invariant(d.is_error(), "the analysis reports only errors");
             if !d.span.is_none() {
                 errors.entry(d.span.file).or_default().push(d.span);
+                if matches!(
+                    d.code.as_deref(),
+                    Some("unclosed-delimiter" | "unexpected-token")
+                ) {
+                    // Where the delimiter was opened is inside the body that
+                    // never closed, and the error itself is past its end.
+                    let mut from = d.span.start;
+                    for s in d
+                        .secondary_spans
+                        .iter()
+                        .filter(|s| s.span.file == d.span.file)
+                    {
+                        errors.entry(s.span.file).or_default().push(s.span);
+                        from = from.min(s.span.start);
+                    }
+                    let kept = unchecked
+                        .lost
+                        .entry(d.span.file)
+                        .or_insert((from, d.span.end));
+                    *kept = (kept.0.min(from), kept.1.max(d.span.end));
+                }
             }
         }
         if errors.is_empty() {
@@ -1736,7 +1801,15 @@ fn check_hygiene(
         if !is_generated(m) {
             let text = Text::of(&lexes, m);
             check_unused_imports(&lexes, &text, analysis, m, &held, diagnostics);
-            diagnostics.extend(text.findings.iter().cloned());
+            // A function that ran on into the next one is long by the mistake.
+            diagnostics.extend(
+                text.findings
+                    .iter()
+                    .filter(|d| {
+                        !(d.code.as_deref() == Some("oversized-function") && unchecked.at(d.span))
+                    })
+                    .cloned(),
+            );
         }
     }
     check_dead_code(session, target, analysis, &unchecked, &held, diagnostics);
@@ -2695,6 +2768,19 @@ impl<'s> Names<'s> {
                 Item::Error(at) => Some(*at),
                 _ => None,
             }));
+            // Where the parser lost its place, nothing up to the next
+            // declaration it read whole is known to be what the author wrote.
+            if let Some((from, to)) = unchecked.lost.get(&m.file) {
+                let resumed = m
+                    .ast
+                    .items
+                    .iter()
+                    .filter(|i| !matches!(i, Item::Error(_)) && i.span().start >= *to)
+                    .map(|i| i.span().start as usize)
+                    .min()
+                    .unwrap_or(lexes.text(m.file).len());
+                unreadable.push(Span::new(m.file, *from as usize, resumed));
+            }
             let read = Text::of(lexes, m);
             let text = lexes.text(m.file);
             let name_at = |at: Span| text.get(at.start as usize..at.end as usize).unwrap_or("");

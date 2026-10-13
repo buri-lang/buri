@@ -1,11 +1,3 @@
-warning: nothing uses `Step` [unused-type]
-  --> lib/recovery_delete_closer_module_steps_7e54e5/lib.buri:11:6
-   |
-11 | enum Step {
-   |      ^^^^
-   |
-   = a type nothing names, builds or matches is a shape the program does not have
-   = fix: delete it, or use it — a type meant to be published belongs on the library's surface
 error: expected an identifier, found `fn` [unexpected-token]
   --> lib/recovery_delete_closer_module_steps_7e54e5/lib.buri:17:8
    |

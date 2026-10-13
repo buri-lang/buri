@@ -1,4 +1,4 @@
-REPO.buri runs 1 of 27 lint rules: todo-comment
+REPO.buri runs 1 of 28 lint rules: todo-comment
 warning: this comment is marked `TODO` [todo-comment]
  --> lib/money/cents.buri:5:4
   |

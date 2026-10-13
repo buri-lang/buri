@@ -1,11 +1,3 @@
-warning: `size` is 41 lines long [oversized-function]
- --> lib/recovery_delete_closer_brace_app_9a02a6/main.buri:9:4
-  |
-9 | fn size(n: I64): Str {
-  |    ^^^^
-  |
-  = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
-  = fix: find the responsibility boundaries in the body and give each one a function of its own
 error: `if` requires an `else` branch [missing-else]
   --> lib/recovery_delete_closer_brace_app_9a02a6/main.buri:10:16
    |

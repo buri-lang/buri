@@ -1,11 +1,3 @@
-warning: `spell` is 45 lines long [oversized-function]
-  --> lib/recovery_swap_adjacent_brace_app_c9a535/main.buri:56:4
-   |
-56 | fn spell(n: I64): Str {
-   |    ^^^^^
-   |
-   = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
-   = fix: find the responsibility boundaries in the body and give each one a function of its own
 error: this struct literal is missing its closing `}` [unclosed-delimiter]
   --> lib/recovery_swap_adjacent_brace_app_c9a535/main.buri:57:15
    |

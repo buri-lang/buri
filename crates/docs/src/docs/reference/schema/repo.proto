@@ -196,6 +196,9 @@ message Rules {
 
   // Every variant is constructed or matched. `buri docs lint unused-variant`.
   bool unused_variant = 29;
+
+  // Each dependency is listed once, and never the package itself. `buri docs lint redundant-dependency`.
+  bool redundant_dependency = 30;
 }
 
 // Whether a rule the `rules` block does not name runs.
