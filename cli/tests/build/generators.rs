@@ -720,6 +720,59 @@ fn a_tool_process_inherits_no_other_process_pipe() {
     );
 }
 
+/// **A tool's process holds nothing `buri` was started with beyond its three
+/// streams.** Here `buri` starts holding the read end of a pipe on descriptor
+/// 19, not close-on-exec, the way a shell or a supervisor can leave one open.
+/// A process that started `buri` while making a pipe of its own does the same
+/// by accident, and every tool then held it.
+#[test]
+fn a_tool_process_inherits_no_descriptor_buri_was_started_with() {
+    use std::os::unix::process::CommandExt as _;
+    unsafe extern "C" {
+        fn pipe(fds: *mut i32) -> i32;
+        fn dup2(from: i32, to: i32) -> i32;
+        fn close(fd: i32) -> i32;
+    }
+    let scratch = many_rules("generators-inherit-nothing-of-buri", 1);
+    let runtime = descriptor_noting_runtime(&scratch);
+    let mut cmd = crate::harness::buri_command();
+    cmd.args(["build", "//...", "--color=never"])
+        .current_dir(scratch.path(""))
+        .env("BURI_JS", &runtime);
+    // SAFETY: `pipe`, `dup2` and `close` are on POSIX's async-signal-safe
+    // list, the whole of what a `pre_exec` closure may call.
+    unsafe {
+        cmd.pre_exec(|| {
+            let mut fds = [0; 2];
+            if pipe(fds.as_mut_ptr()) == -1 || dup2(fds[0], 19) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            close(fds[0]);
+            close(fds[1]);
+            Ok(())
+        })
+    };
+    let out =
+        crate::harness::hang::capped_output(cmd, "buri build //...", crate::harness::hang::cap());
+    let all = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(out.status.success(), "the build failed:\n{}", indent(&all));
+    let noted = std::fs::read_to_string(scratch.path("descriptors.txt")).unwrap_or_default();
+    assert!(!noted.is_empty(), "no tool was started:\n{}", indent(&all));
+    let holding: Vec<&str> = noted
+        .lines()
+        .filter(|line| line.split_whitespace().any(|fd| fd == "19"))
+        .collect();
+    assert!(
+        holding.is_empty(),
+        "a tool was started holding `buri`'s descriptor 19:\n{}",
+        indent(&holding.join("\n"))
+    );
+}
+
 /// What prints each bundled well-known schema the way the generator writes it.
 const WELL_KNOWN_PRINTER: &str = r#"from "core/buri/ast" import * as ast;
 from "core/io" import * as io;

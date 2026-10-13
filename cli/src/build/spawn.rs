@@ -188,7 +188,37 @@ pub fn start(command: &mut Command) -> std::io::Result<Child> {
 /// is half made, and the process it starts inherits only its own streams.
 /// Its own pipes are made under the lock too, so no other process inherits
 /// them.
+///
+/// The lock can't see descriptors `buri` itself was started with: a shell's,
+/// or a pipe its parent was making at the time. So the child marks every
+/// descriptor past its three streams close-on-exec before it execs.
 pub fn start_alone(command: &mut Command) -> std::io::Result<Child> {
+    use std::os::unix::process::CommandExt as _;
+    unsafe extern "C" {
+        fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+    }
+    const F_SETFD: i32 = 2;
+    const FD_CLOEXEC: i32 = 1;
+    // Listed here, since listing allocates. A descriptor opened after this is
+    // close-on-exec already: every pipe is made under the lock.
+    let highest = std::fs::read_dir("/dev/fd")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.parse::<i32>().ok())
+        .max()
+        .unwrap_or(2);
+    // SAFETY: `fcntl` is on POSIX's async-signal-safe list, the whole of what
+    // a `pre_exec` closure may call. Close-on-exec is a descriptor's only flag,
+    // and a closed descriptor answers -1 and stays closed.
+    unsafe {
+        command.pre_exec(move || {
+            for fd in 3..=highest {
+                fcntl(fd, F_SETFD, FD_CLOEXEC);
+            }
+            Ok(())
+        })
+    };
     start_holding(command, true)
 }
 
