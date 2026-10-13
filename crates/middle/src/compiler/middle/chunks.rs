@@ -39,7 +39,7 @@
 use crate::compiler::backend::intrinsic_keys;
 use crate::compiler::middle::dce;
 use crate::compiler::middle::monomorphize::{Chunk, Program, ProgramRoots};
-use crate::compiler::semantics::typed::{self, Callee, Expr, ExprKind};
+use crate::compiler::semantics::typed::{self, Expr, ExprKind};
 
 /// Splits, or takes `load` back out.
 ///
@@ -170,25 +170,25 @@ fn load_slots(program: &Program) -> Vec<usize> {
 /// `load-not-function` has already refused, and which is answered here by
 /// splitting nothing rather than by an assertion.
 fn load_target(e: &Expr, loads: &[usize]) -> Option<usize> {
-    let ExprKind::CallFn { func, args } = &e.kind else {
+    let ExprKind::CallFunc { func, args } = &e.kind else {
         return None;
     };
-    let called = func.func()?.index();
+    let called = func.index();
     if !loads.contains(&called) {
         return None;
     }
     match args.first().map(|a| &a.kind) {
-        Some(ExprKind::FnRef(Callee::Func(i))) => Some(i.index()),
+        Some(ExprKind::FuncRef(i)) => Some(i.index()),
         _ => None,
     }
 }
 
 /// Replaces a `load` call with its own argument.
 fn unwrap_load(e: &mut Expr, loads: &[usize]) {
-    let ExprKind::CallFn { func, .. } = &e.kind else {
+    let ExprKind::CallFunc { func, .. } = &e.kind else {
         return;
     };
-    if !func.func().is_some_and(|i| loads.contains(&i.index())) {
+    if !loads.contains(&func.index()) {
         return;
     }
     let arg = take_arg(e);
@@ -202,7 +202,7 @@ fn unwrap_load(e: &mut Expr, loads: &[usize]) {
 /// expression, which the type checker has already made unreachable.
 fn take_arg(e: &mut Expr) -> Expr {
     let args = match &mut e.kind {
-        ExprKind::CallFn { args, .. } | ExprKind::Intrinsic { args, .. } => args,
+        ExprKind::CallFunc { args, .. } | ExprKind::Intrinsic { args, .. } => args,
         _ => return Expr::new(ExprKind::Unit, e.ty, e.span),
     };
     match args.drain(..).next() {
@@ -259,8 +259,8 @@ mod tests {
 
     fn call(to: u32, args: Vec<Expr>) -> Expr {
         Expr::new(
-            ExprKind::CallFn {
-                func: Callee::Func(FuncIdx(to)),
+            ExprKind::CallFunc {
+                func: FuncIdx(to),
                 args,
             },
             Ty::UNIT,
@@ -269,11 +269,7 @@ mod tests {
     }
 
     fn fn_ref(to: u32) -> Expr {
-        Expr::new(
-            ExprKind::FnRef(Callee::Func(FuncIdx(to))),
-            Ty::UNIT,
-            Span::default(),
-        )
+        Expr::new(ExprKind::FuncRef(FuncIdx(to)), Ty::UNIT, Span::default())
     }
 
     /// slot 0 `main`, slot 1 `lazy.load`, slot 2 the loaded function, slot 3
@@ -357,7 +353,7 @@ mod tests {
         run(&mut p, false);
         assert!(p.chunks.is_empty());
         assert!(
-            matches!(p.funcs[0].body().unwrap().kind, ExprKind::FnRef(_)),
+            matches!(p.funcs[0].body().unwrap().kind, ExprKind::FuncRef(_)),
             "the call is replaced by what it was handed"
         );
         assert!(

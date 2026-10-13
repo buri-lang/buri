@@ -3608,15 +3608,12 @@ fn context_edits(
         }
         typed::walk(&body.expr, &mut |e| match &e.kind {
             typed::ExprKind::FnRef(callee) => {
-                if let Some(func) = callee.decl().filter(|f| wanted.contains_key(f)) {
-                    refused.insert(func);
+                if wanted.contains_key(&callee.id) {
+                    refused.insert(callee.id);
                 }
             }
             typed::ExprKind::CallFn { func: callee, args } => {
-                let func = callee
-                    .decl()
-                    .or_ice("a lint reads the tree before monomorphization");
-                let Some((index, edits)) = wanted.get_mut(&func) else {
+                let Some((index, edits)) = wanted.get_mut(&callee.id) else {
                     return;
                 };
                 match args
@@ -3625,7 +3622,7 @@ fn context_edits(
                 {
                     Some(edit) => edits.push(edit),
                     None => {
-                        refused.insert(func);
+                        refused.insert(callee.id);
                     }
                 }
             }
@@ -3957,10 +3954,10 @@ fn bounds_used(
         // A lint reads the tree before monomorphization, so every callee is a
         // declaration.
         typed::ExprKind::CallFn {
-            func: typed::Callee::Decl { id, targs },
+            func: typed::Callee { id, targs },
             ..
         }
-        | typed::ExprKind::FnRef(typed::Callee::Decl { id, targs }) => {
+        | typed::ExprKind::FnRef(typed::Callee { id, targs }) => {
             note_targs(&tables.fn_info(*id).generics, targs, gi, &mut used);
         }
         // A function-typed parameter, which uses every bound.
@@ -4181,10 +4178,7 @@ fn calls_into(
             let typed::ExprKind::CallFn { func, .. } = &e.kind else {
                 return;
             };
-            let called = func
-                .decl()
-                .or_ice("a lint reads the tree before monomorphization");
-            let info = analysis.checked.tables.fn_info(called);
+            let info = analysis.checked.tables.fn_info(func.id);
             let m = analysis.loaded.module(info.module);
             if m.path == module && names.contains(&info.name.as_str()) {
                 out.push((e.span, info.name.clone()));
@@ -4550,7 +4544,7 @@ fn check_tests_assert(
             crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
                 match &e.kind {
                     typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => {
-                        queue.extend(func.decl())
+                        queue.push(func.id)
                     }
                     _ => {}
                 };
@@ -4578,7 +4572,9 @@ pub(crate) fn reached_by_resolution(
     for (_, body) in analysis.bodies_of(&mine) {
         crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
             let called = match &e.kind {
-                typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => func.decl(),
+                typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => {
+                    Some(func.id)
+                }
                 _ => None,
             };
             let Some(f) = called else { return };

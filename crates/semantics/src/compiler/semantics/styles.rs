@@ -757,11 +757,7 @@ impl<'a> Extractor<'a> {
     fn opaque(&mut self, e: &typed::Expr, s: Sink) {
         let unseen = match &e.kind {
             ExprKind::Intrinsic { .. } => true,
-            ExprKind::CallFn { func, .. } => !self.flow.params.contains_key(
-                &func
-                    .decl()
-                    .or_ice("before monomorphization a callee is a declaration"),
-            ),
+            ExprKind::CallFn { func, .. } => !self.flow.params.contains_key(&func.id),
             _ => false,
         };
         self.tainted.extend(unseen.then_some(s.to));
@@ -973,7 +969,7 @@ impl<'a> Extractor<'a> {
         // `fill` writes the names it can be once every declaration is walked.
         *e = typed::Expr::new(
             ExprKind::CallFn {
-                func: typed::Callee::Decl {
+                func: typed::Callee {
                     id: classify,
                     targs: Vec::new(),
                 },
@@ -1032,7 +1028,7 @@ impl<'a> Extractor<'a> {
         let ExprKind::CallFn { func, args } = &mut e.kind else {
             return;
         };
-        if ![Some(self.classify), Some(self.classify_style)].contains(&func.decl()) {
+        if ![self.classify, self.classify_style].contains(&func.id) {
             return;
         }
         let (known, strict) = found
@@ -1111,7 +1107,7 @@ impl<'a> Extractor<'a> {
         let info = self.tables.fn_info(self.extracted);
         let ty = Ty::func(info.params.iter().map(|p| p.ty), info.ret);
         typed::Expr::new(
-            ExprKind::FnRef(typed::Callee::Decl {
+            ExprKind::FnRef(typed::Callee {
                 id: self.extracted,
                 targs: Vec::new(),
             }),
@@ -1889,16 +1885,10 @@ impl<'a> Flow<'a> {
         let stopped = stopped || stops;
         match &e.kind {
             ExprKind::CallFn { func, .. } => {
-                out.called.insert(
-                    func.decl()
-                        .or_ice("before monomorphization a callee is a declaration"),
-                );
+                out.called.insert(func.id);
             }
             ExprKind::FnRef(func) => {
-                out.referenced.insert(
-                    func.decl()
-                        .or_ice("before monomorphization a callee is a declaration"),
-                );
+                out.referenced.insert(func.id);
             }
             _ => {}
         }
@@ -1907,9 +1897,7 @@ impl<'a> Flow<'a> {
                 ExprKind::Local(l) => Some(Demand::Local(owner, *l)),
                 ExprKind::Const(c) => Some(Demand::Const(*c)),
                 ExprKind::CallFn { func, .. } | ExprKind::FnRef(func) => {
-                    let f = func
-                        .decl()
-                        .or_ice("before monomorphization a callee is a declaration");
+                    let f = func.id;
                     self.params.contains_key(&f).then_some(Demand::Ret(f))
                 }
                 ExprKind::CallTrait {
@@ -2006,9 +1994,7 @@ impl<'a> Flow<'a> {
                 .chain(args.iter().map(|_| Pos::Same))
                 .collect(),
             ExprKind::CallFn { func, args } => {
-                let f = func
-                    .decl()
-                    .or_ice("before monomorphization a callee is a declaration");
+                let f = func.id;
                 let info = self.tables.fn_info(f);
                 if self.in_ui_node(info.module) {
                     return all(Pos::At(Some(Demand::Node)), args.len());
@@ -3581,10 +3567,7 @@ pub fn survey(
             }
         }
         ExprKind::StructLit { con, .. } if Some(*con) == ui.theme => out.themes = true,
-        ExprKind::CallFn {
-            func: typed::Callee::Func(f),
-            args,
-        } if unchecked.contains(f) => {
+        ExprKind::CallFunc { func: f, args } if unchecked.contains(f) => {
             let strict = args
                 .get_mut(2)
                 .or_ice("`classify` is given strictness third");

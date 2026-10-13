@@ -326,7 +326,7 @@ impl<'a> Folder<'a> {
             }
 
             ExprKind::CallFn { func, args } => {
-                let id = func.decl()?;
+                let id = func.id;
                 if !self.is_foldable_fn(id) {
                     return None;
                 }
@@ -338,6 +338,8 @@ impl<'a> Folder<'a> {
             // something this interpreter has no model of. Each is a `None`
             // rather than an omission, so adding a case is a deliberate act.
             ExprKind::FnRef(_)
+            | ExprKind::FuncRef(_)
+            | ExprKind::CallFunc { .. }
             | ExprKind::CallValue { .. }
             | ExprKind::CallTrait { .. }
             | ExprKind::Lambda { .. }

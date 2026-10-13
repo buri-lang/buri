@@ -1109,37 +1109,33 @@ impl FnLower<'_> {
             // constructor becomes a call to the function that builds it. One
             // that survives means this tree did not go through
             // `monomorphize::run`, which is a compiler bug and not an input.
-            ExprKind::Const(_) | ExprKind::CallTrait { .. } | ExprKind::CtxCall { .. } => {
-                self.abort("this expression was not monomorphized")
-            }
+            ExprKind::Const(_)
+            | ExprKind::CallTrait { .. }
+            | ExprKind::CtxCall { .. }
+            | ExprKind::CallFn { .. }
+            | ExprKind::FnRef(_) => self.abort("this expression was not monomorphized"),
             ExprKind::Error => self.abort("this expression did not check"),
 
-            ExprKind::FnRef(callee) => match callee.func() {
-                Some(f) => self.emit(ty, |dest| Inst::MakeClosure {
-                    dest,
-                    func: f,
-                    env: None,
-                }),
-                None => self.abort("this function reference was not monomorphized"),
-            },
-            ExprKind::CallFn { func, args } => match func.func() {
-                Some(f) => {
-                    if let Some(FuncKind::Intrinsic(key)) =
-                        self.program.funcs.get(f.index()).map(|g| &g.kind)
-                    {
-                        if lists::handles(key) {
-                            return self.list_call(key, args, &e.ty);
-                        }
+            ExprKind::FuncRef(f) => self.emit(ty, |dest| Inst::MakeClosure {
+                dest,
+                func: *f,
+                env: None,
+            }),
+            ExprKind::CallFunc { func, args } => {
+                if let Some(FuncKind::Intrinsic(key)) =
+                    self.program.funcs.get(func.index()).map(|g| &g.kind)
+                {
+                    if lists::handles(key) {
+                        return self.list_call(key, args, &e.ty);
                     }
-                    let args = self.exprs(args);
-                    self.emit(ty, |dest| Inst::Call {
-                        dest,
-                        func: f,
-                        args,
-                    })
                 }
-                None => self.abort("this call was not monomorphized"),
-            },
+                let args = self.exprs(args);
+                self.emit(ty, |dest| Inst::Call {
+                    dest,
+                    func: *func,
+                    args,
+                })
+            }
             ExprKind::CallValue { callee, args } => {
                 let c = self.expr(callee);
                 let args = self.exprs(args);

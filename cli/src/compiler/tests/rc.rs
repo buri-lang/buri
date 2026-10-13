@@ -1650,7 +1650,7 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// A fresh value reached through a branch is still fresh.
 ///
 /// `middle::inline` replaces a call with the callee's body, so the thing a
-/// borrowing construct is handed stops being an `ExprKind::CallFn` — and
+/// borrowing construct is handed stops being an `ExprKind::CallFunc` — and
 /// `fresh` said no, and nothing dropped it. `"[${show(ctx, xs)}]"` was the
 /// program: one call, so the inliner pasted it in, and the string leaked.
 #[test]

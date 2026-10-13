@@ -78,7 +78,7 @@
 
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::typed::{self, Callee, Expr, ExprKind, PatKind, Pattern, Stmt};
+use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
 use crate::diagnostics::Span;
@@ -185,10 +185,10 @@ impl Fuse<'_> {
     }
 
     fn key<'e>(&self, e: &'e Expr) -> Option<(&str, FuncIdx, &'e Vec<Expr>)> {
-        let ExprKind::CallFn { func, args } = &e.kind else {
+        let ExprKind::CallFunc { func, args } = &e.kind else {
             return None;
         };
-        let idx = func.func()?;
+        let idx = *func;
         // A minted instance is not in `keys`, and a chain fuses one stage at a
         // time — so the instance this pass wrote a moment ago is exactly the
         // one the next stage has to recognise.
@@ -247,7 +247,7 @@ impl Fuse<'_> {
         let tys = vec![source.ty, keep.ty];
         let func = self.mint(Combinator::Count, from, tys, node_ty);
         let (callee, args) = call_mut(e);
-        *callee = Callee::Func(func);
+        *callee = func;
         *args = vec![source, keep];
         true
     }
@@ -355,7 +355,7 @@ impl Fuse<'_> {
         if !plan.same_elements {
             let arg_tys: Vec<Ty> = args.iter().map(|a| a.ty).collect();
             let func = self.mint(plan.consumer, plan.consumer_idx, arg_tys, node_ty);
-            *callee = Callee::Func(func);
+            *callee = func;
         }
     }
 
@@ -501,9 +501,9 @@ fn take_arg(e: &mut Expr, at: usize) -> Expr {
 }
 
 /// The callee and arguments of a call already read as a combinator.
-fn call_mut(e: &mut Expr) -> (&mut Callee, &mut Vec<Expr>) {
+fn call_mut(e: &mut Expr) -> (&mut FuncIdx, &mut Vec<Expr>) {
     match &mut e.kind {
-        ExprKind::CallFn { func, args } => Some((func, args)),
+        ExprKind::CallFunc { func, args } => Some((func, args)),
         _ => None,
     }
     .or_ice("a combinator is a call")
@@ -552,7 +552,7 @@ fn movable(e: &Expr) -> bool {
 /// Whether dropping this argument's evaluation is invisible.
 fn readonly(e: &Expr) -> bool {
     match &e.kind {
-        ExprKind::Local(_) | ExprKind::Unit | ExprKind::FnRef(_) => true,
+        ExprKind::Local(_) | ExprKind::Unit | ExprKind::FuncRef(_) => true,
         ExprKind::CtxGet { base, .. }
         | ExprKind::Field { base, .. }
         | ExprKind::TupleIndex { base, .. } => readonly(base),
@@ -565,7 +565,7 @@ mod tests {
     use super::run;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::name::Name;
-    use crate::compiler::semantics::typed::{Callee, Expr, ExprKind, Local, Stmt};
+    use crate::compiler::semantics::typed::{Expr, ExprKind, Local, Stmt};
     use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
@@ -592,8 +592,8 @@ mod tests {
 
     fn call(f: u32, args: Vec<Expr>, ty: Ty) -> Expr {
         e(
-            ExprKind::CallFn {
-                func: Callee::Func(FuncIdx(f)),
+            ExprKind::CallFunc {
+                func: FuncIdx(f),
                 args,
             },
             ty,
@@ -680,10 +680,10 @@ mod tests {
         run(&mut p);
 
         let body = p.funcs[0].body().unwrap();
-        let ExprKind::CallFn { func, args } = &body.kind else {
+        let ExprKind::CallFunc { func, args } = &body.kind else {
             panic!("still a call")
         };
-        assert_eq!(func.func(), Some(FuncIdx(2)), "the fold instance is reused");
+        assert_eq!(*func, FuncIdx(2), "the fold instance is reused");
         assert!(
             matches!(args[0].kind, ExprKind::Local(LocalId(0))),
             "over the source list"
@@ -731,7 +731,7 @@ mod tests {
         let mut p = program(&["list.filter", "list.fold"], fold);
         run(&mut p);
 
-        let ExprKind::CallFn { args, .. } = &p.funcs[0].body().unwrap().kind else {
+        let ExprKind::CallFunc { args, .. } = &p.funcs[0].body().unwrap().kind else {
             panic!("still a call")
         };
         let ExprKind::Lambda { body, .. } = &args[1].kind else {
@@ -771,11 +771,11 @@ mod tests {
         );
         let mut p = program(&["list.mapCtx", "list.foldCtx"], fold);
         run(&mut p);
-        let ExprKind::CallFn { args, .. } = &p.funcs[0].body().unwrap().kind else {
+        let ExprKind::CallFunc { args, .. } = &p.funcs[0].body().unwrap().kind else {
             panic!("still a call")
         };
         assert!(
-            matches!(args[0].kind, ExprKind::CallFn { .. }),
+            matches!(args[0].kind, ExprKind::CallFunc { .. }),
             "the map is still there"
         );
     }
@@ -804,10 +804,10 @@ mod tests {
         );
         let mut p = program(&["list.map", "list.fold"], fold);
         run(&mut p);
-        let ExprKind::CallFn { args, .. } = &p.funcs[0].body().unwrap().kind else {
+        let ExprKind::CallFunc { args, .. } = &p.funcs[0].body().unwrap().kind else {
             panic!("still a call")
         };
-        assert!(matches!(args[0].kind, ExprKind::CallFn { .. }));
+        assert!(matches!(args[0].kind, ExprKind::CallFunc { .. }));
     }
 
     /// `filter(…).len()` is `count(…)` — and the instance for it is minted,
@@ -828,14 +828,10 @@ mod tests {
         let before = p.funcs.len();
         run(&mut p);
 
-        let ExprKind::CallFn { func, args } = &p.funcs[0].body().unwrap().kind else {
+        let ExprKind::CallFunc { func, args } = &p.funcs[0].body().unwrap().kind else {
             panic!("still a call")
         };
-        assert_eq!(
-            func.func(),
-            Some(FuncIdx(before as u32)),
-            "a minted instance"
-        );
+        assert_eq!(*func, FuncIdx(before as u32), "a minted instance");
         assert_eq!(p.funcs[before].intrinsic_key(), Some("list.count"));
         assert_eq!(args.len(), 2);
         assert!(matches!(args[0].kind, ExprKind::Local(LocalId(0))));
@@ -878,7 +874,7 @@ mod tests {
 
         let mut calls = 0;
         crate::compiler::semantics::typed::walk(p.funcs[0].body().unwrap(), &mut |x| {
-            if matches!(x.kind, ExprKind::CallFn { .. }) {
+            if matches!(x.kind, ExprKind::CallFunc { .. }) {
                 calls += 1;
             }
         });

@@ -62,7 +62,7 @@ hazard, and it cannot happen:
   object.
 - **Recursive *functions* are not heap values.** Recursion goes through a
   top-level `fn`, which the middle end resolves to a code pointer
-  (`monomorphize.rs`, `Callee::Func`). A code pointer is not reference
+  (`monomorphize.rs`, `ExprKind::CallFunc`). A code pointer is not reference
   counted.
 - **A lambda cannot refer to itself.** `ExprKind::Lambda` captures a list of
   already-bound locals (`typed.rs`); there is no `let rec`, and a

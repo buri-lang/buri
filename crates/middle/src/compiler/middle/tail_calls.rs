@@ -109,7 +109,7 @@ impl Plan {
 /// Collects the functions called in tail position.
 fn tail_callees(e: &Expr, out: &mut Vec<usize>) {
     match &e.kind {
-        ExprKind::CallFn { func, .. } => out.extend(func.func().map(|i| i.index())),
+        ExprKind::CallFunc { func, .. } => out.push(func.index()),
         ExprKind::Block { tail: Some(t), .. } => tail_callees(t, out),
         ExprKind::If { then, else_, .. } => {
             tail_callees(then, out);
@@ -181,7 +181,7 @@ fn analyze(program: &Program) -> Plan {
 /// for a body.
 ///
 /// Idempotent by construction rather than by a guard: a second run finds no
-/// tail *call* left to rewrite, because [`tail_callees`] counts `CallFn` and
+/// tail *call* left to rewrite, because [`tail_callees`] counts `CallFunc` and
 /// the first run replaced each one.
 #[expect(
     clippy::indexing_slicing,
@@ -390,7 +390,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
 
     // Each member keeps its name and its arity and forwards into the merged
     // function at its own entry, so a reference to it from outside the group —
-    // a call that was not in tail position, or an `FnRef` — still works.
+    // a call that was not in tail position, or an `FuncRef` — still works.
     for (i, f) in group.iter().enumerate() {
         let func = &mut program.funcs[*f];
         // In *slot* order rather than the member's own: `lower::continue_`
@@ -429,8 +429,8 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
 /// has an arm the other does not.
 fn rewrite_tails<'a>(e: &mut Expr, jump: &impl Fn(usize) -> Option<(usize, &'a [usize])>) {
     match &mut e.kind {
-        ExprKind::CallFn { func, args } => {
-            let Some((entry, order)) = func.func().map(|i| i.index()).and_then(jump) else {
+        ExprKind::CallFunc { func, args } => {
+            let Some((entry, order)) = jump(func.index()) else {
                 return;
             };
             let mut args = std::mem::take(args);
@@ -671,7 +671,7 @@ mod tests {
     use super::rewrite;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::name::Name;
-    use crate::compiler::semantics::typed::{Callee, Expr, ExprKind, Local, PatKind, Stmt};
+    use crate::compiler::semantics::typed::{Expr, ExprKind, Local, PatKind, Stmt};
     use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
@@ -681,8 +681,8 @@ mod tests {
     }
 
     fn call(to: u32, args: Vec<Expr>) -> Expr {
-        e(ExprKind::CallFn {
-            func: Callee::Func(FuncIdx(to)),
+        e(ExprKind::CallFunc {
+            func: FuncIdx(to),
             args,
         })
     }
@@ -983,11 +983,11 @@ mod tests {
         assert_eq!(p.funcs.len(), 2, "nothing was merged");
         assert!(matches!(
             p.funcs[0].body().expect("a body").kind,
-            ExprKind::CallFn { .. }
+            ExprKind::CallFunc { .. }
         ));
         assert!(matches!(
             p.funcs[1].body().expect("a body").kind,
-            ExprKind::CallFn { .. }
+            ExprKind::CallFunc { .. }
         ));
     }
 

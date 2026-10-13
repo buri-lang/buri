@@ -941,8 +941,8 @@ impl<'a> Monomorphizer<'a> {
         let mut args = vec![value];
         args.extend(forwarded);
         let call = typed::Expr::new(
-            ExprKind::CallFn {
-                func: typed::Callee::Func(FuncIdx(inner as u32)),
+            ExprKind::CallFunc {
+                func: FuncIdx(inner as u32),
                 args,
             },
             info.ret,
@@ -1372,8 +1372,8 @@ impl Monomorphizer<'_> {
         // what it promised* is asked of the run that just ended, and only a run
         // that kept it goes round again.
         let again = typed::Expr::new(
-            ExprKind::CallFn {
-                func: typed::Callee::Func(FuncIdx(slot as u32)),
+            ExprKind::CallFunc {
+                func: FuncIdx(slot as u32),
                 args: Vec::new(),
             },
             Ty::UNIT,
@@ -1940,14 +1940,16 @@ impl Monomorphizer<'_> {
             return typed::Expr::new(ExprKind::Prim { op, prim, args }, e.ty, e.span);
         }
         e.kind = match e.kind {
-            ExprKind::CallFn { func, args } => {
+            ExprKind::CallFn {
+                func:
+                    typed::Callee {
+                        id,
+                        targs: call_targs,
+                    },
+                args,
+            } => {
                 // The one place the two index spaces meet: a declaration and
                 // its type arguments in, one concrete function out.
-                let (id, call_targs) = match func {
-                    typed::Callee::Decl { id, targs } => Some((id, targs)),
-                    typed::Callee::Func(_) => None,
-                }
-                .or_ice("a checked body names declarations, not functions");
                 let resolved: Vec<Ty> = call_targs.iter().map(|t| self.sub(t, targs)).collect();
                 if let Some(word) = self.flags_constant(id, &e.ty, e.span) {
                     return word;
@@ -1957,8 +1959,8 @@ impl Monomorphizer<'_> {
                 }
                 let args = self.rewrite_all(args, targs);
                 let slot = self.request(Key::Fn(id, resolved));
-                ExprKind::CallFn {
-                    func: typed::Callee::Func(FuncIdx(slot as u32)),
+                ExprKind::CallFunc {
+                    func: FuncIdx(slot as u32),
                     args,
                 }
             }
@@ -1985,20 +1987,15 @@ impl Monomorphizer<'_> {
                     },
                 }
             }
-            ExprKind::FnRef(callee) => {
-                let (id, ft) = match callee {
-                    typed::Callee::Decl { id, targs } => Some((id, targs)),
-                    typed::Callee::Func(_) => None,
-                }
-                .or_ice("a checked body names declarations, not functions");
+            ExprKind::FnRef(typed::Callee { id, targs: ft }) => {
                 let resolved: Vec<Ty> = ft.iter().map(|t| self.sub(t, targs)).collect();
                 let slot = self.request(Key::Fn(id, resolved));
-                ExprKind::FnRef(typed::Callee::Func(FuncIdx(slot as u32)))
+                ExprKind::FuncRef(FuncIdx(slot as u32))
             }
             ExprKind::CtxCall { decl } => {
                 let slot = self.request(Key::CtxCtor(decl));
-                ExprKind::CallFn {
-                    func: typed::Callee::Func(FuncIdx(slot as u32)),
+                ExprKind::CallFunc {
+                    func: FuncIdx(slot as u32),
                     args: Vec::new(),
                 }
             }
@@ -2344,8 +2341,8 @@ impl Monomorphizer<'_> {
         };
 
         let slot = self.request(Key::Fn(fid, instance_targs));
-        ExprKind::CallFn {
-            func: typed::Callee::Func(FuncIdx(slot as u32)),
+        ExprKind::CallFunc {
+            func: FuncIdx(slot as u32),
             args,
         }
     }
@@ -2540,7 +2537,7 @@ impl Monomorphizer<'_> {
             };
             let method = self.tables().method(self.tables().prim_id(from), &name)?;
             let call = ExprKind::CallFn {
-                func: typed::Callee::Decl {
+                func: typed::Callee {
                     id: method,
                     targs: Vec::new(),
                 },

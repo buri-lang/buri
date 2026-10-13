@@ -10,7 +10,7 @@
 //! fact rather than an estimate.
 //!
 //! **Function indices never move.** `Program::entry` and `TestEntry::func` are
-//! `FuncIdx`, as are the `Callee::Func` inside `CallFn` and `FnRef`. Everything
+//! `FuncIdx`, as are the callees of `CallFunc` and `FuncRef`. Everything
 //! here rewrites bodies in place; a function nothing calls any more is left for
 //! `javascript::eliminate_dead` to drop by name.
 
@@ -20,7 +20,7 @@
 )]
 
 use crate::compiler::middle::monomorphize::{Func, Program};
-use crate::compiler::middle::{resolved, strongly_connected};
+use crate::compiler::middle::strongly_connected;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Stmt};
 use crate::compiler::semantics::types::LocalId;
 use crate::diagnostics::Invariant as _;
@@ -134,7 +134,7 @@ fn discardable(e: &Expr) -> bool {
         | ExprKind::Bool(_)
         | ExprKind::Unit
         | ExprKind::Local(_)
-        | ExprKind::FnRef(..)
+        | ExprKind::FuncRef(..)
         | ExprKind::Lambda { .. } => true,
         ExprKind::StructLit { fields: xs, .. }
         | ExprKind::EnumLit { args: xs, .. }
@@ -284,8 +284,8 @@ impl Own {
         typed::walk(body, &mut |e| {
             own.size += 1;
             match &e.kind {
-                ExprKind::CallFn { func, .. } => own.edges.push((resolved(func), true)),
-                ExprKind::FnRef(func) => own.edges.push((resolved(func), false)),
+                ExprKind::CallFunc { func, .. } => own.edges.push((func.index(), true)),
+                ExprKind::FuncRef(func) => own.edges.push((func.index(), false)),
                 ExprKind::Try { .. } => own.has_try = true,
                 _ => {}
             }
@@ -483,10 +483,10 @@ fn inline_expr(
         inline_expr(child, program, facts, limit, locals, size, done);
     });
 
-    let ExprKind::CallFn { func, args } = &mut e.kind else {
+    let ExprKind::CallFunc { func, args } = &mut e.kind else {
         return;
     };
-    let callee = resolved(func);
+    let callee = func.index();
     #[expect(
         clippy::indexing_slicing,
         reason = "a callee is a function of the program"
@@ -690,8 +690,8 @@ mod tests {
     }
 
     fn call(i: usize, args: Vec<Expr>) -> Expr {
-        e(ExprKind::CallFn {
-            func: typed::Callee::Func(crate::compiler::semantics::types::FuncIdx(i as u32)),
+        e(ExprKind::CallFunc {
+            func: crate::compiler::semantics::types::FuncIdx(i as u32),
             args,
         })
     }

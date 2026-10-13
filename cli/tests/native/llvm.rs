@@ -3707,7 +3707,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// loads those leaves out of it, which is the convention every native backend
 /// here follows.
 ///
-/// Both shapes are here: a capture-free lambda is an `FnRef` by the time it
+/// Both shapes are here: a capture-free lambda is an `FuncRef` by the time it
 /// reaches the backend and still gets a thunk, because the call site cannot
 /// know which of the two it is holding.
 #[test]
@@ -3728,7 +3728,7 @@ export fn main(host: NativeHost): Result<(), Str> {
   let add = fn(x: Int) => x + n;
   let _ = io.println(ctx, "add ${apply(add, 5)}").ignore();
   let _ = io.println(ctx, "twice ${twice(add, 1)}").ignore();
-  // Nothing captured: an `FnRef`, and a null environment.
+  // Nothing captured: an `FuncRef`, and a null environment.
   let double = fn(x: Int) => x * 2;
   let _ = io.println(ctx, "free ${apply(double, 21)}").ignore();
   // Two captures, so the environment is a two-field record read back as

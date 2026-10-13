@@ -623,7 +623,7 @@ export fn step(n: Int): Int {
         "the narrower member pads: {text}"
     );
     // And the members forward into it rather than being deleted: an
-    // `FnRef` or a non-tail call to one still has to work.
+    // `FuncRef` or a non-tail call to one still has to work.
     for name in [":walk", ":step"] {
         let f = p
             .funcs

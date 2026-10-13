@@ -255,8 +255,8 @@
               signature. The one subtraction is a `saturating_sub`."
 )]
 
+use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::{self, Func, FuncKind, Program};
-use crate::compiler::middle::{ir, resolved};
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Expr, ExprKind, OptionOrResult, PatKind, Pattern, Stmt,
@@ -1183,10 +1183,8 @@ fn grows(key: &str) -> bool {
 }
 
 /// Whether `f` is one of [`grows`]'s, by [`infer_ownership`]'s table.
-fn grower(growers: &[bool], f: Option<FuncIdx>) -> bool {
-    f.and_then(|f| growers.get(f.index()))
-        .copied()
-        .unwrap_or(false)
+fn grower(growers: &[bool], f: FuncIdx) -> bool {
+    growers.get(f.index()).copied().unwrap_or(false)
 }
 
 fn is_fold(key: &str) -> bool {
@@ -1316,7 +1314,7 @@ fn ownership_dependencies(program: &Program) -> Vec<Vec<usize>> {
     for (i, f) in program.funcs.iter().enumerate() {
         let Some(body) = f.body() else { continue };
         typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::CallFn { func, .. } => deps[i].push(resolved(func)),
+            ExprKind::CallFunc { func, .. } => deps[i].push(func.index()),
             ExprKind::Continue { func, .. } => {
                 let target = func.map_or(i, FuncIdx::index);
                 deps[i].push(target);
@@ -1481,8 +1479,8 @@ fn consuming_uses(
                 let typed::PatKind::Bind { local, sub: None } = &pattern.kind else {
                     continue;
                 };
-                if let ExprKind::CallFn { func, args } = &value.kind {
-                    if let (true, Some(r)) = (grower(g, func.func()), args.first()) {
+                if let ExprKind::CallFunc { func, args } = &value.kind {
+                    if let (true, Some(r)) = (grower(g, *func), args.first()) {
                         grown.push((*local, r));
                     }
                 }
@@ -1665,11 +1663,11 @@ fn collect_consuming<'e>(
         // field of a record an update is written over: the update moves it
         // into the first growth instead (`Scan::children`), and taking the
         // record whole for it kept the update from moving the field at all.
-        ExprKind::CallFn { func, args } if pieces.is_some_and(|g| grower(g, func.func())) => {
+        ExprKind::CallFunc { func, args } if pieces.is_some_and(|g| grower(g, *func)) => {
             let taken = match args.first().map(|r| &r.kind) {
                 Some(ExprKind::Local(n)) => grown.iter().find(|(m, _)| m == n).map(|(_, r)| *r),
-                Some(ExprKind::CallFn { func, args })
-                    if pieces.is_some_and(|g| grower(g, func.func())) =>
+                Some(ExprKind::CallFunc { func, args })
+                    if pieces.is_some_and(|g| grower(g, *func)) =>
                 {
                     args.first()
                 }
@@ -1681,7 +1679,7 @@ fn collect_consuming<'e>(
             if let Some(r) = taken.filter(|_| !updated) {
                 consume(r, out, counted);
             }
-            let row = func.func().and_then(|f| own.get(f.index()));
+            let row = own.get(func.index());
             for (k, a) in args.iter().enumerate() {
                 let owns = row
                     .and_then(|r| r.get(k))
@@ -1692,8 +1690,8 @@ fn collect_consuming<'e>(
                 }
             }
         }
-        ExprKind::CallFn { func, args } => {
-            let row = func.func().and_then(|f| own.get(f.index()));
+        ExprKind::CallFunc { func, args } => {
+            let row = own.get(func.index());
             for (k, a) in args.iter().enumerate() {
                 let owns = row
                     .and_then(|r| r.get(k))
@@ -1904,8 +1902,8 @@ fn effects_once(
     let mut p = ir::Purity::Pure;
     let mut a = false;
     typed::walk(body, &mut |e| match &e.kind {
-        ExprKind::CallFn { func, .. } => {
-            let c = resolved(func);
+        ExprKind::CallFunc { func, .. } => {
+            let c = func.index();
             p = worse(p, purity.get(c).copied().unwrap_or(ir::Purity::Effectful));
             a |= aborts.get(c).copied().unwrap_or(true);
         }
@@ -4829,7 +4827,7 @@ fn collect_locals(e: &Expr, out: &mut Vec<LocalId>) {
 /// Asked of every tail, because `middle::inline` replaces a call with the
 /// callee's **body** and a body is a `Block`. `"[${show(ctx, xs)}]"` is the
 /// shape: `show` is one call, so the inliner pastes it in, the hole stops being
-/// an `ExprKind::CallFn`, and the string it returns had nobody left to drop it.
+/// an `ExprKind::CallFunc`, and the string it returns had nobody left to drop it.
 /// All of them, so that a branch answering a borrowed alias is not dropped on
 /// the strength of a branch beside it that allocates.
 ///
@@ -4891,7 +4889,7 @@ fn fresh_leaf(e: &Expr) -> bool {
     }
     matches!(
         e.kind,
-        ExprKind::CallFn { .. }
+        ExprKind::CallFunc { .. }
             | ExprKind::CallValue { .. }
             | ExprKind::CallTrait { .. }
             | ExprKind::Intrinsic { .. }
@@ -4950,8 +4948,8 @@ pub fn child_modes(e: &Expr, n: usize, own: &[Vec<ir::Ownership>]) -> Vec<Mode> 
         ExprKind::CallValue { .. } => (0..n)
             .map(|k| if k == 0 { Mode::Borrow } else { Mode::Own })
             .collect(),
-        ExprKind::CallFn { func, .. } => {
-            let row = func.func().and_then(|f| own.get(f.index()));
+        ExprKind::CallFunc { func, .. } => {
+            let row = own.get(func.index());
             (0..n)
                 .map(|k| match row.and_then(|r| r.get(k)) {
                     Some(ir::Ownership::Borrow) => Mode::Borrow,

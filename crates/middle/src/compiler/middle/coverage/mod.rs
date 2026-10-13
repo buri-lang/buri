@@ -12,7 +12,7 @@ use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Expr, ExprKind, Magnitude, PatKind, Pattern, PrimOp, Stmt,
 };
-use crate::compiler::semantics::types::{LocalId, Prim, Ty, TyKind};
+use crate::compiler::semantics::types::{FnId, FuncIdx, LocalId, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
 use std::collections::{HashMap, HashSet};
 
@@ -190,8 +190,16 @@ pub fn builtin(module: &str, name: &str) -> Option<Builtin> {
         .map(|(_, how, _)| *how)
 }
 
+/// The function a call names: a declaration in a checked body, one concrete
+/// function in a monomorphized one.
+#[derive(Clone, Copy, Debug)]
+pub enum Called {
+    Decl(FnId),
+    Func(FuncIdx),
+}
+
 /// Says how a call of a function splits, if it's a branching built-in.
-pub type Builtins<'a> = &'a dyn Fn(&typed::Callee) -> Option<Builtin>;
+pub type Builtins<'a> = &'a dyn Fn(Called) -> Option<Builtin>;
 
 /// A point in the user's source where control takes one of several paths.
 #[derive(Clone, Copy, Debug)]
@@ -260,10 +268,12 @@ fn counted_tree(e: &Expr) -> bool {
 /// first argument after the receiver starts, or at its `)`, so each call of a
 /// chain is on its own line.
 fn builtin_call(e: &Expr, builtins: Builtins) -> Option<Decision> {
-    let ExprKind::CallFn { func, args } = &e.kind else {
-        return None;
+    let (called, args) = match &e.kind {
+        ExprKind::CallFn { func, args } => (Called::Decl(func.id), args),
+        ExprKind::CallFunc { func, args } => (Called::Func(*func), args),
+        _ => return None,
     };
-    builtins(func)?;
+    builtins(called)?;
     let at = args
         .get(1)
         .map_or(e.span.end.saturating_sub(1), |a| a.span.start);
@@ -309,7 +319,7 @@ fn traps_here(e: &Expr, call: &dyn Fn(&Expr) -> bool) -> bool {
             prim,
             ..
         } => prim.is_integer(),
-        ExprKind::CallFn { .. } => call(e),
+        ExprKind::CallFn { .. } | ExprKind::CallFunc { .. } => call(e),
         _ => false,
     }
 }
@@ -552,7 +562,10 @@ fn ends_in_tail_call(e: &Expr) -> bool {
 /// Whether `e` can end in a call whose answer is `e`'s.
 fn calls_last(e: &Expr) -> bool {
     match &e.kind {
-        ExprKind::CallFn { .. } | ExprKind::CallValue { .. } | ExprKind::CallTrait { .. } => true,
+        ExprKind::CallFn { .. }
+        | ExprKind::CallFunc { .. }
+        | ExprKind::CallValue { .. }
+        | ExprKind::CallTrait { .. } => true,
         ExprKind::Block { tail: Some(t), .. } => calls_last(t),
         ExprKind::If { then, else_, .. } => calls_last(then) || calls_last(else_),
         ExprKind::Match { arms, .. } => arms.iter().any(|a| calls_last(&a.body)),
@@ -1130,7 +1143,7 @@ impl Branches<'_> {
     }
 
     fn calls_trap(&self, call: &Expr) -> bool {
-        matches!(&call.kind, ExprKind::CallFn { func: typed::Callee::Func(f), .. } if self.traps.contains(&(f.0 as usize)))
+        matches!(&call.kind, ExprKind::CallFunc { func: f, .. } if self.traps.contains(&(f.0 as usize)))
     }
 
     /// An abort point as `{ let a = x; ...; reached; let v = op(a, ...); went on; v }`.
@@ -1145,7 +1158,7 @@ impl Branches<'_> {
         );
         let mut op = std::mem::replace(e, Expr::new(ExprKind::Unit, Ty::UNIT, span));
         let args = match &mut op.kind {
-            ExprKind::Prim { args, .. } | ExprKind::CallFn { args, .. } => args,
+            ExprKind::Prim { args, .. } | ExprKind::CallFunc { args, .. } => args,
             _ => return,
         };
         let mut stmts = Vec::with_capacity(args.len());
@@ -1162,10 +1175,10 @@ impl Branches<'_> {
     /// and answers whether it was.
     fn builtin(&mut self, e: &mut Expr) -> bool {
         let span = e.span;
-        let ExprKind::CallFn { func, args } = &mut e.kind else {
+        let ExprKind::CallFunc { func, args } = &mut e.kind else {
             return false;
         };
-        let Some(how) = (self.options.builtins)(func) else {
+        let Some(how) = (self.options.builtins)(Called::Func(*func)) else {
             return false;
         };
         let Some(file) = (self.options.file_of)(span) else {

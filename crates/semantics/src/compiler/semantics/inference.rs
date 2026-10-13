@@ -118,11 +118,7 @@ fn callees_of(e: &typed::Expr, out: &mut Vec<FnId>) {
             typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => func,
             _ => return,
         };
-        out.push(
-            callee
-                .decl()
-                .or_ice("before monomorphization a callee is a declaration"),
-        );
+        out.push(callee.id);
     });
 }
 
@@ -754,10 +750,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// A callee is pre-monomorphization here, so only its type arguments need
     /// resolving.
     fn resolve_callee(&self, c: &mut typed::Callee) {
-        match c {
-            typed::Callee::Decl { targs, .. } => self.resolve_all(targs),
-            typed::Callee::Func(_) => {}
-        }
+        self.resolve_all(&mut c.targs);
     }
 
     fn resolve_all(&self, tys: &mut [Ty]) {

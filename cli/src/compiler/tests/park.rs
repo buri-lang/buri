@@ -5,7 +5,7 @@
 use super::rc::{compile, find};
 use crate::compiler::backend::js::park::*;
 use crate::compiler::middle::monomorphize::{self, Func, FuncKind, Program};
-use crate::compiler::semantics::typed::{self, Expr, ExprKind};
+use crate::compiler::semantics::typed::{Expr, ExprKind};
 use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Ty};
 use crate::diagnostics::Span;
 use crate::hash::Map as HashMap;
@@ -72,7 +72,7 @@ const GOLDEN_NAMES: [&str; GOLDEN_PARKING] = [
 // them side by side without dragging the whole hermetic test context in
 // with them. What monomorphization guarantees, and what these stand in
 // for: a `Key::Fn(id, targs)` per context, one `Func` slot each, and the
-// callee of every `CallFn` already a `FuncIdx`.
+// callee of every `CallFunc` already a `FuncIdx`.
 
 fn parked(program: &Program) -> Vec<bool> {
     parkability(program).parks
@@ -106,8 +106,8 @@ fn body_func(name: &str, body: Expr) -> Func {
 
 fn call_to(to: u32) -> Expr {
     Expr::new(
-        ExprKind::CallFn {
-            func: typed::Callee::Func(FuncIdx(to)),
+        ExprKind::CallFunc {
+            func: FuncIdx(to),
             args: Vec::new(),
         },
         Ty::UNIT,
@@ -123,8 +123,8 @@ fn fn_ty(params: Vec<Ty>, ret: Ty) -> Ty {
 /// callee position [`Parking`] cannot follow, so one answered by the type.
 fn call_to_ty(to: u32, ty: Ty) -> Expr {
     Expr::new(
-        ExprKind::CallFn {
-            func: typed::Callee::Func(FuncIdx(to)),
+        ExprKind::CallFunc {
+            func: FuncIdx(to),
             args: Vec::new(),
         },
         ty,
