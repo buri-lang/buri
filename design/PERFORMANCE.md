@@ -8387,8 +8387,9 @@ checks what fixed work costs, on Linux.
 
 Re-blessing rewrites `baseline.txt`, so a count that rises is a line in review.
 
-- From CI: a failed run uploads `instructions-baseline`, the file as that run
-  measured it. Commit it.
+- From CI: every run uploads `instructions-baseline`, the file as that run
+  measured it. Commit it after a failure, or after a pass that reports
+  **improved**.
 - On x86_64 Linux: add `-- --bless` to the command above.
 
 ### Running it locally
