@@ -40,8 +40,8 @@
 )]
 
 use crate::build::session::Session;
-use crate::build::workspace::{RuleKind, TargetId};
-use crate::diagnostics::{invariant, Invariant as _};
+use crate::build::workspace::{Rule, TargetId};
+use crate::diagnostics::invariant;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -188,14 +188,9 @@ fn declared_sources(session: &Session, member: TargetId, out: &mut BTreeSet<Path
         member,
     ));
     let dir = &package.dir;
-    match member.kind {
-        RuleKind::Library => {
+    match package.rule(member.kind) {
+        Rule::Library(lib) => {
             out.insert(dir.join("lib.buri"));
-            let lib = package
-                .build
-                .library
-                .as_ref()
-                .or_ice("a library target has a library rule");
             for x in lib.sources.iter() {
                 out.insert(dir.join(&x.value));
             }
@@ -206,24 +201,14 @@ fn declared_sources(session: &Session, member: TargetId, out: &mut BTreeSet<Path
                 }
             }
         }
-        RuleKind::Binary => {
+        Rule::Binary(bin) => {
             out.insert(dir.join("main.buri"));
-            let bin = package
-                .build
-                .binary
-                .as_ref()
-                .or_ice("a binary target has a binary rule");
             for x in bin.sources.iter() {
                 out.insert(dir.join(&x.value));
             }
         }
-        RuleKind::Tool => {
+        Rule::Tool(tool) => {
             out.insert(dir.join("tool.buri"));
-            let tool = package
-                .build
-                .tool
-                .as_ref()
-                .or_ice("a tool target has a tool rule");
             for x in tool.sources.iter() {
                 out.insert(dir.join(&x.value));
             }

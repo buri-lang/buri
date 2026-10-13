@@ -10,7 +10,7 @@ use crate::build::buildfile::{Output, OutputPlatform, PlatformRule};
 use crate::build::cache::{hash_bytes, Action, ActionKey, Cache, KeyBuilder};
 use crate::build::link;
 use crate::build::session::Session;
-use crate::build::workspace::{RuleKind, TargetId};
+use crate::build::workspace::{Rule, RuleKind, TargetId};
 use crate::commands::arguments::Flags;
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::{
@@ -1311,33 +1311,18 @@ pub fn rule_files(workspace: &crate::build::workspace::Workspace, member: Target
         RuleKind::Tool => "tool.buri",
     };
     let mut files: Vec<String> = vec![entry.to_string()];
-    match member.kind {
-        RuleKind::Library => {
-            let lib = package
-                .build
-                .library
-                .as_ref()
-                .or_ice("a library target's package has a library rule");
+    match package.rule(member.kind) {
+        Rule::Library(lib) => {
             files.extend(lib.sources.iter().map(|x| x.value.clone()));
             if let Some(testing) = &lib.testing {
                 files.push("testing/lib.buri".into());
                 files.extend(testing.sources.iter().map(|x| x.value.clone()));
             }
         }
-        RuleKind::Binary => {
-            let bin = package
-                .build
-                .binary
-                .as_ref()
-                .or_ice("a binary target's package has a binary rule");
+        Rule::Binary(bin) => {
             files.extend(bin.sources.iter().map(|x| x.value.clone()));
         }
-        RuleKind::Tool => {
-            let tool = package
-                .build
-                .tool
-                .as_ref()
-                .or_ice("a tool target's package has a tool rule");
+        Rule::Tool(tool) => {
             files.extend(tool.sources.iter().map(|x| x.value.clone()));
         }
     }

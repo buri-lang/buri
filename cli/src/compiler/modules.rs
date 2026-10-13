@@ -8,7 +8,7 @@
 
 use crate::build::buildfile::Platform;
 use crate::build::workspace::{
-    is_test_only_path, ModuleKind, ModuleLocation, RuleKind, TargetId, Workspace,
+    is_test_only_path, ModuleKind, ModuleLocation, Rule, RuleKind, TargetId, Workspace,
 };
 use crate::compiler::semantics::types::ModuleId;
 use crate::compiler::standard_library;
@@ -137,13 +137,8 @@ impl<'a> Loader<'a> {
             return;
         };
         let pkg = ws.package(target.package);
-        match target.kind {
-            RuleKind::Library => {
-                let lib = pkg
-                    .build
-                    .library
-                    .as_ref()
-                    .or_ice("a library target's package has a library rule");
+        match pkg.rule(target.kind) {
+            Rule::Library(lib) => {
                 self.check_testing_surface_declared(target);
                 self.load_path(&pkg.module_path("lib.buri"), Role::Source, Span::NONE);
                 self.load_closure_generators(target);
@@ -170,12 +165,7 @@ impl<'a> Loader<'a> {
                     }
                 }
             }
-            RuleKind::Binary => {
-                let bin = pkg
-                    .build
-                    .binary
-                    .as_ref()
-                    .or_ice("a binary target's package has a binary rule");
+            Rule::Binary(bin) => {
                 // A `testing/` surface belongs to the library rule. A package
                 // that has no library rule still has the directory, and
                 // nothing else would look at it, so the binary asks on its
@@ -216,12 +206,7 @@ impl<'a> Loader<'a> {
                     }
                 }
             }
-            RuleKind::Tool => {
-                let tool = pkg
-                    .build
-                    .tool
-                    .as_ref()
-                    .or_ice("a tool target's package has a tool rule");
+            Rule::Tool(tool) => {
                 self.load_closure_generators(target);
                 // A source rather than an entry: `tool.buri` has no `main` and
                 // builds no context. The toolchain writes the `main` that calls

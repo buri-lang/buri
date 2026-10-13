@@ -2,7 +2,7 @@
 
 use crate::build::actions;
 use crate::build::buildfile::Platform;
-use crate::build::workspace::{Packages, RuleKind, TargetId, Workspace};
+use crate::build::workspace::{Packages, Rule, TargetId, Workspace};
 use crate::compiler::modules::{Loaded, Loader, ModuleData, Unit};
 use crate::compiler::semantics::resolve::{Bodies, Checked, Checker};
 use crate::compiler::semantics::types::ModuleId;
@@ -545,13 +545,8 @@ pub(crate) fn reach(
                 .map(|s| (pkg.module_path(&s.value), Some(role))),
         );
     };
-    match target.kind {
-        RuleKind::Library => {
-            let lib = pkg
-                .build
-                .library
-                .as_ref()
-                .or_ice("a library target's package has a library rule");
+    match pkg.rule(target.kind) {
+        Rule::Library(lib) => {
             starts.push((pkg.module_path("lib.buri"), Some(Role::Source)));
             generated(&mut starts);
             listed(&mut starts, &lib.sources, Role::Source);
@@ -563,12 +558,7 @@ pub(crate) fn reach(
                 listed(&mut starts, &suite.sources, Role::TestSource);
             }
         }
-        RuleKind::Binary => {
-            let bin = pkg
-                .build
-                .binary
-                .as_ref()
-                .or_ice("a binary target's package has a binary rule");
+        Rule::Binary(bin) => {
             generated(&mut starts);
             for label in ws.custom_platforms(target) {
                 starts.push((label, Some(Role::Source)));
@@ -579,12 +569,7 @@ pub(crate) fn reach(
                 listed(&mut starts, &suite.sources, Role::TestSource);
             }
         }
-        RuleKind::Tool => {
-            let tool = pkg
-                .build
-                .tool
-                .as_ref()
-                .or_ice("a tool target's package has a tool rule");
+        Rule::Tool(tool) => {
             generated(&mut starts);
             starts.push((pkg.module_path("tool.buri"), Some(Role::Source)));
             listed(&mut starts, &tool.sources, Role::Source);
