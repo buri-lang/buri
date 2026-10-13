@@ -687,27 +687,46 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// request until `width` are held at once, then answers them all.
 ///
 /// Handlers that overlap meet here and go on. Handlers run one at a time
-/// never meet: the first waits alone until [`server_deadline`], is answered
-/// 503, and the gate closes. So the verdict is a count, not a time, and the
-/// deadline only bounds the failing run.
+/// never meet: the first waits alone until [`server_deadline`] passes with
+/// nobody joining it, is answered 503, and the gate closes. So the verdict is
+/// a count, not a time, and the deadline only bounds the failing run.
+///
+/// The deadline is how long the gate waits for the *next* handler, not for
+/// all of them. A gate opens before its server is built and started, and the
+/// handlers arrive as the server's pool grows, so under Valgrind on a loaded
+/// runner a fixed total ran out with fifty handlers on their way
+/// (buri-lang/buri#307). Until the first arrives the gate waits for [`met`],
+/// which is asked once the server has finished.
+///
+/// [`met`]: Gate::met
 pub struct Gate {
     pub url: String,
     held: std::thread::JoinHandle<usize>,
+    asked: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Gate {
     pub fn open(width: usize) -> Gate {
+        Gate::patient(width, server_deadline())
+    }
+
+    /// A gate that turns its handlers away once `patience` passes without a
+    /// new one.
+    pub fn patient(width: usize, patience: std::time::Duration) -> Gate {
         use std::io::Write;
+        use std::sync::atomic::Ordering;
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a port for the gate");
         let url = format!(
             "http://127.0.0.1:{}/gate",
             listener.local_addr().unwrap().port()
         );
         listener.set_nonblocking(true).unwrap();
+        let asked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let done = asked.clone();
         let held = std::thread::spawn(move || {
-            let until = std::time::Instant::now() + server_deadline();
             let mut held: Vec<std::net::TcpStream> = Vec::new();
-            while held.len() < width && std::time::Instant::now() < until {
+            let mut last: Option<std::time::Instant> = None;
+            while held.len() < width {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
                         stream.set_nonblocking(false).unwrap();
@@ -721,13 +740,20 @@ impl Gate {
                             head.extend_from_slice(&byte);
                         }
                         held.push(stream);
+                        last = Some(std::time::Instant::now());
                     }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        std::thread::sleep(std::time::Duration::from_millis(1));
-                    }
+                    // Nobody is waiting to be accepted, so this is where the
+                    // gate may give up.
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => match last {
+                        Some(at) if at.elapsed() >= patience => break,
+                        None if done.load(Ordering::Acquire) => break,
+                        _ => std::thread::sleep(std::time::Duration::from_millis(1)),
+                    },
                     Err(e) => panic!("the gate could not accept: {e}"),
                 }
             }
+            // A handler that hung up while it waited is no longer in flight.
+            held.retain(still_open);
             let met = held.len();
             let status = if met == width {
                 "200 OK"
@@ -742,12 +768,118 @@ impl Gate {
             }
             met
         });
-        Gate { url, held }
+        Gate { url, held, asked }
     }
 
     /// How many requests the gate held at once.
     pub fn met(self) -> usize {
+        self.asked.store(true, std::sync::atomic::Ordering::Release);
         self.held.join().expect("the gate finished")
+    }
+}
+
+/// Whether the peer of `stream` still has it open: a peek that finds the end
+/// of the stream, or an error, says it hung up.
+fn still_open(stream: &std::net::TcpStream) -> bool {
+    stream.set_nonblocking(true).unwrap();
+    let open = match stream.peek(&mut [0u8; 1]) {
+        Ok(read) => read > 0,
+        Err(e) => e.kind() == std::io::ErrorKind::WouldBlock,
+    };
+    stream.set_nonblocking(false).unwrap();
+    open
+}
+
+#[cfg(test)]
+mod gate_tests {
+    use super::Gate;
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    const PATIENCE: Duration = Duration::from_secs(1);
+
+    /// A handler that has dialled the gate and sent its request's head.
+    fn dialled(gate: &Gate) -> TcpStream {
+        let port: u16 = gate
+            .url
+            .trim_start_matches("http://127.0.0.1:")
+            .trim_end_matches("/gate")
+            .parse()
+            .unwrap();
+        let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("the gate is open");
+        socket
+            .set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
+        socket
+            .write_all(b"GET /gate HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n")
+            .unwrap();
+        socket
+    }
+
+    /// What the gate answered a handler.
+    fn answer(mut socket: TcpStream) -> String {
+        let mut back = String::new();
+        let _ = socket.read_to_string(&mut back);
+        back
+    }
+
+    /// **A gate's patience starts with the handlers, not with the gate.** The
+    /// server is built and started after the gate opens, which under Valgrind
+    /// on a loaded runner took most of the old fixed budget, so handlers that
+    /// were all in flight together were counted as three (buri-lang/buri#307).
+    /// Here the first handler arrives after two patiences, and the rest just
+    /// after it.
+    #[test]
+    fn handlers_that_keep_arriving_meet_however_late_the_first_one_is() {
+        const WIDTH: usize = 4;
+        let gate = Gate::patient(WIDTH, PATIENCE);
+        std::thread::sleep(PATIENCE * 2);
+        let handlers: Vec<TcpStream> = (0..WIDTH).map(|_| dialled(&gate)).collect();
+        let met = gate.met();
+        let answers: Vec<String> = handlers.into_iter().map(answer).collect();
+        assert_eq!(met, WIDTH, "answers: {answers:?}");
+        assert!(
+            answers.iter().all(|a| a.starts_with("HTTP/1.1 200 ")),
+            "{answers:?}"
+        );
+    }
+
+    /// **The total is unbounded, but no progress is not.** A handler that
+    /// waits alone is turned away once a patience passes with nobody joining
+    /// it, which is what a server answering one request at a time produces.
+    #[test]
+    fn a_handler_waiting_alone_is_turned_away() {
+        let gate = Gate::patient(2, PATIENCE);
+        let alone = dialled(&gate);
+        let met = gate.met();
+        let answer = answer(alone);
+        assert_eq!(met, 1);
+        assert!(answer.starts_with("HTTP/1.1 503 "), "{answer}");
+    }
+
+    /// **A handler that hung up is no longer in flight**, so it isn't counted
+    /// beside the one that arrived after it.
+    #[test]
+    fn a_handler_that_hung_up_is_not_counted() {
+        // Two arrivals fill the gate, so its patience never comes into it.
+        let gate = Gate::patient(2, Duration::from_secs(600));
+        drop(dialled(&gate));
+        let late = dialled(&gate);
+        let met = gate.met();
+        let answer = answer(late);
+        assert_eq!(met, 1);
+        assert!(answer.starts_with("HTTP/1.1 503 "), "{answer}");
+    }
+
+    /// **A gate nobody dials doesn't hold up the test.** Its count is asked
+    /// for after the server has finished, so nothing will arrive any more.
+    #[test]
+    fn a_gate_nobody_dialed_counts_none_at_once() {
+        let started = std::time::Instant::now();
+        let gate = Gate::patient(2, Duration::from_secs(600));
+        assert_eq!(gate.met(), 0);
+        assert!(started.elapsed() < Duration::from_secs(60));
     }
 }
 
