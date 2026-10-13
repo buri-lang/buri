@@ -348,23 +348,25 @@ fn route_cells(program: &mut Program, routed: &HashMap<(Op, usize), FuncIdx>) {
         })
         .filter_map(|f| f.desc)
         .collect();
+    let ty_of = types_of(program);
     let mut rows: Vec<(Ty, FuncIdx)> = Vec::new();
     for desc in wanted {
-        let Some(func) = routed.get(&(Op::Eq, desc)).copied() else {
+        let Some((func, ty)) = routed.get(&(Op::Eq, desc)).zip(ty_of.get(&desc)) else {
             continue;
         };
-        let (ty, _) = program
-            .desc_index
-            .iter()
-            .find(|(_, i)| **i == desc)
-            .or_ice("a cell's descriptor is a type's");
-        rows.push((*ty, func));
+        rows.push((*ty, *func));
     }
     // A cell whose type reaches a hand-written `Equal` already has the
     // comparison `monomorphize` generated for it, which this one would miss.
     for (ty, func) in rows {
         program.cell_equal.entry(ty).or_insert(func);
     }
+}
+
+/// Each descriptor's index to the type it describes: `desc_index` read
+/// backwards.
+fn types_of(program: &Program) -> HashMap<usize, Ty> {
+    program.desc_index.iter().map(|(ty, i)| (*i, *ty)).collect()
 }
 
 /// What generation produced, before it is spliced into the program.
@@ -462,7 +464,7 @@ fn descriptor_arg(args: &[Expr]) -> Option<usize> {
 /// so it fills gaps and overrides nothing.
 struct Env {
     /// Descriptor index to the type it describes.
-    ty_of: Vec<Option<Ty>>,
+    ty_of: HashMap<usize, Ty>,
     /// The type of a primitive, where the program mentions one.
     prim_of: HashMap<Prim, Ty>,
     /// The result type of each operation, from a call site.
@@ -515,15 +517,10 @@ const JSON_VARIANTS: [&str; 6] = ["Null", "Bool", "Num", "Str", "Array", "Object
 
 impl Env {
     fn discover(program: &Program) -> Env {
-        let mut ty_of: Vec<Option<Ty>> = vec![None; program.descriptors.len()];
-        for (ty, i) in &program.desc_index {
-            *ty_of
-                .get_mut(*i)
-                .or_ice("`desc_index` names descriptors the program has") = Some(*ty);
-        }
+        let ty_of = types_of(program);
         let mut prim_of: HashMap<Prim, Ty> = HashMap::default();
         for (i, d) in program.descriptors.iter().enumerate() {
-            if let (Desc::Prim(p), Some(Some(ty))) = (d, ty_of.get(i)) {
+            if let (Desc::Prim(p), Some(ty)) = (d, ty_of.get(&i)) {
                 prim_of.entry(*p).or_insert_with(|| *ty);
             }
         }
@@ -586,7 +583,7 @@ impl Env {
             let is_json = result
                 .get(&Op::ToJson)
                 .and_then(|t| t.head())
-                .zip(ty_of.get(i).and_then(|t| t.as_ref()).and_then(|t| t.head()))
+                .zip(ty_of.get(&i).and_then(|t| t.head()))
                 .is_some_and(|(a, b)| a == b);
             if is_json {
                 json_variants = variants.iter().map(|v| v.name.clone()).collect();
@@ -639,7 +636,7 @@ impl Env {
     }
 
     fn ty(&self, desc: usize) -> Option<&Ty> {
-        self.ty_of.get(desc).and_then(|t| t.as_ref())
+        self.ty_of.get(&desc)
     }
 
     fn result(&self, op: Op) -> Option<&Ty> {
@@ -671,19 +668,18 @@ fn support(program: &Program, env: &Env) -> Vec<bool> {
         .collect();
     let mut changed = true;
     while changed {
-        changed = false;
-        for (i, d) in program.descriptors.iter().enumerate() {
-            if !ok.get(i).copied().unwrap_or(false) {
-                continue;
-            }
-            let good = children(d)
-                .into_iter()
-                .all(|c| ok.get(c).copied().unwrap_or(false));
-            if !good {
-                *ok.get_mut(i).or_ice("`ok` has a row per descriptor") = false;
-                changed = true;
-            }
-        }
+        let next: Vec<bool> = ok
+            .iter()
+            .zip(&program.descriptors)
+            .map(|(here, d)| {
+                *here
+                    && children(d)
+                        .into_iter()
+                        .all(|c| ok.get(c).copied().unwrap_or(false))
+            })
+            .collect();
+        changed = next != ok;
+        ok = next;
     }
     ok
 }

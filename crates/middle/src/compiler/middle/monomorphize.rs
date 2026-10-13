@@ -1772,19 +1772,17 @@ impl Monomorphizer<'_> {
             .get(method)
             .map(|m| m.params.iter().map(|p| self_positions(&p.ty)).collect())
             .unwrap_or_default();
-        let adapt: Vec<(usize, Vec<usize>)> = (1..out.len())
-            .filter_map(|i| {
-                let at = spelled.get(i)?;
-                (!at.is_empty()).then(|| (i, at.clone()))
-            })
-            .collect();
-        if adapt.is_empty() {
+        let adapted = |rest: &[typed::Expr]| {
+            rest.iter()
+                .zip(spelled.iter().skip(1))
+                .any(|(_, at)| !at.is_empty())
+        };
+        let Some((slot, rest)) = out.split_first_mut().filter(|(_, rest)| adapted(rest)) else {
             return (out, None);
-        }
+        };
 
         // The receiver is bound once: the call reads it, and so does every
         // adapter, and a lambda captures locals rather than expressions.
-        let slot = out.first_mut().or_ice("a method call has its receiver");
         let recv_ty = slot.ty;
         let span = slot.span;
         let bound = self.new_local("__recv", recv_ty, span);
@@ -1803,8 +1801,11 @@ impl Monomorphizer<'_> {
             span,
         };
 
-        for (i, at) in adapt {
-            let argument = out.get(i).or_ice("`adapt` names arguments the call has");
+        let adapt = rest
+            .iter_mut()
+            .zip(spelled.iter().skip(1))
+            .filter(|(_, at)| !at.is_empty());
+        for (argument, at) in adapt {
             let callback_ty = argument.ty;
             let span = argument.span;
             // Only a function's parameters can be spelled `Self` inside it.
@@ -1857,12 +1858,9 @@ impl Monomorphizer<'_> {
                 adapter_ty,
                 span,
             );
-            let slot = out
-                .get_mut(i)
-                .or_ice("`adapt` names arguments the call has");
             let callback =
-                std::mem::replace(slot, typed::Expr::new(ExprKind::Error, Ty::ERROR, span));
-            *slot = typed::Expr::new(
+                std::mem::replace(argument, typed::Expr::new(ExprKind::Error, Ty::ERROR, span));
+            *argument = typed::Expr::new(
                 ExprKind::Block {
                     stmts: vec![typed::Stmt::Let {
                         pattern: typed::Pattern {
@@ -1892,11 +1890,17 @@ impl Monomorphizer<'_> {
     /// on the `Order` that `semantics`'s `order_test` built becomes the
     /// primitive operator it stands for. Its match, its arms and its call all
     /// carry the operator's span, which a `match` someone wrote cannot.
-    fn float_operator(&self, e: &typed::Expr, targs: &[Ty]) -> Option<(typed::PrimOp, Prim)> {
-        let ExprKind::Match { scrutinee, arms } = &e.kind else {
+    ///
+    /// Answers the operator and the call's operands, taken out of `e`.
+    fn float_operator(
+        &self,
+        e: &mut typed::Expr,
+        targs: &[Ty],
+    ) -> Option<(typed::PrimOp, Prim, Vec<typed::Expr>)> {
+        let ExprKind::Match { scrutinee, arms } = &mut e.kind else {
             return None;
         };
-        let ExprKind::CallTrait { recv, args, .. } = &scrutinee.kind else {
+        let ExprKind::CallTrait { recv, args, .. } = &mut scrutinee.kind else {
             return None;
         };
         let [tested, rest] = arms.as_slice() else {
@@ -1926,20 +1930,12 @@ impl Monomorphizer<'_> {
             (2, false) => typed::PrimOp::Le,
             _ => return None,
         };
-        Some((op, prim))
+        Some((op, prim, std::mem::take(args)))
     }
 
     fn rewrite(&mut self, mut e: typed::Expr, targs: &[Ty]) -> typed::Expr {
         e.ty = self.sub(&e.ty, targs);
-        if let Some((op, prim)) = self.float_operator(&e, targs) {
-            let args = match e.kind {
-                ExprKind::Match { scrutinee, .. } => match scrutinee.kind {
-                    ExprKind::CallTrait { args, .. } => Some(args),
-                    _ => None,
-                },
-                _ => None,
-            }
-            .or_ice("`float_operator` answers only for a match on a `compare` call");
+        if let Some((op, prim, args)) = self.float_operator(&mut e, targs) {
             let args = self.rewrite_all(args, targs);
             return typed::Expr::new(ExprKind::Prim { op, prim, args }, e.ty, e.span);
         }
@@ -2582,29 +2578,25 @@ impl Monomorphizer<'_> {
         &mut self,
         word: crate::compiler::middle::flags::Word,
         method: &str,
-        mut args: Vec<typed::Expr>,
+        args: Vec<typed::Expr>,
     ) -> ExprKind {
         use typed::PrimOp;
-        let b = if args.len() > 1 { args.pop() } else { None };
-        let a = args.pop().or_ice("a `Flags` method has its receiver");
-        let both = |b: Option<typed::Expr>| b.map_or_else(Vec::new, |b| vec![a.clone(), b]);
-        let e = match method {
-            "union" => word.op(PrimOp::BitOr, both(b)),
-            "intersect" => word.op(PrimOp::BitAnd, both(b)),
-            "symmetricDifference" => word.op(PrimOp::BitXor, both(b)),
-            "difference" | "isSubsetOf" => {
-                let b = b.or_ice("`difference` and `isSubsetOf` take a second set");
-                let outside = word.op(PrimOp::BitXor, vec![b, word.lit(word.all())]);
-                let left = word.op(PrimOp::BitAnd, vec![a, outside]);
+        let e = match (method, args.as_slice()) {
+            ("union", [a, b]) => word.op(PrimOp::BitOr, vec![a.clone(), b.clone()]),
+            ("intersect", [a, b]) => word.op(PrimOp::BitAnd, vec![a.clone(), b.clone()]),
+            ("symmetricDifference", [a, b]) => word.op(PrimOp::BitXor, vec![a.clone(), b.clone()]),
+            ("difference" | "isSubsetOf", [a, b]) => {
+                let outside = word.op(PrimOp::BitXor, vec![b.clone(), word.lit(word.all())]);
+                let left = word.op(PrimOp::BitAnd, vec![a.clone(), outside]);
                 if method == "difference" {
                     left
                 } else {
                     word.test(PrimOp::Eq, left, word.lit(0))
                 }
             }
-            "complement" => word.op(PrimOp::BitXor, vec![a, word.lit(word.all())]),
-            "isEmpty" => word.test(PrimOp::Eq, a, word.lit(0)),
-            "count" => return self.flags_count(word, a),
+            ("complement", [a]) => word.op(PrimOp::BitXor, vec![a.clone(), word.lit(word.all())]),
+            ("isEmpty", [a]) => word.test(PrimOp::Eq, a.clone(), word.lit(0)),
+            ("count", [a]) => return self.flags_count(word, a.clone()),
             _ => return ExprKind::Error,
         };
         e.kind

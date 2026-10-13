@@ -457,6 +457,12 @@ fn ptr() -> SlotTy {
     SlotTy::Scalar(Scalar::Ptr)
 }
 
+/// The one slot a value held in memory crosses a call as: its address.
+pub const ADDRESS: Slot = Slot {
+    offset: 0,
+    ty: SlotTy::Scalar(Scalar::Ptr),
+};
+
 /// What is inside a struct, a tuple, a context or one enum variant.
 ///
 /// `semantics::types` owns the walk; it is re-exported here because `repr::`
@@ -686,10 +692,7 @@ impl Machine {
         let mut out = Machine::default();
         for slots in params {
             if in_memory(slots) {
-                out.params.push(Slot {
-                    offset: 0,
-                    ty: ptr(),
-                });
+                out.params.push(ADDRESS);
                 out.indirect.push(true);
             } else {
                 out.indirect.extend(slots.iter().map(|_| false));
