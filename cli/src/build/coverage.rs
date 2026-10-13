@@ -308,7 +308,9 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
         coverage::Called::Func(f) => by_slot.get(&(f.0 as usize)).copied(),
     };
     let mut note =
-        |body: &typed::Expr, instance: Instance, traps: Option<&dyn Fn(&typed::Expr) -> bool>| {
+        |body: &typed::Expr,
+         instance: Instance,
+         traps: Option<&dyn Fn(&typed::Expr) -> Option<coverage::Aborts>>| {
             coverage::decisions(
                 body,
                 traps,
@@ -383,11 +385,16 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
                     .iter()
                     .any(|p| p.is_integer() && tables.prim_id(*p) == c)
             });
-            info.intrinsic
-                && (module == Some("core/bits") && info.name.starts_with("shift")
-                    || integer && matches!(info.name.as_str(), "divide" | "remainder"))
+            if !info.intrinsic {
+                None
+            } else if module == Some("core/bits") && info.name.starts_with("shift") {
+                Some(coverage::Aborts::shift(&info.name))
+            } else {
+                (integer && matches!(info.name.as_str(), "divide" | "remainder"))
+                    .then_some(coverage::Aborts::Divide)
+            }
         }
-        _ => false,
+        _ => None,
     };
     for (id, body) in analysis.checked.bodies.iter() {
         if !user.contains(&body.expr.span.file) {
@@ -412,8 +419,9 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
             typed::ExprKind::CallFunc { func: f, .. } => program
                 .funcs
                 .get(f.0 as usize)
-                .is_some_and(|f| name_of(f.span).is_none() && coverage::aborts(f)),
-            _ => false,
+                .filter(|f| name_of(f.span).is_none())
+                .and_then(coverage::aborts),
+            _ => None,
         };
         for &slot in built.values().flatten() {
             if let Some(body) = program.funcs.get(slot).and_then(|f| f.body()) {

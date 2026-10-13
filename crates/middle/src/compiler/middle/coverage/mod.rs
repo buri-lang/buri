@@ -15,7 +15,7 @@ use crate::compiler::semantics::typed::{
 };
 use crate::compiler::semantics::types::{FnId, FuncIdx, LocalId, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 pub mod derived;
 use crate::diagnostics::Span;
@@ -219,14 +219,14 @@ pub struct Decision {
 
 /// Calls `f` with every decision in `body`, lambdas' included, `builtins`'
 /// calls too, and the expression that makes it: a guard's decision is the
-/// guard. With `traps`, which says whether a call can abort, the abort points
-/// too. `consts` holds the module-level `let`s a checked body still names.
+/// guard. With `traps`, which says how a call can abort, the abort points too.
+/// `consts` holds the module-level `let`s a checked body still names.
 ///
 /// The `match` that `semantics` writes for `a < b` isn't one: its arms carry
 /// the operator's span, which an arm someone wrote can't.
 pub fn decisions(
     e: &Expr,
-    traps: Option<&dyn Fn(&Expr) -> bool>,
+    traps: Option<&dyn Fn(&Expr) -> Option<Aborts>>,
     consts: &ConstMap,
     builtins: Builtins,
     f: &mut impl FnMut(Decision, &Expr),
@@ -312,24 +312,56 @@ fn desugared(e: &Expr) -> bool {
     matches!(&e.kind, ExprKind::Match { arms, .. } if arms.first().is_some_and(|a| a.span == e.span))
 }
 
-/// Whether `e` is an operation that can abort: an integer `/` or `%` by
-/// anything but a nonzero constant, or a call `call` says can. A built body
-/// has its constants inlined, so it needs no `consts`.
-fn traps_here(e: &Expr, call: &dyn Fn(&Expr) -> bool, consts: Option<&ConstMap>) -> bool {
-    match &e.kind {
+/// Whether `e` is an operation that can abort: an integer `/` or `%`, or a
+/// call `call` says can, unless a constant last operand spares it. A built
+/// body has its constants inlined, so it needs no `consts`.
+fn traps_here(e: &Expr, call: &dyn Fn(&Expr) -> Option<Aborts>, consts: Option<&ConstMap>) -> bool {
+    let (how, args) = match &e.kind {
         ExprKind::Prim {
             op: PrimOp::Div | PrimOp::Rem,
             prim,
             args,
-        } => prim.is_integer() && !args.get(1).is_some_and(|d| nonzero(d, consts)),
-        ExprKind::CallFn { .. } | ExprKind::CallFunc { .. } => call(e),
-        _ => false,
-    }
+        } if prim.is_integer() => (Aborts::Divide, args),
+        ExprKind::CallFn { args, .. } | ExprKind::CallFunc { args, .. } => match call(e) {
+            Some(how) => (how, args),
+            None => return false,
+        },
+        _ => return false,
+    };
+    !args
+        .last()
+        .and_then(|n| constant(n, consts))
+        .is_some_and(|n| how.spared_by(n))
 }
 
-/// Whether `e` is a constant expression whose value is not zero.
-fn nonzero(e: &Expr, consts: Option<&ConstMap>) -> bool {
-    constant(e, consts).is_some_and(|v| v != 0)
+/// How an operation can abort, which says the constant operands that can't.
+#[derive(Clone, Copy, Debug)]
+pub enum Aborts {
+    /// A division or remainder, by zero.
+    Divide,
+    /// A `core/bits` shift of a value this many bits wide, by a count outside
+    /// `0..width`.
+    Shift(u32),
+}
+
+impl Aborts {
+    /// How a call to the `core/bits` function or intrinsic `name` can abort:
+    /// `shiftLeftU8` shifts eight bits, and a shift with no width in its name
+    /// shifts an `Int`'s sixty-four.
+    pub fn shift(name: &str) -> Aborts {
+        let width = [("U8", 8), ("U32", 32)]
+            .into_iter()
+            .find(|(suffix, _)| name.ends_with(suffix))
+            .map_or(64, |(_, w)| w);
+        Aborts::Shift(width)
+    }
+
+    fn spared_by(self, n: i128) -> bool {
+        match self {
+            Aborts::Divide => n != 0,
+            Aborts::Shift(width) => (0..i128::from(width)).contains(&n),
+        }
+    }
 }
 
 /// The value of an integer expression built from literals, constants, `+`,
@@ -755,15 +787,15 @@ pub struct Options<'a> {
 /// from the paths that ran. The right sides keep their probes, so an abort
 /// that cuts a path short still counts the sides it reached.
 pub fn branches(program: &mut Program, options: &Options) -> Vec<derived::Derived> {
-    let traps: HashSet<usize> = match options.mcdc {
+    let traps: HashMap<usize, Aborts> = match options.mcdc {
         Some(_) => program
             .funcs
             .iter()
             .enumerate()
-            .filter(|(_, f)| (options.file_of)(f.span).is_none() && aborts(f))
-            .map(|(i, _)| i)
+            .filter(|(_, f)| (options.file_of)(f.span).is_none())
+            .filter_map(|(i, f)| Some((i, aborts(f)?)))
             .collect(),
-        None => HashSet::default(),
+        None => HashMap::default(),
     };
     for (slot, f) in program.funcs.iter_mut().enumerate() {
         if let FuncKind::Body(body) = &mut f.kind {
@@ -793,14 +825,18 @@ pub fn branches(program: &mut Program, options: &Options) -> Vec<derived::Derive
     }
 }
 
-/// Whether a function outside the user's source is one a call to can abort: a
+/// How a call to a function outside the user's source can abort, if it can: a
 /// `core/bits` shift, or an integer type's `divide` or `remainder`, which a
 /// generic `a / b` reaches at that type.
-pub fn aborts(f: &crate::compiler::middle::monomorphize::Func) -> bool {
+pub fn aborts(f: &crate::compiler::middle::monomorphize::Func) -> Option<Aborts> {
     let FuncKind::Intrinsic(key) = &f.kind else {
-        return false;
+        return None;
     };
-    key.starts_with("bits.shift") || divides(key)
+    if key.starts_with("bits.shift") {
+        Some(Aborts::shift(key))
+    } else {
+        divides(key).then_some(Aborts::Divide)
+    }
 }
 
 /// Whether an intrinsic is `number.<integer>.divide` or `.remainder`.
@@ -819,7 +855,7 @@ fn divides(key: &str) -> bool {
 struct Branches<'a> {
     options: &'a Options<'a>,
     instance: Option<&'a str>,
-    traps: &'a HashSet<usize>,
+    traps: &'a HashMap<usize, Aborts>,
     locals: &'a mut Vec<typed::Local>,
 }
 
@@ -1188,8 +1224,11 @@ impl Branches<'_> {
         )
     }
 
-    fn calls_trap(&self, call: &Expr) -> bool {
-        matches!(&call.kind, ExprKind::CallFunc { func: f, .. } if self.traps.contains(&(f.0 as usize)))
+    fn calls_trap(&self, call: &Expr) -> Option<Aborts> {
+        match &call.kind {
+            ExprKind::CallFunc { func: f, .. } => self.traps.get(&(f.0 as usize)).copied(),
+            _ => None,
+        }
     }
 
     /// An abort point as `{ let a = x; ...; reached; let v = op(a, ...); went on; v }`.

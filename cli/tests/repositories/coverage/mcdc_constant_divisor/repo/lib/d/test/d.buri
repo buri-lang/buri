@@ -9,6 +9,11 @@ test "constant divisors" {
     assert.equal(d.pages([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), 2);
 }
 
+test "constant shifts" {
+    assert.equal(d.high(0), 0);
+    assert.equal(d.wide([1, 2]), 2305843009213693952);
+}
+
 test "a divisor the caller picks" {
     assert.equal(d.share(9, 3), 3);
     assert.equal(d.spread(8, 2), 3);
