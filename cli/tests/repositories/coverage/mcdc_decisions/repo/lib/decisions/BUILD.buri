@@ -1,0 +1,7 @@
+library {
+    sources: ["decisions.buri"]
+
+    test {
+        sources: ["test/decisions.buri"]
+    }
+}

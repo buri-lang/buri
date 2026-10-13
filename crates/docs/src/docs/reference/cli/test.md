@@ -233,18 +233,27 @@ mc/dc coverage       branches   conditions    decisions
   total         16/26   61.5%  4/7   57.1%  1/3   33.3%
 ```
 
-A decision here is a chain of `&&`, `||` and `!` with at least two conditions,
-wherever it's written: an `if`, a guard, a `let`. A condition is shown when two
-runs that evaluated it to different values got different outcomes, and every
-other condition either matched or was skipped by short-circuiting in one of
-them. That's unique-cause MC/DC with masking, the form DO-178C accepts and
-clang's `-fcoverage-mcdc` implements. `a && b` tested with `(true, true)` and
-`(false, _)` takes both branches but never shows `b`. A decision counts once all
-of its conditions are shown.
+Every decision is in MC/DC, so 100% of its conditions implies 100% of the
+branches. A decision is one of:
 
-A decision whose last condition is a tail call, as in `n == 0 || count(n - 1)`,
-keeps its branches but isn't an MC/DC decision. Reading that call's answer would
-cost it the constant stack a tail call promises.
+- a chain of `&&`, `||` and `!`, wherever it's written: an `if`, a guard, a
+  `let`. A condition is shown when two runs that evaluated it to different
+  values got different outcomes, and every other condition either matched or
+  was skipped by short-circuiting in one of them. That's unique-cause MC/DC
+  with masking, the form DO-178C accepts and clang's `-fcoverage-mcdc`
+  implements. `a && b` tested with `(true, true)` and `(false, _)` takes both
+  branches but never shows `b`;
+- an `if` or a guard on a single condition, shown when both outcomes happened;
+- a `match`, with a condition per arm, each shown when its arm ran;
+- a `?`, an integer `/` or `%`, a `core/bits` shift and a call of a branching
+  built-in such as `withDefault` or `filter`, each one condition, shown when
+  both of its outcomes happened.
+
+A decision counts once all of its conditions are shown.
+
+A chain whose last condition is a tail call, as in `n == 0 || count(n - 1)`, is
+one condition, shown when its right side both ran and was skipped. Reading that
+call's answer would cost it the constant stack a tail call promises.
 
 It also counts what `--coverage` leaves out:
 
@@ -274,6 +283,9 @@ MCDC:4,2,f,1,0,'a' in 'a && b'
 MCDC:4,2,t,0,1,'b' in 'a && b'
 MCDC:4,2,f,0,1,'b' in 'a && b'
 ```
+
+A single-condition decision names itself twice, as in `'n < 0' in 'n < 0'`, and
+a `match` arm names its pattern, as in `'.None' in 'match n'`.
 
 The standard library, the platforms and reference counting stay out. The first
 two aren't your code. Reference counting is the native backends' own business,

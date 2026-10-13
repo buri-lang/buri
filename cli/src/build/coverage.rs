@@ -80,6 +80,20 @@ struct Decision {
     /// A derived decision's operation and type, and its place in the walk,
     /// which order the decisions on a `derive` line.
     group: (String, usize),
+    /// Under MC/DC, how it reads as conditions ([`Conditions`]); `None` where
+    /// an MC/DC decision of its own already holds them.
+    conditions: Option<Conditions>,
+}
+
+/// The conditions an MC/DC report holds for a decision that is not an
+/// `&&`/`||` chain: the decision's text, and either one condition that is shown
+/// once every outcome was taken, or one per outcome, each shown once it was
+/// taken (`match` arms, a derived decision's branches).
+struct Conditions {
+    whole: String,
+    per_outcome: Vec<String>,
+    /// The one condition's text, if it is one.
+    single: Option<String>,
 }
 
 type DecisionId = (coverage::Kind, u32, u32, Instance);
@@ -100,6 +114,8 @@ struct Universe {
     lines: BTreeSet<usize>,
     decisions: BTreeMap<DecisionId, Decision>,
     trees: BTreeMap<TreeId, Tree>,
+    /// Every `&&` and `||` a tree in [`Universe::trees`] holds.
+    operators: BTreeSet<TreeId>,
 }
 
 struct Run {
@@ -253,7 +269,7 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
     };
     let mut note =
         |body: &typed::Expr, instance: Instance, traps: Option<&dyn Fn(&typed::Expr) -> bool>| {
-            coverage::decisions(body, traps, &builtins, &mut |d| {
+            coverage::decisions(body, traps, &builtins, &mut |d, e| {
                 let at = Span {
                     start: d.at,
                     ..d.span
@@ -266,6 +282,7 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
                     branches: d.branches,
                     names: Vec::new(),
                     group: Default::default(),
+                    conditions: (traps.is_some() && !d.tree).then(|| conditions_of(map, &d, e)),
                 };
                 files
                     .entry(name.to_string())
@@ -281,6 +298,12 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
                     tree.conditions(&mut spans);
                     let conditions: Vec<String> = spans.iter().map(|s| text(map, *s)).collect();
                     let id = (span.start, span.end, instance.clone());
+                    let mut operators = Vec::new();
+                    tree.operators(&mut operators);
+                    let held = files.entry(name.to_string()).or_default();
+                    for o in operators {
+                        held.operators.insert((o.start, o.end, instance.clone()));
+                    }
                     let whole = render(&tree, &conditions, &mut 0).0;
                     let t = Tree {
                         line,
@@ -377,13 +400,18 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
             coverage::Kind::Derived,
             d.span.start,
             d.span.end,
-            Some(d.label),
+            Some(d.label.clone()),
         );
         let group = (d.group, d.order);
         let decision = Decision {
             line,
             at: d.span.start,
             branches: d.branches.len(),
+            conditions: mcdc.then(|| Conditions {
+                whole: d.label.clone(),
+                per_outcome: d.branches.clone(),
+                single: None,
+            }),
             names: d.branches,
             group,
         };
@@ -403,6 +431,46 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
         mine.lines.extend(u.lines);
         mine.decisions.extend(u.decisions);
         mine.trees.extend(u.trees);
+        mine.operators.extend(u.operators);
+    }
+}
+
+/// The longest a condition's or decision's text runs in a record.
+const LONGEST: usize = 80;
+
+/// Source text on one line, cut short if it runs long.
+fn short(map: &SourceMap, span: Span) -> String {
+    let full = text(map, span);
+    if full.chars().count() <= LONGEST {
+        return full;
+    }
+    let cut: String = full.chars().take(LONGEST.saturating_sub(3)).collect();
+    format!("{cut}...")
+}
+
+/// How the decision `d`, made by `e`, reads as conditions: a `match` has one
+/// per arm; any other, the condition of an `if` or a guard, a `?`, an abort
+/// point, a built-in's call or the right side of an `&&` a tail call keeps out
+/// of MC/DC, has one.
+fn conditions_of(map: &SourceMap, d: &coverage::Decision, e: &typed::Expr) -> Conditions {
+    match &e.kind {
+        typed::ExprKind::Match { scrutinee, arms } if d.kind == coverage::Kind::Match => {
+            Conditions {
+                whole: format!("match {}", short(map, scrutinee.span)),
+                per_outcome: arms.iter().map(|a| short(map, a.pattern.span)).collect(),
+                single: None,
+            }
+        }
+        typed::ExprKind::If { cond, .. } => single(short(map, cond.span)),
+        _ => single(short(map, e.span)),
+    }
+}
+
+fn single(text: String) -> Conditions {
+    Conditions {
+        whole: text.clone(),
+        per_outcome: Vec::new(),
+        single: Some(text),
     }
 }
 
@@ -466,8 +534,8 @@ struct File {
     /// `(line, block, branch, count)`, with `None` for a decision nothing
     /// reached.
     branches: Vec<(usize, usize, String, Option<u64>)>,
-    /// `(line, expression, shown)`, a condition each.
-    conditions: Vec<(usize, String, bool)>,
+    /// `(line, offset, expression, shown)`, a condition each. In source order.
+    conditions: Vec<(usize, u32, String, bool)>,
     /// MC/DC decisions, and how many have every condition shown.
     decisions: (usize, usize),
 }
@@ -578,7 +646,7 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
             let suffix = instance_suffix(&id.2);
             for (c, s) in t.conditions.iter().zip(shown) {
                 f.conditions
-                    .push((t.line, format!("'{c}' in '{}'{suffix}", t.text), s));
+                    .push((t.line, id.0, format!("'{c}' in '{}'{suffix}", t.text), s));
             }
         }
 
@@ -634,6 +702,39 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
                 _ => (0..d.branches).map(slot).collect(),
             };
             let reached = taken.iter().any(|&n| n > 0);
+            // Under MC/DC every decision is conditions: those a tree holds are
+            // its own, and the rest are read off the branches' counts.
+            let held = d.conditions.as_ref().filter(|_| {
+                !(matches!(kind, coverage::Kind::And | coverage::Kind::Or)
+                    && u.operators.contains(&(*start, *end, instance.clone())))
+            });
+            if let (true, Some(c)) = (mcdc, held) {
+                let named: Vec<(String, bool)> = match &c.single {
+                    Some(one) => vec![(one.clone(), taken.iter().all(|&n| n > 0))],
+                    None => c
+                        .per_outcome
+                        .iter()
+                        .cloned()
+                        .zip(taken.iter().map(|&n| n > 0))
+                        .collect(),
+                };
+                let suffix = match kind {
+                    coverage::Kind::Derived => String::new(),
+                    _ => instance_suffix(instance),
+                };
+                f.decisions.0 = f.decisions.0.saturating_add(1);
+                if named.iter().all(|c| c.1) {
+                    f.decisions.1 = f.decisions.1.saturating_add(1);
+                }
+                for (condition, shown) in named {
+                    f.conditions.push((
+                        d.line,
+                        d.at,
+                        format!("'{condition}' in '{}'{suffix}", c.whole),
+                        shown,
+                    ));
+                }
+            }
             // lcov wants a line under every branch. One no statement starts on
             // counts how often its decisions were reached.
             let times = taken.iter().fold(0u64, |a, &n| a.saturating_add(n));
@@ -653,6 +754,10 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
         }
     }
 
+    // Conditions of one line sit together, in the order they're written.
+    for f in report.values_mut() {
+        f.conditions.sort_by_key(|c| (c.0, c.1));
+    }
     let mut lcov = String::new();
     let mut rows: Vec<Row> = Vec::new();
     for (file, f) in &report {
@@ -667,19 +772,19 @@ pub fn report(root: &Path, out: &mut dyn FnMut(&str)) {
             .filter(|b| b.3.is_some_and(|n| n > 0))
             .count();
         lcov.push_str(&format!("BRF:{}\nBRH:{hit}\n", f.branches.len()));
-        let shown = f.conditions.iter().filter(|c| c.2).count();
+        let shown = f.conditions.iter().filter(|c| c.3).count();
         if mcdc {
             // One group a line: lcov tells groups on a line apart by size alone.
             let mut i = 0;
-            while let Some(&(line, _, _)) = f.conditions.get(i) {
-                let group: Vec<&(usize, String, bool)> = f
+            while let Some(&(line, ..)) = f.conditions.get(i) {
+                let group: Vec<&(usize, u32, String, bool)> = f
                     .conditions
                     .get(i..)
                     .unwrap_or_default()
                     .iter()
                     .take_while(|c| c.0 == line)
                     .collect();
-                for (index, (_, expression, s)) in group.iter().enumerate() {
+                for (index, (_, _, expression, s)) in group.iter().enumerate() {
                     for sense in ["t", "f"] {
                         lcov.push_str(&format!(
                             "MCDC:{line},{},{sense},{},{index},{expression}\n",

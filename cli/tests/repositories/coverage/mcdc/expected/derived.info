@@ -26,12 +26,56 @@ BRDA:21,0,0,2
 BRDA:21,0,1,1
 BRF:24
 BRH:12
+MCDC:1,4,t,1,0,'same' in 'Equal Point, x'
+MCDC:1,4,f,1,0,'same' in 'Equal Point, x'
+MCDC:1,4,t,1,1,'differs' in 'Equal Point, x'
+MCDC:1,4,f,1,1,'differs' in 'Equal Point, x'
+MCDC:1,4,t,1,2,'equal' in 'Ordered Point, x'
+MCDC:1,4,f,1,2,'equal' in 'Ordered Point, x'
+MCDC:1,4,t,0,3,'decides' in 'Ordered Point, x'
+MCDC:1,4,f,0,3,'decides' in 'Ordered Point, x'
+MCDC:7,14,t,1,0,'Dot' in 'Equal Shape, variant'
+MCDC:7,14,f,1,0,'Dot' in 'Equal Shape, variant'
+MCDC:7,14,t,1,1,'Line' in 'Equal Shape, variant'
+MCDC:7,14,f,1,1,'Line' in 'Equal Shape, variant'
+MCDC:7,14,t,0,2,'Empty' in 'Equal Shape, variant'
+MCDC:7,14,f,0,2,'Empty' in 'Equal Shape, variant'
+MCDC:7,14,t,1,3,'same variant' in 'Equal Shape, Dot, the other'
+MCDC:7,14,f,1,3,'same variant' in 'Equal Shape, Dot, the other'
+MCDC:7,14,t,0,4,'another variant' in 'Equal Shape, Dot, the other'
+MCDC:7,14,f,0,4,'another variant' in 'Equal Shape, Dot, the other'
+MCDC:7,14,t,0,5,'same variant' in 'Equal Shape, Line, the other'
+MCDC:7,14,f,0,5,'same variant' in 'Equal Shape, Line, the other'
+MCDC:7,14,t,1,6,'another variant' in 'Equal Shape, Line, the other'
+MCDC:7,14,f,1,6,'another variant' in 'Equal Shape, Line, the other'
+MCDC:7,14,t,0,7,'same' in 'Equal Shape, Line.0'
+MCDC:7,14,f,0,7,'same' in 'Equal Shape, Line.0'
+MCDC:7,14,t,0,8,'differs' in 'Equal Shape, Line.0'
+MCDC:7,14,f,0,8,'differs' in 'Equal Shape, Line.0'
+MCDC:7,14,t,0,9,'same variant' in 'Equal Shape, Empty, the other'
+MCDC:7,14,f,0,9,'same variant' in 'Equal Shape, Empty, the other'
+MCDC:7,14,t,0,10,'another variant' in 'Equal Shape, Empty, the other'
+MCDC:7,14,f,0,10,'another variant' in 'Equal Shape, Empty, the other'
+MCDC:7,14,t,1,11,'Dot' in 'Show Shape, variant'
+MCDC:7,14,f,1,11,'Dot' in 'Show Shape, variant'
+MCDC:7,14,t,0,12,'Line' in 'Show Shape, variant'
+MCDC:7,14,f,0,12,'Line' in 'Show Shape, variant'
+MCDC:7,14,t,0,13,'Empty' in 'Show Shape, variant'
+MCDC:7,14,f,0,13,'Empty' in 'Show Shape, variant'
+MCDC:14,4,t,1,0,'same' in 'Equal Box<I64>, inner'
+MCDC:14,4,f,1,0,'same' in 'Equal Box<I64>, inner'
+MCDC:14,4,t,0,1,'differs' in 'Equal Box<I64>, inner'
+MCDC:14,4,f,0,1,'differs' in 'Equal Box<I64>, inner'
+MCDC:14,4,t,0,2,'same' in 'Equal Box<Str>, inner'
+MCDC:14,4,f,0,2,'same' in 'Equal Box<Str>, inner'
+MCDC:14,4,t,1,3,'differs' in 'Equal Box<Str>, inner'
+MCDC:14,4,f,1,3,'differs' in 'Equal Box<Str>, inner'
 MCDC:21,2,t,1,0,'a' in 'a && p == q'
 MCDC:21,2,f,1,0,'a' in 'a && p == q'
 MCDC:21,2,t,1,1,'p == q' in 'a && p == q'
 MCDC:21,2,f,1,1,'p == q' in 'a && p == q'
-MCF:4
-MCH:4
+MCF:48
+MCH:24
 DA:1,5
 DA:7,2
 DA:14,1
