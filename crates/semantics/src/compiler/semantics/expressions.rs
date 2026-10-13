@@ -2449,6 +2449,22 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.construct_variant(*con, index, args, span, Some(&exp), dot_span)
     }
 
+    /// The module, arity and one variant of an enum, for building a value of it.
+    /// The variant is cloned alone: copying the `TyCon` would copy every variant
+    /// of the enum and every field of each of them.
+    fn variant_to_build(&self, con: TyConId, index: usize) -> (ModuleId, usize, VariantInfo) {
+        let tycon = self.c.tables.tycon(con);
+        (
+            tycon.module,
+            tycon.arity(),
+            tycon
+                .variants()
+                .get(index)
+                .or_ice("the variant index came from this same type's variant list")
+                .clone(),
+        )
+    }
+
     fn construct_variant(
         &mut self,
         con: TyConId,
@@ -2461,18 +2477,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         // One variant, not the type: copying the `TyCon` copied every variant
         // of the enum and every field of each of them, to write one of them
         // down.
-        let (owner, arity, variant) = {
-            let tycon = self.c.tables.tycon(con);
-            (
-                tycon.module,
-                tycon.arity(),
-                tycon
-                    .variants()
-                    .get(index)
-                    .or_ice("the variant index came from this same type's variant list")
-                    .clone(),
-            )
-        };
+        let (owner, arity, variant) = self.variant_to_build(con, index);
 
         // A variant is exported exactly when its enum is, so this fires only
         // where a private enum reached another module through a signature.
@@ -2896,18 +2901,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         head_span: Span,
     ) -> typed::Expr {
         // The one variant, for the reason `construct_variant` gives.
-        let (owner, arity, variant) = {
-            let tycon = self.c.tables.tycon(con);
-            (
-                tycon.module,
-                tycon.arity(),
-                tycon
-                    .variants()
-                    .get(index)
-                    .or_ice("the variant index came from this same type's variant list")
-                    .clone(),
-            )
-        };
+        let (owner, arity, variant) = self.variant_to_build(con, index);
         if owner != self.module && !variant.exported {
             let t = self.c.tables.tycon(con).name.clone();
             let v = variant.name.clone();
@@ -3281,11 +3275,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         rhs: Option<typed::Expr>,
         span: Span,
     ) -> typed::Expr {
-        let tid = *self
-            .c
-            .known_traits
-            .get(trait_name)
-            .or_ice("an operator's trait is in the prelude");
+        let tid = self.c.known_trait(trait_name);
         let ty = self.resolve(&lhs.ty);
         if ty.is_error() {
             return self.error_expr(span);

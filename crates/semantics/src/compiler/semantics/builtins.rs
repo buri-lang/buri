@@ -13,6 +13,23 @@ use crate::compiler::semantics::types::*;
 use crate::diagnostics::{Invariant as _, Span};
 
 impl<'a> Checker<'a> {
+    /// A type the prelude (or `core/json`) declares, by name. A builtin `impl`
+    /// is only written once the module declaring its types has loaded.
+    pub(crate) fn known_type(&self, name: &str) -> TyConId {
+        *self
+            .known_types
+            .get(name)
+            .or_ice("a builtin names a type the loaded prelude declares")
+    }
+
+    /// A trait the prelude declares, by name, for the reason [`Self::known_type`] gives.
+    pub(crate) fn known_trait(&self, name: &str) -> TraitId {
+        *self
+            .known_traits
+            .get(name)
+            .or_ice("a builtin names a trait the loaded prelude declares")
+    }
+
     pub(crate) fn register_primitive_methods(&mut self) {
         // A base registered every one of these already, and the `Json` pair
         // too when `core/json` was among its modules. What is left is that
@@ -54,20 +71,11 @@ impl<'a> Checker<'a> {
         if !self.known_traits.contains_key("ToJson") {
             return;
         }
-        let json = *self
-            .known_types
-            .get("Json")
-            .or_ice("`core/json` declares `Json` beside `ToJson`");
+        let json = self.known_type("Json");
         let json_ty = Ty::con(json, []);
         let decoded = |me: &Self, p: Prim| -> Ty {
-            let result = *me
-                .known_types
-                .get("Result")
-                .or_ice("`Result` is a prelude name");
-            let err = *me
-                .known_types
-                .get("DecodeError")
-                .or_ice("`core/json` declares `DecodeError` beside `ToJson`");
+            let result = me.known_type("Result");
+            let err = me.known_type("DecodeError");
             Ty::con(result, [me.tables.prim(p), Ty::con(err, [])])
         };
 
@@ -89,10 +97,7 @@ impl<'a> Checker<'a> {
         // `Option` is `derive`d rather than given methods: `.None` is `null`
         // and `.Some(x)` is whatever `x` is, which is a fold over the payload
         // and so exactly what a derived implementation means.
-        let option = *self
-            .known_types
-            .get("Option")
-            .or_ice("`Option` is a prelude name");
+        let option = self.known_type("Option");
         self.add_derived_impl("ToJson", option);
         self.add_derived_impl("FromJson", option);
     }
@@ -286,17 +291,8 @@ impl<'a> Checker<'a> {
         let bool_ty = self.tables.prim(Prim::Bool);
         let str_ty = self.tables.prim(Prim::Str);
         let u64_ty = self.tables.prim(Prim::U64);
-        let order = Ty::con(
-            *self
-                .known_types
-                .get("Order")
-                .or_ice("`Order` is a prelude name"),
-            [],
-        );
-        let opt = *self
-            .known_types
-            .get("Option")
-            .or_ice("`Option` is a prelude name");
+        let order = Ty::con(self.known_type("Order"), []);
+        let opt = self.known_type("Option");
 
         if p.is_signed() || p.is_float() {
             self.method(p, "abs", Vec::new(), self_ty);
@@ -458,10 +454,7 @@ impl<'a> Checker<'a> {
             .get("RangeError")
             .map(|c| Ty::con(*c, []))
             .unwrap_or(Ty::ERROR);
-        let result = *self
-            .known_types
-            .get("Result")
-            .or_ice("`Result` is a prelude name");
+        let result = self.known_type("Result");
         let ret = Ty::con(result, [char_ty, range_error]);
         self.method(Prim::U32, "toChar", Vec::new(), ret);
 
@@ -469,13 +462,7 @@ impl<'a> Checker<'a> {
         let bool_ty = self.tables.prim(Prim::Bool);
         let str_ty = self.tables.prim(Prim::Str);
         let u64_ty = self.tables.prim(Prim::U64);
-        let order = Ty::con(
-            *self
-                .known_types
-                .get("Order")
-                .or_ice("`Order` is a prelude name"),
-            [],
-        );
+        let order = Ty::con(self.known_type("Order"), []);
 
         let eq = self.method(
             Prim::Char,
@@ -517,10 +504,7 @@ impl<'a> Checker<'a> {
     /// supplies too few or too many cannot leave the table holding a row of a
     /// length no consumer expects.
     fn add_impl(&mut self, trait_name: &str, con: TyConId, methods: Vec<FnId>) {
-        let trait_id = *self
-            .known_traits
-            .get(trait_name)
-            .or_ice("a builtin `impl` names a known trait");
+        let trait_id = self.known_trait(trait_name);
         let declared = self.tables.trait_(trait_id).methods.len();
         let mut slots: Vec<Option<FnId>> = vec![None; declared];
         for (slot, fid) in slots.iter_mut().zip(methods) {
@@ -541,10 +525,7 @@ impl<'a> Checker<'a> {
     /// type's components rather than a body, so it has no methods and
     /// `satisfies` recurses into the payload before answering.
     fn add_derived_impl(&mut self, trait_name: &str, con: TyConId) {
-        let trait_id = *self
-            .known_traits
-            .get(trait_name)
-            .or_ice("a builtin `impl` names a known trait");
+        let trait_id = self.known_trait(trait_name);
         let head = self.tables.generic_head(con);
         self.tables.add_impl(ImplInfo {
             trait_id,
