@@ -262,6 +262,10 @@ pub struct State {
     publish_findings: BTreeMap<(PathBuf, Option<TargetId>), TargetFindings>,
     /// [`State::package_key`]'s answers for the message being served.
     package_keys: BTreeMap<(PathBuf, PackageId), u64>,
+    /// Per repository and package: the build-file edit `buri gen` would make,
+    /// `None` when it would make none, under [`State::fingerprint`] as it
+    /// was. See [`State::build_file_edit`].
+    build_file_edits: BTreeMap<(PathBuf, PackageId), (u64, Option<Value>)>,
     /// What has been done since the server started. `handle` reads it either
     /// side of a request and reports the difference.
     work: Work,
@@ -586,6 +590,7 @@ impl State {
             target_findings: BTreeMap::new(),
             publish_findings: BTreeMap::new(),
             package_keys: BTreeMap::new(),
+            build_file_edits: BTreeMap::new(),
             work: Work::default(),
             sweeps: super::sweep::Sweeps::new(),
         }
@@ -879,6 +884,32 @@ impl State {
             }
         }
         hasher.finish()
+    }
+
+    /// The build-file edit `buri gen` would make for `package`, worked out by
+    /// `compute` once per state of the repository.
+    ///
+    /// A code action is listed only where this is `Some`, and the list arrives
+    /// on every cursor move onto a squiggle, so the answer is kept: `buri gen`
+    /// re-analyses the package, and nothing else caches that. Keyed on the
+    /// whole [`State::fingerprint`] rather than on what gen read, because
+    /// which files those are is itself part of the answer.
+    pub fn build_file_edit(
+        &mut self,
+        root: &Path,
+        package: PackageId,
+        compute: impl FnOnce(&mut State) -> Option<Value>,
+    ) -> Option<Value> {
+        let now = self.fingerprint(root);
+        let at = (root.to_path_buf(), package);
+        if let Some((was, edit)) = self.build_file_edits.get(&at) {
+            if *was == now {
+                return edit.clone();
+            }
+        }
+        let edit = compute(self);
+        self.build_file_edits.insert(at, (now, edit.clone()));
+        edit
     }
 
     /// One number for the whole of what the client has open.

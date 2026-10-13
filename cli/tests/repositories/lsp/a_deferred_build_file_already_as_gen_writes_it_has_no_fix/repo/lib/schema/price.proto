@@ -1,0 +1,7 @@
+// A schema no rule lists. `buri gen` never writes `generators`, so it
+// leaves this package's build file as it is.
+syntax = "proto3";
+
+message Price {
+  int64 cents = 1;
+}
