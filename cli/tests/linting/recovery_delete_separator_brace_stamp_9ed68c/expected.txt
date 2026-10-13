@@ -14,6 +14,14 @@ warning: bound `Allocator` on `C` is not used by this function [unused-context-b
    |
    = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
    = fix: remove the bound
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_delete_separator_brace_stamp_9ed68c/lib.buri:32:3
+   |
+32 |   Allocator>(ctx: C, label: Str): Str {
+   |   ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
 error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_separator_brace_stamp_9ed68c/lib.buri:33:14
    |
