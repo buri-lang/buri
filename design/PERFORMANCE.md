@@ -8077,6 +8077,39 @@ prototype cost more code that's harder to follow:
 token and arena access, a tree that holds spans in its nodes, or recovery
 that's allowed to say something different.
 
+### 6.87 Style extraction in test builds that build no node, 2026-10-12
+
+CI's `test/one-edit` count read 99.16 M, +1.9% against a gate of +2%. Its
+history on main, from the gate's own logs:
+
+| Commits | Change |
+|---|---:|
+| `ea4f6e6f2`..`fd913bffb`, styles stay values and `classify` names them | +1.28 M |
+| `1688a9e72`..`b882dff39`, `endless-type` and `unconstructible-type` | +0.54 M |
+| `cd751e566`..`5fe011a97`, `endless-function` through trait calls | +0.24 M |
+| `18aaf224c`..`a35e245eb`, many small ones | +0.20 M |
+| `44281bf3c`, a generic parameter a node reads follows every argument | +0.10 M |
+
+A test that takes an allocator from `platform/effect/testing` loads
+`ui/style` through the test platform, and `styles::run` returned early only
+where `ui/style` wasn't loaded. So every such test build drew the style
+graph over every declaration it reads, the standard library's included.
+
+Now it returns early unless one of the program's own modules imports from
+`ui/`, the same rule that loads `ui/style/classify`. Only such a module can
+build a node, so no other program has a style to extract.
+
+M3 Pro, release build, `BURI_THREADS=1`, fewest of five:
+
+| `test/one-edit` | Before | After |
+|---|---:|---:|
+| process | 251.5 M | 240.7 M |
+| `check` | 52.1 M | 41.0 M |
+
+`BURI_PROFILE` prints `style graphs drawn`, and
+`cli/tests/build/profile.rs` pins it at 0 for a test build that imports
+nothing from `ui/` and at 1 for one that styles a node.
+
 ## 7. Profiling, on this platform
 
 There is no `perf` on macOS and no hardware-counter dependency in the tree

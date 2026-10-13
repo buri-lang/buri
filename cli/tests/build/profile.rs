@@ -1129,3 +1129,86 @@ fn a_cold_gen_check_of_a_chain_of_libraries_loads_each_once() {
         100,
     );
 }
+
+/// The graphs of what reads what a `BURI_PROFILE=1` run drew to extract
+/// styles (`style graphs drawn` in the report).
+fn style_graphs_drawn(all: &str) -> Option<u64> {
+    let line = all.lines().find(|l| l.starts_with("style graphs drawn "))?;
+    line.trim_start_matches("style graphs drawn ")
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// **A test build that imports nothing from `ui/` draws no style graph.**
+/// A test that takes an allocator from `platform/effect/testing` loads
+/// `ui/style` through it, and style extraction drew its graph over every
+/// declaration the build reads, the standard library's included: 12 M of
+/// `test/one-edit`'s instructions (design/PERFORMANCE.md §6.87). No style such
+/// a program holds can reach a node.
+#[test]
+fn a_test_build_that_imports_nothing_from_ui_draws_no_style_graph() {
+    let scratch = repo();
+    scratch.write(
+        "lib/a/test/a.buri",
+        "from \"//lib/a\" import { answer };\n\
+         from \"core/testing/assert\" import * as assert;\n\
+         from \"platform/effect\" import { Allocator };\n\
+         from \"platform/effect/testing\" import { alloc };\n\n\
+         test \"a answers in a list\" {\n    \
+         let ctx = context {\n        Allocator: alloc(),\n    };\n    \
+         assert.equal([answer()].map(ctx, fn(n) => n + 1), [43]);\n}\n",
+    );
+    let run = scratch.run_with_env(&["test", "//..."], &[("BURI_PROFILE", "1")]);
+    run.ok();
+    assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
+    assert_eq!(
+        style_graphs_drawn(&run.all()),
+        Some(0),
+        "{}",
+        indent(&run.all())
+    );
+}
+
+/// **A test build that gives a node a style draws the graph once, and the
+/// style is its class.** The other side of
+/// [`a_test_build_that_imports_nothing_from_ui_draws_no_style_graph`]: a
+/// program that imports from `ui/` still has its styles extracted, and one
+/// with no generic parameter a node reads past its result draws the graph
+/// only once.
+#[test]
+fn a_test_build_that_styles_a_node_draws_the_style_graph_once() {
+    let scratch = Scratch::repo("profile-styled");
+    scratch.write(
+        "lib/card/BUILD.buri",
+        "library {\n    test {\n        sources: [\"test/card.buri\"]\n    }\n}\n",
+    );
+    scratch.write(
+        "lib/card/lib.buri",
+        "from \"ui/node\" import * as ui;\n\
+         from \"ui/node\" import { Node };\n\n\
+         export fn card<C>(children: [Node<C>]): Node<C> {\n    \
+         ui.stack({ styles: [.MinWidth(.Px(285))], children: children })\n}\n",
+    );
+    scratch.write(
+        "lib/card/test/card.buri",
+        "from \"core/testing/assert\" import * as assert;\n\
+         from \"platform/effect\" import { Ui };\n\
+         from \"platform/effect/testing\" import { headless, render, stylesheet };\n\
+         from \"//lib/card\" import { card };\n\n\
+         test \"a card's style is its class\" {\n    \
+         let ctx = context {\n        Ui: headless(),\n    };\n    \
+         let page = render(ctx, card([]));\n    \
+         assert.equal(page.markup(), \"e 0 class:minw-285\");\n    \
+         assert.isTrue(stylesheet().contains(\".minw-285{min-width:285px}\"));\n}\n",
+    );
+    let run = scratch.run_with_env(&["test", "//..."], &[("BURI_PROFILE", "1")]);
+    run.ok();
+    assert_eq!(run.tests_passed(), 1, "{}", indent(&run.all()));
+    assert_eq!(
+        style_graphs_drawn(&run.all()),
+        Some(1),
+        "{}",
+        indent(&run.all())
+    );
+}

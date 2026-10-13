@@ -555,7 +555,9 @@ fn once(args: &Args, command: fn(&Args) -> i32) -> i32 {
 
 /// Runs `command`, then, under `BURI_PROFILE`, says how much of the build
 /// graph it walked ([`crate::build::workspace::graph_work`]), how many
-/// modules it loaded ([`crate::compiler::modules::modules_loaded`]), and what
+/// modules it loaded ([`crate::compiler::modules::modules_loaded`]), how many
+/// times it drew the graph styles flow through
+/// ([`crate::compiler::semantics::styles::graphs_drawn`]), and what
 /// its build did ([`crate::build::counted`]): counts that, unlike
 /// instructions, no load can move.
 #[expect(
@@ -569,6 +571,10 @@ fn counted(args: &Args, command: fn(&Args) -> i32) -> i32 {
         eprintln!(
             "modules loaded {}",
             crate::compiler::modules::modules_loaded()
+        );
+        eprintln!(
+            "style graphs drawn {}",
+            crate::compiler::semantics::styles::graphs_drawn()
         );
         eprint!("{}", crate::build::counted::lines());
     }
