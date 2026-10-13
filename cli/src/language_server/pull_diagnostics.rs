@@ -112,9 +112,9 @@ fn retract(state: &mut State, asked: &str, related: &mut Published) {
         .cloned()
         .unwrap_or_default()
     {
-        if uri != asked {
-            related.entry(uri).or_default();
-        }
+        // Never the asked-about document itself: its own findings were taken
+        // out of `related` before it was remembered below.
+        related.entry(uri).or_default();
     }
     // Only the ones with findings are worth remembering: an empty entry has
     // just been sent, and sending it forever would be reporting on files this

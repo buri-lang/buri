@@ -63,5 +63,11 @@
 !move lib/shop/money.buri lib/shop/coins.buri
 {"jsonrpc": "2.0", "method": "workspace/didRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/money.buri", "newUri": "file://<scratch>/lib/shop/coins.buri"}]}}
 {"jsonrpc": "2.0", "id": 16, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/coins.buri"}}}
-{"jsonrpc": "2.0", "id": 17, "method": "shutdown"}
+# A source renamed *to* a build file is no module move either: the package
+# that file would start is a decision, so the server writes nothing for it.
+{"jsonrpc": "2.0", "id": 17, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/cart.buri", "newUri": "file://<scratch>/lib/shop/BUILD.buri"}]}}
+# A file that is no Buri source, renamed within its package, was in no list
+# and joins none, so there is nothing to write.
+{"jsonrpc": "2.0", "id": 18, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/notes.md", "newUri": "file://<scratch>/lib/shop/todo.md"}]}}
+{"jsonrpc": "2.0", "id": 19, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

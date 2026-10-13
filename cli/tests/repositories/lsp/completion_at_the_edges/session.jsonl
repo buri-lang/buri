@@ -32,5 +32,10 @@
 # an effect is performed by handing it to a function, not by calling it.
 {"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/test/shape.buri", "languageId": "buri", "version": 1, "text": "from \"core/testing/assert\" import * as assert;\nfrom \"platform/effect/testing\" import { clock };\n\ntest \"a clock can be moved on\" {\n    let ticking = clock();\n    ticking.\n    assert.equal(1, 1);\n}\n"}}}
 {"jsonrpc": "2.0", "id": 9, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/test/shape.buri"}, "position": {"line": 5, "character": 12}}}
-{"jsonrpc": "2.0", "id": 10, "method": "shutdown"}
+# A `.` after a digit is a decimal point, not a member access: what is offered
+# is the names in scope, the same as after any other character a word can start
+# at, and not the methods of the number before it.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/draw.buri", "version": 7}, "contentChanges": [{"text": "from \"//shape.buri\" import { area, Shape };\n\n/// A shape, and what it is called.\nexport fn describe(name: Str, shape: Shape): I64 {\n    area(shape)\n}\n\nfn half(): I64 {\n    let n = 4.\n    n\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/draw.buri"}, "position": {"line": 8, "character": 14}}}
+{"jsonrpc": "2.0", "id": 11, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

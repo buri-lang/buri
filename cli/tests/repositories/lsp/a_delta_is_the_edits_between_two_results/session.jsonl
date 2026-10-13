@@ -28,5 +28,12 @@
 # is full of the file on *disk*, where `250` was never edited.
 {"jsonrpc": "2.0", "method": "textDocument/didClose", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
 {"jsonrpc": "2.0", "id": 6, "method": "textDocument/semanticTokens/full/delta", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "previousResultId": "4"}}
-{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+# Reopened, coloured afresh, and a function added at the end: every token the
+# base had is still there, so the delta deletes nothing and only inserts the new
+# function's tokens.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "languageId": "buri", "version": 1, "text": "/// What a basket of one thing costs.\nexport fn total(count: I64): I64 {\n    let each = 250;\n    count * each\n}\n"}}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 2}, "contentChanges": [{"text": "/// What a basket of one thing costs.\nexport fn total(count: I64): I64 {\n    let each = 250;\n    count * each\n}\n\n/// Two baskets.\nexport fn pair(): I64 {\n    total(2)\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/semanticTokens/full/delta", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "previousResultId": "6"}}
+{"jsonrpc": "2.0", "id": 9, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

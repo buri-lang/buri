@@ -139,25 +139,20 @@ impl<'t> Lines<'t> {
 /// at or before it rather than by rewinding, because every caller sorts.
 pub fn positions_of(text: &str, offsets: &[u32]) -> Vec<Position> {
     let mut out = Vec::with_capacity(offsets.len());
-    let mut characters = text.char_indices();
-    let mut pending = characters.next();
+    let mut characters = text.char_indices().peekable();
     let mut at = Position {
         line: 0,
         character: 0,
     };
     for offset in offsets {
-        let offset = (*offset as usize).min(text.len());
-        while let Some((i, c)) = pending {
-            if i >= offset {
-                break;
-            }
+        let offset = *offset as usize;
+        while let Some((_, c)) = characters.next_if(|(i, _)| *i < offset) {
             if c == '\n' {
                 at.line = at.line.saturating_add(1);
                 at.character = 0;
             } else {
                 at.character = at.character.saturating_add(c.len_utf16() as u32);
             }
-            pending = characters.next();
         }
         out.push(at);
     }

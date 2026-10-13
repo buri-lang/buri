@@ -9,5 +9,10 @@
 {"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/colors/colors.lines", "version": 3}, "contentChanges": [{"text": "  red\n\ngreen\nblue\n"}]}}
 # Formatting answers with what the tool's `format` lays out.
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/colors/colors.lines"}, "options": {"tabSize": 4, "insertSpaces": true}}}
+# A file in the language that no rule reads is checked by nothing: on open and
+# as it is typed, a word the dictionary does not have gets no finding, because
+# no target would fail on it.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/colors/spare.lines", "languageId": "plaintext", "version": 1, "text": "purple\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/colors/spare.lines", "version": 2}, "contentChanges": [{"text": "purple\nmauve\n"}]}}
 {"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

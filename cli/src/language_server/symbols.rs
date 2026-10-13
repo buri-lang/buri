@@ -1759,14 +1759,13 @@ fn is_record(tables: &Tables, con: TyConId, variant: Option<usize>) -> bool {
 fn identifier_at(text: &str, offset: u32) -> Option<(String, (u32, u32))> {
     let bytes = text.as_bytes();
     let word = |b: &u8| b.is_ascii_alphanumeric() || *b == b'_';
-    let mut start = offset as usize;
+    // Back to just past the last byte that is no part of a word.
+    let start = bytes
+        .get(..offset as usize)?
+        .iter()
+        .rposition(|b| !word(b))
+        .map_or(0, |i| i.saturating_add(1));
     let mut end = offset as usize;
-    while let Some(previous) = start.checked_sub(1) {
-        if !bytes.get(previous).is_some_and(word) {
-            break;
-        }
-        start = previous;
-    }
     while bytes.get(end).is_some_and(word) {
         end = end.saturating_add(1);
     }

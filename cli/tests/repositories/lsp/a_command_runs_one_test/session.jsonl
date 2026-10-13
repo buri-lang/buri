@@ -26,5 +26,11 @@
 {"jsonrpc": "2.0", "id": 5, "method": "workspace/executeCommand", "params": {"command": "buri.reformatTheUniverse", "arguments": []}}
 # A file in no repository this client has open. There is no target to run.
 {"jsonrpc": "2.0", "id": 6, "method": "workspace/executeCommand", "params": {"command": "buri.runTest", "arguments": ["file:///elsewhere/counter.buri", "counter reads the total"]}}
-{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+# A file in the repository that no target lists has no package to run a test
+# in, and says so.
+{"jsonrpc": "2.0", "id": 7, "method": "workspace/executeCommand", "params": {"command": "buri.runTest", "arguments": ["file://<scratch>/notes.buri", "counter reads the total"]}}
+# A test the run does not pass is shown as an error, not as information, with
+# the run's last line as the verdict.
+{"jsonrpc": "2.0", "id": 8, "method": "workspace/executeCommand", "params": {"command": "buri.runTest", "arguments": ["file://<scratch>/lib/counter/test/counter.buri", "counter is off by one"]}}
+{"jsonrpc": "2.0", "id": 9, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

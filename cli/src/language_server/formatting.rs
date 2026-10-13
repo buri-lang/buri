@@ -13,7 +13,11 @@
 //! so a finer diff would spend more and land in the same places.
 
 use super::convert::{self, Position};
+use crate::diagnostics::Invariant;
 use crate::json::Value;
+
+/// Why the lines between the matching top and bottom are always there.
+const MIDDLE: &str = "the lines in common at either end are no more than either side has";
 
 /// The whole file as one edit, or an empty array when there is nothing to do.
 ///
@@ -137,24 +141,12 @@ fn hunks(text: &str, formatted: &str) -> Vec<Hunk> {
     let starts = line_starts(text, &before);
 
     // The matching top and bottom are not differences and are not searched.
-    let mut head = 0usize;
-    while before.get(head).is_some() && before.get(head) == after.get(head) {
-        head = head.saturating_add(1);
-    }
-    let mut tail = 0usize;
-    while before.len().saturating_sub(head) > tail
-        && after.len().saturating_sub(head) > tail
-        && before.get(before.len().saturating_sub(tail).saturating_sub(1))
-            == after.get(after.len().saturating_sub(tail).saturating_sub(1))
-    {
-        tail = tail.saturating_add(1);
-    }
-    let (Some(a), Some(b)) = (
-        before.get(head..before.len().saturating_sub(tail)),
-        after.get(head..after.len().saturating_sub(tail)),
-    ) else {
-        return Vec::new();
-    };
+    let head = same_run(before.iter(), after.iter());
+    let a = before.get(head..).or_ice(MIDDLE);
+    let b = after.get(head..).or_ice(MIDDLE);
+    let tail = same_run(a.iter().rev(), b.iter().rev());
+    let a = a.get(..a.len().saturating_sub(tail)).or_ice(MIDDLE);
+    let b = b.get(..b.len().saturating_sub(tail)).or_ice(MIDDLE);
 
     let mut out = Vec::new();
     let (mut i, mut j) = (0usize, 0usize);
@@ -165,6 +157,14 @@ fn hunks(text: &str, formatted: &str) -> Vec<Hunk> {
     }
     cut(&mut out, &starts, head, b, (i, a.len()), (j, b.len()));
     out
+}
+
+/// How many lines the two sides start with in common.
+fn same_run<'a>(
+    a: impl Iterator<Item = &'a &'a str>,
+    b: impl Iterator<Item = &'a &'a str>,
+) -> usize {
+    a.zip(b).take_while(|(x, y)| x == y).count()
 }
 
 /// One run of removed lines replaced by one run of added lines. An empty run on

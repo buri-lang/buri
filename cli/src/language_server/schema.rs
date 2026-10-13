@@ -16,8 +16,12 @@
 //! the comment above a declaration, the declaration's own line, and the nesting
 //! it is in, and it recognizes exactly the constructs those two files use.
 
+use crate::diagnostics::Invariant;
 use crate::documentation::topics::{BUILD_PROTO, REPO_PROTO};
 use std::collections::HashMap;
+
+/// Why an index into the blocks names one.
+const INDEXED: &str = "every index is one `read` took from the blocks it pushed";
 
 /// One field of one message.
 pub struct Field {
@@ -127,9 +131,11 @@ fn message_blocks(blocks: &[Block]) -> HashMap<String, Vec<usize>> {
     let mut out: HashMap<String, Vec<usize>> = HashMap::new();
     let mut queue: Vec<(String, usize)> = Vec::new();
     for root in ["BuildFile", "RepoConfig"] {
-        if let Some(i) = blocks.iter().position(|b| b.name == root) {
-            queue.push((String::new(), i));
-        }
+        let i = blocks
+            .iter()
+            .position(|b| b.name == root)
+            .or_ice("the schemas declare both root messages");
+        queue.push((String::new(), i));
     }
     while let Some((name, index)) = queue.pop() {
         let found = out.entry(name).or_default();
@@ -137,9 +143,7 @@ fn message_blocks(blocks: &[Block]) -> HashMap<String, Vec<usize>> {
             continue;
         }
         found.push(index);
-        let Some(block) = blocks.get(index) else {
-            continue;
-        };
+        let block = blocks.get(index).or_ice(INDEXED);
         for field in &block.fields {
             // A type nested in this message first, as protobuf scopes it:
             // `Output.Entry` and `Platform.Entry` are both written `Entry`.
@@ -220,9 +224,7 @@ fn read(text: &str, out: &mut Vec<Block>) {
         };
         let declaration = line.split(';').next().unwrap_or(line).trim().to_string();
         let taken = std::mem::take(&mut docs);
-        let Some(block) = out.get_mut(index) else {
-            continue;
-        };
+        let block = out.get_mut(index).or_ice(INDEXED);
         // A constant when the block is an enum, a field when it is a message.
         // The two are told apart by the declaration itself: `NAME = 1` has no
         // type in front of the name.
@@ -283,15 +285,11 @@ fn constant_of(declaration: &str, owner: &str, mut docs: Vec<String>) -> Option<
         None => declaration,
     };
     let words: Vec<&str> = declaration.split_whitespace().collect();
+    // Only a constant is three words with `=` in the middle: a field writes
+    // its type in front of its name.
     let [name, "=", _number] = words[..] else {
         return None;
     };
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
-    {
-        return None;
-    }
     Some(Constant {
         name: name.to_string(),
         signature: format!("{owner}.{declaration}"),

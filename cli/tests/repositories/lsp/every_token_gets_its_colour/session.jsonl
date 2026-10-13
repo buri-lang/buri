@@ -50,5 +50,9 @@
 # A `BUILD.buri` is textproto, and the kinds this colours by are the Buri
 # lexer's. Nothing rather than a wrong reading of another language.
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/BUILD.buri"}}}
-{"jsonrpc": "2.0", "id": 6, "method": "shutdown"}
+# A block comment over an empty line: each line it covers is its own token,
+# since a token cannot span lines, and the empty one gets none.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/notes.buri", "languageId": "buri", "version": 1, "text": "/* A comment over\n\nthree lines, one of them empty. */\nexport fn one(): I64 {\n    1\n}\n"}}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/notes.buri"}}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

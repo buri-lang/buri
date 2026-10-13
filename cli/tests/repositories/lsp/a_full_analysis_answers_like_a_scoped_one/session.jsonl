@@ -1,0 +1,28 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Each question first asked of a scoped analysis — the one a request about a
+# single file builds, holding only that file's bodies.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/documentColor", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/palette.buri"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/mood.buri"}, "position": {"line": 23, "character": 10}}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/mood.buri"}, "position": {"line": 16, "character": 17}}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/mood.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 25, "character": 0}}}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/documentHighlight", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/mood.buri"}, "position": {"line": 15, "character": 11}}}
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/mood.buri"}, "position": {"line": 23, "character": 10}}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/mood.buri"}}}
+# A diagnostics pull analyses the file's whole target, and the server keeps
+# that analysis: it holds every file's bodies, and later questions about any file
+# of the target are answered from it.
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/palette.buri"}}}
+# The same questions again, now answered from the full analysis. Every answer
+# is the one the scoped analysis gave: the bodies of the other files it holds
+# add nothing to a question about this one.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/documentColor", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/palette.buri"}}}
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/completion", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/mood.buri"}, "position": {"line": 23, "character": 10}}}
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/mood.buri"}, "position": {"line": 16, "character": 17}}}
+{"jsonrpc": "2.0", "id": 13, "method": "textDocument/inlayHint", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/mood.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 25, "character": 0}}}}
+{"jsonrpc": "2.0", "id": 14, "method": "textDocument/documentHighlight", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/mood.buri"}, "position": {"line": 15, "character": 11}}}
+{"jsonrpc": "2.0", "id": 15, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/mood.buri"}, "position": {"line": 23, "character": 10}}}
+{"jsonrpc": "2.0", "id": 16, "method": "textDocument/semanticTokens/full", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/mood.buri"}}}
+{"jsonrpc": "2.0", "id": 17, "method": "shutdown", "params": null}
+{"jsonrpc": "2.0", "method": "exit", "params": null}

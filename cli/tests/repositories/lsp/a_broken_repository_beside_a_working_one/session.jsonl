@@ -1,0 +1,19 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository,
+# whose `REPO.buri` does not load, and `<scratch2>` the second one.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "workspaceFolders": [{"uri": "file://<scratch>", "name": "broken"}, {"uri": "file://<scratch2>", "name": "money"}]}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# The broken repository has no symbols to offer and costs the working one
+# none of its own: the search lists the working repository's declarations.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/symbol", "params": {"query": "Cents"}}
+# A module renamed in the working repository: its list entry and the
+# re-export that names it follow it, and the repository that will not load,
+# which no import can reach the module from anyway, adds nothing.
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch2>/lib/money/cents.buri", "newUri": "file://<scratch2>/lib/money/coins.buri"}]}}
+# A workspace pull reports every file of the working repository; the broken
+# one has no targets to analyse, and no file it can say anything about.
+{"jsonrpc": "2.0", "id": 4, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# A build file cannot be regenerated in a repository that will not open, and
+# the command says so rather than writing a guess.
+{"jsonrpc": "2.0", "id": 5, "method": "workspace/executeCommand", "params": {"command": "buri.regenerateBuildFile", "arguments": ["file://<scratch>/lib/shop/catalog.buri", "//lib/shop"]}}
+{"jsonrpc": "2.0", "id": 6, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

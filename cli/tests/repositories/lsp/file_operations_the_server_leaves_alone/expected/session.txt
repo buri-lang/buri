@@ -26,3 +26,5 @@
 {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file://<scratch>/lib/shop/coins.buri"}}
 {"id":16,"jsonrpc":"2.0","result":[{"kind":12,"location":{"range":{"end":{"character":1,"line":3},"start":{"character":0,"line":1}},"uri":"file://<scratch>/lib/shop/coins.buri"},"name":"unsaved"}]}
 {"id":17,"jsonrpc":"2.0","result":null}
+{"id":18,"jsonrpc":"2.0","result":null}
+{"id":19,"jsonrpc":"2.0","result":null}

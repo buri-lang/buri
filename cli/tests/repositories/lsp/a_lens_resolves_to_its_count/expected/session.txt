@@ -6,4 +6,6 @@
 {"id":6,"jsonrpc":"2.0","result":{"command":{"arguments":["file://<scratch>/lib/counter/counter.buri",{"character":10,"line":21},[{"range":{"end":{"character":64,"line":0},"start":{"character":59,"line":0}},"uri":"file://<scratch>/lib/counter/lib.buri"}]],"command":"buri.showReferences","title":"1 reference"},"data":{"position":{"character":10,"line":21},"uri":"file://<scratch>/lib/counter/counter.buri"},"range":{"end":{"character":15,"line":21},"start":{"character":10,"line":21}}}}
 {"id":7,"jsonrpc":"2.0","result":{"command":{"arguments":["file://<scratch>/lib/counter/test/counter.buri","counter reads the total"],"command":"buri.runTest","title":"Run \"counter reads the total\""},"range":{"end":{"character":30,"line":3},"start":{"character":5,"line":3}}}}
 {"id":8,"jsonrpc":"2.0","result":{"data":{"position":{"character":14,"line":1},"uri":"file:///elsewhere/counter.buri"},"range":{"end":{"character":19,"line":1},"start":{"character":14,"line":1}}}}
-{"id":9,"jsonrpc":"2.0","result":null}
+{"id":9,"jsonrpc":"2.0","result":{"data":{"uri":"file://<scratch>/lib/counter/counter.buri"},"range":{"end":{"character":19,"line":1},"start":{"character":14,"line":1}}}}
+{"id":10,"jsonrpc":"2.0","result":{"data":{"position":{"character":0,"line":5},"uri":"file://<scratch>/lib/counter/counter.buri"},"range":{"end":{"character":0,"line":5},"start":{"character":0,"line":5}}}}
+{"id":11,"jsonrpc":"2.0","result":null}

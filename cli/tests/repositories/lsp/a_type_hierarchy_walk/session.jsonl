@@ -28,5 +28,7 @@
 {"jsonrpc": "2.0", "id": 9, "method": "typeHierarchy/supertypes", "params": {"item": {"name": "Coupon", "kind": 23, "uri": "file://<scratch>/lib/promo/coupon.buri", "range": {"start": {"line": 4, "character": 0}, "end": {"line": 6, "character": 1}}, "selectionRange": {"start": {"line": 4, "character": 14}, "end": {"line": 4, "character": 20}}, "data": {"uri": "file://<scratch>/lib/promo/coupon.buri", "position": {"line": 4, "character": 14}}}}}
 # A function is not a node in a hierarchy of types, so there is none to prepare.
 {"jsonrpc": "2.0", "id": 10, "method": "textDocument/prepareTypeHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 44, "character": 12}}}
-{"jsonrpc": "2.0", "id": 11, "method": "shutdown"}
+# A built-in type has no declaration for an item to point at.
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/prepareTypeHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 7, "character": 20}}}
+{"jsonrpc": "2.0", "id": 12, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

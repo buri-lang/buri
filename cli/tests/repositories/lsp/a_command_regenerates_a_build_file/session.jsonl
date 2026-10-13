@@ -40,5 +40,7 @@
 # message with an id and no method is an answer, and answering an answer is how
 # a server and a client talk past each other forever.
 {"jsonrpc": "2.0", "id": "buri/applyEdit/1", "result": {"applied": true}}
-{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+# A file in no open repository has no build file to regenerate.
+{"jsonrpc": "2.0", "id": 7, "method": "workspace/executeCommand", "params": {"command": "buri.regenerateBuildFile", "arguments": ["file:///elsewhere/main.buri", "//cmd/app"]}}
+{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

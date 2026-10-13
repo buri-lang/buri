@@ -4,4 +4,5 @@
 {"id":4,"jsonrpc":"2.0","result":[{"kind":1,"range":{"end":{"character":67,"line":0},"start":{"character":60,"line":0}}},{"kind":1,"range":{"end":{"character":29,"line":22},"start":{"character":22,"line":22}}}]}
 {"id":5,"jsonrpc":"2.0","result":[{"kind":1,"range":{"end":{"character":17,"line":35},"start":{"character":10,"line":35}}}]}
 {"id":6,"jsonrpc":"2.0","result":[]}
-{"id":7,"jsonrpc":"2.0","result":null}
+{"id":7,"jsonrpc":"2.0","result":[{"kind":1,"range":{"end":{"character":38,"line":3},"start":{"character":35,"line":3}}},{"kind":1,"range":{"end":{"character":26,"line":8},"start":{"character":23,"line":8}}},{"kind":1,"range":{"end":{"character":42,"line":16},"start":{"character":39,"line":16}}}]}
+{"id":8,"jsonrpc":"2.0","result":null}

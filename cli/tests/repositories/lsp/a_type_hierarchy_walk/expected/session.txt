@@ -9,3 +9,4 @@
 {"id":9,"jsonrpc":"2.0","result":[{"data":{"position":{"character":13,"line":20},"uri":"file://<scratch>/lib/shop/catalog.buri"},"kind":5,"name":"Priced","range":{"end":{"character":1,"line":23},"start":{"character":0,"line":20}},"selectionRange":{"end":{"character":19,"line":20},"start":{"character":13,"line":20}},"uri":"file://<scratch>/lib/shop/catalog.buri"}]}
 {"id":10,"jsonrpc":"2.0","result":null}
 {"id":11,"jsonrpc":"2.0","result":null}
+{"id":12,"jsonrpc":"2.0","result":null}

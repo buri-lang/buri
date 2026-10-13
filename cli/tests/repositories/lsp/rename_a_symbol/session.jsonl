@@ -32,5 +32,11 @@
 # And the same position asked the other way: nothing to offer, so nothing is
 # offered.
 {"jsonrpc": "2.0", "id": 13, "method": "textDocument/prepareRename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "position": {"line": 44, "character": 4}}}
-{"jsonrpc": "2.0", "id": 14, "method": "shutdown"}
+# A replacement the lexer cannot read at all is refused like a keyword is.
+{"jsonrpc": "2.0", "id": 14, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 8, "character": 3}, "newName": "a$b"}}
+# A built-in type is the standard library's, with no file to edit: the check
+# finds nothing to rename, and the rename itself says why.
+{"jsonrpc": "2.0", "id": 15, "method": "textDocument/prepareRename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 3, "character": 35}}}
+{"jsonrpc": "2.0", "id": 16, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "position": {"line": 3, "character": 35}, "newName": "Int"}}
+{"jsonrpc": "2.0", "id": 17, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

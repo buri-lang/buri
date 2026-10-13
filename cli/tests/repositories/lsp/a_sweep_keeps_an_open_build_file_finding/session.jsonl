@@ -1,0 +1,24 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "initializationOptions": {"analysis": "deferred"}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A build file open with a field no rule has: an error in the build file itself,
+# which the server finds by reading the buffer and no analysis reports.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/BUILD.buri", "languageId": "buri", "version": 1, "text": "library {\n    sources: [\"rate.buri\"]\n    visibility: [\"//visibility:public\"]\n    colour: \"red\"\n}\n"}}}
+# A source of the same package, open, and the first workspace report, which
+# waits for the first sweep.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "languageId": "buri", "version": 1, "text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 {\n    cents + 5\n}\n"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# A keystroke that adds a Bool to the cents, and the report the client asks for
+# next: it quotes the last sweep and sends the worker a new one.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "version": 2}, "contentChanges": [{"text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 {\n    cents + true\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# Let the sweep land. It publishes the type error in rate.buri. The build file
+# is not cleared by it: its error is the buffer's, which no analysis reports, so
+# the sweep reads it again and it stays on screen. With nothing moved there,
+# nothing is published about it.
+{"jsonrpc": "2.0", "id": 4, "method": "buri/awaitAnalysis", "params": {}}
+# Asked again with no sweep in flight: nothing has landed, so nothing is
+# published, and the counts are the ones above.
+{"jsonrpc": "2.0", "id": 5, "method": "buri/awaitAnalysis", "params": {}}
+{"jsonrpc": "2.0", "id": 6, "method": "shutdown", "params": null}
+{"jsonrpc": "2.0", "method": "exit", "params": null}

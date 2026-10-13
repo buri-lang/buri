@@ -43,5 +43,10 @@
 {"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 13}, "contentChanges": [{"text": "fn bare(a: I64, b: I64): I64 {\n    a + b\n}\n\nexport fn go(): I64 {\n    bare(1, bare()\n}\n"}]}}
 # The innermost call is the one shown: `bare` inside `bare`'s second argument.
 {"jsonrpc": "2.0", "id": 14, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 5, "character": 17}}}
-{"jsonrpc": "2.0", "id": 15, "method": "shutdown"}
+# A slash that starts no comment — inside a block comment, and a division
+# between arguments — and a star that ends none: the comma the cursor is past is
+# still the only one, so the price is the parameter.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "version": 14}, "contentChanges": [{"text": "from \"//lib/shop\" import { defaultPrice, Item, listing, subtotal };\n\nexport fn go(): Item {\n    listing(\"a\" /* x / y * z */, 3 / 1\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 15, "method": "textDocument/signatureHelp", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 3, "character": 38}}}
+{"jsonrpc": "2.0", "id": 16, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

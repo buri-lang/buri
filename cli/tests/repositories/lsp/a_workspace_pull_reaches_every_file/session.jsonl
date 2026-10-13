@@ -28,5 +28,8 @@
 # one root and the buffers inside it. `REPO.buri` keeps its id too: the build
 # graph did not move.
 {"jsonrpc": "2.0", "id": 4, "method": "workspace/diagnostic", "params": {"previousResultIds": [{"uri": "file://<scratch>/REPO.buri", "value": "1"}, {"uri": "file://<scratch>/cmd/app/BUILD.buri", "value": "2"}, {"uri": "file://<scratch>/cmd/app/main.buri", "value": "2"}, {"uri": "file://<scratch>/lib/money/BUILD.buri", "value": "3"}, {"uri": "file://<scratch>/lib/money/cents.buri", "value": "3"}, {"uri": "file://<scratch>/lib/money/lib.buri", "value": "3"}, {"uri": "file://<scratch2>/REPO.buri", "value": "4"}, {"uri": "file://<scratch2>/lib/weather/BUILD.buri", "value": "5"}, {"uri": "file://<scratch2>/lib/weather/celsius.buri", "value": "5"}, {"uri": "file://<scratch2>/lib/weather/lib.buri", "value": "5"}]}}
-{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+# A pull that names no previous results at all — the field is optional — is a
+# full report of every file, with nothing to compare against.
+{"jsonrpc": "2.0", "id": 5, "method": "workspace/diagnostic", "params": {}}
+{"jsonrpc": "2.0", "id": 6, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

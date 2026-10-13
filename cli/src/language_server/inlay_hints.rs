@@ -99,7 +99,7 @@ pub fn hints(analyzed: &Analyzed, path: &Path, text: &str, from: u32, to: u32) -
 
     found.retain(|h| from <= h.at && h.at <= to);
     found.sort_by(|a, b| a.at.cmp(&b.at).then(a.kind.cmp(&b.kind)));
-    found.dedup_by(|a, b| a.at == b.at && a.kind == b.kind && a.parts == b.parts);
+    found.dedup_by(|a, b| (a.at, a.kind, &a.parts) == (b.at, b.kind, &b.parts));
     Some(render(analyzed, text, &found))
 }
 
@@ -385,11 +385,10 @@ fn worth_naming(text: &str, param: &ParamInfo, arg: &typed::Expr) -> bool {
     ) {
         return true;
     }
-    let Some(written) = text.get(arg.span.start as usize..arg.span.end as usize) else {
-        return false;
-    };
-    let bare = !written.is_empty()
-        && written.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+    let written = text
+        .get(arg.span.start as usize..arg.span.end as usize)
+        .unwrap_or("");
+    let bare = written.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
         && written
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.');

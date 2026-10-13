@@ -15,5 +15,11 @@
 {"jsonrpc": "2.0", "id": 6, "method": "textDocument/selectionRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "positions": [{"line": 36, "character": 12}]}}
 # Two positions in one request, answered in the order they were asked.
 {"jsonrpc": "2.0", "id": 7, "method": "textDocument/selectionRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "positions": [{"line": 11, "character": 12}, {"line": 22, "character": 10}]}}
-{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+# A blank line between declarations is in no word and no expression: the
+# selection grows straight to the whole file.
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/selectionRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "positions": [{"line": 1, "character": 0}]}}
+# On the first word of the file: the word, then the import it begins, then the
+# file.
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/selectionRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}, "positions": [{"line": 0, "character": 2}]}}
+{"jsonrpc": "2.0", "id": 10, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

@@ -202,7 +202,8 @@ fn import_path_at(analyzed: &Analyzed, path: &Path, offset: u32) -> Option<Strin
             Item::ReExport(r) => (&r.path, r.path_span),
             _ => return None,
         };
-        let covered = span.file == file && span.start <= offset && offset <= span.end;
+        // The module is the file's own, so every span in its items is in it.
+        let covered = span.start <= offset && offset <= span.end;
         covered.then(|| written.clone())
     })
 }
@@ -280,7 +281,7 @@ pub(super) fn locations(analyzed: &Analyzed, spans: Vec<crate::diagnostics::Span
             .then(a.1.start.cmp(&b.1.start))
             .then(a.1.end.cmp(&b.1.end))
     });
-    out.dedup_by(|a, b| a.0 == b.0 && a.1.start == b.1.start && a.1.end == b.1.end);
+    out.dedup_by(|a, b| (&a.0, a.1.start, a.1.end) == (&b.0, b.1.start, b.1.end));
     Value::Array(
         out.iter()
             .map(|(uri, span)| {
@@ -364,7 +365,7 @@ pub fn document_highlight(
     spans.push(symbols::declaration_name(analyzed, &found.symbol));
     spans.retain(|span| !span.is_none() && span.file == file);
     spans.sort_by(|a, b| a.start.cmp(&b.start).then(a.end.cmp(&b.end)));
-    spans.dedup_by(|a, b| a.start == b.start && a.end == b.end);
+    spans.dedup_by_key(|span| (span.start, span.end));
     Some(Value::Array(
         spans
             .iter()
@@ -558,7 +559,7 @@ fn reached_by(
 /// outline is: a query answered from the tables would drop a `test`, and a
 /// module that failed to check would vanish from a search that is most useful
 /// when something is broken.
-pub fn workspace_symbols(analyzed: &Analyzed, query: &str) -> Value {
+pub fn workspace_symbols(analyzed: &Analyzed, query: &str) -> Vec<Value> {
     let wanted = query.to_lowercase();
     let mut out = Vec::new();
     for module in &analyzed.analysis.loaded.modules {
@@ -612,7 +613,7 @@ pub fn workspace_symbols(analyzed: &Analyzed, query: &str) -> Value {
             }
         }
     }
-    Value::Array(out)
+    out
 }
 
 fn matches(name: &str, wanted: &str) -> bool {

@@ -1,0 +1,18 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+# A `!` line is the harness acting as the editor would; see harness/case.rs.
+#
+# The same start as a_watched_build_file_clears_the_finding: an import of a
+# package the build file does not list, and the fix for it written to disk.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"workspace": {"didChangeWatchedFiles": {"dynamicRegistration": true}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "id": "buri/watchers", "result": null}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "// Imports //lib/money, which `cmd/app/BUILD.buri` does not name in\n// `dependencies`. The module resolves — the loader searches the workspace —\n// so this builds, and the graph is a description of something other than the\n// code until `buri lint` says so.\n\nfrom \"platform/effect\" import { Allocator, Stdout };\nfrom \"node\" import { NodeHost };\nfrom \"core/io\" import * as io;\n\nfrom \"//lib/money\" import { fromCents };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };\n  let _ = io.println(ctx, \"cents: ${fromCents(450).show(ctx)}\").ignore();\n  .Ok(())\n}\n"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}, "context": {"diagnostics": [{"code": "missing-dependency", "message": "imports //lib/money, which is not in dependencies", "range": {"start": {"line": 8, "character": 5}, "end": {"line": 8, "character": 18}}}]}}}
+!apply 2
+# The client reports the change with a uri that names no file. The server
+# cannot tell which file moved, so it treats the change as one an analysis
+# read: the open buffer is published again, and the finding the fix cleared
+# is gone from it.
+{"jsonrpc": "2.0", "method": "workspace/didChangeWatchedFiles", "params": {"changes": [{"uri": "untitled:Untitled-1", "type": 2}]}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

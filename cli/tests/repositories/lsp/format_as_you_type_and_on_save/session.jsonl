@@ -25,5 +25,9 @@
 # A second save has nothing to write: the formatter is idempotent, so
 # format-on-save settles rather than oscillating.
 {"jsonrpc": "2.0", "id": 7, "method": "textDocument/willSaveWaitUntil", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "reason": 1}}
-{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+# A Buri file in no open repository is still formatted, by the same printer
+# `buri format` would pick for its name.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file:///elsewhere/notes.buri", "languageId": "buri", "version": 1, "text": "fn one(): I64 {\n  1\n}\n"}}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/formatting", "params": {"textDocument": {"uri": "file:///elsewhere/notes.buri"}, "options": {"tabSize": 4, "insertSpaces": true}}}
+{"jsonrpc": "2.0", "id": 9, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

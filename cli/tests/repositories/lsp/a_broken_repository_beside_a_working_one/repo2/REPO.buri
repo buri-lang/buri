@@ -1,0 +1,2 @@
+# The repository the editor has a buffer in. Its other package is the point:
+# nothing opened reaches it, so a push has no message to carry its findings on.
