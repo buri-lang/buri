@@ -136,6 +136,13 @@
 #[path = "../harness/sweep.rs"]
 mod sweep;
 
+// A suite started from a background job has `SIGINT` ignored, and every program
+// this domain runs would inherit that. `signals.rs` says why that is the
+// harness's to undo.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[path = "../harness/signals.rs"]
+mod signals;
+
 // The other thing every suite in here wants, and for the same reason the sweep
 // is here: `ci::skipped` is what turns this domain's `if !supported()` guards
 // from "a quiet pass on a host without a backend" into "a red X on a runner
