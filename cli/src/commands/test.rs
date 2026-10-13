@@ -1948,7 +1948,7 @@ fn run_alone(
                 Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
                     .with_fix("the link produced it, so this is a toolchain bug"),
             );
-            return answer(Err(d), notes);
+            return answer(Err(d.at_run()), notes);
         }
     };
     let cases = recorded(shared, &spec.key, tests, blocks.iter(), spec.build);
@@ -2408,7 +2408,7 @@ fn write_bundle(bundle: &str, run: &JsRun, driver: &str) -> Result<(), Diagnosti
             )
             .with_fix("check the directory exists and is writable"),
         );
-        d
+        d.at_run()
     })
 }
 
@@ -2418,7 +2418,7 @@ fn cannot_run(why: &str) -> Diagnostics {
         Diagnostic::error(Span::NONE, format!("cannot run the test binary: {why}"))
             .with_fix("install bun, or point BURI_JS at a JavaScript runtime"),
     );
-    d
+    d.at_run()
 }
 
 fn did_not_run(stderr: &str) -> Diagnostics {

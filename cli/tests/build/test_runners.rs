@@ -262,7 +262,8 @@ fn a_test_runner_that_cannot_run_fails_each_suite() {
     under(&scratch, "/nonexistent/tool", |run, _| {
         run.exits(1)
             .says("cannot run the test binary: ")
-            .says("is not on PATH");
+            .says("is not on PATH")
+            .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
     });
     let plain = scratch
         .write("plain", "not a program\n")
@@ -271,7 +272,8 @@ fn a_test_runner_that_cannot_run_fails_each_suite() {
     under(&scratch, &plain, |run, _| {
         run.exits(1)
             .says("cannot run the test binary: ")
-            .says("Permission denied");
+            .says("Permission denied")
+            .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
     });
 }
 

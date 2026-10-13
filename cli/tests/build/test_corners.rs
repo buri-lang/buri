@@ -260,7 +260,7 @@ fn javascript_bundles_with_nowhere_to_go_fail_their_suites() {
         .says("error: cannot write ")
         .says("lib/short/test-library.mjs: ")
         .says("lib/long/test-library.mjs: ")
-        .says("0 passed, 0 failed, 0 skipped, 2 failed to compile");
+        .says("0 passed, 0 failed, 0 skipped, 2 failed to run");
 }
 
 /// A suite on both backends runs on each, with the lint checking during the
