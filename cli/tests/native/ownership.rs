@@ -378,6 +378,54 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 
+/// A match on one field of a struct parameter, with a guard that reads a heap
+/// field of the same struct and fails, falls through to the next arm
+/// (buri-lang/buri#304). Nothing is bound: the guard only reads the struct, so
+/// the struct is released once, however many times the match runs.
+#[test]
+fn a_guard_that_fails_on_a_field_of_the_scrutinees_struct_falls_through_cleanly() {
+    let source = r#"
+from "platform/effect" import { Allocator };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+enum Kind { A, B }
+
+struct Item { kind: Kind, name: Str }
+
+fn pick(item: Item): Int {
+  match (item.kind) {
+    .A => 1,
+    .B if item.name.length() > 99 => 2,
+    .B => 3,
+  }
+}
+
+fn flag(item: Item, on: Bool): Int {
+  match (on) {
+    true if item.name.length() > 99 => 2,
+    true => 3,
+    false => 1,
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = host.alloc;
+  let total = [1, 2, 3, 4, 5, 6, 7, 8].foldCtx(ctx, fn(c, sum, i) => sum + pick(Item { kind: .B, name: str.format(c, "n${i}") }), 0);
+  let flags = [1, 2, 3, 4, 5, 6, 7, 8].foldCtx(ctx, fn(c, sum, i) => sum + flag(Item { kind: .A, name: str.format(c, "f${i}") }, true), 0);
+  let _ = io.println(host.stdout, "total ${total} ${flags}").ignore();
+  .Ok(())
+}
+"#;
+    for (backend, r) in run_each("guard-reads-scrutinee-struct", source) {
+        assert_eq!(r.stdout, "total 24 24\n", "{backend}: {}", r.stderr);
+        assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
+        let (_, live) = probed(&r.stderr);
+        assert_eq!(live, 0, "{backend}: blocks still live at exit");
+    }
+}
+
 /// Two arms on one variant, each binding both of its `Int` payloads, the first
 /// guarded by comparing them (buri-lang/buri#239). The guard and the arm it
 /// falls through to must both read the second payload as it was built.

@@ -3621,7 +3621,7 @@ impl Scan<'_> {
             let bid = ids.get(i).or_ice("every arm has a body node");
             let gid = gids.get(i).copied().flatten();
             let edges_before = me.jumps.len();
-            me.arm(a, gid, *bid, live, mode, token, scrutinee);
+            me.arm(a, gid, *bid, live, mode, token);
             *arm_edges.get_mut(i).or_ice("`arm_edges` has a row per arm") =
                 me.jumps.get(edges_before..).unwrap_or_default().to_vec();
         });
@@ -3735,10 +3735,6 @@ impl Scan<'_> {
 
     /// One arm of [`Scan::match_`], scanned from what is live after the match:
     /// what its pattern binds, its body, then its guard.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "the match's own answers an arm reads"
-    )]
     fn arm(
         &mut self,
         a: &typed::Arm,
@@ -3747,7 +3743,6 @@ impl Scan<'_> {
         live: &mut Live,
         mode: Mode,
         token: Option<LocalId>,
-        scrutinee: &Expr,
     ) {
         let owns = token.is_some();
         let mut bound: Vec<LocalId> = Vec::new();
@@ -3811,15 +3806,23 @@ impl Scan<'_> {
             // takes a retain, and the guard nets to zero on ownership. What
             // the arm body does not go on to use is released at its entry,
             // which the fall-through never reaches — the arm it lands on
-            // releases its own copy there instead. The scrutinee is left to
-            // the match's own disposal, and a pattern binding to the arm's.
+            // releases its own copy there instead. A consumed scrutinee is
+            // left to the match's own disposal, and a pattern binding to the
+            // arm's.
+            //
+            // The local a *projection* scrutinee is read out of is held like
+            // any other. `match (item.kind) { .B if item.name.length() > 99
+            // => 2, .B => 3 }` reads an uncounted field, so the match keeps
+            // nothing open for it, and the guard was `item`'s last use: it
+            // released `item` on the false path too, and the arm it fell to
+            // released it again (issue #304).
             let mut held: Vec<LocalId> = Vec::new();
             collect_locals(g, &mut held);
             held.retain(|l| {
                 self.is_counted(*l)
                     && self.owned.contains(l)
                     && !bound.contains(l)
-                    && borrowed_root(scrutinee) != Some(*l)
+                    && token != Some(*l)
             });
             held.sort_by_key(|l| l.0);
             held.dedup();
