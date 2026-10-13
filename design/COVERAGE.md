@@ -44,15 +44,26 @@ A call of a branching built-in is a decision too, with two branches:
 - an `Option` or `Result` helper that picks by variant (`withDefault`, `map`,
   `andThen`, `orElse`, `okOr`, `mapOr`, `filter`, `isSomeAnd`, `toOption`, ...):
   `Some` or `Ok`, then `None` or `Err`;
-- a collection built-in that calls a predicate (`filter`, `filterCtx`, `any`,
-  `all`, `find`, `findIndex`, `count`, `filterMap`, `filterIndexed`, ...,
+- a built-in whose last argument is a function answering `Bool` or `Option`
+  (list's `filter`, `any`, `find`, `filterMap`, `mapOption`, `chunkBy`,
+  `unfold`, ..., `Map`'s `filterMapValues` and `alter`, `Str`'s `indexWhere`,
   and `filter` on `Map`, `Set`, `OrderedMap` and `OrderedSet`): the predicate
   answered `true` (or `Some`) at least once, and `false` (or `None`).
 
 `middle::coverage::BUILTINS` lists them by module and name, and is the one
 place to add one. The predicate is always the last argument. `isSome`, `isOk`
 and friends aren't listed: the user branches on their answer, which already
-counts. Data-only built-ins (`trim`, `contains`, `sortBy`) add nothing.
+counts. Data-only built-ins (`trim`, `contains`, `sortBy`) add nothing, and
+nor do comparators, whose order isn't a `true` or `false` anyone tests.
+
+`cli/tests/language/coverage_builtins.rs` keeps the list honest. It reads the
+signatures of `core/*` and requires every exported function that takes an
+`Option` or `Result` as its receiver, or a last parameter that is a function
+answering `Bool` or `Option`, to be in `BUILTINS` or in the test's
+`DOES_NOT_BRANCH` with a reason: `isSome`-style tests (the user's `if` counts),
+`zip` and `flatten` (the outcome depends on two variants), assertions and
+properties (the other answer fails the test). It also fails on a `BUILTINS`
+name that is no longer such a function.
 
 `any`, `all` and `find` count the predicate's answers too, not "stopped early"
 against "ran to the end". The two pairs say the same thing, apart from an empty

@@ -3,9 +3,10 @@
 # both. Each `filter`'s predicate, a lambda or a named function, counts
 # answering `true` and `false`, as do `any`'s and `filterMap`'s (`Some` or
 # `None`), a `filter` fused into a `map`, and `Map`'s and `Set`'s `filter`.
-# `trim` adds nothing, and `never`'s `withDefault` was never reached. Native
-# and JavaScript match one golden, and `cli/tests/native/llvm.rs` reads it
-# against `--release`.
+# The newer list, map, ordered map and `Str` built-ins are called at the
+# bottom of the file. `trim` adds nothing, and `never`'s `withDefault` was
+# never reached. Native and JavaScript match one golden, and
+# `cli/tests/native/llvm.rs` reads it against `--release`.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 

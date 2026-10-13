@@ -12,6 +12,7 @@
 //! | [`conformance`] | `conformance/`, `reject/`, `crash/` | Does a program mean what SPEC says, and is a program that must not compile refused with the diagnostic recorded beside it? |
 //! | [`standard_library`] | `core/*` | Does the standard library typecheck against itself? |
 //! | [`corpus`] | every `.buri` in the repository | Does everything meant to compile parse, does every build file read, **is every source already what `buri format` writes**, is formatting a fixed point, is the tree-sitter grammar generated? |
+//! | [`coverage_builtins`] | `core/*` signatures, `coverage::BUILTINS` | Is every stdlib function that picks a path for its caller counted as a branch under `--coverage`, or said not to be? |
 //! | [`golden_javascript`] | `golden_javascript/` | What does the backend *compile to*, construct by construct? |
 //! | [`lexing`] | scratch programs | Does the lexer read a word, an integer and a comment whole, at the edges of its fast paths? |
 //! | [`parsing`] | scratch programs | Does the parser read operands, types and bindings as written, and spend its nesting and chain budgets the same at their limits? |
@@ -56,6 +57,7 @@ mod harness;
 mod built_in_names;
 mod conformance;
 mod corpus;
+mod coverage_builtins;
 mod debug_suite;
 mod golden_javascript;
 mod grammar;
