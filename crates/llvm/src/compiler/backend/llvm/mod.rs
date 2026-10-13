@@ -648,10 +648,6 @@ fn emit_unit(
     // body is complete: there is one builder, and a declared function with
     // no body is a link error rather than a wrong answer.
     emitter.finish();
-    if emitter.diags.has_errors() {
-        diags.extend(emitter.diags.items);
-        return Err(diags);
-    }
     optimize(&emitter.module, &worker.machine, opts.profile);
     if linker {
         emitter.prune(&members, &shared.kept);

@@ -134,6 +134,10 @@ pub enum Helper {
     /// it in, so it is the first C argument — and the LLVM backend, which works
     /// on the machine stack, ignores it.
     Equal { ty: Ty, func: u32 },
+    /// The release of a kept handler's record whose context owns a count, as
+    /// `fn(*mut u8)`: the closure `body` at the start, then the context `ctx`
+    /// at `at`.
+    Kept { body: Ty, ctx: Ty, at: u32 },
 }
 
 /// The program-wide symbol of a drop or copy glue function, or `None` for a
@@ -159,7 +163,10 @@ pub fn shared_symbol(h: &Helper, layouts: &mut Layouts<'_>) -> Option<String> {
         Helper::Elems { ty, op: Op::Copy } => ("copyelems", layouts.glue_key(ty)),
         Helper::Env { op: Op::Copy } => return Some(String::from("buri$stencil$glue$envcopy")),
         Helper::Env { .. } => return Some(String::from("buri$stencil$glue$env")),
-        Helper::Thunk { .. } | Helper::Entry { .. } | Helper::Equal { .. } => return None,
+        Helper::Thunk { .. }
+        | Helper::Entry { .. }
+        | Helper::Equal { .. }
+        | Helper::Kept { .. } => return None,
     };
     Some(format!("buri$stencil$glue${what}${key}"))
 }
@@ -329,6 +336,9 @@ impl Jit<'_> {
                 lent,
             } => self.entry_thunk(params.clone(), *ret, *index, *lent),
             Helper::Equal { ty, func } => self.equal_thunk(prog, *ty, *func),
+            Helper::Kept { body, ctx, at } => {
+                self.through_glue(&[(*body, 0), (*ctx, *at)], Op::Release)
+            }
         }
         at
     }
@@ -465,21 +475,32 @@ impl Jit<'_> {
     /// ([`Jit::walk_through`]), so its frame holds one word. A copy loads
     /// whole fields ([`Jit::walk_in_place`]), so its frame holds the widest.
     fn walk_glue_in_place(&mut self, ty: Ty, op: Op) {
-        let window = if op == Op::Copy {
-            self.in_place_window(&ty)
-        } else {
-            8
-        };
+        if op != Op::Copy {
+            return self.through_glue(&[(ty, 0)], op);
+        }
+        let window = self.in_place_window(&ty);
         let frame = frame_for(window);
         self.glue_stub(frame);
         let mut st = self.glue_frame(frame, G_VALUE + window);
         // One, so that an indexed load at stride `offset` reads `G_PTR + offset`.
         self.imm_to(G_INDEX, 1);
         let base = self.fixups_len();
-        if op == Op::Copy {
-            self.walk_in_place(&mut st, &ty, op);
-        } else {
-            self.walk_through(&mut st, &ty, 0, op, 0);
+        self.walk_in_place(&mut st, &ty, op);
+        self.emit("ret", &[]);
+        self.resolve_helper_blocks(base, &st);
+    }
+
+    /// A retain or a release over each value at its offset from the pointer,
+    /// reading only the words it counts or tests ([`Jit::walk_through`]).
+    fn through_glue(&mut self, values: &[(Ty, u32)], op: Op) {
+        let frame = frame_for(8);
+        self.glue_stub(frame);
+        let mut st = self.glue_frame(frame, G_VALUE + 8);
+        // One, so that an indexed load at stride `offset` reads `G_PTR + offset`.
+        self.imm_to(G_INDEX, 1);
+        let base = self.fixups_len();
+        for (ty, at) in values {
+            self.walk_through(&mut st, ty, *at, op, 0);
         }
         self.emit("ret", &[]);
         self.resolve_helper_blocks(base, &st);

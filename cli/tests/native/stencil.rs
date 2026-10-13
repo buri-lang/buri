@@ -341,31 +341,6 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
 
-/// The diagnostics a program this backend cannot compile produces: what
-/// `missing_intrinsics` names, which the build stops on before emission, or
-/// else what emission refuses.
-fn refusal(name: &str, source: &str) -> Vec<String> {
-    let _ = name;
-    let (program, tables) = lowered(source);
-    let target = Target {
-        platform: host_platform(),
-        arch: None,
-    };
-    let opts = Options {
-        profile: Profile::Debug,
-        target,
-        unit_prefix: "",
-    };
-    let missing = Stencil::default().missing_intrinsics(&program, &tables);
-    if !missing.is_empty() {
-        return missing;
-    }
-    match Stencil::default().emit(&program, &tables, &opts) {
-        Ok(_) => panic!("the backend compiled a program it should refuse"),
-        Err(d) => messages(&d),
-    }
-}
-
 fn messages(d: &Diagnostics) -> Vec<String> {
     d.items.iter().map(|i| i.message.clone()).collect()
 }
@@ -941,56 +916,6 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
     assert_eq!(ran.stdout, "[Hello] 41 none\n");
     assert_eq!(ran.status, 0, "{}", ran.stderr);
-}
-
-/// A refusal is a **diagnostic naming the shape**, never an object that aborts
-/// when it reaches it.
-///
-/// Shapes stay unimplemented on purpose (`backend/stencil/mod.rs`'s header), and
-/// what has to be true of every one of them is that the build stops with a
-/// sentence. A timer whose context owns a reference count is the one used
-/// here: the emitter names it and stops (`stencil/counted_contexts_are_refused`
-/// is the same refusal through `buri test`).
-///
-/// A derived `Hash` over a `[T]` and a float into a 128-bit integer used to be
-/// the shape here, and are not: both compile now.
-#[test]
-fn a_refused_shape_is_a_diagnostic_and_not_an_object() {
-    if !supported() {
-        return;
-    }
-    let messages = refusal(
-        "refusal",
-        r#"
-from "native" import { NativeHost };
-from "core/tasks" import * as tasks;
-from "core/time" import * as time;
-from "platform/effect" import { Allocator, Region, Tasks };
-
-// An allocator that owns a `Str`, so a context binding it owns a count.
-struct Named {
-  name: Str,
-}
-
-impl Allocator for Named {
-  fn allocate(self, bytes: Int): Region {
-    Region(bytes + self.name.length())
-  }
-}
-
-export fn main(host: NativeHost): Result<(), Str> {
-  let ctx = context { Allocator: Named { name: "pool" }, Tasks: host.tasks };
-  let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => ());
-  .Ok(())
-}
-"#,
-    );
-    assert!(
-        messages
-            .iter()
-            .any(|m| m.contains("a handler whose context owns a reference count")),
-        "a refusal has to name the shape: {messages:?}"
-    );
 }
 
 /// Two emissions of one program are byte-identical.

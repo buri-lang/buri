@@ -56,7 +56,7 @@ use crate::compiler::backend::intrinsic_keys::step_call;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 use crate::compiler::semantics::types::{self as types, Ty, TyKind};
-use crate::diagnostics::Invariant;
+use crate::diagnostics::{invariant_with, Invariant};
 
 /// Where the C argument area starts inside the scratch words `jit::frame_sigs`
 /// reserves.
@@ -135,13 +135,7 @@ const STR_PTR: u32 = 8;
 const STR_LEN: u32 = 16;
 
 impl Jit<'_> {
-    /// Emits a call to `entry`, or answers `false` and leaves nothing emitted
-    /// when the shape is one this backend does not have.
-    ///
-    /// Answering rather than aborting is what lets the caller record a reason
-    /// and keep going: a refused shape is a diagnostic naming the operation,
-    /// and the emission continues so that one build reports every one of them
-    /// rather than the first.
+    /// Emits a call to `entry`.
     pub(crate) fn rt_call(
         &mut self,
         prog: &ir::Program,
@@ -149,7 +143,7 @@ impl Jit<'_> {
         entry: &Entry,
         dest: (u32, ir::Type),
         args: &[(u32, ir::Type)],
-    ) -> Result<(), String> {
+    ) {
         let (dslot, dty) = dest;
         let mut ints: Vec<Src> = Vec::new();
         let mut floats: Vec<Src> = Vec::new();
@@ -180,14 +174,17 @@ impl Jit<'_> {
             }
             // A context the row does *not* name is this table being wrong, not
             // this call being unusual, and every context in the corpus reaches
-            // here — so a missing annotation is a refusal at build time rather
-            // than a shifted argument list at run time.
-            if matches!(source_ty(prog, t).map(Ty::kind), Some(TyKind::Ctx(_))) {
-                return Err(format!(
-                    "{}: a context at argument {i} that the runtime table does not name",
-                    entry.key
-                ));
-            }
+            // here — so a missing annotation stops the build rather than
+            // shifting the argument list at run time.
+            invariant_with(
+                !matches!(source_ty(prog, t).map(Ty::kind), Some(TyKind::Ctx(_))),
+                || {
+                    format!(
+                        "{}: the runtime table names every context argument, not {i}",
+                        entry.key
+                    )
+                },
+            );
             if by_ref == Some(i) {
                 ints.push(Src::Addr(slot));
                 continue;
@@ -287,7 +284,7 @@ impl Jit<'_> {
         }
 
         if extra == Extra::Step {
-            self.step_extra(prog, st, entry, dty, args, &mut ints)?;
+            self.step_extra(prog, st, entry, dty, args, &mut ints);
         }
 
         if extra == Extra::Compute {
@@ -299,7 +296,7 @@ impl Jit<'_> {
         }
 
         if extra == Extra::Press {
-            self.press_extra(prog, st, entry, args, &mut ints)?;
+            self.press_extra(prog, st, entry, args, &mut ints);
         }
 
         // The call reads the frame words it is handed when it runs, and the
@@ -463,12 +460,10 @@ impl Jit<'_> {
                         repr: EnumRepr::Tagged { tag, .. },
                         ..
                     } => Some(tag.size()),
-                    _ => {
-                        return Err(format!(
-                            "{}: a tag destination that is not an enum",
-                            entry.key
-                        ))
-                    }
+                    _ => crate::diagnostics::ice(&format!(
+                        "{}: a tag destination is an enum",
+                        entry.key
+                    )),
                 }
             }
             _ => None,
@@ -488,7 +483,6 @@ impl Jit<'_> {
         if let Some((l, ok, err, err_at, tag_w, zero_bytes)) = res {
             self.store_result_tag(st, dslot, &l, ok, err, err_at, tag_w, zero_bytes);
         }
-        Ok(())
     }
 
     /// `.Ok`'s discriminant or `.Err`'s, once a `Ret::Res` entry has answered.
@@ -890,7 +884,7 @@ impl Jit<'_> {
         dest: ir::Type,
         args: &[(u32, ir::Type)],
         ints: &mut Vec<Src>,
-    ) -> Result<(), String> {
+    ) {
         let call = step_call(entry.key).or_ice("a step row has a `step_call` row");
         let (fslot, fty) = *args.get(call.func).or_ice("a step row's call has its step");
         let (params, ret) = match source_ty(prog, fty).map(Ty::kind) {
@@ -949,7 +943,6 @@ impl Jit<'_> {
         ints.push(Src::Addr(state));
         ints.push(Src::Imm(u64::from(in_stride)));
         ints.push(Src::Imm(u64::from(out_stride)));
-        Ok(())
     }
 
     /// Zeroes the whole of the frame slot a `width`-byte result is about to be
@@ -1136,7 +1129,7 @@ impl Jit<'_> {
         entry: &Entry,
         args: &[(u32, ir::Type)],
         ints: &mut Vec<Src>,
-    ) -> Result<(), String> {
+    ) {
         let (fslot, ty, params, ret) = last_closure(prog, args);
         let widths: Vec<u32> = params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (ctx_at, bytes) = super::glue::state_shape(&widths, None);
@@ -1149,16 +1142,22 @@ impl Jit<'_> {
         if dropped.is_none() {
             self.clear_ctx(st.frame.size, &ctx_at, &widths);
         }
+        // A context that owns a count: the record keeps one of its own until
+        // the runtime lets the handler go, and lends it to the handler each
+        // time it fires, as a step's record does.
+        let mut kept = None;
         if let (Some(i), Some(off)) = (dropped, ctx_at.first().copied()) {
             let w = widths.first().copied().unwrap_or(0);
-            if let Some((from, t)) = args.get(i).copied().filter(|_| w > 0) {
-                if source_ty(prog, t).is_some_and(|ty| self.rc_counted(&ty)) {
-                    return Err(format!(
-                        "{}: a handler whose context owns a reference count",
-                        entry.key
-                    ));
-                }
+            if let Some((from, _)) = args.get(i).copied().filter(|_| w > 0) {
                 self.mv(st.frame.size + off, from, round8(w));
+                let cty = params
+                    .first()
+                    .copied()
+                    .or_ice("a handler takes its context first");
+                if self.rc_counted(&cty) {
+                    self.walk_rc(st, &cty, st.frame.size + off, Op::Retain, 0);
+                    kept = Some((cty, off));
+                }
             }
         }
         let state = st.frame.size;
@@ -1170,20 +1169,23 @@ impl Jit<'_> {
             params: params.to_vec(),
             ret,
             index: None,
-            lent: false,
+            lent: kept.is_some(),
         });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
         ints.push(Src::Imm(u64::from(bytes)));
         // The frame word, as a body's: the runtime supplies one before it fires.
         ints.push(Src::Imm(u64::from(super::glue::E_FRAME)));
-        // The record's own walk, which gives back the reference taken above when
-        // the graph lets the handler go.
-        match self.value_release(ty) {
+        // The record's own walk, which gives back the references taken above
+        // when the graph lets the handler go.
+        let give_back = match kept {
+            Some((ctx, at)) => Some(self.helper(super::glue::Helper::Kept { body: ty, ctx, at })),
+            None => self.value_release(ty),
+        };
+        match give_back {
             Some(name) => ints.push(Src::Sym(name)),
             None => ints.push(Src::Imm(0)),
         }
-        Ok(())
     }
 
     /// The element type of the `[T]` an `Extra::Element` row operates on: the

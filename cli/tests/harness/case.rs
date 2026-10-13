@@ -1089,9 +1089,6 @@ pub const A_RUN_THAT_ASSERTED_NOTHING: &[&str] = &[
     // is what the golden is read for, and the case's other two goldens carry
     // four passing blocks and a failing one.
     "ui/the_graph_and_the_tree_run_natively",
-    // The same claim for a timer whose context owns a count, which the debug
-    // backend refuses during code generation.
-    "stencil/counted_contexts_are_refused",
     // A JSON input its schema refuses stops the generator, so the suite that
     // imports what it generates does not compile. That is the claim: `buri
     // test` reports the check the way `buri build` does, and the schema

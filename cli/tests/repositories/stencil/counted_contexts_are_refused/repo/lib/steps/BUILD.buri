@@ -1,8 +1,0 @@
-library {
-    sources: []
-
-    test {
-        sources: ["test/steps.buri"]
-        backends: [NATIVE]
-    }
-}

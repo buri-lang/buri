@@ -4207,6 +4207,64 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// **A timer is handed a context that owns a count**, on every backend, and
+/// every count on it is given back (buri-lang/buri#305's step, for a timer).
+///
+/// The context binds an allocator holding a heap `Str`. One timer is
+/// cancelled, one fires and allocates through the context it was handed, and
+/// that one schedules a second with it.
+#[test]
+fn a_timer_is_handed_a_counted_context_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.after counted context",
+        r#"
+from "platform/effect" import { Allocator, Region, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+from "core/time" import * as time;
+
+struct Named {
+  name: Str,
+}
+
+impl Allocator for Named {
+  fn allocate(self, bytes: Int): Region {
+    Region(bytes)
+  }
+}
+
+fn tick<C: Allocator + Stdout + Tasks>(ctx: C, n: Int): () {
+  let _ = io.println(ctx, str.format(ctx, "tick ${n}")).ignore();
+  if (n < 2) {
+    let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => tick(c, n + 1));
+    ()
+  } else {
+    ()
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context {
+    Allocator: Named { name: str.format(host.alloc, "pool ${7}") },
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  };
+  let doomed = tasks.after(ctx, time.milliseconds(1), fn(c) => {
+    io.println(c, "a cancelled timer fired").ignore()
+  });
+  let _ = tasks.cancel(ctx, doomed);
+  let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => tick(c, 1));
+  let _ = io.println(ctx, "main returned").ignore();
+  .Ok(())
+}
+"#,
+        "main returned\ntick 1\ntick 2\n",
+    );
+}
+
 /// **The monotonic clock only goes forward**, on every backend, and that is the
 /// whole of what `Monotonic` promises.
 ///
