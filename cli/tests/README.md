@@ -187,7 +187,7 @@ records the report.
 the end of `failing.rs`'s `recorded_failure_reports`, over the bytes the run
 just wrote. It is set equality in **both** directions against
 `harness::A_RUN_THAT_ASSERTED_NOTHING`. So a case that starts recording
-`failed to compile` or `0 passed, 0 failed` fails, and a case that is
+`failed to compile`, `failed to run` or `0 passed, 0 failed` fails, and a case that is
 *supposed* to record one and has stopped fails too. The corpus runner calls it
 rather than it being a `#[test]` of its own: under `BURI_BLESS=1` a separate
 test races the blesser and reports the golden it is in the middle of fixing.

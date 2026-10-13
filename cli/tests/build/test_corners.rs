@@ -220,7 +220,7 @@ fn a_javascript_runtime_that_reports_other_tests_fails_the_suite() {
             .says("error: the test binary did not run")
             .says("= fix: the runtime wrote no message; check BURI_JS names a JavaScript runtime")
             .silent_about("  = \n")
-            .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
+            .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
     }
     let pulling = scratch.write_executable(
         "pulling",
@@ -240,7 +240,7 @@ fn a_javascript_runtime_that_reports_other_tests_fails_the_suite() {
         )
         .exits(1)
         .says("error: the test binary did not run")
-        .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
+        .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
 }
 
 /// Bundles that can't be written where they run fail their suites, each
@@ -361,7 +361,7 @@ fn suites_with_a_timeout_run_again_from_their_binary() {
             .says("FAIL //lib/f  test/t.buri  \"second\"")
             .says("--> lib/f/test/t.buri:7:1")
             .says("error: //lib/s's test suite ran longer than 1s [test-timeout]")
-            .says("1 passed, 1 failed, 0 skipped, 1 failed to compile");
+            .says("1 passed, 1 failed, 0 skipped, 1 failed to run");
         if pass == 1 {
             run.says("cached build //lib/f native")
                 .says("cached build //lib/s native");
@@ -375,7 +375,7 @@ fn suites_with_a_timeout_run_again_from_their_binary() {
         )
         .exits(1)
         .says("error: the test binary for //lib/f failed the heap check")
-        .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
+        .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
 }
 
 /// A suite with a timeout that takes a snapshot records it under `--update`,

@@ -1101,7 +1101,7 @@ pub const A_RUN_THAT_ASSERTED_NOTHING: &[&str] = &[
 /// Both are things a *running* corpus prints, which is what makes them
 /// invisible to every other check here: neither is an error, neither changes an
 /// exit code, and neither looks wrong in isolation.
-const COLLAPSED: &[&str] = &["failed to compile", "0 passed, 0 failed"];
+const COLLAPSED: &[&str] = &["failed to compile", "failed to run", "0 passed, 0 failed"];
 
 /// `shape` is in `text` as its own count, so a run of twenty tests
 /// ("20 passed, 0 failed") is not a run of none.
