@@ -275,6 +275,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
+      # Every Rust file is as `cargo fmt` writes it.
+      - run: cargo fmt --all --check
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ matrix.os }}-${{ matrix.arch }}-clippy
