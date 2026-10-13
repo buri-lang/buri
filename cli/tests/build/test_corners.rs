@@ -307,8 +307,7 @@ fn a_filter_reaches_each_part_of_a_split_binary() {
         .says("2 passed, 0 failed, 2 skipped");
 }
 
-/// A C compiler that can't link fails each suite with what it said.
-#[cfg(unix)]
+/// A link with nowhere to write its binary fails each suite, saying where.
 #[test]
 fn a_link_that_fails_fails_each_suite() {
     let scratch = Scratch::repo("corners-link-fails");
@@ -320,17 +319,13 @@ fn a_link_that_fails_fails_each_suite() {
             &blocks(name, 1),
         );
     }
-    let cc = scratch.write_executable(
-        "cc",
-        "#!/bin/sh\ncase \"$1\" in -###) exit 1 ;; esac\necho 'no linking today' >&2\nexit 1\n",
-    );
+    scratch.write(".buri/out/native", "a file where the directory goes\n");
     scratch
-        .run_with_env(
-            &["test", "//lib/a", "//lib/b"],
-            &[("CC", &cc.display().to_string()), LINKED],
-        )
+        .run_with_env(&["test", "//lib/a", "//lib/b"], &[LINKED])
         .exits(1)
-        .says("no linking today")
+        .says("error: cannot write ")
+        .says("lib/a/test-library: ")
+        .says("lib/b/test-library: ")
         .says("0 passed, 0 failed, 0 skipped, 2 failed to compile");
 }
 

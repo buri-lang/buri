@@ -139,14 +139,20 @@ fn a_test_binary_stray_lines_are_passed_over() {
 #[test]
 fn a_test_binary_failure_elsewhere_fails_the_block_it_was_running() {
     let scratch = suites("runners-elsewhere");
-    // The binary writes to a fifo, so the script's own end of buri's pipe
-    // closes when it stops reading, however far the binary got.
+    // Stands in for the binary: runs the first block, then reports a failure
+    // in a block it was never handed, and dies.
     let runner = script(
         &scratch,
         "elsewhere",
-        "dir=$(mktemp -d)\nmkfifo \"$dir/out\"\n\"$@\" <&0 >\"$dir/out\" &\n\
-         awk '{ print; fflush() } /\"left\"/ { print \"{\\\"i\\\":99,\\\"message\\\":\\\"elsewhere\\\"}\"; exit 5 }' <\"$dir/out\"\n\
-         status=$?\nkill $! 2>/dev/null\nwait $!\nrm -rf \"$dir\"\nexit $status\n",
+        "echo '{\"started\":1}'\n\
+         if [ \"$BURI_TEST_PULL\" = 1 ]; then\n  \
+           echo '{\"next\":1}'\n  read block\n  \
+           echo \"{\\\"i\\\":$block,\\\"left\\\":1}\"\n  \
+           echo '{\"next\":1}'\n  read block\n\
+         else\n  \
+           echo \"{\\\"i\\\":$BURI_TEST_FROM,\\\"left\\\":1}\"\n\
+         fi\n\
+         echo '{\"i\":99,\"message\":\"elsewhere\"}'\nexit 5\n",
     );
     under(&scratch, &runner, |run, suite| {
         run.exits(1)
