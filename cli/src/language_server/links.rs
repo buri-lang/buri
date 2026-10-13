@@ -125,10 +125,7 @@ fn urls(text: &str, out: &mut Vec<(u32, u32, String)>) {
     let mut at = 0usize;
     // Ends at the last scheme: `at` is only ever one past a scheme's start,
     // which is short of the end of any text holding a whole `http://`.
-    loop {
-        let Some(hit) = text.get(at..).and_then(scheme_at) else {
-            break;
-        };
+    while let Some(hit) = text.get(at..).and_then(scheme_at) {
         let start = at.saturating_add(hit);
         at = start.saturating_add(1);
         // A scheme glued to the end of a word is part of that word.

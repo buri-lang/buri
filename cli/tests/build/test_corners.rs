@@ -554,3 +554,106 @@ fn a_watch_loop_over_a_broken_build_file_runs_once_it_is_fixed() {
         indent(&text)
     );
 }
+
+/// A suite that failed runs again from the build the cache holds. When the
+/// cache has lost that binary or bundle, the suite is built again and says what
+/// it said before.
+#[test]
+fn a_failing_suite_whose_build_left_the_cache_is_built_again() {
+    let failing =
+        "from \"//lib/a\" import { one };\nfrom \"core/testing/assert\" import * as assert;\n\n\
+                   test \"one\" {\n    assert.equal(one(), 2);\n}\n";
+    for (name, backends, lost) in [
+        ("native", "", Lost::Image),
+        ("js", "        backends: [JS]\n", Lost::Bundle),
+    ] {
+        let scratch = Scratch::repo(&format!("corners-lost-build-{name}"));
+        library(
+            &scratch,
+            "a",
+            &format!("        sources: [\"test/t.buri\"]\n{backends}"),
+            failing,
+        );
+        scratch
+            .run(&["test", "//lib/a"])
+            .exits(1)
+            .says("FAIL //lib/a  test/t.buri  \"one\"");
+        let mut files = Vec::new();
+        cache_files(&scratch.path(".buri/cache"), &mut files);
+        let gone: Vec<_> = match lost {
+            Lost::Image => files
+                .iter()
+                .filter(|f| std::fs::read(f).is_ok_and(|b| b.starts_with(b"BURIIMG\0")))
+                .collect(),
+            Lost::Bundle => files
+                .iter()
+                .max_by_key(|f| std::fs::metadata(f).map_or(0, |m| m.len()))
+                .into_iter()
+                .collect(),
+        };
+        assert_eq!(
+            gone.len(),
+            1,
+            "{name}: the cache held {} builds",
+            gone.len()
+        );
+        std::fs::remove_file(gone[0]).unwrap();
+        scratch
+            .run(&["test", "//lib/a"])
+            .exits(1)
+            .says("FAIL //lib/a  test/t.buri  \"one\"")
+            .says("expected: 2")
+            .says("0 passed, 1 failed, 0 skipped");
+    }
+}
+
+/// What a test makes the cache lose.
+enum Lost {
+    Image,
+    Bundle,
+}
+
+/// Every entry under a cache directory.
+fn cache_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            cache_files(&path, out);
+        } else {
+            out.push(path);
+        }
+    }
+}
+
+/// A remembered verdict that holds no results is not served: the suite runs.
+#[test]
+fn a_remembered_verdict_with_no_results_is_run_again() {
+    let scratch = Scratch::repo("corners-empty-verdict");
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.buri\"]\n",
+        &blocks("a", 1),
+    );
+    scratch
+        .run(&["test", "//lib/a"])
+        .ok()
+        .says("1 passed, 0 failed, 0 skipped");
+    let mut files = Vec::new();
+    cache_files(&scratch.path(".buri/cache"), &mut files);
+    let mut emptied = 0;
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap_or_default();
+        if text.starts_with("reads ") && text.contains("\"ok\":true") {
+            let kept: Vec<&str> = text.lines().filter(|l| !l.starts_with('[')).collect();
+            std::fs::write(&file, format!("{}\n[]\n", kept.join("\n"))).unwrap();
+            emptied += 1;
+        }
+    }
+    assert_eq!(emptied, 1, "the cache held {emptied} verdicts");
+    scratch
+        .run(&["test", "//lib/a", "--explain"])
+        .ok()
+        .says("run    test //lib/a")
+        .says("1 passed, 0 failed, 0 skipped");
+}
