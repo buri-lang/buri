@@ -4832,10 +4832,10 @@ fn task_pool_keep(base: *mut u8) {
     }
 }
 
-/// The task stacks memcheck was told about, as `(base, id)`. Empty elsewhere.
+/// The task stacks the tool was told about, as `(base, id)`. Empty elsewhere.
 static TASK_STACK_IDS: Mutex<Vec<(usize, usize)>> = Mutex::new(Vec::new());
 
-/// Tells memcheck the usable range of a task stack just mapped is a stack, so
+/// Tells the tool the usable range of a task stack just mapped is a stack, so
 /// a switch onto it isn't read as a wild move of the stack pointer.
 fn register_task_stack(base: *mut u8) {
     if !valgrind::registers_stacks() {
@@ -4849,7 +4849,7 @@ fn register_task_stack(base: *mut u8) {
     }
 }
 
-/// Unmaps a task stack, and tells memcheck it is no longer one.
+/// Unmaps a task stack, and tells the tool it is no longer one.
 ///
 /// # Safety
 /// `base` came from [`map_task_stack`], and nothing runs on it.

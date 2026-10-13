@@ -7,9 +7,10 @@
 //! asks once which tool runs it. Under memcheck or helgrind:
 //!
 //! - small blocks come from the system rather than from pages, `memory.rs`
-//!   caches none, and the heap check holds no freed block back.
+//!   caches none, and the heap check holds no freed block back;
+//! - task stacks are registered as stacks.
 //!
-//! Under memcheck, task stacks are registered as stacks, and on musl, whose
+//! Under memcheck, on musl, whose
 //! `malloc` memcheck can't replace in a static binary, the system blocks are
 //! annotated with redzones, and a freed one waits behind 20 MB of later frees
 //! before it's reused. Under helgrind each new
@@ -98,11 +99,11 @@ pub fn reroutes() -> bool {
     !cfg!(test) && matches!(tool(), MEMCHECK | HELGRIND)
 }
 
-/// Whether task stacks are registered: memcheck's definedness follows the
-/// stack pointer. Helgrind's doesn't, and a thousand of them exhaust it.
+/// Whether task stacks are registered. Unregistered, one mapped above its
+/// thread's stack has no bounds, so a stack trace on it stops at one frame.
 #[inline]
 pub fn registers_stacks() -> bool {
-    memcheck()
+    memcheck() || helgrind()
 }
 
 /// Whether an existing block was annotated for memcheck: [`memcheck`] without
