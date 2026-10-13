@@ -46,7 +46,7 @@
 )]
 
 use crate::build::session::{self, Session};
-use crate::build::workspace::{PackageId, RuleKind, TargetId};
+use crate::build::workspace::{PackageId, Rule, RuleKind, TargetId};
 use crate::commands::arguments;
 use crate::compiler::modules::{ModuleData, Unit};
 use crate::compiler::semantics::typed;
@@ -362,8 +362,8 @@ pub(crate) struct Part<'a> {
 struct Index {
     /// In load order.
     by_package: std::collections::BTreeMap<PackageId, Vec<ModuleId>>,
-    /// By module index, in id order.
-    bodies: Vec<Vec<FnId>>,
+    /// By module, in id order.
+    bodies: std::collections::BTreeMap<ModuleId, Vec<FnId>>,
 }
 
 impl Index {
@@ -375,12 +375,11 @@ impl Index {
                 by_package.entry(pkg).or_default().push(m.id);
             }
         }
-        let mut bodies = vec![Vec::new(); analysis.loaded.modules.len()];
+        let mut bodies: std::collections::BTreeMap<ModuleId, Vec<FnId>> =
+            std::collections::BTreeMap::new();
         for (fid, _) in &analysis.checked.bodies {
-            bodies
-                .get_mut(analysis.checked.tables.fn_info(fid).module.index())
-                .or_ice("every body's module is one the analysis loaded")
-                .push(fid);
+            let module = analysis.checked.tables.fn_info(fid).module;
+            bodies.entry(module).or_default().push(fid);
         }
         Index { by_package, bodies }
     }
@@ -426,14 +425,7 @@ impl<'a> Part<'a> {
         let whole = self.whole;
         let mut fids: Vec<FnId> = modules
             .iter()
-            .flat_map(|m| {
-                self.index
-                    .bodies
-                    .get(m.index())
-                    .into_iter()
-                    .flatten()
-                    .copied()
-            })
+            .flat_map(|m| self.index.bodies.get(m).into_iter().flatten().copied())
             .collect();
         fids.sort_unstable();
         fids.into_iter()
@@ -827,8 +819,7 @@ fn regenerate_build_files(session: &mut Session, diagnostics: &Diagnostics) -> u
             }
         }
         // Each of these is reported against a package's own build file or sources.
-        let (_, package) = best.or_ice("a regenerable finding is in some package's file");
-        packages.insert(package);
+        packages.extend(best.map(|(_, package)| package));
     }
 
     let mut fixed = 0;
@@ -957,16 +948,9 @@ fn check_target_platforms(session: &Session, target: TargetId, diagnostics: &mut
             .push(Diagnostic::templated("unsatisfiable-target", span).with_bind("target", label));
         return;
     }
-    if target.kind != RuleKind::Binary {
+    let Rule::Binary(bin) = session.workspace.package(target.package).rule(target.kind) else {
         return;
-    }
-    let bin = session
-        .workspace
-        .package(target.package)
-        .build
-        .binary
-        .as_ref()
-        .or_ice("a binary target comes from its package's `binary` block");
+    };
     for output in &bin.outputs {
         let p = output.output_platform();
         if !allowed.contains(&p) {
@@ -1157,7 +1141,7 @@ pub fn generator_extensions(session: &Session, package: PackageId) -> BTreeSet<S
 /// wakes exactly when this answer moves (buri-lang/buri#285).
 pub fn listing(dir: &Path, extensions: &BTreeSet<String>) -> Vec<String> {
     let mut on_disk = Vec::new();
-    collect_package_sources(dir, dir, extensions, &mut on_disk);
+    collect_package_sources(dir, "", extensions, &mut on_disk);
     on_disk
 }
 
@@ -1256,9 +1240,10 @@ fn report_unlisted(
     }
 }
 
+/// Every source under `dir`, as `prefix` followed by its path from `dir`.
 fn collect_package_sources(
-    root: &Path,
     dir: &Path,
+    prefix: &str,
     extensions: &BTreeSet<String>,
     out: &mut Vec<String>,
 ) {
@@ -1281,20 +1266,14 @@ fn collect_package_sources(
             if p.join("BUILD.buri").is_file() {
                 continue;
             }
-            collect_package_sources(root, &p, extensions, out);
+            collect_package_sources(&p, &format!("{prefix}{name}/"), extensions, out);
         } else if (p.extension().is_some_and(|x| x == "buri")
             && !crate::build::regenerate::is_configuration(&name))
             || p.extension().is_some_and(|x| x == "proto")
             || p.extension()
                 .is_some_and(|x| extensions.contains(&x.to_string_lossy().to_string()))
         {
-            let rel = p
-                .strip_prefix(root)
-                .or_ice("this walk only descends into `root`, so every path it reaches is under it")
-                .display()
-                .to_string()
-                .replace('\\', "/");
-            out.push(rel);
+            out.push(format!("{prefix}{name}"));
         }
     }
 }
@@ -1512,7 +1491,8 @@ struct Unchecked {
     /// reached here the same way: a body that uses it gets `unknown-name`
     /// at the use, which is an error inside that body. So the bodies that lost
     /// something say so themselves, and the ones that did not are read.
-    bodies: BTreeSet<FnId>,
+    /// Each one's expression, for [`Unchecked::unreadable`].
+    bodies: std::collections::BTreeMap<FnId, Span>,
     /// Where those bodies are, for the rules that hold a span rather than a
     /// function.
     ranges: Vec<Span>,
@@ -1540,8 +1520,6 @@ impl Unchecked {
         let mut truncating: std::collections::BTreeMap<FileId, Vec<Span>> =
             std::collections::BTreeMap::new();
         for d in &analysis.diagnostics.items {
-            // A warning is a lint finding, and lint findings are made here.
-            invariant(d.is_error(), "the analysis reports only errors");
             if !d.span.is_none() {
                 errors.entry(d.span.file).or_default().push(d.span);
                 if !matches!(
@@ -1591,7 +1569,7 @@ impl Unchecked {
                 .iter()
                 .any(|e| e.start <= extent.end && e.end >= extent.start)
             {
-                unchecked.bodies.insert(fid);
+                unchecked.bodies.insert(fid, body.expr.span);
                 unchecked.ranges.push(extent);
             }
         }
@@ -1642,7 +1620,7 @@ impl Unchecked {
     }
 
     fn body(&self, function: FnId) -> bool {
-        self.bodies.contains(&function)
+        self.bodies.contains_key(&function)
     }
 
     fn module(&self, module: ModuleId) -> bool {
@@ -1667,25 +1645,12 @@ impl Unchecked {
     /// is text the parser read whole and it holds no reads, so a type named in
     /// the signature of a function whose body broke is not in doubt — only
     /// what was written inside the body is.
-    fn unreadable(
-        &self,
-        lexes: &Lexes<'_>,
-        analysis: &crate::compiler::driver::Analysis,
-        m: &ModuleData,
-    ) -> Vec<Span> {
+    fn unreadable(&self, lexes: &Lexes<'_>, m: &ModuleData) -> Vec<Span> {
         use crate::parsing::tree::Item;
         let mut unreadable: Vec<Span> = self
             .bodies
-            .iter()
-            .map(|fid| {
-                analysis
-                    .checked
-                    .bodies
-                    .get(fid)
-                    .or_ice("an unchecked body is one the analysis checked")
-                    .expr
-                    .span
-            })
+            .values()
+            .copied()
             .filter(|at| at.file == m.file)
             .collect();
         unreadable.extend(m.ast.items.iter().filter_map(|i| match i {
@@ -2716,10 +2681,6 @@ fn check_unused_declarations(
         if !reportable.contains(&con.module) {
             continue;
         }
-        invariant(
-            !con.span.is_none(),
-            "a type the repository declares was written somewhere",
-        );
         if spoken_for(&(con.span.file.0, con.span.start, con.span.end))
             || names.doubted.contains(con.name.as_str())
         {
@@ -2820,7 +2781,7 @@ impl<'s> Names<'s> {
             if !mine.contains(&m.id) || is_generated(m) {
                 continue;
             }
-            let unreadable = unchecked.unreadable(lexes, analysis, m);
+            let unreadable = unchecked.unreadable(lexes, m);
             let read = Text::of(lexes, m);
             let text = lexes.text(m.file);
             let name_at = |at: Span| text.get(at.start as usize..at.end as usize).unwrap_or("");
@@ -3185,7 +3146,7 @@ fn check_unused_imports(
     // between two tokens has glued them into one word — `match (io` with its
     // first two tokens swapped is `( matchio` — and the use is still written
     // there, at one end of the longer word.
-    let unreadable = unchecked.unreadable(lexes, analysis, m);
+    let unreadable = unchecked.unreadable(lexes, m);
     let glued: Vec<&str> = read
         .idents
         .iter()
@@ -3287,10 +3248,7 @@ fn check_unused_imports(
 /// The offset just past the newline ending the line `at` sits on.
 fn line_end(text: &str, at: u32) -> u32 {
     let from = at as usize;
-    let rest = text
-        .get(from..)
-        .or_ice("an import's span is inside the text it was parsed from");
-    match rest.find('\n') {
+    match text.bytes().skip(from).position(|b| b == b'\n') {
         Some(offset) => (from + offset + 1) as u32,
         // The last line of a file need not end in a newline, and then the end
         // of the line is the end of the text.
@@ -3401,7 +3359,14 @@ fn check_unused_contexts(
         if info.impl_of.is_some() {
             continue;
         }
-        let Some(index) = info.params.iter().position(|p| p.role == ParamRole::Ctx) else {
+        // A body binds a local for every parameter it declares.
+        let Some((index, (param, &ctx_local))) = info
+            .params
+            .iter()
+            .zip(&body.params)
+            .enumerate()
+            .find(|(_, (p, _))| p.role == ParamRole::Ctx)
+        else {
             continue;
         };
         // Once per module: the answer is about the file, and asking it costs a
@@ -3412,15 +3377,6 @@ fn check_unused_contexts(
         if !compiled {
             continue;
         }
-        let param = info
-            .params
-            .get(index)
-            .or_ice("`index` was found in this list");
-        let ctx_local = body
-            .params
-            .get(index)
-            .copied()
-            .or_ice("a body binds a local for every parameter it declares");
         // A body that did not check has lost the reads written under whatever
         // it failed on, so the tree is not the evidence there and the text is.
         let used = if unchecked.body(fid) {
@@ -3517,9 +3473,9 @@ fn compiled_by(
     module: ModuleId,
 ) -> bool {
     let m = analysis.loaded.module(module);
-    let rel = package_relative(session, target.package, &m.path)
-        .or_ice("a module of the package being linted has a path inside it");
-    match session.workspace.rule_of_file(target.package, &rel) {
+    let rule = package_relative(session, target.package, &m.path)
+        .and_then(|rel| session.workspace.rule_of_file(target.package, &rel));
+    match rule {
         Some(kind) => kind == target.kind,
         None => true,
     }
@@ -3584,16 +3540,12 @@ fn context_edits(
     // the edits so far, starting with the declaration's own.
     let mut wanted: std::collections::BTreeMap<FnId, (usize, Vec<crate::diagnostics::Edit>)> =
         std::collections::BTreeMap::new();
-    for (_, func, index) in found {
+    for (param, func, index) in found {
         let info = tables.fn_info(*func);
         if published.contains(info.name.as_str()) {
             continue;
         }
-        let param = info
-            .params
-            .get(*index)
-            .or_ice("`index` was found in this list");
-        let Some(declaration) = dropped_from_list(session, param.span) else {
+        let Some(declaration) = dropped_from_list(session, *param) else {
             continue;
         };
         wanted.insert(*func, (*index, vec![declaration]));
@@ -3823,10 +3775,15 @@ fn check_unused_context_bounds(
         if info.impl_of.is_some() || unchecked.body(fid) {
             continue;
         }
-        let Some(index) = info.params.iter().position(|p| p.role == ParamRole::Ctx) else {
+        let Some((param, &ctx_local)) = info
+            .params
+            .iter()
+            .zip(&body.params)
+            .find(|(p, _)| p.role == ParamRole::Ctx)
+        else {
             continue;
         };
-        let Some(TyKind::Param(gi)) = info.params.get(index).map(|p| p.ty.kind()) else {
+        let TyKind::Param(gi) = param.ty.kind() else {
             continue;
         };
         let generic = info
@@ -3836,23 +3793,11 @@ fn check_unused_context_bounds(
         if !generic.bounds.iter().any(|b| tables.trait_(*b).is_effect) {
             continue;
         }
-        if !body
-            .params
-            .get(index)
-            .copied()
-            .is_some_and(|local| reads_ctx(body, local))
-        {
+        if !reads_ctx(body, ctx_local) {
             continue;
         }
         let used = bounds_used(analysis, body, *gi, &generic.bounds);
-        let unused: Vec<usize> = generic
-            .bounds
-            .iter()
-            .enumerate()
-            .filter(|(_, b)| !used.contains(b))
-            .map(|(k, _)| k)
-            .collect();
-        if unused.is_empty() {
+        if generic.bounds.iter().all(|b| used.contains(b)) {
             continue;
         }
         // The spans come from the declaring module's own syntax tree, so a
@@ -3866,18 +3811,19 @@ fn check_unused_context_bounds(
             spans.len() == generic.bounds.len(),
             "a signature that checked resolved every bound it wrote",
         );
-        let edits = dropped_bounds(session, &spans, &unused);
-        for k in unused {
-            let span = spans
-                .get(k)
-                .copied()
-                .or_ice("there is a span for every bound");
-            let bound = generic
-                .bounds
-                .get(k)
-                .or_ice("`unused` indexes these bounds");
+        let bounds: Vec<(Span, bool)> = spans
+            .iter()
+            .zip(&generic.bounds)
+            .map(|(span, b)| (*span, !used.contains(b)))
+            .collect();
+        let edits = dropped_bounds(session, &bounds);
+        let dropped = spans
+            .iter()
+            .zip(&generic.bounds)
+            .filter(|(_, b)| !used.contains(b));
+        for (span, bound) in dropped {
             let bound = tables.trait_(*bound).name.clone();
-            found.push((span, bound, generic.name.clone(), edits.clone()));
+            found.push((*span, bound, generic.name.clone(), edits.clone()));
         }
     }
     // `bodies` is a map, so the order findings are met in is not the order they
@@ -4068,7 +4014,8 @@ fn bound_spans(
 /// refused as overlapping and neither is applied, so the whole removal is
 /// computed once here and every finding about the parameter carries it.
 ///
-/// The list is walked as runs of adjacent bounds. A run that starts after the
+/// Each bound comes with whether it goes, and the list is walked as runs of
+/// adjacent bounds that go. A run that starts after the
 /// first bound takes the separator *before* it (`" + Fs + Io"`); a run that
 /// starts at the first and does not reach the last takes the separator *after*
 /// (`"Fs + Io + "`); a run that is the whole list takes the colon too, leaving
@@ -4078,52 +4025,38 @@ fn bound_spans(
 /// Nothing but the separators may be swallowed. What else sits inside a bound
 /// list is a comment — a reader's sentence about the code — and this deletes
 /// text rather than reformatting it, so it refuses the whole rewrite instead.
-fn dropped_bounds(
-    session: &Session,
-    spans: &[Span],
-    removed: &[usize],
-) -> Vec<crate::diagnostics::Edit> {
-    let first = spans
-        .first()
-        .or_ice("a bound is being removed, so there is one");
-    let text = session.map.text(first.file);
+fn dropped_bounds(session: &Session, bounds: &[(Span, bool)]) -> Vec<crate::diagnostics::Edit> {
     let mut edits = Vec::new();
-    let mut rest: &[usize] = removed;
-    while let Some((&a, after)) = rest.split_first() {
-        // The run: this bound and every one adjacent to it, which is the group
-        // whose separators are shared and so cannot be deleted independently.
-        let mut b = a;
-        rest = after;
-        while let Some((&next, more)) = rest.split_first() {
-            if next != b + 1 {
-                break;
-            }
-            b = next;
-            rest = more;
-        }
-        let head = spans.get(a).or_ice("`removed` indexes `spans`");
-        let tail = spans.get(b).or_ice("`removed` indexes `spans`");
-        let (from, to) = if a > 0 {
-            match spans.get(a - 1) {
-                Some(before) => (before.end as usize, tail.end as usize),
-                None => return Vec::new(),
-            }
-        } else if let Some(after) = spans.get(b + 1) {
-            (head.start as usize, after.start as usize)
-        } else {
-            // Every bound goes, so the `:` that introduced them goes as well.
-            let before = text
-                .get(..head.start as usize)
-                .or_ice("a bound's span is inside its file");
-            let Some(colon) = before.trim_end().strip_suffix(':') else {
-                return Vec::new();
-            };
-            (colon.trim_end().len(), tail.end as usize)
+    let spans: Vec<Span> = bounds.iter().map(|(span, _)| *span).collect();
+    let mut end = 0;
+    // The run: a bound and every one adjacent to it, which is the group whose
+    // separators are shared and so cannot be deleted independently.
+    for run in bounds.chunk_by(|a, b| a.1 == b.1) {
+        let start = end;
+        end += run.len();
+        let (Some(&(head, true)), Some(&(tail, _))) = (run.first(), run.last()) else {
+            continue;
         };
-        if !only_separators(text, from, to, spans) {
+        let text = session.map.text(head.file);
+        let before = start.checked_sub(1).and_then(|k| bounds.get(k));
+        let (from, to) = match (before, bounds.get(end)) {
+            (Some((before, _)), _) => (before.end as usize, tail.end as usize),
+            (None, Some((after, _))) => (head.start as usize, after.start as usize),
+            (None, None) => {
+                // Every bound goes, so the `:` that introduced them goes as well.
+                let Some(colon) = text
+                    .get(..head.start as usize)
+                    .and_then(|before| before.trim_end().strip_suffix(':'))
+                else {
+                    return Vec::new();
+                };
+                (colon.trim_end().len(), tail.end as usize)
+            }
+        };
+        if !only_separators(text, from, to, &spans) {
             return Vec::new();
         }
-        edits.push(deletion(*first, from, to));
+        edits.push(deletion(head, from, to));
     }
     edits
 }
@@ -4131,17 +4064,16 @@ fn dropped_bounds(
 /// Whether `from..to` holds nothing but bounds, the punctuation that joins
 /// them, and space.
 fn only_separators(text: &str, from: usize, to: usize, spans: &[Span]) -> bool {
-    let region = text
-        .get(from..to)
-        .or_ice("the region runs between two bounds of this file");
-    region.char_indices().all(|(offset, c)| {
-        let at = from + offset;
-        spans
-            .iter()
-            .any(|s| at >= s.start as usize && at < s.end as usize)
-            || c.is_whitespace()
-            || c == '+'
-            || c == ':'
+    text.get(from..to).is_some_and(|region| {
+        region.char_indices().all(|(offset, c)| {
+            let at = from + offset;
+            spans
+                .iter()
+                .any(|s| at >= s.start as usize && at < s.end as usize)
+                || c.is_whitespace()
+                || c == '+'
+                || c == ':'
+        })
     })
 }
 

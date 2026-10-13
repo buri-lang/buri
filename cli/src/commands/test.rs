@@ -736,27 +736,30 @@ fn verdict_keys(
     suites: &[TargetId],
     flags: &arguments::Flags,
 ) -> Vec<Vec<(Platform, crate::build::cache::ActionKey)>> {
-    let runs: Vec<(usize, Platform)> = suites
+    let platforms: Vec<Vec<Platform>> = suites
         .iter()
-        .enumerate()
-        .flat_map(|(i, &t)| {
+        .map(|&t| {
             runs_of(session, t, flags)
                 .into_iter()
-                .map(move |(p, _)| (i, p))
+                .map(|(p, _)| p)
+                .collect()
         })
         .collect();
-    const RUN: &str = "every run is of a suite in the list";
-    let keys = crate::parallel::map(runs.len(), |r| {
-        let &(i, platform) = runs.get(r).or_ice("`map` asks for each run once");
+    let runs: Vec<(TargetId, Platform)> = suites
+        .iter()
+        .zip(&platforms)
+        .flat_map(|(&t, ps)| ps.iter().map(move |&p| (t, p)))
+        .collect();
+    let keys = crate::parallel::map_items(&runs, |_, &(target, platform)| {
         let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-        actions::test_key(session, *suites.get(i).or_ice(RUN), &output, flags)
+        actions::test_key(session, target, &output, flags)
     });
-    let mut by_suite: Vec<Vec<(Platform, crate::build::cache::ActionKey)>> =
-        vec![Vec::new(); suites.len()];
-    for ((i, platform), key) in runs.into_iter().zip(keys) {
-        by_suite.get_mut(i).or_ice(RUN).push((platform, key));
-    }
-    by_suite
+    // Each suite takes as many keys as it has runs, in order.
+    let mut keys = keys.into_iter();
+    platforms
+        .into_iter()
+        .map(|ps| ps.into_iter().zip(keys.by_ref()).collect())
+        .collect()
 }
 
 /// One suite's policy check, platforms, keys and cache lookups.

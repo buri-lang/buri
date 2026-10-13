@@ -271,10 +271,8 @@ fn format_all(args: &arguments::Args) -> i32 {
     let write = !args.flags.check;
     let cache = Cache::open(&session.root);
     let workspace = &*session.workspace;
-    let work = crate::parallel::map(files.len(), |i| {
-        files.get(i).map_or(Work::Skip, |path| {
-            lay_out(workspace, &referenced, &cache, path, write)
-        })
+    let work = crate::parallel::map_items(&files, |_, path| {
+        lay_out(workspace, &referenced, &cache, path, write)
     });
 
     let mut changed = Vec::new();
@@ -333,10 +331,7 @@ fn format_all(args: &arguments::Args) -> i32 {
     // touched — the prose is the author's.
     documents.sort();
     documents.dedup();
-    let laid_out = crate::parallel::map(documents.len(), |i| {
-        let path = documents
-            .get(i)
-            .or_ice("`map` asks for indices below the length");
+    let laid_out = crate::parallel::map_items(&documents, |_, path| {
         let rel = workspace.rel_of(path);
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,

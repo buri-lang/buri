@@ -1227,7 +1227,7 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
     let fresh: Vec<Option<std::sync::Arc<Vec<u8>>>> = if missing.len() < SERIAL_READS {
         missing.iter().map(|&i| read(i)).collect()
     } else {
-        crate::parallel::map(missing.len(), |j| read(*missing.get(j)?))
+        crate::parallel::map_items(&missing, |_, &i| read(i))
     };
     {
         let mut memo = READS

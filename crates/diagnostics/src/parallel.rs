@@ -108,7 +108,28 @@ where
     R: Send,
     F: Fn(usize) -> R + Sync,
 {
-    map_with(len, || (), |(), i| f(i))
+    map_items_with(&vec![(); len], || (), |(), i, ()| f(i))
+}
+
+/// The same, where each worker needs a scratch table of its own.
+pub fn map_with<S, R, I, F>(len: usize, init: I, f: F) -> Vec<R>
+where
+    R: Send,
+    I: Fn() -> S + Sync,
+    F: Fn(&mut S, usize) -> R + Sync,
+{
+    map_items_with(&vec![(); len], init, |state, i, ()| f(state, i))
+}
+
+/// `f` over each of `items` and its index, in parallel, with the results in
+/// index order.
+pub fn map_items<T, R, F>(items: &[T], f: F) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+    F: Fn(usize, &T) -> R + Sync,
+{
+    map_items_with(items, || (), |(), i, item| f(i, item))
 }
 
 /// The same, where each worker needs a scratch table of its own.
@@ -124,16 +145,22 @@ where
 /// contiguous blocks, because the items are codegen units and functions and
 /// those differ in size by two orders of magnitude — a block of the wrong ones
 /// leaves one worker running long after the rest have finished.
-pub fn map_with<S, R, I, F>(len: usize, init: I, f: F) -> Vec<R>
+pub fn map_items_with<T, S, R, I, F>(items: &[T], init: I, f: F) -> Vec<R>
 where
+    T: Sync,
     R: Send,
     I: Fn() -> S + Sync,
-    F: Fn(&mut S, usize) -> R + Sync,
+    F: Fn(&mut S, usize, &T) -> R + Sync,
 {
+    let len = items.len();
     let width = width(len);
     if width <= 1 {
         let mut state = init();
-        return (0..len).map(|i| f(&mut state, i)).collect();
+        return items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| f(&mut state, i, item))
+            .collect();
     }
     let next = AtomicUsize::new(0);
     let phase = crate::profile::current();
@@ -157,10 +184,10 @@ where
                         let mut state = start();
                         loop {
                             let i = cursor.fetch_add(1, Ordering::Relaxed);
-                            if i >= len {
+                            let Some(item) = items.get(i) else {
                                 return done;
-                            }
-                            done.push((i, each(&mut state, i)));
+                            };
+                            done.push((i, each(&mut state, i, item)));
                         }
                     })
                 });
@@ -190,12 +217,12 @@ where
     // slower path rather than a different answer.
     let mut out = Vec::with_capacity(len);
     let mut spare: Option<S> = None;
-    for (i, slot) in slots.into_iter().enumerate() {
+    for (i, (slot, item)) in slots.into_iter().zip(items).enumerate() {
         out.push(match slot {
             Some(value) => value,
             None => {
                 let state = spare.get_or_insert_with(&init);
-                f(state, i)
+                f(state, i, item)
             }
         });
     }
