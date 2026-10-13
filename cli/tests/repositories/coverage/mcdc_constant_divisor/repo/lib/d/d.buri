@@ -1,0 +1,17 @@
+let PER_ROW: Int = 4;
+
+export fn half(n: Int): Int {
+    n / 2
+}
+
+export fn column(n: Int): Int {
+    n % PER_ROW
+}
+
+export fn middle<T>(items: [T]): Int {
+    items.length() / 2
+}
+
+export fn share(n: Int, d: Int): Int {
+    n / d
+}

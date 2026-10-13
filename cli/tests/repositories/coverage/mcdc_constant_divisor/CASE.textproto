@@ -1,0 +1,32 @@
+# A division by a nonzero literal, or by a module-level `let` holding one,
+# can't abort, so `--coverage=mcdc` counts no decision for it: `half`,
+# `column` and the generic `middle` add none. `share` divides by what its
+# caller passes, which no test makes zero, so its one condition reads unshown.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "--coverage=mcdc counts no abort for a division by a nonzero constant"
+
+run {
+  args: ["test", "//lib/d", "--coverage=mcdc"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}
+
+run {
+  args: ["test", "//lib/d", "--coverage=mcdc", "--output=js"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}

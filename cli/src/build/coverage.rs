@@ -269,27 +269,33 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
     };
     let mut note =
         |body: &typed::Expr, instance: Instance, traps: Option<&dyn Fn(&typed::Expr) -> bool>| {
-            coverage::decisions(body, traps, &builtins, &mut |d, e| {
-                let at = Span {
-                    start: d.at,
-                    ..d.span
-                };
-                let (name, line) = line_of(at).or_ice(INSIDE);
-                let id = (d.kind, d.span.start, d.span.end, instance.clone());
-                let decision = Decision {
-                    line,
-                    at: d.at,
-                    branches: d.branches,
-                    names: Vec::new(),
-                    group: Default::default(),
-                    conditions: (traps.is_some() && !d.tree).then(|| conditions_of(map, &d, e)),
-                };
-                files
-                    .entry(name.to_string())
-                    .or_default()
-                    .decisions
-                    .insert(id, decision);
-            });
+            coverage::decisions(
+                body,
+                traps,
+                &analysis.checked.consts,
+                &builtins,
+                &mut |d, e| {
+                    let at = Span {
+                        start: d.at,
+                        ..d.span
+                    };
+                    let (name, line) = line_of(at).or_ice(INSIDE);
+                    let id = (d.kind, d.span.start, d.span.end, instance.clone());
+                    let decision = Decision {
+                        line,
+                        at: d.at,
+                        branches: d.branches,
+                        names: Vec::new(),
+                        group: Default::default(),
+                        conditions: (traps.is_some() && !d.tree).then(|| conditions_of(map, &d, e)),
+                    };
+                    files
+                        .entry(name.to_string())
+                        .or_default()
+                        .decisions
+                        .insert(id, decision);
+                },
+            );
             if traps.is_some() {
                 coverage::trees(body, &mut |tree| {
                     let span = tree.span();
