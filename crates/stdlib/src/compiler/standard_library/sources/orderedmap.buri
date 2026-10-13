@@ -659,7 +659,10 @@ fn overfull<K, V, C: Allocator>(ctx: C, n: Node<K, V>): Grown<K, V> {
                     .Split(
                         branch(n.keys.take(ctx, half), n.children.take(ctx, half + 1)),
                         up,
-                        branch(n.keys.drop(ctx, half + 1), n.children.drop(ctx, half + 1)),
+                        branch(
+                            n.keys.drop(ctx, half + 1),
+                            n.children.drop(ctx, half + 1),
+                        ),
                     )
                 }
             },
