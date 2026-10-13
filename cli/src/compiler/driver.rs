@@ -7,7 +7,7 @@ use crate::compiler::modules::{Loaded, Loader, ModuleData, Unit};
 use crate::compiler::semantics::resolve::{Bodies, Checked, Checker};
 use crate::compiler::semantics::types::ModuleId;
 use crate::compiler::snapshot::{self, Opening, Snapshot};
-use crate::diagnostics::{Diagnostic, Diagnostics, FileId, SourceMap, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, FileId, Invariant as _, SourceMap, Span};
 
 pub struct Analysis {
     pub loaded: Loaded,
@@ -545,48 +545,53 @@ pub(crate) fn reach(
                 .map(|s| (pkg.module_path(&s.value), Some(role))),
         );
     };
-    let mut loads_generators = true;
     match target.kind {
-        RuleKind::Library => match &pkg.build.library {
-            Some(lib) => {
-                starts.push((pkg.module_path("lib.buri"), Some(Role::Source)));
-                generated(&mut starts);
-                listed(&mut starts, &lib.sources, Role::Source);
-                if let Some(testing) = &lib.testing {
-                    starts.push((pkg.module_path("testing/lib.buri"), Some(Role::TestOnly)));
-                    listed(&mut starts, &testing.sources, Role::TestOnly);
-                }
-                if let Some(suite) = &lib.test {
-                    listed(&mut starts, &suite.sources, Role::TestSource);
-                }
+        RuleKind::Library => {
+            let lib = pkg
+                .build
+                .library
+                .as_ref()
+                .or_ice("a library target's package has a library rule");
+            starts.push((pkg.module_path("lib.buri"), Some(Role::Source)));
+            generated(&mut starts);
+            listed(&mut starts, &lib.sources, Role::Source);
+            if let Some(testing) = &lib.testing {
+                starts.push((pkg.module_path("testing/lib.buri"), Some(Role::TestOnly)));
+                listed(&mut starts, &testing.sources, Role::TestOnly);
             }
-            None => loads_generators = false,
-        },
-        RuleKind::Binary => match &pkg.build.binary {
-            Some(bin) => {
-                generated(&mut starts);
-                for label in ws.custom_platforms(target) {
-                    starts.push((label, Some(Role::Source)));
-                }
-                starts.push((pkg.module_path("main.buri"), Some(Role::Entry)));
-                listed(&mut starts, &bin.sources, Role::Source);
-                if let Some(suite) = &bin.test {
-                    listed(&mut starts, &suite.sources, Role::TestSource);
-                }
+            if let Some(suite) = &lib.test {
+                listed(&mut starts, &suite.sources, Role::TestSource);
             }
-            None => loads_generators = false,
-        },
-        RuleKind::Tool => match &pkg.build.tool {
-            Some(tool) => {
-                generated(&mut starts);
-                starts.push((pkg.module_path("tool.buri"), Some(Role::Source)));
-                listed(&mut starts, &tool.sources, Role::Source);
-                if let Some(suite) = &tool.test {
-                    listed(&mut starts, &suite.sources, Role::TestSource);
-                }
+        }
+        RuleKind::Binary => {
+            let bin = pkg
+                .build
+                .binary
+                .as_ref()
+                .or_ice("a binary target's package has a binary rule");
+            generated(&mut starts);
+            for label in ws.custom_platforms(target) {
+                starts.push((label, Some(Role::Source)));
             }
-            None => loads_generators = false,
-        },
+            starts.push((pkg.module_path("main.buri"), Some(Role::Entry)));
+            listed(&mut starts, &bin.sources, Role::Source);
+            if let Some(suite) = &bin.test {
+                listed(&mut starts, &suite.sources, Role::TestSource);
+            }
+        }
+        RuleKind::Tool => {
+            let tool = pkg
+                .build
+                .tool
+                .as_ref()
+                .or_ice("a tool target's package has a tool rule");
+            generated(&mut starts);
+            starts.push((pkg.module_path("tool.buri"), Some(Role::Source)));
+            listed(&mut starts, &tool.sources, Role::Source);
+            if let Some(suite) = &tool.test {
+                listed(&mut starts, &suite.sources, Role::TestSource);
+            }
+        }
     }
 
     let mut holds = vec![false; loaded.modules.len()];
@@ -601,15 +606,15 @@ pub(crate) fn reach(
         queue.push(id);
     }
     while let Some(id) = queue.pop() {
-        let Some(seen) = holds.get_mut(id.index()) else {
-            continue;
-        };
+        let seen = holds
+            .get_mut(id.index())
+            .or_ice("a loaded module has a slot in `holds`");
         if std::mem::replace(seen, true) {
             continue;
         }
         queue.extend(imports(loaded.module(id)).filter_map(|path| loaded.find(path)));
     }
-    Some((holds, if loads_generators { rules } else { Vec::new() }))
+    Some((holds, rules))
 }
 
 /// Every file in the closure that the standard library did not supply.

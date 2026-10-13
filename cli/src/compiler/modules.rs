@@ -95,9 +95,10 @@ impl<'a> Loader<'a> {
     ) -> Loader<'a> {
         let mut loader = Loader::new(ws, map, diags, cache);
         for m in &snapshot.modules {
-            if let Some(index) = standard_library::find_index(&m.path) {
-                loader.map.standard(index);
-            }
+            loader.map.standard(
+                standard_library::find_index(&m.path)
+                    .or_ice("a snapshot holds only standard library modules"),
+            );
         }
         loader.modules = snapshot.modules.clone();
         loader.by_path = snapshot.by_path.clone();
@@ -141,15 +142,14 @@ impl<'a> Loader<'a> {
         let pkg = ws.package(target.package);
         match target.kind {
             RuleKind::Library => {
-                if pkg.build.library.is_none() {
-                    return;
-                }
+                let lib = pkg
+                    .build
+                    .library
+                    .as_ref()
+                    .or_ice("a library target's package has a library rule");
                 self.check_testing_surface_declared(target);
                 self.load_path(&pkg.module_path("lib.buri"), Role::Source, Span::NONE);
                 self.load_closure_generators(target);
-                let Some(lib) = &pkg.build.library else {
-                    return;
-                };
                 for src in &lib.sources {
                     self.load_package_source(target, &src.value, Role::Source, src.span);
                 }
@@ -174,9 +174,11 @@ impl<'a> Loader<'a> {
                 }
             }
             RuleKind::Binary => {
-                if pkg.build.binary.is_none() {
-                    return;
-                }
+                let bin = pkg
+                    .build
+                    .binary
+                    .as_ref()
+                    .or_ice("a binary target's package has a binary rule");
                 // A `testing/` surface belongs to the library rule. A package
                 // that has no library rule still has the directory, and
                 // nothing else would look at it, so the binary asks on its
@@ -186,7 +188,6 @@ impl<'a> Loader<'a> {
                     self.check_testing_surface_declared(target);
                 }
                 self.load_closure_generators(target);
-                let Some(bin) = &pkg.build.binary else { return };
                 // The output being built, when it names a repository platform:
                 // its entry is checked against that platform's declaration.
                 if let (Some(platform), Some(entry), None) =
@@ -219,7 +220,11 @@ impl<'a> Loader<'a> {
                 }
             }
             RuleKind::Tool => {
-                let Some(tool) = &pkg.build.tool else { return };
+                let tool = pkg
+                    .build
+                    .tool
+                    .as_ref()
+                    .or_ice("a tool target's package has a tool rule");
                 self.load_closure_generators(target);
                 // A source rather than an entry: `tool.buri` has no `main` and
                 // builds no context. The toolchain writes the `main` that calls
@@ -364,7 +369,7 @@ impl<'a> Loader<'a> {
     /// at all. The surface was then invisible: no target compiled it, and
     /// `//pkg/testing` resolved to a file the build had never heard of.
     fn check_testing_surface_declared(&mut self, target: TargetId) {
-        let Some(ws) = self.ws else { return };
+        let ws = self.ws.or_ice("a target is checked in a repository");
         let pkg = ws.package(target.package);
         let dir = pkg.dir.join("testing");
         if !dir.is_dir() {
@@ -435,7 +440,9 @@ impl<'a> Loader<'a> {
     /// generator failed has to say so wherever it is compiled into something,
     /// not only when that library is the target named on the command line.
     fn load_closure_generators(&mut self, target: TargetId) {
-        let Some(ws) = self.ws else { return };
+        let ws = self
+            .ws
+            .or_ice("a target's generators are loaded in a repository");
         for member in ws.closure(target) {
             self.load_generators(member);
         }
@@ -448,7 +455,9 @@ impl<'a> Loader<'a> {
     /// door every command opens a repository through — because the front end
     /// can neither build nor spawn a tool. What arrives here is data.
     fn load_generators(&mut self, target: TargetId) {
-        let Some(ws) = self.ws else { return };
+        let ws = self
+            .ws
+            .or_ice("a rule's generators are loaded in a repository");
         if crate::build::generators::declared(ws, target).is_empty()
             && !crate::build::generators::has_contracts(ws, target)
         {

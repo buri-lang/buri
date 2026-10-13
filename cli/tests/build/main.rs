@@ -9,6 +9,7 @@
 //! | [`init`] | scratch | That `buri init` writes a repository that builds and tests, and that a second run refuses. |
 //! | [`repositories`] | `repositories/` | One repository per build-system rule, each with a manifest of what the CLI does in it and the output that produces. |
 //! | [`diagnostics_paths`] | scratch | That the JSON an editor sends is read as written, a source too big to hold is refused, a long line of wide characters is cut between them, and a damaged build record is passed over. |
+//! | [`command_line`] | scratch | What the command line says when it is asked badly: no command, a flag with a value it can't take, a misspelled command, a query that names nothing, a skill no longer shipped, a `.gitignore` to merge into, and a remembered `gen` answer that no longer reads. |
 //! | [`coverage_runs`] | scratch | That a killed `buri test --coverage` takes its test runners with it, and that a run's report holds only its own counts, with another run beside it or one killed before it. |
 //! | [`custom_platforms`] | `repositories/custom-platforms/` | That a repository platform's artifact answers when the host it was written for calls it, and that editing its `js` file rebuilds it. |
 //! | [`build_command`] | scratch | What `buri build` itself answers: `--check-reproducible` with nowhere to write its rounds, beside a broken build file and on a library alone, and two pages in one run. |
@@ -76,6 +77,7 @@ mod build_rules;
 mod check_reproducible;
 mod checking;
 mod closed_stdout;
+mod command_line;
 mod coverage_runs;
 mod custom_platforms;
 mod diagnostics_paths;

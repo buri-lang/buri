@@ -628,3 +628,47 @@ fn a_run_with_no_javascript_runtime_says_what_it_needs() {
         .says("error: cannot execute the artifact")
         .says("`buri run` needs a JavaScript runtime; install bun, or set BURI_JS");
 }
+
+/// A suite that lists a source that isn't there, or an entry point, is told
+/// so, whichever rule it is the suite of, and the sources it did list
+/// still load.
+#[test]
+fn a_suite_listing_a_source_that_is_not_there_is_refused_in_every_rule() {
+    let scratch = Scratch::repo("rare-suite-sources");
+    scratch.write(
+        "lib/l/BUILD.buri",
+        "library {\n    test {\n        sources: [\"missing.buri\"]\n    }\n}\n",
+    );
+    scratch.write("lib/l/lib.buri", ONE);
+    scratch.write(
+        "cmd/b/BUILD.buri",
+        "binary {\n    outputs: [{ platform: \"node\" }]\n\n    test {\n        sources: [\"missing.buri\"]\n    }\n}\n",
+    );
+    scratch.write("cmd/b/main.buri", NODE_MAIN);
+    scratch.write(
+        "tools/t/BUILD.buri",
+        "tool {\n    generate {}\n\n    test {\n        sources: [\"missing.buri\"]\n    }\n}\n",
+    );
+    scratch.write(
+        "tools/t/tool.buri",
+        "from \"core/tool\" import { Generated, GenerateRequest };\nfrom \"platform/effect\" import { Allocator };\n\nexport fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {\n    Generated { modules: [], diagnostics: [], needs: [] }\n}\n",
+    );
+    for package in ["lib/l", "cmd/b", "tools/t"] {
+        scratch
+            .run(&["test", &format!("//{package}")])
+            .exits(1)
+            .says("missing.buri does not exist [unknown-source]");
+    }
+}
+
+/// A `testing/` directory with a build file of its own is a package of its
+/// own, and the library beside it is not told to declare it.
+#[test]
+fn a_testing_directory_that_is_a_package_is_not_the_librarys_surface() {
+    let scratch = Scratch::repo("rare-testing-package");
+    scratch.write("lib/a/BUILD.buri", "library {}\n");
+    scratch.write("lib/a/lib.buri", ONE);
+    scratch.write("lib/a/testing/BUILD.buri", "library {}\n");
+    scratch.write("lib/a/testing/lib.buri", ONE);
+    scratch.run(&["build", "//lib/a"]).ok();
+}

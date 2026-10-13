@@ -42,6 +42,7 @@ pub mod version;
 pub mod watch;
 
 use crate::commands::arguments::{Args, Flags};
+use crate::diagnostics::Invariant as _;
 use std::fmt::Write as _;
 
 /// What a flag does with its `=value`.
@@ -646,9 +647,7 @@ fn rows() -> Vec<(String, &'static str, &'static str)> {
 /// The help for one namespace: what `buri add` alone prints, and what its two
 /// refusals print under them. Generated from the same table that dispatches.
 pub fn subcommand_usage(name: &str) -> String {
-    let Some(c) = find(name) else {
-        return String::new();
-    };
+    let c = find(name).or_ice("`subcommand_usage` is asked about a command in the table");
     let mut out = format!("buri {} — {}\n\n", c.name, c.blurb);
     let name_width = c
         .subcommands
@@ -739,18 +738,17 @@ pub fn reference(c: &Command) -> String {
 
     let mut rows: Vec<&Flag> = c.flags.iter().filter_map(|n| flag(n)).collect();
     rows.extend(FLAGS.iter().filter(|f| f.global));
-    if !rows.is_empty() {
-        out.push_str("## Flags\n\n| Flag | Meaning |\n|---|---|\n");
-        for f in rows {
-            let choices = if f.choices.is_empty() {
-                String::new()
-            } else {
-                format!(" (`{}`)", f.choices.join("`, `"))
-            };
-            let _ = writeln!(out, "| `{}` | {}{} |", spelling(f), f.blurb, choices);
-        }
-        out.push('\n');
+    // Never empty: the global flags are on every page.
+    out.push_str("## Flags\n\n| Flag | Meaning |\n|---|---|\n");
+    for f in rows {
+        let choices = if f.choices.is_empty() {
+            String::new()
+        } else {
+            format!(" (`{}`)", f.choices.join("`, `"))
+        };
+        let _ = writeln!(out, "| `{}` | {}{} |", spelling(f), f.blurb, choices);
     }
+    out.push('\n');
 
     let _ = writeln!(
         out,
