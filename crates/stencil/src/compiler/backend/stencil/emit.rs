@@ -25,7 +25,8 @@
 use super::abi::Loc;
 use super::jit::KeyArg;
 use crate::compiler::backend::intrinsic_keys::{
-    checked_kind, conversion_target, json_arm, json_variant, native_body, CheckedKind, JsonArm,
+    checked_kind, conversion_target, derive_key, json_arm, json_variant, native_body, number_key,
+    CheckedKind, JsonArm, Leaf,
 };
 use crate::compiler::semantics::types::{field_types, variant_types};
 
@@ -42,7 +43,7 @@ use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
 use crate::compiler::middle::layout::{EnumRepr, Repr};
-use crate::compiler::semantics::types::{Prim, Ty, TyKind};
+use crate::compiler::semantics::types::{IntPrim, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant;
 
 /// How deep an inline reference-count walk goes.
@@ -1473,31 +1474,24 @@ impl<'a> Jit<'a> {
                 let strs = Self::concat_strs(args.len()).map(|i| arg(st, i));
                 self.str_concat(st, strs, d);
             }
-            _ => {
-                // `middle::derives` names each leaf by its primitive's type, and
-                // `prim_of_name` knows every primitive.
-                const PRIM: &str = "a derived leaf is at a primitive type";
-                if let Some(t) = key.strip_prefix("derivePrimHash.") {
-                    let prim = prim_of_name(t).or_ice(PRIM);
-                    return self.hash_prim(st, prim, arg(st, 0), arg(st, 1), d);
+            // `middle::derives` names each leaf by its primitive's type.
+            _ => match (derive_key(key), args) {
+                (Some((Leaf::Hash, prim)), _) => {
+                    self.hash_prim(st, prim, arg(st, 0), arg(st, 1), d);
                 }
-                if let Some(t) = key.strip_prefix("derivePrimShow.") {
-                    let prim = prim_of_name(t).or_ice(PRIM);
-                    return self.show_prim(st, prim, arg(st, 0), d, true);
-                }
-                if let Some(t) = key.strip_prefix("derivePrimJson.") {
-                    let a = args.first().copied().or_ice("a JSON leaf takes its value");
-                    let prim = prim_of_name(t).or_ice(PRIM);
-                    self.json_prim(prog, code, st, prim, a, dest);
-                    return;
+                (Some((Leaf::Show, prim)), _) => self.show_prim(st, prim, arg(st, 0), d, true),
+                (Some((Leaf::Json, prim)), [a, ..]) => {
+                    self.json_prim(prog, code, st, prim, *a, dest)
                 }
                 // `middle` writes every other key itself, and each has a row.
-                let entry = super::runtime::entry(key)
-                    .or_ice("an intrinsic key middle writes has a runtime row");
-                let list: Vec<(u32, ir::Type)> =
-                    args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
-                self.rt_call(prog, st, entry, (d, code.ty_of(dest)), &list);
-            }
+                _ => {
+                    let entry = super::runtime::entry(key)
+                        .or_ice("an intrinsic key middle writes has a runtime row");
+                    let list: Vec<(u32, ir::Type)> =
+                        args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
+                    self.rt_call(prog, st, entry, (d, code.ty_of(dest)), &list);
+                }
+            },
         }
     }
 
@@ -2078,23 +2072,13 @@ impl<'a> Jit<'a> {
             self.emit("ret", &[]);
             return;
         }
-        if let Some(t) = key
-            .strip_prefix("number.")
-            .and_then(|k| k.strip_suffix(".show"))
-        {
-            match prim_of_name(t) {
-                Some(prim) => {
-                    self.show_prim(st, prim, p(0), ret0, true);
-                    self.emit("ret", &[]);
-                }
-                None => crate::diagnostics::ice(&format!("stencil: number.{t}.show")),
-            }
-            return;
-        }
         // `number.<T>.<op>`, which the native backends open-code.
-        let parts: Vec<&str> = key.split('.').collect();
-        if let ["number", tname, op] = *parts.as_slice() {
-            let prim = prim_of_name(tname).or_ice("`core/number` defines only primitives");
+        if let Some((prim, op)) = number_key(&key) {
+            if op == "show" {
+                self.show_prim(st, prim, p(0), ret0, true);
+                self.emit("ret", &[]);
+                return;
+            }
             // `Bounded::minValue` and `Bounded::maxValue`. The type comes
             // from the key — `middle::lower`'s `bounded_key` puts it there,
             // because the methods take no argument and the IR type of the
@@ -2172,8 +2156,8 @@ impl<'a> Jit<'a> {
                 self.emit("ret", &[]);
                 return;
             }
-            if let Some(kind) = op.strip_prefix("saturating") {
-                self.saturating(st, prim, kind, p(0), p(1), ret0);
+            if let (Some(kind), Some(int)) = (op.strip_prefix("saturating"), prim.as_int()) {
+                self.saturating(st, int, kind, p(0), p(1), ret0);
                 self.emit("ret", &[]);
                 return;
             }
@@ -2354,28 +2338,6 @@ impl<'a> Jit<'a> {
         let elem = super::lists::element_of(prog, t);
         u64::from(self.layouts_of(elem).stride.max(1))
     }
-}
-
-fn prim_of_name(s: &str) -> Option<Prim> {
-    Some(match s {
-        "Bool" => Prim::Bool,
-        "I8" => Prim::I8,
-        "I16" => Prim::I16,
-        "I32" => Prim::I32,
-        "I64" => Prim::I64,
-        "U8" => Prim::U8,
-        "U16" => Prim::U16,
-        "U32" => Prim::U32,
-        "U64" => Prim::U64,
-        "F32" => Prim::F32,
-        "F64" => Prim::F64,
-        "Char" => Prim::Char,
-        "I128" => Prim::I128,
-        "U128" => Prim::U128,
-        "Str" => Prim::Str,
-        "Template" => Prim::Template,
-        _ => return None,
-    })
 }
 
 impl Jit<'_> {
@@ -2650,10 +2612,9 @@ impl Jit<'_> {
         match kind {
             // Integer to integer. The test is at the **source's** width, and a
             // bound the source cannot reach is not tested at all.
-            CheckedKind::Ints => {
+            CheckedKind::Ints(source, target) => {
                 let (tag, _, _) = num_tag(from);
-                let (from_lo, from_hi) = from.int_range().or_ice("an integer has a range");
-                let (to_lo, to_hi) = to.int_range().or_ice("an integer has a range");
+                let ((from_lo, from_hi), (to_lo, to_hi)) = (source.range(), target.range());
                 for (op, needed, pattern) in [
                     ("lt", to_lo > from_lo, to_lo as u128),
                     ("gt", to_hi < from_hi, to_hi),
@@ -2678,9 +2639,9 @@ impl Jit<'_> {
             // `BigInt` comparison rejects. Every `hi + 1` is a power of two and
             // every `lo` is zero or a negative one, so both bounds are exact
             // doubles and `v >= hi + 1` is the same question with an answer.
-            CheckedKind::FloatToInt => {
+            CheckedKind::FloatToInt(target) => {
                 let v = self.as_f64(st, from, src);
-                let (to_lo, to_hi) = to.int_range().or_ice("an integer has a range");
+                let (to_lo, to_hi) = target.range();
                 let (ttag, tw, _) = num_tag(to);
                 #[allow(
                     clippy::cast_precision_loss,
@@ -2849,18 +2810,18 @@ impl Jit<'_> {
     fn saturating(
         &mut self,
         st: &mut Fn2,
-        prim: Prim,
+        int: IntPrim,
         kind: &str,
         a: u32,
         b: u32,
         dest: u32,
     ) -> bool {
+        let prim = int.prim();
         let (tag, _, signed) = num_tag(prim);
         // `core/number` declares no saturating division: it has no end to run off.
         self.overflowing(st, prim, kind, a, b);
         let (res, flag) = Self::overflow_slots(st);
-        let lo = bound_pattern(prim, true).or_ice("an integer has bounds");
-        let hi = bound_pattern(prim, false).or_ice("an integer has bounds");
+        let (lo, hi) = (int_pattern(int, true), int_pattern(int, false));
         let ok = st.label();
         let done = st.label();
         let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
@@ -3552,18 +3513,23 @@ fn bound_pattern(prim: Prim, low: bool) -> Option<u128> {
             (_, false) => u128::from(f64::MAX.to_bits()),
         });
     }
-    let (lo, hi) = prim.int_range()?;
-    let (_, bits, _) = prim_tag(prim)?;
+    Some(int_pattern(prim.as_int()?, low))
+}
+
+/// [`bound_pattern`] for an integer, which always has one.
+fn int_pattern(int: IntPrim, low: bool) -> u128 {
+    let (lo, hi) = int.range();
+    let bits = int.bits();
     let pattern = if low { lo as u128 } else { hi };
     if bits >= 128 {
-        return Some(pattern);
+        return pattern;
     }
     let mask = if bits == 64 {
         u128::from(u64::MAX)
     } else {
         (1u128 << bits) - 1
     };
-    Some(pattern & mask)
+    pattern & mask
 }
 
 /// Which intrinsic keys this backend has a body for, asked ahead of emission.

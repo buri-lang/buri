@@ -77,6 +77,11 @@ pub enum Prim {
 }
 
 impl Prim {
+    /// The type constructor every `Tables` holds this primitive at.
+    pub fn con(self) -> TyConId {
+        TyConId(self as u32)
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Prim::Bool => "Bool",
@@ -149,22 +154,27 @@ impl Prim {
 
     /// Inclusive range of representable integers.
     pub fn int_range(self) -> Option<(i128, u128)> {
+        self.as_int().map(IntPrim::range)
+    }
+
+    /// This primitive as an integer, where it is one.
+    pub fn as_int(self) -> Option<IntPrim> {
         Some(match self {
-            Prim::I8 => (i8::MIN as i128, i8::MAX as u128),
-            Prim::I16 => (i16::MIN as i128, i16::MAX as u128),
-            Prim::I32 => (i32::MIN as i128, i32::MAX as u128),
-            Prim::I64 => (i64::MIN as i128, i64::MAX as u128),
-            Prim::I128 => (i128::MIN, i128::MAX as u128),
-            Prim::U8 => (0, u8::MAX as u128),
-            Prim::U16 => (0, u16::MAX as u128),
-            Prim::U32 => (0, u32::MAX as u128),
-            Prim::U64 => (0, u64::MAX as u128),
-            Prim::U128 => (0, u128::MAX),
+            Prim::I8 => IntPrim::I8,
+            Prim::I16 => IntPrim::I16,
+            Prim::I32 => IntPrim::I32,
+            Prim::I64 => IntPrim::I64,
+            Prim::I128 => IntPrim::I128,
+            Prim::U8 => IntPrim::U8,
+            Prim::U16 => IntPrim::U16,
+            Prim::U32 => IntPrim::U32,
+            Prim::U64 => IntPrim::U64,
+            Prim::U128 => IntPrim::U128,
             _ => return None,
         })
     }
 
-    pub fn all() -> &'static [Prim] {
+    pub fn all() -> &'static [Prim; 16] {
         &[
             Prim::Bool,
             Prim::I8,
@@ -183,6 +193,62 @@ impl Prim {
             Prim::Str,
             Prim::Template,
         ]
+    }
+}
+
+/// The integer primitives, which are the ones with a range.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum IntPrim {
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+}
+
+impl IntPrim {
+    pub fn prim(self) -> Prim {
+        match self {
+            IntPrim::I8 => Prim::I8,
+            IntPrim::I16 => Prim::I16,
+            IntPrim::I32 => Prim::I32,
+            IntPrim::I64 => Prim::I64,
+            IntPrim::I128 => Prim::I128,
+            IntPrim::U8 => Prim::U8,
+            IntPrim::U16 => Prim::U16,
+            IntPrim::U32 => Prim::U32,
+            IntPrim::U64 => Prim::U64,
+            IntPrim::U128 => Prim::U128,
+        }
+    }
+
+    pub fn bits(self) -> u32 {
+        self.prim().bits()
+    }
+
+    pub fn is_signed(self) -> bool {
+        self.prim().is_signed()
+    }
+
+    /// Inclusive range of representable integers.
+    pub fn range(self) -> (i128, u128) {
+        match self {
+            IntPrim::I8 => (i8::MIN as i128, i8::MAX as u128),
+            IntPrim::I16 => (i16::MIN as i128, i16::MAX as u128),
+            IntPrim::I32 => (i32::MIN as i128, i32::MAX as u128),
+            IntPrim::I64 => (i64::MIN as i128, i64::MAX as u128),
+            IntPrim::I128 => (i128::MIN, i128::MAX as u128),
+            IntPrim::U8 => (0, u8::MAX as u128),
+            IntPrim::U16 => (0, u16::MAX as u128),
+            IntPrim::U32 => (0, u32::MAX as u128),
+            IntPrim::U64 => (0, u64::MAX as u128),
+            IntPrim::U128 => (0, u128::MAX),
+        }
     }
 }
 
@@ -582,7 +648,7 @@ impl CtxType {
 // The nominal tables
 // ---------------------------------------------------------------------------
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct Tables {
     pub tycons: Layered<TyCon>,
     pub fns: Layered<FnInfo>,
@@ -619,7 +685,9 @@ pub struct Tables {
     /// `core/list`.
     pub array_methods: LayeredMap<String, FnId>,
     pub ctx_decls: Layered<ContextDeclInfo>,
-    prim_ids: HashMap<Prim, (TyConId, Ty)>,
+    /// Each primitive's type, by `Prim` discriminant, which is also its
+    /// `TyConId`: `Tables::default` adds them first, in `Prim::all()` order.
+    prims: [Ty; 16],
     /// `member name -> position` for the types whose variant or field list is
     /// long enough that `TyCon::variant_index`'s scan is the cost of checking
     /// them. One `match` arm per variant means one scan per arm, so an enum
@@ -678,6 +746,41 @@ impl Rows<'_> {
                 .any(|(k, a)| self.provides(c.index(), k) && self.occurs_provided(a, i)),
             _ => false,
         }
+    }
+}
+
+impl Default for Tables {
+    /// Tables holding the primitives and nothing else.
+    fn default() -> Self {
+        let mut t = Tables {
+            tycons: Layered::default(),
+            fns: Layered::default(),
+            traits: Layered::default(),
+            consts: Layered::default(),
+            ctx_types: Layered::default(),
+            impls: LayeredMap::default(),
+            traits_by_con: IdMap::default(),
+            methods: IdMap::default(),
+            array_methods: LayeredMap::default(),
+            ctx_decls: Layered::default(),
+            prims: Prim::all().map(|p| Ty::con(p.con(), [])),
+            member_index: Layered::default(),
+            variance: Layered::default(),
+        };
+        // The primitives live in a synthetic module so that every table entry
+        // has an owner, but their *defining* modules — where their methods are
+        // declared — are the `core/*` ones of SPEC 6.7.3.
+        for p in Prim::all() {
+            t.add_tycon(TyCon {
+                name: p.name().to_string(),
+                module: ModuleId(u32::MAX),
+                generics: Vec::new(),
+                def: TyDef::Prim(*p),
+                exported: true,
+                span: Span::NONE,
+            });
+        }
+        t
     }
 }
 
@@ -777,7 +880,7 @@ impl Tables {
             methods: self.methods.layer(),
             array_methods: self.array_methods.layer(),
             ctx_decls: self.ctx_decls.layer(),
-            prim_ids: self.prim_ids.clone(),
+            prims: self.prims,
             member_index: self.member_index.layer(),
             variance: self.variance.layer(),
         }
@@ -1154,23 +1257,12 @@ impl Tables {
         self.add_ctx_type(c)
     }
 
-    pub fn register_prim(&mut self, p: Prim, id: TyConId) {
-        self.prim_ids.insert(p, (id, Ty::con(id, [])));
-    }
-
-    fn prim_entry(&self, p: Prim) -> (TyConId, Ty) {
-        *self
-            .prim_ids
-            .get(&p)
-            .or_ice("register_primitives records every Prim::all() before anything asks for one")
-    }
-
     pub fn prim_id(&self, p: Prim) -> TyConId {
-        self.prim_entry(p).0
+        p.con()
     }
 
     pub fn prim(&self, p: Prim) -> Ty {
-        self.prim_entry(p).1
+        self.prims[p as usize]
     }
 
     /// The word a `derive Flags` struct is stored in: the smallest unsigned
@@ -1893,19 +1985,16 @@ mod tests {
     use super::*;
 
     fn tables_with_prims() -> Tables {
-        let mut t = Tables::default();
+        Tables::default()
+    }
+
+    #[test]
+    fn each_primitive_is_the_tycon_at_its_own_id() {
+        let t = Tables::default();
         for p in Prim::all() {
-            let id = t.add_tycon(TyCon {
-                name: p.name().to_string(),
-                module: ModuleId(0),
-                generics: Vec::new(),
-                def: TyDef::Prim(*p),
-                exported: true,
-                span: Span::NONE,
-            });
-            t.register_prim(*p, id);
+            assert!(matches!(t.tycon(t.prim_id(*p)).def, TyDef::Prim(q) if q == *p));
+            assert_eq!(t.prim(*p), Ty::con(t.prim_id(*p), []));
         }
-        t
     }
 
     #[test]

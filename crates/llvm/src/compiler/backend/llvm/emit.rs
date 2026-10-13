@@ -77,8 +77,8 @@ use inkwell::values::{
 use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::compiler::backend::intrinsic_keys::{
-    checked_kind, conversion_target, derive_key, json_arm, json_variant, native_body,
-    prim_trait_op, step_call, CheckedKind, JsonArm,
+    checked_kind, conversion_target, derive_key, json_arm, json_variant, native_body, number_key,
+    prim_trait_op, step_call, CheckedKind, JsonArm, Leaf,
 };
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::task_thread;
@@ -89,7 +89,9 @@ use crate::compiler::middle::layout::{
 };
 use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::semantics::builtins::conversion_is_exact;
-use crate::compiler::semantics::types::{self as types, FuncIdx, Prim, Tables, Ty, TyKind};
+use crate::compiler::semantics::types::{
+    self as types, FuncIdx, IntPrim, Prim, Tables, Ty, TyKind,
+};
 use crate::diagnostics::Invariant;
 use crate::hash::Map;
 
@@ -4236,7 +4238,7 @@ const OPEN_CODED_RC: u32 = 8;
 #[derive(Clone, Copy)]
 struct Wide<'o, 'ctx> {
     op: &'o str,
-    prim: Prim,
+    prim: IntPrim,
     x: IntValue<'ctx>,
     y: IntValue<'ctx>,
 }
@@ -6805,9 +6807,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         match name {
             // Quoted: `$show`'s primitive arm, where a `Str` is
             // `JSON.stringify` and a `Char` is `'c'` (`runtime.js:200-210`).
-            "derivePrimShow" => self.show_prim(state, code, dest, prim, arg(0), true),
-            "derivePrimJson" => self.json_prim(state, code, dest, prim, arg(0)),
-            _ => {
+            Leaf::Show => self.show_prim(state, code, dest, prim, arg(0), true),
+            Leaf::Json => self.json_prim(state, code, dest, prim, arg(0)),
+            Leaf::Hash => {
                 let acc = self.get(state, arg(0));
                 self.hash_prim(state, code, dest, prim, acc, arg(1));
             }
@@ -7832,17 +7834,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         key: &str,
         args: &[ir::ValueId],
     ) -> bool {
-        let parts: Vec<&str> = key.split('.').collect();
-        let (Some(&"number"), Some(name), Some(op), 3) =
-            (parts.first(), parts.get(1), parts.get(2), parts.len())
-        else {
+        let Some((from, op)) = number_key(key) else {
             return false;
         };
-        let from = Prim::all()
-            .iter()
-            .copied()
-            .find(|p| p.name() == *name)
-            .or_ice("`core/number` declares its methods on primitives");
         let dest = dest_of(dests);
         let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
         let a = args.first().copied().map(|v| self.get(state, v));
@@ -7880,7 +7874,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // not name — `Char` is not a numeric target — and it is the same
         // `Result<Char, RangeError>` shape: not every `U32` is a Unicode
         // scalar (`text/json.buri`'s `\uXXXX` path is the reachable caller).
-        if *op == "toChar" {
+        if op == "toChar" {
             return self.convert_checked(state, code, dest, from, Prim::Char, arg(args, 0));
         }
 
@@ -7889,14 +7883,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // there for the reason `qualified_key` puts a `derivePrim*`'s there:
         // the *return* type is a bare register shape, and `I64` and `U64` are
         // the same one.
-        if matches!(*op, "minValue" | "maxValue") {
-            let value = self.bounds(from, *op == "minValue", want);
+        if matches!(op, "minValue" | "maxValue") {
+            let value = self.bounds(from, op == "minValue", want);
             self.set(state, dest, value);
             return true;
         }
 
         let signed = from.is_signed();
-        let value = match (*op, a, b) {
+        let value = match (op, a, b, from.as_int()) {
             // `wrappingAdd` and `add` are the same instruction here: §3.4
             // declines to set `nsw`/`nuw`, so the plain operation already wraps
             // and the `Wrapping` trait's promise is the one this backend keeps
@@ -7907,8 +7901,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 | "wrappingSubtract" | "wrappingMultiply",
                 Some(x),
                 Some(y),
+                _,
             ) => {
-                let binop = match *op {
+                let binop = match op {
                     "add" | "wrappingAdd" => ir::BinOp::Add,
                     "subtract" | "wrappingSubtract" => ir::BinOp::Sub,
                     "multiply" | "wrappingMultiply" => ir::BinOp::Mul,
@@ -7920,12 +7915,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // one place rather than from two that have to agree.
                 self.binary(state, binop, from, code.ty_of(dest), x, y)
             }
-            ("negate", Some(x), _) => self.unary(ir::UnOp::Neg, from, x),
-            ("abs", Some(BasicValueEnum::FloatValue(x)), _) => self.fabs(x),
+            ("negate", Some(x), _, _) => self.unary(ir::UnOp::Neg, from, x),
+            ("abs", Some(BasicValueEnum::FloatValue(x)), _, _) => self.fabs(x),
             // `abs` of a signed minimum overflows, and overflow is undefined
             // (SPEC 6.2), so there is nothing to check. The checker refuses an
             // unsigned one.
-            ("abs", Some(BasicValueEnum::IntValue(x)), _) => {
+            ("abs", Some(BasicValueEnum::IntValue(x)), _, _) => {
                 let zero = x.get_type().const_zero();
                 let flipped = self.builder.build_int_neg(x, "abs.neg").or_ice(BUILT);
                 let below = self.icmp(IntPredicate::SLT, x, zero, "abs.lt");
@@ -7933,7 +7928,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     .build_select(below, flipped, x, "abs")
                     .or_ice(BUILT)
             }
-            ("signum", Some(x), _) => self.signum(x, signed),
+            ("signum", Some(x), _, _) => self.signum(x, signed),
             // The three structural leaves declared on every primitive
             // (`semantics/builtins.rs`'s `numeric_methods`). Unlike
             // `derivePrimShow` and `derivePrimHash`, the *key* says which
@@ -7943,19 +7938,19 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `cli/runtime/hash.rs` rather than an exported symbol, and
             // copying `0x811c9dc5` into a backend is the one thing
             // VALUE-MODEL.md §12 most wants stated once.
-            ("equal", Some(x), Some(y)) => {
+            ("equal", Some(x), Some(y), _) => {
                 let operand = args
                     .first()
                     .copied()
                     .map_or(ir::Type::I64, |v| code.ty_of(v));
                 self.binary(state, ir::BinOp::Eq, from, operand, x, y)
             }
-            ("compare", Some(x), Some(y)) => self.order(x, y, signed, int_ty(want)),
+            ("compare", Some(x), Some(y), _) => self.order(x, y, signed, int_ty(want)),
             // `x.show(ctx)` is `$str(x)` and **not** `$show(x)`
             // (`js/intrinsics.rs:58`): a `Str` renders as itself and a `Char`
             // as its own character, unquoted. The quoting is `derivePrimShow`'s
             // and belongs to `derive Show`, not to the method.
-            ("show", _, _) => {
+            ("show", _, _, _) => {
                 let arg = *args.first().or_ice("`show` takes its value");
                 self.show_prim(state, code, dest, from, arg, false);
                 return true;
@@ -7967,10 +7962,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 | "checkedRemainder",
                 Some(BasicValueEnum::IntValue(x)),
                 Some(BasicValueEnum::IntValue(y)),
+                Some(int),
             ) => {
                 let task = Wide {
                     op,
-                    prim: from,
+                    prim: int,
                     x,
                     y,
                 };
@@ -7979,11 +7975,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `0 - x`, tested against the type's range: the minimum of a signed
             // type has no negative, and neither has any non-zero value of an
             // unsigned one.
-            ("checkedNegate", Some(BasicValueEnum::IntValue(x)), _) => {
+            ("checkedNegate", Some(BasicValueEnum::IntValue(x)), _, Some(int)) => {
                 let zero = x.get_type().const_zero();
                 let task = Wide {
                     op,
-                    prim: from,
+                    prim: int,
                     x: zero,
                     y: x,
                 };
@@ -7993,17 +7989,19 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 "checkedPower",
                 Some(BasicValueEnum::IntValue(x)),
                 Some(BasicValueEnum::IntValue(e)),
+                Some(int),
             ) => {
-                return self.checked_power(state, code, dest, from, x, e);
+                return self.checked_power(state, code, dest, int, x, e);
             }
             (
                 "saturatingAdd" | "saturatingSubtract" | "saturatingMultiply",
                 Some(BasicValueEnum::IntValue(x)),
                 Some(BasicValueEnum::IntValue(y)),
+                Some(int),
             ) => {
                 let task = Wide {
                     op,
-                    prim: from,
+                    prim: int,
                     x,
                     y,
                 };
@@ -8011,7 +8009,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             // `x.hash()` is `$hashInto(SEED, x)`: the same body a derived
             // `Hash` reaches, started rather than continued.
-            ("hash", _, _) => {
+            ("hash", _, _, _) => {
                 let arg = *args.first().or_ice("`hash` takes its value");
                 let seed = self.ctx.i64_type().const_int(runtime::HASH_SEED, false);
                 self.hash_prim(state, code, dest, from, seed.into(), arg);
@@ -8059,7 +8057,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if prim.bits() == 128 {
             return self.checked_128(state, code, dest, task);
         }
-        let (lo, hi) = prim.int_range().or_ice("`Checked` is an integer trait");
+        let (lo, hi) = prim.range();
         let wide = self.ctx.i128_type();
         let signed = prim.is_signed();
         let a = self.widen(x, wide, signed);
@@ -8177,7 +8175,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
-        prim: Prim,
+        prim: IntPrim,
         x: IntValue<'ctx>,
         e: IntValue<'ctx>,
     ) -> bool {
@@ -8192,7 +8190,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             };
             return self.checked_128(state, code, dest, &task);
         }
-        let (lo, hi) = prim.int_range().or_ice("`Checked` is an integer trait");
+        let (lo, hi) = prim.range();
         let ty = wide.as_basic_type_enum();
         let low = int(self.int_constant(ty, lo.unsigned_abs(), lo < 0));
         let high = int(self.int_constant(ty, hi, false));
@@ -8333,7 +8331,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.call_out(state, code, dest, runtime::I128_SATURATING, &mut argv);
             return true;
         }
-        let (lo, hi) = prim.int_range().or_ice("`Saturating` is an integer trait");
+        let (lo, hi) = prim.range();
         let wide = self.ctx.i128_type();
         let signed = prim.is_signed();
         let a = self.widen(x, wide, signed);
@@ -8545,8 +8543,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // `.Ok` arm places. The float shapes narrow with a saturating cast, so
         // that value is never `poison` even on the path `.Err` takes.
         let (fits, narrowed) = match kind {
-            CheckedKind::Ints => self.checked_int_fits(v, from, to, want),
-            CheckedKind::FloatToInt => self.checked_f2i_fits(v, from, to, want),
+            CheckedKind::Ints(_, target) => self.checked_int_fits(v, (from, to), target, want),
+            CheckedKind::FloatToInt(target) => self.checked_f2i_fits(v, (from, to), target, want),
             CheckedKind::ToChar => self.checked_char_fits(v, from, want),
             CheckedKind::ToF32 => self.checked_f2f32_fits(v, want),
         };
@@ -8619,15 +8617,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn checked_int_fits(
         &mut self,
         v: BasicValueEnum<'ctx>,
-        from: Prim,
-        to: Prim,
+        (from, to): (Prim, Prim),
+        target: IntPrim,
         want: BasicTypeEnum<'ctx>,
     ) -> (IntValue<'ctx>, BasicValueEnum<'ctx>) {
         let bool_ty = self.ctx.bool_type();
         let x = int(v);
         let wide = self.ctx.i128_type();
         let a = self.widen(x, wide, from.is_signed());
-        let (lo, hi) = to.int_range().unwrap_or((0, 0));
+        let (lo, hi) = target.range();
         let ty = wide.as_basic_type_enum();
         let mut fits = bool_ty.const_int(1, false);
         for (predicate, bound) in [
@@ -8681,8 +8679,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn checked_f2i_fits(
         &mut self,
         v: BasicValueEnum<'ctx>,
-        from: Prim,
-        to: Prim,
+        (from, to): (Prim, Prim),
+        target: IntPrim,
         want: BasicTypeEnum<'ctx>,
     ) -> (IntValue<'ctx>, BasicValueEnum<'ctx>) {
         let bool_ty = self.ctx.bool_type();
@@ -8695,7 +8693,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 .build_float_ext(x, f64t, "cvt.ext")
                 .unwrap_or(x)
         };
-        let (lo_i, hi_i) = to.int_range().unwrap_or((0, 0));
+        let (lo_i, hi_i) = target.range();
         #[allow(
             clippy::cast_precision_loss,
             reason = "every integer type's lower bound is zero or a negative power of \

@@ -167,7 +167,7 @@ use crate::compiler::backend::intrinsic_keys;
 use crate::compiler::middle::flags;
 use crate::compiler::middle::lower;
 use crate::compiler::middle::monomorphize::{
-    self, short_hash, ConShape, Desc, DescVariant, Func, FuncKind, Program,
+    self, short_hash, Desc, DescVariant, Func, FuncKind, Program,
 };
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
@@ -465,8 +465,8 @@ fn descriptor_arg(args: &[Expr]) -> Option<usize> {
 struct Env {
     /// Descriptor index to the type it describes.
     ty_of: HashMap<usize, Ty>,
-    /// The type of a primitive, where the program mentions one.
-    prim_of: HashMap<Prim, Ty>,
+    /// Each primitive's type, by `Prim` discriminant.
+    prims: [Ty; 16],
     /// The result type of each operation, from a call site.
     result: HashMap<Op, Ty>,
     /// `Json`'s variant order, if the program described the type; otherwise the
@@ -505,10 +505,6 @@ impl Decoding {
         })
     }
 }
-
-/// Why a primitive's type is always known: `Program::shapes` holds every
-/// declared type, and `Env::discover` reads each primitive off it.
-const SHAPES_NAME_EVERY_PRIM: &str = "`Program::shapes` names every primitive";
 
 /// `core/json`'s declaration order, which `runtime.js` also hard-codes and for
 /// the same reason: a walker that builds a library type without the library's
@@ -592,43 +588,30 @@ impl Env {
         if json_variants.is_empty() {
             json_variants = JSON_VARIANTS.iter().map(|s| (*s).to_string()).collect();
         }
-        // Whatever is still missing, off `Program::shapes` — which is *every*
-        // declared type rather than the reached ones, so it answers where the
+        // Whatever is still missing is the primitive's own constructor, which
+        // every program declares (`Tables::default`). That answers where the
         // readings above cannot: a program that derives `Ordered` and never asks
         // for `==`, never writes a `Bool` literal and never spells a comparison
         // of its own has no `structuralEq` call site and no literal to read
         // one from, and its generated `compare` was then built with conditions
         // of type `Ty::Error` — reported by the verifier as "branches on a
-        // value that is not a Bool" (buri-lang/buri#27). A primitive's type is
-        // its constructor applied to nothing, and `shapes.cons` is indexed by
-        // `TyConId`, so the index *is* the constructor.
+        // value that is not a Bool" (buri-lang/buri#27).
         //
         // Last, not first, so that every type this pass used to learn from the
         // program is still the one it learns: `Str` and `Template` are two
         // constructors over the same primitive (`middle::lower`), and which of
         // them a body means is a question only the body answers.
-        for (i, shape) in program.shapes.cons.iter().enumerate() {
-            if let ConShape::Prim(p) = shape {
-                prim_of
-                    .entry(*p)
-                    .or_insert_with(|| Ty::con(TyConId(i as u32), []));
-            }
-        }
+        let prims = Prim::all().map(|p| prim_of.get(&p).copied().unwrap_or(Ty::con(p.con(), [])));
         // `Equal` answers a `Bool`, and a program can hold a signal without
         // ever writing a comparison of its own — nothing in
         // `web.navigate(ctx, path)` is an `==`. The cutoff's comparison is
         // generated for such a program all the same, so where no call site
-        // named the result type it comes off the primitive. Last, after the
-        // loop above, because that loop is what answers `Bool` in a program
-        // with no `Bool` literal in it.
-        let b = prim_of
-            .get(&Prim::Bool)
-            .cloned()
-            .or_ice(SHAPES_NAME_EVERY_PRIM);
+        // named the result type it comes off the primitive.
+        let b = prims[Prim::Bool as usize];
         result.entry(Op::Eq).or_insert(b);
         Env {
             ty_of,
-            prim_of,
+            prims,
             result,
             json_variants,
             decoding: Decoding::of(program),
@@ -886,10 +869,6 @@ impl Generator {
         let ret = self.op_ret(op, desc)?;
         // `ToJson` writes object keys and `FromJson` reads them, so both need
         // `Str` as well.
-        let keyed = matches!(op, Op::ToJson | Op::FromJson);
-        if keyed && !self.env.prim_of.contains_key(&Prim::Str) {
-            return None;
-        }
         let shape = self.shape_key(op, desc);
         if let Some(f) = self.shared.get(&shape).copied() {
             self.routed.insert((op, desc), f);
@@ -1120,11 +1099,7 @@ impl Generator {
     }
 
     fn str_ty(&self) -> Ty {
-        self.env
-            .prim_of
-            .get(&Prim::Str)
-            .cloned()
-            .unwrap_or(Ty::ERROR)
+        self.prim_ty(Prim::Str)
     }
 
     /// `Bool`, which a generated `compare` needs for its `if` even in a
@@ -1142,9 +1117,8 @@ impl Generator {
     fn bool_ty(&self) -> Ty {
         self.env
             .result(Op::Eq)
-            .or_else(|| self.env.prim_of.get(&Prim::Bool))
-            .cloned()
-            .unwrap_or(Ty::ERROR)
+            .copied()
+            .unwrap_or(self.prim_ty(Prim::Bool))
     }
 
     /// The word a `Flags` descriptor's value is stored in.
@@ -1708,12 +1682,7 @@ impl Generator {
         frame: &mut Frame,
     ) -> Option<Expr> {
         if variants.len() > RANKED_COMPARE_MIN {
-            let int = self
-                .env
-                .prim_of
-                .get(&Prim::I64)
-                .cloned()
-                .or_ice(SHAPES_NAME_EVERY_PRIM);
+            let int = self.prim_ty(Prim::I64);
             return self.compare_enum_ranked(desc, variants, a, b, int, frame);
         }
         let ty = self.ty_of(desc);
@@ -2507,7 +2476,7 @@ impl Generator {
     }
 
     fn prim_ty(&self, p: Prim) -> Ty {
-        self.env.prim_of.get(&p).cloned().unwrap_or(Ty::ERROR)
+        self.env.prims[p as usize]
     }
 
     fn int_lit(&self, n: usize) -> Expr {
@@ -3304,7 +3273,7 @@ impl Generator {
             }
             // The word, hashed as a primitive of its width hashes.
             Desc::Flags { prim, .. } => {
-                let ty = self.env.prim_of.get(prim).cloned().unwrap_or(Ty::ERROR);
+                let ty = self.prim_ty(*prim);
                 Some(self.intrinsic("derivePrimHash", vec![ty], vec![h, x], acc))
             }
             // `$hashInto` sees `()` as the number zero, and this is what keeps
