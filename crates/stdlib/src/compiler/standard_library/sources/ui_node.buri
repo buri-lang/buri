@@ -4087,7 +4087,7 @@ fn widgetBody<C: Allocator>(
         classNames(ctx, painted, flat),
         leading
             .concat(ctx, answers(ctx, painted))
-            .concat(ctx, inlineIn(ctx, painted, flat, 0, [])),
+            .concat(ctx, inlineIn(ctx, flat, 0, [])),
     )
 }
 
@@ -4102,7 +4102,7 @@ fn widgetBodyUnder(ctx: Scope, painted: Painted, leading: [Str], styles: [Style]
         classNames(ctx, painted, flat),
         leading
             .concat(ctx, answers(ctx, painted))
-            .concat(ctx, inlineIn(ctx, painted, flat, 0, [])),
+            .concat(ctx, inlineIn(ctx, flat, 0, [])),
     )
 }
 
@@ -4347,7 +4347,8 @@ fn classNames<C: Allocator>(ctx: C, painted: Painted, styles: [Style]): [Str] {
     lastPerSlot(ctx, slotsIn(ctx, painted, styles, 0, []), 0, [])
 }
 
-/// Every `(slot, class)` pair the list contributes, in order.
+/// Every `(slot, class)` pair the list contributes, in order. The list is
+/// `resolve`'s, so it holds no `Group`, `On`, `When`, `Computed` or `At`.
 fn slotsIn<C: Allocator>(
     ctx: C,
     painted: Painted,
@@ -4355,28 +4356,11 @@ fn slotsIn<C: Allocator>(
     at: Int,
     acc: [(Int, Str)],
 ): [(Int, Str)] {
-    let scope = rootScope();
     match (styles.get(at)) {
         .None => acc,
         .Some(style) => {
             let more = match (style) {
                 .Extracted(classes) => statePairs(ctx, painted, classes.pairs(), 0, []),
-                .Group(inner) => slotsIn(ctx, painted, inner, 0, []),
-                .On(on, inner) => {
-                    if (applies(stateRank(on), painted)) {
-                        slotsIn(ctx, painted, inner, 0, [])
-                    } else {
-                        []
-                    }
-                },
-                .When(cond, then, otherwise) => {
-                    if (cond.read(scope)) {
-                        slotsIn(ctx, painted, then, 0, [])
-                    } else {
-                        slotsIn(ctx, painted, otherwise, 0, [])
-                    }
-                },
-                .Computed(build) => slotsIn(ctx, painted, build(scope), 0, []),
                 // A dynamic value the compiler could not fold takes the class
                 // that reads the `--buri-…` it writes out, so an `At`/`On` rule
                 // can still win over it (#195). Its slot is the property's, so a
@@ -4464,52 +4448,25 @@ fn slotAgain(pairs: [(Int, Str)], at: Int, slot: Int): Bool {
 }
 
 /// Every inline declaration the list writes out, in order. A later declaration
-/// of the same property wins, which is what the painter does with them.
-fn inlineIn<C: Allocator>(
-    ctx: C,
-    painted: Painted,
-    styles: [Style],
-    at: Int,
-    acc: [Str],
-): [Str] {
-    let scope = rootScope();
+/// of the same property wins, which is what the painter does with them. The
+/// list is `resolve`'s, so it holds no `Group`, `On`, `When`, `Computed` or `At`.
+fn inlineIn<C: Allocator>(ctx: C, styles: [Style], at: Int, acc: [Str]): [Str] {
     match (styles.get(at)) {
         .None => acc,
         .Some(style) => {
-            let more = match (style) {
-                .Group(inner) => inlineIn(ctx, painted, inner, 0, []),
-                .On(on, inner) => {
-                    if (applies(stateRank(on), painted)) {
-                        inlineIn(ctx, painted, inner, 0, [])
-                    } else {
-                        []
-                    }
+            // A dynamic value the compiler could not fold writes its value out
+            // as the `--buri-…` custom property its `<abbr>-var` class reads,
+            // rather than the property itself — so the class, and a breakpoint
+            // rule above it, decide the cascade (#195). An extracted style
+            // declares nothing inline.
+            let more = match (variableProperty(style)) {
+                .Some(named) => {
+                    let (_slot, abbreviation) = named;
+                    variableInline(ctx, abbreviation, declare(ctx, style))
                 },
-                .At(_screen, _inner) => [],
-                .When(cond, then, otherwise) => {
-                    if (cond.read(scope)) {
-                        inlineIn(ctx, painted, then, 0, [])
-                    } else {
-                        inlineIn(ctx, painted, otherwise, 0, [])
-                    }
-                },
-                .Computed(build) => inlineIn(ctx, painted, build(scope), 0, []),
-                .Extracted(_classes) => [],
-                // A dynamic value the compiler could not fold writes its value
-                // out as the `--buri-…` custom property its `<abbr>-var` class
-                // reads, rather than the property itself — so the class, and a
-                // breakpoint rule above it, decide the cascade (#195).
-                _ => {
-                    match (variableProperty(style)) {
-                        .Some(named) => {
-                            let (_slot, abbreviation) = named;
-                            variableInline(ctx, abbreviation, declare(ctx, style))
-                        },
-                        .None => declare(ctx, style),
-                    }
-                },
+                .None => declare(ctx, style),
             };
-            inlineIn(ctx, painted, styles, at + 1, acc.concat(ctx, more))
+            inlineIn(ctx, styles, at + 1, acc.concat(ctx, more))
         },
     }
 }
@@ -4735,6 +4692,7 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
             ]
         },
         .Animation(motion) => [decl(ctx, "animation", animationCss(motion))],
+        // An extracted style is classes, which declare nothing inline.
         _ => [],
     }
 }
