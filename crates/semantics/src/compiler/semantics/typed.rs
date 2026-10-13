@@ -7,7 +7,9 @@
 //! patterns but every path in one is resolved.
 
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::types::{FnId, FuncIdx, LocalId, Prim, TraitId, Ty, TyConId};
+use crate::compiler::semantics::types::{
+    CtxTypeId, FnId, FuncIdx, LocalId, Prim, TraitId, Ty, TyConId,
+};
 use crate::diagnostics::Span;
 
 /// An integer literal's magnitude, kept as two 64-bit halves.
@@ -349,6 +351,8 @@ pub enum ExprKind {
     /// effect-carrying value may appear.
     CtxLit {
         bindings: Vec<(TraitId, Expr)>,
+        /// The context type the literal builds, which is also its `ty`.
+        ctx: CtxTypeId,
     },
     /// Reading one effect implementation out of a context value.
     CtxGet {
@@ -613,7 +617,7 @@ pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
                 }
             }
         }
-        ExprKind::CtxLit { bindings } => bindings.iter().for_each(|(_, e)| f(e)),
+        ExprKind::CtxLit { bindings, .. } => bindings.iter().for_each(|(_, e)| f(e)),
         ExprKind::Int(..)
         | ExprKind::Float(_)
         | ExprKind::Str(_)
@@ -709,7 +713,7 @@ pub fn children_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
                 }
             }
         }
-        ExprKind::CtxLit { bindings } => bindings.iter_mut().for_each(|(_, e)| f(e)),
+        ExprKind::CtxLit { bindings, .. } => bindings.iter_mut().for_each(|(_, e)| f(e)),
         ExprKind::Int(..)
         | ExprKind::Float(_)
         | ExprKind::Str(_)

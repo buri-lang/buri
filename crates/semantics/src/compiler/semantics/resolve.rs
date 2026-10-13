@@ -281,7 +281,7 @@ fn compiler_trait_home(name: &str) -> Option<&'static str> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct TestCase {
     pub name: String,
     pub module: ModuleId,

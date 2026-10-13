@@ -1594,7 +1594,7 @@ fn collect_consuming<'e>(
         | ExprKind::CallValue { args, .. } => {
             args.iter().for_each(|a| consume(a, out, counted));
         }
-        ExprKind::CtxLit { bindings } => {
+        ExprKind::CtxLit { bindings, .. } => {
             bindings.iter().for_each(|(_, a)| consume(a, out, counted))
         }
         ExprKind::StructUpdate { base, updates, .. } => {

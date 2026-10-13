@@ -1705,7 +1705,7 @@ fn expression_symbols(
                 Symbol::Trait(*trait_id),
             );
         }
-        ExprKind::CtxLit { bindings } => {
+        ExprKind::CtxLit { bindings, .. } => {
             for (id, _) in bindings {
                 out(tables.trait_(*id).name.clone(), Symbol::Trait(*id));
             }

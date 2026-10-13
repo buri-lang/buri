@@ -2833,7 +2833,7 @@ impl<'a> Gen<'a> {
                 // holes collapses to one string here.
                 it.fold(first, |acc, x| Expr::bin(BinOp::Add, acc, x))
             }
-            ExprKind::CtxLit { bindings } => {
+            ExprKind::CtxLit { bindings, .. } => {
                 // A context is a live effect handle and the runtime writes
                 // through one, so neither it nor anything built inside it may
                 // be shared with another occurrence.
