@@ -529,7 +529,9 @@ jobs:
   # The compiler's branch coverage from end-to-end tests only, which must never
   # fall, in total or in any area (coverage/compiler/src/main.rs). Measured on
   # three platforms and merged, since some branches only run on one: a branch
-  # counts when any platform's tests took it (design/COVERAGE.md).
+  # counts when any platform's tests took it (design/COVERAGE.md). A release
+  # `buri` on x86_64 Linux is one more platform, so a branch on
+  # `cfg!(debug_assertions)` counts both ways.
   # `coverage-build` builds each platform's instrumented `buri` and tests once,
   # so every shard of it runs the same `buri`; each shard runs a quarter of the
   # tests; `coverage` merges every shard and gates.
@@ -542,6 +544,7 @@ jobs:
           - { platform: x86_64-linux, os: blacksmith-8vcpu-ubuntu-2404 }
           - { platform: arm64-linux, os: blacksmith-16vcpu-ubuntu-2404-arm, cc: CC=/usr/bin/clang }
           - { platform: arm64-macos, os: blacksmith-12vcpu-macos-latest }
+          - { platform: x86_64-linux-release, os: blacksmith-16vcpu-ubuntu-2404, release: --release }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
@@ -562,6 +565,7 @@ jobs:
           path: |
             target/coverage/debug/build
             target/coverage-buri/debug/build
+            target/coverage-buri/release/build
           key: coverage-buildscript-${{ matrix.platform }}-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
           restore-keys: coverage-buildscript-${{ matrix.platform }}-
       # On arm64 the shell's clang wrapper adds `-target-cpu armv8-a` to every
@@ -572,7 +576,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends clang lld musl-dev musl-tools
-      - run: nix develop .#coverage -c env ${{ matrix.cc }} cargo run -p buri-compiler-coverage -- --build
+      - run: nix develop .#coverage -c env ${{ matrix.cc }} cargo run -p buri-compiler-coverage -- --build ${{ matrix.release }}
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-build-${{ matrix.platform }}
@@ -585,10 +589,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [x86_64-linux, arm64-linux, arm64-macos]
+        platform: [x86_64-linux, arm64-linux, arm64-macos, x86_64-linux-release]
         shard: [1, 2, 3, 4]
         include:
           - { platform: x86_64-linux, os: blacksmith-8vcpu-ubuntu-2404, threads: 16 }
+          - { platform: x86_64-linux-release, os: blacksmith-8vcpu-ubuntu-2404, threads: 16, release: --release }
           - { platform: arm64-linux, os: blacksmith-16vcpu-ubuntu-2404-arm, threads: 32, cc: CC=/usr/bin/clang }
           - { platform: arm64-macos, os: blacksmith-12vcpu-macos-latest, threads: 24 }
     runs-on: ${{ matrix.os }}
@@ -614,7 +619,7 @@ jobs:
           name: coverage-build-${{ matrix.platform }}
           path: target/coverage/build
       # The build's `cc`, for the tests that cross-compile C.
-      - run: nix develop .#coverage -c env ${{ matrix.cc }} cargo run -p buri-compiler-coverage -- --shard=${{ matrix.shard }}/4
+      - run: nix develop .#coverage -c env ${{ matrix.cc }} cargo run -p buri-compiler-coverage -- --shard=${{ matrix.shard }}/4 ${{ matrix.release }}
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-shard-${{ matrix.platform }}-${{ matrix.shard }}
