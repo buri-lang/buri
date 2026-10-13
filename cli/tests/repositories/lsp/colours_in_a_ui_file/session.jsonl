@@ -1,7 +1,7 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
 {"jsonrpc": "2.0", "method": "initialized", "params": {}}
-# Every `Color` constructor the file spells out. Two of the three are here: the
+# Every `Color` constructor the file spells out. Three of the four are here: the
 # one on line 14 has a parameter for its red channel, and a swatch beside it
 # would be a guess at what that parameter is worth at run time.
 {"jsonrpc": "2.0", "id": 2, "method": "textDocument/documentColor", "params": {"textDocument": {"uri": "file://<scratch>/lib/theme/palette.buri"}}}

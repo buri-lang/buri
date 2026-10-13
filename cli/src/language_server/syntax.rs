@@ -13,7 +13,7 @@
 //! walk over anything.
 
 use super::convert::{self, Position};
-use crate::diagnostics::{FileId, Span};
+use crate::diagnostics::{FileId, Invariant as _, Span};
 use crate::json::Value;
 use crate::parsing::flat::{ExprId, PatId, TypeId};
 use crate::parsing::parser;
@@ -54,13 +54,12 @@ pub fn flattened(outline: &Value, uri: &str) -> Value {
 }
 
 fn flatten_into(symbols: &Value, uri: &str, container: Option<&str>, out: &mut Vec<Value>) {
-    let Some(items) = symbols.as_array() else {
-        return;
-    };
+    let items = symbols.as_array().or_ice("an outline is an array");
     for item in items {
-        let Some(name) = item.get("name").and_then(|n| n.as_str()) else {
-            continue;
-        };
+        let name = item
+            .get("name")
+            .and_then(|n| n.as_str())
+            .or_ice("every symbol in an outline is named");
         let mut fields = vec![
             ("name", Value::str(name)),
             ("kind", item.get("kind").cloned().unwrap_or(Value::Null)),
@@ -409,7 +408,7 @@ pub fn selection_ranges(text: &str, positions: &[Position]) -> Value {
 }
 
 fn push_covering(out: &mut Vec<(u32, u32)>, span: Span, offset: u32) {
-    if !span.is_none() && span.start <= offset && offset <= span.end {
+    if span.start <= offset && offset <= span.end {
         out.push((span.start, span.end));
     }
 }

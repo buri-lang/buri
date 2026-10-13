@@ -3,3 +3,4 @@
 {"id":2,"jsonrpc":"2.0","result":{"changes":{"file://<scratch>/lib/shop/BUILD.buri":[{"newText":"library {\n    sources: [\"cart.buri\", \"inventory.buri\"]\n    visibility: [\"//visibility:public\"]\n}\n","range":{"end":{"character":0,"line":4},"start":{"character":0,"line":0}}}],"file://<scratch>/lib/shop/cart.buri":[{"newText":"//lib/shop/inventory.buri","range":{"end":{"character":29,"line":0},"start":{"character":6,"line":0}}}],"file://<scratch>/lib/shop/lib.buri":[{"newText":"//lib/shop/inventory.buri","range":{"end":{"character":29,"line":0},"start":{"character":6,"line":0}}}]}}}
 {"id":3,"jsonrpc":"2.0","result":{"items":[],"kind":"full","resultId":"1"}}
 {"id":4,"jsonrpc":"2.0","result":null}
+{"id":5,"jsonrpc":"2.0","result":null}

@@ -17,5 +17,7 @@
 # And the proof: the library the rename ran through still compiles, asked for
 # rather than waited for.
 {"jsonrpc": "2.0", "id": 3, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/cart.buri"}}}
-{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+# A rename onto the same name moves nothing, so there is nothing to rewrite.
+{"jsonrpc": "2.0", "id": 4, "method": "workspace/willRenameFiles", "params": {"files": [{"oldUri": "file://<scratch>/lib/shop/cart.buri", "newUri": "file://<scratch>/lib/shop/cart.buri"}]}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

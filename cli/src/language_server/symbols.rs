@@ -21,7 +21,7 @@ use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{
     self, AstRef, ConstId, ContextDeclId, FnId, ModuleId, Tables, TraitId, Ty, TyConId,
 };
-use crate::diagnostics::{FileId, Invariant as _, Span};
+use crate::diagnostics::{invariant, FileId, Invariant as _, Span};
 use crate::formatting;
 use crate::parsing::flat::{self, ExprId, ExprView, Location, TypeId, TypeView};
 use crate::parsing::lexer::TokenKind;
@@ -891,10 +891,7 @@ fn pattern_names(
 fn after_receiver(expr: &typed::Expr) -> u32 {
     let mut from = expr.span.start;
     typed::children(expr, &mut |child| {
-        if child.span.file == expr.span.file
-            && child.span.start == expr.span.start
-            && child.span.end > from
-        {
+        if child.span.start == expr.span.start && child.span.end > from {
             from = child.span.end;
         }
     });
@@ -908,9 +905,11 @@ fn after_receiver(expr: &typed::Expr) -> u32 {
 /// an operator standing for a trait method, a leading-dot variant standing for
 /// its enum — is not a reference to it, and yields nothing.
 fn name_span(analyzed: &Analyzed, span: Span, from: u32, name: &str) -> Option<Span> {
-    if span.is_none() || name.is_empty() {
-        return None;
-    }
+    invariant(
+        !span.is_none(),
+        "an expression that names something is written somewhere",
+    );
+    invariant(!name.is_empty(), "a name is not empty");
     let text = &analyzed.session.map.get(span.file).text;
     let start = (from.max(span.start) as usize).min(text.len());
     let end = (span.end as usize).min(text.len());
@@ -1397,14 +1396,14 @@ fn in_one_body(
 ) -> Option<Found> {
     // A binding site and a pattern come first: both sit inside the block or
     // the `match` that holds them, so no expression is ever narrower.
-    let bound = narrowest_span(body.locals.iter(), |l| l.span, file, offset);
+    let bound = narrowest_span(body.locals.iter(), |l| l.span, offset);
     let mut patterns = Vec::new();
     typed::walk(&body.expr, &mut |e| {
         for pattern in patterns_of(e) {
             all_patterns(pattern, &mut patterns);
         }
     });
-    let matched = narrowest_span(patterns.into_iter(), |p| p.span, file, offset);
+    let matched = narrowest_span(patterns.into_iter(), |p| p.span, offset);
     // A pattern that binds a name is the name's declaration; the bind is the
     // narrower and more specific of the two, so it wins a tie.
     let pattern = matched.filter(|(w, _)| bound.as_ref().is_none_or(|(b, _)| w < b));
@@ -1460,11 +1459,10 @@ fn all_patterns<'a>(pattern: &'a typed::Pattern, out: &mut Vec<&'a typed::Patter
 fn narrowest_span<T>(
     items: impl Iterator<Item = T>,
     span: impl Fn(&T) -> Span,
-    file: FileId,
     offset: u32,
 ) -> Option<(u32, T)> {
     items
-        .filter(|item| within(span(item), file, offset))
+        .filter(|item| within(span(item), offset))
         .map(|item| (span(&item).end.saturating_sub(span(&item).start), item))
         .min_by_key(|(width, _)| *width)
 }
@@ -1552,8 +1550,8 @@ fn pick(word: Option<&str>, all: Vec<(String, Symbol)>) -> Option<Symbol> {
     all.into_iter().next().map(|(_, symbol)| symbol)
 }
 
-fn within(span: Span, file: FileId, offset: u32) -> bool {
-    span.file == file && span.start <= offset && offset <= span.end
+fn within(span: Span, offset: u32) -> bool {
+    span.start <= offset && offset <= span.end
 }
 
 fn narrowest<'a>(
@@ -1566,7 +1564,11 @@ fn narrowest<'a>(
 ) -> Option<Found> {
     let mut best: Option<(u32, &'a typed::Expr)> = None;
     typed::walk(root, &mut |e| {
-        if e.span.file != file || e.span.start > offset || offset > e.span.end {
+        invariant(
+            e.span.file == file,
+            "an expression is written in the file its function is declared in",
+        );
+        if e.span.start > offset || offset > e.span.end {
             return;
         }
         let width = e.span.end.saturating_sub(e.span.start);
@@ -1777,7 +1779,7 @@ fn identifier_at(text: &str, offset: u32) -> Option<(String, (u32, u32))> {
 }
 
 fn covers(span: Span, offset: u32) -> bool {
-    !span.is_none() && span.start <= offset && offset <= span.end
+    span.start <= offset && offset <= span.end
 }
 
 // ---------------------------------------------------------------------------

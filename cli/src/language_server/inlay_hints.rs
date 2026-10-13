@@ -22,7 +22,7 @@ use super::symbols::{self, Symbol};
 use crate::compiler::modules::ModuleData;
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{self, ParamInfo, ParamRole, Tables};
-use crate::diagnostics::{FileId, Invariant as _};
+use crate::diagnostics::{invariant, FileId, Invariant as _};
 use crate::json::Value;
 use crate::parsing::flat::{self, ExprId, ExprView, PatId, PatView, StmtKind};
 use std::collections::BTreeSet;
@@ -79,7 +79,7 @@ pub fn hints(analyzed: &Analyzed, path: &Path, text: &str, from: u32, to: u32) -
         if tables.fn_info(fid).span.file != file {
             continue;
         }
-        type_hints(tables, file, &unwritten, &body.locals, &mut found);
+        type_hints(tables, &unwritten, &body.locals, &mut found);
         parameter_hints(analyzed, file, text, &body.expr, &mut found);
     }
     // A module-level `let` writes its own type, so what is hinted in one is
@@ -88,7 +88,6 @@ pub fn hints(analyzed: &Analyzed, path: &Path, text: &str, from: u32, to: u32) -
         if tables.const_(id).span.file == file {
             type_hints(
                 tables,
-                file,
                 &unwritten,
                 symbols::const_locals(checked, id),
                 &mut found,
@@ -106,13 +105,14 @@ pub fn hints(analyzed: &Analyzed, path: &Path, text: &str, from: u32, to: u32) -
 /// A type hint after each of `locals` written with no type.
 fn type_hints(
     tables: &Tables,
-    file: FileId,
     unwritten: &BTreeSet<(u32, u32)>,
     locals: &[typed::Local],
     found: &mut Vec<Hint>,
 ) {
     for local in locals {
-        if local.span.file != file || !unwritten.contains(&(local.span.start, local.span.end)) {
+        // A body belongs to the file its function is declared in, so a local
+        // with the span of a binding written without a type is that binding.
+        if !unwritten.contains(&(local.span.start, local.span.end)) {
             continue;
         }
         // A type the checker could not work out is not one to paint. The
@@ -319,17 +319,20 @@ fn parameter_hints(
             _ => return,
         };
         for (index, (param, arg)) in params.iter().zip(args).enumerate() {
-            if param.role != ParamRole::Normal || param.name.is_empty() {
+            if param.role != ParamRole::Normal {
                 continue;
             }
-            if arg.span.file != file || arg.span.is_none() {
-                continue;
-            }
+            invariant(
+                arg.span.file == file,
+                "an argument is written in the file of the call it is passed to",
+            );
             // A receiver written postfix begins where the whole call begins,
             // which is the rule `symbols::after_receiver` reads the same way.
-            if arg.span.start == e.span.start {
-                continue;
-            }
+            // It is the `self` parameter, and that role was skipped above.
+            invariant(
+                arg.span.start != e.span.start,
+                "only a `self` argument is written before the call's name",
+            );
             if !opens_an_argument(text, arg.span.start) || !worth_naming(text, param, arg) {
                 continue;
             }
