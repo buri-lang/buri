@@ -1,0 +1,349 @@
+//! The well-known types on their own, through the functions their modules
+//! export: what each writes at its defaults and otherwise, and what each
+//! refuses to read.
+
+from "core/json" import * as json;
+from "core/json" import { Json };
+from "core/orderedmap" import * as orderedmap;
+from "core/proto" import { ProtoError };
+from "core/proto/any" import * as any;
+from "core/proto/any" import { Any };
+from "core/proto/duration" import * as duration;
+from "core/proto/duration" import { Duration };
+from "core/proto/struct" import * as structs;
+from "core/proto/struct" import { ListValue, NullValue, Struct, Value, Value_Kind };
+from "core/proto/timestamp" import * as timestamp;
+from "core/proto/timestamp" import { Timestamp };
+from "core/proto/wrappers" import * as wrappers;
+from "core/proto/wrappers" import {
+    BoolValue, BytesValue, DoubleValue, FloatValue, Int32Value, Int64Value, StringValue,
+    UInt32Value, UInt64Value,
+};
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+/// `zero` writes nothing and `some` writes what `size` says, and both read
+/// back; field 15, which no type here has, is skipped; and input that ends
+/// inside a tag, inside field 15, or right after any of `tags`, is refused
+/// where it ended.
+fn wire<T: Equal, C: Allocator>(
+    ctx: C,
+    zero: T,
+    some: T,
+    size: fn(T) => Int,
+    encode: fn(C, T) => [U8],
+    decode: fn(C, [U8]) => Result<T, ProtoError>,
+    tags: [U8],
+): () {
+    assert.equal(size(zero), 0);
+    assert.isEmpty(encode(ctx, zero));
+    let bytes = encode(ctx, some);
+    assert.equal(size(some), bytes.length());
+    assert.equal(decode(ctx, bytes), .Ok(some));
+    assert.equal(decode(ctx, [120, 1]), .Ok(zero));
+    assert.equal(decode(ctx, [120]), .Err(.Truncated(1)));
+    assert.equal(decode(ctx, [128]), .Err(.Truncated(0)));
+    let ended = tags.foldCtx(
+        ctx,
+        fn(c, all: Bool, tag) => all && decode(c, [tag]) == .Err(.Truncated(1)),
+        true,
+    );
+    assert.isTrue(ended);
+}
+
+/// `doc` is not a `T`, and reading it says what was wanted instead.
+fn refused<T: Equal, C: Allocator>(
+    ctx: C,
+    decode: fn(C, Json) => Result<T, ProtoError>,
+    doc: Str,
+    wanted: Str,
+): () {
+    let read = decode(ctx, assert.ok(json.parse(ctx, doc)));
+    assert.equal(read, .Err(.BadJson { path: "$", wanted: wanted }));
+}
+
+test "a floating-point wrapper writes nothing at zero, and refuses what is not a number" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    wire(
+        ctx,
+        DoubleValue { value: 0.0 },
+        DoubleValue { value: 1.5 },
+        wrappers.sizeDoubleValue,
+        wrappers.encodeDoubleValue,
+        wrappers.decodeDoubleValue,
+        [9],
+    );
+    wire(
+        ctx,
+        FloatValue { value: 0.0 },
+        FloatValue { value: 1.5 },
+        wrappers.sizeFloatValue,
+        wrappers.encodeFloatValue,
+        wrappers.decodeFloatValue,
+        [13],
+    );
+    refused(ctx, wrappers.decodeDoubleValueJson, "[]", "a number");
+    refused(ctx, wrappers.decodeFloatValueJson, "[]", "a number");
+}
+
+test "an integer wrapper writes nothing at zero, and refuses what is not a number" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    wire(
+        ctx,
+        Int64Value { value: 0 },
+        Int64Value { value: -2 },
+        wrappers.sizeInt64Value,
+        wrappers.encodeInt64Value,
+        wrappers.decodeInt64Value,
+        [8],
+    );
+    wire(
+        ctx,
+        UInt64Value { value: 0 },
+        UInt64Value { value: 300 },
+        wrappers.sizeUInt64Value,
+        wrappers.encodeUInt64Value,
+        wrappers.decodeUInt64Value,
+        [8],
+    );
+    wire(
+        ctx,
+        Int32Value { value: 0 },
+        Int32Value { value: -2 },
+        wrappers.sizeInt32Value,
+        wrappers.encodeInt32Value,
+        wrappers.decodeInt32Value,
+        [8],
+    );
+    wire(
+        ctx,
+        UInt32Value { value: 0 },
+        UInt32Value { value: 300 },
+        wrappers.sizeUInt32Value,
+        wrappers.encodeUInt32Value,
+        wrappers.decodeUInt32Value,
+        [8],
+    );
+    refused(ctx, wrappers.decodeInt64ValueJson, "[]", "an integer");
+    refused(ctx, wrappers.decodeUInt64ValueJson, "[]", "an integer");
+    refused(ctx, wrappers.decodeInt32ValueJson, "[]", "an integer");
+    refused(ctx, wrappers.decodeUInt32ValueJson, "[]", "an integer");
+}
+
+test "a bool, string or bytes wrapper writes nothing when empty, and refuses another kind" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    wire(
+        ctx,
+        BoolValue { value: false },
+        BoolValue { value: true },
+        wrappers.sizeBoolValue,
+        wrappers.encodeBoolValue,
+        wrappers.decodeBoolValue,
+        [8],
+    );
+    wire(
+        ctx,
+        StringValue { value: "" },
+        StringValue { value: "hi" },
+        wrappers.sizeStringValue,
+        wrappers.encodeStringValue,
+        wrappers.decodeStringValue,
+        [10],
+    );
+    wire(
+        ctx,
+        BytesValue { value: [] },
+        BytesValue { value: [0, 255] },
+        wrappers.sizeBytesValue,
+        wrappers.encodeBytesValue,
+        wrappers.decodeBytesValue,
+        [10],
+    );
+    refused(ctx, wrappers.decodeBoolValueJson, "[]", "a boolean");
+    refused(ctx, wrappers.decodeStringValueJson, "[]", "a string");
+    refused(ctx, wrappers.decodeBytesValueJson, "[]", "base64");
+}
+
+test "a Duration or a Timestamp writes each of its two numbers only when it isn't zero" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    wire(
+        ctx,
+        Duration { seconds: 0, nanos: 0 },
+        Duration { seconds: 3, nanos: 5 },
+        duration.sizeDuration,
+        duration.encodeDuration,
+        duration.decodeDuration,
+        [8, 16],
+    );
+    wire(
+        ctx,
+        Timestamp { seconds: 0, nanos: 0 },
+        Timestamp { seconds: 3, nanos: 5 },
+        timestamp.sizeTimestamp,
+        timestamp.encodeTimestamp,
+        timestamp.decodeTimestamp,
+        [8, 16],
+    );
+    assert.notEqual(Duration { seconds: 1, nanos: 0 }, Duration {
+        seconds: 2,
+        nanos: 0,
+    });
+    assert.notEqual(Timestamp { seconds: 1, nanos: 0 }, Timestamp {
+        seconds: 2,
+        nanos: 0,
+    });
+}
+
+test "an Any writes its type and its bytes only when they aren't empty" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    wire(
+        ctx,
+        Any { typeUrl: "", value: [] },
+        Any { typeUrl: "t", value: [1] },
+        any.sizeAny,
+        any.encodeAny,
+        any.decodeAny,
+        [10, 18],
+    );
+    let typed = Any { typeUrl: "t", value: [] };
+    assert.equal(any.decodeAny(ctx, any.encodeAny(ctx, typed)), .Ok(typed));
+    let raw = Any { typeUrl: "", value: [1] };
+    assert.equal(any.decodeAny(ctx, any.encodeAny(ctx, raw)), .Ok(raw));
+    assert.equal(
+        json.stringify(ctx, assert.ok(any.encodeAnyJson(ctx, typed))),
+        "{\"typeUrl\":\"t\"}",
+    );
+    assert.equal(
+        json.stringify(ctx, assert.ok(any.encodeAnyJson(ctx, raw))),
+        "{\"value\":\"AQ==\"}",
+    );
+    assert.notEqual(typed, Any { typeUrl: "u", value: [] });
+    assert.equal(readAny(ctx, "{}"), .Ok(Any { typeUrl: "", value: [] }));
+    assert.equal(readAny(ctx, "{\"type_url\":\"t\"}"), .Ok(typed));
+    assert.equal(readAny(ctx, "{\"value\":\"AQ==\"}"), .Ok(raw));
+    refused(ctx, any.decodeAnyJson, "[]", "an object");
+    let badUrl = readAny(ctx, "{\"typeUrl\":1}");
+    assert.equal(badUrl, .Err(.BadJson { path: "$.typeUrl", wanted: "a string" }));
+    let badValue = readAny(ctx, "{\"value\":1}");
+    assert.equal(badValue, .Err(.BadJson { path: "$.value", wanted: "base64" }));
+}
+
+fn readAny<C: Allocator>(ctx: C, doc: Str): Result<Any, ProtoError> {
+    any.decodeAnyJson(ctx, assert.ok(json.parse(ctx, doc)))
+}
+
+fn number(x: Float): Value {
+    Value { kind: .Some(.NumberValue(x)) }
+}
+
+test "a Value writes whichever kind it holds, and nothing when it holds none" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let nested = Struct { fields: orderedmap.of(ctx, [("a", number(1.0))]) };
+    let kinds = [
+        Value { kind: .Some(.NullValue(.NULL_VALUE)) },
+        Value { kind: .Some(.NullValue(.Unrecognized(5))) },
+        number(1.5),
+        Value { kind: .Some(.StringValue("s")) },
+        Value { kind: .Some(.BoolValue(true)) },
+        Value { kind: .Some(.BoolValue(false)) },
+        Value { kind: .Some(.StructValue(nested)) },
+        Value { kind: .Some(.ListValue(ListValue { values: [number(2.0)] })) },
+    ];
+    kinds.foldCtx(
+        ctx,
+        fn(c, _done: (), v) => {
+            wire(
+                c,
+                structs.defaultValue(),
+                v,
+                structs.sizeValue,
+                structs.encodeValue,
+                structs.decodeValue,
+                [8, 17, 26, 32, 42, 50],
+            )
+        },
+        (),
+    );
+    assert.equal(structs.encodeValueJson(ctx, structs.defaultValue()), .Ok(Json.Null));
+    // A struct or a list that arrives twice is the two merged.
+    let twice = structs.decodeValue(ctx, [42, 0, 42, 0]);
+    assert.equal(
+        twice,
+        .Ok(Value { kind: .Some(.StructValue(Struct { fields: orderedmap.empty() })) }),
+    );
+    let lists = structs.decodeValue(ctx, [50, 2, 10, 0, 50, 2, 10, 0]);
+    assert.equal(
+        lists,
+        .Ok(Value {
+            kind: .Some(
+                .ListValue(ListValue {
+                    values: [structs.defaultValue(), structs.defaultValue()],
+                }),
+            ),
+        }),
+    );
+    // What ends early inside a struct or a list inside a value.
+    assert.equal(structs.decodeValue(ctx, [42, 1, 128]), .Err(.Truncated(0)));
+    assert.equal(structs.decodeValue(ctx, [50, 1, 128]), .Err(.Truncated(0)));
+}
+
+test "a Struct or a ListValue refuses what ends early inside what it holds" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    wire(
+        ctx,
+        Struct { fields: orderedmap.empty() },
+        Struct { fields: orderedmap.of(ctx, [("a", number(1.0))]) },
+        structs.sizeStruct,
+        structs.encodeStruct,
+        structs.decodeStruct,
+        [10],
+    );
+    wire(
+        ctx,
+        ListValue { values: [] },
+        ListValue { values: [number(1.0)] },
+        structs.sizeListValue,
+        structs.encodeListValue,
+        structs.decodeListValue,
+        [10],
+    );
+    // Inside an entry: its tag, its key, its value's length, the value, and a
+    // field the entry doesn't have.
+    assert.equal(structs.decodeStruct(ctx, [10, 1, 128]), .Err(.Truncated(0)));
+    assert.equal(structs.decodeStruct(ctx, [10, 1, 10]), .Err(.Truncated(1)));
+    assert.equal(structs.decodeStruct(ctx, [10, 1, 18]), .Err(.Truncated(1)));
+    assert.equal(structs.decodeStruct(ctx, [10, 3, 18, 1, 128]), .Err(.Truncated(0)));
+    assert.equal(structs.decodeStruct(ctx, [10, 1, 120]), .Err(.Truncated(1)));
+    assert.equal(structs.decodeListValue(ctx, [10, 1, 128]), .Err(.Truncated(0)));
+    // A value JSON can't hold stops the struct where it is, and the members
+    // after it aren't written.
+    let bad = Struct {
+        fields: orderedmap.of(ctx, [("a", number(0.0 / 0.0)), ("b", number(1.0))]),
+    };
+    assert.isTrue(structs.encodeStructJson(ctx, bad).isErr());
+}
+
+test "NullValue reads null or its name, and nothing else" {
+    let read = fn(doc: Json) => structs.decodeNullValueJson(doc, "$");
+    assert.equal(read(Json.Null), .Ok(NullValue.NULL_VALUE));
+    assert.equal(read(Json.Str("NULL_VALUE")), .Ok(NullValue.NULL_VALUE));
+    assert.equal(read(Json.Str("x")), .Err(.BadJson { path: "$", wanted: "null" }));
+    assert.equal(read(Json.Bool(true)), .Err(.BadJson { path: "$", wanted: "null" }));
+    assert.notEqual(NullValue.NULL_VALUE, NullValue.Unrecognized(0));
+    assert.notEqual(NullValue.Unrecognized(0), NullValue.NULL_VALUE);
+}
