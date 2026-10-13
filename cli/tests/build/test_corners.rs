@@ -574,16 +574,27 @@ fn a_failing_suite_whose_build_left_the_cache_is_built_again() {
             &format!("        sources: [\"test/t.buri\"]\n{backends}"),
             failing,
         );
-        scratch
-            .run(&["test", "//lib/a"])
-            .exits(1)
-            .says("FAIL //lib/a  test/t.buri  \"one\"");
+        let first = scratch.run(&["test", "//lib/a", "--explain"]);
+        first.exits(1).says("FAIL //lib/a  test/t.buri  \"one\"");
+        let linked = first
+            .all()
+            .lines()
+            .filter_map(|l| {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                (f.len() == 5 && f[1] == "link").then(|| f[4].to_string())
+            })
+            .collect::<Vec<_>>();
         let mut files = Vec::new();
         cache_files(&scratch.path(".buri/cache"), &mut files);
         let gone: Vec<_> = match lost {
             Lost::Image => files
                 .iter()
-                .filter(|f| std::fs::read(f).is_ok_and(|b| b.starts_with(b"BURIIMG\0")))
+                .filter(|f| {
+                    let name = f.parent().and_then(|p| p.file_name()).unwrap_or_default();
+                    let rest = f.file_name().unwrap_or_default();
+                    let key = format!("{}{}", name.to_string_lossy(), rest.to_string_lossy());
+                    linked.iter().any(|link| key.starts_with(link.as_str()))
+                })
                 .collect(),
             Lost::Bundle => files
                 .iter()
