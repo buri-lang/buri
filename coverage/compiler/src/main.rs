@@ -5,6 +5,7 @@
 //! nix develop .#coverage -c cargo run -p buri-compiler-coverage                  # this host's tests, measured
 //! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --build       # CI: build once, for the shards
 //! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --shard=2/4   # CI: one shard's lcov
+//! nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --release     # any of the three, of a release `buri`
 //! cargo run -p buri-compiler-coverage -- --merge=<dir>                           # CI: merge every platform's shards, gate
 //! cargo run -p buri-compiler-coverage -- --raise                                 # CI: the ratchet
 //! ```
@@ -13,6 +14,10 @@
 //! binaries without, so a test that calls the compiler in-process adds nothing,
 //! and every `buri` a test starts adds its profile. `design/COVERAGE.md` says
 //! how platforms merge.
+//!
+//! `--release` measures a `buri` built in the release profile, without debug
+//! assertions, as one more platform: `<host>+release`. So a branch on
+//! `cfg!(debug_assertions)` counts both ways.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -46,22 +51,23 @@ const WORST: usize = 30;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let root = root();
+    let release = args.iter().any(|a| a == "--release");
     if args.iter().any(|a| a == "--raise") {
         raise(&root);
         return;
     }
     if args.iter().any(|a| a == "--build") {
-        Gate::new(root).build();
+        Gate::new(root, release).build();
         return;
     }
     if let Some(shard) = args.iter().find_map(|a| a.strip_prefix("--shard=")) {
-        Gate::new(root).shard(shard);
+        Gate::new(root, release).shard(shard);
         return;
     }
     match args.iter().find_map(|a| a.strip_prefix("--merge=")) {
         Some(dir) => check(&root, &shards(Path::new(dir)), true),
         None => {
-            let gate = Gate::new(root.clone());
+            let gate = Gate::new(root.clone(), release);
             gate.build();
             gate.shard("1/1");
             check(&root, &shards(&gate.target.join("shard")), false);
@@ -207,14 +213,16 @@ struct Gate {
     root: PathBuf,
     /// `target/coverage`: the instrumented build and everything it writes.
     target: PathBuf,
-    /// rustc's host triple.
+    /// rustc's host triple, and `+release` for a release `buri`.
     host: String,
+    /// Whether `buri` is built in the release profile.
+    release: bool,
     /// Where the nightly's `llvm-profdata` and `llvm-cov` are.
     tools: PathBuf,
 }
 
 impl Gate {
-    fn new(root: PathBuf) -> Gate {
+    fn new(root: PathBuf, release: bool) -> Gate {
         let target = target(&root);
         std::fs::create_dir_all(&target).unwrap();
         let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
@@ -240,7 +248,12 @@ impl Gate {
         Gate {
             root,
             target,
-            host,
+            host: if release {
+                format!("{host}+release")
+            } else {
+                host
+            },
+            release,
             tools,
         }
     }
@@ -264,8 +277,8 @@ impl Gate {
         let _ = std::fs::remove_dir_all(&built);
         std::fs::create_dir_all(&built).unwrap();
         let instrumented = self.root.join("target").join("coverage-buri");
-        run(self
-            .cargo()
+        let mut cargo = self.cargo();
+        cargo
             .args([
                 "build",
                 "-p",
@@ -281,8 +294,18 @@ impl Gate {
             .env(
                 "LLVM_PROFILE_FILE",
                 instrumented.join("build-scripts").join("%m.profraw"),
-            ));
-        std::fs::copy(instrumented.join("debug").join("buri"), built.join("buri")).unwrap();
+            );
+        if self.release {
+            // The release profile without its link-time optimization, which
+            // changes how long the build takes and not which branches it has.
+            cargo
+                .arg("--release")
+                .env("CARGO_PROFILE_RELEASE_LTO", "false")
+                .env("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "16");
+        }
+        run(&mut cargo);
+        let profile = if self.release { "release" } else { "debug" };
+        std::fs::copy(instrumented.join(profile).join("buri"), built.join("buri")).unwrap();
         std::fs::write(built.join("root"), self.root.display().to_string()).unwrap();
         // Archived, so nothing rebuilds the `buri` that `test` swaps in.
         run(self
