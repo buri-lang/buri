@@ -1321,7 +1321,7 @@ impl FnLower<'_> {
             ExprKind::StructuralEq { args } => self.structural(ty, StructuralOp::Eq, args),
             ExprKind::Template { parts } => self.template(ty, parts),
 
-            ExprKind::CtxLit { bindings } => {
+            ExprKind::CtxLit { bindings, .. } => {
                 let fields = bindings.iter().map(|(_, v)| self.expr(v)).collect();
                 self.emit(ty, |dest| Inst::MakeStruct { dest, fields })
             }

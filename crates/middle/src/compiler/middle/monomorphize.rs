@@ -24,7 +24,7 @@
 //! nothing the author of the program could have done about it.
 
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::resolve::Checked;
+use crate::compiler::semantics::resolve::{Checked, TestCase};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind};
 use crate::compiler::semantics::types::*;
 use crate::diagnostics::{invariant_with, Diagnostic, Diagnostics, Invariant as _, Span};
@@ -525,8 +525,8 @@ enum Key {
     Fn(FnId, Vec<Ty>),
     /// A named `context` declaration's constructor.
     CtxCtor(ContextDeclId),
-    /// A test body.
-    Test(usize),
+    /// A test body, and where it sits in `checked.tests`.
+    Test(usize, Box<TestCase>),
     /// A derive at a type whose shape reaches a hand-written `impl` of the same
     /// trait, generated one level deep. `ctx` is `Show`'s context type.
     /// `unbounded` walks a type with no `impl` of the trait too, for a `T` that
@@ -634,7 +634,7 @@ pub fn run(
                         continue;
                     }
                 }
-                let idx = m.request(Key::Test(i));
+                let idx = m.request(Key::Test(i, Box::new(case.clone())));
                 tests.push(TestEntry {
                     name: case.name.clone(),
                     func: FuncIdx(idx as u32),
@@ -1092,12 +1092,7 @@ impl<'a> Monomorphizer<'a> {
                     info.span,
                 )
             }
-            Key::Test(i) => {
-                let case = self
-                    .checked
-                    .tests
-                    .get(*i)
-                    .or_ice("a test key holds the index `run` enumerated `checked.tests` with");
+            Key::Test(i, case) => {
                 // Qualified with the declaring module, because a debug name is
                 // what `lower::unit_name` reads a codegen unit out of and a
                 // test's title is arbitrary prose: `test "parses a: b"` put its
@@ -1293,17 +1288,11 @@ impl Monomorphizer<'_> {
                 f.locals = b.locals;
                 f.set_body(b.expr);
             }
-            Key::Test(i) => {
-                let fid = self
-                    .checked
-                    .tests
-                    .get(i)
-                    .or_ice("a test key holds the index `run` enumerated `checked.tests` with")
-                    .func;
+            Key::Test(i, case) => {
                 let body = self
                     .checked
                     .bodies
-                    .get(&fid)
+                    .get(&case.func)
                     .or_ice("a checked test has a body");
                 let mut b = typed::Body::clone(body);
                 for l in &mut b.locals {
@@ -1475,17 +1464,18 @@ impl Monomorphizer<'_> {
             if self.report_through_show(slot, &key, &param_types) {
                 return;
             }
-            if CELL_WRITE_KEYS.contains(&key.as_str()) {
-                let t = *param_types
-                    .last()
-                    .or_ice("a cell write takes the value last");
+            // A cell write takes the value last.
+            let written = param_types
+                .last()
+                .filter(|_| CELL_WRITE_KEYS.contains(&key.as_str()));
+            if let Some(&t) = written {
                 self.cell_through_equal(t);
             }
-            if key == "testing_assert.report" || key == "testing_assert.failExpected" {
-                let t = *param_types
-                    .get(2)
-                    .or_else(|| param_types.get(1))
-                    .or_ice("a reporter takes the value it reports");
+            let reported = param_types
+                .get(2)
+                .or_else(|| param_types.get(1))
+                .filter(|_| key == "testing_assert.report" || key == "testing_assert.failExpected");
+            if let Some(&t) = reported {
                 let desc = self.descriptor(&t);
                 self.func_mut(slot).desc = Some(desc);
             }
@@ -1498,10 +1488,10 @@ impl Monomorphizer<'_> {
             // own, so this is where the descriptor comes from. The value is the
             // last parameter at both keys: `signal(self, initial: T)` and
             // `write(self, id: Int, value: T)`.
-            if CELL_VALUE_KEYS.contains(&key.as_str()) {
-                let t = *param_types
-                    .last()
-                    .or_ice("a cell's value is its last parameter");
+            let held = param_types
+                .last()
+                .filter(|_| CELL_VALUE_KEYS.contains(&key.as_str()));
+            if let Some(&t) = held {
                 let desc = self.descriptor(&t);
                 self.func_mut(slot).desc = Some(desc);
             }
@@ -1509,10 +1499,7 @@ impl Monomorphizer<'_> {
             // parameter nor the receiver: it is asked for a `T` and handed a
             // `Json`. `T` is the first type argument, and the descriptor of it
             // is the whole of what the runtime needs to read one.
-            if key == "json.decode" {
-                let t = *targs
-                    .first()
-                    .or_ice("`json.decode` is called at the type it decodes");
+            if let Some(&t) = targs.first().filter(|_| key == "json.decode") {
                 let desc = self.descriptor(&t);
                 self.func_mut(slot).desc = Some(desc);
             }
@@ -1801,19 +1788,17 @@ impl Monomorphizer<'_> {
             span,
         };
 
+        // Only a function's parameters can be spelled `Self` inside it.
         let adapt = rest
             .iter_mut()
             .zip(spelled.iter().skip(1))
-            .filter(|(_, at)| !at.is_empty());
-        for (argument, at) in adapt {
+            .filter_map(|(argument, at)| match argument.ty.kind() {
+                TyKind::Fn(params, ret) if !at.is_empty() => Some((argument, at, params, ret)),
+                _ => None,
+            });
+        for (argument, at, params, ret) in adapt {
             let callback_ty = argument.ty;
             let span = argument.span;
-            // Only a function's parameters can be spelled `Self` inside it.
-            let (params, ret) = match callback_ty.kind() {
-                TyKind::Fn(params, ret) => Some((params, ret)),
-                _ => None,
-            }
-            .or_ice("an argument whose declaration spells `Self` inside it is a function");
             let held = self.new_local("__handler", callback_ty, span);
             // The adapter's own parameters: the implementation's type where the
             // declaration spelled `Self`, the declared type everywhere else.
@@ -1917,17 +1902,12 @@ impl Monomorphizer<'_> {
             .tables()
             .as_prim(&self.sub(recv, targs))
             .filter(|p| p.is_float())?;
-        let (variant, when) = match (&tested.pattern.kind, &tested.body.kind) {
-            (PatKind::Variant { variant, .. }, ExprKind::Bool(when)) => Some((*variant, *when)),
-            _ => None,
-        }
-        .or_ice("`order_test` tests one variant of `Order` for a `Bool`");
         // `Order`'s variants in declaration order: `Less`, `Equal`, `Greater`.
-        let op = match (variant, when) {
-            (0, true) => typed::PrimOp::Lt,
-            (0, false) => typed::PrimOp::Ge,
-            (2, true) => typed::PrimOp::Gt,
-            (2, false) => typed::PrimOp::Le,
+        let op = match (&tested.pattern.kind, &tested.body.kind) {
+            (PatKind::Variant { variant: 0, .. }, ExprKind::Bool(true)) => typed::PrimOp::Lt,
+            (PatKind::Variant { variant: 0, .. }, ExprKind::Bool(false)) => typed::PrimOp::Ge,
+            (PatKind::Variant { variant: 2, .. }, ExprKind::Bool(true)) => typed::PrimOp::Gt,
+            (PatKind::Variant { variant: 2, .. }, ExprKind::Bool(false)) => typed::PrimOp::Le,
             _ => return None,
         };
         Some((op, prim, std::mem::take(args)))
@@ -2010,19 +1990,15 @@ impl Monomorphizer<'_> {
                     None => ExprKind::Error,
                 }
             }
-            ExprKind::CtxLit { bindings } => {
-                let id = match e.ty.kind() {
-                    TyKind::Ctx(id) => Some(*id),
-                    _ => None,
-                }
-                .or_ice("a context literal has a context type");
+            ExprKind::CtxLit { bindings, ctx } => {
                 let layout: Vec<TraitId> = bindings.iter().map(|(t, _)| *t).collect();
-                self.ctx_layouts.insert(id, layout);
+                self.ctx_layouts.insert(ctx, layout);
                 ExprKind::CtxLit {
                     bindings: bindings
                         .into_iter()
                         .map(|(t, v)| (t, self.rewrite(v, targs)))
                         .collect(),
+                    ctx,
                 }
             }
             ExprKind::CtxGet { base, trait_id } => {

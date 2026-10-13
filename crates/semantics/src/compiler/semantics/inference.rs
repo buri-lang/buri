@@ -850,7 +850,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     }
                 }
             }
-            typed::ExprKind::CtxLit { bindings } => {
+            typed::ExprKind::CtxLit { bindings, .. } => {
                 bindings.iter_mut().for_each(|(_, e)| self.resolve_expr(e))
             }
             typed::ExprKind::FnRef(c) => self.resolve_callee(c),

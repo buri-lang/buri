@@ -863,16 +863,13 @@ impl Code {
     pub fn reachable(&self) -> Vec<bool> {
         let mut seen = vec![false; self.blocks.len()];
         let mut stack = vec![BlockId(0)];
-        *seen.first_mut().or_ice("code has an entry block") = true;
         while let Some(b) = stack.pop() {
-            for t in self.get(b).term.targets() {
-                match seen.get_mut(t.block.index()) {
-                    Some(s) if !*s => {
-                        *s = true;
-                        stack.push(t.block);
-                    }
-                    _ => {}
+            match seen.get_mut(b.index()) {
+                Some(s) if !*s => {
+                    *s = true;
+                    stack.extend(self.get(b).term.targets().map(|t| t.block));
                 }
+                _ => {}
             }
         }
         seen
@@ -901,9 +898,9 @@ impl Code {
         }
         let mut renumber = vec![None; self.blocks.len()];
         let mut next = 0u32;
-        for (i, k) in keep.iter().enumerate() {
+        for (slot, k) in renumber.iter_mut().zip(&keep) {
             if *k {
-                *renumber.get_mut(i).or_ice("`keep` has one row per block") = Some(BlockId(next));
+                *slot = Some(BlockId(next));
                 next = next.saturating_add(1);
             }
         }
@@ -1888,14 +1885,7 @@ mod tests {
     /// the way.
     fn adder() -> Program {
         let mut code = Code::new();
-        let entry = code.block(&[Type::I64, Type::I64]);
-        let (a, b) = {
-            let ps = &code.get(entry).params;
-            (
-                *ps.first().or_ice("the entry was built with two parameters"),
-                *ps.get(1).or_ice("the entry was built with two parameters"),
-            )
-        };
+        let (entry, [a, b]) = code.block_of([Type::I64, Type::I64]);
         let sum = code.value(Type::I64);
         code.get_mut(entry).insts.push(Inst::Binary {
             dest: sum,
@@ -1947,7 +1937,7 @@ mod tests {
     #[test]
     fn a_block_that_does_not_dominate_another_is_told_apart() {
         let mut p = adder();
-        let Body::Code(code) = &mut p.funcs.first_mut().or_ice("one function").body else {
+        let Body::Code(code) = &mut p.funcs[0].body else {
             return;
         };
         // b1 defines a value; b2 uses it; b0 branches to both, so b1 does not
@@ -2014,10 +2004,10 @@ mod tests {
         }
         let path = module_path!()
             .split_once("::")
-            .or_ice("a test module is in a crate")
+            .expect("a test module is in a crate")
             .1;
         let out = std::process::Command::new(
-            std::env::current_exe().or_ice("this test's own executable"),
+            std::env::current_exe().expect("this test's own executable"),
         )
         .args([
             &format!("{path}::{test}"),
@@ -2027,7 +2017,7 @@ mod tests {
         ])
         .env(CHILD, "1")
         .output()
-        .or_ice("the test re-runs itself");
+        .expect("the test re-runs itself");
         let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
         assert_eq!(
             out.status.code(),
@@ -2043,10 +2033,10 @@ mod tests {
             "an_edge_whose_arguments_do_not_match_its_destination_is_reported",
             || {
                 let mut p = adder();
-                if let Body::Code(code) = &mut p.funcs.first_mut().or_ice("one function").body {
+                if let Body::Code(code) = &mut p.funcs[0].body {
                     let b1 = code.block(&[Type::I64, Type::I64]);
                     code.get_mut(b1).term = Term::Unreachable;
-                    let entry_param = *code.get(BlockId(0)).params.first().or_ice("two parameters");
+                    let entry_param = code.get(BlockId(0)).params[0];
                     code.get_mut(BlockId(0)).term = Term::Jump(Target::new(b1, vec![entry_param]));
                 }
                 p
@@ -2062,7 +2052,7 @@ mod tests {
     fn a_block_that_continues_after_an_abort_is_reported() {
         let report = rejected("a_block_that_continues_after_an_abort_is_reported", || {
             let mut p = adder();
-            if let Body::Code(code) = &mut p.funcs.first_mut().or_ice("one function").body {
+            if let Body::Code(code) = &mut p.funcs[0].body {
                 let v = code.value(Type::I64);
                 let entry = code.get_mut(BlockId(0));
                 entry.insts.insert(
