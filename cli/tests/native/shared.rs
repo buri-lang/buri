@@ -85,7 +85,16 @@ pub fn ran_built(binary: &Path, build: &str) -> Ran {
 }
 
 /// Runs `cmd`, under Valgrind when `BURI_MEMCHECK` or `BURI_HELGRIND` asks (`valgrind.rs`).
+///
+/// A `buri test` runs its test processes under that tool too.
 fn ran_as(cmd: &mut Command, build: &str) -> Ran {
+    if Path::new(cmd.get_program()) == Path::new(env!("CARGO_BIN_EXE_buri")) {
+        let line: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        crate::valgrind::hosts(cmd, &format!("buri {}", line.join(" ")));
+    }
     let out = crate::valgrind::output(cmd, build).unwrap_or_else(|| cmd.output().unwrap());
     Ran {
         status: out.status.code().unwrap_or(-1),

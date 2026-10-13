@@ -123,6 +123,11 @@ pub fn asked() -> bool {
     chosen().is_some()
 }
 
+/// The tool `BURI_MEMCHECK` or `BURI_HELGRIND` asks for.
+pub fn chosen_tool() -> Option<Tool> {
+    chosen().map(|(tool, _)| tool)
+}
+
 /// The tool `BURI_MEMCHECK` or `BURI_HELGRIND` asks for, and the directory
 /// its runs go to.
 fn chosen() -> Option<(Tool, PathBuf)> {
@@ -213,38 +218,11 @@ fn wrapped(
     again: &str,
     extra: &[&str],
 ) -> Command {
-    static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let runs = dir.join("runs");
-    std::fs::create_dir_all(&runs).unwrap();
-    let name = format!(
-        "{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    );
     let program = Path::new(cmd.get_program());
-    let about = format!("{}\n{}\n{build}\n{again}\n", tool.name(), program.display());
-    std::fs::write(runs.join(format!("{name}.about")), about).unwrap();
-    let flags: Vec<&str> = FLAGS.iter().chain(tool.flags()).copied().collect();
+    let name = named(tool, dir, &program.display().to_string(), build, again);
     let mut wrapped = Command::new(valgrind());
     wrapped
-        .arg(format!("--tool={}", tool.name()))
-        // An `extra` flag replaces the one of its name.
-        .args(flags.iter().filter(|f| {
-            !extra
-                .iter()
-                .any(|e| e.split('=').next() == f.split('=').next())
-        }))
-        .args(extra)
-        .arg(format!("--suppressions={}", tool.suppressions()))
-        .arg("--xml=yes")
-        .arg(format!(
-            "--xml-file={}",
-            runs.join(format!("{name}.xml")).display()
-        ))
-        .arg(format!(
-            "--log-file={}",
-            runs.join(format!("{name}.log")).display()
-        ))
+        .args(arguments(tool, dir, &name, extra))
         .arg(program)
         .args(cmd.get_args());
     for (key, value) in cmd.get_envs() {
@@ -257,6 +235,85 @@ fn wrapped(
         wrapped.current_dir(cwd);
     }
     wrapped
+}
+
+/// The variable `buri test` reads for a command to start each test process
+/// under (`BURI_TEST_RUNNER`, `cli/src/commands/test.rs`).
+pub const RUNNER: &str = "BURI_TEST_RUNNER";
+
+/// Has every test process `cmd`, a `buri test`, starts run under the tool the
+/// environment asks for, as this harness runs its own programs.
+/// A runner the caller set stays.
+pub fn hosts(cmd: &mut Command, build: &str) {
+    if cmd.get_envs().any(|(key, _)| key == RUNNER) {
+        return;
+    }
+    if let Some((tool, dir)) = chosen() {
+        cmd.env(RUNNER, runner(tool, &dir, build, &again_for(tool)));
+    }
+}
+
+/// [`RUNNER`]'s value for `tool`: each test process's report goes to
+/// `dir/runs`, one per process, all of them one run's.
+pub fn runner(tool: Tool, dir: &Path, build: &str, again: &str) -> String {
+    let name = named(
+        tool,
+        dir,
+        "a test process `buri test` started",
+        build,
+        again,
+    );
+    let name = format!("{name}.%p");
+    let mut words = vec![valgrind().display().to_string()];
+    words.extend(arguments(tool, dir, &name, &[]));
+    words.join(" ")
+}
+
+/// A new run's name, with its `.about` written: the tool, the program, its
+/// build and how to run it again.
+fn named(tool: Tool, dir: &Path, program: &str, build: &str, again: &str) -> String {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let runs = dir.join("runs");
+    std::fs::create_dir_all(&runs).unwrap();
+    let name = format!(
+        "{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    );
+    let about = format!("{}\n{program}\n{build}\n{again}\n", tool.name());
+    std::fs::write(runs.join(format!("{name}.about")), about).unwrap();
+    name
+}
+
+/// Valgrind's arguments for the run `name`, before the program. Valgrind
+/// replaces a `%p` in `name` with the process id.
+fn arguments(tool: Tool, dir: &Path, name: &str, extra: &[&str]) -> Vec<String> {
+    let runs = dir.join("runs");
+    let mut args = vec![format!("--tool={}", tool.name())];
+    args.extend(
+        FLAGS
+            .iter()
+            .chain(tool.flags())
+            // An `extra` flag replaces the one of its name.
+            .filter(|f| {
+                !extra
+                    .iter()
+                    .any(|e| e.split('=').next() == f.split('=').next())
+            })
+            .chain(extra)
+            .map(|f| f.to_string()),
+    );
+    args.push(format!("--suppressions={}", tool.suppressions()));
+    args.push("--xml=yes".into());
+    args.push(format!(
+        "--xml-file={}",
+        runs.join(format!("{name}.xml")).display()
+    ));
+    args.push(format!(
+        "--log-file={}",
+        runs.join(format!("{name}.log")).display()
+    ));
+    args
 }
 
 /// Valgrind by its full path, so a program given its own `PATH` still starts.
@@ -280,7 +337,14 @@ pub fn report(dir: &Path) -> usize {
     runs.sort();
     let mut count = 0;
     for xml in runs {
-        let about = std::fs::read_to_string(xml.with_extension("about")).unwrap_or_default();
+        // A run of many processes, as `buri test`'s, is `<run>.<pid>.xml`.
+        let run = xml
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.split('.').next())
+            .unwrap_or_default();
+        let about =
+            std::fs::read_to_string(xml.with_file_name(format!("{run}.about"))).unwrap_or_default();
         let mut lines = about.splitn(4, '\n');
         let (tool, program, build, again) = (
             lines.next().unwrap_or("?"),

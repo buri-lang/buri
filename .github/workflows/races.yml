@@ -10,7 +10,7 @@ name: Races
 # * **The workload** is the fan-out, task, scope and actor rows, `process.start`
 #   with several children, and the runtime's `rt::` tests, on stencil and
 #   LLVM. `BURI_HELGRIND` makes `cli/tests/native/shared.rs` run each program
-#   it built under helgrind.
+#   it built under helgrind, and each test process a `buri test` starts.
 # * **`--features valgrind`** builds a runtime that tells helgrind what it
 #   can't see for itself: `std`'s futex locks, and the atomics the runtime
 #   hands work between threads with (`cli/runtime/sync.rs`, `valgrind.rs`).
@@ -45,12 +45,13 @@ jobs:
       matrix:
         # The fan-outs, and the scopes, actors and shared values agreement
         # asks about, an actor driven from inside a scope, headless timers,
-        # and `process.start`. Not the servers: their rows hold
+        # `process.start`, and the check that `buri test`'s test processes run
+        # under helgrind. Not the servers: their rows hold
         # them to deadlines a server twenty times slower misses, and nearly all
         # they share between threads is tokio's. Not `at_scale`'s trees: at
         # that size helgrind takes past the hour.
         include:
-          - { shard: tasks, filters: "fan_out:: at_scale::fan_outs_of_every_width started:: actor_scoped:: headless_timers::" }
+          - { shard: tasks, filters: "fan_out:: at_scale::fan_outs_of_every_width started:: actor_scoped:: headless_timers:: test_processes::" }
           - { shard: agreement, filters: "agreement::" }
           - { shard: runtime }
     runs-on: blacksmith-8vcpu-ubuntu-2404
