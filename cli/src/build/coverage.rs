@@ -207,7 +207,7 @@ fn text(map: &SourceMap, span: Span) -> String {
         end = source
             .get(end..)
             .and_then(|s| s.find(')'))
-            .map_or(end, |at| end + at + 1);
+            .map_or(end, |at| end.saturating_add(at).saturating_add(1));
     }
     let raw = source.get(start..end).unwrap_or("");
     raw.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -227,9 +227,11 @@ fn unbalanced(s: &str) -> (usize, usize) {
             (Some(q), _) if c == q => quote = None,
             (Some(_), _) => {}
             (None, '"' | '\'') => quote = Some(c),
-            (None, '(') => open += 1,
-            (None, ')') if open > 0 => open -= 1,
-            (None, ')') => close += 1,
+            (None, '(') => open = open.saturating_add(1),
+            (None, ')') => match open.checked_sub(1) {
+                Some(fewer) => open = fewer,
+                None => close = close.saturating_add(1),
+            },
             (None, _) => {}
         }
     }
@@ -308,9 +310,7 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
         coverage::Called::Func(f) => by_slot.get(&(f.0 as usize)).copied(),
     };
     let mut note =
-        |body: &typed::Expr,
-         instance: Instance,
-         traps: Option<&dyn Fn(&typed::Expr) -> Option<coverage::Aborts>>| {
+        |body: &typed::Expr, instance: Instance, traps: Option<&coverage::TrapCall<'_>>| {
             coverage::decisions(
                 body,
                 traps,

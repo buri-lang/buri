@@ -226,11 +226,6 @@ fn compact<K, V>(bitmap: U64, children: [Node<K, V>]): Option<Node<K, V>> {
     }
 }
 
-/// Child `bit` of a branch, or `.None` when the branch has no such slot.
-fn childAt<K, V>(bitmap: U64, children: [Node<K, V>], bit: U64): Option<Node<K, V>> {
-    if (hasSlot(bitmap, bit)) { children.get(indexOf(bitmap, bit)) } else { .None }
-}
-
 /// The value under `key` in the subtree `n`, whose keys' hashes agree with
 /// `hash` down to `depth`.
 fn find<K: Equal, V>(n: Node<K, V>, hash: U64, key: K, depth: Int): Option<V> {
@@ -238,7 +233,13 @@ fn find<K: Equal, V>(n: Node<K, V>, hash: U64, key: K, depth: Int): Option<V> {
         .Entry(_h, k, v) => if (k == key) { .Some(v) } else { .None },
         .Collision(_h, es) => findInList(es, key, 0),
         .Branch(bitmap, children) => {
-            match (childAt(bitmap, children, bitOf(chunkAt(hash, depth)))) {
+            let bit = bitOf(chunkAt(hash, depth));
+            let found = if (hasSlot(bitmap, bit)) {
+                children.get(indexOf(bitmap, bit))
+            } else {
+                .None
+            };
+            match (found) {
                 .None => .None,
                 .Some(child) => find(child, hash, key, depth + 1),
             }
@@ -262,7 +263,7 @@ fn insertNode<K: Equal, V, C: Allocator>(
             let idx = indexOf(bitmap, bit);
             // A name rather than a scrutinee, so the option lets go of the
             // child where the match takes it apart rather than after it.
-            let found = childAt(bitmap, children, bit);
+            let found = if (hasSlot(bitmap, bit)) { children.get(idx) } else { .None };
             match (found) {
                 .None => {
                     (
