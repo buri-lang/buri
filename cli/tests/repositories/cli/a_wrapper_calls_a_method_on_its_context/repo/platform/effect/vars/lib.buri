@@ -1,0 +1,7 @@
+export effect Vars {
+    fn get(self, name: Str): Option<Str>;
+}
+
+export fn get<C: Vars>(ctx: C, name: Str): Option<Str> {
+    ctx.get(name)
+}

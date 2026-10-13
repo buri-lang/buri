@@ -1,0 +1,13 @@
+from "//platform/effect/vars" import { Vars };
+
+export struct TestVars {}
+
+impl Vars for TestVars {
+    fn get(self, name: Str): Option<Str> {
+        .None
+    }
+}
+
+export fn vars(): TestVars {
+    TestVars {}
+}
