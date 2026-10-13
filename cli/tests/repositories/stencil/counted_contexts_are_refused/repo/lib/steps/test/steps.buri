@@ -21,4 +21,6 @@ test "a timer is handed a context that owns a count" {
         Tasks: tasks(),
     };
     let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => ());
+    // A second timer: the same refusal again, named once.
+    let _ = tasks.after(ctx, time.milliseconds(2), fn(c) => ());
 }
