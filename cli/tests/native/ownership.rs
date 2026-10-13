@@ -724,7 +724,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: four thousand swaps allocated {blocks} blocks: a rebuilt value took a \
              block of its own"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -779,7 +782,10 @@ export fn main(host: NativeHost): Result<(), Str> {
         assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
         assert_eq!(r.stdout, "8841 ccc-1\n", "{backend}: {}", r.stderr);
         let (blocks, live) = probed(&r.stderr);
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -833,6 +839,9 @@ export fn main(host: NativeHost): Result<(), Str> {
         assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
         assert_eq!(r.stdout, "0 b-1/a-1\n", "{backend}: {}", r.stderr);
         let (blocks, live) = probed(&r.stderr);
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
