@@ -3456,10 +3456,6 @@ fn check_unused_contexts(
 /// the body as one inside it, so the two questions have to be asked about one
 /// region.
 fn extent_of(info: &crate::compiler::semantics::types::FnInfo, body: &typed::Body) -> Span {
-    invariant(
-        info.span.file == body.expr.span.file,
-        "a function's body is in its declaration's file",
-    );
     Span::new(
         info.span.file,
         info.span.start.min(body.expr.span.start) as usize,
@@ -3517,11 +3513,7 @@ fn compiled_by(
     target: TargetId,
     module: ModuleId,
 ) -> bool {
-    let m = analysis
-        .loaded
-        .modules
-        .get(module.index())
-        .or_ice("a body's module is one the analysis loaded");
+    let m = analysis.loaded.module(module);
     let rel = package_relative(session, target.package, &m.path)
         .or_ice("a module of the package being linted has a path inside it");
     match session.workspace.rule_of_file(target.package, &rel) {
@@ -4043,11 +4035,7 @@ fn bound_spans(
         AstRef::Method { module, item, sub } => (module, item, Some(sub)),
         AstRef::Builtin => ice("a function with a body the repository wrote has syntax"),
     };
-    let m = analysis
-        .loaded
-        .modules
-        .get(module.index())
-        .or_ice("a function's module is loaded");
+    let m = analysis.loaded.module(module);
     let t = &m.ast.tree;
     let (decl, gi) = match (m.ast.items.get(item as usize), sub) {
         (Some(Item::Fn(decl)), None) => (decl, gi),
@@ -4194,11 +4182,7 @@ fn calls_into(
                 .decl()
                 .or_ice("a lint reads the tree before monomorphization");
             let info = analysis.checked.tables.fn_info(called);
-            let m = analysis
-                .loaded
-                .modules
-                .get(info.module.index())
-                .or_ice("a callee's module is loaded");
+            let m = analysis.loaded.module(info.module);
             if m.path == module && names.contains(&info.name.as_str()) {
                 out.push((e.span, info.name.clone()));
             }
@@ -4317,10 +4301,6 @@ fn comparator_for(prim: crate::compiler::semantics::types::Prim) -> Option<&'sta
 /// matched, which is the conservative direction: this rule declines rather
 /// than guesses.
 fn same_text(session: &Session, a: Span, b: Span) -> bool {
-    invariant(
-        a.file == b.file,
-        "both operands are in one body, so in one file",
-    );
     let text = session.map.text(a.file);
     let (left, right) = (
         text.get(a.start as usize..a.end as usize),
@@ -4529,11 +4509,7 @@ fn check_tests_assert(
     // `assert.none`, so the walk below reaches the assert module on its own.
     let asserts = |f: FnId| -> bool {
         let info = analysis.checked.tables.fn_info(f);
-        let module = analysis
-            .loaded
-            .modules
-            .get(info.module.index())
-            .or_ice("a callee's module is loaded");
+        let module = analysis.loaded.module(info.module);
         match module.path.as_str() {
             "core/testing/assert" => true,
             "platform/effect/testing" => info.name == "snapshot",
@@ -4604,11 +4580,7 @@ pub(crate) fn reached_by_resolution(
             };
             let Some(f) = called else { return };
             let callee = analysis.checked.tables.fn_info(f);
-            let m = analysis
-                .loaded
-                .modules
-                .get(callee.module.index())
-                .or_ice("a callee's module is loaded");
+            let m = analysis.loaded.module(callee.module);
             let Some(package) = m.pkg else { return };
             if package == own {
                 return;

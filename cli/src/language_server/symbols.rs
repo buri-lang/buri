@@ -1564,10 +1564,6 @@ fn narrowest<'a>(
 ) -> Option<Found> {
     let mut best: Option<(u32, &'a typed::Expr)> = None;
     typed::walk(root, &mut |e| {
-        invariant(
-            e.span.file == file,
-            "an expression is written in the file its function is declared in",
-        );
         if e.span.start > offset || offset > e.span.end {
             return;
         }

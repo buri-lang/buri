@@ -17,7 +17,7 @@ use super::state::Analyzed;
 use crate::compiler::semantics::resolve::Sym;
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{Tables, TyConId};
-use crate::diagnostics::{invariant, Span};
+use crate::diagnostics::Span;
 use crate::json::Value;
 use std::path::Path;
 
@@ -54,10 +54,6 @@ fn swatches(analyzed: &Analyzed, path: &Path) -> Option<Vec<(Span, Rgba)>> {
 
     let mut found: Vec<(Span, Rgba)> = Vec::new();
     let mut visit = |e: &typed::Expr| {
-        invariant(
-            e.span.file == file,
-            "an expression is written in the file its function is declared in",
-        );
         let ExprKind::EnumLit {
             con: written,
             variant,
