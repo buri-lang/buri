@@ -730,15 +730,17 @@ fn fixChild<K: Ordered, V, C: Allocator>(
 ): Node<K, V> {
     if (child.keys.length() >= MIN_ENTRIES) {
         placed(ctx, n, at, child)
-    } else if (at > 0) {
-        match (n.children.get(at - 1)) {
-            .None => placed(ctx, n, at, child),
-            .Some(left) => fixWithLeft(ctx, n, at, child, left),
-        }
     } else {
-        match (n.children.get(at + 1)) {
-            .None => placed(ctx, n, at, child),
-            .Some(right) => fixWithRight(ctx, n, at, child, right),
+        // Only the first child has no sibling before it, and a branch has at
+        // least two children, so the first has one after it.
+        match (n.children.get(at - 1)) {
+            .Some(left) => fixWithLeft(ctx, n, at, child, left),
+            .None => {
+                match (n.children.get(at + 1)) {
+                    .None => placed(ctx, n, at, child),
+                    .Some(right) => fixWithRight(ctx, n, at, child, right),
+                }
+            },
         }
     }
 }
