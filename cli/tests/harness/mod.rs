@@ -22,6 +22,8 @@ pub mod hang;
 mod inherited;
 pub mod pool;
 pub mod shape;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod signals;
 #[macro_use]
 pub mod shard;
 pub mod sweep;
