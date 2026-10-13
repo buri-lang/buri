@@ -118,6 +118,98 @@ fn a_test_binary_that_dies_after_its_blocks_fails_its_suite() {
     });
 }
 
+/// A binary that takes a block and exits 0 without reporting it has given no
+/// result for the test, which is not a pass.
+#[test]
+fn a_test_binary_that_exits_without_reporting_a_block_fails_its_suite() {
+    let scratch = suites("runners-silent");
+    // Starts, takes a block where it is asked for one, and says nothing more.
+    let runner = script(
+        &scratch,
+        "silent",
+        "echo '{\"started\":1}'\n\
+         if [ \"$BURI_TEST_PULL\" = 1 ]; then\n  \
+           echo '{\"next\":1}'\n  read block\n\
+         fi\n\
+         exit 0\n",
+    );
+    under(&scratch, &runner, |run, suite| {
+        run.exits(1)
+            .says(&format!(
+                "error: the test binary for {suite} gave no result for \"first\", \"second\""
+            ))
+            .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
+    });
+}
+
+/// A binary that reports some of its blocks and exits 0 has given no result
+/// for the rest, though the ones it reported passed.
+#[test]
+fn a_test_binary_that_exits_after_reporting_some_blocks_fails_its_suite() {
+    let scratch = suites("runners-partial");
+    // Reports the first block only: the second is taken and dropped.
+    let runner = script(
+        &scratch,
+        "partial",
+        "echo '{\"started\":1}'\n\
+         if [ \"$BURI_TEST_PULL\" = 1 ]; then\n  \
+           echo '{\"next\":1}'\n  read block\n  \
+           if [ \"$block\" = 0 ]; then\n    \
+             echo '{\"i\":0,\"left\":1}'\n    \
+             echo '{\"next\":1}'\n    read block\n  \
+           fi\n\
+         else\n  \
+           echo '{\"i\":0,\"left\":1}'\n\
+         fi\n\
+         exit 0\n",
+    );
+    under(&scratch, &runner, |run, suite| {
+        run.exits(1)
+            .says(&format!(
+                "error: the test binary for {suite} gave no result for \"second\""
+            ))
+            .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
+    });
+}
+
+/// A binary that asks for another block before reporting the one it holds has
+/// given no result for the one it held.
+#[test]
+fn a_test_binary_that_hands_a_block_back_unreported_fails_its_suite() {
+    let scratch = suites("runners-handed-back");
+    let runner = script(
+        &scratch,
+        "handed-back",
+        "echo '{\"started\":1}'\n\
+         if [ \"$BURI_TEST_PULL\" = 1 ]; then\n  \
+           echo '{\"next\":1}'\n  read block\n  \
+           echo '{\"next\":1}'\n  read block\n\
+         fi\n\
+         exit 0\n",
+    );
+    under(&scratch, &runner, |run, suite| {
+        run.exits(1)
+            .says(&format!(
+                "error: the test binary for {suite} gave no result for \"first\", \"second\""
+            ))
+            .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
+    });
+}
+
+/// A binary that exits 0 without ever asking for a block ran none.
+#[test]
+fn a_test_binary_that_exits_without_asking_for_a_block_fails_its_suite() {
+    let scratch = suites("runners-never-asks");
+    let runner = script(&scratch, "never-asks", "echo '{\"started\":1}'\nexit 0\n");
+    under(&scratch, &runner, |run, suite| {
+        run.exits(1)
+            .says(&format!(
+                "error: the test binary for {suite} gave no result for \"first\", \"second\""
+            ))
+            .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
+    });
+}
+
 /// Lines that aren't the protocol's, and a block reported that the binary
 /// wasn't running, are passed over.
 #[test]
