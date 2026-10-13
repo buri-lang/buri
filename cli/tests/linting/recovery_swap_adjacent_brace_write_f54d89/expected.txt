@@ -1,11 +1,3 @@
-warning: io is imported but not used [unused-import]
- --> lib/recovery_swap_adjacent_brace_write_f54d89/lib.buri:1:28
-  |
-1 | from "core/io" import * as io;
-  |                            ^^
-  |
-  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
-  = fix: remove the import
 error: expected an identifier, found `.` [unexpected-token]
  --> lib/recovery_swap_adjacent_brace_write_f54d89/lib.buri:6:9
   |

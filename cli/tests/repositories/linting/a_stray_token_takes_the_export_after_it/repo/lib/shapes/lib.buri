@@ -1,0 +1,15 @@
+// A stray `?` after `export` takes the `export` with it, so the enum below is
+// read as private. Whether it was published is what the mistake hid, and its
+// variants were never unused.
+//
+// Not a seed of the mutation corpus in `cli/tests/linting.rs`, which skips any
+// file whose text holds `from "//`.
+
+export enum Shape {
+    Circle(Int),
+    Square(Int),
+}
+
+export struct Drawing {
+    export shape: Shape,
+}

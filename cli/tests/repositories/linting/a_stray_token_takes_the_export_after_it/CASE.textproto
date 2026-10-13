@@ -1,0 +1,28 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a stray token after `export`: the parse error is the whole report, with no unused variant made of the `export` it took"
+
+edit {
+  file: "lib/shapes/lib.buri"
+  replace: "export enum Shape {"
+  with: "export ? enum Shape {"
+}
+
+run {
+  args: ["lint", "//lib/shapes"]
+  exit: 1
+  golden: "broken.txt"
+}
+
+edit {
+  file: "lib/shapes/lib.buri"
+  replace: "export ? enum Shape {"
+  with: "export enum Shape {"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

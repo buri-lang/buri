@@ -1,0 +1,28 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a swapped brace that glues a keyword to a name: the parse error is the whole report, with no unused import made of the use it hid"
+
+edit {
+  file: "lib/say/lib.buri"
+  replace: "    match (io.println"
+  with: "    ( matchio.println"
+}
+
+run {
+  args: ["lint", "//lib/say"]
+  exit: 1
+  golden: "broken.txt"
+}
+
+edit {
+  file: "lib/say/lib.buri"
+  replace: "    ( matchio.println"
+  with: "    match (io.println"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

@@ -1,0 +1,9 @@
+error: expected an identifier, found `.` [unexpected-token]
+  --> lib/say/lib.buri:13:9
+   |
+13 |         .Ok(_written) => .Ok(line.length()),
+   |         ^
+   |
+   = expected: an identifier
+   = actual: `.`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

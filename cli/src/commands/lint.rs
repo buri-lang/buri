@@ -1639,6 +1639,65 @@ impl Unchecked {
             .iter()
             .any(|r| r.file == span.file && (r.start..=r.end).contains(&span.start))
     }
+
+    /// The text of `m` the toolchain could not read: the bodies that did not
+    /// check, the runs of source the parser skipped, and where it lost its
+    /// place.
+    ///
+    /// A body is its *expression* and not its declaration extent: a signature
+    /// is text the parser read whole and it holds no reads, so a type named in
+    /// the signature of a function whose body broke is not in doubt — only
+    /// what was written inside the body is.
+    fn unreadable(
+        &self,
+        lexes: &Lexes<'_>,
+        analysis: &crate::compiler::driver::Analysis,
+        m: &ModuleData,
+    ) -> Vec<Span> {
+        use crate::parsing::tree::Item;
+        let mut unreadable: Vec<Span> = self
+            .bodies
+            .iter()
+            .map(|fid| {
+                analysis
+                    .checked
+                    .bodies
+                    .get(fid)
+                    .or_ice("an unchecked body is one the analysis checked")
+                    .expr
+                    .span
+            })
+            .filter(|at| at.file == m.file)
+            .collect();
+        unreadable.extend(m.ast.items.iter().filter_map(|i| match i {
+            Item::Error(at) => Some(*at),
+            _ => None,
+        }));
+        let Some((from, to)) = self.lost.get(&m.file).copied() else {
+            return unreadable;
+        };
+        // Where the parser lost its place, nothing up to the next declaration
+        // it read whole is known to be what the author wrote.
+        // A place lost right after an `export` was lost at the start of a
+        // declaration, and the declaration read after the mistake is whole but
+        // for that word. Whether it was published is what the mistake hid, so
+        // it is not read whole either.
+        let lexed = lexes.of(m.file);
+        let orphaned = (0..lexed.tokens.len())
+            .take_while(|i| lexed.tokens.span(*i).end <= from)
+            .last()
+            .is_some_and(|i| lexed.tokens.text(i) == "export");
+        let resumed = m
+            .ast
+            .items
+            .iter()
+            .filter(|i| !matches!(i, Item::Error(_)) && i.span().start >= to)
+            .map(|i| i.span().start as usize)
+            .nth(usize::from(orphaned))
+            .unwrap_or(lexes.text(m.file).len());
+        unreadable.push(Span::new(m.file, from as usize, resumed));
+        unreadable
+    }
 }
 
 /// What a module's text alone decides, kept from one lint pass to the next.
@@ -1800,7 +1859,7 @@ fn check_hygiene(
     for m in analysis.package_modules(own) {
         if !is_generated(m) {
             let text = Text::of(&lexes, m);
-            check_unused_imports(&lexes, &text, analysis, m, &held, diagnostics);
+            check_unused_imports(&lexes, &text, analysis, &unchecked, m, &held, diagnostics);
             // A function that ran on into the next one is long by the mistake.
             diagnostics.extend(
                 text.findings
@@ -2734,53 +2793,15 @@ impl<'s> Names<'s> {
         mine: &BTreeSet<ModuleId>,
         unchecked: &Unchecked,
     ) -> Names<'s> {
-        use crate::parsing::tree::Item;
         let mut names = Names {
             written: crate::hash::Set::default(),
             doubted: crate::hash::Set::default(),
         };
-        // The bodies whose typed tree is short, by file. The *expression* and
-        // not [`Unchecked`]'s declaration extent: a signature is text the
-        // parser read whole and it holds no reads, so a type named in the
-        // signature of a function whose body broke is not in doubt — only what
-        // was written inside the body is.
-        let mut broken: std::collections::BTreeMap<crate::diagnostics::FileId, Vec<Span>> =
-            std::collections::BTreeMap::new();
-        for fid in &unchecked.bodies {
-            let body = analysis
-                .checked
-                .bodies
-                .get(fid)
-                .or_ice("an unchecked body is one the analysis checked");
-            broken
-                .entry(body.expr.span.file)
-                .or_default()
-                .push(body.expr.span);
-        }
         for m in &analysis.loaded.modules {
             if !mine.contains(&m.id) || is_generated(m) {
                 continue;
             }
-            // What the toolchain could not read: the bodies that did not check,
-            // and the runs of source the parser skipped.
-            let mut unreadable: Vec<Span> = broken.get(&m.file).cloned().unwrap_or_default();
-            unreadable.extend(m.ast.items.iter().filter_map(|i| match i {
-                Item::Error(at) => Some(*at),
-                _ => None,
-            }));
-            // Where the parser lost its place, nothing up to the next
-            // declaration it read whole is known to be what the author wrote.
-            if let Some((from, to)) = unchecked.lost.get(&m.file) {
-                let resumed = m
-                    .ast
-                    .items
-                    .iter()
-                    .filter(|i| !matches!(i, Item::Error(_)) && i.span().start >= *to)
-                    .map(|i| i.span().start as usize)
-                    .min()
-                    .unwrap_or(lexes.text(m.file).len());
-                unreadable.push(Span::new(m.file, *from as usize, resumed));
-            }
+            let unreadable = unchecked.unreadable(lexes, analysis, m);
             let read = Text::of(lexes, m);
             let text = lexes.text(m.file);
             let name_at = |at: Span| text.get(at.start as usize..at.end as usize).unwrap_or("");
@@ -3132,6 +3153,7 @@ fn check_unused_imports(
     lexes: &Lexes<'_>,
     read: &Text,
     analysis: &crate::compiler::driver::Analysis,
+    unchecked: &Unchecked,
     m: &ModuleData,
     held: &Held,
     diagnostics: &mut Diagnostics,
@@ -3140,6 +3162,27 @@ fn check_unused_imports(
     // it exports, so it *is* a use.
     let used = &read.used;
     let text = lexes.text(m.file);
+    // Where the toolchain could not read, a mistake that took the space from
+    // between two tokens has glued them into one word — `match (io` with its
+    // first two tokens swapped is `( matchio` — and the use is still written
+    // there, at one end of the longer word.
+    let unreadable = unchecked.unreadable(lexes, analysis, m);
+    let glued: Vec<&str> = read
+        .idents
+        .iter()
+        .filter(|at| {
+            unreadable
+                .iter()
+                .any(|r| at.start >= r.start && at.end <= r.end)
+        })
+        .map(|at| text.get(at.start as usize..at.end as usize).unwrap_or(""))
+        .collect();
+    let written = |name: &str| {
+        used.contains(name)
+            || glued.iter().any(|word| {
+                word.len() > name.len() && (word.starts_with(name) || word.ends_with(name))
+            })
+    };
     let tycons = &analysis.checked.tables.tycons;
     let held_here: BTreeSet<&str> = held
         .by_module
@@ -3149,7 +3192,7 @@ fn check_unused_imports(
         .filter_map(|con| tycons.get(con.0 as usize).map(|c| c.name.as_str()))
         .collect();
     let is_used = |sp: &crate::parsing::tree::ImportSpec| {
-        used.contains(m.ast.tree.name(sp.local())) || held_here.contains(m.ast.tree.name(sp.name))
+        written(m.ast.tree.name(sp.local())) || held_here.contains(m.ast.tree.name(sp.name))
     };
 
     for item in &m.ast.items {
@@ -3166,7 +3209,7 @@ fn check_unused_imports(
                 .collect(),
             crate::parsing::tree::ImportClause::Namespace(n) => {
                 let name = m.ast.tree.name(*n);
-                vec![(name, n.span, used.contains(name))]
+                vec![(name, n.span, written(name))]
             }
         };
         // One edit per statement, not per name. Two adjacent unused names have
