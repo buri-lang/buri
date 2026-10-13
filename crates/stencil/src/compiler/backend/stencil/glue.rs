@@ -69,7 +69,7 @@
 )]
 
 use super::asm::{Asm, RAX, RCX, RDI, RDX, RSI, RSP, SP, X86};
-use super::jit::{Fn2, FrameSig, Jit, V};
+use super::jit::{Fn2, FrameSig, Jit, RET, V};
 use super::rtcall::Src;
 use crate::compiler::backend::counts::{Field, Op, Site};
 use crate::compiler::backend::task_thread;
@@ -1132,7 +1132,6 @@ impl Jit<'_> {
             slot: Vec::new(),
             blk: Vec::new(),
             frame: FrameSig {
-                ret: Vec::new(),
                 ret_size: 0,
                 params: Vec::new(),
                 param_end: scratch,
@@ -1389,12 +1388,12 @@ impl Jit<'_> {
             .get(func as usize)
             .or_ice("an equality's function is in its program");
         let facts = f.facts.params.clone();
-        let ret_ty = f.sig.rets.first().copied();
+        let ret_ty = f.sig.ret;
         let callee = self.frame_sig_of(func as usize);
 
         let size = self.layouts_of(ty).size;
         let slot = round8(size).max(8);
-        let ret_size = ret_ty.map(|t| self.width_of(prog, t)).unwrap_or(0);
+        let ret_size = self.width_of(prog, ret_ty);
         let scratch = Q_VALUE + slot * 2;
         let frame = round16(scratch + SCRATCH_BYTES);
         let cbase = frame;
@@ -1427,8 +1426,7 @@ impl Jit<'_> {
                 ("JIT_CONT0", V::Fall),
             ],
         );
-        let from = callee.ret.first().or_ice("an equality answers a `Bool`");
-        self.elem_store(cbase + from, Q_OUT, Q_ZERO, 8, ret_size);
+        self.elem_store(cbase + RET, Q_OUT, Q_ZERO, 8, ret_size);
         self.emit("ret", &[]);
         self.resolve_helper_blocks(base, &st);
     }
@@ -1500,17 +1498,13 @@ impl Jit<'_> {
             .get(func as usize)
             .or_ice("a closure's function is in its program");
         let sig_params = f.sig.params.clone();
-        let sig_rets = f.sig.rets.clone();
+        let sig_ret = f.sig.ret;
         let facts = f.facts.params.clone();
         let skip = sig_params.len().saturating_sub(args as usize);
         let env = skip > 0;
 
-        let mut at = 0u32;
-        let mut rets: Vec<u32> = Vec::new();
-        for t in &sig_rets {
-            rets.push(at);
-            at += self.slot_bytes_of(prog, *t);
-        }
+        let ret_n = self.slot_bytes_of(prog, sig_ret);
+        let mut at = RET + ret_n;
         let env_at = at;
         at += 8;
         let mut params: Vec<u32> = Vec::new();
@@ -1574,10 +1568,7 @@ impl Jit<'_> {
                 ("JIT_CONT0", V::Fall),
             ],
         );
-        for ((t, to), from) in sig_rets.iter().zip(&rets).zip(&callee.ret) {
-            let n = self.slot_bytes_of(prog, *t);
-            self.mv(*to, cbase + from, n);
-        }
+        self.mv(RET, cbase + RET, ret_n);
         // The caller handed over a count the callee did not consume. Without
         // this every step of a `list.map` over a `[Str]` leaks one block per
         // element, which is exactly what it did.

@@ -36,7 +36,7 @@ enum RSrc {
     Slot(u32),
 }
 use super::glue::Helper;
-use super::jit::{agg_of, enum_of, Fn2, Jit, Plan, V};
+use super::jit::{agg_of, enum_of, Fn2, Jit, Plan, RET, V};
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
 use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
@@ -81,8 +81,8 @@ pub fn num_tag(p: Prim) -> (&'static str, u32, bool) {
 /// The aggregate a function answers, for a `Body::Runtime` whose signature
 /// makes it one.
 fn ret_agg(prog: &ir::Program, fi: usize) -> ir::TypeId {
-    let ret = prog.funcs.get(fi).and_then(|f| f.sig.rets.first().copied());
-    agg_of(ret.or_ice("a runtime body is one of its program's functions, with a result"))
+    let ret = prog.funcs.get(fi).map(|f| f.sig.ret);
+    agg_of(ret.or_ice("a runtime body is one of its program's functions"))
 }
 
 pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
@@ -348,7 +348,7 @@ impl<'a> Jit<'a> {
             } => self.binary(st, *dest, *op, *prim, *lhs, *rhs),
             Inst::Call { dest, func, args } => self.call(prog, code, st, *dest, func.0, args),
             Inst::CallIndirect { dest, callee, args } => {
-                self.call_indirect(prog, code, st, std::slice::from_ref(dest), *callee, args)
+                self.call_indirect(prog, code, st, *dest, *callee, args)
             }
             Inst::CallIntrinsic { dest, key, args } => {
                 self.intrinsic(prog, code, st, *dest, key, args)
@@ -1370,12 +1370,8 @@ impl<'a> Jit<'a> {
                 ("JIT_CONT0", V::Fall),
             ],
         );
-        let off = callee
-            .ret
-            .first()
-            .or_ice("a signature has one result (middle/ir.rs)");
         let n = self.slot_bytes_of(prog, code.ty_of(dest));
-        self.mv(st.at(dest), base + *off, n);
+        self.mv(st.at(dest), base + RET, n);
     }
 
     fn call_indirect(
@@ -1383,19 +1379,15 @@ impl<'a> Jit<'a> {
         prog: &ir::Program,
         code: &ir::Code,
         st: &mut Fn2,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         callee: ir::ValueId,
         args: &[ir::ValueId],
     ) {
         // The environment is prepended to the argument list as a pointer, so
         // the callee's frame is laid out for `[Ptr] ++ args`.
         let base = st.frame.size;
-        let mut at = 0u32;
-        let mut rets = Vec::new();
-        for d in dests {
-            rets.push(at);
-            at += self.slot_bytes_of(prog, code.ty_of(*d));
-        }
+        let ret_n = self.slot_bytes_of(prog, code.ty_of(dest));
+        let mut at = RET + ret_n;
         let env_at = at;
         at += 8;
         let mut params = Vec::new();
@@ -1405,9 +1397,8 @@ impl<'a> Jit<'a> {
         }
         let c = st.at(callee);
         self.mv(base + env_at, c + 8, 8);
-        // `params` and `rets` were pushed one entry per argument and one per
-        // destination just above, so zipping them back is the same pairing an
-        // index would give.
+        // `params` was pushed one entry per argument just above, so zipping it
+        // back is the same pairing an index would give.
         for (a, off) in args.iter().zip(&params) {
             let n = self.slot_bytes_of(prog, code.ty_of(*a));
             self.mv(base + *off, st.at(*a), n);
@@ -1421,10 +1412,7 @@ impl<'a> Jit<'a> {
                 ("JIT_CONT0", V::Fall),
             ],
         );
-        for (d, off) in dests.iter().zip(&rets) {
-            let n = self.slot_bytes_of(prog, code.ty_of(*d));
-            self.mv(st.at(*d), base + *off, n);
-        }
+        self.mv(st.at(dest), base + RET, ret_n);
     }
 
     /// One `Inst::CallIntrinsic`. `middle` emits one for the keys it writes
@@ -1694,11 +1682,9 @@ impl<'a> Jit<'a> {
                     None => self.emit("unreachable", &[]),
                 }
             }
-            Term::Return(vs) => {
-                for (v, off) in vs.iter().zip(&st.frame.ret) {
-                    let n = self.slot_bytes_of(prog, code.ty_of(*v));
-                    self.mv(*off, st.at(*v), n);
-                }
+            Term::Return(v) => {
+                let n = self.slot_bytes_of(prog, code.ty_of(*v));
+                self.mv(RET, st.at(*v), n);
                 self.emit("ret", &[]);
             }
             Term::Unreachable => self.emit("unreachable", &[]),
@@ -2047,7 +2033,7 @@ impl<'a> Jit<'a> {
         st: &mut Fn2,
     ) {
         let fs = self.frame_sig_of(fi);
-        let ret0 = fs.ret.first().copied().unwrap_or(0);
+        let ret0 = RET;
         let p = |i: usize| fs.params.get(i).copied().unwrap_or(0);
 
         // `core/alloc`'s `copyOut(value)`: the value, and then every counted
@@ -2156,7 +2142,7 @@ impl<'a> Jit<'a> {
                 // `U32` is a scalar value — and casting anyway would have
                 // written a `Char` into a `Result` and called it success.
                 let wide = matches!(
-                    prog.funcs.get(fi).and_then(|f| f.sig.rets.first()),
+                    prog.funcs.get(fi).map(|f| f.sig.ret),
                     Some(ir::Type::Agg(_))
                 );
                 let exact = !wide
@@ -2365,12 +2351,7 @@ impl<'a> Jit<'a> {
             .enumerate()
             .map(|(i, t)| (fs.params.get(i).copied().unwrap_or(0), *t))
             .collect();
-        let ret = f
-            .sig
-            .rets
-            .first()
-            .or_ice("a signature has one result (middle/ir.rs)");
-        let dest = (fs.ret.first().copied().unwrap_or(0), *ret);
+        let dest = (RET, f.sig.ret);
         self.rt_call(prog, st, entry, dest, &args);
         true
     }
@@ -3434,7 +3415,7 @@ impl Jit<'_> {
     /// enum. `None` covers both "not an aggregate" and "an aggregate that is
     /// not an enum", which is what the caller declines on either way.
     fn ret_tag(&mut self, prog: &ir::Program, fi: usize) -> Option<u32> {
-        match prog.funcs.get(fi).and_then(|f| f.sig.rets.first().copied()) {
+        match prog.funcs.get(fi).map(|f| f.sig.ret) {
             Some(ir::Type::Agg(id)) => self.tag_width(prog, id),
             _ => None,
         }
