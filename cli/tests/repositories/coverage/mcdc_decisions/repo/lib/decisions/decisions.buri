@@ -28,5 +28,12 @@ export fn notBoth(a: Bool, b: Bool): Bool {
 }
 
 export fn farAbove(n: Int): Bool {
-    if (n + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 1000000000 > 0) { true } else { false }
+    if (
+        n + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 1000000000
+            > 0
+    ) {
+        true
+    } else {
+        false
+    }
 }
