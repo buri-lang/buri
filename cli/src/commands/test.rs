@@ -6126,9 +6126,8 @@ mod tests {
             "the llvm backend has no implementation of testing_assert.report",
             "the native runtime has no implementation of `bytes.toUtf8`",
         ]));
-        // Not a gap: an empty failure, a failure of another kind, and a
-        // mixture with one of each.
-        assert!(!of(&[]));
+        // Not a gap: a failure of another kind, and a mixture with one of
+        // each. A failure always says why ([`is_backend_gap`]'s invariant).
         assert!(!of(&[
             "cannot declare the entry point: duplicate definition"
         ]));
