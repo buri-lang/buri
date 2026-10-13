@@ -1791,3 +1791,37 @@ test "checkedPower is .None exactly one exponent past each width's own ceiling" 
     assert.equal(j.checkedPower(80), .Some(147808829414345923316083210206383297601));
     assert.equal(j.checkedPower(81), .None);
 }
+
+test "wrapping arithmetic at the narrow widths is the low bits of the exact answer" {
+    let a: I32 = 2147483647;
+    assert.equal(a.wrappingMultiply(a), 1);
+    assert.equal(a.wrappingAdd(1), number.minValue<I32>());
+    let b = number.minValue<I32>();
+    assert.equal(b.wrappingMultiply(-1), number.minValue<I32>());
+    assert.equal(b.wrappingAdd(b), 0);
+    assert.equal(b.wrappingSubtract(1), 2147483647);
+    let c: I32 = -123456789;
+    assert.equal(c.wrappingMultiply(987654321), 67153019);
+    let d: U32 = 123456789;
+    assert.equal(d.wrappingMultiply(987654321), 4227814277);
+    let e: U32 = 4294967295;
+    assert.equal(e.wrappingAdd(e), 4294967294);
+    let f: U32 = 0;
+    assert.equal(f.wrappingSubtract(1), 4294967295);
+}
+
+test "wrapping arithmetic at 16 bits and 8 bits is the low bits of the exact answer" {
+    let a: U16 = 65535;
+    assert.equal(a.wrappingMultiply(a), 1);
+    let b: I16 = 32767;
+    assert.equal(b.wrappingMultiply(b), 1);
+    assert.equal(b.wrappingAdd(1), number.minValue<I16>());
+    let c = number.minValue<I16>();
+    assert.equal(c.wrappingMultiply(c), 0);
+    let d: U8 = 200;
+    assert.equal(d.wrappingAdd(100), 44);
+    let e: I8 = -100;
+    assert.equal(e.wrappingAdd(-100), 56);
+    let f = number.minValue<I8>();
+    assert.equal(f.wrappingSubtract(1), 127);
+}

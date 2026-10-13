@@ -16,6 +16,7 @@
 //! | [`lexing`] | scratch programs | Does the lexer read a word, an integer and a comment whole, at the edges of its fast paths? |
 //! | [`parsing`] | scratch programs | Does the parser read operands, types and bindings as written, and spend its nesting and chain budgets the same at their limits? |
 //! | [`js_streams`] | four generated programs | Does everything a program printed reach the stream, whichever of the three ways it ended and whether the stream is a pipe or a file? |
+//! | [`js_wrapping`] | one generated program | Does a loop of 32-bit wrapping arithmetic give the low bits of the exact answer with `BigInt` taken away? |
 //! | [`pages`] | pages built for `web` | Does a mounted page show, hide and move what the headless double says it does, when a browser drives it? |
 //! | [`round_trip`] | `conformance/`, `example/`'s generated modules | Does `core/buri/ast`'s `parse` read back what the compiler reads — the whole corpus rewritten by `parse` then `print`, and run — and is printing a fixed point? |
 //! | [`scoped_bodies`] | `repositories/lsp/*/repo`, `example/` | Does an analysis that checks one file's bodies answer what a whole-closure one answers, for that file? |
@@ -59,6 +60,7 @@ mod debug_suite;
 mod golden_javascript;
 mod grammar;
 mod js_streams;
+mod js_wrapping;
 mod lexing;
 mod pages;
 mod parsing;
