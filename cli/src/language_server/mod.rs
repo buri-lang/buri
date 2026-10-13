@@ -219,16 +219,13 @@ fn swept_publishes(state: &mut State, reports: Vec<Published>) -> Vec<Value> {
     // A build file's own errors, which no analysis reports and so no sweep
     // carries. Only for the ones the editor has open: those are the ones a
     // publish is for.
-    for path in state.open.keys().cloned().collect::<Vec<_>>() {
-        if !build_files::is_build_file(&path) {
+    for (path, text) in &state.open {
+        if !build_files::is_build_file(path) {
             continue;
         }
-        let Some(text) = state.text_of(&path) else {
-            continue;
-        };
-        let uri = convert::uri_of(&path);
-        let lines = convert::Lines::new(&text);
-        let items = build_files::diagnostics(&path, &text)
+        let uri = convert::uri_of(path);
+        let lines = convert::Lines::new(text);
+        let items = build_files::diagnostics(path, text)
             .iter()
             .map(|d| convert::diagnostic(&lines, d, &uri))
             .collect::<Vec<_>>();
@@ -1220,9 +1217,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
             let mut found = Vec::new();
             for (done, root) in roots.iter().enumerate() {
                 if let Some(analyzed) = state.analyze_workspace(root) {
-                    if let Value::Array(items) = features::workspace_symbols(&analyzed, &query) {
-                        found.extend(items);
-                    }
+                    found.extend(features::workspace_symbols(&analyzed, &query));
                 }
                 let step = u32::try_from(done).unwrap_or(u32::MAX).saturating_add(1);
                 let total = u32::try_from(roots.len()).unwrap_or(u32::MAX).max(1);

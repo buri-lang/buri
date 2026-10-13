@@ -22,7 +22,7 @@
 use super::convert::{self, Position};
 use super::state::Analyzed;
 use super::symbols::{self, Symbol};
-use crate::diagnostics::{FileId, Span};
+use crate::diagnostics::{FileId, Invariant, Span};
 use crate::json::Value;
 use crate::parsing::lexer::TokenKind;
 use std::path::Path;
@@ -312,9 +312,9 @@ fn split(text: &str, start: u32, end: u32, kind: u32, modifiers: u32, out: &mut 
     let end = end.min(text.len() as u32);
     let mut at = start;
     while at < end {
-        let Some(rest) = text.get(at as usize..end as usize) else {
-            return;
-        };
+        let rest = text
+            .get(at as usize..end as usize)
+            .or_ice("a run is a token's or a comment's, so its ends are on characters");
         let line_end = match rest.find('\n') {
             Some(i) => at.saturating_add(i as u32),
             None => end,

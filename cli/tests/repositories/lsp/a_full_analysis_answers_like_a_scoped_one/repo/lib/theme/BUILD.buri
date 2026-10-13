@@ -1,0 +1,4 @@
+library {
+    sources: ["mood.buri", "palette.buri"]
+    visibility: ["//visibility:public"]
+}

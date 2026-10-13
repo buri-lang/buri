@@ -5,4 +5,6 @@
 {"id":5,"jsonrpc":"2.0","result":[]}
 {"id":6,"jsonrpc":"2.0","result":[{"range":{"end":{"character":16,"line":1},"start":{"character":6,"line":1}},"target":"file://<scratch>/lib/shop/lib.buri"}]}
 {"error":{"code":-32601,"message":"`documentLink/resolve` is not implemented"},"id":7,"jsonrpc":"2.0"}
-{"id":8,"jsonrpc":"2.0","result":null}
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"diagnostics":[],"uri":"file:///elsewhere/notes.buri"}}
+{"id":8,"jsonrpc":"2.0","result":[{"range":{"end":{"character":32,"line":2},"start":{"character":7,"line":2}},"target":"https://example.org/notes"}]}
+{"id":9,"jsonrpc":"2.0","result":null}

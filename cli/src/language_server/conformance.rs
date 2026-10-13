@@ -135,7 +135,7 @@ fn items(analyzed: &Analyzed, symbols: Vec<Symbol>) -> Value {
         })
         .collect();
     out.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
-    out.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1 && a.2 == b.2);
+    out.dedup_by(|a, b| (&a.0, &a.1, a.2) == (&b.0, &b.1, b.2));
     Value::Array(
         out.into_iter()
             .map(|(_, _, _, rendered)| rendered)

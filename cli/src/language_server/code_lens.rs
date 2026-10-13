@@ -14,7 +14,7 @@
 use super::convert::{self, Position};
 use super::state::Analyzed;
 use super::symbols;
-use crate::diagnostics::{FileId, Span};
+use crate::diagnostics::{FileId, Invariant, Span};
 use crate::json::Value;
 use crate::parsing::parser;
 use crate::parsing::tree::Item;
@@ -140,9 +140,11 @@ pub fn resolve(analyzed: &Analyzed, path: &Path, text: &str, lens: &Value) -> Va
         Value::Array(items) => items.len(),
         _ => 0,
     };
-    let Value::Object(fields) = &mut resolved else {
-        return resolved;
-    };
+    let fields = match &mut resolved {
+        Value::Object(fields) => Some(fields),
+        _ => None,
+    }
+    .or_ice("a lens with a `data.position` is an object");
     fields.insert(
         "command".to_string(),
         Value::object(vec![

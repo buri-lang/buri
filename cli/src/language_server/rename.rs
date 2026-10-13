@@ -121,7 +121,7 @@ pub fn edits(
             .then(a.1.start.cmp(&b.1.start))
             .then(a.1.end.cmp(&b.1.end))
     });
-    sites.dedup_by(|a, b| a.0 == b.0 && a.1.start == b.1.start && a.1.end == b.1.end);
+    sites.dedup_by(|a, b| (&a.0, a.1.start, a.1.end) == (&b.0, b.1.start, b.1.end));
 
     let mut changes: std::collections::BTreeMap<String, Vec<Value>> =
         std::collections::BTreeMap::new();

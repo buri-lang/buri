@@ -21,7 +21,7 @@ use super::convert::{self, Position};
 use super::features::Markup;
 use crate::build::session::Session;
 use crate::build::textproto::{self, Field, Value as Node};
-use crate::diagnostics::{FileId, Span};
+use crate::diagnostics::{invariant, FileId, Invariant, Span};
 use crate::json::Value;
 use std::path::{Path, PathBuf};
 
@@ -190,13 +190,11 @@ fn file_path(build_file: &Path, entry: &str) -> Option<PathBuf> {
 /// tag block is a name.
 fn tag_target(session: &Session, build_file: &Path, name: &str) -> Option<Value> {
     let span = session.workspace.repo.tag(name)?.name.span;
-    if span.is_none() {
-        return None;
-    }
+    invariant(
+        !span.is_none(),
+        "a tag's name is read from `REPO.buri`, so it has a span",
+    );
     let file = session.map.get(span.file);
-    if file.abs_path.as_os_str().is_empty() {
-        return None;
-    }
     Some(Value::object(vec![
         (
             "uri",
@@ -236,6 +234,9 @@ struct Cursor {
     from: u32,
 }
 
+/// Why the block stack is never empty.
+const OUTERMOST: &str = "the file's own block is never popped";
+
 /// Reads the file up to `offset`.
 fn cursor_at(text: &str, offset: u32) -> Cursor {
     let bytes = text.as_bytes();
@@ -250,9 +251,7 @@ fn cursor_at(text: &str, offset: u32) -> Cursor {
     let mut commented = false;
     let mut i = 0;
     while i < end {
-        let Some(c) = bytes.get(i).copied() else {
-            break;
-        };
+        let c = bytes.get(i).copied().or_ice("`end` is clamped to the text");
         if quoted_from.is_some() {
             match c {
                 b'\\' => i = i.saturating_add(1),
@@ -279,9 +278,7 @@ fn cursor_at(text: &str, offset: u32) -> Cursor {
                 // `library {` names the block with the word before it, and
                 // `outputs: [{` with the field, the `:` having taken that word.
                 let name = word.take().or_else(|| field.take()).unwrap_or_default();
-                if let Some(outer) = blocks.last_mut() {
-                    outer.1.push(name.clone());
-                }
+                blocks.last_mut().or_ice(OUTERMOST).1.push(name.clone());
                 blocks.push((name, Vec::new()));
                 field = None;
                 i = i.saturating_add(1);
@@ -306,9 +303,7 @@ fn cursor_at(text: &str, offset: u32) -> Cursor {
             }
             b':' => {
                 if let Some(name) = word.take() {
-                    if let Some(block) = blocks.last_mut() {
-                        block.1.push(name.clone());
-                    }
+                    blocks.last_mut().or_ice(OUTERMOST).1.push(name.clone());
                     field = Some(name);
                 }
                 i = i.saturating_add(1);
@@ -547,9 +542,9 @@ fn visibilities(session: &Session) -> Vec<Entry> {
 /// left out: those two are a rule's surface and are never written in
 /// `sources`.
 fn files(build_file: &Path, text: &str) -> Vec<Entry> {
-    let Some(dir) = build_file.parent() else {
-        return Vec::new();
-    };
+    let dir = build_file
+        .parent()
+        .or_ice("a build file is named `BUILD.buri`, in a directory");
     let mut sources = Vec::new();
     let mut schemas = Vec::new();
     crate::build::regenerate::collect(dir, dir, &mut sources, &mut schemas);

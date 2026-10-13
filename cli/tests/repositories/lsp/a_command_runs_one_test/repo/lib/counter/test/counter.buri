@@ -10,3 +10,8 @@ test "twice is two of them" {
     let tally = Tally { total: 3 };
     assert.equal(twice(tally), 6);
 }
+
+test "counter is off by one" {
+    let tally = Tally { total: 2 };
+    assert.equal(counter(tally), 3);
+}

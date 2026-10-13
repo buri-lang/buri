@@ -7,4 +7,5 @@
 {"id":4,"jsonrpc":"2.0","result":null}
 {"error":{"code":-32803,"message":"`//lib/nowhere` names no package in that repository"},"id":5,"jsonrpc":"2.0"}
 {"error":{"code":-32602,"message":"`buri.regenerateBuildFile` takes a uri in the repository and a package label"},"id":6,"jsonrpc":"2.0"}
-{"id":7,"jsonrpc":"2.0","result":null}
+{"error":{"code":-32803,"message":"that file is in no repository this client has open"},"id":7,"jsonrpc":"2.0"}
+{"id":8,"jsonrpc":"2.0","result":null}

@@ -127,7 +127,7 @@ fn calls(analyzed: &Analyzed, field: &'static str, groups: Vec<(Symbol, Vec<Span
             let uri = rendered.get("uri")?.as_str()?.to_string();
             let line = rendered.at("selectionRange.start.line")?.as_u32()?;
             sites.sort_by(|a, b| a.start.cmp(&b.start).then(a.end.cmp(&b.end)));
-            sites.dedup_by(|a, b| a.start == b.start && a.end == b.end && a.file == b.file);
+            sites.dedup();
             let ranges = sites
                 .iter()
                 .map(|span| convert::range(&analyzed.session.map.get(span.file).text, *span))
@@ -152,24 +152,28 @@ fn calls(analyzed: &Analyzed, field: &'static str, groups: Vec<(Symbol, Vec<Span
 fn item(analyzed: &Analyzed, symbol: &Symbol) -> Option<Value> {
     let tables = &analyzed.analysis.checked.tables;
     // The protocol's kinds, the same numbers `workspace/symbol` reports.
-    let (kind, name, selection) = match symbol {
-        Symbol::Function(id) => match symbols::test_title(analyzed, *id) {
-            Some((title, span)) => (12, title, span),
-            None => {
-                let info = tables.fn_info(*id);
-                let kind = if info.self_ty.is_some() { 6 } else { 12 };
-                (kind, info.name.clone(), info.span)
+    let (kind, name, selection, module) = match symbol {
+        Symbol::Function(id) => {
+            let info = tables.fn_info(*id);
+            match symbols::test_title(analyzed, *id) {
+                Some((title, span)) => (12, title, span, info.module),
+                None => {
+                    let kind = if info.self_ty.is_some() { 6 } else { 12 };
+                    (kind, info.name.clone(), info.span, info.module)
+                }
             }
-        },
-        Symbol::TraitMethod { .. } => (
+        }
+        Symbol::TraitMethod { trait_id, .. } => (
             6,
             symbols::name(analyzed, symbol)?,
             symbols::declaration_name(analyzed, symbol),
+            tables.trait_(*trait_id).module,
         ),
-        Symbol::Const(_) => (
+        Symbol::Const(id) => (
             14,
             symbols::name(analyzed, symbol)?,
             symbols::declaration(analyzed, symbol),
+            tables.const_(*id).module,
         ),
         _ => return None,
     };
@@ -182,9 +186,19 @@ fn item(analyzed: &Analyzed, symbol: &Symbol) -> Option<Value> {
     }
     let uri = convert::uri_of(&file.abs_path);
     let position = convert::position_of(&file.text, selection.start);
-    let mut fields = vec![
+    // Two functions in a repository may share a name; the module they are in
+    // is what tells a reader which panel row is which.
+    let module = &analyzed
+        .analysis
+        .loaded
+        .modules
+        .get(module.index())
+        .or_ice("a declaration's module is one the analysis loaded")
+        .path;
+    Some(Value::object(vec![
         ("name", Value::str(name)),
         ("kind", Value::number(kind)),
+        ("detail", Value::str(module)),
         ("uri", Value::str(&uri)),
         // The whole declaration, with the name inside it: the protocol asks
         // for both, and for a function they differ.
@@ -202,28 +216,5 @@ fn item(analyzed: &Analyzed, symbol: &Symbol) -> Option<Value> {
                 ("position", position.to_json()),
             ]),
         ),
-    ];
-    if let Some(module) = module_of(analyzed, symbol) {
-        // Two functions in a repository may share a name; the module they are
-        // in is what tells a reader which panel row is which.
-        fields.insert(2, ("detail", Value::str(module)));
-    }
-    Some(Value::object(fields))
-}
-
-/// The module path a declaration is written in.
-fn module_of<'a>(analyzed: &'a Analyzed, symbol: &Symbol) -> Option<&'a str> {
-    let tables = &analyzed.analysis.checked.tables;
-    let module = match symbol {
-        Symbol::Function(id) => tables.fn_info(*id).module,
-        Symbol::TraitMethod { trait_id, .. } => tables.trait_(*trait_id).module,
-        Symbol::Const(id) => tables.const_(*id).module,
-        _ => return None,
-    };
-    analyzed
-        .analysis
-        .loaded
-        .modules
-        .get(module.index())
-        .map(|m| m.path.as_str())
+    ]))
 }

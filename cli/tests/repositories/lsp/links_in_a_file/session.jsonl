@@ -27,5 +27,9 @@
 # which is what `documentLinkProvider: { resolveProvider: false }` claims. A
 # client that sends this one anyway is refused rather than answered.
 {"jsonrpc": "2.0", "id": 7, "method": "documentLink/resolve", "params": {"range": {"start": {"line": 4, "character": 6}, "end": {"line": 4, "character": 17}}}}
-{"jsonrpc": "2.0", "id": 8, "method": "shutdown"}
+# A file in no open repository has no workspace to resolve its import against,
+# so the import is no link; the address in its comment still is.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file:///elsewhere/notes.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/shop\" import { Item };\n\n// See https://example.org/notes for why.\nfn one(): I64 {\n    1\n}\n"}}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/documentLink", "params": {"textDocument": {"uri": "file:///elsewhere/notes.buri"}}}
+{"jsonrpc": "2.0", "id": 9, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

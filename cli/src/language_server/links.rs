@@ -36,7 +36,7 @@ pub fn document_links(analyzed: Option<&Analyzed>, path: &Path, text: &str) -> V
 /// A `DocumentLink[]`, in a fixed order and with no two links over one range.
 pub(super) fn render(text: &str, mut found: Vec<(u32, u32, String)>) -> Value {
     found.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
-    found.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
+    found.dedup_by_key(|(start, end, _)| (*start, *end));
     Value::Array(
         found
             .into_iter()
@@ -123,7 +123,9 @@ fn urls(text: &str, out: &mut Vec<(u32, u32, String)>) {
         .collect();
     let bytes = text.as_bytes();
     let mut at = 0usize;
-    while at < text.len() {
+    // Ends at the last scheme: `at` is only ever one past a scheme's start,
+    // which is short of the end of any text holding a whole `http://`.
+    loop {
         let Some(hit) = text.get(at..).and_then(scheme_at) else {
             break;
         };
@@ -192,12 +194,11 @@ fn run_end(bytes: &[u8], start: usize) -> usize {
         end = end.saturating_add(1);
     }
     // Prose runs on after a link: `see https://example.org/pricing, which …`.
-    while end > start
-        && matches!(
-            bytes.get(end.saturating_sub(1)),
-            Some(b'.' | b',' | b';' | b':' | b'!' | b'?')
-        )
-    {
+    // Never past the scheme: `://` ends in a `/`, which is not stripped.
+    while matches!(
+        bytes.get(end.saturating_sub(1)),
+        Some(b'.' | b',' | b';' | b':' | b'!' | b'?')
+    ) {
         end = end.saturating_sub(1);
     }
     end

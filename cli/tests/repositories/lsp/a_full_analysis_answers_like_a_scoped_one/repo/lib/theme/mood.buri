@@ -1,0 +1,25 @@
+//! Which colour a screen is drawn in.
+
+from "ui/style" import { Color };
+from "//lib/theme/palette.buri" import { brand, overlay };
+
+/// How a screen feels.
+export enum Mood {
+    /// Nothing is asking for attention.
+    Calm,
+    /// Something is.
+    Loud,
+}
+
+/// The colour a mood is drawn in.
+export fn tint(mood: Mood): Color {
+    match (mood) {
+        .Calm => overlay(),
+        .Loud => brand,
+    }
+}
+
+/// The colour a screen starts in.
+export fn opening(): Color {
+    tint(.Calm)
+}

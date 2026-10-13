@@ -32,5 +32,11 @@
 # A lens whose `data` names a file in no repository this client has open.
 # There is no repository to count in, so it comes back as it went in.
 {"jsonrpc": "2.0", "id": 8, "method": "codeLens/resolve", "params": {"data": {"position": {"character": 14, "line": 1}, "uri": "file:///elsewhere/counter.buri"}, "range": {"end": {"character": 19, "line": 1}, "start": {"character": 14, "line": 1}}}}
-{"jsonrpc": "2.0", "id": 9, "method": "shutdown"}
+# A lens whose `data` names a file but no position in it has nothing to count,
+# and comes back as it went in.
+{"jsonrpc": "2.0", "id": 9, "method": "codeLens/resolve", "params": {"data": {"uri": "file://<scratch>/lib/counter/counter.buri"}, "range": {"end": {"character": 19, "line": 1}, "start": {"character": 14, "line": 1}}}}
+# A position on a blank line names no declaration, so there is nothing to
+# count and the lens comes back as it went in.
+{"jsonrpc": "2.0", "id": 10, "method": "codeLens/resolve", "params": {"data": {"position": {"character": 0, "line": 5}, "uri": "file://<scratch>/lib/counter/counter.buri"}, "range": {"end": {"character": 0, "line": 5}, "start": {"character": 0, "line": 5}}}}
+{"jsonrpc": "2.0", "id": 11, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}
