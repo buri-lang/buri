@@ -1255,8 +1255,7 @@ fn main_result(program: &ir::Program, tables: &Tables, idx: usize) -> asm::MainR
         .funcs
         .get(idx)
         .or_ice("`main` is one of its program's functions");
-    let ret = f.sig.rets.first().copied();
-    let id = jit::agg_of(ret.or_ice("the checker makes `main` answer `Result<(), Str>`"));
+    let id = jit::agg_of(f.sig.ret);
     let mut layouts = Layouts::new(tables);
     let l = layouts.of(program.type_info(id).ty);
     let (repr, variants) = jit::enum_of(&l);

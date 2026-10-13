@@ -208,20 +208,20 @@ fn lower_one(
         .get(i)
         .or_ice("`parallel::map` ranges over `program.funcs`");
     let dispatch = entries.get(i).copied().unwrap_or(0) > 1;
-    let mut sig = Signature {
-        params: Vec::new(),
-        rets: Vec::new(),
-    };
+    let mut params = Vec::new();
     if dispatch {
-        sig.params.push(Type::I32);
+        params.push(Type::I32);
     }
     for p in &f.params {
         let ty = f.locals.get(p.index()).map(|l| l.ty).unwrap_or(Ty::UNIT);
         let t = types.of(tables, &ty);
-        sig.params.push(t);
+        params.push(t);
     }
     let ret = returns(f);
-    sig.rets.push(types.of(tables, &ret));
+    let sig = Signature {
+        params,
+        ret: types.of(tables, &ret),
+    };
 
     let fplan = plan.func(FuncIdx(i as u32));
     let body = match &f.kind {
@@ -276,7 +276,7 @@ fn lower_one(
 /// place a `TypeId` reaches the IR: a value's or a signature slot's [`Type`],
 /// and a [`Inst::Structural`]'s type.
 fn remap_func_types(func: &mut Func, remap: &[TypeId]) {
-    for t in func.sig.params.iter_mut().chain(func.sig.rets.iter_mut()) {
+    for t in func.sig.params.iter_mut().chain([&mut func.sig.ret]) {
         if let Type::Agg(id) = t {
             *id = *remap
                 .get(id.index())
@@ -640,7 +640,7 @@ impl FnLower<'_> {
         match body {
             Some(e) => {
                 let v = self.body(e, params, dispatch);
-                self.set_term(Term::Return(vec![v]));
+                self.set_term(Term::Return(v));
             }
             // A function nothing built: a trait method with no impl, or a
             // build that stopped after a diagnostic. Reaching one is a
@@ -1524,7 +1524,7 @@ impl FnLower<'_> {
         if let Some(n) = node {
             self.rc(n, rc::Position::Escape);
         }
-        self.set_term(Term::Return(vec![out]));
+        self.set_term(Term::Return(out));
 
         self.cur = held_b;
         self.emit(ty, |dest| Inst::GetPayload {
@@ -1859,7 +1859,7 @@ impl FnLower<'_> {
                     func: f,
                     args: call_args,
                 });
-                self.set_term(Term::Return(vec![v]));
+                self.set_term(Term::Return(v));
                 self.dead(ty)
             }
         }

@@ -596,7 +596,7 @@ pub enum Term {
         cases: Vec<(u64, Target)>,
         default: Option<Target>,
     },
-    Return(Vec<ValueId>),
+    Return(ValueId),
     Unreachable,
 }
 
@@ -650,7 +650,7 @@ impl Term {
             Term::Jump(_) | Term::Unreachable => {}
             Term::Branch { cond, .. } => out.push(*cond),
             Term::Switch { on, .. } => out.push(*on),
-            Term::Return(vs) => out.extend_from_slice(vs),
+            Term::Return(v) => out.push(*v),
         }
     }
 }
@@ -673,13 +673,10 @@ pub struct Block {
 /// the module header.
 pub struct Signature {
     pub params: Vec<Type>,
-    /// Exactly one entry today, `()` included — a zero-sized result is
-    /// dropped where the machine signature is built, with the zero-sized
-    /// parameters (VALUE-MODEL.md §8), rather than here. A `Vec` because
-    /// VALUE-MODEL.md §5.1 returns an aggregate as its scalar leaves, and that
-    /// rewrite is a backend's or a later legalization's rather than a change
-    /// to this type.
-    pub rets: Vec<Type>,
+    /// `()` included — a zero-sized result is dropped where the machine
+    /// signature is built, with the zero-sized parameters (VALUE-MODEL.md §8),
+    /// rather than here.
+    pub ret: Type,
 }
 
 /// Whether the callee takes a reference count for a parameter or relies on the
@@ -1166,13 +1163,6 @@ fn verify_func(program: &Program, func: &Func) {
                         c.sig.params.len()
                     )
                 });
-                holds(c.sig.rets.len() == 1, &|| {
-                    format!(
-                        "b{bi} takes one result from {}, which returns {}",
-                        c.debug_name,
-                        c.sig.rets.len()
-                    )
-                });
             }
             if matches!(inst, Inst::Abort { .. }) {
                 holds(ii.saturating_add(1) == b.insts.len(), &|| {
@@ -1247,19 +1237,10 @@ fn verify_func(program: &Program, func: &Func) {
                 format!("b{bi} switches on a duplicated case value")
             });
         }
-        if let Term::Return(vs) = &b.term {
-            holds(vs.len() == func.sig.rets.len(), &|| {
-                format!(
-                    "b{bi} returns {} values and the signature declares {}",
-                    vs.len(),
-                    func.sig.rets.len()
-                )
+        if let Term::Return(v) = &b.term {
+            holds(code.ty_of(*v) == func.sig.ret, &|| {
+                format!("b{bi} returns a value of the wrong type")
             });
-            for (v, t) in vs.iter().zip(func.sig.rets.iter()) {
-                holds(code.ty_of(*v) == *t, &|| {
-                    format!("b{bi} returns a value of the wrong type")
-                });
-            }
         }
         for t in b.term.targets() {
             let dest = code
@@ -1473,18 +1454,8 @@ impl Program {
         out.push('(');
         self.types_into(&func.sig.params, out);
         out.push(')');
-        match func.sig.rets.as_slice() {
-            [] => {}
-            [one] => {
-                out.push_str(" -> ");
-                self.ty_into(*one, out);
-            }
-            many => {
-                out.push_str(" -> (");
-                self.types_into(many, out);
-                out.push(')');
-            }
-        }
+        out.push_str(" -> ");
+        self.ty_into(func.sig.ret, out);
         let code = match &func.body {
             Body::Runtime(key) => {
                 let _ = writeln!(out, " = runtime {key:?}");
@@ -1851,9 +1822,9 @@ fn term_into(t: &Term, out: &mut String) {
             }
         }
         // Every function answers one value.
-        Term::Return(vs) => {
+        Term::Return(v) => {
             out.push_str("return ");
-            values(out, vs);
+            value(out, *v);
         }
         Term::Unreachable => out.push_str("unreachable"),
     }
@@ -1933,14 +1904,14 @@ mod tests {
             lhs: a,
             rhs: b,
         });
-        code.get_mut(entry).term = Term::Return(vec![sum]);
+        code.get_mut(entry).term = Term::Return(sum);
         Program {
             funcs: vec![Func {
                 symbol: "m$add".into(),
                 debug_name: "m:add".into(),
                 sig: Signature {
                     params: vec![Type::I64, Type::I64],
-                    rets: vec![Type::I64],
+                    ret: Type::I64,
                 },
                 facts: Facts {
                     params: vec![Ownership::Own, Ownership::Own],
@@ -1991,8 +1962,8 @@ mod tests {
                 negative: false,
             },
         });
-        code.get_mut(b1).term = Term::Return(vec![v]);
-        code.get_mut(b2).term = Term::Return(vec![v]);
+        code.get_mut(b1).term = Term::Return(v);
+        code.get_mut(b2).term = Term::Return(v);
         let cond = code.value(Type::I1);
         code.get_mut(BlockId(0)).insts.push(Inst::Const {
             dest: cond,
@@ -2016,7 +1987,8 @@ mod tests {
         let live = code.block(&[]);
         code.get_mut(entry).term = Term::Jump(Target::to(live));
         code.get_mut(dead).term = Term::Jump(Target::to(live));
-        code.get_mut(live).term = Term::Return(Vec::new());
+        let unit = code.value(Type::Unit);
+        code.get_mut(live).term = Term::Return(unit);
         code.retain_reachable();
         assert_eq!(code.blocks.len(), 2);
         // `live` was b2 and is now b1, and the entry's jump names the new one.

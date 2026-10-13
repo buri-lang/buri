@@ -80,13 +80,14 @@ mod tests {
                 args: Vec::new(),
             });
         }
-        code.get_mut(entry).term = Term::Return(Vec::new());
+        let nothing = code.value(Type::Unit);
+        code.get_mut(entry).term = Term::Return(nothing);
         Func {
             symbol: String::new(),
             debug_name: String::new(),
             sig: Signature {
                 params: Vec::new(),
-                rets: Vec::new(),
+                ret: Type::Unit,
             },
             facts: Facts {
                 params: Vec::new(),

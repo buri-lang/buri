@@ -2299,7 +2299,7 @@ fn test_entry_signature(
 
 /// Every aggregate type one function names, as indices into `Program::types`.
 fn collect_types(func: &ir::Func, out: &mut Vec<usize>) {
-    for t in func.sig.params.iter().chain(&func.sig.rets) {
+    for t in func.sig.params.iter().chain([&func.sig.ret]) {
         if let ir::Type::Agg(id) = t {
             out.push(id.index());
         }

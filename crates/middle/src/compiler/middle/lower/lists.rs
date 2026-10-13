@@ -220,7 +220,7 @@ impl FnLower<'_> {
                 self.abort("a `core/list` function whose parameters are not the types it declares")
             }
         };
-        self.set_term(Term::Return(vec![v]));
+        self.set_term(Term::Return(v));
         let mut code = std::mem::take(&mut self.code);
         code.retain_reachable();
         code

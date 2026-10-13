@@ -514,9 +514,11 @@ impl<'a> Scratch<'a> {
     }
 }
 
+/// Where a frame keeps its result: first, at `fp + 0` (this file's header).
+pub(crate) const RET: u32 = 0;
+
 #[derive(Clone, Default)]
 pub(crate) struct FrameSig {
-    pub ret: Vec<u32>,
     pub ret_size: u32,
     pub params: Vec<u32>,
     pub param_end: u32,
@@ -525,7 +527,6 @@ pub(crate) struct FrameSig {
 
 /// The frame of a function `frame_sigs` has no entry for, which no member can be.
 static NO_FRAME: FrameSig = FrameSig {
-    ret: Vec::new(),
     ret_size: 0,
     params: Vec::new(),
     param_end: 0,
@@ -815,7 +816,6 @@ impl<'a> Jit<'a> {
     /// one from this one.
     pub(crate) fn frame_sig_of(&self, f: usize) -> &'a FrameSig {
         static EMPTY: FrameSig = FrameSig {
-            ret: Vec::new(),
             ret_size: 0,
             params: Vec::new(),
             param_end: 0,
@@ -1003,11 +1003,7 @@ pub(crate) fn frame_sigs(
     let mut out = Vec::with_capacity(prog.funcs.len());
     for f in &prog.funcs {
         let mut fs = FrameSig::default();
-        let mut at = 0u32;
-        for t in &f.sig.rets {
-            fs.ret.push(at);
-            at += round8(width(*t)).max(8);
-        }
+        let mut at = RET + round8(width(f.sig.ret)).max(8);
         fs.ret_size = at;
         for t in &f.sig.params {
             fs.params.push(at);
@@ -2475,21 +2471,6 @@ impl<'a> Jit<'a> {
                     pairs.push((*p, *a));
                 }
             }
-            // (i.b) A `Return`'s move into the return area, which is the same
-            // copy with a fixed destination.
-            let rets: Vec<(u32, ir::ValueId)> = match &b.term {
-                ir::Term::Return(vs) => vs
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, v)| {
-                        self.frames
-                            .get(self.current)
-                            .and_then(|fs| fs.ret.get(i))
-                            .map(|o| (*o, *v))
-                    })
-                    .collect(),
-                _ => Vec::new(),
-            };
             // Every table below has one entry per value of `code`, and `pi`
             // and `ai` are values of `code`, so the fallbacks are what a value
             // from some other function would read: a definition in no block,
@@ -2525,19 +2506,20 @@ impl<'a> Jit<'a> {
                 }
                 put(uf, ai, root);
             }
-            for (off, v) in rets {
+            // (i.b) A `Return`'s move into the return area, which is the same
+            // copy with a fixed destination.
+            if let ir::Term::Return(v) = &b.term {
                 let vi = v.index();
                 // Read by the `Return` alone, so nothing reads or writes its
                 // class past its definition, and no edge merged it.
-                if ent(width, vi, 0) != 8
-                    || ent(&is_param, vi, true)
-                    || ent(&def_block, vi, u32::MAX) != bi as u32
-                    || ent(uses, vi, 0) != 1
+                if ent(width, vi, 0) == 8
+                    && !ent(&is_param, vi, true)
+                    && ent(&def_block, vi, u32::MAX) == bi as u32
+                    && ent(uses, vi, 0) == 1
                 {
-                    continue;
+                    // A class of one, pinned at the return area.
+                    put(pin, vi, Some(RET));
                 }
-                // A class of one, pinned at the return area.
-                put(pin, vi, Some(off));
             }
         }
         self.coalesce_latches(code, uf, pin, width, uses, &def_block, &def_idx, opnd);
@@ -2805,11 +2787,6 @@ impl<'a> Jit<'a> {
                 if !calls_code(&func) {
                     continue;
                 }
-                let fs = self.frames.get(func.index()).or_ice("a callee has a frame");
-                let off = *fs
-                    .ret
-                    .first()
-                    .or_ice("a signature has one result (middle/ir.rs)");
                 let Some(dr) = read_at(d) else { continue };
                 let mut end = dr.last;
                 // A value is read after its definition (`ir::verify`), so
@@ -2838,9 +2815,9 @@ impl<'a> Jit<'a> {
                 if !pure(j + 1, (end + 1).min(last)) {
                     continue;
                 }
-                put(pin, d.index(), Some(frame_size + off));
+                put(pin, d.index(), Some(frame_size + RET));
                 if let Some(z) = alias {
-                    put(pin, z.index(), Some(frame_size + off));
+                    put(pin, z.index(), Some(frame_size + RET));
                 }
                 results.push((j, end));
             }

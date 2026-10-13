@@ -60,7 +60,7 @@ phi nodes are the same construct in two notations, and the transliteration is:
 | `Term::Jump(b, args)` | `br label %b`, and each `args[i]` becomes an incoming pair on `b`'s *i*th phi |
 | `Term::Branch { cond, then, else_ }` | `br i1 %cond, label %then, label %else` plus incoming pairs on both sides |
 | `Term::Switch { on, cases, default }` | `switch` |
-| `Term::Return(vs)` | `ret`, aggregating multiple results into a literal struct |
+| `Term::Return(v)` | `ret`, an aggregate's leaves as one literal struct |
 
 Phis are built in two passes: create every `BasicBlock` and every phi with the
 right type but no incoming values, then fill bodies, then add incoming values

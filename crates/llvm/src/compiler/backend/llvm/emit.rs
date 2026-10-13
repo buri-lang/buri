@@ -308,12 +308,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// intrinsic, and the intrinsic's answer returned.
     fn define_runtime_body(&mut self, value: FunctionValue<'ctx>, idx: FuncIdx) {
         let func = self.func(idx);
-        let [ret]: [ir::Type; 1] = func
-            .sig
-            .rets
-            .as_slice()
-            .try_into()
-            .or_ice("a function value answers one value");
+        let ret = func.sig.ret;
         let mut code = ir::Code::new();
         let entry = code.block(&func.sig.params);
         let args = code.get(entry).params.clone();
@@ -324,7 +319,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             func: idx,
             args,
         });
-        block.term = ir::Term::Return(vec![dest]);
+        block.term = ir::Term::Return(dest);
         self.define_code(idx, func, &code, value);
     }
 
@@ -811,7 +806,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Term::Switch { on, cases, default } => {
                 self.switch(state, code, from, *on, cases, default.as_ref())
             }
-            ir::Term::Return(vs) => self.ret(state, code, vs),
+            ir::Term::Return(v) => self.ret(state, code, *v),
             ir::Term::Unreachable => {
                 self.builder.build_unreachable().or_ice(BUILT);
             }
@@ -937,23 +932,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         bb
     }
 
-    fn ret(&mut self, state: &mut Function<'ctx>, code: &ir::Code, vs: &[ir::ValueId]) {
+    fn ret(&mut self, state: &mut Function<'ctx>, code: &ir::Code, v: ir::ValueId) {
+        let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(v));
+        let value = self.get(state, v);
         // A result held in memory goes into the caller's buffer, by one copy.
-        if let (Some(out), [v]) = (state.sret, vs) {
-            let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*v));
-            let value = self.get(state, *v);
+        if let Some(out) = state.sret {
             self.store_value(out, &slots, HEAP_ALIGN, value);
             self.builder.build_return(None).or_ice(BUILT);
             return;
         }
-        let mut slots = Vec::new();
-        let mut pieces = Vec::new();
-        for v in vs {
-            let s = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*v));
-            let value = self.get(state, *v);
-            pieces.extend(self.pieces(&s, value));
-            slots.extend(s);
-        }
+        let pieces = self.pieces(&slots, value);
         match slots.len() {
             0 => self.builder.build_return(None),
             _ => {
@@ -5046,7 +5034,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 .skip(usize::from(env))
                 .copied()
                 .collect(),
-            rets: f.sig.rets.clone(),
+            ret: f.sig.ret,
         };
         let machine = self.machine_of(&sig);
         let ty = self.machine_type(&machine, 1);
@@ -5759,10 +5747,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .iter()
             .map(|t| repr::ir_slots(&mut self.reprs, self.program, *t))
             .collect();
-        let mut ret = Vec::new();
-        for t in &sig.rets {
-            ret.extend(repr::ir_slots(&mut self.reprs, self.program, *t));
-        }
+        let ret = repr::ir_slots(&mut self.reprs, self.program, sig.ret);
         repr::Machine::of(&params, ret)
     }
 
@@ -9320,7 +9305,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let func = self.func(root);
         let sig = ir::Signature {
             params: Vec::new(),
-            rets: func.sig.rets.clone(),
+            ret: func.sig.ret,
         };
         let callee = self.declare(root);
         let door =
@@ -9331,10 +9316,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.builder.position_at_end(block);
 
         let machine = self.machine_of(&sig);
-        let mut rets = Vec::new();
-        for t in &sig.rets {
-            rets.extend(repr::ir_slots(&mut self.reprs, self.program, *t));
-        }
+        let rets = repr::ir_slots(&mut self.reprs, self.program, sig.ret);
         let answer = self.machine_call(Callee::Direct(callee), &machine, &rets, Vec::new());
 
         // The return area goes through `out`, in the slots this backend
@@ -9356,8 +9338,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// An aggregate's is `middle::layout`'s; anything else is a word, which is
     /// the widest a scalar slot in a return position is.
     fn ret_align(&mut self, sig: &ir::Signature) -> u32 {
-        match sig.rets.first().copied() {
-            Some(ir::Type::Agg(id)) => self.reprs.of(self.program, id).layout.align,
+        match sig.ret {
+            ir::Type::Agg(id) => self.reprs.of(self.program, id).layout.align,
             _ => 8,
         }
     }
@@ -9389,11 +9371,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // layout table like every other enum's, so a change to the encoding
         // moves this with it.
         let returned = self.declare_rt(runtime::RETURNED, &[], None);
-        let id = agg(*func
-            .sig
-            .rets
-            .first()
-            .or_ice("the checker gives `main` a `Result`"));
+        let id = agg(func.sig.ret);
         let (slots, enum_repr, err_offsets, payload_at, size) = {
             let r = self.reprs.of(self.program, id);
             let offsets = r.layout.variant(1).to_vec();
@@ -10201,6 +10179,7 @@ mod cycles {
             .enumerate()
             .map(|(i, callees)| {
                 let mut code = ir::Code::new();
+                let unit = code.value(ir::Type::Unit);
                 code.blocks.push(ir::Block {
                     params: Vec::new(),
                     insts: callees
@@ -10211,14 +10190,14 @@ mod cycles {
                             args: Vec::new(),
                         })
                         .collect(),
-                    term: ir::Term::Return(Vec::new()),
+                    term: ir::Term::Return(unit),
                 });
                 ir::Func {
                     symbol: format!("f{i}"),
                     debug_name: format!("f{i}"),
                     sig: ir::Signature {
                         params: Vec::new(),
-                        rets: Vec::new(),
+                        ret: ir::Type::Unit,
                     },
                     facts: ir::Facts {
                         params: Vec::new(),
