@@ -1245,9 +1245,11 @@ pub extern "C" fn buri_rt_host_clock_sleep_milliseconds(millis: i64) {
         // The sleep is built *inside* the future, not handed to `park_on`
         // ready-made: `tokio::time::sleep` registers with the timer driver
         // where it is constructed, and this thread is in no runtime context
-        // until `park_on` enters one.
+        // until `park_on` enters one. It is boxed because the timer thread
+        // keeps a pointer into it: on this thread's stack, the next call
+        // would reuse that memory under a lock the race checker can't see.
         #[cfg(feature = "net")]
-        crate::rt::park_on(async move { tokio::time::sleep(duration).await });
+        crate::rt::park_on(async move { Box::pin(tokio::time::sleep(duration)).await });
         #[cfg(not(feature = "net"))]
         std::thread::sleep(duration);
     }
