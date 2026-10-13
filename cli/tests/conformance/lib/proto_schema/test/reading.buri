@@ -6,6 +6,7 @@
 // alternative is a test per construct, each with its own schema, and then no
 // case says what happens when they sit in one file.
 
+from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
@@ -127,6 +128,86 @@ test "a map field's label carries its key, and its type is the value's" {
     let next = assert.some(m.fields.get(1));
     assert.equal(next.label, Label.Map(Scalar.Uint64));
     assert.equal(next.ty, TypeRef.Named("M"));
+}
+
+test "every scalar word names its own scalar and no other" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let words = [
+        ("int32", Scalar.Int32),
+        ("int64", Scalar.Int64),
+        ("uint32", Scalar.Uint32),
+        ("uint64", Scalar.Uint64),
+        ("sint32", Scalar.Sint32),
+        ("sint64", Scalar.Sint64),
+        ("fixed32", Scalar.Fixed32),
+        ("fixed64", Scalar.Fixed64),
+        ("sfixed32", Scalar.Sfixed32),
+        ("sfixed64", Scalar.Sfixed64),
+        ("bool", Scalar.Bool),
+        ("string", Scalar.Str),
+        ("bytes", Scalar.Bytes),
+        ("double", Scalar.Double),
+        ("float", Scalar.Float),
+    ];
+    let fields = words
+        .indexed(ctx)
+        .mapCtx(ctx, fn(c, e) => str.format(c, "${(e.1).0} f${e.0} = ${e.0 + 1};"));
+    let text = withEdition(
+        ctx,
+        lines(ctx, ["message M {", fields.join(ctx, "\n"), "N n = 99; }"]),
+    );
+    let parsed = read(ctx, text);
+    assert.isEmpty(parsed.errors);
+    let m = assert.some(parsed.schema.messages.get(0));
+    let _ = m
+        .fields
+        .zip(ctx, words)
+        .foldCtx(
+            ctx,
+            fn(c, _acc: Bool, pair) => {
+                let (f, word) = pair;
+                let _ = words.foldCtx(
+                    c,
+                    fn(_c, _a: Bool, other) => {
+                        assert.equal(
+                            f.ty == TypeRef.Scalar(other.1),
+                            other.0 == word.0,
+                        );
+                        true
+                    },
+                    true,
+                );
+                assert.notEqual(f.ty, TypeRef.Named(word.0));
+                assert.notEqual(TypeRef.Named(word.0), f.ty);
+                true
+            },
+            true,
+        );
+    assert.equal(assert.some(m.fields.get(15)).ty, TypeRef.Named("N"));
+}
+
+test "a label, a presence and an encoding equal only themselves" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = withEdition(
+        ctx,
+        "message M { map<string, int32> counts = 1; int32 x = 2 [features.field_presence = IMPLICIT]; }\n",
+    );
+    let m = assert.some(read(ctx, text).schema.messages.get(0));
+    let counts = assert.some(m.fields.get(0));
+    assert.notEqual(counts.label, Label.Single);
+    assert.notEqual(counts.label, Label.Map(Scalar.Int32));
+    let x = assert.some(m.fields.get(1));
+    assert.notEqual(x.features.presence(), Presence.Explicit);
+    assert.notEqual(Presence.Explicit, x.features.presence());
+    assert.notEqual(RepeatedEncoding.Packed, RepeatedEncoding.Expanded);
+    // A scope that says nothing resolves to the edition's defaults.
+    assert.equal(schema.inherited().presence(), Presence.Explicit);
+    assert.isTrue(schema.inherited().packed());
+    assert.notEqual(schema.inherited(), schema.editionDefaults());
 }
 
 test "a oneof keeps its cases, and a case carries no label" {

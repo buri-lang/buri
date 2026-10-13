@@ -1,0 +1,318 @@
+// Every way a statement can break off, and what the reader says at the break.
+//
+// Each case names the sentence and the text its span covers, so a diagnostic
+// that kept its words but lost its place fails as surely as one that changed
+// them.
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "std/codegen/proto/schema" import { Reserved };
+from "//lib/proto_schema" import { lines, pointsAt, read, withEdition };
+
+/// The first diagnostic `body`, under an edition, produces: its sentence and
+/// the text its span covers.
+fn first<C: Allocator>(ctx: C, body: Str): (Str, Str) {
+    let text = withEdition(ctx, body);
+    let d = assert.some(read(ctx, text).errors.get(0));
+    assert.isTrue(d.fix.isSome());
+    (d.message, pointsAt(ctx, text, d))
+}
+
+test "a declaration that breaks off is refused at the token that broke it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        first(ctx, "package 5;\n"),
+        ("expected a package name, found `5`", "5"),
+    );
+    assert.equal(
+        first(ctx, "import 5;\n"),
+        ("expected a quoted path after `import`, found `5`", "5"),
+    );
+    assert.equal(
+        first(ctx, "message M 5\n"),
+        ("expected `{` after a message name, found `5`", "5"),
+    );
+    assert.equal(
+        first(ctx, "message M;\n"),
+        ("expected `{` after a message name, found `;`", ";"),
+    );
+    assert.equal(
+        first(ctx, "enum E;\n"),
+        ("expected `{` after an enum name, found `;`", ";"),
+    );
+    assert.equal(first(ctx, "enum 5 {}\n"), ("expected an enum name, found `5`", "5"));
+    assert.equal(
+        first(ctx, "message"),
+        ("expected a message name, found the end of the file", ""),
+    );
+}
+
+test "an edition or syntax that is not a string is refused by what it is" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let edition = assert.some(read(ctx, "edition = 2026;\n").errors.get(0));
+    assert.equal(edition.message, "edition `2026` is not accepted");
+    assert.equal(pointsAt(ctx, "edition = 2026;\n", edition), "2026");
+    let syntax = assert.some(read(ctx, "syntax = 3;\n").errors.get(0));
+    assert.equal(syntax.message, "syntax `3` is not accepted");
+    assert.equal(pointsAt(ctx, "syntax = 3;\n", syntax), "syntax = 3");
+}
+
+test "a message item that breaks off is refused, and the message is still read" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cases = [
+        (
+            "message M { enum 5; int32 x = 1; }\n",
+            "expected an enum name, found `5`",
+            "5",
+        ),
+        (
+            "message M { oneof 5; int32 x = 1; }\n",
+            "expected a oneof name, found `5`",
+            "5",
+        ),
+        (
+            "message M { oneof o; int32 x = 1; }\n",
+            "expected `{` after a oneof name, found `;`",
+            ";",
+        ),
+        (
+            "message M { 5 x = 1; int32 x = 1; }\n",
+            "expected a field type, found `5`",
+            "5",
+        ),
+        (
+            "message M { repeated 5 y = 1; int32 x = 1; }\n",
+            "expected a field type, found `5`",
+            "5",
+        ),
+        (
+            "message M { map<5, int32> m = 1; int32 x = 1; }\n",
+            "expected a map key type, found `5`",
+            "5",
+        ),
+        (
+            "message M { int32 y 1; int32 x = 1; }\n",
+            "expected `=` after a field name, found `1`",
+            "1",
+        ),
+        (
+            "message M { oneof o { int32 = 1; } int32 x = 1; }\n",
+            "expected a field name, found `=`",
+            "=",
+        ),
+    ];
+    let _ = cases.foldCtx(
+        ctx,
+        fn(c, _acc: Bool, case) => {
+            let (body, message, token) = case;
+            assert.equal(first(c, body), (message, token));
+            let m = assert.some(read(c, withEdition(c, body)).schema.messages.get(0));
+            assert.isTrue(m.fields.any(fn(f) => f.name == "x"));
+            true
+        },
+        true,
+    );
+}
+
+test "a stray semicolon is no statement, and a stray number is no field" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let clean = read(
+        ctx,
+        withEdition(
+            ctx,
+            lines(ctx, [
+                ";",
+                "message M { ; int32 x = 1; ; oneof o { ; int32 a = 2; ; } }",
+                "enum E { ; A = 0; ; }",
+            ]),
+        ),
+    );
+    assert.isEmpty(clean.errors);
+    let m = assert.some(clean.schema.messages.get(0));
+    assert.length(m.fields, 1);
+    assert.length(assert.some(m.oneofs.get(0)).cases, 1);
+    assert.length(assert.some(clean.schema.enums.get(0)).values, 1);
+
+    assert.equal(
+        first(ctx, "message M { oneof o { 5 } }\n"),
+        ("expected a field type, found `5`", "5"),
+    );
+    assert.equal(
+        first(ctx, "enum E { 5 }\n"),
+        ("expected an enum value name, found `5`", "5"),
+    );
+}
+
+test "an enum value that breaks off is refused, and the values after it are read" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        first(ctx, "enum E { A 0; B = 1; }\n"),
+        ("expected `=` after an enum value name, found `0`", "0"),
+    );
+    assert.equal(
+        first(ctx, "enum E { A = B; C = 0; }\n"),
+        ("expected an enum value number, found `B`", "B"),
+    );
+    let e = assert.some(
+        read(ctx, withEdition(ctx, "enum E { A = B; C = 0; }\n")).schema.enums.get(0),
+    );
+    assert.equal(e.values.map(ctx, fn(v) => v.name), ["C"]);
+}
+
+test "a field reuses neither a number nor a name, nor a name the message reserved" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        first(ctx, "message M { int32 a = 1; int32 b = 1; }\n"),
+        ("`b` and `a` both use field number 1", "int32 b = 1;"),
+    );
+    assert.equal(
+        first(ctx, "message M { int32 a = 1; string a = 2; }\n"),
+        ("`M` declares `a` twice", "string a = 2;"),
+    );
+    assert.equal(
+        first(ctx, "message M { reserved foo; int32 foo = 1; }\n"),
+        ("`M` reserves the name `foo`", "int32 foo = 1;"),
+    );
+}
+
+test "reserved keeps its names however they are written, and its escapes" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = withEdition(
+        ctx,
+        "message M { reserved 3, foo, \"a\\nb\", \"c\\td\", \"e\\rf\", 'g\\'h'; reserved { x } ; int32 x = 1; }\n",
+    );
+    let parsed = read(ctx, text);
+    assert.isEmpty(parsed.errors);
+    let m = assert.some(parsed.schema.messages.get(0));
+    assert.equal(m.reserved, [
+        Reserved.Numbers(3, 3),
+        Reserved.Name("foo"),
+        Reserved.Name("a\nb"),
+        Reserved.Name("c\td"),
+        Reserved.Name("e\rf"),
+        Reserved.Name("g'h"),
+    ]);
+    let three = assert.some(m.reserved.get(0));
+    assert.equal(three, Reserved.Numbers(3, 3));
+    assert.notEqual(three, Reserved.Numbers(4, 3));
+    assert.notEqual(three, Reserved.Numbers(3, 4));
+    assert.notEqual(assert.some(m.reserved.get(1)), three);
+    assert.length(m.fields, 1);
+}
+
+test "options a reader steps over may end anywhere, and the statement after is read" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let stepped = read(
+        ctx,
+        withEdition(
+            ctx,
+            lines(ctx, [
+                "option features;",
+                "option features = 5;",
+                "message M { oneof o { option deprecated = true; int32 a = 1; } }",
+                "message N { int32 x = 1 [deprecated]; }",
+            ]),
+        ),
+    );
+    assert.isEmpty(stepped.errors);
+    assert.length(stepped.schema.messages, 2);
+    assert.equal(
+        first(ctx, "message M { int32 x = 1 [features.field_presence = 5]; }\n"),
+        ("expected a feature value, found `5`", "5"),
+    );
+}
+
+test "a statement the end of the file cuts short says what it is missing" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let cases = [
+        "message M { int32 x = 1; }\noption java_package = \"a\"",
+        "message M { int32 x = 1; reserved 1",
+        "message M { int32 x = 1 [deprecated = true",
+        "message M { int32 x = 1; }\nenum E { A = 0 [deprecated = true",
+        "message M { int32 x = 1; }\nimport \"a\\",
+        "message M { int32 x = 1; }\nservice S",
+    ];
+    let _ = cases.foldCtx(
+        ctx,
+        fn(c, _acc: Bool, body) => {
+            let parsed = read(c, withEdition(c, body));
+            assert.isTrue(parsed.schema.messages.any(fn(m) => m.name == "M"));
+            true
+        },
+        true,
+    );
+    assert.equal(first(ctx, "import \"a\\"), ("unterminated string", "\"a\\"));
+}
+
+test "a span is measured in bytes past characters of every width" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        first(ctx, "// é € 😀\nwidget W;\n"),
+        ("`widget` does not begin a declaration", "widget"),
+    );
+}
+
+test "a file says no more than thirty-two things, however much is wrong with it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let parsed = read(ctx, withEdition(ctx, "widget W;\n".repeat(ctx, 40)));
+    assert.length(parsed.errors, 32);
+    // The edition is heard about even when the limit is spent.
+    let unversioned = read(ctx, "widget W;\n".repeat(ctx, 40));
+    assert.length(unversioned.errors, 33);
+}
+
+test "a broken token is reported once, wherever the reader looked at it first" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let unterminated = [
+        "service S \"abc",
+        "message M { \"abc",
+        "message M { int32 \"abc",
+        "message M { int32 x = 1 \"abc",
+        "message M { oneof o { \"abc",
+        "enum E { \"abc",
+        "option \"abc",
+        "option features = \"abc",
+    ];
+    let _ = unterminated.foldCtx(
+        ctx,
+        fn(c, _acc: Bool, body) => {
+            let parsed = read(c, withEdition(c, body));
+            assert.length(
+                parsed.errors.filter(c, fn(d) => d.message == "unterminated string"),
+                1,
+            );
+            true
+        },
+        true,
+    );
+    let parsed = read(ctx, withEdition(ctx, "message M { 1abc x = 1; }\n"));
+    assert.length(
+        parsed.errors.filter(ctx, fn(d) => d.message == "`1abc` is not a number"),
+        1,
+    );
+}

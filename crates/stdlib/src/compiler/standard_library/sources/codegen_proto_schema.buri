@@ -299,9 +299,11 @@ export struct Parsed {
 /// it. Offsets are bytes, which is what the compiler resolves a span against.
 export fn parse<C: Allocator>(ctx: C, text: Str, file: Str): Parsed {
     let cs = text.chars(ctx);
+    let (size, offsets) = byteOffsets(ctx, cs);
     let start = P {
         cs: cs,
-        offsets: byteOffsets(ctx, cs),
+        offsets: offsets,
+        size: size,
         file: file,
         at: 0,
         errors: list.empty<codegen.Diagnostic>(),
@@ -326,13 +328,14 @@ struct P {
     cs: [Char],
     /// The byte offset of each character, one longer than `cs`.
     offsets: [Int],
+    /// The text's length in bytes, which is where a span past the end ends.
+    size: Int,
     file: Str,
     at: Int,
     errors: [codegen.Diagnostic],
     depth: Int,
 }
 
-derive Equal for Token;
 /// One token. A `.proto` schema needs no more vocabulary than this.
 enum Token {
     Word(Str),
@@ -361,7 +364,7 @@ let KNOWN_FEATURES: [Str] = [
 
 // --- positions ----------------------------------------------------------------
 
-/// The byte offset of every character, and of the end.
+/// The byte offset of every character, and of the end; and the end on its own.
 ///
 /// A `Str` indexes by scalar value and a span is measured in bytes, so this
 /// converts between them once.
@@ -369,9 +372,9 @@ let KNOWN_FEATURES: [Str] = [
 /// The running offset rides beside the list rather than being read back out of
 /// it. A step that reads the list it pushes onto holds it twice, and each push
 /// then copies the whole list: quadratic in the length of the file.
-fn byteOffsets<C: Allocator>(ctx: C, cs: [Char]): [Int] {
+fn byteOffsets<C: Allocator>(ctx: C, cs: [Char]): (Int, [Int]) {
     let first: [Int] = [0];
-    let (_, offsets) = cs.foldCtx(
+    cs.foldCtx(
         ctx,
         fn(c, acc: (Int, [Int]), ch) => {
             let (at, xs) = acc;
@@ -379,8 +382,7 @@ fn byteOffsets<C: Allocator>(ctx: C, cs: [Char]): [Int] {
             (next, xs.push(c, next))
         },
         (0, first),
-    );
-    offsets
+    )
 }
 
 /// How many bytes a character occupies in UTF-8.
@@ -390,10 +392,7 @@ fn utf8Len(c: Char): Int {
 }
 
 fn byteOf(p: P, index: Int): Int {
-    match (p.offsets.get(index)) {
-        .Some(b) => b,
-        .None => p.offsets.last().withDefault(0),
-    }
+    p.offsets.get(index).withDefault(p.size)
 }
 
 /// The origin of `cs[start..end]`, in bytes.
@@ -650,10 +649,19 @@ fn escape(c: Char): Char {
 }
 
 /// The next token without consuming it. Anything the lexer had to say about it
-/// is kept, so a broken token is reported once rather than at every look.
+/// is dropped, and said by whatever consumes the token, so a broken token is
+/// reported once rather than at every look.
 fn peekToken<C: Allocator>(ctx: C, p: P): (P, Token) {
-    let (q, t) = nextToken(ctx, p);
-    (P { ..q, at: p.at }, t)
+    let (_, t) = nextToken(ctx, p);
+    (p, t)
+}
+
+/// The character a punctuation token is, and nothing for any other token.
+fn punct(t: Token): Str {
+    match (t) {
+        .Punctuation(c) => c,
+        _other => "",
+    }
 }
 
 fn describe<C: Allocator>(ctx: C, t: Token): Str {
@@ -671,7 +679,7 @@ fn expect<C: Allocator>(ctx: C, p0: P, want: Str, after: Str): (P, Bool) {
     let p = skipTrivia(ctx, p0);
     let start = p.at;
     let (q, t) = nextToken(ctx, p);
-    if (t == Token.Punctuation(want)) {
+    if (punct(t) == want) {
         (q, true)
     } else {
         let found = describe(ctx, t);
@@ -752,8 +760,7 @@ fn skipBraces<C: Allocator>(ctx: C, p: P, depth: Int): P {
 /// After an unsupported block-shaped declaration: step over the block if there
 /// is one, so one refusal does not become twenty.
 fn recoverBlock<C: Allocator>(ctx: C, p: P): P {
-    let (p1, t) = peekToken(ctx, p);
-    let (q, _) = nextToken(ctx, p1);
+    let (q, t) = nextToken(ctx, p);
     match (t) {
         .End => q,
         .Punctuation(c) => {
@@ -787,10 +794,10 @@ fn featureOption<C: Allocator>(ctx: C, p0: P): (P, Option<Features>) {
             } else if (name.startsWith("features.")) {
                 featureAssignment(ctx, p1, start, name.slice(9, name.length()))
             } else {
-                (skipStatement(ctx, P { ..p1, at: start }), .None)
+                (skipStatement(ctx, p), .None)
             }
         },
-        _ => (skipStatement(ctx, P { ..p1, at: start }), .None),
+        _ => (skipStatement(ctx, p), .None),
     }
 }
 
@@ -798,12 +805,12 @@ fn featureOption<C: Allocator>(ctx: C, p0: P): (P, Option<Features>) {
 /// because the block form nests.
 fn featureBlock<C: Allocator>(ctx: C, p: P, start: Int): (P, Option<Features>) {
     let (p1, t) = peekToken(ctx, p);
-    if (t != Token.Punctuation("=")) {
+    if (punct(t) != "=") {
         (skipStatement(ctx, P { ..p1, at: start }), .None)
     } else {
         let (p2, _) = nextToken(ctx, p1);
         let (p3, brace) = peekToken(ctx, p2);
-        let p4 = if (brace == Token.Punctuation("{")) {
+        let p4 = if (punct(brace) == "{") {
             unsupported(
                 ctx,
                 p3,
@@ -835,18 +842,20 @@ fn featureAssignment<C: Allocator>(
             let (p5, _) = expect(ctx, p4, ";", "an option");
             (p5, .Some(f))
         },
-        other => {
-            let found = describe(ctx, other);
-            let q = err(
-                ctx,
-                p3,
-                span(p3, valueAt, atLeastOne(p3, valueAt)),
-                str.format(ctx, "expected a feature value, found ${found}"),
-                "a feature's value is a bare word, as in `IMPLICIT`",
-            );
-            (skipStatement(ctx, q), .None)
-        },
+        other => (skipStatement(ctx, badFeatureValue(ctx, p3, valueAt, other)), .None),
     }
+}
+
+/// A feature's value that is not a word, refused where it is written.
+fn badFeatureValue<C: Allocator>(ctx: C, p: P, valueAt: Int, found: Token): P {
+    let shown = describe(ctx, found);
+    err(
+        ctx,
+        p,
+        span(p, valueAt, atLeastOne(p, valueAt)),
+        str.format(ctx, "expected a feature value, found ${shown}"),
+        "a feature's value is a bare word, as in `IMPLICIT`",
+    )
 }
 
 /// One `features.<name> = <value>`, wherever it was written.
@@ -1029,8 +1038,7 @@ fn nearest<C: Allocator>(ctx: C, word: Str, known: [Str]): Option<Str> {
             } else {
                 k.length()
             };
-            let third = longest / 3;
-            let limit = if (third > 1) { third } else { 1 } + 1;
+            let limit = longest / 3 + 1;
             if (distance > limit) {
                 acc
             } else {
@@ -1052,31 +1060,44 @@ fn nearest<C: Allocator>(ctx: C, word: Str, known: [Str]): Option<Str> {
 fn editDistance<C: Allocator>(ctx: C, a: Str, b: Str): Int {
     let bs = b.chars(ctx);
     let first = list.range(ctx, 0, bs.length() + 1);
-    let last = a
+    let (_, _, distance) = a
         .chars(ctx)
-        .foldCtx(ctx, fn(c, prev: [Int], ca) => nextRow(c, prev, bs, ca), first);
-    last.last().withDefault(0)
-}
-
-/// One row of the Levenshtein table, from the row above it.
-fn nextRow<C: Allocator>(ctx: C, prev: [Int], bs: [Char], ca: Char): [Int] {
-    let start: [Int] = [prev.get(0).withDefault(0) + 1];
-    list
-        .range(ctx, 0, bs.length())
         .foldCtx(
             ctx,
-            fn(c, cur: [Int], j) => {
-                let left = cur.last().withDefault(0);
-                let diagonal = prev.get(j).withDefault(0);
-                let up = prev.get(j + 1).withDefault(0);
-                let cost = match (bs.get(j)) {
-                    .Some(cb) => if (cb == ca) { 0 } else { 1 },
-                    .None => 1,
-                };
-                cur.push(c, least(up + 1, least(left + 1, diagonal + cost)))
+            fn(c, acc: (Int, [Int], Int), ca) => {
+                let (i, prev, _) = acc;
+                let (last, row) = nextRow(c, i, prev, bs, ca);
+                (i + 1, row, last)
             },
-            start,
-        )
+            (0, first, bs.length()),
+        );
+    distance
+}
+
+/// One row of the Levenshtein table from the row above it, `i`, whose first
+/// entry is `i` too; and the new row's last entry, which is the distance so far.
+fn nextRow<C: Allocator>(
+    ctx: C,
+    i: Int,
+    prev: [Int],
+    bs: [Char],
+    ca: Char,
+): (Int, [Int]) {
+    let start: [Int] = [i + 1];
+    let (last, _, row) = bs
+        .zip(ctx, prev.drop(ctx, 1))
+        .foldCtx(
+            ctx,
+            fn(c, acc: (Int, Int, [Int]), pair) => {
+                let (left, diagonal, cur) = acc;
+                let (cb, up) = pair;
+                let cost = if (cb == ca) { 0 } else { 1 };
+                let v = least(up + 1, least(left + 1, diagonal + cost));
+                (v, up, cur.push(c, v))
+            },
+            (i + 1, i, start),
+        );
+    (last, row)
 }
 
 fn least(a: Int, b: Int): Int {
@@ -1096,7 +1117,7 @@ fn declarations<C: Allocator>(ctx: C, p0: P, schema: Schema, seen: Bool): (P, Sc
             declarations(ctx, q, next, sawEdition)
         },
         other => {
-            let q = if (other == Token.Punctuation(";")) {
+            let q = if (punct(other) == ";") {
                 p1
             } else {
                 let found = describe(ctx, other);
@@ -1253,7 +1274,11 @@ fn editionDeclaration<C: Allocator>(ctx: C, p: P): P {
     let p2 = skipTrivia(ctx, p1);
     let valueAt = p2.at;
     let (p3, value) = nextToken(ctx, p2);
-    let q = if (value == Token.Str(REQUIRED_EDITION)) {
+    let required = match (value) {
+        .Str(v) => v == REQUIRED_EDITION,
+        _other => false,
+    };
+    let q = if (required) {
         p3
     } else {
         let named = match (value) {
@@ -1392,9 +1417,9 @@ fn messageBody<C: Allocator>(ctx: C, p0: P, m: Message): (P, Message) {
         },
         .Word(w) => messageItem(ctx, p1, start, w, m),
         other => {
-            if (other == Token.Punctuation("}")) {
+            if (punct(other) == "}") {
                 (nextToken(ctx, p1).0, m)
-            } else if (other == Token.Punctuation(";")) {
+            } else if (punct(other) == ";") {
                 messageBody(ctx, nextToken(ctx, p1).0, m)
             } else {
                 messageField(ctx, p1, m)
@@ -1548,9 +1573,9 @@ fn oneofBody<C: Allocator>(ctx: C, p0: P, o: Oneof): (P, Oneof) {
             }
         },
         other => {
-            if (other == Token.Punctuation("}")) {
+            if (punct(other) == "}") {
                 (nextToken(ctx, p1).0, o)
-            } else if (other == Token.Punctuation(";")) {
+            } else if (punct(other) == ";") {
                 oneofBody(ctx, nextToken(ctx, p1).0, o)
             } else {
                 oneofCase(ctx, p1, o)
@@ -1597,7 +1622,11 @@ fn reservedEntries<C: Allocator>(ctx: C, p: P, acc: [Reserved]): (P, [Reserved])
         .End => (p1, acc),
         .Num(n) => {
             let (p2, ahead) = peekToken(ctx, p1);
-            if (ahead != Token.Word("to")) {
+            let ranged = match (ahead) {
+                .Word(w) => w == "to",
+                _other => false,
+            };
+            if (!ranged) {
                 reservedEntries(ctx, p2, acc.push(ctx, Reserved.Numbers(n, n)))
             } else {
                 let (p3, last) = nextToken(ctx, nextToken(ctx, p2).0);
@@ -1788,7 +1817,7 @@ fn fieldRest<C: Allocator>(
         .Some(pair) => {
             let (tyWord, tyOrigin) = pair;
             let (p1, ahead) = peekToken(ctx, p);
-            if (tyWord == "map" && ahead == Token.Punctuation("<")) {
+            if (tyWord == "map" && punct(ahead) == "<") {
                 mapField(ctx, p1, start, label, tyOrigin)
             } else {
                 let ty = match (scalar(tyWord)) {
@@ -1953,7 +1982,7 @@ fn fieldNumbered<C: Allocator>(
 /// `ctype`, `deprecated`, `json_name` — is stepped over.
 fn fieldOptions<C: Allocator>(ctx: C, p: P, features: Features): (P, Features) {
     let (p1, bracket) = peekToken(ctx, p);
-    if (bracket != Token.Punctuation("[")) {
+    if (punct(bracket) != "[") {
         (p1, features)
     } else {
         fieldOption(ctx, nextToken(ctx, p1).0, features)
@@ -1968,7 +1997,7 @@ fn fieldOption<C: Allocator>(ctx: C, p0: P, features: Features): (P, Features) {
         .End => (p1, features),
         .Word(w) => {
             let (p2, assigned) = peekToken(ctx, p1);
-            if (assigned != Token.Punctuation("=")) {
+            if (punct(assigned) != "=") {
                 fieldOption(ctx, p2, features)
             } else {
                 let p3 = skipTrivia(ctx, nextToken(ctx, p2).0);
@@ -1976,23 +2005,30 @@ fn fieldOption<C: Allocator>(ctx: C, p0: P, features: Features): (P, Features) {
                 if (!w.startsWith("features.")) {
                     fieldOption(ctx, p4, features)
                 } else {
-                    let shown = match (value) {
-                        .Word(v) => v,
-                        other => describe(ctx, other),
-                    };
-                    let (p5, f) = feature(
-                        ctx,
-                        p4,
-                        w.slice(9, w.length()),
-                        shown,
-                        span(p4, at, p4.at),
-                    );
-                    fieldOption(ctx, p5, f.over(features))
+                    match (value) {
+                        .Word(v) => {
+                            let (p5, f) = feature(
+                                ctx,
+                                p4,
+                                w.slice(9, w.length()),
+                                v,
+                                span(p4, at, p4.at),
+                            );
+                            fieldOption(ctx, p5, f.over(features))
+                        },
+                        other => {
+                            fieldOption(
+                                ctx,
+                                badFeatureValue(ctx, p4, p3.at, other),
+                                features,
+                            )
+                        },
+                    }
                 }
             }
         },
         other => {
-            if (other == Token.Punctuation("]")) {
+            if (punct(other) == "]") {
                 (p1, features)
             } else {
                 fieldOption(ctx, p1, features)
@@ -2091,9 +2127,9 @@ fn enumBody<C: Allocator>(ctx: C, p0: P, e: Enum): (P, Enum) {
             }
         },
         other => {
-            if (other == Token.Punctuation("}")) {
+            if (punct(other) == "}") {
                 (nextToken(ctx, p1).0, e)
-            } else if (other == Token.Punctuation(";")) {
+            } else if (punct(other) == ";") {
                 enumBody(ctx, nextToken(ctx, p1).0, e)
             } else {
                 enumValue(ctx, p1, e)
@@ -2151,11 +2187,7 @@ fn enumValue<C: Allocator>(ctx: C, p: P, e: Enum): (P, Enum) {
 
 fn skipEnumValueOptions<C: Allocator>(ctx: C, p: P): P {
     let (p1, bracket) = peekToken(ctx, p);
-    if (bracket != Token.Punctuation("[")) {
-        p1
-    } else {
-        skipToBracket(ctx, nextToken(ctx, p1).0)
-    }
+    if (punct(bracket) != "[") { p1 } else { skipToBracket(ctx, nextToken(ctx, p1).0) }
 }
 
 fn skipToBracket<C: Allocator>(ctx: C, p: P): P {
