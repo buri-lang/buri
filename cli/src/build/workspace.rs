@@ -557,6 +557,23 @@ impl Workspace {
         out
     }
 
+    /// [`Self::rule_of_file`] for a module path, `//lib/money/cents.buri`. A
+    /// module outside the package is in none of its rules.
+    pub fn rule_of_module(&self, package: PackageId, path: &str) -> Option<RuleKind> {
+        self.rule_of_file(package, self.package_relative(package, path)?)
+    }
+
+    /// The file a module path names inside a package:
+    /// `//lib/money/test/cents.buri` -> `test/cents.buri`.
+    pub fn package_relative<'p>(&self, package: PackageId, path: &'p str) -> Option<&'p str> {
+        let rest = path.strip_prefix("//")?;
+        let dir = self.package(package).path.as_str();
+        if dir.is_empty() {
+            return Some(rest);
+        }
+        rest.strip_prefix(dir)?.strip_prefix('/')
+    }
+
     /// Which rule a file in a package belongs to, by its package-relative
     /// path.
     ///

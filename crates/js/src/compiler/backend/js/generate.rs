@@ -3301,7 +3301,7 @@ impl<'a> Gen<'a> {
             Desc::Option(inner) => {
                 vec![Expr::Num(7.0), Expr::ident(descriptor_name(*inner))]
             }
-            Desc::Opaque(_) | Desc::Reserved => vec![Expr::Num(6.0)],
+            Desc::Opaque(_) => vec![Expr::Num(6.0)],
             // [9, list, toList, of]: an `IndexSet`, read as the list of its
             // members and built back from one.
             Desc::Members { list, to, from } => vec![

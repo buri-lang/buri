@@ -1,0 +1,30 @@
+error: an expression statement is legal only in a test source [statement-outside-test]
+  --> lib/recovery_insert_stray_brace_app_df6c25/main.buri:11:13
+   |
+11 |             extra if (n > 100) {
+   |             ^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: there is nothing named `extra` in scope [unknown-name]
+  --> lib/recovery_insert_stray_brace_app_df6c25/main.buri:11:13
+   |
+11 |             extra if (n > 100) {
+   |             ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_insert_stray_brace_app_df6c25/main.buri:11:18
+   |
+11 |             extra if (n > 100) {
+   |                  ^
+   |
+   = fix: write `;` here
+warning: this branch is nested 5 levels deep [deep-nesting]
+  --> lib/recovery_insert_stray_brace_app_df6c25/main.buri:13:21
+   |
+13 |                     if (n > 10000) {
+   |                     ^^^^^^^^^^^^^^^^
+   |
+   = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
+   = fix: pull the inner branch into a named function, or replace the ladder with one `match`

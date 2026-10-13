@@ -1,0 +1,10 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "seven branches wrapped around one another are one deep-nesting finding, at the outermost branch past the limit, and not one per level under it"
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "lint.txt"
+}

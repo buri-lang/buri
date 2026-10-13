@@ -22,7 +22,7 @@
 //! itself, so it hashes a tuple of the components with each hand-written one
 //! replaced by its own hash.
 
-use super::{Key, Monomorphizer};
+use super::{Func, Key, Monomorphizer};
 use crate::compiler::middle::derives::{EXPECTED_SHOWN, REPORT_SHOWN};
 use crate::compiler::semantics::typed::{
     self, ArrayRest, ExprKind, FieldPat, PatKind, Pattern, TemplatePart,
@@ -244,7 +244,7 @@ impl Monomorphizer<'_> {
     /// The body is the one `middle::derives` gives the intrinsic natively, so
     /// every backend lowers it the same way. `Show` is handed a `Scope`, the
     /// allocator that charges nothing, because the report has no context.
-    pub(super) fn report_through_show(&mut self, slot: usize, key: &str, params: &[Ty]) -> bool {
+    pub(super) fn report_through_show(&mut self, f: &mut Func, key: &str, params: &[Ty]) -> bool {
         // `report(passed, kind, actual, expected)` and `failExpected(kind, got)`.
         let (kind_at, values, shown_key): (u32, &[u32], &str) = match key {
             "testing_assert.report" => (1, &[2, 3], REPORT_SHOWN),
@@ -285,7 +285,7 @@ impl Monomorphizer<'_> {
                 str_ty,
             )
         }));
-        let ret = self.func_mut(slot).ret;
+        let ret = f.ret;
         let shown = Expr::new(
             ExprKind::Intrinsic {
                 name: shown_key.into(),
@@ -309,7 +309,7 @@ impl Monomorphizer<'_> {
         } else {
             shown
         };
-        self.func_mut(slot).set_body(body);
+        f.set_body(body);
         true
     }
 
@@ -543,9 +543,8 @@ impl Monomorphizer<'_> {
         })
     }
 
-    fn finish(&mut self, slot: usize, params: Vec<LocalId>, ret: Ty, body: Expr) {
+    fn finish(&mut self, f: &mut Func, params: Vec<LocalId>, ret: Ty, body: Expr) {
         let locals = std::mem::take(&mut self.locals);
-        let f = self.func_mut(slot);
         f.params = params;
         f.locals = locals;
         f.ret = ret;
@@ -560,6 +559,7 @@ impl Monomorphizer<'_> {
         ctx: Option<Ty>,
         unbounded: bool,
         slot: usize,
+        f: &mut Func,
     ) {
         self.locals = Vec::new();
         let x = self.new_local("x", ty, Span::NONE);
@@ -593,7 +593,7 @@ impl Monomorphizer<'_> {
             _ => self.nominal(&d, ty, a, b),
         };
         let ret = d.ret;
-        self.finish(slot, params, ret, body);
+        self.finish(f, params, ret, body);
     }
 
     /// `Key::DerivedItems`: the rest of a list, after its first element, with
@@ -605,6 +605,7 @@ impl Monomorphizer<'_> {
         ctx: Option<Ty>,
         unbounded: bool,
         slot: usize,
+        f: &mut Func,
     ) {
         self.locals = Vec::new();
         let list = Ty::array(elem);
@@ -648,7 +649,7 @@ impl Monomorphizer<'_> {
             ],
             ret,
         );
-        self.finish(slot, params, ret, body);
+        self.finish(f, params, ret, body);
     }
 
     /// One component's derive: its own `impl` where that is written by hand,

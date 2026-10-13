@@ -1,0 +1,24 @@
+error: this `if` branch is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_731e01/main.buri:27:6
+   |
+27 |      else {
+   |      ^^^^
+   |
+ --> lib/recovery_delete_closer_brace_app_731e01/main.buri:9:16
+  |
+9 |     if (n > 0) {
+  |                ^ opened here
+  |
+  = fix: write `}` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_731e01/main.buri:39:1
+   |
+39 | 
+   | ^
+   |
+ --> lib/recovery_delete_closer_brace_app_731e01/main.buri:8:22
+  |
+8 | fn size(n: I64): Str {
+  |                      ^ opened here
+  |
+  = fix: write `}` here
