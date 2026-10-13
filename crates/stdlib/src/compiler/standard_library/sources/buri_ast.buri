@@ -839,54 +839,34 @@ fn specText<C: Allocator>(ctx: C, spec: ImportSpec): Str {
 /// declarations a module holds, and a module generated from a schema of a
 /// thousand messages holds several thousand.
 fn printDecls<C: Allocator>(ctx: C, out: Out, items: [Item]): Out {
-    let indexed = list.range(ctx, 0, items.length());
+    let numbered = items.indexed(ctx);
     // `map.of` keeps the last entry for a name, so back to front leaves each
     // name at its first declaration.
     let declared = map.of(
         ctx,
-        indexed.filterMap(ctx, fn(i) => declaredAt(items, i)).reverse(ctx),
+        numbered
+            .filterMap(ctx, fn(e) => declaredName(e.1).map(fn(name) => (name, e.0)))
+            .reverse(ctx),
     );
-    let attached = items.map(ctx, fn(it) => attachment(declared, it));
-    let derives = map.groupBy(
+    // Each item beside its index and the index of the declaration it sits on.
+    let rows = numbered.map(ctx, fn(e) => (e.0, attachment(declared, e.1), e.1));
+    let derives = map.groupBy(ctx, rows.filter(ctx, fn(r) => r.1 >= 0), fn(r) => r.1);
+    rows.foldCtx(
         ctx,
-        indexed.filter(ctx, fn(j) => attached.get(j).withDefault(-1) >= 0),
-        fn(j: Int) => attached.get(j).withDefault(-1),
-    );
-    indexed.foldCtx(
-        ctx,
-        fn(c, acc, i) => {
-            if (attached.get(i).withDefault(-1) >= 0) {
+        fn(c, acc, r) => {
+            if (r.1 >= 0) {
                 acc
             } else {
                 let opened = nextLine(c, acc);
                 let derived = derives
-                    .get(i)
+                    .get(r.0)
                     .withDefault([])
-                    .foldCtx(
-                        c,
-                        fn(d, o, j) => {
-                            nl(d, item(d, o, items.get(j).withDefault(placeholder())))
-                        },
-                        opened,
-                    );
-                (nl(c, item(c, derived, items.get(i).withDefault(placeholder()))), true)
+                    .foldCtx(c, fn(d, o, row) => nl(d, item(d, o, row.2)), opened);
+                (nl(c, item(c, derived, r.2)), true)
             }
         },
         (out, false),
     ).0
-}
-
-/// The name item `i` declares, beside `i`.
-fn declaredAt(items: [Item], i: Int): Option<(Str, Int)> {
-    items.get(i).andThen(fn(it) => declaredName(it)).map(fn(name) => (name, i))
-}
-
-/// An item nothing can name, for the array reads that cannot miss.
-fn placeholder(): Item {
-    Item {
-        kind: .Derive(DeriveDecl { traits: [], selfTy: unitType() }),
-        origin: nowhere(),
-    }
 }
 
 fn unitType(): Type {
@@ -1017,7 +997,7 @@ fn importDecl<C: Allocator>(ctx: C, out: Out, i: Import): Out {
 fn nameList<C: Allocator>(ctx: C, out: Out, head: Str, specs: [ImportSpec]): Out {
     let names = specList(ctx, specs);
     if (names.isEmpty()) {
-        emit(ctx, out, str.format(ctx, "${head} {  };"))
+        emit(ctx, out, str.format(ctx, "${head} {};"))
     } else {
         emit(ctx, out, str.format(ctx, "${head} { ${names.join(ctx, ", ")} };"))
     }
@@ -1406,27 +1386,31 @@ fn patternPayload<C: Allocator>(ctx: C, out: Out, pay: Payload): Out {
     match (pay) {
         .Tuple(ps) => emit(ctx, patternList(ctx, emit(ctx, out, "("), ps), ")"),
         .Record(fields, rest) => {
-            let listed = fields.foldCtx(
-                ctx,
-                fn(c, acc, f) => {
-                    let o = name(c, comma(c, acc, ", "), f.name);
-                    (
-                        f
-                            .pattern
-                            .foldCtx(
-                                c,
-                                fn(d, inner, q) => {
-                                    pattern(d, emit(d, inner, ": "), q)
-                                },
-                                o,
-                            ),
-                        true,
-                    )
-                },
-                (emit(ctx, out, " { "), false),
-            );
-            let ended = if (rest) { comma(ctx, listed, ", ") } else { listed.0 };
-            emit(ctx, if (rest) { emit(ctx, ended, "..") } else { ended }, " }")
+            if (fields.isEmpty() && !rest) {
+                emit(ctx, out, " {}")
+            } else {
+                let listed = fields.foldCtx(
+                    ctx,
+                    fn(c, acc, f) => {
+                        let o = name(c, comma(c, acc, ", "), f.name);
+                        (
+                            f
+                                .pattern
+                                .foldCtx(
+                                    c,
+                                    fn(d, inner, q) => {
+                                        pattern(d, emit(d, inner, ": "), q)
+                                    },
+                                    o,
+                                ),
+                            true,
+                        )
+                    },
+                    (emit(ctx, out, " { "), false),
+                );
+                let ended = if (rest) { comma(ctx, listed, ", ") } else { listed.0 };
+                emit(ctx, if (rest) { emit(ctx, ended, "..") } else { ended }, " }")
+            }
         },
     }
 }
@@ -1462,10 +1446,14 @@ fn exprKind<C: Allocator>(ctx: C, out: Out, e: Expr): Out {
         .Lambda(params, ret, body) => lambda(ctx, out, params, ret, body),
         .Unary(op, operand) => atPrec(ctx, emit(ctx, out, unOpText(op)), operand, 10),
         .Binary(op, lhs, rhs) => {
-            let p = binPrec(op);
-            let left = atPrec(ctx, out, lhs, leftBinding(p));
-            let spaced = emit(ctx, left, str.format(ctx, " ${binOpText(op)} "));
-            atPrec(ctx, spaced, rhs, p + 1)
+            if (forces(e)) {
+                brokenRun(ctx, out, e, binPrec(op))
+            } else {
+                let p = binPrec(op);
+                let left = atPrec(ctx, out, lhs, leftBinding(p));
+                let spaced = emit(ctx, left, str.format(ctx, " ${binOpText(op)} "));
+                atPrec(ctx, spaced, rhs, p + 1)
+            }
         },
         .Field(base, n) => name(ctx, emit(ctx, headOf(ctx, out, base), "."), n),
         .TupleIndex(base, index) => {
@@ -1491,6 +1479,60 @@ fn exprKind<C: Allocator>(ctx: C, out: Out, e: Expr): Out {
             emit(ctx, typeList(ctx, emit(ctx, headOf(ctx, out, base), "<"), args), ">")
         },
         .StructLit(head, spread, fields) => structLit(ctx, out, head, spread, fields),
+    }
+}
+
+/// A run of operators of one precedence that something inside has broken: the
+/// head where it starts, and each operator after it opening a line of its own,
+/// one level in. The formatter breaks the whole run together, so a chain of
+/// `&&` reads down as a list of conditions.
+fn brokenRun<C: Allocator>(ctx: C, out: Out, e: Expr, p: Int): Out {
+    let (head, links) = spine(ctx, e, p);
+    let first = atPrec(ctx, out, head, leftBinding(p));
+    let rest = links.foldCtx(
+        ctx,
+        fn(c, o, link) => {
+            let opened = emit(c, nl(c, o), str.format(c, "${binOpText(link.0)} "));
+            atPrec(c, opened, link.1, p + 1)
+        },
+        indented(first, 1),
+    );
+    Out { ..rest, indent: out.indent }
+}
+
+/// The operands of the run of `p`-precedence operators `e` heads: the first,
+/// and each of the rest beside the operator written before it. A comparison
+/// under a comparison is one operand, since the rung does not associate and
+/// one standing there was written in parentheses.
+fn spine<C: Allocator>(ctx: C, e: Expr, p: Int): ([Expr], [(BinOp, [Expr])]) {
+    match (e.kind) {
+        .Binary(op, lhs, rhs) if binPrec(op) == p => {
+            let (head, links) = if (p == 3) {
+                (lhs, [])
+            } else {
+                lhs.foldCtx(ctx, fn(c, _acc, l) => spine(c, l, p), ([], []))
+            };
+            (head, links.push(ctx, (op, rhs)))
+        },
+        _other => ([e], []),
+    }
+}
+
+/// `open`, the expressions and `close` on one line — or, when one of them
+/// breaks, on lines of their own one level in, the way the formatter writes a
+/// condition or a scrutinee.
+fn parenthesised<C: Allocator>(
+    ctx: C,
+    out: Out,
+    open: Str,
+    xs: [Expr],
+    close: Str,
+): Out {
+    if (xs.any(fn(e) => forces(e))) {
+        let inner = exprList(ctx, indented(nl(ctx, emit(ctx, out, open)), 1), xs);
+        emit(ctx, nl(ctx, Out { ..inner, indent: out.indent }), close)
+    } else {
+        emit(ctx, exprList(ctx, emit(ctx, out, open), xs), close)
     }
 }
 
@@ -1632,7 +1674,7 @@ fn ifChain<C: Allocator>(
     otherwise: [Expr],
 ): Out {
     let broken = ifForces(cond, then, otherwise);
-    let head = emit(ctx, exprList(ctx, emit(ctx, out, "if ("), cond), ") ");
+    let head = parenthesised(ctx, out, "if (", cond, ") ");
     let body = branch(ctx, head, then, broken);
     elseChain(ctx, emit(ctx, body, "else "), otherwise, broken)
 }
@@ -1667,11 +1709,7 @@ fn elseLinks<C: Allocator>(ctx: C, out: Out, otherwise: [Expr], broken: Bool): O
                 },
                 .If(cond, then, rest) => {
                     let started = ready(ctx, out);
-                    let head = emit(
-                        ctx,
-                        exprList(ctx, emit(ctx, started, "if ("), cond),
-                        ") ",
-                    );
+                    let head = parenthesised(ctx, started, "if (", cond, ") ");
                     let body = emit(ctx, branch(ctx, head, then, broken), "else ");
                     elseLinks(ctx, owe(ctx, body, started.at, e.origin), rest, broken)
                 },
@@ -1717,7 +1755,7 @@ fn branchBlock<C: Allocator>(ctx: C, out: Out, b: Block, broken: Bool): Out {
 }
 
 fn matchExpr<C: Allocator>(ctx: C, out: Out, scrutinee: [Expr], arms: [Arm]): Out {
-    let head = emit(ctx, exprList(ctx, emit(ctx, out, "match ("), scrutinee), ") {");
+    let head = parenthesised(ctx, out, "match (", scrutinee, ") {");
     if (arms.isEmpty()) {
         emit(ctx, nl(ctx, head), "}")
     } else {
@@ -3420,9 +3458,7 @@ fn parseGenericList<C: Allocator>(
     p: P,
     acc: [GenericParam],
 ): (P, [GenericParam]) {
-    if (p.panicking) {
-        (p, acc)
-    } else if (at(p, ">")) {
+    if (at(p, ">")) {
         (advance(p), acc)
     } else {
         let (named, name) = parseName(ctx, p);
@@ -3513,9 +3549,7 @@ fn parseFieldDecls<C: Allocator>(ctx: C, p: P, acc: [FieldDecl]): (P, [FieldDecl
 }
 
 fn parseTupleFields<C: Allocator>(ctx: C, p: P, acc: [TupleField]): (P, [TupleField]) {
-    if (p.panicking) {
-        (p, acc)
-    } else if (at(p, ")")) {
+    if (at(p, ")")) {
         (advance(p), acc)
     } else {
         let start = here(p);
@@ -3867,17 +3901,11 @@ fn walkPath(p: P): P {
 
 /// The dotted spelling between two positions, joined back up.
 fn pathText<C: Allocator>(ctx: C, opened: P, closed: P): Str {
-    list
-        .range(ctx, opened.index, closed.index)
-        .mapCtx(ctx, fn(c, i) => tokenTextAt(opened, i))
+    opened
+        .tokens
+        .slice(ctx, opened.index, closed.index)
+        .map(ctx, fn(t) => t.text)
         .join(ctx, "")
-}
-
-fn tokenTextAt(p: P, index: Int): Str {
-    match (p.tokens.get(index)) {
-        .Some(t) => t.text,
-        .None => "",
-    }
 }
 
 // -----------------------------------------------------------------------------
@@ -4581,9 +4609,7 @@ fn parsePrimary<C: Allocator>(ctx: C, p: P): (P, Expr) {
 }
 
 fn parseArrayItems<C: Allocator>(ctx: C, p: P, acc: [Expr]): (P, [Expr]) {
-    if (p.panicking) {
-        (p, acc)
-    } else if (at(p, "]")) {
+    if (at(p, "]")) {
         (advance(p), acc)
     } else {
         let (afterOne, e) = parseExpr(ctx, p);
@@ -4689,92 +4715,85 @@ fn parseOrPatterns<C: Allocator>(ctx: C, p: P, acc: [Pattern]): (P, [Pattern]) {
 }
 
 fn parsePatternNoOr<C: Allocator>(ctx: C, p: P): (P, Pattern) {
-    if (p.panicking) {
-        (p, wildPattern())
-    } else {
-        let t = tokenAt(p, 0);
-        let start = t.span;
-        let after = advance(p);
-        if (t.text == "_") {
-            (after, Pattern { kind: .Wild, origin: originAt(p, start) })
-        } else if (t.text == "-") {
-            let number = tokenAt(after, 0);
-            if (number.kind == TokenKind.Int) {
-                let done = advance(after);
-                (
-                    done,
-                    Pattern {
-                        kind: .LitInt(0 - intOf(ctx, number.text)),
-                        origin: originFrom(done, start),
-                    },
-                )
-            } else if (number.kind == TokenKind.Float) {
-                let done = advance(after);
-                (
-                    done,
-                    Pattern {
-                        kind: .LitFloat(0.0 - floatOf(ctx, number.text)),
-                        origin: originFrom(done, start),
-                    },
-                )
-            } else {
-                (expected(ctx, after, "a number"), wildPattern())
-            }
-        } else if (t.kind == TokenKind.Int) {
+    let t = tokenAt(p, 0);
+    let start = t.span;
+    let after = advance(p);
+    if (t.text == "_") {
+        (after, Pattern { kind: .Wild, origin: originAt(p, start) })
+    } else if (t.text == "-") {
+        let number = tokenAt(after, 0);
+        if (number.kind == TokenKind.Int) {
+            let done = advance(after);
             (
-                after,
+                done,
                 Pattern {
-                    kind: .LitInt(intOf(ctx, t.text)),
-                    origin: originAt(p, start),
+                    kind: .LitInt(0 - intOf(ctx, number.text)),
+                    origin: originFrom(done, start),
                 },
             )
-        } else if (t.kind == TokenKind.Float) {
+        } else if (number.kind == TokenKind.Float) {
+            let done = advance(after);
             (
-                after,
+                done,
                 Pattern {
-                    kind: .LitFloat(floatOf(ctx, t.text)),
-                    origin: originAt(p, start),
+                    kind: .LitFloat(0.0 - floatOf(ctx, number.text)),
+                    origin: originFrom(done, start),
                 },
             )
-        } else if (t.kind == TokenKind.Str) {
-            (
-                after,
-                Pattern {
-                    kind: .LitStr(literalText(ctx, t.text)),
-                    origin: originAt(p, start),
-                },
-            )
-        } else if (t.kind == TokenKind.Char) {
-            (
-                after,
-                Pattern {
-                    kind: .LitChar(charLiteral(ctx, t.text)),
-                    origin: originAt(p, start),
-                },
-            )
-        } else if (t.text == "true") {
-            (after, Pattern { kind: .LitBool(true), origin: originAt(p, start) })
-        } else if (t.text == "false") {
-            (after, Pattern { kind: .LitBool(false), origin: originAt(p, start) })
-        } else if (t.text == ".") {
-            let (named, name) = parseName(ctx, after);
-            let (afterPayload, payload) = parsePayload(ctx, named);
-            (
-                afterPayload,
-                Pattern {
-                    kind: .Path(name, true, payload),
-                    origin: originFrom(afterPayload, start),
-                },
-            )
-        } else if (t.text == "[") {
-            parseArrayPattern(ctx, after, start)
-        } else if (t.text == "(") {
-            parseParenPattern(ctx, after, start)
-        } else if (t.kind == TokenKind.Identifier) {
-            parseIdentPattern(ctx, p, start)
         } else {
-            (expected(ctx, p, "a pattern"), wildPattern())
+            (expected(ctx, after, "a number"), wildPattern())
         }
+    } else if (t.kind == TokenKind.Int) {
+        (
+            after,
+            Pattern { kind: .LitInt(intOf(ctx, t.text)), origin: originAt(p, start) },
+        )
+    } else if (t.kind == TokenKind.Float) {
+        (
+            after,
+            Pattern {
+                kind: .LitFloat(floatOf(ctx, t.text)),
+                origin: originAt(p, start),
+            },
+        )
+    } else if (t.kind == TokenKind.Str) {
+        (
+            after,
+            Pattern {
+                kind: .LitStr(literalText(ctx, t.text)),
+                origin: originAt(p, start),
+            },
+        )
+    } else if (t.kind == TokenKind.Char) {
+        (
+            after,
+            Pattern {
+                kind: .LitChar(charLiteral(ctx, t.text)),
+                origin: originAt(p, start),
+            },
+        )
+    } else if (t.text == "true") {
+        (after, Pattern { kind: .LitBool(true), origin: originAt(p, start) })
+    } else if (t.text == "false") {
+        (after, Pattern { kind: .LitBool(false), origin: originAt(p, start) })
+    } else if (t.text == ".") {
+        let (named, name) = parseName(ctx, after);
+        let (afterPayload, payload) = parsePayload(ctx, named);
+        (
+            afterPayload,
+            Pattern {
+                kind: .Path(name, true, payload),
+                origin: originFrom(afterPayload, start),
+            },
+        )
+    } else if (t.text == "[") {
+        parseArrayPattern(ctx, after, start)
+    } else if (t.text == "(") {
+        parseParenPattern(ctx, after, start)
+    } else if (t.kind == TokenKind.Identifier) {
+        parseIdentPattern(ctx, p, start)
+    } else {
+        (expected(ctx, p, "a pattern"), wildPattern())
     }
 }
 
@@ -4869,9 +4888,7 @@ fn parseFieldPats<C: Allocator>(
     acc: [FieldPat],
     rest: Bool,
 ): (P, [FieldPat], Bool) {
-    if (p.panicking) {
-        (p, acc, rest)
-    } else if (at(p, "}")) {
+    if (at(p, "}")) {
         (advance(p), acc, rest)
     } else if (at(p, "..")) {
         let after = advance(p);
@@ -4905,9 +4922,7 @@ fn arrayPatternBody<C: Allocator>(
     acc: [Pattern],
     rest: [Rest],
 ): (P, [Pattern], [Rest]) {
-    if (p.panicking) {
-        (p, acc, rest)
-    } else if (at(p, "]")) {
+    if (at(p, "]")) {
         (advance(p), acc, rest)
     } else if (at(p, "..")) {
         let after = advance(p);

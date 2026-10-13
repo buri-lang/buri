@@ -10,6 +10,7 @@ library {
             "test/tokens.buri",
             "test/parsing.buri",
             "test/edges.buri",
+            "test/reading.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`
