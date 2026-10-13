@@ -79,8 +79,8 @@
 //!   substitution [`ir::Inst::Structural`] stands for.
 
 use crate::compiler::middle::ir::{
-    self, BinOp, BlockId, Body, Code, Const, Facts, Func, Inst, Ownership, Signature, StructuralOp,
-    Target, Term, Type, TypeId, TypeInfo, UnOp, ValueId,
+    self, BinOp, BlockId, Body, Code, Const, Facts, Func, Inst, Ownership, Remap, Signature,
+    StructuralOp, Target, Term, Type, TypeId, TypeInfo, TypeList, UnOp, ValueId,
 };
 use crate::compiler::middle::layout;
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
@@ -150,7 +150,7 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // own — the one piece of cross-function state — and its `TypeId`s are made
     // whole-program below. `parallel::map` returns the results in index order,
     // so `funcs` is the same vector the serial loop built.
-    let lowered: Vec<(Func, Vec<TypeInfo>)> = crate::parallel::map_items(&program.funcs, |i, f| {
+    let lowered: Vec<(Func, TypeList)> = crate::parallel::map_items(&program.funcs, |i, f| {
         let mut types = Types::default();
         let func = lower_one(
             program, tables, plan, &counts, &cycles, &entries, &units, &mut types, i, f,
@@ -166,17 +166,14 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     let mut types = Types::default();
     let mut funcs = Vec::with_capacity(lowered.len());
     for (mut func, local) in lowered {
-        let remap: Vec<TypeId> = local
-            .into_iter()
-            .map(|info| types.adopt(tables, info.ty))
-            .collect();
+        let remap = local.remap(|info| types.adopt(tables, info.ty));
         remap_func_types(&mut func, &remap);
         funcs.push(func);
     }
 
     ir::Program {
         funcs,
-        units: units.names,
+        units: units.into_units(),
         types: types.list,
         crosses_tasks: plan.crosses_tasks,
         cell_equal: program.cell_equal.clone(),
@@ -226,7 +223,7 @@ fn lower_one(
             Body::Runtime(bounded_key(tables, key, &ret))
         }
         kind => {
-            let mut lower = FnLower {
+            let lower = FnLower {
                 tables,
                 program,
                 plan,
@@ -235,8 +232,8 @@ fn lower_one(
                 types,
                 locals: &f.locals,
                 ret,
-                code: Code::new(),
-                cur: BlockId(0),
+                code: Code::new(&sig.params),
+                cur: BlockId::ENTRY,
                 env: vec![None; f.locals.len()],
                 loops: Vec::new(),
                 unmatched: None,
@@ -250,10 +247,8 @@ fn lower_one(
                 // A `core/list` loop is a body too, for a caller that reaches
                 // the function through a function value and so cannot have the
                 // loop at its call site.
-                FuncKind::Intrinsic(key) => lower.list_body(&sig, key, &f.params),
-                FuncKind::Unbuilt | FuncKind::Body(_) => {
-                    lower.func(&sig, &f.params, f.body(), dispatch)
-                }
+                FuncKind::Intrinsic(key) => lower.list_body(key, &f.params),
+                FuncKind::Unbuilt | FuncKind::Body(_) => lower.func(&f.params, f.body(), dispatch),
             })
         }
     };
@@ -272,13 +267,9 @@ fn lower_one(
 /// Rewrites a function's local `TypeId`s to the whole-program ones. Covers every
 /// place a `TypeId` reaches the IR: a value's or a signature slot's [`Type`],
 /// and a [`Inst::Structural`]'s type.
-fn remap_func_types(func: &mut Func, remap: &[TypeId]) {
+fn remap_func_types(func: &mut Func, remap: &Remap) {
     for t in func.sig.params.iter_mut().chain([&mut func.sig.ret]) {
-        if let Type::Agg(id) = t {
-            *id = *remap
-                .get(id.index())
-                .or_ice("the remap covers every local type id");
-        }
+        remap.ty(t);
     }
     if let Body::Code(code) = &mut func.body {
         code.remap_types(remap);
@@ -336,8 +327,8 @@ fn loop_entries(body: Option<&Expr>) -> usize {
 /// The codegen-unit partition: one unit per source module (ARCHITECTURE.md §5).
 #[derive(Default)]
 struct Units {
-    names: Vec<String>,
-    index: HashMap<String, u32>,
+    /// Each unit by name: its number, by first appearance, and its functions.
+    by_name: HashMap<String, (u32, Vec<usize>)>,
     /// Each function's unit, by function index.
     by_func: Vec<u32>,
 }
@@ -351,25 +342,37 @@ impl Units {
         let by_func = program
             .funcs
             .iter()
-            .map(|f| units.intern(&f.debug_name))
+            .enumerate()
+            .map(|(i, f)| units.add(i, &f.debug_name))
             .collect();
         units.by_func = by_func;
         units
     }
 
-    fn intern(&mut self, debug_name: &str) -> u32 {
-        let name = unit_name(debug_name);
-        if let Some(i) = self.index.get(&name) {
-            return *i;
-        }
-        let i = self.names.len() as u32;
-        self.index.insert(name.clone(), i);
-        self.names.push(name);
-        i
+    /// Puts function `func` in the unit its debug name names, and answers
+    /// that unit's number.
+    fn add(&mut self, func: usize, debug_name: &str) -> u32 {
+        let next = self.by_name.len() as u32;
+        let (i, funcs) = self
+            .by_name
+            .entry(unit_name(debug_name))
+            .or_insert((next, Vec::new()));
+        funcs.push(func);
+        *i
     }
 
     fn of(&self, func: usize) -> u32 {
         self.by_func.get(func).copied().unwrap_or(0)
+    }
+
+    /// The units, by number.
+    fn into_units(self) -> Vec<ir::Unit> {
+        let mut units: Vec<_> = self.by_name.into_iter().collect();
+        units.sort_unstable_by_key(|(_, (i, _))| *i);
+        units
+            .into_iter()
+            .map(|(name, (_, funcs))| ir::Unit { name, funcs })
+            .collect()
     }
 }
 
@@ -395,7 +398,7 @@ fn unit_name(debug_name: &str) -> String {
 
 #[derive(Default)]
 struct Types {
-    list: Vec<TypeInfo>,
+    list: TypeList,
     index: HashMap<Ty, TypeId>,
 }
 
@@ -405,10 +408,9 @@ impl Types {
         if let Some(id) = self.index.get(ty) {
             return *id;
         }
-        let id = TypeId(self.list.len() as u32);
         // Named in [`Types::adopt`], once per program rather than once per
         // function that meets the type: nothing reads a function's own names.
-        self.list.push(TypeInfo {
+        let id = self.list.push(TypeInfo {
             name: String::new(),
             ty: *ty,
         });
@@ -424,9 +426,8 @@ impl Types {
         if let Some(id) = self.index.get(&ty) {
             return *id;
         }
-        let id = TypeId(self.list.len() as u32);
         let name = crate::compiler::semantics::types::show(tables, None, &[], &ty);
-        self.list.push(TypeInfo { name, ty });
+        let id = self.list.push(TypeInfo { name, ty });
         self.index.insert(ty, id);
         id
     }
@@ -618,16 +619,8 @@ struct FnLower<'a> {
 impl FnLower<'_> {
     // -- the shape of a function --------------------------------------------
 
-    fn func(
-        &mut self,
-        sig: &Signature,
-        params: &[LocalId],
-        body: Option<&Expr>,
-        dispatch: bool,
-    ) -> Code {
-        let entry = self.code.block(&sig.params);
-        self.cur = entry;
-        let mut args: Vec<ValueId> = self.code.get(entry).params.clone();
+    fn func(mut self, params: &[LocalId], body: Option<&Expr>, dispatch: bool) -> Code {
+        let mut args: Vec<ValueId> = self.code.entry().params.clone();
         // A dispatching function's first parameter is the entry index.
         let dispatch = if dispatch { Some(args.remove(0)) } else { None };
         for (local, value) in params.iter().zip(args.iter()) {
@@ -648,9 +641,8 @@ impl FnLower<'_> {
             }
         }
 
-        let mut code = std::mem::take(&mut self.code);
-        code.retain_reachable();
-        code
+        self.code.retain_reachable();
+        self.code
     }
 
     /// The body, with a `Loop` at the root recognised: its header parameters
@@ -978,7 +970,7 @@ impl FnLower<'_> {
             emitted.push((site.op, value));
             self.push(match site.op {
                 rc::RcOp::IncRef => Inst::IncRef { value },
-                rc::RcOp::DecRef => Inst::DecRef { value, drop: None },
+                rc::RcOp::DecRef => Inst::DecRef { value },
             });
         }
         #[cfg(debug_assertions)]
@@ -1007,7 +999,7 @@ impl FnLower<'_> {
                 agg,
                 index: i as u32,
             });
-            self.push(Inst::DecRef { value, drop: None });
+            self.push(Inst::DecRef { value });
         }
     }
 
@@ -1065,7 +1057,7 @@ impl FnLower<'_> {
              {emitted:?}; `rc::order_sites` is what keeps every increment at a key ahead of \
              every decrement at it.",
             self.debug_name,
-            violation.map_or(String::new(), |v| format!("v{}", v.0)),
+            violation.map_or(String::new(), |v| format!("v{v}")),
             match at {
                 rc::Position::Before => "before",
                 rc::Position::After => "after",
@@ -1219,10 +1211,7 @@ impl FnLower<'_> {
                 }
                 let out = self.emit(ty, |dest| Inst::MakeStruct { dest, fields });
                 for old in replaced {
-                    self.push(Inst::DecRef {
-                        value: old,
-                        drop: None,
-                    });
+                    self.push(Inst::DecRef { value: old });
                 }
                 out
             }
@@ -1665,16 +1654,10 @@ impl FnLower<'_> {
             // way the operand is dead the instant the join has run, and a
             // `str.concat` chain of *k* parts ends holding exactly one block.
             if next_is_mine {
-                self.push(Inst::DecRef {
-                    value: next,
-                    drop: None,
-                });
+                self.push(Inst::DecRef { value: next });
             }
             if acc_is_mine {
-                self.push(Inst::DecRef {
-                    value: acc,
-                    drop: None,
-                });
+                self.push(Inst::DecRef { value: acc });
             }
             acc = joined;
             acc_is_mine = true;
@@ -1800,10 +1783,7 @@ impl FnLower<'_> {
             key: "list.join".into(),
             args: Box::new([list, ctx, separator]),
         });
-        self.push(Inst::DecRef {
-            value: list,
-            drop: None,
-        });
+        self.push(Inst::DecRef { value: list });
         joined
     }
 
@@ -2403,10 +2383,7 @@ impl FnLower<'_> {
             }
         }
         let out = self.emit(ty, |dest| Inst::MakeStruct { dest, fields });
-        self.push(Inst::DecRef {
-            value: b,
-            drop: None,
-        });
+        self.push(Inst::DecRef { value: b });
         out
     }
 

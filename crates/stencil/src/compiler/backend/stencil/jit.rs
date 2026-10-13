@@ -408,7 +408,7 @@ pub(crate) struct Scratch<'a> {
 struct Bufs {
     /// The last function's [`Fn2`], whose vectors the next one refills.
     st: Fn2,
-    order: Vec<usize>,
+    order: Vec<ir::BlockId>,
     skip: Vec<bool>,
     pin: Vec<Option<u32>>,
     width: Vec<u32>,
@@ -426,7 +426,7 @@ struct Bufs {
     barrier: Vec<bool>,
     imm: Vec<u32>,
     seen: Vec<bool>,
-    stack: Vec<(usize, usize)>,
+    stack: Vec<(ir::BlockId, usize)>,
     param: Vec<bool>,
     def_in: Vec<(u32, u32)>,
     aliased: Vec<bool>,
@@ -460,7 +460,7 @@ impl Operands {
         self.at.clear();
         self.ops.clear();
         self.first.clear();
-        for b in &code.blocks {
+        for b in code.blocks() {
             self.first.push(self.at.len() as u32);
             for i in &b.insts {
                 self.at.push(self.ops.len() as u32);
@@ -488,7 +488,7 @@ impl Operands {
 
     /// What block `b`'s terminator reads, its edges' arguments included.
     fn term(&self, code: &ir::Code, b: usize) -> &[ir::ValueId] {
-        let n = code.blocks.get(b).map_or(0, |block| block.insts.len());
+        let n = code.blocks().get(b).map_or(0, |block| block.insts.len());
         self.row(ent(&self.first, b, 0) as usize + n)
     }
 }
@@ -1011,9 +1011,8 @@ pub(crate) fn frame_sigs(
         }
         fs.param_end = at;
         if let ir::Body::Code(code) = &f.body {
-            let entry_params = &code.get(ir::BlockId(0)).params;
-            for v in 0..code.values() {
-                let v = ir::ValueId(v as u32);
+            let entry_params = &code.entry().params;
+            for v in code.value_ids() {
                 if entry_params.contains(&v) {
                     continue;
                 }
@@ -1194,8 +1193,8 @@ struct Loops {
 impl Loops {
     /// The header of the innermost promotable loop, with its blocks in
     /// [`Loops::best`].
-    fn innermost(&mut self, code: &ir::Code) -> Option<usize> {
-        let nb = code.blocks.len();
+    fn innermost(&mut self, code: &ir::Code) -> Option<ir::BlockId> {
+        let nb = code.blocks().len();
         let Loops {
             preds,
             dom,
@@ -1206,9 +1205,9 @@ impl Loops {
             best,
         } = self;
         barrier.clear();
-        barrier.extend(code.blocks.iter().map(|b| b.insts.iter().any(is_barrier)));
+        barrier.extend(code.blocks().iter().map(|b| b.insts.iter().any(is_barrier)));
         preds.fill(nb, || {
-            code.blocks
+            code.blocks()
                 .iter()
                 .enumerate()
                 .flat_map(|(bi, b)| b.term.targets().map(move |t| (t.block.index(), bi)))
@@ -1235,14 +1234,14 @@ impl Loops {
         stamp.clear();
         stamp.resize(nb, 0);
         let mut epoch = 0u32;
-        let mut found: Option<usize> = None;
-        for (p, b) in code.blocks.iter().enumerate() {
+        let mut found: Option<ir::BlockId> = None;
+        for (p, b) in code.blocks().iter().enumerate() {
             for t in b.term.targets() {
                 let h = t.block.index();
                 if h > p {
                     continue;
                 }
-                if code.get(ir::BlockId(h as u32)).params.is_empty() {
+                if code.get(t.block).params.is_empty() {
                     continue;
                 }
                 if !dom.may_loop(h, p) {
@@ -1275,7 +1274,7 @@ impl Loops {
                 }
                 if found.is_none() || members.len() < best.len() {
                     best.clone_from(members);
-                    found = Some(h);
+                    found = Some(t.block);
                 }
             }
         }
@@ -1359,17 +1358,18 @@ impl<'a> Jit<'a> {
                 self.regalloc(code, &mut st.reg, taken, &st.uses, &opnd);
                 self.bufs.opnd = opnd;
                 self.constants(code, &st.uses, &mut st.constants, &mut st.folded);
-                st.blk = table(&mut st.blk, code.blocks.len(), 0);
+                st.blk = table(&mut st.blk, code.blocks().len(), 0);
                 st.cur = 0;
                 let base = self.fixups.len();
                 let order = self.layout(code);
-                for (oi, bi) in order.iter().copied().enumerate() {
+                for (oi, id) in order.iter().copied().enumerate() {
+                    let bi = id.index();
                     let here = self.region.code_addr();
                     put(&mut st.blk, bi, here);
                     // Which side of the promotion's region every read in this
                     // block is on. See [`Fn2::loc`].
                     st.cur = bi;
-                    let block = code.get(ir::BlockId(bi as u32));
+                    let block = code.get(id);
                     let plan = self.plan_block(code, &st, block);
                     // `Plan::skip` is built with one flag per instruction of
                     // this block, so the zip drops nothing.
@@ -1379,7 +1379,7 @@ impl<'a> Jit<'a> {
                         }
                         self.inst(prog, code, &mut st, inst);
                     }
-                    let next = order.get(oi + 1).copied().unwrap_or(usize::MAX);
+                    let next = order.get(oi + 1).map_or(usize::MAX, |b| b.index());
                     // An `Abort` does not come back, so the terminator behind
                     // one is dead code.
                     if !matches!(block.insts.last(), Some(ir::Inst::Abort { .. })) {
@@ -2036,12 +2036,12 @@ impl<'a> Jit<'a> {
     ) -> u32 {
         let n = code.values();
         let mut pin = table(&mut self.bufs.pin, n, None);
-        for (k, v) in code.get(ir::BlockId(0)).params.iter().enumerate() {
+        for (k, v) in code.entry().params.iter().enumerate() {
             put(&mut pin, v.index(), frame.params.get(k).copied());
         }
         let mut width = table(&mut self.bufs.width, n, 0);
-        for (v, w) in width.iter_mut().enumerate() {
-            *w = self.slot_bytes(prog, code.ty_of(ir::ValueId(v as u32)));
+        for (v, w) in code.value_ids().zip(width.iter_mut()) {
+            *w = self.slot_bytes(prog, code.ty_of(v));
         }
         let mut uf = table(&mut self.bufs.uf, n, 0);
         for (v, u) in uf.iter_mut().enumerate() {
@@ -2129,7 +2129,7 @@ impl<'a> Jit<'a> {
                 ir::Inst::ArrayLen { .. } | ir::Inst::MakeStruct { .. } | ir::Inst::MakeEnum { .. }
             )
         };
-        if !code.blocks.iter().any(|b| b.insts.iter().any(part)) {
+        if !code.blocks().iter().any(|b| b.insts.iter().any(part)) {
             return false;
         }
         let n = code.values();
@@ -2138,7 +2138,7 @@ impl<'a> Jit<'a> {
         for v in 0..n {
             bump(&mut members, find(uf, v as u32) as usize);
         }
-        for b in code.blocks.iter().skip(1) {
+        for b in code.blocks().iter().skip(1) {
             for p in &b.params {
                 put(&mut param, p.index(), true);
             }
@@ -2146,7 +2146,7 @@ impl<'a> Jit<'a> {
         // Where each instruction result is defined: its block, and its index
         // there.
         let mut def_in = table(&mut self.bufs.def_in, n, (u32::MAX, 0));
-        for (bi, b) in code.blocks.iter().enumerate() {
+        for (bi, b) in code.blocks().iter().enumerate() {
             for (k, i) in b.insts.iter().enumerate() {
                 for d in i.results() {
                     put(&mut def_in, d.index(), (bi as u32, k as u32));
@@ -2159,7 +2159,7 @@ impl<'a> Jit<'a> {
             ent(&members, v.index(), 0) == 1 && ent(pin, v.index(), None).is_none()
         };
         // The entry's parameters keep the slots the caller left them in.
-        let entry: &[ir::ValueId] = &code.get(ir::BlockId(0)).params;
+        let entry: &[ir::ValueId] = &code.entry().params;
         let still = |v: ir::ValueId| {
             ent(&members, v.index(), 0) == 1
                 && !ent(&param, v.index(), true)
@@ -2170,7 +2170,7 @@ impl<'a> Jit<'a> {
         // it, stamped with the block.
         let mut last = table(&mut self.bufs.last, n, (u32::MAX, 0));
         let mut touched_before = std::mem::take(&mut self.bufs.touched);
-        for (bi, b) in code.blocks.iter().enumerate() {
+        for (bi, b) in code.blocks().iter().enumerate() {
             if !b.insts.iter().any(part) {
                 continue;
             }
@@ -2189,13 +2189,17 @@ impl<'a> Jit<'a> {
             for (j, i) in b.insts.iter().enumerate() {
                 if let ir::Inst::MakeStruct { dest, .. } | ir::Inst::MakeEnum { dest, .. } = i {
                     let at = last
-                        .get(find(uf, dest.0) as usize)
+                        .get(find(uf, dest.index() as u32) as usize)
                         .filter(|(lb, _)| *lb == stamp)
                         .map(|(_, t)| *t as usize);
                     put(&mut touched_before, j, at);
                 }
                 for o in opnd.inst(bi, j).iter().chain(i.results()) {
-                    put(&mut last, find(uf, o.0) as usize, (stamp, j as u32));
+                    put(
+                        &mut last,
+                        find(uf, o.index() as u32) as usize,
+                        (stamp, j as u32),
+                    );
                 }
             }
             for (j, i) in b.insts.iter().enumerate() {
@@ -2244,8 +2248,8 @@ impl<'a> Jit<'a> {
                 if ent(pin, dest.index(), None).is_some() {
                     continue;
                 }
-                let root = find(uf, dest.0);
-                let in_class = |v: &ir::ValueId| find(uf, v.0) == root;
+                let root = find(uf, dest.index() as u32);
+                let in_class = |v: &ir::ValueId| find(uf, v.index() as u32) == root;
                 // A field already aliased is a length, which no load below
                 // defines, or a field of an earlier aggregate, which is a
                 // second use.
@@ -2341,7 +2345,7 @@ impl<'a> Jit<'a> {
         // Bounds the scan below, so a long block stays linear.
         const WINDOW: usize = 32;
         let get = |i: &ir::Inst| matches!(i, ir::Inst::GetField { .. });
-        if !code.blocks.iter().any(|b| b.insts.iter().any(get)) {
+        if !code.blocks().iter().any(|b| b.insts.iter().any(get)) {
             return;
         }
         let n = code.values();
@@ -2350,14 +2354,14 @@ impl<'a> Jit<'a> {
         for v in 0..n {
             bump(&mut members, find(uf, v as u32) as usize);
         }
-        for b in code.blocks.iter().skip(1) {
+        for b in code.blocks().iter().skip(1) {
             for p in &b.params {
                 put(&mut param, p.index(), true);
             }
         }
         let held_parts = std::mem::take(&mut self.bufs.aliased);
         let aliased: &[bool] = if parts { &held_parts } else { &[] };
-        let entry: &[ir::ValueId] = &code.get(ir::BlockId(0)).params;
+        let entry: &[ir::ValueId] = &code.entry().params;
         let alone = |v: ir::ValueId| {
             ent(&members, v.index(), 0) == 1
                 && ent(pin, v.index(), None).is_none()
@@ -2365,14 +2369,13 @@ impl<'a> Jit<'a> {
         };
         // Written once, by its definition or by the caller, and never again.
         let mut fixed = table(&mut self.bufs.fixed, n, false);
-        for (v, f) in fixed.iter_mut().enumerate() {
-            let v = ir::ValueId(v as u32);
+        for (v, f) in code.value_ids().zip(fixed.iter_mut()) {
             *f = ent(&members, v.index(), 0) == 1
                 && !ent(&param, v.index(), true)
                 && !ent(aliased, v.index(), false)
                 && (ent(pin, v.index(), None).is_none() || entry.contains(&v));
         }
-        for (bi, b) in code.blocks.iter().enumerate() {
+        for (bi, b) in code.blocks().iter().enumerate() {
             for (j, i) in b.insts.iter().enumerate() {
                 let ir::Inst::GetField { dest, agg, index } = i else {
                     continue;
@@ -2450,7 +2453,7 @@ impl<'a> Jit<'a> {
         let mut is_param = table(&mut self.bufs.is_param, n, false);
         let mut def_block = table(&mut self.bufs.def_block, n, u32::MAX);
         let mut def_idx = table(&mut self.bufs.def_idx, n, u32::MAX);
-        for (bi, b) in code.blocks.iter().enumerate() {
+        for (bi, b) in code.blocks().iter().enumerate() {
             for p in &b.params {
                 put(&mut is_param, p.index(), true);
                 put(&mut def_block, p.index(), bi as u32);
@@ -2463,7 +2466,7 @@ impl<'a> Jit<'a> {
             }
         }
         let mut pairs: Vec<(ir::ValueId, ir::ValueId)> = Vec::new();
-        for (bi, b) in code.blocks.iter().enumerate() {
+        for (bi, b) in code.blocks().iter().enumerate() {
             // (i.a) An edge's block arguments.
             pairs.clear();
             for t in b.term.targets() {
@@ -2501,7 +2504,15 @@ impl<'a> Jit<'a> {
                 // `merge_is_safe` refuses; that is also what keeps two entry
                 // parameters, the only values pinned yet, out of one class.
                 let root = find(uf, pi as u32);
-                if !self.merge_is_safe(code, opnd, bi, uf, root, a, ent(&def_idx, ai, u32::MAX)) {
+                if !self.merge_is_safe(
+                    code,
+                    opnd,
+                    (bi, b),
+                    uf,
+                    root,
+                    ai as u32,
+                    ent(&def_idx, ai, u32::MAX),
+                ) {
                     continue;
                 }
                 put(uf, ai, root);
@@ -2559,7 +2570,7 @@ impl<'a> Jit<'a> {
             ir::Term::Jump(t) => b.params.iter().any(|p| t.args.contains(p)),
             _ => false,
         };
-        if !code.blocks.iter().any(candidate) {
+        if !code.blocks().iter().any(candidate) {
             return;
         }
         let n = code.values();
@@ -2584,7 +2595,7 @@ impl<'a> Jit<'a> {
         }
         let mut ops = Vec::new();
         let mut class = Vec::new();
-        for latch in &code.blocks {
+        for latch in code.blocks() {
             let ir::Term::Jump(t) = &latch.term else {
                 continue;
             };
@@ -2605,7 +2616,7 @@ impl<'a> Jit<'a> {
                 {
                     continue;
                 }
-                let (r1, r2) = (find(uf, p1.0), find(uf, p2.0));
+                let (r1, r2) = (find(uf, p1.index() as u32), find(uf, p2.index() as u32));
                 // A tail call's loop header is pinned: the entry's parameters
                 // merge into it.
                 if ent(&pinned, r1 as usize, true) {
@@ -2635,11 +2646,15 @@ impl<'a> Jit<'a> {
                 latch.term.operands(&mut ops);
                 ops.extend_from_slice(&t.args);
                 invariant(
-                    !ops.iter().any(|o| find(uf, o.0) == r1),
+                    !ops.iter().any(|o| find(uf, o.index() as u32) == r1),
                     "stencil: a latch reads nothing of its target's parameter",
                 );
                 invariant(
-                    t.args.iter().filter(|a| find(uf, a.0) == r2).count() == 1,
+                    t.args
+                        .iter()
+                        .filter(|a| find(uf, a.index() as u32) == r2)
+                        .count()
+                        == 1,
                     "stencil: a latch passes its parameter on once",
                 );
                 class.clear();
@@ -2651,10 +2666,10 @@ impl<'a> Jit<'a> {
                         break;
                     }
                 }
-                for m in class.iter().filter(|m| **m != p2.0) {
+                for m in class.iter().filter(|m| **m != p2.index() as u32) {
                     let b = ent(def_block, *m as usize, u32::MAX);
                     let block = code
-                        .blocks
+                        .blocks()
                         .get(b as usize)
                         .or_ice("a value merged on an edge is defined");
                     // The rest of the class is the temporaries the latch's
@@ -2663,7 +2678,7 @@ impl<'a> Jit<'a> {
                     // to the latch, and reads nothing of the target's class,
                     // which is defined in blocks it does not follow.
                     invariant(
-                        !block.params.iter().any(|p| p.0 == *m),
+                        !block.params.iter().any(|p| p.index() as u32 == *m),
                         "stencil: a latch's class holds no other block's parameter",
                     );
                     let to_latch = match &block.term {
@@ -2676,7 +2691,7 @@ impl<'a> Jit<'a> {
                     );
                     let at = ent(def_idx, *m as usize, u32::MAX);
                     invariant(
-                        self.merge_is_safe(code, opnd, b as usize, uf, r1, ir::ValueId(*m), at),
+                        self.merge_is_safe(code, opnd, (b as usize, block), uf, r1, *m, at),
                         "stencil: a latch's predecessor reads nothing of its target's parameter",
                     );
                 }
@@ -2722,7 +2737,7 @@ impl<'a> Jit<'a> {
         opnd: &Operands,
     ) {
         let has_call = |b: &ir::Block| b.insts.iter().any(|i| matches!(i, ir::Inst::Call { .. }));
-        if !code.blocks.iter().any(has_call) {
+        if !code.blocks().iter().any(has_call) {
             return;
         }
         let n = code.values();
@@ -2745,7 +2760,7 @@ impl<'a> Jit<'a> {
         let mut reads = table(&mut self.bufs.reads, n, BlockUses::default());
         let mut defs = table(&mut self.bufs.defs, n, (u32::MAX, 0));
         let mut kept = std::mem::take(&mut self.bufs.kept);
-        for (bi, b) in code.blocks.iter().enumerate() {
+        for (bi, b) in code.blocks().iter().enumerate() {
             if !has_call(b) {
                 continue;
             }
@@ -2874,21 +2889,21 @@ impl<'a> Jit<'a> {
         &self,
         code: &ir::Code,
         opnd: &Operands,
-        bi: usize,
+        (bi, b): (usize, &ir::Block),
         uf: &[u32],
         root: u32,
-        a: ir::ValueId,
+        a: u32,
         from: u32,
     ) -> bool {
-        let b = code
-            .blocks
-            .get(bi)
-            .or_ice("a block index is one of its code's");
         // A write to the class is no separate question: every value merged
         // into it is a parameter or a temporary its own block's terminator
         // reads once, so one defined here is a second read below.
         for k in (from as usize + 1)..b.insts.len() {
-            if opnd.inst(bi, k).iter().any(|o| find(uf, o.0) == root) {
+            if opnd
+                .inst(bi, k)
+                .iter()
+                .any(|o| find(uf, o.index() as u32) == root)
+            {
                 return false;
             }
         }
@@ -2896,7 +2911,7 @@ impl<'a> Jit<'a> {
         // a conflict.
         opnd.term(code, bi)
             .iter()
-            .filter(|o| find(uf, o.0) == root || **o == a)
+            .filter(|o| find(uf, o.index() as u32) == root || o.index() as u32 == a)
             .count()
             <= 1
     }
@@ -2910,8 +2925,8 @@ impl<'a> Jit<'a> {
     /// — depth-first, `then` before `else`, reversed — puts the else-arm and
     /// the loop body immediately after the test, which is where the elision
     /// wants them.
-    fn layout(&mut self, code: &ir::Code) -> Vec<usize> {
-        let nb = code.blocks.len();
+    fn layout(&mut self, code: &ir::Code) -> Vec<ir::BlockId> {
+        let nb = code.blocks().len();
         let mut seen = table(&mut self.bufs.seen, nb, false);
         let mut post = std::mem::take(&mut self.bufs.order);
         post.clear();
@@ -2919,22 +2934,17 @@ impl<'a> Jit<'a> {
         // recursive one and this runs on every function in the program.
         let mut stack = std::mem::take(&mut self.bufs.stack);
         stack.clear();
-        // Block zero is the entry.
-        put(&mut seen, 0, true);
-        stack.push((0, 0));
+        put(&mut seen, ir::BlockId::ENTRY.index(), true);
+        stack.push((ir::BlockId::ENTRY, 0));
         while let Some((b, k)) = stack.pop() {
             // The `k`th successor alone: a switch's block is popped once per
             // case, and listing all of them each time was quadratic in its
             // width.
-            let succ = code.blocks.get(b).and_then(|block| block.term.target(k));
-            match succ.map(|t| t.block.index()) {
+            match code.get(b).term.target(k).map(|t| t.block) {
                 Some(s) => {
                     stack.push((b, k + 1));
-                    // A successor `seen` does not hold is a target outside
-                    // this function's blocks, and treating it as already
-                    // visited is what keeps the walk inside them.
-                    if !ent(&seen, s, true) {
-                        put(&mut seen, s, true);
+                    if !ent(&seen, s.index(), true) {
+                        put(&mut seen, s.index(), true);
                         stack.push((s, 0));
                     }
                 }
@@ -2985,11 +2995,11 @@ impl<'a> Jit<'a> {
     ) -> (usize, usize) {
         // A promoted loop keeps at least two values in registers.
         const _: () = assert!(super::abi::CPS_REGISTER_COUNT >= 2);
-        let nb = code.blocks.len();
+        let nb = code.blocks().len();
         let register_count = super::abi::CPS_REGISTER_COUNT;
         // Only a back edge into a block with parameters can make a candidate
         // below, and most functions have none: they skip the tables.
-        let back_edge = code.blocks.iter().enumerate().any(|(p, b)| {
+        let back_edge = code.blocks().iter().enumerate().any(|(p, b)| {
             b.term
                 .targets()
                 .any(|t| t.block.index() <= p && !code.get(t.block).params.is_empty())
@@ -3007,17 +3017,20 @@ impl<'a> Jit<'a> {
             }
         }
         self.bufs.loops = loops;
-        let Some(h) = found else { return (0, 0) };
+        let Some(header) = found else {
+            return (0, 0);
+        };
+        let h = header.index();
         let body: &[bool] = region;
 
         // Where every value is used, and whether every one of those uses can
         // read a register.
-        let params = code.get(ir::BlockId(h as u32)).params.clone();
+        let params = code.get(header).params.clone();
         let n = code.values();
         let mut reg_ok = vec![true; n];
         let mut uses = vec![0u32; n];
         let mut ops = Vec::new();
-        for (bi, b) in code.blocks.iter().enumerate() {
+        for (bi, b) in code.blocks().iter().enumerate() {
             let inside = ent(body, bi, false);
             for i in &b.insts {
                 ops.clear();
@@ -3098,7 +3111,7 @@ impl<'a> Jit<'a> {
         // without it the promotion is 36% *slower* than leaving the variable in
         // the frame, because it adds a reload to a chain that already had a
         // store-to-load forward in it.
-        for (bi, b) in code.blocks.iter().enumerate() {
+        for (bi, b) in code.blocks().iter().enumerate() {
             if !ent(body, bi, false) {
                 continue;
             }
@@ -3207,7 +3220,7 @@ impl<'a> Jit<'a> {
         let register_count = super::abi::CPS_REGISTER_COUNT;
         let mut busy: Vec<Option<u32>> = vec![None; register_count];
         let mut busyf: Vec<Option<u32>> = vec![None; register_count];
-        for (bi, block) in code.blocks.iter().enumerate() {
+        for (bi, block) in code.blocks().iter().enumerate() {
             let n = block.insts.len();
             let stamp = u32::try_from(bi).unwrap_or(u32::MAX);
             // Where the barriers are. A barrier is an instruction whose
@@ -3299,7 +3312,9 @@ impl<'a> Jit<'a> {
                 if ent(out, dest.index(), None).is_some() {
                     continue; // already promoted across the loop
                 }
-                let Some(u) = used(dest.0) else { continue };
+                let Some(u) = used(dest.index() as u32) else {
+                    continue;
+                };
                 if u.count != 1 || ent(total, dest.index(), 0) != 1 {
                     continue;
                 }
@@ -3337,7 +3352,7 @@ impl<'a> Jit<'a> {
                 let file = if float { &mut busyf } else { &mut busy };
                 if let Some(r) = file.iter().position(|b| b.is_none()) {
                     let _ = (base, basef);
-                    put(file, r, Some(dest.0));
+                    put(file, r, Some(dest.index() as u32));
                     put(out, dest.index(), Some(Loc::Reg(r as u8)));
                 }
             }
@@ -3360,7 +3375,7 @@ impl<'a> Jit<'a> {
     ) {
         *constants = table(constants, code.values(), None);
         *folded = table(folded, code.values(), false);
-        for block in &code.blocks {
+        for block in code.blocks() {
             for i in &block.insts {
                 if let ir::Inst::Const { dest, value } = i {
                     put(constants, dest.index(), literal(value, code.ty_of(*dest)));
@@ -3370,7 +3385,7 @@ impl<'a> Jit<'a> {
         // A use is immediate-eligible only as the right operand of a binary
         // operation whose immediate variant this level has.
         let mut imm = table(&mut self.bufs.imm, code.values(), 0);
-        for block in &code.blocks {
+        for block in code.blocks() {
             for i in &block.insts {
                 if let ir::Inst::Binary { op, prim, rhs, .. } = i {
                     if let Some(k) = ent(constants, rhs.index(), None) {

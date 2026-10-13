@@ -311,9 +311,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn define_runtime_body(&mut self, value: FunctionValue<'ctx>, idx: FuncIdx) {
         let func = self.func(idx);
         let ret = func.sig.ret;
-        let mut code = ir::Code::new();
-        let entry = code.block(&func.sig.params);
-        let args = code.get(entry).params.clone();
+        let mut code = ir::Code::new(&func.sig.params);
+        let entry = ir::BlockId::ENTRY;
+        let args = code.entry().params.clone();
         let dest = code.value(ret);
         let block = code.get_mut(entry);
         block.insts.push(ir::Inst::Call {
@@ -525,10 +525,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 /// The state of one function's emission.
 struct Function<'ctx> {
     value: FunctionValue<'ctx>,
-    /// One per IR block, by `BlockId`.
-    blocks: Vec<Emitted<'ctx>>,
-    /// One entry per `ValueId`.
-    values: Vec<Option<BasicValueEnum<'ctx>>>,
+    /// One per IR block. Empty for a generated helper, which has no IR.
+    blocks: ir::PerBlock<Emitted<'ctx>>,
+    /// One entry per `ValueId`. Empty for a generated helper.
+    values: ir::PerValue<Option<BasicValueEnum<'ctx>>>,
     /// The block an edge's copies into its target's buffers were emitted in,
     /// by `(block, edge)`: the incoming block for the target's other phis.
     edges: Map<(usize, usize), BasicBlock<'ctx>>,
@@ -541,7 +541,7 @@ struct Function<'ctx> {
     /// [`argument_based`], once per body rather than once per `incref`.
     /// Empty for the generated helpers, which carry no attributes at all and
     /// so have nothing to be right or wrong about.
-    based: Vec<bool>,
+    based: ir::PerValue<bool>,
     /// A tag or a field read out of a value in registers, by the value and
     /// [`Read`]: built once, where the value is defined ([`Unit::read_once`]).
     reads: Map<(usize, Read), BasicValueEnum<'ctx>>,
@@ -568,9 +568,7 @@ struct Emitted<'ctx> {
 
 impl<'ctx> Function<'ctx> {
     fn block(&self, b: ir::BlockId) -> &Emitted<'ctx> {
-        self.blocks
-            .get(b.index())
-            .or_ice("every block has its LLVM block")
+        self.blocks.get(b)
     }
 }
 
@@ -606,14 +604,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         value: FunctionValue<'ctx>,
     ) {
         let entry = self.ctx.append_basic_block(value, "entry");
-        let starts: Vec<BasicBlock<'ctx>> = (0..code.blocks.len())
-            .map(|i| self.ctx.append_basic_block(value, &format!("b{i}")))
-            .collect();
+        let starts =
+            code.map_blocks(|(id, _)| self.ctx.append_basic_block(value, &format!("b{id}")));
 
         let mut state = Function {
             value,
-            blocks: Vec::with_capacity(starts.len()),
-            values: (0..code.values()).map(|_| None).collect(),
+            blocks: ir::PerBlock::default(),
+            values: code.per_value(None),
             edges: Map::default(),
             sret: None,
             entry,
@@ -634,9 +631,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.builder.position_at_end(entry);
         self.bind_entry_params(&mut state, func, code);
 
-        for (i, (block, &start)) in code.blocks.iter().zip(&starts).enumerate() {
+        let blocks = code.map_blocks(|(id, block)| {
+            let start = *starts.get(id);
             let mut phis = Vec::new();
-            if i > 0 {
+            if id != ir::BlockId::ENTRY {
                 self.builder.position_at_end(start);
                 for p in &block.params {
                     // A parameter held in memory is a buffer of its own, which
@@ -652,30 +650,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         continue;
                     }
                     let ty = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(*p));
-                    let phi = self
-                        .builder
-                        .build_phi(ty, &format!("v{}", p.0))
-                        .or_ice(BUILT);
+                    let phi = self.builder.build_phi(ty, &format!("v{p}")).or_ice(BUILT);
                     self.set(&mut state, *p, phi.as_basic_value());
                     phis.push(Some(phi));
                 }
             }
-            state.blocks.push(Emitted {
+            Emitted {
                 start,
                 end: std::cell::Cell::new(start),
                 phis,
-            });
-        }
+            }
+        });
+        state.blocks = blocks;
 
         // The entry `alloca`s go before the jump into b0, which is what makes
         // them eligible for SROA at all (§2.3).
         self.builder.position_at_end(entry);
-        let b0 = state.block(ir::BlockId(0)).start;
+        let b0 = state.block(ir::BlockId::ENTRY).start;
         let _ = self.builder.build_unconditional_branch(b0);
 
         let projections = projections(code);
-        for i in reverse_postorder(code) {
-            let id = ir::BlockId(i as u32);
+        for id in reverse_postorder(code) {
             let block = code.get(id);
             self.builder.position_at_end(state.block(id).start);
             let cancelled = self.cancelled_counts(code, &block.insts, &projections);
@@ -687,7 +682,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.inst(&mut state, code, inst);
             }
             state.block(id).end.set(self.here());
-            self.terminator(&mut state, code, i, &block.term);
+            self.terminator(&mut state, code, id.index(), &block.term);
         }
 
         self.fill_phis(&mut state, code);
@@ -709,7 +704,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     fn bind_entry_params(&mut self, state: &mut Function<'ctx>, func: &ir::Func, code: &ir::Code) {
-        let entry_block = code.get(ir::BlockId(0));
+        let entry_block = code.entry();
         let sig = self.machine_of(&func.sig);
         let mut args = state.value.get_param_iter();
         if sig.sret.is_some() {
@@ -732,7 +727,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     fn fill_phis(&mut self, state: &mut Function<'ctx>, code: &ir::Code) {
-        for (i, (block, emitted)) in code.blocks.iter().zip(&state.blocks).enumerate() {
+        for ((id, block), (_, emitted)) in code.iter().zip(state.blocks.iter()) {
+            let i = id.index();
             let end = emitted.end.get();
             for (k, target) in block.term.targets().enumerate() {
                 let from = state.edges.get(&(i, k)).copied().unwrap_or(end);
@@ -755,7 +751,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // what keeps a `()` merged out of a diverging arm and a
                     // straight-line arm (an `if` whose one side `failWith`s and
                     // whose other is `()`) verifying.
-                    let value = match state.values.get(arg.index()).copied().flatten() {
+                    let value = match *state.values.get(*arg) {
                         Some(value) => value,
                         None => phi.as_basic_value().get_type().const_zero(),
                     };
@@ -766,7 +762,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     fn get(&self, state: &Function<'ctx>, v: ir::ValueId) -> BasicValueEnum<'ctx> {
-        match state.values.get(v.index()).copied().flatten() {
+        match *state.values.get(v) {
             Some(value) => value,
             // A value of no bytes, a `()`, has none, and nothing reads it.
             // `ir::verify_func` checks that every other use is dominated by
@@ -776,10 +772,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     fn set(&self, state: &mut Function<'ctx>, v: ir::ValueId, value: BasicValueEnum<'ctx>) {
-        *state
-            .values
-            .get_mut(v.index())
-            .or_ice("a value indexes its body's values") = Some(value);
+        *state.values.get_mut(v) = Some(value);
     }
 
     // -----------------------------------------------------------------------
@@ -1037,7 +1030,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             ir::Inst::Structural { .. } => self.structural(state, code, inst),
             ir::Inst::IncRef { value } => self.incref(state, code, *value),
-            ir::Inst::DecRef { value, drop } => self.decref(state, code, *value, *drop),
+            ir::Inst::DecRef { value } => self.decref(state, code, *value),
             ir::Inst::Abort { message } => {
                 self.abort(state, message);
             }
@@ -3400,22 +3393,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// cannot express a tagged enum's payload (one opaque `Blob`) or a boxed
     /// field's pointee. A slot-driven walk silently skipped every count inside
     /// a `Result<Str, E>`.
-    ///
-    /// `Inst::DecRef`'s own `drop` field is ignored: it is `None` at every
-    /// construction site in the landed IR (`lower.rs`), and the glue is
-    /// derivable here from the type.
     fn incref(&mut self, state: &mut Function<'ctx>, code: &ir::Code, v: ir::ValueId) {
         self.rc(state, code, v, Op::Retain);
     }
 
-    fn decref(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        v: ir::ValueId,
-        drop: Option<FuncIdx>,
-    ) {
-        let _ = drop;
+    fn decref(&mut self, state: &mut Function<'ctx>, code: &ir::Code, v: ir::ValueId) {
         self.rc(state, code, v, Op::Release);
     }
 
@@ -3551,7 +3533,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // through the same function so that the two cannot answer it
         // differently: a count in a parameter's block is `argmem`, and a count
         // anywhere else is the default location.
-        if state.based.get(v.index()).copied().unwrap_or(false) {
+        if *state.based.get(v) {
             state.observed.writes_args = true;
         } else {
             state.observed.reads_far = true;
@@ -5069,14 +5051,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.builder.position_at_end(entry);
         let mut state = Function {
             value,
-            blocks: Vec::new(),
-            values: Vec::new(),
+            blocks: ir::PerBlock::default(),
+            values: ir::PerValue::default(),
             edges: Map::default(),
             sret: None,
             entry,
             divmod: None,
             observed: Observed::clean(),
-            based: Vec::new(),
+            based: ir::PerValue::default(),
             reads: Map::default(),
         };
         let first: PointerValue<'ctx> = value
@@ -6379,39 +6361,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ..
         } = &l.repr
         {
-            let mut off = *payload;
             // §2.1's message shape: the entry wrote `E`'s one `Str` at
             // `message_at`, so the zeroing stops in front of it rather than
             // overwriting the sentence the failure came with.
             let until = message_at.unwrap_or(l.size);
-            let word = self.ctx.i64_type();
-            while off.saturating_add(8) <= until {
-                let slot = Slot {
-                    offset: at.saturating_add(off),
-                    ty: SlotTy::Scalar(Scalar::I64),
-                };
-                self.store_slots(
-                    buf,
-                    &[slot],
-                    align,
-                    &[word.const_zero().as_basic_value_enum()],
-                );
-                off = off.saturating_add(8);
-            }
-            let byte = self.ctx.i8_type();
-            while off < until {
-                let slot = Slot {
-                    offset: at.saturating_add(off),
-                    ty: SlotTy::Scalar(Scalar::I8),
-                };
-                self.store_slots(
-                    buf,
-                    &[slot],
-                    align,
-                    &[byte.const_zero().as_basic_value_enum()],
-                );
-                off = off.saturating_add(1);
-            }
+            self.zero_bytes(
+                buf,
+                at.saturating_add(*payload),
+                at.saturating_add(until),
+                align,
+            );
         }
     }
 
@@ -9570,7 +9529,7 @@ pub fn observe(program: &ir::Program, boxes: &Boxes<'_>) -> Vec<Observed> {
             let Some(code) = f.code() else { continue };
             let mut here = out.get(i).copied().unwrap_or_else(Observed::opaque);
             let before = key(here);
-            for block in &code.blocks {
+            for block in code.blocks() {
                 for inst in &block.insts {
                     let callee = match inst {
                         ir::Inst::Call { func, .. } => Some(func.index()),
@@ -9676,14 +9635,10 @@ fn reaches_a_cycle(program: &ir::Program) -> Vec<bool> {
         .map(|f| {
             let mut mine: Vec<usize> = Vec::new();
             let Some(code) = f.code() else { return mine };
-            for block in &code.blocks {
+            for block in code.blocks() {
                 for inst in &block.insts {
-                    match inst {
-                        ir::Inst::Call { func, .. } => mine.push(func.index()),
-                        ir::Inst::DecRef {
-                            drop: Some(func), ..
-                        } => mine.push(func.index()),
-                        _ => {}
+                    if let ir::Inst::Call { func, .. } = inst {
+                        mine.push(func.index());
                     }
                 }
             }
@@ -9724,12 +9679,10 @@ fn reaches_a_cycle(program: &ir::Program) -> Vec<bool> {
 /// **A boxed field is a load too.** A projection out of a member
 /// `middle::layout` keeps behind a box reads the box (`Unit::get_field`), so
 /// what it yields is no more based on the parameter than an element is.
-fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> Vec<bool> {
-    let mut based = vec![true; code.values()];
-    let set = |based: &mut Vec<bool>, v: ir::ValueId, to: bool, changed: &mut bool| {
-        let slot = based
-            .get_mut(v.index())
-            .or_ice("a value indexes its body's values");
+fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> ir::PerValue<bool> {
+    let mut based = code.per_value(true);
+    let set = |based: &mut ir::PerValue<bool>, v: ir::ValueId, to: bool, changed: &mut bool| {
+        let slot = based.get_mut(v);
         if *slot && !to {
             *slot = false;
             *changed = true;
@@ -9739,7 +9692,7 @@ fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> Vec<bool> {
     let mut changed = true;
     while changed {
         changed = false;
-        for block in &code.blocks {
+        for block in code.blocks() {
             for inst in &block.insts {
                 match inst {
                     // A block this function allocated, or one a callee handed
@@ -9778,9 +9731,7 @@ fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> Vec<bool> {
                     _ => {
                         operands.clear();
                         inst.operands(&mut operands);
-                        let all = operands
-                            .iter()
-                            .all(|u| based.get(u.index()).copied().unwrap_or(false));
+                        let all = operands.iter().all(|u| *based.get(*u));
                         if !all {
                             for d in inst.results() {
                                 set(&mut based, *d, false, &mut changed);
@@ -9792,25 +9743,15 @@ fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> Vec<bool> {
         }
         // The entry block's parameters are the function's, and nothing branches
         // to the entry (`ir::Code`), so they are the fixed point's floor.
-        for (i, block) in code.blocks.iter().enumerate() {
-            if i == 0 {
-                continue;
+        let mut all = code.per_value(true);
+        for t in code.blocks().iter().flat_map(|b| b.term.targets()) {
+            for (p, a) in code.get(t.block).params.iter().zip(&t.args) {
+                *all.get_mut(*p) &= *based.get(*a);
             }
-            for (k, p) in block.params.iter().enumerate() {
-                let mut all = true;
-                for src in &code.blocks {
-                    for t in src.term.targets() {
-                        if t.block.index() != i {
-                            continue;
-                        }
-                        let a = t
-                            .args
-                            .get(k)
-                            .or_ice("an edge passes each parameter one argument");
-                        all &= based.get(a.index()).copied().unwrap_or(false);
-                    }
-                }
-                set(&mut based, *p, all, &mut changed);
+        }
+        for (_, block) in code.iter().skip(1) {
+            for p in &block.params {
+                set(&mut based, *p, *all.get(*p), &mut changed);
             }
         }
     }
@@ -9890,7 +9831,7 @@ impl<'a> Boxes<'a> {
 /// aggregate, the variant for a payload, and the field.
 fn projections(code: &ir::Code) -> Map<usize, (ir::ValueId, Option<u32>, u32)> {
     let mut out = Map::default();
-    for inst in code.blocks.iter().flat_map(|b| &b.insts) {
+    for inst in code.blocks().iter().flat_map(|b| &b.insts) {
         match inst {
             ir::Inst::GetField { dest, agg, index } => {
                 out.insert(dest.index(), (*agg, None, *index));
@@ -9929,8 +9870,8 @@ fn cannot_count(inst: &ir::Inst) -> bool {
 fn local(code: &ir::Code, boxes: &Boxes<'_>) -> Observed {
     let mut o = Observed::clean();
     let based = argument_based(code, boxes);
-    let from_args = |v: &ir::ValueId| based.get(v.index()).copied().unwrap_or(false);
-    for block in &code.blocks {
+    let from_args = |v: &ir::ValueId| *based.get(*v);
+    for block in code.blocks() {
         for inst in &block.insts {
             match inst {
                 // One allocation, from `buri_rt_alloc` — which is inaccessible
@@ -10033,7 +9974,7 @@ fn local(code: &ir::Code, boxes: &Boxes<'_>) -> Observed {
     // join block a loop — which costs the attribute on every branchy function
     // in the program.
     let successors: Vec<Vec<usize>> = code
-        .blocks
+        .blocks()
         .iter()
         .map(|b| b.term.targets().map(|t| t.block.index()).collect())
         .collect();
@@ -10051,20 +9992,21 @@ fn local(code: &ir::Code, boxes: &Boxes<'_>) -> Observed {
 ///
 /// Every block is reached: `lower` leaves no unreachable one behind
 /// (`Code::retain_reachable`).
-fn reverse_postorder(code: &ir::Code) -> Vec<usize> {
-    let mut seen = crate::hash::Set::default();
-    seen.insert(0);
-    let mut post = Vec::with_capacity(code.blocks.len());
+fn reverse_postorder(code: &ir::Code) -> Vec<ir::BlockId> {
+    let mut seen = code.per_block(false);
+    *seen.get_mut(ir::BlockId::ENTRY) = true;
+    let mut post = Vec::with_capacity(code.blocks().len());
     // (block, how many successors have been taken), iterative so a deep CFG
     // cannot exhaust the stack.
-    let mut work: Vec<(usize, usize)> = vec![(0, 0)];
+    let mut work = vec![(ir::BlockId::ENTRY, 0usize)];
     while let Some((b, taken)) = work.pop() {
-        match code.get(ir::BlockId(b as u32)).term.target(taken) {
+        match code.get(b).term.target(taken) {
             Some(t) => {
                 work.push((b, taken.saturating_add(1)));
-                let next = t.block.index();
-                if seen.insert(next) {
-                    work.push((next, 0));
+                let next = seen.get_mut(t.block);
+                if !*next {
+                    *next = true;
+                    work.push((t.block, 0));
                 }
             }
             None => post.push(b),
@@ -10158,20 +10100,18 @@ mod cycles {
             .iter()
             .enumerate()
             .map(|(i, callees)| {
-                let mut code = ir::Code::new();
+                let mut code = ir::Code::new(&[]);
                 let unit = code.value(ir::Type::Unit);
-                code.blocks.push(ir::Block {
-                    params: Vec::new(),
-                    insts: callees
-                        .iter()
-                        .map(|c| ir::Inst::Call {
-                            dest: ir::ValueId(0),
-                            func: FuncIdx(*c as u32),
-                            args: Vec::new(),
-                        })
-                        .collect(),
-                    term: ir::Term::Return(unit),
-                });
+                let entry = code.get_mut(ir::BlockId::ENTRY);
+                entry.insts = callees
+                    .iter()
+                    .map(|c| ir::Inst::Call {
+                        dest: unit,
+                        func: FuncIdx(*c as u32),
+                        args: Vec::new(),
+                    })
+                    .collect();
+                entry.term = ir::Term::Return(unit);
                 ir::Func {
                     symbol: format!("f{i}"),
                     debug_name: format!("f{i}"),
@@ -10192,8 +10132,11 @@ mod cycles {
             .collect();
         ir::Program {
             funcs,
-            units: vec![String::from("main")],
-            types: Vec::new(),
+            units: vec![ir::Unit {
+                name: "main".into(),
+                funcs: (0..edges.len()).collect(),
+            }],
+            types: ir::TypeList::default(),
             crosses_tasks: false,
             cell_equal: Default::default(),
         }

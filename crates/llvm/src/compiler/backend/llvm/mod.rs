@@ -382,7 +382,6 @@ struct Shared<'p> {
     opts: &'p Options<'p>,
     root: Option<Root>,
     triple: String,
-    by_unit: Vec<Vec<usize>>,
     cycles: std::sync::Arc<layout::Cycles>,
     observed: Vec<attrs::Observed>,
     /// `runtime_table::shares_counts`: whether every count's fork reads
@@ -481,7 +480,6 @@ fn emit_selected(
         opts,
         root,
         triple,
-        by_unit: program.funcs_by_unit(),
         cycles,
         observed,
         shares: crate::compiler::backend::runtime_table::shares_counts(program),
@@ -490,18 +488,19 @@ fn emit_selected(
         named,
     };
 
-    let mut wanted: Vec<usize> = (0..program.units.len())
-        .filter(|i| units.wants(*i as u32))
+    let mut wanted: Vec<(usize, &ir::Unit)> = program
+        .units
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| units.wants(*i as u32))
         .collect();
     // Largest first, by member count, with the unit index breaking ties so that
     // the order is a function of the program alone.
-    let size = |i: usize| shared.by_unit.get(i).map_or(0, Vec::len);
-    wanted.sort_by_key(|i| (std::cmp::Reverse(size(*i)), *i));
-    let emitted = crate::parallel::map_with(
-        wanted.len(),
+    wanted.sort_by_key(|(i, u)| (std::cmp::Reverse(u.funcs.len()), *i));
+    let emitted = crate::parallel::map_items_with(
+        &wanted,
         || None,
-        |worker: &mut Option<Worker>, k| {
-            let index = wanted.get(k).copied().unwrap_or(0);
+        |worker: &mut Option<Worker>, _, &(index, unit)| {
             let worker = match worker {
                 Some(w) => w,
                 None => {
@@ -515,14 +514,14 @@ fn emit_selected(
                     })
                 }
             };
-            emit_unit(&shared, worker, index, render)
+            emit_unit(&shared, worker, index, unit, render)
         },
     );
 
     // In unit order, so a failure is the first failing unit's: the one a loop
     // over the units would have stopped at.
     let mut out: Vec<(usize, Result<Emitted, Diagnostics>)> =
-        wanted.iter().copied().zip(emitted).collect();
+        wanted.iter().map(|(i, _)| *i).zip(emitted).collect();
     out.sort_by_key(|(index, _)| *index);
     out.into_iter().map(|(_, e)| e).collect()
 }
@@ -556,21 +555,20 @@ fn emit_unit(
     shared: &Shared<'_>,
     worker: &Worker,
     index: usize,
+    this: &ir::Unit,
     render: Render<'_>,
 ) -> Result<Emitted, Diagnostics> {
     let program = shared.program;
     let opts = shared.opts;
     let mut diags = Diagnostics::new();
     let unit = index as u32;
-    let unit_name = program.units.get(index).map_or("", String::as_str);
+    let unit_name = this.name.as_str();
     let linker = shared.audience == For::Linker;
     // This unit's functions, ascending — the same list, in the same order,
     // that a filter over the whole program yielded. An object leaves out the
     // ones nothing names (`For`).
-    let members: Vec<usize> = shared
-        .by_unit
-        .get(index)
-        .map_or(&[][..], Vec::as_slice)
+    let members: Vec<usize> = this
+        .funcs
         .iter()
         .copied()
         .filter(|i| program.funcs.get(*i).is_some_and(|f| f.code().is_some()))

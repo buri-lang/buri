@@ -55,7 +55,7 @@ use std::sync::{Mutex, OnceLock};
 use super::FnLower;
 use crate::compiler::backend::intrinsic_keys::{self, Step};
 use crate::compiler::middle::ir::{
-    BinOp, BlockId, Code, Const, Inst, Ownership, Signature, Target, Term, Type, UnOp, ValueId,
+    BinOp, BlockId, Code, Const, Inst, Ownership, Target, Term, Type, UnOp, ValueId,
 };
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
@@ -205,10 +205,8 @@ impl FnLower<'_> {
     }
 
     /// The intrinsic function's own body: the loop over its parameters.
-    pub(super) fn list_body(&mut self, sig: &Signature, key: &str, params: &[LocalId]) -> Code {
-        let entry = self.code.block(&sig.params);
-        self.cur = entry;
-        let vals = self.code.get(entry).params.clone();
+    pub(super) fn list_body(mut self, key: &str, params: &[LocalId]) -> Code {
+        let vals = self.code.entry().params.clone();
         let tys: Vec<Ty> = params
             .iter()
             .map(|p| self.locals.get(p.index()).map(|l| l.ty).unwrap_or(Ty::UNIT))
@@ -221,9 +219,8 @@ impl FnLower<'_> {
             }
         };
         self.set_term(Term::Return(v));
-        let mut code = std::mem::take(&mut self.code);
-        code.retain_reachable();
-        code
+        self.code.retain_reachable();
+        self.code
     }
 
     /// `key`'s loop over these operands, answering the result. `tys` are the
@@ -903,10 +900,7 @@ impl FnLower<'_> {
             key: "show.list".into(),
             args: Box::new([strs]),
         });
-        self.push(Inst::DecRef {
-            value: strs,
-            drop: None,
-        });
+        self.push(Inst::DecRef { value: strs });
         Some(joined)
     }
 
@@ -1268,10 +1262,7 @@ impl FnLower<'_> {
         }
 
         self.cur = exit;
-        self.push(Inst::DecRef {
-            value: b,
-            drop: None,
-        });
+        self.push(Inst::DecRef { value: b });
         Some(a)
     }
 
@@ -1465,7 +1456,7 @@ impl FnLower<'_> {
             }
         };
         for value in release {
-            self.push(Inst::DecRef { value, drop: None });
+            self.push(Inst::DecRef { value });
         }
         r
     }

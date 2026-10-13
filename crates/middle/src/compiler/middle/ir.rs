@@ -82,12 +82,25 @@ use crate::hash::Map as HashMap;
 macro_rules! ir_id {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
+        ///
+        /// Only its owner mints one, at the length its table then grows past,
+        /// so an id indexes that table.
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-        pub struct $name(pub u32);
+        pub struct $name(u32);
 
         impl $name {
             pub fn index(self) -> usize {
                 self.0 as usize
+            }
+
+            fn at(i: usize) -> $name {
+                $name(i as u32)
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                self.0.fmt(f)
             }
         }
     };
@@ -170,6 +183,62 @@ pub struct TypeInfo {
     /// For reading the IR, and for nothing else.
     pub name: String,
     pub ty: Ty,
+}
+
+/// Interned types, by [`TypeId`]. Only [`TypeList::push`] mints an id.
+#[derive(Default)]
+pub struct TypeList(Vec<TypeInfo>);
+
+#[expect(
+    clippy::indexing_slicing,
+    reason = "only `push` mints an id, at the length the list then grows past"
+)]
+impl TypeList {
+    pub fn push(&mut self, info: TypeInfo) -> TypeId {
+        let id = TypeId::at(self.0.len());
+        self.0.push(info);
+        id
+    }
+
+    pub fn get(&self, id: TypeId) -> &TypeInfo {
+        &self.0[id.index()]
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (TypeId, &TypeInfo)> {
+        self.0.iter().enumerate().map(|(i, t)| (TypeId::at(i), t))
+    }
+
+    /// Each entry's id in another list, by `adopt`.
+    pub fn remap(self, adopt: impl FnMut(TypeInfo) -> TypeId) -> Remap {
+        Remap(self.0.into_iter().map(adopt).collect())
+    }
+}
+
+/// The ids one [`TypeList`] minted, mapped to another's.
+pub struct Remap(Vec<TypeId>);
+
+#[expect(
+    clippy::indexing_slicing,
+    reason = "a function's ids come from the list the remap was made from, one row per id"
+)]
+impl Remap {
+    pub fn id(&self, id: TypeId) -> TypeId {
+        self.0[id.index()]
+    }
+
+    pub fn ty(&self, ty: &mut Type) {
+        if let Type::Agg(id) = ty {
+            *id = self.id(*id);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -449,11 +518,11 @@ pub enum Inst {
     IncRef {
         value: ValueId,
     },
-    /// A decrement, with the per-type `drop` to call on the cold path where
-    /// the count reaches zero. **Placed from `middle::rc`'s plan.**
+    /// A decrement. Each backend derives the drop to call on the cold path
+    /// where the count reaches zero from the value's type. **Placed from
+    /// `middle::rc`'s plan.**
     DecRef {
         value: ValueId,
-        drop: Option<FuncIdx>,
     },
 
     /// `buri_abort(msg)`, which does not return (SPEC 6.9). It is an
@@ -735,27 +804,87 @@ pub enum Body {
 
 /// The blocks of one function, and the type of every value in it.
 pub struct Code {
-    /// `blocks[0]` is the entry, and nothing branches to it: the entry's
-    /// parameters are the function's parameters, and both backends forbid a
-    /// branch to their entry block. A loop header is therefore always a second
-    /// block (see `lower`'s tail-call loops).
+    /// `blocks[0]` is the entry, which [`Code::new`] makes, and nothing
+    /// branches to it: the entry's parameters are the function's parameters,
+    /// and both backends forbid a branch to their entry block. A loop header is
+    /// therefore always a second block (see `lower`'s tail-call loops).
     ///
     /// No block branches to itself: a back edge comes from a loop's body,
     /// which `lower` always opens in a block of its own after the header. And
     /// the entry reaches every block, because `lower` ends with
     /// [`Code::retain_reachable`].
-    pub blocks: Vec<Block>,
+    blocks: Vec<Block>,
     /// One row per value, by id. A value is defined exactly once, so this is
     /// the one place its type is written down.
     values: Vec<Type>,
 }
 
+impl BlockId {
+    /// The block [`Code::new`] makes first.
+    pub const ENTRY: BlockId = BlockId(0);
+}
+
+/// A row per value of one [`Code`], made by [`Code::per_value`].
+///
+/// Values are only ever added, so a table made from a code covers every id
+/// that code had minted when it was made.
+#[derive(Clone, Debug)]
+pub struct PerValue<T>(Vec<T>);
+
+/// A row per block of one [`Code`], made by [`Code::per_block`].
+#[derive(Debug)]
+pub struct PerBlock<T>(Vec<T>);
+
+macro_rules! side_table {
+    ($table:ident, $id:ident) => {
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "only the code mints an id, and the table has a row for every id it had"
+        )]
+        impl<T> $table<T> {
+            pub fn get(&self, id: $id) -> &T {
+                &self.0[id.index()]
+            }
+
+            pub fn get_mut(&mut self, id: $id) -> &mut T {
+                &mut self.0[id.index()]
+            }
+
+            pub fn iter(&self) -> impl Iterator<Item = ($id, &T)> {
+                self.0.iter().enumerate().map(|(i, t)| ($id::at(i), t))
+            }
+        }
+    };
+}
+
+impl<T> Default for PerValue<T> {
+    fn default() -> Self {
+        PerValue(Vec::new())
+    }
+}
+
+impl<T> Default for PerBlock<T> {
+    fn default() -> Self {
+        PerBlock(Vec::new())
+    }
+}
+
+side_table!(PerValue, ValueId);
+side_table!(PerBlock, BlockId);
+
+#[expect(
+    clippy::indexing_slicing,
+    reason = "only `value` and `push_block` mint an id, at the length the table then grows past; `retain_reachable` renumbers every id it keeps"
+)]
 impl Code {
-    pub fn new() -> Code {
-        Code {
+    /// Code whose entry takes `params`.
+    pub fn new(params: &[Type]) -> Code {
+        let mut code = Code {
             blocks: Vec::new(),
             values: Vec::new(),
-        }
+        };
+        code.block(params);
+        code
     }
 
     /// Rewrites every `TypeId` this code holds through `remap`, which maps a
@@ -764,20 +893,14 @@ impl Code {
     /// interners together afterwards; this is how a function's ids follow. The
     /// two places a `TypeId` reaches are a value's [`Type`] and a
     /// [`Inst::Structural`]'s type.
-    pub fn remap_types(&mut self, remap: &[TypeId]) {
+    pub fn remap_types(&mut self, remap: &Remap) {
         for ty in &mut self.values {
-            if let Type::Agg(id) = ty {
-                *id = *remap
-                    .get(id.index())
-                    .or_ice("the remap covers every local type id");
-            }
+            remap.ty(ty);
         }
         for block in &mut self.blocks {
             for inst in &mut block.insts {
                 if let Inst::Structural { ty, .. } = inst {
-                    *ty = *remap
-                        .get(ty.index())
-                        .or_ice("the remap covers every local type id");
+                    *ty = remap.id(*ty);
                 }
             }
         }
@@ -785,24 +908,39 @@ impl Code {
 
     /// The type of a value.
     ///
-    /// Every id was minted by [`Code::value`] or [`Code::block`], both of
-    /// which push a row, and nothing removes one — [`Code::retain_reachable`]
-    /// drops blocks and leaves the value table alone precisely so that this
-    /// stays true.
+    /// Nothing removes a row — [`Code::retain_reachable`] drops blocks and
+    /// leaves the value table alone precisely so that this stays true.
     pub fn ty_of(&self, v: ValueId) -> Type {
-        *self
-            .values
-            .get(v.index())
-            .or_ice("every ValueId was minted by `Code::value`")
+        self.values[v.index()]
     }
 
     pub fn values(&self) -> usize {
         self.values.len()
     }
 
+    /// Every value, in id order.
+    pub fn value_ids(&self) -> impl Iterator<Item = ValueId> {
+        (0..self.values.len()).map(ValueId::at)
+    }
+
+    /// A row per value, each `init`.
+    pub fn per_value<T: Clone>(&self, init: T) -> PerValue<T> {
+        PerValue(vec![init; self.values.len()])
+    }
+
+    /// A row per block, each `init`.
+    pub fn per_block<T: Clone>(&self, init: T) -> PerBlock<T> {
+        PerBlock(vec![init; self.blocks.len()])
+    }
+
+    /// A row per block, from each block in order.
+    pub fn map_blocks<T>(&self, f: impl FnMut((BlockId, &Block)) -> T) -> PerBlock<T> {
+        PerBlock(self.iter().map(f).collect())
+    }
+
     /// Mints a value of a type.
     pub fn value(&mut self, ty: Type) -> ValueId {
-        let id = ValueId(self.values.len() as u32);
+        let id = ValueId::at(self.values.len());
         self.values.push(ty);
         id
     }
@@ -823,7 +961,7 @@ impl Code {
     }
 
     fn push_block(&mut self, params: Vec<ValueId>) -> BlockId {
-        let id = BlockId(self.blocks.len() as u32);
+        let id = BlockId::at(self.blocks.len());
         self.blocks.push(Block {
             params,
             insts: Vec::new(),
@@ -833,43 +971,55 @@ impl Code {
     }
 
     pub fn get(&self, b: BlockId) -> &Block {
-        self.blocks
-            .get(b.index())
-            .or_ice("every BlockId was minted by `Code::block`")
+        &self.blocks[b.index()]
     }
 
     pub fn get_mut(&mut self, b: BlockId) -> &mut Block {
+        &mut self.blocks[b.index()]
+    }
+
+    pub fn entry(&self) -> &Block {
+        self.get(BlockId::ENTRY)
+    }
+
+    /// The blocks, in id order.
+    pub fn blocks(&self) -> &[Block] {
+        &self.blocks
+    }
+
+    /// The blocks, in id order, to change in place.
+    pub fn blocks_mut(&mut self) -> &mut [Block] {
+        &mut self.blocks
+    }
+
+    /// Every block with its id, in id order.
+    pub fn iter(&self) -> impl Iterator<Item = (BlockId, &Block)> {
         self.blocks
-            .get_mut(b.index())
-            .or_ice("every BlockId was minted by `Code::block`")
+            .iter()
+            .enumerate()
+            .map(|(i, b)| (BlockId::at(i), b))
     }
 
     /// The predecessors of every block, in block order.
-    pub fn preds(&self) -> Vec<Vec<BlockId>> {
-        let mut preds = vec![Vec::new(); self.blocks.len()];
-        for (i, b) in self.blocks.iter().enumerate() {
+    pub fn preds(&self) -> PerBlock<Vec<BlockId>> {
+        let mut preds = self.per_block(Vec::new());
+        for (id, b) in self.iter() {
             for t in b.term.targets() {
-                preds
-                    .get_mut(t.block.index())
-                    .or_ice("every BlockId was minted by `Code::block`")
-                    .push(BlockId(i as u32));
+                preds.get_mut(t.block).push(id);
             }
         }
         preds
     }
 
-    /// Which blocks the entry reaches. Only a function with a body has code,
-    /// and lowering a body starts with its entry block.
-    pub fn reachable(&self) -> Vec<bool> {
-        let mut seen = vec![false; self.blocks.len()];
-        let mut stack = vec![BlockId(0)];
+    /// Which blocks the entry reaches.
+    pub fn reachable(&self) -> PerBlock<bool> {
+        let mut seen = self.per_block(false);
+        let mut stack = vec![BlockId::ENTRY];
         while let Some(b) = stack.pop() {
-            match seen.get_mut(b.index()) {
-                Some(s) if !*s => {
-                    *s = true;
-                    stack.extend(self.get(b).term.targets().map(|t| t.block));
-                }
-                _ => {}
+            let s = seen.get_mut(b);
+            if !*s {
+                *s = true;
+                stack.extend(self.get(b).term.targets().map(|t| t.block));
             }
         }
         seen
@@ -893,28 +1043,22 @@ impl Code {
     /// holds for no gain.
     pub fn retain_reachable(&mut self) {
         let keep = self.reachable();
-        if keep.iter().all(|k| *k) {
-            return;
-        }
-        let mut renumber = vec![None; self.blocks.len()];
-        let mut next = 0u32;
-        for (slot, k) in renumber.iter_mut().zip(&keep) {
+        // A kept block's new id; a dropped block's is never read, because
+        // only a reachable block's successors are retargeted, and they are
+        // reachable too.
+        let mut renumber = self.per_block(BlockId::ENTRY);
+        let mut next = 0;
+        for (id, k) in keep.iter() {
             if *k {
-                *slot = Some(BlockId(next));
+                *renumber.get_mut(id) = BlockId::at(next);
                 next = next.saturating_add(1);
             }
         }
-        let mut kept = keep.iter();
+        let mut kept = keep.0.iter();
         self.blocks
             .retain(|_| kept.next().copied().unwrap_or(false));
         for b in &mut self.blocks {
-            let retarget = |t: &mut Target| {
-                t.block = renumber
-                    .get(t.block.index())
-                    .copied()
-                    .flatten()
-                    .or_ice("a reachable block's successors are reachable");
-            };
+            let retarget = |t: &mut Target| t.block = *renumber.get(t.block);
             match &mut b.term {
                 Term::Jump(t) => retarget(t),
                 Term::Branch { then, else_, .. } => {
@@ -932,12 +1076,6 @@ impl Code {
                 Term::Return(_) | Term::Unreachable => {}
             }
         }
-    }
-}
-
-impl Default for Code {
-    fn default() -> Code {
-        Code::new()
     }
 }
 
@@ -977,11 +1115,11 @@ pub struct Program {
     /// One per `monomorphize::Func`, at the same index, so a `FuncIdx` in an
     /// [`Inst::Call`] means the same thing on both sides of the lowering.
     pub funcs: Vec<Func>,
-    /// Codegen unit names, in first-appearance order: `core_list`, `main`.
+    /// Codegen units, in first-appearance order: `core_list`, `main`.
     /// The object file for unit `u` is `units[u].o` (ARCHITECTURE.md §6.3).
-    pub units: Vec<String>,
+    pub units: Vec<Unit>,
     /// Every source type the IR names, interned.
-    pub types: Vec<TypeInfo>,
+    pub types: TypeList,
     /// Whether any value of this program can come to be reachable from a
     /// second thread — `middle::rc::crosses_tasks`, carried here because both
     /// native backends need it at their **entry points**, which is the one
@@ -1013,45 +1151,25 @@ pub struct Program {
 
 impl Program {
     pub fn type_info(&self, id: TypeId) -> &TypeInfo {
-        self.types
-            .get(id.index())
-            .or_ice("every TypeId was minted by the lowering's interner")
+        self.types.get(id)
     }
 
     pub fn unit_name(&self, unit: u32) -> &str {
         self.units
             .get(unit as usize)
-            .map(String::as_str)
-            .unwrap_or("?")
+            .map_or("?", |u| u.name.as_str())
     }
+}
 
-    /// The index of every function, bucketed by the codegen unit that owns it.
-    ///
-    /// One row per entry in [`Program::units`], each row in ascending function
-    /// index — which is exactly the order and exactly the membership that
-    /// `funcs.iter().filter(|f| f.unit == u)` yields, so a caller that walked
-    /// the whole program once per unit can walk `by_unit[u]` instead and see
-    /// the same functions in the same order. That equivalence is load-bearing:
-    /// both native backends derive a `codegen` cache key by concatenating the
-    /// rendered text of a unit's functions, and a different order is a
-    /// different key.
-    ///
-    /// It exists because the per-unit scan it replaces is Θ(units × functions),
-    /// which is quadratic in a program that grows by adding modules — the
-    /// first finding of `design/PERFORMANCE.md` §6.4. This is one pass, and each
-    /// row
-    /// costs what the unit itself contains.
-    ///
-    pub fn funcs_by_unit(&self) -> Vec<Vec<usize>> {
-        let mut by_unit: Vec<Vec<usize>> = vec![Vec::new(); self.units.len()];
-        for (i, f) in self.funcs.iter().enumerate() {
-            by_unit
-                .get_mut(f.unit as usize)
-                .or_ice("every function belongs to one of the units")
-                .push(i);
-        }
-        by_unit
-    }
+/// One codegen unit (ARCHITECTURE.md §5).
+pub struct Unit {
+    pub name: String,
+    /// The index of every function the unit owns, ascending — exactly the
+    /// order and membership `funcs.iter().filter(|f| f.unit == u)` yields.
+    /// That equivalence is load-bearing: both native backends derive a
+    /// `codegen` cache key by concatenating the rendered text of a unit's
+    /// functions, and a different order is a different key.
+    pub funcs: Vec<usize>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1094,12 +1212,8 @@ fn verify_func(program: &Program, func: &Func) {
         });
     };
 
-    holds(!code.blocks.is_empty(), &|| {
-        "a function with a body has no entry block".into()
-    });
-
     // Entry parameters are the signature's parameters.
-    let entry = code.get(BlockId(0));
+    let entry = code.entry();
     holds(entry.params.len() == func.sig.params.len(), &|| {
         format!(
             "the entry block takes {} parameters and the signature declares {}",
@@ -1121,12 +1235,10 @@ fn verify_func(program: &Program, func: &Func) {
     // A position is `0` for a block parameter and `1 + index` for an
     // instruction result, so that "defined earlier in the same block" is a
     // comparison rather than two cases.
-    let mut def: Vec<Option<(usize, usize)>> = vec![None; code.values()];
+    let mut def: PerValue<Option<(usize, usize)>> = code.per_value(None);
     let mut define = |v: ValueId, at: (usize, usize)| {
-        let slot = def
-            .get_mut(v.index())
-            .or_ice("every value the IR defines has a type");
-        holds(slot.is_none(), &|| format!("v{} is defined twice", v.0));
+        let slot = def.get_mut(v);
+        holds(slot.is_none(), &|| format!("v{v} is defined twice"));
         *slot = Some(at);
     };
     for (bi, b) in code.blocks.iter().enumerate() {
@@ -1178,21 +1290,14 @@ fn verify_func(program: &Program, func: &Func) {
     let mut uses: Vec<ValueId> = Vec::new();
     for (bi, b) in code.blocks.iter().enumerate() {
         let check_use = |v: ValueId, at: (usize, usize)| {
-            let (db, dp) = def
-                .get(v.index())
-                .copied()
-                .flatten()
-                .or_ice("every value the IR uses is defined");
+            let (db, dp) = def.get(v).or_ice("every value the IR uses is defined");
             let ok = if db == at.0 {
                 dp < at.1
             } else {
                 dom.dominates(db, at.0)
             };
             holds(ok, &|| {
-                format!(
-                    "b{bi} uses v{}, defined in b{db}, which does not dominate it",
-                    v.0
-                )
+                format!("b{bi} uses v{v}, defined in b{db}, which does not dominate it")
             });
         };
 
@@ -1240,10 +1345,7 @@ fn verify_func(program: &Program, func: &Func) {
             });
         }
         for t in b.term.targets() {
-            let dest = code
-                .blocks
-                .get(t.block.index())
-                .or_ice("every jump names a block of its function");
+            let dest = code.get(t.block);
             holds(dest.params.len() == t.args.len(), &|| {
                 format!(
                     "b{bi} passes {} arguments to b{}, which takes {}",
@@ -1306,8 +1408,8 @@ impl Dominance {
 )]
 fn dominators(code: &Code) -> Dominance {
     let n = code.blocks.len();
-    let reachable = code.reachable();
-    let preds = code.preds();
+    let reachable = code.reachable().0;
+    let preds = code.preds().0;
     // Postorder of the reachable blocks, by an explicit stack.
     let mut order: Vec<usize> = Vec::with_capacity(n);
     let mut number = vec![usize::MAX; n];
@@ -1715,13 +1817,9 @@ impl Program {
                 out.push_str("incref ");
                 value(out, *v);
             }
-            Inst::DecRef { value: v, drop } => {
+            Inst::DecRef { value: v } => {
                 out.push_str("decref ");
                 value(out, *v);
-                if let Some(d) = drop {
-                    out.push_str(", drop fn ");
-                    self.sym_into(*d, out);
-                }
             }
             Inst::Abort { message } => {
                 let _ = write!(out, "abort {message:?}");
@@ -1884,8 +1982,11 @@ mod tests {
     /// so that the printer and the verifier are tested without a front end in
     /// the way.
     fn adder() -> Program {
-        let mut code = Code::new();
-        let (entry, [a, b]) = code.block_of([Type::I64, Type::I64]);
+        let mut code = Code::new(&[Type::I64, Type::I64]);
+        let entry = BlockId::ENTRY;
+        let [a, b] = code.entry().params[..] else {
+            panic!("the entry takes two parameters")
+        };
         let sum = code.value(Type::I64);
         code.get_mut(entry).insts.push(Inst::Binary {
             dest: sum,
@@ -1912,8 +2013,11 @@ mod tests {
                 body: Body::Code(code),
                 span: Span::NONE,
             }],
-            units: vec!["m".into()],
-            types: Vec::new(),
+            units: vec![Unit {
+                name: "m".into(),
+                funcs: vec![0],
+            }],
+            types: TypeList::default(),
             crosses_tasks: false,
             cell_equal: HashMap::default(),
         }
@@ -1955,11 +2059,11 @@ mod tests {
         code.get_mut(b1).term = Term::Return(v);
         code.get_mut(b2).term = Term::Return(v);
         let cond = code.value(Type::I1);
-        code.get_mut(BlockId(0)).insts.push(Inst::Const {
+        code.get_mut(BlockId::ENTRY).insts.push(Inst::Const {
             dest: cond,
             value: Const::Bool(true),
         });
-        code.get_mut(BlockId(0)).term = Term::Branch {
+        code.get_mut(BlockId::ENTRY).term = Term::Branch {
             cond,
             then: Target::to(b1),
             else_: Target::to(b2),
@@ -1971,8 +2075,8 @@ mod tests {
 
     #[test]
     fn an_unreachable_block_is_dropped_and_the_rest_renumbered() {
-        let mut code = Code::new();
-        let entry = code.block(&[]);
+        let mut code = Code::new(&[]);
+        let entry = BlockId::ENTRY;
         let dead = code.block(&[]);
         let live = code.block(&[]);
         code.get_mut(entry).term = Term::Jump(Target::to(live));
@@ -1980,10 +2084,10 @@ mod tests {
         let unit = code.value(Type::Unit);
         code.get_mut(live).term = Term::Return(unit);
         code.retain_reachable();
-        assert_eq!(code.blocks.len(), 2);
+        assert_eq!(code.blocks().len(), 2);
         // `live` was b2 and is now b1, and the entry's jump names the new one.
-        match &code.get(BlockId(0)).term {
-            Term::Jump(t) => assert_eq!(t.block, BlockId(1)),
+        match &code.get(BlockId::ENTRY).term {
+            Term::Jump(t) => assert_eq!(t.block, BlockId::at(1)),
             other => panic!("expected a jump, got {other:?}"),
         }
     }
@@ -2036,8 +2140,9 @@ mod tests {
                 if let Body::Code(code) = &mut p.funcs[0].body {
                     let b1 = code.block(&[Type::I64, Type::I64]);
                     code.get_mut(b1).term = Term::Unreachable;
-                    let entry_param = code.get(BlockId(0)).params[0];
-                    code.get_mut(BlockId(0)).term = Term::Jump(Target::new(b1, vec![entry_param]));
+                    let entry_param = code.get(BlockId::ENTRY).params[0];
+                    code.get_mut(BlockId::ENTRY).term =
+                        Term::Jump(Target::new(b1, vec![entry_param]));
                 }
                 p
             },
@@ -2054,7 +2159,7 @@ mod tests {
             let mut p = adder();
             if let Body::Code(code) = &mut p.funcs[0].body {
                 let v = code.value(Type::I64);
-                let entry = code.get_mut(BlockId(0));
+                let entry = code.get_mut(BlockId::ENTRY);
                 entry.insts.insert(
                     0,
                     Inst::Abort {
