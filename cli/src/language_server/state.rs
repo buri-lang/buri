@@ -766,7 +766,7 @@ impl State {
         sources.keep(session);
     }
 
-    /// Queues the message, unless this state of the repository has already been
+    /// Queues the message, led by the repository it is about, unless this state of the repository has already been
     /// announced.
     fn announce(&mut self, root: &Path, said: &str) {
         let now = self.fingerprint(root);
@@ -774,7 +774,7 @@ impl State {
             return;
         }
         self.announced.insert(root.to_path_buf(), now);
-        self.outgoing.push(said.to_string());
+        self.outgoing.push(format!("{}: {said}", root.display()));
     }
 
     /// The repository root that owns `path`, if the client has it open.
