@@ -353,7 +353,10 @@ pub fn report(dir: &Path) -> usize {
             lines.next().unwrap_or("?").trim_end(),
         );
         for error in errors(&std::fs::read_to_string(&xml).unwrap_or_default()) {
-            if tool == Tool::Helgrind.name() && error.unseen_order().is_some() {
+            if tool == Tool::Helgrind.name()
+                && error.unseen_order().is_some()
+                && !error.access_is_unattributed()
+            {
                 continue;
             }
             count += 1;
@@ -503,6 +506,19 @@ const UNSEEN: &[(&str, &str)] = &[
 const NEAR: usize = 6;
 
 impl Error {
+    /// Whether a race's own access is one frame of Rust source: a function
+    /// with a caller, whose caller helgrind lost, so it can't be told who made
+    /// it. A race that can't be attributed isn't discounted, whatever the
+    /// other side of it is. A libc frame alone is only where libc has no
+    /// unwind information.
+    pub fn access_is_unattributed(&self) -> bool {
+        self.kind == "Race"
+            && self
+                .stacks
+                .first()
+                .is_some_and(|s| s.len() == 1 && s[0].contains(".rs:"))
+    }
+
     /// Why helgrind can't order this race, when it is ordered by code it
     /// can't see: [`UNSEEN`], or an `Arc`'s last owner dropping what it holds,
     /// after a decrement whose ordering helgrind doesn't model.
@@ -787,6 +803,36 @@ fn an_error_reads_back_with_its_frames_and_a_stable_signature() {
         "{\n   <insert_a_suppression_name_here>\n   Memcheck:Addr8\n   fun:memcpy\n}"
     );
     assert!(draft.contains(&found[0].suppression));
+}
+
+#[test]
+fn a_race_whose_access_has_one_frame_is_a_finding_even_when_tokio_orders_it() {
+    let dir = std::env::temp_dir().join(format!("buri-onefr-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("runs")).unwrap();
+    let race = |access: &str| {
+        format!(
+            "<error><kind>Race</kind><xwhat><text>Possible data race</text></xwhat>\
+             <stack>{access}</stack><auxwhat>This conflicts with a previous write</auxwhat>\
+             <stack><frame><fn>tokio::runtime::time::TimerHandle::fire</fn></frame></stack></error>"
+        )
+    };
+    let one = "<frame><fn>Timespec::now</fn><file>time.rs</file><line>75</line></frame>";
+    // A libc function alone is a stack libc left no way to unwind.
+    let libc = "<frame><fn>__libc_free</fn><obj>/t/program</obj></frame>";
+    let two = "<frame><fn>Timespec::now</fn></frame><frame><fn>buri_rt::rt::sleep</fn></frame>";
+    let about = "helgrind\n/t/program\nstencil debug\ncargo test";
+    for (name, access, found) in [("one", one, 1), ("two", two, 0), ("libc", libc, 0)] {
+        std::fs::write(dir.join(format!("runs/{name}.about")), about).unwrap();
+        std::fs::write(
+            dir.join(format!("runs/{name}.xml")),
+            format!("<valgrindoutput>{}</valgrindoutput>", race(access)),
+        )
+        .unwrap();
+        assert_eq!(report(&dir), found, "{name}");
+        std::fs::remove_file(dir.join(format!("runs/{name}.xml"))).unwrap();
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
