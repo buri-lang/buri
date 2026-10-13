@@ -23,5 +23,13 @@
 # echoes a finding or leaves the server to find its own.
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "context": {"diagnostics": []}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 20, "character": 0}}}}
 {"jsonrpc": "2.0", "id": 6, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}, "context": {"diagnostics": [{"code": "unused-context", "message": "x", "range": {"start": {"line": 11, "character": 10}, "end": {"line": 11, "character": 16}}}]}, "range": {"start": {"line": 11, "character": 10}, "end": {"line": 11, "character": 10}}}}
-{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+# Regenerating a build file needs only the build graph, which loaded: the
+# command answers as it would anywhere, here that the file is already as
+# `buri gen` writes it.
+{"jsonrpc": "2.0", "id": 7, "method": "workspace/executeCommand", "params": {"command": "buri.regenerateBuildFile", "arguments": ["file://<scratch>/lib/shop/catalog.buri", "//lib/shop"]}}
+# A workspace pull reports every file, `REPO.buri`'s finding included. It
+# analyses every target, which is the first time the repository is swept — and
+# the failure is still not said a second time, because nothing was edited.
+{"jsonrpc": "2.0", "id": 8, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+{"jsonrpc": "2.0", "id": 9, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}
