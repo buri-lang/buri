@@ -1053,7 +1053,7 @@ impl<'a> Extractor<'a> {
     /// The names a leaf's values can have, each with its class, and whether
     /// those are all the values it can hold.
     fn names(&self, leaf: Demand) -> (Vec<(String, String)>, bool) {
-        let reach = closure(leaf, false, &[&self.flow.edges, &self.extra]);
+        let reach = closure(leaf, &[&self.flow.edges, &self.extra]);
         let strict = reach
             .iter()
             .all(|d| !self.tainted.contains(d) && !self.flow.open(*d));
@@ -1472,22 +1472,42 @@ impl Edges {
     }
 }
 
-/// Everything `from` reads in `graphs`, through the marked reads too when
-/// `all`.
-fn closure(from: Demand, all: bool, graphs: &[&Edges]) -> HashSet<Demand> {
+/// Everything `from` reads in `graphs`, past the marked reads; [`reach`]
+/// goes through those too.
+fn closure(from: Demand, graphs: &[&Edges]) -> HashSet<Demand> {
     let mut found = HashSet::default();
     let mut work = vec![from];
     while let Some(d) = work.pop() {
         if found.insert(d) {
             let reads = graphs.iter().flat_map(|g| g.reads.get(&d)).flatten();
-            work.extend(
-                reads
-                    .filter(|(_, stopped)| all || !stopped)
-                    .map(|(to, _)| *to),
-            );
+            work.extend(reads.filter(|(_, stopped)| !stopped).map(|(to, _)| *to));
         }
     }
     found
+}
+
+/// Everything a node reads in `edges`, through the marked reads too, and
+/// each local of a function in `fns` read there from outside that function:
+/// not by its result or another of its locals.
+fn reach(edges: &Edges, fns: &HashSet<FnId>) -> (HashSet<Demand>, Vec<(FnId, LocalId)>) {
+    let mut found = HashSet::default();
+    let mut outside = Vec::new();
+    let mut work = vec![Demand::Node];
+    while let Some(d) = work.pop() {
+        if found.insert(d) {
+            for (to, _) in edges.reads.get(&d).into_iter().flatten() {
+                work.push(*to);
+                if let Demand::Local(Owner::Fn(f), l) = *to {
+                    let inside = d == Demand::Ret(f)
+                        || matches!(d, Demand::Local(Owner::Fn(g), _) if g == f);
+                    if !inside && fns.contains(&f) {
+                        outside.push((f, l));
+                    }
+                }
+            }
+        }
+    }
+    (found, outside)
 }
 
 /// Whether `e` reads a local, a constant or a function: what a style
@@ -1539,6 +1559,19 @@ enum Pos {
     Bound(Vec<LocalId>),
 }
 
+/// What a parameter stands for at a call.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Param {
+    /// Every argument it is given: its type isn't generic.
+    Fixed,
+    /// Each call's own argument, until it is found to go further than its
+    /// function's result: its type is generic and may hold a style.
+    Passed,
+    /// Each call's own argument: its type is generic and holds no style a
+    /// node hasn't been given, or its function is in `ui/node`.
+    Opaque,
+}
+
 /// The pattern a `let` binds and the value it binds it to.
 type Let<'a> = (&'a typed::Pattern, &'a typed::Expr);
 
@@ -1559,7 +1592,10 @@ struct Flow<'a> {
     bodies: &'a BodyMap,
     consts: &'a ConstMap,
     /// The parameters of each body this run reads.
-    params: HashMap<FnId, Vec<LocalId>>,
+    params: HashMap<FnId, Vec<(LocalId, Param)>>,
+    /// The parameters of a generic type that go further than their
+    /// function's result, as [`Flow::escaping`] finds them.
+    escaping: HashSet<(FnId, LocalId)>,
     /// Each `let`-bound local of the declarations a fold has read: the pattern
     /// that binds it, and its value.
     lets: RefCell<HashMap<(Owner, LocalId), Let<'a>>>,
@@ -1597,6 +1633,7 @@ impl<'a> Flow<'a> {
             bodies,
             consts,
             params: HashMap::default(),
+            escaping: HashSet::default(),
             lets: RefCell::default(),
             indexed: RefCell::default(),
             statics: RefCell::default(),
@@ -1606,33 +1643,42 @@ impl<'a> Flow<'a> {
             edges: Edges::default(),
             seen: HashSet::default(),
         };
+        // The functions with a parameter that is `Param::Passed`.
+        let mut passing: HashSet<FnId> = HashSet::default();
         for (id, body) in walked.unsettled(bodies) {
-            flow.params.insert(id, body.params.clone());
+            let info = tables.fn_info(id);
+            let ui = flow.in_ui_node(info.module);
+            let kinds = body.params.iter().zip(&info.params).map(|(l, p)| {
+                let kind = if !p.ty.has_params() {
+                    Param::Fixed
+                } else if !ui && flow.may_hold_style(p.ty) {
+                    passing.insert(id);
+                    Param::Passed
+                } else {
+                    Param::Opaque
+                };
+                (*l, kind)
+            });
+            let kinds = kinds.collect();
+            flow.params.insert(id, kinds);
         }
-        let mut edges = Edges::default();
-        for (id, init) in walked.unsettled_constants(consts) {
-            flow.edges(
-                Owner::Const(id),
-                init,
-                Some(Demand::Const(id)),
-                false,
-                &mut edges,
-            );
-        }
-        for (id, body) in walked.unsettled(bodies) {
-            if let Some((t, m)) = tables.fn_info(id).impl_of {
-                edges.add(Demand::Method(t, m), Demand::Ret(id), false);
+        // A generic parameter found to go further than its function's result
+        // is given each of its callers' arguments too, so the graph is drawn
+        // again following it. That can send one of theirs further, so this
+        // runs until nothing more does. Most programs have no such parameter
+        // and draw it once.
+        let mut edges = flow.graph(walked);
+        loop {
+            let (reached, roots) = reach(&edges, &passing);
+            let grown = flow.escaping(&edges, roots);
+            if grown.is_empty() {
+                flow.reached = reached;
+                break;
             }
-            flow.edges(
-                Owner::Fn(id),
-                &body.expr,
-                Some(Demand::Ret(id)),
-                false,
-                &mut edges,
-            );
+            flow.escaping.extend(grown);
+            edges = flow.graph(walked);
         }
-        flow.demanded = closure(Demand::Node, false, &[&edges]);
-        flow.reached = closure(Demand::Node, true, &[&edges]);
+        flow.demanded = closure(Demand::Node, &[&edges]);
         flow.touched = std::mem::take(&mut edges.stops);
         for d in flow.reached.difference(&flow.demanded) {
             if let Demand::Local(owner, _) = d {
@@ -1642,26 +1688,105 @@ impl<'a> Flow<'a> {
         // A function no one reads as a value is called only where its name is
         // written, so every argument it is given is one this run sees. A
         // method can be called through a bound from code this run doesn't
-        // read, and a generic parameter is not followed at all.
+        // read, and a generic parameter only its result reads is not followed
+        // at all.
         let closed = edges
             .called
             .iter()
             .filter(|id| !edges.referenced.contains(*id))
             .filter(|id| tables.fn_info(**id).impl_of.is_none())
             .filter_map(|id| flow.params.get(id).map(|params| (*id, params)));
+        let this = &flow;
         let seen: Vec<(Owner, LocalId)> = closed
             .flat_map(|(id, params)| {
-                let typed = params
+                let followed = params
                     .iter()
-                    .zip(&tables.fn_info(id).params)
-                    .filter(|(_, p)| !p.ty.has_params());
-                typed.map(move |(l, _)| (Owner::Fn(id), *l))
+                    .filter(move |(l, kind)| this.follows(id, *l, *kind));
+                followed.map(move |(l, _)| (Owner::Fn(id), *l))
             })
             .collect();
         flow.seen.extend(seen);
         flow.seen.extend(edges.bound.drain(..));
         flow.edges = edges;
         flow
+    }
+
+    /// What reads what, across every declaration this run reads.
+    fn graph(&self, walked: &Walked) -> Edges {
+        let mut edges = Edges::default();
+        for (id, init) in walked.unsettled_constants(self.consts) {
+            self.edges(
+                Owner::Const(id),
+                init,
+                Some(Demand::Const(id)),
+                false,
+                &mut edges,
+            );
+        }
+        for (id, body) in walked.unsettled(self.bodies) {
+            if let Some((t, m)) = self.tables.fn_info(id).impl_of {
+                edges.add(Demand::Method(t, m), Demand::Ret(id), false);
+            }
+            self.edges(
+                Owner::Fn(id),
+                &body.expr,
+                Some(Demand::Ret(id)),
+                false,
+                &mut edges,
+            );
+        }
+        edges
+    }
+
+    /// The parameters of a generic type, not yet escaping, that a node reads
+    /// through something other than their own function's result: a node
+    /// itself, a constant, or another function's local, directly (`roots`)
+    /// or through a local of their own function. Such a parameter is given
+    /// every caller's argument wherever those go, as one whose type is not
+    /// generic is.
+    fn escaping(&self, edges: &Edges, roots: Vec<(FnId, LocalId)>) -> HashSet<(FnId, LocalId)> {
+        let mut found: HashSet<(FnId, LocalId)> = HashSet::default();
+        let mut work = roots;
+        while let Some((f, l)) = work.pop() {
+            if found.insert((f, l)) {
+                let reads = edges.reads.get(&Demand::Local(Owner::Fn(f), l));
+                work.extend(reads.into_iter().flatten().filter_map(|(to, _)| match to {
+                    Demand::Local(Owner::Fn(g), m) if *g == f => Some((f, *m)),
+                    _ => None,
+                }));
+            }
+        }
+        found.retain(|(f, l)| {
+            !self.escaping.contains(&(*f, *l))
+                && self
+                    .params
+                    .get(f)
+                    .is_some_and(|ps| ps.contains(&(*l, Param::Passed)))
+        });
+        found
+    }
+
+    /// Whether a value of `ty` can hold a style no node has been given yet:
+    /// not a bare type parameter, which only a generic helper's result
+    /// hands on, and not a `ui/node` type, which a node built already.
+    fn may_hold_style(&self, ty: Ty) -> bool {
+        match ty.kind() {
+            TyKind::Con(id, _) => !self.in_ui_node(self.tables.tycon(*id).module),
+            TyKind::Array(elem) => self.may_hold_style(*elem),
+            TyKind::Tuple(items) => items.iter().any(|t| self.may_hold_style(*t)),
+            TyKind::Fn(_, ret) => self.may_hold_style(*ret),
+            _ => false,
+        }
+    }
+
+    /// Whether parameter `l` of `f` stands for every argument it is given
+    /// rather than passing each call's on.
+    fn follows(&self, f: FnId, l: LocalId, kind: Param) -> bool {
+        match kind {
+            Param::Fixed => true,
+            Param::Passed => !self.escaping.is_empty() && self.escaping.contains(&(f, l)),
+            Param::Opaque => false,
+        }
     }
 
     /// Whether `d` is a local some value of which this run doesn't see.
@@ -1881,16 +2006,16 @@ impl<'a> Flow<'a> {
                 }
                 match self.params.get(&f) {
                     // A parameter whose type is generic carries every caller's
-                    // values, so it can't say which of them reach a node. It
-                    // passes this call's on, the way an unread function does.
+                    // values, so where only its result reads it, it can't say
+                    // which of them reach a node. It passes this call's on,
+                    // the way an unread function does.
                     Some(params) => params
                         .iter()
-                        .zip(&info.params)
-                        .map(|(l, p)| {
-                            if p.ty.has_params() {
-                                Pos::Same
+                        .map(|&(l, kind)| {
+                            if self.follows(f, l, kind) {
+                                Pos::At(Some(Demand::Local(Owner::Fn(f), l)))
                             } else {
-                                Pos::At(Some(Demand::Local(Owner::Fn(f), *l)))
+                                Pos::Same
                             }
                         })
                         .chain(std::iter::repeat(Pos::At(None)))
