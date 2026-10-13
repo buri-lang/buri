@@ -1934,6 +1934,14 @@ fn run_alone(
         Ok(Verdicts::NotStarted(how)) => {
             return answer(Err(the_binary_did_not_start(label, &how)), notes)
         }
+        Ok(Verdicts::Unreported(silent)) => {
+            let names: Vec<&str> = silent
+                .iter()
+                .filter_map(|i| tests.get(*i))
+                .map(|(name, _)| name.as_str())
+                .collect();
+            return answer(Err(the_binary_said_nothing(label, &names)), notes);
+        }
         Err(e) => {
             let mut d = Diagnostics::new();
             d.push(
@@ -3746,6 +3754,10 @@ enum Verdicts {
     /// cause, and starting it again at the next block would fail the same way,
     /// once per block. This is how it ended.
     NotStarted(String),
+    /// The binary ended well, but these blocks, in the binary's numbering,
+    /// never wrote their `left` line. A block nothing was said about has no
+    /// result, and that is not a pass.
+    Unreported(Vec<usize>),
 }
 
 /// Runs a native test binary until every block in `range` has a verdict, and
@@ -3821,6 +3833,10 @@ fn run_blocks(
         // from here on, because every one of them ran and none of them stopped
         // the process. Those verdicts are real, not assumed.
         if out.status.success() {
+            let silent = unreported(&stdout, first + blocks.len(), count);
+            if !silent.is_empty() {
+                return Ok(Verdicts::Unreported(silent));
+            }
             while first + blocks.len() < count {
                 blocks.push(passed(first + blocks.len()));
             }
@@ -3875,6 +3891,16 @@ fn left_times(stdout: &str) -> std::collections::HashMap<usize, u64> {
         .filter(|line| line.get("left").is_some())
         .filter_map(|line| Some((index_of(&line, "i")?, nanoseconds_of(&line)?)))
         .collect()
+}
+
+/// The blocks from `from` to `count`, exclusive, that never wrote a `left`
+/// line: those a process that ended well said nothing about.
+fn unreported(stdout: &str, from: usize, count: usize) -> Vec<usize> {
+    let said: std::collections::HashSet<usize> = lines_of(stdout)
+        .filter(|line| line.get("left").is_some())
+        .filter_map(|line| index_of(&line, "i"))
+        .collect();
+    (from..count).filter(|i| !said.contains(i)).collect()
 }
 
 /// Whether a process reached its first block, which it says with one line on
@@ -5317,6 +5343,9 @@ fn run_pulled(
     let mut reached = false;
     let mut held: Option<usize> = None;
     let mut returned = false;
+    let mut asked = false;
+    // A block was handed over and never reported before the next was asked for.
+    let mut dropped = false;
     let mut took: Option<u64> = None;
     let mut noted: Option<Noted> = None;
     let output = child.stdout.take().or_ice(PIPED);
@@ -5328,8 +5357,13 @@ fn run_pulled(
             reached = true;
             gathered_of(gathered).started = true;
         } else if value.get("next").is_some() {
+            asked = true;
             if let Some(block) = held.take() {
-                verdicts.push((block, Block::Passed { ns: took.take() }));
+                if returned {
+                    verdicts.push((block, Block::Passed { ns: took.take() }));
+                } else {
+                    dropped = true;
+                }
             }
             // Nothing is claimed once the input is closed.
             match input
@@ -5371,7 +5405,15 @@ fn run_pulled(
         notes.push_str(line);
         notes.push('\n');
     }
+    // A block with no `left` line has no result, so the member runs alone, where
+    // the blocks that said nothing are named.
+    if dropped {
+        return Pulled::Broken;
+    }
     if status.success() {
+        if !asked || (held.is_some() && !returned) {
+            return Pulled::Broken;
+        }
         verdicts.extend(held.map(|block| (block, Block::Passed { ns: took })));
         return Pulled::Ran { verdicts, notes };
     }
@@ -5763,6 +5805,30 @@ fn the_binary_did_not_start(label: &str, how: &str) -> Diagnostics {
             "no test in it ran. If the message is the loader's, the binary may be too large \
              to load; otherwise this is a toolchain bug, so please report it with the suite \
              that provoked it",
+        ),
+    );
+    diagnostics.at_run()
+}
+
+/// The diagnostic a suite gets whose binary exited without a result for some of
+/// its tests, which are `names`.
+///
+/// Against the suite, for [`the_binary_died`]'s reason, but naming the tests,
+/// because they are the ones nobody can say anything about.
+fn the_binary_said_nothing(label: &str, names: &[&str]) -> Diagnostics {
+    let quoted: Vec<String> = names.iter().map(|n| format!("\"{n}\"")).collect();
+    let mut diagnostics = Diagnostics::new();
+    diagnostics.push(
+        Diagnostic::error(
+            Span::NONE,
+            format!(
+                "the test binary for {label} gave no result for {}",
+                quoted.join(", ")
+            ),
+        )
+        .with_fix(
+            "it exited without reporting these tests, so they did not run to a verdict. \
+             This is a toolchain bug, so please report it with the suite that provoked it",
         ),
     );
     diagnostics.at_run()
