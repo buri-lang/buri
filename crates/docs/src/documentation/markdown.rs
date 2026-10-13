@@ -288,20 +288,11 @@ fn strip_indent(raw: &str, indent: usize) -> String {
 // Headings
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Debug)]
-pub struct Heading<'a> {
-    /// 1 for `#`, 2 for `##`, and so on.
-    pub level: usize,
-    pub title: &'a str,
-    pub line: usize,
-}
-
 /// An ATX heading's level and title, or `None` if the line is not one.
 ///
-/// One definition because five scanners ask the question, and a document whose
-/// renderer and whose numbering disagree about what a heading is would be
-/// numbered in one place and not the other. Takes a line already trimmed of its
-/// indentation.
+/// One definition because the dense and terminal renderings both ask, and two
+/// renderings that disagree about what a heading is would show one document
+/// two ways. Takes a line already trimmed of its indentation.
 fn atx(trimmed: &str) -> Option<(usize, &str)> {
     let hashes = trimmed.bytes().take_while(|b| *b == b'#').count();
     if hashes == 0 || hashes > 6 {
@@ -310,48 +301,6 @@ fn atx(trimmed: &str) -> Option<(usize, &str)> {
     // `#hashtag` is not a heading; ATX requires a space.
     let rest = trimmed.get(hashes..)?.strip_prefix(' ')?;
     Some((hashes, rest.trim()))
-}
-
-/// Every ATX heading outside a fenced block.
-///
-/// Skipping fenced blocks is not an optimization: `SPEC.md` contains shell
-/// transcripts whose lines begin with `#`, and numbering them would corrupt
-/// the document.
-pub fn headings(text: &str) -> Vec<Heading<'_>> {
-    let mut out = Vec::new();
-    let mut state = FenceState::default();
-    for (line_no, _, line) in lines(text) {
-        if state.feed(line) != Where::Outside {
-            continue;
-        }
-        let Some((level, title)) = atx(line.trim_start()) else {
-            continue;
-        };
-        out.push(Heading {
-            level,
-            title,
-            line: line_no,
-        });
-    }
-    out
-}
-
-/// GitHub's anchor algorithm: lowercase, drop everything that is not
-/// alphanumeric, space, hyphen, or underscore, then spaces become hyphens.
-///
-/// Reproduced exactly rather than approximated, because `every_link_resolves`
-/// checks our `#anchor`s against it and a near-miss would either pass links
-/// that break on GitHub or fail links that work.
-pub fn slug(title: &str) -> String {
-    let mut out = String::with_capacity(title.len());
-    for c in title.chars() {
-        if c.is_alphanumeric() || c == '-' || c == '_' {
-            out.extend(c.to_lowercase());
-        } else if c == ' ' {
-            out.push('-');
-        }
-    }
-    out
 }
 
 /// The offset of the `close` that matches the `open` at `from`, if there is
@@ -387,6 +336,10 @@ fn find_balanced(b: &[u8], from: usize, open: u8, close: u8) -> Option<usize> {
 // Summaries and density
 // ---------------------------------------------------------------------------
 
+/// How a line that isn't prose begins: a heading, a block quote, a list item, a
+/// table row, or a comment.
+const NOT_PROSE: &[&str] = &["#", ">", "-", "|", "<!--"];
+
 /// The first sentence of the first paragraph, for index listings and search
 /// results. Headings, fences, lists, and block quotes are skipped, so the
 /// summary is prose or nothing.
@@ -400,12 +353,7 @@ pub fn summary(text: &str) -> String {
         if t.is_empty() {
             continue;
         }
-        if t.starts_with('#')
-            || t.starts_with('>')
-            || t.starts_with('-')
-            || t.starts_with('|')
-            || t.starts_with("<!--")
-        {
+        if NOT_PROSE.iter().any(|p| t.starts_with(p)) {
             continue;
         }
         return first_sentence(t);
@@ -732,10 +680,8 @@ fn render_table(out: &mut String, rows: &[String], width: usize, color: bool) {
         }
     }
     // `split_last` rather than `columns - 1`: it is the same "all but the last
-    // column", and it says what a table with no columns at all does.
-    let Some((_, leading)) = widths.split_last() else {
-        return;
-    };
+    // column", and it can't underflow. Every row has a cell, so there is one.
+    let leading = widths.split_last().map_or(&[][..], |(_, leading)| leading);
     let fixed: usize = leading.iter().map(|w| w + 2).sum();
     let last = width.saturating_sub(fixed + 2).max(20);
 
@@ -787,8 +733,8 @@ fn inline(s: &str, color: bool) -> String {
     // boundary — but each slice is taken with `get` anyway, because the cost of
     // being wrong about that is a panic in the middle of somebody's `///`
     // comment.
-    while let Some(&c) = b.get(i) {
-        if c == b'`' {
+    while let Some(ch) = s.get(i..).and_then(|rest| rest.chars().next()) {
+        if ch == '`' {
             if let Some(end) = s.get(i + 1..).and_then(|rest| rest.find('`')) {
                 let _ = write!(
                     out,
@@ -799,7 +745,7 @@ fn inline(s: &str, color: bool) -> String {
                 continue;
             }
         }
-        if c == b'*' && b.get(i + 1) == Some(&b'*') {
+        if ch == '*' && b.get(i + 1) == Some(&b'*') {
             if let Some(end) = s.get(i + 2..).and_then(|rest| rest.find("**")) {
                 let _ = write!(
                     out,
@@ -810,7 +756,7 @@ fn inline(s: &str, color: bool) -> String {
                 continue;
             }
         }
-        if c == b'[' {
+        if ch == '[' {
             if let Some(close) = find_balanced(b, i, b'[', b']') {
                 if b.get(close + 1) == Some(&b'(') {
                     if let Some(paren) = find_balanced(b, close + 1, b'(', b')') {
@@ -823,9 +769,6 @@ fn inline(s: &str, color: bool) -> String {
                 }
             }
         }
-        let Some(ch) = s.get(i..).and_then(|rest| rest.chars().next()) else {
-            break;
-        };
         out.push(ch);
         i += ch.len_utf8();
     }
@@ -873,24 +816,6 @@ mod tests {
     use super::*;
 
     const SPEC: &str = include_str!("../docs/SPEC.md");
-
-    #[test]
-    fn slugs_match_github() {
-        // Both of these are live anchors in the checked-in documents.
-        assert_eq!(
-            slug("12. Why the grammar is context-free and unambiguous"),
-            "12-why-the-grammar-is-context-free-and-unambiguous"
-        );
-        assert_eq!(
-            slug("Why `forbids` has no platforms"),
-            "why-forbids-has-no-platforms"
-        );
-        assert_eq!(slug("`Result` is must-use"), "result-is-must-use");
-        assert_eq!(
-            slug("6.8 `?` — error propagation"),
-            "68---error-propagation"
-        );
-    }
 
     #[test]
     fn fences_are_found_and_dedented() {
@@ -941,7 +866,6 @@ mod tests {
             "[é",
         ] {
             let _ = fences(text);
-            let _ = headings(text);
             let _ = summary(text);
             let _ = dense(text);
             let _ = to_terminal(text, super::super::Width::default(), true);
@@ -966,16 +890,6 @@ mod tests {
     }
 
     #[test]
-    fn headings_skip_fenced_blocks() {
-        let text = "# Title\n\n```sh\n# not a heading\n```\n\n## Real\n";
-        let h = headings(text);
-        assert_eq!(h.len(), 2);
-        assert_eq!(h[0].title, "Title");
-        assert_eq!(h[1].title, "Real");
-        assert_eq!(h[1].line, 7);
-    }
-
-    #[test]
     fn the_spec_is_scannable() {
         // A guard on the scanner, not on the document: if these collapse to
         // zero the scanner broke, and every downstream test would pass
@@ -983,7 +897,6 @@ mod tests {
         let f = fences(SPEC);
         assert!(f.len() > 50, "found only {} fences in SPEC.md", f.len());
         assert!(f.iter().any(|f| f.lang == "buri"));
-        assert!(headings(SPEC).len() > 50);
     }
 
     #[test]

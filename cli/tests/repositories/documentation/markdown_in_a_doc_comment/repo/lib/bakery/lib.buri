@@ -1,0 +1,33 @@
+//! The bakery's oven.
+//!
+//! It has run at version 2. 3 settings since spring. Nothing else changed.
+//!
+//! <!-- a note for whoever edits this page -->
+//!
+//! ####### Seven hashes is not a heading
+//!
+//! See [the \] key](keys.md) and [the dial](dial.md that never closes.
+//!
+//! |---|---|
+//!
+//! ``` text
+//! ```buri
+//! let quoted = 1;
+//! ```
+//!
+//! ## Why the oven is hot
+//!
+//! Background a dense reader skips.
+//!
+//! ## History
+//!
+//! More background.
+//!
+//! ## Use
+//!
+//! Bake.
+
+/// How hot the oven runs.
+export fn heat(): I64 {
+    220
+}

@@ -141,28 +141,6 @@ pub fn document_of(topic: &Topic) -> Option<&'static Document> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::documentation::markdown;
-
-    /// A topic's heading must carry the number `DOCUMENTS` pins for it. This
-    /// is what protects the ninety-nine `SPEC N.M` citations in `cli/src/`
-    /// from a silent renumber.
-    #[test]
-    fn every_section_number_is_pinned() {
-        for doc in DOCUMENTS {
-            for s in doc.sections {
-                let headings = markdown::headings(s.topic().text);
-                let first = headings.first().expect("a topic has a heading");
-                assert!(
-                    first.title.starts_with(&format!("{}. ", s.number)),
-                    "{} pins `{}` at section {}, but its heading reads `{}`",
-                    doc.path,
-                    s.topic,
-                    s.number,
-                    first.title
-                );
-            }
-        }
-    }
 
     /// What makes `Section::topic` total in practice. Two other tests catch a
     /// typo indirectly — the real topic goes orphaned — but only this one says

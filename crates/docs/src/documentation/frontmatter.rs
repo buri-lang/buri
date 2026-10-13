@@ -162,12 +162,8 @@ fn fields(block: &str) -> Result<Frontmatter, String> {
     let mut found: Vec<(&str, String)> = Vec::new();
     for (number, line) in block.lines().enumerate() {
         let line = line.trim_end();
-        let trimmed = line.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
         let at = number.saturating_add(1);
-        require(trimmed.len() == line.len(), || {
+        require(line.trim_start().len() == line.len(), || {
             format!("line {at}: a value spans one line, so nothing is indented")
         })?;
         let (key, raw) = line
@@ -268,7 +264,8 @@ fn scalar(raw: &str) -> Result<String, String> {
 // Templates
 // ---------------------------------------------------------------------------
 
-/// A template is text with holes in it. `{{` and `}}` are the literal braces.
+/// A template is text with holes in it. `{{` and `}}` are the literal braces;
+/// a lone `{` always opens a hole.
 enum Piece<'a> {
     Text(&'a str),
     /// What stands between the braces, which the tests hold to snake_case.
@@ -295,20 +292,20 @@ fn pieces(template: &str) -> Vec<Piece<'_>> {
             continue;
         }
         if here == b'{' {
-            if let Some(close) = template
+            // A hole runs to the next `}`, or to the end of a template that
+            // never closes it. Either way `every_placeholder_is_snake_case`
+            // refuses a name that isn't one, so a stray brace is caught there.
+            let close = template
                 .get(at..)
                 .and_then(|r| r.find('}'))
-                .map(|i| at.saturating_add(i))
-            {
-                let name = template.get(at.saturating_add(1)..close).unwrap_or("");
-                if !name.is_empty() && !name.contains('{') {
-                    out.push(Piece::Text(template.get(text_from..at).unwrap_or("")));
-                    out.push(Piece::Hole(name));
-                    at = close.saturating_add(1);
-                    text_from = at;
-                    continue;
-                }
-            }
+                .map_or(bytes.len(), |i| at.saturating_add(i));
+            out.push(Piece::Text(template.get(text_from..at).unwrap_or("")));
+            out.push(Piece::Hole(
+                template.get(at.saturating_add(1)..close).unwrap_or(""),
+            ));
+            at = close.saturating_add(1);
+            text_from = at;
+            continue;
         }
         at = at.saturating_add(1);
     }
@@ -414,6 +411,14 @@ mod tests {
                 "---\ntitle: t\nmessage: m\nnonsense\n---\n",
                 "expected `key: value`",
             ),
+            (
+                "---\ntitle: t\n\nmessage: m\n---\n",
+                "expected `key: value`",
+            ),
+            (
+                "---\n# a comment\ntitle: t\nmessage: m\n---\n",
+                "expected `key: value`",
+            ),
         ] {
             let why = parse(text).expect_err("this must not parse");
             assert!(why.contains(expect), "expected {expect:?} in {why:?}");
@@ -439,5 +444,7 @@ mod tests {
         assert_eq!(placeholders("as in `{function}<Str>(x)`"), vec!["function"]);
         assert_eq!(placeholders("{{not_a_hole}}"), Vec::<&str>::new());
         assert_eq!(placeholders("{a} and {b}"), vec!["a", "b"]);
+        // A stray brace opens a hole, for the snake_case test to refuse.
+        assert_eq!(placeholders("a {} b { c"), vec!["", " c"]);
     }
 }

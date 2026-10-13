@@ -6,9 +6,8 @@
 //! `code`, `**strong**`, `*emphasis*` and `[links](targets)`. Reference links,
 //! autolinks, images and raw HTML are not in it.
 //!
-//! Anchors come from `documentation::markdown::slug`, which is GitHub's
-//! algorithm, so a `#section` link written for the file on GitHub lands on the
-//! same heading here.
+//! Anchors come from [`slug`], which is GitHub's algorithm, so a `#section`
+//! link written for the file on GitHub lands on the same heading here.
 #![allow(
     clippy::arithmetic_side_effects,
     reason = "every counter here is a line index or a byte offset into the \
@@ -18,7 +17,6 @@
 use crate::highlight;
 use crate::links::{Resolver, Target};
 use buri::documentation::examples;
-use buri::documentation::markdown::slug;
 
 pub struct Rendered {
     pub html: String,
@@ -499,6 +497,39 @@ fn atx(trimmed: &str) -> Option<(usize, &str)> {
     }
     let rest = trimmed.get(hashes..)?.strip_prefix(' ')?;
     Some((hashes, rest.trim()))
+}
+
+/// GitHub's anchor for a heading: lowercase, drop everything but
+/// alphanumerics, spaces, hyphens and underscores, then spaces become hyphens.
+///
+/// Exact rather than approximate: the documents' `#anchor`s are written for
+/// GitHub, and `every_link_the_site_writes_resolves` holds them to this.
+pub fn slug(title: &str) -> String {
+    let mut out = String::with_capacity(title.len());
+    for c in title.chars() {
+        if c.is_alphanumeric() || c == '-' || c == '_' {
+            out.extend(c.to_lowercase());
+        } else if c == ' ' {
+            out.push('-');
+        }
+    }
+    out
+}
+
+/// The title of the first ATX heading outside a fenced block.
+pub fn first_heading(text: &str) -> Option<&str> {
+    let mut fenced = false;
+    for line in text.lines() {
+        if let Some((_, rest)) = fence_open(line) {
+            // Only a bare ``` closes, so a fence can quote another.
+            fenced = !fenced || !rest.trim().is_empty();
+            continue;
+        }
+        if let Some((_, title)) = atx(line.trim_start()).filter(|_| !fenced) {
+            return Some(title);
+        }
+    }
+    None
 }
 
 fn fence_open(line: &str) -> Option<(usize, &str)> {

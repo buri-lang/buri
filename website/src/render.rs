@@ -70,7 +70,7 @@ pub fn document(site: &Site, page: &Page) -> (String, PageLinks) {
             let blurb = entry.map_or("", |s| s.blurb);
             let mut out = titled(title, blurb, &resolver, &mut targets, &mut anchors);
             for (index, group) in GROUPS.iter().enumerate() {
-                let anchor = buri::documentation::markdown::slug(group.title);
+                let anchor = markdown::slug(group.title);
                 // A group whose whole navigation is its own index page is that
                 // link: listing it under a heading of the same name would say
                 // the name twice and the sentence twice.
@@ -178,26 +178,23 @@ pub fn document(site: &Site, page: &Page) -> (String, PageLinks) {
 /// it does" — is not, and a page whose title appears only in the browser tab
 /// is a page a reader has to guess at.
 ///
-/// The comparison is `topics.rs`'s own `every_title_matches_its_first_heading`,
+/// The comparison is `cli/tests/docs`' own `every_title_matches_its_first_heading`,
 /// which is what makes "already titled" mean the same thing in both places.
 fn own_heading(text: &str, title: &str) -> Option<(String, String)> {
     let normalize = |text: &str| text.replace(['`', ':'], "").to_lowercase();
-    let first = buri::documentation::markdown::headings(text)
-        .first()
-        .map(|heading| {
-            heading
-                .title
-                .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
-                .trim()
-                .to_string()
-        });
+    let first = markdown::first_heading(text).map(|title| {
+        title
+            .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
+            .trim()
+            .to_string()
+    });
     if let Some(written) = first {
         let (written, wanted) = (normalize(&written), normalize(title));
         if written.starts_with(&wanted) || wanted.starts_with(&written) {
             return None;
         }
     }
-    let anchor = buri::documentation::markdown::slug(title);
+    let anchor = markdown::slug(title);
     let html = format!(
         "<h1 id=\"{}\">{}<a class=\"anchor\" href=\"#{}\" aria-label=\"Link to this section\">#</a></h1>\n",
         escaped(&anchor),
@@ -472,7 +469,7 @@ fn titled(
     targets: &mut Vec<Target>,
     anchors: &mut Vec<String>,
 ) -> String {
-    let anchor = buri::documentation::markdown::slug(title);
+    let anchor = markdown::slug(title);
     let mut out = format!(
         "<h1 id=\"{}\">{}</h1>\n",
         escaped(&anchor),

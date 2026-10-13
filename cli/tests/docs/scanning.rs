@@ -1,6 +1,7 @@
-//! What the documents' tests scan for and the toolchain doesn't: inline links
-//! and unclosed fences. Both skip fenced blocks the way `markdown::fences`
-//! finds them, so the two can't disagree about where a block is.
+//! What the documents' tests scan for and the toolchain doesn't: headings and
+//! their anchors, inline links, and unclosed fences. Each skips fenced blocks
+//! the way `markdown::fences` finds them, so they can't disagree about where a
+//! block is.
 use buri::documentation::markdown;
 
 /// Where a link points.
@@ -34,21 +35,64 @@ pub fn unterminated_fence(text: &str) -> Option<usize> {
     text.lines().nth(closer).is_none().then_some(last.line)
 }
 
-/// Every inline `[text](target)` outside a fenced block or a code span.
-pub fn links(text: &str) -> Vec<Link> {
+/// Every line outside a fenced block, with its 1-based number.
+fn prose(text: &str) -> impl Iterator<Item = (usize, &str)> {
     let fenced: Vec<(usize, usize)> = markdown::fences(text)
         .iter()
         .map(|f| (f.line, f.body_line + f.body.lines().count()))
         .collect();
-    let mut out = Vec::new();
-    for (index, line) in text.lines().enumerate() {
-        let line_no = index + 1;
-        if fenced
-            .iter()
-            .any(|(first, last)| (*first..=*last).contains(&line_no))
-        {
-            continue;
+    text.lines()
+        .enumerate()
+        .map(|(index, line)| (index + 1, line))
+        .filter(move |(line_no, _)| {
+            !fenced
+                .iter()
+                .any(|(first, last)| (*first..=*last).contains(line_no))
+        })
+}
+
+/// An ATX heading outside a fenced block.
+#[derive(Clone, Debug)]
+pub struct Heading<'a> {
+    pub title: &'a str,
+    pub line: usize,
+}
+
+/// Every ATX heading outside a fenced block. `SPEC.md` has shell transcripts
+/// whose lines begin with `#`, and those aren't headings.
+pub fn headings(text: &str) -> Vec<Heading<'_>> {
+    prose(text)
+        .filter_map(|(line, written)| {
+            let trimmed = written.trim_start();
+            let hashes = trimmed.bytes().take_while(|b| *b == b'#').count();
+            // `#hashtag` isn't a heading; ATX wants a space.
+            let title = trimmed.get(hashes..)?.strip_prefix(' ')?.trim();
+            (1..=6).contains(&hashes).then_some(Heading { title, line })
+        })
+        .collect()
+}
+
+/// GitHub's anchor for a heading: lowercase, drop everything but
+/// alphanumerics, spaces, hyphens and underscores, then spaces become hyphens.
+///
+/// Exact rather than approximate, because `every_link_resolves` holds our
+/// `#anchor`s to it, and a near-miss would pass links that break on GitHub.
+pub fn slug(title: &str) -> String {
+    let mut out = String::with_capacity(title.len());
+    for c in title.chars() {
+        if c.is_alphanumeric() || c == '-' || c == '_' {
+            out.extend(c.to_lowercase());
+        } else if c == ' ' {
+            out.push('-');
         }
+    }
+    out
+}
+
+/// Every inline `[text](target)` outside a fenced block or a code span.
+pub fn links(text: &str) -> Vec<Link> {
+    let mut out = Vec::new();
+    for (line_no, line) in prose(text) {
         let b = line.as_bytes();
         let mut i = 0;
         let mut in_code = false;
@@ -213,7 +257,41 @@ fn a_malformed_document_is_read_rather_than_indexed_past() {
         "**é",
         "[é",
     ] {
+        let _ = headings(text);
         let _ = links(text);
         let _ = unterminated_fence(text);
     }
+}
+
+#[test]
+fn slugs_match_github() {
+    // Each of these is a live anchor in the checked-in documents.
+    assert_eq!(
+        slug("12. Why the grammar is context-free and unambiguous"),
+        "12-why-the-grammar-is-context-free-and-unambiguous"
+    );
+    assert_eq!(
+        slug("Why `forbids` has no platforms"),
+        "why-forbids-has-no-platforms"
+    );
+    assert_eq!(slug("`Result` is must-use"), "result-is-must-use");
+    assert_eq!(
+        slug("6.8 `?` — error propagation"),
+        "68---error-propagation"
+    );
+}
+
+#[test]
+fn headings_skip_fenced_blocks() {
+    let text = "# Title\n\n```sh\n# not a heading\n```\n\n## Real\n#hashtag\n####### seven\n";
+    let h = headings(text);
+    let titles: Vec<(&str, usize)> = h.iter().map(|h| (h.title, h.line)).collect();
+    assert_eq!(titles, vec![("Title", 1), ("Real", 7)]);
+    let spec = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../crates/docs/src/docs/SPEC.md"
+    );
+    // A guard on the scanner: if this collapses to zero, every link test
+    // passes vacuously.
+    assert!(headings(&std::fs::read_to_string(spec).unwrap()).len() > 50);
 }

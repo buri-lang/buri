@@ -1275,10 +1275,12 @@ mod tests {
     }
 
     /// `{function}`, never `{fn}` or `{fnName}`: the project spells names out,
-    /// and a template is read by whoever edits the page.
+    /// and a template is read by whoever edits the page. This is also what
+    /// catches a stray `{`, which opens a hole whose name isn't one.
     #[test]
     fn every_placeholder_is_snake_case() {
-        for p in catalog().pages() {
+        let lints = crate::documentation::lints::catalog().pages();
+        for p in catalog().pages().iter().chain(lints) {
             let templates = [
                 Some(&p.front.message),
                 p.front.label.as_ref(),
