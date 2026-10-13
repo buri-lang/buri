@@ -5665,7 +5665,7 @@ fn coverage_under_release_counts_the_lines_the_other_backends_count() {
             "//lib/builtins",
             "--coverage",
             "lcov.info",
-            "3 passed, 0 failed",
+            "5 passed, 0 failed",
             0,
         ),
         (
@@ -5673,7 +5673,7 @@ fn coverage_under_release_counts_the_lines_the_other_backends_count() {
             "//lib/builtins",
             "--coverage=mcdc",
             "mcdc.info",
-            "3 passed, 0 failed",
+            "5 passed, 0 failed",
             0,
         ),
         (
