@@ -68,6 +68,27 @@ struct Read {
     generated: Vec<TargetId>,
 }
 
+/// Whether `gen` can place every file of the package: it has a build file to
+/// rewrite, and no file is one it would ask you to place. Answers from the
+/// file names and imports alone, without analysing the package.
+pub fn can_place(session: &Session, package: PackageId) -> bool {
+    matches!(plan(session, package, &mut Read::default()), Ok(Some(_)))
+}
+
+/// Where each file of a package goes, before dependencies are derived.
+struct Plan {
+    original: String,
+    document: Document,
+    dir: PathBuf,
+    has_library: bool,
+    has_binary: bool,
+    lib_sources: Vec<String>,
+    bin_sources: Vec<String>,
+    lib_tests: Vec<String>,
+    bin_tests: Vec<String>,
+    testing_sources: Vec<String>,
+}
+
 #[expect(clippy::result_large_err, reason = "the same as `regenerate`'s")]
 fn regenerate_reading(
     session: &mut Session,
@@ -75,6 +96,19 @@ fn regenerate_reading(
     batch: Option<&Batch>,
     read: &mut Read,
 ) -> Result<Option<Update>, Diagnostic> {
+    match plan(session, package, read)? {
+        Some(plan) => Ok(finish(session, package, batch, read, plan)),
+        None => Ok(None),
+    }
+}
+
+/// `None` for a package `gen` leaves as written.
+#[expect(clippy::result_large_err, reason = "the same as `regenerate`'s")]
+fn plan(
+    session: &Session,
+    package: PackageId,
+    read: &mut Read,
+) -> Result<Option<Plan>, Diagnostic> {
     let p = session.workspace.package(package);
     let dir = p.dir.clone();
     let package_path = p.path.clone();
@@ -90,7 +124,7 @@ fn regenerate_reading(
     if let Some(first) = parsed.errors.first() {
         return Err(first.clone());
     }
-    let mut document = parsed.document;
+    let document = parsed.document;
 
     // A package holding a tool or a platform is left as written. Which of three rules a new
     // file belongs to is a question `gen` cannot answer from imports alone —
@@ -225,6 +259,41 @@ fn regenerate_reading(
         );
     }
 
+    Ok(Some(Plan {
+        original,
+        document,
+        dir,
+        has_library,
+        has_binary,
+        lib_sources,
+        bin_sources,
+        lib_tests,
+        bin_tests,
+        testing_sources,
+    }))
+}
+
+/// Derives the dependencies and rewrites the managed fields; `None` when the
+/// file is already as `gen` would write it.
+fn finish(
+    session: &mut Session,
+    package: PackageId,
+    batch: Option<&Batch>,
+    read: &mut Read,
+    plan: Plan,
+) -> Option<Update> {
+    let Plan {
+        original,
+        mut document,
+        dir,
+        has_library,
+        has_binary,
+        lib_sources,
+        bin_sources,
+        lib_tests,
+        bin_tests,
+        testing_sources,
+    } = plan;
     let deps = derive_dependencies(session, package, &dir, &lib_tests, &bin_tests, batch, read);
     let p = session.workspace.package(package);
     let mut summary = Vec::new();
@@ -338,9 +407,9 @@ fn regenerate_reading(
     // exactly as `buri format` would, so the two never fight over a file.
     let text = crate::build::textproto::print(&document);
     if text == original {
-        return Ok(None);
+        return None;
     }
-    Ok(Some(Update { text, summary }))
+    Some(Update { text, summary })
 }
 
 /// A file in a package with both rules that `gen` will not place for you.
