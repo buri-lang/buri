@@ -1,0 +1,2 @@
+/// How many words the list holds.
+export let COUNT: Int = 2extra ;

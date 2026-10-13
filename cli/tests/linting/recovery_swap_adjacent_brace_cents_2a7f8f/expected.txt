@@ -1,0 +1,12 @@
+error: this `if` branch is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_cents_2a7f8f/lib.buri:11:30
+   |
+11 |     if (cents == 0) { "zero" else } { "some" }
+   |                              ^^^^
+   |
+  --> lib/recovery_swap_adjacent_brace_cents_2a7f8f/lib.buri:11:21
+   |
+11 |     if (cents == 0) { "zero" else } { "some" }
+   |                     ^ opened here
+   |
+   = fix: write `}` here

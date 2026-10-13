@@ -1,0 +1,9 @@
+error: expected `=`, found `2` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_words_bb1529/lib.buri:2:23
+  |
+2 | export let COUNT: Int 2 =;
+  |                       ^
+  |
+  = expected: `=`
+  = actual: `2`
+  = fix: write `=` here

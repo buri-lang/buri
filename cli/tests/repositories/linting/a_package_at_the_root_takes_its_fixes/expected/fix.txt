@@ -1,0 +1,4 @@
+updated lib/words/BUILD.buri
+  + sources: spare.buri
+fixed 2 findings
+no findings

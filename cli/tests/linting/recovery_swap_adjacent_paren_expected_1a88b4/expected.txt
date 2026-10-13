@@ -1,0 +1,44 @@
+error: `rendered` takes 3 arguments, but 2 were given [argument-count]
+  --> lib/recovery_swap_adjacent_paren_expected_1a88b4/main.buri:68:18
+   |
+68 |     whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 3
+   = actual: 2
+   = fix: pass `rendered` the following arguments: rendered<C: Allocator + Clock>(ctx: C, render: fn(C, Str) => Str, label: Str)
+error: there is nothing named `ctxfn` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_paren_expected_1a88b4/main.buri:68:27
+   |
+68 |     whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(
+   |                           ^^^^^
+   |
+   = did you mean `ctx`?
+   = fix: if you meant `ctx`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `c` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_paren_expected_1a88b4/main.buri:68:35
+   |
+68 |     whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(
+   |                                   ^
+   |
+   = did you mean `ctx`?
+   = fix: if you meant `ctx`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `l` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_paren_expected_1a88b4/main.buri:68:38
+   |
+68 |     whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(
+   |                                      ^
+   |
+   = fix: declare `l`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_paren_expected_1a88b4/main.buri:68:41
+   |
+68 |     whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(
+   |                                         ^^
+   |
+  --> lib/recovery_swap_adjacent_paren_expected_1a88b4/main.buri:68:26
+   |
+68 |     whisper(ctx, rendered(ctxfn ,(c, l) => str.format(c, "<${l}>"), label)).mapErr(
+   |                          ^ opened here
+   |
+   = fix: write `)` here

@@ -1,0 +1,92 @@
+nothing to fix
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> cmd/app/main.buri:19:34
+   |
+19 |     fn width<C: Allocator>(self, ctx: C): Int {
+   |                                  ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+
+     ctx is where a signature says what a function may do to the world. A
+     function that takes one and never reads it makes every caller pass a
+     context, so a pure computation drags the ability to write files up through
+     everything that reaches it.
+
+     A body uses a context by handing it to a callee that asks for one, like
+     io.println(ctx, x), or to a function-typed parameter. Both name ctx, so the
+     rule asks one question: does anything in the body name ctx?
+
+     What is not asked
+     ─────────────────
+
+     - A method supplied by an `impl`. The signature is the trait's, and an
+     implementation can't drop a parameter.
+
+     - A function with no body: a trait method's signature, an effect's
+     operation, a standard library intrinsic.
+
+     - A lambda. A lambda can't capture a context (lambda-captures-effect), so
+     one that needs a context takes it as its own parameter.
+
+     The fix
+     ───────
+
+     Delete the parameter, and the argument at every call site. buri lint --fix
+     and the editor quick fix make that edit, except when:
+
+     - the name is on the library's surface. lib.buri publishes it, so callers
+     may live in packages this analysis never loaded. Decide whether the
+     signature is part of your published API first.
+
+     - something takes the function as a value. Where a fn(C, ...) is
+     expected, deleting the parameter makes it the wrong type.
+
+     - the package did not type-check. The list of call sites may be incomplete.
+     The finding still stands, because the rule falls back to looking for ctx in
+     the text.
+
+     Which effects the context carries is unused-context-bound's question. This
+     rule only reports a context the body never names.
+
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> cmd/app/main.buri:23:35
+   |
+23 |     fn height<C: Allocator>(self, ctx: C): Int {
+   |                                   ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> cmd/app/main.buri:28:24
+   |
+28 | fn depth<C: Allocator>(ctx: C, label: Label): Int {
+   |                        ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> cmd/app/main.buri:32:26
+   |
+32 | fn breadth<C: Allocator>(ctx: C, label: Label): Int {
+   |                          ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> cmd/app/main.buri:36:25
+   |
+36 | fn length<C: Allocator>(ctx: C, label: Label): Int {
+   |                         ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: expected an identifier, found `=` [unexpected-token]
+  --> cmd/app/main.buri:40:8
+   |
+40 | struct = ;
+   |        ^
+   |
+   = expected: an identifier
+   = actual: `=`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

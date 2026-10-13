@@ -1,0 +1,48 @@
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_swap_adjacent_brace_app_575889/main.buri:11:5
+   |
+11 | let NANOSECONDS_PER_MILLISECOND: I64 = 1_000_000;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_swap_adjacent_brace_app_575889/main.buri:18:20
+   |
+18 |     startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name
+error: an expression statement is legal only in a test source [statement-outside-test]
+  --> lib/recovery_swap_adjacent_brace_app_575889/main.buri:33:5
+   |
+33 |     1_000_000 IDLE_TIMEOUT_MILLIS *
+   |     ^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `Int`, not `()` [statement-not-unit]
+  --> lib/recovery_swap_adjacent_brace_app_575889/main.buri:33:5
+   |
+33 |     1_000_000 IDLE_TIMEOUT_MILLIS *
+   |     ^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_swap_adjacent_brace_app_575889/main.buri:33:14
+   |
+33 |     1_000_000 IDLE_TIMEOUT_MILLIS *
+   |              ^
+   |
+   = fix: write `;` here
+error: expected an expression, found `}` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_575889/main.buri:34:1
+   |
+34 | }
+   | ^
+   |
+   = expected: an expression
+   = actual: `}`
+   = fix: write a value here

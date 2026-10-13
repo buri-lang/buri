@@ -1,0 +1,9 @@
+error: expected `=`, found `?` [unexpected-token]
+ --> lib/recovery_insert_stray_module_names_05cf9b/lib.buri:2:24
+  |
+2 | export let LEDGER: Str ? = "ledger";
+  |                        ^
+  |
+  = expected: `=`
+  = actual: `?`
+  = fix: write `=` here

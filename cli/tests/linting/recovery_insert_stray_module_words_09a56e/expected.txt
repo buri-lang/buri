@@ -1,0 +1,9 @@
+error: expected `=`, found `?` [unexpected-token]
+ --> lib/recovery_insert_stray_module_words_09a56e/lib.buri:2:23
+  |
+2 | export let COUNT: Int ? = 2;
+  |                       ^
+  |
+  = expected: `=`
+  = actual: `?`
+  = fix: write `=` here

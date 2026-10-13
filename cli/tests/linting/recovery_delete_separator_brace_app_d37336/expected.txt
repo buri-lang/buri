@@ -1,0 +1,15 @@
+error: an import name ends with `,` [missing-comma]
+ --> lib/recovery_delete_separator_brace_app_d37336/main.buri:9:42
+  |
+9 | from "platform/effect" import { Allocator Stdout };
+  |                                          ^
+  |
+  = fix: write `,` here
+warning: this is a table of the sixteen hexadecimal digits [hand-rolled-hex-digits]
+  --> lib/recovery_delete_separator_brace_app_d37336/main.buri:12:5
+   |
+12 |     '0',
+   |     ^^^
+   |
+   = `character.fromDigit(n, 16)` is a digit and `character.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `character.fromDigit`, `number.toHex` or `bytes.toHex`

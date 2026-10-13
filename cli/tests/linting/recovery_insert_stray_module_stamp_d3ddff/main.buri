@@ -25,3 +25,11 @@ export fn note<C: ? Allocator // it will allocate once the sink is real
   + Stdout>(ctx: C, label: Str): Result<(), IoError> {
   io.println(ctx, ".. ${label}")
 }
+
+/// Reported, and not rewritten either. Here every bound goes, so the colon
+/// goes with them, and the sentence after the colon would go too.
+export fn hum<C: // it will allocate once the sink is real
+  Allocator>(ctx: C, label: Str): Str {
+  let _ = ctx;
+  label
+}

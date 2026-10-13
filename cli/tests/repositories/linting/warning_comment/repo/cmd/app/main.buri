@@ -8,6 +8,8 @@ from "platform/effect" import { Allocator, Stdout };
 
 // TODO: decide what this program is for.
 fn banner(): Str {
+    // A HACKATHON and a MY_TODO_LIST are words, and only a marker standing
+    // alone is one.
     "TODO is a marker in a comment and not in a string"
 }
 

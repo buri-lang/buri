@@ -1,0 +1,32 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+ --> lib/recovery_swap_adjacent_brace_tool_fc28bb/lib.buri:6:34
+  |
+6 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+  |                                  ^^^^^^
+  |
+  = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+  = fix: remove the `ctx` parameter, and the context argument at every call site
+error: this array is missing its closing `]` [unclosed-delimiter]
+ --> lib/recovery_swap_adjacent_brace_tool_fc28bb/lib.buri:7:55
+  |
+7 |     Generated { modules: [], diagnostics: [], needs: [} ]
+  |                                                       ^
+  |
+ --> lib/recovery_swap_adjacent_brace_tool_fc28bb/lib.buri:7:54
+  |
+7 |     Generated { modules: [], diagnostics: [], needs: [} ]
+  |                                                      ^ opened here
+  |
+  = fix: write `]` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_swap_adjacent_brace_tool_fc28bb/lib.buri:7:57
+  |
+7 |     Generated { modules: [], diagnostics: [], needs: [} ]
+  |                                                         ^
+  |
+ --> lib/recovery_swap_adjacent_brace_tool_fc28bb/lib.buri:6:84
+  |
+6 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+  |                                                                                    ^ opened here
+  |
+  = fix: write `}` here

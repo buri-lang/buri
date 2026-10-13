@@ -1,0 +1,12 @@
+error: this type argument list is missing its closing `>` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_module_write_e6a019/lib.buri:4:63
+  |
+4 | export fn write<C: Stdout>(ctx: C, line: Str): Result<Int, Str? > {
+  |                                                               ^
+  |
+ --> lib/recovery_insert_stray_module_write_e6a019/lib.buri:4:54
+  |
+4 | export fn write<C: Stdout>(ctx: C, line: Str): Result<Int, Str? > {
+  |                                                      ^ opened here
+  |
+  = fix: write `>` here

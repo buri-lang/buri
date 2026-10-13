@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_expected_fe3cc3/main.buri:22:39
+   |
+22 | fn shout<C: Stdout>(ctx: C, label: Str: Result<(), IoError> {
+   |                                       ^
+   |
+  --> lib/recovery_delete_closer_module_expected_fe3cc3/main.buri:22:20
+   |
+22 | fn shout<C: Stdout>(ctx: C, label: Str: Result<(), IoError> {
+   |                    ^ opened here
+   |
+   = fix: write `)` here

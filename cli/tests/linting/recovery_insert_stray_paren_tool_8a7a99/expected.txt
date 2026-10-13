@@ -1,0 +1,16 @@
+error: a function parameter ends with `,` [missing-comma]
+ --> lib/recovery_insert_stray_paren_tool_8a7a99/lib.buri:6:56
+  |
+6 | export fn generate<C: Allocator>(ctx: C, request: extra GenerateRequest<Str>): Generated {
+  |                                                        ^
+  |
+  = fix: write `,` here
+error: expected `:`, found `<` [unexpected-token]
+ --> lib/recovery_insert_stray_paren_tool_8a7a99/lib.buri:6:72
+  |
+6 | export fn generate<C: Allocator>(ctx: C, request: extra GenerateRequest<Str>): Generated {
+  |                                                                        ^
+  |
+  = expected: `:`
+  = actual: `<`
+  = fix: write `:` here

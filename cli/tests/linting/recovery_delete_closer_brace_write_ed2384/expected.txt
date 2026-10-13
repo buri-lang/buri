@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_brace_write_ed2384/lib.buri:8:5
+  |
+8 |     }
+  |     ^
+  |
+ --> lib/recovery_delete_closer_brace_write_ed2384/lib.buri:7:29
+  |
+7 |         .Err(_error) => .Err("could not write to standard output",
+  |                             ^ opened here
+  |
+  = fix: write `)` here

@@ -1,0 +1,9 @@
+error: expected an identifier, found `:` [unexpected-token]
+ --> lib/recovery_swap_adjacent_paren_write_af2b6f/lib.buri:4:40
+  |
+4 | export fn write<C: Stdout>(ctx: Cline ,: Str): Result<Int, Str> {
+  |                                        ^
+  |
+  = expected: an identifier
+  = actual: `:`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -1,0 +1,25 @@
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_brace_stamp_795c55/lib.buri:17:20
+   |
+17 | export fn stamp<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                    ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_brace_stamp_795c55/lib.buri:24:19
+   |
+24 | export fn note<C: Allocator // it will allocate once the sink is real
+   |                   ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+error: expected `=`, found `ctx` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_stamp_795c55/lib.buri:33:9
+   |
+33 |   let _ ctx =;
+   |         ^^^
+   |
+   = expected: `=`
+   = actual: `ctx`
+   = fix: write `=` here

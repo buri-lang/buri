@@ -1,0 +1,15 @@
+error: expected `fn(IoError) => _`, found `fn(_, _) => Str` [type-mismatch]
+  --> lib/recovery_insert_stray_paren_expected_977783/main.buri:63:38
+   |
+63 |     let _ = shout(ctx, label).mapErr(fn(extra _e) => "could not write to standard output")?;
+   |                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `fn(IoError) => _`
+   |
+   = expected: `fn(IoError) => _`
+   = actual: `fn(_, _) => Str`
+error: a lambda parameter ends with `,` [missing-comma]
+  --> lib/recovery_insert_stray_paren_expected_977783/main.buri:63:46
+   |
+63 |     let _ = shout(ctx, label).mapErr(fn(extra _e) => "could not write to standard output")?;
+   |                                              ^
+   |
+   = fix: write `,` here

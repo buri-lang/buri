@@ -1,0 +1,5 @@
+from "//lib/b" import { one };
+
+export fn twice(): Int {
+    one() + one()
+}

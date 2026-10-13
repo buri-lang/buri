@@ -1,0 +1,9 @@
+error: expected `let`, found `POST` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_marks_a3fa31/lib.buri:1:8
+  |
+1 | export POST let: Str = "||";
+  |        ^^^^
+  |
+  = expected: `let`
+  = actual: `POST`
+  = fix: write `let` first: `let POST`

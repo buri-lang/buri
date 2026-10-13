@@ -1,0 +1,56 @@
+// Five functions that declare a `ctx` and never read it: unused-context, five
+// times. Where the parameter and the argument stand alone, `--fix` deletes
+// both, and a method's context goes with the comma after `self`. Where a
+// comment sits against either, the finding stands with nothing applied: the
+// fix deletes text rather than reformatting it, and the comment is a reader's
+// sentence. The formatter would move each comment clear, so the case writes
+// them in with edits.
+
+from "core/io" import * as io;
+from "node" import { NodeHost };
+from "platform/effect" import { Allocator, Stdout };
+from "//lib/names" import { LEDGER };
+
+struct Label {
+    text: Str,
+}
+
+impl Label {
+    fn width<C: Allocator>(self, ctx: C): Int {
+        self.text.length()
+    }
+
+    fn height<C: Allocator>(self, ctx: C): Int {
+        1
+    }
+}
+
+fn depth<C: Allocator>(ctx: C, label: Label): Int {
+    label.text.length()
+}
+
+fn breadth<C: Allocator>(ctx: C, label: Label): Int {
+    label.text.length()
+}
+
+fn length<C: Allocator>(ctx: C, label: Label): Int {
+    label.text.length()
+}
+
+struct = ;
+
+export fn main(host: NodeHost): Result<(), Str> {
+    let ctx = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let label = Label { text: LEDGER };
+    let sizes = [
+        label.width(ctx),
+        label.height(ctx),
+        depth(ctx, label),
+        breadth(ctx, label),
+        length(ctx, label),
+    ];
+    io.println(ctx, "${sizes}").mapErr(fn(_e) => "could not write to standard output")
+}

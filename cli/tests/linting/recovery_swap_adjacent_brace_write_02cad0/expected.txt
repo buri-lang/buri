@@ -1,0 +1,31 @@
+error: an import declaration ends with `;` [missing-semicolon]
+ --> lib/recovery_swap_adjacent_brace_write_02cad0/lib.buri:2:34
+  |
+2 | from "platform/effect" import { } Stdout;
+  |                                  ^
+  |
+  = fix: write `;` here
+error: expected a declaration, found `Stdout` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_write_02cad0/lib.buri:2:35
+  |
+2 | from "platform/effect" import { } Stdout;
+  |                                   ^^^^^^
+  |
+  = expected: a declaration
+  = actual: `Stdout`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: `Stdout` is not a trait or effect [bound-not-trait]
+ --> lib/recovery_swap_adjacent_brace_write_02cad0/lib.buri:4:20
+  |
+4 | export fn write<C: Stdout>(ctx: C, line: Str): Result<Int, Str> {
+  |                    ^^^^^^
+  |
+  = a bound names a declared trait; there are no where clauses
+  = fix: name a declared trait or effect, or declare `Stdout` as one
+error: `C` does not implement `Stdout` [missing-impl]
+ --> lib/recovery_swap_adjacent_brace_write_02cad0/lib.buri:5:12
+  |
+5 |     match (io.println(ctx, line)) {
+  |            ^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: bound the type parameter with `Stdout`, or use a type that has one

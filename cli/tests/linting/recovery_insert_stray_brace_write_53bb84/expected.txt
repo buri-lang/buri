@@ -1,0 +1,9 @@
+error: expected a pattern, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_brace_write_53bb84/lib.buri:6:46
+  |
+6 |         .Ok(_written) => .Ok(line.length()), ,
+  |                                              ^
+  |
+  = expected: a pattern
+  = actual: `,`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

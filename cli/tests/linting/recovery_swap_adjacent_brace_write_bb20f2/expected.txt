@@ -1,0 +1,16 @@
+error: a match arm is `pattern => expression` [missing-arrow]
+ --> lib/recovery_swap_adjacent_brace_write_bb20f2/lib.buri:7:21
+  |
+7 |         .Err(_error) . =>Err("could not write to standard output"),
+  |                     ^
+  |
+  = fix: write `=>` here
+error: expected an identifier, found `=>` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_write_bb20f2/lib.buri:7:24
+  |
+7 |         .Err(_error) . =>Err("could not write to standard output"),
+  |                        ^^
+  |
+  = expected: an identifier
+  = actual: `=>`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

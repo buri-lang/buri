@@ -1,0 +1,9 @@
+error: expected `=>`, found `x` [unexpected-token]
+ --> lib/recovery_swap_adjacent_paren_needs_7f3842/lib.buri:5:27
+  |
+5 |     [1, 2].map(ctx, fn(x) x => + 1).length()
+  |                           ^
+  |
+  = expected: `=>`
+  = actual: `x`
+  = fix: write `=>` here

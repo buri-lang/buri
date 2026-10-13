@@ -1,0 +1,9 @@
+error: expected a function body, found `extra` [unexpected-token]
+ --> lib/recovery_insert_stray_module_b_fe4bcf/lib.buri:1:22
+  |
+1 | export fn one(): Int extra {
+  |                      ^^^^^
+  |
+  = expected: a function body
+  = actual: `extra`
+  = fix: write `{ ... }` after the return type

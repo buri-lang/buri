@@ -1,0 +1,28 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_module_stamp_99165e/lib.buri:17:58
+   |
+17 | export fn stamp<C: Allocator + Stdout>(ctx: C, label: Str@ ): Result<(), IoError> {
+   |                                                          ^
+   |
+  --> lib/recovery_insert_stray_module_stamp_99165e/lib.buri:17:39
+   |
+17 | export fn stamp<C: Allocator + Stdout>(ctx: C, label: Str@ ): Result<(), IoError> {
+   |                                       ^ opened here
+   |
+   = fix: write `)` here
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_insert_stray_module_stamp_99165e/lib.buri:24:19
+   |
+24 | export fn note<C: Allocator // it will allocate once the sink is real
+   |                   ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_insert_stray_module_stamp_99165e/lib.buri:32:3
+   |
+32 |   Allocator>(ctx: C, label: Str): Str {
+   |   ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound

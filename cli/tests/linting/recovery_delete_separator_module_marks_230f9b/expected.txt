@@ -1,0 +1,7 @@
+error: a `let` declaration ends with `;` [missing-semicolon]
+ --> lib/recovery_delete_separator_module_marks_230f9b/lib.buri:1:28
+  |
+1 | export let POST: Str = "||"
+  |                            ^
+  |
+  = fix: write `;` here

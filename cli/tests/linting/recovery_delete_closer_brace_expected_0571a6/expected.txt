@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_expected_0571a6/main.buri:44:1
+   |
+44 | }
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_expected_0571a6/main.buri:43:15
+   |
+43 |     str.format(ctx, "== ${label} =="
+   |               ^ opened here
+   |
+   = fix: write `)` here

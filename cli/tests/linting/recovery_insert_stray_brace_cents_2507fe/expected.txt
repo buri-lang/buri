@@ -1,0 +1,9 @@
+error: expected `{`, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_cents_2507fe/lib.buri:11:37
+   |
+11 |     if (cents == 0) { "zero" } else , { "some" }
+   |                                     ^
+   |
+   = expected: `{`
+   = actual: `,`
+   = fix: write `{` here

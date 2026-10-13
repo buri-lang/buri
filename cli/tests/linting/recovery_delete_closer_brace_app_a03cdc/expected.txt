@@ -1,0 +1,52 @@
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_delete_closer_brace_app_a03cdc/main.buri:11:5
+   |
+11 | let NANOSECONDS_PER_MILLISECOND: I64 = 1_000_000;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_delete_closer_brace_app_a03cdc/main.buri:18:20
+   |
+18 |     startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_delete_closer_brace_app_a03cdc/main.buri:33:5
+   |
+33 |     1_000_000 * IDLE_TIMEOUT_MILLIS
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.milliseconds(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name
+error: expected `Str`, found `IoError` [type-mismatch]
+  --> lib/recovery_delete_closer_brace_app_a03cdc/main.buri:40:49
+   |
+40 | export fn main(host: NodeHost): Result<(), Str> {
+   |                                                 ^ the declared return type is `Str`
+   |
+   = expected: `Str`
+   = actual: `IoError`
+error: `Template` has no method `mapErr` [unknown-method]
+  --> lib/recovery_delete_closer_brace_app_a03cdc/main.buri:48:10
+   |
+48 |         .mapErr(fn(_e) => "could not write to standard output")
+   |          ^^^^^^
+   |
+   = tuples, function types, and `Template` have no defining module, so they have no methods
+   = fix: there is no module to declare `mapErr` in, so write a free function taking the value, or wrap it in a struct of yours and give that the method
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_a03cdc/main.buri:49:1
+   |
+49 | }
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_app_a03cdc/main.buri:47:17
+   |
+47 |         .println(ctx, "${waited} ${perMillion(2_000_000, 250)}"
+   |                 ^ opened here
+   |
+   = fix: write `)` here

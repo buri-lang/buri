@@ -1,0 +1,6 @@
+from "//lib/words/spare.buri" import { spare };
+
+/// The one word this library knows.
+export fn word(): Str {
+    spare()
+}

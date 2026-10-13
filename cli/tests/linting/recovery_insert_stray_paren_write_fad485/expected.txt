@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_paren_write_fad485/lib.buri:5:32
+  |
+5 |     match (io.println(ctx, line@ )) {
+  |                                ^
+  |
+ --> lib/recovery_insert_stray_paren_write_fad485/lib.buri:5:22
+  |
+5 |     match (io.println(ctx, line@ )) {
+  |                      ^ opened here
+  |
+  = fix: write `)` here

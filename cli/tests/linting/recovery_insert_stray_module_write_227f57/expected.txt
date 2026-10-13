@@ -1,0 +1,16 @@
+error: expected `;`, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_module_write_227f57/lib.buri:1:30
+  |
+1 | from "core/io" import * as io, ;
+  |                              ^
+  |
+  = expected: `;`
+  = actual: `,`
+  = fix: write `;` here
+error: there is nothing named `io` in scope [unknown-name]
+ --> lib/recovery_insert_stray_module_write_227f57/lib.buri:5:12
+  |
+5 |     match (io.println(ctx, line)) {
+  |            ^^
+  |
+  = fix: declare `io`, or import it — a name is in scope only from this module's own declarations and its imports

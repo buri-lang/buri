@@ -1,0 +1,36 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+  --> lib/recovery_delete_closer_module_stamp_56d74e/lib.buri:17:28
+   |
+17 | export fn stamp<C: Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                            ^^^^^^
+   |
+   = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+   = fix: remove the `ctx` parameter, and the context argument at every call site
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_stamp_56d74e/lib.buri:24:1
+   |
+24 | export fn note<C: Allocator // it will allocate once the sink is real
+   | ^^^^^^
+   |
+  --> lib/recovery_delete_closer_module_stamp_56d74e/lib.buri:17:69
+   |
+17 | export fn stamp<C: Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                                                                     ^ opened here
+   |
+   = fix: write `}` here
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_delete_closer_module_stamp_56d74e/lib.buri:24:19
+   |
+24 | export fn note<C: Allocator // it will allocate once the sink is real
+   |                   ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_delete_closer_module_stamp_56d74e/lib.buri:32:3
+   |
+32 |   Allocator>(ctx: C, label: Str): Str {
+   |   ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound

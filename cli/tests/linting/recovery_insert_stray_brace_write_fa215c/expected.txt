@@ -1,0 +1,9 @@
+error: expected an identifier, found `@` [unexpected-token]
+ --> lib/recovery_insert_stray_brace_write_fa215c/lib.buri:6:10
+  |
+6 |         .@ Ok(_written) => .Ok(line.length()),
+  |          ^
+  |
+  = expected: an identifier
+  = actual: `@`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -1,0 +1,9 @@
+error: expected `=`, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_expected_dac37f/main.buri:65:11
+   |
+65 |     let _ ? = whisper(ctx, banner(ctx, label)).mapErr(fn(_e) => {
+   |           ^
+   |
+   = expected: `=`
+   = actual: `?`
+   = fix: write `=` here

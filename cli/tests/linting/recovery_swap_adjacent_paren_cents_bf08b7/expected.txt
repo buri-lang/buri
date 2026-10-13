@@ -1,9 +1,0 @@
-error: expected an expression, found `==` [unexpected-token]
- --> lib/recovery_swap_adjacent_paren_cents_bf08b7/lib.buri:9:9
-  |
-9 |     if (== n 0) { "zero" } else { "some" }
-  |         ^^
-  |
-  = expected: an expression
-  = actual: `==`
-  = fix: write a value here

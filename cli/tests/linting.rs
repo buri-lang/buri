@@ -163,6 +163,11 @@ const FLOOR: usize = 250;
 /// written into the middle of an array literal is not an array literal any
 /// more, so its rows are counted and the body is over the limit — the mistake
 /// destroying the shape, rather than a rule reading a gap.
+///
+/// The `cli/lint` coverage fixtures move it to **47 of 2,000 (2.35%) and 14 of
+/// 600 (2.33%)**. Most of the new fixtures are packages that import each
+/// other, so they are not seeds, and the seed set shifts only by what the
+/// single-module fixtures gained.
 const INVENTED_CEILING: usize = 3;
 
 /// What share of the cases may lose a finding whose evidence survived.

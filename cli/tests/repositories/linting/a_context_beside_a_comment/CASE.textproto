@@ -1,0 +1,68 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "unused-context's fix around a comment: a parameter or an argument with a comment against it is reported and left alone, a method's context goes with the comma after `self`, and a package that did not parse whole gets no fix at all"
+
+# A run of source the parser skipped may hold a call, so the list of call
+# sites is short by an unknown amount and nothing is applied.
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "export fn main("
+  with: "struct = ;\n\nexport fn main("
+}
+
+run {
+  args: ["lint", "//...", "--fix"]
+  exit: 1
+  golden: "broken.txt"
+}
+
+file {
+  path: "cmd/app/main.buri"
+  golden: "broken.buri"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "struct = ;\n\n"
+  with: ""
+}
+
+# A comment after the parameter, a comment before the one after `self`, and a
+# comment after an argument.
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "fn height<C: Allocator>(self, ctx: C)"
+  with: "fn height<C: Allocator>(self,\n        // the caller's\n        ctx: C)"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "fn depth<C: Allocator>(ctx: C, label: Label)"
+  with: "fn depth<C: Allocator>(ctx: C // unused for now\n, label: Label)"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "        breadth(ctx, label),"
+  with: "        breadth(ctx // the caller's\n, label),"
+}
+
+run {
+  args: ["lint", "//...", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+run {
+  args: ["lint", "//...", "--fix"]
+  exit: 1
+  golden: "fix.txt"
+}
+
+file {
+  path: "cmd/app/main.buri"
+  golden: "main.buri"
+}
