@@ -516,8 +516,9 @@ jobs:
       # Twice each, so a count that stops being repeatable fails here rather
       # than passing or failing by chance later.
       - run: nix develop .#perf -c cargo bench -p buri --features backend-llvm --bench instructions -- --runs=2
-      # What this run measured, as a baseline file: commit it to re-bless.
-      - if: failure()
+      # What this run measured, as a baseline file: commit it to re-bless,
+      # after a failure or after a pass that says some counts improved.
+      - if: always()
         uses: actions/upload-artifact@v7
         with:
           name: instructions-baseline
