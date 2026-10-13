@@ -519,25 +519,12 @@ fn emit_selected(
         },
     );
 
-    let mut out: Vec<(usize, Emitted)> = Vec::with_capacity(emitted.len());
-    let mut failed: Option<(usize, Diagnostics)> = None;
-    for (index, result) in wanted.iter().copied().zip(emitted) {
-        match result {
-            Ok(e) => out.push((index, e)),
-            // The first failing unit in unit order, which is the one a loop
-            // over the units would have stopped at.
-            Err(d) => {
-                if failed.as_ref().is_none_or(|(at, _)| index < *at) {
-                    failed = Some((index, d));
-                }
-            }
-        }
-    }
-    if let Some((_, d)) = failed {
-        return Err(d);
-    }
+    // In unit order, so a failure is the first failing unit's: the one a loop
+    // over the units would have stopped at.
+    let mut out: Vec<(usize, Result<Emitted, Diagnostics>)> =
+        wanted.iter().copied().zip(emitted).collect();
     out.sort_by_key(|(index, _)| *index);
-    Ok(out.into_iter().map(|(_, e)| e).collect())
+    out.into_iter().map(|(_, e)| e).collect()
 }
 
 /// The machine to optimize and emit against, or the diagnostic for a toolchain

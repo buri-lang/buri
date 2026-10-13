@@ -279,11 +279,6 @@ impl<'a> Jit<'a> {
         }
     }
 
-    pub(crate) fn unsupported(&mut self, why: String) {
-        let id = self.push_reason(why);
-        self.emit("unsupported", &[("JIT_N", V::I(id))]);
-    }
-
     // -- instructions ------------------------------------------------------
 
     pub(crate) fn inst(&mut self, prog: &ir::Program, code: &ir::Code, st: &mut Fn2, i: &Inst) {
@@ -362,7 +357,7 @@ impl<'a> Jit<'a> {
                 let d = st.at(*dest);
                 let (l, owner) = match code.ty_of(*dest) {
                     ir::Type::Agg(id) => (self.layout_id_shared(prog, id), &prog.type_info(id).ty),
-                    _ => return self.unsupported("MakeStruct of a non-aggregate".into()),
+                    _ => crate::diagnostics::ice("stencil: MakeStruct of a non-aggregate"),
                 };
                 let ftys = field_types(self.tables, owner);
                 for (i, f) in fields.iter().enumerate() {
@@ -381,7 +376,7 @@ impl<'a> Jit<'a> {
             Inst::GetField { dest, agg, index } => {
                 let (l, owner) = match code.ty_of(*agg) {
                     ir::Type::Agg(id) => (self.layout_id_shared(prog, id), &prog.type_info(id).ty),
-                    _ => return self.unsupported("GetField of a non-aggregate".into()),
+                    _ => crate::diagnostics::ice("stencil: GetField of a non-aggregate"),
                 };
                 let w = self.width_of(prog, code.ty_of(*dest));
                 let off = l.field(*index as usize);
@@ -406,7 +401,7 @@ impl<'a> Jit<'a> {
             } => {
                 let (l, owner) = match code.ty_of(*agg) {
                     ir::Type::Agg(id) => (self.layout_id_shared(prog, id), &prog.type_info(id).ty),
-                    _ => return self.unsupported("GetPayload of a non-aggregate".into()),
+                    _ => crate::diagnostics::ice("stencil: GetPayload of a non-aggregate"),
                 };
                 let w = self.width_of(prog, code.ty_of(*dest));
                 let off = l.variant(*variant as usize).get(*index as usize).copied();
@@ -420,7 +415,7 @@ impl<'a> Jit<'a> {
                         }
                         self.load_w(st.at(*dest), src, w)
                     }
-                    None => self.unsupported("GetPayload of an absent field".into()),
+                    None => crate::diagnostics::ice("stencil: GetPayload of an absent field"),
                 }
             }
             Inst::GetTag { dest, agg } => self.get_tag(prog, code, st, *dest, *agg),
@@ -674,7 +669,7 @@ impl<'a> Jit<'a> {
     ) {
         let (l, owner) = match code.ty_of(dest) {
             ir::Type::Agg(id) => (self.layout_id_shared(prog, id), &prog.type_info(id).ty),
-            _ => return self.unsupported("MakeEnum of a non-aggregate".into()),
+            _ => crate::diagnostics::ice("stencil: MakeEnum of a non-aggregate"),
         };
         let ftys = variant_types(self.tables, owner, variant as usize);
         let d = st.at(dest);
@@ -1175,7 +1170,7 @@ impl<'a> Jit<'a> {
             BinOp::Le => ("buri_rt_str_compare", &[LESS, EQUAL]),
             BinOp::Gt => ("buri_rt_str_compare", &[GREATER]),
             BinOp::Ge => ("buri_rt_str_compare", &[GREATER, EQUAL]),
-            other => return self.unsupported(format!("Binary {other:?} at Str")),
+            other => crate::diagnostics::ice(&format!("stencil: Binary {other:?} at Str")),
         };
         self.str_compare(st, symbol, a, b, raw);
         self.order_test(st, raw, d, op, want);
@@ -2113,7 +2108,7 @@ impl<'a> Jit<'a> {
                     self.show_prim(st, prim, p(0), ret0, true);
                     self.emit("ret", &[]);
                 }
-                None => self.unsupported(format!("number.{t}.show")),
+                None => crate::diagnostics::ice(&format!("stencil: number.{t}.show")),
             }
             return;
         }
@@ -2135,7 +2130,7 @@ impl<'a> Jit<'a> {
                         self.imm_num(ret0, prim, bits);
                         self.emit("ret", &[]);
                     }
-                    None => self.unsupported(format!("Body::Runtime {key}")),
+                    None => crate::diagnostics::ice(&format!("stencil: Body::Runtime {key}")),
                 }
                 return;
             }
@@ -2225,7 +2220,7 @@ impl<'a> Jit<'a> {
                         self.compare_prim(st, prim, p(0), p(1), ret0, w);
                         self.emit("ret", &[]);
                     }
-                    None => self.unsupported(format!("Body::Runtime {key}")),
+                    None => crate::diagnostics::ice(&format!("stencil: Body::Runtime {key}")),
                 }
                 return;
             }
@@ -2491,7 +2486,9 @@ impl Jit<'_> {
                 }
                 match tag {
                     Some(w) => self.store_w(d, raw, w),
-                    None => self.unsupported(format!("{key} into a destination that is not a tag")),
+                    None => crate::diagnostics::ice(&format!(
+                        "stencil: {key} into a destination that is not a tag"
+                    )),
                 }
                 true
             }

@@ -748,8 +748,7 @@ impl Jit<'_> {
                 // A `Str`, a `[T]` and a closure are a few words, so a value
                 // with one of these at its top is never this wide.
                 Site::Block { .. } => {
-                    return self
-                        .unsupported(String::from("a counted block too wide for a glue frame"));
+                    crate::diagnostics::ice("stencil: a counted block too wide for a glue frame")
                 }
             }
         }
