@@ -414,6 +414,15 @@ pub fn server_deadline() -> std::time::Duration {
     std::time::Duration::from_secs(if crate::valgrind::asked() { 200 } else { 20 })
 }
 
+/// `source` with its server's twenty-second `idleTimeout` as long as
+/// [`server_deadline`]: ten times as long under Valgrind, where a client the
+/// harness starts can take longer than twenty seconds to send its request, and
+/// the server then closes its listener under it.
+pub fn patient_idle(source: String) -> String {
+    let idle = format!("time.milliseconds({})", server_deadline().as_millis());
+    source.replace("time.milliseconds(20000)", &idle)
+}
+
 /// A loopback port nothing listens on and nothing else can take, held for as
 /// long as this value lives. `cli/runtime/lib.rs`'s `RefusedPort` is the same
 /// thing for the runtime's own tests.
@@ -579,8 +588,9 @@ fn has_run(_child: &std::process::Child) -> bool {
 /// rejected: seconds pass between the pick and the bind, and a port taken in
 /// between is a flake rather than a failure.
 pub fn one_shot_server() -> String {
-    String::from(
-        r#"from "platform/effect" import { Allocator, Listen, Stdout, Tasks };
+    patient_idle({
+        String::from(
+            r#"from "platform/effect" import { Allocator, Listen, Stdout, Tasks };
 from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -615,7 +625,8 @@ export fn main(host: NativeHost): Result<(), Str> {
   }
 }
 "#,
-    )
+        )
+    })
 }
 
 /// A server that answers `requests` requests. With a `gate`, each handler
@@ -1719,8 +1730,9 @@ pub fn conformance_corpus() -> PathBuf {
 /// the last one answered, and `onClose` stops it. Nothing keys anything by
 /// socket.
 pub fn counting_socket_server() -> String {
-    String::from(
-        r#"from "core/actor" import * as actor;
+    patient_idle({
+        String::from(
+            r#"from "core/actor" import * as actor;
 from "core/actor" import { Actor, Stepped };
 from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
 from "native" import { NativeHost };
@@ -1789,7 +1801,8 @@ export fn main(host: NativeHost): Result<(), Str> {
   }
 }
 "#,
-    )
+        )
+    })
 }
 
 /// [`broadcasting_socket_server`]'s two-socket row against a built binary: the
@@ -1876,8 +1889,9 @@ pub fn broadcast_reaches_the_other_socket(binary: &Path) {
 /// It needs two sockets open at once, so it needs two workers running side by
 /// side.
 pub fn broadcasting_socket_server(members: usize) -> String {
-    format!(
-        r#"from "core/actor" import * as actor;
+    patient_idle({
+        format!(
+            r#"from "core/actor" import * as actor;
 from "core/actor" import {{ Actor, Stepped }};
 from "platform/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
 from "native" import {{ NativeHost }};
@@ -1967,8 +1981,9 @@ export fn main(host: NativeHost): Result<(), Str> {{
   }}
 }}
 "#,
-        members = members,
-    )
+            members = members,
+        )
+    })
 }
 
 /// A running server binary, its output reader, and the port it announced.

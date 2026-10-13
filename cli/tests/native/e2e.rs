@@ -441,8 +441,9 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// it finish: the ordinary request is the first, the upgrade is the second, and
 /// once the socket closes the next `listenAccept` is `.Closed`.
 fn path_scoped_socket_server() -> String {
-    String::from(
-        r#"from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
+    crate::shared::patient_idle({
+        String::from(
+            r#"from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
 from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -497,7 +498,8 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 "#,
-    )
+        )
+    })
 }
 
 /// A server with **no** `websocket` field, which is the whole of the
@@ -508,8 +510,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// reaches `onRequest` like any other request, and what a server that does not
 /// do WebSockets answers is its own business.
 fn no_hooks_server() -> String {
-    String::from(
-        r#"from "platform/effect" import { Allocator, Listen, Stdout, Tasks };
+    crate::shared::patient_idle({
+        String::from(
+            r#"from "platform/effect" import { Allocator, Listen, Stdout, Tasks };
 from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -545,7 +548,8 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 "#,
-    )
+        )
+    })
 }
 
 /// A socket whose outbound buffer is one message deep, and a handler that
@@ -570,8 +574,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// * `served` — `run` still ended in an `.Ok`, so an overflowing socket is a
 ///   socket ending and not a server falling over.
 fn overflowing_socket_server(flood: usize) -> String {
-    format!(
-        r#"from "platform/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
+    crate::shared::patient_idle({
+        format!(
+            r#"from "platform/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
 from "native" import {{ NativeHost }};
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -629,8 +634,9 @@ export fn main(host: NativeHost): Result<(), Str> {{
     }}
 }}
 "#,
-        flood = flood,
-    )
+            flood = flood,
+        )
+    })
 }
 
 /// **One handler, two worlds.**
@@ -653,8 +659,9 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// method takes only `self`, `self` is immutable, and a hand-written double
 /// that cannot reach runner-side state can record nothing at all.
 fn both_worlds_server() -> String {
-    String::from(
-        r#"from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
+    crate::shared::patient_idle({
+        String::from(
+            r#"from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
 from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -755,7 +762,8 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 "#,
-    )
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1409,8 +1417,9 @@ fn the_same_handler_answers_the_same_way_with_and_without_a_socket() {
 /// once the client has read some of it. buri-lang/buri#244 is what happened
 /// when they did not.
 fn large_message_server() -> String {
-    String::from(
-        r#"from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
+    crate::shared::patient_idle({
+        String::from(
+            r#"from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
 from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -1486,7 +1495,8 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 "#,
-    )
+        )
+    })
 }
 
 /// **A message larger than the socket's buffers arrives whole, and the socket
@@ -1572,15 +1582,16 @@ fn a_websocket_message_larger_than_the_socket_buffer_arrives_whole() {
 /// listens on `localhost`, whichever address that is first, because that is
 /// the one a client dialling `localhost` reaches.
 fn closing_large_server(tls: Option<(&std::path::Path, &std::path::Path)>) -> String {
-    let tls = tls.map_or_else(String::new, |(certificate, key)| {
+    crate::shared::patient_idle({
+        let tls = tls.map_or_else(String::new, |(certificate, key)| {
+            format!(
+                "tls: .Some(server.Tls {{ certificate: \"{}\", key: \"{}\" }}),",
+                certificate.display(),
+                key.display()
+            )
+        });
         format!(
-            "tls: .Some(server.Tls {{ certificate: \"{}\", key: \"{}\" }}),",
-            certificate.display(),
-            key.display()
-        )
-    });
-    format!(
-        r#"from "platform/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
+            r#"from "platform/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
 from "native" import {{ NativeHost }};
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -1631,7 +1642,8 @@ export fn main(host: NativeHost): Result<(), Str> {{
     }}
 }}
 "#
-    )
+        )
+    })
 }
 
 /// A client that dials the URL on its command line and reads nothing until a
@@ -5840,8 +5852,9 @@ fn echoing_socket_server() -> String {
 /// server will serve before its accept loop is done — which is what the
 /// reconnect row needs two of.
 fn echoing_socket_server_for(sockets: u32) -> String {
-    format!(
-        r#"from "platform/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
+    crate::shared::patient_idle({
+        format!(
+            r#"from "platform/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
 from "native" import {{ NativeHost }};
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -5902,8 +5915,9 @@ export fn main(host: NativeHost): Result<(), Str> {{
     }}
 }}
 "#,
-        sockets = sockets,
-    )
+            sockets = sockets,
+        )
+    })
 }
 
 /// The client half: dial the port on the command line, say one thing, print
@@ -7491,6 +7505,9 @@ fn relay(port: u16) -> (u16, Heard) {
 /// in one round trip.
 ///
 /// The relay in between reads the two hellos, which TLS 1.3 sends in the clear.
+///
+/// Under Valgrind on x86_64 the program runs on Valgrind's CPU, which has no
+/// ADX, so both ends fall back to X25519 and the test expects that instead.
 #[test]
 fn a_buri_client_and_server_agree_on_hybrid_post_quantum_key_exchange() {
     unless_ready!();
@@ -7522,6 +7539,15 @@ fn a_buri_client_and_server_agree_on_hybrid_post_quantum_key_exchange() {
     );
     let (groups, shares) = offered_groups(&said)
         .unwrap_or_else(|| panic!("the client's first bytes are not a ClientHello: {said:?}"));
+    if cfg!(target_arch = "x86_64") && crate::valgrind::asked() {
+        assert_eq!(
+            (groups.first(), shares.as_slice(), settled_group(&answered)),
+            (Some(&X25519_GROUP), &[X25519_GROUP][..], Some(X25519_GROUP)),
+            "without ADX both ends should settle on X25519: {groups:04x?}"
+        );
+        assert_eq!(served.status, 0, "stderr:\n{}", served.stderr);
+        return;
+    }
     assert_eq!(
         groups.first(),
         Some(&HYBRID_GROUP),
@@ -7717,8 +7743,9 @@ fn a_main_that_fails_ends_the_program_without_its_pending_timers() {
 /// with its own text. `requestLimit: 1` is the upgrade, so the server finishes
 /// once the socket closes.
 fn pinging_socket_server() -> String {
-    String::from(
-        r#"from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
+    crate::shared::patient_idle({
+        String::from(
+            r#"from "platform/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
 from "native" import { NativeHost };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -7766,7 +7793,8 @@ export fn main(host: NativeHost): Result<(), Str> {
     }
 }
 "#,
-    )
+        )
+    })
 }
 
 /// **A server sends a ping when the program asks for one, and only then.** The
