@@ -3,12 +3,12 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15173 15439 98.28%
-area cli/build 1678 1695 99.00%
+total 15190 15439 98.39%
+area cli/build 1688 1705 99.00%
 area cli/documentation 477 480 99.38%
 area cli/format 94 94 100.00%
-area cli/language_server 1240 1278 97.03%
-area cli/lint 590 602 98.01%
+area cli/language_server 1246 1268 98.26%
+area cli/lint 591 602 98.17%
 area cli/other 536 564 95.04%
 area cli/run 58 58 100.00%
 area cli/serve+watch 69 70 98.57%
@@ -28,7 +28,7 @@ area crates/syntax 1194 1196 99.83%
 264 269 cli/src/build/actions.rs
 44 44 cli/src/build/cache.rs
 14 14 cli/src/build/counted.rs
-80 80 cli/src/build/coverage.rs
+90 90 cli/src/build/coverage.rs
 30 32 cli/src/build/exe_identity.rs
 164 164 cli/src/build/generators.rs
 230 230 cli/src/build/hosted.rs
@@ -55,7 +55,7 @@ area crates/syntax 1194 1196 99.83%
 30 30 cli/src/commands/generate.rs
 26 26 cli/src/commands/init.rs
 1 2 cli/src/commands/interrupt.rs
-555 566 cli/src/commands/lint.rs
+556 566 cli/src/commands/lint.rs
 35 36 cli/src/commands/lint_cache.rs
 20 20 cli/src/commands/mod.rs
 39 40 cli/src/commands/query.rs
@@ -96,8 +96,8 @@ area crates/syntax 1194 1196 99.83%
 34 34 cli/src/language_server/schema.rs
 56 56 cli/src/language_server/semantic_tokens.rs
 48 48 cli/src/language_server/signature_help.rs
-101 108 cli/src/language_server/state.rs
-18 28 cli/src/language_server/sweep.rs
+109 110 cli/src/language_server/state.rs
+16 16 cli/src/language_server/sweep.rs
 145 146 cli/src/language_server/symbols.rs
 39 40 cli/src/language_server/syntax.rs
 11 12 cli/src/main.rs
