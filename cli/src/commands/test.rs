@@ -469,6 +469,7 @@ fn one_pass(
         skipped,
         cached,
         uncompiled,
+        unrun,
         printed,
         mut hard_error,
         listed,
@@ -525,6 +526,11 @@ fn one_pass(
     } else {
         String::new()
     };
+    let unrun_note = if unrun > 0 {
+        format!(", {unrun} failed to run")
+    } else {
+        String::new()
+    };
     // `--verbose` lists every suite first and the failures after it.
     if listed {
         if let Some(ns) = shared_build {
@@ -551,7 +557,7 @@ fn one_pass(
     // here is what fixes their order when both descriptors are one terminal.
     let _ = std::io::stderr().flush();
     out.line(&format!(
-        "{passed} passed, {failed} failed, {skipped} skipped{uncompiled_note} ({elapsed:.1}s{note})"
+        "{passed} passed, {failed} failed, {skipped} skipped{uncompiled_note}{unrun_note} ({elapsed:.1}s{note})"
     ));
     if args.flags.coverage {
         crate::build::coverage::report(&session.root, &mut |line| out.line(line));
@@ -923,6 +929,8 @@ struct Tally {
     skipped: usize,
     cached: usize,
     uncompiled: usize,
+    /// Suites that built and then failed while running.
+    unrun: usize,
     printed: bool,
     hard_error: bool,
     /// `--verbose`: whether any suite was listed, and the failure reports held
@@ -1094,20 +1102,29 @@ fn report(
     let target = plan.target;
     let mut diagnostics = plan.refused.clone();
     let mut runs: Vec<(Platform, Outcome)> = Vec::new();
+    // Whether every refusal came from a program that had been built.
+    let mut ran_failed = diagnostics.items.is_empty();
     for &i in &plan.slots {
         let slot = slots.get_mut(i).or_ice(SLOT);
         print!("{}", slot.explain);
         eprint!("{}", slot.notes);
         match slot.answer.take() {
             Some(Ok(one)) => runs.push((slot.platform, one)),
-            Some(Err(d)) => diagnostics.extend(d.items),
+            Some(Err(d)) => {
+                ran_failed &= d.at_run;
+                diagnostics.extend(d.items);
+            }
             None => {}
         }
     }
     if diagnostics.has_errors() {
         // A suite that never compiled produced no cases, so it lands in no
         // other counter and the summary would say nothing about it.
-        tally.uncompiled += 1;
+        if ran_failed {
+            tally.unrun += 1;
+        } else {
+            tally.uncompiled += 1;
+        }
         tally.hard_error |= session.print(&diagnostics);
         return;
     }
@@ -2407,7 +2424,7 @@ fn did_not_run(stderr: &str) -> Diagnostics {
             .with_fix("read the runtime's own message above; it is what failed")
             .with_note(message.to_string())
     });
-    d
+    d.at_run()
 }
 
 /// The cases in a suite's record array, stored with its build where
@@ -5679,7 +5696,7 @@ fn timed_out(session: &Session, target: TargetId, limit: Option<u32>) -> Diagnos
             .with_bind("target", session.workspace.label(target))
             .with_bind("seconds", seconds.to_string()),
     );
-    diagnostics
+    diagnostics.at_run()
 }
 
 /// The diagnostic a suite whose binary failed the runtime's heap check gets.
@@ -5704,7 +5721,7 @@ fn heap_check_failed(label: &str, line: &str) -> Diagnostics {
              provoked it",
         ),
     );
-    diagnostics
+    diagnostics.at_run()
 }
 
 /// The diagnostic a suite gets whose binary died with every block of it already
@@ -5727,7 +5744,7 @@ fn the_binary_died(label: &str, how: &str) -> Diagnostics {
              finished. Please report it with the suite that provoked it",
         ),
     );
-    diagnostics
+    diagnostics.at_run()
 }
 
 /// The diagnostic a suite gets whose binary ended before its first block.
@@ -5748,7 +5765,7 @@ fn the_binary_did_not_start(label: &str, how: &str) -> Diagnostics {
              that provoked it",
         ),
     );
-    diagnostics
+    diagnostics.at_run()
 }
 
 enum Execution {

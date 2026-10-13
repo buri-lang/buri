@@ -1516,6 +1516,10 @@ pub fn were_given(n: usize) -> String {
 #[derive(Default, Clone)]
 pub struct Diagnostics {
     pub items: Vec<Diagnostic>,
+    /// These stopped something that had been built, at the moment it ran.
+    /// Only `buri test` reads it, to count a suite that failed to run apart
+    /// from one that failed to compile.
+    pub at_run: bool,
     /// What has been reported, so that the deduplication above is a lookup.
     ///
     /// It was a scan of everything reported so far, which is `n²` in the
@@ -1527,6 +1531,12 @@ pub struct Diagnostics {
 impl Diagnostics {
     pub fn new() -> Diagnostics {
         Diagnostics::default()
+    }
+
+    /// Marks these as what stopped a program that had been built.
+    pub fn at_run(mut self) -> Diagnostics {
+        self.at_run = true;
+        self
     }
 
     pub fn push(&mut self, d: Diagnostic) {

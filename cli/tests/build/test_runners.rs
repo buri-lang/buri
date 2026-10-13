@@ -64,7 +64,7 @@ fn a_test_binary_that_fails_the_heap_check_fails_its_suite() {
                  the test binary exited with the heap-check status and said nothing"
             ))
             .says("this is a toolchain bug")
-            .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
+            .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
     });
 }
 
@@ -99,7 +99,7 @@ fn a_test_binary_that_never_starts_says_why() {
             .says(&format!(
                 "error: the test binary for {suite} could not start: the loader refused it"
             ))
-            .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
+            .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
     });
 }
 
@@ -114,7 +114,7 @@ fn a_test_binary_that_dies_after_its_blocks_fails_its_suite() {
             .says(&format!(
                 "error: the test binary for {suite} ran every block and then died: the run exited 3"
             ))
-            .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
+            .says("0 passed, 0 failed, 0 skipped, 1 failed to run");
     });
 }
 
@@ -181,4 +181,28 @@ fn a_test_runner_that_cannot_run_fails_each_suite() {
             .says("cannot run the test binary: ")
             .says("Permission denied");
     });
+}
+
+/// A suite that didn't build and one whose binary failed while running are
+/// counted apart.
+#[test]
+fn a_summary_counts_a_suite_that_failed_to_build_apart_from_one_that_failed_to_run() {
+    let scratch = suites("runners-mixed");
+    scratch.write(
+        "lib/broken/BUILD.buri",
+        "library {\n    test {\n        sources: [\"test/t.buri\"]\n    }\n}\n",
+    );
+    scratch.write("lib/broken/lib.buri", ONE);
+    scratch.write(
+        "lib/broken/test/t.buri",
+        "from \"core/testing/assert\" import * as assert;\n\n\
+         test \"bad\" {\n    assert.isTrue(missing);\n}\n",
+    );
+    let runner = script(&scratch, "leaks", "\"$@\"\nexit 97\n");
+    let run = scratch.run_with_env(
+        &["test", "//lib/a", "//lib/t", "//lib/broken", "--force"],
+        &[("BURI_TEST_RUNNER", &runner), LINKED],
+    );
+    run.exits(1)
+        .says("0 passed, 0 failed, 0 skipped, 1 failed to compile, 2 failed to run");
 }

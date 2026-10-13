@@ -676,7 +676,15 @@ is not zero:
 0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)
 ```
 
-The diagnostic saying why goes to stderr and the summary to stdout. The runner
+A suite that built and then failed while running, by running past its
+`timeout_seconds`, failing the heap check, dying, or never starting, is counted
+under `failed to run` instead:
+
+```
+0 passed, 0 failed, 0 skipped, 1 failed to run (0.0s)
+```
+
+A run with both prints the compile count first. The diagnostic saying why goes to stderr and the summary to stdout. The runner
 flushes stderr before writing the summary, so a log with a broken suite in it
 never opens with a line that looks like a clean run.
 
