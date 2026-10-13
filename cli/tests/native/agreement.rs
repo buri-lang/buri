@@ -4650,8 +4650,10 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// something a second task can survive", and this is the sentence as a program.
 ///
 /// The body's line is above the message, so what the abort interrupted was a
-/// program that was already running. `cli/tests/crash/spawned_task_aborts.buri`
-/// is the same program wherever the JavaScript corpus runs.
+/// program that was already running. The body prints before it spawns, because
+/// a `--release` build starts the task at once on a thread of its own.
+/// `cli/tests/crash/spawned_task_aborts.buri` is the same program wherever the
+/// JavaScript corpus runs.
 #[test]
 fn an_abort_inside_a_spawned_task_stops_the_program_the_same_way() {
     rows_or_skip!();
@@ -4668,11 +4670,12 @@ fn ratio(a: Int, b: Int): Int { a / b }
 export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
   let _ = tasks.scope(ctx, fn(c, here) => {
+    let _ = io.println(c, "before").ignore();
     let _ = tasks.spawn(c, here, fn(c2) => {
       let _ = io.println(c2, "${ratio(8, 0)}").ignore();
       ()
     });
-    io.println(c, "before").ignore()
+    ()
   });
   let _ = io.println(ctx, "after").ignore();
   .Ok(())
