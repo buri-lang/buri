@@ -1834,11 +1834,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         || p.is_float()
                         || matches!(p, Prim::Bool | Prim::Char | Prim::Str);
                 }
-                let tr = *self
-                    .c
-                    .known_traits
-                    .get("Show")
-                    .or_ice("`Show` is a prelude name");
+                let tr = self.c.known_trait("Show");
                 let Some(imp) = self.c.tables.impls.get(&(tr, *id)) else {
                     return false;
                 };

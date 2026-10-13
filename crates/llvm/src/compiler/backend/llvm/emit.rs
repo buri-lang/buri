@@ -1021,8 +1021,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Inst::ArrayLen { dest, array } => {
                 let list = self.get(state, *array);
                 let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*array));
-                let pieces = self.pieces(&slots, list);
-                let len = *pieces.get(layout::LIST_LEN).or_ice("a list has its length");
+                let [_, len] = self.pieces_n(&slots, list);
                 self.set(state, *dest, len);
             }
             ir::Inst::ArrayGet { dest, array, index } => {
@@ -1644,8 +1643,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .copied()
             .unwrap_or(false)
         {
-            let taken = self.pieces_range(&slots, whole, start..start.saturating_add(1));
-            let block = ptr(*taken.first().or_ice("a boxed field is one pointer"));
+            let block = ptr(self.piece(&slots, whole, start));
             let (_, _, align) = self.dest_shape(code, dest);
             let value = self.load_value(block, &want, align);
             self.set(state, dest, value);
@@ -1725,14 +1723,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let (want, _, align) = self.dest_shape(code, dest);
         let p = repr::byte_offset(self.ctx, &self.builder, base, i64::from(at), "fld");
         if boxed {
-            let slot = [Slot {
+            let slot = Slot {
                 offset: 0,
                 ty: SlotTy::Scalar(Scalar::Ptr),
-            }];
-            let block = ptr(*self
-                .load_slots(p, &slot, 8)
-                .first()
-                .or_ice("one slot loads one piece"));
+            };
+            let block = ptr(self.load_one(p, slot, 8));
             return self.load_value(block, &want, align);
         }
         if repr::in_memory(&want) {
@@ -1803,10 +1798,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // is (`ir::Inst::GetTag`), and the width it is *stored* at stays
             // the layout table's answer.
             EnumRepr::Bare { .. } | EnumRepr::Tagged { .. } => {
-                let tag = int(*self
-                    .pieces_range(slots, whole, 0..1)
-                    .first()
-                    .or_ice("a tag leads"));
+                let tag = int(self.piece(slots, whole, 0));
                 self.builder
                     .build_int_z_extend_or_bit_cast(tag, i32t, "tag")
                     .or_ice(BUILT)
@@ -1820,11 +1812,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     .iter()
                     .position(|s| s.offset == null_at && s.ty.is_pointer())
                     .or_ice("a niche is a pointer slot");
-                let one = i..i.saturating_add(1);
-                let p = ptr(*self
-                    .pieces_range(slots, whole, one)
-                    .first()
-                    .or_ice("one slot"));
+                let p = ptr(self.piece(slots, whole, i));
                 let is_null = self.builder.build_is_null(p, "isnone").or_ice(BUILT);
                 let some = i32t.const_int(some_variant as u64, false);
                 let none = i32t.const_int(none_variant as u64, false);
@@ -2278,11 +2266,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         let slots = repr::ir_slots(&mut self.reprs, self.program, list_ty);
         let value = self.get(state, array);
-        let pieces = self.pieces(&slots, value);
-        let base = ptr(*pieces
-            .get(layout::LIST_PTR)
-            .or_ice("a list has its elements"));
-        let len = int(*pieces.get(layout::LIST_LEN).or_ice("a list has its length"));
+        let [base, len] = self.pieces_n(&slots, value);
+        let (base, len) = (ptr(base), int(len));
         let start = int(self.get(state, from));
         let count = self
             .builder
@@ -2408,10 +2393,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
         let source = self.get(state, array);
-        let pieces = self.pieces(&slots, source);
-        let scratch = ptr(*pieces
-            .get(layout::LIST_PTR)
-            .or_ice("a list has its elements"));
+        let [scratch, _] = self.pieces_n(&slots, source);
+        let scratch = ptr(scratch);
         let kept = int(self.get(state, len));
         let word = self.ctx.i64_type();
         let bytes = self
@@ -2442,10 +2425,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let element = self.element_of(list_ty);
         let list_slots = repr::ir_slots(&mut self.reprs, self.program, list_ty);
         let list = self.get(state, array);
-        let pieces = self.pieces(&list_slots, list);
-        let base = ptr(*pieces
-            .get(layout::LIST_PTR)
-            .or_ice("a list has its elements"));
+        let [base, _] = self.pieces_n(&list_slots, list);
+        let base = ptr(base);
         let i = int(self.get(state, index));
         ElementRead {
             base,
@@ -2705,13 +2686,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) {
         let closure_slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(callee));
         let value = self.get(state, callee);
-        let pieces = self.pieces(&closure_slots, value);
-        let target = ptr(*pieces
-            .get(layout::CLOSURE_CODE)
-            .or_ice("a closure has its code"));
-        let env = ptr(*pieces
-            .get(layout::CLOSURE_ENV)
-            .or_ice("a closure has its environment"));
+        let [target, env] = self.pieces_n(&closure_slots, value);
+        let (target, env) = (ptr(target), ptr(env));
         let params: Vec<Vec<Slot>> = args
             .iter()
             .map(|a| repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*a)))
@@ -3403,9 +3379,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         for text in texts {
             let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*text));
             let value = self.get(state, *text);
-            let pieces = self.pieces(&slots, value);
-            let bytes = *pieces.get(layout::STR_PTR).or_ice("a `Str` has its bytes");
-            let raw = int(*pieces.get(layout::STR_LEN).or_ice("a `Str` has its length"));
+            let [_, bytes, raw] = self.pieces_n(&slots, value);
+            let raw = int(raw);
             let len = self
                 .builder
                 .build_and(raw, word.const_int(STR_LEN_MASK, false), "assert.bytes")
@@ -5611,10 +5586,43 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
+    /// The one value a single slot loads from `p`.
+    fn load_one(&mut self, p: PointerValue<'ctx>, slot: Slot, align: u32) -> BasicValueEnum<'ctx> {
+        let [piece] = <[_; 1]>::try_from(self.load_slots(p, &[slot], align))
+            .ok()
+            .or_ice("one slot loads one piece");
+        piece
+    }
+
     /// A value's slot values, from either form. `repr::disassemble` for one in
     /// registers, a load per slot for one in memory.
     fn pieces(&mut self, slots: &[Slot], value: BasicValueEnum<'ctx>) -> Vec<BasicValueEnum<'ctx>> {
         self.pieces_range(slots, value, 0..slots.len())
+    }
+
+    /// A value's slot values as the `N` it has: two for a list or a closure, three
+    /// for a `Str` (`layout`'s field indices say which is which).
+    fn pieces_n<const N: usize>(
+        &mut self,
+        slots: &[Slot],
+        value: BasicValueEnum<'ctx>,
+    ) -> [BasicValueEnum<'ctx>; N] {
+        <[_; N]>::try_from(self.pieces(slots, value))
+            .ok()
+            .or_ice("a value has the slots its layout names")
+    }
+
+    /// The one slot value at `at`.
+    fn piece(
+        &mut self,
+        slots: &[Slot],
+        value: BasicValueEnum<'ctx>,
+        at: usize,
+    ) -> BasicValueEnum<'ctx> {
+        let [piece] = <[_; 1]>::try_from(self.pieces_range(slots, value, at..at.saturating_add(1)))
+            .ok()
+            .or_ice("a range of one slot holds one piece");
+        piece
     }
 
     /// The slot values at `range`, and no others.
@@ -6140,10 +6148,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     .get(1)
                     .or_ice("a tagged enum's payload follows its tag");
                 let blob = if loaded {
-                    *self
-                        .load_slots(buf, &[slot], align)
-                        .first()
-                        .or_ice("one slot loads one piece")
+                    self.load_one(buf, slot, align)
                 } else {
                     repr::slot_type(self.ctx, slot.ty).const_zero()
                 };
@@ -6659,8 +6664,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let pieces = self.pieces(&slots, value);
                 // `ptr`, `len` and no `base`: the renderer reads the bytes and
                 // keeps nothing, which is `Arg::Bytes`'s shape.
-                let ptr = *pieces.get(layout::STR_PTR).or_ice("a `Str` has its bytes");
-                let raw = int(*pieces.get(layout::STR_LEN).or_ice("a `Str` has its length"));
+                let [_, ptr, raw] = <[_; 3]>::try_from(pieces)
+                    .ok()
+                    .or_ice("a value has the slots its layout names");
+                let raw = int(raw);
                 // **Masked**, unlike every `Arg::Str` argument. `text.rs`'s
                 // entries take the stored word and clear bit 63 themselves;
                 // `buri_rt_show_str` documents `len` readable bytes and reads
@@ -7119,8 +7126,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let a = arg(args, 0);
                 let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(a));
                 let value = self.get(state, a);
-                let pieces = self.pieces(&slots, value);
-                let len = *pieces.get(layout::LIST_LEN).or_ice("a list has its length");
+                let [_, len] = self.pieces_n(&slots, value);
                 self.set(state, dest, len);
                 true
             }
@@ -7278,8 +7284,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(a));
         let value = self.get(state, a);
         let pieces = self.pieces(&slots, value);
-        let ptr = *pieces.get(layout::STR_PTR).or_ice("a `Str` has its bytes");
-        let raw = int(*pieces.get(layout::STR_LEN).or_ice("a `Str` has its length"));
+        let [_, ptr, raw] = <[_; 3]>::try_from(pieces)
+            .ok()
+            .or_ice("a value has the slots its layout names");
+        let raw = int(raw);
         let word = self.ctx.i64_type();
         let bytes = self
             .builder
@@ -7511,12 +7519,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             pieces.extend(self.pieces(&slots, value));
         }
         // Two `Str`s, three words each.
-        let piece = |at: usize| *pieces.get(at).or_ice("`concat` joins two `Str`s");
-        let a_base = ptr(piece(layout::STR_BASE));
-        let a_ptr = ptr(piece(layout::STR_PTR));
-        let a_raw = int(piece(layout::STR_LEN));
-        let b_ptr = ptr(piece(3usize.saturating_add(layout::STR_PTR)));
-        let b_raw = int(piece(3usize.saturating_add(layout::STR_LEN)));
+        let [a_base, a_ptr, a_raw, _, b_ptr, b_raw] = <[_; 6]>::try_from(pieces)
+            .ok()
+            .or_ice("`concat` joins two `Str`s");
+        let a_base = ptr(a_base);
+        let a_ptr = ptr(a_ptr);
+        let a_raw = int(a_raw);
+        let b_ptr = ptr(b_ptr);
+        let b_raw = int(b_raw);
         let word = self.ctx.i64_type();
         let mask = word.const_int(STR_LEN_MASK, false);
         let a_len = self

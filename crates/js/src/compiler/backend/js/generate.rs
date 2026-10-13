@@ -1262,6 +1262,18 @@ impl<'a> Gen<'a> {
 
 /// What makes a primitive operation's operands there to take: the checker
 /// resolved the operator to this `PrimOp` from the operands it had.
+/// The two operands of a binary primitive operation, in source order.
+fn operands(args: &mut Vec<Expr>) -> (Expr, Expr) {
+    let b = args.pop().or_ice(BINARY_ARITY);
+    let a = args.pop().or_ice(BINARY_ARITY);
+    (a, b)
+}
+
+/// The operand of a unary primitive operation.
+fn operand(args: &mut Vec<Expr>) -> Expr {
+    args.pop().or_ice(UNARY_ARITY)
+}
+
 const BINARY_ARITY: &str = "a binary primitive operation reaches the backend with two operands";
 const UNARY_ARITY: &str = "a unary primitive operation reaches the backend with one operand";
 const PLACEHOLDER: &str = "a `$$argN` placeholder names one of the arguments it was built for";
@@ -3065,8 +3077,7 @@ impl<'a> Gen<'a> {
         let big = p.is_bigint();
         let float = p.is_float();
         let two = |op: BinOp, args: &mut Vec<Expr>| {
-            let b = args.pop().or_ice(BINARY_ARITY);
-            let a = args.pop().or_ice(BINARY_ARITY);
+            let (a, b) = operands(args);
             Expr::bin(op, a, b)
         };
         // The bitwise operators, where the answer is already in hand.
@@ -3082,13 +3093,12 @@ impl<'a> Gen<'a> {
             }
         }
         match op {
-            PrimOp::Not => Expr::un(UnOp::Not, args.pop().or_ice(UNARY_ARITY)),
+            PrimOp::Not => Expr::un(UnOp::Not, operand(&mut args)),
             // A float is the one primitive `===` gets wrong, and only at
             // `NaN`. The ordering operators below keep IEEE's unordered
             // answer, which SPEC 6.2 still pins.
             PrimOp::Eq | PrimOp::Ne if float => {
-                let b = args.pop().or_ice(BINARY_ARITY);
-                let a = args.pop().or_ice(BINARY_ARITY);
+                let (a, b) = operands(&mut args);
                 let same = float_eq(a, b);
                 if op == PrimOp::Eq {
                     same
@@ -3114,8 +3124,7 @@ impl<'a> Gen<'a> {
             PrimOp::Lt | PrimOp::Le | PrimOp::Gt | PrimOp::Ge
                 if matches!(p, Prim::Str | Prim::Template | Prim::Char) =>
             {
-                let b = args.pop().or_ice(BINARY_ARITY);
-                let a = args.pop().or_ice(BINARY_ARITY);
+                let (a, b) = operands(&mut args);
                 let tag = Expr::call(Expr::ident("$str_compare"), vec![a, b]);
                 let against = match op {
                     PrimOp::Lt => BinOp::Lt,
@@ -3139,7 +3148,7 @@ impl<'a> Gen<'a> {
                     PrimOp::BitAnd => two(BinOp::BitAnd, &mut args),
                     PrimOp::BitOr => two(BinOp::BitOr, &mut args),
                     PrimOp::BitXor => two(BinOp::BitXor, &mut args),
-                    _ => Expr::un(UnOp::BitNot, args.pop().or_ice(UNARY_ARITY)),
+                    _ => Expr::un(UnOp::BitNot, operand(&mut args)),
                 };
                 if p.is_signed() || op != PrimOp::BitNot {
                     v
@@ -3158,16 +3167,16 @@ impl<'a> Gen<'a> {
                     PrimOp::BitAnd => two(BinOp::BitAnd, &mut args),
                     PrimOp::BitOr => two(BinOp::BitOr, &mut args),
                     PrimOp::BitXor => two(BinOp::BitXor, &mut args),
-                    _ => Expr::un(UnOp::BitNot, args.pop().or_ice(UNARY_ARITY)),
+                    _ => Expr::un(UnOp::BitNot, operand(&mut args)),
                 };
                 Expr::call(Expr::ident("$umask"), vec![v, Expr::Num(p.bits() as f64)])
             }
             PrimOp::BitAnd => two(BinOp::BitAnd, &mut args),
             PrimOp::BitOr => two(BinOp::BitOr, &mut args),
             PrimOp::BitXor => two(BinOp::BitXor, &mut args),
-            PrimOp::BitNot => Expr::un(UnOp::BitNot, args.pop().or_ice(UNARY_ARITY)),
+            PrimOp::BitNot => Expr::un(UnOp::BitNot, operand(&mut args)),
             PrimOp::Neg => {
-                let v = Expr::un(UnOp::Neg, args.pop().or_ice(UNARY_ARITY));
+                let v = Expr::un(UnOp::Neg, operand(&mut args));
                 self.rounded(v, p)
             }
             PrimOp::Add | PrimOp::Sub | PrimOp::Mul => {

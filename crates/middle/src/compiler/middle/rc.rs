@@ -3525,13 +3525,14 @@ impl Scan<'_> {
                 self.expr(base, bid, live, Mode::Borrow);
                 self.flush(id);
             }
-            ExprKind::StructUpdate { base, updates, .. }
-                if !self.opts.sharing && self.dying_base(base, live).is_some() =>
-            {
-                let root = self
-                    .dying_base(base, live)
-                    .or_ice("the guard found the base dying");
-                self.update_dying(root, base, updates, id, live)
+            ExprKind::StructUpdate { base, updates, .. } => {
+                match (!self.opts.sharing)
+                    .then(|| self.dying_base(base, live))
+                    .flatten()
+                {
+                    Some(root) => self.update_dying(root, base, updates, id, live),
+                    None => self.children(e, id, live),
+                }
             }
             _ => self.children(e, id, live),
         }
@@ -4453,12 +4454,12 @@ impl BodyIndex {
             ExprKind::Block { stmts, .. } => {
                 for st in stmts {
                     if let Stmt::Let { pattern, .. } = st {
-                        let start = self.let_bound.len();
-                        pattern.binds(&mut self.let_bound);
-                        for k in start..self.let_bound.len() {
-                            let b = *self.let_bound.get(k).or_ice("`k` ranges over `let_bound`");
-                            self.bind(b, (id, inside));
+                        let mut these = Vec::new();
+                        pattern.binds(&mut these);
+                        for b in &these {
+                            self.bind(*b, (id, inside));
                         }
+                        self.let_bound.extend(these);
                     }
                 }
             }
