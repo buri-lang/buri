@@ -1,0 +1,35 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:54:30
+   |
+54 | fn ahead<C: Allocator>(ctx: C? , s: Narrow): (Narrow, Narrow) {
+   |                              ^
+   |
+  --> main.buri:54:23
+   |
+54 | fn ahead<C: Allocator>(ctx: C? , s: Narrow): (Narrow, Narrow) {
+   |                       ^ opened here
+   |
+   = fix: write `)` here
+error: there is nothing named `s` in scope [unknown-name]
+  --> main.buri:55:29
+   |
+55 |     let next = stepped(ctx, s);
+   |                             ^
+   |
+   = fix: declare `s`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `s` in scope [unknown-name]
+  --> main.buri:56:6
+   |
+56 |     (s, next)
+   |      ^
+   |
+   = fix: declare `s`, or import it — a name is in scope only from this module's own declarations and its imports
+error: `ahead` takes 1 argument, but 2 were given [argument-count]
+  --> main.buri:69:24
+   |
+69 |     let (kept, next) = ahead(ctx, s);
+   |                        ^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass `ahead` the following arguments: ahead<C: Allocator>(ctx: C)

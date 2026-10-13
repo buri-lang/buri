@@ -1,0 +1,12 @@
+error: this array type is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:39:28
+   |
+39 |             fn(c, acc: [Str, i) => acc.push(c, str.format(c, "n${i}")),
+   |                            ^
+   |
+  --> main.buri:39:24
+   |
+39 |             fn(c, acc: [Str, i) => acc.push(c, str.format(c, "n${i}")),
+   |                        ^ opened here
+   |
+   = fix: write `]` here

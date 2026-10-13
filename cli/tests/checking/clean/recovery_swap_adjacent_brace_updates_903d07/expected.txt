@@ -1,0 +1,9 @@
+error: expected `=`, found `Narrow` [unexpected-token]
+  --> main.buri:68:11
+   |
+68 |     let s Narrow = { at: 0, notes: grown(ctx, 2) };
+   |           ^^^^^^
+   |
+   = expected: `=`
+   = actual: `Narrow`
+   = fix: write `=` here

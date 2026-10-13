@@ -1,7 +1,0 @@
-error: a call argument ends with `,` [missing-comma]
-  --> main.buri:16:55
-   |
-16 |     let doubled = [1, 2, 3].fold(fn(acc, x) => acc + x 0);
-   |                                                       ^
-   |
-   = fix: write `,` here

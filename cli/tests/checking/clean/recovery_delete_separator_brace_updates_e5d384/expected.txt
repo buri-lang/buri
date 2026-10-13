@@ -1,0 +1,7 @@
+error: a struct-literal field ends with `,` [missing-comma]
+  --> main.buri:82:13
+   |
+82 |         c: 0
+   |             ^
+   |
+   = fix: write `,` here

@@ -1,0 +1,28 @@
+error: a statement ends with `;` [missing-semicolon]
+  --> main.buri:50:45
+   |
+50 |     noted(ctx, Narrow { ..s, at: s.at + 1 })
+   |                                             ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `ahead` [unexpected-token]
+  --> main.buri:54:4
+   |
+54 | fn ahead<C: Allocator>(ctx: C, s: Narrow): (Narrow, Narrow) {
+   |    ^^^^^
+   |
+   = expected: `(`
+   = actual: `ahead`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:95:1
+   |
+95 | 
+   | ^
+   |
+  --> main.buri:49:53
+   |
+49 | fn stepped<C: Allocator>(ctx: C, s: Narrow): Narrow {
+   |                                                     ^ opened here
+   |
+   = fix: write `}` here

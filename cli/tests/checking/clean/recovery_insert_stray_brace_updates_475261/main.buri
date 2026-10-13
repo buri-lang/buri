@@ -1,0 +1,94 @@
+// A functional update copies the fields it does not name, and a copied field
+// is a second reference to what the original still holds.
+//
+// So a list the update carried over must not be written through while the
+// original is alive: growing the copy's list may not grow the original's.
+// The lists are grown rather than written as literals, because a literal can
+// never be the unique owner an in-place write is looking for.
+
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+struct Narrow {
+    at: Int,
+    notes: [Str],
+}
+
+/// Wider than the update that names every field, so it is copied and patched.
+struct Wide {
+    a: Int,
+    b: Int,
+    c: Int,
+    d: Int,
+    e: Int,
+    f: Int,
+    g: Int,
+    h: Int,
+    i: Int,
+    notes: [Str],
+}
+
+fn grown<C: Allocator>(ctx: C, n: Int): [Str] {
+    list
+        .range(ctx, 0, n)
+        .foldCtx(
+            ctx,
+            fn(c, acc: [Str], i) => acc.push(c, str.format(c, "n${i}")),
+            list.empty(),
+        )
+}
+
+fn noted<C: Allocator>(ctx: C, s: Narrow): Narrow {
+    Narrow { ..s, notes: s.notes.push(ctx, "later") }
+}
+
+/// A step that moves on and notes something, from a copy of `s`.
+fn stepped<C: Allocator>(ctx: C, s: Narrow): Narrow {
+    noted(ctx, Narrow { ..s, at: s.at + 1 })
+}
+
+/// Looks one step ahead and keeps `s` as it was.
+fn ahead<C: Allocator>(ctx: C, s: Narrow): (Narrow, Narrow) {
+    let next = stepped(ctx, s);
+    (s, next)
+}
+
+fn widened<C: Allocator>(ctx: C, w: Wide): Wide {
+    let moved = Wide { ..w, a: w.a + 1 };
+    Wide { ..moved, notes: moved.notes.push(ctx, "later") }
+}
+
+test "a list an update carried over is not grown under the original" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s = Narrow { at: 0, notes: grown(ctx, 2) };
+    let (kept, next) = ahead(ctx, s);
+    assert.equal(kept.notes, ["n0", "n1"]);
+    assert.equal(next.notes, ["n0", "n1", "later"]);
+    assert.equal(next.at, 1);
+}
+
+test "a list a wide update carried over is not grown under the original" {
+    let ctx , = context {
+        Allocator: alloc(),
+    };
+    let w = Wide {
+        a: 0,
+        b: 0,
+        c: 0,
+        d: 0,
+        e: 0,
+        f: 0,
+        g: 0,
+        h: 0,
+        i: 0,
+        notes: grown(ctx, 2),
+    };
+    let next = widened(ctx, w);
+    assert.equal(w.notes, ["n0", "n1"]);
+    assert.equal(next.notes, ["n0", "n1", "later"]);
+}
