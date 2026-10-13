@@ -37,3 +37,13 @@ export fn farAbove(n: Int): Bool {
         false
     }
 }
+
+export fn guardedByMatch(n: Int, flag: Bool): Str {
+    match (n) {
+        0 if match (flag) {
+            true => true,
+            false => false,
+        } => { "zero" },
+        _ => "other",
+    }
+}
