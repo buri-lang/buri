@@ -8,11 +8,11 @@ from "core/str" import { fromInt };
 from "platform/effect" import { Allocator };
 
 export fn describe<C: Allocator>(ctx: C, n: I64): Str {
-  let hidden = 7;
-  match (n) {
-    1 => fromInt(ctx, one),
-    _ => fromInt(ctx, 2),
-  }
+    let hidden = 7;
+    match (n) {
+        1 => fromInt(ctx, one),
+        _ => fromInt(ctx, 2),
+    }
 }
 
 export fn amount<C: Allocator>(ctx: C, n: I64): Str {
