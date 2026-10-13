@@ -3959,6 +3959,11 @@ fn nanoseconds_of(value: &Value) -> Option<u64> {
 #[cfg(feature = "test-hooks")]
 static HANDED: crate::hold::Point = crate::hold::Point::new("handed");
 
+/// Where a test holds `buri test` once a runner has asked for a test and none is
+/// left, or kills the runner there ([`crate::hold`]).
+#[cfg(feature = "test-hooks")]
+static DRAINED: crate::hold::Point = crate::hold::Point::new("drained");
+
 /// Where a test sets the time `buri test` reads ([`crate::hold`]).
 #[cfg(feature = "test-hooks")]
 static TIMED: crate::hold::Point = crate::hold::Point::new("time");
@@ -5390,7 +5395,11 @@ fn run_pulled(
                     #[cfg(feature = "test-hooks")]
                     HANDED.raised();
                 }
-                None => input = None,
+                None => {
+                    input = None;
+                    #[cfg(feature = "test-hooks")]
+                    DRAINED.held();
+                }
             }
         } else if text_of(&value, "message").is_some() {
             noted = noted_of(&value);
