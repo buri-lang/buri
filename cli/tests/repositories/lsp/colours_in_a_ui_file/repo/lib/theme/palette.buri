@@ -1,4 +1,4 @@
-//! Three colours: two the server can compute and one it cannot.
+//! Four colours: three the server can compute and one it cannot.
 
 from "ui/style" import { Color };
 
@@ -14,4 +14,10 @@ export fn overlay(): Color {
 /// what the colour is worth is decided at run time.
 export fn shaded(red: Int): Color {
     .Rgb(red, 0, 0)
+}
+
+/// A colour that may not be there: the `Some` around it is an enum literal
+/// too, and it is not a colour.
+export fn maybe(): Option<Color> {
+    .Some(.Rgb(1, 2, 3))
 }

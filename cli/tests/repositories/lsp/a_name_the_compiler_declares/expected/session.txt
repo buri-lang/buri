@@ -1,0 +1,28 @@
+{"id":1,"jsonrpc":"2.0","result":{"capabilities":{"callHierarchyProvider":true,"codeActionProvider":{"codeActionKinds":["quickfix"],"resolveProvider":true},"codeLensProvider":{"resolveProvider":true},"colorProvider":true,"completionProvider":{"resolveProvider":true,"triggerCharacters":["\"","{","/","."]},"declarationProvider":true,"definitionProvider":true,"diagnosticProvider":{"interFileDependencies":true,"workspaceDiagnostics":true},"documentFormattingProvider":true,"documentHighlightProvider":true,"documentLinkProvider":{"resolveProvider":false},"documentOnTypeFormattingProvider":{"firstTriggerCharacter":"}","moreTriggerCharacter":[";"]},"documentRangeFormattingProvider":true,"documentSymbolProvider":true,"executeCommandProvider":{"commands":["buri.runTest","buri.regenerateBuildFile","buri.showReferences"]},"foldingRangeProvider":true,"hoverProvider":true,"implementationProvider":true,"inlayHintProvider":{"resolveProvider":true},"monikerProvider":true,"referencesProvider":true,"renameProvider":{"prepareProvider":true},"selectionRangeProvider":true,"semanticTokensProvider":{"full":{"delta":true},"legend":{"tokenModifiers":["declaration","definition","readonly"],"tokenTypes":["namespace","type","interface","enumMember","property","function","method","variable","keyword","comment","string","number","operator","typeParameter"]},"range":true},"signatureHelpProvider":{"triggerCharacters":["(",","]},"textDocumentSync":{"change":1,"openClose":true,"save":{"includeText":false},"willSaveWaitUntil":true},"typeDefinitionProvider":true,"typeHierarchyProvider":true,"workspace":{"fileOperations":{"didCreate":{"filters":[{"pattern":{"glob":"**/*.{buri,proto}","matches":"file"},"scheme":"file"}]},"didDelete":{"filters":[{"pattern":{"glob":"**/*.{buri,proto}","matches":"file"},"scheme":"file"}]},"didRename":{"filters":[{"pattern":{"glob":"**/*.{buri,proto}","matches":"file"},"scheme":"file"}]},"willCreate":{"filters":[{"pattern":{"glob":"**/*.{buri,proto}","matches":"file"},"scheme":"file"}]},"willDelete":{"filters":[{"pattern":{"glob":"**/*.{buri,proto}","matches":"file"},"scheme":"file"}]},"willRename":{"filters":[{"pattern":{"glob":"**/*.{buri,proto}","matches":"file"},"scheme":"file"}]}},"workspaceFolders":{"changeNotifications":true,"supported":true}},"workspaceSymbolProvider":{"resolveProvider":false}},"serverInfo":{"name":"buri","version":"<version>"}}}
+{"id":2,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nfn show<C: Allocator>(self, ctx: C): Str\n```"},"range":{"end":{"character":42,"line":11},"start":{"character":38,"line":11}}}}
+{"id":3,"jsonrpc":"2.0","result":null}
+{"id":4,"jsonrpc":"2.0","result":null}
+{"id":5,"jsonrpc":"2.0","result":null}
+{"id":6,"jsonrpc":"2.0","result":null}
+{"id":7,"jsonrpc":"2.0","result":[{"kind":1,"range":{"end":{"character":42,"line":11},"start":{"character":38,"line":11}}}]}
+{"id":8,"jsonrpc":"2.0","result":null}
+{"id":9,"jsonrpc":"2.0","result":null}
+{"id":10,"jsonrpc":"2.0","result":[{"identifier":"core/number:I64.show","kind":"export","scheme":"buri","unique":"scheme"}]}
+{"id":11,"jsonrpc":"2.0","result":null}
+{"id":12,"jsonrpc":"2.0","result":[{"range":{"end":{"character":42,"line":11},"start":{"character":38,"line":11}},"uri":"file://<scratch>/cmd/app/main.buri"}]}
+{"id":13,"jsonrpc":"2.0","result":[{"range":{"end":{"character":42,"line":11},"start":{"character":38,"line":11}},"uri":"file://<scratch>/cmd/app/main.buri"}]}
+{"error":{"code":-32803,"message":"that is declared in the standard library, which is compiled into the binary and has no file to edit"},"id":14,"jsonrpc":"2.0"}
+{"id":15,"jsonrpc":"2.0","result":{"contents":{"kind":"markdown","value":"```buri\nI64\n```"},"range":{"end":{"character":18,"line":9},"start":{"character":15,"line":9}}}}
+{"id":16,"jsonrpc":"2.0","result":null}
+{"id":17,"jsonrpc":"2.0","result":null}
+{"id":18,"jsonrpc":"2.0","result":null}
+{"id":19,"jsonrpc":"2.0","result":[]}
+{"id":20,"jsonrpc":"2.0","result":[{"kind":1,"range":{"end":{"character":18,"line":9},"start":{"character":15,"line":9}}}]}
+{"id":21,"jsonrpc":"2.0","result":null}
+{"id":22,"jsonrpc":"2.0","result":null}
+{"id":23,"jsonrpc":"2.0","result":null}
+{"id":24,"jsonrpc":"2.0","result":null}
+{"id":25,"jsonrpc":"2.0","result":[{"range":{"end":{"character":18,"line":9},"start":{"character":15,"line":9}},"uri":"file://<scratch>/cmd/app/main.buri"}]}
+{"id":26,"jsonrpc":"2.0","result":[{"range":{"end":{"character":18,"line":9},"start":{"character":15,"line":9}},"uri":"file://<scratch>/cmd/app/main.buri"}]}
+{"error":{"code":-32803,"message":"that is declared in the standard library, which is compiled into the binary and has no file to edit"},"id":27,"jsonrpc":"2.0"}
+{"id":28,"jsonrpc":"2.0","result":null}

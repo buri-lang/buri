@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "the outline, the folds and the selection chain of a buffer that does not parse: all three read a parse and none of them reads an analysis, so what recovered is still reported"
+doc: "the outline, the folds and the selection chain of a buffer that does not parse: all three read a parse and none of them reads an analysis, so what recovered is still reported — including a chain through spans the recovery left crossing"
 
 run {
   args: ["lsp"]

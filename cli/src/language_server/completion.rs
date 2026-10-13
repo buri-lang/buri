@@ -29,7 +29,7 @@ use crate::compiler::semantics::resolve::{ModuleScope, Sym};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::{self as types, ModuleId, Ty, TyConId};
 use crate::compiler::standard_library;
-use crate::diagnostics::{Invariant as _, Span};
+use crate::diagnostics::{invariant, Invariant as _, Span};
 use crate::json::Value;
 use crate::parsing::flat::{ExprId, ExprView, Tree, TypeId, TypeView};
 use crate::parsing::lexer::Keyword;
@@ -376,9 +376,15 @@ fn locals_at(analyzed: &Analyzed, path: &Path, cursor: u32) -> Vec<(String, Symb
         for (index, local) in body.locals.iter().enumerate() {
             // A parameter is in scope throughout, wherever its own span is.
             let parameter = body.params.iter().any(|p| p.index() == index);
-            if !parameter && (local.span.file != file || local.span.start > cursor) {
+            if !parameter && local.span.start > cursor {
                 continue;
             }
+            // Only a parameter can be declared elsewhere: the ones the
+            // compiler declares for itself have no span.
+            invariant(
+                parameter | (local.span.file == file),
+                "a local is written in the file its function is declared in",
+            );
             let symbol = Symbol::Local {
                 name: local.name.to_string(),
                 ty: local.ty,
@@ -473,6 +479,10 @@ fn checked_enum(analyzed: &Analyzed, path: &Path, cursor: u32) -> Option<TyConId
             continue;
         }
         typed::walk(&body.expr, &mut |e| {
+            invariant(
+                e.span.file == file,
+                "an expression is written in the file its function is declared in",
+            );
             // A `match` arm is a pattern rather than an expression, so the
             // whole `match` is the narrowest node covering one — and its own
             // type is the type of the arms' results, not of what is matched.
@@ -489,7 +499,7 @@ fn checked_enum(analyzed: &Analyzed, path: &Path, cursor: u32) -> Option<TyConId
     // narrow ones wins.
     offered
         .into_iter()
-        .filter(|(span, _)| span.file == file && covers(*span, cursor))
+        .filter(|(span, _)| covers(*span, cursor))
         .filter_map(|(span, ty)| Some((span.end.saturating_sub(span.start), ty.head()?)))
         .filter(|(_, con)| !tables.tycon(*con).variants().is_empty())
         .min_by_key(|(width, _)| *width)

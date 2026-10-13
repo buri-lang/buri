@@ -15,6 +15,7 @@ use super::origins;
 use super::state::Analyzed;
 use super::symbols;
 use crate::compiler::semantics::types;
+use crate::diagnostics::invariant;
 use crate::json::Value;
 use crate::parsing::tree::Item;
 use std::path::Path;
@@ -82,15 +83,19 @@ pub fn hover(
         if analyzed.analysis.checked.tables.fn_info(fid).span.file != file {
             continue;
         }
-        crate::compiler::semantics::typed::walk(&body.expr, &mut |e| walked.push((e.span, e.ty)));
+        crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
+            invariant(
+                e.span.file == file,
+                "an expression is written in the file its function is declared in",
+            );
+            walked.push((e.span, e.ty));
+        });
     }
     // A type that did not resolve is no answer; the squiggle says so. The
     // first of equally narrow expressions wins.
     let best = walked
         .into_iter()
-        .filter(|(span, ty)| {
-            span.file == file && span.start <= offset && offset <= span.end && !ty.has_error()
-        })
+        .filter(|(span, ty)| span.start <= offset && offset <= span.end && !ty.has_error())
         .min_by_key(|(span, _)| span.end.saturating_sub(span.start));
     if let Some((span, ty)) = best {
         let ty = types::show(&analyzed.analysis.checked.tables, None, &[], &ty);

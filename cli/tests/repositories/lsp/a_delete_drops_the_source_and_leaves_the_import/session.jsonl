@@ -14,5 +14,9 @@
 # The file is gone: its own findings are cleared, and the file that still names
 # it says so.
 {"jsonrpc": "2.0", "method": "workspace/didDeleteFiles", "params": {"files": [{"uri": "file://<scratch>/lib/shop/cart.buri"}]}}
+# A file the editor never opened has no findings of its own to take back: the
+# delete is heard, and nothing is published for it.
+!remove lib/shop/catalog.buri
+{"jsonrpc": "2.0", "method": "workspace/didDeleteFiles", "params": {"files": [{"uri": "file://<scratch>/lib/shop/catalog.buri"}]}}
 {"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}

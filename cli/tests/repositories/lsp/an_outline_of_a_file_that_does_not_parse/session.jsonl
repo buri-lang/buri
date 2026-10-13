@@ -16,5 +16,10 @@
 # And inside the part that did not: the word under the cursor and the file
 # around it, which is the whole of what a recovered tree has to say.
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/selectionRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "positions": [{"line": 9, "character": 20}]}}
-{"jsonrpc": "2.0", "id": 6, "method": "shutdown"}
+# A stray `)` cuts the enum short where its variants carry on: the spans the
+# recovered tree reports no longer nest, and a chain keeps only the ones that
+# do — the word, the file, and whatever fits between.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri", "version": 2}, "contentChanges": [{"text": "export enum Stock {\n    /// None left at all.\n    O)ut,\n    /// The number still on the shelf.\n    OnHand { count: I64 },\n}\n"}]}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/selectionRange", "params": {"textDocument": {"uri": "file://<scratch>/lib/money/cents.buri"}, "positions": [{"line": 2, "character": 5}, {"line": 4, "character": 6}]}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
 {"jsonrpc": "2.0", "method": "exit"}
