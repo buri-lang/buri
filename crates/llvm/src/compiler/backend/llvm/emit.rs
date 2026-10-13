@@ -3823,7 +3823,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 }
                 for (i, slot) in slots.iter().enumerate() {
                     let end = slot.offset.saturating_add(slot.ty.size());
-                    if !matches!(slot.ty, SlotTy::Blob(_)) || at < slot.offset || at >= end {
+                    if !matches!(slot.ty, SlotTy::Blob(_)) || !(slot.offset..end).contains(&at) {
                         continue;
                     }
                     let within = at.saturating_sub(slot.offset);
