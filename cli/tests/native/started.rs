@@ -258,8 +258,8 @@ fn a_child_outlives_the_program_that_started_it() {
     }
 }
 
-/// Sixteen children, each stopped the moment it is running, in four programs at
-/// once: macOS drops a stop that lands while the shell is still exec'ing.
+/// Sixteen children, each stopped the moment `process.start` hands it back, in
+/// four programs at once.
 #[test]
 fn a_child_stopped_as_soon_as_it_runs_is_stopped() {
     for on in [On::Native, On::JavaScript] {

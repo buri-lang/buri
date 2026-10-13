@@ -273,26 +273,26 @@ fn stubborn<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
     .Ok(())
 }
 
-/// `count` sleepers, each stopped as soon as it is running `sleep`.
+/// `count` children, each stopped the moment `process.start` hands it back.
+///
+/// Each one is `sleep` itself rather than a `sleeper`: macOS drops a `SIGSTOP`
+/// that lands while a process is exec'ing, and a child that `start` returns has
+/// already exec'd, while a shell that has said it is ready may not have yet.
 fn stops<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
     ctx: C,
-    dir: Path,
     count: Int,
 ): Result<(), Str> {
     if (count == 0) {
         say(ctx, "every one stopped")
     } else {
-        let ready = dir.join(ctx, str.format(ctx, "s${count}"));
         let child = process
-            .start(ctx, sleeper(ctx, ready, "")?)
+            .start(ctx, process.command(found(ctx, "sleep")?, ["600"]))
             .mapErr(fn(e) => why(e))?;
-        let _ = untilReady(ctx, ready);
-        let _ = untilSleeping(ctx, child)?;
         let _ = child.signal(ctx, .Stop).mapErr(fn(e) => why(e))?;
         let _ = untilStopped(ctx, child, true)?;
         let _ = child.signal(ctx, .Kill).mapErr(fn(e) => why(e))?;
         let _ = child.wait(ctx).mapErr(fn(e) => why(e))?;
-        stops(ctx, dir, count - 1)
+        stops(ctx, count - 1)
     }
 }
 
@@ -542,7 +542,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     } else if (mode == "paused") {
         paused(ctx, dir)
     } else if (mode == "stops") {
-        stops(ctx, dir, 16)
+        stops(ctx, 16)
     } else if (mode == "exits") {
         exits(ctx, dir)
     } else if (mode == "files") {
