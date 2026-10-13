@@ -81,6 +81,7 @@ mod diagnostics_paths;
 mod example;
 mod executable_identity;
 mod fix_refusals;
+mod format_corners;
 mod generator_failures;
 mod generators;
 mod heap;

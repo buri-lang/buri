@@ -40,6 +40,7 @@ use crate::build::session;
 use crate::build::textproto;
 use crate::build::workspace::{PackageId, Workspace};
 use crate::commands::arguments;
+use crate::diagnostics::Invariant as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -88,7 +89,7 @@ pub fn formatted(name: &str, text: &str) -> Option<crate::formatting::Formatted>
     }
     // A platform's surface declares its entries and production methods
     // without a body, as the standard library does.
-    if name == "platform.buri" || name.ends_with("/platform.buri") {
+    if name == "platform.buri" {
         return crate::formatting::formatted(text, crate::formatting::Dialect::Std);
     }
     crate::formatting::source_with_regions(text)
@@ -246,8 +247,10 @@ enum Work {
     Skip,
     /// A repository's own language, whose tool lays it out. Asked in order on
     /// this thread, because asking may build the tool.
-    Tool(String),
+    Tool(String, String),
     Done(String, Outcome),
+    /// A file that is there and can't be read, and why.
+    Unreadable(String),
 }
 
 fn format_all(args: &arguments::Args) -> i32 {
@@ -281,14 +284,16 @@ fn format_all(args: &arguments::Args) -> i32 {
     // `--check` that passed one would be reporting a gate it did not run.
     let mut unread = Vec::new();
     let mut refused = Vec::new();
+    let mut unreadable = Vec::new();
     for (path, work) in files.iter().zip(work) {
         let (rel, outcome) = match work {
             Work::Skip => continue,
+            Work::Unreadable(why) => {
+                unreadable.push(why);
+                continue;
+            }
             Work::Done(rel, outcome) => (rel, outcome),
-            Work::Tool(rel) => {
-                let Ok(text) = std::fs::read_to_string(path) else {
-                    continue;
-                };
+            Work::Tool(rel, text) => {
                 use crate::build::tools::Formatted;
                 match crate::build::tools::format_file(&session, &rel, &text, &args.flags) {
                     Formatted::Refused => refused.push(rel),
@@ -329,9 +334,17 @@ fn format_all(args: &arguments::Args) -> i32 {
     documents.sort();
     documents.dedup();
     let laid_out = crate::parallel::map(documents.len(), |i| {
-        let path = documents.get(i)?;
-        let text = std::fs::read_to_string(path).ok()?;
+        let path = documents
+            .get(i)
+            .or_ice("`map` asks for indices below the length");
         let rel = workspace.rel_of(path);
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) => {
+                let why = format!("cannot read {rel}: {e}");
+                return (rel, Err(why));
+            }
+        };
         let outcome = remembered(&cache, "document", &rel, &text, write, || {
             let out = crate::documentation::layout::format_document(&rel, &text);
             Outcome {
@@ -340,10 +353,16 @@ fn format_all(args: &arguments::Args) -> i32 {
                 ..Outcome::default()
             }
         });
-        Some((rel, outcome))
+        (rel, Ok(outcome))
     });
-    for (path, done) in documents.iter().zip(laid_out) {
-        let Some((rel, outcome)) = done else { continue };
+    for (path, (rel, outcome)) in documents.iter().zip(laid_out) {
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(why) => {
+                unreadable.push(why);
+                continue;
+            }
+        };
         if !outcome.changed {
             continue;
         }
@@ -360,13 +379,18 @@ fn format_all(args: &arguments::Args) -> i32 {
         for c in &changed {
             println!("{c}");
         }
-        report(&unread, &refused);
-        return i32::from(!changed.is_empty() || !unread.is_empty() || !refused.is_empty());
+        report(&unread, &refused, &unreadable);
+        return i32::from(
+            !changed.is_empty()
+                || !unread.is_empty()
+                || !refused.is_empty()
+                || !unreadable.is_empty(),
+        );
     }
     for c in &changed {
         println!("formatted {c}");
     }
-    report(&unread, &refused);
+    report(&unread, &refused, &unreadable);
     0
 }
 
@@ -379,16 +403,22 @@ fn lay_out(
     write: bool,
 ) -> Work {
     let rel = workspace.rel_of(path);
-    if let Some(language) = workspace.repo.languages.of(&rel) {
-        if !referenced.iter().any(|r| r == path) {
-            return Work::Skip;
-        }
+    let language = workspace.repo.languages.of(&rel);
+    if language.is_some() && !referenced.iter().any(|r| r == path) {
+        return Work::Skip;
+    }
+    // A file that is not there is the build's to report. One that is there
+    // and can't be read is named, because a `--check` that passed it would
+    // be reporting a gate it did not run.
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Work::Skip,
+        Err(e) => return Work::Unreadable(format!("cannot read {rel}: {e}")),
+    };
+    if let Some(language) = language {
         if matches!(language.kind, crate::languages::Kind::Custom(_)) {
-            return Work::Tool(rel);
+            return Work::Tool(rel, text);
         }
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return Work::Skip;
-        };
         let settings = format!("{:?}", language.kind);
         let outcome = remembered(cache, &settings, &rel, &text, write, || {
             use crate::build::tools::Formatted;
@@ -407,12 +437,11 @@ fn lay_out(
         });
         return Work::Done(rel, outcome);
     }
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return Work::Skip;
-    };
-    let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
-        return Work::Skip;
-    };
+    let name = path
+        .file_name()
+        .or_ice("a file that was just read has a name")
+        .to_string_lossy()
+        .to_string();
     let outcome = remembered(cache, "buri", &rel, &text, write, || {
         let Some(out) = formatted(&name, &text) else {
             return Outcome {
@@ -489,12 +518,15 @@ fn remembered(
 }
 
 /// What the formatter could not read, said once per file.
-fn report(unread: &[String], refused: &[String]) {
+fn report(unread: &[String], refused: &[String], unreadable: &[String]) {
     for u in unread {
         println!("{u}: has a syntax error; what did not parse was left as it was written");
     }
     for r in refused {
         println!("{r}: does not parse, and was left exactly as it is");
+    }
+    for u in unreadable {
+        println!("{u}");
     }
 }
 

@@ -60,9 +60,10 @@ The declaration the parser couldn't read comes back byte for byte, and the rest
 of the file is laid out as usual. The result is still a fixed point, keeps every
 comment and token, and fits the margin everywhere outside the broken region.
 
-`buri format` names each file it could only partly read. `--check` exits `1`
-for a file that would change, a file with a syntax error, or a file the
-formatter refused outright.
+`buri format` names each file it could only partly read, and each it couldn't
+read at all, such as one that isn't UTF-8. `--check` exits `1` for a file that
+would change, a file with a syntax error, a file the formatter refused
+outright, or a file it couldn't read.
 
 ## JSON files
 
