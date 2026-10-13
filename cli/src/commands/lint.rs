@@ -3938,8 +3938,6 @@ fn bounds_used(
         .map(|(_, t)| *t)
         .collect();
     typed::walk(&body.expr, &mut |e| match &e.kind {
-        // A method called on the context itself is `effect-method-call` or
-        // `effect-carrying-bound`, and only a body that checked is asked.
         typed::ExprKind::CallTrait {
             trait_id,
             method,
@@ -3947,10 +3945,11 @@ fn bounds_used(
             targs,
             ..
         } => {
-            invariant(
-                !matches!(recv.kind(), TyKind::Param(i) if *i == gi),
-                "a body that checked calls no method on its context",
-            );
+            // An effect wrapper function may call the method on its context,
+            // which uses the bound that declares it.
+            if matches!(recv.kind(), TyKind::Param(i) if *i == gi) {
+                used.insert(*trait_id);
+            }
             let m = tables
                 .trait_(*trait_id)
                 .methods
