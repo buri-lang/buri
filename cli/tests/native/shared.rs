@@ -408,8 +408,11 @@ pub fn runtime_archive() -> &'static Path {
 // between the pick and the bind that this arrangement does not have.
 
 /// How long the client waits for the server to publish its port, and how long
-/// any one step of the exchange may take.
-pub const SERVER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(20);
+/// any one step of the exchange may take. Ten times as long under Valgrind,
+/// which runs a program tens of times slower.
+pub fn server_deadline() -> std::time::Duration {
+    std::time::Duration::from_secs(if crate::valgrind::asked() { 200 } else { 20 })
+}
 
 /// A loopback port nothing listens on and nothing else can take, held for as
 /// long as this value lives. `cli/runtime/lib.rs`'s `RefusedPort` is the same
@@ -673,7 +676,7 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// request until `width` are held at once, then answers them all.
 ///
 /// Handlers that overlap meet here and go on. Handlers run one at a time
-/// never meet: the first waits alone until [`SERVER_DEADLINE`], is answered
+/// never meet: the first waits alone until [`server_deadline`], is answered
 /// 503, and the gate closes. So the verdict is a count, not a time, and the
 /// deadline only bounds the failing run.
 pub struct Gate {
@@ -691,13 +694,13 @@ impl Gate {
         );
         listener.set_nonblocking(true).unwrap();
         let held = std::thread::spawn(move || {
-            let until = std::time::Instant::now() + SERVER_DEADLINE;
+            let until = std::time::Instant::now() + server_deadline();
             let mut held: Vec<std::net::TcpStream> = Vec::new();
             while held.len() < width && std::time::Instant::now() < until {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
                         stream.set_nonblocking(false).unwrap();
-                        stream.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
+                        stream.set_read_timeout(Some(server_deadline())).unwrap();
                         // The request's head, so the answer comes after it.
                         let mut head = Vec::new();
                         let mut byte = [0u8; 1];
@@ -769,15 +772,20 @@ pub fn served(binary: &Path, target: &str) -> (Ran, String) {
     });
 
     let port = listening
-        .recv_timeout(SERVER_DEADLINE)
-        .unwrap_or_else(|e| panic!("the server announced no port within {SERVER_DEADLINE:?}: {e}"))
+        .recv_timeout(server_deadline())
+        .unwrap_or_else(|e| {
+            panic!(
+                "the server announced no port within {:?}: {e}",
+                server_deadline()
+            )
+        })
         .expect("the server's first line did not carry a port");
 
     // The port is announced before `listenAccept` is entered, so the first
     // connect can lose the race with the `listen(2)` backlog on a loaded
     // machine. Retrying until the same deadline is what makes that a slow test
     // rather than a flaky one.
-    let until = std::time::Instant::now() + SERVER_DEADLINE;
+    let until = std::time::Instant::now() + server_deadline();
     let mut socket = loop {
         match std::net::TcpStream::connect(("127.0.0.1", port)) {
             Ok(socket) => break socket,
@@ -790,8 +798,8 @@ pub fn served(binary: &Path, target: &str) -> (Ran, String) {
             }
         }
     };
-    socket.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
-    socket.set_write_timeout(Some(SERVER_DEADLINE)).unwrap();
+    socket.set_read_timeout(Some(server_deadline())).unwrap();
+    socket.set_write_timeout(Some(server_deadline())).unwrap();
     socket
         .write_all(format!("GET {target} HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").as_bytes())
         .unwrap();
@@ -851,8 +859,13 @@ pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>) {
     });
 
     let port = listening
-        .recv_timeout(SERVER_DEADLINE)
-        .unwrap_or_else(|e| panic!("the server announced no port within {SERVER_DEADLINE:?}: {e}"))
+        .recv_timeout(server_deadline())
+        .unwrap_or_else(|e| {
+            panic!(
+                "the server announced no port within {:?}: {e}",
+                server_deadline()
+            )
+        })
         .expect("the server's first line did not carry a port");
 
     let clients: Vec<_> = (0..requests)
@@ -861,7 +874,7 @@ pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>) {
                 // The same retry `served` uses and for the same reason: the
                 // port is announced before the first accept, so a connect can
                 // lose the race with the backlog on a loaded machine.
-                let until = std::time::Instant::now() + SERVER_DEADLINE;
+                let until = std::time::Instant::now() + server_deadline();
                 let mut socket = loop {
                     match std::net::TcpStream::connect(("127.0.0.1", port)) {
                         Ok(socket) => break socket,
@@ -874,8 +887,8 @@ pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>) {
                         }
                     }
                 };
-                socket.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
-                socket.set_write_timeout(Some(SERVER_DEADLINE)).unwrap();
+                socket.set_read_timeout(Some(server_deadline())).unwrap();
+                socket.set_write_timeout(Some(server_deadline())).unwrap();
                 socket
                     .write_all(format!("GET /r{i} HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").as_bytes())
                     .unwrap();
@@ -1157,19 +1170,22 @@ pub fn signalled(binary: &Path, signal: i32) -> (Ran, String) {
     // **One deadline for the whole wait and not one per line**, which is the
     // difference between a bound and a bound per iteration: a child printing a
     // line a second would otherwise renew its own reprieve forever.
-    let port = saying_until(&saying, SERVER_DEADLINE, |line| {
+    let port = saying_until(&saying, server_deadline(), |line| {
         line.strip_prefix("port ")
             .and_then(|p| p.parse::<u16>().ok())
     });
     let port = port.unwrap_or_else(|| {
         let _ = child.kill();
-        panic!("the server announced no port within {SERVER_DEADLINE:?}");
+        panic!(
+            "the server announced no port within {:?}",
+            server_deadline()
+        );
     });
 
     // The same retry `served` uses and for the same reason: the port is
     // announced before the first accept, so a connect can lose the race with
     // the backlog on a loaded machine.
-    let until = std::time::Instant::now() + SERVER_DEADLINE;
+    let until = std::time::Instant::now() + server_deadline();
     let mut socket = loop {
         match std::net::TcpStream::connect(("127.0.0.1", port)) {
             Ok(socket) => break socket,
@@ -1182,8 +1198,8 @@ pub fn signalled(binary: &Path, signal: i32) -> (Ran, String) {
             }
         }
     };
-    socket.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
-    socket.set_write_timeout(Some(SERVER_DEADLINE)).unwrap();
+    socket.set_read_timeout(Some(server_deadline())).unwrap();
+    socket.set_write_timeout(Some(server_deadline())).unwrap();
     socket
         .write_all(b"GET /in-flight HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n")
         .unwrap();
@@ -1192,12 +1208,15 @@ pub fn signalled(binary: &Path, signal: i32) -> (Ran, String) {
     // And now wait until the handler says it is running, which is what makes
     // the signal land on a request that is genuinely in flight rather than on
     // one that might be.
-    let handling = saying_until(&saying, SERVER_DEADLINE, |line| {
+    let handling = saying_until(&saying, server_deadline(), |line| {
         (line == "handling").then_some(())
     });
     if handling.is_none() {
         let _ = child.kill();
-        panic!("the server never entered its handler within {SERVER_DEADLINE:?}");
+        panic!(
+            "the server never entered its handler within {:?}",
+            server_deadline()
+        );
     }
 
     let pid = i32::try_from(child.id()).expect("a process id");
@@ -1208,7 +1227,7 @@ pub fn signalled(binary: &Path, signal: i32) -> (Ran, String) {
     let mut reply = Vec::new();
     let _ = socket.read_to_end(&mut reply);
 
-    let status = waited(&mut child, SERVER_DEADLINE);
+    let status = waited(&mut child, server_deadline());
     let lines = reader.join().expect("the reader thread finished");
     let mut stderr = String::new();
     if let Some(mut err) = child.stderr.take() {
@@ -1285,16 +1304,19 @@ pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
         lines
     });
 
-    let port = saying_until(&saying, SERVER_DEADLINE, |line| {
+    let port = saying_until(&saying, server_deadline(), |line| {
         line.strip_prefix("port ")
             .and_then(|p| p.parse::<u16>().ok())
     });
     let port = port.unwrap_or_else(|| {
         let _ = child.kill();
-        panic!("the server announced no port within {SERVER_DEADLINE:?}");
+        panic!(
+            "the server announced no port within {:?}",
+            server_deadline()
+        );
     });
 
-    let until = std::time::Instant::now() + SERVER_DEADLINE;
+    let until = std::time::Instant::now() + server_deadline();
     let mut socket = loop {
         match std::net::TcpStream::connect(("127.0.0.1", port)) {
             Ok(socket) => break socket,
@@ -1307,8 +1329,8 @@ pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
             }
         }
     };
-    socket.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
-    socket.set_write_timeout(Some(SERVER_DEADLINE)).unwrap();
+    socket.set_read_timeout(Some(server_deadline())).unwrap();
+    socket.set_write_timeout(Some(server_deadline())).unwrap();
     socket
         .write_all(b"GET /in-flight HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n")
         .unwrap();
@@ -1316,16 +1338,19 @@ pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
 
     // The handler says so before it sleeps, so from here the request is
     // provably inside one rather than probably.
-    let handling = saying_until(&saying, SERVER_DEADLINE, |line| {
+    let handling = saying_until(&saying, server_deadline(), |line| {
         (line == "handling").then_some(())
     });
     if handling.is_none() {
         let _ = child.kill();
-        panic!("the server never entered its handler within {SERVER_DEADLINE:?}");
+        panic!(
+            "the server never entered its handler within {:?}",
+            server_deadline()
+        );
     }
 
     signalling(&child, signal);
-    let until = std::time::Instant::now() + SERVER_DEADLINE;
+    let until = std::time::Instant::now() + server_deadline();
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
@@ -1336,8 +1361,9 @@ pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
             let _ = child.kill();
             let _ = child.wait();
             panic!(
-                "the server was still running {SERVER_DEADLINE:?} after being signalled with \
-                 {signal} over and over, so this runtime cannot be stopped"
+                "the server was still running {:?} after being signalled with \
+                 {signal} over and over, so this runtime cannot be stopped",
+                server_deadline()
             );
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -1987,8 +2013,13 @@ pub fn announced(binary: &Path) -> Announced {
         (first, rest)
     });
     let port = listening
-        .recv_timeout(SERVER_DEADLINE)
-        .unwrap_or_else(|e| panic!("the server announced no port within {SERVER_DEADLINE:?}: {e}"))
+        .recv_timeout(server_deadline())
+        .unwrap_or_else(|e| {
+            panic!(
+                "the server announced no port within {:?}: {e}",
+                server_deadline()
+            )
+        })
         .expect("the server's first line did not carry a port");
     (child, reader, port)
 }
@@ -1997,7 +2028,7 @@ pub fn announced(binary: &Path) -> Announced {
 pub fn finished(announced: Announced) -> Ran {
     use std::io::Read;
     let (mut child, reader, _port) = announced;
-    let status = waited(&mut child, SERVER_DEADLINE);
+    let status = waited(&mut child, server_deadline());
     let (first, rest) = reader.join().expect("the reader thread finished");
     let mut stderr = String::new();
     if let Some(mut err) = child.stderr.take() {
@@ -2058,7 +2089,7 @@ impl Talking {
     /// The same, asking for a path of the row's own choosing.
     pub fn to_at(port: u16, target: &str) -> Talking {
         use std::io::{Read, Write};
-        let until = std::time::Instant::now() + SERVER_DEADLINE;
+        let until = std::time::Instant::now() + server_deadline();
         let mut socket = loop {
             match std::net::TcpStream::connect(("127.0.0.1", port)) {
                 Ok(socket) => break socket,
@@ -2071,8 +2102,8 @@ impl Talking {
                 }
             }
         };
-        socket.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
-        socket.set_write_timeout(Some(SERVER_DEADLINE)).unwrap();
+        socket.set_read_timeout(Some(server_deadline())).unwrap();
+        socket.set_write_timeout(Some(server_deadline())).unwrap();
         socket
             .write_all(upgrade_request(target).as_bytes())
             .expect("the upgrade request");

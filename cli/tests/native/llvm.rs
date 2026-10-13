@@ -4890,7 +4890,7 @@ fn a_server_holding_two_hundred_open_websockets_still_answers() {
         use std::io::{Read, Write};
         let mut socket = std::net::TcpStream::connect(("127.0.0.1", port)).expect("connect");
         socket
-            .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+            .set_read_timeout(Some(crate::shared::server_deadline()))
             .unwrap();
         socket
             .write_all(b"GET / HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n")

@@ -118,6 +118,11 @@ const FLAGS: &[&str] = &[
     "--gen-suppressions=all",
 ];
 
+/// Whether `BURI_MEMCHECK` or `BURI_HELGRIND` asks for a tool.
+pub fn asked() -> bool {
+    chosen().is_some()
+}
+
 /// The tool `BURI_MEMCHECK` or `BURI_HELGRIND` asks for, and the directory
 /// its runs go to.
 fn chosen() -> Option<(Tool, PathBuf)> {
@@ -220,7 +225,7 @@ fn wrapped(
     let about = format!("{}\n{}\n{build}\n{again}\n", tool.name(), program.display());
     std::fs::write(runs.join(format!("{name}.about")), about).unwrap();
     let flags: Vec<&str> = FLAGS.iter().chain(tool.flags()).copied().collect();
-    let mut wrapped = Command::new("valgrind");
+    let mut wrapped = Command::new(valgrind());
     wrapped
         .arg(format!("--tool={}", tool.name()))
         // An `extra` flag replaces the one of its name.
@@ -252,6 +257,15 @@ fn wrapped(
         wrapped.current_dir(cwd);
     }
     wrapped
+}
+
+/// Valgrind by its full path, so a program given its own `PATH` still starts.
+fn valgrind() -> PathBuf {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    std::env::split_paths(&path)
+        .map(|dir| dir.join("valgrind"))
+        .find(|v| v.is_file())
+        .unwrap_or_else(|| PathBuf::from("valgrind"))
 }
 
 /// Writes a draft issue for each distinct error in `dir/runs`, and answers

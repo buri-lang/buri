@@ -131,7 +131,7 @@ fn a_core_holds_what_the_program_used_and_not_what_it_reserved() {
         assert_eq!(ready, "ready 1000000\n", "{backend}");
         let mappings = dumpable(child.id());
         child.stdin.take().unwrap().write_all(b"\n").unwrap();
-        let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+        let status = crate::shared::waited(&mut child, crate::shared::server_deadline());
         assert!(status.success(), "{backend}: {status}");
         let total: u64 = mappings.iter().map(|m| m.0).sum();
         let largest: Vec<String> = mappings

@@ -40,8 +40,8 @@ use std::time::Duration;
 
 /// How long any one read or write of this server may take.
 ///
-/// The same twenty seconds `native/shared.rs`'s `SERVER_DEADLINE` gives a whole
-/// exchange, written again here because that constant belongs to a different
+/// The same twenty seconds `native/shared.rs`'s `server_deadline()` gives a whole
+/// exchange, written again here because that function belongs to a different
 /// binary and this file is included by two.
 pub const PATIENCE: Duration = Duration::from_secs(20);
 

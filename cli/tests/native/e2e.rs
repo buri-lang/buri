@@ -25,7 +25,7 @@
 //!   standard output, and the client dials `127.0.0.1`. A test that picks a
 //!   port and hopes is a race between the pick and the bind.
 //! * **Every wait is bounded and every thread is joined.** `shared`'s
-//!   `SERVER_DEADLINE` on every connect, read and write; `shared::waited` on
+//!   `server_deadline()` on every connect, read and write; `shared::waited` on
 //!   the child, which kills what it could not stop. A broken server is a
 //!   failing test with a sentence, never a job CI has to kill. This is the
 //!   `tls-hang-fix` doctrine, and it is not optional in this file.
@@ -815,7 +815,7 @@ impl Until {
 /// deadline on the socket fires — never on a byte count.
 fn dialled(port: u16, out: &[u8], until: Until) -> Vec<u8> {
     use std::io::Write;
-    let deadline = crate::shared::SERVER_DEADLINE;
+    let deadline = crate::shared::server_deadline();
     let give_up_at = std::time::Instant::now() + deadline;
     let mut socket = loop {
         match std::net::TcpStream::connect(("127.0.0.1", port)) {
@@ -978,7 +978,7 @@ fn chose(back: &[u8]) -> Option<String> {
 ///
 /// **The assertion is on what was read, not on when.** The child's standard
 /// output is a pipe — which is the half of the bug that a terminal hides — and
-/// the row reads two lines out of it, each behind `SERVER_DEADLINE` so a
+/// the row reads two lines out of it, each behind `server_deadline()` so a
 /// runtime that withholds them fails with a sentence rather than hanging. Both
 /// lines are read before the process is signalled, and the process is asked
 /// whether it has exited before either is believed, so a run that passed
@@ -1015,12 +1015,12 @@ fn what_a_server_prints_reaches_a_pipe_before_it_blocks() {
     });
     let next = |what: &str| {
         saying
-            .recv_timeout(crate::shared::SERVER_DEADLINE)
+            .recv_timeout(crate::shared::server_deadline())
             .unwrap_or_else(|e| {
                 panic!(
                     "the program's {what} line never reached the pipe within {:?}: {e} — \
                  standard output was withheld while the program was blocked",
-                    crate::shared::SERVER_DEADLINE
+                    crate::shared::server_deadline()
                 )
             })
     };
@@ -1044,7 +1044,7 @@ fn what_a_server_prints_reaches_a_pipe_before_it_blocks() {
     assert!(port > 0);
 
     crate::shared::signalling(&child, crate::shared::SIGTERM);
-    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let status = crate::shared::waited(&mut child, crate::shared::server_deadline());
     assert_eq!(status.code(), Some(0), "the server did not stop cleanly");
     reader.join().expect("the reader thread finished");
 }
@@ -1732,7 +1732,7 @@ fn a_closing_socket_stopped_and_continued(row: &str, tls: bool) {
         }
         lines
     });
-    let opened = crate::shared::saying_until(&saying, crate::shared::SERVER_DEADLINE, |line| {
+    let opened = crate::shared::saying_until(&saying, crate::shared::server_deadline(), |line| {
         (line == "client opened").then_some(())
     });
     if opened.is_none() {
@@ -1752,7 +1752,7 @@ fn a_closing_socket_stopped_and_continued(row: &str, tls: bool) {
         .write_all(b"g")
         .expect("the release reached the client");
     stdin.flush().expect("flush");
-    let status = crate::shared::waited(&mut dialling, crate::shared::SERVER_DEADLINE);
+    let status = crate::shared::waited(&mut dialling, crate::shared::server_deadline());
     let said = reader
         .join()
         .expect("the reader thread finished")
@@ -2000,7 +2000,7 @@ impl Resetting {
             }
             lines
         });
-        let port = crate::shared::saying_until(&saying, crate::shared::SERVER_DEADLINE, |line| {
+        let port = crate::shared::saying_until(&saying, crate::shared::server_deadline(), |line| {
             line.strip_prefix("port ")
                 .and_then(|p| p.parse::<u16>().ok())
         });
@@ -2020,7 +2020,7 @@ impl Resetting {
     /// Wait until the server says `line`.
     fn said(&mut self, line: &str) {
         let heard =
-            crate::shared::saying_until(&self.saying, crate::shared::SERVER_DEADLINE, |l| {
+            crate::shared::saying_until(&self.saying, crate::shared::server_deadline(), |l| {
                 (l == line).then_some(())
             });
         if heard.is_none() {
@@ -2062,7 +2062,7 @@ impl Resetting {
     fn stopped(mut self) -> (Option<i32>, String, String) {
         use std::io::Read;
         crate::shared::signalling(&self.child, crate::shared::SIGTERM);
-        let status = crate::shared::waited(&mut self.child, crate::shared::SERVER_DEADLINE);
+        let status = crate::shared::waited(&mut self.child, crate::shared::server_deadline());
         let lines = self.reader.join().expect("the reader thread finished");
         let mut stderr = String::new();
         if let Some(mut err) = self.child.stderr.take() {
@@ -2153,7 +2153,7 @@ fn a_server_stopped_and_continued_mid_request_still_answers_it() {
     let server = Resetting::start(&binary, 1);
     let mut socket = std::net::TcpStream::connect(("127.0.0.1", server.port)).unwrap();
     socket
-        .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+        .set_read_timeout(Some(crate::shared::server_deadline()))
         .unwrap();
     socket.write_all(b"GET /stopped HTTP/1.1\r\n").unwrap();
     // Ten times, so the acceptor is waiting for the rest of the head for most
@@ -2209,7 +2209,7 @@ fn a_tls_server_stopped_and_continued_mid_handshake_still_answers_it() {
     let hello = client_hello(&["h2", "http/1.1"]);
     let mut socket = std::net::TcpStream::connect(("127.0.0.1", running.2)).unwrap();
     socket
-        .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+        .set_read_timeout(Some(crate::shared::server_deadline()))
         .unwrap();
     socket.write_all(&hello[..10]).unwrap();
     // Ten times, so the acceptor is waiting for the rest of the hello for most
@@ -2264,7 +2264,7 @@ fn a_tls_client_that_resets_mid_handshake_leaves_the_listener_serving() {
 
     let mut first = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
     first
-        .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+        .set_read_timeout(Some(crate::shared::server_deadline()))
         .unwrap();
     first.write_all(&hello).unwrap();
     first.flush().unwrap();
@@ -2546,7 +2546,7 @@ mod read_loop_tests {
         let back = dialled(port, b"anything", Until::Closed);
         assert!(back.is_empty(), "{back:?}");
         assert!(
-            started.elapsed() < crate::shared::SERVER_DEADLINE,
+            started.elapsed() < crate::shared::server_deadline(),
             "the loop waited for its deadline rather than for the close"
         );
     }
@@ -2745,7 +2745,7 @@ fn a_native_binary_writes_atomically_and_reads_what_may_not_be_there() {
 ///
 /// Nothing here can hang. The accept has a deadline and drops the listener when
 /// it expires, so a program that dialled late is refused rather than left
-/// waiting; the peer's own reads and writes carry `SERVER_DEADLINE`; and a
+/// waiting; the peer's own reads and writes carry `server_deadline()`; and a
 /// panic in the peer closes the socket, which the program reads as an empty
 /// answer and reports. The child goes through `shared::waited`, which kills what
 /// it could not stop.
@@ -2767,7 +2767,7 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
     crate::shared::admitted(&binary);
 
     let peer = std::thread::spawn(move || {
-        let until = std::time::Instant::now() + crate::shared::SERVER_DEADLINE;
+        let until = std::time::Instant::now() + crate::shared::server_deadline();
         let mut accepted = None;
         while std::time::Instant::now() < until {
             match listener.accept() {
@@ -2788,10 +2788,10 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
         };
         socket.set_nonblocking(false).expect("a blocking socket");
         socket
-            .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+            .set_read_timeout(Some(crate::shared::server_deadline()))
             .expect("a read deadline");
         socket
-            .set_write_timeout(Some(crate::shared::SERVER_DEADLINE))
+            .set_write_timeout(Some(crate::shared::server_deadline()))
             .expect("a write deadline");
         let mut asked = Vec::new();
         let mut byte = [0_u8; 1];
@@ -2820,7 +2820,7 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped()),
     );
-    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let status = crate::shared::waited(&mut child, crate::shared::server_deadline());
     let mut stdout = String::new();
     child
         .stdout
@@ -2878,7 +2878,7 @@ fn a_native_binary_dials_the_next_address_when_the_first_refuses() {
     let peer = std::thread::spawn(move || {
         let (mut socket, _) = listener.accept().expect("a dial");
         socket
-            .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+            .set_read_timeout(Some(crate::shared::server_deadline()))
             .expect("a read deadline");
         let mut byte = [0_u8; 1];
         while crate::shared::read_on(&mut socket, &mut byte).expect("the request") == 1
@@ -2892,7 +2892,7 @@ fn a_native_binary_dials_the_next_address_when_the_first_refuses() {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped()),
     );
-    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let status = crate::shared::waited(&mut child, crate::shared::server_deadline());
     let mut stdout = String::new();
     child
         .stdout
@@ -3832,7 +3832,7 @@ fn a_native_binary_runs_a_real_child_and_reads_what_it_wrote() {
             let _ = errors.read_to_end(&mut said);
             said
         });
-        let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+        let status = crate::shared::waited(&mut child, crate::shared::server_deadline());
         let stdout =
             String::from_utf8_lossy(&reading.join().expect("the reader thread")).to_string();
         let stderr =
@@ -6087,7 +6087,7 @@ fn a_client_that_dials_a_port_nobody_holds_says_so() {
     let port = running.2;
     let mut child = running.0;
     crate::shared::signalling(&child, crate::shared::SIGTERM);
-    let _stopped = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let _stopped = crate::shared::waited(&mut child, crate::shared::server_deadline());
     let _reader = running.1.join();
 
     let said = dialled_client(&client, port);
@@ -6122,7 +6122,7 @@ fn a_client_that_dials_a_port_nobody_holds_says_so() {
 /// server that answered before reading would be testing this client's patience
 /// rather than its answer.
 ///
-/// Every wait is bounded by `shared::SERVER_DEADLINE`, so a client that never
+/// Every wait is bounded by `shared::server_deadline()`, so a client that never
 /// dials is a joined thread and a failing assertion rather than a job CI has to
 /// kill.
 fn one_answer(answer: &'static str) -> (u16, std::thread::JoinHandle<()>) {
@@ -6130,7 +6130,7 @@ fn one_answer(answer: &'static str) -> (u16, std::thread::JoinHandle<()>) {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
     let port = listener.local_addr().expect("the bound port").port();
     let serving = std::thread::spawn(move || {
-        let deadline = crate::shared::SERVER_DEADLINE;
+        let deadline = crate::shared::server_deadline();
         let Ok((mut socket, _from)) = listener.accept() else {
             return;
         };
@@ -6292,7 +6292,7 @@ fn a_client_stopped_and_continued_mid_handshake_reads_the_whole_answer() {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped()),
     );
-    let give_up_at = std::time::Instant::now() + crate::shared::SERVER_DEADLINE;
+    let give_up_at = std::time::Instant::now() + crate::shared::server_deadline();
     let mut socket = loop {
         match listener.accept() {
             Ok((socket, _from)) => break socket,
@@ -6307,10 +6307,10 @@ fn a_client_stopped_and_continued_mid_handshake_reads_the_whole_answer() {
     };
     socket.set_nonblocking(false).expect("a blocking socket");
     socket
-        .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+        .set_read_timeout(Some(crate::shared::server_deadline()))
         .expect("a deadline");
     socket
-        .set_write_timeout(Some(crate::shared::SERVER_DEADLINE))
+        .set_write_timeout(Some(crate::shared::server_deadline()))
         .expect("a deadline");
     let mut head: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 512];
@@ -6335,7 +6335,7 @@ fn a_client_stopped_and_continued_mid_handshake_reads_the_whole_answer() {
         .write_all(b"content-length: 0\r\nconnection: close\r\n\r\n")
         .expect("the rest of the head");
     drop(socket);
-    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let status = crate::shared::waited(&mut child, crate::shared::server_deadline());
     let (mut stdout, mut stderr) = (String::new(), String::new());
     if let Some(mut out) = child.stdout.take() {
         let _ = std::io::Read::read_to_string(&mut out, &mut stdout);
@@ -7044,7 +7044,7 @@ fn failed<C: Allocator>(ctx: C, error: NetError): Str {
 }
 
 /// Run [`fetching_client`] with `urls` as its arguments and `environment` added
-/// to its own, under the runtime's exit audit, within `SERVER_DEADLINE`.
+/// to its own, under the runtime's exit audit, within `server_deadline()`.
 fn fetched(
     binary: &std::path::Path,
     urls: &[String],
@@ -7062,7 +7062,7 @@ fn fetched(
         command.env(name, value);
     }
     let mut child = crate::shared::started(&mut command);
-    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let status = crate::shared::waited(&mut child, crate::shared::server_deadline());
     let mut stdout = String::new();
     child
         .stdout
@@ -7115,7 +7115,7 @@ fn a_native_binary_sends_a_request_and_reads_the_answer() {
     crate::shared::admitted(&binary);
 
     let peer = std::thread::spawn(move || {
-        let until = std::time::Instant::now() + crate::shared::SERVER_DEADLINE;
+        let until = std::time::Instant::now() + crate::shared::server_deadline();
         let mut accepted = None;
         while std::time::Instant::now() < until {
             match listener.accept() {
@@ -7136,10 +7136,10 @@ fn a_native_binary_sends_a_request_and_reads_the_answer() {
         };
         socket.set_nonblocking(false).expect("a blocking socket");
         socket
-            .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+            .set_read_timeout(Some(crate::shared::server_deadline()))
             .expect("a read deadline");
         socket
-            .set_write_timeout(Some(crate::shared::SERVER_DEADLINE))
+            .set_write_timeout(Some(crate::shared::server_deadline()))
             .expect("a write deadline");
         // The head, and then the five octets of body it announces.
         let mut asked = Vec::new();
@@ -7418,11 +7418,11 @@ type Heard = std::thread::JoinHandle<(Vec<u8>, Vec<u8>)>;
 
 /// A loopback relay to `port` for one connection.
 ///
-/// Every read has `SERVER_DEADLINE` on it and the accept gives up at the same
+/// Every read has `server_deadline()` on it and the accept gives up at the same
 /// deadline, so the handle can always be joined.
 fn relay(port: u16) -> (u16, Heard) {
     use std::io::Write;
-    let deadline = crate::shared::SERVER_DEADLINE;
+    let deadline = crate::shared::server_deadline();
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a loopback listener");
     let relayed = listener.local_addr().expect("its port").port();
     listener
@@ -7641,7 +7641,7 @@ export fn main(host: NativeHost): Result<(), Str> {{
 fn ran_to_the_end(binary: &std::path::Path) -> crate::shared::Ran {
     use std::io::Read;
     let mut child = crate::shared::spawned(binary);
-    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let status = crate::shared::waited(&mut child, crate::shared::server_deadline());
     let mut stdout = String::new();
     let mut stderr = String::new();
     if let Some(mut out) = child.stdout.take() {

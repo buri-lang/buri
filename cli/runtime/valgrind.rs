@@ -32,6 +32,8 @@ const FREELIKE_BLOCK: usize = 0x1302;
 const RESIZEINPLACE_BLOCK: usize = 0x130b;
 const STACK_REGISTER: usize = 0x1501;
 const STACK_DEREGISTER: usize = 0x1502;
+/// Changes one of the tool's dynamic options, such as `--leak-check`.
+const CLO_CHANGE: usize = 0x1203;
 /// Memcheck's own requests start at `'M' << 24 | 'C' << 16`.
 const MAKE_MEM_NOACCESS: usize = 0x4d43_0000;
 const MAKE_MEM_UNDEFINED: usize = 0x4d43_0001;
@@ -197,6 +199,19 @@ fn mark(what: usize, p: *mut u8, len: usize) {
 #[inline(never)]
 pub fn make_defined(p: *mut u8, len: usize) {
     mark(MAKE_MEM_DEFINED, p, len);
+}
+
+/// Turns memcheck's leak check off for the rest of the run. A program that
+/// chose where to stop may hold values, as `memory.rs`'s heap audit agrees.
+#[cold]
+#[inline(never)]
+pub fn no_leak_check() {
+    if memcheck() {
+        request(
+            0,
+            [CLO_CHANGE, c"--leak-check=no".as_ptr().addr(), 0, 0, 0, 0],
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

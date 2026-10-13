@@ -2328,6 +2328,7 @@ static HEAP_AUDIT_QUIET: AtomicBool = AtomicBool::new(false);
 /// Called by `abort::die` and by `buri_rt_host_process_exit_with`.
 pub(crate) fn quiet_heap_audit() {
     HEAP_AUDIT_QUIET.store(true, Ordering::Relaxed);
+    valgrind::no_leak_check();
 }
 
 unsafe extern "C" {
