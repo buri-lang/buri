@@ -1,12 +1,16 @@
 TN:
 SF:lib/d/d.buri
-BRDA:16,0,0,1
-BRDA:16,0,1,0
-BRF:2
-BRH:1
-MCDC:16,1,t,0,0,'n / d' in 'n / d'
-MCDC:16,1,f,0,0,'n / d' in 'n / d'
-MCF:2
+BRDA:24,0,0,1
+BRDA:24,0,1,0
+BRDA:28,0,0,1
+BRDA:28,0,1,0
+BRF:4
+BRH:2
+MCDC:24,1,t,0,0,'n / d' in 'n / d'
+MCDC:24,1,f,0,0,'n / d' in 'n / d'
+MCDC:28,1,t,0,0,'(n + 1) / (d + 1)' in '(n + 1) / (d + 1)'
+MCDC:28,1,f,0,0,'(n + 1) / (d + 1)' in '(n + 1) / (d + 1)'
+MCF:4
 MCH:0
 DA:3,1
 DA:4,1
@@ -16,6 +20,12 @@ DA:11,1
 DA:12,1
 DA:15,1
 DA:16,1
-LF:8
-LH:8
+DA:19,1
+DA:20,1
+DA:23,1
+DA:24,1
+DA:27,1
+DA:28,1
+LF:14
+LH:14
 end_of_record

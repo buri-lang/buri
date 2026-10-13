@@ -37,3 +37,9 @@ test "a guard that is a match" {
     assert.equal(d.guardedByMatch(0, true), "zero");
     assert.equal(d.guardedByMatch(0, false), "other");
 }
+
+test "conditions that quote parentheses" {
+    assert.isTrue(d.bracket("(\"", 'x'));
+    assert.isTrue(d.bracket("", ')'));
+    assert.isFalse(d.bracket("", 'x'));
+}

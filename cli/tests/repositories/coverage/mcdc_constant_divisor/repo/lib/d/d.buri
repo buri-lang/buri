@@ -12,6 +12,18 @@ export fn middle<T>(items: [T]): Int {
     items.length() / 2
 }
 
+export fn rows(n: Int): Int {
+    n / (PER_ROW + 1)
+}
+
+export fn pages<T>(items: [T]): Int {
+    items.length() / (PER_ROW * 2 - 3)
+}
+
 export fn share(n: Int, d: Int): Int {
     n / d
+}
+
+export fn spread(n: Int, d: Int): Int {
+    (n + 1) / (d + 1)
 }

@@ -188,12 +188,52 @@ pub fn raw_dir() -> Option<PathBuf> {
 }
 
 /// Text from the source, on one line, for an lcov record.
+///
+/// A parenthesised operand keeps the span of what is inside it, so `(n + 1) /
+/// d` spans from `n` on. The text takes in the parentheses an end of the span
+/// left open.
 fn text(map: &SourceMap, span: Span) -> String {
     let source = &map.get(span.file).text;
-    let raw = source
-        .get(span.start as usize..span.end as usize)
-        .unwrap_or("");
+    let (mut start, mut end) = (span.start as usize, span.end as usize);
+    let (open, close) = unbalanced(source.get(start..end).unwrap_or(""));
+    // The source parsed, so each parenthesis is there to find.
+    for _ in 0..close {
+        start = source
+            .get(..start)
+            .and_then(|s| s.rfind('('))
+            .unwrap_or(start);
+    }
+    for _ in 0..open {
+        end = source
+            .get(end..)
+            .and_then(|s| s.find(')'))
+            .map_or(end, |at| end + at + 1);
+    }
+    let raw = source.get(start..end).unwrap_or("");
     raw.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// How many `(` in `s` close after it, and how many `)` opened before it,
+/// leaving out those in string and character literals.
+fn unbalanced(s: &str) -> (usize, usize) {
+    let (mut open, mut close) = (0usize, 0usize);
+    let mut quote = None;
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        match (quote, c) {
+            (Some(_), '\\') => {
+                chars.next();
+            }
+            (Some(q), _) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '(') => open += 1,
+            (None, ')') if open > 0 => open -= 1,
+            (None, ')') => close += 1,
+            (None, _) => {}
+        }
+    }
+    (open, close)
 }
 
 /// Probes `program`, and notes every line and decision the user code

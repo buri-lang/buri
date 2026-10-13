@@ -5,8 +5,11 @@ test "constant divisors" {
     assert.equal(d.half(7), 3);
     assert.equal(d.column(6), 2);
     assert.equal(d.middle([1, 2, 3, 4]), 2);
+    assert.equal(d.rows(11), 2);
+    assert.equal(d.pages([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), 2);
 }
 
 test "a divisor the caller picks" {
     assert.equal(d.share(9, 3), 3);
+    assert.equal(d.spread(8, 2), 3);
 }
