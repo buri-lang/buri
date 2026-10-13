@@ -5196,6 +5196,26 @@ fn answer_member(
 /// block it runs ([`run_pulled`]). `cli/runtime/testing.rs` is the other half.
 const PULL: &str = "BURI_TEST_PULL";
 
+/// A command native test processes start under, such as a Valgrind tool:
+/// its words, split on whitespace, then the test binary and its arguments,
+/// as cargo's `runner`. Only a build with the `test-hooks` feature reads it,
+/// so the e2e harness can check what a test process does under a tool.
+#[cfg(feature = "test-hooks")]
+const RUNNER: &str = "BURI_TEST_RUNNER";
+
+/// The command that starts `program`, a native test binary: under
+/// [`RUNNER`] when it is set, and as is otherwise.
+fn test_process(program: &str) -> Option<std::process::Command> {
+    #[cfg(feature = "test-hooks")]
+    if let Some(runner) = std::env::var(RUNNER).ok().filter(|r| !r.trim().is_empty()) {
+        let mut words = runner.split_whitespace();
+        let mut cmd = crate::build::spawn::command(words.next()?)?;
+        cmd.args(words).arg(crate::build::spawn::resolve(program)?);
+        return Some(cmd);
+    }
+    crate::build::spawn::command(program)
+}
+
 /// What one process [`run_pulled`] started reported.
 enum Pulled {
     /// A verdict for every block it was handed, and the heap check's receipt,
@@ -5231,7 +5251,7 @@ fn run_pulled(
     use std::io::{BufRead as _, Read as _};
     use std::process::Stdio;
     let _phase = crate::profile::enter(crate::profile::Phase::Run);
-    let Some(mut cmd) = crate::build::spawn::command(program) else {
+    let Some(mut cmd) = test_process(program) else {
         return Pulled::Broken;
     };
     cmd.env(RESUME, "0").env(PULL, "1").env(SEED, seeds);
@@ -5755,7 +5775,13 @@ fn execute(
 ) -> std::io::Result<Execution> {
     use std::process::Stdio;
     let _phase = crate::profile::enter(crate::profile::Phase::Run);
-    let Some(mut cmd) = crate::build::spawn::command(program) else {
+    // A module is JavaScript's to run, and a binary without one is native.
+    let started = if module.is_some() {
+        crate::build::spawn::command(program)
+    } else {
+        test_process(program)
+    };
+    let Some(mut cmd) = started else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             format!("`{program}` is not on PATH"),

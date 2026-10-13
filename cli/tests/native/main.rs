@@ -266,6 +266,9 @@ mod supplied_context;
 // down a recursion, twice to one callee and stored by it, under the heap check.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod context_passing;
+// The test processes `buri test` starts, under the harness's Valgrind tool.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod test_processes;
 // `after` under `headless()`, fired by `elapse` on a virtual clock: the order,
 // ties, and timers scheduled from a timer, under the heap check, on every
 // backend built in and on JavaScript.

@@ -8,7 +8,8 @@ name: Memcheck
 # * **The workload** is the native conformance set built three ways, the
 #   backend-agreement and at-scale rows on both native backends, every other
 #   `native::` module, and the runtime's unit tests. `BURI_MEMCHECK` makes `cli/tests/native/shared.rs`
-#   run each program it built under memcheck; the runtime's tests are one
+#   run each program it built under memcheck, and each test process a
+#   `buri test` starts; the runtime's tests are one
 #   program, run by `cli/examples/valgrind.rs`.
 # * **`--features valgrind`** builds a runtime that, under memcheck, takes
 #   every block from the system allocator one at a time, annotated where
