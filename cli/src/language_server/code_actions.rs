@@ -283,20 +283,11 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
         // means writing the file first — which is the work this half exists to
         // put off. What `buri gen` writes is the whole answer either way.
         let title = format!("{where_it_is}: as `buri gen` would write it");
-        if !with_edits {
-            out.push(Action {
-                title,
-                code: code.to_string(),
-                edit: None,
-            });
-            continue;
-        }
+        // Whether `buri gen` can place the file is only known by running it,
+        // so the deferred half asks too: a title whose resolve would come back
+        // without an edit is a fix that does nothing.
         if let Some(edit) = regenerated_build_file(state, path, package) {
-            out.push(Action {
-                title,
-                code: code.to_string(),
-                edit: Some(edit),
-            });
+            out.push(Action { title, code: code.to_string(), edit: with_edits.then_some(edit) });
         }
     }
     out
