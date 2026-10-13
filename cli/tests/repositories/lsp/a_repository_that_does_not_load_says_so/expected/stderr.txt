@@ -1,1 +1,2 @@
 buri lsp: REPO.buri: unknown field `fail_on_findings` in a `lint` block. That file is the repository's own, so no analysis publishes the finding — and the lint pass does not run until it is fixed.
+buri lsp: //lib/shop: BUILD.buri is already what buri gen would write

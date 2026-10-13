@@ -26,7 +26,6 @@ use super::state::{State, Work};
 use super::Published;
 use crate::build::sources::Overlay;
 use crate::build::workspace::TargetId;
-use crate::json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -101,8 +100,9 @@ pub struct Swept {
     pub work: Work,
     /// What the worker decided to say out loud — a repository that will not
     /// open is found several calls below the sweep, and the reader has to be
-    /// told.
-    pub said: Vec<Value>,
+    /// told. The words rather than the message: the request thread may have
+    /// said them already, and it is the one that knows.
+    pub said: Vec<String>,
     /// Whether a newer edit overtook it before it finished. An abandoned sweep
     /// keeps whatever targets it did get through, so the next one starts from
     /// there; what it does not do is claim to be a whole report.
@@ -362,7 +362,7 @@ fn one(analyst: &mut State, job: Job, wanted: &Wanted) -> Swept {
         found,
         targets: analyst.swept_findings(&job.root),
         work: analyst.work().since(before),
-        said: analyst.take_outgoing(),
+        said: analyst.take_said(),
         abandoned: wanted.superseded(),
         root: job.root,
     }

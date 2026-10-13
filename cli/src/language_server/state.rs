@@ -228,7 +228,7 @@ pub struct State {
     /// A repository that will not load is found where it is opened, which is
     /// several calls below the request being answered — so the message goes
     /// here and `handle` sends it with that request's replies.
-    outgoing: Vec<Value>,
+    outgoing: Vec<String>,
     /// Per repository: the analysis fingerprint its failure to load was last
     /// announced at, so a broken repository says so once rather than once per
     /// request.
@@ -700,6 +700,14 @@ impl State {
 
     /// The messages produced while serving, handed over to be sent.
     pub fn take_outgoing(&mut self) -> Vec<Value> {
+        self.take_said()
+            .iter()
+            .map(|said| super::message("window/showMessage", super::ERROR, said))
+            .collect()
+    }
+
+    /// The same, as the words alone, for a sweep to hand to the request thread.
+    pub fn take_said(&mut self) -> Vec<String> {
         std::mem::take(&mut self.outgoing)
     }
 
@@ -766,8 +774,7 @@ impl State {
             return;
         }
         self.announced.insert(root.to_path_buf(), now);
-        self.outgoing
-            .push(super::message("window/showMessage", super::ERROR, said));
+        self.outgoing.push(said.to_string());
     }
 
     /// The repository root that owns `path`, if the client has it open.
@@ -1550,7 +1557,12 @@ impl State {
             );
         }
         self.work = self.work.plus(swept.work);
-        self.outgoing.extend(swept.said);
+        // Through this thread's own record: the worker keeps a record of what
+        // it said, and it is not this one, so a failure this thread already
+        // announced would otherwise be said again by the first sweep.
+        for said in swept.said {
+            self.announce(&swept.root, &said);
+        }
     }
 
     /// What this repository's targets are filed as saying, in the shape a
