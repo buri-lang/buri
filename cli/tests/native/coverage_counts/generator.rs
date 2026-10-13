@@ -779,7 +779,6 @@ fn recursion(rng: &mut Rng, f: &str) -> Shape {
             e.numbered(at + 1, &[n, total], "");
             e.numbered(at + 4, &[taken, total - taken], "");
             if mcdc {
-                e.numbered(at + 4, &[total, 0], "");
                 e.single(at + 1, "n == 0", &[n, total], "");
                 e.single(
                     at + 4,
@@ -787,7 +786,6 @@ fn recursion(rng: &mut Rng, f: &str) -> Shape {
                     &[taken, total - taken],
                     "",
                 );
-                e.single(at + 4, &format!("n % {m}"), &[total, 0], "");
             }
         }),
     }
@@ -836,7 +834,6 @@ fn tail_recursion(rng: &mut Rng, f: &str) -> Shape {
             e.numbered(at + 1, &[n, total], "");
             e.numbered(at + 4, &[taken, total - taken], "");
             if mcdc {
-                e.numbered(at + 4, &[total, 0], "");
                 e.single(at + 1, "n == 0", &[n, total], "");
                 e.single(
                     at + 4,
@@ -844,7 +841,6 @@ fn tail_recursion(rng: &mut Rng, f: &str) -> Shape {
                     &[taken, total - taken],
                     "",
                 );
-                e.single(at + 4, &format!("n % {m}"), &[total, 0], "");
             }
         }),
     }

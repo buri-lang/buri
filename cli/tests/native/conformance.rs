@@ -648,6 +648,8 @@ const PACKAGES: &[Case] = &[
     included("proto/wire.buri"),
     // NaN, the infinities and the 64-bit extremes in proto3 JSON.
     included("proto/json_numbers.buri"),
+    // The well-known types at their defaults, and on input that ends early.
+    included("proto/known_types.buri"),
     // `map<K, V>` fields, as `OrderedMap<K, V>`.
     included("proto/maps.buri"),
     // The well-known types and their JSON.
