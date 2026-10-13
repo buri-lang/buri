@@ -176,6 +176,16 @@ const FLOOR: usize = 250;
 /// declaration read whole. That moves it to **14 of 2,000 (0.70%) and 2 of 600
 /// (0.33%)**, and the ceiling to one: both round down to zero, and the point
 /// of headroom is what makes it a bound rather than a description.
+///
+/// The last two were both a mistake hiding what the author wrote. A stray
+/// token right after `export` takes the word with it, so the declaration after
+/// it reads as private and its variants look unused. A swap that glues `match`
+/// to `io` writes the use as `matchio`, so the import looks unused. Lint now
+/// doubts the declaration after an orphaned `export`, and counts an import as
+/// used when its name sits at either end of a longer word in unreadable text.
+/// That moves it to **8 of 2,000 (0.40%) and 0 of 600**. The lost-finding
+/// count does not move: 49 of 2,000 and 20 of 600 before and after. The
+/// ceiling stays at one, the point of headroom over zero.
 const INVENTED_CEILING: usize = 1;
 
 /// What share of the cases may lose a finding whose evidence survived.

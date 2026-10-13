@@ -1,0 +1,16 @@
+// Swapping `match` with the `(` after it glues `match` to `io`, and the
+// parser loses its place in the arms. The use of `io` is still written, inside
+// `matchio`, and the import was never unused.
+//
+// Not a seed of the mutation corpus in `cli/tests/linting.rs`, which skips any
+// file whose text holds `from "//`.
+
+from "core/io" import * as io;
+from "platform/effect" import { Stdout };
+
+export fn write<C: Stdout>(ctx: C, line: Str): Result<Int, Str> {
+    match (io.println(ctx, line)) {
+        .Ok(_written) => .Ok(line.length()),
+        .Err(_error) => .Err("could not write to standard output"),
+    }
+}
