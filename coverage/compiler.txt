@@ -3,7 +3,7 @@
 # Branches gate, in total and per area; lines are context.
 
 area                              branches                      lines         
-cli/build                        1688/1705   99.00%       10759/11069   97.20%
+cli/build                        1690/1707   99.00%       10797/11107   97.21%
 cli/documentation                  477/480   99.38%         2778/2849   97.51%
 cli/format                           94/94  100.00%           367/368   99.73%
 cli/language_server              1246/1268   98.26%         8056/8242   97.74%
@@ -18,16 +18,16 @@ crates/docs                        246/246  100.00%           819/893   91.71%
 crates/hash                          18/18  100.00%           241/294   81.97%
 crates/js                        1019/1056   96.50%         5364/5609   95.63%
 crates/llvm                        596/600   99.33%         7648/7850   97.43%
-crates/middle                    1857/1902   97.63%       14720/15153   97.14%
+crates/middle                    1857/1902   97.63%       14770/15206   97.13%
 crates/project                   1341/1358   98.75%         6238/6399   97.48%
 crates/semantics                 2196/2202   99.73%       13487/13781   97.87%
 crates/stdlib                        12/12  100.00%           125/149   83.89%
 crates/stencil                   1182/1204   98.17%         8323/8769   94.91%
 crates/syntax                    1194/1196   99.83%         6542/6703   97.60%
-total                          15154/15395   98.43%      97463/100612   96.87%
+total                          15156/15397   98.43%      97551/100703   96.87%
 
 cli/src                           branches                      lines         
-build                            1688/1705   99.00%       10759/11069   97.20%
+build                            1690/1707   99.00%       10797/11107   97.21%
 commands/add                           8/8  100.00%             69/72   95.83%
 commands/arguments                   41/44   93.18%           118/129   91.47%
 commands/build                       90/90  100.00%           449/468   95.94%
