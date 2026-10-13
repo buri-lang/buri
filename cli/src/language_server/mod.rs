@@ -105,7 +105,7 @@ pub fn command_language_server(_args: &arguments::Args) -> i32 {
     let stdout = std::io::stdout();
     let mut output = stdout.lock();
     let (sender, events) = std::sync::mpsc::channel::<Event>();
-    state.sweeps.knock_on(sender.clone());
+    let sweeping = state.sweeps.start(sender.clone());
     let reading = std::thread::Builder::new()
         .name("buri-lsp-read".to_string())
         .spawn(move || {
@@ -125,8 +125,9 @@ pub fn command_language_server(_args: &arguments::Args) -> i32 {
                 }
             }
         });
-    if reading.is_err() {
-        // Nothing can be read, so there is nothing to serve.
+    // Nothing can be read, or nothing can sweep: a machine out of threads has
+    // nothing to serve. `|`, so that is one decision.
+    if reading.is_err() | sweeping.is_err() {
         return 1;
     }
     loop {
@@ -151,6 +152,9 @@ pub fn command_language_server(_args: &arguments::Args) -> i32 {
             // is asked to pull the workspace report again.
             Event::Swept => {
                 if state.sweeps.mode == sweep::Mode::Asynchronous {
+                    // Between two messages anything may have been written,
+                    // and a report is believed only for the bytes as they are.
+                    state.begin_message();
                     let landed = state.take_swept();
                     for reply in swept_publishes(&mut state, landed) {
                         echoed_to_stderr(&reply);

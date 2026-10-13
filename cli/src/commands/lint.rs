@@ -286,12 +286,15 @@ pub fn reports(
     rules: bool,
     stop: impl Fn() -> bool,
 ) -> Vec<Report> {
-    let shared = Shared::of(session, targets);
+    let mut shared = None;
     let mut out = Vec::new();
     for target in targets {
         if stop() {
             break;
         }
+        // Compiled at the first target rather than before it, so a sweep
+        // stopped before it started costs nothing.
+        let shared = &*shared.get_or_insert_with(|| Shared::of(session, targets));
         let alone;
         let part = match shared.as_ref().and_then(|shared| shared.part(*target)) {
             Some(part) => part,

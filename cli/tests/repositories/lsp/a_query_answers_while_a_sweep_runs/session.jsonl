@@ -2,8 +2,8 @@
 #
 # `initializationOptions.analysis: "deferred"` is the schedule this case is
 # about: the sweep runs on the worker, exactly as it does for an editor, and
-# what it found waits for `buri/awaitAnalysis` rather than for whenever the
-# thread happened to finish. That is what makes an asynchronous server
+# starts at `buri/awaitAnalysis` rather than whenever the thread happened to
+# get to it. That is what makes an asynchronous server
 # recordable — every answer below is the same answer either way, and where the
 # sweep's publishes land is this session's decision instead of the scheduler's.
 #
@@ -29,8 +29,8 @@
 # A fresh id here would tell the client its stale findings were current.
 {"jsonrpc": "2.0", "id": 3, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
 # And this is the claim. A hover and an outline, sent after the sweep was
-# asked for, are answered out of the request thread's own caches while the
-# worker is still compiling. Both responses are below, and every publish the
+# asked for, are answered out of the request thread's own caches before the
+# worker has finished. Both responses are below, and every publish the
 # sweep produces is below *them*.
 {"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri"}, "position": {"line": 1, "character": 12}}}
 {"jsonrpc": "2.0", "id": 5, "method": "textDocument/documentSymbol", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri"}}}

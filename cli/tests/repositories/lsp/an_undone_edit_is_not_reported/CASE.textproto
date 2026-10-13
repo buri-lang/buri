@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a sweep of an edit that was undone before it landed publishes nothing and files nothing, so the next report is the clean one; and when the edit comes back, the sweep it asks for finds the worker already holding it and compiles nothing"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}
