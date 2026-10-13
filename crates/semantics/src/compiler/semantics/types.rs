@@ -6,7 +6,7 @@
 //! rather than a search (SPEC 5.12.1), and it is why nothing in this module
 //! needs a fixpoint (guides/compile-speed.md).
 
-use crate::compiler::semantics::layered::{DenseId, IdMap, Layered, LayeredMap};
+use crate::compiler::semantics::layered::{DenseId, IdMap, Layered, LayeredMap, Mint, Table};
 use crate::diagnostics::{Invariant as _, Span};
 use crate::hash::Map as HashMap;
 use std::fmt::Write as _;
@@ -17,15 +17,22 @@ use std::fmt::Write as _;
 
 macro_rules! id_type {
     ($name:ident) => {
+        id_type!($name, pub u32);
+    };
+    // An id only its table mints: see `layered::Table`.
+    (minted $name:ident) => {
+        id_type!($name, u32);
+    };
+    ($name:ident, $($field:tt)*) => {
         #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-        pub struct $name(pub u32);
+        pub struct $name($($field)*);
         impl $name {
             pub fn index(self) -> usize {
                 self.0 as usize
             }
         }
         impl DenseId for $name {
-            fn from_index(i: usize) -> Self {
+            fn from_index(i: usize, _: Mint) -> Self {
                 $name(i as u32)
             }
             fn to_index(self) -> usize {
@@ -36,12 +43,12 @@ macro_rules! id_type {
 }
 
 id_type!(ModuleId);
-id_type!(TyConId);
-id_type!(FnId);
-id_type!(TraitId);
-id_type!(ConstId);
-id_type!(ContextDeclId);
-id_type!(CtxTypeId);
+id_type!(minted TyConId);
+id_type!(minted FnId);
+id_type!(minted TraitId);
+id_type!(minted ConstId);
+id_type!(minted ContextDeclId);
+id_type!(minted CtxTypeId);
 id_type!(TyVarId);
 id_type!(LocalId);
 
@@ -674,11 +681,11 @@ impl CtxType {
 
 #[derive(Clone)]
 pub struct Tables {
-    pub tycons: Layered<TyCon>,
-    pub fns: Layered<FnInfo>,
-    pub traits: Layered<TraitInfo>,
-    pub consts: Layered<ConstInfo>,
-    pub ctx_types: Layered<CtxType>,
+    pub tycons: Table<TyConId, TyCon>,
+    pub fns: Table<FnId, FnInfo>,
+    pub traits: Table<TraitId, TraitInfo>,
+    pub consts: Table<ConstId, ConstInfo>,
+    pub ctx_types: Table<CtxTypeId, CtxType>,
     /// Exactly one candidate per `(trait, type)`. Coherence, orphan rules, and
     /// instance search are not restricted here — they are unrepresentable.
     pub impls: LayeredMap<(TraitId, TyConId), ImplInfo>,
@@ -708,7 +715,7 @@ pub struct Tables {
     /// `[T]` has no type constructor of its own; its defining module is
     /// `core/list`.
     pub array_methods: LayeredMap<String, FnId>,
-    pub ctx_decls: Layered<ContextDeclInfo>,
+    pub ctx_decls: Table<ContextDeclId, ContextDeclInfo>,
     /// Each primitive's type, by `Prim` discriminant, which is also its
     /// `TyConId`: `Tables::default` adds them first, in `Prim::all()` order.
     prims: [Ty; 16],
@@ -722,9 +729,8 @@ pub struct Tables {
     /// built by several phases and finished by `elaborate_signatures`; here
     /// there is one place that fills it, `index_members`, and a type whose
     /// index was never built falls back to the scan rather than answering
-    /// wrongly. Sparse: only the types past the threshold have an entry, and
-    /// the vector may be shorter than `tycons`.
-    member_index: Layered<Option<Box<HashMap<String, usize>>>>,
+    /// wrongly. Sparse: only the types past the threshold have an entry.
+    member_index: IdMap<TyConId, Box<HashMap<String, usize>>>,
     /// Per type constructor, per type parameter: whether *holding* a value of
     /// that constructor can hand you the argument at that position. See
     /// `compute_variance`.
@@ -777,18 +783,18 @@ impl Default for Tables {
     /// Tables holding the primitives and nothing else.
     fn default() -> Self {
         let mut t = Tables {
-            tycons: Layered::default(),
-            fns: Layered::default(),
-            traits: Layered::default(),
-            consts: Layered::default(),
-            ctx_types: Layered::default(),
+            tycons: Table::default(),
+            fns: Table::default(),
+            traits: Table::default(),
+            consts: Table::default(),
+            ctx_types: Table::default(),
             impls: LayeredMap::default(),
             traits_by_con: IdMap::default(),
             methods: IdMap::default(),
             array_methods: LayeredMap::default(),
-            ctx_decls: Layered::default(),
+            ctx_decls: Table::default(),
             prims: Prim::all().map(|p| Ty::con(p.con(), [])),
-            member_index: Layered::default(),
+            member_index: IdMap::default(),
             variance: Layered::default(),
         };
         // The primitives live in a synthetic module so that every table entry
@@ -810,9 +816,7 @@ impl Default for Tables {
 
 impl Tables {
     pub fn tycon(&self, id: TyConId) -> &TyCon {
-        self.tycons
-            .get(id.index())
-            .or_ice("every TyConId was minted by add_tycon on this table")
+        self.tycons.get(id)
     }
 
     /// Whether this is `Option`, the one type the backend gives a
@@ -850,27 +854,19 @@ impl Tables {
     }
 
     pub fn fn_info(&self, id: FnId) -> &FnInfo {
-        self.fns
-            .get(id.index())
-            .or_ice("every FnId was minted by add_fn on this table")
+        self.fns.get(id)
     }
 
     pub fn trait_(&self, id: TraitId) -> &TraitInfo {
-        self.traits
-            .get(id.index())
-            .or_ice("every TraitId was minted by add_trait on this table")
+        self.traits.get(id)
     }
 
     pub fn const_(&self, id: ConstId) -> &ConstInfo {
-        self.consts
-            .get(id.index())
-            .or_ice("every ConstId was minted by add_const on this table")
+        self.consts.get(id)
     }
 
     pub fn ctx_type(&self, id: CtxTypeId) -> &CtxType {
-        self.ctx_types
-            .get(id.index())
-            .or_ice("every CtxTypeId was minted by add_ctx_type on this table")
+        self.ctx_types.get(id)
     }
 
     /// Shares every entry, so that [`Tables::layer`] can hand them to
@@ -913,39 +909,27 @@ impl Tables {
     /// The same entries, for the phases that fill them in. Ids come from the
     /// `add_*` methods below, so the index is always in range.
     pub fn tycon_mut(&mut self, id: TyConId) -> &mut TyCon {
-        self.tycons
-            .get_mut(id.index())
-            .or_ice("every TyConId was minted by add_tycon")
+        self.tycons.get_mut(id)
     }
 
     pub fn fn_info_mut(&mut self, id: FnId) -> &mut FnInfo {
-        self.fns
-            .get_mut(id.index())
-            .or_ice("every FnId was minted by add_fn")
+        self.fns.get_mut(id)
     }
 
     pub fn trait_mut(&mut self, id: TraitId) -> &mut TraitInfo {
-        self.traits
-            .get_mut(id.index())
-            .or_ice("every TraitId was minted by add_trait")
+        self.traits.get_mut(id)
     }
 
     pub fn const_mut(&mut self, id: ConstId) -> &mut ConstInfo {
-        self.consts
-            .get_mut(id.index())
-            .or_ice("every ConstId was minted by add_const")
+        self.consts.get_mut(id)
     }
 
     pub fn ctx_decl_mut(&mut self, id: ContextDeclId) -> &mut ContextDeclInfo {
-        self.ctx_decls
-            .get_mut(id.index())
-            .or_ice("every ContextDeclId was minted by add_ctx_decl")
+        self.ctx_decls.get_mut(id)
     }
 
     pub fn add_tycon(&mut self, c: TyCon) -> TyConId {
-        let id = TyConId(self.tycons.len() as u32);
-        self.tycons.push(c);
-        id
+        self.tycons.push(c)
     }
 
     /// Builds `id`'s member-name index, once its `def` is settled. Below the
@@ -969,13 +953,7 @@ impl Tables {
         for (i, name) in members.iter().enumerate() {
             map.entry((*name).to_owned()).or_insert(i);
         }
-        // Never shrinks, so a type indexed again keeps the ones after it.
-        self.member_index
-            .resize_with(id.index().saturating_add(1), || None);
-        *self
-            .member_index
-            .get_mut(id.index())
-            .or_ice("only the checker's own types are indexed") = Some(Box::new(map));
+        self.member_index.insert(id, Box::new(map));
     }
 
     /// The index for `id`, when there is one and it is the list the caller
@@ -986,7 +964,7 @@ impl Tables {
         if matches!(self.tycon(id).def, TyDef::Enum { .. }) != enums {
             return None;
         }
-        self.member_index.get(id.index())?.as_deref()
+        self.member_index.get(&id).map(Box::as_ref)
     }
 
     /// The position of a variant in `id`'s variant list.
@@ -1055,15 +1033,11 @@ impl Tables {
     }
 
     pub fn add_fn(&mut self, f: FnInfo) -> FnId {
-        let id = FnId(self.fns.len() as u32);
-        self.fns.push(f);
-        id
+        self.fns.push(f)
     }
 
     pub fn add_trait(&mut self, t: TraitInfo) -> TraitId {
-        let id = TraitId(self.traits.len() as u32);
-        self.traits.push(t);
-        id
+        self.traits.push(t)
     }
 
     /// Whether this type constructor implements any effect.
@@ -1227,27 +1201,19 @@ impl Tables {
     }
 
     pub fn add_const(&mut self, c: ConstInfo) -> ConstId {
-        let id = ConstId(self.consts.len() as u32);
-        self.consts.push(c);
-        id
+        self.consts.push(c)
     }
 
     pub fn ctx_decl(&self, id: ContextDeclId) -> &ContextDeclInfo {
-        self.ctx_decls
-            .get(id.index())
-            .or_ice("every ContextDeclId was minted by add_ctx_decl on this table")
+        self.ctx_decls.get(id)
     }
 
     pub fn add_ctx_decl(&mut self, c: ContextDeclInfo) -> ContextDeclId {
-        let id = ContextDeclId(self.ctx_decls.len() as u32);
-        self.ctx_decls.push(c);
-        id
+        self.ctx_decls.push(c)
     }
 
     pub fn add_ctx_type(&mut self, c: CtxType) -> CtxTypeId {
-        let id = CtxTypeId(self.ctx_types.len() as u32);
-        self.ctx_types.push(c);
-        id
+        self.ctx_types.push(c)
     }
 
     /// The type of a `context { ... }` expression: the one an earlier context
@@ -1272,10 +1238,10 @@ impl Tables {
         if closed {
             let same = self
                 .ctx_types
-                .iter()
-                .position(|other| other.bindings == c.bindings);
-            if let Some(at) = same {
-                return CtxTypeId(at as u32);
+                .entries()
+                .find(|(_, other)| other.bindings == c.bindings);
+            if let Some((at, _)) = same {
+                return at;
             }
         }
         self.add_ctx_type(c)

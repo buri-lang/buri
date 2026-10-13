@@ -9,6 +9,7 @@
 //! overloading (guides/compile-speed.md).
 
 use crate::compiler::modules::Role;
+use crate::compiler::semantics::layered::IdMap;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::resolve::{Bodies, Checker, Sym};
 use crate::compiler::semantics::typed;
@@ -22,18 +23,17 @@ pub fn check_all(c: &mut Checker) {
     // What a base checked is already in the tables this checker started from.
     let (consts, ctx_decls) = c.base_counts();
     // Constants first: a module-level `let` may be referenced from any body.
-    for i in consts..c.tables.consts.len() {
-        check_const(c, ConstId(i as u32));
+    for id in c.tables.consts.ids().skip(consts) {
+        check_const(c, id);
     }
     check_const_cycles(c, consts);
-    for i in ctx_decls..c.tables.ctx_decls.len() {
-        check_context_decl(c, ContextDeclId(i as u32));
+    for id in c.tables.ctx_decls.ids().skip(ctx_decls) {
+        check_context_decl(c, id);
     }
     // Function bodies check independently and in any order
     // (guides/compile-speed.md), which is what lets a scoped analysis check
     // some of them and not others.
-    for i in 0..c.tables.fns.len() {
-        let fid = FnId(i as u32);
+    for fid in c.tables.fns.ids() {
         if c.settled_by_base(fid) == Some(true) {
             continue;
         }
@@ -239,69 +239,70 @@ fn check_const(c: &mut Checker, cid: ConstId) {
 /// the constant it starts from. A base's constants can't name these, so only
 /// this checker's own are walked.
 fn check_const_cycles(c: &mut Checker, from: usize) {
-    let count = c.tables.consts.len();
-    let mut refs: Vec<Vec<usize>> = vec![Vec::new(); count];
-    for (i, out) in refs.iter_mut().enumerate().skip(from) {
-        let value = c
-            .const_values
-            .get(&ConstId(i as u32))
-            .or_ice("every constant was just checked");
-        typed::walk(value, &mut |e| {
-            if let typed::ExprKind::Const(id) = e.kind {
-                out.push(id.index());
-            }
-        });
-    }
-    let mut state = vec![Visit::New; count];
+    let refs: IdMap<ConstId, Vec<ConstId>> = c
+        .const_values
+        .iter_from(from)
+        .map(|(id, value)| {
+            let mut out = Vec::new();
+            typed::walk(value, &mut |e| {
+                if let typed::ExprKind::Const(to) = e.kind {
+                    out.push(to);
+                }
+            });
+            (id, out)
+        })
+        .collect();
+    let mut state = IdMap::default();
     let mut cycles = Vec::new();
-    for start in from..count {
+    for start in refs.keys() {
         const_cycles_from(start, &refs, &mut state, &mut Vec::new(), &mut cycles);
     }
-    for cycle in cycles {
-        let mut names: Vec<String> = cycle
+    for (first, cycle) in cycles {
+        let names: Vec<String> = cycle
             .iter()
-            .map(|&i| format!("`{}`", c.tables.const_(ConstId(i as u32)).name))
+            .chain([&first])
+            .map(|&id| format!("`{}`", c.tables.const_(id).name))
             .collect();
-        names.extend(names.first().cloned());
-        let first = *cycle.first().or_ice("a cycle has a constant on it");
-        let at = c.tables.const_(ConstId(first as u32)).span;
+        let at = c.tables.const_(first).span;
         c.diags.push(
             Diagnostic::templated("circular-constant", at).with_bind("cycle", names.join(" -> ")),
         );
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 enum Visit {
+    #[default]
     New,
     Open,
     Done,
 }
 
 /// A depth-first walk of the constants `at` reaches, recording every cycle it
-/// closes.
+/// closes as the constant it closes at and the path round it from there. A
+/// base's constants have no `refs`: they can't name these.
 fn const_cycles_from(
-    at: usize,
-    refs: &[Vec<usize>],
-    state: &mut [Visit],
-    path: &mut Vec<usize>,
-    cycles: &mut Vec<Vec<usize>>,
+    at: ConstId,
+    refs: &IdMap<ConstId, Vec<ConstId>>,
+    state: &mut IdMap<ConstId, Visit>,
+    path: &mut Vec<ConstId>,
+    cycles: &mut Vec<(ConstId, Vec<ConstId>)>,
 ) {
-    let here = state.get_mut(at).or_ice("every constant has a visit state");
+    let here = state.get_or_default(at);
     match *here {
         Visit::New => *here = Visit::Open,
         Visit::Open => {
-            cycles.push(path.iter().copied().skip_while(|&p| p != at).collect());
+            cycles.push((at, path.iter().copied().skip_while(|&p| p != at).collect()));
             return;
         }
         Visit::Done => return,
     }
     path.push(at);
-    for &next in refs.get(at).or_ice("every constant has a reference list") {
+    for &next in refs.get(&at).into_iter().flatten() {
         const_cycles_from(next, refs, state, path, cycles);
     }
     path.pop();
-    *state.get_mut(at).or_ice("every constant has a visit state") = Visit::Done;
+    *state.get_or_default(at) = Visit::Done;
 }
 
 /// Checks one `context` declaration, once.

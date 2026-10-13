@@ -125,7 +125,7 @@ fn is_path(e: &Expr) -> bool {
 mod tests {
     use super::forward_body;
     use crate::compiler::semantics::typed::{Expr, ExprKind, PatKind, Pattern, Stmt};
-    use crate::compiler::semantics::types::{LocalId, Ty, TyConId};
+    use crate::compiler::semantics::types::{LocalId, Prim, Ty};
     use crate::diagnostics::Span;
 
     fn e(kind: ExprKind) -> Expr {
@@ -168,7 +168,7 @@ mod tests {
 
     fn update(base: Expr, value: Expr) -> Expr {
         e(ExprKind::StructUpdate {
-            con: TyConId(0),
+            con: Prim::Bool.con(),
             base: Box::new(base),
             updates: vec![(0, value)],
         })

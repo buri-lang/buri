@@ -444,11 +444,9 @@ mod tests {
     use crate::compiler::semantics::typed::{
         Arm, Expr, ExprKind, FieldPat, Local, Magnitude, PatKind, Pattern,
     };
-    use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty, TyConId};
+    use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty};
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
-
-    const CON: TyConId = TyConId(7);
 
     fn e(kind: ExprKind) -> Expr {
         Expr::new(kind, Ty::UNIT, Span::default())
@@ -465,7 +463,7 @@ mod tests {
     /// `.V(sub)`, the one-field variant every case here is written over.
     fn variant(v: usize, sub: PatKind) -> Pattern {
         pat(PatKind::Variant {
-            con: CON,
+            con: Prim::U16.con(),
             variant: v,
             fields: vec![FieldPat {
                 index: 0,

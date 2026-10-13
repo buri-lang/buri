@@ -477,7 +477,7 @@ fn named(analyzed: &Analyzed, symbol: &symbols::Symbol) -> Option<(String, bool)
             (info.module, info.name.clone(), info.exported)
         }
         Symbol::Context(id) => {
-            let info = tables.ctx_decls.get(id.index())?;
+            let info = tables.ctx_decl(*id);
             (info.module, info.name.clone(), info.exported)
         }
         Symbol::Field {

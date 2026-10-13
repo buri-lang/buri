@@ -497,12 +497,11 @@ fn shapes_of(tables: &Tables) -> Shapes {
     let effects = Effects {
         cons: tables
             .tycons
-            .iter()
-            .enumerate()
-            .map(|(i, c)| ConEffects {
-                implements: tables.con_carries_effect(TyConId(i as u32)),
+            .entries()
+            .map(|(id, c)| ConEffects {
+                implements: tables.con_carries_effect(id),
                 provides: (0..c.generics.len())
-                    .map(|k| tables.provides(TyConId(i as u32), k))
+                    .map(|k| tables.provides(id, k))
                     .collect(),
             })
             .collect(),
@@ -2742,14 +2741,14 @@ impl Monomorphizer<'_> {
             .method(con, "toList")
             .or_ice("`core/indexset` declares `IndexSet.toList`");
         let module = self.tables().tycon(con).module;
-        let of = self
+        let (of, _) = self
             .tables()
             .fns
-            .iter()
-            .position(|f| (f.module, f.self_ty, f.name.as_str()) == (module, None, "of"))
+            .entries()
+            .find(|(_, f)| (f.module, f.self_ty, f.name.as_str()) == (module, None, "of"))
             .or_ice("`core/indexset` declares `of`");
         let to = self.request(Key::Fn(to_list, vec![k, Ty::UNIT]));
-        let from = self.request(Key::Fn(FnId(of as u32), vec![k, Ty::UNIT]));
+        let from = self.request(Key::Fn(of, vec![k, Ty::UNIT]));
         Desc::Members {
             list,
             to: FuncIdx(to as u32),
@@ -3445,8 +3444,7 @@ pub fn runtime_module_key(module: &str) -> String {
 fn canonical_contexts(tables: &Tables) -> Vec<CtxTypeId> {
     let mut first: HashMap<Vec<(TraitId, Ty)>, CtxTypeId> = HashMap::default();
     let mut canon: Vec<CtxTypeId> = Vec::with_capacity(tables.ctx_types.len());
-    for (i, c) in tables.ctx_types.iter().enumerate() {
-        let id = CtxTypeId(i as u32);
+    for (id, c) in tables.ctx_types.entries() {
         // A context's bindings were resolved before its id was minted, so any
         // context type they name has a smaller id and is already in `canon`.
         let bindings: Vec<(TraitId, Ty)> = c
@@ -3674,8 +3672,8 @@ mod tests {
     }
 
     /// A type constructor id, named for what a test means by it.
-    fn con(id: u32, args: Vec<Ty>) -> Ty {
-        Ty::con(TyConId(id), args)
+    fn con(id: usize, args: Vec<Ty>) -> Ty {
+        Ty::con(Prim::all()[id].con(), args)
     }
 
     fn int() -> Ty {
@@ -4003,7 +4001,10 @@ mod tests {
         // And types with no `Self` in them at all.
         assert!(self_positions(&int()).is_empty());
         assert!(self_positions(&Ty::UNIT).is_empty());
-        assert!(self_positions(&Ty::ctx(CtxTypeId(0))).is_empty());
+        let ctx = Tables::default().add_ctx_type(CtxType {
+            bindings: Vec::new(),
+        });
+        assert!(self_positions(&Ty::ctx(ctx)).is_empty());
     }
 
     /// The rejection says something specific enough to act on.
