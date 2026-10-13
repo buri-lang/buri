@@ -1,0 +1,11 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# `unused-source` in a package with a library and a binary, about a file
+# neither entry point reaches: `buri gen` refuses to guess which rule it goes
+# in. This client defers edits to `codeAction/resolve`, and an action listed
+# for it would resolve to no edit, so nothing is listed.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"textDocument": {"codeAction": {"resolveSupport": {"properties": ["edit"]}}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/both/helper.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "unused-source", "message": "cmd/both/extra.buri belongs to no library or binary, so nothing builds it", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

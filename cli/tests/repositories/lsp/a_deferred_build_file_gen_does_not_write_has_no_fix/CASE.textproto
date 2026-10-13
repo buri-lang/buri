@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an `unused-source` `buri gen` cannot place has no code action for a client that defers edits to resolve: a listed action would resolve to nothing"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}
