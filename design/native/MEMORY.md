@@ -1163,7 +1163,7 @@ asks, once per process, whether memcheck is running, and steps aside:
 | freed blocks kept in a per-thread cache, large ones too | every free reaches the allocator |
 | the heap check's quarantine poisons freed blocks and holds them | the exit audit only |
 | musl's `malloc`, invisible | blocks annotated with 32-byte redzones, and 20 MB of frees held back from reuse |
-| task stacks are plain memory | task stacks registered as stacks |
+| task stacks are plain memory | task stacks registered as stacks, under helgrind too |
 
 **Client requests, not an environment variable.** A mode that sent every
 allocation to `malloc` would catch nothing in a static musl binary, where
@@ -1214,6 +1214,8 @@ So under helgrind the runtime tells it what it can't see:
   orders an atomic's read-modify-write but not its plain loads and stores.
 - A block from musl's `malloc` starts fresh, so what a thread did at the same
   address before it was freed races with nothing.
+- Task stacks are registered as stacks. Valgrind ends a stack trace at the
+  bounds of the stack it's on, and an unregistered task stack can have none.
 
 A race with an access in code that orders itself with something helgrind
 can't see is dropped from the report: tokio, `std`'s threads, futex locks and
