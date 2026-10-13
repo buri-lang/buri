@@ -32,3 +32,8 @@ test "a condition too long to quote whole" {
     assert.equal(d.farAbove(1), true);
     assert.equal(d.farAbove(-9000000000), false);
 }
+
+test "a guard that is a match" {
+    assert.equal(d.guardedByMatch(0, true), "zero");
+    assert.equal(d.guardedByMatch(0, false), "other");
+}

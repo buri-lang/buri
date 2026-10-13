@@ -17,8 +17,14 @@ BRDA:27,1,0,1
 BRDA:27,1,1,1
 BRDA:31,0,0,1
 BRDA:31,0,1,1
-BRF:17
-BRH:13
+BRDA:42,0,0,1
+BRDA:42,0,1,1
+BRDA:43,0,0,1
+BRDA:43,0,1,1
+BRDA:43,1,0,1
+BRDA:43,1,1,1
+BRF:23
+BRH:19
 MCDC:2,1,t,0,0,'n < 0' in 'n < 0'
 MCDC:2,1,f,0,0,'n < 0' in 'n < 0'
 MCDC:6,1,t,1,0,'n < 0' in 'n < 0'
@@ -39,8 +45,18 @@ MCDC:27,2,t,0,1,'b' in '!(a && b)'
 MCDC:27,2,f,0,1,'b' in '!(a && b)'
 MCDC:31,1,t,1,0,'n + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 10000000...' in 'n + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 10000000...'
 MCDC:31,1,f,1,0,'n + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 10000000...' in 'n + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 1000000000 + 10000000...'
-MCF:20
-MCH:10
+MCDC:42,2,t,1,0,'0' in 'match n'
+MCDC:42,2,f,1,0,'0' in 'match n'
+MCDC:42,2,t,1,1,'_' in 'match n'
+MCDC:42,2,f,1,1,'_' in 'match n'
+MCDC:43,3,t,1,0,'true' in 'match flag'
+MCDC:43,3,f,1,0,'true' in 'match flag'
+MCDC:43,3,t,1,1,'false' in 'match flag'
+MCDC:43,3,f,1,1,'false' in 'match flag'
+MCDC:43,3,t,1,2,'match (flag) { true => true, false => false, }' in 'match (flag) { true => true, false => false, }'
+MCDC:43,3,f,1,2,'match (flag) { true => true, false => false, }' in 'match (flag) { true => true, false => false, }'
+MCF:30
+MCH:20
 DA:1,1
 DA:2,1
 DA:5,2
@@ -63,6 +79,13 @@ DA:34,1
 DA:35,1
 DA:36,1
 DA:37,1
-LF:22
-LH:21
+DA:41,2
+DA:42,2
+DA:43,2
+DA:44,1
+DA:45,1
+DA:46,1
+DA:47,1
+LF:29
+LH:28
 end_of_record
