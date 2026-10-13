@@ -7,7 +7,7 @@
 
 use crate::build::buildfile::{self, BuildFile, Platform};
 use crate::build::textproto::Document;
-use crate::diagnostics::{FileId, Span};
+use crate::diagnostics::{FileId, Invariant as _, Span};
 use std::path::PathBuf;
 
 /// What the checker asks of a workspace. `buri`'s `Workspace` answers it.
@@ -40,6 +40,14 @@ impl RuleKind {
             RuleKind::Tool => "tool",
         }
     }
+}
+
+/// A package's rule of one kind, with what it declares.
+#[derive(Clone, Copy, Debug)]
+pub enum Rule<'a> {
+    Library(&'a buildfile::Library),
+    Binary(&'a buildfile::Binary),
+    Tool(&'a buildfile::Tool),
 }
 
 /// A target is a package plus a rule kind. There is no `:name` syntax to learn
@@ -106,6 +114,31 @@ impl Package {
         match self.path.is_empty() {
             true => format!("//{rel}"),
             false => format!("//{}/{rel}", self.path),
+        }
+    }
+
+    /// The rule of `kind` this package declares. A target names a rule its
+    /// package declares, so the one it names is there.
+    pub fn rule(&self, kind: RuleKind) -> Rule<'_> {
+        match kind {
+            RuleKind::Library => Rule::Library(
+                self.build
+                    .library
+                    .as_ref()
+                    .or_ice("a library target's package has a library rule"),
+            ),
+            RuleKind::Binary => Rule::Binary(
+                self.build
+                    .binary
+                    .as_ref()
+                    .or_ice("a binary target's package has a binary rule"),
+            ),
+            RuleKind::Tool => Rule::Tool(
+                self.build
+                    .tool
+                    .as_ref()
+                    .or_ice("a tool target's package has a tool rule"),
+            ),
         }
     }
 

@@ -636,12 +636,43 @@ fn suite(session: &Session, target: TargetId) -> crate::build::buildfile::TestSu
 // own [`Slot`], `--explain` lines included, and a suite is printed only once
 // every suite before it has been.
 
-/// What a child's piped standard stream claims.
-const PIPED: &str = "a stream the runner piped is there to take";
+/// A spawned runner's pipes: what it is sent, a thread collecting what it
+/// prints to standard error, and what it prints to standard output.
+///
+/// The error stream is read on a thread of its own, so a process that fills
+/// the pipe never waits on the caller.
+fn pipes(
+    child: &mut std::process::Child,
+) -> (
+    Option<std::process::ChildStdin>,
+    std::thread::JoinHandle<String>,
+    std::process::ChildStdout,
+) {
+    use std::io::Read as _;
+    let input = child.stdin.take();
+    let mut errors = child
+        .stderr
+        .take()
+        .or_ice("a stream the runner piped is there to take");
+    let reading_err = std::thread::spawn(move || {
+        let mut text = String::new();
+        let _ = errors.read_to_string(&mut text);
+        text
+    });
+    let output = child
+        .stdout
+        .take()
+        .or_ice("a stream the runner piped is there to take");
+    (input, reading_err, output)
+}
 
 /// What a slot index's lookup claims: every index was minted by the pass's own
 /// slot list.
 const SLOT: &str = "every slot index names a slot of this pass";
+
+fn slot_mut(slots: &mut [Slot], i: usize) -> &mut Slot {
+    slots.get_mut(i).or_ice(SLOT)
+}
 
 /// One run of one suite on one platform: what the report is written in.
 struct Slot {
@@ -1011,7 +1042,7 @@ fn drive(
                 notes,
                 built,
             } => {
-                let s = slots.get_mut(slot).or_ice(SLOT);
+                let s = slot_mut(slots, slot);
                 if let Some(built) = built {
                     let at = s
                         .build
@@ -1026,7 +1057,7 @@ fn drive(
             Done::Progress => {}
             Done::Shared { ns } => add_shared(&mut tally.shared_build, ns),
             Done::Checked { target, analysis } => pre.analyses.push((target, *analysis)),
-            Done::Linking { slot } => slots.get_mut(slot).or_ice(SLOT).awaiting_build = true,
+            Done::Linking { slot } => slot_mut(slots, slot).awaiting_build = true,
             // A batch whose type check failed: again without the members whose
             // code failed it, and those alone, where a diagnostic names them.
             Done::Broken {
@@ -1042,7 +1073,7 @@ fn drive(
                     .filter(|(m, _)| !broken.is_empty() && !broken.contains(m))
                     .collect();
                 for &i in &member_slots {
-                    slots.get_mut(i).or_ice(SLOT).queued = false;
+                    slot_mut(slots, i).queued = false;
                 }
                 if kept.len() >= 2 {
                     let (members, member_slots): (Vec<TargetId>, Vec<usize>) =
@@ -1061,7 +1092,7 @@ fn drive(
                 }
             }
             Done::Built { slot, explain } => {
-                let s = slots.get_mut(slot).or_ice(SLOT);
+                let s = slot_mut(slots, slot);
                 s.explain.push_str(&explain);
                 s.awaiting_build = false;
             }
@@ -1073,13 +1104,9 @@ fn drive(
                 explain,
             } => {
                 let first = abandoned.first().or_ice("an abandoned batch has members");
-                slots
-                    .get_mut(*first)
-                    .or_ice(SLOT)
-                    .explain
-                    .push_str(&explain);
+                slot_mut(slots, *first).explain.push_str(&explain);
                 for &i in &abandoned {
-                    let s = slots.get_mut(i).or_ice(SLOT);
+                    let s = slot_mut(slots, i);
                     s.queued = false;
                     s.awaiting_build = false;
                     solo(session, args, pre, slots, i, queue, &mut tally.shared_build);
@@ -1105,7 +1132,7 @@ fn report(
     // Whether every refusal came from a program that had been built.
     let mut ran_failed = diagnostics.items.is_empty();
     for &i in &plan.slots {
-        let slot = slots.get_mut(i).or_ice(SLOT);
+        let slot = slot_mut(slots, i);
         print!("{}", slot.explain);
         eprint!("{}", slot.notes);
         match slot.answer.take() {
@@ -1446,7 +1473,7 @@ fn solo(
     queue: &Queue,
     shared_build: &mut Option<u64>,
 ) {
-    let slot = slots.get_mut(i).or_ice(SLOT);
+    let slot = slot_mut(slots, i);
     if slot.answer.is_some() || slot.queued {
         return;
     }
@@ -2292,7 +2319,7 @@ fn run_js_member(pulled: std::sync::Arc<JsPulled>, shared: &Shared) -> Done {
 /// not reported, or that never asked for one, is what a single process ending
 /// before its array is: the suite did not run.
 fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
-    use std::io::{BufRead as _, Read as _};
+    use std::io::BufRead as _;
     use std::process::Stdio;
     let _phase = crate::profile::enter(crate::profile::Phase::Run);
     let path = &pulled.suite.run.path;
@@ -2313,18 +2340,9 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
     );
     let mut child = started.map_err(|e| cannot_run(&e.to_string()))?;
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
-    let mut input = child.stdin.take();
-    let mut errors = child.stderr.take().or_ice(PIPED);
-    // On a thread of its own, so a process that fills the pipe never waits
-    // on this one.
-    let reading_err = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = errors.read_to_string(&mut text);
-        text
-    });
+    let (mut input, reading_err, output) = pipes(&mut child);
     let mut asked = false;
     let mut held: Option<usize> = None;
-    let output = child.stdout.take().or_ice(PIPED);
     for line in std::io::BufReader::new(output)
         .lines()
         .map_while(Result::ok)
@@ -4446,7 +4464,7 @@ fn queue_batch(
         output,
     };
     for &i in member_slots {
-        slots.get_mut(i).or_ice(SLOT).queued = true;
+        slot_mut(slots, i).queued = true;
     }
     let bytes = build_bytes(loading.source_bytes(&session.map));
     let job = BatchJob {
@@ -5305,7 +5323,7 @@ fn run_pulled(
     seeds: &str,
     snapshots: &[(&str, String)],
 ) -> Pulled {
-    use std::io::{BufRead as _, Read as _};
+    use std::io::BufRead as _;
     use std::process::Stdio;
     let _phase = crate::profile::enter(crate::profile::Phase::Run);
     let Some(mut cmd) = test_process(program) else {
@@ -5330,15 +5348,7 @@ fn run_pulled(
         return Pulled::Broken;
     };
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
-    let mut input = child.stdin.take();
-    let mut errors = child.stderr.take().or_ice(PIPED);
-    // On a thread of its own, so a process that fills the pipe never waits
-    // on this one.
-    let reading_err = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = errors.read_to_string(&mut text);
-        text
-    });
+    let (mut input, reading_err, output) = pipes(&mut child);
     let mut verdicts: Vec<(usize, Block)> = Vec::new();
     let mut reached = false;
     let mut held: Option<usize> = None;
@@ -5348,7 +5358,6 @@ fn run_pulled(
     let mut dropped = false;
     let mut took: Option<u64> = None;
     let mut noted: Option<Noted> = None;
-    let output = child.stdout.take().or_ice(PIPED);
     let lines = std::io::BufReader::new(output)
         .lines()
         .map_while(Result::ok);
