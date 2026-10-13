@@ -266,11 +266,11 @@
         # exists. The from-source escape hatch (`packages.from-source`) is what
         # builds today.
         nightly = {
-          version = "0.3.33"; # nightly:version
+          version = "0.3.34"; # nightly:version
           hashes = {
-            "aarch64-apple-darwin" = "5006281e64fafae2f066772102e719b32ab6915da5bc161b5fcf9e50ed30e110"; # nightly:hash:aarch64-apple-darwin
-            "x86_64-unknown-linux-musl" = "87a6fce3311a782714ead627c657808686165cac5bf2d019db64bef7ae06071d"; # nightly:hash:x86_64-unknown-linux-musl
-            "aarch64-unknown-linux-musl" = "777f7a9e0a056f555c111e2005971db9acb07df63302a00089c5fcba86a72872"; # nightly:hash:aarch64-unknown-linux-musl
+            "aarch64-apple-darwin" = "f47bebf33cad5b0db08e42ac09dac0f265199c61cdf0befb3db84da23bb7dd70"; # nightly:hash:aarch64-apple-darwin
+            "x86_64-unknown-linux-musl" = "cca868f93dc7b7341a5ee9217a2bf88445047464f43a29c1ff4c1f7a2aae2eaf"; # nightly:hash:x86_64-unknown-linux-musl
+            "aarch64-unknown-linux-musl" = "260b14687a13cefb8f44e0129fc2a4aebb09fd441c0f20b50619355f98f9f0de"; # nightly:hash:aarch64-unknown-linux-musl
           };
         };
 
