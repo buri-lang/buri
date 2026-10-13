@@ -3,12 +3,12 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
-total 15120 15749 96.01%
+total 15095 15617 96.66%
 area cli/build 1678 1695 99.00%
 area cli/documentation 477 480 99.38%
 area cli/format 89 100 89.00%
-area cli/language_server 1268 1404 90.31%
-area cli/lint 591 710 83.24%
+area cli/language_server 1270 1406 90.33%
+area cli/lint 567 580 97.76%
 area cli/other 522 606 86.14%
 area cli/run 58 58 100.00%
 area cli/serve+watch 69 70 98.57%
@@ -19,7 +19,7 @@ area crates/docs 240 270 88.89%
 area crates/hash 18 18 100.00%
 area crates/js 1021 1060 96.32%
 area crates/llvm 610 616 99.03%
-area crates/middle 1869 1920 97.34%
+area crates/middle 1866 1916 97.39%
 area crates/project 1341 1358 98.75%
 area crates/semantics 2169 2176 99.68%
 area crates/stdlib 12 12 100.00%
@@ -55,8 +55,8 @@ area crates/syntax 1194 1196 99.83%
 28 34 cli/src/commands/generate.rs
 24 32 cli/src/commands/init.rs
 1 2 cli/src/commands/interrupt.rs
-555 670 cli/src/commands/lint.rs
-36 40 cli/src/commands/lint_cache.rs
+532 544 cli/src/commands/lint.rs
+35 36 cli/src/commands/lint_cache.rs
 19 24 cli/src/commands/mod.rs
 34 42 cli/src/commands/query.rs
 58 58 cli/src/commands/run.rs
@@ -77,7 +77,7 @@ area crates/syntax 1194 1196 99.83%
 6 6 cli/src/hold.rs
 68 74 cli/src/language_server/build_files.rs
 15 22 cli/src/language_server/call_hierarchy.rs
-56 64 cli/src/language_server/code_actions.rs
+58 66 cli/src/language_server/code_actions.rs
 10 12 cli/src/language_server/code_lens.rs
 15 18 cli/src/language_server/color.rs
 141 146 cli/src/language_server/completion.rs
@@ -150,7 +150,7 @@ area crates/syntax 1194 1196 99.83%
 18 18 crates/middle/src/compiler/middle/mod.rs
 187 200 crates/middle/src/compiler/middle/monomorphize.rs
 104 108 crates/middle/src/compiler/middle/monomorphize/hand_written.rs
-600 612 crates/middle/src/compiler/middle/rc.rs
+597 608 crates/middle/src/compiler/middle/rc.rs
 40 40 crates/middle/src/compiler/middle/tail_calls.rs
 177 178 crates/project/src/build/buildfile.rs
 1 2 crates/project/src/build/platforms.rs
