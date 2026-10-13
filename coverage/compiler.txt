@@ -1,5 +1,5 @@
 # The compiler's coverage from end-to-end tests only (coverage/compiler/src/main.rs),
-# merged from aarch64-apple-darwin, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu.
+# merged from aarch64-apple-darwin, aarch64-unknown-linux-gnu, x86_64-unknown-linux-gnu, x86_64-unknown-linux-gnu+release.
 # Branches gate, in total and per area; lines are context.
 
 area                              branches                      lines         
@@ -13,18 +13,18 @@ cli/run                              58/58  100.00%           333/341   97.65%
 cli/serve+watch                      69/70   98.57%           394/413   95.40%
 cli/test                           444/522   85.06%         3228/3486   92.60%
 crates/backend                       68/68  100.00%           354/403   87.84%
-crates/diagnostics                 191/194   98.45%         1550/1633   94.92%
-crates/docs                        236/236  100.00%           795/869   91.48%
+crates/diagnostics                 191/194   98.45%         1550/1635   94.80%
+crates/docs                        246/246  100.00%           819/893   91.71%
 crates/hash                          18/18  100.00%           241/294   81.97%
 crates/js                        1021/1060   96.32%         5379/5626   95.61%
-crates/llvm                        596/600   99.33%         7702/7905   97.43%
+crates/llvm                        596/600   99.33%         7703/7905   97.44%
 crates/middle                    1884/1934   97.41%       14807/15264   97.01%
 crates/project                   1341/1358   98.75%         6217/6378   97.48%
 crates/semantics                 2201/2208   99.68%       13495/13794   97.83%
 crates/stdlib                        12/12  100.00%           125/149   83.89%
 crates/stencil                   1185/1208   98.10%         8415/8864   94.93%
 crates/syntax                    1194/1196   99.83%         6542/6703   97.60%
-total                          15141/15629   96.88%      97365/100865   96.53%
+total                          15151/15639   96.88%      97390/100891   96.53%
 
 cli/src                           branches                      lines         
 build                            1678/1695   99.00%       10703/11016   97.16%
