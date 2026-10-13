@@ -3,8 +3,10 @@
 // a style a node is given becomes classes in the stylesheet.
 
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Scope, Ui, Watch };
-from "platform/effect/testing" import { headless, observer, render, stylesheet };
+from "platform/effect" import { Allocator, Scope, Ui, Watch };
+from "platform/effect/testing" import {
+    alloc as testAlloc, headless, observer, render, stylesheet,
+};
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };
@@ -575,4 +577,566 @@ test "a style a library function answers is what it holds" {
         .None => .Width(.Px(26)),
     };
     assert.equal(render(ctx, held(picked)).markup(), "e 0 class:w-25");
+}
+
+/// `x`, read back from a signal, so the compiler cannot fold a style that holds it.
+fn late<T, C: Ui + Watch>(ctx: C, x: T): T {
+    signal(ctx, x).get(ctx)
+}
+
+/// What a box given `styles` renders as. Three ways of drawing it must agree:
+/// the box as it is, the box from a style that computes the list (which it
+/// re-runs whenever what that reads changes), and `describe`'s scene.
+fn painted<C: Allocator + Ui>(ctx: C, styles: [Style]): Str {
+    let once = render(ctx, boxes(styles)).markup();
+    let computed = render(ctx, boxes([.Computed(fn(_scope) => styles)])).markup();
+    let scene = ui.describe(ctx, boxes(styles), .Hover);
+    if (once != computed) {
+        "a computed list renders differently"
+    } else if (scene != "buri-scene 1\nviewport 800 fit\n".concat(ctx, once)) {
+        "describe renders differently"
+    } else {
+        once
+    }
+}
+
+test "a layout style known only at run time writes itself out" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.Layout(late(ctx, .Column))]),
+        "e 0 display:flex;flex-direction:column",
+    );
+    assert.equal(
+        painted(ctx, [.Layout(late(ctx, .Row))]),
+        "e 0 display:flex;flex-direction:row",
+    );
+    assert.equal(
+        painted(ctx, [.Layout(late(ctx, .ColumnReverse))]),
+        "e 0 display:flex;flex-direction:column-reverse",
+    );
+    assert.equal(
+        painted(ctx, [.Layout(late(ctx, .RowReverse))]),
+        "e 0 display:flex;flex-direction:row-reverse",
+    );
+    assert.equal(painted(ctx, [.Layout(late(ctx, .Layers))]), "e 0 display:grid");
+    assert.equal(
+        painted(ctx, [
+            .Layout(late(ctx, .Grid([.Fraction(2), .Fixed(.Rem(1.5)), .Auto]))),
+        ]),
+        "e 0 display:grid;grid-template-columns:2fr 1.5rem auto",
+    );
+    assert.equal(painted(ctx, [.Wrap(late(ctx, true))]), "e 0 flex-wrap:wrap");
+    assert.equal(painted(ctx, [.Wrap(late(ctx, false))]), "e 0 flex-wrap:nowrap");
+    assert.equal(painted(ctx, [.Scroll(late(ctx, .X))]), "e 0 overflow-x:auto");
+    assert.equal(painted(ctx, [.Scroll(late(ctx, .Y))]), "e 0 overflow-y:auto");
+    assert.equal(painted(ctx, [.Scroll(late(ctx, .Both))]), "e 0 overflow:auto");
+    assert.equal(
+        painted(ctx, [.Span(late(ctx, 2))]),
+        "e 0 class:span-var;--buri-span:span 2",
+    );
+}
+
+test "an alignment known only at run time writes itself out" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.AlignMain(late(ctx, .Start))]),
+        "e 0 justify-content:flex-start",
+    );
+    assert.equal(
+        painted(ctx, [.AlignMain(late(ctx, .Center))]),
+        "e 0 justify-content:center",
+    );
+    assert.equal(
+        painted(ctx, [.AlignMain(late(ctx, .End))]),
+        "e 0 justify-content:flex-end",
+    );
+    assert.equal(
+        painted(ctx, [.AlignCross(late(ctx, .Stretch))]),
+        "e 0 align-items:stretch",
+    );
+    assert.equal(
+        painted(ctx, [.AlignCross(late(ctx, .SpaceBetween))]),
+        "e 0 align-items:space-between",
+    );
+    assert.equal(
+        painted(ctx, [.AlignSelf(late(ctx, .SpaceAround))]),
+        "e 0 align-self:space-around",
+    );
+    assert.equal(
+        painted(ctx, [.AlignSelf(late(ctx, .SpaceEvenly))]),
+        "e 0 align-self:space-evenly",
+    );
+    assert.equal(painted(ctx, [.TextAlign(late(ctx, .Start))]), "e 0 text-align:start");
+    assert.equal(
+        painted(ctx, [.TextAlign(late(ctx, .Center))]),
+        "e 0 text-align:center",
+    );
+    assert.equal(painted(ctx, [.TextAlign(late(ctx, .End))]), "e 0 text-align:end");
+    assert.equal(
+        painted(ctx, [.TextAlign(late(ctx, .Stretch))]),
+        "e 0 text-align:justify",
+    );
+}
+
+test "a position known only at run time writes itself out" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(painted(ctx, [.Position(late(ctx, .Flow))]), "e 0 position:relative");
+    assert.equal(painted(ctx, [.Position(late(ctx, .Sticky))]), "e 0 position:sticky");
+    assert.equal(
+        painted(ctx, [.Position(late(ctx, .PinViewport))]),
+        "e 0 position:fixed",
+    );
+    assert.equal(
+        painted(ctx, [.Position(late(ctx, .PinAnchor))]),
+        "e 0 position:fixed;--buri-pin-anchor:1",
+    );
+    assert.equal(
+        painted(ctx, [.Pin(late(ctx, .Top), .Px(1))]),
+        "e 0 position:absolute;inset-block-start:1px",
+    );
+    assert.equal(
+        painted(ctx, [.Pin(late(ctx, .Bottom), .Px(2))]),
+        "e 0 position:absolute;inset-block-end:2px",
+    );
+    assert.equal(
+        painted(ctx, [.Pin(late(ctx, .Start), .Px(3))]),
+        "e 0 position:absolute;inset-inline-start:3px",
+    );
+    assert.equal(
+        painted(ctx, [.Pin(late(ctx, .End), .Px(4))]),
+        "e 0 position:absolute;inset-inline-end:4px",
+    );
+    assert.equal(
+        painted(ctx, [.PaddingEdge(late(ctx, .Top), .Em(1.0))]),
+        "e 0 padding-block-start:1.0em",
+    );
+    assert.equal(
+        painted(ctx, [.BorderEdge(late(ctx, .Start), .Percent(5.0))]),
+        "e 0 border-inline-start-style:solid;border-inline-start-width:5.0%",
+    );
+}
+
+test "a length known only at run time writes itself out" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.MinWidth(late(ctx, .Px(1)))]),
+        "e 0 class:minw-var;--buri-minw:1px",
+    );
+    assert.equal(
+        painted(ctx, [.MaxWidth(late(ctx, .Rem(2.0)))]),
+        "e 0 class:maxw-var;--buri-maxw:2.0rem",
+    );
+    assert.equal(
+        painted(ctx, [.MinHeight(late(ctx, .Em(3.0)))]),
+        "e 0 class:minh-var;--buri-minh:3.0em",
+    );
+    assert.equal(
+        painted(ctx, [.MaxHeight(late(ctx, .Percent(4.0)))]),
+        "e 0 class:maxh-var;--buri-maxh:4.0%",
+    );
+    assert.equal(
+        painted(ctx, [.Width(late(ctx, .Auto))]),
+        "e 0 class:w-var;--buri-w:auto",
+    );
+    assert.equal(
+        painted(ctx, [.Height(late(ctx, .Full))]),
+        "e 0 class:h-var;--buri-h:100%",
+    );
+    assert.equal(
+        painted(ctx, [.BorderWidth(late(ctx, .Px(2)))]),
+        "e 0 border-style:solid;border-width:2px",
+    );
+    assert.equal(
+        painted(ctx, [.Translate(late(ctx, .Px(1)), .Rem(2.0))]),
+        "e 0 transform:translate(1px,2.0rem)",
+    );
+}
+
+test "a bleed known only at run time writes its margin out" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.Bleed(.Top, late(ctx, .Px(2)))]),
+        "e 0 margin-block-start:-2px",
+    );
+    assert.equal(
+        painted(ctx, [.Bleed(.Top, late(ctx, .Px(-2)))]),
+        "e 0 margin-block-start:0px",
+    );
+    assert.equal(
+        painted(ctx, [.Bleed(.Bottom, late(ctx, .Rem(1.5)))]),
+        "e 0 margin-block-end:-1.5rem",
+    );
+    assert.equal(
+        painted(ctx, [.Bleed(.Bottom, late(ctx, .Rem(0.0)))]),
+        "e 0 margin-block-end:0px",
+    );
+    assert.equal(
+        painted(ctx, [.Bleed(.Start, late(ctx, .Em(1.5)))]),
+        "e 0 margin-inline-start:-1.5em",
+    );
+    assert.equal(
+        painted(ctx, [.Bleed(.Start, late(ctx, .Em(-1.5)))]),
+        "e 0 margin-inline-start:0px",
+    );
+    assert.equal(
+        painted(ctx, [.Bleed(.End, late(ctx, .Percent(10.0)))]),
+        "e 0 margin-inline-end:-10.0%",
+    );
+    assert.equal(
+        painted(ctx, [.Bleed(.End, late(ctx, .Percent(0.0)))]),
+        "e 0 margin-inline-end:0px",
+    );
+    assert.equal(
+        painted(ctx, [.Bleed(.End, late(ctx, .Auto))]),
+        "e 0 margin-inline-end:0px",
+    );
+    assert.equal(
+        painted(ctx, [.Bleed(.End, late(ctx, .Full))]),
+        "e 0 margin-inline-end:-100%",
+    );
+}
+
+test "a colour known only at run time writes itself out" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.BorderColor(late(ctx, .Rgba(1, 2, 3, 0.5)))]),
+        "e 0 class:bc-var;--buri-bc:rgba(1,2,3,0.5)",
+    );
+    assert.equal(
+        painted(ctx, [.Foreground(late(ctx, .Transparent))]),
+        "e 0 class:fg-var;--buri-fg:transparent",
+    );
+    assert.equal(
+        painted(ctx, [.CaretColor(late(ctx, .Inherit))]),
+        "e 0 class:caret-var;--buri-caret:inherit",
+    );
+    assert.equal(
+        painted(ctx, [.Background(late(ctx, style.token("brand", "ink")))]),
+        "e 0 class:bg-var;--buri-bg:var(--brand-ink)",
+    );
+    assert.equal(
+        painted(ctx, [.Background(late(ctx, style.token("brand", "ink").alpha(0.5)))]),
+        "e 0 class:bg-var;--buri-bg:color-mix(in srgb,var(--brand-ink) 50%,transparent)",
+    );
+    assert.equal(
+        painted(ctx, [
+            .Background(late(ctx, style.token("brand", "ink").alpha(0.125))),
+        ]),
+        "e 0 class:bg-var;--buri-bg:color-mix(in srgb,var(--brand-ink) 12.5%,transparent)",
+    );
+}
+
+test "a border and corner known only at run time write themselves out" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.BorderStyle(late(ctx, .None))]),
+        "e 0 border-style:none",
+    );
+    assert.equal(
+        painted(ctx, [.BorderStyle(late(ctx, .Solid))]),
+        "e 0 border-style:solid",
+    );
+    assert.equal(
+        painted(ctx, [.BorderStyle(late(ctx, .Dashed))]),
+        "e 0 border-style:dashed",
+    );
+    assert.equal(
+        painted(ctx, [.RadiusCorner(late(ctx, .TopStart), .Px(1))]),
+        "e 0 border-start-start-radius:1px",
+    );
+    assert.equal(
+        painted(ctx, [.RadiusCorner(late(ctx, .TopEnd), .Px(1))]),
+        "e 0 border-start-end-radius:1px",
+    );
+    assert.equal(
+        painted(ctx, [.RadiusCorner(late(ctx, .BottomStart), .Px(1))]),
+        "e 0 border-end-start-radius:1px",
+    );
+    assert.equal(
+        painted(ctx, [.RadiusCorner(late(ctx, .BottomEnd), .Px(1))]),
+        "e 0 border-end-end-radius:1px",
+    );
+}
+
+test "a font known only at run time writes itself out" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.FontFamily(late(ctx, .Sans))]),
+        "e 0 font-family:ui-sans-serif,system-ui,sans-serif",
+    );
+    assert.equal(
+        painted(ctx, [.FontFamily(late(ctx, .Serif))]),
+        "e 0 font-family:ui-serif,Georgia,serif",
+    );
+    assert.equal(
+        painted(ctx, [.FontFamily(late(ctx, .Mono))]),
+        "e 0 font-family:ui-monospace,SFMono-Regular,monospace",
+    );
+    assert.equal(
+        painted(ctx, [.FontFamily(late(ctx, .Named("Inter")))]),
+        "e 0 font-family:\"Inter\",ui-sans-serif,sans-serif",
+    );
+    assert.equal(
+        painted(ctx, [.FontWeight(late(ctx, .Regular))]),
+        "e 0 font-weight:400",
+    );
+    assert.equal(
+        painted(ctx, [.FontWeight(late(ctx, .Medium))]),
+        "e 0 font-weight:500",
+    );
+    assert.equal(
+        painted(ctx, [.FontWeight(late(ctx, .Semibold))]),
+        "e 0 font-weight:600",
+    );
+    assert.equal(painted(ctx, [.FontWeight(late(ctx, .Bold))]), "e 0 font-weight:700");
+    assert.equal(painted(ctx, [.Italic(late(ctx, true))]), "e 0 font-style:italic");
+    assert.equal(painted(ctx, [.Italic(late(ctx, false))]), "e 0 font-style:normal");
+}
+
+test "a text style known only at run time writes itself out" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.TextCase(late(ctx, .AsWritten))]),
+        "e 0 text-transform:none",
+    );
+    assert.equal(
+        painted(ctx, [.TextCase(late(ctx, .Upper))]),
+        "e 0 text-transform:uppercase",
+    );
+    assert.equal(
+        painted(ctx, [.TextCase(late(ctx, .Lower))]),
+        "e 0 text-transform:lowercase",
+    );
+    assert.equal(
+        painted(ctx, [.TextCase(late(ctx, .Capitalize))]),
+        "e 0 text-transform:capitalize",
+    );
+    assert.equal(
+        painted(ctx, [.TextLine(late(ctx, .None))]),
+        "e 0 text-decoration-line:none",
+    );
+    assert.equal(
+        painted(ctx, [.TextLine(late(ctx, .Underline))]),
+        "e 0 text-decoration-line:underline",
+    );
+    assert.equal(
+        painted(ctx, [.TextLine(late(ctx, .Strike))]),
+        "e 0 text-decoration-line:line-through",
+    );
+    assert.equal(painted(ctx, [.TextWrap(late(ctx, .Wrap))]), "e 0 text-wrap:wrap");
+    assert.equal(painted(ctx, [.TextWrap(late(ctx, .NoWrap))]), "e 0 text-wrap:nowrap");
+    assert.equal(
+        painted(ctx, [.TextWrap(late(ctx, .Balance))]),
+        "e 0 text-wrap:balance",
+    );
+    assert.equal(
+        painted(ctx, [.Truncate(late(ctx, 2))]),
+        "e 0 display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden",
+    );
+    assert.equal(
+        painted(ctx, [.Truncate(late(ctx, 0))]),
+        "e 0 -webkit-line-clamp:none;overflow:visible",
+    );
+}
+
+test "a pointer style known only at run time writes itself out" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(painted(ctx, [.Cursor(late(ctx, .Default))]), "e 0 cursor:default");
+    assert.equal(painted(ctx, [.Cursor(late(ctx, .Pointer))]), "e 0 cursor:pointer");
+    assert.equal(painted(ctx, [.Cursor(late(ctx, .Text))]), "e 0 cursor:text");
+    assert.equal(
+        painted(ctx, [.Cursor(late(ctx, .NotAllowed))]),
+        "e 0 cursor:not-allowed",
+    );
+    assert.equal(
+        painted(ctx, [.ListMarker(late(ctx, .None))]),
+        "e 0 list-style-type:none",
+    );
+    assert.equal(
+        painted(ctx, [.ListMarker(late(ctx, .Disc))]),
+        "e 0 list-style-type:disc",
+    );
+    assert.equal(
+        painted(ctx, [.ListMarker(late(ctx, .Decimal))]),
+        "e 0 list-style-type:decimal",
+    );
+    assert.equal(painted(ctx, [.Clip(late(ctx, true))]), "e 0 overflow:clip");
+    assert.equal(painted(ctx, [.Clip(late(ctx, false))]), "e 0 overflow:visible");
+    assert.equal(
+        painted(ctx, [.Passthrough(late(ctx, true))]),
+        "e 0 pointer-events:none",
+    );
+    assert.equal(
+        painted(ctx, [.Passthrough(late(ctx, false))]),
+        "e 0 pointer-events:auto",
+    );
+}
+
+test "a variable-backed style known only at run time sets its variable" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.Grow(late(ctx, 1))]),
+        "e 0 class:grow-var;--buri-grow:1",
+    );
+    assert.equal(
+        painted(ctx, [.Shrink(late(ctx, 0))]),
+        "e 0 class:shrink-var;--buri-shrink:0",
+    );
+    assert.equal(
+        painted(ctx, [.GapX(late(ctx, .Px(1)))]),
+        "e 0 class:gapx-var;--buri-gapx:1px",
+    );
+    assert.equal(
+        painted(ctx, [.GapY(late(ctx, .Px(2)))]),
+        "e 0 class:gapy-var;--buri-gapy:2px",
+    );
+    assert.equal(
+        painted(ctx, [.PaddingX(late(ctx, .Px(3)))]),
+        "e 0 class:px-var;--buri-px:3px",
+    );
+    assert.equal(
+        painted(ctx, [.PaddingY(late(ctx, .Px(4)))]),
+        "e 0 class:py-var;--buri-py:4px",
+    );
+    assert.equal(
+        painted(ctx, [.AspectRatio(late(ctx, 1.5))]),
+        "e 0 class:ar-var;--buri-ar:1.5",
+    );
+    assert.equal(
+        painted(ctx, [.Opacity(late(ctx, 0.5))]),
+        "e 0 class:op-var;--buri-op:0.5",
+    );
+    assert.equal(
+        painted(ctx, [.LineHeight(late(ctx, 1.25))]),
+        "e 0 class:lh-var;--buri-lh:1.25",
+    );
+    assert.equal(
+        painted(ctx, [.FontSize(late(ctx, .Rem(1.0)))]),
+        "e 0 class:fs-var;--buri-fs:1.0rem",
+    );
+    assert.equal(
+        painted(ctx, [.Radius(late(ctx, .Px(4)))]),
+        "e 0 class:r-var;--buri-r:4px",
+    );
+    assert.equal(
+        painted(ctx, [.BackdropBlur(late(ctx, .Px(8)))]),
+        "e 0 class:bdblur-var;--buri-bdblur:blur(8px)",
+    );
+    assert.equal(
+        painted(ctx, [.Animation(late(ctx, .Pulse))]),
+        "e 0 class:anim-var;--buri-anim:buri-pulse 2s cubic-bezier(0.4,0,0.6,1) infinite",
+    );
+    assert.equal(
+        painted(ctx, [.Animation(late(ctx, .Spin))]),
+        "e 0 class:anim-var;--buri-anim:buri-spin 1s linear infinite",
+    );
+}
+
+test "spacing, a shadow and a hidden box known only at run time write themselves out" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.Gap(late(ctx, .Px(5)))]),
+        "e 0 class:gap-var;--buri-gap:5px",
+    );
+    assert.equal(
+        painted(ctx, [.Padding(late(ctx, .Rem(0.5)))]),
+        "e 0 class:p-var;--buri-p:0.5rem",
+    );
+    assert.equal(
+        painted(ctx, [.LetterSpacing(late(ctx, .Em(0.25)))]),
+        "e 0 class:ls-var;--buri-ls:0.25em",
+    );
+    assert.equal(
+        painted(ctx, [.Background(late(ctx, .Rgb(1, 2, 3)))]),
+        "e 0 class:bg-var;--buri-bg:rgb(1,2,3)",
+    );
+    assert.equal(
+        painted(ctx, [
+            .Shadow(
+                late(ctx, Shadow {
+                    x: .Px(0),
+                    y: .Px(1),
+                    blur: .Px(2),
+                    spread: .Px(0),
+                    color: .Rgb(0, 0, 0),
+                }),
+            ),
+        ]),
+        "e 0 class:sh-var;--buri-sh:0px 1px 2px 0px rgb(0,0,0)",
+    );
+    assert.equal(
+        painted(ctx, [
+            .Shadows(
+                late(ctx, [
+                    Shadow {
+                        x: .Px(0),
+                        y: .Px(1),
+                        blur: .Px(2),
+                        spread: .Px(0),
+                        color: .Rgb(0, 0, 0),
+                    },
+                    Shadow {
+                        x: .Px(1),
+                        y: .Px(0),
+                        blur: .Px(0),
+                        spread: .Px(1),
+                        color: .Transparent,
+                    },
+                ]),
+            ),
+        ]),
+        "e 0 class:sh-var;--buri-sh:0px 1px 2px 0px rgb(0,0,0),1px 0px 0px 1px transparent",
+    );
+    assert.equal(
+        painted(ctx, [.Padding(late(ctx, .Px(2))), .Width(.Px(4))]),
+        "e 0 class:p-var w-4;--buri-p:2px",
+    );
 }
