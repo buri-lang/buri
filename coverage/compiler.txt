@@ -7,7 +7,7 @@ cli/build                        1678/1695   99.00%       10721/11028   97.22%
 cli/documentation                  477/480   99.38%         2768/2849   97.16%
 cli/format                          89/100   89.00%           341/350   97.43%
 cli/language_server              1270/1406   90.33%         7996/8263   96.77%
-cli/lint                           567/580   97.76%         2976/3018   98.61%
+cli/lint                           579/592   97.80%         3033/3075   98.63%
 cli/other                          522/606   86.14%         2899/3142   92.27%
 cli/run                              58/58  100.00%           333/341   97.65%
 cli/serve+watch                      69/70   98.57%           394/413   95.40%
@@ -24,7 +24,7 @@ crates/semantics                 2169/2176   99.68%       13424/13723   97.82%
 crates/stdlib                        12/12  100.00%           125/149   83.89%
 crates/stencil                   1195/1220   97.95%         8442/8883   95.04%
 crates/syntax                    1194/1196   99.83%         6542/6703   97.60%
-total                          15095/15617   96.66%      97073/100604   96.49%
+total                          15107/15629   96.66%      97130/100661   96.49%
 
 cli/src                           branches                      lines         
 build                            1678/1695   99.00%       10721/11028   97.22%
@@ -36,7 +36,7 @@ commands/format                     89/100   89.00%           341/350   97.43%
 commands/generate                    28/34   82.35%           236/241   97.93%
 commands/init                        24/32   75.00%           110/117   94.02%
 commands/interrupt                     1/2   50.00%             16/21   76.19%
-commands/lint                      532/544   97.79%         2578/2613   98.66%
+commands/lint                      544/556   97.84%         2635/2670   98.69%
 commands/lint_cache                  35/36   97.22%           398/405   98.27%
 commands/mod                         19/24   79.17%           258/270   95.56%
 commands/query                       34/42   80.95%           120/127   94.49%
@@ -60,7 +60,7 @@ uncovered          branches           file
        23           201/224   89.73%  cli/src/compiler/modules.rs
        16             50/66   75.76%  cli/src/compiler/driver.rs
        13           187/200   93.50%  crates/middle/src/compiler/middle/monomorphize.rs
-       12           532/544   97.79%  cli/src/commands/lint.rs
+       12           544/556   97.84%  cli/src/commands/lint.rs
        11            89/100   89.00%  cli/src/commands/format.rs
        11           153/164   93.29%  cli/src/language_server/mod.rs
        11           597/608   98.19%  crates/middle/src/compiler/middle/rc.rs
