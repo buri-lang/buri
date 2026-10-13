@@ -152,15 +152,6 @@ pub struct Table<I, T> {
     id: std::marker::PhantomData<fn() -> I>,
 }
 
-impl<I, T> Default for Table<I, T> {
-    fn default() -> Self {
-        Table {
-            rows: Layered::default(),
-            id: std::marker::PhantomData,
-        }
-    }
-}
-
 impl<I, T: Clone> Clone for Table<I, T> {
     fn clone(&self) -> Self {
         Table {
@@ -171,6 +162,15 @@ impl<I, T: Clone> Clone for Table<I, T> {
 }
 
 impl<I: DenseId, T> Table<I, T> {
+    /// An empty table. Only this crate makes one, so no other code can mint
+    /// ids the checker's tables never handed out.
+    pub(crate) fn new() -> Self {
+        Table {
+            rows: Layered::default(),
+            id: std::marker::PhantomData,
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.rows.len()
     }
