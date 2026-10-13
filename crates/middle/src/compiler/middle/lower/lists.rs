@@ -1042,7 +1042,7 @@ impl FnLower<'_> {
             self.set_term(Term::Jump(Target::to(copied)));
         }
         self.cur = copied;
-        let widths = self.block(&[Type::I64, list_t, list_t]);
+        let (widths, widths_in) = self.code.block_of([Type::I64, list_t, list_t]);
         let unsorted = self.bin(BinOp::Eq, Prim::I64, shape, zero);
         let runs_start = self.block(&[]);
         self.set_term(Term::Branch {
@@ -1114,8 +1114,7 @@ impl FnLower<'_> {
         let run_len = self.int(Type::I64, SORT_RUN);
         self.set_term(Term::Jump(Target::new(widths, vec![run_len, a0, b0])));
         self.cur = widths;
-        let [w, a, b] = <[ValueId; 3]>::try_from(self.code.get(widths).params.as_slice())
-            .or_ice("the block was made with three parameters");
+        let [w, a, b] = widths_in;
         let sorted = self.bin(BinOp::Ge, Prim::U64, w, n);
         let exit = self.block(&[]);
         let pass = self.block(&[]);
@@ -1185,7 +1184,7 @@ impl FnLower<'_> {
 
         // One copy loop serves every run moved whole: `len` elements from
         // `a[from..]` to `b[to..]`, then `rest` more from `a[rest_from..]`.
-        let copy = self.block(&[Type::I64; 5]);
+        let (copy, copy_in) = self.code.block_of([Type::I64; 5]);
         self.cur = copied;
         let len = self.bin(BinOp::Sub, Prim::I64, hi, lo);
         self.set_term(Term::Jump(Target::new(copy, vec![lo, lo, len, zero, zero])));
@@ -1197,9 +1196,7 @@ impl FnLower<'_> {
             vec![mid, lo, right_len, left_len, lo],
         )));
         self.cur = copy;
-        let [from, to, len, rest, rest_from] =
-            <[ValueId; 5]>::try_from(self.code.get(copy).params.as_slice())
-                .or_ice("the block was made with five parameters");
+        let [from, to, len, rest, rest_from] = copy_in;
         let moving = self.walk(len, &[]);
         let at = self.add(from, moving.i);
         let e = get(self, a, at);
@@ -1224,11 +1221,10 @@ impl FnLower<'_> {
 
         // One merge: `a[lo..mid)` and `a[mid..hi)` into `b[lo..hi)`, both
         // non-empty. Once one side runs out, the copy loop moves the other.
-        let merge = self.block(&[Type::I64; 3]);
+        let (merge, merge_in) = self.code.block_of([Type::I64; 3]);
         self.set_term(Term::Jump(Target::new(merge, vec![lo, mid, lo])));
         self.cur = merge;
-        let [li, ri, out] = <[ValueId; 3]>::try_from(self.code.get(merge).params.as_slice())
-            .or_ice("the block was made with three parameters");
+        let [li, ri, out] = merge_in;
         let x = get(self, a, li);
         let y = get(self, a, ri);
         let right_first = self.order(&order, BinOp::Eq, x, y);

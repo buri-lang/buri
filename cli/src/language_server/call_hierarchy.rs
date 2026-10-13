@@ -188,13 +188,7 @@ fn item(analyzed: &Analyzed, symbol: &Symbol) -> Option<Value> {
     let position = convert::position_of(&file.text, selection.start);
     // Two functions in a repository may share a name; the module they are in
     // is what tells a reader which panel row is which.
-    let module = &analyzed
-        .analysis
-        .loaded
-        .modules
-        .get(module.index())
-        .or_ice("a declaration's module is one the analysis loaded")
-        .path;
+    let module = &analyzed.analysis.loaded.module(module).path;
     Some(Value::object(vec![
         ("name", Value::str(name)),
         ("kind", Value::number(kind)),

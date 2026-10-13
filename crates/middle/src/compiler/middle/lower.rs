@@ -673,7 +673,7 @@ impl FnLower<'_> {
         }
         header_types.extend(var_types.iter().copied());
         let header = self.code.block(&header_types);
-        let join = self.code.block(&[result]);
+        let (join, join_v) = self.join(result);
 
         let mut header_params = self.code.get(header).params.clone();
         let header_dispatch = if multi {
@@ -745,12 +745,7 @@ impl FnLower<'_> {
         self.loops.pop();
 
         self.cur = join;
-        *self
-            .code
-            .get(join)
-            .params
-            .first()
-            .or_ice("the join block was built with one parameter")
+        join_v
     }
 
     // -- the builder --------------------------------------------------------
@@ -822,6 +817,12 @@ impl FnLower<'_> {
         self.code.block(params)
     }
 
+    /// A block that takes the one value the paths into it agree on.
+    fn join(&mut self, ty: Type) -> (BlockId, ValueId) {
+        let (block, [value]) = self.code.block_of([ty]);
+        (block, value)
+    }
+
     fn push(&mut self, inst: Inst) {
         let cur = self.cur;
         self.code.get_mut(cur).insts.push(inst);
@@ -869,14 +870,9 @@ impl FnLower<'_> {
     /// A value in a block nothing jumps to: what an expression that does not
     /// answer answers.
     fn dead(&mut self, ty: Type) -> ValueId {
-        let b = self.block(&[ty]);
+        let (b, b_v) = self.join(ty);
         self.cur = b;
-        *self
-            .code
-            .get(b)
-            .params
-            .first()
-            .or_ice("the block was built with one parameter")
+        b_v
     }
 
     /// The block a refutable pattern falls off the end into.
@@ -1279,7 +1275,7 @@ impl FnLower<'_> {
                 let c = self.expr(cond);
                 let then_b = self.block(&[]);
                 let else_b = self.block(&[]);
-                let join = self.block(&[ty]);
+                let (join, join_v) = self.join(ty);
                 self.set_term(Term::Branch {
                     cond: c,
                     then: Target::to(then_b),
@@ -1291,12 +1287,7 @@ impl FnLower<'_> {
                     self.set_term(Term::Jump(Target::new(join, vec![v])));
                 }
                 self.cur = join;
-                *self
-                    .code
-                    .get(join)
-                    .params
-                    .first()
-                    .or_ice("the join takes one parameter")
+                join_v
             }
             ExprKind::Match { scrutinee, arms } => self.match_(ty, scrutinee, arms),
 
@@ -1305,7 +1296,7 @@ impl FnLower<'_> {
                 let l = self.expr(lhs);
                 let rhs_b = self.block(&[]);
                 let short_b = self.block(&[]);
-                let join = self.block(&[Type::I1]);
+                let (join, join_v) = self.join(Type::I1);
                 let (then, else_) = if is_and {
                     (Target::to(rhs_b), Target::to(short_b))
                 } else {
@@ -1326,12 +1317,7 @@ impl FnLower<'_> {
                 self.set_term(Term::Jump(Target::new(join, vec![r])));
 
                 self.cur = join;
-                *self
-                    .code
-                    .get(join)
-                    .params
-                    .first()
-                    .or_ice("the join takes one parameter")
+                join_v
             }
             ExprKind::Try { base, kind } => {
                 let node = self.sites.id_of(e);
@@ -1424,7 +1410,7 @@ impl FnLower<'_> {
         let high_b = self.block(&[]);
         let some_b = self.block(&[]);
         let none_b = self.block(&[]);
-        let join = self.block(&[ty]);
+        let (join, join_v) = self.join(ty);
         self.set_term(Term::Branch {
             cond: low,
             then: Target::to(high_b),
@@ -1468,12 +1454,7 @@ impl FnLower<'_> {
         self.set_term(Term::Jump(Target::new(join, vec![none])));
 
         self.cur = join;
-        *self
-            .code
-            .get(join)
-            .params
-            .first()
-            .or_ice("the join takes one parameter")
+        join_v
     }
 
     /// `?`, the only early exit in the language (SPEC 6.8).
@@ -1942,17 +1923,12 @@ impl FnLower<'_> {
 
     fn match_(&mut self, ty: Type, scrutinee: &Expr, arms: &[Arm]) -> ValueId {
         let s = self.expr(scrutinee);
-        let join = self.block(&[ty]);
+        let (join, join_v) = self.join(ty);
         if !self.switch(s, &scrutinee.ty, arms, join) {
             self.chain(s, arms, join);
         }
         self.cur = join;
-        *self
-            .code
-            .get(join)
-            .params
-            .first()
-            .or_ice("the join takes one parameter")
+        join_v
     }
 
     /// The one-`switch` form: an enum match whose arms discriminate on the

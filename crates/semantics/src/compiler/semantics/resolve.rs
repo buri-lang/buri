@@ -888,10 +888,7 @@ impl<'a> Checker<'a> {
     /// tree — every body, every expression — once per pass and once per type
     /// alias lookup. It was more than half the wall time of a build.
     pub fn module(&self, id: ModuleId) -> &'a crate::compiler::modules::ModuleData {
-        self.loaded
-            .modules
-            .get(id.index())
-            .or_ice("every ModuleId was minted as an index into this list")
+        self.loaded.module(id)
     }
 
     /// The flat tree of a module, borrowed for `'a` rather than for `&self`,

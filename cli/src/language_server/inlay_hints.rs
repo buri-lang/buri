@@ -22,7 +22,7 @@ use super::symbols::{self, Symbol};
 use crate::compiler::modules::ModuleData;
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{self, ParamInfo, ParamRole, Tables};
-use crate::diagnostics::{invariant, FileId, Invariant as _};
+use crate::diagnostics::Invariant as _;
 use crate::json::Value;
 use crate::parsing::flat::{self, ExprId, ExprView, PatId, PatView, StmtKind};
 use std::collections::BTreeSet;
@@ -80,7 +80,7 @@ pub fn hints(analyzed: &Analyzed, path: &Path, text: &str, from: u32, to: u32) -
             continue;
         }
         type_hints(tables, &unwritten, &body.locals, &mut found);
-        parameter_hints(analyzed, file, text, &body.expr, &mut found);
+        parameter_hints(analyzed, text, &body.expr, &mut found);
     }
     // A module-level `let` writes its own type, so what is hinted in one is
     // what its value binds and calls.
@@ -92,7 +92,7 @@ pub fn hints(analyzed: &Analyzed, path: &Path, text: &str, from: u32, to: u32) -
                 symbols::const_locals(checked, id),
                 &mut found,
             );
-            parameter_hints(analyzed, file, text, expr, &mut found);
+            parameter_hints(analyzed, text, expr, &mut found);
         }
     }
 
@@ -286,13 +286,7 @@ fn navigation(analyzed: &Analyzed, symbol: &Symbol, parameter: Option<usize>) ->
 // ---------------------------------------------------------------------------
 
 /// Every argument in one body that is worth naming.
-fn parameter_hints(
-    analyzed: &Analyzed,
-    file: FileId,
-    text: &str,
-    root: &typed::Expr,
-    out: &mut Vec<Hint>,
-) {
+fn parameter_hints(analyzed: &Analyzed, text: &str, root: &typed::Expr, out: &mut Vec<Hint>) {
     let tables = &analyzed.analysis.checked.tables;
     typed::walk(root, &mut |e| {
         let (params, args, about): (&[ParamInfo], _, Symbol) = match &e.kind {
@@ -322,17 +316,9 @@ fn parameter_hints(
             if param.role != ParamRole::Normal {
                 continue;
             }
-            invariant(
-                arg.span.file == file,
-                "an argument is written in the file of the call it is passed to",
-            );
             // A receiver written postfix begins where the whole call begins,
             // which is the rule `symbols::after_receiver` reads the same way.
             // It is the `self` parameter, and that role was skipped above.
-            invariant(
-                arg.span.start != e.span.start,
-                "only a `self` argument is written before the call's name",
-            );
             if !opens_an_argument(text, arg.span.start) || !worth_naming(text, param, arg) {
                 continue;
             }
@@ -481,7 +467,7 @@ fn bound_names(tree: &flat::Tree, pattern: PatId, out: &mut BTreeSet<(u32, u32)>
 mod tests {
     use super::*;
     use crate::compiler::semantics::types::{LocalId, Ty};
-    use crate::diagnostics::Span;
+    use crate::diagnostics::{FileId, Span};
 
     fn parameter(name: &str) -> ParamInfo {
         ParamInfo {

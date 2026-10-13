@@ -815,9 +815,20 @@ impl Code {
     /// cannot fall out of step.
     pub fn block(&mut self, params: &[Type]) -> BlockId {
         let ps: Vec<ValueId> = params.iter().map(|t| self.value(*t)).collect();
+        self.push_block(ps)
+    }
+
+    /// A block of `N` parameters, with the values they are, so a caller that
+    /// needs them never reads them back out of the block.
+    pub fn block_of<const N: usize>(&mut self, params: [Type; N]) -> (BlockId, [ValueId; N]) {
+        let values = params.map(|t| self.value(t));
+        (self.push_block(values.to_vec()), values)
+    }
+
+    fn push_block(&mut self, params: Vec<ValueId>) -> BlockId {
         let id = BlockId(self.blocks.len() as u32);
         self.blocks.push(Block {
-            params: ps,
+            params,
             insts: Vec::new(),
             term: Term::Unreachable,
         });

@@ -15,7 +15,6 @@ use super::origins;
 use super::state::Analyzed;
 use super::symbols;
 use crate::compiler::semantics::types;
-use crate::diagnostics::invariant;
 use crate::json::Value;
 use crate::parsing::tree::Item;
 use std::path::Path;
@@ -84,10 +83,6 @@ pub fn hover(
             continue;
         }
         crate::compiler::semantics::typed::walk(&body.expr, &mut |e| {
-            invariant(
-                e.span.file == file,
-                "an expression is written in the file its function is declared in",
-            );
             walked.push((e.span, e.ty));
         });
     }
