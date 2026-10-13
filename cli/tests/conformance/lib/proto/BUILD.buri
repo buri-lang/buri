@@ -17,6 +17,7 @@ library {
             "test/failures.buri",
             "test/json.buri",
             "test/json_numbers.buri",
+            "test/known_types.buri",
             "test/maps.buri",
             "test/wellknown.buri",
             "test/wire.buri",
