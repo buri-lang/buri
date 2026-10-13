@@ -785,8 +785,6 @@ struct Part {
     entries: Vec<u64>,
     /// The helpers this part generated.
     helpers: Vec<jit::HelperSymbol>,
-    /// The IR shapes this part refused, in the order it first met them.
-    reasons: Vec<String>,
 }
 
 /// One part of one codegen unit, from IR to a movable region.
@@ -812,11 +810,6 @@ fn emit_part<'a>(
     let mut j = jit::Jit::new(lib, tables, frames, target, scratch, part);
     j.shares = shares;
     j.compile_part(program, members);
-    // A refused IR shape is a diagnostic naming the shape, never an artifact
-    // that aborts when it reaches it. The emission is finished first — the
-    // whole unit's, every part of it — so that one build reports every refusal
-    // rather than the first.
-    let reasons = j.reasons().to_vec();
     let entries: Vec<u64> = members.iter().map(|i| j.entry_of(*i)).collect();
     let helpers = j.helper_symbols();
     let emitted = std::mem::take(&mut j.region).finish();
@@ -825,7 +818,6 @@ fn emit_part<'a>(
             emitted,
             entries,
             helpers,
-            reasons,
         },
         j.into_scratch(),
     )
@@ -846,23 +838,6 @@ fn assemble_unit(
         shares,
         ..
     } = *w;
-
-    // Every part's refusals, in part order and then in the order that part met
-    // them, which is the order one pass over the unit would have met them in.
-    let mut refused: Vec<String> = Vec::new();
-    for p in &parts {
-        for r in &p.reasons {
-            if !refused.iter().any(|seen| seen == r) {
-                refused.push(r.clone());
-            }
-        }
-    }
-    if !refused.is_empty() {
-        return Err(refused
-            .iter()
-            .map(|r| format!("the stencil backend cannot compile {r} yet"))
-            .collect());
-    }
 
     // The parts, concatenated in part order: one code section, one constant
     // pool, and every offset either part-relative and moved or a relocation and

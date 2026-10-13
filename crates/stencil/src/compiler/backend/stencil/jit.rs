@@ -343,10 +343,6 @@ pub struct Jit<'a> {
     /// (see [`Jit::resolve`]).
     entries: Vec<u64>,
     fixups: Vec<Fix>,
-    /// The IR shapes this emitter refused, in the order they were first met.
-    /// A unit with any of them produces no object: a refusal is a diagnostic
-    /// naming the shape, never an artifact that aborts when it reaches it.
-    reasons: Vec<String>,
     /// Whether the region may be appended to right now. A conditional branch
     /// out of range needs a veneer, and a veneer may only be planted between
     /// functions — never in the middle of one, where it would land inside the
@@ -706,7 +702,6 @@ impl<'a> Jit<'a> {
             frames,
             entries: Vec::new(),
             fixups: Vec::new(),
-            reasons: Vec::new(),
             veneer_ok: false,
             current: 0,
             helpers: Vec::new(),
@@ -812,14 +807,6 @@ impl<'a> Jit<'a> {
     pub(crate) fn elidable_at(&self, at: usize) -> Option<&'a str> {
         let s = self.lib.stencil(at)?;
         Some(s.holes.get(s.tail?)?.name.as_str())
-    }
-
-    pub(crate) fn push_reason(&mut self, why: String) -> u64 {
-        if let Some(i) = self.reasons.iter().position(|r| *r == why) {
-            return i as u64;
-        }
-        self.reasons.push(why);
-        (self.reasons.len() - 1) as u64
     }
 
     /// `f`'s frame layout, borrowed from the program's table. [`frame_sigs`]
@@ -1983,9 +1970,6 @@ impl<'a> Jit<'a> {
     /// `mod.rs::assemble_unit` adds the part's base to make it the unit's.
     pub fn entry_of(&self, f: usize) -> u64 {
         ent(&self.entries, f, 0)
-    }
-    pub fn reasons(&self) -> &[String] {
-        &self.reasons
     }
 }
 

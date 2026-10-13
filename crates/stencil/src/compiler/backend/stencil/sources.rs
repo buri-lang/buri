@@ -1296,10 +1296,6 @@ fn control(o: &mut Out) {
         "unreachable",
         "void $NAME(ARGS0) { (void)fp; buri_rt_abort_unreachable(); }".into(),
     );
-    o.push(
-        "unsupported",
-        "void $NAME(ARGS0) { (void)fp; buri_rt_abort_unreachable(); }".into(),
-    );
 }
 
 /// (j) The four families cross-block register allocation needs on top of the
