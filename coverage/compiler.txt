@@ -16,7 +16,7 @@ crates/backend                       68/68  100.00%           354/403   87.84%
 crates/diagnostics                 191/194   98.45%         1574/1658   94.93%
 crates/docs                        246/246  100.00%           819/893   91.71%
 crates/hash                          18/18  100.00%           241/294   81.97%
-crates/js                        1019/1056   96.50%         5364/5609   95.63%
+crates/js                        1023/1060   96.51%         5380/5625   95.64%
 crates/llvm                        596/600   99.33%         7648/7850   97.43%
 crates/middle                    1850/1894   97.68%       14750/15184   97.14%
 crates/project                   1341/1358   98.75%         6238/6399   97.48%
@@ -24,7 +24,7 @@ crates/semantics                 2196/2202   99.73%       13488/13789   97.82%
 crates/stdlib                        12/12  100.00%           125/149   83.89%
 crates/stencil                   1182/1204   98.17%         8323/8769   94.91%
 crates/syntax                    1194/1196   99.83%         6542/6703   97.60%
-total                          15128/15363   98.47%      97518/100675   96.86%
+total                          15132/15367   98.47%      97534/100691   96.86%
 
 cli/src                           branches                      lines         
 build                            1692/1709   99.01%       10808/11118   97.21%
@@ -62,7 +62,7 @@ uncovered          branches           file
         9           587/596   98.49%  crates/middle/src/compiler/middle/rc.rs
         8           342/350   97.71%  crates/stencil/src/compiler/backend/stencil/emit.rs
         7           191/198   96.46%  cli/src/compiler/modules.rs
-        7           327/334   97.90%  crates/js/src/compiler/backend/js/generate.rs
+        7           331/338   97.93%  crates/js/src/compiler/backend/js/generate.rs
         6           158/164   96.34%  cli/src/build/link.rs
         6           528/534   98.88%  cli/src/commands/lint.rs
         6             52/58   89.66%  cli/src/language_server/code_actions.rs
