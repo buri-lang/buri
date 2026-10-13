@@ -15,16 +15,6 @@ impl Allocator for Named {
     }
 }
 
-test "a step is handed a context that owns a count" {
-    let ctx = context {
-        Allocator: Named { name: "pool" },
-        Tasks: tasks(),
-    };
-    assert.equal(tasks.parallel(ctx, [1, 2], fn(c, i, x) => x + i), [1, 3]);
-    // A second element type: a second copy of the step, refused the same way.
-    assert.equal(tasks.parallel(ctx, [true], fn(c, i, b) => !b), [false]);
-}
-
 test "a timer is handed a context that owns a count" {
     let ctx = context {
         Allocator: Named { name: "pool" },

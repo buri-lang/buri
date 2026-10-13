@@ -3222,13 +3222,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// toolchain, because a second call moves the heap under the first. The `bind`
 /// half is the row below, for exactly that reason.
 ///
-/// `OneShot` carries an `I64` and not the `Str` it used to, and that is the
-/// stencil backend's own limit showing rather than a weakening of the case: its
-/// `Tasks.parallel` refuses a step whose *context* owns a reference count
-/// (`stencil/rtcall.rs`), so a context binding a `Str`-carrying acceptor would
-/// be a build error on one of the three backends being compared. The claim was
-/// never about the field's type — it is that the context is a word wide and is
-/// not the scheduler — and `Plain` and the `I64` here both keep it.
+/// `OneShot` carries an `I64`. The claim is not about the field's type — it is
+/// that the context is a word wide and is not the scheduler — and `Plain` and
+/// the `I64` here both keep it.
 #[test]
 fn a_handler_a_wrapper_rebuilt_is_entered_on_every_backend() {
     rows_or_skip!();

@@ -2,7 +2,7 @@ library {
     sources: []
 
     test {
-        sources: ["test/counted.buri", "test/later.buri"]
+        sources: ["test/counted.buri"]
         backends: [NATIVE]
     }
 }

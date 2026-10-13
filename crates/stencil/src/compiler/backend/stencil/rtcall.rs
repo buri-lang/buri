@@ -908,9 +908,8 @@ impl Jit<'_> {
         let (ctx_at, bytes) = super::glue::state_shape(&widths, call.index);
         // A context is a *value* here rather than the dropped argument a
         // runtime entry takes, because what reads it is the step and not the
-        // runtime. One that owned a count would need a retain per element, and
-        // no context does: `platform/host`'s are empty structs and
-        // `platform/effect/testing`'s carry a handle.
+        // runtime. The record lends it: the caller keeps its count for the
+        // whole call, and the entry thunk takes one per element.
         let supplied: Vec<(u32, ir::Type)> = call
             .ctx
             .into_iter()
@@ -923,18 +922,10 @@ impl Jit<'_> {
         let ctx_params: Vec<usize> = (0..params.len().saturating_sub(1))
             .filter(|i| call.index != Some(*i))
             .collect();
-        for ((off, (from, t)), i) in ctx_at.iter().copied().zip(supplied).zip(ctx_params) {
+        for ((off, (from, _)), i) in ctx_at.iter().copied().zip(supplied).zip(ctx_params) {
             let w = widths.get(i).copied().unwrap_or(0);
             if w == 0 {
                 continue;
-            }
-            if let Some(ty) = source_ty(prog, t) {
-                if self.rc_counted(&ty) {
-                    return Err(format!(
-                        "{}: a step whose context owns a reference count",
-                        entry.key
-                    ));
-                }
             }
             self.mv(st.frame.size + off, from, round8(w));
         }
@@ -952,6 +943,7 @@ impl Jit<'_> {
             params: params.to_vec(),
             ret: *ret,
             index: call.index,
+            lent: true,
         });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
@@ -1038,6 +1030,7 @@ impl Jit<'_> {
             params: params.to_vec(),
             ret,
             index: None,
+            lent: false,
         });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
@@ -1106,6 +1099,7 @@ impl Jit<'_> {
             params: params.to_vec(),
             ret,
             index: Some(1),
+            lent: false,
         });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
@@ -1176,6 +1170,7 @@ impl Jit<'_> {
             params: params.to_vec(),
             ret,
             index: None,
+            lent: false,
         });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));

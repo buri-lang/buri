@@ -1,0 +1,15 @@
+# A context that owns a reference count, handed to a `tasks.parallel` step
+# (buri-lang/buri#305). The debug backend refused the step and asked for a
+# report; JavaScript ran it. The harness runs `buri` under the heap check, so a
+# count the step takes or gives back one time too many is a failed run here.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a step whose context owns a count passes on the native backend and on JavaScript"
+
+run {
+  args: ["test", "//lib/steps", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

@@ -1,5 +1,3 @@
 0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)
-error: the stencil backend cannot compile host_testing.TestTasks.parallel: a step whose context owns a reference count yet
-  = fix: report it: a program the front end accepted is one this backend should compile
 error: the stencil backend cannot compile tasks.timerStart: a handler whose context owns a reference count yet
   = fix: report it: a program the front end accepted is one this backend should compile
