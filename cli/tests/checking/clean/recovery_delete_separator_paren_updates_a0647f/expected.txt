@@ -1,0 +1,7 @@
+error: a tuple-pattern element ends with `,` [missing-comma]
+  --> main.buri:69:14
+   |
+69 |     let (kept next) = ahead(ctx, s);
+   |              ^
+   |
+   = fix: write `,` here

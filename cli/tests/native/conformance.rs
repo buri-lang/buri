@@ -313,6 +313,7 @@ const PACKAGES: &[Case] = &[
     included("buri_ast/module.buri"),
     included("buri_ast/parsing.buri"),
     included("buri_ast/edges.buri"),
+    included("buri_ast/reading.buri"),
     included("generators/wire.buri"),
     included("generators/failure.buri"),
     //
@@ -324,6 +325,7 @@ const PACKAGES: &[Case] = &[
     included("proto_schema/reading.buri"),
     included("proto_schema/refusals.buri"),
     included("proto_schema/edges.buri"),
+    included("proto_schema/malformed.buri"),
     included("proto_gen/codecs.buri"),
     included("proto_gen/entry.buri"),
     included("proto_gen/failures.buri"),
@@ -372,6 +374,7 @@ const PACKAGES: &[Case] = &[
     // `a_handler_a_wrapper_rebuilt_is_entered_on_every_backend` is the same
     // shape with no `core/alloc` in it at all.
     included("memory/scoped.buri"),
+    included("memory/updates.buri"),
     // G5's half of the same slice: the value that *leaves* a scope. Every case
     // in it builds its answer out of blocks the program allocated — never a
     // literal, which is immortal and in no arena — and reads it after the

@@ -1,0 +1,12 @@
+error: this array is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:71:50
+   |
+71 |     assert.equal(next.notes, ["n0", "n1", "later");
+   |                                                  ^
+   |
+  --> main.buri:71:30
+   |
+71 |     assert.equal(next.notes, ["n0", "n1", "later");
+   |                              ^ opened here
+   |
+   = fix: write `]` here

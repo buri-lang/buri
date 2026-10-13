@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:39:61
+   |
+39 |             fn(c, acc: [Str], i) => acc.push(c, str.format(c "n${i}")),
+   |                                                             ^
+   |
+   = fix: write `,` here

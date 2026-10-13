@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:90:5
+   |
+90 |     };
+   |     ^
+   |
+  --> main.buri:89:21
+   |
+89 |         notes: grown(ctx, 2,
+   |                     ^ opened here
+   |
+   = fix: write `)` here

@@ -1,7 +1,0 @@
-error: a `struct` declaration ends with `;` [missing-semicolon]
- --> main.buri:3:27
-  |
-3 | struct Trio(Int, Int, Int)
-  |                           ^
-  |
-  = fix: write `;` here

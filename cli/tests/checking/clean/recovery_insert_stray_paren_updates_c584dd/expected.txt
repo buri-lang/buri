@@ -1,0 +1,9 @@
+error: expected a type, found `?` [unexpected-token]
+  --> main.buri:39:24
+   |
+39 |             fn(c, acc: ? [Str], i) => acc.push(c, str.format(c, "n${i}")),
+   |                        ^
+   |
+   = expected: a type
+   = actual: `?`
+   = fix: name a type here, as in `Int` or `[Str]`

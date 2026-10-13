@@ -224,7 +224,7 @@ function __cmd_x_main_buri$parseSumFrom(left_0,c_1){
     const $t1=__cmd_x_main_buri$peek(c_1);
     if($t1[0]===1){
       const c_4=c_1;
-      const $t3=__cmd_x_main_buri$parseProduct([c_4[0],c_4[1]+1n]);
+      const $t3=__cmd_x_main_buri$parseProduct([$fromShared(c_4,c_4[0]),c_4[1]+1n]);
       if($t3[0]!==0){
         return $t3;
       }
@@ -234,7 +234,7 @@ function __cmd_x_main_buri$parseSumFrom(left_0,c_1){
       continue;
     }else if($t1[0]===2){
       const c_5=c_1;
-      const $t5=__cmd_x_main_buri$parseProduct([c_5[0],c_5[1]+1n]);
+      const $t5=__cmd_x_main_buri$parseProduct([$fromShared(c_5,c_5[0]),c_5[1]+1n]);
       if($t5[0]!==0){
         return $t5;
       }
@@ -262,11 +262,11 @@ function __cmd_x_main_buri$parsePrimary(c_0){
   switch($t1[0]){
     case 0:
       {
-        return [0,[[0,$t1[1]],[c_0[0],c_0[1]+1n]]];
+        return [0,[[0,$t1[1]],[$fromShared(c_0,c_0[0]),c_0[1]+1n]]];
       }
     case 5:
       {
-        const $t5=__cmd_x_main_buri$parseSum([c_0[0],c_0[1]+1n]);
+        const $t5=__cmd_x_main_buri$parseSum([$fromShared(c_0,c_0[0]),c_0[1]+1n]);
         if($t5[0]!==0){
           return $t5;
         }
@@ -274,7 +274,7 @@ function __cmd_x_main_buri$parsePrimary(c_0){
         const $t6=__cmd_x_main_buri$peek(inner_2[1]);
         if($t6[0]===6){
           const c_6=$fromShared(inner_2,inner_2[1]);
-          return [0,[inner_2[0],[c_6[0],c_6[1]+1n]]];
+          return [0,[inner_2[0],[$fromShared(c_6,c_6[0]),c_6[1]+1n]]];
         }else{
           return $k17;
         }
@@ -282,7 +282,7 @@ function __cmd_x_main_buri$parsePrimary(c_0){
       break;
     case 2:
       {
-        const $t10=__cmd_x_main_buri$parsePrimary([c_0[0],c_0[1]+1n]);
+        const $t10=__cmd_x_main_buri$parsePrimary([$fromShared(c_0,c_0[0]),c_0[1]+1n]);
         if($t10[0]!==0){
           return $t10;
         }
@@ -300,7 +300,7 @@ function __cmd_x_main_buri$parseProductFrom(left_0,c_1){
     const $t1=__cmd_x_main_buri$peek(c_1);
     if($t1[0]===3){
       const c_4=c_1;
-      const $t3=__cmd_x_main_buri$parsePrimary([c_4[0],c_4[1]+1n]);
+      const $t3=__cmd_x_main_buri$parsePrimary([$fromShared(c_4,c_4[0]),c_4[1]+1n]);
       if($t3[0]!==0){
         return $t3;
       }
@@ -310,7 +310,7 @@ function __cmd_x_main_buri$parseProductFrom(left_0,c_1){
       continue;
     }else if($t1[0]===4){
       const c_5=c_1;
-      const $t5=__cmd_x_main_buri$parsePrimary([c_5[0],c_5[1]+1n]);
+      const $t5=__cmd_x_main_buri$parsePrimary([$fromShared(c_5,c_5[0]),c_5[1]+1n]);
       if($t5[0]!==0){
         return $t5;
       }

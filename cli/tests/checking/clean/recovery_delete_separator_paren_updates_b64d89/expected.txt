@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:45:42
+   |
+45 |     Narrow { ..s, notes: s.notes.push(ctx "later") }
+   |                                          ^
+   |
+   = fix: write `,` here
