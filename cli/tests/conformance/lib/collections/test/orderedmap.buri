@@ -886,6 +886,34 @@ fn ceilingIsRight(m: OrderedMap<Int, Int>, p: Int): Bool {
     m.ceiling(p) == .Some((wanted, wanted))
 }
 
+// A removal can take the smallest key of a leaf and leave the key above it
+// routing there, so a key between the two finds nothing at or below it in the
+// leaf, and its floor is the last entry of the leaf to the left.
+test "floor after removals reaches back into the leaf to the left" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let evens = list.range(ctx, 0, 300).map(ctx, fn(i) => i * 2);
+    let full = orderedmap.of(ctx, evens.map(ctx, fn(k) => (k, k)));
+    let m = evens
+        .filter(ctx, fn(k) => k % 14 == 0)
+        .foldCtx(ctx, fn(c, acc: OrderedMap<Int, Int>, k) => acc.remove(c, k), full);
+    let probes = list.range(ctx, 0, 598);
+    assert.isTrue(probes.all(fn(p) => floorSkipsRemoved(m, p)));
+    assert.equal(assert.some(m.floor(15)), (12, 12));
+}
+
+/// The floor of `p` in the even numbers without the multiples of 14.
+fn floorSkipsRemoved(m: OrderedMap<Int, Int>, p: Int): Bool {
+    let even = p - p % 2;
+    let wanted = if (even % 14 == 0) { even - 2 } else { even };
+    if (wanted < 0) {
+        m.floor(p).isNone()
+    } else {
+        m.floor(p) == .Some((wanted, wanted))
+    }
+}
+
 // --- merge / mergeWith / filter / countBy -------------------------------------------
 
 test "merge is right-biased and keeps key order" {

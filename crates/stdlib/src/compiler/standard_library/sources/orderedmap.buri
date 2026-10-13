@@ -564,6 +564,17 @@ fn seek<K: Ordered>(keys: [K], key: K, at: Int): (Int, Bool) {
 /// at or below it.
 fn route<K: Ordered, V>(n: Node<K, V>, key: K): Int {
     let (at, found) = seek(n.keys, key, 0);
+    under(at, found)
+}
+
+/// The child a `seek` that answered `(at, found)` among a branch's separators
+/// sends the key to.
+///
+/// A leaf has no children, so a node's child here is `.None` exactly when the
+/// node is a leaf, and `(at, found)` is then where the key is among its
+/// entries. A descent matches on that rather than asking `isLeaf` and then
+/// fetching a child it knows is there.
+fn under(at: Int, found: Bool): Int {
     if (found) { at + 1 } else { at }
 }
 
@@ -572,27 +583,19 @@ fn route<K: Ordered, V>(n: Node<K, V>, key: K): Int {
 // -----------------------------------------------------------------------------
 
 fn lookup<K: Ordered, V>(n: Node<K, V>, key: K): Option<V> {
-    if (isLeaf(n)) {
-        let (at, found) = seek(n.keys, key, 0);
-        if (found) { n.values.get(at) } else { .None }
-    } else {
-        match (n.children.get(route(n, key))) {
-            .None => .None,
-            .Some(child) => lookup(child, key),
-        }
+    let (at, found) = seek(n.keys, key, 0);
+    match (n.children.get(under(at, found))) {
+        .None => if (found) { n.values.get(at) } else { .None },
+        .Some(child) => lookup(child, key),
     }
 }
 
 /// `lookup` without the value.
 fn holds<K: Ordered, V>(n: Node<K, V>, key: K): Bool {
-    if (isLeaf(n)) {
-        let (_at, found) = seek(n.keys, key, 0);
-        found
-    } else {
-        match (n.children.get(route(n, key))) {
-            .None => false,
-            .Some(child) => holds(child, key),
-        }
+    let (at, found) = seek(n.keys, key, 0);
+    match (n.children.get(under(at, found))) {
+        .None => found,
+        .Some(child) => holds(child, key),
     }
 }
 
@@ -666,39 +669,37 @@ fn insertInto<K: Ordered, V, C: Allocator>(
     key: K,
     value: V,
 ): (Grown<K, V>, Bool) {
-    if (isLeaf(n)) {
-        let (at, found) = seek(n.keys, key, 0);
-        if (found) {
-            let replaced = leaf(
-                replaceAt(ctx, n.keys, at, key),
-                replaceAt(ctx, n.values, at, value),
-            );
-            (.Fit(replaced), false)
-        } else {
-            let added = leaf(
-                insertAt(ctx, n.keys, at, key),
-                insertAt(ctx, n.values, at, value),
-            );
-            (overfull(ctx, added), true)
-        }
-    } else {
-        let at = route(n, key);
-        match (n.children.get(at)) {
-            .None => (.Fit(n), false),
-            .Some(child) => {
-                let (grown, added) = insertInto(ctx, child, key, value);
-                match (grown) {
-                    .Fit(one) => (.Fit(placed(ctx, n, at, one)), added),
-                    .Split(left, up, right) => {
-                        let wider = branch(
-                            insertAt(ctx, n.keys, at, up),
-                            splitAt(ctx, n.children, at, left, right),
-                        );
-                        (overfull(ctx, wider), added)
-                    },
-                }
-            },
-        }
+    let (seen, found) = seek(n.keys, key, 0);
+    let at = under(seen, found);
+    match (n.children.get(at)) {
+        .None => {
+            if (found) {
+                let replaced = leaf(
+                    replaceAt(ctx, n.keys, seen, key),
+                    replaceAt(ctx, n.values, seen, value),
+                );
+                (.Fit(replaced), false)
+            } else {
+                let added = leaf(
+                    insertAt(ctx, n.keys, seen, key),
+                    insertAt(ctx, n.values, seen, value),
+                );
+                (overfull(ctx, added), true)
+            }
+        },
+        .Some(child) => {
+            let (grown, added) = insertInto(ctx, child, key, value);
+            match (grown) {
+                .Fit(one) => (.Fit(placed(ctx, n, at, one)), added),
+                .Split(left, up, right) => {
+                    let wider = branch(
+                        insertAt(ctx, n.keys, at, up),
+                        splitAt(ctx, n.children, at, left, right),
+                    );
+                    (overfull(ctx, wider), added)
+                },
+            }
+        },
     }
 }
 
@@ -903,18 +904,14 @@ fn removeFrom<K: Ordered, V, C: Allocator>(
     n: Node<K, V>,
     key: K,
 ): (Node<K, V>, Bool) {
-    if (isLeaf(n)) {
-        let (at, found) = seek(n.keys, key, 0);
-        if (found) { (without(ctx, n, at), true) } else { (n, false) }
-    } else {
-        let at = route(n, key);
-        match (n.children.get(at)) {
-            .None => (n, false),
-            .Some(child) => {
-                let (shrunk, gone) = removeFrom(ctx, child, key);
-                if (gone) { (fixChild(ctx, n, at, shrunk), true) } else { (n, false) }
-            },
-        }
+    let (seen, found) = seek(n.keys, key, 0);
+    let at = under(seen, found);
+    match (n.children.get(at)) {
+        .None => if (found) { (without(ctx, n, seen), true) } else { (n, false) },
+        .Some(child) => {
+            let (shrunk, gone) = removeFrom(ctx, child, key);
+            if (gone) { (fixChild(ctx, n, at, shrunk), true) } else { (n, false) }
+        },
     }
 }
 
@@ -996,25 +993,25 @@ fn floorIn<K: Ordered, V>(
     key: K,
     before: Option<Node<K, V>>,
 ): Option<(K, V)> {
-    if (isLeaf(n)) {
-        let (at, found) = seek(n.keys, key, 0);
-        if (found) {
-            entryAt(n, at)
-        } else if (at > 0) {
-            entryAt(n, at - 1)
-        } else {
-            match (before) {
-                .None => .None,
-                .Some(b) => rightmost(b),
+    let (seen, found) = seek(n.keys, key, 0);
+    let at = under(seen, found);
+    match (n.children.get(at)) {
+        .None => {
+            if (found) {
+                entryAt(n, seen)
+            } else if (seen > 0) {
+                entryAt(n, seen - 1)
+            } else {
+                match (before) {
+                    .None => .None,
+                    .Some(b) => rightmost(b),
+                }
             }
-        }
-    } else {
-        let at = route(n, key);
-        let nearer = if (at > 0) { n.children.get(at - 1) } else { before };
-        match (n.children.get(at)) {
-            .None => .None,
-            .Some(child) => floorIn(child, key, nearer),
-        }
+        },
+        .Some(child) => {
+            let nearer = if (at > 0) { n.children.get(at - 1) } else { before };
+            floorIn(child, key, nearer)
+        },
     }
 }
 
@@ -1024,28 +1021,28 @@ fn ceilingIn<K: Ordered, V>(
     key: K,
     after: Option<Node<K, V>>,
 ): Option<(K, V)> {
-    if (isLeaf(n)) {
-        let (at, _found) = seek(n.keys, key, 0);
-        match (entryAt(n, at)) {
-            .Some(e) => .Some(e),
-            .None => {
-                match (after) {
-                    .None => .None,
-                    .Some(a) => leftmost(a),
-                }
-            },
-        }
-    } else {
-        let at = route(n, key);
-        let nearer = if (at + 1 < n.children.length()) {
-            n.children.get(at + 1)
-        } else {
-            after
-        };
-        match (n.children.get(at)) {
-            .None => .None,
-            .Some(child) => ceilingIn(child, key, nearer),
-        }
+    let (seen, found) = seek(n.keys, key, 0);
+    let at = under(seen, found);
+    match (n.children.get(at)) {
+        .None => {
+            match (entryAt(n, seen)) {
+                .Some(e) => .Some(e),
+                .None => {
+                    match (after) {
+                        .None => .None,
+                        .Some(a) => leftmost(a),
+                    }
+                },
+            }
+        },
+        .Some(child) => {
+            let nearer = if (at + 1 < n.children.length()) {
+                n.children.get(at + 1)
+            } else {
+                after
+            };
+            ceilingIn(child, key, nearer)
+        },
     }
 }
 
