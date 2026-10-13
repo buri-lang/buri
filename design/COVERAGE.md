@@ -39,6 +39,30 @@ operator's span, which `float_operator` already relies on. Derived code and
 `Checked::bodies` and never in the universe. `else` is mandatory, so an `if`
 always has both branches, and there is no `if let` or `let ... else`.
 
+A call of a branching built-in is a decision too, with two branches:
+
+- an `Option` or `Result` helper that picks by variant (`withDefault`, `map`,
+  `andThen`, `orElse`, `okOr`, `mapOr`, `filter`, `isSomeAnd`, `toOption`, ...):
+  `Some` or `Ok`, then `None` or `Err`;
+- a collection built-in that calls a predicate (`filter`, `filterCtx`, `any`,
+  `all`, `find`, `findIndex`, `count`, `filterMap`, `filterIndexed`, ...,
+  and `filter` on `Map`, `Set`, `OrderedMap` and `OrderedSet`): the predicate
+  answered `true` (or `Some`) at least once, and `false` (or `None`).
+
+`middle::coverage::BUILTINS` lists them by module and name, and is the one
+place to add one. The predicate is always the last argument. `isSome`, `isOk`
+and friends aren't listed: the user branches on their answer, which already
+counts. Data-only built-ins (`trim`, `contains`, `sortBy`) add nothing.
+
+`any`, `all` and `find` count the predicate's answers too, not "stopped early"
+against "ran to the end". The two pairs say the same thing, apart from an empty
+list, and the predicate pair needs nothing from each function's own loop, so it
+works the same for a bodyless intrinsic, a fused loop and a stdlib body.
+
+A built-in's decision is reported on the line of its first argument after the
+receiver, or of its `)` when it has none, so a chain counts each call on its
+own line.
+
 A decision is named by its kind and span, so monomorphized copies and suites
 that load the same file share it. Its lcov line is where the choice is made: the
 `if`, the `match`, the guard, the right side of `&&`/`||`, the `?`. The block
@@ -116,6 +140,15 @@ up.
 - `?` has nowhere to put a probe on its early return. It becomes
   `{ let b = x; came back; let v = b?; went on; v }`, and the report takes
   "returned early" as "came back" less "went on".
+
+- A variant built-in becomes
+  `{ let a = recv; let b = arg; ...; match a { Some => hit, _ => hit }; f(a, b, ...) }`,
+  so the probe runs once the arguments have and before the call.
+- A predicate built-in's lambda becomes `fn(x) => { let r = body; match r
+  { true => hit, _ => hit }; r }`. Any other function value is wrapped first:
+  `{ let p = arg; fn(x) => p(x) }`. The probe sits in the predicate, so it
+  counts the same whether the built-in is an intrinsic, a stdlib body, inlined
+  or fused into another loop.
 
 Lines go first, so the line pass never sees the `if`s the branch pass writes.
 

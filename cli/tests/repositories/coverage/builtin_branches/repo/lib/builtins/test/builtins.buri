@@ -1,0 +1,34 @@
+from "core/map" import * as map;
+from "core/set" import * as set;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "//lib/builtins" import * as b;
+
+test "option and result" {
+    assert.equal(b.orZero(.Some(3)), 3);
+    assert.equal(b.ok(.Ok(1)), .Some(1));
+    assert.equal(b.ok(.Err("no")), .None);
+}
+
+test "lists" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(b.positives(ctx, [1, 2]), [1, 2]);
+    assert.equal(b.evens(ctx, [1, 2]), [2]);
+    assert.equal(b.hasNegative([1, -1]), true);
+    assert.equal(b.halves(ctx, [2, 4]), [1, 2]);
+    assert.equal(b.doubledAboveOne(ctx, [1, 2]), [4]);
+    assert.equal(b.trimmed(" a "), "a");
+}
+
+test "map and set" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = map.of(ctx, [("a", 1), ("b", 20)]);
+    assert.equal(b.smallKeys(ctx, m).length(), 1);
+    let s = set.of(ctx, ["hi", "hello"]);
+    assert.equal(b.shortWords(ctx, s).length(), 1);
+}

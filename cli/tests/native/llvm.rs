@@ -5625,8 +5625,8 @@ test "two trees grown alike are two trees" {
 /// The probes go in before the middle end, so LLVM gets them like any call into
 /// the runtime. The ground truth is the coverage corpus's own lcov goldens, read
 /// by `build::repositories::test_coverage` against the other two backends: one
-/// with an `if` and a `match`, one with every kind of branch, and #297's `if` on
-/// a passed `Bool`.
+/// with an `if` and a `match`, one with every kind of branch, one with the
+/// built-ins' branches, and #297's `if` on a passed `Bool`.
 #[test]
 fn coverage_under_release_counts_the_lines_the_other_backends_count() {
     skip_unless_executable!();
@@ -5658,6 +5658,22 @@ fn coverage_under_release_counts_the_lines_the_other_backends_count() {
             "--coverage",
             "lcov.info",
             "7 passed, 0 failed",
+            0,
+        ),
+        (
+            "builtin_branches",
+            "//lib/builtins",
+            "--coverage",
+            "lcov.info",
+            "3 passed, 0 failed",
+            0,
+        ),
+        (
+            "builtin_branches",
+            "//lib/builtins",
+            "--coverage=mcdc",
+            "mcdc.info",
+            "3 passed, 0 failed",
             0,
         ),
         (

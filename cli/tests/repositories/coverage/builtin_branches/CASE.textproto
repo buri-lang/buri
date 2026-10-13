@@ -1,0 +1,61 @@
+# `buri test --coverage` counts a branching built-in's call as a decision on
+# the line of its first argument. `withDefault` saw only `Some`, `toOption`
+# both. Each `filter`'s predicate, a lambda or a named function, counts
+# answering `true` and `false`, as do `any`'s and `filterMap`'s (`Some` or
+# `None`), a `filter` fused into a `map`, and `Map`'s and `Set`'s `filter`.
+# `trim` adds nothing, and `never`'s `withDefault` was never reached. Native
+# and JavaScript match one golden, and `cli/tests/native/llvm.rs` reads it
+# against `--release`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "--coverage counts the branches of the built-ins a call picks between"
+
+run {
+  args: ["test", "//lib/builtins", "--coverage"]
+  exit: 0
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
+
+run {
+  args: ["test", "//lib/builtins", "--coverage", "--output=js"]
+  exit: 0
+  golden: "covered.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "lcov.info"
+}
+
+# Under MC/DC each instantiation of a generic function counts on its own.
+run {
+  args: ["test", "//lib/builtins", "--coverage=mcdc"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}
+
+run {
+  args: ["test", "//lib/builtins", "--coverage=mcdc", "--output=js"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}

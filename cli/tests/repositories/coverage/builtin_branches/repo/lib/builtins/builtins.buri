@@ -1,0 +1,51 @@
+from "core/map" import { Map };
+from "core/set" import { Set };
+from "platform/effect" import { Allocator };
+
+export fn orZero(n: Option<Int>): Int {
+    n.withDefault(0)
+}
+
+export fn ok(r: Result<Int, Str>): Option<Int> {
+    r.toOption()
+}
+
+export fn positives<C: Allocator>(ctx: C, xs: [Int]): [Int] {
+    xs.filter(ctx, fn(x) => x > 0)
+}
+
+export fn isEven(n: Int): Bool {
+    n % 2 == 0
+}
+
+export fn evens<C: Allocator>(ctx: C, xs: [Int]): [Int] {
+    xs.filter(ctx, isEven)
+}
+
+export fn hasNegative(xs: [Int]): Bool {
+    xs.any(fn(x) => x < 0)
+}
+
+export fn halves<C: Allocator>(ctx: C, xs: [Int]): [Int] {
+    xs.filterMap(ctx, fn(x) => if (isEven(x)) { .Some(x / 2) } else { .None })
+}
+
+export fn doubledAboveOne<C: Allocator>(ctx: C, xs: [Int]): [Int] {
+    xs.filter(ctx, fn(x) => x > 1).map(ctx, fn(x) => x * 2)
+}
+
+export fn smallKeys<C: Allocator>(ctx: C, m: Map<Str, Int>): Map<Str, Int> {
+    m.filter(ctx, fn(_k, v) => v < 10)
+}
+
+export fn shortWords<C: Allocator>(ctx: C, s: Set<Str>): Set<Str> {
+    s.filter(ctx, fn(w) => w.length() < 4)
+}
+
+export fn never(n: Option<Int>): Int {
+    n.withDefault(1)
+}
+
+export fn trimmed(s: Str): Str {
+    s.trim()
+}

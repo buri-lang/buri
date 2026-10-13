@@ -233,9 +233,27 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
             instances.insert(slot, label.join(", "));
         }
     }
+    // A branching built-in, named by its module and name (`coverage::BUILTINS`).
+    let builtin_of = |id: FnId| {
+        let info = tables.fn_info(id);
+        analysis
+            .loaded
+            .modules
+            .get(info.module.index())
+            .and_then(|m| coverage::builtin(&m.path, &info.name))
+    };
+    let by_slot: HashMap<usize, coverage::Builtin> = program
+        .instances
+        .iter()
+        .filter_map(|(&slot, (id, _))| builtin_of(*id).map(|how| (slot, how)))
+        .collect();
+    let builtins = |callee: &typed::Callee| match callee {
+        typed::Callee::Decl { id, .. } => builtin_of(*id),
+        typed::Callee::Func(f) => by_slot.get(&(f.0 as usize)).copied(),
+    };
     let mut note =
         |body: &typed::Expr, instance: Instance, traps: Option<&dyn Fn(&typed::Expr) -> bool>| {
-            coverage::decisions(body, traps, &mut |d| {
+            coverage::decisions(body, traps, &builtins, &mut |d| {
                 let at = Span {
                     start: d.at,
                     ..d.span
@@ -350,6 +368,7 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
         file_of: &file_of,
         mcdc: mcdc.then_some(&instances),
         tables: mcdc.then_some(tables),
+        builtins: &builtins,
     };
     for d in coverage::branches(program, &options) {
         let (name, line) =

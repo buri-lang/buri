@@ -276,7 +276,7 @@ fn test_suites() {
 /// backends, summed across suites, and never served from the cache.
 #[test]
 fn test_coverage() {
-    run_corpus(&tests_dir().join("repositories/coverage"), "coverage", 7);
+    run_corpus(&tests_dir().join("repositories/coverage"), "coverage", 8);
 }
 
 /// `BURI_COVERAGE_STD=1` counts the standard library too, for its own MC/DC

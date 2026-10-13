@@ -12,7 +12,8 @@ use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Expr, ExprKind, Magnitude, PatKind, Pattern, PrimOp, Stmt,
 };
-use crate::compiler::semantics::types::{LocalId, Prim, Ty};
+use crate::compiler::semantics::types::{LocalId, Prim, Ty, TyKind};
+use crate::diagnostics::Invariant as _;
 use std::collections::{HashMap, HashSet};
 
 pub mod derived;
@@ -74,7 +75,9 @@ fn fnv(file: &str, rest: &str) -> u64 {
 /// - `Trap`, under MC/DC only: an integer `/` or `%`, or a `core/bits` shift,
 ///   went on, or aborted;
 /// - `Derived`, under MC/DC only: a decision of a derived operation, whose
-///   branches are named ([`derived`]).
+///   branches are named ([`derived`]);
+/// - `Builtin`: a call of a branching built-in ([`BUILTINS`]), its first
+///   outcome and its second.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Kind {
     If,
@@ -85,7 +88,98 @@ pub enum Kind {
     Try,
     Trap,
     Derived,
+    Builtin,
 }
+
+/// How a call of a branching built-in splits.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Builtin {
+    /// By its receiver's variant: `Some` or `Ok`, then `None` or `Err`.
+    Variant,
+    /// By what its last argument, a predicate, answered: `true` or `Some`,
+    /// then `false` or `None`.
+    Predicate,
+}
+
+/// The built-ins whose calls in the user's source are decisions, by module.
+pub const BUILTINS: &[(&str, Builtin, &[&str])] = &[
+    (
+        "core/option",
+        Builtin::Variant,
+        &[
+            "withDefault",
+            "withDefaultWith",
+            "map",
+            "mapCtx",
+            "andThen",
+            "andThenCtx",
+            "filter",
+            "okOr",
+            "okOrWith",
+            "or",
+            "orElse",
+            "mapOr",
+            "isSomeAnd",
+            "toList",
+        ],
+    ),
+    (
+        "core/result",
+        Builtin::Variant,
+        &[
+            "withDefault",
+            "withDefaultWith",
+            "map",
+            "mapCtx",
+            "mapErr",
+            "mapErrCtx",
+            "andThen",
+            "andThenCtx",
+            "toOption",
+            "errToOption",
+            "orElse",
+            "orElseCtx",
+            "fold",
+            "mapOr",
+            "isOkAnd",
+        ],
+    ),
+    (
+        "core/list",
+        Builtin::Predicate,
+        &[
+            "filter",
+            "filterCtx",
+            "filterMap",
+            "filterMapCtx",
+            "filterIndexed",
+            "any",
+            "all",
+            "find",
+            "findIndex",
+            "findLast",
+            "count",
+            "takeWhile",
+            "dropWhile",
+            "partition",
+        ],
+    ),
+    ("core/map", Builtin::Predicate, &["filter"]),
+    ("core/set", Builtin::Predicate, &["filter"]),
+    ("core/orderedmap", Builtin::Predicate, &["filter"]),
+    ("core/orderedset", Builtin::Predicate, &["filter"]),
+];
+
+/// How a call of `module`'s function `name` splits, if it's in [`BUILTINS`].
+pub fn builtin(module: &str, name: &str) -> Option<Builtin> {
+    BUILTINS
+        .iter()
+        .find(|(m, _, names)| *m == module && names.contains(&name))
+        .map(|(_, how, _)| *how)
+}
+
+/// Says how a call of a function splits, if it's a branching built-in.
+pub type Builtins<'a> = &'a dyn Fn(&typed::Callee) -> Option<Builtin>;
 
 /// A point in the user's source where control takes one of several paths.
 #[derive(Clone, Copy, Debug)]
@@ -99,13 +193,19 @@ pub struct Decision {
     pub branches: usize,
 }
 
-/// Calls `f` with every decision in `body`, lambdas' included. With `traps`,
-/// which says whether a call can abort, the abort points too.
+/// Calls `f` with every decision in `body`, lambdas' included, `builtins`'
+/// calls too. With `traps`, which says whether a call can abort, the abort
+/// points too.
 ///
 /// The `match` that `semantics` writes for `a < b` isn't one: its arms carry
 /// the operator's span, which an arm someone wrote can't.
-pub fn decisions(e: &Expr, traps: Option<&dyn Fn(&Expr) -> bool>, f: &mut impl FnMut(Decision)) {
-    if let Some(d) = decision(e) {
+pub fn decisions(
+    e: &Expr,
+    traps: Option<&dyn Fn(&Expr) -> bool>,
+    builtins: Builtins,
+    f: &mut impl FnMut(Decision),
+) {
+    if let Some(d) = decision(e).or_else(|| builtin_call(e, builtins)) {
         f(d);
     }
     if let ExprKind::Match { arms, .. } = &e.kind {
@@ -128,7 +228,26 @@ pub fn decisions(e: &Expr, traps: Option<&dyn Fn(&Expr) -> bool>, f: &mut impl F
             branches: 2,
         });
     }
-    typed::children(e, &mut |c| decisions(c, traps, f));
+    typed::children(e, &mut |c| decisions(c, traps, builtins, f));
+}
+
+/// The decision a call of a branching built-in is. It's reported where its
+/// first argument after the receiver starts, or at its `)`, so each call of a
+/// chain is on its own line.
+fn builtin_call(e: &Expr, builtins: Builtins) -> Option<Decision> {
+    let ExprKind::CallFn { func, args } = &e.kind else {
+        return None;
+    };
+    builtins(func)?;
+    let at = args
+        .get(1)
+        .map_or(e.span.end.saturating_sub(1), |a| a.span.start);
+    Some(Decision {
+        kind: Kind::Builtin,
+        span: e.span,
+        at,
+        branches: 2,
+    })
 }
 
 fn decision(e: &Expr) -> Option<Decision> {
@@ -519,6 +638,7 @@ pub struct Options<'a> {
     pub mcdc: Option<&'a HashMap<usize, String>>,
     /// Under MC/DC, for the `derive`s in the user's source.
     pub tables: Option<&'a crate::compiler::semantics::types::Tables>,
+    pub builtins: Builtins<'a>,
 }
 
 /// Probes every branch of every decision [`decisions`] names in the user's
@@ -626,6 +746,9 @@ impl Branches<'_> {
         each_child_mut(e, tail, &mut |c, t| self.expr(c, t));
         if self.options.mcdc.is_some() && traps_here(e, &|call| self.calls_trap(call)) {
             self.trap(e);
+            return;
+        }
+        if self.builtin(e) {
             return;
         }
         let Some(d) = decision(e) else {
@@ -991,6 +1114,152 @@ impl Branches<'_> {
             stmts.push(bind(a, value, span));
         }
         *e = self.reached(stmts, op, reached, went_on);
+    }
+
+    /// Probes `e` if it's a call of a branching built-in in the user's source,
+    /// and answers whether it was.
+    fn builtin(&mut self, e: &mut Expr) -> bool {
+        let span = e.span;
+        let ExprKind::CallFn { func, args } = &mut e.kind else {
+            return false;
+        };
+        let Some(how) = (self.options.builtins)(func) else {
+            return false;
+        };
+        let Some(file) = (self.options.file_of)(span) else {
+            return false;
+        };
+        let keys = [0, 1].map(|slot| self.key(&file, Kind::Builtin, span, slot));
+        if how == Builtin::Predicate {
+            let p = args
+                .last_mut()
+                .or_ice("a built-in that takes a predicate takes it last");
+            self.predicate(p, keys);
+            return true;
+        }
+        // { let a = recv; let b = arg; ...; count a; f(a, b, ...) }
+        let mut stmts = Vec::with_capacity(args.len().saturating_add(1));
+        for arg in args.iter_mut() {
+            let ty = arg.ty;
+            let a = self.local(ty, span);
+            let value = std::mem::replace(arg, Expr::new(ExprKind::Local(a), ty, span));
+            stmts.push(bind(a, value, span));
+        }
+        let receiver = args
+            .first()
+            .or_ice("a built-in that picks by variant has a receiver")
+            .clone();
+        stmts.push(Stmt::Expr(self.outcome(receiver, keys)));
+        let call = std::mem::replace(e, Expr::new(ExprKind::Unit, Ty::UNIT, span));
+        let ty = call.ty;
+        *e = Expr::new(
+            ExprKind::Block {
+                stmts,
+                tail: Some(Box::new(call)),
+            },
+            ty,
+            span,
+        );
+        true
+    }
+
+    /// Counts what the predicate `p` answers. A lambda's body is counted in
+    /// place; any other function value becomes `{ let q = p; fn(x) => q(x) }`.
+    fn predicate(&mut self, p: &mut Expr, keys: [u64; 2]) {
+        if let ExprKind::Lambda { body, .. } = &mut p.kind {
+            self.answers(body, keys);
+            return;
+        }
+        let (span, fn_ty) = (p.span, p.ty);
+        let (params, ret) = match fn_ty.kind() {
+            TyKind::Fn(params, ret) => Some((params, *ret)),
+            _ => None,
+        }
+        .or_ice("a predicate is a function");
+        let q = self.local(fn_ty, span);
+        let xs: Vec<LocalId> = params.iter().map(|t| self.local(*t, span)).collect();
+        let forwarded = xs
+            .iter()
+            .zip(params.iter())
+            .map(|(x, t)| Expr::new(ExprKind::Local(*x), *t, span))
+            .collect();
+        let mut call = Expr::new(
+            ExprKind::CallValue {
+                callee: Box::new(Expr::new(ExprKind::Local(q), fn_ty, span)),
+                args: forwarded,
+            },
+            ret,
+            span,
+        );
+        self.answers(&mut call, keys);
+        let lambda = Expr::new(
+            ExprKind::Lambda {
+                params: xs,
+                body: Box::new(call),
+                captures: vec![q],
+            },
+            fn_ty,
+            span,
+        );
+        let value = std::mem::replace(p, Expr::new(ExprKind::Unit, Ty::UNIT, span));
+        *p = Expr::new(
+            ExprKind::Block {
+                stmts: vec![bind(q, value, span)],
+                tail: Some(Box::new(lambda)),
+            },
+            fn_ty,
+            span,
+        );
+    }
+
+    /// A predicate's body as `{ let r = body; count r; r }`.
+    fn answers(&mut self, body: &mut Expr, keys: [u64; 2]) {
+        let (ty, span) = (body.ty, body.span);
+        let r = self.local(ty, span);
+        let value = std::mem::replace(body, Expr::new(ExprKind::Unit, Ty::UNIT, span));
+        let stmts = vec![
+            bind(r, value, span),
+            Stmt::Expr(self.outcome(Expr::new(ExprKind::Local(r), ty, span), keys)),
+        ];
+        *body = Expr::new(
+            ExprKind::Block {
+                stmts,
+                tail: Some(Box::new(Expr::new(ExprKind::Local(r), ty, span))),
+            },
+            ty,
+            span,
+        );
+    }
+
+    /// `match (value) { <first> => hit first, _ => hit second }`, where the
+    /// first outcome is `true` or an enum's first variant: `Some`, `Ok`.
+    fn outcome(&self, value: Expr, [first, second]: [u64; 2]) -> Expr {
+        let (ty, span) = (value.ty, value.span);
+        let kind = if ty == self.options.bool_ty {
+            PatKind::Bool(true)
+        } else {
+            PatKind::Variant {
+                con: ty
+                    .head()
+                    .or_ice("a built-in's outcome is a Bool or an enum"),
+                variant: 0,
+                fields: Vec::new(),
+            }
+        };
+        let arm = |kind, key| typed::Arm {
+            pattern: Pattern { kind, ty, span },
+            guard: None,
+            body: hit(key, &self.options.i64_ty, span),
+            span,
+        };
+        Expr::new(
+            ExprKind::Match {
+                scrutinee: Box::new(value),
+                arms: vec![arm(kind, first), arm(PatKind::Wild, second)],
+            },
+            Ty::UNIT,
+            span,
+        )
     }
 
     /// `{ stmts; reached; let v = op; went on; v }`.

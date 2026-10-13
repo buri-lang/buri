@@ -1,0 +1,6 @@
+3 passed, 0 failed, 0 skipped (0.0s)
+
+branch coverage
+  lib/builtins/builtins.buri  16/22   72.7%
+  total                       16/22   72.7%
+lcov: .buri/coverage/lcov.info
