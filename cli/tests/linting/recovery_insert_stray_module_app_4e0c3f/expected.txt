@@ -1,0 +1,17 @@
+warning: this branch is nested 5 levels deep [deep-nesting]
+  --> lib/recovery_insert_stray_module_app_4e0c3f/main.buri:13:21
+   |
+13 |                     if (n > 10000) {
+   |                     ^^^^^^^^^^^^^^^^
+   |
+   = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
+   = fix: pull the inner branch into a named function, or replace the ladder with one `match`
+error: expected a type, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_module_app_4e0c3f/main.buri:32:33
+   |
+32 | export fn main(host: NodeHost): @ Result<(), Str> {
+   |                                 ^
+   |
+   = expected: a type
+   = actual: `@`
+   = fix: name a type here, as in `Int` or `[Str]`

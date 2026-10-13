@@ -1,0 +1,15 @@
+warning: this branch is nested 5 levels deep [deep-nesting]
+  --> lib/recovery_insert_stray_brace_app_5348c0/main.buri:13:21
+   |
+13 |                     if (n > 10000) {
+   |                     ^^^^^^^^^^^^^^^^
+   |
+   = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
+   = fix: pull the inner branch into a named function, or replace the ladder with one `match`
+error: an `if` is an operand, not the head of a `?` [postfix-on-block]
+  --> lib/recovery_insert_stray_brace_app_5348c0/main.buri:15:21
+   |
+15 |                     ? } else {
+   |                     ^
+   |
+   = fix: parenthesise it, or bind it with `let` and go on from the name

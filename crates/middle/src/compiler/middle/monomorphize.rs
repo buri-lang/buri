@@ -163,10 +163,6 @@ pub enum Desc {
     Option(usize),
     /// A type with no structural rendering.
     Opaque(String),
-    /// A slot claimed before its descriptor was built, so that a recursive
-    /// type terminates. It was `Opaque(String::new())`, which made an
-    /// unfinished descriptor indistinguishable from a finished opaque one.
-    Reserved,
 }
 
 impl Desc {
@@ -549,10 +545,17 @@ enum Key {
 pub struct Monomorphizer<'a> {
     checked: &'a Checked,
     diags: &'a mut Diagnostics,
-    funcs: Vec<Func>,
+    /// The functions built so far, by slot. Each is built once, off `queue`,
+    /// and every slot `enqueue` mints reaches it.
+    funcs: std::collections::BTreeMap<usize, Func>,
+    /// How many function slots there are.
+    slots: usize,
     index: HashMap<Key, usize>,
-    queue: Vec<(Key, usize)>,
-    descriptors: Vec<Desc>,
+    /// A requested function: its key, its slot, and its symbol and name.
+    queue: Vec<(Key, usize, Func)>,
+    /// The descriptors made so far, by slot: each slot is reserved before
+    /// its type's parts are described, so a recursive type terminates.
+    descriptors: std::collections::BTreeMap<usize, Desc>,
     desc_modules: Vec<Option<String>>,
     desc_index: HashMap<Ty, usize>,
     ctx_layouts: HashMap<CtxTypeId, Vec<TraitId>>,
@@ -601,10 +604,11 @@ pub fn run(
     let mut m = Monomorphizer {
         checked,
         diags,
-        funcs: Vec::new(),
+        funcs: std::collections::BTreeMap::new(),
+        slots: 0,
         index: HashMap::default(),
         queue: Vec::new(),
-        descriptors: Vec::new(),
+        descriptors: std::collections::BTreeMap::new(),
         desc_modules: Vec::new(),
         desc_index: HashMap::default(),
         ctx_layouts: HashMap::default(),
@@ -648,9 +652,11 @@ pub fn run(
 
     // Instantiation order follows the worklist, which follows source order, so
     // two builds of the same commit produce identical output.
-    while let Some((key, slot)) = m.queue.pop() {
-        m.build(key, slot);
+    while let Some((key, slot, mut func)) = m.queue.pop() {
+        m.build(key, slot, &mut func);
+        m.funcs.insert(slot, func);
     }
+    let mut funcs: Vec<Func> = std::mem::take(&mut m.funcs).into_values().collect();
 
     let shapes = Shapes {
         option: checked.known_types.get("Option").copied(),
@@ -703,7 +709,7 @@ pub fn run(
             Roots::Main(_) => classifiers,
             Roots::Tests | Roots::TestsIn(_) => Vec::new(),
         };
-        for (slot, f) in m.funcs.iter_mut().enumerate() {
+        for (slot, f) in funcs.iter_mut().enumerate() {
             if let (FuncKind::Body(body), false) = (&mut f.kind, skipped.contains(&slot)) {
                 crate::compiler::semantics::styles::survey(
                     body,
@@ -725,7 +731,7 @@ pub fn run(
     // the compiler. A clean program's symbols are a claim this pass makes, and
     // this is where it is checked.
     if !m.diags.has_errors() {
-        let clash = one_symbol_per_function(&m.funcs);
+        let clash = one_symbol_per_function(&funcs);
         invariant_with(clash.is_none(), || {
             clash.map_or_else(String::new, |clash| {
                 format!(
@@ -751,9 +757,9 @@ pub fn run(
         .collect();
     Program {
         instances,
-        funcs: m.funcs,
+        funcs,
         roots: program_roots,
-        descriptors: m.descriptors,
+        descriptors: m.descriptors.into_values().collect(),
         desc_modules: m.desc_modules,
         desc_index: m.desc_index,
         cell_equal: m.cell_equal,
@@ -857,17 +863,6 @@ impl<'a> Monomorphizer<'a> {
         &self.checked.tables
     }
 
-    /// The function a slot names.
-    ///
-    /// Every slot in this pass came out of `request`, which mints one by
-    /// pushing onto `funcs`, and nothing ever removes a row, so the slot is an
-    /// index this table has.
-    fn func_mut(&mut self, slot: usize) -> &mut Func {
-        self.funcs.get_mut(slot).or_ice(
-            "every function slot was minted by `request`, which makes it by pushing onto `funcs`",
-        )
-    }
-
     /// The function a program starts at.
     ///
     /// An entry that takes its platform's host, `main(host: NativeHost)`, is
@@ -886,10 +881,16 @@ impl<'a> Monomorphizer<'a> {
     /// An entry with no host parameter is the root itself, as every entry was
     /// before hosts.
     fn entry(&mut self, f: FnId) -> usize {
-        let inner = self.request(Key::Fn(f, Vec::new()));
+        let key = Key::Fn(f, Vec::new());
         let Some(host) = self.host_parameter(f) else {
-            return inner;
+            return self.request(key);
         };
+        // The entry is the first function requested, so it is not in `index`.
+        let mut entry = self.head(&key);
+        let symbol = entry.symbol.clone();
+        let debug_name = entry.debug_name.clone();
+        entry.symbol = format!("{symbol}$withHost");
+        let inner = self.enqueue(key, entry);
         let info = self.tables().fn_info(f).clone();
         let span = info.span;
         // The parameters after the host are the wrapper's own: a worker's
@@ -948,21 +949,20 @@ impl<'a> Monomorphizer<'a> {
             info.ret,
             span,
         );
-        let entry = self.func_mut(inner);
-        let symbol = entry.symbol.clone();
-        let debug_name = entry.debug_name.clone();
-        entry.symbol = format!("{symbol}$withHost");
-        let slot = self.funcs.len();
-        self.funcs.push(Func {
-            symbol,
-            debug_name: format!("{debug_name}, building its host"),
-            params: (0..rest.len()).map(|i| LocalId(i as u32)).collect(),
-            locals: rest,
-            kind: FuncKind::Body(call),
-            ret: info.ret,
-            desc: None,
-            span,
-        });
+        let slot = self.mint();
+        self.funcs.insert(
+            slot,
+            Func {
+                symbol,
+                debug_name: format!("{debug_name}, building its host"),
+                params: (0..rest.len()).map(|i| LocalId(i as u32)).collect(),
+                locals: rest,
+                kind: FuncKind::Body(call),
+                ret: info.ret,
+                desc: None,
+                span,
+            },
+        );
         slot
     }
 
@@ -1001,9 +1001,14 @@ impl<'a> Monomorphizer<'a> {
         if let Some(i) = self.index.get(&key) {
             return *i;
         }
-        let slot = self.funcs.len();
-        let (symbol, debug_name, span) = self.name_of(&key);
-        self.funcs.push(Func {
+        let head = self.head(&key);
+        self.enqueue(key, head)
+    }
+
+    /// A function named for `key`, before it is built.
+    fn head(&mut self, key: &Key) -> Func {
+        let (symbol, debug_name, span) = self.name_of(key);
+        Func {
             symbol,
             debug_name,
             params: Vec::new(),
@@ -1012,9 +1017,21 @@ impl<'a> Monomorphizer<'a> {
             ret: Ty::UNIT,
             desc: None,
             span,
-        });
+        }
+    }
+
+    /// A new function slot.
+    fn mint(&mut self) -> usize {
+        let slot = self.slots;
+        self.slots = slot.saturating_add(1);
+        slot
+    }
+
+    /// Mints `key`'s slot and queues it to be built.
+    fn enqueue(&mut self, key: Key, head: Func) -> usize {
+        let slot = self.mint();
         self.index.insert(key.clone(), slot);
-        self.queue.push((key, slot));
+        self.queue.push((key, slot, head));
         slot
     }
 
@@ -1260,9 +1277,9 @@ fn instantiation_symbol_hashed(taken: &mut HashMap<String, u64>, base: &str, has
 }
 
 impl Monomorphizer<'_> {
-    fn build(&mut self, key: Key, slot: usize) {
+    fn build(&mut self, key: Key, slot: usize, f: &mut Func) {
         match key {
-            Key::Fn(f, targs) => self.build_fn(f, targs, slot),
+            Key::Fn(id, targs) => self.build_fn(id, targs, f),
             Key::CtxCtor(c) => {
                 // Only a checked context declaration is requested.
                 let ctor = self
@@ -1283,7 +1300,6 @@ impl Monomorphizer<'_> {
                 self.locals = std::mem::take(&mut b.locals);
                 b.expr = self.rewrite(b.expr, &[]);
                 b.locals = std::mem::take(&mut self.locals);
-                let f = self.func_mut(slot);
                 f.params = b.params;
                 f.locals = b.locals;
                 f.set_body(b.expr);
@@ -1302,7 +1318,6 @@ impl Monomorphizer<'_> {
                 let rewritten = self.rewrite(b.expr, &[]);
                 b.expr = self.leaving(i, slot, rewritten);
                 b.locals = std::mem::take(&mut self.locals);
-                let f = self.func_mut(slot);
                 f.params = b.params;
                 f.locals = b.locals;
                 f.set_body(b.expr);
@@ -1312,13 +1327,13 @@ impl Monomorphizer<'_> {
                 ty,
                 ctx,
                 unbounded,
-            } => self.build_derived(trait_id, ty, ctx, unbounded, slot),
+            } => self.build_derived(trait_id, ty, ctx, unbounded, slot, f),
             Key::DerivedItems {
                 trait_id,
                 elem,
                 ctx,
                 unbounded,
-            } => self.build_derived_items(trait_id, elem, ctx, unbounded, slot),
+            } => self.build_derived_items(trait_id, elem, ctx, unbounded, slot, f),
         }
     }
 
@@ -1420,9 +1435,9 @@ impl Monomorphizer<'_> {
         )
     }
 
-    fn build_fn(&mut self, f: FnId, targs: Vec<Ty>, slot: usize) {
+    fn build_fn(&mut self, id: FnId, targs: Vec<Ty>, f: &mut Func) {
         let checked = self.checked;
-        let info = checked.tables.fn_info(f);
+        let info = checked.tables.fn_info(id);
         if info.intrinsic {
             let key = self.intrinsic_key(info, &targs);
             // The instantiated parameter types, which only the descriptor
@@ -1454,14 +1469,13 @@ impl Monomorphizer<'_> {
             }) {
                 self.js_implemented.insert(key.clone());
             }
-            let f = self.func_mut(slot);
             f.kind = FuncKind::Intrinsic(key.clone());
             f.locals = locals;
             f.params = (0..info.params.len()).map(|i| LocalId(i as u32)).collect();
             f.ret = ret;
             // Rendered through a hand-written `Show` where the value's type
             // reaches one, rather than walked by shape (#258).
-            if self.report_through_show(slot, &key, &param_types) {
+            if self.report_through_show(f, &key, &param_types) {
                 return;
             }
             // A cell write takes the value last.
@@ -1477,7 +1491,7 @@ impl Monomorphizer<'_> {
                 .filter(|_| key == "testing_assert.report" || key == "testing_assert.failExpected");
             if let Some(&t) = reported {
                 let desc = self.descriptor(&t);
-                self.func_mut(slot).desc = Some(desc);
+                f.desc = Some(desc);
             }
             // A reactive **cell**'s value type. `ui/signal`'s rule is that
             // writing a value equal to the one a cell holds re-runs nothing,
@@ -1493,7 +1507,7 @@ impl Monomorphizer<'_> {
                 .filter(|_| CELL_VALUE_KEYS.contains(&key.as_str()));
             if let Some(&t) = held {
                 let desc = self.descriptor(&t);
-                self.func_mut(slot).desc = Some(desc);
+                f.desc = Some(desc);
             }
             // `json.decode` is the one operation whose subject is in neither a
             // parameter nor the receiver: it is asked for a `T` and handed a
@@ -1501,11 +1515,11 @@ impl Monomorphizer<'_> {
             // is the whole of what the runtime needs to read one.
             if let Some(&t) = targs.first().filter(|_| key == "json.decode") {
                 let desc = self.descriptor(&t);
-                self.func_mut(slot).desc = Some(desc);
+                f.desc = Some(desc);
             }
             return;
         }
-        let Some(body) = self.checked.bodies.get(&f) else {
+        let Some(body) = self.checked.bodies.get(&id) else {
             // A trait method with no body and no impl: already diagnosed.
             return;
         };
@@ -1521,7 +1535,6 @@ impl Monomorphizer<'_> {
         b.locals = std::mem::take(&mut self.locals);
         // An entry's `js` file reads its answer by this type.
         let ret = self.sub(&info.ret, &targs);
-        let f = self.func_mut(slot);
         f.params = b.params;
         f.locals = b.locals;
         f.ret = ret;
@@ -1556,13 +1569,8 @@ impl Monomorphizer<'_> {
             {
                 format!("{short}.{}", info.name)
             }
-            Some(con) if info.impl_of.is_some() || is_prim(self.tables(), con) => {
-                format!("{short}.{}.{}", self.tables().tycon(con).name, info.name)
-            }
-            Some(con) if self.tables().tycon(con).module.0 != u32::MAX => {
-                format!("{short}.{}.{}", self.tables().tycon(con).name, info.name)
-            }
-            _ => format!("{short}.{}", info.name),
+            Some(con) => format!("{short}.{}.{}", self.tables().tycon(con).name, info.name),
+            None => format!("{short}.{}", info.name),
         };
         // Only a bundled standard-library module can declare an operation the
         // runtime supplies — `resolve::record_intrinsic` guards on exactly this
@@ -2302,20 +2310,20 @@ impl Monomorphizer<'_> {
         let Some(fid) = imp.method(method) else {
             return ExprKind::Error;
         };
-        let declared = self.tables().fn_info(fid).generics.len();
-        let instance_targs = match instance_targs(&imp.head, &recv, declared, &method_targs) {
-            Ok(targs) => targs,
-            Err(err) => {
-                let name = self.tables().trait_(trait_id).name.clone();
-                self.diags.push(
-                    Diagnostic::templated("undetermined-type", span)
-                        .with_bind("function", format!("a `{name}` method"))
-                        .with_note(err.note())
-                        .with_fix(err.fix()),
-                );
-                return ExprKind::Error;
-            }
-        };
+        let instance_targs =
+            match instance_targs(&imp.head, &recv, imp.generics.len(), &method_targs) {
+                Ok(targs) => targs,
+                Err(err) => {
+                    let name = self.tables().trait_(trait_id).name.clone();
+                    self.diags.push(
+                        Diagnostic::templated("undetermined-type", span)
+                            .with_bind("function", format!("a `{name}` method"))
+                            .with_note(err.note())
+                            .with_fix(err.fix()),
+                    );
+                    return ExprKind::Error;
+                }
+            };
 
         let slot = self.request(Key::Fn(fid, instance_targs));
         ExprKind::CallFunc {
@@ -2756,8 +2764,7 @@ impl Monomorphizer<'_> {
             return *i;
         }
         // Reserve the slot first, so a recursive type terminates.
-        let slot = self.descriptors.len();
-        self.descriptors.push(Desc::Reserved);
+        let slot = self.desc_modules.len();
         self.desc_modules.push(self.declaring_module(ty));
         self.desc_index.insert(*ty, slot);
 
@@ -2772,43 +2779,43 @@ impl Monomorphizer<'_> {
                 let tycon = checked.tables.tycon(*con);
                 match &tycon.def {
                     TyDef::Prim(p) => Desc::Prim(*p),
-                    TyDef::Struct { fields, record }
-                        if checked.tables.flags_word(*con).is_some() =>
-                    {
-                        let bool_desc = self.descriptor(&checked.tables.prim(Prim::Bool));
-                        Desc::Flags {
-                            name: tycon.name.clone(),
-                            record: *record,
-                            fields: fields
+                    TyDef::Struct { fields, record } => match checked.tables.flags_word(*con) {
+                        Some(prim) => {
+                            let bool_desc = self.descriptor(&checked.tables.prim(Prim::Bool));
+                            Desc::Flags {
+                                name: tycon.name.clone(),
+                                record: *record,
+                                fields: fields
+                                    .iter()
+                                    .map(|f| DescField {
+                                        name: f.name.clone(),
+                                        ty: bool_desc,
+                                    })
+                                    .collect(),
+                                prim,
+                            }
+                        }
+                        None if checked.known_types.get("IndexSet") == Some(con) => {
+                            self.members(*con, args.first().copied().unwrap_or(Ty::ERROR))
+                        }
+                        None => {
+                            let described: Vec<DescField> = fields
                                 .iter()
-                                .map(|f| DescField {
-                                    name: f.name.clone(),
-                                    ty: bool_desc,
+                                .map(|f| {
+                                    let t = substitute(&f.ty, args, None);
+                                    DescField {
+                                        name: f.name.clone(),
+                                        ty: self.descriptor(&t),
+                                    }
                                 })
-                                .collect(),
-                            prim: checked.tables.flags_word(*con).unwrap_or(Prim::U64),
+                                .collect();
+                            Desc::Struct {
+                                name: tycon.name.clone(),
+                                record: *record,
+                                fields: described,
+                            }
                         }
-                    }
-                    TyDef::Struct { .. } if checked.known_types.get("IndexSet") == Some(con) => {
-                        self.members(*con, args.first().copied().unwrap_or(Ty::ERROR))
-                    }
-                    TyDef::Struct { fields, record } => {
-                        let described: Vec<DescField> = fields
-                            .iter()
-                            .map(|f| {
-                                let t = substitute(&f.ty, args, None);
-                                DescField {
-                                    name: f.name.clone(),
-                                    ty: self.descriptor(&t),
-                                }
-                            })
-                            .collect();
-                        Desc::Struct {
-                            name: tycon.name.clone(),
-                            record: *record,
-                            fields: described,
-                        }
-                    }
+                    },
                     // `Option` has no tag to read: `None` is `undefined` and
                     // `Some(x)` is `x`, so its descriptor says only what the
                     // payload is.
@@ -2848,9 +2855,7 @@ impl Monomorphizer<'_> {
             }
             _ => Desc::Opaque("a value".into()),
         };
-        *self.descriptors.get_mut(slot).or_ice(
-            "the descriptor slot was reserved by pushing onto `descriptors`, which nothing shrinks",
-        ) = desc;
+        self.descriptors.insert(slot, desc);
         slot
     }
 }
@@ -2937,24 +2942,19 @@ impl Unbound {
 /// `head` is the `impl`'s head in its own generic scope (`ReadOnly<C>` as
 /// `Con(ReadOnly, [Param(0)])`), `recv` the concrete receiver, and
 /// `method_targs` what the call site instantiated the *trait's* declaration of
-/// the method at — the trait's generics followed by the method's.
+/// the method at — the trait's generics followed by the method's. The `impl`'s
+/// method has the `impl`'s `impl_generics` followed by those.
 fn instance_targs(
     head: &Ty,
     recv: &Ty,
-    declared: usize,
+    impl_generics: usize,
     method_targs: &[Ty],
 ) -> Result<Vec<Ty>, Unbound> {
-    // A trait has no generics of its own (`generic-effect-unsupported`), so
-    // every argument the call site supplied is the method's.
-    let impl_generics = declared
-        .checked_sub(method_targs.len())
-        .or_ice("`impl-signature-mismatch` gives an impl's method its trait's generics");
-
     let mut bound: Vec<Option<Ty>> = vec![None; impl_generics];
     match_head(head, recv, &mut bound)
         .then_some(())
         .or_ice("the checker refuses a receiver the `impl`'s head doesn't cover");
-    let mut targs = Vec::with_capacity(declared);
+    let mut targs = Vec::with_capacity(impl_generics.saturating_add(method_targs.len()));
     for (i, slot) in bound.into_iter().enumerate() {
         match slot {
             Some(ty) => targs.push(ty),
@@ -3702,7 +3702,7 @@ mod tests {
     #[test]
     fn a_method_generic_carries_over_from_the_call_site() {
         let order = con(11, vec![]);
-        let got = instance_targs(&order, &order, 1, &[int()]);
+        let got = instance_targs(&order, &order, 0, &[int()]);
         assert_eq!(got, Ok(vec![int()]));
     }
 
@@ -3728,7 +3728,7 @@ mod tests {
     fn an_impl_generic_and_a_method_generic_split_at_the_declared_count() {
         let head = con(12, vec![p0()]);
         let recv = con(12, vec![int()]);
-        let got = instance_targs(&head, &recv, 2, &[string()]);
+        let got = instance_targs(&head, &recv, 1, &[string()]);
         assert_eq!(got, Ok(vec![int(), string()]));
     }
 
@@ -3773,7 +3773,7 @@ mod tests {
     #[test]
     fn an_impl_generic_the_head_never_mentions_is_reported() {
         let point = con(11, vec![]);
-        assert_eq!(instance_targs(&point, &point, 2, &[int()]), Err(Unbound(0)));
+        assert_eq!(instance_targs(&point, &point, 1, &[int()]), Err(Unbound(0)));
     }
 
     /// A receiver of another type constructor entirely. `impls` is keyed by

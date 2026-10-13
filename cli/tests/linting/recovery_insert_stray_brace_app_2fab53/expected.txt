@@ -1,0 +1,20 @@
+error: this `if` condition is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_app_2fab53/main.buri:12:29
+   |
+12 |                 if (n > 1000extra ) {
+   |                             ^^^^^
+   |
+  --> lib/recovery_insert_stray_brace_app_2fab53/main.buri:12:20
+   |
+12 |                 if (n > 1000extra ) {
+   |                    ^ opened here
+   |
+   = fix: write `)` here
+warning: this branch is nested 5 levels deep [deep-nesting]
+  --> lib/recovery_insert_stray_brace_app_2fab53/main.buri:13:21
+   |
+13 |                     if (n > 10000) {
+   |                     ^^^^^^^^^^^^^^^^
+   |
+   = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
+   = fix: pull the inner branch into a named function, or replace the ladder with one `match`

@@ -1527,12 +1527,19 @@ fn solo(
 }
 
 /// Where a suite's JavaScript bundle is written to be run.
-fn bundle_path(session: &Session, target: TargetId) -> std::path::PathBuf {
-    session
+fn bundle_path(session: &Session, target: TargetId) -> BundlePath {
+    let dir = session
         .root
         .join(".buri/out/node")
-        .join(&session.workspace.package(target.package).path)
-        .join(format!("test-{}.mjs", target.kind.name()))
+        .join(&session.workspace.package(target.package).path);
+    let file = dir.join(format!("test-{}.mjs", target.kind.name()));
+    BundlePath { dir, file }
+}
+
+/// A bundle's file and the directory it is written in.
+struct BundlePath {
+    dir: std::path::PathBuf,
+    file: std::path::PathBuf,
 }
 
 /// One suite, loaded, and everything about it a worker would otherwise ask the
@@ -1555,7 +1562,7 @@ struct FrontJob {
     private: std::path::PathBuf,
     output: crate::build::buildfile::Output,
     /// Where a JavaScript run writes its bundle.
-    js: std::path::PathBuf,
+    js: BundlePath,
     snapshot_dir: String,
     filter: Option<String>,
 }
@@ -2012,7 +2019,7 @@ struct JsJob {
     program: monomorphize::Program,
     tables: std::sync::Arc<crate::compiler::semantics::types::Tables>,
     key: crate::build::cache::ActionKey,
-    path: std::path::PathBuf,
+    path: BundlePath,
     limit: Option<u32>,
     on_timeout: Diagnostics,
     skipped: Skipped,
@@ -2070,7 +2077,7 @@ fn run_js(job: JsJob, held: Held, queue: &Queue, shared: &Shared) -> Done {
 /// How a bundle is run, whether it was emitted just now or by an earlier run.
 struct JsRun {
     key: crate::build::cache::ActionKey,
-    path: std::path::PathBuf,
+    path: BundlePath,
     limit: Option<u32>,
     on_timeout: Diagnostics,
     /// How the bundle was built, or restored, for this run.
@@ -2211,7 +2218,7 @@ fn start_js(suite: JsSuite, queue: &Queue, shared: &Shared) -> Done {
     let pulled = std::sync::Arc::new(JsPulled {
         suite,
         state: std::sync::Mutex::new(JsGathered {
-            records: vec![None; tests],
+            tests,
             ..JsGathered::default()
         }),
     });
@@ -2235,8 +2242,10 @@ struct JsGathered {
     handed: usize,
     /// The suite's processes still running.
     running: usize,
-    /// Each test's record, as its process wrote it.
-    records: Vec<Option<String>>,
+    /// How many tests the suite has.
+    tests: usize,
+    /// Each test's record, as its process wrote it, by the test's number.
+    records: std::collections::BTreeMap<usize, String>,
     /// Why the suite has no verdict: a process that could not start, or one
     /// that ended in the middle of a test.
     broken: Option<Diagnostics>,
@@ -2246,7 +2255,7 @@ struct JsGathered {
 
 impl JsGathered {
     fn waiting(&self) -> bool {
-        self.broken.is_none() && self.handed < self.records.len()
+        self.broken.is_none() && self.handed < self.tests
     }
 
     fn claim(&mut self) -> Option<usize> {
@@ -2295,10 +2304,8 @@ fn run_js_member(pulled: std::sync::Arc<JsPulled>, shared: &Shared) -> Done {
         return answer_js(&pulled.suite, JsRan::NotRun(d), shared);
     }
     // The array `$run` writes, joined from the records `$pull` wrote.
-    let records: Vec<&str> = state
-        .records
-        .iter()
-        .map(|r| r.as_deref().unwrap_or_default())
+    let records: Vec<&str> = (0..state.tests)
+        .map(|test| state.records.get(&test).map_or("", String::as_str))
         .collect();
     let stdout = format!("[{}]", records.join(","));
     // Joined from records `$pull` wrote, so an array, though perhaps of
@@ -2322,7 +2329,7 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
     use std::io::BufRead as _;
     use std::process::Stdio;
     let _phase = crate::profile::enter(crate::profile::Phase::Run);
-    let path = &pulled.suite.run.path;
+    let path = &pulled.suite.run.path.file;
     let Some(mut cmd) = crate::build::spawn::command(runtime) else {
         return Err(cannot_run(&format!("`{runtime}` is not on PATH")));
     };
@@ -2368,12 +2375,7 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
         } else if let Some((test, record)) = ran_line(&line) {
             if held == Some(test) {
                 held = None;
-                let mut state = js_state(pulled);
-                let slot = state
-                    .records
-                    .get_mut(test)
-                    .or_ice("a test handed out is one of the suite's");
-                *slot = Some(record.to_string());
+                js_state(pulled).records.insert(test, record.to_string());
             }
         }
     }
@@ -2407,20 +2409,18 @@ fn write_bundle(bundle: &str, run: &JsRun, driver: &str) -> Result<(), Diagnosti
     source.push_str(crate::build::spawn::FIXED_CLOCK_JS);
     source.push_str(driver);
     // A file already holding these bytes is left alone, as `place_from` leaves a runner.
-    let holds = std::fs::metadata(&run.path).is_ok_and(|m| m.len() == source.len() as u64)
-        && std::fs::read(&run.path).is_ok_and(|on_disk| on_disk == source.as_bytes());
+    let path = &run.path.file;
+    let holds = std::fs::metadata(path).is_ok_and(|m| m.len() == source.len() as u64)
+        && std::fs::read(path).is_ok_and(|on_disk| on_disk == source.as_bytes());
     if holds {
         return Ok(());
     }
-    let _ = run.path.parent().map(std::fs::create_dir_all);
-    std::fs::write(&run.path, &source).map_err(|e| {
+    let _ = std::fs::create_dir_all(&run.path.dir);
+    std::fs::write(path, &source).map_err(|e| {
         let mut d = Diagnostics::new();
         d.push(
-            Diagnostic::error(
-                Span::NONE,
-                format!("cannot write {}: {e}", run.path.display()),
-            )
-            .with_fix("check the directory exists and is writable"),
+            Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display()))
+                .with_fix("check the directory exists and is writable"),
         );
         d.at_run()
     })
@@ -2488,7 +2488,7 @@ fn run_bundle(bundle: &str, run: &JsRun, roots: &[Root], shared: &Shared) -> JsR
     if let Err(d) = write_bundle(bundle, run, &driver) {
         return JsRan::NotRun(d);
     }
-    let out = match execute(&js_runtime(), Some(&run.path), run.limit, &[]) {
+    let out = match execute(&js_runtime(), Some(&run.path.file), run.limit, &[]) {
         Ok(Execution::Finished(out)) => out,
         Ok(Execution::TimedOut) => return JsRan::Ran(Err(run.on_timeout.clone())),
         Err(e) => return JsRan::NotRun(cannot_run(&e.to_string())),

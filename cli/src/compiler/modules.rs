@@ -511,17 +511,13 @@ impl<'a> Loader<'a> {
         // already the whole sentence, and there is no page behind it.
         if d.code == crate::build::generators::UNREADABLE {
             let mut reported = Diagnostic::error(span, d.message.clone());
-            if let Some(fix) = &d.fix {
-                reported = reported.with_fix(fix.clone());
-            }
+            reported.fix = d.fix.clone();
             return reported;
         }
         if d.code == "generator-duplicate-module" {
             let mut reported = Diagnostic::templated("generator-duplicate-module", span)
                 .with_bind("module", d.message.clone());
-            if let Some(note) = &d.note {
-                reported = reported.with_note(note.clone());
-            }
+            reported.notes.extend(d.note.clone());
             return reported;
         }
         let known = crate::documentation::page_of_code(&d.code).is_some();
@@ -1153,9 +1149,7 @@ impl<'a> Loader<'a> {
                 // first question with "yes, it is right there", which is
                 // exactly the case the two rules are about.
                 let rule_of = |pkg: Option<crate::build::workspace::PackageId>, p: &str| {
-                    let id = pkg?;
-                    let rel = package_relative_source(ws, id, p)?;
-                    ws.rule_of_file(id, &rel)
+                    ws.rule_of_module(pkg?, p)
                 };
                 // `loc.path` and not `path`: this asks which *file* a rule
                 // owns, so it needs the module's canonical path rather than
@@ -1228,23 +1222,6 @@ fn source_file_of(path: &str) -> String {
     path.strip_prefix("//").unwrap_or(path).to_string()
 }
 
-/// The file a module path names inside its own package:
-/// `//lib/money/test/cents.buri` -> `test/cents.buri`.
-fn package_relative_source(
-    ws: &Workspace,
-    pkg: crate::build::workspace::PackageId,
-    path: &str,
-) -> Option<String> {
-    let rest = path.strip_prefix("//")?;
-    let pkg_path = ws.package(pkg).path.clone();
-    let rel = if pkg_path.is_empty() {
-        rest
-    } else {
-        rest.strip_prefix(&format!("{pkg_path}/"))?
-    };
-    Some(rel.to_string())
-}
-
 /// True when a rule lists this module in its `test.sources`.
 ///
 /// That is the only thing that makes a module a test source (TESTING.md:37-40)
@@ -1258,7 +1235,7 @@ fn is_declared_test_source(
     path: &str,
 ) -> bool {
     let Some(pkg_id) = pkg else { return false };
-    let Some(rel) = package_relative_source(ws, pkg_id, path) else {
+    let Some(rel) = ws.package_relative(pkg_id, path) else {
         return false;
     };
     let build = &ws.package(pkg_id).build;

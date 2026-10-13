@@ -1,0 +1,32 @@
+error: `if` requires an `else` branch [missing-else]
+ --> lib/recovery_delete_closer_brace_app_fba871/main.buri:9:16
+  |
+9 |     if (n > 0) {
+  |                ^
+  |
+  = `if` is an expression, so both branches must produce a value of the same type
+  = fix: add `else { ... }`; an `if` is an expression, so it has a value either way
+error: this `if` branch is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_fba871/main.buri:14:51
+   |
+14 |                         if (n > 100000) { "vast"  else { "huge" }
+   |                                                   ^^^^
+   |
+  --> lib/recovery_delete_closer_brace_app_fba871/main.buri:14:41
+   |
+14 |                         if (n > 100000) { "vast"  else { "huge" }
+   |                                         ^ opened here
+   |
+   = fix: write `}` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_fba871/main.buri:39:1
+   |
+39 | 
+   | ^
+   |
+ --> lib/recovery_delete_closer_brace_app_fba871/main.buri:8:22
+  |
+8 | fn size(n: I64): Str {
+  |                      ^ opened here
+  |
+  = fix: write `}` here

@@ -1,0 +1,17 @@
+warning: this branch is nested 5 levels deep [deep-nesting]
+  --> lib/recovery_insert_stray_brace_app_057f3b/main.buri:13:21
+   |
+13 |                     if (n > 10000) {
+   |                     ^^^^^^^^^^^^^^^^
+   |
+   = the limit is 4; an `else if` chain counts as one level, and a lambda body starts again at zero
+   = fix: pull the inner branch into a named function, or replace the ladder with one `match`
+error: expected an expression, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_057f3b/main.buri:28:9
+   |
+28 |         @ "none"
+   |         ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

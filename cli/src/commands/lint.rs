@@ -74,13 +74,13 @@ pub fn command_lint(args: &arguments::Args) -> i32 {
 static LINTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn lint_all(args: &arguments::Args) -> i32 {
-    let (mut session, diagnostics) = match collect_findings(args) {
+    let (mut session, diagnostics, regenerable) = match collect_findings(args) {
         Ok(v) => v,
         Err(code) => return code,
     };
 
     if args.flags.fix {
-        let applied = apply_fixes(&mut session, &diagnostics);
+        let applied = apply_fixes(&mut session, &diagnostics, regenerable);
         if applied > 0 {
             println!(
                 "fixed {applied} finding{}",
@@ -90,7 +90,7 @@ fn lint_all(args: &arguments::Args) -> i32 {
             // subtracted from what was just reported: an edit can uncover a
             // finding the first pass could not see, and a count arrived at by
             // arithmetic is one nobody can check.
-            let (mut session, diagnostics) = match collect_findings(args) {
+            let (mut session, diagnostics, _) = match collect_findings(args) {
                 Ok(v) => v,
                 Err(code) => return code,
             };
@@ -103,12 +103,13 @@ fn lint_all(args: &arguments::Args) -> i32 {
 }
 
 /// Opens the repository and runs every check, in the order a reader would.
-fn collect_findings(args: &arguments::Args) -> Result<(Session, Diagnostics), i32> {
+fn collect_findings(args: &arguments::Args) -> Result<(Session, Diagnostics, Regenerable), i32> {
     let (mut session, targets) =
         session::open_and_resolve(&args.flags, &args.targets).map_err(i32::from)?;
 
-    let diagnostics = findings_for(&mut session, &targets, &args.flags);
-    Ok((session, diagnostics))
+    let (diagnostics, regenerable) =
+        findings_and_regenerable(&mut session, &targets, &args.flags, Vec::new());
+    Ok((session, diagnostics, regenerable))
 }
 
 /// Every check `buri lint` runs, over the targets given.
@@ -134,8 +135,18 @@ pub fn findings_reusing(
     session: &mut Session,
     targets: &[TargetId],
     flags: &arguments::Flags,
-    mut analyses: Vec<(TargetId, crate::compiler::driver::Analysis)>,
+    analyses: Vec<(TargetId, crate::compiler::driver::Analysis)>,
 ) -> Diagnostics {
+    findings_and_regenerable(session, targets, flags, analyses).0
+}
+
+/// [`findings_reusing`], and the packages `--fix` regenerates a build file for.
+fn findings_and_regenerable(
+    session: &mut Session,
+    targets: &[TargetId],
+    flags: &arguments::Flags,
+    mut analyses: Vec<(TargetId, crate::compiler::driver::Analysis)>,
+) -> (Diagnostics, Regenerable) {
     if !crate::build::generators::all_prepared(&session.workspace)
         && needs_every_generator(session, targets)
     {
@@ -144,6 +155,7 @@ pub fn findings_reusing(
     let mut diagnostics = Diagnostics::new();
     let mut seen_packages = BTreeSet::new();
     let mut spoken = Spoken::default();
+    let mut regenerable = Regenerable::default();
     let mut store = super::lint_cache::Store::open(&session.root, flags);
     // The records first, so that every target they cannot answer is analysed
     // in one compilation rather than one each.
@@ -159,6 +171,7 @@ pub fn findings_reusing(
         .collect();
     let shared = Shared::of(session, &unanswered);
     for (target, recalled) in targets.iter().zip(recalled) {
+        let before = diagnostics.items.len();
         if let Some(parts) = recalled {
             store.reused(session, *target);
             replay(
@@ -168,6 +181,7 @@ pub fn findings_reusing(
                 &mut seen_packages,
                 &mut diagnostics,
             );
+            regenerable.note(session, *target, &diagnostics, before);
             continue;
         }
         let alone;
@@ -195,6 +209,7 @@ pub fn findings_reusing(
         );
         let closure = part.reads(&session.workspace);
         store.remember(session, *target, &closure, &marks.parts(&diagnostics));
+        regenerable.note(session, *target, &diagnostics, before);
     }
     store.flush(session);
     check_cycles(session, &mut diagnostics);
@@ -202,7 +217,33 @@ pub fn findings_reusing(
     keep_what_the_repository_runs(session, &mut diagnostics);
     promote(session, &mut diagnostics);
     diagnostics.sort(&session.map);
-    diagnostics
+    (diagnostics, regenerable)
+}
+
+/// The packages whose build file answers a finding of theirs (`REGENERABLE`).
+#[derive(Default)]
+struct Regenerable(BTreeSet<PackageId>);
+
+impl Regenerable {
+    /// Every regenerable finding a target's pass adds is about the target's own
+    /// package: its sources, its build file, its imports.
+    fn note(
+        &mut self,
+        session: &Session,
+        target: TargetId,
+        diagnostics: &Diagnostics,
+        from: usize,
+    ) {
+        let rules = &session.workspace.repo.lint.rules;
+        let added = diagnostics.items.get(from..).unwrap_or_default();
+        self.0.extend(
+            added
+                .iter()
+                .filter_map(|d| d.code.as_deref())
+                .filter(|c| REGENERABLE.contains(c) && rules.enabled(c))
+                .map(|_| target.package),
+        );
+    }
 }
 
 /// A recalled target's findings, put back in the order they were found in,
@@ -796,34 +837,9 @@ fn report_findings(session: &mut Session, diagnostics: &Diagnostics) -> i32 {
 /// package's `BUILD.buri` should say.
 const REGENERABLE: &[&str] = &["missing-dependency", "unused-source", "duplicate-source"];
 
-fn regenerate_build_files(session: &mut Session, diagnostics: &Diagnostics) -> usize {
-    // Which package a finding is about. `missing-dependency` points at the import in
-    // a source file, not at the build file, so this is by path prefix — the
-    // longest package path the file sits under.
-    let mut packages: BTreeSet<PackageId> = BTreeSet::new();
-    for d in &diagnostics.items {
-        if !d.code.as_deref().is_some_and(|c| REGENERABLE.contains(&c)) {
-            continue;
-        }
-        let name = session.map.name(d.span.file).to_string();
-        let mut best: Option<(usize, PackageId)> = None;
-        for t in session.workspace.targets() {
-            let p = session.workspace.package(t.package);
-            let owns = p.build_file_id == d.span.file
-                || p.path.is_empty()
-                || name
-                    .strip_prefix(&p.path)
-                    .is_some_and(|r| r.starts_with('/'));
-            if owns && best.is_none_or(|(len, _)| p.path.len() > len) {
-                best = Some((p.path.len(), t.package));
-            }
-        }
-        // Each of these is reported against a package's own build file or sources.
-        packages.extend(best.map(|(_, package)| package));
-    }
-
+fn regenerate_build_files(session: &mut Session, packages: Regenerable) -> usize {
     let mut fixed = 0;
-    for package in packages {
+    for package in packages.0 {
         match crate::build::regenerate::regenerate(session, package) {
             Ok(Some(update)) => {
                 let path = session.workspace.package(package).build_path.clone();
@@ -860,7 +876,11 @@ fn regenerate_build_files(session: &mut Session, diagnostics: &Diagnostics) -> u
 /// answers was meant. The result is run through `formatting::source`, which returns
 /// `None` for anything that does not parse — the same guard the formatter uses
 /// on itself — and a file that fails it is left exactly as it was.
-fn apply_fixes(session: &mut Session, diagnostics: &Diagnostics) -> usize {
+fn apply_fixes(
+    session: &mut Session,
+    diagnostics: &Diagnostics,
+    regenerable: Regenerable,
+) -> usize {
     use std::collections::BTreeMap;
     // The finding each edit came from, so that a file written out can say which
     // findings it answered rather than how many byte ranges it moved.
@@ -887,7 +907,7 @@ fn apply_fixes(session: &mut Session, diagnostics: &Diagnostics) -> usize {
     }
 
     let mut answered: BTreeSet<usize> = BTreeSet::new();
-    let applied = regenerate_build_files(session, diagnostics);
+    let applied = regenerate_build_files(session, regenerable);
     for (file, (edits, findings)) in by_file {
         let id = crate::diagnostics::FileId(file);
         // Sorting, overlap, bounds and character boundaries are all settled
@@ -1730,10 +1750,9 @@ impl Text {
         };
         let key = (m.file, lexes.session.map.name(m.file).to_string());
         let kept = TEXTS.with(|texts| texts.borrow().get(&key).cloned());
-        if let Some(kept) = kept {
-            if kept.length == source.len() && kept.hash == hash && kept.role == m.role {
-                return kept;
-            }
+        let now = (source.len(), hash, &m.role);
+        if let Some(kept) = kept.filter(|k| (k.length, k.hash, &k.role) == now) {
+            return kept;
         }
         let mut found = Diagnostics::new();
         check_duplicate_imports(m, &mut found);
@@ -2309,16 +2328,17 @@ fn check_unused_variables(
             }
         });
 
-        for local in bound {
-            if read.contains(&local) {
-                continue;
-            }
-            let l = body
-                .locals
-                .get(local.index())
-                .or_ice("a `let` binds a local of its own body");
-            found.push((l.span, l.name.to_string()));
-        }
+        let unread: BTreeSet<usize> = bound
+            .into_iter()
+            .filter(|local| !read.contains(local))
+            .map(LocalId::index)
+            .collect();
+        let locals = body.locals.iter().enumerate();
+        found.extend(
+            locals
+                .filter(|(i, _)| unread.contains(i))
+                .map(|(_, l)| (l.span, l.name.to_string())),
+        );
     }
     // `bodies` is a map, so the order findings are met in is not the order they
     // are written in. Sorting here makes one run's report the same as the next.
@@ -3158,7 +3178,9 @@ fn check_unused_imports(
     let written = |name: &str| {
         used.contains(name)
             || glued.iter().any(|word| {
-                word.len() > name.len() && (word.starts_with(name) || word.ends_with(name))
+                // The rest is empty only where the word is the name itself.
+                let rest = word.strip_prefix(name).or_else(|| word.strip_suffix(name));
+                rest.is_some_and(|rest| !rest.is_empty())
             })
     };
     let tycons = &analysis.checked.tables.tycons;
@@ -3471,23 +3493,10 @@ fn compiled_by(
     module: ModuleId,
 ) -> bool {
     let m = analysis.loaded.module(module);
-    let rule = package_relative(session, target.package, &m.path)
-        .and_then(|rel| session.workspace.rule_of_file(target.package, &rel));
-    match rule {
+    match session.workspace.rule_of_module(target.package, &m.path) {
         Some(kind) => kind == target.kind,
         None => true,
     }
-}
-
-/// A module path (`//lib/money/cents.buri`) as its package's rule lists it
-/// (`cents.buri`).
-fn package_relative(session: &Session, package: PackageId, path: &str) -> Option<String> {
-    let rest = path.strip_prefix("//")?;
-    let dir = session.workspace.package(package).path.clone();
-    if dir.is_empty() {
-        return Some(rest.to_string());
-    }
-    rest.strip_prefix(&format!("{dir}/")).map(str::to_string)
 }
 
 /// The bytes that delete a `ctx` parameter and the argument at every call site,

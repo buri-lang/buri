@@ -637,7 +637,7 @@ impl Env {
 
 /// Whether each descriptor has a structure a generated function can walk.
 ///
-/// A least fixpoint over "unsupported": an `Opaque` or `Reserved` descriptor,
+/// A least fixpoint over "unsupported": an `Opaque` descriptor,
 /// or one whose type the program does not name, poisons everything that
 /// reaches it. A *cycle* is supported — a recursive type's generated function
 /// calls itself, which is exactly what the reserved-slot-first construction
@@ -647,7 +647,7 @@ fn support(program: &Program, env: &Env) -> Vec<bool> {
         .descriptors
         .iter()
         .enumerate()
-        .map(|(i, d)| !matches!(d, Desc::Opaque(_) | Desc::Reserved) && env.ty(i).is_some())
+        .map(|(i, d)| !matches!(d, Desc::Opaque(_)) && env.ty(i).is_some())
         .collect();
     let mut changed = true;
     while changed {
@@ -670,7 +670,7 @@ fn support(program: &Program, env: &Env) -> Vec<bool> {
 /// The descriptors one descriptor names directly.
 fn children(d: &Desc) -> Vec<usize> {
     match d {
-        Desc::Prim(_) | Desc::Unit | Desc::Opaque(_) | Desc::Reserved => Vec::new(),
+        Desc::Prim(_) | Desc::Unit | Desc::Opaque(_) => Vec::new(),
         Desc::Struct { fields, .. } | Desc::Flags { fields, .. } => {
             fields.iter().map(|f| f.ty).collect()
         }
@@ -1363,7 +1363,7 @@ impl Generator {
             Desc::Enum { variants, .. } => self.eq_enum(desc, variants, a, b, frame),
             // An `IndexSet` compares and hashes through the `Equal` and `Hash` it
             // writes by hand, and has no `Ordered`.
-            Desc::Members { .. } | Desc::Opaque(_) | Desc::Reserved => None,
+            Desc::Members { .. } | Desc::Opaque(_) => None,
         }
     }
 
@@ -1578,7 +1578,7 @@ impl Generator {
             Desc::Enum { variants, .. } => self.compare_enum(desc, variants, a, b, frame),
             // An `IndexSet` compares and hashes through the `Equal` and `Hash` it
             // writes by hand, and has no `Ordered`.
-            Desc::Members { .. } | Desc::Opaque(_) | Desc::Reserved => None,
+            Desc::Members { .. } | Desc::Opaque(_) => None,
         }
     }
 
@@ -2142,7 +2142,7 @@ impl Generator {
                 let xs = self.members_of(*to, *list, x);
                 self.at(Op::Show, *list, vec![xs])
             }
-            Desc::Opaque(_) | Desc::Reserved => None,
+            Desc::Opaque(_) => None,
         }
     }
 
@@ -2435,7 +2435,7 @@ impl Generator {
                 let xs = self.members_of(*to, *list, x);
                 self.at(Op::ToJson, *list, vec![xs])
             }
-            Desc::Opaque(_) | Desc::Reserved => None,
+            Desc::Opaque(_) => None,
         }
     }
 
@@ -2673,7 +2673,7 @@ impl Generator {
                 let done = self.ok(&ty, set)?;
                 Some(self.block(stmts, done))
             }
-            Desc::Opaque(_) | Desc::Reserved => None,
+            Desc::Opaque(_) => None,
         }
     }
 
@@ -3362,7 +3362,7 @@ impl Generator {
             }
             // An `IndexSet` compares and hashes through the `Equal` and `Hash` it
             // writes by hand, and has no `Ordered`.
-            Desc::Members { .. } | Desc::Opaque(_) | Desc::Reserved => None,
+            Desc::Members { .. } | Desc::Opaque(_) => None,
         }
     }
 
