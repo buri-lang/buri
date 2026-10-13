@@ -1,1 +1,3 @@
-from "//lib/d/d.buri" export { column, half, high, middle, pages, past, rows, share, spread, wide };
+from "//lib/d/d.buri" export {
+    column, half, high, middle, pages, past, rows, share, spread, wide,
+};
