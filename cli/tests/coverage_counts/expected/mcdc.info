@@ -12,8 +12,6 @@ BRDA:22,0,0,2
 BRDA:22,0,1,5460
 BRDA:25,0,0,1092
 BRDA:25,0,1,4368
-BRDA:25,1,0,5460
-BRDA:25,1,1,0
 BRDA:31,0,0,5
 BRDA:31,0,1,3
 BRDA:31,1,0,3
@@ -30,10 +28,8 @@ BRDA:49,0,0,6
 BRDA:49,0,1,73
 BRDA:52,0,0,14
 BRDA:52,0,1,59
-BRDA:52,1,0,73
-BRDA:52,1,1,0
-BRF:32
-BRH:24
+BRF:28
+BRH:22
 MCDC:4,2,t,0,0,'a' in 'a || b'
 MCDC:4,2,f,0,0,'a' in 'a || b'
 MCDC:4,2,t,0,1,'b' in 'a || b'
@@ -46,10 +42,8 @@ MCDC:18,1,t,0,0,'bits.shiftLeft(1, n)' in 'bits.shiftLeft(1, n)'
 MCDC:18,1,f,0,0,'bits.shiftLeft(1, n)' in 'bits.shiftLeft(1, n)'
 MCDC:22,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:22,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:25,2,t,1,0,'n % 5 == 2' in 'n % 5 == 2'
-MCDC:25,2,f,1,0,'n % 5 == 2' in 'n % 5 == 2'
-MCDC:25,2,t,0,1,'n % 5' in 'n % 5'
-MCDC:25,2,f,0,1,'n % 5' in 'n % 5'
+MCDC:25,1,t,1,0,'n % 5 == 2' in 'n % 5 == 2'
+MCDC:25,1,f,1,0,'n % 5 == 2' in 'n % 5 == 2'
 MCDC:31,3,t,0,0,'a' in 'a && n / d > 4'
 MCDC:31,3,f,0,0,'a' in 'a && n / d > 4'
 MCDC:31,3,t,0,1,'n / d > 4' in 'a && n / d > 4'
@@ -66,11 +60,9 @@ MCDC:45,1,t,0,0,'x > 0' in 'x > 0'
 MCDC:45,1,f,0,0,'x > 0' in 'x > 0'
 MCDC:49,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:49,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:52,2,t,1,0,'n % 5 == 3' in 'n % 5 == 3'
-MCDC:52,2,f,1,0,'n % 5 == 3' in 'n % 5 == 3'
-MCDC:52,2,t,0,1,'n % 5' in 'n % 5'
-MCDC:52,2,f,0,1,'n % 5' in 'n % 5'
-MCF:36
+MCDC:52,1,t,1,0,'n % 5 == 3' in 'n % 5 == 3'
+MCDC:52,1,f,1,0,'n % 5 == 3' in 'n % 5 == 3'
+MCF:32
 MCH:14
 DA:3,3
 DA:4,3
@@ -135,24 +127,18 @@ BRDA:27,0,0,6
 BRDA:27,0,1,46
 BRDA:30,0,0,12
 BRDA:30,0,1,34
-BRDA:30,1,0,46
-BRDA:30,1,1,0
 BRDA:36,0,0,6
 BRDA:36,0,1,98
 BRDA:39,0,0,31
 BRDA:39,0,1,67
-BRDA:39,1,0,98
-BRDA:39,1,1,0
 BRDA:45,0,0,4
 BRDA:45,0,1,77
 BRDA:48,0,0,25
 BRDA:48,0,1,52
-BRDA:48,1,0,77
-BRDA:48,1,1,0
 BRDA:54,0,0,1
 BRDA:54,0,1,2
-BRF:40
-BRH:23
+BRF:34
+BRH:20
 MCDC:3,14,t,0,0,'A' in 'Equal E, variant'
 MCDC:3,14,f,0,0,'A' in 'Equal E, variant'
 MCDC:3,14,t,1,1,'B' in 'Equal E, variant'
@@ -191,27 +177,21 @@ MCDC:21,1,t,0,0,'flag' in 'flag'
 MCDC:21,1,f,0,0,'flag' in 'flag'
 MCDC:27,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:27,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:30,2,t,1,0,'n % 4 == 2' in 'n % 4 == 2'
-MCDC:30,2,f,1,0,'n % 4 == 2' in 'n % 4 == 2'
-MCDC:30,2,t,0,1,'n % 4' in 'n % 4'
-MCDC:30,2,f,0,1,'n % 4' in 'n % 4'
+MCDC:30,1,t,1,0,'n % 4 == 2' in 'n % 4 == 2'
+MCDC:30,1,f,1,0,'n % 4 == 2' in 'n % 4 == 2'
 MCDC:36,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:36,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:39,2,t,1,0,'n % 3 == 0' in 'n % 3 == 0'
-MCDC:39,2,f,1,0,'n % 3 == 0' in 'n % 3 == 0'
-MCDC:39,2,t,0,1,'n % 3' in 'n % 3'
-MCDC:39,2,f,0,1,'n % 3' in 'n % 3'
+MCDC:39,1,t,1,0,'n % 3 == 0' in 'n % 3 == 0'
+MCDC:39,1,f,1,0,'n % 3 == 0' in 'n % 3 == 0'
 MCDC:45,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:45,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:48,2,t,1,0,'n % 3 == 0' in 'n % 3 == 0'
-MCDC:48,2,f,1,0,'n % 3 == 0' in 'n % 3 == 0'
-MCDC:48,2,t,0,1,'n % 3' in 'n % 3'
-MCDC:48,2,f,0,1,'n % 3' in 'n % 3'
+MCDC:48,1,t,1,0,'n % 3 == 0' in 'n % 3 == 0'
+MCDC:48,1,f,1,0,'n % 3 == 0' in 'n % 3 == 0'
 MCDC:54,2,t,0,0,'a' in 'a && p == q'
 MCDC:54,2,f,0,0,'a' in 'a && p == q'
 MCDC:54,2,t,0,1,'p == q' in 'a && p == q'
 MCDC:54,2,f,0,1,'p == q' in 'a && p == q'
-MCF:58
+MCF:52
 MCH:22
 DA:3,1
 DA:15,4
@@ -277,8 +257,6 @@ BRDA:43,0,0,6
 BRDA:43,0,1,85
 BRDA:46,0,0,19
 BRDA:46,0,1,66
-BRDA:46,1,0,85
-BRDA:46,1,1,0
 BRDA:52,0,0,0
 BRDA:52,0,1,5
 BRDA:52,1,0,0
@@ -289,10 +267,8 @@ BRDA:64,0,0,3
 BRDA:64,0,1,80
 BRDA:67,0,0,27
 BRDA:67,0,1,53
-BRDA:67,1,0,80
-BRDA:67,1,1,0
-BRF:46
-BRH:25
+BRF:42
+BRH:23
 MCDC:1,14,t,1,0,'A' in 'Equal E, variant'
 MCDC:1,14,f,1,0,'A' in 'Equal E, variant'
 MCDC:1,14,t,0,1,'B' in 'Equal E, variant'
@@ -341,10 +317,8 @@ MCDC:33,3,t,1,2,'flag' in 'flag' (T = Str)
 MCDC:33,3,f,1,2,'flag' in 'flag' (T = Str)
 MCDC:43,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:43,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:46,2,t,1,0,'n % 5 == 1' in 'n % 5 == 1'
-MCDC:46,2,f,1,0,'n % 5 == 1' in 'n % 5 == 1'
-MCDC:46,2,t,0,1,'n % 5' in 'n % 5'
-MCDC:46,2,f,0,1,'n % 5' in 'n % 5'
+MCDC:46,1,t,1,0,'n % 5 == 1' in 'n % 5 == 1'
+MCDC:46,1,f,1,0,'n % 5 == 1' in 'n % 5 == 1'
 MCDC:52,2,t,0,0,'!a' in '!a && b'
 MCDC:52,2,f,0,0,'!a' in '!a && b'
 MCDC:52,2,t,0,1,'b' in '!a && b'
@@ -353,11 +327,9 @@ MCDC:56,1,t,0,0,'a && f6big(n)' in 'a && f6big(n)'
 MCDC:56,1,f,0,0,'a && f6big(n)' in 'a && f6big(n)'
 MCDC:64,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:64,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:67,2,t,1,0,'n % 3 == 2' in 'n % 3 == 2'
-MCDC:67,2,f,1,0,'n % 3 == 2' in 'n % 3 == 2'
-MCDC:67,2,t,0,1,'n % 3' in 'n % 3'
-MCDC:67,2,f,0,1,'n % 3' in 'n % 3'
-MCF:64
+MCDC:67,1,t,1,0,'n % 3 == 2' in 'n % 3 == 2'
+MCDC:67,1,f,1,0,'n % 3 == 2' in 'n % 3 == 2'
+MCF:60
 MCH:24
 DA:1,3
 DA:8,2
@@ -491,8 +463,6 @@ BRDA:20,0,0,-
 BRDA:20,0,1,-
 BRDA:23,0,0,-
 BRDA:23,0,1,-
-BRDA:23,1,0,-
-BRDA:23,1,1,-
 BRDA:29,0,0,1
 BRDA:29,0,1,7
 BRDA:33,0,0,4
@@ -511,7 +481,7 @@ BRDA:53,0,0,4
 BRDA:53,0,1,1
 BRDA:54,0,0,2
 BRDA:54,0,1,2
-BRF:28
+BRF:26
 BRH:19
 MCDC:2,1,t,0,0,'flag' in 'flag' (T = Str)
 MCDC:2,1,f,0,0,'flag' in 'flag' (T = Str)
@@ -519,10 +489,8 @@ MCDC:12,1,t,1,0,'a && f1big(n)' in 'a && f1big(n)'
 MCDC:12,1,f,1,0,'a && f1big(n)' in 'a && f1big(n)'
 MCDC:20,1,t,0,0,'n == 0' in 'n == 0'
 MCDC:20,1,f,0,0,'n == 0' in 'n == 0'
-MCDC:23,2,t,0,0,'n % 2 == 0' in 'n % 2 == 0'
-MCDC:23,2,f,0,0,'n % 2 == 0' in 'n % 2 == 0'
-MCDC:23,2,t,0,1,'n % 2' in 'n % 2'
-MCDC:23,2,f,0,1,'n % 2' in 'n % 2'
+MCDC:23,1,t,0,0,'n % 2 == 0' in 'n % 2 == 0'
+MCDC:23,1,f,0,0,'n % 2 == 0' in 'n % 2 == 0'
 MCDC:29,1,t,1,0,'n < 0' in 'n < 0'
 MCDC:29,1,f,1,0,'n < 0' in 'n < 0'
 MCDC:33,1,t,0,0,'f3check(a)?' in 'f3check(a)?'
@@ -541,7 +509,7 @@ MCDC:53,1,t,1,0,'f5check(a)?' in 'f5check(a)?'
 MCDC:53,1,f,1,0,'f5check(a)?' in 'f5check(a)?'
 MCDC:54,1,t,1,0,'f5check(b)?' in 'f5check(b)?'
 MCDC:54,1,f,1,0,'f5check(b)?' in 'f5check(b)?'
-MCF:28
+MCF:26
 MCH:16
 DA:1,2
 DA:2,2
@@ -789,8 +757,6 @@ BRDA:28,0,0,5
 BRDA:28,0,1,7923
 BRDA:31,0,0,1979
 BRDA:31,0,1,5944
-BRDA:31,1,0,7923
-BRDA:31,1,1,0
 BRDA:37,0,0,4
 BRDA:37,0,1,1
 BRDA:37,1,0,3
@@ -803,8 +769,8 @@ BRDA:45,0,0,6
 BRDA:45,0,1,1
 BRDA:49,0,0,3
 BRDA:49,0,1,4
-BRF:48
-BRH:32
+BRF:46
+BRH:31
 MCDC:1,14,t,0,0,'A' in 'Equal E, variant'
 MCDC:1,14,f,0,0,'A' in 'Equal E, variant'
 MCDC:1,14,t,0,1,'B' in 'Equal E, variant'
@@ -859,10 +825,8 @@ MCDC:24,2,t,1,1,'p == q' in 'a && p == q'
 MCDC:24,2,f,1,1,'p == q' in 'a && p == q'
 MCDC:28,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:28,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:31,2,t,1,0,'n % 4 == 0' in 'n % 4 == 0'
-MCDC:31,2,f,1,0,'n % 4 == 0' in 'n % 4 == 0'
-MCDC:31,2,t,0,1,'n % 4' in 'n % 4'
-MCDC:31,2,f,0,1,'n % 4' in 'n % 4'
+MCDC:31,1,t,1,0,'n % 4 == 0' in 'n % 4 == 0'
+MCDC:31,1,f,1,0,'n % 4 == 0' in 'n % 4 == 0'
 MCDC:37,3,t,1,0,'a' in 'a && n / d > 0'
 MCDC:37,3,f,1,0,'a' in 'a && n / d > 0'
 MCDC:37,3,t,0,1,'n / d > 0' in 'a && n / d > 0'
@@ -879,7 +843,7 @@ MCDC:45,1,t,1,0,'x > 1' in 'x > 1'
 MCDC:45,1,f,1,0,'x > 1' in 'x > 1'
 MCDC:49,1,t,1,0,'x > 5' in 'x > 5'
 MCDC:49,1,f,1,0,'x > 5' in 'x > 5'
-MCF:74
+MCF:72
 MCH:36
 DA:1,1
 DA:8,5
@@ -943,8 +907,6 @@ BRDA:33,0,0,5
 BRDA:33,0,1,91
 BRDA:36,0,0,18
 BRDA:36,0,1,73
-BRDA:36,1,0,91
-BRDA:36,1,1,0
 BRDA:42,0,0,1
 BRDA:42,0,1,0
 BRDA:42,1,0,1
@@ -953,16 +915,14 @@ BRDA:46,0,0,2
 BRDA:46,0,1,5269
 BRDA:49,0,0,1054
 BRDA:49,0,1,4215
-BRDA:49,1,0,5269
-BRDA:49,1,1,0
 BRDA:55,0,0,3
 BRDA:55,0,1,1
 BRDA:59,0,0,1
 BRDA:59,0,1,3
 BRDA:59,1,0,1
 BRDA:59,1,1,0
-BRF:53
-BRH:29
+BRF:49
+BRH:27
 MCDC:1,25,t,1,0,'A' in 'Equal E, variant'
 MCDC:1,25,f,1,0,'A' in 'Equal E, variant'
 MCDC:1,25,t,1,1,'B' in 'Equal E, variant'
@@ -1023,10 +983,8 @@ MCDC:25,1,t,1,0,'a && f1big(n)' in 'a && f1big(n)'
 MCDC:25,1,f,1,0,'a && f1big(n)' in 'a && f1big(n)'
 MCDC:33,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:33,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:36,2,t,1,0,'n % 5 == 4' in 'n % 5 == 4'
-MCDC:36,2,f,1,0,'n % 5 == 4' in 'n % 5 == 4'
-MCDC:36,2,t,0,1,'n % 5' in 'n % 5'
-MCDC:36,2,f,0,1,'n % 5' in 'n % 5'
+MCDC:36,1,t,1,0,'n % 5 == 4' in 'n % 5 == 4'
+MCDC:36,1,f,1,0,'n % 5 == 4' in 'n % 5 == 4'
 MCDC:42,3,t,0,0,'a' in 'a || !(b && c)'
 MCDC:42,3,f,0,0,'a' in 'a || !(b && c)'
 MCDC:42,3,t,0,1,'b' in 'a || !(b && c)'
@@ -1035,10 +993,8 @@ MCDC:42,3,t,0,2,'c' in 'a || !(b && c)'
 MCDC:42,3,f,0,2,'c' in 'a || !(b && c)'
 MCDC:46,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:46,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:49,2,t,1,0,'n % 5 == 2' in 'n % 5 == 2'
-MCDC:49,2,f,1,0,'n % 5 == 2' in 'n % 5 == 2'
-MCDC:49,2,t,0,1,'n % 5' in 'n % 5'
-MCDC:49,2,f,0,1,'n % 5' in 'n % 5'
+MCDC:49,1,t,1,0,'n % 5 == 2' in 'n % 5 == 2'
+MCDC:49,1,f,1,0,'n % 5 == 2' in 'n % 5 == 2'
 MCDC:55,2,t,1,0,'a' in 'a && p == q'
 MCDC:55,2,f,1,0,'a' in 'a && p == q'
 MCDC:55,2,t,1,1,'p == q' in 'a && p == q'
@@ -1049,7 +1005,7 @@ MCDC:59,3,t,0,1,'n / d > 4' in 'a && n / d > 4'
 MCDC:59,3,f,0,1,'n / d > 4' in 'a && n / d > 4'
 MCDC:59,3,t,0,2,'n / d' in 'n / d'
 MCDC:59,3,f,0,2,'n / d' in 'n / d'
-MCF:86
+MCF:82
 MCH:36
 DA:1,4
 DA:8,3
@@ -1105,12 +1061,10 @@ BRDA:28,0,0,5
 BRDA:28,0,1,12502
 BRDA:31,0,0,3125
 BRDA:31,0,1,9377
-BRDA:31,1,0,12502
-BRDA:31,1,1,0
 BRDA:37,0,0,0
 BRDA:37,0,1,1
-BRF:22
-BRH:13
+BRF:20
+BRH:12
 MCDC:4,1,t,1,0,'n < 0' in 'n < 0'
 MCDC:4,1,f,1,0,'n < 0' in 'n < 0'
 MCDC:8,1,t,1,0,'f0check(a)?' in 'f0check(a)?'
@@ -1127,13 +1081,11 @@ MCDC:23,1,t,0,0,'f2check(b)?' in 'f2check(b)?'
 MCDC:23,1,f,0,0,'f2check(b)?' in 'f2check(b)?'
 MCDC:28,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:28,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:31,2,t,1,0,'n % 4 == 3' in 'n % 4 == 3'
-MCDC:31,2,f,1,0,'n % 4 == 3' in 'n % 4 == 3'
-MCDC:31,2,t,0,1,'n % 4' in 'n % 4'
-MCDC:31,2,f,0,1,'n % 4' in 'n % 4'
+MCDC:31,1,t,1,0,'n % 4 == 3' in 'n % 4 == 3'
+MCDC:31,1,f,1,0,'n % 4 == 3' in 'n % 4 == 3'
 MCDC:37,1,t,0,0,'bits.shiftLeft(1, n)' in 'bits.shiftLeft(1, n)'
 MCDC:37,1,f,0,0,'bits.shiftLeft(1, n)' in 'bits.shiftLeft(1, n)'
-MCF:22
+MCF:20
 MCH:10
 DA:3,3
 DA:4,3
@@ -1287,8 +1239,6 @@ BRDA:14,0,0,4
 BRDA:14,0,1,49
 BRDA:17,0,0,9
 BRDA:17,0,1,40
-BRDA:17,1,0,49
-BRDA:17,1,1,0
 BRDA:23,0,0,0
 BRDA:23,0,1,0
 BRDA:23,0,2,6
@@ -1296,8 +1246,8 @@ BRDA:31,0,0,2
 BRDA:31,0,1,0
 BRDA:35,0,0,1
 BRDA:35,0,1,5
-BRF:19
-BRH:13
+BRF:17
+BRH:12
 MCDC:4,3,t,0,0,'flag' in 'flag' (T = Bool)
 MCDC:4,3,f,0,0,'flag' in 'flag' (T = Bool)
 MCDC:4,3,t,0,1,'flag' in 'flag' (T = I64)
@@ -1306,10 +1256,8 @@ MCDC:4,3,t,1,2,'flag' in 'flag' (T = Str)
 MCDC:4,3,f,1,2,'flag' in 'flag' (T = Str)
 MCDC:14,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:14,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:17,2,t,1,0,'n % 5 == 3' in 'n % 5 == 3'
-MCDC:17,2,f,1,0,'n % 5 == 3' in 'n % 5 == 3'
-MCDC:17,2,t,0,1,'n % 5' in 'n % 5'
-MCDC:17,2,f,0,1,'n % 5' in 'n % 5'
+MCDC:17,1,t,1,0,'n % 5 == 3' in 'n % 5 == 3'
+MCDC:17,1,f,1,0,'n % 5 == 3' in 'n % 5 == 3'
 MCDC:23,3,t,0,0,'0' in 'match n'
 MCDC:23,3,f,0,0,'0' in 'match n'
 MCDC:23,3,t,0,1,'1' in 'match n'
@@ -1322,7 +1270,7 @@ MCDC:35,2,t,1,0,'0' in 'match n'
 MCDC:35,2,f,1,0,'0' in 'match n'
 MCDC:35,2,t,1,1,'_' in 'match n'
 MCDC:35,2,f,1,1,'_' in 'match n'
-MCF:24
+MCF:22
 MCH:12
 DA:3,5
 DA:4,5
@@ -1398,16 +1346,12 @@ BRDA:39,0,0,5
 BRDA:39,0,1,10739
 BRDA:42,0,0,2147
 BRDA:42,0,1,8592
-BRDA:42,1,0,10739
-BRDA:42,1,1,0
 BRDA:48,0,0,3
 BRDA:48,0,1,48
 BRDA:51,0,0,9
 BRDA:51,0,1,39
-BRDA:51,1,0,48
-BRDA:51,1,1,0
-BRF:53
-BRH:26
+BRF:49
+BRH:24
 MCDC:1,25,t,1,0,'A' in 'Equal E, variant'
 MCDC:1,25,f,1,0,'A' in 'Equal E, variant'
 MCDC:1,25,t,0,1,'B' in 'Equal E, variant'
@@ -1488,17 +1432,13 @@ MCDC:32,2,t,1,1,'_' in 'match n'
 MCDC:32,2,f,1,1,'_' in 'match n'
 MCDC:39,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:39,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:42,2,t,1,0,'n % 5 == 4' in 'n % 5 == 4'
-MCDC:42,2,f,1,0,'n % 5 == 4' in 'n % 5 == 4'
-MCDC:42,2,t,0,1,'n % 5' in 'n % 5'
-MCDC:42,2,f,0,1,'n % 5' in 'n % 5'
+MCDC:42,1,t,1,0,'n % 5 == 4' in 'n % 5 == 4'
+MCDC:42,1,f,1,0,'n % 5 == 4' in 'n % 5 == 4'
 MCDC:48,1,t,1,0,'n == 0' in 'n == 0'
 MCDC:48,1,f,1,0,'n == 0' in 'n == 0'
-MCDC:51,2,t,1,0,'n % 5 == 3' in 'n % 5 == 3'
-MCDC:51,2,f,1,0,'n % 5 == 3' in 'n % 5 == 3'
-MCDC:51,2,t,0,1,'n % 5' in 'n % 5'
-MCDC:51,2,f,0,1,'n % 5' in 'n % 5'
-MCF:90
+MCDC:51,1,t,1,0,'n % 5 == 3' in 'n % 5 == 3'
+MCDC:51,1,f,1,0,'n % 5 == 3' in 'n % 5 == 3'
+MCF:86
 MCH:38
 DA:1,1
 DA:8,6
