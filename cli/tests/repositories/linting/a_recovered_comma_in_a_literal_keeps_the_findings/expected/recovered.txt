@@ -1,0 +1,44 @@
+warning: nothing reads `Entry.packer` [unused-field]
+  --> lib/money/cents.buri:16:5
+   |
+16 |     packer: Str,
+   |     ^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+
+     Deleting the field means editing every literal, and those are exactly the
+     places computing a value for nobody.
+
+     If callers outside this library read the field, it belongs on the library's
+     surface. The rule never reports exported fields of a type lib.buri
+     re-exports (or testing/lib.buri, under testing/).
+
+     Two things read every field at once, so their types are never reported:
+
+     - a derived Equal, Ordered, Hash or Show;
+     - handing the value to the runtime, or comparing it structurally.
+
+warning: nothing reads `Entry.note` [unused-field]
+  --> lib/money/cents.buri:17:5
+   |
+17 |     note: Option<Str>,
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
+   = fix: delete the field, or read it
+error: a struct-literal field ends with `,` [missing-comma]
+  --> lib/money/cents.buri:21:26
+   |
+21 |     Entry { cents, tax: 0 packer: "till" }
+   |                          ^
+   |
+   = fix: write `,` here
+
+     An editor's quick fix and buri lint --fix both write the , for you.
+
+     Every comma-separated list works the same way, even when an element ends in
+     a brace: a match arm whose body is a block still ends with ,. Without it, A
+     => x followed by -1 => y reads as x - 1 (design/grammar-rationale.md
+     12.12).
+

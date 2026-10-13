@@ -1478,6 +1478,10 @@ fn editable_modules_of(
 /// silenced every lint in its module. Both errors leave a complete AST and a
 /// complete scope behind them, so neither is a reason to stop reading anything.
 /// A position is not a kind, and only a kind can say what was lost.
+///
+/// The same goes for a separator the parser wrote in for the author: a struct
+/// literal missing the `,` before its last field is a body with every field in
+/// it, so its findings stand.
 #[derive(Default)]
 struct Unchecked {
     /// Modules whose imports and re-exports are not the whole account of what
@@ -1527,11 +1531,22 @@ impl Unchecked {
         // rather than a scan.
         let mut errors: std::collections::BTreeMap<FileId, Vec<Span>> =
             std::collections::BTreeMap::new();
+        // The same, less the separators the parser wrote in for the author.
+        // A body holding only those has every expression it was written with,
+        // so nothing under them is missing from the typed tree.
+        let mut truncating: std::collections::BTreeMap<FileId, Vec<Span>> =
+            std::collections::BTreeMap::new();
         for d in &analysis.diagnostics.items {
             // A warning is a lint finding, and lint findings are made here.
             invariant(d.is_error(), "the analysis reports only errors");
             if !d.span.is_none() {
                 errors.entry(d.span.file).or_default().push(d.span);
+                if !matches!(
+                    d.code.as_deref(),
+                    Some("missing-comma" | "missing-semicolon" | "missing-arrow")
+                ) {
+                    truncating.entry(d.span.file).or_default().push(d.span);
+                }
                 if matches!(
                     d.code.as_deref(),
                     Some("unclosed-delimiter" | "unexpected-token")
@@ -1545,6 +1560,7 @@ impl Unchecked {
                         .filter(|s| s.span.file == d.span.file)
                     {
                         errors.entry(s.span.file).or_default().push(s.span);
+                        truncating.entry(s.span.file).or_default().push(s.span);
                         from = from.min(s.span.start);
                     }
                     let kept = unchecked
@@ -1564,7 +1580,7 @@ impl Unchecked {
         // the body as one inside it.
         for (fid, body) in &analysis.checked.bodies {
             let info = analysis.checked.tables.fn_info(fid);
-            let Some(in_file) = errors.get(&info.span.file) else {
+            let Some(in_file) = truncating.get(&info.span.file) else {
                 continue;
             };
             let extent = extent_of(info, body);

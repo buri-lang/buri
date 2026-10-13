@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a match arm without its comma in one function and an unused binding in the next: the broken body's own binding is not reported and its neighbour's is, because a body that did not check is the unit of silence"
+doc: "an unknown name in one function and an unused binding in the next: the broken body's own binding is not reported and its neighbour's is, because a body that did not check is the unit of silence"
 
 run {
   args: ["lint", "//lib/money"]
@@ -9,13 +9,13 @@ run {
   golden: "lint.txt"
 }
 
-# The comma is the whole mistake. With it written `hidden` comes into view
+# The unknown name is the whole mistake. With it written `hidden` comes into view
 # beside `showing`, which is what says the first report was silent about one
 # body rather than about the file.
 edit {
   file: "lib/money/cents.buri"
-  replace: "    1 => fromInt(ctx, 1)\n"
-  with: "    1 => fromInt(ctx, 1),\n"
+  replace: "fromInt(ctx, one)"
+  with: "fromInt(ctx, 1)"
 }
 
 run {

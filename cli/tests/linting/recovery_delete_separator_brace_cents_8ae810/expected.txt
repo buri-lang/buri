@@ -6,6 +6,14 @@ warning: this comment is marked `TODO` [todo-comment]
   |
   = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
   = fix: finish the work, or delete the marker
+warning: `scaled` is bound and never used [unused-variable]
+  --> lib/recovery_delete_separator_brace_cents_8ae810/lib.buri:11:9
+   |
+11 |     let scaled = n * 100
+   |         ^^^^^^
+   |
+   = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+   = fix: use it, delete the `let`, or write `_` in its place
 error: a statement ends with `;` [missing-semicolon]
   --> lib/recovery_delete_separator_brace_cents_8ae810/lib.buri:11:25
    |

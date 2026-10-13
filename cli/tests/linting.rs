@@ -300,6 +300,12 @@ const INVENTED_CEILING: usize = 1;
 /// list one more time: `unused-field` in four cases, `unused-variable` and
 /// `unused-context-bound` in two each, `unused-variant` in one.
 ///
+/// A recovered `,`, `;` or `=>` no longer marks its body unread: the parser
+/// wrote the separator in and kept every expression, so a field written in a
+/// literal missing its comma is still a field the literal wrote. That moves it
+/// to **46 of 2,000 (2.30%) and 19 of 600 (3.17%)**, from 49 and 20. The
+/// pinned corpus still rounds to three, so the ceiling does not move.
+///
 /// Three points, against 1.70% measured and 2.30% at the highest this has been:
 /// the ratchet keeps its headroom, which is what makes it a bound and not a
 /// description. It is not zero and cannot be while the proxy is a byte offset.

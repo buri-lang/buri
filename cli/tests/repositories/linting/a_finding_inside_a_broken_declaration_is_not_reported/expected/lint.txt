@@ -1,15 +1,12 @@
-error: a match arm ends with `,` [missing-comma]
-  --> lib/money/cents.buri:14:25
+error: there is nothing named `one` in scope [unknown-name]
+  --> lib/money/cents.buri:14:23
    |
-14 |     1 => fromInt(ctx, 1)
-   |                         ^
+14 |     1 => fromInt(ctx, one),
+   |                       ^^^
    |
-   = fix: write `,` here
+   = did you mean `n`?
+   = fix: if you meant `n`, use that; if not, a name is in scope only from this module's own declarations and its imports
 
-     An editor's quick fix and buri lint --fix both write the , for you.
-
-     Every comma-separated list works the same way, even when an element ends in
-     a brace: a match arm whose body is a block still ends with ,. Without it, A
-     => x followed by -1 => y reads as x - 1 (design/grammar-rationale.md
-     12.12).
+     There is no prelude. A module sees only what it declares and what its own
+     imports name, which is why the suggestion is trustworthy.
 

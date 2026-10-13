@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "an import and a local whose only evidence sits inside the declaration that did not parse: the parse error is the whole report, because a rule reading a region the parser skipped would be reporting the gap"
+doc: "an import and a local whose only evidence sits inside a declaration that did not check: the error is the whole report, because a rule reading a body the checker stopped in would be reporting the gap"
 
 run {
   args: ["lint", "//lib/money"]
@@ -9,13 +9,13 @@ run {
   golden: "lint.txt"
 }
 
-# The comma is the whole mistake. With it written the declaration is read, and
+# The unknown name is the whole mistake. With it written the declaration is read, and
 # `spare` is reported for being bound and never used — the finding the report
 # above was right to be silent about.
 edit {
   file: "lib/money/cents.buri"
-  replace: "1 => fromInt(ctx, 1)\n"
-  with: "1 => fromInt(ctx, 1),\n"
+  replace: "fromInt(ctx, one)"
+  with: "fromInt(ctx, 1)"
 }
 
 run {

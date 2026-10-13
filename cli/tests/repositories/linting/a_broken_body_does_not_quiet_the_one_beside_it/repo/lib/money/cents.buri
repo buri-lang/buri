@@ -1,4 +1,4 @@
-// Two bindings nothing reads, in two functions, one of which does not parse.
+// Two bindings nothing reads, in two functions, one of which does not check.
 // `hidden` is not reported: the checker stopped inside that body, so what the
 // rest of it reads is not something the report can claim to know. `showing`
 // is, because the function it is in is whole — the mistake is one declaration
@@ -10,7 +10,7 @@ from "platform/effect" import { Allocator };
 export fn describe<C: Allocator>(ctx: C, n: I64): Str {
   let hidden = 7;
   match (n) {
-    1 => fromInt(ctx, 1)
+    1 => fromInt(ctx, one),
     _ => fromInt(ctx, 2),
   }
 }

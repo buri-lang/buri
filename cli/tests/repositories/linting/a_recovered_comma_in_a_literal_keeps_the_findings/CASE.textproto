@@ -1,0 +1,23 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a struct literal missing the comma before its last field: the parse error is reported and so are the unused fields, because the parser kept every field and the literal is whole"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "recovered.txt"
+}
+
+# Writing the comma changes the parse error and nothing else.
+edit {
+  file: "lib/money/cents.buri"
+  replace: "tax: 0 packer"
+  with: "tax: 0, packer"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "written.txt"
+}
