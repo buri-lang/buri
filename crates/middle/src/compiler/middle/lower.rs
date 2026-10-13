@@ -150,10 +150,10 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // own — the one piece of cross-function state — and its `TypeId`s are made
     // whole-program below. `parallel::map` returns the results in index order,
     // so `funcs` is the same vector the serial loop built.
-    let lowered: Vec<(Func, Vec<TypeInfo>)> = crate::parallel::map(program.funcs.len(), |i| {
+    let lowered: Vec<(Func, Vec<TypeInfo>)> = crate::parallel::map_items(&program.funcs, |i, f| {
         let mut types = Types::default();
         let func = lower_one(
-            program, tables, plan, &counts, &cycles, &entries, &units, &mut types, i,
+            program, tables, plan, &counts, &cycles, &entries, &units, &mut types, i, f,
         );
         (func, types.list)
     });
@@ -183,7 +183,7 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     }
 }
 
-/// Lowers one function, interning its types into `types`.
+/// Lowers function `i`, `f`, interning its types into `types`.
 ///
 /// Pure in `i`: it reads the program, the plan and the two whole-program tables,
 /// and writes only its own `types`. That is what lets [`run_with`] run it over
@@ -202,11 +202,8 @@ fn lower_one(
     units: &Units,
     types: &mut Types,
     i: usize,
+    f: &crate::compiler::middle::monomorphize::Func,
 ) -> Func {
-    let f = program
-        .funcs
-        .get(i)
-        .or_ice("`parallel::map` ranges over `program.funcs`");
     let dispatch = entries.get(i).copied().unwrap_or(0) > 1;
     let mut params = Vec::new();
     if dispatch {

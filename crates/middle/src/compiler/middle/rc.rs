@@ -867,10 +867,10 @@ pub fn analyze<C: Counted + Clone + Sync>(
     // the same answers as one shared table. `parallel::map_with` returns the
     // plans in index order, so the vector is the same as the serial one.
     let base: &C = counted;
-    let funcs: Vec<FuncPlan> = crate::parallel::map_with(
-        program.funcs.len(),
+    let funcs: Vec<FuncPlan> = crate::parallel::map_items_with(
+        &program.funcs,
         || base.clone(),
-        |worker, i| scan_func(program, worker, &ownership, &purity, &can_abort, opts, i),
+        |worker, i, f| scan_func(worker, &ownership, &purity, &can_abort, opts, i, f),
     );
     // The whole-program escape answer. `program.funcs` is the
     // post-monomorphization set, so an intrinsic present in it is one the
@@ -897,18 +897,14 @@ pub fn analyze<C: Counted + Clone + Sync>(
     reason = "the whole-program answers a scan reads"
 )]
 fn scan_func(
-    program: &Program,
     counted: &mut dyn Counted,
     ownership: &[Vec<ir::Ownership>],
     purity: &[ir::Purity],
     can_abort: &[bool],
     opts: &Options,
     i: usize,
+    f: &Func,
 ) -> FuncPlan {
-    let f = program
-        .funcs
-        .get(i)
-        .or_ice("`parallel::map_with` ranges over `program.funcs`");
     {
         let params = ownership.get(i).cloned().unwrap_or_default();
         let mut plan = FuncPlan {

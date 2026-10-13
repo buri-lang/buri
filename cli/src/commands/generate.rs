@@ -187,12 +187,8 @@ impl Answers {
 
     /// Each package's key, worked out on every core.
     fn keys(&self, workspace: &Workspace, packages: &[PackageId]) -> Vec<ActionKey> {
-        crate::parallel::map(packages.len(), |i| {
-            let package = workspace.package(
-                *packages
-                    .get(i)
-                    .or_ice("a key is asked of a package in the list"),
-            );
+        crate::parallel::map_items(packages, |_, &package| {
+            let package = workspace.package(package);
             let (mut files, mut schemas) = (Vec::new(), Vec::new());
             regenerate::collect(&package.dir, &package.dir, &mut files, &mut schemas);
             let mut k = KeyBuilder::new(Action::Regenerate, arguments::BuildMode::Debug);
@@ -291,9 +287,7 @@ impl Answers {
 
     /// The digest of each file's bytes now, or `absent`, read on every core.
     fn digests(&self, files: Vec<PathBuf>) -> BTreeMap<PathBuf, String> {
-        let digests = crate::parallel::map(files.len(), |i| {
-            files.get(i).map_or_else(String::new, |p| digest(p))
-        });
+        let digests = crate::parallel::map_items(&files, |_, p| digest(p));
         files.into_iter().zip(digests).collect()
     }
 }

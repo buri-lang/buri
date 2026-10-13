@@ -482,21 +482,10 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     // constants it shared join the program's.
     let defined = defined_functions(program);
     let emitted: Vec<Emitted> = if javascript::worth_workers(defined.len()) {
-        crate::parallel::map_with(
-            defined.len(),
-            || g.worker(),
-            |w, n| {
-                w.function(
-                    defined
-                        .get(n)
-                        .copied()
-                        .or_ice("`n` is below the count it was asked for"),
-                )
-            },
-        )
+        crate::parallel::map_items_with(&defined, || g.worker(), |w, _, &(fi, f)| w.function(fi, f))
     } else {
         let mut w = g.worker();
-        defined.iter().map(|&fi| w.function(fi)).collect()
+        defined.iter().map(|&(fi, f)| w.function(fi, f)).collect()
     };
     for e in emitted {
         stmts.push(g.adopt(e));
@@ -594,14 +583,13 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
 /// entry. `Str`'s `compare` is one, reached directly and through `Ordered`.
 /// Each would print as a function of that name, and a module that declares one
 /// name twice is a `SyntaxError` under node. One declaration answers both.
-fn defined_functions(program: &Program) -> Vec<usize> {
+fn defined_functions(program: &Program) -> Vec<(usize, &monomorphize::Func)> {
     let mut intrinsics: HashSet<&str> = HashSet::default();
     program
         .funcs
         .iter()
         .enumerate()
         .filter(|(_, f)| !matches!(f.kind, FuncKind::Intrinsic(_)) || intrinsics.insert(&f.symbol))
-        .map(|(fi, _)| fi)
         .collect()
 }
 
@@ -654,15 +642,10 @@ impl<'a> Gen<'a> {
         }
     }
 
-    /// Emits the function in slot `fi`.
-    fn function(&mut self, fi: usize) -> Emitted {
+    /// Emits `f`, the function in slot `fi`.
+    fn function(&mut self, fi: usize, f: &monomorphize::Func) -> Emitted {
         self.consts.clear();
         self.const_index.clear();
-        let f = self
-            .program
-            .funcs
-            .get(fi)
-            .or_ice("`parallel::map_with` asks only for indices below the function count");
         self.func = FnState::for_locals(&f.locals);
         self.slot = fi;
         // `async` iff this instantiation waits. A suspending intrinsic's own
