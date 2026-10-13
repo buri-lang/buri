@@ -636,10 +636,15 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// How many handlers there are is not a parameter, because it is not a knob:
 /// the acceptor answers with `net.rs`'s `MAX_HANDLERS` on `Listener.handlers`
 /// and `run` fans out to it.
+///
+/// The idle deadline is three times [`server_deadline`], so it stretches under
+/// Valgrind like every other test server's. A fixed sixty seconds ran out
+/// there on a loaded runner with the clients' requests still being framed.
 pub fn concurrent_server(requests: usize, gate: Option<&str>) -> String {
     let wait = gate.map_or(String::new(), |url| {
         format!("let _gate = http.get(c, \"{url}\");\n      ")
     });
+    let idle = 3 * server_deadline().as_millis();
     format!(
         r#"from "platform/effect" import {{ Allocator, Clock, Listen, Network, Stdout, Tasks }};
 from "native" import {{ NativeHost }};
@@ -663,7 +668,7 @@ export fn main(host: NativeHost): Result<(), Str> {{
       {wait}http.text(c, request.path())
     }},
     requestLimit: .Some({requests}),
-    idleTimeout: .Some(time.milliseconds(60000)),
+    idleTimeout: .Some(time.milliseconds({idle})),
   }};
   match (server.bind(ctx, plan)) {{
     .Err(e) => .Err(server.errorText(e)),
