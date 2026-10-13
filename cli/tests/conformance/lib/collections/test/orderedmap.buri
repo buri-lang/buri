@@ -1494,3 +1494,262 @@ test "merge of a few keys into many, and of many into a few" {
     assert.equal(assert.some(combined.get(500)), 507);
     assert.equal(assert.some(combined.get(2000)), 7);
 }
+
+// --- the structure at other key and value types ---------------------------------
+//
+// Each type a map is used at is its own instantiation, so the paths the
+// `Int` to `Int` cases walk are walked again here with strings on either side.
+
+/// The value `named` keeps under `k`.
+fn nameOf<C: Allocator>(ctx: C, k: Int): Str {
+    str.format(ctx, "v${k}")
+}
+
+/// `n` keys `0, 2, 4, ...` built bottom-up, each named after its key.
+fn named<C: Allocator>(ctx: C, n: Int): OrderedMap<Int, Str> {
+    let entries = list
+        .range(ctx, 0, n)
+        .mapCtx(ctx, fn(c, i) => (2 * i, nameOf(c, 2 * i)));
+    assert.ok(orderedmap.fromSorted(ctx, entries))
+}
+
+/// Every key, taken from the front one at a time, while each value still names
+/// its key.
+fn namesFromFront<C: Allocator>(ctx: C, m: OrderedMap<Int, Str>, acc: [Int]): [Int] {
+    match (m.popFirst(ctx)) {
+        .None => acc,
+        .Some(taken) => {
+            let ((k, v), rest) = taken;
+            if (v == nameOf(ctx, k)) {
+                namesFromFront(ctx, rest, acc.push(ctx, k))
+            } else {
+                acc
+            }
+        },
+    }
+}
+
+fn namesFromBack<C: Allocator>(ctx: C, m: OrderedMap<Int, Str>, acc: [Int]): [Int] {
+    match (m.popLast(ctx)) {
+        .None => acc,
+        .Some(taken) => {
+            let ((k, v), rest) = taken;
+            if (v == nameOf(ctx, k)) {
+                namesFromBack(ctx, rest, acc.push(ctx, k))
+            } else {
+                acc
+            }
+        },
+    }
+}
+
+test "a map of ints to strings splits, borrows and merges like one of ints" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = named(ctx, 600);
+    let evens = list.range(ctx, 0, 600).map(ctx, fn(i) => 2 * i);
+    // Built in a scattered order, the same entries make a tree of another shape.
+    let scrambled = list
+        .range(ctx, 0, 600)
+        .mapCtx(ctx, fn(c, i) => {
+            let k = 2 * (i * 137 % 600);
+            (k, nameOf(c, k))
+        });
+    let byOf = orderedmap.of(ctx, scrambled);
+    let byInserts = scrambled.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Int, Str>, e) => acc.insert(c, e.0, e.1),
+        orderedmap.empty<Int, Str>(),
+    );
+    assert.isTrue(m == byOf);
+    assert.isTrue(m == byInserts);
+    assert.isTrue(m.equals(ctx, byInserts));
+    assert.isFalse(m == m.insert(ctx, 600, "changed"));
+    assert.isFalse(m.equals(ctx, m.insert(ctx, 600, "changed")));
+    assert.isFalse(m == m.remove(ctx, 600));
+    assert.isFalse(m.equals(ctx, m.remove(ctx, 600)));
+    assert.equal(m.keys(ctx), evens);
+    assert.equal(m.values(ctx), evens.mapCtx(ctx, fn(c, k) => nameOf(c, k)));
+    assert.equal(assert.some(m.first()), (0, "v0"));
+    assert.equal(assert.some(m.last()), (1198, "v1198"));
+    assert.equal(assert.some(m.floor(301)), (300, "v300"));
+    assert.equal(assert.some(m.ceiling(301)), (302, "v302"));
+    assert.equal(m.range(ctx, 101, 111).map(ctx, fn(e) => e.0), [
+        102,
+        104,
+        106,
+        108,
+        110,
+    ]);
+    assert.equal(m.fold(fn(n, _k, _v) => n + 1, 0), 600);
+    // Every probe, so each leaf's first and last entries answer for their
+    // neighbours.
+    let probes = list.range(ctx, -1, 1200);
+    assert.isTrue(
+        probes.all(fn(k) => {
+            m.floor(k).map(fn(e) => e.0) == evens.findLast(fn(x) => x <= k)
+        }),
+    );
+    assert.isTrue(
+        probes.all(fn(k) => {
+            m.ceiling(k).map(fn(e) => e.0) == evens.find(fn(x) => x >= k)
+        }),
+    );
+    assert.equal(m.range(ctx, 1100, 5000).length(), 50);
+    assert.equal(m.remove(ctx, 601).length(), 600);
+    assert.isTrue(orderedmap.of(ctx, list.empty<(Int, Str)>()).isEmpty());
+    // Every odd key goes in, then the evens come out in a scattered order.
+    let odds = evens.map(ctx, fn(k) => k + 1);
+    let grown = odds.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Int, Str>, k) => acc.insert(c, k, nameOf(c, k)),
+        m,
+    );
+    assert.equal(grown.length(), 1200);
+    assert.equal(grown.keys(ctx), list.range(ctx, 0, 1200));
+    let shrunk = scrambled.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Int, Str>, e) => acc.remove(c, e.0),
+        grown,
+    );
+    assert.equal(shrunk.keys(ctx), odds);
+    let (gone, rest) = assert.some(grown.pop(ctx, 600));
+    assert.equal(gone, "v600");
+    assert.isFalse(rest.has(600));
+    assert.equal(
+        namesFromFront(ctx, grown, list.empty<Int>()),
+        list.range(ctx, 0, 1200),
+    );
+    assert.equal(
+        namesFromBack(ctx, grown, list.empty<Int>()),
+        list.range(ctx, 0, 1200).reverse(ctx),
+    );
+    let emptied = scrambled.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Int, Str>, e) => acc.remove(c, e.0),
+        m,
+    );
+    assert.isTrue(emptied.isEmpty());
+}
+
+/// The key `spelled` keeps index `i` under: `"1000"`, `"1002"`, ..., which
+/// sort as their numbers do.
+fn spelling<C: Allocator>(ctx: C, i: Int): Str {
+    str.format(ctx, "${1000 + 2 * i}")
+}
+
+fn spelled<C: Allocator>(ctx: C, n: Int): [(Str, Int)] {
+    list.range(ctx, 0, n).mapCtx(ctx, fn(c, i) => (spelling(c, i), i))
+}
+
+fn countsFromFront<C: Allocator>(ctx: C, m: OrderedMap<Str, Int>, acc: [Int]): [Int] {
+    match (m.popFirst(ctx)) {
+        .None => acc,
+        .Some(taken) => {
+            let ((k, v), rest) = taken;
+            if (k == spelling(ctx, v)) {
+                countsFromFront(ctx, rest, acc.push(ctx, v))
+            } else {
+                acc
+            }
+        },
+    }
+}
+
+fn countsFromBack<C: Allocator>(ctx: C, m: OrderedMap<Str, Int>, acc: [Int]): [Int] {
+    match (m.popLast(ctx)) {
+        .None => acc,
+        .Some(taken) => {
+            let ((k, v), rest) = taken;
+            if (k == spelling(ctx, v)) {
+                countsFromBack(ctx, rest, acc.push(ctx, v))
+            } else {
+                acc
+            }
+        },
+    }
+}
+
+test "a map of strings to ints splits, borrows and merges like one of ints" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let entries = spelled(ctx, 600);
+    let m = assert.ok(orderedmap.fromSorted(ctx, entries));
+    let scrambled = list
+        .range(ctx, 0, 600)
+        .mapCtx(ctx, fn(c, i) => {
+            let j = i * 137 % 600;
+            (spelling(c, j), j)
+        });
+    let byOf = orderedmap.of(ctx, scrambled);
+    let byInserts = scrambled.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Str, Int>, e) => acc.insert(c, e.0, e.1),
+        orderedmap.empty<Str, Int>(),
+    );
+    assert.isTrue(m == byOf);
+    assert.isTrue(m == byInserts);
+    assert.isTrue(m.equals(ctx, byOf));
+    assert.isFalse(m == m.insert(ctx, "1600", -1));
+    assert.isFalse(m.equals(ctx, m.insert(ctx, "1600", -1)));
+    assert.isFalse(m == m.remove(ctx, "1600"));
+    assert.isFalse(m.equals(ctx, m.remove(ctx, "1600")));
+    assert.equal(m.entries(ctx), entries);
+    assert.equal(assert.some(m.first()), ("1000", 0));
+    assert.equal(assert.some(m.last()), ("2198", 599));
+    assert.equal(assert.some(m.floor("1301")), ("1300", 150));
+    assert.equal(assert.some(m.ceiling("1301")), ("1302", 151));
+    assert.equal(m.range(ctx, "1101", "1111").map(ctx, fn(e) => e.1), [
+        51,
+        52,
+        53,
+        54,
+        55,
+    ]);
+    assert.equal(m.range(ctx, "1000", "3000").length(), 600);
+    assert.equal(m.prefix(ctx, "15").map(ctx, fn(e) => e.1), list.range(ctx, 250, 300));
+    let probes = list
+        .range(ctx, -1, 1200)
+        .mapCtx(ctx, fn(c, i) => str.format(c, "${1000 + i}"));
+    let keys = m.keys(ctx);
+    assert.isTrue(
+        probes.all(fn(k) => {
+            m.floor(k).map(fn(e) => e.0) == keys.findLast(fn(x) => x <= k)
+        }),
+    );
+    assert.isTrue(
+        probes.all(fn(k) => {
+            m.ceiling(k).map(fn(e) => e.0) == keys.find(fn(x) => x >= k)
+        }),
+    );
+    assert.equal(m.remove(ctx, "1601").length(), 600);
+    assert.isTrue(orderedmap.of(ctx, list.empty<(Str, Int)>()).isEmpty());
+    let odds = list
+        .range(ctx, 0, 600)
+        .mapCtx(ctx, fn(c, i) => (str.format(c, "${1001 + 2 * i}"), -i));
+    let grown = odds.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Str, Int>, e) => acc.insert(c, e.0, e.1),
+        m,
+    );
+    assert.equal(grown.length(), 1200);
+    let shrunk = scrambled.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Str, Int>, e) => acc.remove(c, e.0),
+        grown,
+    );
+    assert.equal(shrunk.entries(ctx), odds);
+    assert.equal(countsFromFront(ctx, m, list.empty<Int>()), list.range(ctx, 0, 600));
+    assert.equal(
+        countsFromBack(ctx, m, list.empty<Int>()),
+        list.range(ctx, 0, 600).reverse(ctx),
+    );
+    let emptied = scrambled.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Str, Int>, e) => acc.remove(c, e.0),
+        m,
+    );
+    assert.isTrue(emptied.isEmpty());
+}
