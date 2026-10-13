@@ -1,0 +1,417 @@
+// What the parser reads that the round trips in parsing.buri leave out: the
+// rest of the operators and literals, the shapes a list can close in, the
+// mistakes each list can start on, and what the printer breaks across lines
+// because of what sits inside an operand.
+
+from "core/buri/ast" import * as ast;
+from "core/buri/ast" import { TokenKind };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+/// What the source prints back as, or its errors.
+fn reread<C: Allocator>(ctx: C, source: Str): Str {
+    match (ast.parse(ctx, "probe.buri", source)) {
+        .Ok(m) => ast.print(ctx, m).text,
+        .Err(errors) => errors.map(ctx, fn(e) => e.message).join(ctx, "; "),
+    }
+}
+
+fn same<C: Allocator>(ctx: C, source: Str): () {
+    assert.equal(reread(ctx, source), source)
+}
+
+/// `body` as the body of a function, the way `print` writes one.
+fn inFn<C: Allocator>(ctx: C, body: Str): Str {
+    "fn f(): Int {\n    ".concat(ctx, body).concat(ctx, "\n}\n")
+}
+
+// --- operators and literals -------------------------------------------------------
+
+test "every binary operator reads back as itself" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let operators = [
+        "||",
+        "&&",
+        "==",
+        "!=",
+        "<",
+        "<=",
+        ">",
+        ">=",
+        "|",
+        "^",
+        "&",
+        "+",
+        "-",
+        "*",
+        "/",
+        "%",
+    ];
+    let back = operators.mapCtx(ctx, fn(c, op) => {
+        reread(c, inFn(c, "a ".concat(c, op).concat(c, " b")))
+    });
+    assert.equal(
+        back,
+        operators.mapCtx(ctx, fn(c, op) => inFn(c, "a ".concat(c, op).concat(c, " b"))),
+    );
+}
+
+test "true and false read as themselves" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    same(ctx, inFn(ctx, "true"));
+    same(ctx, inFn(ctx, "false"));
+}
+
+test "an octal or a binary literal keeps its spelling" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    same(ctx, "let OCTAL: Int = 0o17;\n");
+    same(ctx, "let BINARY: Int = 0b101;\n");
+}
+
+test "each escape in a string or a character reads as the character it names" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        "let S: Str = \"\\n\\r\\t\\0\\u{41}\\\\\";\n",
+        "let C: Char = '\\t';\n",
+        "let C: Char = '\\u{e9}';\n",
+    ];
+    assert.equal(sources.mapCtx(ctx, fn(c, s) => reread(c, s)), [
+        "let S: Str = \"\\n\\r\\t\\0A\\\\\";\n",
+        "let C: Char = '\\t';\n",
+        "let C: Char = 'é';\n",
+    ]);
+}
+
+test "a template with two holes keeps the text between them" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    same(ctx, "fn f(): Str {\n    \"a\${x}b\${y}c\"\n}\n");
+}
+
+// --- patterns ---------------------------------------------------------------------
+
+test "every literal can be a pattern" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let arms = [
+        "1.5 => 0,",
+        "-1.5 => 0,",
+        "\"s\" => 0,",
+        "'c' => 0,",
+        "true => 0,",
+        "false => 0,",
+    ];
+    let back = arms.mapCtx(ctx, fn(c, arm) => {
+        reread(c, inFn(c, "match (x) {\n        ".concat(c, arm).concat(c, "\n    }")))
+    });
+    assert.equal(
+        back,
+        arms.mapCtx(ctx, fn(c, arm) => {
+            inFn(c, "match (x) {\n        ".concat(c, arm).concat(c, "\n    }"))
+        }),
+    );
+}
+
+test "the pattern lists close in every way they can" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        inFn(ctx, "match (x) {\n        (a) => a,\n    }"),
+        inFn(ctx, "match (x) {\n        (a, b,) => a,\n    }"),
+        inFn(ctx, "match (x) {\n        P { a: 1, b, } => a,\n    }"),
+        inFn(ctx, "match (x) {\n        P {} => 0,\n    }"),
+        inFn(ctx, "match (x) {\n        P { a, .., } => a,\n    }"),
+        inFn(ctx, "match (x) {\n        [] => 0,\n    }"),
+        inFn(ctx, "match (x) {\n        [a, ..] => a,\n    }"),
+        inFn(ctx, "match (x) {\n        [a, ..rest,] => a,\n    }"),
+        inFn(ctx, "match (x) {\n        [a,] => a,\n    }"),
+    ];
+    let arms = [
+        "a => a,",
+        "(a, b) => a,",
+        "P { a: 1, b } => a,",
+        "P {} => 0,",
+        "P { a, .. } => a,",
+        "[] => 0,",
+        "[a, ..] => a,",
+        "[a, ..rest] => a,",
+        "[a] => a,",
+    ];
+    assert.equal(
+        sources.mapCtx(ctx, fn(c, s) => reread(c, s)),
+        arms.mapCtx(ctx, fn(c, arm) => {
+            inFn(c, "match (x) {\n        ".concat(c, arm).concat(c, "\n    }"))
+        }),
+    );
+}
+
+// --- the other lists --------------------------------------------------------------
+
+test "the other lists close in every way they can" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        "from \"a\" import {};\n",
+        "type T = (Int);\n",
+        "type T = (Int, Str,);\n",
+        "enum E {\n    A(Int),\n    B,\n}\n",
+        "export enum E {\n    A,\n}\n",
+        "export trait T {}\n",
+        "struct P(Int, Str,);\n",
+        "fn f<T,>(): Int {\n    1\n}\n",
+        inFn(ctx, "g(fn(a: Int, b: Int) => a)"),
+        inFn(ctx, "g(a, b,)"),
+        inFn(ctx, "[a, b,]"),
+        inFn(ctx, "P { ..base }"),
+        inFn(ctx, "match (x) {}"),
+        inFn(ctx, "g();\n    h()"),
+        inFn(ctx, "let ctx = context { A: a, B: b };\n    1"),
+        "derive Equal for Box<Int>;\nstruct Box {}\n",
+    ];
+    assert.equal(sources.mapCtx(ctx, fn(c, s) => reread(c, s)), [
+        "from \"a\" import {};\n",
+        "type T = Int;\n",
+        "type T = (Int, Str);\n",
+        "enum E {\n    A(Int),\n    B,\n}\n",
+        "export enum E {\n    A,\n}\n",
+        "export trait T {}\n",
+        "struct P(Int, Str);\n",
+        "fn f<T>(): Int {\n    1\n}\n",
+        inFn(ctx, "g(fn(a: Int, b: Int) => a)"),
+        inFn(ctx, "g(a, b)"),
+        inFn(ctx, "[a, b]"),
+        inFn(ctx, "P { ..base }"),
+        inFn(ctx, "match (x) {\n    }"),
+        inFn(ctx, "g();\n    h()"),
+        inFn(ctx, "let ctx = context {\n        A: a,\n        B: b,\n    };\n    1"),
+        "derive Equal for Box<Int>;\n\nstruct Box {}\n",
+    ]);
+    // A derive for a type with arguments stays where it was written.
+}
+
+// --- mistakes ---------------------------------------------------------------------
+
+test "each list refuses what it cannot start with, and an unclosed one runs out" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        "from a import * as a;\n",
+        "from \"a\" import a;\n",
+        "test {}\n",
+        "trait T {\n    fn f(): Int;\n",
+        "fn f(): Int {\n    1\n",
+        "fn f(): Int {\n    match (x) {\n        _ => 1,\n",
+        "struct S {\n    x: Int,\n",
+        "struct S(Int\n",
+        "fn f(x: Int\n",
+        "type T = Map<Int\n",
+        "type T = 1;\n",
+        "fn f(): Int {\n    g(1\n",
+        "fn f(): Int {\n    [1\n",
+        "fn f(): Int {\n    P { x: 1\n",
+        "fn f(): Int {\n    fn(a\n",
+        "fn f(): Int {\n    \"a\${x\n",
+        "fn f(): Int {\n    match (x) {\n        (a\n",
+        "fn f(): Int {\n    match (x) {\n        [a\n",
+        "fn f(): Int {\n    match (x) {\n        P { a\n",
+        "fn f(): Int {\n    match (x) {\n        - a => 1,\n",
+        "fn f(): Int {\n    let ctx = context { A: a\n",
+        "let X: Bool = a < B",
+        "from \"a\" import * x;\n",
+        "struct S x\n",
+        "trait T x\n",
+        "type T = (Int Str);\n",
+        "derive Equal Point;\n",
+        "fn f(): Int {\n    match (x) y\n",
+        "fn f(): Int {\n    g(fn x)\n",
+        "fn f(): Int {\n    (a b)\n",
+        "fn f(): Int {\n    P { .. }\n",
+        "fn f(): Int {\n    if x\n",
+        "fn f(): Int {\n    \"a\${}b\${x}c\"\n",
+        "fn f(): Int {\n    \"a\${;}\"\n",
+        "fn f(): Int {\n    g();\n",
+        "fn f(): Int {\n    match (x) {\n        ; => 1,\n",
+        "let X: Bool = a < B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B<B;\n",
+    ];
+    assert.equal(sources.mapCtx(ctx, fn(c, s) => reread(c, s)), [
+        "expected a string literal, found `a`",
+        "expected `{`, found `a`",
+        "expected a string literal, found `{`",
+        "expected `}`, found the end of the file",
+        "expected `}`, found the end of the file",
+        "expected `}`, found the end of the file",
+        "expected an identifier, found the end of the file",
+        "expected `)`, found the end of the file",
+        "expected `)`, found the end of the file",
+        "expected `>`, found the end of the file",
+        "expected a type, found `1`",
+        "expected `)`, found the end of the file",
+        "expected `]`, found the end of the file",
+        "expected `}`, found the end of the file",
+        "expected `)`, found the end of the file",
+        "expected the rest of the template, found the end of the file",
+        "expected `,`, found the end of the file",
+        "expected `]`, found the end of the file",
+        "expected `}`, found the end of the file",
+        "expected a number, found `a`",
+        "expected `}`, found the end of the file",
+        "expected `;`, found the end of the file",
+        "expected `as`, found `x`",
+        "expected `{`, found `x`",
+        "expected `{`, found `x`",
+        "expected `,`, found `Str`",
+        "expected `for`, found `Point`",
+        "expected `{`, found `y`",
+        "expected `(`, found `x`",
+        "expected `,`, found `b`",
+        "expected an expression, found `}`",
+        "expected `(`, found `x`",
+        "expected an expression, found `}b\${`",
+        "expected an expression, found `;`",
+        "expected `}`, found the end of the file",
+        "expected a pattern, found `;`",
+        "expected `;`, found `<`",
+    ]);
+}
+
+// --- what forces a break ------------------------------------------------------------
+
+test "a match inside an operand, a condition or a scrutinee breaks what holds it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // Each is written the way `buri format` writes it, so each must come back
+    // exactly.
+    let sources = [
+        "fn f(): Int {\n    -match (y) {\n        _ => 1,\n    }\n}\n",
+        "fn f(): Int {\n    a\n        + match (y) {\n            _ => 1,\n        }\n}\n",
+        "fn f(): Int {\n    match (y) {\n        _ => 1,\n    }\n        + a\n}\n",
+        "fn f(): Int {\n    a\n        + b\n        + match (y) {\n            _ => 1,\n        }\n}\n",
+        "fn f(): Int {\n    a\n        * match (y) {\n            _ => 1,\n        }\n        + b\n}\n",
+        "fn f(): Int {\n    a\n        < match (y) {\n            _ => 1,\n        }\n}\n",
+        "fn f(): Int {\n    (match (y) {\n        _ => 1,\n    }).0\n}\n",
+        "fn f(): Int {\n    xs[match (y) {\n        _ => 1,\n    }]\n}\n",
+        "fn f(): Int {\n    (match (y) {\n        _ => 1,\n    })[0]\n}\n",
+        "fn f(): Int {\n    P {\n        x: match (y) {\n            _ => 1,\n        },\n    }\n}\n",
+        "fn f(): Int {\n    P {\n        ..match (y) {\n            _ => 1,\n        },\n    }\n}\n",
+        "fn f(): Int {\n    g(match (y) {\n        _ => 1,\n    })\n}\n",
+        "fn f(): Int {\n    g(-x, a.0, xs[0], P { x: 1 }, a + b, { 1 }, b[1], (a, b))\n}\n",
+        "fn f(): Int {\n    {\n        let a = match (y) {\n            _ => 1,\n        };\n        a\n    }\n}\n",
+        "fn f(): Int {\n    {\n        match (y) {\n            _ => 1,\n        };\n        a\n    }\n}\n",
+        "fn f(): Int {\n    {\n        let a = match (y) {\n            _ => 1,\n        };\n    }\n}\n",
+        "fn f(): Int {\n    { g(); }\n}\n",
+        "fn f(): Int {\n    {\n        match (y) {\n            _ => 1,\n        }\n    }\n}\n",
+        "fn f(): Int {\n    if (\n        match (y) {\n            _ => 1,\n        }\n    ) {\n        1\n    } else {\n        2\n    }\n}\n",
+        "fn f(): Int {\n    if (a) {\n        1\n    } else if (\n        match (y) {\n            _ => 1,\n        }\n    ) {\n        2\n    } else {\n        3\n    }\n}\n",
+        "fn f(): Int {\n    match (\n        match (y) {\n            _ => 1,\n        }\n    ) {\n        _ => 1,\n    }\n}\n",
+        "fn f(): Int {\n    g(a, context {\n        A: a,\n    })\n}\n",
+        "fn f(): Int {\n    g(a, [\n        match (y) {\n            _ => 1,\n        },\n    ])\n}\n",
+        "fn f(): Int {\n    g(a, P {\n        x: match (y) {\n            _ => 1,\n        },\n    })\n}\n",
+        "fn f(): Int {\n    g(a, {\n        match (y) {\n            _ => 1,\n        };\n        1\n    })\n}\n",
+        "fn f(): Int {\n    if (a) {\n        1\n    } else {\n        match (y) {\n            _ => 1,\n        }\n    }\n}\n",
+    ];
+    assert.equal(sources.mapCtx(ctx, fn(c, s) => reread(c, s)), sources);
+}
+
+test "what an argument holds decides whether the call around it breaks" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        "fn f(): Int {\n    g([\n        match (y) {\n            _ => 1,\n        },\n    ])\n}\n",
+        "fn f(): Int {\n    g([1])\n}\n",
+        "fn f(): Int {\n    g(\n        (\n            match (y) {\n                _ => 1,\n            },\n            1,\n        ),\n    )\n}\n",
+        "fn f(): Int {\n    g((1, 2))\n}\n",
+        "fn f(): Int {\n    g(\n        -match (y) {\n            _ => 1,\n        },\n    )\n}\n",
+        "fn f(): Int {\n    g(-x)\n}\n",
+        "fn f(): Int {\n    g(\n        (match (y) {\n            _ => 1,\n        }).x,\n    )\n}\n",
+        "fn f(): Int {\n    g(a.x)\n}\n",
+        "fn f(): Int {\n    g(\n        (match (y) {\n            _ => 1,\n        }).0,\n    )\n}\n",
+        "fn f(): Int {\n    g(a.0)\n}\n",
+        "fn f(): Int {\n    g(\n        h(match (y) {\n            _ => 1,\n        }),\n    )\n}\n",
+        "fn f(): Int {\n    g(h(1))\n}\n",
+        "fn f(): Int {\n    g(\n        (match (y) {\n            _ => 1,\n        })(1),\n    )\n}\n",
+        "fn f(): Int {\n    g(\n        xs[match (y) {\n            _ => 1,\n        }],\n    )\n}\n",
+        "fn f(): Int {\n    g(\n        (match (y) {\n            _ => 1,\n        })[0],\n    )\n}\n",
+        "fn f(): Int {\n    g(xs[0])\n}\n",
+        "fn f(): Int {\n    g(\n        (match (y) {\n            _ => 1,\n        })?,\n    )\n}\n",
+        "fn f(): Int {\n    g(a?)\n}\n",
+        "fn f(): Int {\n    g(\n        (match (y) {\n            _ => 1,\n        }).f<Int>(),\n    )\n}\n",
+        "fn f(): Int {\n    g(list.empty<Int>())\n}\n",
+        "fn f(): Int {\n    g(P {\n        ..match (y) {\n            _ => 1,\n        },\n    })\n}\n",
+        "fn f(): Int {\n    g(P {\n        x: match (y) {\n            _ => 1,\n        },\n    })\n}\n",
+        "fn f(): Int {\n    g(P { x: 1 })\n}\n",
+        "fn f(): Int {\n    g({\n        let ctx = context {\n            A: a,\n        };\n    })\n}\n",
+        "fn f(): Int {\n    g(if (a) {\n        g();\n        h()\n    } else {\n        1\n    })\n}\n",
+        "fn f(): Int {\n    g(if (a) {\n        let x = match (y) {\n            _ => 1,\n        };\n    } else {\n        1\n    })\n}\n",
+        "fn f(): Int {\n    g(if (a) { g(); } else { h(); })\n}\n",
+    ];
+    assert.equal(sources.mapCtx(ctx, fn(c, s) => reread(c, s)), sources);
+}
+
+test "declarations, imports and arms in the shapes the formatter leaves alone" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        "derive Equal for P;\nderive Show for P;\nstruct P {}\n\ntype Q = Int;\n",
+        "from \"a\" import * as a;\nfrom \"a\" import { b };\n",
+        "from \"a\" import { A, a };\n",
+        "trait T {}\n",
+        "export effect E {}\n",
+        "enum E {\n    A,\n    B,\n}\n",
+        "fn f(): Int {\n    match (x) {\n        P { .. } => 0,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        _ => {\n            g();\n            1\n        },\n    }\n}\n",
+        "/// doc\ntype A = Int;\n",
+    ];
+    assert.equal(sources.mapCtx(ctx, fn(c, s) => reread(c, s)), sources);
+}
+
+// --- tokens -----------------------------------------------------------------------
+
+test "a span counts two and three bytes for the scalars that take them" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let spans = ast
+        .tokenize(ctx, "é € x")
+        .map(ctx, fn(t) => (t.span.start, t.span.end));
+    assert.equal(spans, [(0, 2), (3, 6), (7, 8)]);
+}
+
+test "a template span is a kind of its own, and so is a module doc" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let kinds = ast.tokenize(ctx, "\"a\${x}b\${y}c\"").map(ctx, fn(t) => t.kind);
+    assert.isTrue(kinds.any(fn(k) => k == TokenKind.TemplateSpan));
+    assert.isFalse(kinds.all(fn(k) => k == TokenKind.TemplateSpan));
+    let doc = ast.tokenize(ctx, "//! the module\n").map(ctx, fn(t) => t.kind);
+    assert.isFalse(doc.any(fn(k) => k == TokenKind.DocComment));
+}
+
+test "the same text read from two files, or at two places, has two origins" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let a = assert.ok(ast.parse(ctx, "a.buri", "type Id = Int;\n"));
+    let b = assert.ok(ast.parse(ctx, "b.buri", "type Id = Int;\n"));
+    let c = assert.ok(ast.parse(ctx, "a.buri", "\ntype Id = Int;\n"));
+    let first = fn(m: ast.Module) => assert.some(m.items.first()).origin;
+    assert.isFalse(first(a) == first(b));
+    assert.isFalse(first(a).span == first(c).span);
+}
