@@ -6,27 +6,13 @@ name: Nightly
 # backend-llvm` for a release triple and takes ~20 minutes; that is expected and
 # does NOT fall under the fast-CI guideline. Three things this file does that
 # ci.yml does not: it edits `version` in cli/Cargo.toml, it packages the built
-# binary as a tarball, and — in `release` mode only — it commits to main, tags,
-# and cuts a GitHub prerelease.
+# binary as a tarball, and it commits to main, tags, and cuts a GitHub
+# prerelease.
 #
-# WHAT RUNS WHEN, AND WHY IT IS SAFE ON A FEATURE BRANCH:
-#
-#   * `schedule` — 2:11am US Pacific. GitHub cron is UTC and cannot do DST, so
-#     this is 2:11am PDT / 1:11am PST year-round; `11 9 * * *` is 2:11am PDT. GitHub only ever
-#     fires a `schedule` from the repository's DEFAULT branch, so this trigger is
-#     inert until the file is merged to main — which is the go-live step.
-#   * `workflow_dispatch` — a manual run, defaulting to the safe `dry_run` mode.
-#
-# MODE. `dry_run` (the default, and what a push or a manual run gets unless asked
-# otherwise) does everything up to but NOT including any mutation of the remote:
-# it computes the version, builds and packages all three targets, and templates
-# flake.nix / Formula/buri.rb / Cargo.{toml,lock}, printing the diffs and
-# uploading the rewritten files as artifacts to inspect. `release` — which only a
-# `schedule` run or an explicit dispatch selects — additionally commits to main,
-# pushes, tags `v<version>`, and creates the prerelease with the tarballs. Every
-# remote-mutating step is guarded by `if: ... mode == 'release'`, so leaving the
-# schedule trigger in place cannot cut a release from anywhere but the default
-# branch's scheduled run.
+# Every run is a real release. It fires on `schedule` (2:11am US Pacific; GitHub
+# cron is UTC and cannot do DST, so `11 9 * * *` is 2:11am PDT / 1:11am PST) or
+# on a manual `workflow_dispatch`, and only from the default branch: the
+# `version` job is skipped on any other ref, and every other job needs it.
 
 on:
   schedule:
@@ -34,18 +20,9 @@ on:
     # fixed to PDT. GitHub delays a schedule when Actions is busy (runs set for
     # 6am started four to five hours late), so it is set early enough to publish
     # by the morning even then, and at minute 11 rather than 0, away from the
-    # top of the hour when every other schedule fires. Fires only from the
-    # default branch (see header).
+    # top of the hour when every other schedule fires.
     - cron: "11 9 * * *"
   workflow_dispatch:
-    inputs:
-      mode:
-        description: "dry_run templates everything but touches nothing on the remote; release commits, tags, and publishes."
-        type: choice
-        default: dry_run
-        options:
-          - dry_run
-          - release
 
 # One nightly at a time.
 concurrency:
@@ -63,27 +40,18 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # The next version, and the mode, computed once for every downstream job.
+  # The next version, computed once for every downstream job.
   version:
     name: version
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       version: ${{ steps.compute.outputs.version }}
-      mode: ${{ steps.mode.outputs.mode }}
-      ci_green: ${{ steps.gate.outputs.ci_green }}
     steps:
       # fetch-depth: 0 so the tags are present — the version is read from them.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - id: mode
-        # A dispatch carries its chosen mode; a schedule run releases; anything
-        # else (a push during development) is a dry run.
-        run: |
-          set -euo pipefail
-          mode="${{ inputs.mode || (github.event_name == 'schedule' && 'release' || 'dry_run') }}"
-          echo "mode=$mode" >> "$GITHUB_OUTPUT"
-          echo "mode=$mode"
       - id: compute
         # Patch increments off the latest v0.3.N tag; 0.3.1 when there are none.
         run: |
@@ -96,29 +64,6 @@ jobs:
           fi
           echo "version=$next" >> "$GITHUB_OUTPUT"
           echo "next version: $next"
-      - id: gate
-        # Reuse main's own CI verdict rather than re-running the suite: refuse to
-        # cut a nightly unless the most recent COMPLETED ci.yml run on main
-        # concluded `success`. Gated on the latest completed run, not this exact
-        # HEAD sha, on purpose — the nightly's own version-bump commit is
-        # bot-pushed and never gets a ci.yml run of its own, so a quiet day with
-        # no human commits would otherwise always skip. Enforced only in release
-        # mode (see the build job's `if`); a dry run still computes and logs the
-        # verdict but always proceeds, so the pipeline stays testable from any
-        # state.
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          verdict=$(gh run list --workflow=ci.yml --branch main --status completed \
-            --limit 1 --json conclusion --jq '.[0].conclusion // "none"')
-          echo "latest completed ci.yml run on main concluded: $verdict"
-          if [ "$verdict" = "success" ]; then
-            echo "ci_green=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ci_green=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::main CI is '$verdict', not success — a release-mode nightly is skipped."
-          fi
 
   # The three release targets. Every leg checks out, packages, and uploads on the
   # HOST runner; the only difference is where `buri` is compiled.
@@ -150,10 +95,6 @@ jobs:
   build:
     name: build (${{ matrix.target }})
     needs: version
-    # A dry run always builds (testable from any state); a release-mode run
-    # builds only when main's latest CI is green. Skipping build skips publish,
-    # so a red main cuts no nightly.
-    if: needs.version.outputs.mode == 'dry_run' || needs.version.outputs.ci_green == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -327,21 +268,15 @@ jobs:
             ${{ steps.package.outputs.tarball }}.sha256
           if-no-files-found: error
 
-  # Templating and publication. In BOTH modes it downloads the three tarballs,
-  # rewrites flake.nix / Formula/buri.rb / Cargo.{toml,lock} to the version and
-  # the three sha256s, prints the diffs and `git status`, and uploads the
-  # rewritten files. Only in `release` mode does it commit to main, push, tag,
-  # and cut the prerelease — every one of those steps is guarded.
+  # Templating and publication: downloads the three tarballs, rewrites flake.nix /
+  # Formula/buri.rb / Cargo.{toml,lock} to the version and the three sha256s,
+  # commits to main, tags, and cuts the prerelease.
   publish:
-    name: publish (${{ needs.version.outputs.mode }})
+    name: publish
     needs: [version, build]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
-      # Check out the ref that triggered the run — main for a scheduled release,
-      # the pipeline branch for a dev dry run — so the files being templated are
-      # the ones on that ref. In release mode the commit is pushed to main
-      # explicitly below; a scheduled run's ref IS main, so HEAD:main is a
-      # fast-forward. fetch-depth 0 for the tag history.
+      # fetch-depth 0 for the tag history.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -393,21 +328,7 @@ jobs:
           echo "=== git diff ==="
           git --no-pager diff
 
-      # A dry run's whole point: the templated files, uploaded for inspection.
-      - if: needs.version.outputs.mode == 'dry_run'
-        uses: actions/upload-artifact@v7
-        with:
-          name: templated-files
-          path: |
-            flake.nix
-            Formula/buri.rb
-            cli/Cargo.toml
-            Cargo.lock
-
-      # ---- release-only, mutating steps below. Each is guarded. ----
-
-      - if: needs.version.outputs.mode == 'release'
-        name: commit + push to main
+      - name: commit + push to main
         id: commit
         run: |
           set -euo pipefail
@@ -440,8 +361,7 @@ jobs:
           echo "main kept moving; the release commit $release is not on main" >&2
           exit 1
 
-      - if: needs.version.outputs.mode == 'release'
-        name: tag + prerelease with tarballs
+      - name: tag + prerelease with tarballs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
