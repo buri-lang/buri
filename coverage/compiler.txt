@@ -3,7 +3,7 @@
 # Branches gate, in total and per area; lines are context.
 
 area                              branches                      lines         
-cli/build                        1678/1695   99.00%       10703/11016   97.16%
+cli/build                        1678/1695   99.00%       10706/11016   97.19%
 cli/documentation                  477/480   99.38%         2768/2849   97.16%
 cli/format                           94/94  100.00%           372/373   99.73%
 cli/language_server              1256/1318   95.30%         8040/8257   97.37%
@@ -11,7 +11,7 @@ cli/lint                           587/600   97.83%         3065/3107   98.65%
 cli/other                          522/606   86.14%         2903/3146   92.28%
 cli/run                              58/58  100.00%           333/341   97.65%
 cli/serve+watch                      69/70   98.57%           394/413   95.40%
-cli/test                           444/522   85.06%         3228/3486   92.60%
+cli/test                           465/492   94.51%         3354/3490   96.10%
 crates/backend                       68/68  100.00%           354/403   87.84%
 crates/diagnostics                 191/194   98.45%         1551/1635   94.86%
 crates/docs                        246/246  100.00%           819/893   91.71%
@@ -24,10 +24,10 @@ crates/semantics                 2201/2208   99.68%       13495/13794   97.83%
 crates/stdlib                        12/12  100.00%           125/149   83.89%
 crates/stencil                   1185/1208   98.10%         8415/8864   94.93%
 crates/syntax                    1194/1196   99.83%         6542/6703   97.60%
-total                          15142/15545   97.41%      97454/100896   96.59%
+total                          15163/15515   97.73%      97583/100900   96.71%
 
 cli/src                           branches                      lines         
-build                            1678/1695   99.00%       10703/11016   97.16%
+build                            1678/1695   99.00%       10706/11016   97.19%
 commands/add                           7/8   87.50%             65/72   90.28%
 commands/arguments                   37/44   84.09%           114/129   88.37%
 commands/build                       90/90  100.00%           449/468   95.94%
@@ -42,7 +42,7 @@ commands/mod                         19/24   79.17%           262/274   95.62%
 commands/query                       34/42   80.95%           120/127   94.49%
 commands/run                         58/58  100.00%           333/341   97.65%
 commands/serve                       34/34  100.00%           135/140   96.43%
-commands/test                      444/522   85.06%         3228/3486   92.60%
+commands/test                      465/492   94.51%         3354/3490   96.10%
 commands/version                       3/6   50.00%             15/26   57.69%
 commands/watch                       35/36   97.22%           259/273   94.87%
 compiler                           256/296   86.49%         1402/1541   90.98%
@@ -54,7 +54,7 @@ main                                  7/12   58.33%             54/61   88.52%
 The 30 files with the most uncovered branches:
 
 uncovered          branches           file
-       78           444/522   85.06%  cli/src/commands/test.rs
+       27           465/492   94.51%  cli/src/commands/test.rs
        27           521/548   95.07%  crates/js/src/compiler/backend/js/javascript.rs
        23           201/224   89.73%  cli/src/compiler/modules.rs
        16             50/66   75.76%  cli/src/compiler/driver.rs
