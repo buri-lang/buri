@@ -1526,27 +1526,37 @@ impl State {
     pub fn take_swept(&mut self) -> Vec<super::Published> {
         self.sweeps.collect(&self.open);
         let mut reports = Vec::new();
-        for mut swept in self.sweeps.take_landed() {
+        for swept in self.sweeps.take_landed() {
+            let abandoned = swept.abandoned;
+            let (current, found) = self.absorb(swept);
             // An abandoned sweep is not a report: the targets it never reached
             // are simply absent from it, and publishing that would tell the
-            // editor their findings are fixed. What it did reach is still
-            // filed, so the sweep that replaces it starts from there.
-            if !swept.abandoned {
-                reports.push(std::mem::take(&mut swept.found));
+            // editor their findings are fixed. Nor is one of bytes the editor
+            // no longer holds — an edit undone while it ran.
+            if !abandoned && current {
+                reports.push(found);
             }
-            self.absorb(swept);
         }
         reports
     }
 
-    /// One sweep's report, filed where the request thread reads it.
+    /// One sweep's report, filed where the request thread reads it, and
+    /// whether every target in it describes the files as they are now.
+    ///
+    /// A target is filed only if it does. What an abandoned sweep did reach is
+    /// filed, so the sweep that replaces it starts from there.
     ///
     /// The closures come back as paths rather than as the `Rc`s the worker
     /// holds, which is the whole of what makes this two threads: what is
     /// shared is bytes, and each side hashes them with its own `Sources`
     /// against the same files.
-    fn absorb(&mut self, swept: super::sweep::Swept) {
+    fn absorb(&mut self, swept: super::sweep::Swept) -> (bool, super::Published) {
+        let mut current = true;
         for (target, key, closure, found) in swept.targets {
+            if self.closure_key(&swept.root, Some(target), &closure) != key {
+                current = false;
+                continue;
+            }
             self.target_findings.insert(
                 (swept.root.clone(), target),
                 TargetFindings {
@@ -1563,6 +1573,7 @@ impl State {
         for said in swept.said {
             self.announce(&swept.root, &said);
         }
+        (current, swept.found)
     }
 
     /// What this repository's targets are filed as saying, in the shape a

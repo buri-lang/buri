@@ -26,6 +26,7 @@ use super::state::{State, Work};
 use super::Published;
 use crate::build::sources::Overlay;
 use crate::build::workspace::TargetId;
+use crate::diagnostics::Invariant as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -44,10 +45,11 @@ pub enum Mode {
     /// The worker sweeps while requests are answered, and a finished sweep
     /// publishes on its own. What an editor gets.
     Asynchronous,
-    /// The worker sweeps, and a finished sweep waits for `buri/awaitAnalysis`
-    /// before it says anything. What the asynchronous goldens record: the
-    /// worker is real and the requests overtake it, but where its report lands
-    /// in the stream is the session's decision rather than the scheduler's.
+    /// The worker is handed a sweep when it is asked for and starts it when
+    /// `buri/awaitAnalysis` arrives. What the asynchronous goldens record: the
+    /// requests overtake the sweep exactly as they do in an editor, but how far
+    /// the sweep got before they did is the session's decision rather than the
+    /// scheduler's.
     Deferred,
     /// The request that needs a sweep waits for it, so one message is answered
     /// completely before the next is read. What the rest of the corpus records.
@@ -79,9 +81,9 @@ impl Mode {
 /// One repository, to be swept for one state of its files.
 struct Job {
     root: PathBuf,
-    /// The editor's unsaved buffers as they stood when the job was sent. The
-    /// worker reads the disk itself; this is the part of the truth only the
-    /// request thread has.
+    /// The editor's unsaved buffers as they stood when the job was handed
+    /// over. The worker reads the disk itself; this is the part of the truth
+    /// only the request thread has.
     buffers: Overlay,
     generation: u64,
 }
@@ -142,9 +144,10 @@ pub struct Counters {
 /// The worker, and what the request thread knows about what it is doing.
 pub struct Sweeps {
     pub mode: Mode,
-    /// Started at the first sweep: a session that never asks about a whole
-    /// repository never starts a thread.
-    worker: Option<Worker>,
+    /// Where jobs go and reports come back. Until [`Sweeps::start`] nothing is
+    /// at the other end of either.
+    jobs: Sender<Job>,
+    done: Receiver<Swept>,
     /// The newest generation asked for. The worker reads it to find out that
     /// what it is computing is already out of date.
     latest: Arc<AtomicU64>,
@@ -152,6 +155,9 @@ pub struct Sweeps {
     /// The repository the worker was handed, and the generation it was handed
     /// for.
     running: Option<(PathBuf, u64)>,
+    /// The running job while the worker has not been given it, which outside
+    /// the asynchronous schedule is until something settles.
+    held: Option<Job>,
     /// Repositories waiting their turn.
     ///
     /// One worker and a queue rather than a worker per repository: a person
@@ -162,41 +168,51 @@ pub struct Sweeps {
     queued: Vec<PathBuf>,
     /// Reports that have arrived and not been taken up yet.
     landed: Vec<Swept>,
-    /// Where to knock when a sweep finishes, so that a server sitting idle at
-    /// its input still publishes what the worker found.
-    knocker: Option<Sender<super::Event>>,
     pub counters: Counters,
-}
-
-struct Worker {
-    jobs: Sender<Job>,
-    done: Receiver<Swept>,
 }
 
 impl Sweeps {
     pub fn new() -> Sweeps {
+        let (jobs, _) = channel();
+        let (_, done) = channel();
         Sweeps {
             mode: Mode::chosen(),
-            worker: None,
+            jobs,
+            done,
             latest: Arc::new(AtomicU64::new(0)),
             generation: 0,
             running: None,
+            held: None,
             queued: Vec::new(),
             landed: Vec::new(),
-            knocker: None,
             counters: Counters::default(),
         }
     }
 
-    /// Where to send a knock when a sweep finishes. Without one, a report waits
-    /// for the client's next message.
-    pub fn knock_on(&mut self, knocker: Sender<super::Event>) {
-        self.knocker = Some(knocker);
+    /// Starts the worker. `knocker` hears each time a sweep finishes, so that
+    /// a server sitting idle at its input still publishes what it found.
+    ///
+    /// Detached deliberately. The thread holds no lock and owns everything it
+    /// touches, so a server that is exiting has nothing to wait for it about.
+    /// Its stack is the toolchain's own: a sweep compiles every target, and
+    /// every stage after parsing walks the tree by recursion.
+    pub fn start(&mut self, knocker: Sender<super::Event>) -> std::io::Result<()> {
+        let (jobs, incoming) = channel::<Job>();
+        let (outgoing, done) = channel::<Swept>();
+        let latest = Arc::clone(&self.latest);
+        std::thread::Builder::new()
+            .name("buri-lsp-sweep".to_string())
+            .stack_size(crate::parallel::STACK)
+            .spawn(move || serve(&incoming, &outgoing, &latest, &knocker))?;
+        self.jobs = jobs;
+        self.done = done;
+        Ok(())
     }
 
-    /// Whether a sweep is running or waiting to.
+    /// Whether a sweep is running. One waiting is never all there is: the
+    /// queue is handed over whenever nothing runs.
     pub fn busy(&self) -> bool {
-        self.running.is_some() || !self.queued.is_empty()
+        self.running.is_some()
     }
 
     /// Asks for this repository to be swept for the state it is in now.
@@ -211,58 +227,55 @@ impl Sweeps {
             self.counters.superseded = self.counters.superseded.saturating_add(1);
             return;
         }
-        if let Some((running, _)) = &self.running {
-            let same = running == root;
-            self.queued.push(root.to_path_buf());
+        self.queued.push(root.to_path_buf());
+        match &self.running {
             // The sweep in flight is reading bytes that have moved. Telling it
             // so is what keeps a hub keystroke from paying for the edit before
-            // it as well as for its own. Not in the deferred schedule, where
-            // where a report lands is the session's decision and a sweep that
-            // gave up half way through would land somewhere else.
-            if same && self.mode == Mode::Asynchronous {
-                self.generation = self.generation.saturating_add(1);
-                self.latest.store(self.generation, Ordering::Relaxed);
+            // it as well as for its own.
+            Some((running, _)) => {
+                if running == root {
+                    self.generation = self.generation.saturating_add(1);
+                    self.latest.store(self.generation, Ordering::Relaxed);
+                }
             }
-            return;
+            None => self.hand_over(buffers),
         }
-        self.queued.push(root.to_path_buf());
-        self.hand_over(buffers);
     }
 
-    /// Sends the next waiting repository to the worker, starting it if this is
-    /// the first sweep of the session.
+    /// Hands the next waiting repository to the worker. In the asynchronous
+    /// schedule the worker starts on it at once; in the other two it is held
+    /// until something settles.
     fn hand_over(&mut self, buffers: &Overlay) {
-        if self.running.is_some() || self.queued.is_empty() {
+        if self.queued.is_empty() {
             return;
         }
         let root = self.queued.remove(0);
         self.generation = self.generation.saturating_add(1);
         self.latest.store(self.generation, Ordering::Relaxed);
-        let latest = Arc::clone(&self.latest);
-        let knocker = self.knocker.clone();
-        let worker = self.worker.get_or_insert_with(|| start(latest, knocker));
-        let job = Job {
-            root: root.clone(),
+        self.running = Some((root.clone(), self.generation));
+        self.held = Some(Job {
+            root,
             buffers: buffers.clone(),
             generation: self.generation,
-        };
-        // A worker that has gone is one nothing here can bring back: the
-        // reports stop and every answer falls back to the last complete one.
-        if worker.jobs.send(job).is_ok() {
-            self.running = Some((root, self.generation));
+        });
+        if self.mode == Mode::Asynchronous {
+            self.release();
+        }
+    }
+
+    /// Gives the worker the job it was handed, if it has not had it yet.
+    fn release(&mut self) {
+        if let Some(job) = self.held.take() {
+            // A worker that has gone takes nothing, and `settle` says so.
+            let _ = self.jobs.send(job);
         }
     }
 
     /// Takes up whatever the worker has finished, without waiting for it.
     pub fn collect(&mut self, buffers: &Overlay) {
-        while let Some(swept) = self
-            .worker
-            .as_ref()
-            .and_then(|worker| worker.done.try_recv().ok())
-        {
-            self.arrived(swept);
+        while let Ok(swept) = self.done.try_recv() {
+            self.arrived(swept, buffers);
         }
-        self.hand_over(buffers);
     }
 
     /// The same, waiting until nothing is running or queued.
@@ -271,37 +284,30 @@ impl Sweeps {
     /// `buri/awaitAnalysis` does.
     pub fn settle(&mut self, buffers: &Overlay) {
         while self.busy() {
-            let Some(swept) = self
-                .worker
-                .as_ref()
-                .and_then(|worker| worker.done.recv().ok())
-            else {
-                // Nothing is coming. Forgetting what was asked for is what
-                // keeps this from waiting for ever.
-                self.running = None;
-                self.queued.clear();
-                return;
-            };
-            self.arrived(swept);
-            self.hand_over(buffers);
+            self.release();
+            // The worker only goes away by panicking, which in a release build
+            // has already ended the process.
+            let swept = self
+                .done
+                .recv()
+                .or_ice("the sweep worker answers every job it is sent");
+            self.arrived(swept, buffers);
         }
     }
 
-    /// One report, back from the worker.
-    fn arrived(&mut self, swept: Swept) {
+    /// One report, back from the worker, and the next job handed over.
+    ///
+    /// An abandoned sweep was overtaken by an ask for the same repository, and
+    /// that ask is in the queue: the sweep that replaces it is the next one.
+    fn arrived(&mut self, swept: Swept, buffers: &Overlay) {
         self.running = None;
         if swept.abandoned {
             self.counters.abandoned = self.counters.abandoned.saturating_add(1);
-            // Still worth keeping: the targets it did get through are filed
-            // under the closures they were read at, so the sweep that replaces
-            // it starts from there.
-            if !self.queued.contains(&swept.root) {
-                self.queued.push(swept.root.clone());
-            }
         } else {
             self.counters.run = self.counters.run.saturating_add(1);
         }
         self.landed.push(swept);
+        self.hand_over(buffers);
     }
 
     /// The reports that have arrived, handed over to be believed.
@@ -311,24 +317,11 @@ impl Sweeps {
 }
 
 /// The worker thread: one repository at a time, for as long as the server runs.
-fn start(latest: Arc<AtomicU64>, knocker: Option<Sender<super::Event>>) -> Worker {
-    let (jobs, incoming) = channel::<Job>();
-    let (outgoing, done) = channel::<Swept>();
-    // Detached deliberately. The thread holds no lock and owns everything it
-    // touches, so a server that is exiting has nothing to wait for it about.
-    // A thread that will not start leaves `jobs` with no reader, which
-    // `hand_over` already reads as a worker that is gone.
-    let _started = std::thread::Builder::new()
-        .name("buri-lsp-sweep".to_string())
-        .spawn(move || serve(&incoming, &outgoing, &latest, knocker.as_ref()));
-    Worker { jobs, done }
-}
-
 fn serve(
     incoming: &Receiver<Job>,
     outgoing: &Sender<Swept>,
     latest: &Arc<AtomicU64>,
-    knocker: Option<&Sender<super::Event>>,
+    knocker: &Sender<super::Event>,
 ) {
     // The worker's own warm repository: its own graph, its own source map, its
     // own parses. Nothing in it is shared with the thread that answers
@@ -347,9 +340,7 @@ fn serve(
         let _ = outgoing.send(swept);
         // The report is on the channel; this is what makes the request thread
         // look at it rather than waiting for the client to say something.
-        if let Some(knocker) = knocker {
-            let _ = knocker.send(super::Event::Swept);
-        }
+        let _ = knocker.send(super::Event::Swept);
     }
 }
 
@@ -378,12 +369,20 @@ mod tests {
         std::env::temp_dir().join("buri-lsp-sweep-tests-nothing-here")
     }
 
-    #[test]
-    fn a_burst_of_asks_is_one_sweep_running_one_waiting_and_the_rest_counted() {
+    /// Sweeps in the deferred schedule, with a worker behind them. Nothing
+    /// starts between the asks, which is what makes the counts a decision
+    /// rather than a race.
+    fn deferred() -> (Sweeps, Receiver<super::super::Event>) {
         let mut sweeps = Sweeps::new();
-        // Nothing collects between the asks in this schedule, which is what
-        // makes the counts a decision rather than a race.
         sweeps.mode = Mode::Deferred;
+        let (knocker, knocks) = channel();
+        sweeps.start(knocker).unwrap();
+        (sweeps, knocks)
+    }
+
+    #[test]
+    fn a_burst_of_asks_is_one_sweep_given_up_one_run_and_the_rest_counted() {
+        let (mut sweeps, _knocks) = deferred();
         let root = nowhere();
         let buffers = Overlay::new();
         for _ in 0..4 {
@@ -391,16 +390,15 @@ mod tests {
         }
         assert_eq!(sweeps.counters.superseded, 2);
         sweeps.settle(&buffers);
-        assert_eq!(sweeps.counters.run, 2);
-        assert_eq!(sweeps.counters.abandoned, 0);
+        assert_eq!(sweeps.counters.run, 1);
+        assert_eq!(sweeps.counters.abandoned, 1);
         assert_eq!(sweeps.take_landed().len(), 2);
         assert!(!sweeps.busy());
     }
 
     #[test]
     fn two_repositories_take_the_one_worker_in_turn() {
-        let mut sweeps = Sweeps::new();
-        sweeps.mode = Mode::Deferred;
+        let (mut sweeps, _knocks) = deferred();
         let buffers = Overlay::new();
         let first = nowhere();
         let second = nowhere().join("beside-it");
@@ -412,6 +410,7 @@ mod tests {
         assert_eq!(landed.len(), 2);
         assert_eq!(landed[0].root, first);
         assert_eq!(landed[1].root, second);
+        assert!(landed.iter().all(|swept| !swept.abandoned));
     }
 
     #[test]

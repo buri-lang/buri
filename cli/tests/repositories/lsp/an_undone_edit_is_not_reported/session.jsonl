@@ -1,0 +1,30 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# The deferred schedule: the worker takes a sweep when it is asked for and
+# starts it at `buri/awaitAnalysis`. `verbose`, so that each work line says
+# what that request compiled.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "trace": "verbose", "initializationOptions": {"analysis": "deferred"}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "languageId": "buri", "version": 1, "text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + 5 }\n"}}}
+# The cold sweep, waited for.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# A type error, and the pull after it: the worker is handed a sweep of this
+# buffer, and the report is the clean one it already had.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "version": 2}, "contentChanges": [{"text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + \"five\" }\n"}]}}
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# Undone before the sweep lands. The report on file describes this text again,
+# so the pull asks for nothing.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "version": 3}, "contentChanges": [{"text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + 5 }\n"}]}}
+{"jsonrpc": "2.0", "id": 4, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# The sweep of version 2 lands: it compiles, finds the type error, and is not
+# believed. No publish says `expected I64`, and the report after it is clean.
+{"jsonrpc": "2.0", "id": 5, "method": "buri/awaitAnalysis", "params": {}}
+{"jsonrpc": "2.0", "id": 6, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# The edit again. This pull asks for a sweep, and the worker already holds a
+# report of exactly these bytes: `analyses 0` on the line for request 8, and
+# the type error published.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "version": 4}, "contentChanges": [{"text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + \"five\" }\n"}]}}
+{"jsonrpc": "2.0", "id": 7, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+{"jsonrpc": "2.0", "id": 8, "method": "buri/awaitAnalysis", "params": {}}
+{"jsonrpc": "2.0", "id": 9, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

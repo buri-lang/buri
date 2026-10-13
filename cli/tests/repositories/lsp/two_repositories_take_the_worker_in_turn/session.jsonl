@@ -1,0 +1,21 @@
+# One JSON-RPC request per line. `<scratch>` and `<scratch2>` become the two
+# copied repositories.
+#
+# The deferred schedule: the worker takes a sweep when it is asked for and
+# starts it at `buri/awaitAnalysis`.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspaceFolders": [{"uri": "file://<scratch>", "name": "first"}, {"uri": "file://<scratch2>", "name": "second"}], "initializationOptions": {"analysis": "deferred"}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "languageId": "buri", "version": 1, "text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + 5 }\n"}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch2>/lib/alpha/rate.buri", "languageId": "buri", "version": 1, "text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + 5 }\n"}}}
+# Both cold sweeps, waited for.
+{"jsonrpc": "2.0", "id": 2, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# A type error in each, and one pull. The first repository's sweep goes to the
+# worker; the second's waits behind it rather than stopping it, because the
+# first is still reading bytes that are current.
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri", "version": 2}, "contentChanges": [{"text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + \"five\" }\n"}]}}
+{"jsonrpc": "2.0", "method": "textDocument/didChange", "params": {"textDocument": {"uri": "file://<scratch2>/lib/alpha/rate.buri", "version": 2}, "contentChanges": [{"text": "/// What a shop adds on top, in whole cents.\nexport fn markup(cents: I64): I64 { cents + \"six\" }\n"}]}}
+{"jsonrpc": "2.0", "id": 3, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}
+# Four sweeps, none given up: each repository's error is published.
+{"jsonrpc": "2.0", "id": 4, "method": "buri/awaitAnalysis", "params": {}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

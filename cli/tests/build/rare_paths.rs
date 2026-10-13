@@ -6,7 +6,8 @@
 //! kept under a fresh `BURI_HOME`, a platform asset read as a schema, a
 //! `platform` rule outside `//platform/`, `format` on a `testing` surface, and
 //! the generator paths a contract, a missing schema or a tool nobody declared
-//! takes.
+//! takes; and the language server's sweep of a deeply nested file, and a sweep
+//! that lands while the server sits idle.
 use crate::harness::*;
 
 const PLATFORM: &str =
@@ -313,8 +314,12 @@ impl Server {
 
     /// Reads up to the response to request `id`.
     fn answer(&mut self, id: u32) {
+        self.read_until(&format!("\"id\":{id},"));
+    }
+
+    /// Reads up to the first message holding `want`.
+    fn read_until(&mut self, want: &str) {
         use std::io::Read as _;
-        let want = format!("\"id\":{id},");
         loop {
             let mut header = Vec::new();
             let mut byte = [0u8; 1];
@@ -322,7 +327,7 @@ impl Server {
                 assert_eq!(
                     self.output.read(&mut byte).unwrap(),
                     1,
-                    "the server stopped before answering {id}"
+                    "the server stopped before saying {want}"
                 );
                 header.push(byte[0]);
             }
@@ -337,7 +342,7 @@ impl Server {
             self.output.read_exact(&mut body).unwrap();
             let body = String::from_utf8(body).unwrap();
             self.read.push_str(&body);
-            if body.contains(&want) {
+            if body.contains(want) {
                 return;
             }
         }
@@ -671,4 +676,86 @@ fn a_testing_directory_that_is_a_package_is_not_the_librarys_surface() {
     scratch.write("lib/a/testing/BUILD.buri", "library {}\n");
     scratch.write("lib/a/testing/lib.buri", ONE);
     scratch.run(&["build", "//lib/a"]).ok();
+}
+
+/// A file nested as deep as the parser allows is swept like any other.
+///
+/// The sweep compiles every target on a thread of its own, and every stage
+/// after parsing walks the tree by recursion. That thread had the platform's
+/// default stack rather than the one `buri lint` runs on, so a chain of `else
+/// if`s the command line lints overflowed it and took the server down.
+#[test]
+fn a_deeply_nested_file_is_swept_like_the_command_line_lints_it() {
+    let scratch = Scratch::repo("rare-deep-sweep");
+    let chain: String = (0..2_000)
+        .map(|i| format!("if (x == {i}) {{ {i} }} else "))
+        .collect();
+    scratch.write("lib/deep/BUILD.buri", "library {\n}\n");
+    scratch.write(
+        "lib/deep/lib.buri",
+        &format!("export fn pick(x: I32): I32 {{\n    {chain}{{ -1 }}\n}}\n"),
+    );
+    scratch.run(&["lint", "//lib/deep"]).ok();
+    let pull = r#"{"jsonrpc": "2.0", "id": 2, "method": "workspace/diagnostic", "params": {"previousResultIds": []}}"#;
+    scratch
+        .run_with_stdin(
+            &["lsp"],
+            &session(
+                &scratch,
+                &[INITIALIZE.to_string(), INITIALIZED.to_string(), pull.to_string(), SHUTDOWN.to_string(), EXIT.to_string()],
+            ),
+        )
+        .ok()
+        .says(&format!(
+            r#"{{"items":[],"kind":"full","resultId":"2","uri":"file://{}/lib/deep/lib.buri","version":null}}"#,
+            scratch.root.display()
+        ));
+}
+
+/// In an editor's schedule a sweep publishes when it lands, with no request
+/// waiting for it: the server is sitting idle at its input, and the worker
+/// wakes it.
+///
+/// Deterministic without a clock: the only thing that publishes the error is
+/// the landed sweep, and the test reads until it arrives.
+#[test]
+fn a_sweep_publishes_when_it_lands_on_an_idle_server() {
+    let scratch = Scratch::repo("rare-idle-sweep");
+    scratch.write("lib/a/BUILD.buri", "library {\n}\n");
+    scratch.write("lib/a/lib.buri", ONE);
+    scratch.write(
+        "lib/b/BUILD.buri",
+        "library {\n    dependencies: [\"//lib/a\"]\n}\n",
+    );
+    scratch.write(
+        "lib/b/lib.buri",
+        "from \"//lib/a\" import { one };\n\nexport fn two(): Int {\n    one() + 1\n}\n",
+    );
+    let initialize = r#"{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "initializationOptions": {"analysis": "asynchronous"}}}"#;
+    let pull = |id: u32| {
+        format!(
+            r#"{{"jsonrpc": "2.0", "id": {id}, "method": "workspace/diagnostic", "params": {{"previousResultIds": []}}}}"#
+        )
+    };
+    let mut server = Server::start(&scratch);
+    for line in [
+        initialize.to_string(),
+        INITIALIZED.to_string(),
+        did_open(&scratch, "lib/a/lib.buri"),
+        pull(2),
+    ] {
+        server.send(&scratch, &line);
+    }
+    server.answer(2);
+    // `one` renamed: `lib/b/lib.buri`, which nobody has open, no longer
+    // compiles, and only a sweep reaches it.
+    scratch.write("lib/a/lib.buri", "export fn won(): Int {\n    1\n}\n");
+    for line in [did_change(&scratch, "lib/a/lib.buri"), pull(3)] {
+        server.send(&scratch, &line);
+    }
+    server.answer(3);
+    server.read_until("`one`");
+    server.send(&scratch, SHUTDOWN);
+    server.send(&scratch, EXIT);
+    server.finish().ok();
 }
