@@ -3212,9 +3212,8 @@ fn anchor<'a>(text: &'a str, tokens: &TokenLocations, at: u32) -> (u32, u32, &'a
         Some(i) => u32::try_from(i).unwrap_or(u32::MAX),
         None => u32::MAX,
     };
-    let Some((from, end, gap)) = locate_anchor(text, tokens, token) else {
-        return (token, 0, "");
-    };
+    let (from, end, gap) =
+        locate_anchor(text, tokens, token).or_ice("a token found in a file is in it");
     let between = gap
         .filter(|_| at > end)
         .and_then(|g| text.get(g.start as usize..g.end as usize));

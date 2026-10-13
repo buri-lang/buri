@@ -418,6 +418,42 @@ fn a_suite_with_a_timeout_records_its_snapshot() {
         .says("1 passed, 0 failed, 0 skipped");
 }
 
+/// A suite that didn't build says why again on the next run, from what the
+/// build recorded: an error in a file that doesn't lex, and one at the top of
+/// a build file, before its first token.
+#[test]
+fn a_refused_suite_says_why_again() {
+    let scratch = Scratch::repo("corners-refused-again");
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.buri\"]\n",
+        "from \"core/testing/assert\" import * as assert;\n\n\
+         test \"x\" {\n    assert.equal(\"abc, 1);\n}\n",
+    );
+    library(
+        &scratch,
+        "d",
+        "        sources: [\"test/t.buri\"]\n",
+        &blocks("d", 1),
+    );
+    scratch.edit(
+        "lib/d/BUILD.buri",
+        "library {",
+        "# A testing directory, and no block for it.\nlibrary {",
+    );
+    scratch.write("lib/d/testing/lib.buri", ONE);
+    for _ in 0..2 {
+        scratch
+            .run(&["test", "//lib/a", "//lib/d"])
+            .exits(1)
+            .says("error: unterminated string literal [unterminated-string]")
+            .says("error: //lib/d has a testing/ directory and no `testing` block")
+            .says("--> lib/d/BUILD.buri:1:1")
+            .says("0 passed, 0 failed, 0 skipped, 2 failed to compile");
+    }
+}
+
 /// A coverage run that can't make its directory says why and exits 2.
 #[test]
 fn a_coverage_run_with_nowhere_to_write_says_why() {
