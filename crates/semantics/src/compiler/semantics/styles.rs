@@ -448,9 +448,9 @@ impl Styled {
 /// it links; since a class names itself, merging is a dedupe and never a
 /// renumbering.
 ///
-/// A compilation that does not load `ui/style` returns immediately, which is
-/// every program that is not a user interface — so this costs nothing at all
-/// for the rest of the corpus.
+/// A compilation none of whose own modules imports from `ui/` returns
+/// immediately, which is every program that is not a user interface, test
+/// builds included — so this costs nothing at all for the rest of the corpus.
 pub fn run(
     loaded: &Loaded,
     tables: &Tables,
@@ -467,7 +467,13 @@ pub fn run(
     ) else {
         return (Styled::default(), None);
     };
-    let classifiers = classifiers(loaded, scopes);
+    // Only a module of the program's own that imports from `ui/` can build a
+    // node, and only such a program loads `classify`. A test build without
+    // one still loads `ui/style` through the test platform, but no style can
+    // reach a node there.
+    let Some((classify, classify_style)) = classifiers(loaded, scopes) else {
+        return (Styled::default(), Some(style_con));
+    };
     let extracted =
         own_fn(loaded, scopes, "ui/style", "extracted").or_ice("`ui/style` declares `extracted`");
 
@@ -491,8 +497,8 @@ pub fn run(
         style_con,
         classes_con,
         color_con: own_type(loaded, scopes, "ui/style", "Color"),
-        classify: classifiers.map(|c| c.0),
-        classify_style: classifiers.map(|c| c.1),
+        classify,
+        classify_style,
         extracted,
         tables,
         original_bodies: bodies,
@@ -555,6 +561,16 @@ pub fn run(
     (styled, Some(style_con))
 }
 
+/// How many times this process drew [`Flow`]'s graph of what reads what, over
+/// every declaration a compilation reads. `BURI_PROFILE` prints it, because
+/// unlike instructions it is the same on every run.
+static GRAPHS_DRAWN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// See [`GRAPHS_DRAWN`].
+pub fn graphs_drawn() -> u64 {
+    GRAPHS_DRAWN.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// `ui/style/classify`'s `classify` and `classifyStyle`: what a style a node is
 /// given goes through where the compiler can't say which value it is. Not
 /// there in a program none of whose own modules imports from `ui/`.
@@ -574,9 +590,9 @@ struct Extractor<'a> {
     /// `ui/style`'s `Color`, which is how [`Extractor::alphas`] recognises one.
     color_con: Option<TyConId>,
     /// `ui/style/classify`'s `classify`, for a list of styles, and
-    /// `classifyStyle`, for one, where the program loads them.
-    classify: Option<FnId>,
-    classify_style: Option<FnId>,
+    /// `classifyStyle`, for one.
+    classify: FnId,
+    classify_style: FnId,
     /// `ui/style`'s `extracted`, which `classify` is handed to build the
     /// `Classes` it can't.
     extracted: FnId,
@@ -938,13 +954,7 @@ impl<'a> Extractor<'a> {
     /// `classify` where it can be, so each value it holds at run time becomes
     /// the classes the sheet has for it. A choice is descended rather than
     /// wrapped, so that each branch is extracted or wrapped on its own.
-    fn leaf_or_descend(
-        &mut self,
-        e: &mut typed::Expr,
-        s: Sink,
-        cond: Cond,
-        classify: Option<FnId>,
-    ) {
+    fn leaf_or_descend(&mut self, e: &mut typed::Expr, s: Sink, cond: Cond, classify: FnId) {
         let choice = matches!(
             e.kind,
             ExprKind::If { .. } | ExprKind::Match { .. } | ExprKind::Block { .. }
@@ -953,8 +963,6 @@ impl<'a> Extractor<'a> {
             self.descend(e, Some(s), cond);
             return;
         }
-        let classify =
-            classify.or_ice("a program that hands a node a style loads `ui/style/classify`");
         let to = Demand::Leaf(self.wrapped.len());
         self.flow
             .edges(self.owner, e, Some(to), false, &mut self.extra);
@@ -1024,7 +1032,7 @@ impl<'a> Extractor<'a> {
         let ExprKind::CallFn { func, args } = &mut e.kind else {
             return;
         };
-        if ![self.classify, self.classify_style].contains(&func.decl()) {
+        if ![Some(self.classify), Some(self.classify_style)].contains(&func.decl()) {
             return;
         }
         let (known, strict) = found
@@ -1713,6 +1721,7 @@ impl<'a> Flow<'a> {
 
     /// What reads what, across every declaration this run reads.
     fn graph(&self, walked: &Walked) -> Edges {
+        GRAPHS_DRAWN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut edges = Edges::default();
         for (id, init) in walked.unsettled_constants(self.consts) {
             self.edges(
