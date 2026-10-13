@@ -9,6 +9,7 @@
 
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::semantics::name::Name;
+use crate::compiler::semantics::resolve::ConstMap;
 use crate::compiler::semantics::typed::{
     self, Expr, ExprKind, Magnitude, PatKind, Pattern, PrimOp, Stmt,
 };
@@ -219,13 +220,14 @@ pub struct Decision {
 /// Calls `f` with every decision in `body`, lambdas' included, `builtins`'
 /// calls too, and the expression that makes it: a guard's decision is the
 /// guard. With `traps`, which says whether a call can abort, the abort points
-/// too.
+/// too. `consts` holds the module-level `let`s a checked body still names.
 ///
 /// The `match` that `semantics` writes for `a < b` isn't one: its arms carry
 /// the operator's span, which an arm someone wrote can't.
 pub fn decisions(
     e: &Expr,
     traps: Option<&dyn Fn(&Expr) -> bool>,
+    consts: &ConstMap,
     builtins: Builtins,
     f: &mut impl FnMut(Decision, &Expr),
 ) {
@@ -246,7 +248,7 @@ pub fn decisions(
             }
         }
     }
-    if traps.is_some_and(|call| traps_here(e, call)) {
+    if traps.is_some_and(|call| traps_here(e, call, Some(consts))) {
         let d = Decision {
             kind: Kind::Trap,
             span: e.span,
@@ -256,7 +258,7 @@ pub fn decisions(
         };
         f(d, e);
     }
-    typed::children(e, &mut |c| decisions(c, traps, builtins, f));
+    typed::children(e, &mut |c| decisions(c, traps, consts, builtins, f));
 }
 
 /// Whether `e`, an `if`'s condition or a guard, is an MC/DC decision.
@@ -310,16 +312,28 @@ fn desugared(e: &Expr) -> bool {
     matches!(&e.kind, ExprKind::Match { arms, .. } if arms.first().is_some_and(|a| a.span == e.span))
 }
 
-/// Whether `e` is an operation that can abort: an integer `/` or `%`, or a
-/// call `call` says can.
-fn traps_here(e: &Expr, call: &dyn Fn(&Expr) -> bool) -> bool {
+/// Whether `e` is an operation that can abort: an integer `/` or `%` by
+/// anything but a nonzero constant, or a call `call` says can. A built body
+/// has its constants inlined, so it needs no `consts`.
+fn traps_here(e: &Expr, call: &dyn Fn(&Expr) -> bool, consts: Option<&ConstMap>) -> bool {
     match &e.kind {
         ExprKind::Prim {
             op: PrimOp::Div | PrimOp::Rem,
             prim,
-            ..
-        } => prim.is_integer(),
+            args,
+        } => prim.is_integer() && !args.get(1).is_some_and(|d| nonzero(d, consts)),
         ExprKind::CallFn { .. } | ExprKind::CallFunc { .. } => call(e),
+        _ => false,
+    }
+}
+
+/// Whether `e` is a literal other than zero, or a constant holding one.
+fn nonzero(e: &Expr, consts: Option<&ConstMap>) -> bool {
+    match &e.kind {
+        ExprKind::Int(m, _) => m.get() != 0,
+        ExprKind::Const(c) => consts
+            .and_then(|all| all.get(c))
+            .is_some_and(|v| nonzero(v, consts)),
         _ => false,
     }
 }
@@ -799,7 +813,7 @@ impl Branches<'_> {
             }
         }
         each_child_mut(e, tail, &mut |c, t| self.expr(c, t));
-        if self.options.mcdc.is_some() && traps_here(e, &|call| self.calls_trap(call)) {
+        if self.options.mcdc.is_some() && traps_here(e, &|call| self.calls_trap(call), None) {
             self.trap(e);
             return;
         }

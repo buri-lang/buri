@@ -1,0 +1,12 @@
+from "core/testing/assert" import * as assert;
+from "//lib/d" import * as d;
+
+test "constant divisors" {
+    assert.equal(d.half(7), 3);
+    assert.equal(d.column(6), 2);
+    assert.equal(d.middle([1, 2, 3, 4]), 2);
+}
+
+test "a divisor the caller picks" {
+    assert.equal(d.share(9, 3), 3);
+}
