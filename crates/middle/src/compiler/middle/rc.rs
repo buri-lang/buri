@@ -1004,13 +1004,23 @@ fn scan_func(
             // arrives. Liveness is the wrong question here: a `match` that
             // consumes its scrutinee takes it out of the live set, and that is
             // a parameter that *was* read.
+            //
+            // A self-loop's parameter arrives again on every back edge, so its
+            // drop goes at the entry, which runs each round. `lower` emits
+            // nothing at a root `Loop`'s own node. A merged group's entries
+            // bind every slot they own and don't read (`tail_calls`), so none
+            // of its parameters is unread.
+            let arrives = match &body.kind {
+                ExprKind::Loop { .. } => scan.child(NodeId(0), 0),
+                _ => NodeId(0),
+            };
             for (k, p) in f.params.iter().enumerate() {
                 if plan.params.get(k).copied() == Some(ir::Ownership::Own)
                     && scan.is_counted(*p)
                     && !scan.used.contains(p)
                 {
                     scan.sites.push(Site {
-                        node: NodeId(0),
+                        node: arrives,
                         at: Position::Before,
                         op: RcOp::DecRef,
                         target: Target::Local(*p),

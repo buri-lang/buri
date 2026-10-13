@@ -1,0 +1,14 @@
+# Self-recursive functions that hand each round a fresh heap value through a
+# parameter they never read. Both backends run every block, with the heap
+# checked natively.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a loop variable the loop never reads is released each round"
+
+run {
+  args: ["test", "//lib/loops", "--force"]
+  exit: 0
+  golden: "test.txt"
+}
