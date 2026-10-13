@@ -11,6 +11,14 @@
    Memcheck:Cond
    fun:*ring*aead*open_within*
 }
+# The same compare where an optimised program inlined `open_within` into
+# rustls's decrypt. Valgrind's own CPU has no ADX, so under it the runtime
+# takes ring rather than graviola (cli/runtime/tls.rs, `provider`).
+{
+   ring-gcm-tag-compare-inlined
+   Memcheck:Cond
+   fun:*rustls*ring*tls13*Tls13MessageDecrypter*decrypt*
+}
 {
    ring-gcm-ciphertext-sendto
    Memcheck:Param
