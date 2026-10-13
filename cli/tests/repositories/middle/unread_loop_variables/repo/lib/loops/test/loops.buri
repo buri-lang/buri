@@ -1,0 +1,36 @@
+// Loops whose every round passes a fresh heap value to a parameter the loop
+// never reads.
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+fn sum<C: Allocator>(ctx: C, _unread: Str, n: Int, acc: Int): Int {
+    if (n == 0) {
+        acc
+    } else {
+        sum(ctx, str.format(ctx, "round ${n}"), n - 1, acc + n)
+    }
+}
+
+fn count<C: Allocator>(ctx: C, _unread: [Str], n: Int, acc: Int): Int {
+    if (n == 0) {
+        acc
+    } else {
+        count(ctx, [str.format(ctx, "round ${n}")], n - 1, acc + 1)
+    }
+}
+
+test "a string the loop never reads" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(sum(ctx, str.format(ctx, "first ${0}"), 1000, 0), 500500)
+}
+
+test "a list the loop never reads" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(count(ctx, [], 100, 0), 100)
+}
