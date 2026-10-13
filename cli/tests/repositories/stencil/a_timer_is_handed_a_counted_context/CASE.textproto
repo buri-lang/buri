@@ -1,0 +1,16 @@
+# A context that owns a reference count, handed to a timer the runtime runs
+# later. The debug backend refused the timer and asked for a report; JavaScript
+# ran it. The harness runs `buri` under the heap check, so a count the timer
+# keeps, takes or gives back one time too many is a failed run here. A step
+# handed one: stencil/a_step_is_handed_a_counted_context.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a timer whose context owns a count passes on the native backend and on JavaScript"
+
+run {
+  args: ["test", "//lib/timers", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

@@ -90,7 +90,7 @@ use crate::compiler::middle::layout::{
 use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::semantics::builtins::conversion_is_exact;
 use crate::compiler::semantics::types::{self as types, FuncIdx, Prim, Tables, Ty, TyKind};
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant, Span};
+use crate::diagnostics::Invariant;
 use crate::hash::Map;
 
 use super::attrs::{self, Observed};
@@ -178,7 +178,6 @@ pub struct Unit<'ctx, 'a> {
     /// The classifier `middle::rc` decided its own operations with — see
     /// [`Unit::rc_counted`].
     rc: std::rc::Rc<std::cell::RefCell<rc::Syntactic>>,
-    pub diags: Diagnostics,
 }
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
@@ -221,7 +220,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             bodies: Vec::new(),
             helpers: 0,
             rc,
-            diags: Diagnostics::new(),
         }
     }
 
@@ -244,11 +242,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// uncounted), so the ownership column already carries rc's answer exactly.
     fn rc_counted(&mut self, ty: &Ty) -> bool {
         matches!(self.rc.borrow_mut().counted(ty), rc::Answer::Yes)
-    }
-
-    fn error(&mut self, span: Span, message: String, fix: &str) {
-        self.diags
-            .push(Diagnostic::error(span, message).with_fix(fix.to_string()));
     }
 
     // -----------------------------------------------------------------------
@@ -678,7 +671,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     self.observe_cancelled(&mut state, code, inst);
                     continue;
                 }
-                self.inst(&mut state, code, inst, func.span);
+                self.inst(&mut state, code, inst);
             }
             *state.ends.get_mut(i).or_ice("every block has its end") = Some(self.here());
             self.terminator(&mut state, code, i, &block.term);
@@ -976,7 +969,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     // Instructions
     // -----------------------------------------------------------------------
 
-    fn inst(&mut self, state: &mut Function<'ctx>, code: &ir::Code, inst: &ir::Inst, span: Span) {
+    fn inst(&mut self, state: &mut Function<'ctx>, code: &ir::Code, inst: &ir::Inst) {
         match inst {
             ir::Inst::Const { dest, value } => {
                 let v = self.constant(code.ty_of(*dest), value);
@@ -1048,13 +1041,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.array_prefix(state, code, *dest, *array, *len)
             }
             ir::Inst::Call { dest, func, args } => {
-                self.call(state, code, std::slice::from_ref(dest), *func, args, span)
+                self.call(state, code, std::slice::from_ref(dest), *func, args)
             }
             ir::Inst::CallIndirect { dest, callee, args } => {
                 self.call_indirect(state, code, std::slice::from_ref(dest), *callee, args)
             }
             ir::Inst::CallIntrinsic { dest, key, args } => {
-                self.call_intrinsic(state, code, std::slice::from_ref(dest), key, args, span)
+                self.call_intrinsic(state, code, std::slice::from_ref(dest), key, args)
             }
             ir::Inst::Structural { .. } => self.structural(state, code, inst),
             ir::Inst::IncRef { value } => self.incref(state, code, *value),
@@ -2657,14 +2650,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         dests: &[ir::ValueId],
         func: FuncIdx,
         args: &[ir::ValueId],
-        span: Span,
     ) {
         // A direct call to a function whose body is a runtime key is a call
         // into `cli/runtime` (VALUE-MODEL.md §10), not a call to a Buri
         // function — the backend declares the import and defines nothing.
         let f = self.func(func);
         if let Some(key) = f.intrinsic_key() {
-            self.call_intrinsic(state, code, dests, key, args, span);
+            self.call_intrinsic(state, code, dests, key, args);
             return;
         }
         let callee = self.declare(func);
@@ -2740,8 +2732,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// The order is the order of decreasing knowledge, which is also increasing
     /// cost: an operation this backend can *generate* is generated, an
-    /// operation the archive has a body for is called, and only a key that is
-    /// neither is a diagnostic. [`Unit::numeric`] and [`Unit::open_coded`]
+    /// operation the archive has a body for is called, and a key that is neither
+    /// never gets here: the build asked `missing_intrinsics` first.
+    /// [`Unit::numeric`] and [`Unit::open_coded`]
     /// answer `false` for a key they do not claim, so adding a symbol to
     /// [`runtime::ENTRIES`] later does not mean unpicking one of them.
     fn call_intrinsic(
@@ -2751,7 +2744,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         dests: &[ir::ValueId],
         key: &str,
         args: &[ir::ValueId],
-        span: Span,
     ) {
         if self.numeric(state, code, dests, key, args)
             || self.copy_out(state, code, dests, key, args)
@@ -2760,16 +2752,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         {
             return;
         }
-        // The build asks `missing_intrinsics` first. A caller that drives the
-        // backend itself may not have.
-        let Some(entry) = runtime::entry(key) else {
-            self.error(
-                span,
-                format!("the native runtime has no implementation of `{key}`"),
-                "report it: this is a toolchain bug, not a problem with your program",
-            );
-            return self.refused(state, code, dests);
-        };
+        let entry = runtime::entry(key)
+            .or_ice("the build asks `missing_intrinsics` before it emits a runtime call");
         let source = self.generic_element(code, dests, entry, args);
         let bare = if source.is_none() {
             self.bare_carrier(code, dests, entry, args)
@@ -2781,20 +2765,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             bare,
             answer: self.answer_element(code, dests),
         };
-        let Some(argv) = self.entry_args(state, code, entry, args, elements, span) else {
-            return self.refused(state, code, dests);
-        };
+        let argv = self.entry_args(state, code, entry, args, elements);
         self.call_entry(state, code, dests, entry, argv);
-    }
-
-    /// Binds a refused call's answer. The unit fails, and what follows still
-    /// reads it.
-    fn refused(&mut self, state: &mut Function<'ctx>, code: &ir::Code, dests: &[ir::ValueId]) {
-        for d in dests {
-            let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*d));
-            let none = repr::register_type(self.ctx, &slots).const_zero();
-            self.set(state, *d, none);
-        }
     }
 
     /// `T`, for an entry whose C signature carries a stride and a retain
@@ -2908,7 +2880,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `cli/runtime/lib.rs` §2 rule 1: every parameter is a scalar leaf,
     /// flattened in declaration order, and a zero-sized one is dropped. The
     /// shapes are checked against what the IR actually holds, so that a table
-    /// entry that has drifted from the contract is a diagnostic here rather
+    /// entry that has drifted from the contract is an internal error here rather
     /// than a wrong answer at run time.
     ///
     /// The walk is over the *C* list with a cursor into the Buri one, because
@@ -2921,8 +2893,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         entry: &runtime::Entry,
         args: &[ir::ValueId],
         elements: Elements,
-        span: Span,
-    ) -> Option<Vec<BasicMetadataValueEnum<'ctx>>> {
+    ) -> Vec<BasicMetadataValueEnum<'ctx>> {
         let element = elements.source;
         let key = entry.key;
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
@@ -3186,22 +3157,31 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         self.clear_ctx(record, bytes);
                     }
                     let ctx_arg = dropped.and_then(|i| args.get(i).copied());
+                    // A context that owns a count: the record keeps one of its
+                    // own until the runtime lets the handler go, and lends it
+                    // to the handler each time it fires, as a step's record
+                    // does.
+                    let mut kept = None;
                     if let (Some(arg), Some(at)) = (ctx_arg, ctx_at.first().copied()) {
-                        if ps.first().is_some_and(|t| self.rc_counted(t)) {
-                            self.error(
-                                span,
-                                format!("`{key}` was given a handler whose context owns a count"),
-                                "this is a toolchain bug; report it",
-                            );
-                            return None;
-                        }
                         self.store_ctx(state, code, arg, record, at);
+                        let cty = ps.first().or_ice("a handler takes its context first");
+                        if let Some(retain) = self.glue(Op::Retain, cty) {
+                            let p = repr::byte_offset(
+                                self.ctx,
+                                &self.builder,
+                                record,
+                                i64::from(at),
+                                "ctx.kept",
+                            );
+                            let _ = self.builder.build_call(retain, &[p.into()], "");
+                            kept = self.glue(Op::Release, cty).map(|g| (g, at));
+                        }
                     }
                     // The runtime keeps the handler, so the graph owes its
                     // environment a reference — taken here, given back at exit.
                     let glue = self.glue(Op::Retain, &body).or_ice("a closure is counted");
                     let _ = self.builder.build_call(glue, &[record.into()], "");
-                    let thunk = self.entry_thunk(ps, r, None, false);
+                    let thunk = self.entry_thunk(ps, r, None, kept.is_some());
                     let word = self.ctx.i64_type();
                     argv.push(function_pointer(thunk).into());
                     argv.push(record.into());
@@ -3209,9 +3189,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // No frame word: this backend's thunk works on the machine
                     // stack.
                     argv.push(word.const_all_ones().into());
-                    // The record's own walk: what gives back the reference taken
+                    // The record's own walk: what gives back the references taken
                     // above, at exit, when the graph lets the handler go.
                     let give_back = self.glue(Op::Release, &body).or_ice("a closure is counted");
+                    let give_back = match kept {
+                        Some((ctx, at)) => self.kept_glue(give_back, ctx, at),
+                        None => give_back,
+                    };
                     argv.push(function_pointer(give_back).into());
                 }
                 runtime::Arg::Spilled => {
@@ -3237,7 +3221,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 }
             }
         }
-        Some(argv)
+        argv
     }
 
     /// A context, into a step's or a handler's state record at byte `at`. A
@@ -4333,6 +4317,15 @@ enum Job<'ctx> {
         index: Option<usize>,
         lent: bool,
     },
+    /// The release of a kept handler's record whose context owns a count:
+    /// `body` over the closure at the start, then `ctx` over the context at
+    /// `at`.
+    Kept {
+        value: FunctionValue<'ctx>,
+        body: FunctionValue<'ctx>,
+        ctx: FunctionValue<'ctx>,
+        at: u32,
+    },
     /// The C-ABI **equality thunk** the reactive graph compares a write
     /// through: `void(frame, a, b, out)`, which runs `middle::derives`'s
     /// generated `Equal` for `ty` on the two values it is handed and writes the
@@ -4652,6 +4645,29 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             });
         }
         Some(f)
+    }
+
+    /// [`Job::Kept`]: the `void(record)` release of a kept handler whose
+    /// context owns a count, one per call site.
+    fn kept_glue(
+        &mut self,
+        body: FunctionValue<'ctx>,
+        ctx: FunctionValue<'ctx>,
+        at: u32,
+    ) -> FunctionValue<'ctx> {
+        let fty = self.ctx.void_type().fn_type(&[self.ptr_ty().into()], false);
+        let name = format!("buri.kept.{}", self.helpers);
+        self.helpers = self.helpers.saturating_add(1);
+        let f = self.module.add_function(&name, fty, Some(Linkage::Private));
+        // `ccc`, as the glue it stands in for.
+        attrs::set_convention(f, attrs::C);
+        self.pending.push(Job::Kept {
+            value: f,
+            body,
+            ctx,
+            at,
+        });
+        f
     }
 
     /// The C-ABI equality thunk for one cell type, or `None` where
@@ -5084,6 +5100,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             | Job::Glue { value, .. }
             | Job::Env { value, .. }
             | Job::Entry { value, .. }
+            | Job::Kept { value, .. }
             | Job::Equal { value, .. } => *value,
         };
         let entry = self.ctx.append_basic_block(value, "entry");
@@ -5153,6 +5170,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.each_element(&mut state, first, count, stride, &ty, op);
             }
             Job::Env { word, .. } => self.build_env_glue(&mut state, first, word),
+            Job::Kept { body, ctx, at, .. } => {
+                let _ = self.builder.build_call(body, &[first.into()], "");
+                let p = repr::byte_offset(self.ctx, &self.builder, first, i64::from(at), "ctx.p");
+                let _ = self.builder.build_call(ctx, &[p.into()], "");
+            }
         }
         let _ = self.builder.build_return(None);
     }

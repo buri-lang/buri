@@ -1,1 +1,1 @@
-// What `test/` asserts is a step handed a context that owns a count, so nothing is exported.
+// What `test/` asserts is a step and a timer handed a context that owns a count, so nothing is exported.

@@ -1342,8 +1342,7 @@ impl<'a> Jit<'a> {
             // signature **is** the caller's argument and destination types.
             // `rt_call` is the one implementation of `cli/runtime/lib.rs` §2's
             // rule, and `runtime_body` hands it the same list from the callee's
-            // parameter offsets — so a shape refused here is refused there too,
-            // and the refusal is the same sentence.
+            // parameter offsets — so the two sites marshal alike.
             //
             // A key with no row in `runtime.rs`'s table is `str.length`,
             // `number.<T>.<op>` and the rest, whose bodies `runtime_body`
@@ -1352,9 +1351,7 @@ impl<'a> Jit<'a> {
                 let list: Vec<(u32, ir::Type)> =
                     args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
                 let dest = (st.at(dest), code.ty_of(dest));
-                if let Err(why) = self.rt_call(prog, st, entry, dest, &list) {
-                    self.unsupported(why);
-                }
+                self.rt_call(prog, st, entry, dest, &list);
                 return;
             }
         }
@@ -1516,9 +1513,7 @@ impl<'a> Jit<'a> {
                     .or_ice("an intrinsic key middle writes has a runtime row");
                 let list: Vec<(u32, ir::Type)> =
                     args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
-                if let Err(why) = self.rt_call(prog, st, entry, (d, code.ty_of(dest)), &list) {
-                    self.unsupported(why);
-                }
+                self.rt_call(prog, st, entry, (d, code.ty_of(dest)), &list);
             }
         }
     }
@@ -2381,13 +2376,8 @@ impl<'a> Jit<'a> {
             .first()
             .or_ice("a signature has one result (middle/ir.rs)");
         let dest = (fs.ret.first().copied().unwrap_or(0), *ret);
-        match self.rt_call(prog, st, entry, dest, &args) {
-            Ok(()) => true,
-            Err(why) => {
-                self.unsupported(why);
-                true
-            }
-        }
+        self.rt_call(prog, st, entry, dest, &args);
+        true
     }
 
     /// The stride of `[T]`'s element, for an IR type that is a `[T]`.

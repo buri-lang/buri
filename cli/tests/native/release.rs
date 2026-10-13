@@ -195,26 +195,3 @@ fn a_value_nested_seventy_structs_deep_keeps_its_count() {
     std::fs::write(at.join("test/wide.buri"), source).unwrap();
     passes(&repo, &["//lib/deep"]);
 }
-
-/// **A timer whose context owns a count is refused**, with no internal error
-/// after it. A step handed one runs: `lib/contexts`.
-#[test]
-fn a_context_that_owns_a_count_is_refused() {
-    skip_unless_executable!();
-    let repo = scratch("refused");
-    copy(
-        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release"),
-        &repo,
-    );
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-    cmd.current_dir(&repo)
-        .args(["test", "--release", "//refused"]);
-    let ran = crate::shared::ran_command(&mut cmd);
-    let err = &ran.stderr;
-    assert_ne!(ran.status, 0, "{err}");
-    assert!(
-        err.contains("`tasks.timerStart` was given a handler whose context owns a count"),
-        "{err}"
-    );
-    assert!(!err.contains("internal error"), "{err}");
-}

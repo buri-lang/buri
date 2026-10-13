@@ -1,8 +1,0 @@
-library {
-    sources: []
-
-    test {
-        sources: ["test/counted.buri", "test/later.buri"]
-        backends: [NATIVE]
-    }
-}

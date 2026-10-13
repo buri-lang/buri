@@ -1,0 +1,8 @@
+library {
+    sources: []
+
+    test {
+        sources: ["test/timers.buri"]
+        backends: [NATIVE, JS]
+    }
+}

@@ -2,7 +2,7 @@ library {
     sources: []
 
     test {
-        sources: ["test/contexts.buri"]
+        sources: ["test/contexts.buri", "test/timers.buri"]
         backends: [NATIVE]
     }
 }

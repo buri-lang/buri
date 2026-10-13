@@ -1,0 +1,53 @@
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+from "core/testing/assert" import * as assert;
+from "core/time" import * as time;
+from "platform/effect" import { Allocator, Region, Tasks };
+from "platform/effect/testing" import { alloc, tasks as testTasks };
+
+// An allocator that owns a `Str`, so a context binding it owns a count.
+struct Named {
+    name: Str,
+}
+
+impl Allocator for Named {
+    fn allocate(self, bytes: Int): Region {
+        Region(bytes + self.name.length())
+    }
+}
+
+fn named<C: Allocator>(ctx: C): Named {
+    Named { name: str.format(ctx, "${7}") }
+}
+
+test "a cancelled timer is handed a context that owns a count" {
+    let ctx = context {
+        Allocator: named(alloc()),
+        Tasks: testTasks(),
+    };
+    tasks.cancel(ctx, tasks.after(ctx, time.milliseconds(1), fn(c) => ()));
+    assert.equal(str.format(ctx, "${1}"), "1");
+}
+
+test "a pending timer is handed a context that owns a count" {
+    let ctx = context {
+        Allocator: named(alloc()),
+        Tasks: testTasks(),
+    };
+    // Left pending: it fires once the tests are done, and allocates through
+    // the context it was handed.
+    let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => {
+        let _ = str.format(c, "${2}");
+        ()
+    });
+    assert.equal(str.format(ctx, "${1}"), "1");
+}
+
+test "a timer is handed a context that owns no count" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: testTasks(),
+    };
+    tasks.cancel(ctx, tasks.after(ctx, time.milliseconds(1), fn(c) => ()));
+    assert.equal(str.format(ctx, "${1}"), "1");
+}
