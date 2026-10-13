@@ -1,0 +1,24 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# Three packages, each with an `unused-source`, for a client that defers edits
+# to `codeAction/resolve`:
+#
+# - `lib/schema`: the unlisted file is a schema, which belongs in
+#   `generators`, and `buri gen` never writes those. Its build file is already
+#   as gen writes it, so an action would change nothing: none is listed.
+# - `lib/stale`: gen adds `extra.buri` to `sources`, so the action is listed.
+# - `cmd/both`: gen cannot tell which rule `extra.buri` belongs to, so none is
+#   listed.
+#
+# Then `lib/schema/BUILD.buri` is opened written out of gen's layout. The same
+# finding now has a fix, because gen would rewrite the file.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"textDocument": {"codeAction": {"resolveSupport": {"properties": ["edit"]}}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/schema/lib.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "unused-source", "message": "lib/schema/price.proto belongs to no library or binary, so nothing builds it", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/stale/lib.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "unused-source", "message": "lib/stale/extra.buri belongs to no library or binary, so nothing builds it", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/cmd/both/helper.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "unused-source", "message": "cmd/both/extra.buri belongs to no library or binary, so nothing builds it", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/schema/BUILD.buri", "languageId": "buri", "version": 1, "text": "library {\n}\n"}}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/codeAction", "params": {"textDocument": {"uri": "file://<scratch>/lib/schema/lib.buri"}, "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}, "context": {"diagnostics": [{"code": "unused-source", "message": "lib/schema/price.proto belongs to no library or binary, so nothing builds it", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}}]}}}
+{"jsonrpc": "2.0", "id": 6, "method": "codeAction/resolve", "params": {"title": "lib/schema/BUILD.buri: as `buri gen` would write it", "kind": "quickfix", "data": {"uri": "file://<scratch>/lib/schema/lib.buri", "code": "unused-source", "title": "lib/schema/BUILD.buri: as `buri gen` would write it"}}}
+{"jsonrpc": "2.0", "id": 7, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -6,12 +6,16 @@
 //! a `circular-dependency` has no action, because which edge to cut is a decision.
 //!
 //! **Why there are two halves.** The list arrives on every cursor move onto a
-//! squiggle, and the second source is expensive in a way the first is not:
-//! `buri gen` opens a writable session of its own and re-analyses the package
-//! to derive its dependencies, and that work is not cached by anything. So the
-//! list is titles and the association with the squiggle, and the edit is
-//! computed once, for the one action a reader accepted. That is what
+//! squiggle, and an edit is bytes to send that the reader may never accept. So
+//! the list is titles and the association with the squiggle, and the edit is
+//! sent once, for the one action a reader accepted. That is what
 //! `resolveProvider: true` claims.
+//!
+//! The second source is expensive in a way the first is not: `buri gen` opens
+//! a writable session of its own and re-analyses the package to derive its
+//! dependencies. The list still needs its answer, because a build file gen
+//! would leave as it is has no fix to offer, so the answer is kept per package
+//! and state of the repository ([`State::build_file_edit`]).
 //!
 //! A client that cannot resolve gets the edit in the list, as before. The claim
 //! is read from its own `initialize`: a server that deferred an edit to a
@@ -200,9 +204,8 @@ fn rendered(action: &Action, uri: &str, asked: &[Value]) -> Value {
 
 /// Every fix the lint pass offers for the codes asked about.
 ///
-/// `with_edits` is the whole difference between the two halves: without it this
-/// reads the findings the lint pass already computed and stops, and with it the
-/// build-file family also runs `buri gen`.
+/// `with_edits` is the whole difference between the two halves: without it an
+/// action carries its title and not its edit.
 fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) -> Vec<Action> {
     let Some(linted) = state.lint(path) else {
         return Vec::new();
@@ -279,26 +282,20 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
         if !regenerated.insert(where_it_is.clone()) {
             continue;
         }
-        // The summary of what changed is not in the title, because reading it
-        // means writing the file first — which is the work this half exists to
-        // put off. What `buri gen` writes is the whole answer either way.
+        // The summary of what changed is not in the title: what `buri gen`
+        // writes is the whole answer either way.
         let title = format!("{where_it_is}: as `buri gen` would write it");
         // A title whose resolve would come back without an edit is a fix that
-        // does nothing, so the deferred half asks whether `buri gen` can place
-        // the file, which needs no analysis; the eager half has the edit.
-        if with_edits {
-            if let Some(edit) = regenerated_build_file(state, path, package) {
-                out.push(Action {
-                    title,
-                    code: code.to_string(),
-                    edit: Some(edit),
-                });
-            }
-        } else if regenerate::can_place(session, package) {
+        // does nothing — a file gen cannot place, or one already as gen writes
+        // it — so both halves ask for the edit. It is kept per state of the
+        // repository, which is what keeps listing cheap: a cursor that moves
+        // across squiggles in one state runs `buri gen` once, and the resolve
+        // that follows reads the same answer.
+        if let Some(edit) = regenerated_build_file(state, path, package) {
             out.push(Action {
                 title,
                 code: code.to_string(),
-                edit: None,
+                edit: with_edits.then_some(edit),
             });
         }
     }
@@ -328,7 +325,8 @@ fn byte_edits(session: &Session, d: &crate::diagnostics::Diagnostic) -> Value {
     changes(by_file)
 }
 
-/// The whole `BUILD.buri` `buri gen` would write for a package.
+/// The whole `BUILD.buri` `buri gen` would write for a package, or `None`
+/// when gen would leave it as it is.
 ///
 /// `buri gen` re-analyses the package to derive its dependencies and writes
 /// through the session it is handed, so it gets one of its own: the lint
@@ -339,20 +337,22 @@ fn regenerated_build_file(
     package: crate::build::workspace::PackageId,
 ) -> Option<Value> {
     let root = state.root_of(path)?;
-    let mut writable = state.overlaid_session(&root)?;
-    let update = regenerate::regenerate(&mut writable, package).ok()??;
-    let build = writable.workspace.package(package).build_path.clone();
-    let id = writable.map.find(&writable.workspace.rel_of(&build))?;
-    let text = writable.map.get(id).text.clone();
-    let mut by_file = BTreeMap::new();
-    by_file.insert(
-        convert::uri_of(&build),
-        vec![Value::object(vec![
-            ("range", super::whole(&text)),
-            ("newText", Value::str(&update.text)),
-        ])],
-    );
-    Some(changes(by_file))
+    state.build_file_edit(&root, package, |state| {
+        let mut writable = state.overlaid_session(&root)?;
+        let update = regenerate::regenerate(&mut writable, package).ok()??;
+        let build = writable.workspace.package(package).build_path.clone();
+        let id = writable.map.find(&writable.workspace.rel_of(&build))?;
+        let text = writable.map.get(id).text.clone();
+        let mut by_file = BTreeMap::new();
+        by_file.insert(
+            convert::uri_of(&build),
+            vec![Value::object(vec![
+                ("range", super::whole(&text)),
+                ("newText", Value::str(&update.text)),
+            ])],
+        );
+        Some(changes(by_file))
+    })
 }
 
 fn changes(by_file: BTreeMap<String, Vec<Value>>) -> Value {

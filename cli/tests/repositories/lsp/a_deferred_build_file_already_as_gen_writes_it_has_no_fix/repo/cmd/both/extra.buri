@@ -1,0 +1,5 @@
+/// A file no rule lists and neither `lib.buri` nor `main.buri` imports, so
+/// `buri gen` cannot tell which of the two rules it belongs to.
+export fn extra(): I64 {
+    3
+}

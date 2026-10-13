@@ -1,0 +1,4 @@
+/// A file no rule lists, which `buri gen` would add to `sources`.
+export fn two(): I64 {
+    2
+}
