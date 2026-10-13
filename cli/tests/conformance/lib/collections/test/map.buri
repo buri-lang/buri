@@ -348,6 +348,20 @@ test "a group keeps the order of the list" {
     assert.equal(assert.some(m.get(0)), [4]);
 }
 
+test "groupBy files numbers under the names it gives them" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let m = map.groupBy(ctx, [3, 8, 5, 2, 7], fn(n: Int) => {
+        if (n % 2 == 0) { "even" } else { "odd" }
+    });
+    assert.equal(m.length(), 2);
+    assert.equal(assert.some(m.get("odd")), [3, 5, 7]);
+    assert.equal(assert.some(m.get("even")), [8, 2]);
+    assert.isTrue(m.get("zero").isNone());
+    assert.isFalse(m.has("prime"));
+}
+
 test "groupBy of the empty list is the empty map" {
     let ctx = context {
         Allocator: alloc(),

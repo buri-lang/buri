@@ -1710,9 +1710,11 @@ test "a map of strings to ints splits, borrows and merges like one of ints" {
     ]);
     assert.equal(m.range(ctx, "1000", "3000").length(), 600);
     assert.equal(m.prefix(ctx, "15").map(ctx, fn(e) => e.1), list.range(ctx, 250, 300));
+    // "0" sorts before every key, so it has no floor.
     let probes = list
         .range(ctx, -1, 1200)
-        .mapCtx(ctx, fn(c, i) => str.format(c, "${1000 + i}"));
+        .mapCtx(ctx, fn(c, i) => str.format(c, "${1000 + i}"))
+        .pushFront(ctx, "0");
     let keys = m.keys(ctx);
     assert.isTrue(
         probes.all(fn(k) => {
