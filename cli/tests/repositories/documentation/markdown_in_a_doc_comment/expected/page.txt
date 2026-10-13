@@ -1,0 +1,43 @@
+//lib/bakery/lib.buri
+─────────────────────
+
+The bakery's oven.
+
+It has run at version 2. 3 settings since spring. Nothing else changed.
+
+####### Seven hashes is not a heading
+
+See the \] key (keys.md) and [the dial](dial.md that never closes.
+
+  ```buri
+  let quoted = 1;
+
+Why the oven is hot
+───────────────────
+
+Background a dense reader skips.
+
+History
+───────
+
+More background.
+
+Use
+───
+
+Bake.
+
+Functions
+─────────
+
+*Pure* means the function takes no context parameter, so it cannot allocate,
+read, write, or observe anything — the guarantee is the absence of an argument
+rather than an annotation.
+
+heat
+
+  fn heat(): I64
+
+Pure.
+
+How hot the oven runs.

@@ -741,29 +741,4 @@ mod tests {
             }
         }
     }
-
-    /// A topic's registered title must be the heading a reader actually sees,
-    /// modulo the section number the specification carries. Otherwise the
-    /// index and the page disagree about what the page is called.
-    #[test]
-    fn every_title_matches_its_first_heading() {
-        for t in TOPICS {
-            let headings = markdown::headings(t.text);
-            let Some(h) = headings.first() else {
-                panic!("`{}` has no heading", t.id);
-            };
-            let written = h
-                .title
-                .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
-                .trim();
-            let normalize = |s: &str| s.replace(['`', ':'], "").to_lowercase();
-            assert!(
-                normalize(written).starts_with(&normalize(t.title))
-                    || normalize(t.title).starts_with(&normalize(written)),
-                "`{}` is titled `{}` but its heading reads `{written}`",
-                t.id,
-                t.title
-            );
-        }
-    }
 }

@@ -919,10 +919,9 @@ fn read_skills(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
         let text = slurp(root, &path)?;
         let (front, body) = split_front_block(&text);
         let description = front.and_then(|block| field(block, "description"));
-        let title = markdown::headings(body)
-            .first()
-            .map(|heading| heading.title.to_string())
-            .unwrap_or_else(|| skill.name.to_string());
+        let title = crate::markdown::first_heading(body)
+            .unwrap_or(skill.name)
+            .to_string();
         pages.push(Page {
             route: format!("reference/skills/{}", skill.name),
             title,
@@ -1157,7 +1156,7 @@ mod tests {
         };
         let page = item_markdown(&item);
         assert!(page.starts_with("### map\n"), "{page}");
-        assert_eq!(buri::documentation::markdown::slug("map"), "map");
+        assert_eq!(crate::markdown::slug("map"), "map");
         assert!(
             page.contains("```buri sig\nfn map<B, C: Allocator>"),
             "{page}"

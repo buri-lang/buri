@@ -1,0 +1,22 @@
+# A library's doc comments are markdown, and `buri docs` reads the corner
+# cases the way GitHub would: more than six `#`s isn't a heading, a comment
+# isn't shown, a table with no rows prints nothing, a ``` inside a fence
+# is part of it, and a link with no closing `)` is left as text. Dense
+# drops background sections that follow one another and keeps a sentence
+# with a number in it whole.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "`buri docs` renders the markdown a doc comment is written in"
+
+run {
+  args: ["docs", "//lib/bakery/lib.buri"]
+  exit: 0
+  golden: "page.txt"
+}
+
+run {
+  args: ["docs", "//lib/bakery/lib.buri", "--dense", "--format=markdown"]
+  exit: 0
+  golden: "dense.md"
+}

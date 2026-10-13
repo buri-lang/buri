@@ -179,9 +179,9 @@ fn every_link_resolves() {
     let mut broken = Vec::new();
     for doc in &documents() {
         let text = read(doc);
-        let anchors: Vec<String> = markdown::headings(&text)
+        let anchors: Vec<String> = scanning::headings(&text)
             .iter()
-            .map(|h| markdown::slug(h.title))
+            .map(|h| scanning::slug(h.title))
             .collect();
         // A link resolves from wherever a reader meets the text. A topic
         // assembled into another file is met there, so its links are written
@@ -225,9 +225,9 @@ fn every_link_resolves() {
                         continue;
                     };
                     let other = std::fs::read_to_string(&target).unwrap_or_default();
-                    let other_anchors: Vec<String> = markdown::headings(&other)
+                    let other_anchors: Vec<String> = scanning::headings(&other)
                         .iter()
-                        .map(|h| markdown::slug(h.title))
+                        .map(|h| scanning::slug(h.title))
                         .collect();
                     if !other_anchors.iter().any(|a| a == anchor) {
                         broken.push(format!(
@@ -1893,4 +1893,50 @@ fn codes_in(text: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// A topic's heading must carry the number `DOCUMENTS` pins for it. This is
+/// what protects the `SPEC N.M` citations in `cli/src/` from a silent
+/// renumber.
+#[test]
+fn every_section_number_is_pinned() {
+    for doc in assemble::DOCUMENTS {
+        for s in doc.sections {
+            let headings = scanning::headings(s.topic().text);
+            let first = headings.first().expect("a topic has a heading");
+            assert!(
+                first.title.starts_with(&format!("{}. ", s.number)),
+                "{} pins `{}` at section {}, but its heading reads `{}`",
+                doc.path,
+                s.topic,
+                s.number,
+                first.title
+            );
+        }
+    }
+}
+
+/// A topic's registered title must be the heading a reader actually sees,
+/// modulo the section number the specification carries. Otherwise the index
+/// and the page disagree about what the page is called.
+#[test]
+fn every_title_matches_its_first_heading() {
+    for t in topics::TOPICS {
+        let headings = scanning::headings(t.text);
+        let Some(h) = headings.first() else {
+            panic!("`{}` has no heading", t.id);
+        };
+        let written = h
+            .title
+            .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
+            .trim();
+        let normalize = |s: &str| s.replace(['`', ':'], "").to_lowercase();
+        assert!(
+            normalize(written).starts_with(&normalize(t.title))
+                || normalize(t.title).starts_with(&normalize(written)),
+            "`{}` is titled `{}` but its heading reads `{written}`",
+            t.id,
+            t.title
+        );
+    }
 }
