@@ -338,8 +338,9 @@ fn sorted<K, V, C: Allocator>(ctx: C, entries: [(K, V)]): OrderedMap<K, V> {
         leaf(keys, values)
     } else {
         let count = (n + MAX_ENTRIES - 1) / MAX_ENTRIES;
+        let (base, extra) = shares(n, count, MAX_ENTRIES);
         let none = branch(list.empty<K>(), list.empty<Node<K, V>>());
-        level(ctx, leaves(ctx, keys, values, n / count, n % count, 0, none))
+        level(ctx, leaves(ctx, keys, values, base, extra, 0, none))
     };
     OrderedMap { root: root, size: n }
 }
@@ -384,8 +385,21 @@ fn level<K, V, C: Allocator>(ctx: C, flat: Node<K, V>): Node<K, V> {
     } else {
         let count = (n + MAX_ENTRIES + 1) / (MAX_ENTRIES + 1);
         let held = n - (count - 1);
+        let (base, extra) = shares(held, count, MAX_ENTRIES);
         let none = branch(list.empty<K>(), list.empty<Node<K, V>>());
-        level(ctx, group(ctx, flat, held / count, held % count, 0, none))
+        level(ctx, group(ctx, flat, base, extra, 0, none))
+    }
+}
+
+/// `total` split into `count` shares as even as can be: the smaller share, and
+/// how many shares take one more. Counted down from `most`, a bound on the
+/// smaller share, which here is at most `MAX_ENTRIES`: no division by `count`,
+/// which can't be zero but which a division would count as if it could.
+fn shares(total: Int, count: Int, most: Int): (Int, Int) {
+    if (most * count > total) {
+        shares(total, count, most - 1)
+    } else {
+        (most, total - most * count)
     }
 }
 
@@ -532,14 +546,9 @@ fn joinAt<T, C: Allocator>(ctx: C, xs: [T], at: Int, x: T): [T] {
 
 /// A leaf's entry at `at`, if there is one.
 fn entryAt<K, V>(n: Node<K, V>, at: Int): Option<(K, V)> {
-    match (n.keys.get(at)) {
-        .None => .None,
-        .Some(k) => {
-            match (n.values.get(at)) {
-                .None => .None,
-                .Some(v) => .Some((k, v)),
-            }
-        },
+    match ((n.keys.get(at), n.values.get(at))) {
+        (.Some(k), .Some(v)) => .Some((k, v)),
+        _ => .None,
     }
 }
 
@@ -634,27 +643,25 @@ fn overfull<K, V, C: Allocator>(ctx: C, n: Node<K, V>): Grown<K, V> {
     let half = count / 2;
     if (count <= MAX_ENTRIES) {
         .Fit(n)
-    } else if (isLeaf(n)) {
-        let right = leaf(n.keys.drop(ctx, half), n.values.drop(ctx, half));
-        match (right.keys.get(0)) {
-            .None => .Fit(n),
-            .Some(up) => {
-                .Split(
-                    leaf(n.keys.take(ctx, half), n.values.take(ctx, half)),
-                    up,
-                    right,
-                )
-            },
-        }
     } else {
+        // An overfull node has a key at `half`; for a leaf it's the right
+        // half's first.
         match (n.keys.get(half)) {
             .None => .Fit(n),
             .Some(up) => {
-                .Split(
-                    branch(n.keys.take(ctx, half), n.children.take(ctx, half + 1)),
-                    up,
-                    branch(n.keys.drop(ctx, half + 1), n.children.drop(ctx, half + 1)),
-                )
+                if (isLeaf(n)) {
+                    .Split(
+                        leaf(n.keys.take(ctx, half), n.values.take(ctx, half)),
+                        up,
+                        leaf(n.keys.drop(ctx, half), n.values.drop(ctx, half)),
+                    )
+                } else {
+                    .Split(
+                        branch(n.keys.take(ctx, half), n.children.take(ctx, half + 1)),
+                        up,
+                        branch(n.keys.drop(ctx, half + 1), n.children.drop(ctx, half + 1)),
+                    )
+                }
             },
         }
     }
