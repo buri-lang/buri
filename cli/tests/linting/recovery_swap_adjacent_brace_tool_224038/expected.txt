@@ -1,0 +1,31 @@
+error: an import declaration ends with `;` [missing-semicolon]
+ --> lib/recovery_swap_adjacent_brace_tool_224038/lib.buri:3:39
+  |
+3 | from "core/tool" import { Generated, } GenerateRequest;
+  |                                       ^
+  |
+  = fix: write `;` here
+error: expected a declaration, found `GenerateRequest` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_tool_224038/lib.buri:3:40
+  |
+3 | from "core/tool" import { Generated, } GenerateRequest;
+  |                                        ^^^^^^^^^^^^^^^
+  |
+  = expected: a declaration
+  = actual: `GenerateRequest`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+warning: `ctx` is not used; the function is pure [unused-context]
+ --> lib/recovery_swap_adjacent_brace_tool_224038/lib.buri:6:34
+  |
+6 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+  |                                  ^^^^^^
+  |
+  = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+  = fix: remove the `ctx` parameter, and the context argument at every call site
+error: there is no type `GenerateRequest` [unknown-type]
+ --> lib/recovery_swap_adjacent_brace_tool_224038/lib.buri:6:51
+  |
+6 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+  |                                                   ^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling

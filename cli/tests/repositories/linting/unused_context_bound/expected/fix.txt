@@ -1,2 +1,2 @@
-fixed 3 findings
+fixed 5 findings
 no findings

@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a function whose body is `core/order`'s own: hand-rolled-comparator, beside the three chains that are not it — a reversed order, a float order with a fourth branch for `NaN`, and a comparator over a `U8` that no `order.*` takes"
+doc: "a function whose body is `core/order`'s own: hand-rolled-comparator, beside the chains that are not it — a reversed order, a float order with a fourth branch for `NaN`, a comparator over a `U8` that no `order.*` takes, and a dozen chains each one step off the two the rule knows"
 
 run {
   args: ["lint", "//cmd/app"]

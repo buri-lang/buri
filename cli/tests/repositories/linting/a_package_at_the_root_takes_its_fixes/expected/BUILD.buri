@@ -1,0 +1,4 @@
+library {
+    sources: ["spare.buri"]
+    visibility: ["//visibility:public"]
+}

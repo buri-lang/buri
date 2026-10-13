@@ -50,7 +50,9 @@ use crate::build::session::Session;
 use crate::build::sources::{Overlay, Sources};
 use crate::build::workspace::TargetId;
 use crate::commands::arguments::{BuildMode, Flags};
-use crate::diagnostics::{Diagnostic, Edit, FileId, SecondarySpan, Severity, SourceMap, Span};
+use crate::diagnostics::{
+    Diagnostic, Edit, FileId, Invariant as _, SecondarySpan, Severity, SourceMap, Span,
+};
 use std::path::{Path, PathBuf};
 
 /// The shape of a record, so that a change to the encoding below is a miss
@@ -164,9 +166,10 @@ impl Store {
             .root
             .join(self.names.get(at).map_or("", String::as_str));
         let hash = self.sources.content_hash(&path, &self.overlay);
-        if let Some(slot) = self.hashes.get_mut(at) {
-            *slot = Some(hash);
-        }
+        *self
+            .hashes
+            .get_mut(at)
+            .or_ice("`id` mints a hash slot beside every name") = Some(hash);
         hash
     }
 
@@ -261,9 +264,9 @@ impl Store {
             });
             if inside && !children.iter().any(|c| c.as_str() == key.as_str()) {
                 for i in at {
-                    if let Some(c) = covered.get_mut(i) {
-                        *c = true;
-                    }
+                    *covered
+                        .get_mut(i)
+                        .or_ice("`at` holds indices into `closure`") = true;
                 }
                 children.push(key);
             }

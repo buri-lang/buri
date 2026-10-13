@@ -1,1 +1,1 @@
-from "//lib/label/stamp.buri" export { note, stamp };
+from "//lib/label/stamp.buri" export { hum, note, stamp };

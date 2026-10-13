@@ -1,0 +1,38 @@
+error: expected `{`, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_module_app_17c397/main.buri:10:20
+   |
+10 | from "node" import ? { NodeHost };
+   |                    ^
+   |
+   = expected: `{`
+   = actual: `?`
+   = fix: write `{` here
+error: expected a declaration, found `;` [unexpected-token]
+  --> lib/recovery_insert_stray_module_app_17c397/main.buri:10:34
+   |
+10 | from "node" import ? { NodeHost };
+   |                                  ^
+   |
+   = expected: a declaration
+   = actual: `;`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+warning: `platform/effect` is imported twice [duplicate-import]
+  --> lib/recovery_insert_stray_module_app_17c397/main.buri:12:6
+   |
+12 | from "platform/effect" import { Stdout };
+   |      ^^^^^^^^^^^^^^^^^
+   |
+  --> lib/recovery_insert_stray_module_app_17c397/main.buri:11:6
+   |
+11 | from "platform/effect" import { Allocator };
+   |      ^^^^^^^^^^^^^^^^^ first imported here
+   |
+   = two statements for one module drift apart, and the top of the file stops being the whole account of what it borrows
+   = fix: merge the two into one import
+error: there is no type `NodeHost` [unknown-type]
+  --> lib/recovery_insert_stray_module_app_17c397/main.buri:14:22
+   |
+14 | export fn main(host: NodeHost): Result<(), Str> {
+   |                      ^^^^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling

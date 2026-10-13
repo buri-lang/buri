@@ -1,0 +1,10 @@
+library {
+    sources: ["cents.buri"]
+    visibility: ["//visibility:public"]
+}
+
+binary {
+    outputs: [
+        { platform: "node" },
+    ]
+}

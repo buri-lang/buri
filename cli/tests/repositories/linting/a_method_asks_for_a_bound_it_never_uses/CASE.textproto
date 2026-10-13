@@ -1,0 +1,33 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "unused-context-bound on methods: a method's own spare bound is reported and removed by the fix, and a bound on its impl's parameter is left alone"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//...", "--fix"]
+  exit: 0
+  golden: "fix.txt"
+}
+
+file {
+  path: "lib/sign/sign.buri"
+  golden: "sign.buri"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "build.txt"
+}

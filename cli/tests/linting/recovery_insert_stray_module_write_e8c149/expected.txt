@@ -1,0 +1,12 @@
+error: this generic parameter list is missing its closing `>` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_module_write_e8c149/lib.buri:4:26
+  |
+4 | export fn write<C: Stdout? >(ctx: C, line: Str): Result<Int, Str> {
+  |                          ^
+  |
+ --> lib/recovery_insert_stray_module_write_e8c149/lib.buri:4:16
+  |
+4 | export fn write<C: Stdout? >(ctx: C, line: Str): Result<Int, Str> {
+  |                ^ opened here
+  |
+  = fix: write `>` here

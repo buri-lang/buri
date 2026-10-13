@@ -1,0 +1,45 @@
+// The order of the arms is not part of the shape: `sayErrorFirst` is the
+// four-line drop with `.Err` written first, and is reported.
+//
+// The rest are not findings, and each is a different reason.
+// `sayUnlessQuiet` has a guard, `sayAgainOnError` does something when it
+// fails, `sayAnyway` catches the failure with `_` rather than naming it, and
+// `sayUnlessEmpty` matches on what the success carried.
+
+from "platform/effect" import { Stdout };
+from "//lib/say/write.buri" import { write };
+
+export fn sayErrorFirst<C: Stdout>(ctx: C, line: Str): () {
+    match (write(ctx, line)) {
+        .Err(_error) => (),
+        .Ok(_written) => (),
+    }
+}
+
+export fn sayUnlessQuiet<C: Stdout>(ctx: C, line: Str, quiet: Bool): () {
+    match (write(ctx, line)) {
+        .Ok(_written) if quiet => (),
+        _ => (),
+    }
+}
+
+export fn sayAgainOnError<C: Stdout>(ctx: C, line: Str): () {
+    match (write(ctx, line)) {
+        .Ok(_written) => (),
+        .Err(_error) => sayAnyway(ctx, line),
+    }
+}
+
+export fn sayAnyway<C: Stdout>(ctx: C, line: Str): () {
+    match (write(ctx, line)) {
+        .Ok(_written) => (),
+        _ => (),
+    }
+}
+
+export fn sayUnlessEmpty<C: Stdout>(ctx: C, line: Str): () {
+    match (write(ctx, line)) {
+        .Ok(0) => (),
+        _ => (),
+    }
+}

@@ -1,0 +1,9 @@
+error: expected a type, found `=` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_marks_942e7b/lib.buri:1:18
+  |
+1 | export let POST: = Str "||";
+  |                  ^
+  |
+  = expected: a type
+  = actual: `=`
+  = fix: name a type here, as in `Int` or `[Str]`

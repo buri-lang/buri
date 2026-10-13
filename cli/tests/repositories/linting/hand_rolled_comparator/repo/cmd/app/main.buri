@@ -47,6 +47,68 @@ fn compareOctets(left: U8, right: U8): Order {
     if (left < right) { .Less } else if (left > right) { .Greater } else { .Equal }
 }
 
+// None of the rest are findings either. Each is one step off a chain the rule
+// knows: a second comparison of other operands or with another operator, a
+// chain with no second comparison, a branch answering the wrong variant, a
+// condition that is a call or a negation, the `Bool` chain over integers, and
+// the `Bool` chain testing the wrong operand or answering the wrong variants.
+
+fn compareSwappedOperands(left: Int, right: Int): Order {
+    if (left < right) { .Less } else if (right > left) { .Greater } else { .Equal }
+}
+
+fn compareAgainstZero(left: Int, right: Int): Order {
+    if (left < right) { .Less } else if (left > 0) { .Greater } else { .Equal }
+}
+
+fn compareAtLeast(left: Int, right: Int): Order {
+    if (left < right) { .Less } else if (left >= right) { .Greater } else { .Equal }
+}
+
+fn compareMixed(left: Int, right: Int, low: Float, high: Float): Order {
+    if (left < right) { .Less } else if (low > high) { .Greater } else { .Equal }
+}
+
+fn compareTwoWays(left: Int, right: Int): Order {
+    if (left < right) { .Less } else { .Greater }
+}
+
+fn compareEqualInTheMiddle(left: Int, right: Int): Order {
+    if (left < right) { .Less } else if (left > right) { .Equal } else { .Greater }
+}
+
+fn compareNan(left: Float, right: Float): Order {
+    if (math.isNan(left)) { .Less } else if (left > right) { .Greater } else { .Equal }
+}
+
+fn compareIntsByEquality(left: Int, right: Int): Order {
+    if (left == right) { .Equal } else if (left > right) { .Greater } else { .Less }
+}
+
+fn compareNegated(left: Bool, right: Bool): Order {
+    if (!left) { .Less } else if (right) { .Greater } else { .Equal }
+}
+
+fn compareBoolsByTheRight(left: Bool, right: Bool): Order {
+    if (left == right) { .Equal } else if (right) { .Greater } else { .Less }
+}
+
+fn compareBoolsWithItself(left: Bool, right: Bool): Order {
+    if (left == left) { .Equal } else if (left) { .Greater } else { .Less }
+}
+
+fn compareBoolsLessFirst(left: Bool, right: Bool): Order {
+    if (left == right) { .Equal } else if (left) { .Less } else { .Greater }
+}
+
+fn compareBoolsLessOnEqual(left: Bool, right: Bool): Order {
+    if (left == right) { .Less } else if (left) { .Greater } else { .Equal }
+}
+
+fn compareBoolsNeverLess(left: Bool, right: Bool): Order {
+    if (left == right) { .Equal } else if (left) { .Greater } else { .Equal }
+}
+
 fn label(ordered: Order): Str {
     match (ordered) {
         .Less => "less",
@@ -66,6 +128,20 @@ export fn main(host: NodeHost): Result<(), Str> {
         label(compareDescending(1, 2)),
         label(compareFloats(1.0, 2.0)),
         label(compareOctets(1, 2)),
+        label(compareSwappedOperands(1, 2)),
+        label(compareAgainstZero(1, 2)),
+        label(compareAtLeast(1, 2)),
+        label(compareMixed(1, 2, 1.0, 2.0)),
+        label(compareTwoWays(1, 2)),
+        label(compareEqualInTheMiddle(1, 2)),
+        label(compareNan(1.0, 2.0)),
+        label(compareIntsByEquality(1, 2)),
+        label(compareNegated(true, false)),
+        label(compareBoolsByTheRight(true, false)),
+        label(compareBoolsWithItself(true, false)),
+        label(compareBoolsLessFirst(true, false)),
+        label(compareBoolsLessOnEqual(true, false)),
+        label(compareBoolsNeverLess(true, false)),
     ];
     io
         .println(ctx, said.join(ctx, " "))

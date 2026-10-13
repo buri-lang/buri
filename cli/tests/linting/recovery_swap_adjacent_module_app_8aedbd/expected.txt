@@ -1,0 +1,17 @@
+error: expected `from`, found a string literal [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_8aedbd/main.buri:14:1
+   |
+14 | "node" from import { NodeHost };
+   | ^^^^^^
+   |
+   = expected: `from`
+   = actual: a string literal
+   = fix: write `from` first: `from "node"`
+warning: this drops a `Result` by hand [hand-rolled-ignore]
+  --> lib/recovery_swap_adjacent_module_app_8aedbd/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate

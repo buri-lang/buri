@@ -1,0 +1,7 @@
+error: a match arm is `pattern => expression` [missing-arrow]
+ --> lib/recovery_insert_stray_brace_write_85655c/lib.buri:8:10
+  |
+8 |     extra }
+  |          ^
+  |
+  = fix: write `=>` here

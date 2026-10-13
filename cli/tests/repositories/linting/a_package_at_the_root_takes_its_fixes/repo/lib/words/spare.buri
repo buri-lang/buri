@@ -1,0 +1,5 @@
+/// No rule lists this file, and `--fix` writes it into the library's
+/// `sources`, though the repository root holds a package too.
+export fn spare(): Str {
+    "ledger"
+}

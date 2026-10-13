@@ -1,0 +1,9 @@
+error: expected an identifier, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_paren_write_52fb11/lib.buri:6:35
+  |
+6 |         .Ok(_written) => .Ok(line., length()),
+  |                                   ^
+  |
+  = expected: an identifier
+  = actual: `,`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

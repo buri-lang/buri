@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-semicolon]
+ --> lib/recovery_delete_separator_module_expected_df802b/main.buri:7:30
+  |
+7 | from "core/io" import * as io
+  |                              ^
+  |
+  = fix: write `;` here

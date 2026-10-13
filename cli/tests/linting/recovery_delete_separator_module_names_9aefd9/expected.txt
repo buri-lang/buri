@@ -1,0 +1,7 @@
+error: a `let` declaration ends with `;` [missing-semicolon]
+ --> lib/recovery_delete_separator_module_names_9aefd9/lib.buri:2:34
+  |
+2 | export let LEDGER: Str = "ledger"
+  |                                  ^
+  |
+  = fix: write `;` here

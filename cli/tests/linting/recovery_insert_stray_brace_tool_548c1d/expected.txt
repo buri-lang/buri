@@ -1,0 +1,22 @@
+warning: `ctx` is not used; the function is pure [unused-context]
+ --> lib/recovery_insert_stray_brace_tool_548c1d/lib.buri:6:34
+  |
+6 | export fn generate<C: Allocator>(ctx: C, request: GenerateRequest<Str>): Generated {
+  |                                  ^^^^^^
+  |
+  = a `ctx` parameter is the whole of what a function may do to the world, so one the body never reads makes every caller hold a context for a computation that touches nothing
+  = fix: remove the `ctx` parameter, and the context argument at every call site
+error: a struct-literal field ends with `,` [missing-comma]
+ --> lib/recovery_insert_stray_brace_tool_548c1d/lib.buri:7:56
+  |
+7 |     Generated { modules: [], diagnostics: [], needs: [] extra }
+  |                                                        ^
+  |
+  = fix: write `,` here
+error: `Generated` has no field `extra` [unknown-field]
+ --> lib/recovery_insert_stray_brace_tool_548c1d/lib.buri:7:57
+  |
+7 |     Generated { modules: [], diagnostics: [], needs: [] extra }
+  |                                                         ^^^^^
+  |
+  = fix: check the spelling, or name a field the type declares

@@ -1,0 +1,7 @@
+library {
+    sources: ["a.buri"]
+
+    # Listed twice, which is one edge named twice.
+    dependencies: ["//lib/b", "//lib/b"]
+    visibility: ["//visibility:public"]
+}

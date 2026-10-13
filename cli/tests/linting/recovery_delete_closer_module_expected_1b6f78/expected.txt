@@ -1,0 +1,28 @@
+error: a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_delete_closer_module_expected_1b6f78/main.buri:43:38
+   |
+43 |     str.format(ctx, "== ${label} ==")
+   |                                      ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `rendered` [unexpected-token]
+  --> lib/recovery_delete_closer_module_expected_1b6f78/main.buri:49:4
+   |
+49 | fn rendered<C: Allocator + Clock>(ctx: C, render: fn(C, Str) => Str, label: Str): Str {
+   |    ^^^^^^^^
+   |
+   = expected: `(`
+   = actual: `rendered`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_expected_1b6f78/main.buri:72:1
+   |
+72 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_module_expected_1b6f78/main.buri:42:50
+   |
+42 | fn banner<C: Allocator>(ctx: C, label: Str): Str {
+   |                                                  ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,33 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+#
+# `unused-source` asks about a file that is not `.buri` only when a generator
+# in its package already reads a file with the same extension. `WORDS` has no
+# extension, so it names no kind of file, and neither `NOTES` nor `spare.txt`
+# is taken for one the rule forgot. Once a `.txt` is an input, `spare.txt` is.
+# `staging/` is not a package, so the input waits there until it is moved in.
+
+doc: "a generator input with no extension makes no other file unlisted, and an input with one makes every other file with that extension unlisted"
+
+run {
+  args: ["lint", "//lib/words"]
+  exit: 0
+  golden: "clean.txt"
+}
+
+move {
+  from: "staging/list.txt"
+  to: "lib/words/list.txt"
+}
+
+edit {
+  file: "lib/words/BUILD.buri"
+  replace: "inputs: [\"WORDS\"]"
+  with: "inputs: [\"WORDS\", \"list.txt\"]"
+}
+
+run {
+  args: ["lint", "//lib/words"]
+  exit: 1
+  golden: "spare.txt"
+}

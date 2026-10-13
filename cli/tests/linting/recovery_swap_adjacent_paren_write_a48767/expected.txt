@@ -1,0 +1,9 @@
+error: expected a type, found `,` [unexpected-token]
+ --> lib/recovery_swap_adjacent_paren_write_a48767/lib.buri:4:34
+  |
+4 | export fn write<C: Stdout>(ctxC :, line: Str): Result<Int, Str> {
+  |                                  ^
+  |
+  = expected: a type
+  = actual: `,`
+  = fix: name a type here, as in `Int` or `[Str]`

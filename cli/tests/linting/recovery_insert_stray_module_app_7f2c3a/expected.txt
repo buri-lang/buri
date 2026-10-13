@@ -16,16 +16,16 @@ warning: this comment is marked `TODO` [todo-comment]
   = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
   = fix: finish the work, or delete the marker
 error: `Allocator` is an effect, but this file does not import it [effect-not-imported]
-  --> lib/recovery_insert_stray_module_app_7f2c3a/main.buri:16:9
+  --> lib/recovery_insert_stray_module_app_7f2c3a/main.buri:18:9
    |
-16 |         Allocator: host.alloc,
+18 |         Allocator: host.alloc,
    |         ^^^^^^^^^
    |
    = fix: import it: `from "platform/effect" import { Allocator };`
 error: `Stdout` is an effect, but this file does not import it [effect-not-imported]
-  --> lib/recovery_insert_stray_module_app_7f2c3a/main.buri:17:9
+  --> lib/recovery_insert_stray_module_app_7f2c3a/main.buri:19:9
    |
-17 |         Stdout: host.stdout,
+19 |         Stdout: host.stdout,
    |         ^^^^^^
    |
    = fix: import it: `from "platform/effect" import { Stdout };`

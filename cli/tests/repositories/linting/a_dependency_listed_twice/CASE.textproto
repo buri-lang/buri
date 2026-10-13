@@ -1,0 +1,19 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+#
+# The second lint answers from what the first one remembered, and the record
+# for `//lib/a` names `//lib/b`'s once however many times the build file does.
+
+doc: "a library that lists one dependency twice lints clean, and lints clean again from what the first run remembered"
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

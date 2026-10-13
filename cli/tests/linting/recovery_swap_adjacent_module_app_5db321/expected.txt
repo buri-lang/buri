@@ -1,0 +1,110 @@
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:15:16
+   |
+15 | fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:22:13
+   |
+22 | fn shout<C: Allocator + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |             ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Clock` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:22:25
+   |
+22 | fn shout<C: Allocator + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                         ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:29:13
+   |
+29 | fn tally<C: Allocator + Stdout + Clock>(ctx: C, label: Str): Result<(), IoError> {
+   |             ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Clock` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:29:34
+   |
+29 | fn tally<C: Allocator + Stdout + Clock>(ctx: C, label: Str): Result<(), IoError> {
+   |                                  ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+error: this type argument list is missing its closing `>` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:53:47
+   |
+53 | export fn main(host: NodeHost): Result<(), Str{ >
+   |                                               ^
+   |
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:53:39
+   |
+53 | export fn main(host: NodeHost): Result<(), Str{ >
+   |                                       ^ opened here
+   |
+   = fix: write `>` here
+error: expected an expression, found `>` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:53:49
+   |
+53 | export fn main(host: NodeHost): Result<(), Str{ >
+   |                                                 ^
+   |
+   = expected: an expression
+   = actual: `>`
+   = fix: write a value here
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:60:22
+   |
+60 |     let _ = announce(ctx, label).mapErr(fn(_e) => {
+   |                      ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:63:19
+   |
+63 |     let _ = shout(ctx, label).mapErr(fn(_e) => "could not write to standard output")?;
+   |                   ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:64:19
+   |
+64 |     let _ = tally(ctx, label).mapErr(fn(_e) => "could not write to standard output")?;
+   |                   ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:65:21
+   |
+65 |     let _ = whisper(ctx, banner(ctx, label)).mapErr(fn(_e) => {
+   |                     ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:65:33
+   |
+65 |     let _ = whisper(ctx, banner(ctx, label)).mapErr(fn(_e) => {
+   |                                 ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:68:13
+   |
+68 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(
+   |             ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unknown-name]
+  --> lib/recovery_swap_adjacent_module_app_5db321/main.buri:68:27
+   |
+68 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c, "<${l}>"), label)).mapErr(
+   |                           ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

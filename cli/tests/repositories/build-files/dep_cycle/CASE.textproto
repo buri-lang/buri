@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "two packages that depend on each other: circular-dependency, once from each end"
+doc: "two packages that depend on each other: circular-dependency, once from each end, and a package that depends on itself, which is not a cycle"
 
 # `//lib/a` really uses `//lib/b`; `//lib/b` only declares `//lib/a`, so the
 # cycle is the one kind of finding here and the golden is about it alone.
@@ -34,6 +34,20 @@ edit {
   file: "lib/b/BUILD.buri"
   replace: "    dependencies: [\"//lib/a\"]\n"
   with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# A package naming itself is an edge from a target to itself, and a cycle is
+# two targets reaching each other, so there is no cycle to report.
+edit {
+  file: "lib/b/BUILD.buri"
+  replace: "    sources: [\"b.buri\"]\n"
+  with: "    sources: [\"b.buri\"]\n    dependencies: [\"//lib/b\"]\n"
 }
 
 run {

@@ -1,0 +1,9 @@
+error: expected `fn`, found `shout` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_expected_b5bde1/main.buri:22:1
+   |
+22 | shout fn<C: Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   | ^^^^^
+   |
+   = expected: `fn`
+   = actual: `shout`
+   = fix: write `fn` first: `fn shout`

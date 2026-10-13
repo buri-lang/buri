@@ -1,0 +1,9 @@
+error: expected `;`, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_expected_2eb650/main.buri:63:37
+   |
+63 |     let _ = shout(ctx, label).mapErr@ (fn(_e) => "could not write to standard output")?;
+   |                                     ^
+   |
+   = expected: `;`
+   = actual: `@`
+   = fix: write `;` here

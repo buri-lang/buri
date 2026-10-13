@@ -1,0 +1,17 @@
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_brace_stamp_0b74b7/lib.buri:24:19
+   |
+24 | export fn note<C: Allocator // it will allocate once the sink is real
+   |                   ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+error: expected an expression, found `_` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_stamp_0b74b7/lib.buri:33:3
+   |
+33 |   _ let = ctx;
+   |   ^
+   |
+   = expected: an expression
+   = actual: `_`
+   = fix: write a value here

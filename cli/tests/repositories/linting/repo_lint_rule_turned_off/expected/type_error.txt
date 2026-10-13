@@ -1,0 +1,39 @@
+REPO.buri turns off 1 of 27 lint rules: unused-variable
+error: expected `Str`, found `Int` [type-mismatch]
+ --> lib/money/cents.buri:8:31
+  |
+8 | export fn format(n: I64): Str {
+  |                               ^ the declared return type is `Str`
+  |
+  = expected: `Str`
+  = actual: `Int`
+  = an integer literal defaults to `Int` but takes any integer type, and `Str` is not one
+
+    Numbers don't convert on their own
+    ──────────────────────────────────
+
+    There is no implicit widening or narrowing, so convert explicitly. A
+    widening conversion such as .toI64() on an I32 is exact. A narrowing one
+    returns a Result, because not every value fits.
+
+    A bare literal is reported as Int or Float when nothing pins its type.
+    Annotate it, as in let x: U8 = 1 or let x: F64 = 1.0, and it takes any type
+    of the same kind.
+
+    A .Variant is a variant
+    ───────────────────────
+
+    A leading dot takes its enum from its position, so a position that isn't an
+    enum can't resolve it. expected is the type to write instead. The found side
+    names the variant, not a type, because the compiler won't guess an enum from
+    the payload.
+
+error: expected `Str`, found `Int` [type-mismatch]
+  --> lib/money/cents.buri:10:28
+   |
+10 |     if (n == 0) { 0 } else { "some" }
+   |                            ^^^^^^^^^^ the other branch is `Str`
+   |
+   = expected: `Str`
+   = actual: `Int`
+   = an integer literal defaults to `Int` but takes any integer type, and `Str` is not one

@@ -1,0 +1,31 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "hand-rolled-ignore with `.Err` written first is the same finding, and a guard, a `_` arm, an arm that acts on the failure, and a payload matched on are each not it"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# Handling it the way the finding asks: `?` hands the failure to `main`, which
+# answers a `Result` already.
+
+edit {
+  file: "lib/say/near.buri"
+  replace: "export fn sayErrorFirst<C: Stdout>(ctx: C, line: Str): () {\n    match (write(ctx, line)) {\n        .Err(_error) => (),\n        .Ok(_written) => (),\n    }\n}\n"
+  with: "export fn sayErrorFirst<C: Stdout>(ctx: C, line: Str): Result<(), Str> {\n    let _ = write(ctx, line)?;\n    .Ok(())\n}\n"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "    let _ = sayErrorFirst(ctx, \"one\");\n"
+  with: "    let _ = sayErrorFirst(ctx, \"one\")?;\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

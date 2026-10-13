@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a context that asks for effects its body never exercises: unused-context-bound, three findings beside the three ways of using a bound, and the fix that trims the bound lists"
+doc: "a context that asks for effects its body never exercises: unused-context-bound, five findings beside the three ways of using a bound, and the fix that trims the bound lists"
 
 run {
   args: ["lint", "//..."]
@@ -15,10 +15,11 @@ run {
   golden: "lint.json"
 }
 
-# Three findings, two declarations, and two rewrites: `shout`'s two bounds are
+# Five findings, three declarations, and four rewrites: `shout`'s two bounds are
 # one piece of text with one `+` between them, so the removal is computed once
 # and both of the findings about that parameter carry it. Applying it once
-# answers both, which is why the count below is three and not two.
+# answers both. `tally`'s two are apart, with `Stdout` staying between them, so
+# each takes its own `+` and the two deletions are separate.
 run {
   args: ["lint", "//...", "--fix"]
   exit: 0

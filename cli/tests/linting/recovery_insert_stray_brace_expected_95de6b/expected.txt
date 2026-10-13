@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_expected_95de6b/main.buri:61:9
+   |
+61 |         @ "could not write to standard output"
+   |         ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

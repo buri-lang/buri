@@ -1,0 +1,58 @@
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/sign/sign.buri:19:23
+   |
+19 |     export fn hang<C: Allocator + Stdout>(self, ctx: C): Result<(), IoError> {
+   |                       ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+
+     A ctx parameter's bounds say which parts of the world a function touches.
+     fn save<C: Allocator + FileSystemWrite>(ctx: C, …) allocates and writes
+     files, and every caller must hold a context that can do both. A dead bound
+     spreads, because each caller's signature has to carry it too.
+
+     A body uses a bound in three ways:
+
+     - A callee that asks for it. io.println(ctx, x) makes its own bounds
+     demands on C, so the bounds it names are used and the rest are not. This is
+     the only way an effect gets used: you call an effect through the module
+     that wraps it, not on the context (SPEC 10.2).
+
+     - An `impl` that asks for it. Given
+     impl<C: Allocator + Clock> Allocator for Wrap<C>, needs(Wrap { inner: ctx
+     }) uses Clock, because Wrap<C> is an Allocator only where C is a Clock.
+
+     - A function-typed parameter. render(ctx, label), where
+     render: fn(C, Str) => Str, hands the whole context to unseen code, so it
+     uses every bound.
+
+     What is not asked
+     ─────────────────
+
+     - A method supplied by an `impl`. Its bounds must match the trait's, so a
+     dead bound there is dead on the trait.
+
+     - A function with no body: a trait method's signature, an effect's
+     operation, a standard library intrinsic.
+
+     - A parameter that is not a context. The rule only looks at a ctx
+     parameter's type parameter, and only when at least one bound is an effect.
+
+     - A body that did not type-check. Without the typed tree, the rule can't
+     see which callee uses which bound, so it says nothing.
+
+     The fix
+     ───────
+
+     Delete the bound. Unlike a ctx parameter, a bound touches no call site, so
+     the fix is offered even when the name is on the library's surface.
+
+     Removing FileSystemWrite and Io from <C: Allocator + FileSystemWrite + Io>
+     is one rewrite, because the bounds share their + separators. Every finding
+     on one parameter carries the same rewrite, buri lint --fix applies it once,
+     and the next run is clean.
+
+     The fix is withheld when anything but separators sits between the bounds,
+     so a comment inside a bound list never gets deleted.
+

@@ -17,7 +17,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "one rule turned off in REPO.buri: no command reports it, every command says which rule that was, and turning it back on brings it back"
+doc: "one rule turned off in REPO.buri: no command reports it, every command says which rule that was, turning it back on brings it back, and a type error is reported whatever the rules say"
 
 run {
   args: ["lint", "//..."]
@@ -62,4 +62,25 @@ run {
   args: ["build", "//lib/money", "--verbose"]
   exit: 1
   golden: "build_on.txt"
+}
+
+# A type error is not one of the catalogue's rules, so turning rules off leaves
+# it reported: `rules` says which checks run, not which errors a build may
+# ignore.
+edit {
+  file: "REPO.buri"
+  replace: "unused_variable: true"
+  with: "unused_variable: false"
+}
+
+edit {
+  file: "lib/money/cents.buri"
+  replace: "{ \"zero\" }"
+  with: "{ 0 }"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "type_error.txt"
 }

@@ -1,0 +1,10 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a type nothing reaches in a package with a library and a binary: dead-code once, and no unused-type from the second target that sees the same file"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}

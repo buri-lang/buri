@@ -1,0 +1,9 @@
+error: expected a pattern, found `,` [unexpected-token]
+ --> lib/recovery_insert_stray_brace_write_87fb7d/lib.buri:7:69
+  |
+7 |         .Err(_error) => .Err("could not write to standard output"), ,
+  |                                                                     ^
+  |
+  = expected: a pattern
+  = actual: `,`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

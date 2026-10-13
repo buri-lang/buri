@@ -1,0 +1,30 @@
+error: this `match` scrutinee is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_insert_stray_paren_write_87af9a/lib.buri:5:22
+  |
+5 |     match (io.println@ (ctx, line)) {
+  |                      ^
+  |
+ --> lib/recovery_insert_stray_paren_write_87af9a/lib.buri:5:11
+  |
+5 |     match (io.println@ (ctx, line)) {
+  |           ^ opened here
+  |
+  = fix: write `)` here
+error: expected `fn(_, Template) => Result<(), IoError>`, found a variant `.Ok` [type-mismatch]
+ --> lib/recovery_insert_stray_paren_write_87af9a/lib.buri:6:9
+  |
+6 |         .Ok(_written) => .Ok(line.length()),
+  |         ^^^^^^^^^^^^^
+  |
+  = expected: `fn(_, Template) => Result<(), IoError>`
+  = actual: a variant `.Ok`
+  = a value written with a leading dot names a variant of the enum the position expects, and this position expects `fn(_, Template) => Result<(), IoError>`
+error: expected `fn(_, Template) => Result<(), IoError>`, found a variant `.Err` [type-mismatch]
+ --> lib/recovery_insert_stray_paren_write_87af9a/lib.buri:7:9
+  |
+7 |         .Err(_error) => .Err("could not write to standard output"),
+  |         ^^^^^^^^^^^^
+  |
+  = expected: `fn(_, Template) => Result<(), IoError>`
+  = actual: a variant `.Err`
+  = a value written with a leading dot names a variant of the enum the position expects, and this position expects `fn(_, Template) => Result<(), IoError>`

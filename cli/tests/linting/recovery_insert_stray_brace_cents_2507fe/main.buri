@@ -1,0 +1,12 @@
+// `Spare` is exported from this file and `lib.buri` does not publish it, so
+// nothing reaches it: `dead-code`. The package's binary is a second target
+// whose analysis holds this file too, and the type is said to be dead once,
+// not reported again as unused by the binary.
+
+export struct Spare {
+    cents: I64,
+}
+
+export fn describe(cents: I64): Str {
+    if (cents == 0) { "zero" } else , { "some" }
+}

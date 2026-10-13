@@ -1,0 +1,56 @@
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_paren_app_69a7c4/main.buri:15:16
+   |
+15 | fn announce<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_paren_app_69a7c4/main.buri:22:13
+   |
+22 | fn shout<C: Allocator + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |             ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Clock` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_paren_app_69a7c4/main.buri:22:25
+   |
+22 | fn shout<C: Allocator + Clock + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                         ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_paren_app_69a7c4/main.buri:29:13
+   |
+29 | fn tally<C: Allocator + Stdout + Clock>(ctx: C, label: Str): Result<(), IoError> {
+   |             ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Clock` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_swap_adjacent_paren_app_69a7c4/main.buri:29:34
+   |
+29 | fn tally<C: Allocator + Stdout + Clock>(ctx: C, label: Str): Result<(), IoError> {
+   |                                  ^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+error: a call argument ends with `,` [missing-comma]
+  --> lib/recovery_swap_adjacent_paren_app_69a7c4/main.buri:68:56
+   |
+68 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c"<${ ,l}>"), label)).mapErr(
+   |                                                        ^
+   |
+   = fix: write `,` here
+error: expected an expression, found `,` [unexpected-token]
+  --> lib/recovery_swap_adjacent_paren_app_69a7c4/main.buri:68:61
+   |
+68 |     whisper(ctx, rendered(ctx, fn(c, l) => str.format(c"<${ ,l}>"), label)).mapErr(
+   |                                                             ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

@@ -76,3 +76,11 @@ error: `C` does not implement `Stdout` [missing-impl]
    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = fix: bound the type parameter with `Stdout`, or use a type that has one
+error: `Allocator` is not a trait or effect [bound-not-trait]
+  --> lib/recovery_insert_stray_brace_stamp_7c7ff0/lib.buri:32:3
+   |
+32 |   Allocator>(ctx: C, label: Str): Str {
+   |   ^^^^^^^^^
+   |
+   = a bound names a declared trait; there are no where clauses
+   = fix: name a declared trait or effect, or declare `Allocator` as one

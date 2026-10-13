@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-semicolon]
+ --> lib/recovery_delete_separator_module_write_94a7f6/lib.buri:2:41
+  |
+2 | from "platform/effect" import { Stdout }
+  |                                         ^
+  |
+  = fix: write `;` here

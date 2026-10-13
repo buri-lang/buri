@@ -1,0 +1,6 @@
+binary {
+    dependencies: ["//lib/words"]
+    outputs: [
+        { platform: "node" },
+    ]
+}

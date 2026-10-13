@@ -1,0 +1,36 @@
+warning: this is a table of the sixteen hexadecimal digits [hand-rolled-hex-digits]
+  --> lib/recovery_delete_closer_module_app_159f28/main.buri:12:5
+   |
+12 |     '0',
+   |     ^^^
+   |
+   = `character.fromDigit(n, 16)` is a digit and `character.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `character.fromDigit`, `number.toHex` or `bytes.toHex`
+error: a `match` used as a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_delete_closer_module_app_159f28/main.buri:36:6
+   |
+36 |     }
+   |      ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `hexByte` [unexpected-token]
+  --> lib/recovery_delete_closer_module_app_159f28/main.buri:39:4
+   |
+39 | fn hexByte<C: Allocator>(ctx: C, octet: Int): Str {
+   |    ^^^^^^^
+   |
+   = expected: `(`
+   = actual: `hexByte`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_app_159f28/main.buri:52:1
+   |
+52 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_module_app_159f28/main.buri:32:41
+   |
+32 | fn nibble(value: Int, shift: Int): Char {
+   |                                         ^ opened here
+   |
+   = fix: write `}` here

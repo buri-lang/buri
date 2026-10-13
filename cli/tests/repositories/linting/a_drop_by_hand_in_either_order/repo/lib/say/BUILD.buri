@@ -1,0 +1,4 @@
+library {
+    sources: ["near.buri", "write.buri"]
+    visibility: ["//visibility:public"]
+}

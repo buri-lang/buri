@@ -1,7 +1,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a nanoseconds-per-millisecond constant and a timeout multiplied out in place: time-unit-conversion, twice, with a parts-per-million denominator of the same literal beside them that is not a finding"
+doc: "a nanoseconds-per-millisecond constant and a timeout multiplied out in place: time-unit-conversion, three times with the million on either side, with a parts-per-million denominator of the same literal beside them that is not a finding"
 
 run {
   args: ["lint", "//cmd/app"]
@@ -49,8 +49,34 @@ edit {
   with: "    time.nanoseconds(nanoseconds).milliseconds()\n"
 }
 
+edit {
+  file: "cmd/app/main.buri"
+  replace: "    1_000_000 * IDLE_TIMEOUT_MILLIS\n"
+  with: "    time.seconds(30).nanoseconds()\n"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "    IDLE_TIMEOUT_MILLIS * 1000\n"
+  with: "    time.seconds(30).microseconds()\n"
+}
+
 run {
   args: ["lint", "//..."]
   exit: 0
   golden: "clean.txt"
+}
+
+# A `*` with nothing before it, as the first thing in the file: there is no
+# operand on its left to read a unit from, and the file is reported as broken.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "// A timeout kept as a count"
+  with: "* 1_000_000\n// A timeout kept as a count"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "star.txt"
 }

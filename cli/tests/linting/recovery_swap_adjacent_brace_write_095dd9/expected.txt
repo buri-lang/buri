@@ -1,0 +1,21 @@
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_swap_adjacent_brace_write_095dd9/lib.buri:5:35
+  |
+5 |     match (io.println(ctx, line){ )
+  |                                   ^
+  |
+ --> lib/recovery_swap_adjacent_brace_write_095dd9/lib.buri:5:33
+  |
+5 |     match (io.println(ctx, line){ )
+  |                                 ^ opened here
+  |
+  = fix: write `}` here
+error: expected `{`, found `.` [unexpected-token]
+ --> lib/recovery_swap_adjacent_brace_write_095dd9/lib.buri:6:9
+  |
+6 |         .Ok(_written) => .Ok(line.length()),
+  |         ^
+  |
+  = expected: `{`
+  = actual: `.`
+  = fix: write `{` here

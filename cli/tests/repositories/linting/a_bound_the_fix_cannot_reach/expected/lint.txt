@@ -64,3 +64,11 @@ warning: bound `Allocator` on `C` is not used by this function [unused-context-b
    |
    = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
    = fix: remove the bound
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/label/stamp.buri:32:3
+   |
+32 |   Allocator>(ctx: C, label: Str): Str {
+   |   ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound

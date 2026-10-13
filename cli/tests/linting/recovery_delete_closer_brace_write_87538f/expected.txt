@@ -1,0 +1,36 @@
+error: this `match` does not cover `.Err(_)` [match-not-exhaustive]
+ --> lib/recovery_delete_closer_brace_write_87538f/lib.buri:5:5
+  |
+5 |     match (io.println(ctx, line)) {
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not covered
+  |
+  = every `match` must cover its scrutinee's type
+  = fix: add an arm for `.Err(_)`, or a `_` arm for everything left
+error: `Ok` holds 1 value, but 2 were given [payload-count]
+ --> lib/recovery_delete_closer_brace_write_87538f/lib.buri:6:26
+  |
+6 |         .Ok(_written) => .Ok(line.length(),
+  |                          ^^^
+  |
+  = expected: 1
+  = actual: 2
+  = fix: pass `Ok` the following values: Ok(T)
+error: `.Err` needs a known expected type [untyped-variant]
+ --> lib/recovery_delete_closer_brace_write_87538f/lib.buri:7:9
+  |
+7 |         .Err(_error) => .Err("could not write to standard output"),
+  |         ^^^^
+  |
+  = fix: write `Result.Err(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_brace_write_87538f/lib.buri:7:22
+  |
+7 |         .Err(_error) => .Err("could not write to standard output"),
+  |                      ^^
+  |
+ --> lib/recovery_delete_closer_brace_write_87538f/lib.buri:6:29
+  |
+6 |         .Ok(_written) => .Ok(line.length(),
+  |                             ^ opened here
+  |
+  = fix: write `)` here

@@ -1,0 +1,23 @@
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_delete_separator_brace_stamp_9ed68c/lib.buri:17:20
+   |
+17 | export fn stamp<C: Allocator + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+   |                    ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+warning: bound `Allocator` on `C` is not used by this function [unused-context-bound]
+  --> lib/recovery_delete_separator_brace_stamp_9ed68c/lib.buri:24:19
+   |
+24 | export fn note<C: Allocator // it will allocate once the sink is real
+   |                   ^^^^^^^^^
+   |
+   = a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing
+   = fix: remove the bound
+error: a statement ends with `;` [missing-semicolon]
+  --> lib/recovery_delete_separator_brace_stamp_9ed68c/lib.buri:33:14
+   |
+33 |   let _ = ctx
+   |              ^
+   |
+   = fix: write `;` here

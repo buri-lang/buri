@@ -1,0 +1,3 @@
+export POST let: Str = "||";
+
+export let FLAG: Str = "~~";
