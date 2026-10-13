@@ -1788,12 +1788,14 @@ pub(super) fn merge_findings(into: &mut super::Published, from: &super::Publishe
 ///
 /// A repository reads its `REPO.buri` and every `BUILD.buri` before anything is
 /// compiled, so a failure there is the one that makes every later answer empty.
+/// Loading reports nothing but errors, so the first diagnostic with a place is
+/// the one.
 fn first_error(session: &Session) -> Option<String> {
     let d = session
         .diagnostics
         .items
         .iter()
-        .find(|d| d.is_error() && !d.span.is_none())?;
+        .find(|d| !d.span.is_none())?;
     let name = &session.map.get(d.span.file).name;
     Some(format!(
         "{name}: {}. That file is the repository's own, so no analysis publishes the finding — and the lint pass does not run until it is fixed.",

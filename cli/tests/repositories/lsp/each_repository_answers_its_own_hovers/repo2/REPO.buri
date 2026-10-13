@@ -1,0 +1,2 @@
+# Three targets, two of which can see `//lib/alpha`. What this case counts is
+# how many sweeps a run of keystrokes in `alpha` costs.
