@@ -214,6 +214,37 @@ pub fn no_leak_check() {
     }
 }
 
+/// `wait`, a deadline the runtime picks for itself, or ten times `wait`
+/// under a tool, which runs both ends of a connection tens of times slower.
+/// The harness's own waits stretch the same way (`cli/tests/native/shared.rs`,
+/// `server_deadline`). A deadline the program names is its own and stays.
+/// Not under `cfg(test)`, whose tests are about these numbers.
+#[inline]
+pub fn patient(wait: std::time::Duration) -> std::time::Duration {
+    if cfg!(test) || tool() == NONE {
+        wait
+    } else {
+        wait * 10
+    }
+}
+
+/// `workers` stack-holding workers, or at most 256 under a tool.
+///
+/// A parked worker holds a 65 MiB task stack, and on the frame-threaded
+/// backend a Buri stack beside it. A listener's 1024 are then 130 GiB of
+/// address space, and Valgrind gives a program 128 GiB, so a server ran out
+/// before it answered anything. 256 still holds the two hundred open sockets
+/// of `llvm::a_server_holding_two_hundred_open_websockets_still_answers`.
+/// Not under `cfg(test)`, whose tests are about the number.
+#[inline]
+pub fn hosts(workers: i64) -> i64 {
+    if cfg!(test) || tool() == NONE {
+        workers
+    } else {
+        workers.min(256)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helgrind
 // ---------------------------------------------------------------------------
