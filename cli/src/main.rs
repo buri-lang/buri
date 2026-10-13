@@ -36,7 +36,27 @@ use std::process::ExitCode;
 /// six hundred fields overflowed.
 const STACK: usize = buri::parallel::STACK;
 
+/// Puts back `SIGCHLD`'s default, which a parent may have turned off.
+///
+/// Some parents and wrappers start programs with `SIGCHLD` ignored, and an
+/// ignored signal stays ignored across `exec`. The kernel then reaps every
+/// child the moment it ends, so `wait` has no status to return: a failing test
+/// reads as a crash, and a program's exit code is lost. Unlike `SIGINT`, an
+/// ignored `SIGCHLD` is not a request anyone makes of the programs `buri`
+/// starts, so this also keeps them from inheriting it.
+fn restore_sigchld() {
+    unsafe extern "C" {
+        fn signal(sig: i32, handler: usize) -> usize;
+    }
+    const SIGCHLD: i32 = if cfg!(target_os = "linux") { 17 } else { 20 };
+    const SIG_DFL: usize = 0;
+    // SAFETY: both arguments are integers and nothing of ours is touched; no
+    // thread exists yet.
+    unsafe { signal(SIGCHLD, SIG_DFL) };
+}
+
 fn main() -> ExitCode {
+    restore_sigchld();
     // A failed `println!` ends the process, from whichever thread it ran on,
     // before anything unwinds.
     let report = std::panic::take_hook();

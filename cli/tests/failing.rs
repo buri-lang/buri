@@ -455,3 +455,76 @@ fn transcript(case: &Case, default: bool) -> Vec<(i32, String)> {
     }
     out
 }
+
+/// Runs `buri` the way a parent that ignores `SIGCHLD` starts it.
+///
+/// Some process managers and wrappers do, and an ignored signal stays ignored
+/// across `exec`. The kernel then reaps every child by itself, and a `wait`
+/// has no status to return. Only the `buri` under test is started this way:
+/// the harness waits on it normally.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn run_ignoring_sigchld(dir: &std::path::Path, args: &[&str]) -> Run {
+    use std::os::unix::process::CommandExt as _;
+    unsafe extern "C" {
+        fn signal(sig: i32, handler: usize) -> usize;
+    }
+    const SIGCHLD: i32 = if cfg!(target_os = "linux") { 17 } else { 20 };
+    const SIG_IGN: usize = 1;
+    let mut cmd = buri_command();
+    cmd.args(args).arg("--color=never").current_dir(dir);
+    // SAFETY: `signal` is async-signal-safe, which is all a `pre_exec` closure may call.
+    unsafe {
+        cmd.pre_exec(|| {
+            signal(SIGCHLD, SIG_IGN);
+            Ok(())
+        });
+    }
+    let what = format!("buri {} (SIGCHLD ignored)", args.join(" "));
+    let out = hang::capped_output(cmd, &what, hang::cap());
+    Run {
+        code: out.status.code().unwrap_or(-1),
+        stdout: strip_ansi(&String::from_utf8_lossy(&out.stdout)),
+        stderr: strip_ansi(&String::from_utf8_lossy(&out.stderr)),
+        what,
+    }
+}
+
+/// **A failing suite is reported as failing when `buri` is started with
+/// `SIGCHLD` ignored.** The test process's status is how a crash is told from
+/// a pass, and without it a failure could read as a crash or as nothing.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn a_failing_suite_fails_when_buri_ignores_sigchld() {
+    let repo = Scratch::copy_of("sigchld-failing", &corpus().join("exit_codes").join("repo"));
+    // With and without a `timeout_seconds`, which waits by polling.
+    for timed in [false, true] {
+        if timed {
+            repo.edit(
+                "lib/subject/BUILD.buri",
+                "sources: [\"test/subject.buri\"]",
+                "sources: [\"test/subject.buri\"]\n        timeout_seconds: 600",
+            );
+        }
+        // The pinned backend, then the default, which runs a native binary.
+        for output in [Some("--output=js"), None] {
+            let mut args = vec!["test", "//lib/subject", "--force"];
+            args.extend(output);
+            let run = run_ignoring_sigchld(&repo.root, &args);
+            run.exits(1)
+                .says("0 passed, 1 failed")
+                .says("assert.equal failed");
+        }
+    }
+}
+
+/// **`buri run` returns the program's exit code when `buri` is started with
+/// `SIGCHLD` ignored.**
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn run_returns_the_programs_exit_code_when_buri_ignores_sigchld() {
+    let repo = Scratch::copy_of(
+        "sigchld-run",
+        &tests_dir().join("repositories/cli/run_passthrough/repo"),
+    );
+    run_ignoring_sigchld(&repo.root, &["run", "//cmd/echo", "--", "--fail"]).exits(3);
+}
