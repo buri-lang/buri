@@ -14,7 +14,7 @@
 //! instructions. `core/list`'s closure keys are no backend's at all —
 //! `middle::lower` builds them as loops (`lower/lists.rs`).
 
-use crate::compiler::semantics::types::{Prim, Tables, Ty, TyKind};
+use crate::compiler::semantics::types::{IntPrim, Prim, Tables, Ty, TyKind};
 
 /// The `Equal`/`Ordered`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
 /// `Char::toU32`, and `Str`'s `show`.
@@ -61,9 +61,25 @@ pub fn prim_to_json(key: &str) -> Option<Prim> {
         ["bool", "toJson"] => Some(Prim::Bool),
         ["character", "toJson"] => Some(Prim::Char),
         ["str", "toJson"] => Some(Prim::Str),
-        ["number", name, "toJson"] => Prim::all().iter().copied().find(|p| p.name() == *name),
+        ["number", name, "toJson"] => prim_named(name),
         _ => None,
     }
+}
+
+/// The primitive a key spells by its type's name: `I64`, `Bool`, `Str`.
+fn prim_named(name: &str) -> Option<Prim> {
+    Prim::all().iter().copied().find(|p| p.name() == name)
+}
+
+/// `number.<T>.<op>`, split into the primitive and the operation.
+pub fn number_key(key: &str) -> Option<(Prim, &str)> {
+    let mut parts = key.split('.');
+    let (Some("number"), Some(name), Some(op), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return None;
+    };
+    Some((prim_named(name)?, op))
 }
 
 /// `core/lazy`'s one declaration, and the node the split pass leaves where a
@@ -135,13 +151,23 @@ pub fn bits_op(key: &str) -> bool {
 /// set is spelled here rather than in each backend because it is a fact about
 /// that pass: it emits these three names and no others (`derives.rs`'s table
 /// of eight, of which the other five are the `deriveArray*` loops).
-pub fn derive_key(key: &str) -> Option<(&str, Prim)> {
+pub fn derive_key(key: &str) -> Option<(Leaf, Prim)> {
     let (name, target) = key.split_once('.')?;
-    if !matches!(name, "derivePrimShow" | "derivePrimHash" | "derivePrimJson") {
-        return None;
-    }
-    let prim = Prim::all().iter().copied().find(|p| p.name() == target)?;
-    Some((name, prim))
+    let leaf = match name {
+        "derivePrimShow" => Leaf::Show,
+        "derivePrimHash" => Leaf::Hash,
+        "derivePrimJson" => Leaf::Json,
+        _ => return None,
+    };
+    Some((leaf, prim_named(target)?))
+}
+
+/// Which of the three [`derive_key`] leaves a key is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Leaf {
+    Show,
+    Hash,
+    Json,
 }
 
 /// Which arm of `core/json`'s `Json` a primitive encodes to.
@@ -226,11 +252,11 @@ pub fn conversion_target(op: &str) -> Option<Prim> {
 /// switch on it to emit the range check.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum CheckedKind {
-    /// Both integers: a range at the source's own width.
-    Ints,
+    /// Both integers, source then target: a range at the source's own width.
+    Ints(IntPrim, IntPrim),
     /// A float into an integer, which can also be fractional, `NaN` or
     /// infinite.
-    FloatToInt,
+    FloatToInt(IntPrim),
     /// `U32 -> Char`: not a range but a set, with the surrogate block cut out
     /// of the middle of it.
     ToChar,
@@ -240,18 +266,15 @@ pub enum CheckedKind {
 
 /// Which fallible shape an inexact conversion is.
 pub fn checked_kind(from: Prim, to: Prim) -> CheckedKind {
-    // `U32` is the only source the language declares `toChar` on
-    // (`semantics/builtins.rs`), and both backends test the bounds at that
-    // width.
-    if to == Prim::Char {
-        CheckedKind::ToChar
-    } else if to.is_float() {
+    match (from.as_int(), to.as_int()) {
+        (Some(from), Some(to)) => CheckedKind::Ints(from, to),
+        (None, Some(to)) => CheckedKind::FloatToInt(to),
+        // `U32` is the only source the language declares `toChar` on
+        // (`semantics/builtins.rs`), and both backends test the bounds at that
+        // width.
+        _ if to == Prim::Char => CheckedKind::ToChar,
         // `F64 -> F32`, the one float target that is not exact.
-        CheckedKind::ToF32
-    } else if from.is_float() {
-        CheckedKind::FloatToInt
-    } else {
-        CheckedKind::Ints
+        _ => CheckedKind::ToF32,
     }
 }
 
@@ -271,13 +294,7 @@ pub fn numeric_key(key: &str) -> bool {
     if key == "number.minValue" || key == "number.maxValue" {
         return true;
     }
-    let mut parts = key.split('.');
-    let (Some("number"), Some(name), Some(op), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
-        return false;
-    };
-    let Some(prim) = Prim::all().iter().copied().find(|p| p.name() == name) else {
+    let Some((prim, op)) = number_key(key) else {
         return false;
     };
     if matches!(
@@ -535,9 +552,13 @@ mod tests {
     /// emits is a claim about a body that does not exist.
     #[test]
     fn the_derive_leaves_are_the_three_that_are_emitted() {
-        for name in ["derivePrimShow", "derivePrimHash", "derivePrimJson"] {
+        for (name, leaf) in [
+            ("derivePrimShow", Leaf::Show),
+            ("derivePrimHash", Leaf::Hash),
+            ("derivePrimJson", Leaf::Json),
+        ] {
             let key = format!("{name}.I64");
-            assert_eq!(derive_key(&key), Some((name, Prim::I64)), "{key}");
+            assert_eq!(derive_key(&key), Some((leaf, Prim::I64)), "{key}");
         }
         for key in [
             // The array loops are not leaves and take a code pointer.

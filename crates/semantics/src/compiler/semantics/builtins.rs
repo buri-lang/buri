@@ -552,21 +552,18 @@ pub fn conversion_is_exact(from: Prim, to: Prim) -> bool {
     if from == to {
         return true;
     }
-    match (from.is_integer(), to.is_integer()) {
-        (true, true) => {
-            let claim = "int_range answers for every integer type, which this arm is reached \
-                         only for";
-            let (from_lo, from_hi) = from.int_range().or_ice(claim);
-            let (to_lo, to_hi) = to.int_range().or_ice(claim);
+    match (from.as_int(), to.as_int()) {
+        (Some(from), Some(to)) => {
+            let ((from_lo, from_hi), (to_lo, to_hi)) = (from.range(), to.range());
             from_lo >= to_lo && from_hi <= to_hi
         }
         // Integer to float: always allowed, exact to 53 bits.
-        (true, false) => true,
+        (Some(_), None) => true,
         // Float to integer: never exact — it can be fractional, infinite, or
         // out of range.
-        (false, true) => false,
+        (None, Some(_)) => false,
         // F32 widens exactly; F64 narrows lossily.
-        (false, false) => from == Prim::F32,
+        (None, None) => from == Prim::F32,
     }
 }
 

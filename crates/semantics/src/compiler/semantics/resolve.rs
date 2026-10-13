@@ -828,9 +828,6 @@ impl<'a> Checker<'a> {
     /// Every pass up to and including the bodies, over the modules this
     /// checker owns (see [`Base`]).
     fn check_through_bodies(&mut self) {
-        if self.base.is_none() {
-            self.register_primitives();
-        }
         self.collect_declarations();
         self.resolve_scopes();
         self.register_known_names();
@@ -902,28 +899,6 @@ impl<'a> Checker<'a> {
     /// The text a declared name was written with.
     fn name_text(&self, module: ModuleId, name: tree::Name) -> &'a str {
         self.tree(module).name(name)
-    }
-
-    // -----------------------------------------------------------------------
-    // Phase 0: primitives
-    // -----------------------------------------------------------------------
-
-    fn register_primitives(&mut self) {
-        // The primitives live in a synthetic module so that every table entry
-        // has an owner, but their *defining* modules — where their methods are
-        // declared — are the `core/*` ones of SPEC 6.7.3.
-        self.prim_module = ModuleId(u32::MAX);
-        for p in Prim::all() {
-            let id = self.tables.add_tycon(TyCon {
-                name: p.name().to_string(),
-                module: self.prim_module,
-                generics: Vec::new(),
-                def: TyDef::Prim(*p),
-                exported: true,
-                span: Span::NONE,
-            });
-            self.tables.register_prim(*p, id);
-        }
     }
 
     /// `Int`, `Float`, `Uint` and `Byte` are aliases, not distinct types, so a

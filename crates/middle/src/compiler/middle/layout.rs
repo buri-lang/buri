@@ -1382,31 +1382,12 @@ mod tests {
     // wrapper — is one line here.
 
     fn tables() -> Tables {
-        let mut t = Tables::default();
-        for p in Prim::all() {
-            let id = t.add_tycon(TyCon {
-                name: p.name().to_string(),
-                module: ModuleId(0),
-                generics: Vec::new(),
-                def: TyDef::Prim(*p),
-                exported: true,
-                span: Span::NONE,
-            });
-            t.register_prim(*p, id);
-        }
-        t
+        Tables::default()
     }
 
-    /// A primitive by name, without borrowing the tables.
-    ///
-    /// [`tables`] registers `Prim::all()` into an empty table in order, so the
-    /// id is the position — which is what lets a declaration mention `Int`
-    /// while the table it is being added to is mutably borrowed.
-    /// `primitive_ids_are_where_this_says_they_are` is the check that keeps
-    /// the two in step.
+    /// A primitive, without borrowing the tables.
     fn p(prim: Prim) -> Ty {
-        let index = Prim::all().iter().position(|x| *x == prim).unwrap_or(0);
-        Ty::con(TyConId(index as u32), [])
+        Ty::con(prim.con(), [])
     }
 
     fn generics(names: &[&str]) -> Vec<GenericInfo> {
@@ -1526,14 +1507,6 @@ mod tests {
 
     fn add_ctx(t: &mut Tables, bindings: Vec<(TraitId, Ty)>) -> CtxTypeId {
         t.add_ctx_type(CtxType { bindings })
-    }
-
-    #[test]
-    fn primitive_ids_are_where_this_says_they_are() {
-        let t = tables();
-        for prim in Prim::all() {
-            assert_eq!(p(*prim), t.prim(*prim), "{}", prim.name());
-        }
     }
 
     // -----------------------------------------------------------------------
