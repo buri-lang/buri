@@ -173,7 +173,7 @@ fn piped(mut cmd: Command, reader: impl FnOnce(std::io::PipeReader) -> String) -
     // the end of the stream.
     drop(cmd);
     let stdout = reader(read);
-    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let status = crate::shared::waited(&mut child, crate::shared::server_deadline());
     let mut stderr = String::new();
     child
         .stderr

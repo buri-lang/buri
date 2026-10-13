@@ -416,6 +416,10 @@ static int mode_ui_build(void) {
 
 /* --- Modes -------------------------------------------------------------- */
 
+/* Where `mode_memory` keeps its immortal block, as a program keeps a literal:
+ * still reachable at exit rather than lost. */
+static uint8_t *immortal;
+
 static int mode_memory(void) {
   uint64_t base_live = buri_rt_live_blocks();
 
@@ -433,10 +437,10 @@ static int mode_memory(void) {
 
   /* An immortal block survives a decref that would otherwise free it, and is
    * not counted as live, so a leak check does not report every literal. */
-  uint8_t *q = buri_rt_alloc(8);
-  buri_rt_make_immortal(q);
-  buri_rt_decref(q, count_drop);
-  int immortal_survives = buri_rt_rc(q) == UINT64_MAX;
+  immortal = buri_rt_alloc(8);
+  buri_rt_make_immortal(immortal);
+  buri_rt_decref(immortal, count_drop);
+  int immortal_survives = buri_rt_rc(immortal) == UINT64_MAX;
 
   uint8_t *r = buri_rt_alloc(100);
   r = buri_rt_realloc(r, 200);
@@ -1062,7 +1066,13 @@ static void count_retain(uint8_t *p) {
 }
 
 static int mode_list(void) {
-  int64_t src[4] = {10, 20, 30, 40};
+  /* A list block, as compiled code passes, with a second count, as a borrowed
+   * list has: the runtime reads its header and must copy rather than write. */
+  int64_t *src = (int64_t *)buri_rt_alloc(4 * sizeof(int64_t));
+  buri_rt_incref((uint8_t *)src);
+  for (int i = 0; i < 4; i++) {
+    src[i] = 10 * (i + 1);
+  }
   BuriList out;
   int64_t got = 0;
 
@@ -1102,6 +1112,8 @@ static int mode_list(void) {
   buri_rt_free(out.ptr);
   buri_rt_list_range(5, 2, &out);
   printf("range-empty %llu %d\n", (unsigned long long)out.len, out.ptr == NULL);
+  buri_rt_decref((uint8_t *)src, NULL);
+  buri_rt_decref((uint8_t *)src, NULL);
   return 0;
 }
 

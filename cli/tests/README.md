@@ -204,7 +204,7 @@ took a CI job with it. So:
   bind;
 * a dial that must be refused aims at `shared::RefusedPort`, never at a port
   bound and dropped, which another test's server can be handed first;
-* every connect, read and write carries `shared::SERVER_DEADLINE`;
+* every connect, read and write carries `shared::server_deadline()`;
 * start a native program with `shared::spawned` or `shared::started`, so the
   deadlines start once it runs. macOS holds a fresh executable inside `exec`
   until `syspolicyd` has assessed it, and under load that queue alone took

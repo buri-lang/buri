@@ -104,12 +104,7 @@ fn run(args: &[&str]) -> Output {
 }
 
 fn run_with(args: &[&str], env: &[(&str, &str)], stdin: &str) -> Output {
-    run_command(
-        crate::shared::program(driver(), "the runtime driver"),
-        args,
-        env,
-        stdin,
-    )
+    run_command(driver_command(args), args, env, stdin)
 }
 
 /// The driver with the heap check off, whatever the suite's own environment
@@ -119,10 +114,27 @@ fn run_with(args: &[&str], env: &[(&str, &str)], stdin: &str) -> Output {
 /// inherited `BURI_RT_HEAP_CHECK=1` from a person running the whole suite
 /// under it would otherwise answer a different question.
 fn run_unchecked(args: &[&str]) -> Output {
-    let mut cmd = crate::shared::program(driver(), "the runtime driver");
+    let mut cmd = driver_command(args);
     cmd.env_remove("BURI_RT_HEAP_CHECK")
         .env_remove("BURI_RT_HEAP_REPORT");
     run_command(cmd, args, &[], "")
+}
+
+/// The heap check's canaries break the rules on purpose, so they run bare.
+/// Memcheck would report each bug, and its allocator hides it from the check.
+const CANARIES: &[&str] = &[
+    "heap-leak",
+    "heap-use-after-free",
+    "heap-double-free",
+    "heap-write-after-free",
+];
+
+/// The driver for `args`, under Valgrind when asked, unless it's a canary.
+fn driver_command(args: &[&str]) -> Command {
+    match args.first() {
+        Some(mode) if CANARIES.contains(mode) => Command::new(driver()),
+        _ => crate::shared::program(driver(), "the runtime driver"),
+    }
 }
 
 fn run_command(mut cmd: Command, args: &[&str], env: &[(&str, &str)], stdin: &str) -> Output {

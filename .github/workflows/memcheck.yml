@@ -105,11 +105,12 @@ jobs:
           nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm,valgrind --test native -- agreement:: at_scale:: \
             2>&1 | tee -a "$BURI_MEMCHECK/tests.log"
       # Every other `native::` module, less `float_parity` and `differential`,
-      # which run what they build themselves.
+      # which run what they build themselves, and `cross`, which runs its
+      # program in a container.
       - name: The other native modules, ${{ matrix.shard }}
         if: matrix.shard == 'e2e' || matrix.shard == 'backends' || matrix.shard == 'modules'
         env:
-          FILTERS: "${{ matrix.shard == 'e2e' && 'e2e::' || matrix.shard == 'backends' && 'llvm:: stencil::' || '--skip conformance:: --skip agreement:: --skip at_scale:: --skip e2e:: --skip llvm:: --skip stencil:: --skip float_parity:: --skip differential::' }}"
+          FILTERS: "${{ matrix.shard == 'e2e' && 'e2e::' || matrix.shard == 'backends' && 'llvm:: stencil::' || '--skip conformance:: --skip agreement:: --skip at_scale:: --skip e2e:: --skip llvm:: --skip stencil:: --skip float_parity:: --skip differential:: --skip cross::' }}"
         run: |
           set -euo pipefail
           mkdir -p "$BURI_MEMCHECK"
