@@ -1,0 +1,13 @@
+# `width` and `height` are constants in two modules that import each other, and
+# each is the other plus one. The modules load; the constants still never
+# finish expanding, so the build is refused with the chain across both.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "constants in two modules that need each other are refused with the whole chain"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "refused.txt"
+}

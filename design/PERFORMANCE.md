@@ -4747,7 +4747,7 @@ diagnostics in their files. The share declines, and the target is analysed
 alone as before, wherever its own answer could differ:
 
 - loading said something other than a parse error, which can depend on the
-  order modules were reached in (`circular-import`), or is said once per
+  order modules were reached in, or is said once per
   compilation (a generator's diagnostics);
 - a module was loaded in a role an importer would decide differently;
 - a diagnostic lands outside every module's file.

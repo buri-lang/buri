@@ -503,7 +503,7 @@ impl<'a> Part<'a> {
 ///   name the type.
 /// - **Loading reported nothing but parse errors.** A parse error is a fact
 ///   about one file. Everything else the loader says can depend on the order
-///   modules were reached in (`circular-import`), is said once per compilation
+///   modules were reached in, is said once per compilation
 ///   (a generator's diagnostics), or sits in a build file several targets
 ///   share.
 /// - **Every module was loaded in the role each target would load it in.** The
@@ -4633,7 +4633,7 @@ fn in_test_deps(session: &Session, target: TargetId, label: &str) -> bool {
         || testing.is_some_and(|t| t.dependencies.iter().any(|d| d.value == label))
 }
 
-/// `circular-dependency`: package cycles are the module rule one level up.
+/// `circular-dependency`: two packages that depend on each other.
 ///
 /// One diagnostic per cycle, not one per edge in it. A cycle has no first end,
 /// so reporting it from each is the same finding written twice — and

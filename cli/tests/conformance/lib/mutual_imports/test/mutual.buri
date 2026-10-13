@@ -1,0 +1,28 @@
+// Modules may import each other. Each sees the other's functions and types, and
+// a ring of three works the same way.
+
+from "core/testing/assert" import * as assert;
+from "//lib/mutual_imports" import {
+    fromA, fromB, fromC, isEven, isOdd, Parity, parityOf,
+};
+
+test "two modules that import each other call each other's functions" {
+    assert.equal(isEven(10), true);
+    assert.equal(isEven(7), false);
+    assert.equal(isOdd(7), true);
+    assert.equal(isOdd(10), false);
+}
+
+test "two modules that import each other share a type" {
+    assert.equal(parityOf(4), Parity.Even);
+    assert.equal(parityOf(5), Parity.Odd);
+}
+
+test "a ring of three modules calls around the ring from any entry" {
+    assert.equal(fromA(0), 1);
+    assert.equal(fromA(1), 11);
+    assert.equal(fromA(2), 111);
+    assert.equal(fromA(3), 112);
+    assert.equal(fromB(2), 111);
+    assert.equal(fromC(1), 101);
+}

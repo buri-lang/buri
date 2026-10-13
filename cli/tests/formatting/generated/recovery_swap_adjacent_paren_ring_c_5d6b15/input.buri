@@ -1,0 +1,5 @@
+from "//lib/mutual_imports/ring_a.buri" import { fromA };
+
+export fn fromC(n: Int): Int {
+    if (<= n 0) { 100 } else { fromA(n - 1) + 100 }
+}

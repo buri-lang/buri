@@ -2225,6 +2225,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "memory/discards.buri",
     "memory/guards.buri",
     "memory/scoped.buri",
+    "mutual_imports/mutual.buri",
     "numbers/bits.buri",
     "numbers/conversions.buri",
     "numbers/float_order.buri",

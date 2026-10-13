@@ -133,7 +133,7 @@ from "//lib/money" import { Cents };
   There's no `export *`.
 - `impl` and `derive` are never exported.
 - Declaration order doesn't matter, and mutual recursion needs no forward
-  declarations. Circular imports are an error.
+  declarations. Modules may import each other.
 - Outside a package, you import its surface as a module: `"core/list"`,
   `"//lib/money"`, `"//lib/money/testing"`; its own suite does the same. Inside
   the package, you name a file: `"//lib/money/cents.buri"`,

@@ -175,7 +175,6 @@ pub const ERRORS: &[ErrorDoc] = &[
         "circular-constant",
         "A constant never refers back to itself"
     ),
-    e!("circular-import", "Modules form a graph with no cycles"),
     e!(
         "circular-type-alias",
         "A type alias never expands to itself",

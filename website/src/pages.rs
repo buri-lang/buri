@@ -214,7 +214,7 @@ pub struct Page {
     /// The heading, and what the navigation calls it.
     pub title: String,
     /// What a reader types at `buri docs`: `language/lexical`,
-    /// `circular-import`. Empty where there is nothing to type.
+    /// `circular-constant`. Empty where there is nothing to type.
     pub label: String,
     /// The first sentence, for a listing and for the page description.
     pub summary: String,

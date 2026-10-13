@@ -1,0 +1,3 @@
+from "//lib/size/width.buri" import { width };
+
+export let height: Int = width + 1;

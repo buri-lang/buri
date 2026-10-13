@@ -1,0 +1,18 @@
+library {
+    sources: [
+        "even.buri",
+        "odd.buri",
+        "ring_a.buri",
+        "ring_b.buri",
+        "ring_c.buri",
+    ]
+
+    test {
+        sources: ["test/mutual.buri"]
+
+        # The reference run, on the reference backend: `native::conformance`
+        # drives these same files through the stencil backend
+        # (cli/tests/README.md).
+        backends: [JS]
+    }
+}

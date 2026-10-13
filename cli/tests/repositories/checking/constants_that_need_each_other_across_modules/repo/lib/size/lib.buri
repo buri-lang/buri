@@ -1,0 +1,1 @@
+from "//lib/size/width.buri" export { width };

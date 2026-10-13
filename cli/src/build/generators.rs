@@ -1440,7 +1440,7 @@ fn module_of(name: &str, module: crate::languages::json::types::Module) -> Gener
 /// Answered off the graph, so it is answered before anything is built: a
 /// generator that needs its own output is an error, never a hang. The path
 /// comes back with the span of the edge that introduced each step, the way
-/// `circular-import` reports one.
+/// `circular-dependency` reports one.
 fn cycle(workspace: &Workspace, target: TargetId, tool: TargetId) -> Option<CyclePath> {
     workspace.closure(tool).contains(&target).then(|| {
         workspace

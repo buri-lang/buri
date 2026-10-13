@@ -1,0 +1,10 @@
+// Modules that import each other: a pair and a ring of three.
+from "//lib/mutual_imports/even.buri" export { isEven, parityOf };
+
+from "//lib/mutual_imports/odd.buri" export { isOdd, Parity };
+
+from "//lib/mutual_imports/ring_a.buri" export { fromA };
+
+from "//lib/mutual_imports/ring_b.buri" export { fromB }
+
+from "//lib/mutual_imports/ring_c.buri" export { fromC };

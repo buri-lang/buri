@@ -60,7 +60,7 @@ has the rules and the error messages.
 | `Result` is must-use | A `Result` a test forgets to check doesn't compile, so a test can't silently pass. |
 | No relative module paths | Moving a file doesn't change its imports, so `buri gen` rewrites a build file without touching source. |
 | No mutation, no global state | Nothing observes test order, so the runner shards and reorders freely. |
-| Circular imports are already an error | Package cycles are the same rule one level up, with the same diagnostic shape. |
+| Package cycles are an error | A package graph with no cycles builds in dependency order. Modules inside a package may import each other. |
 
 ## Still open
 
