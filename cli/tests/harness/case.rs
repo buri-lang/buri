@@ -1223,6 +1223,7 @@ fn drive_session(case: &str, dir: &Path, args: &[&str], session: &str) -> super:
     // Every byte read while waiting, kept framed: what the golden records is
     // this stream and the rest of it, in the order the server wrote them.
     let mut read_early = String::new();
+    let mut heard = Heard::default();
 
     let mut pending = String::new();
     for line in session.lines() {
@@ -1235,11 +1236,21 @@ fn drive_session(case: &str, dir: &Path, args: &[&str], session: &str) -> super:
             pending.push('\n');
             continue;
         };
+        if !pending.is_empty() {
+            heard.wrote(&pending);
+        }
         input
             .write_all(&frame_requests(&pending))
             .expect("writing the session");
         pending.clear();
-        act(case, dir, directive, &mut output, &mut read_early);
+        act(
+            case,
+            dir,
+            directive,
+            &mut output,
+            &mut read_early,
+            &mut heard,
+        );
     }
     input
         .write_all(&frame_requests(&pending))
@@ -1264,20 +1275,63 @@ fn drive_session(case: &str, dir: &Path, args: &[&str], session: &str) -> super:
     }
 }
 
+/// Whether the server has handled everything written to it so far.
+///
+/// A directive that touches the disk has to land after every message before
+/// it, and only a response says a message was handled: the server answers in
+/// order, so the response to the last request written is that point. A
+/// notification after it has no response, and a file moved under it would be
+/// read on whichever side of the move the scheduler chose.
+#[derive(Default)]
+struct Heard {
+    /// The id of the last message written, if that message is a request.
+    last_request: Option<u32>,
+    /// Whether the response to `last_request` has been read since.
+    all: bool,
+}
+
+impl Heard {
+    fn wrote(&mut self, block: &str) {
+        let last = block
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .last()
+            .and_then(|line| buri::json::parse(line).ok());
+        self.last_request = last
+            .filter(|message| message.get("method").is_some())
+            .and_then(|message| message.get("id").and_then(|id| id.as_u32()));
+        self.all = false;
+    }
+
+    fn answered(&mut self, id: u32) {
+        self.all = self.last_request == Some(id);
+    }
+
+    fn before_the_disk(&self, case: &str, directive: &str) {
+        assert!(
+            self.all,
+            "{case}: `!{directive}` touches the disk while the server may still be handling what \
+             came before it; end that block with a request and `!wait` for it"
+        );
+    }
+}
+
 /// One `!` line: the harness doing what an editor would do between messages.
 ///
 /// The three that wait take a request id and read up to its response first,
 /// which is the whole reason these exist — piping the session and touching the
 /// disk partway through would leave which side of the change each request
-/// landed on to the scheduler rather than to the case. A `!move` or `!remove`
-/// that has to land after a particular answer says so with a `!wait` in front
-/// of it.
+/// landed on to the scheduler rather than to the case. Every directive that
+/// touches the disk has to follow a `!wait` (or an `!apply`/`!edit`) on the last
+/// request written; see [`Heard`].
 fn act(
     case: &str,
     dir: &Path,
     directive: &str,
     output: &mut impl std::io::Read,
     read_early: &mut String,
+    heard: &mut Heard,
 ) {
     let (verb, rest) = directive.split_once(' ').unwrap_or((directive, ""));
     let rest = rest.trim();
@@ -1291,6 +1345,8 @@ fn act(
                 .unwrap_or_else(|_| panic!("{case}: `!{directive}` does not name a request id"));
             let body = read_until(output, id, read_early)
                 .unwrap_or_else(|| panic!("{case}: the server never answered request {id}"));
+            heard.answered(id);
+            heard.before_the_disk(case, directive);
             let parsed = buri::json::parse(&body)
                 .unwrap_or_else(|e| panic!("{case}: the response is not JSON: {e}"));
             let edit = match verb {
@@ -1314,8 +1370,10 @@ fn act(
                 .unwrap_or_else(|_| panic!("{case}: `!{directive}` does not name a request id"));
             read_until(output, id, read_early)
                 .unwrap_or_else(|| panic!("{case}: the server never answered request {id}"));
+            heard.answered(id);
         }
         "move" => {
+            heard.before_the_disk(case, directive);
             let (from, to) = rest
                 .split_once(' ')
                 .map(|(a, b)| (dir.join(a.trim()), dir.join(b.trim())))
@@ -1328,6 +1386,7 @@ fn act(
             });
         }
         "remove" => {
+            heard.before_the_disk(case, directive);
             let path = dir.join(rest);
             std::fs::remove_file(&path)
                 .unwrap_or_else(|e| panic!("{case}: cannot remove {}: {e}", path.display()));
