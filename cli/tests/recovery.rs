@@ -178,7 +178,10 @@ fn cases() -> Vec<&'static Mutation> {
     // `BURI_RECOVERY_ONLY=<row>` narrows a run to one row of the report, which
     // is how a residue is read case by case rather than five at a time.
     match std::env::var("BURI_RECOVERY_ONLY") {
-        Ok(only) => all.iter().filter(|m| Tally::key(m) == only.trim()).collect(),
+        Ok(only) => all
+            .iter()
+            .filter(|m| Tally::key(m) == only.trim())
+            .collect(),
         Err(_) => all.iter().collect(),
     }
 }
@@ -190,7 +193,11 @@ fn strided<'a>(all: &[&'a Mutation], cap: usize) -> Vec<&'a Mutation> {
         return all.to_vec();
     }
     let stride = all.len() / cap;
-    all.iter().copied().step_by(stride.max(1)).take(cap).collect()
+    all.iter()
+        .copied()
+        .step_by(stride.max(1))
+        .take(cap)
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +262,13 @@ impl Tally {
     fn violation(&mut self, m: &Mutation, why: String) {
         self.rows.entry(Tally::key(m)).or_default().violated += 1;
         if self.examples.len() < 5 {
-            self.examples.push(format!("{} ({}, {})\n{}", m.origin, m.what, m.nest.name(), indent(&why)));
+            self.examples.push(format!(
+                "{} ({}, {})\n{}",
+                m.origin,
+                m.what,
+                m.nest.name(),
+                indent(&why)
+            ));
         }
     }
 
@@ -286,7 +299,10 @@ impl Tally {
             violated += row.violated;
             let allowed = allowed(invariant, key, row.cases, sample);
             if row.violated > allowed {
-                over.push(format!("{key}: {} violated, and {allowed} allowed", row.violated));
+                over.push(format!(
+                    "{key}: {} violated, and {allowed} allowed",
+                    row.violated
+                ));
             }
             table.push_str(&format!(
                 "  {key:<28} {:>6} cases {:>6} violated {:>6} allowed {:>6} still valid\n",
@@ -741,7 +757,9 @@ fn sampling_allowance(cases: usize, rate: usize, sample: Sample) -> usize {
     if sample == Sample::Whole || rate == 0 {
         return 0;
     }
-    let spread = cases.saturating_mul(rate).saturating_mul(100usize.saturating_sub(rate));
+    let spread = cases
+        .saturating_mul(rate)
+        .saturating_mul(100usize.saturating_sub(rate));
     5usize.saturating_mul(spread.isqrt()).div_ceil(200)
 }
 
@@ -798,7 +816,12 @@ fn a_ceiling_moves_with_the_row_and_not_with_the_corpus() {
     }
     // And a whole-corpus row is held to the rate exactly: no sample, no swing.
     assert_eq!(
-        allowed("the caret is on the mistake", "delete-closer", 1123, Sample::Whole),
+        allowed(
+            "the caret is on the mistake",
+            "delete-closer",
+            1123,
+            Sample::Whole
+        ),
         1123 * 30 / 100
     );
 }
@@ -813,7 +836,11 @@ fn parse_errors(text: &str) -> Vec<Diagnostic> {
 
 fn rendered(text: &str, diagnostics: &[Diagnostic]) -> String {
     let mut map = SourceMap::new();
-    let file = map.add("mutated.buri", std::path::PathBuf::from("mutated.buri"), text.to_string());
+    let file = map.add(
+        "mutated.buri",
+        std::path::PathBuf::from("mutated.buri"),
+        text.to_string(),
+    );
     diagnostics
         .iter()
         .map(|d| {
@@ -852,7 +879,10 @@ struct Analyzer {
 
 impl Analyzer {
     fn new() -> Analyzer {
-        Analyzer { map: SourceMap::new(), cache: buri::parsing::parser::Cache::new() }
+        Analyzer {
+            map: SourceMap::new(),
+            cache: buri::parsing::parser::Cache::new(),
+        }
     }
 
     /// Every error the whole front end reports, as the pair that identifies
@@ -948,7 +978,9 @@ fn the_first_diagnostic_lands_at_the_mutation() {
     let all = cases();
     judge("the caret is on the mistake", Sample::Whole, &all, |m| {
         let errors = parse_errors(&m.source);
-        let Some(first) = errors.first() else { return Verdict::StillValid };
+        let Some(first) = errors.first() else {
+            return Verdict::StillValid;
+        };
         let (lo, hi) = m.window;
         let at = first.span.start as usize;
         if at >= lo && at <= hi {
@@ -974,19 +1006,28 @@ fn the_first_diagnostic_lands_at_the_mutation() {
 #[test]
 fn the_fix_names_the_missing_token() {
     let all = cases();
-    judge("the fix names the missing token", Sample::Whole, &all, |m| {
-        let Some(wants) = m.wants.as_deref() else { return Verdict::Skipped };
-        let errors = parse_errors(&m.source);
-        let Some(first) = errors.first() else { return Verdict::StillValid };
-        let fix = first.fix.clone().unwrap_or_default();
-        if fix.contains(wants) {
-            return Verdict::Held;
-        }
-        Verdict::Violated(format!(
-            "the fix is {fix:?}, and it does not name {wants}:\n{}",
-            indent(&rendered(&m.source, &errors[..1]))
-        ))
-    });
+    judge(
+        "the fix names the missing token",
+        Sample::Whole,
+        &all,
+        |m| {
+            let Some(wants) = m.wants.as_deref() else {
+                return Verdict::Skipped;
+            };
+            let errors = parse_errors(&m.source);
+            let Some(first) = errors.first() else {
+                return Verdict::StillValid;
+            };
+            let fix = first.fix.clone().unwrap_or_default();
+            if fix.contains(wants) {
+                return Verdict::Held;
+            }
+            Verdict::Violated(format!(
+                "the fix is {fix:?}, and it does not name {wants}:\n{}",
+                indent(&rendered(&m.source, &errors[..1]))
+            ))
+        },
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1026,8 +1067,10 @@ fn a_syntax_error_does_not_become_a_type_error() {
     // neither changes which cases run, or what any of them is held to, or what
     // the table below prints.
     let sample = strided(&all, 0);
-    let texts: BTreeMap<&str, &str> =
-        corpus.iter().map(|s| (s.name.as_str(), s.text.as_str())).collect();
+    let texts: BTreeMap<&str, &str> = corpus
+        .iter()
+        .map(|s| (s.name.as_str(), s.text.as_str()))
+        .collect();
 
     // The baselines first, one per file rather than one per case: what the
     // *unmutated* file already said is not something the mutation invented.
@@ -1079,7 +1122,12 @@ fn a_syntax_error_does_not_become_a_type_error() {
             Verdict::Violated(format!(
                 "{} error(s) the mistake invented:\n{}",
                 cascaded.len(),
-                indent(&cascaded.iter().map(|(c, m)| format!("[{c}] {m}\n")).collect::<String>())
+                indent(
+                    &cascaded
+                        .iter()
+                        .map(|(c, m)| format!("[{c}] {m}\n"))
+                        .collect::<String>()
+                )
             ))
         },
     );
@@ -1103,35 +1151,40 @@ fn a_syntax_error_does_not_become_a_type_error() {
 fn a_broken_file_still_formats() {
     let all = cases();
     let sample = strided(&all, CI_FORMATTED);
-    judge("a broken file still formats", Sample::Strided, &sample, |m| {
-        let errors = parse_errors(&m.source);
-        if errors.is_empty() {
-            return Verdict::StillValid;
-        }
-        let Some(out) = buri::formatting::source(&m.source) else {
-            return Verdict::Violated(String::from("the formatter refused the file"));
-        };
-        if buri::formatting::source(&out).as_deref() != Some(out.as_str()) {
-            return Verdict::Violated(String::from("formatting the output again moved it"));
-        }
-        let (before, after) = (kept(&m.source), kept(&out));
-        if before != after {
-            return Verdict::Violated(format!(
-                "the tokens moved.\n  in:\n{}\n  out:\n{}",
-                indent(&format!("{before:?}")),
-                indent(&format!("{after:?}"))
-            ));
-        }
-        let (was, now) = (regions_kept(&m.source), regions_kept(&out));
-        if was != now {
-            return Verdict::Violated(format!(
-                "a region the formatter did not read came back changed.\n  in:\n{}\n  out:\n{}",
-                indent(&was.join("\n---\n")),
-                indent(&now.join("\n---\n"))
-            ));
-        }
-        Verdict::Held
-    });
+    judge(
+        "a broken file still formats",
+        Sample::Strided,
+        &sample,
+        |m| {
+            let errors = parse_errors(&m.source);
+            if errors.is_empty() {
+                return Verdict::StillValid;
+            }
+            let Some(out) = buri::formatting::source(&m.source) else {
+                return Verdict::Violated(String::from("the formatter refused the file"));
+            };
+            if buri::formatting::source(&out).as_deref() != Some(out.as_str()) {
+                return Verdict::Violated(String::from("formatting the output again moved it"));
+            }
+            let (before, after) = (kept(&m.source), kept(&out));
+            if before != after {
+                return Verdict::Violated(format!(
+                    "the tokens moved.\n  in:\n{}\n  out:\n{}",
+                    indent(&format!("{before:?}")),
+                    indent(&format!("{after:?}"))
+                ));
+            }
+            let (was, now) = (regions_kept(&m.source), regions_kept(&out));
+            if was != now {
+                return Verdict::Violated(format!(
+                    "a region the formatter did not read came back changed.\n  in:\n{}\n  out:\n{}",
+                    indent(&was.join("\n---\n")),
+                    indent(&now.join("\n---\n"))
+                ));
+            }
+            Verdict::Held
+        },
+    );
 }
 
 /// Every token with the ones layout is allowed to add and drop taken out, as
@@ -1181,7 +1234,13 @@ fn regions_kept(text: &str) -> Vec<String> {
     buri::formatting::broken_regions(text)
         .into_iter()
         .filter_map(|(lo, hi)| text.get(lo..hi))
-        .map(|slice| slice.lines().map(str::trim_end).collect::<Vec<_>>().join("\n"))
+        .map(|slice| {
+            slice
+                .lines()
+                .map(str::trim_end)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
         .collect()
 }
 
@@ -1227,7 +1286,8 @@ fn format_check_refuses_an_unparseable_file() {
 }
 
 /// A file that is already exactly what the formatter would print.
-const CLEAN: &str = "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Int {\n    1\n}\n";
+const CLEAN: &str =
+    "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Int {\n    1\n}\n";
 
 /// The maintainer's example, with the comma still missing.
 const BROKEN: &str = "export struct Route {\n    export name: Str,\n}\n\n\
@@ -1304,7 +1364,11 @@ fn recorded_shard(at: usize, count: usize) {
             g.fail(format!("{name}: compiled, and it must not"));
             continue;
         }
-        g.check(&case.join("expected.txt"), &format!("{name}/expected.txt"), &record);
+        g.check(
+            &case.join("expected.txt"),
+            &format!("{name}/expected.txt"),
+            &record,
+        );
     }
     g.finish(&format!("recovery shard {at} of {count}"), mine.len());
 }
@@ -1333,7 +1397,12 @@ fn role(text: &str) -> Role {
     match harness::annotation(text, "// ROLE:").as_deref() {
         Some("test") => Role::TestSource,
         Some("platform") => Role::Platform,
-        _ if ["NativeHost", "NodeHost", "WebHost"].iter().any(|h| text.contains(h)) => Role::Entry,
+        _ if ["NativeHost", "NodeHost", "WebHost"]
+            .iter()
+            .any(|h| text.contains(h)) =>
+        {
+            Role::Entry
+        }
         _ => Role::Source,
     }
 }
@@ -1354,7 +1423,11 @@ fn recovery_cases_read_the_same_through_the_command_line() {
         let name = case.file_name().unwrap().to_string_lossy().to_string();
         let text = std::fs::read_to_string(case.join("main.buri")).unwrap();
         let (dir, build, source) = match role(&text) {
-            Role::Platform => (format!("platform/effect/{name}"), "library {}\n", "lib.buri"),
+            Role::Platform => (
+                format!("platform/effect/{name}"),
+                "library {}\n",
+                "lib.buri",
+            ),
             Role::TestSource => (format!("lib/{name}"), TESTED_LIBRARY, "test/main.buri"),
             Role::Entry => (format!("cmd/{name}"), harness::JS_BINARY, "main.buri"),
             _ => (format!("lib/{name}"), "library {}\n", "lib.buri"),
@@ -1369,9 +1442,16 @@ fn recovery_cases_read_the_same_through_the_command_line() {
     let mut reported: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for command in ["build", "test"] {
         let run = repo.run(&[command, "--error-format=json"]);
-        assert_ne!(run.code, 0, "`buri {command}` passed:\n{}", indent(&run.all()));
+        assert_ne!(
+            run.code,
+            0,
+            "`buri {command}` passed:\n{}",
+            indent(&run.all())
+        );
         for line in run.stdout.lines().chain(run.stderr.lines()) {
-            let Ok(d) = buri::json::parse(line) else { continue };
+            let Ok(d) = buri::json::parse(line) else {
+                continue;
+            };
             let (Some(file), Some(code), Some(message)) = (
                 d.at("location.file").and_then(|v| v.as_str()),
                 d.get("code").and_then(|v| v.as_str()),
@@ -1379,8 +1459,18 @@ fn recovery_cases_read_the_same_through_the_command_line() {
             ) else {
                 continue;
             };
-            let n = |key: &str| d.at(&format!("location.{key}")).and_then(|v| v.as_u32()).unwrap();
-            let span = format!("{}:{}-{}:{}", n("line"), n("column"), n("endLine"), n("endColumn"));
+            let n = |key: &str| {
+                d.at(&format!("location.{key}"))
+                    .and_then(|v| v.as_u32())
+                    .unwrap()
+            };
+            let span = format!(
+                "{}:{}-{}:{}",
+                n("line"),
+                n("column"),
+                n("endLine"),
+                n("endColumn")
+            );
             reported
                 .entry(file.to_string())
                 .or_default()
@@ -1405,8 +1495,14 @@ fn recovery_cases_read_the_same_through_the_command_line() {
         }
         // An effect package owes a `testing` implementation; a snippet doesn't.
         let owed = "[effect-missing-test-implementation]";
-        for g in got.iter().filter(|g| !heads.contains(g) && !g.contains(owed)) {
-            failures.push(format!("{name}: reported what the recording doesn't hold:\n{}", indent(g)));
+        for g in got
+            .iter()
+            .filter(|g| !heads.contains(g) && !g.contains(owed))
+        {
+            failures.push(format!(
+                "{name}: reported what the recording doesn't hold:\n{}",
+                indent(g)
+            ));
         }
     }
     assert!(
@@ -1432,10 +1528,18 @@ fn stanza(text: &str, d: &Diagnostic) -> String {
         out.push_str(&format!("fix: {fix}\n"));
     }
     for e in &d.edits {
-        out.push_str(&format!("edit: {} {:?}\n", at(text, e.at.start, e.at.end), e.replacement));
+        out.push_str(&format!(
+            "edit: {} {:?}\n",
+            at(text, e.at.start, e.at.end),
+            e.replacement
+        ));
     }
     for s in &d.secondary_spans {
-        out.push_str(&format!("related: {} {}\n", at(text, s.span.start, s.span.end), s.label));
+        out.push_str(&format!(
+            "related: {} {}\n",
+            at(text, s.span.start, s.span.end),
+            s.label
+        ));
     }
     for n in &d.notes {
         out.push_str(&format!("note: {n}\n"));
@@ -1516,9 +1620,16 @@ fn message_audit_corpus() {
     // "the curated set alone", not "all of them".
     let all = if want == 0 { Vec::new() } else { cases() };
     for m in strided(&all, want) {
-        let Some(d) = parse_errors(&m.source).into_iter().next() else { continue };
+        let Some(d) = parse_errors(&m.source).into_iter().next() else {
+            continue;
+        };
         n += 1;
-        records.push_str(&record(n, &format!("{} ({})", m.origin, m.what), &m.source, &d));
+        records.push_str(&record(
+            n,
+            &format!("{} ({})", m.origin, m.what),
+            &m.source,
+            &d,
+        ));
     }
 
     std::fs::write(&out, &records).unwrap();
@@ -1526,7 +1637,10 @@ fn message_audit_corpus() {
 
     // The curated set is on disk, so anything under its floor is a corpus that
     // stopped being reachable rather than a corpus that is small.
-    assert!(n >= 40, "the audit corpus is {n} records; the curated set alone clears forty");
+    assert!(
+        n >= 40,
+        "the audit corpus is {n} records; the curated set alone clears forty"
+    );
 
     // The format `run.sh` reads, asserted here because it is generated here.
     // `awk` splits on `--- <n>` and pulls five fields out of each record; a
@@ -1536,7 +1650,11 @@ fn message_audit_corpus() {
     let headers: Vec<&str> = records.lines().filter(|l| l.starts_with("--- ")).collect();
     assert_eq!(headers.len(), n, "one `--- <n>` header per record");
     for (i, header) in headers.iter().enumerate() {
-        assert_eq!(*header, format!("--- {}", i + 1), "the headers are 1..=n in order");
+        assert_eq!(
+            *header,
+            format!("--- {}", i + 1),
+            "the headers are 1..=n in order"
+        );
     }
     for field in ["where: ", "line: ", "code: ", "message: ", "fix: "] {
         let count = records.lines().filter(|l| l.starts_with(field)).count();
@@ -1547,7 +1665,11 @@ fn message_audit_corpus() {
 /// One record, in the shape the audit script reads with `awk`.
 fn record(n: usize, where_: &str, text: &str, d: &Diagnostic) -> String {
     let (line, column) = position(text, d.span.start);
-    let source = text.lines().nth(line.saturating_sub(1)).unwrap_or("").trim_end();
+    let source = text
+        .lines()
+        .nth(line.saturating_sub(1))
+        .unwrap_or("")
+        .trim_end();
     format!(
         "--- {n}\nwhere: {where_}:{line}:{column}\nline: {source}\ncode: {}\nmessage: {}\nfix: {}\n\n",
         d.code.as_deref().unwrap_or("-"),
@@ -1586,7 +1708,11 @@ fn the_corpus_is_present() {
     }
     // Every mutation must actually change the text, and must stay in bounds.
     for m in &all {
-        assert!(m.site <= m.source.len(), "{}: the site is past the end", m.origin);
+        assert!(
+            m.site <= m.source.len(),
+            "{}: the site is past the end",
+            m.origin
+        );
         assert!(m.window.0 <= m.window.1, "{}: an inverted window", m.origin);
     }
     let strict = all.iter().filter(|m| m.is_strict()).count();

@@ -72,9 +72,11 @@ impl Expr {
     pub fn written_field(&self, index: usize) -> Option<&Expr> {
         match &self.kind {
             ExprKind::StructLit { fields, .. } => fields.get(index),
-            ExprKind::StructUpdate { base, updates, .. } => {
-                updates.iter().find(|(i, _)| *i == index).map(|(_, e)| e).or_else(|| base.written_field(index))
-            }
+            ExprKind::StructUpdate { base, updates, .. } => updates
+                .iter()
+                .find(|(i, _)| *i == index)
+                .map(|(_, e)| e)
+                .or_else(|| base.written_field(index)),
             _ => None,
         }
     }
@@ -84,7 +86,11 @@ impl Expr {
 pub enum Stmt {
     /// `let` with an irrefutable pattern. The pattern is kept rather than
     /// flattened so the backend can emit destructuring directly.
-    Let { pattern: Pattern, value: Expr, span: Span },
+    Let {
+        pattern: Pattern,
+        value: Expr,
+        span: Span,
+    },
     /// An expression statement, legal only in a test source and only at type
     /// `()`.
     Expr(Expr),
@@ -198,10 +204,16 @@ pub enum ExprKind {
     FnRef(Callee),
 
     /// A call through a value of function type.
-    CallValue { callee: Box<Expr>, args: Vec<Expr> },
+    CallValue {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+    },
     /// A direct call to a known function. After monomorphization every generic
     /// call is one of these.
-    CallFn { func: Callee, args: Vec<Expr> },
+    CallFn {
+        func: Callee,
+        args: Vec<Expr>,
+    },
     /// A trait or effect method whose receiver type is not yet concrete.
     /// Monomorphization turns each of these into a `CallFn`.
     CallTrait {
@@ -213,33 +225,79 @@ pub enum ExprKind {
         args: Vec<Expr>,
     },
 
-    StructLit { con: TyConId, targs: Vec<Ty>, fields: Vec<Expr> },
+    StructLit {
+        con: TyConId,
+        targs: Vec<Ty>,
+        fields: Vec<Expr>,
+    },
     /// `S { ..base, f: v }`. Never names the hidden fields, which is why it
     /// works outside the declaring module.
-    StructUpdate { con: TyConId, base: Box<Expr>, updates: Vec<(usize, Expr)> },
-    EnumLit { con: TyConId, targs: Vec<Ty>, variant: usize, args: Vec<Expr> },
+    StructUpdate {
+        con: TyConId,
+        base: Box<Expr>,
+        updates: Vec<(usize, Expr)>,
+    },
+    EnumLit {
+        con: TyConId,
+        targs: Vec<Ty>,
+        variant: usize,
+        args: Vec<Expr>,
+    },
     Tuple(Vec<Expr>),
     Array(Vec<Expr>),
 
-    Field { base: Box<Expr>, index: usize },
-    TupleIndex { base: Box<Expr>, index: usize },
+    Field {
+        base: Box<Expr>,
+        index: usize,
+    },
+    TupleIndex {
+        base: Box<Expr>,
+        index: usize,
+    },
     /// Indexing yields `Option<T>`. There is no way to index out of bounds.
-    Index { base: Box<Expr>, index: Box<Expr>, elem: Ty },
+    Index {
+        base: Box<Expr>,
+        index: Box<Expr>,
+        elem: Ty,
+    },
 
-    Block { stmts: Vec<Stmt>, tail: Option<Box<Expr>> },
-    If { cond: Box<Expr>, then: Box<Expr>, else_: Box<Expr> },
-    Match { scrutinee: Box<Expr>, arms: Vec<Arm> },
+    Block {
+        stmts: Vec<Stmt>,
+        tail: Option<Box<Expr>>,
+    },
+    If {
+        cond: Box<Expr>,
+        then: Box<Expr>,
+        else_: Box<Expr>,
+    },
+    Match {
+        scrutinee: Box<Expr>,
+        arms: Vec<Arm>,
+    },
 
     /// Lambdas capture by value. Since values are immutable, capture is
     /// unobservable — and a lambda may not capture an effect-carrying value,
     /// which is what makes the purity theorem hold structurally.
-    Lambda { params: Vec<LocalId>, body: Box<Expr>, captures: Vec<LocalId> },
+    Lambda {
+        params: Vec<LocalId>,
+        body: Box<Expr>,
+        captures: Vec<LocalId>,
+    },
 
     /// `&&` and `||`, which short-circuit.
-    And { lhs: Box<Expr>, rhs: Box<Expr> },
-    Or { lhs: Box<Expr>, rhs: Box<Expr> },
+    And {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Or {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
     /// Postfix `?`, the only early exit in the language.
-    Try { base: Box<Expr>, kind: OptionOrResult },
+    Try {
+        base: Box<Expr>,
+        kind: OptionOrResult,
+    },
 
     /// A loop, and the only expression here that cannot be written down in the
     /// source language: `middle::tail_calls` produces it and nothing else
@@ -251,7 +309,9 @@ pub enum ExprKind {
     /// the loop was made from, which for a function that only tail-calls
     /// itself is one; a merged group is entered from outside, so which entry
     /// runs first is the caller's to choose.
-    Loop { entries: Vec<Expr> },
+    Loop {
+        entries: Vec<Expr>,
+    },
 
     /// A tail call, after elimination: rebind and jump.
     ///
@@ -262,7 +322,11 @@ pub enum ExprKind {
     /// value of any Buri type, so it is spelled here as a number rather than
     /// smuggled in as an extra argument at a type the middle end would have
     /// had to invent.
-    Continue { func: Option<FuncIdx>, entry: usize, args: Vec<Expr> },
+    Continue {
+        func: Option<FuncIdx>,
+        entry: usize,
+        args: Vec<Expr>,
+    },
 
     /// A closure: a lifted function, and the environment it reads its captures
     /// out of. Produced by `middle::closures` in place of a [`ExprKind::Lambda`],
@@ -274,29 +338,51 @@ pub enum ExprKind {
     /// filling one in. A lambda that captures nothing does not become one of
     /// these at all: it becomes an [`ExprKind::FnRef`], which is already the
     /// null-environment case.
-    Closure { func: FuncIdx, env: Vec<Expr> },
+    Closure {
+        func: FuncIdx,
+        env: Vec<Expr>,
+    },
 
     /// A primitive operation at a known primitive type. The type is not
     /// optional: every operation here is chosen *because* the operand type
     /// resolved to a primitive, and a missing one used to default to `I64` in
     /// the backend — which is integer division semantics for a float divide.
-    Prim { op: PrimOp, prim: Prim, args: Vec<Expr> },
+    Prim {
+        op: PrimOp,
+        prim: Prim,
+        args: Vec<Expr>,
+    },
     /// Structural equality on a compound type, compiled per type.
-    StructuralEq { args: Vec<Expr> },
+    StructuralEq {
+        args: Vec<Expr>,
+    },
 
-    Template { parts: Vec<TemplatePart> },
+    Template {
+        parts: Vec<TemplatePart>,
+    },
 
     /// `context { ... }`, the only construct in which more than one
     /// effect-carrying value may appear.
-    CtxLit { bindings: Vec<(TraitId, Expr)> },
+    CtxLit {
+        bindings: Vec<(TraitId, Expr)>,
+    },
     /// Reading one effect implementation out of a context value.
-    CtxGet { base: Box<Expr>, trait_id: TraitId },
+    CtxGet {
+        base: Box<Expr>,
+        trait_id: TraitId,
+    },
     /// A call to a named context declaration, which builds a fresh one.
-    CtxCall { decl: crate::compiler::semantics::types::ContextDeclId },
+    CtxCall {
+        decl: crate::compiler::semantics::types::ContextDeclId,
+    },
 
     /// An operation the runtime supplies. Only the embedded standard library
     /// produces these.
-    Intrinsic { name: String, targs: Vec<Ty>, args: Vec<Expr> },
+    Intrinsic {
+        name: String,
+        targs: Vec<Ty>,
+        args: Vec<Expr>,
+    },
 
     /// Poison. Produced only where a diagnostic was already reported.
     Error,
@@ -342,7 +428,10 @@ impl ArrayRest {
 #[derive(Clone, Debug)]
 pub enum PatKind {
     Wild,
-    Bind { local: LocalId, sub: Option<Box<Pattern>> },
+    Bind {
+        local: LocalId,
+        sub: Option<Box<Pattern>>,
+    },
     Int(Magnitude, bool),
     Float(f64),
     Str(String),
@@ -350,10 +439,20 @@ pub enum PatKind {
     Bool(bool),
     Unit,
     Tuple(Vec<Pattern>),
-    Struct { con: TyConId, fields: Vec<FieldPat> },
-    Variant { con: TyConId, variant: usize, fields: Vec<FieldPat> },
+    Struct {
+        con: TyConId,
+        fields: Vec<FieldPat>,
+    },
+    Variant {
+        con: TyConId,
+        variant: usize,
+        fields: Vec<FieldPat>,
+    },
     /// `[a, b, ..rest]`. Rest patterns bind only at the end.
-    Array { elems: Vec<Pattern>, rest: ArrayRest },
+    Array {
+        elems: Vec<Pattern>,
+        rest: ArrayRest,
+    },
     Or(Vec<Pattern>),
     Error,
 }
@@ -420,9 +519,10 @@ impl Pattern {
     pub fn is_irrefutable(&self, tables: &crate::compiler::semantics::types::Tables) -> bool {
         match &self.kind {
             PatKind::Wild | PatKind::Unit | PatKind::Error => true,
-            PatKind::Bind { sub, .. } => {
-                sub.as_ref().map(|s| s.is_irrefutable(tables)).unwrap_or(true)
-            }
+            PatKind::Bind { sub, .. } => sub
+                .as_ref()
+                .map(|s| s.is_irrefutable(tables))
+                .unwrap_or(true),
             PatKind::Tuple(ps) => ps.iter().all(|p| p.is_irrefutable(tables)),
             PatKind::Struct { fields, .. } => {
                 fields.iter().all(|f| f.pattern.is_irrefutable(tables))
@@ -432,9 +532,7 @@ impl Pattern {
                 tables.tycon(*con).variants().len() == 1
                     && fields.iter().all(|f| f.pattern.is_irrefutable(tables))
             }
-            PatKind::Array { elems, rest } => {
-                elems.is_empty() && rest.is_open()
-            }
+            PatKind::Array { elems, rest } => elems.is_empty() && rest.is_open(),
             PatKind::Or(alts) => alts.iter().any(|p| p.is_irrefutable(tables)),
             _ => false,
         }

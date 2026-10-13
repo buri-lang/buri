@@ -102,7 +102,10 @@ impl Default for Languages {
     fn default() -> Languages {
         let builtin = |name: &str, extensions: &[&str], kind| Language {
             name: name.to_string(),
-            extensions: extensions.iter().map(|e| Spanned::new(e.to_string(), Span::NONE)).collect(),
+            extensions: extensions
+                .iter()
+                .map(|e| Spanned::new(e.to_string(), Span::NONE))
+                .collect(),
             kind,
         };
         Languages {
@@ -137,7 +140,9 @@ impl Languages {
     /// The dialect to read a file as: its language's, or plain JSON for a
     /// schema whose extension names no built-in language.
     pub fn dialect_of(&self, path: &str) -> json::Dialect {
-        self.of(path).and_then(Language::dialect).unwrap_or(json::Dialect::Json)
+        self.of(path)
+            .and_then(Language::dialect)
+            .unwrap_or(json::Dialect::Json)
     }
 }
 
@@ -172,7 +177,12 @@ pub struct Said {
 }
 
 impl Finding {
-    pub fn new(code: &str, file: &str, span: (usize, usize), binds: Vec<(&str, String)>) -> Finding {
+    pub fn new(
+        code: &str,
+        file: &str,
+        span: (usize, usize),
+        binds: Vec<(&str, String)>,
+    ) -> Finding {
         Finding {
             code: code.to_string(),
             file: file.to_string(),
@@ -220,8 +230,14 @@ impl Finding {
         Value::object(vec![
             ("code", Value::str(&self.code)),
             ("file", Value::str(&self.file)),
-            ("start", Value::number(i64::try_from(self.span.0).unwrap_or(i64::MAX))),
-            ("end", Value::number(i64::try_from(self.span.1).unwrap_or(i64::MAX))),
+            (
+                "start",
+                Value::number(i64::try_from(self.span.0).unwrap_or(i64::MAX)),
+            ),
+            (
+                "end",
+                Value::number(i64::try_from(self.span.1).unwrap_or(i64::MAX)),
+            ),
             (
                 "binds",
                 Value::Array(
@@ -242,15 +258,20 @@ impl Finding {
             .as_array()?
             .iter()
             .map(|pair| {
-                let [k, v] = pair.as_array()? else { return None };
+                let [k, v] = pair.as_array()? else {
+                    return None;
+                };
                 Some((k.as_str()?.to_string(), v.as_str()?.to_string()))
             })
             .collect::<Option<Vec<_>>>()?;
-        let text = |s: &crate::json::Value, name| s.get(name).and_then(|t| t.as_str()).map(str::to_string);
+        let text =
+            |s: &crate::json::Value, name| s.get(name).and_then(|t| t.as_str()).map(str::to_string);
         let said = match v.get("said") {
-            Some(s @ crate::json::Value::Object(_)) => {
-                Some(Box::new(Said { message: text(s, "message")?, note: text(s, "note"), fix: text(s, "fix") }))
-            }
+            Some(s @ crate::json::Value::Object(_)) => Some(Box::new(Said {
+                message: text(s, "message")?,
+                note: text(s, "note"),
+                fix: text(s, "fix"),
+            })),
             _ => None,
         };
         Some(Finding {
@@ -268,7 +289,12 @@ impl Finding {
     }
 
     pub fn decode(text: &str) -> Option<Vec<Finding>> {
-        crate::json::parse(text).ok()?.as_array()?.iter().map(Finding::from_json).collect()
+        crate::json::parse(text)
+            .ok()?
+            .as_array()?
+            .iter()
+            .map(Finding::from_json)
+            .collect()
     }
 }
 
@@ -301,13 +327,30 @@ impl Check {
             asked.insert(p.to_string());
             read(p)
         };
-        let reads =
-            json::schema_files(path, &text, contract.as_deref(), &|p| languages.dialect_of(p), &mut recording);
-        Check { path: path.to_string(), text, reads, asked, contract }
+        let reads = json::schema_files(
+            path,
+            &text,
+            contract.as_deref(),
+            &|p| languages.dialect_of(p),
+            &mut recording,
+        );
+        Check {
+            path: path.to_string(),
+            text,
+            reads,
+            asked,
+            contract,
+        }
     }
 
     pub fn run(&self, languages: &Languages) -> Vec<Finding> {
-        json::check(&self.path, &self.text, self.contract.as_deref(), &|p| languages.dialect_of(p), &self.reads)
+        json::check(
+            &self.path,
+            &self.text,
+            self.contract.as_deref(),
+            &|p| languages.dialect_of(p),
+            &self.reads,
+        )
     }
 }
 

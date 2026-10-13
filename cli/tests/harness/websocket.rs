@@ -123,7 +123,10 @@ impl Serving {
 /// a session's script is the script for that session and not a race between
 /// them.
 pub fn serving(sessions: Vec<Vec<Step>>) -> Serving {
-    serving_on(TcpListener::bind(("127.0.0.1", 0)).expect("a bound port"), sessions)
+    serving_on(
+        TcpListener::bind(("127.0.0.1", 0)).expect("a bound port"),
+        sessions,
+    )
 }
 
 /// [`serving`], on a listener the caller bound.
@@ -147,8 +150,13 @@ pub fn serving_on(listener: TcpListener, sessions: Vec<Vec<Step>>) -> Serving {
 fn session_of(socket: TcpStream, steps: &[Step]) -> Vec<Heard> {
     let _read = socket.set_read_timeout(Some(PATIENCE));
     let _written = socket.set_write_timeout(Some(PATIENCE));
-    let mut peer = Peer { socket, over: Vec::new() };
-    let Some(key) = peer.handshake() else { return Vec::new() };
+    let mut peer = Peer {
+        socket,
+        over: Vec::new(),
+    };
+    let Some(key) = peer.handshake() else {
+        return Vec::new();
+    };
     // A session that answers something other than a `101` is over as soon as it
     // has said it: there is no framing behind an answer that did not switch
     // protocols, and no bytes after it belong to anybody.
@@ -268,7 +276,9 @@ impl Peer {
     fn hear(&mut self) -> Heard {
         let mut assembling: Option<(u8, Vec<u8>)> = None;
         loop {
-            let Some((fin, opcode, payload)) = self.frame() else { return Heard::Gone };
+            let Some((fin, opcode, payload)) = self.frame() else {
+                return Heard::Gone;
+            };
             match opcode {
                 0x0 => {
                     let Some((kind, mut so_far)) = assembling.take() else {
@@ -288,7 +298,9 @@ impl Peer {
                 }
                 0x8 => {
                     return Heard::Closed(
-                        payload.get(..2).map(|two| u16::from_be_bytes([two[0], two[1]])),
+                        payload
+                            .get(..2)
+                            .map(|two| u16::from_be_bytes([two[0], two[1]])),
                     );
                 }
                 // A ping this server does not answer, or a pong for one it
@@ -304,7 +316,11 @@ impl Peer {
         let first = self.exactly(2)?;
         let fin = first[0] & 0x80 != 0;
         let opcode = first[0] & 0x0f;
-        assert_eq!(first[1] & 0x80, 0x80, "a client must mask every frame it sends");
+        assert_eq!(
+            first[1] & 0x80,
+            0x80,
+            "a client must mask every frame it sends"
+        );
         let len = match first[1] & 0x7f {
             126 => {
                 let two = self.exactly(2)?;
@@ -331,7 +347,9 @@ impl Peer {
             let mut chunk = [0u8; 4096];
             match self.socket.read(&mut chunk) {
                 Ok(0) => return None,
-                Ok(read) => self.over.extend_from_slice(chunk.get(..read).unwrap_or(&[])),
+                Ok(read) => self
+                    .over
+                    .extend_from_slice(chunk.get(..read).unwrap_or(&[])),
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => return None,
             }
@@ -353,7 +371,9 @@ impl Peer {
     /// was just written — and a quarter of a second is far more than a loopback
     /// exchange needs for that.
     fn drain(&mut self) {
-        let _brief = self.socket.set_read_timeout(Some(Duration::from_millis(250)));
+        let _brief = self
+            .socket
+            .set_read_timeout(Some(Duration::from_millis(250)));
         let mut chunk = [0u8; 4096];
         loop {
             match self.socket.read(&mut chunk) {
@@ -392,7 +412,13 @@ pub fn accept_key(key: &str) -> String {
 /// is forty lines. It is used for exactly one thing — the handshake's accept
 /// key — and never for anything a security claim rests on.
 fn sha1(message: &[u8]) -> [u8; 20] {
-    let mut h: [u32; 5] = [0x6745_2301, 0xEFCD_AB89, 0x98BA_DCFE, 0x1032_5476, 0xC3D2_E1F0];
+    let mut h: [u32; 5] = [
+        0x6745_2301,
+        0xEFCD_AB89,
+        0x98BA_DCFE,
+        0x1032_5476,
+        0xC3D2_E1F0,
+    ];
     let bits = (message.len() as u64).wrapping_mul(8);
     let mut padded = message.to_vec();
     padded.push(0x80);
@@ -450,16 +476,14 @@ fn sha1(message: &[u8]) -> [u8; 20] {
 /// Standard-alphabet base64 with padding, on `cli/runtime/net.rs`'s terms: the
 /// archive has a decoder and no encoder, and twenty lines beats a crate.
 fn base64(bytes: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     for group in bytes.chunks(3) {
         let mut block = [0u8; 3];
         for (slot, byte) in block.iter_mut().zip(group) {
             *slot = *byte;
         }
-        let packed =
-            (u32::from(block[0]) << 16) | (u32::from(block[1]) << 8) | u32::from(block[2]);
+        let packed = (u32::from(block[0]) << 16) | (u32::from(block[1]) << 8) | u32::from(block[2]);
         for sextet in 0..4usize {
             let digit = if sextet <= group.len() {
                 let shift = 18_u32.saturating_sub(6 * sextet as u32);
@@ -481,7 +505,10 @@ fn base64(bytes: &[u8]) -> String {
 /// the specification's own key and answer are exactly that.
 #[test]
 fn the_accept_key_is_the_one_rfc_6455_works_through() {
-    assert_eq!(accept_key("dGhlIHNhbXBsZSBub25jZQ=="), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+    assert_eq!(
+        accept_key("dGhlIHNhbXBsZSBub25jZQ=="),
+        "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+    );
     // And SHA-1's own two published vectors, so a key that happened to work is
     // not the only evidence the hash is right.
     assert_eq!(

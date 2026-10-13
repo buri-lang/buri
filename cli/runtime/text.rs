@@ -57,11 +57,9 @@
               it, bounded by its length"
 )]
 
-use crate::memory::{
-    buri_rt_alloc, buri_rt_incref, buri_rt_unique_cap, BURI_RT_GROWTH_FLOOR,
-};
-use crate::value::{str_of, BuriList, BuriStr, BURI_RT_STR_ASCII, BURI_RT_STR_LEN_MASK};
-use crate::{scalars, BURI_OK};
+use crate::memory::{BURI_RT_GROWTH_FLOOR, buri_rt_alloc, buri_rt_incref, buri_rt_unique_cap};
+use crate::value::{BURI_RT_STR_ASCII, BURI_RT_STR_LEN_MASK, BuriList, BuriStr, str_of};
+use crate::{BURI_OK, scalars};
 
 /// The discriminant an `Option`-returning entry answers when the value is
 /// absent. `.None` is `Option`'s second variant (`option.buri:9-12`), so its
@@ -146,20 +144,29 @@ fn scalar_at(bytes: &[u8], at: usize) -> Option<char> {
     };
     let end = at.saturating_add(width).min(bytes.len());
     let run = bytes.get(at..end).unwrap_or(&[]);
-    Some(String::from_utf8_lossy(run).chars().next().unwrap_or('\u{FFFD}'))
+    Some(
+        String::from_utf8_lossy(run)
+            .chars()
+            .next()
+            .unwrap_or('\u{FFFD}'),
+    )
 }
 
 /// The first byte offset at which `needle` occurs in `haystack`.
 ///
 /// The empty needle occurs at 0, which is what `String.prototype.indexOf` says.
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    let Some((&first, rest)) = needle.split_first() else { return Some(0) };
+    let Some((&first, rest)) = needle.split_first() else {
+        return Some(0);
+    };
     if needle.len() > haystack.len() {
         return None;
     }
     // Only a start can hold the needle's first byte, so the scan jumps from
     // one of those to the next and compares the rest only there.
-    let starts = haystack.get(..=haystack.len() - needle.len()).unwrap_or(&[]);
+    let starts = haystack
+        .get(..=haystack.len() - needle.len())
+        .unwrap_or(&[]);
     let mut at = 0;
     while let Some(found) = memchr(first, starts.get(at..).unwrap_or(&[])) {
         let start = at + found;
@@ -200,7 +207,11 @@ struct Pieces {
 
 impl Pieces {
     fn new() -> Pieces {
-        Pieces { inline: [(0, 0); 16], n: 0, spilled: Vec::new() }
+        Pieces {
+            inline: [(0, 0); 16],
+            n: 0,
+            spilled: Vec::new(),
+        }
     }
 
     fn push(&mut self, piece: (usize, usize)) {
@@ -216,7 +227,11 @@ impl Pieces {
     }
 
     fn as_slice(&self) -> &[(usize, usize)] {
-        if self.spilled.is_empty() { self.inline.get(..self.n).unwrap_or(&[]) } else { &self.spilled }
+        if self.spilled.is_empty() {
+            self.inline.get(..self.n).unwrap_or(&[])
+        } else {
+            &self.spilled
+        }
     }
 }
 
@@ -286,7 +301,10 @@ unsafe fn list_of_views(
 ) -> BuriList {
     let stride = size_of::<BuriStr>();
     if pieces.is_empty() {
-        return BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        return BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
     }
     let block = buri_rt_alloc((pieces.len().saturating_mul(stride)) as u64);
     let mut views = 0u64;
@@ -297,15 +315,27 @@ unsafe fn list_of_views(
         } else {
             views += 1;
             // SAFETY: the caller promises the range is inside `base`'s block.
-            BuriStr { base, ptr: unsafe { ptr.add(*from) }, len: n as u64 | ascii }
+            BuriStr {
+                base,
+                ptr: unsafe { ptr.add(*from) },
+                len: n as u64 | ascii,
+            }
         };
         // SAFETY: `i * stride` is inside the spine block just allocated.
-        unsafe { block.add(i.saturating_mul(stride)).cast::<BuriStr>().write(element) };
+        unsafe {
+            block
+                .add(i.saturating_mul(stride))
+                .cast::<BuriStr>()
+                .write(element)
+        };
     }
     // One reference per non-empty view, taken in one update.
     // SAFETY: `base` is the live block every view points into.
     unsafe { crate::memory::incref_by(base, views) };
-    BuriList { ptr: block, len: pieces.len() as u64 }
+    BuriList {
+        ptr: block,
+        len: pieces.len() as u64,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -501,7 +531,9 @@ pub unsafe extern "C" fn buri_rt_str_index_of(
 ) -> i32 {
     // SAFETY: the caller promises both ranges.
     let (s, n) = unsafe { (view(ptr, len), view(nptr, nlen)) };
-    let Some(at) = find(s, n) else { return BURI_ABSENT };
+    let Some(at) = find(s, n) else {
+        return BURI_ABSENT;
+    };
     let ascii = len & BURI_RT_STR_ASCII != 0;
     // SAFETY: `base` is the block `s` is a view into; the caller promises a
     // writable, aligned destination.
@@ -526,7 +558,9 @@ pub unsafe extern "C" fn buri_rt_str_split_once(
 ) -> i32 {
     // SAFETY: the caller promises both ranges.
     let (s, sep) = unsafe { (view(ptr, len), view(sptr, slen)) };
-    let Some(at) = find(s, sep) else { return BURI_ABSENT };
+    let Some(at) = find(s, sep) else {
+        return BURI_ABSENT;
+    };
     let after = at.saturating_add(sep.len());
     // SAFETY: both ranges are inside `base`'s block, and `out` covers two.
     unsafe {
@@ -611,14 +645,18 @@ pub unsafe extern "C" fn buri_rt_str_to_int(
     // SAFETY: the caller promises `len` readable bytes.
     let s = unsafe { text(ptr, len) };
     let (from, to) = trim_range(s.as_bytes(), true, true);
-    let Some(t) = s.get(from..to) else { return BURI_ABSENT };
+    let Some(t) = s.get(from..to) else {
+        return BURI_ABSENT;
+    };
     let digits = t.strip_prefix(['+', '-']).unwrap_or(t);
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return BURI_ABSENT;
     }
     // Rust's own parser takes it from here: it accepts the same optional sign
     // and refuses anything outside `i64`, which is the whole of the range.
-    let Ok(v) = t.parse::<i64>() else { return BURI_ABSENT };
+    let Ok(v) = t.parse::<i64>() else {
+        return BURI_ABSENT;
+    };
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(v) };
     BURI_OK
@@ -644,11 +682,15 @@ pub unsafe extern "C" fn buri_rt_str_to_float(
     // SAFETY: the caller promises `len` readable bytes.
     let s = unsafe { text(ptr, len) };
     let (from, to) = trim_range(s.as_bytes(), true, true);
-    let Some(t) = s.get(from..to) else { return BURI_ABSENT };
+    let Some(t) = s.get(from..to) else {
+        return BURI_ABSENT;
+    };
     if !is_js_float_literal(t) {
         return BURI_ABSENT;
     }
-    let Ok(v) = t.parse::<f64>() else { return BURI_ABSENT };
+    let Ok(v) = t.parse::<f64>() else {
+        return BURI_ABSENT;
+    };
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(v) };
     BURI_OK
@@ -785,7 +827,11 @@ pub unsafe extern "C" fn buri_rt_str_concat(
             unsafe {
                 std::ptr::copy(b_ptr, a_ptr.cast_mut().add(la), lb);
                 buri_rt_incref(a_base);
-                out.write(BuriStr { base: a_base, ptr: a_ptr, len: n as u64 | ascii });
+                out.write(BuriStr {
+                    base: a_base,
+                    ptr: a_ptr,
+                    len: n as u64 | ascii,
+                });
             }
             return;
         }
@@ -795,7 +841,11 @@ pub unsafe extern "C" fn buri_rt_str_concat(
         unsafe {
             std::ptr::copy_nonoverlapping(a_ptr, block, la);
             std::ptr::copy_nonoverlapping(b_ptr, block.add(la), lb);
-            out.write(BuriStr { base: block, ptr: block, len: n as u64 | ascii });
+            out.write(BuriStr {
+                base: block,
+                ptr: block,
+                len: n as u64 | ascii,
+            });
         }
         return;
     }
@@ -804,7 +854,11 @@ pub unsafe extern "C" fn buri_rt_str_concat(
     unsafe {
         std::ptr::copy_nonoverlapping(a_ptr, block, la);
         std::ptr::copy_nonoverlapping(b_ptr, block.add(la), lb);
-        out.write(BuriStr { base: block, ptr: block, len: n as u64 | ascii });
+        out.write(BuriStr {
+            base: block,
+            ptr: block,
+            len: n as u64 | ascii,
+        });
     }
 }
 
@@ -955,8 +1009,7 @@ pub unsafe extern "C" fn buri_rt_str_replace(
     out: *mut BuriStr,
 ) {
     // SAFETY: the caller promises all three ranges.
-    let (s, needle, replacement) =
-        unsafe { (view(ptr, len), view(nptr, nlen), view(rptr, rlen)) };
+    let (s, needle, replacement) = unsafe { (view(ptr, len), view(nptr, nlen), view(rptr, rlen)) };
     if needle.is_empty() {
         let n = s.len();
         // SAFETY: the whole receiver is inside `base`'s block.
@@ -1051,7 +1104,12 @@ pub unsafe extern "C" fn buri_rt_str_chars(
     let chars: Vec<u32> = s.chars().map(|c| c as u32).collect();
     if chars.is_empty() {
         // SAFETY: the caller promises a writable, aligned destination.
-        unsafe { out.write(BuriList { ptr: std::ptr::null_mut(), len: 0 }) };
+        unsafe {
+            out.write(BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            })
+        };
         return;
     }
     let block = buri_rt_alloc((chars.len().saturating_mul(4)) as u64);
@@ -1061,7 +1119,12 @@ pub unsafe extern "C" fn buri_rt_str_chars(
         unsafe { block.add(i.saturating_mul(4)).cast::<u32>().write(*c) };
     }
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(BuriList { ptr: block, len: chars.len() as u64 }) }
+    unsafe {
+        out.write(BuriList {
+            ptr: block,
+            len: chars.len() as u64,
+        })
+    }
 }
 
 /// `str.fromChars(ctx, cs) -> Str`.
@@ -1070,11 +1133,7 @@ pub unsafe extern "C" fn buri_rt_str_chars(
 /// `ptr` points at `count` `u32`s, or is null with `count == 0`; `out` is
 /// writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_str_from_chars(
-    ptr: *const u8,
-    count: u64,
-    out: *mut BuriStr,
-) {
+pub unsafe extern "C" fn buri_rt_str_from_chars(ptr: *const u8, count: u64, out: *mut BuriStr) {
     let mut built = String::new();
     for i in 0..count {
         if ptr.is_null() {
@@ -1111,7 +1170,11 @@ pub unsafe extern "C" fn buri_rt_str_from_int(n: i64, out: *mut BuriStr) {
         } else {
             crate::fmt::write_decimal(n.unsigned_abs(), bytes);
         }
-        out.write(BuriStr { base, ptr: base, len: len as u64 | BURI_RT_STR_ASCII });
+        out.write(BuriStr {
+            base,
+            ptr: base,
+            len: len as u64 | BURI_RT_STR_ASCII,
+        });
     }
 }
 
@@ -1225,7 +1288,10 @@ pub unsafe extern "C" fn buri_rt_list_join(
             built.extend_from_slice(sep);
         }
         // SAFETY: the caller promises `count` elements at `xs`.
-        let element = unsafe { &*xs.add((i as usize).saturating_mul(stride)).cast::<BuriStr>() };
+        let element = unsafe {
+            &*xs.add((i as usize).saturating_mul(stride))
+                .cast::<BuriStr>()
+        };
         // SAFETY: an element of a live `[Str]` is a live view.
         built.extend_from_slice(unsafe { element.bytes() });
     }
@@ -1316,7 +1382,9 @@ mod tests {
         for ok in ["1", "-1", "+1.5", ".5", "1.", "1e10", "1.5E-3", "0.0"] {
             assert!(is_js_float_literal(ok), "{ok}");
         }
-        for bad in ["", "Infinity", "NaN", "0x10", "1e", "1e+", ".", "1.2.3", "1 2"] {
+        for bad in [
+            "", "Infinity", "NaN", "0x10", "1e", "1e+", ".", "1.2.3", "1 2",
+        ] {
             assert!(!is_js_float_literal(bad), "{bad}");
         }
     }
@@ -1365,11 +1433,19 @@ mod tests {
         // U+FFFD is one code unit and U+10000 is a surrogate pair starting at
         // 0xD800, so UTF-16 puts the astral one first. The scalar values say
         // 0xFFFD < 0x10000, and so does UTF-8.
-        assert_eq!(cmp("\u{fffd}", "\u{10000}"), 0, "U+FFFD sorts before U+10000");
+        assert_eq!(
+            cmp("\u{fffd}", "\u{10000}"),
+            0,
+            "U+FFFD sorts before U+10000"
+        );
         assert_eq!(cmp("\u{10000}", "\u{fffd}"), 2);
         // The issue's own case: U+E000 is a private-use character below every
         // astral one.
-        assert_eq!(cmp("\u{1f600}", "\u{e000}"), 2, "an emoji sorts after U+E000");
+        assert_eq!(
+            cmp("\u{1f600}", "\u{e000}"),
+            2,
+            "an emoji sorts after U+E000"
+        );
         assert_eq!(cmp("\u{e000}", "\u{1f600}"), 0);
         // The ordinary cases are unmoved.
         assert_eq!(cmp("apple", "banana"), 0);
@@ -1395,12 +1471,29 @@ mod tests {
     #[test]
     fn a_split_takes_one_reference_per_non_empty_piece() {
         let s = BuriStr::copy_from(b"a,b,,c");
-        let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut out = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         // SAFETY: both ranges are readable and `out` is writable.
-        unsafe { buri_rt_str_split(s.base, s.ptr, s.len, std::ptr::null_mut(), b",".as_ptr(), 1, &raw mut out) };
+        unsafe {
+            buri_rt_str_split(
+                s.base,
+                s.ptr,
+                s.len,
+                std::ptr::null_mut(),
+                b",".as_ptr(),
+                1,
+                &raw mut out,
+            )
+        };
         assert_eq!(out.len, 4);
         // SAFETY: `s.base` is live.
-        assert_eq!(unsafe { crate::memory::buri_rt_rc(s.base) }, 1 + 3, "a, b and c; the empty piece holds none");
+        assert_eq!(
+            unsafe { crate::memory::buri_rt_rc(s.base) },
+            1 + 3,
+            "a, b and c; the empty piece holds none"
+        );
         for i in 0..out.len as usize {
             // SAFETY: four pieces were written there.
             let piece = unsafe { out.ptr.cast::<BuriStr>().add(i).read() };
@@ -1420,7 +1513,9 @@ mod tests {
     /// The jumping search answers what trying every offset answers.
     #[test]
     fn the_search_agrees_with_trying_every_offset() {
-        let naive = |h: &[u8], n: &[u8]| (0..=h.len().saturating_sub(n.len())).find(|&i| h[i..].starts_with(n));
+        let naive = |h: &[u8], n: &[u8]| {
+            (0..=h.len().saturating_sub(n.len())).find(|&i| h[i..].starts_with(n))
+        };
         let mut s: u64 = 0x1234_5678_9ABC_DEF1;
         let mut next = || {
             s ^= s << 13;
@@ -1435,7 +1530,11 @@ mod tests {
             let h: Vec<u8> = (0..len).map(|_| pick(next())).collect();
             let nlen = 1 + (next() % 4) as usize;
             let n: Vec<u8> = (0..nlen).map(|_| pick(next())).collect();
-            let want = if n.len() > h.len() { None } else { naive(&h, &n) };
+            let want = if n.len() > h.len() {
+                None
+            } else {
+                naive(&h, &n)
+            };
             assert_eq!(find(&h, &n), want, "{h:?} {n:?}");
             assert_eq!(memchr(n[0], &h), h.iter().position(|&b| b == n[0]));
         }
@@ -1461,7 +1560,15 @@ mod tests {
             let mut out = BuriStr::empty();
             // SAFETY: `acc` is this test's only reference, and "xy" is live.
             unsafe {
-                buri_rt_str_concat(acc.base, acc.ptr, acc.len, std::ptr::null_mut(), bp, bl, &raw mut out);
+                buri_rt_str_concat(
+                    acc.base,
+                    acc.ptr,
+                    acc.len,
+                    std::ptr::null_mut(),
+                    bp,
+                    bl,
+                    &raw mut out,
+                );
                 crate::memory::buri_rt_decref(acc.base, None);
             }
             if out.base != acc.base {
@@ -1472,8 +1579,15 @@ mod tests {
         assert_eq!(acc.len & BURI_RT_STR_LEN_MASK, 2000);
         assert_eq!(acc.len & BURI_RT_STR_ASCII, BURI_RT_STR_ASCII);
         // SAFETY: the block holds the two thousand bytes just written.
-        assert!(unsafe { acc.bytes() }.iter().eq(b"xy".iter().cycle().take(2000)));
-        assert!(allocations <= 20, "a thousand concatenations allocated {allocations} times");
+        assert!(
+            unsafe { acc.bytes() }
+                .iter()
+                .eq(b"xy".iter().cycle().take(2000))
+        );
+        assert!(
+            allocations <= 20,
+            "a thousand concatenations allocated {allocations} times"
+        );
         // SAFETY: the last reference.
         unsafe { crate::memory::buri_rt_free(acc.base) };
     }
@@ -1487,7 +1601,15 @@ mod tests {
         let mut base = BuriStr::empty();
         // SAFETY: "abcd" is live for the length of the test.
         unsafe {
-            buri_rt_str_concat(std::ptr::null_mut(), sp, sl, std::ptr::null_mut(), sp, sl, &raw mut base);
+            buri_rt_str_concat(
+                std::ptr::null_mut(),
+                sp,
+                sl,
+                std::ptr::null_mut(),
+                sp,
+                sl,
+                &raw mut base,
+            );
             buri_rt_incref(base.base);
         }
         let (op, ol) = borrowed("-one");
@@ -1496,8 +1618,24 @@ mod tests {
         let mut b = BuriStr::empty();
         // SAFETY: `base` holds two references, so neither call may append.
         unsafe {
-            buri_rt_str_concat(base.base, base.ptr, base.len, std::ptr::null_mut(), op, ol, &raw mut a);
-            buri_rt_str_concat(base.base, base.ptr, base.len, std::ptr::null_mut(), tp, tl, &raw mut b);
+            buri_rt_str_concat(
+                base.base,
+                base.ptr,
+                base.len,
+                std::ptr::null_mut(),
+                op,
+                ol,
+                &raw mut a,
+            );
+            buri_rt_str_concat(
+                base.base,
+                base.ptr,
+                base.len,
+                std::ptr::null_mut(),
+                tp,
+                tl,
+                &raw mut b,
+            );
         }
         assert_ne!(a.base, base.base, "a shared block took the in-place path");
         assert_ne!(b.base, base.base, "a shared block took the in-place path");
@@ -1523,8 +1661,24 @@ mod tests {
         let mut plain = BuriStr::empty();
         // SAFETY: both literals are live for the length of the test.
         unsafe {
-            buri_rt_str_concat(std::ptr::null_mut(), ap, al, std::ptr::null_mut(), wp, wl, &raw mut mixed);
-            buri_rt_str_concat(std::ptr::null_mut(), ap, al, std::ptr::null_mut(), ap, al, &raw mut plain);
+            buri_rt_str_concat(
+                std::ptr::null_mut(),
+                ap,
+                al,
+                std::ptr::null_mut(),
+                wp,
+                wl,
+                &raw mut mixed,
+            );
+            buri_rt_str_concat(
+                std::ptr::null_mut(),
+                ap,
+                al,
+                std::ptr::null_mut(),
+                ap,
+                al,
+                &raw mut plain,
+            );
         }
         assert_eq!(mixed.len & BURI_RT_STR_ASCII, 0);
         assert_eq!(plain.len & BURI_RT_STR_ASCII, BURI_RT_STR_ASCII);

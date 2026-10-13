@@ -196,13 +196,21 @@ pub(crate) const FRAMES: [Frame; 2] = [
     // AAPCS64: `x19`–`x28`, `x29`, `x30`, then `d8`–`d15`. Twenty words, a
     // 160-byte frame of ten pairs, the argument in `x19` at its base and the
     // link register the eleventh word.
-    Frame { words: 20, arg: 0, ret: 11 },
+    Frame {
+        words: 20,
+        arg: 0,
+        ret: 11,
+    },
     // x86-64 SysV: a reserved word, `r15`, `r14`, `r13`, `r12`, `rbx`, `rbp`
     // and the return address `ret` will take. The six registers and the return
     // address are seven, which is odd, and the reserved word at the base is
     // what makes the frame a whole number of pairs — `switch_linux_x86_64.s`'s
     // header draws the layout.
-    Frame { words: 8, arg: 5, ret: 7 },
+    Frame {
+        words: 8,
+        arg: 5,
+        ret: 7,
+    },
 ];
 
 /// Which row of [`FRAMES`] this build's assembly is.
@@ -234,13 +242,17 @@ pub(crate) const FRAME: Frame = FRAMES[HOST];
 /// `[top - FRAME.words * 8, top)` is writable and is not the live part of any
 /// other stack.
 pub(crate) unsafe fn prepare(top: *mut u8, arg: *mut u8) -> *mut u8 {
-    debug_assert!((top as usize).is_multiple_of(16), "a task stack top must be 16-byte aligned");
+    debug_assert!(
+        (top as usize).is_multiple_of(16),
+        "a task stack top must be 16-byte aligned"
+    );
     let sp = top.cast::<usize>().wrapping_sub(FRAME.words);
     // SAFETY: the caller promises the range is writable and unshared.
     unsafe {
         sp.write_bytes(0, FRAME.words);
         sp.add(FRAME.arg).write(arg as usize);
-        sp.add(FRAME.ret).write(buri_rt_task_launch as *const () as usize);
+        sp.add(FRAME.ret)
+            .write(buri_rt_task_launch as *const () as usize);
     }
     sp.cast()
 }
@@ -321,15 +333,17 @@ pub(crate) unsafe fn plant_return(sp: *mut u8, target: *const ()) {
     // wrote.
     unsafe {
         sp.cast::<usize>().add(FRAME.arg).write(target as usize);
-        sp.cast::<usize>().add(FRAME.ret).write(entry_pad as *const () as usize);
+        sp.cast::<usize>()
+            .add(FRAME.ret)
+            .write(entry_pad as *const () as usize);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
     use crate::sync::Mutex;
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
     /// The probe below is one `extern "C" fn` with no argument, so everything
     /// it needs is a static and only one case may use it at a time.
@@ -354,9 +368,24 @@ mod tests {
     /// a statement about the files this runtime was **built** from, and a path
     /// read at run time would pass against a tree the archive does not carry.
     const BLOCKS: [(&str, &str, Frame, &[&str]); 3] = [
-        ("switch_macos_arm64.s", include_str!("switch_macos_arm64.s"), FRAMES[0], AAPCS64),
-        ("switch_linux_arm64.s", include_str!("switch_linux_arm64.s"), FRAMES[0], AAPCS64),
-        ("switch_linux_x86_64.s", include_str!("switch_linux_x86_64.s"), FRAMES[1], SYSV64),
+        (
+            "switch_macos_arm64.s",
+            include_str!("switch_macos_arm64.s"),
+            FRAMES[0],
+            AAPCS64,
+        ),
+        (
+            "switch_linux_arm64.s",
+            include_str!("switch_linux_arm64.s"),
+            FRAMES[0],
+            AAPCS64,
+        ),
+        (
+            "switch_linux_x86_64.s",
+            include_str!("switch_linux_x86_64.s"),
+            FRAMES[1],
+            SYSV64,
+        ),
     ];
 
     /// AAPCS64 §6.1.1: the ten general registers, the frame pointer, the link
@@ -389,7 +418,9 @@ mod tests {
             if line.starts_with("//") {
                 continue;
             }
-            let Some((op, rest)) = line.split_once(char::is_whitespace) else { continue };
+            let Some((op, rest)) = line.split_once(char::is_whitespace) else {
+                continue;
+            };
             let rest = rest.trim();
             match op {
                 // AArch64: `stp x19, x20, [sp, #(…)]`, and the halves of a pair
@@ -399,14 +430,20 @@ mod tests {
                     let low = parts.next().unwrap_or_default().trim();
                     let high = parts.next().unwrap_or_default().trim();
                     let slot = parts.next().unwrap_or_default().trim();
-                    let into = if op == "stp" { &mut saves } else { &mut restores };
+                    let into = if op == "stp" {
+                        &mut saves
+                    } else {
+                        &mut restores
+                    };
                     into.push((low.to_string(), format!("{slot} low half")));
                     into.push((high.to_string(), format!("{slot} high half")));
                 }
                 // x86-64: `mov [rsp + …], r15` one way and `mov r15, [rsp + …]`
                 // the other.
                 "mov" => {
-                    let Some((lhs, rhs)) = rest.split_once(',') else { continue };
+                    let Some((lhs, rhs)) = rest.split_once(',') else {
+                        continue;
+                    };
                     let (lhs, rhs) = (lhs.trim(), rhs.trim());
                     if lhs.starts_with("[rsp") {
                         saves.push((rhs.to_string(), lhs.to_string()));
@@ -441,7 +478,9 @@ mod tests {
             .unwrap_or_else(|| panic!("{file} has no `{head}` line"));
         let rest = line.get(head.len()..).unwrap_or_default().trim();
         let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-        digits.parse().unwrap_or_else(|_| panic!("{file}'s `{head}` is not a number: {rest}"))
+        digits
+            .parse()
+            .unwrap_or_else(|_| panic!("{file}'s `{head}` is not a number: {rest}"))
     }
 
     /// Reached through [`entry_pad`], on a stack this thread has never run on.
@@ -495,7 +534,9 @@ mod tests {
     /// either architecture — see §2.2.
     #[test]
     fn a_prepared_frame_runs_and_switches_back() {
-        let _one = ONE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = ONE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // An ordinary heap block: this probe does not recurse, so a guard is
         // `memory.rs`'s business and not this file's.
         let block = vec![0u8; 256 * 1024];
@@ -519,15 +560,25 @@ mod tests {
         // just built, which nothing else is running.
         unsafe { buri_rt_task_switch(&raw mut home, there) };
 
-        assert_eq!(SUM.load(Ordering::SeqCst), (0..512u64).sum(), "the far frame did not run");
+        assert_eq!(
+            SUM.load(Ordering::SeqCst),
+            (0..512u64).sum(),
+            "the far frame did not run"
+        );
         let was = WAS.load(Ordering::SeqCst);
         assert!(
             was >= low && was < top,
             "the probe's frame was at {was:#x}, outside the block it was given \
              ({low:#x}..{top:#x}): the switch did not take the new stack",
         );
-        assert!(!away.is_null(), "the probe's own context was not saved on the way back");
-        assert!(!home.is_null(), "this thread's context was not saved on the way in");
+        assert!(
+            !away.is_null(),
+            "the probe's own context was not saved on the way back"
+        );
+        assert!(
+            !home.is_null(),
+            "this thread's context was not saved on the way in"
+        );
     }
 
     /// **Every** saved frame is a whole number of 16-byte pairs, which both
@@ -539,7 +590,11 @@ mod tests {
     /// world and was eight bytes out on the first machine that ran it.
     #[test]
     fn the_saved_frame_keeps_the_stack_aligned() {
-        assert_eq!(size_of::<usize>(), 8, "every block here is written for a 64-bit word");
+        assert_eq!(
+            size_of::<usize>(),
+            8,
+            "every block here is written for a 64-bit word"
+        );
         for (file, _, frame, _) in BLOCKS {
             let bytes = frame.words * 8;
             assert!(
@@ -548,8 +603,14 @@ mod tests {
                  16-byte pairs — one of its two ends cannot be aligned",
                 frame.words,
             );
-            assert!(frame.arg < frame.words, "{file}: the argument word is outside the frame");
-            assert!(frame.ret < frame.words, "{file}: the return word is outside the frame");
+            assert!(
+                frame.arg < frame.words,
+                "{file}: the argument word is outside the frame"
+            );
+            assert!(
+                frame.ret < frame.words,
+                "{file}: the return word is outside the frame"
+            );
             assert_ne!(
                 frame.arg, frame.ret,
                 "{file}: the argument and the return address are the same word",
@@ -661,7 +722,9 @@ mod tests {
     /// had never been run on.
     #[test]
     fn a_saved_context_is_a_stack_pointer_the_abi_would_accept() {
-        let _one = ONE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = ONE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let block = vec![0u8; 256 * 1024];
         let top = ((block.as_ptr() as usize + block.len()) & !15usize) as *mut u8;
         // SAFETY: the top of a live 256 KiB block, aligned down, and no other
@@ -681,7 +744,11 @@ mod tests {
         // SAFETY: `home` is this thread's own word, and `there` is the frame
         // just built, which nothing else is running.
         unsafe { buri_rt_task_switch(&raw mut home, there) };
-        assert_eq!(SUM.load(Ordering::SeqCst), (0..512u64).sum(), "the far frame did not run");
+        assert_eq!(
+            SUM.load(Ordering::SeqCst),
+            (0..512u64).sum(),
+            "the far frame did not run"
+        );
 
         // What the `ret` left behind, which is the frame's high end and is what
         // every pad in this runtime is written to expect (§2.2).
@@ -727,8 +794,9 @@ mod tests {
         // SAFETY: the top of a live block.
         let sp = unsafe { prepare(top, 0x1234_5678 as *mut u8) };
         // SAFETY: `FRAME.words` words were just written there.
-        let words: Vec<usize> =
-            (0..FRAME.words).map(|i| unsafe { sp.cast::<usize>().add(i).read() }).collect();
+        let words: Vec<usize> = (0..FRAME.words)
+            .map(|i| unsafe { sp.cast::<usize>().add(i).read() })
+            .collect();
         assert_eq!(words[FRAME.arg], 0x1234_5678);
         assert_eq!(words[FRAME.ret], buri_rt_task_launch as *const () as usize);
         for (i, w) in words.iter().enumerate() {

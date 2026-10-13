@@ -65,8 +65,11 @@ impl StencilTarget {
     /// Every target a toolchain bakes a library for, in the order `build.rs`
     /// writes them and `mod.rs` reads them. Order is part of the format: the
     /// baked digests are concatenated into `Backend::identity` in it.
-    pub const ALL: [StencilTarget; 3] =
-        [StencilTarget::MacosArm64, StencilTarget::LinuxArm64, StencilTarget::LinuxX86_64];
+    pub const ALL: [StencilTarget; 3] = [
+        StencilTarget::MacosArm64,
+        StencilTarget::LinuxArm64,
+        StencilTarget::LinuxX86_64,
+    ];
 
     /// The name the blob is written under, and the one the emitter asks for.
     /// It is `Output::dir()`'s spelling (`build/buildfile.rs`), so a benchmark
@@ -139,8 +142,7 @@ const SYSV_REGISTER_CAPACITY: usize = 5;
 /// the stencil prototype would spill on that target and a continuation call
 /// would stop being one jump.
 const _: () = assert!(
-    CPS_REGISTER_COUNT <= SYSV_REGISTER_CAPACITY
-        && CPS_REGISTER_COUNT <= AAPCS64_REGISTER_CAPACITY
+    CPS_REGISTER_COUNT <= SYSV_REGISTER_CAPACITY && CPS_REGISTER_COUNT <= AAPCS64_REGISTER_CAPACITY
 );
 
 /// How many CPS registers this toolchain's stencil library is built for.
@@ -221,8 +223,10 @@ impl std::fmt::Display for RtCallee<'_> {
 /// Declared in `sources.rs`'s prelude, bound in `rtcall.rs`; this is the one
 /// spelling both compile.
 pub fn rt_slot(i: usize) -> std::borrow::Cow<'static, str> {
-    const SLOTS: [&str; MAX_INT_ARGS] =
-        ["JIT_S0", "JIT_S1", "JIT_S2", "JIT_S3", "JIT_S4", "JIT_S5", "JIT_S6", "JIT_S7", "JIT_S8", "JIT_S9"];
+    const SLOTS: [&str; MAX_INT_ARGS] = [
+        "JIT_S0", "JIT_S1", "JIT_S2", "JIT_S3", "JIT_S4", "JIT_S5", "JIT_S6", "JIT_S7", "JIT_S8",
+        "JIT_S9",
+    ];
     match SLOTS.get(i) {
         Some(s) => (*s).into(),
         None => format!("JIT_S{i}").into(),

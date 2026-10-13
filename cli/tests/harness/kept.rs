@@ -135,7 +135,10 @@ pub fn cross_home(key: &str) -> (PathBuf, File) {
         touch(&entry);
         return (entry.join("home"), lock);
     }
-    panic!("could not hold a kept cross-build home at {}", entry.display());
+    panic!(
+        "could not hold a kept cross-build home at {}",
+        entry.display()
+    );
 }
 
 /// The code that builds a cross runtime and its sysroot. `include_str!`, so a
@@ -195,11 +198,22 @@ pub fn warm_cross_runtime() {
         use buri::compiler::backend::Target;
         let home = shared_cross_home();
         let warm = home.with_file_name("warm");
-        let lock = File::options().create(true).append(true).open(&warm).unwrap_or_else(|e| {
-            panic!("could not open the cross-runtime lock {}: {e}", warm.display())
-        });
-        lock.lock().unwrap_or_else(|e| panic!("could not lock {}: {e}", warm.display()));
-        let target = Target { platform: Platform::Linux, arch: Some(Arch::X86_64) };
+        let lock = File::options()
+            .create(true)
+            .append(true)
+            .open(&warm)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "could not open the cross-runtime lock {}: {e}",
+                    warm.display()
+                )
+            });
+        lock.lock()
+            .unwrap_or_else(|e| panic!("could not lock {}: {e}", warm.display()));
+        let target = Target {
+            platform: Platform::Linux,
+            arch: Some(Arch::X86_64),
+        };
         let _ = buri::build::runtime_cross::resolve_in(home, target);
     });
 }
@@ -219,7 +233,9 @@ pub fn settle(binary: &Path) {
     if binary.is_symlink() {
         return;
     }
-    let Ok(bytes) = std::fs::read(binary) else { return };
+    let Ok(bytes) = std::fs::read(binary) else {
+        return;
+    };
     let sheet = std::fs::read(binary.with_extension("css")).ok();
     let mut keyed = bytes.clone();
     if let Some(sheet) = &sheet {
@@ -234,7 +250,9 @@ pub fn settle(binary: &Path) {
         if !entry.is_dir() {
             create(&entry, binary, sheet.as_deref());
         }
-        let Ok(lock) = File::options().append(true).open(entry.join("lock")) else { continue };
+        let Ok(lock) = File::options().append(true).open(entry.join("lock")) else {
+            continue;
+        };
         if lock.lock_shared().is_err() {
             continue;
         }
@@ -281,7 +299,10 @@ fn create(entry: &Path, binary: &Path, sheet: Option<&[u8]>) {
 
 /// A name beside `binary` that no other process is using.
 fn beside(binary: &Path) -> PathBuf {
-    let name = binary.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = binary
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     binary.with_file_name(format!(".{name}.{}.kept", std::process::id()))
 }
 
@@ -307,7 +328,9 @@ fn older_than(path: &Path, stale: Duration) -> bool {
 /// again once the lock is held. [`settle`] touches an entry under the same
 /// lock, held shared, so an entry it is handing out is never taken.
 pub fn sweep_store(store: &Path, stale: Duration) {
-    let Ok(entries) = std::fs::read_dir(store) else { return };
+    let Ok(entries) = std::fs::read_dir(store) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if !older_than(&path, stale) {
@@ -340,7 +363,11 @@ mod kept_tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         // Unique to this process, so no other run's entry can match.
-        let text = format!("kept {} {:?}", std::process::id(), std::time::SystemTime::now());
+        let text = format!(
+            "kept {} {:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+        );
         let (a, b, c) = (root.join("a"), root.join("b"), root.join("c"));
         std::fs::write(&a, &text).unwrap();
         std::fs::write(&b, &text).unwrap();
@@ -362,7 +389,11 @@ mod kept_tests {
         let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
             .join(format!("kept-sheet-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        let text = format!("sheet {} {:?}", std::process::id(), std::time::SystemTime::now());
+        let text = format!(
+            "sheet {} {:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+        );
         let (a, b) = (root.join("a/program"), root.join("b/program"));
         for (binary, sheet) in [(&a, "p { color: red }"), (&b, "p { color: blue }")] {
             std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
@@ -372,7 +403,10 @@ mod kept_tests {
         }
         let file = |p: &Path| std::fs::canonicalize(p).unwrap();
         assert_ne!(file(&a), file(&b));
-        assert_eq!(std::fs::read_to_string(file(&b).with_extension("css")).unwrap(), "p { color: blue }");
+        assert_eq!(
+            std::fs::read_to_string(file(&b).with_extension("css")).unwrap(),
+            "p { color: blue }"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -388,7 +422,10 @@ mod kept_tests {
             std::fs::create_dir_all(entry).unwrap();
             std::fs::write(entry.join("lock"), b"").unwrap();
         }
-        let lock = File::options().append(true).open(held.join("lock")).unwrap();
+        let lock = File::options()
+            .append(true)
+            .open(held.join("lock"))
+            .unwrap();
         lock.lock_shared().unwrap();
         sweep_store(&root, Duration::ZERO);
         assert!(held.is_dir(), "an entry being handed out was taken");

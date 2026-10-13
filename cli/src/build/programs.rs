@@ -40,9 +40,17 @@ fn store() -> Option<PathBuf> {
 
 fn settle_in(store: &Path, binary: &Path) {
     // Already a link to an entry: `link::place_from` found the bytes there.
-    if let Some(target) = std::fs::read_link(binary).ok().filter(|t| t.starts_with(store)) {
-        #[expect(clippy::expect_used, reason = "the target starts with the store, so it has a parent")]
-        let entry = target.parent().expect("a link into the store names a file in an entry");
+    if let Some(target) = std::fs::read_link(binary)
+        .ok()
+        .filter(|t| t.starts_with(store))
+    {
+        #[expect(
+            clippy::expect_used,
+            reason = "the target starts with the store, so it has a parent"
+        )]
+        let entry = target
+            .parent()
+            .expect("a link into the store names a file in an entry");
         touch(entry);
         return;
     }
@@ -59,7 +67,9 @@ fn settle_in(store: &Path, binary: &Path) {
         if !entry.is_dir() {
             created = create(store, &entry, binary);
         }
-        let Ok(lock) = File::options().append(true).open(entry.join("lock")) else { continue };
+        let Ok(lock) = File::options().append(true).open(entry.join("lock")) else {
+            continue;
+        };
         if lock.lock_shared().is_err() {
             continue;
         }
@@ -107,7 +117,10 @@ fn create(store: &Path, entry: &Path, binary: &Path) -> bool {
 fn beside(path: &Path) -> PathBuf {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     path.with_file_name(format!(".{name}.{}.{n}.partial", std::process::id()))
 }
 
@@ -126,7 +139,9 @@ fn sweep(store: &Path) {
 /// Takes every entry nothing has used for `stale`, each under its lock held
 /// exclusively, so an entry [`settle_in`] is handing out is never taken.
 fn sweep_older_than(store: &Path, stale: Duration) {
-    let Ok(entries) = std::fs::read_dir(store) else { return };
+    let Ok(entries) = std::fs::read_dir(store) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if !entry.file_type().is_ok_and(|t| t.is_dir()) || !older_than(&path, stale) {
@@ -207,7 +222,10 @@ mod tests {
         let second = runner(&dir, "b", b"two");
         settle_in(&store, &first);
         settle_in(&store, &second);
-        assert_ne!(std::fs::read_link(&first).unwrap(), std::fs::read_link(&second).unwrap());
+        assert_ne!(
+            std::fs::read_link(&first).unwrap(),
+            std::fs::read_link(&second).unwrap()
+        );
         assert_eq!(std::fs::read(&first).unwrap(), b"one");
         assert_eq!(std::fs::read(&second).unwrap(), b"two");
         let _ = std::fs::remove_dir_all(&dir);
@@ -235,7 +253,11 @@ mod tests {
         let store = dir.join("store");
         let first = runner(&dir, "a", b"program");
         settle_in(&store, &first);
-        let entry = std::fs::read_link(&first).unwrap().parent().unwrap().to_path_buf();
+        let entry = std::fs::read_link(&first)
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
         sweep_older_than(&store, Duration::from_secs(3600));
         assert!(entry.is_dir());
         // Last used two hours ago, set outright: an entry touched a moment ago

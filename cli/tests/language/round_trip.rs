@@ -33,7 +33,9 @@ fn sources(root: &Path) -> Vec<PathBuf> {
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
@@ -62,13 +64,17 @@ fn drive(driver: &Scratch, artifact: &Path, manifest: &Path) -> Run {
         code: out.status.code().unwrap_or(-1),
         stdout: String::from_utf8_lossy(&out.stdout).to_string(),
         stderr: String::from_utf8_lossy(&out.stderr).to_string(),
-        what: format!("{} {} {}", js_runtime(), artifact.display(), manifest.display()),
+        what: format!(
+            "{} {} {}",
+            js_runtime(),
+            artifact.display(),
+            manifest.display()
+        ),
     }
 }
 
 fn read(path: &Path) -> String {
-    std::fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+    std::fs::read_to_string(path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
 }
 
 /// One source's two passes: what the driver said and what the file held after
@@ -82,7 +88,13 @@ struct Passes {
 /// A failed run, under the source it was over. The driver names the file for
 /// a refusal, but not when the runtime itself fell over.
 fn failed(source: &Path, run: &Run) -> String {
-    format!("{} (`{}` exited {}):\n{}", source.display(), run.what, run.code, indent(&run.all()))
+    format!(
+        "{} (`{}` exited {}):\n{}",
+        source.display(),
+        run.what,
+        run.code,
+        indent(&run.all())
+    )
 }
 
 /// Three claims about `core/buri/ast`, over one corpus and one driver build.
@@ -138,13 +150,23 @@ fn every_conformance_source_survives_parse_and_print() {
             let run = drive(&driver, &artifact, &manifests[i]);
             (run, read(&files[i]))
         });
-        (i, Passes { first, once, second })
+        (
+            i,
+            Passes {
+                first,
+                once,
+                second,
+            },
+        )
     });
     let mut passes: Vec<Option<Passes>> = (0..files.len()).map(|_| None).collect();
     for (i, p) in answered {
         passes[i] = Some(p);
     }
-    let passes: Vec<Passes> = passes.into_iter().map(|p| p.expect("every source ran")).collect();
+    let passes: Vec<Passes> = passes
+        .into_iter()
+        .map(|p| p.expect("every source ran"))
+        .collect();
 
     let refused: Vec<String> = passes
         .iter()
@@ -161,7 +183,11 @@ fn every_conformance_source_survives_parse_and_print() {
 
     // A driver that read nothing, or wrote every file back unchanged, would
     // pass everything below without having proved anything.
-    let moved = before.iter().zip(&passes).filter(|(a, p)| **a != p.once).count();
+    let moved = before
+        .iter()
+        .zip(&passes)
+        .filter(|(a, p)| **a != p.once)
+        .count();
     assert!(
         moved >= files.len() / 2,
         "only {moved} of {} sources came back changed, so the driver did not run over them",

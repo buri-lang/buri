@@ -41,19 +41,29 @@ const STEADY: f64 = 0.001;
 const ROOT: &str = "/tmp/buri-instructions";
 
 /// The runtime workloads, each a package under `instructions/programs`.
-const PROGRAMS: [&str; 7] = ["floats", "lists", "maps", "match", "sort", "strings", "tree"];
+const PROGRAMS: [&str; 7] = [
+    "floats", "lists", "maps", "match", "sort", "strings", "tree",
+];
 
 /// What the `buri test` workload adds to one test file before its measured run.
-const EDIT: &str = "\ntest \"an edit the gate makes\" {\n    assert.equal(fromCents(7), fromCents(7));\n}\n";
+const EDIT: &str =
+    "\ntest \"an edit the gate makes\" {\n    assert.equal(fromCents(7), fromCents(7));\n}\n";
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).filter(|a| a != "--bench").collect();
+    let args: Vec<String> = std::env::args()
+        .skip(1)
+        .filter(|a| a != "--bench")
+        .collect();
     let bless = args.iter().any(|a| a == "--bless");
     let runs: usize = args
         .iter()
         .find_map(|a| a.strip_prefix("--runs="))
         .map_or(1, |n| n.parse().expect("--runs=<count>"));
-    let filter = args.iter().find(|a| !a.starts_with("--")).cloned().unwrap_or_default();
+    let filter = args
+        .iter()
+        .find(|a| !a.starts_with("--"))
+        .cloned()
+        .unwrap_or_default();
 
     if !cfg!(target_os = "linux") {
         eprintln!("the instruction-count gate runs on Linux only: cachegrind does (design/PERFORMANCE.md §9)");
@@ -125,8 +135,10 @@ fn toolchain() -> String {
             .and_then(|s| s.lines().next().map(str::to_string))
             .unwrap_or_else(|| format!("{program} ?"))
     };
-    let llvm_config = std::env::var("LLVM_SYS_211_PREFIX")
-        .map_or_else(|_| "llvm-config".to_string(), |p| format!("{p}/bin/llvm-config"));
+    let llvm_config = std::env::var("LLVM_SYS_211_PREFIX").map_or_else(
+        |_| "llvm-config".to_string(),
+        |p| format!("{p}/bin/llvm-config"),
+    );
     let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
     [
         first_line("rustc", &["-V"]),
@@ -145,7 +157,9 @@ fn glibc() -> String {
         fn gnu_get_libc_version() -> *const std::ffi::c_char;
     }
     // SAFETY: glibc returns a static, NUL-terminated string.
-    unsafe { std::ffi::CStr::from_ptr(gnu_get_libc_version()) }.to_string_lossy().into_owned()
+    unsafe { std::ffi::CStr::from_ptr(gnu_get_libc_version()) }
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -191,14 +205,23 @@ impl Gate {
         // and its command under `~/.buri`. A user pays that once, so no
         // measured run does.
         let prime = root.join("work/prime");
-        copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/instructions/programs"), &prime);
+        copy(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("benches/instructions/programs"),
+            &prime,
+        );
         gate.unmeasured(&gate.buri, &["build", "//..."], &prime);
         gate
     }
 
     fn workloads(&self) -> Vec<String> {
-        let mut names: Vec<String> =
-            ["build/mixed-10k", "lint/mixed-10k", "build/programs", "test/one-edit"].map(String::from).to_vec();
+        let mut names: Vec<String> = [
+            "build/mixed-10k",
+            "lint/mixed-10k",
+            "build/programs",
+            "test/one-edit",
+        ]
+        .map(String::from)
+        .to_vec();
         names.extend(PROGRAMS.iter().map(|p| format!("run/{p}")));
         names
     }
@@ -213,11 +236,16 @@ impl Gate {
         };
         let benches = Path::new(env!("CARGO_MANIFEST_DIR")).join("benches");
         match name {
-            "build/mixed-10k" => self.counted(name, buri, &["build", "//..."], &fresh(&mixed_10k())),
-            "lint/mixed-10k" => self.counted(name, buri, &["lint", "//..."], &fresh(&mixed_10k())),
-            "build/programs" => {
-                self.counted(name, buri, &["build", "//..."], &fresh(&benches.join("instructions/programs")))
+            "build/mixed-10k" => {
+                self.counted(name, buri, &["build", "//..."], &fresh(&mixed_10k()))
             }
+            "lint/mixed-10k" => self.counted(name, buri, &["lint", "//..."], &fresh(&mixed_10k())),
+            "build/programs" => self.counted(
+                name,
+                buri,
+                &["build", "//..."],
+                &fresh(&benches.join("instructions/programs")),
+            ),
             "test/one-edit" => {
                 let repo = fresh(&benches.join("instructions/tested"));
                 self.unmeasured(buri, &["test", "//..."], &repo);
@@ -227,14 +255,21 @@ impl Gate {
                 self.counted(name, buri, &["test", "//..."], &repo)
             }
             _ => {
-                let program = name.strip_prefix("run/").unwrap_or_else(|| panic!("no workload {name}"));
+                let program = name
+                    .strip_prefix("run/")
+                    .unwrap_or_else(|| panic!("no workload {name}"));
                 let built = self.built.get_or_init(|| {
                     let repo = Path::new(ROOT).join("work/programs-release");
                     copy(&benches.join("instructions/programs"), &repo);
                     self.unmeasured(buri, &["build", "--release", "//..."], &repo);
                     repo.join(".buri/out/native").join(host_variant())
                 });
-                self.counted(name, &built.join(program).join(program), &[], Path::new(ROOT))
+                self.counted(
+                    name,
+                    &built.join(program).join(program),
+                    &[],
+                    Path::new(ROOT),
+                )
             }
         }
     }
@@ -242,9 +277,15 @@ impl Gate {
     /// Runs `program` under cachegrind, on one core, and returns the
     /// instructions it executed. Its children aren't counted.
     fn counted(&self, name: &str, program: &Path, args: &[&str], cwd: &Path) -> u64 {
-        let out = Path::new(ROOT).join("out").join(format!("{}.cachegrind", name.replace('/', "-")));
-        let mut argv: Vec<OsString> =
-            vec!["--cpu-list".into(), "0".into(), self.valgrind.clone().into(), "--tool=cachegrind".into()];
+        let out = Path::new(ROOT)
+            .join("out")
+            .join(format!("{}.cachegrind", name.replace('/', "-")));
+        let mut argv: Vec<OsString> = vec![
+            "--cpu-list".into(),
+            "0".into(),
+            self.valgrind.clone().into(),
+            "--tool=cachegrind".into(),
+        ];
         argv.push("--cache-sim=no".into());
         argv.push(format!("--cachegrind-out-file={}", out.display()).into());
         argv.push(program.into());
@@ -266,7 +307,10 @@ impl Gate {
     fn unmeasured(&self, program: &Path, args: &[&str], cwd: &Path) {
         let mut argv: Vec<OsString> = vec!["--cpu-list".into(), "0".into(), program.into()];
         argv.extend(args.iter().map(OsString::from));
-        checked(run(&self.taskset, &argv, cwd), &format!("{} {}", program.display(), args.join(" ")));
+        checked(
+            run(&self.taskset, &argv, cwd),
+            &format!("{} {}", program.display(), args.join(" ")),
+        );
     }
 }
 
@@ -300,7 +344,9 @@ fn which(program: &str) -> Option<PathBuf> {
         return Some(PathBuf::from(program));
     }
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|dir| dir.join(program)).find(|p| p.is_file())
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(program))
+        .find(|p| p.is_file())
 }
 
 fn host_variant() -> &'static str {
@@ -335,7 +381,10 @@ fn mixed_10k() -> PathBuf {
 
 fn copy(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).unwrap();
-    let mut entries: Vec<_> = std::fs::read_dir(from).unwrap().map(|e| e.unwrap().path()).collect();
+    let mut entries: Vec<_> = std::fs::read_dir(from)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
     entries.sort();
     for entry in entries {
         let target = to.join(entry.file_name().unwrap());
@@ -366,7 +415,10 @@ const HEADER: &str = "\
 impl Baseline {
     fn parse(text: &str) -> Baseline {
         let mut b = Baseline::default();
-        for line in text.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
+        for line in text
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        {
             if let Some(rest) = line.strip_prefix("toolchain ") {
                 let (arch, tools) = rest.split_once(' ').unwrap_or((rest, ""));
                 b.toolchains.insert(arch.to_string(), tools.to_string());
@@ -384,12 +436,22 @@ impl Baseline {
 
     /// This baseline with `arch`'s lines replaced: all of them when `whole`,
     /// otherwise only the measured ones.
-    fn with(&self, arch: &str, toolchain: &str, measured: &BTreeMap<String, u64>, whole: bool) -> Baseline {
-        let mut next = Baseline { toolchains: self.toolchains.clone(), counts: self.counts.clone() };
+    fn with(
+        &self,
+        arch: &str,
+        toolchain: &str,
+        measured: &BTreeMap<String, u64>,
+        whole: bool,
+    ) -> Baseline {
+        let mut next = Baseline {
+            toolchains: self.toolchains.clone(),
+            counts: self.counts.clone(),
+        };
         if whole {
             next.counts.retain(|(a, _), _| a != arch);
         }
-        next.toolchains.insert(arch.to_string(), toolchain.to_string());
+        next.toolchains
+            .insert(arch.to_string(), toolchain.to_string());
         for (name, count) in measured {
             next.counts.insert((arch.to_string(), name.clone()), *count);
         }
@@ -400,7 +462,13 @@ impl Baseline {
         let mut out = String::from(HEADER);
         for (arch, tools) in &self.toolchains {
             out.push_str(&format!("\ntoolchain {arch} {tools}\n"));
-            let width = self.counts.keys().filter(|(a, _)| a == arch).map(|(_, n)| n.len()).max().unwrap_or(0);
+            let width = self
+                .counts
+                .keys()
+                .filter(|(a, _)| a == arch)
+                .map(|(_, n)| n.len())
+                .max()
+                .unwrap_or(0);
             for ((a, name), count) in &self.counts {
                 if a == arch {
                     out.push_str(&format!("{arch} {name:<width$} {count:>14}\n"));
@@ -427,7 +495,10 @@ fn compare(
     let mut failed = false;
     let mut improved = false;
     report.push_str(&format!("toolchain {arch} {toolchain}\n\n"));
-    report.push_str(&format!("{:<18} {:>15} {:>15} {:>9}\n", "workload", "baseline", "now", "change"));
+    report.push_str(&format!(
+        "{:<18} {:>15} {:>15} {:>9}\n",
+        "workload", "baseline", "now", "change"
+    ));
     for (name, &now) in measured {
         match baseline.counts.get(&(arch.to_string(), name.clone())) {
             None => {
@@ -445,7 +516,9 @@ fn compare(
                 } else {
                     ""
                 };
-                report.push_str(&format!("{name:<18} {base:>15} {now:>15} {change:>+8.3}%{mark}\n"));
+                report.push_str(&format!(
+                    "{name:<18} {base:>15} {now:>15} {change:>+8.3}%{mark}\n"
+                ));
             }
         }
     }
@@ -453,7 +526,9 @@ fn compare(
         for (a, name) in baseline.counts.keys() {
             if a == arch && !measured.contains_key(name) {
                 failed = true;
-                report.push_str(&format!("{name:<18} is in the baseline but is no longer a workload\n"));
+                report.push_str(&format!(
+                    "{name:<18} is in the baseline but is no longer a workload\n"
+                ));
             }
         }
     }

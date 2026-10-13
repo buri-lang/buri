@@ -184,16 +184,16 @@
 //! [`the_excluded_packages_are_excluded_for_the_stated_reason`] compiles each
 //! refused file and asserts the backend still refuses it. A package that
 //! quietly becomes compilable is a failing test rather than a stale comment.
+use crate::shard;
 use buri::build::buildfile::Platform;
 use buri::build::workspace::Workspace;
-use buri::compiler::backend::stencil::{unavailable_reason as stencil_unavailable_reason, Stencil};
 use buri::compiler::backend::runtime_native::AVAILABLE;
+use buri::compiler::backend::stencil::{unavailable_reason as stencil_unavailable_reason, Stencil};
 use buri::compiler::backend::{Backend, Options, Profile, Target};
 use buri::compiler::driver;
 use buri::compiler::middle::{self, monomorphize};
 use buri::compiler::modules::Role;
 use buri::diagnostics::{Diagnostics, SourceMap};
-use crate::shard;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -239,7 +239,10 @@ const fn included(path: &'static str) -> Case {
 }
 
 const fn excluded(path: &'static str, why: &'static str) -> Case {
-    Case { path, out: Some(Out::Refused(why)) }
+    Case {
+        path,
+        out: Some(Out::Refused(why)),
+    }
 }
 
 /// Every file in `cli/tests/conformance/lib`, in or out, with the reason.
@@ -878,7 +881,9 @@ const PACKAGES: &[Case] = &[
 /// does, and says which half is missing where it does not.
 pub(crate) fn skip_reason() -> Option<String> {
     if !AVAILABLE {
-        return Some(String::from("this toolchain carries no native runtime archive"));
+        return Some(String::from(
+            "this toolchain carries no native runtime archive",
+        ));
     }
     stencil_unavailable_reason()
 }
@@ -1035,9 +1040,17 @@ fn linked_for_the_run(name: &str, source: &str) -> Built {
     (name, source, Build::chosen().label()).hash(&mut hasher);
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("native-linked-{}", crate::sweep::run_name()))
-        .join(format!("{}-{:016x}", name.replace('/', "-"), hasher.finish()));
+        .join(format!(
+            "{}-{:016x}",
+            name.replace('/', "-"),
+            hasher.finish()
+        ));
     std::fs::create_dir_all(&dir).unwrap();
-    let lock = std::fs::File::options().create(true).append(true).open(dir.join("lock")).unwrap();
+    let lock = std::fs::File::options()
+        .create(true)
+        .append(true)
+        .open(dir.join("lock"))
+        .unwrap();
     lock.lock().unwrap();
     let verdict = dir.join("verdict");
     if let Ok(said) = std::fs::read_to_string(&verdict) {
@@ -1051,13 +1064,21 @@ fn linked_for_the_run(name: &str, source: &str) -> Built {
 /// The reason [`PACKAGES`] gives for keeping `path` out of the native set,
 /// or `None` for a file in the set or not in the corpus.
 pub(crate) fn excluded_because(path: &str) -> Option<&'static str> {
-    PACKAGES.iter().find(|c| c.path == path).and_then(|c| c.out.as_ref()).map(Out::why)
+    PACKAGES
+        .iter()
+        .find(|c| c.path == path)
+        .and_then(|c| c.out.as_ref())
+        .map(Out::why)
 }
 
 /// The packages with a file out of the native set, which a whole-corpus
 /// `buri test` leaves on JavaScript.
 pub(crate) fn javascript_only_packages() -> std::collections::BTreeSet<&'static str> {
-    PACKAGES.iter().filter(|c| c.out.is_some()).filter_map(|c| c.path.split('/').next()).collect()
+    PACKAGES
+        .iter()
+        .filter(|c| c.out.is_some())
+        .filter_map(|c| c.path.split('/').next())
+        .collect()
 }
 
 /// What the native set is built with: the development backend, unless
@@ -1112,10 +1133,19 @@ fn build(name: &str, source: &str, dir: &Path) -> Built {
     if analysis.diagnostics.has_errors() {
         return Built::FrontEnd(front_end_errors(&analysis.diagnostics));
     }
-    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
-    let mut program =
-        monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
+    let mut program = monomorphize::run(
+        &analysis.checked,
+        paths,
+        &mut diagnostics,
+        monomorphize::Roots::Tests,
+    );
     if diagnostics.has_errors() {
         return Built::Unsupported(String::from("monomorphization failed"));
     }
@@ -1127,9 +1157,16 @@ fn build(name: &str, source: &str, dir: &Path) -> Built {
     middle::native(&mut program);
     let blocks = program.roots.tests().len();
 
-    let target = Target { platform: host_platform(), arch: None };
+    let target = Target {
+        platform: host_platform(),
+        arch: None,
+    };
     let build = Build::chosen();
-    let opts = Options { profile: build.profile(), target, unit_prefix: "" };
+    let opts = Options {
+        profile: build.profile(),
+        target,
+        unit_prefix: "",
+    };
     let mut backend = build.backend();
     let missing = backend.missing_intrinsics(&program, &analysis.checked.tables);
     if !missing.is_empty() {
@@ -1140,7 +1177,10 @@ fn build(name: &str, source: &str, dir: &Path) -> Built {
         Err(d) => {
             return Built::Unsupported(format!(
                 "the backend refused the program: {:?}",
-                d.items.iter().map(|i| i.message.clone()).collect::<Vec<_>>()
+                d.items
+                    .iter()
+                    .map(|i| i.message.clone())
+                    .collect::<Vec<_>>()
             ))
         }
     };
@@ -1237,7 +1277,10 @@ const KNOWN_LEAKS: &[(&str, u64, &str)] = &[];
 
 /// What the ledger says a file leaks, or zero.
 fn allowed_leak(path: &str) -> u64 {
-    KNOWN_LEAKS.iter().find(|(p, _, _)| *p == path).map_or(0, |(_, n, _)| *n)
+    KNOWN_LEAKS
+        .iter()
+        .find(|(p, _, _)| *p == path)
+        .map_or(0, |(_, n, _)| *n)
 }
 
 /// Why the native backend will not compile a source, or the empty string
@@ -1258,10 +1301,19 @@ fn refusal(name: &str, source: &str) -> Result<String, String> {
     if analysis.diagnostics.has_errors() {
         return Err(front_end_errors(&analysis.diagnostics));
     }
-    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
-    let mut program =
-        monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
+    let mut program = monomorphize::run(
+        &analysis.checked,
+        paths,
+        &mut diagnostics,
+        monomorphize::Roots::Tests,
+    );
     if diagnostics.has_errors() {
         return Err(String::from("monomorphization failed"));
     }
@@ -1271,19 +1323,35 @@ fn refusal(name: &str, source: &str) -> Result<String, String> {
     if !missing.is_empty() {
         return Ok(missing.join("; "));
     }
-    let target = Target { platform: host_platform(), arch: None };
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let target = Target {
+        platform: host_platform(),
+        arch: None,
+    };
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "",
+    };
     match Stencil::default().emit(&program, &analysis.checked.tables, &opts) {
         Ok(_) => Ok(String::new()),
-        Err(d) => {
-            Ok(d.items.iter().map(|i| i.message.clone()).collect::<Vec<_>>().join("; "))
-        }
+        Err(d) => Ok(d
+            .items
+            .iter()
+            .map(|i| i.message.clone())
+            .collect::<Vec<_>>()
+            .join("; ")),
     }
 }
 
 /// The first two front-end errors, as one line.
 fn front_end_errors(diagnostics: &Diagnostics) -> String {
-    diagnostics.items.iter().take(2).map(|d| d.message.clone()).collect::<Vec<_>>().join("; ")
+    diagnostics
+        .items
+        .iter()
+        .take(2)
+        .map(|d| d.message.clone())
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// Whether the native backend can compile a source at all, without linking.
@@ -1296,10 +1364,19 @@ fn missing_for(name: &str, source: &str) -> Result<Vec<String>, String> {
     if analysis.diagnostics.has_errors() {
         return Err(front_end_errors(&analysis.diagnostics));
     }
-    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
-    let mut program =
-        monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
+    let mut program = monomorphize::run(
+        &analysis.checked,
+        paths,
+        &mut diagnostics,
+        monomorphize::Roots::Tests,
+    );
     if diagnostics.has_errors() {
         return Err(String::from("monomorphization failed"));
     }
@@ -1319,23 +1396,26 @@ fn read(case: &Case) -> String {
 
 // -----------------------------------------------------------------------
 
-
 /// The list above covers the corpus, so a package added next door is a
 /// failing test here rather than a silent omission.
 #[test]
 fn every_conformance_file_is_accounted_for() {
     let root = corpus();
     let mut found: Vec<String> = Vec::new();
-    let mut packages: Vec<_> =
-        std::fs::read_dir(&root).unwrap().filter_map(Result::ok).collect();
+    let mut packages: Vec<_> = std::fs::read_dir(&root)
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
     packages.sort_by_key(std::fs::DirEntry::file_name);
     for package in packages {
         let tests = package.path().join("test");
         if !tests.is_dir() {
             continue;
         }
-        let mut files: Vec<_> =
-            std::fs::read_dir(&tests).unwrap().filter_map(Result::ok).collect();
+        let mut files: Vec<_> = std::fs::read_dir(&tests)
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
         files.sort_by_key(std::fs::DirEntry::file_name);
         for file in files {
             found.push(format!(
@@ -1353,7 +1433,11 @@ fn every_conformance_file_is_accounted_for() {
         );
     }
     for case in PACKAGES {
-        assert!(found.iter().any(|f| f == case.path), "`{}` no longer exists", case.path);
+        assert!(
+            found.iter().any(|f| f == case.path),
+            "`{}` no longer exists",
+            case.path
+        );
     }
 }
 
@@ -1369,7 +1453,10 @@ fn the_excluded_packages_are_excluded_for_the_stated_reason() {
     if !supported() {
         return;
     }
-    for case in PACKAGES.iter().filter(|c| matches!(c.out, Some(Out::Refused(_)))) {
+    for case in PACKAGES
+        .iter()
+        .filter(|c| matches!(c.out, Some(Out::Refused(_))))
+    {
         let source = read(case);
         match refusal(case.path, &source) {
             // An excluded file still has to compile: a front-end error would
@@ -1445,8 +1532,10 @@ fn native_set_shard(at: usize, count: usize) {
                 None => failures.push(format!("`{}`: {why}", case.path)),
             }
         } else if status != 0 {
-            failures
-                .push(format!("`{}` exited {status}:\nstdout:\n{out}\nstderr:\n{err}", case.path));
+            failures.push(format!(
+                "`{}` exited {status}:\nstdout:\n{out}\nstderr:\n{err}",
+                case.path
+            ));
         } else if allowed_leak(case.path) != 0 {
             failures.push(format!(
                 "`{}` no longer leaks, and `KNOWN_LEAKS` still holds a row for it — \
@@ -1460,7 +1549,12 @@ fn native_set_shard(at: usize, count: usize) {
     }
     // Every failing file, not the first: two platforms failing on two
     // different files is one report here and two runs otherwise.
-    assert!(failures.is_empty(), "{} files failed:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} files failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
     for l in &leaking {
         eprintln!("native conformance: known leak {l}");
     }
@@ -1469,11 +1563,18 @@ fn native_set_shard(at: usize, count: usize) {
          0 failures, {} of {ran} came back with an empty heap",
         ran - leaking.len()
     );
-    assert!(ran > 0, "no conformance file in shard {at} of {count} ran natively");
+    assert!(
+        ran > 0,
+        "no conformance file in shard {at} of {count} ran natively"
+    );
     // Loaded into the test host, the shard's files are no new executables for
     // macOS to check (`design/PERFORMANCE.md` §6.85).
     if crate::shared::LOADED && matches!(Build::chosen(), Build::Stencil) {
-        assert_eq!(crate::shared::new_executables(), executables, "shard {at} of {count} linked executables");
+        assert_eq!(
+            crate::shared::new_executables(),
+            executables,
+            "shard {at} of {count} linked executables"
+        );
     }
 }
 
@@ -1792,7 +1893,10 @@ fn the_native_set_can_fail() {
     if !supported() {
         return;
     }
-    let case = Case { path: "numbers/bits.buri", out: None };
+    let case = Case {
+        path: "numbers/bits.buri",
+        out: None,
+    };
     let source = read(&case);
     if let Err(e) = missing_for("bits-broken", &source) {
         panic!("the front end refused `numbers/bits.buri`: {e}");
@@ -1800,7 +1904,7 @@ fn the_native_set_can_fail() {
     // The value, not a name: renaming a constant and its use together would
     // leave the assertion true. `assert!` on the marker means a corpus that
     // stopped containing it fails here rather than passing vacuously.
-    const MARKER: &str = "assert.equal(bits.shiftLeft(1, 10), 1024);"; 
+    const MARKER: &str = "assert.equal(bits.shiftLeft(1, 10), 1024);";
     assert!(
         source.contains(MARKER),
         "`numbers/bits.buri` no longer contains the assertion this test edits"

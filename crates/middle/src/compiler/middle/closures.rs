@@ -45,9 +45,7 @@
 
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::typed::{
-    self, Callee, Expr, ExprKind, PatKind, Pattern, Stmt,
-};
+use crate::compiler::semantics::typed::{self, Callee, Expr, ExprKind, PatKind, Pattern, Stmt};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
 use crate::diagnostics::Invariant as _;
 
@@ -59,10 +57,21 @@ pub fn run(program: &mut Program) {
     let base = program.funcs.len();
     let mut lifted = Vec::new();
     for func in &mut program.funcs {
-        let Func { kind: FuncKind::Body(body), locals, symbol, debug_name, .. } = func else {
+        let Func {
+            kind: FuncKind::Body(body),
+            locals,
+            symbol,
+            debug_name,
+            ..
+        } = func
+        else {
             continue;
         };
-        let parent = Parent { locals: locals.clone(), symbol: symbol.clone(), debug_name: debug_name.clone() };
+        let parent = Parent {
+            locals: locals.clone(),
+            symbol: symbol.clone(),
+            debug_name: debug_name.clone(),
+        };
         convert(body, &parent, base, &mut lifted);
     }
     program.funcs.extend(lifted);
@@ -81,22 +90,27 @@ struct Parent {
 /// locals of the same table as everything else it mentions.
 fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
     typed::children_mut(e, &mut |child| convert(child, parent, base, lifted));
-    let ExprKind::Lambda { params, body, captures } = &mut e.kind else { return };
+    let ExprKind::Lambda {
+        params,
+        body,
+        captures,
+    } = &mut e.kind
+    else {
+        return;
+    };
 
     let func = FuncIdx(base.saturating_add(lifted.len()) as u32);
     let params = std::mem::take(params);
     let captures = std::mem::take(captures);
-    let body = std::mem::replace(
-        body,
-        Box::new(Expr::new(ExprKind::Unit, Ty::UNIT, e.span)),
-    );
+    let body = std::mem::replace(body, Box::new(Expr::new(ExprKind::Unit, Ty::UNIT, e.span)));
 
     let locals = &parent.locals;
     let env = LocalId(locals.len() as u32);
-    let env_ty = Ty::tuple(captures
+    let env_ty = Ty::tuple(
+        captures
             .iter()
-            .filter_map(|c| locals.get(c.index()).map(|l| l.ty))
-            );
+            .filter_map(|c| locals.get(c.index()).map(|l| l.ty)),
+    );
 
     // Each capture is bound back to the id it had, out of the environment, so
     // the body below reads what it always read.
@@ -107,17 +121,16 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
             let ty = locals.get(c.index())?.ty;
             Some(Stmt::Let {
                 pattern: Pattern {
-                    kind: PatKind::Bind { local: *c, sub: None },
+                    kind: PatKind::Bind {
+                        local: *c,
+                        sub: None,
+                    },
                     ty,
                     span: e.span,
                 },
                 value: Expr::new(
                     ExprKind::TupleIndex {
-                        base: Box::new(Expr::new(
-                            ExprKind::Local(env),
-                            env_ty,
-                            e.span,
-                        )),
+                        base: Box::new(Expr::new(ExprKind::Local(env), env_ty, e.span)),
                         index: i,
                     },
                     ty,
@@ -132,18 +145,31 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
     let inner = if prologue.is_empty() {
         *body
     } else {
-        Expr::new(ExprKind::Block { stmts: prologue, tail: Some(body) }, ret, e.span)
+        Expr::new(
+            ExprKind::Block {
+                stmts: prologue,
+                tail: Some(body),
+            },
+            ret,
+            e.span,
+        )
     };
 
     let n = lifted.len();
     let mut lifted_params = vec![env];
     lifted_params.extend(params);
     let (mut inner, mut lifted_params) = (inner, lifted_params);
-    let locals = compact(&mut inner, &mut lifted_params, &parent.locals, env, typed::Local {
-        name: Name::new("env"),
-        ty: env_ty,
-        span: e.span,
-    });
+    let locals = compact(
+        &mut inner,
+        &mut lifted_params,
+        &parent.locals,
+        env,
+        typed::Local {
+            name: Name::new("env"),
+            ty: env_ty,
+            span: e.span,
+        },
+    );
     lifted.push(Func {
         symbol: format!("{}$fn{n}", parent.symbol),
         debug_name: format!("{} lambda {n}", parent.debug_name),
@@ -194,8 +220,10 @@ fn compact(
     each_local(body, &mut mark);
     used.sort_unstable();
     used.dedup();
-    let mut locals: Vec<typed::Local> =
-        used.iter().filter_map(|l| parent.get(*l as usize).cloned()).collect();
+    let mut locals: Vec<typed::Local> = used
+        .iter()
+        .filter_map(|l| parent.get(*l as usize).cloned())
+        .collect();
     let new_env = LocalId(locals.len() as u32);
     locals.push(env_local);
     let mut renumber = |l: &mut LocalId| {
@@ -203,7 +231,11 @@ fn compact(
             *l = new_env;
         } else {
             // Every local but the environment was marked above.
-            *l = LocalId(used.binary_search(&l.0).ok().or_ice("a lifted body's local was marked") as u32);
+            *l = LocalId(
+                used.binary_search(&l.0)
+                    .ok()
+                    .or_ice("a lifted body's local was marked") as u32,
+            );
         }
     };
     params.iter_mut().for_each(&mut renumber);
@@ -216,7 +248,9 @@ fn compact(
 fn each_local(e: &mut Expr, f: &mut impl FnMut(&mut LocalId)) {
     match &mut e.kind {
         ExprKind::Local(l) => f(l),
-        ExprKind::Lambda { params, captures, .. } => {
+        ExprKind::Lambda {
+            params, captures, ..
+        } => {
             params.iter_mut().for_each(&mut *f);
             captures.iter_mut().for_each(&mut *f);
         }
@@ -246,9 +280,9 @@ fn pattern_locals(p: &mut Pattern, f: &mut impl FnMut(&mut LocalId)) {
             }
         }
         PatKind::Tuple(ps) | PatKind::Or(ps) => ps.iter_mut().for_each(|p| pattern_locals(p, f)),
-        PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
-            fields.iter_mut().for_each(|x| pattern_locals(&mut x.pattern, f))
-        }
+        PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => fields
+            .iter_mut()
+            .for_each(|x| pattern_locals(&mut x.pattern, f)),
         PatKind::Array { elems, rest } => {
             elems.iter_mut().for_each(|p| pattern_locals(p, f));
             if let typed::ArrayRest::Bound(l) = rest {
@@ -262,15 +296,19 @@ fn pattern_locals(p: &mut Pattern, f: &mut impl FnMut(&mut LocalId)) {
 #[cfg(test)]
 mod tests {
     use super::run;
-    use crate::compiler::semantics::name::Name;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
+    use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{Expr, ExprKind, Local};
     use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
 
     fn local(name: &str) -> Local {
-        Local { name: Name::new(name), ty: Ty::UNIT, span: Span::default() }
+        Local {
+            name: Name::new(name),
+            ty: Ty::UNIT,
+            span: Span::default(),
+        }
     }
 
     fn e(kind: ExprKind) -> Expr {
@@ -374,7 +412,10 @@ mod tests {
         });
         let mut p = program(vec![local("x")], Vec::new(), lambda);
         run(&mut p);
-        assert!(matches!(p.funcs[0].body().unwrap().kind, ExprKind::FnRef(_)));
+        assert!(matches!(
+            p.funcs[0].body().unwrap().kind,
+            ExprKind::FnRef(_)
+        ));
         assert_eq!(p.funcs.len(), 2);
         assert!(p.funcs[1].body().is_some());
     }

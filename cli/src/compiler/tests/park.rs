@@ -106,7 +106,10 @@ fn body_func(name: &str, body: Expr) -> Func {
 
 fn call_to(to: u32) -> Expr {
     Expr::new(
-        ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(to)), args: Vec::new() },
+        ExprKind::CallFn {
+            func: typed::Callee::Func(FuncIdx(to)),
+            args: Vec::new(),
+        },
         Ty::UNIT,
         Span::default(),
     )
@@ -120,7 +123,10 @@ fn fn_ty(params: Vec<Ty>, ret: Ty) -> Ty {
 /// callee position [`Parking`] cannot follow, so one answered by the type.
 fn call_to_ty(to: u32, ty: Ty) -> Expr {
     Expr::new(
-        ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(to)), args: Vec::new() },
+        ExprKind::CallFn {
+            func: typed::Callee::Func(FuncIdx(to)),
+            args: Vec::new(),
+        },
         ty,
         Span::default(),
     )
@@ -128,7 +134,10 @@ fn call_to_ty(to: u32, ty: Ty) -> Expr {
 
 fn call_value(callee: Expr) -> Expr {
     Expr::new(
-        ExprKind::CallValue { callee: Box::new(callee), args: Vec::new() },
+        ExprKind::CallValue {
+            callee: Box::new(callee),
+            args: Vec::new(),
+        },
         Ty::UNIT,
         Span::default(),
     )
@@ -219,12 +228,24 @@ fn one_source_function_at_two_contexts_gets_two_answers() {
         body_func("fs:readText<HostFileSystem>", calls(&[3])),
         body_func("fs:readText<TestFileSystem>", calls(&[4])),
         intrinsic_func("HostFileSystem.readFile", "host.HostFileSystem.readFile"),
-        intrinsic_func("TestFileSystem.readFile", "host_testing.TestFileSystem.readFile"),
+        intrinsic_func(
+            "TestFileSystem.readFile",
+            "host_testing.TestFileSystem.readFile",
+        ),
     ]);
     let parks = parked(&program);
-    assert!(parks[1], "`readText` at `host.HostFileSystem` waits on the disk");
-    assert!(!parks[2], "`readText` at the test context reaches only memory");
-    assert!(parks[0], "and a caller of both waits, because one half of it does");
+    assert!(
+        parks[1],
+        "`readText` at `host.HostFileSystem` waits on the disk"
+    );
+    assert!(
+        !parks[2],
+        "`readText` at the test context reaches only memory"
+    );
+    assert!(
+        parks[0],
+        "and a caller of both waits, because one half of it does"
+    );
 }
 
 /// Every key in the seed list, and the near misses beside them: reading
@@ -306,7 +327,10 @@ fn a_call_through_a_function_value_is_answered_by_what_it_can_reach() {
             "through a callback taking the context",
             call_value(call_to_ty(3, carrying)),
         ),
-        body_func("maker", Expr::new(ExprKind::Unit, Ty::UNIT, Span::default())),
+        body_func(
+            "maker",
+            Expr::new(ExprKind::Unit, Ty::UNIT, Span::default()),
+        ),
         body_func("builder", lambda_of(carrying, call_to(5))),
         intrinsic_func("sleepMilliseconds", "host.HostClock.sleepMilliseconds"),
     ]);

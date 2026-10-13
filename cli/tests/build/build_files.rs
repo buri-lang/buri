@@ -60,16 +60,34 @@ fn build_file_fields_written_wrong() {
         s.write(file, text);
         let run = s.run(&["build", "//lib/x", "--error-format=json"]);
         let mut said = Vec::new();
-        for line in run.stdout.lines().chain(run.stderr.lines()).filter(|l| l.starts_with('{')) {
+        for line in run
+            .stdout
+            .lines()
+            .chain(run.stderr.lines())
+            .filter(|l| l.starts_with('{'))
+        {
             let d = buri::json::parse(line).unwrap();
-            let text = |path: &str| d.at(path).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let text = |path: &str| {
+                d.at(path)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            };
             said.push(format!("{} {}", text("code"), text("message")));
         }
         if run.code == 0 || !said.iter().any(|s| s.starts_with(want)) {
-            failures.push(format!("{file}: {text}\n  exit {}, expected {want:?}, found {said:#?}", run.code));
+            failures.push(format!(
+                "{file}: {text}\n  exit {}, expected {want:?}, found {said:#?}",
+                run.code
+            ));
         }
     }
-    assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
 
 /// `//cmd/...` in a library's `visibility` admits `//cmd` and a package below
@@ -78,8 +96,14 @@ fn build_file_fields_written_wrong() {
 fn a_recursive_visibility_admits_the_packages_below_it() {
     let s = Scratch::repo("recursive-visibility");
     s.write("lib/x/lib.buri", "export let answer: Int = 42;\n");
-    s.write("lib/x/BUILD.buri", "library {\n    visibility: [\"//cmd/...\"]\n}\n");
-    s.write("cmd/app/BUILD.buri", "binary {\n    dependencies: [\"//lib/x\"]\n\n    outputs: [{ platform: \"node\" }]\n}\n");
+    s.write(
+        "lib/x/BUILD.buri",
+        "library {\n    visibility: [\"//cmd/...\"]\n}\n",
+    );
+    s.write(
+        "cmd/app/BUILD.buri",
+        "binary {\n    dependencies: [\"//lib/x\"]\n\n    outputs: [{ platform: \"node\" }]\n}\n",
+    );
     s.write(
         "cmd/app/main.buri",
         "from \"node\" import { NodeHost };\nfrom \"//lib/x\" import { answer };\n\nexport fn main(_host: NodeHost): Result<(), Str> {\n    let _ = answer;\n    .Ok(())\n}\n",
@@ -89,7 +113,10 @@ fn a_recursive_visibility_admits_the_packages_below_it() {
     s.write("cmd/BUILD.buri", &s.read("cmd/app/BUILD.buri"));
     s.write("cmd/main.buri", &s.read("cmd/app/main.buri"));
     s.run(&["build", "//cmd"]).ok();
-    s.write("tools/app/BUILD.buri", "binary {\n    dependencies: [\"//lib/x\"]\n\n    outputs: [{ platform: \"node\" }]\n}\n");
+    s.write(
+        "tools/app/BUILD.buri",
+        "binary {\n    dependencies: [\"//lib/x\"]\n\n    outputs: [{ platform: \"node\" }]\n}\n",
+    );
     s.write("tools/app/main.buri", &s.read("cmd/app/main.buri"));
     s.run(&["build", "//tools/app"]).exits(1).says("visibility");
 }
@@ -102,10 +129,19 @@ fn target_patterns_written_wrong() {
     s.write("lib/x/lib.buri", "export let nothing: Int = 0;\n");
     s.write("lib/x/BUILD.buri", "library {}\n");
     for (pattern, said) in [
-        ("@other//lib/x", "`@other//lib/x` names an external repository, which is reserved and unimplemented"),
-        ("lib/x", "`lib/x` is not a label; labels are repository-absolute and start with `//`"),
+        (
+            "@other//lib/x",
+            "`@other//lib/x` names an external repository, which is reserved and unimplemented",
+        ),
+        (
+            "lib/x",
+            "`lib/x` is not a label; labels are repository-absolute and start with `//`",
+        ),
         ("//lib/x/", "`//lib/x/` has a trailing slash"),
-        ("//lib...", "`//lib...` is not a label; the only pattern forms are `//pkg/...` and `//...`"),
+        (
+            "//lib...",
+            "`//lib...` is not a label; the only pattern forms are `//pkg/...` and `//...`",
+        ),
     ] {
         s.run(&["build", pattern]).exits(2).says(said);
     }

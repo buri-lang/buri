@@ -92,7 +92,9 @@ fn load(scratch: &Scratch, options: &str, loads: usize) -> String {
     scratch.write("fake.mjs", FAKE);
     let mut driver = format!("import {{ install }} from \"./fake.mjs\";\ninstall({options});\n");
     for n in 0..loads {
-        driver.push_str(&format!("await import(\"./.buri/out/web/cmd/page/main.mjs?load={n}\");\n"));
+        driver.push_str(&format!(
+            "await import(\"./.buri/out/web/cmd/page/main.mjs?load={n}\");\n"
+        ));
     }
     scratch.write("load.mjs", &driver);
     let out = std::process::Command::new(js_runtime())
@@ -135,12 +137,22 @@ fn refused_storage_is_an_error_the_page_handles() {
         load(&scratch, "{ refuse: \"site data is blocked\" }", 1),
         "storage refused: site data is blocked\n",
     );
-    scratch.write("bare.mjs", "await import(\"./.buri/out/web/cmd/page/main.mjs\");\n");
+    scratch.write(
+        "bare.mjs",
+        "await import(\"./.buri/out/web/cmd/page/main.mjs\");\n",
+    );
     let out = std::process::Command::new(js_runtime())
         .arg(scratch.path("bare.mjs"))
         .current_dir(&scratch.root)
         .output()
         .unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "storage refused: this browser has no IndexedDB\n");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "storage refused: this browser has no IndexedDB\n"
+    );
 }

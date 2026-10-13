@@ -76,7 +76,14 @@ pub struct StdModule {
 }
 
 const fn m(path: &'static str, source: &'static str) -> StdModule {
-    StdModule { path, source, eager: false, platform: false, prelude: &[], internal: false }
+    StdModule {
+        path,
+        source,
+        eager: false,
+        platform: false,
+        prelude: &[],
+        internal: false,
+    }
 }
 
 /// Every module the standard library provides. The single source of truth for
@@ -122,10 +129,22 @@ pub const MODULES: &[StdModule] = &[
     // which cannot exist in a program that did not import it — so it loads on
     // import, and a repository does not pay to parse `core/crypto` to compile
     // a program that has never heard of it.
-    StdModule { eager: true, ..m("core/list", include_str!("sources/list.buri")) },
-    StdModule { eager: true, ..m("core/str", include_str!("sources/str.buri")) },
-    StdModule { eager: true, ..m("core/character", include_str!("sources/character.buri")) },
-    StdModule { eager: true, ..m("core/bool", include_str!("sources/bool.buri")) },
+    StdModule {
+        eager: true,
+        ..m("core/list", include_str!("sources/list.buri"))
+    },
+    StdModule {
+        eager: true,
+        ..m("core/str", include_str!("sources/str.buri"))
+    },
+    StdModule {
+        eager: true,
+        ..m("core/character", include_str!("sources/character.buri"))
+    },
+    StdModule {
+        eager: true,
+        ..m("core/bool", include_str!("sources/bool.buri"))
+    },
     m("core/queue", include_str!("sources/queue.buri")),
     m("core/heap", include_str!("sources/heap.buri")),
     m("core/flags", include_str!("sources/flags.buri")),
@@ -134,12 +153,27 @@ pub const MODULES: &[StdModule] = &[
     m("core/csv", include_str!("sources/csv.buri")),
     m("core/proto", include_str!("sources/proto.buri")),
     m("core/proto/any", include_str!("sources/proto_any.buri")),
-    m("core/proto/duration", include_str!("sources/proto_duration.buri")),
+    m(
+        "core/proto/duration",
+        include_str!("sources/proto_duration.buri"),
+    ),
     m("core/proto/empty", include_str!("sources/proto_empty.buri")),
-    m("core/proto/field_mask", include_str!("sources/proto_field_mask.buri")),
-    m("core/proto/struct", include_str!("sources/proto_struct.buri")),
-    m("core/proto/timestamp", include_str!("sources/proto_timestamp.buri")),
-    m("core/proto/wrappers", include_str!("sources/proto_wrappers.buri")),
+    m(
+        "core/proto/field_mask",
+        include_str!("sources/proto_field_mask.buri"),
+    ),
+    m(
+        "core/proto/struct",
+        include_str!("sources/proto_struct.buri"),
+    ),
+    m(
+        "core/proto/timestamp",
+        include_str!("sources/proto_timestamp.buri"),
+    ),
+    m(
+        "core/proto/wrappers",
+        include_str!("sources/proto_wrappers.buri"),
+    ),
     // The grammar as data, and the printer that turns it back into source. A
     // generator builds one of these rather than a string, so it cannot emit a
     // parse error, and every node carries the input span it came from.
@@ -151,9 +185,18 @@ pub const MODULES: &[StdModule] = &[
     // module through the same protocol any generator speaks, which is the
     // rule for every generator the toolchain ships: a user could have written
     // this one.
-    m("std/codegen/proto/schema", include_str!("sources/codegen_proto_schema.buri")),
-    m("std/codegen/proto/wellknown", include_str!("sources/codegen_proto_wellknown.buri")),
-    m("std/codegen/proto", include_str!("sources/codegen_proto.buri")),
+    m(
+        "std/codegen/proto/schema",
+        include_str!("sources/codegen_proto_schema.buri"),
+    ),
+    m(
+        "std/codegen/proto/wellknown",
+        include_str!("sources/codegen_proto_wellknown.buri"),
+    ),
+    m(
+        "std/codegen/proto",
+        include_str!("sources/codegen_proto.buri"),
+    ),
     // What a `tool` rule's entry points are handed and answer, and the doc a
     // formatter returns. `std/proto` is the program behind the `proto` tool,
     // written against it.
@@ -163,7 +206,10 @@ pub const MODULES: &[StdModule] = &[
     // The text format: a reader that holds a file against a message of the
     // `.proto` reader above, and the tool built on it. A contract module's
     // `decode` calls the reader at run time.
-    m("std/textproto/read", include_str!("sources/textproto_read.buri")),
+    m(
+        "std/textproto/read",
+        include_str!("sources/textproto_read.buri"),
+    ),
     m("std/textproto", include_str!("sources/textproto_tool.buri")),
     m("core/map", include_str!("sources/map.buri")),
     m("core/set", include_str!("sources/set.buri")),
@@ -195,8 +241,17 @@ pub const MODULES: &[StdModule] = &[
     // platform. `platform/effect` declares them, `platform/host` holds the
     // backends' production implementations a platform's host type names, and
     // `platform/effect/testing` is their test implementations.
-    StdModule { platform: true, ..m("platform/effect", include_str!("sources/effect.buri")) },
-    StdModule { platform: true, ..m(HOST_STRUCTS_MODULE, include_str!("sources/platform_host.buri")) },
+    StdModule {
+        platform: true,
+        ..m("platform/effect", include_str!("sources/effect.buri"))
+    },
+    StdModule {
+        platform: true,
+        ..m(
+            HOST_STRUCTS_MODULE,
+            include_str!("sources/platform_host.buri"),
+        )
+    },
     // The test implementations: one per effect, called rather than referred
     // to, so each call is a fresh runner-side handle. The `testing` segment is
     // what carries its import rule — `is_test_only_path` sees it — and it is an
@@ -204,22 +259,34 @@ pub const MODULES: &[StdModule] = &[
     // `core/platforms/testing/state`.
     StdModule {
         platform: true,
-        ..m("platform/effect/testing", include_str!("sources/host_testing.buri"))
+        ..m(
+            "platform/effect/testing",
+            include_str!("sources/host_testing.buri"),
+        )
     },
     // The bundled platforms' `platform.buri`, each declaring its host type and
     // its bodiless entry. A program imports its host type from here by the
     // platform's bare name: `from "native" import { NativeHost };`.
-    m("native", include_str!("../../platforms/native/platform.buri")),
+    m(
+        "native",
+        include_str!("../../platforms/native/platform.buri"),
+    ),
     m("node", include_str!("../../platforms/node/platform.buri")),
     m("web", include_str!("../../platforms/web/platform.buri")),
     // `web`'s own effect: `WebHost.storage` implements it, and no other bundled
     // host does. Under the platform's name rather than `platform/effect`
     // because no other platform offers it. Its test implementation is beside
     // it, in its `testing` surface, as a repository effect package's is.
-    StdModule { platform: true, ..m("web/storage", include_str!("sources/web_storage.buri")) },
     StdModule {
         platform: true,
-        ..m("web/storage/testing", include_str!("sources/web_storage_testing.buri"))
+        ..m("web/storage", include_str!("sources/web_storage.buri"))
+    },
+    StdModule {
+        platform: true,
+        ..m(
+            "web/storage/testing",
+            include_str!("sources/web_storage_testing.buri"),
+        )
     },
     // Not a platform module, deliberately. It *implements* `Allocator` rather than
     // declaring it, and `Allocator` is the one effect whose implementation carries
@@ -239,7 +306,10 @@ pub const MODULES: &[StdModule] = &[
     // in every method, `core/path` names `Allocator`, and `platform/effect` is below
     // `core/path` — so the declarations live here, where they can say what
     // they mean, rather than one module down where they could only say `Str`.
-    StdModule { platform: true, ..m("core/fs", include_str!("sources/fs.buri")) },
+    StdModule {
+        platform: true,
+        ..m("core/fs", include_str!("sources/fs.buri"))
+    },
     m("core/env", include_str!("sources/env.buri")),
     // The parsed half of `core/env`'s `args`. Not a platform module and not an
     // eager one: it declares no effect — `run` *names* `Environment`, `Stdout` and
@@ -276,7 +346,10 @@ pub const MODULES: &[StdModule] = &[
     // answers this module's own `Output`, and a `Command` is built out of a
     // `Path`, so the declaration has to live where those names are. `Process` is
     // still `platform/effect`'s — ending this process names nothing but an integer.
-    StdModule { platform: true, ..m("core/process", include_str!("sources/process.buri")) },
+    StdModule {
+        platform: true,
+        ..m("core/process", include_str!("sources/process.buri"))
+    },
     // The layer under both of those: a connection dialled out, bytes each way,
     // and no protocol over them. It is a third authority for the reason the
     // other two are two — `Tcp` is granted where `Listen` is and nowhere else,
@@ -315,7 +388,10 @@ pub const MODULES: &[StdModule] = &[
     // State for an effect's test implementation. Not a platform module: it
     // declares no effect. The `testing` segment keeps it out of production code,
     // and `platform-testing-only-import` keeps it out of ordinary tests too.
-    m("core/platforms/testing/state", include_str!("sources/platforms_testing_state.buri")),
+    m(
+        "core/platforms/testing/state",
+        include_str!("sources/platforms_testing_state.buri"),
+    ),
     // `ui/*`. A user interface is not one of the deliberately small
     // essentials, and its vocabulary is large, so it gets its own reserved
     // root rather than growing `core/`. None of it is a platform module: the
@@ -330,7 +406,13 @@ pub const MODULES: &[StdModule] = &[
     // How a style a node is handed becomes classes at run time. Internal: the
     // compiler calls it, and loads it only where a program's own module
     // imports from `ui/` (see [`CLASSIFY_MODULE`]).
-    StdModule { internal: true, ..m(CLASSIFY_MODULE, include_str!("sources/ui_style_classify.buri")) },
+    StdModule {
+        internal: true,
+        ..m(
+            CLASSIFY_MODULE,
+            include_str!("sources/ui_style_classify.buri"),
+        )
+    },
     m("ui/theme", include_str!("sources/ui_theme.buri")),
     m("ui/node", include_str!("sources/ui_node.buri")),
     // A website: the same tree, rendered to HTML on a worker and resumed on
@@ -375,7 +457,10 @@ pub fn is_std_path(path: &str) -> bool {
 /// Whether a module path sits under a bundled platform's name, as
 /// `web/storage`: that platform's own effects.
 fn platform_own(path: &str) -> bool {
-    BUNDLED_PLATFORMS.iter().any(|p| path.strip_prefix(p).is_some_and(|rest| rest.starts_with('/')))
+    BUNDLED_PLATFORMS.iter().any(|p| {
+        path.strip_prefix(p)
+            .is_some_and(|rest| rest.starts_with('/'))
+    })
 }
 
 /// The type of the field called `field` on a bundled platform's host, read
@@ -383,7 +468,9 @@ fn platform_own(path: &str) -> bool {
 pub fn host_field(platform: &str, field: &str) -> Option<&'static str> {
     let source = source(platform)?;
     let prefix = format!("export {field}: ");
-    source.lines().find_map(|line| line.trim().strip_prefix(prefix.as_str())?.strip_suffix(','))
+    source
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(prefix.as_str())?.strip_suffix(','))
 }
 
 /// The bundled effects a production struct in `platform/host` implements, in
@@ -469,14 +556,19 @@ pub fn eager_modules() -> impl Iterator<Item = &'static str> {
 
 /// The modules whose names are in scope in every module without an import.
 pub fn prelude_modules() -> impl Iterator<Item = &'static str> {
-    MODULES.iter().filter(|m| !m.prelude.is_empty()).map(|m| m.path)
+    MODULES
+        .iter()
+        .filter(|m| !m.prelude.is_empty())
+        .map(|m| m.path)
 }
 
 /// `(module, exported name)` pairs injected into every module's scope, at
 /// lower priority than the module's own declarations and its imports — so a
 /// module may shadow any of them, and importing one explicitly is harmless.
 pub fn prelude() -> impl Iterator<Item = (&'static str, &'static str)> {
-    MODULES.iter().flat_map(|m| m.prelude.iter().map(move |n| (m.path, *n)))
+    MODULES
+        .iter()
+        .flat_map(|m| m.prelude.iter().map(move |n| (m.path, *n)))
 }
 
 /// `Char.isPrintable`, for the compiler's own use: whether `c` is outside
@@ -534,7 +626,9 @@ fn range_table(module: &str, name: &str) -> Option<Vec<(u32, u32)>> {
     let (_, quoted) = after.split_once('"')?;
     let (table, _) = quoted.split_once('"')?;
     let code = |digits: &[char]| -> Option<u32> {
-        digits.iter().try_fold(0u32, |n, d| n.checked_mul(36)?.checked_add(d.to_digit(36)?))
+        digits
+            .iter()
+            .try_fold(0u32, |n, d| n.checked_mul(36)?.checked_add(d.to_digit(36)?))
     };
     let digits: Vec<char> = table.chars().collect();
     digits
@@ -597,7 +691,12 @@ const fn w(
     module: &'static str,
     call: &'static str,
 ) -> Wrapper {
-    Wrapper { effect, method, module, call }
+    Wrapper {
+        effect,
+        method,
+        module,
+        call,
+    }
 }
 
 /// Every method of every declared effect, and the function that calls it.
@@ -605,69 +704,294 @@ const fn w(
 /// The order is `platform/effect`'s declaration order, then `core/fs`'s two, then
 /// the reactive graph's, so the table reads beside the sources it is about.
 pub const WRAPPERS: &[Wrapper] = &[
-    w("Allocator", "allocate", "core/alloc", "alloc.allocate(ctx, bytes)"),
+    w(
+        "Allocator",
+        "allocate",
+        "core/alloc",
+        "alloc.allocate(ctx, bytes)",
+    ),
     w("Stdout", "print", "core/io", "io.print(ctx, text)"),
     w("Stdout", "println", "core/io", "io.println(ctx, text)"),
-    w("Stdout", "writeBytes", "core/io", "io.writeBytes(ctx, bytes)"),
+    w(
+        "Stdout",
+        "writeBytes",
+        "core/io",
+        "io.writeBytes(ctx, bytes)",
+    ),
     w("Stderr", "eprint", "core/io", "io.eprint(ctx, text)"),
     w("Stderr", "eprintln", "core/io", "io.eprintln(ctx, text)"),
     w("Stdin", "readLine", "core/io", "io.readLine(ctx)"),
     w("Stdin", "readBytes", "core/io", "io.readBytes(ctx, n)"),
-    w("FileSystemRead", "readFile", "core/fs", "fs.readText(ctx, path)"),
-    w("FileSystemRead", "fileExists", "core/fs", "fs.exists(ctx, path)"),
-    w("FileSystemRead", "readDir", "core/fs", "fs.listDir(ctx, path)"),
-    w("FileSystemRead", "readFileBytes", "core/fs", "fs.readBytes(ctx, path)"),
-    w("FileSystemRead", "metadata", "core/fs", "fs.metadata(ctx, path)"),
-    w("FileSystemRead", "readRange", "core/fs", "fs.readRange(ctx, path, at, count)"),
-    w("FileSystemRead", "realPath", "core/fs", "fs.canonicalize(ctx, path)"),
-    w("FileSystemWrite", "writeFile", "core/fs", "fs.writeText(ctx, path, body)"),
-    w("FileSystemWrite", "writeFileBytes", "core/fs", "fs.writeBytes(ctx, path, body)"),
-    w("FileSystemWrite", "appendFile", "core/fs", "fs.append(ctx, path, body)"),
-    w("FileSystemWrite", "renameFile", "core/fs", "fs.rename(ctx, source, destination)"),
-    w("FileSystemWrite", "removeFile", "core/fs", "fs.remove(ctx, path)"),
-    w("FileSystemWrite", "removeDir", "core/fs", "fs.removeDir(ctx, path)"),
-    w("FileSystemWrite", "makeDir", "core/fs", "fs.makeDir(ctx, path)"),
-    w("FileSystemWrite", "syncFile", "core/fs", "fs.sync(ctx, path)"),
-    w("FileSystemWrite", "copyFile", "core/fs", "fs.copy(ctx, source, destination)"),
-    w("Network", "fetch", "core/net/http", "http.send(ctx, request)"),
+    w(
+        "FileSystemRead",
+        "readFile",
+        "core/fs",
+        "fs.readText(ctx, path)",
+    ),
+    w(
+        "FileSystemRead",
+        "fileExists",
+        "core/fs",
+        "fs.exists(ctx, path)",
+    ),
+    w(
+        "FileSystemRead",
+        "readDir",
+        "core/fs",
+        "fs.listDir(ctx, path)",
+    ),
+    w(
+        "FileSystemRead",
+        "readFileBytes",
+        "core/fs",
+        "fs.readBytes(ctx, path)",
+    ),
+    w(
+        "FileSystemRead",
+        "metadata",
+        "core/fs",
+        "fs.metadata(ctx, path)",
+    ),
+    w(
+        "FileSystemRead",
+        "readRange",
+        "core/fs",
+        "fs.readRange(ctx, path, at, count)",
+    ),
+    w(
+        "FileSystemRead",
+        "realPath",
+        "core/fs",
+        "fs.canonicalize(ctx, path)",
+    ),
+    w(
+        "FileSystemWrite",
+        "writeFile",
+        "core/fs",
+        "fs.writeText(ctx, path, body)",
+    ),
+    w(
+        "FileSystemWrite",
+        "writeFileBytes",
+        "core/fs",
+        "fs.writeBytes(ctx, path, body)",
+    ),
+    w(
+        "FileSystemWrite",
+        "appendFile",
+        "core/fs",
+        "fs.append(ctx, path, body)",
+    ),
+    w(
+        "FileSystemWrite",
+        "renameFile",
+        "core/fs",
+        "fs.rename(ctx, source, destination)",
+    ),
+    w(
+        "FileSystemWrite",
+        "removeFile",
+        "core/fs",
+        "fs.remove(ctx, path)",
+    ),
+    w(
+        "FileSystemWrite",
+        "removeDir",
+        "core/fs",
+        "fs.removeDir(ctx, path)",
+    ),
+    w(
+        "FileSystemWrite",
+        "makeDir",
+        "core/fs",
+        "fs.makeDir(ctx, path)",
+    ),
+    w(
+        "FileSystemWrite",
+        "syncFile",
+        "core/fs",
+        "fs.sync(ctx, path)",
+    ),
+    w(
+        "FileSystemWrite",
+        "copyFile",
+        "core/fs",
+        "fs.copy(ctx, source, destination)",
+    ),
+    w(
+        "Network",
+        "fetch",
+        "core/net/http",
+        "http.send(ctx, request)",
+    ),
     w("Clock", "nowMilliseconds", "core/time", "time.now(ctx)"),
-    w("Clock", "sleepMilliseconds", "core/time", "time.sleep(ctx, duration)"),
-    w("Clock", "monotonicNanoseconds", "core/time", "time.monotonic(ctx)"),
-    w("Random", "nextInt", "core/random", "random.int(ctx, lo, hi)"),
+    w(
+        "Clock",
+        "sleepMilliseconds",
+        "core/time",
+        "time.sleep(ctx, duration)",
+    ),
+    w(
+        "Clock",
+        "monotonicNanoseconds",
+        "core/time",
+        "time.monotonic(ctx)",
+    ),
+    w(
+        "Random",
+        "nextInt",
+        "core/random",
+        "random.int(ctx, lo, hi)",
+    ),
     w("Random", "nextFloat", "core/random", "random.float(ctx)"),
     // `core/crypto` rather than `core/random`, which is the whole argument
     // `core/crypto`'s header makes: the seeded module and the unguessable one
     // are different promises and a reader should have to name which they meant.
-    w("Entropy", "bytes", "core/crypto", "crypto.randomBytes(ctx, count)"),
+    w(
+        "Entropy",
+        "bytes",
+        "core/crypto",
+        "crypto.randomBytes(ctx, count)",
+    ),
     w("Environment", "variable", "core/env", "env.get(ctx, name)"),
     w("Environment", "arguments", "core/env", "env.arguments(ctx)"),
-    w("Environment", "currentDirectory", "core/env", "env.currentDirectory(ctx)"),
+    w(
+        "Environment",
+        "currentDirectory",
+        "core/env",
+        "env.currentDirectory(ctx)",
+    ),
     w("Environment", "allVariables", "core/env", "env.all(ctx)"),
-    w("Environment", "operatingSystemName", "core/env", "env.operatingSystem(ctx)"),
-    w("Process", "exitWith", "core/process", "process.exit(ctx, code)"),
-    w("Spawn", "spawnProcess", "core/process", "process.run(ctx, command)"),
-    w("Spawn", "startProcess", "core/process", "process.start(ctx, command)"),
+    w(
+        "Environment",
+        "operatingSystemName",
+        "core/env",
+        "env.operatingSystem(ctx)",
+    ),
+    w(
+        "Process",
+        "exitWith",
+        "core/process",
+        "process.exit(ctx, code)",
+    ),
+    w(
+        "Spawn",
+        "spawnProcess",
+        "core/process",
+        "process.run(ctx, command)",
+    ),
+    w(
+        "Spawn",
+        "startProcess",
+        "core/process",
+        "process.start(ctx, command)",
+    ),
     w("Spawn", "processId", "core/process", "aChild.id()"),
-    w("Spawn", "signalProcess", "core/process", "aChild.signal(ctx, signal)"),
-    w("Spawn", "pollProcess", "core/process", "aChild.tryWait(ctx)"),
+    w(
+        "Spawn",
+        "signalProcess",
+        "core/process",
+        "aChild.signal(ctx, signal)",
+    ),
+    w(
+        "Spawn",
+        "pollProcess",
+        "core/process",
+        "aChild.tryWait(ctx)",
+    ),
     w("Spawn", "waitProcess", "core/process", "aChild.wait(ctx)"),
-    w("Tasks", "parallel", "core/tasks", "tasks.parallel(ctx, items, f)"),
-    w("Listen", "listenBind", "core/net/server", "server.bind(ctx, aServer)"),
-    w("Listen", "listenAccept", "core/net/server", "server.serve(ctx, aServer)"),
-    w("Listen", "listenRequest", "core/net/server", "server.serve(ctx, aServer)"),
-    w("Listen", "listenRespond", "core/net/server", "server.serve(ctx, aServer)"),
-    w("Listen", "listenClose", "core/net/server", "aListener.close(ctx)"),
-    w("Listen", "listenUpgrade", "core/net/server", "server.serve(ctx, aServer)"),
-    w("Listen", "listenReceive", "core/net/server", "server.serve(ctx, aServer)"),
-    w("Sockets", "socketSendText", "core/net/server", "aSocket.send(ctx, .Text(text))"),
-    w("Sockets", "socketSendBytes", "core/net/server", "aSocket.send(ctx, .Binary(bytes))"),
-    w("Sockets", "socketPing", "core/net/server", "aSocket.ping(ctx)"),
-    w("Sockets", "socketClose", "core/net/server", "aSocket.close(ctx, aCloseReason)"),
-    w("Tcp", "tcpConnect", "core/net/tcp", "tcp.connect(ctx, host, port)"),
+    w(
+        "Tasks",
+        "parallel",
+        "core/tasks",
+        "tasks.parallel(ctx, items, f)",
+    ),
+    w(
+        "Listen",
+        "listenBind",
+        "core/net/server",
+        "server.bind(ctx, aServer)",
+    ),
+    w(
+        "Listen",
+        "listenAccept",
+        "core/net/server",
+        "server.serve(ctx, aServer)",
+    ),
+    w(
+        "Listen",
+        "listenRequest",
+        "core/net/server",
+        "server.serve(ctx, aServer)",
+    ),
+    w(
+        "Listen",
+        "listenRespond",
+        "core/net/server",
+        "server.serve(ctx, aServer)",
+    ),
+    w(
+        "Listen",
+        "listenClose",
+        "core/net/server",
+        "aListener.close(ctx)",
+    ),
+    w(
+        "Listen",
+        "listenUpgrade",
+        "core/net/server",
+        "server.serve(ctx, aServer)",
+    ),
+    w(
+        "Listen",
+        "listenReceive",
+        "core/net/server",
+        "server.serve(ctx, aServer)",
+    ),
+    w(
+        "Sockets",
+        "socketSendText",
+        "core/net/server",
+        "aSocket.send(ctx, .Text(text))",
+    ),
+    w(
+        "Sockets",
+        "socketSendBytes",
+        "core/net/server",
+        "aSocket.send(ctx, .Binary(bytes))",
+    ),
+    w(
+        "Sockets",
+        "socketPing",
+        "core/net/server",
+        "aSocket.ping(ctx)",
+    ),
+    w(
+        "Sockets",
+        "socketClose",
+        "core/net/server",
+        "aSocket.close(ctx, aCloseReason)",
+    ),
+    w(
+        "Tcp",
+        "tcpConnect",
+        "core/net/tcp",
+        "tcp.connect(ctx, host, port)",
+    ),
     w("Tcp", "tcpRead", "core/net/tcp", "aStream.read(ctx, limit)"),
-    w("Tcp", "tcpWrite", "core/net/tcp", "aStream.write(ctx, body)"),
+    w(
+        "Tcp",
+        "tcpWrite",
+        "core/net/tcp",
+        "aStream.write(ctx, body)",
+    ),
     w("Tcp", "tcpClose", "core/net/tcp", "aStream.close(ctx)"),
-    w("WebSocketClient", "connectSocket", "core/net/websocket", "websocket.connect(ctx, aClient)"),
+    w(
+        "WebSocketClient",
+        "connectSocket",
+        "core/net/websocket",
+        "websocket.connect(ctx, aClient)",
+    ),
     w(
         "WebSocketClient",
         "connectReceive",
@@ -684,8 +1008,18 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Ui", "write", "ui/signal", "aSignal.set(ctx, value)"),
     w("Ui", "memo", "ui/prop", "prop.memo(ctx, compute)"),
     w("Ui", "watch", "ui/signal", "signal.watch(ctx, run)"),
-    w("Ui", "schedule", "platform/effect", "effect.after(ctx, duration, run)"),
-    w("Ui", "unschedule", "platform/effect", "effect.cancel(ctx, timer)"),
+    w(
+        "Ui",
+        "schedule",
+        "platform/effect",
+        "effect.after(ctx, duration, run)",
+    ),
+    w(
+        "Ui",
+        "unschedule",
+        "platform/effect",
+        "effect.cancel(ctx, timer)",
+    ),
     // The address bar. Its reader answers a cell, and the door that turns that
     // into something a tree can hold is `route`; `web.path(ctx)` is the same
     // cell read once. Its two writers put an address in the bar, and each door
@@ -696,16 +1030,33 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Location", "replace", "ui/web", "web.replace(ctx, path)"),
     // `web`'s own store.
     w("Storage", "get", "web/storage", "storage.get(ctx, key)"),
-    w("Storage", "set", "web/storage", "storage.set(ctx, key, value)"),
-    w("Storage", "delete", "web/storage", "storage.delete(ctx, key)"),
-    w("Storage", "keys", "web/storage", "storage.keys(ctx, prefix)"),
+    w(
+        "Storage",
+        "set",
+        "web/storage",
+        "storage.set(ctx, key, value)",
+    ),
+    w(
+        "Storage",
+        "delete",
+        "web/storage",
+        "storage.delete(ctx, key)",
+    ),
+    w(
+        "Storage",
+        "keys",
+        "web/storage",
+        "storage.keys(ctx, prefix)",
+    ),
 ];
 
 /// The door onto one effect method, or `None` for a name this table has never
 /// heard of — which, given [`tests::every_effect_method_has_a_door`], means the
 /// trait was not an effect.
 pub fn wrapper(effect: &str, method: &str) -> Option<&'static Wrapper> {
-    WRAPPERS.iter().find(|r| r.effect == effect && r.method == method)
+    WRAPPERS
+        .iter()
+        .find(|r| r.effect == effect && r.method == method)
 }
 
 impl Wrapper {
@@ -724,9 +1075,12 @@ impl Wrapper {
     /// keeps a row from quietly inventing a second one.
     pub fn import(&self) -> Option<String> {
         let alias = self.module.rsplit('/').next()?;
-        self.call
-            .starts_with(&format!("{alias}."))
-            .then(|| format!("the import is `from \"{}\" import * as {alias};`", self.module))
+        self.call.starts_with(&format!("{alias}.")).then(|| {
+            format!(
+                "the import is `from \"{}\" import * as {alias};`",
+                self.module
+            )
+        })
     }
 }
 
@@ -767,7 +1121,9 @@ mod tests {
         for c in ['a', ' ', 'é', '中', '😀'] {
             assert!(is_printable(c), "{c:?}");
         }
-        for c in ['\u{7f}', '\u{85}', '\u{a0}', '\u{200b}', '\u{202e}', '\u{2028}', '\u{feff}'] {
+        for c in [
+            '\u{7f}', '\u{85}', '\u{a0}', '\u{200b}', '\u{202e}', '\u{2028}', '\u{feff}',
+        ] {
             assert!(!is_printable(c), "{c:?}");
         }
     }
@@ -781,7 +1137,14 @@ mod tests {
         for c in ['\u{a9}', '\u{2764}', '\u{1f3f4}', '\u{1f468}', '\u{1f680}'] {
             assert!(is_pictographic(c), "{c:?}");
         }
-        for c in ['a', '\u{200d}', '\u{fe0f}', '\u{1f3fb}', '\u{1f1e6}', '\u{1fc00}'] {
+        for c in [
+            'a',
+            '\u{200d}',
+            '\u{fe0f}',
+            '\u{1f3fb}',
+            '\u{1f1e6}',
+            '\u{1fc00}',
+        ] {
             assert!(!is_pictographic(c), "{c:?}");
         }
     }
@@ -811,7 +1174,9 @@ mod tests {
                     continue;
                 }
                 let Some(e) = &effect else { continue };
-                let Some(rest) = t.strip_prefix("fn ") else { continue };
+                let Some(rest) = t.strip_prefix("fn ") else {
+                    continue;
+                };
                 let name = rest.split(['(', '<']).next().unwrap_or("");
                 out.push((e.clone(), name.to_string()));
             }
@@ -836,7 +1201,9 @@ mod tests {
     /// fail first if somebody declared one and forgot.
     #[test]
     fn core_actor_declares_no_effect_and_so_needs_no_door() {
-        let source = find("core/actor").expect("`core/actor` is in the table").source;
+        let source = find("core/actor")
+            .expect("`core/actor` is in the table")
+            .source;
         assert!(
             !source.contains("export effect "),
             "`core/actor` declares an effect now; it needs `WRAPPERS` rows, and this test \
@@ -866,7 +1233,11 @@ mod tests {
     #[test]
     fn every_effect_method_has_a_door() {
         let declared = declared_effect_methods();
-        assert!(declared.len() > 30, "the scan found only {} methods", declared.len());
+        assert!(
+            declared.len() > 30,
+            "the scan found only {} methods",
+            declared.len()
+        );
         for (effect, method) in &declared {
             let row = wrapper(effect, method);
             assert!(
@@ -927,7 +1298,9 @@ mod tests {
         let declared = declared_effect_methods();
         for row in WRAPPERS {
             assert!(
-                declared.iter().any(|(e, m)| e == row.effect && m == row.method),
+                declared
+                    .iter()
+                    .any(|(e, m)| e == row.effect && m == row.method),
                 "`{}.{}` has a wrapper row and no declaration",
                 row.effect,
                 row.method
@@ -954,7 +1327,11 @@ mod tests {
     #[test]
     fn every_module_is_under_a_reserved_root() {
         for m in MODULES {
-            assert!(is_std_path(m.path), "`{}` is under no reserved root", m.path);
+            assert!(
+                is_std_path(m.path),
+                "`{}` is under no reserved root",
+                m.path
+            );
         }
     }
 
@@ -966,7 +1343,12 @@ mod tests {
     fn both_spellings_of_a_module_are_the_same_module() {
         for m in MODULES {
             let long = format!("{}/lib.buri", m.path);
-            assert_eq!(canonical(&long), Some(m.path), "`{long}` is not `{}`", m.path);
+            assert_eq!(
+                canonical(&long),
+                Some(m.path),
+                "`{long}` is not `{}`",
+                m.path
+            );
             assert_eq!(canonical(m.path), Some(m.path));
         }
         assert_eq!(canonical("core/nope"), None);
@@ -1033,7 +1415,11 @@ mod tests {
                 }
             }
         }
-        assert_eq!(mine.len(), 11, "the two effects declare eleven methods between them: {mine:?}");
+        assert_eq!(
+            mine.len(),
+            11,
+            "the two effects declare eleven methods between them: {mine:?}"
+        );
         for (owner, method) in &mine {
             for (other, name) in &theirs {
                 assert!(

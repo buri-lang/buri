@@ -44,12 +44,23 @@ fn lower_with(text: &str, inline: bool) -> ir::Program {
 fn compiled(text: &str, inline: bool) -> (Program, driver::Analysis) {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, "test", text, Role::Entry);
-    let complaints: Vec<&str> =
-        analysis.diagnostics.items.iter().map(|d| d.message.as_str()).collect();
-    assert!(!analysis.diagnostics.has_errors(), "snippet did not compile: {complaints:?}");
+    let complaints: Vec<&str> = analysis
+        .diagnostics
+        .items
+        .iter()
+        .map(|d| d.message.as_str())
+        .collect();
+    assert!(
+        !analysis.diagnostics.has_errors(),
+        "snippet did not compile: {complaints:?}"
+    );
     let entry = analysis.checked.entry.expect("the snippet exports `main`");
-    let module_paths: Vec<String> =
-        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let module_paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diags = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
@@ -128,7 +139,10 @@ fn lowering_is_a_pure_function_of_the_program() {
     );
     let once = format!("{}", lower(&src));
     let twice = format!("{}", lower(&src));
-    assert_eq!(once, twice, "two lowerings of one program rendered differently");
+    assert_eq!(
+        once, twice,
+        "two lowerings of one program rendered differently"
+    );
 }
 
 /// The reproduction the release-then-retain class was found on, lowered.
@@ -191,7 +205,10 @@ fn a_counted_field_bound_and_never_read_is_not_released_then_retained() {
     // increments counted here stood in a run that had already released its
     // value — so a lowering that stopped emitting reference operations
     // would satisfy the loop above and is refused here instead.
-    assert!(pairs > 0, "no increment was emitted at all, so nothing was ordered");
+    assert!(
+        pairs > 0,
+        "no increment was emitted at all, so nothing was ordered"
+    );
 }
 
 /// Every value a block projects a field out of is still alive when it does
@@ -283,7 +300,10 @@ fn a_projection_never_reads_a_base_this_block_has_already_released() {
     }
     // Not vacuous: the corpus really does project out of counted bases the
     // same blocks release, which is the situation the rule is about.
-    assert!(bases > 0, "no projection was emitted at all, so nothing was ordered");
+    assert!(
+        bases > 0,
+        "no projection was emitted at all, so nothing was ordered"
+    );
 }
 
 #[test]
@@ -375,7 +395,10 @@ export fn code(c: Colour): Int {
     let p = lower_plain(&program(src, "  let _ = code(.Red);"));
     let text = render(&p, ":code");
     assert!(text.contains("v2 = tag v0"), "{text}");
-    assert!(text.contains("switch v2, [0 -> b2(), 1 -> b3(), 2 -> b4()]"), "{text}");
+    assert!(
+        text.contains("switch v2, [0 -> b2(), 1 -> b3(), 2 -> b4()]"),
+        "{text}"
+    );
     // Total, so no default: an enum's table always is (VALUE-MODEL.md §6).
     assert!(!text.contains("default"), "{text}");
 }
@@ -413,7 +436,10 @@ export fn count(n: Int, acc: Int): Int {
     // The entry falls into a header, and the header is the back edge's
     // destination: the entry block is never a branch target, which both
     // backends require.
-    assert!(text.contains("b0(v0: i64, v1: i64):\n    jump b1(v0, v1)"), "{text}");
+    assert!(
+        text.contains("b0(v0: i64, v1: i64):\n    jump b1(v0, v1)"),
+        "{text}"
+    );
     let f = p
         .funcs
         .iter()
@@ -422,7 +448,10 @@ export fn count(n: Int, acc: Int): Int {
     let code = f.code().expect("it has a body");
     let preds = code.preds();
     let header = preds.get(1).cloned().unwrap_or_default();
-    assert!(header.len() >= 2, "the header has the entry and a back edge: {header:?}");
+    assert!(
+        header.len() >= 2,
+        "the header has the entry and a back edge: {header:?}"
+    );
     assert!(
         header.iter().any(|b| b.index() > 1),
         "one predecessor comes from later in the function: {header:?}"
@@ -447,7 +476,10 @@ export fn quarter(n: Int): Option<Int> {
     // returns it, rather than passing the matched value through.
     assert!(text.contains("make #1 ()"), "{text}");
     let returns = text.matches("return").count();
-    assert!(returns >= 2, "one return for the early exit and one for the value: {text}");
+    assert!(
+        returns >= 2,
+        "one return for the early exit and one for the value: {text}"
+    );
 }
 
 #[test]
@@ -457,7 +489,11 @@ fn a_lowered_program_names_one_unit_per_module() {
         "  let _ = id([1, 2].length());",
     ));
     assert!(p.units.iter().any(|u| u == "test"), "{:?}", p.units);
-    assert!(p.units.iter().any(|u| u.starts_with("core_")), "{:?}", p.units);
+    assert!(
+        p.units.iter().any(|u| u.starts_with("core_")),
+        "{:?}",
+        p.units
+    );
     // Every function's unit is one this program declares.
     for f in &p.funcs {
         assert!((f.unit as usize) < p.units.len());
@@ -534,10 +570,16 @@ export fn both(t: (Int, Bool)): Int { match (t) { (n, true) => n, (n, false) => 
     ));
     ir::verify(&p);
     let all: String = p.to_string();
-    assert!(all.contains("payload."), "an enum arm projects its payload: {all}");
+    assert!(
+        all.contains("payload."),
+        "an enum arm projects its payload: {all}"
+    );
     assert!(all.contains("= len "), "an array pattern tests the length");
     assert!(all.contains("= slice "), "a rest binding slices");
-    assert!(all.contains("= field."), "a struct update reads the fields it keeps");
+    assert!(
+        all.contains("= field."),
+        "a struct update reads the fields it keeps"
+    );
 }
 
 /// A mutually tail-recursive group is one function with a dispatch
@@ -571,9 +613,15 @@ export fn step(n: Int): Int {
     // The entry falls into a header carrying every parameter, including
     // the index, and the header is what switches — the entry block is
     // never a branch target on either backend.
-    assert!(text.contains("b0(v0: i32, v1: i64, v2: i64):\n    jump b1(v0, v1, v2)"), "{text}");
+    assert!(
+        text.contains("b0(v0: i32, v1: i64, v2: i64):\n    jump b1(v0, v1, v2)"),
+        "{text}"
+    );
     assert!(text.contains("switch v3, [0 -> b3(), 1 -> b4()]"), "{text}");
-    assert!(text.contains("const undef"), "the narrower member pads: {text}");
+    assert!(
+        text.contains("const undef"),
+        "the narrower member pads: {text}"
+    );
     // And the members forward into it rather than being deleted: an
     // `FnRef` or a non-tail call to one still has to work.
     for name in [":walk", ":step"] {
@@ -596,7 +644,10 @@ export fn step(n: Int): Int {
 #[test]
 fn a_plan_site_becomes_an_instruction_at_its_node() {
     let (program, analysis) = compiled(
-        &program("export fn keep(s: Str): Str { s }", "  let _ = keep(\"hi\");"),
+        &program(
+            "export fn keep(s: Str): Str { s }",
+            "  let _ = keep(\"hi\");",
+        ),
         false,
     );
     let target = program
@@ -605,7 +656,10 @@ fn a_plan_site_becomes_an_instruction_at_its_node() {
         .position(|f| f.debug_name.ends_with(":keep"))
         .expect("the function is in the program");
 
-    let mut plan = rc::Plan { funcs: Vec::new(), crosses_tasks: false };
+    let mut plan = rc::Plan {
+        funcs: Vec::new(),
+        crosses_tasks: false,
+    };
     for (i, f) in program.funcs.iter().enumerate() {
         let params = vec![Ownership::Own; f.params.len()];
         let sites = if i == target {

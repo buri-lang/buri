@@ -74,7 +74,11 @@ pub enum Claim {
     /// block, and `errors` the block's own `// ERROR:` annotations. At least
     /// one of the three is present, or the block says nothing about how it
     /// fails.
-    Fail { code: Option<String>, messages: Vec<String>, errors: Vec<Annotation> },
+    Fail {
+        code: Option<String>,
+        messages: Vec<String>,
+        errors: Vec<Annotation>,
+    },
     /// Must typecheck, and `buri lint` must report `code` about it. The block
     /// is the one source of a scratch library, so a lint page's example is
     /// held to the finding it explains.
@@ -238,11 +242,18 @@ pub struct Extracted {
 /// reader expects to see it.
 pub fn extract(file: &str, text: &str) -> Extracted {
     let fences = markdown::fences(text);
-    let mut out =
-        Extracted { blocks: Vec::new(), protos: Vec::new(), files: Vec::new(), failures: Vec::new() };
+    let mut out = Extracted {
+        blocks: Vec::new(),
+        protos: Vec::new(),
+        files: Vec::new(),
+        failures: Vec::new(),
+    };
 
     for (i, fence) in fences.iter().enumerate() {
-        let origin = Origin { file: file.to_string(), line: fence.body_line };
+        let origin = Origin {
+            file: file.to_string(),
+            line: fence.body_line,
+        };
         // A malformed info string is reported whatever the language claims to
         // be. It used to be swallowed, and a fence that could not say what it
         // was got neither compiled nor complained about.
@@ -292,23 +303,41 @@ pub fn extract(file: &str, text: &str) -> Extracted {
 /// (`file=`, which may name a schema too), or a file of a repository whose
 /// build must fail with a code (`fail code=… file=…`). A fence that says none
 /// of these is an error, so no fence goes unchecked by omission.
-fn textproto_fence(fence: &Fence, info: &Info, origin: Origin, out: &mut Extracted) -> Result<(), Failure> {
-    let fail = |what: String, detail: &str| Failure { origin: origin.clone(), what, detail: detail.to_string() };
+fn textproto_fence(
+    fence: &Fence,
+    info: &Info,
+    origin: Origin,
+    out: &mut Extracted,
+) -> Result<(), Failure> {
+    let fail = |what: String, detail: &str| Failure {
+        origin: origin.clone(),
+        what,
+        detail: detail.to_string(),
+    };
     let schema = match info.get("schema") {
         None => None,
         Some("build") => Some(Schema::Build),
         Some("repo") => Some(Schema::Repo),
         Some(other) => {
-            return Err(fail(format!("`schema={other}` is not a schema"), "the schemas are build and repo"))
+            return Err(fail(
+                format!("`schema={other}` is not a schema"),
+                "the schemas are build and repo",
+            ))
         }
     };
     let file = info.get("file").map(String::from);
     if info.get("repo").is_some() && file.is_none() {
-        return Err(fail("`repo=` says nothing without `file=`".into(), "name the file this fence is"));
+        return Err(fail(
+            "`repo=` says nothing without `file=`".into(),
+            "name the file this fence is",
+        ));
     }
     let mode = info.mode.as_deref();
     if info.get("code").is_some() && mode != Some("fail") {
-        return Err(fail("`code=` says nothing outside `fail`".into(), "tag the fence `fail`"));
+        return Err(fail(
+            "`code=` says nothing outside `fail`".into(),
+            "tag the fence `fail`",
+        ));
     }
     let fails_with = match mode {
         None if schema.is_none() && file.is_none() => {
@@ -328,16 +357,26 @@ fn textproto_fence(fence: &Fence, info: &Info, origin: Origin, out: &mut Extract
                 ));
             };
             if schema.is_some() {
-                return Err(fail("a `fail` fence takes no `schema=`".into(), "its build is what fails it"));
+                return Err(fail(
+                    "a `fail` fence takes no `schema=`".into(),
+                    "its build is what fails it",
+                ));
             }
             Some(code.to_string())
         }
         Some(other) => {
-            return Err(fail(format!("`{other}` is not a mode"), "the one textproto mode is fail"))
+            return Err(fail(
+                format!("`{other}` is not a mode"),
+                "the one textproto mode is fail",
+            ))
         }
     };
     if let Some(schema) = schema {
-        out.protos.push(ProtoBlock { schema, source: fence.body.clone(), origin: origin.clone() });
+        out.protos.push(ProtoBlock {
+            schema,
+            source: fence.body.clone(),
+            origin: origin.clone(),
+        });
     }
     if let Some(path) = file {
         out.files.push(RepoFile {
@@ -459,12 +498,19 @@ fn parse_block(
                      `BURI_BLESS=1` fills it in",
                 ));
             };
-            Claim::Run { stdout: out.body.clone() }
+            Claim::Run {
+                stdout: out.body.clone(),
+            }
         }
         "fail" => {
             let messages: Vec<String> = attached("error")
                 .map(|f| {
-                    f.body.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect()
+                    f.body
+                        .lines()
+                        .map(str::trim)
+                        .filter(|l| !l.is_empty())
+                        .map(String::from)
+                        .collect()
                 })
                 .unwrap_or_default();
             let code = info.get("code").map(String::from);
@@ -475,7 +521,11 @@ fn parse_block(
                      `// ERROR: <substring of the message>`",
                 ));
             }
-            Claim::Fail { code, messages, errors }
+            Claim::Fail {
+                code,
+                messages,
+                errors,
+            }
         }
         "lint" => {
             no_annotations(&errors)?;
@@ -485,7 +535,9 @@ fn parse_block(
                     "add `code=<lint code>`",
                 ));
             };
-            Claim::Lint { code: code.to_string() }
+            Claim::Lint {
+                code: code.to_string(),
+            }
         }
         other => {
             return Err(fail(
@@ -634,12 +686,26 @@ pub fn rendered(body: &str) -> String {
 /// or a hover never shows a line that only the compiler reads.
 pub fn shown(text: &str) -> String {
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
-    for fence in markdown::fences(text).iter().rev().filter(|f| f.lang == "buri") {
+    for fence in markdown::fences(text)
+        .iter()
+        .rev()
+        .filter(|f| f.lang == "buri")
+    {
         let pad = " ".repeat(fence.indent);
-        let body: Vec<String> =
-            rendered(&fence.body).lines().map(|l| if l.is_empty() { String::new() } else { format!("{pad}{l}") }).collect();
+        let body: Vec<String> = rendered(&fence.body)
+            .lines()
+            .map(|l| {
+                if l.is_empty() {
+                    String::new()
+                } else {
+                    format!("{pad}{l}")
+                }
+            })
+            .collect();
         let first = fence.body_line.saturating_sub(1).min(lines.len());
-        let last = first.saturating_add(fence.body.lines().count()).min(lines.len());
+        let last = first
+            .saturating_add(fence.body.lines().count())
+            .min(lines.len());
         lines.splice(first..last, body);
     }
     lines.iter().map(|l| format!("{l}\n")).collect()
@@ -692,7 +758,6 @@ fn effect_binding(name: &str) -> Option<(&'static str, &'static str)> {
     })
 }
 
-
 pub struct Compiland {
     pub text: String,
     pub role: Role,
@@ -711,7 +776,10 @@ impl Compiland {
         }
         // Past the prefix, so the subtraction below is at least one and the
         // whole expression cannot go under `origin.line`.
-        origin.line.saturating_add(reported.saturating_sub(self.prefix_lines)).saturating_sub(1)
+        origin
+            .line
+            .saturating_add(reported.saturating_sub(self.prefix_lines))
+            .saturating_sub(1)
     }
 }
 
@@ -806,7 +874,9 @@ pub fn assemble(
                 .platform
                 .and_then(crate::compiler::standard_library::host_type)
                 .unwrap_or(("native", "NativeHost"));
-            body.push_str(&format!("from \"{owner}\" import {{ {host} as __Host }};\n"));
+            body.push_str(&format!(
+                "from \"{owner}\" import {{ {host} as __Host }};\n"
+            ));
             // `core/io` under its ordinary name, and it is the one import here
             // that is not `__`-prefixed — deliberately, because a fragment
             // writes `io.println(ctx, ...)` and that spelling is the thing
@@ -838,12 +908,18 @@ pub fn assemble(
     text.push_str(&body);
     text.push_str(&restore_error(&block.source, block, only_error));
     text.push_str(&suffix);
-    Ok(Compiland { text, role, prefix_lines })
+    Ok(Compiland {
+        text,
+        role,
+        prefix_lines,
+    })
 }
 
 /// Puts one `// ERROR:` line back, leaving the rest blank.
 fn restore_error(source: &str, block: &Block, only: Option<usize>) -> String {
-    let Some(only) = only else { return source.to_string() };
+    let Some(only) = only else {
+        return source.to_string();
+    };
     let restored = block.original.lines().nth(only).unwrap_or_default();
     let mut out = String::with_capacity(source.len());
     for (i, line) in source.lines().enumerate() {
@@ -856,7 +932,9 @@ fn restore_error(source: &str, block: &Block, only: Option<usize>) -> String {
 fn declares_main(source: &str) -> bool {
     source.lines().any(|l| {
         let t = l.trim_start();
-        let Some(rest) = t.strip_prefix("export fn main").or_else(|| t.strip_prefix("fn main"))
+        let Some(rest) = t
+            .strip_prefix("export fn main")
+            .or_else(|| t.strip_prefix("fn main"))
         else {
             return false;
         };
@@ -928,9 +1006,11 @@ fn run_block_in(
     // is compiled too. Its annotated lines are blanked in `base`, so a block
     // with any is held to checking alone.
     let compiled = match &block.claim {
-        Claim::Fail { code: Some(_), errors, .. }
-            if errors.is_empty() && !analysis.diagnostics.has_errors() =>
-        {
+        Claim::Fail {
+            code: Some(_),
+            errors,
+            ..
+        } if errors.is_empty() && !analysis.diagnostics.has_errors() => {
             driver::compile_snippet_js_as(workspace, package, map, &name, &base.text).err()
         }
         _ => None,
@@ -946,11 +1026,17 @@ fn run_block_in(
     // The codes the block produces: the ones it produces whole, and below, the
     // ones each annotated line produces on its own, since those lines are
     // blanked here.
-    let mut coded: Vec<String> =
-        reported.items.iter().filter(|d| d.is_error()).filter_map(|d| d.code.clone()).collect();
+    let mut coded: Vec<String> = reported
+        .items
+        .iter()
+        .filter(|d| d.is_error())
+        .filter_map(|d| d.code.clone())
+        .collect();
 
     match &block.claim {
-        Claim::Fail { messages, errors, .. } => {
+        Claim::Fail {
+            messages, errors, ..
+        } => {
             if diagnostics.is_empty() && errors.is_empty() {
                 failures.push(Failure {
                     origin: block.origin.clone(),
@@ -1032,14 +1118,23 @@ fn run_block_in(
             .filter(|d| d.is_error())
             .map(|d| d.message.clone())
             .collect();
-        coded.extend(a.diagnostics.items.iter().filter(|d| d.is_error()).filter_map(|d| d.code.clone()));
+        coded.extend(
+            a.diagnostics
+                .items
+                .iter()
+                .filter(|d| d.is_error())
+                .filter_map(|d| d.code.clone()),
+        );
         if !got.iter().any(|m| m.contains(want.as_str())) {
             let line = variant.document_line(
                 &block.origin,
                 base.prefix_lines.saturating_add(*index).saturating_add(1),
             );
             failures.push(Failure {
-                origin: Origin { file: block.origin.file.clone(), line },
+                origin: Origin {
+                    file: block.origin.file.clone(),
+                    line,
+                },
                 what: format!("this line should not compile: expected `{want}`"),
                 detail: if got.is_empty() {
                     "it compiled cleanly".into()
@@ -1054,7 +1149,10 @@ fn run_block_in(
     // to explain a rule, and its example must provoke exactly that rule. A
     // page nothing can provoke is a page that describes an error the compiler
     // no longer emits.
-    if let Claim::Fail { code: Some(want), .. } = &block.claim {
+    if let Claim::Fail {
+        code: Some(want), ..
+    } = &block.claim
+    {
         if !coded.iter().any(|c| c == want) {
             failures.push(Failure {
                 origin: block.origin.clone(),
@@ -1093,7 +1191,12 @@ fn run_block_in(
             Err(d) => failures.push(Failure {
                 origin: block.origin.clone(),
                 what: "this example does not run".into(),
-                detail: d.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n"),
+                detail: d
+                    .items
+                    .iter()
+                    .map(|d| d.message.clone())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
             }),
         }
     }
@@ -1102,7 +1205,10 @@ fn run_block_in(
 }
 
 fn indent(text: &str) -> String {
-    text.lines().map(|l| format!("  | {l}")).collect::<Vec<_>>().join("\n")
+    text.lines()
+        .map(|l| format!("  | {l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Every code `buri lint` reports about `source`, written as the `lib.buri` of
@@ -1155,7 +1261,13 @@ fn describe(
     }
     let file = map.get(d.span.file);
     let (line, col) = file.line_col(d.span.start);
-    format!("{}:{}:{}: {}", origin.file, c.document_line(origin, line), col, d.message)
+    format!(
+        "{}:{}:{}: {}",
+        origin.file,
+        c.document_line(origin, line),
+        col,
+        d.message
+    )
 }
 
 /// Every block in one document, in order, with `name=` bindings visible to the
@@ -1251,13 +1363,17 @@ fn run_file_with(
                 let compiling = repos.entry(rel.clone()).or_insert_with(|| {
                     let mut map = SourceMap::new();
                     let mut diagnostics = crate::diagnostics::Diagnostics::new();
-                    crate::build::workspace::Workspace::load(&root.join(rel), &mut map, &mut diagnostics)
-                        .ok()
-                        .map(|loaded| Compiling {
-                            workspace: prepared(&root.join(rel), loaded, &map),
-                            map,
-                            cache: crate::parsing::parser::Cache::new(),
-                        })
+                    crate::build::workspace::Workspace::load(
+                        &root.join(rel),
+                        &mut map,
+                        &mut diagnostics,
+                    )
+                    .ok()
+                    .map(|loaded| Compiling {
+                        workspace: prepared(&root.join(rel), loaded, &map),
+                        map,
+                        cache: crate::parsing::parser::Cache::new(),
+                    })
                 });
                 match compiling {
                     Some(c) => (Some(&*c.workspace), &mut c.map, &mut c.cache),
@@ -1287,7 +1403,11 @@ fn run_file_with(
 
 /// Renders every failure in a document as one block of text.
 pub fn report(failures: &[Failure]) -> String {
-    failures.iter().map(|f| f.to_string()).collect::<Vec<_>>().join("\n")
+    failures
+        .iter()
+        .map(|f| f.to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// A ```textproto block has to parse *and* satisfy the schema its document
@@ -1310,7 +1430,11 @@ fn run_proto(proto: &ProtoBlock) -> Vec<Failure> {
     vec![Failure {
         origin: proto.origin.clone(),
         what: "this build file does not satisfy the schema".into(),
-        detail: errors.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n"),
+        detail: errors
+            .iter()
+            .map(|d| d.message.clone())
+            .collect::<Vec<_>>()
+            .join("\n"),
     }]
 }
 
@@ -1342,13 +1466,20 @@ fn run_repositories(root: &std::path::Path, files: &[RepoFile]) -> Vec<Failure> 
                 failures.push(Failure {
                     origin: f.origin.clone(),
                     what: format!("`{}` is already a fence on this page", f.path),
-                    detail: "a repository has one file at a path, so only one fence may be it".into(),
+                    detail: "a repository has one file at a path, so only one fence may be it"
+                        .into(),
                 });
             }
             seen.push(&f.path);
         }
-        let clean: Vec<&RepoFile> = mine.iter().copied().filter(|f| f.fails_with.is_none()).collect();
-        let first = mine.first().or_ice("every repository is named by one of the files in it");
+        let clean: Vec<&RepoFile> = mine
+            .iter()
+            .copied()
+            .filter(|f| f.fails_with.is_none())
+            .collect();
+        let first = mine
+            .first()
+            .or_ice("every repository is named by one of the files in it");
         match build_with(root, repo, &clean) {
             Err(why) => {
                 failures.push(Failure {
@@ -1372,7 +1503,11 @@ fn run_repositories(root: &std::path::Path, files: &[RepoFile]) -> Vec<Failure> 
                         ),
                         None => (first.origin.clone(), e.to_string()),
                     };
-                    failures.push(Failure { origin, what: "this repository does not build".into(), detail });
+                    failures.push(Failure {
+                        origin,
+                        what: "this repository does not build".into(),
+                        detail,
+                    });
                 }
             }
         }
@@ -1400,7 +1535,11 @@ fn run_repositories(root: &std::path::Path, files: &[RepoFile]) -> Vec<Failure> 
                 detail: if found.is_empty() {
                     "the repository built cleanly".into()
                 } else {
-                    found.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n")
+                    found
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 },
             });
         }
@@ -1454,9 +1593,8 @@ fn write_and_build(
     scratch: &std::path::Path,
 ) -> Result<Vec<BuildError>, String> {
     match repo {
-        Some(rel) => {
-            copy_tree(&root.join(rel), scratch).map_err(|e| format!("`repo={rel}` cannot be copied: {e}"))?
-        }
+        Some(rel) => copy_tree(&root.join(rel), scratch)
+            .map_err(|e| format!("`repo={rel}` cannot be copied: {e}"))?,
         None => std::fs::create_dir_all(scratch).map_err(|e| e.to_string())?,
     }
     if !scratch.join("REPO.buri").exists() {
@@ -1464,7 +1602,9 @@ fn write_and_build(
     }
     for f in files {
         let path = scratch.join(&f.path);
-        let parent = path.parent().or_ice("a file joined onto the scratch directory is inside it");
+        let parent = path
+            .parent()
+            .or_ice("a file joined onto the scratch directory is inside it");
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         std::fs::write(&path, &f.text).map_err(|e| e.to_string())?;
     }
@@ -1508,9 +1648,18 @@ fn build_repository(root: &std::path::Path) -> Result<Vec<BuildError>, String> {
             actions::check_visibility(&session, target, &mut diagnostics);
             actions::check_tags(&session, target, &mut diagnostics);
             if !diagnostics.has_errors() {
-                let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: false };
-                let analysis =
-                    driver::analyze(Some(&session.workspace), &mut session.map, &mut session.parsed, &unit);
+                let unit = Unit {
+                    target: Some(target),
+                    platform: None,
+                    entry: None,
+                    with_tests: false,
+                };
+                let analysis = driver::analyze(
+                    Some(&session.workspace),
+                    &mut session.map,
+                    &mut session.parsed,
+                    &unit,
+                );
                 diagnostics.extend(analysis.diagnostics.items);
             }
             reported.extend(diagnostics.items);
@@ -1524,7 +1673,12 @@ fn build_repository(root: &std::path::Path) -> Result<Vec<BuildError>, String> {
                 continue;
             }
             let mut diagnostics = crate::diagnostics::Diagnostics::new();
-            actions::check_policy(&session, target, &output.output_platform(), &mut diagnostics);
+            actions::check_policy(
+                &session,
+                target,
+                &output.output_platform(),
+                &mut diagnostics,
+            );
             if !diagnostics.has_errors() {
                 let unit = Unit {
                     target: Some(target),
@@ -1532,9 +1686,15 @@ fn build_repository(root: &std::path::Path) -> Result<Vec<BuildError>, String> {
                     entry: Some(output.entry_name().to_string()),
                     with_tests: false,
                 };
-                let analysis =
-                    driver::analyze(Some(&session.workspace), &mut session.map, &mut session.parsed, &unit);
-                if !analysis.diagnostics.has_errors() && !analysis.checked.entries.contains_key(output.entry_name()) {
+                let analysis = driver::analyze(
+                    Some(&session.workspace),
+                    &mut session.map,
+                    &mut session.parsed,
+                    &unit,
+                );
+                if !analysis.diagnostics.has_errors()
+                    && !analysis.checked.entries.contains_key(output.entry_name())
+                {
                     diagnostics.push(actions::missing_main(&session, target, &output));
                 }
                 diagnostics.extend(analysis.diagnostics.items);
@@ -1554,11 +1714,16 @@ fn build_repository(root: &std::path::Path) -> Result<Vec<BuildError>, String> {
                 let (line, col) = source.line_col(d.span.start);
                 (source.name.clone(), line, col)
             };
-            BuildError { file, line, col, message: d.message.clone(), code: d.code.clone() }
+            BuildError {
+                file,
+                line,
+                col,
+                message: d.message.clone(),
+                code: d.code.clone(),
+            }
         })
         .collect())
 }
-
 
 // -----------------------------------------------------------------------------
 // Documentation comments

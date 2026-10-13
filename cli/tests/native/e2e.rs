@@ -156,7 +156,12 @@ pub(crate) fn probed_builds(probe: &str) -> Vec<(&'static str, ProbedWith<'_>)> 
         out.push((
             "llvm",
             Box::new(move |name: &str, source: &str| {
-                crate::llvm::build_at(&format!("{name}-llvm"), source, Some(probe), Profile::Release)
+                crate::llvm::build_at(
+                    &format!("{name}-llvm"),
+                    source,
+                    Some(probe),
+                    Profile::Release,
+                )
             }),
         ));
     }
@@ -491,7 +496,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         },
     }
 }
-"#
+"#,
     )
 }
 
@@ -539,7 +544,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         },
     }
 }
-"#
+"#,
     )
 }
 
@@ -749,7 +754,7 @@ export fn main(host: NativeHost): Result<(), Str> {
         },
     }
 }
-"#
+"#,
     )
 }
 
@@ -941,8 +946,10 @@ fn chose(back: &[u8]) -> Option<String> {
     let mut cursor = 0usize;
     while cursor + 4 <= extensions.len() {
         let id = u16::from_be_bytes([extensions[cursor], extensions[cursor + 1]]);
-        let length =
-            usize::from(u16::from_be_bytes([extensions[cursor + 2], extensions[cursor + 3]]));
+        let length = usize::from(u16::from_be_bytes([
+            extensions[cursor + 2],
+            extensions[cursor + 3],
+        ]));
         let body = extensions.get(cursor + 4..cursor + 4 + length)?;
         if id == 0x0010 {
             // list length, then one length-prefixed name.
@@ -1007,19 +1014,23 @@ fn what_a_server_prints_reaches_a_pipe_before_it_blocks() {
         }
     });
     let next = |what: &str| {
-        saying.recv_timeout(crate::shared::SERVER_DEADLINE).unwrap_or_else(|e| {
-            panic!(
-                "the program's {what} line never reached the pipe within {:?}: {e} — \
+        saying
+            .recv_timeout(crate::shared::SERVER_DEADLINE)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "the program's {what} line never reached the pipe within {:?}: {e} — \
                  standard output was withheld while the program was blocked",
-                crate::shared::SERVER_DEADLINE
-            )
-        })
+                    crate::shared::SERVER_DEADLINE
+                )
+            })
     };
 
     let starting = next("first");
     let listening = next("second");
     assert_eq!(
-        child.try_wait().expect("could not ask whether the server had exited"),
+        child
+            .try_wait()
+            .expect("could not ask whether the server had exited"),
         None,
         "the server exited before its lines were read, so this row read a flush on the \
          way out rather than one before a wait"
@@ -1053,7 +1064,11 @@ fn a_protocol_this_runtime_was_not_built_for_is_refused_when_the_port_opens() {
     unless_ready!();
     let binary = built("e2e-http3", &quic_server());
     let out = crate::shared::ran(&binary);
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     let said = out
         .stdout
         .lines()
@@ -1091,8 +1106,11 @@ fn a_tls_port_chooses_a_protocol_and_answers_a_plaintext_client_with_no_http_at_
     let running = crate::shared::announced(&binary);
     let port = running.2;
 
-    let plaintext =
-        dialled(port, b"GET /cleartext HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n", Until::Closed);
+    let plaintext = dialled(
+        port,
+        b"GET /cleartext HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n",
+        Until::Closed,
+    );
     assert!(
         !plaintext.starts_with(b"HTTP/"),
         "a plaintext client got an HTTP answer out of a TLS port: {}",
@@ -1115,7 +1133,11 @@ fn a_tls_port_chooses_a_protocol_and_answers_a_plaintext_client_with_no_http_at_
 
     crate::shared::signalling(&running.0, crate::shared::SIGTERM);
     let out = crate::shared::finished(running);
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert!(
         out.stdout.ends_with("served\n"),
         "a secured listener did not drain to `.Ok(())` the way a cleartext one does:\n{}",
@@ -1178,8 +1200,11 @@ fn an_upgrade_request_reaches_the_request_handler_when_a_server_has_no_hooks() {
     let binary = built("e2e-fall-through", &no_hooks_server());
     let running = crate::shared::announced(&binary);
     let port = running.2;
-    let back =
-        dialled(port, crate::shared::upgrade_request("/socket").as_bytes(), Until::Closed);
+    let back = dialled(
+        port,
+        crate::shared::upgrade_request("/socket").as_bytes(),
+        Until::Closed,
+    );
     let reply = String::from_utf8_lossy(&back).to_string();
     assert!(
         reply.starts_with("HTTP/1.1 200 "),
@@ -1202,7 +1227,11 @@ fn an_upgrade_request_reaches_the_request_handler_when_a_server_has_no_hooks() {
         "the handler was not given the request's own path.\nthe whole reply was:\n{reply}"
     );
     let out = crate::shared::finished(running);
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
 }
 
 /// **A WebSocket is served at the path it names, and nowhere else.**
@@ -1229,8 +1258,11 @@ fn a_websocket_is_served_only_at_the_path_its_hooks_name() {
     let port = running.2;
 
     // The wrong path, asked for with a complete upgrade request.
-    let back =
-        dialled(port, crate::shared::upgrade_request("/elsewhere").as_bytes(), Until::Closed);
+    let back = dialled(
+        port,
+        crate::shared::upgrade_request("/elsewhere").as_bytes(),
+        Until::Closed,
+    );
     let reply = String::from_utf8_lossy(&back).to_string();
     assert!(
         !reply.contains("101 "),
@@ -1269,7 +1301,11 @@ fn a_websocket_is_served_only_at_the_path_its_hooks_name() {
         "`onOpen` ran for a path the hooks do not name:\n{}",
         out.stdout
     );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
 }
 
 /// **A full outbound buffer closes the socket, and every part of that is
@@ -1315,7 +1351,11 @@ fn a_full_outbound_buffer_closes_the_socket_and_the_close_hook_is_told_why() {
          gone is not being dropped:\n{}",
         out.stdout
     );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert!(
         out.stdout.ends_with("served\n"),
         "an overflowing socket took the server with it:\n{}",
@@ -1353,7 +1393,11 @@ fn the_same_handler_answers_the_same_way_with_and_without_a_socket() {
          program wrote:\n{}",
         out.stdout
     );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
 }
 
 /// A server whose answers are larger than a socket's kernel buffers.
@@ -1467,7 +1511,11 @@ fn a_websocket_message_larger_than_the_socket_buffer_arrives_whole() {
             Some(text) if text.len() > 64 => {
                 let first = text.chars().next().unwrap_or(' ');
                 let same = text.chars().all(|c| c == first);
-                format!("{} of {first}{}", text.len(), if same { "" } else { " and others" })
+                format!(
+                    "{} of {first}{}",
+                    text.len(),
+                    if same { "" } else { " and others" }
+                )
             }
             Some(text) => text,
         });
@@ -1497,13 +1545,22 @@ fn a_websocket_message_larger_than_the_socket_buffer_arrives_whole() {
         "a large message did not arrive whole.\nthe server said:\n{}\nstderr:\n{}",
         out.stdout, out.stderr
     );
-    assert_eq!(code, Some(1000), "the socket did not close normally:\n{}", out.stdout);
+    assert_eq!(
+        code,
+        Some(1000),
+        "the socket did not close normally:\n{}",
+        out.stdout
+    );
     assert!(
         out.stdout.contains("closed .Normal after 3"),
         "`onClose` was not told `.Normal` after the three messages:\n{}",
         out.stdout
     );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
 }
 
 /// A server that answers a socket with more than loopback buffers, and closes
@@ -1691,10 +1748,15 @@ fn a_closing_socket_stopped_and_continued(row: &str, tls: bool) {
         crate::shared::signalling(&running.0, STOP_CONT.1);
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    stdin.write_all(b"g").expect("the release reached the client");
+    stdin
+        .write_all(b"g")
+        .expect("the release reached the client");
     stdin.flush().expect("flush");
     let status = crate::shared::waited(&mut dialling, crate::shared::SERVER_DEADLINE);
-    let said = reader.join().expect("the reader thread finished").join("\n");
+    let said = reader
+        .join()
+        .expect("the reader thread finished")
+        .join("\n");
     let mut stderr = String::new();
     if let Some(mut err) = dialling.stderr.take() {
         let _ = std::io::Read::read_to_string(&mut err, &mut stderr);
@@ -1709,7 +1771,11 @@ fn a_closing_socket_stopped_and_continued(row: &str, tls: bool) {
         out.stdout,
         out.stderr
     );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
 }
 
 /// **A server stopped and continued while it closes a socket behind a large
@@ -1797,10 +1863,18 @@ fn closing_a_listener_ends_run_on_it() {
     unless_ready!();
     let binary = built("e2e-close-listener", &two_listeners_server());
     let running = crate::shared::announced(&binary);
-    let back = dialled(running.2, b"GET / HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n", Until::Closed);
+    let back = dialled(
+        running.2,
+        b"GET / HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n",
+        Until::Closed,
+    );
     let reply = String::from_utf8_lossy(&back).to_string();
     let out = crate::shared::finished(running);
-    assert_eq!(body_of(&reply), Some("first"), "the first listener's reply:\n{reply}");
+    assert_eq!(
+        body_of(&reply),
+        Some("first"),
+        "the first listener's reply:\n{reply}"
+    );
     for line in ["first ended", "second ended", "both ended"] {
         assert!(
             out.stdout.lines().any(|said| said == line),
@@ -1809,7 +1883,11 @@ fn closing_a_listener_ends_run_on_it() {
             out.stderr
         );
     }
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1923,20 +2001,28 @@ impl Resetting {
             lines
         });
         let port = crate::shared::saying_until(&saying, crate::shared::SERVER_DEADLINE, |line| {
-            line.strip_prefix("port ").and_then(|p| p.parse::<u16>().ok())
+            line.strip_prefix("port ")
+                .and_then(|p| p.parse::<u16>().ok())
         });
         let Some(port) = port else {
             let _ = child.kill();
             panic!("the server announced no port");
         };
-        Resetting { child, stdin, saying, reader, port }
+        Resetting {
+            child,
+            stdin,
+            saying,
+            reader,
+            port,
+        }
     }
 
     /// Wait until the server says `line`.
     fn said(&mut self, line: &str) {
-        let heard = crate::shared::saying_until(&self.saying, crate::shared::SERVER_DEADLINE, |l| {
-            (l == line).then_some(())
-        });
+        let heard =
+            crate::shared::saying_until(&self.saying, crate::shared::SERVER_DEADLINE, |l| {
+                (l == line).then_some(())
+            });
         if heard.is_none() {
             let _ = self.child.kill();
             panic!("the server never said `{line}`");
@@ -1946,7 +2032,9 @@ impl Resetting {
     /// Let the handler holding `/held` answer.
     fn release(&mut self) {
         use std::io::Write;
-        self.stdin.write_all(b"g").expect("the release reached the server");
+        self.stdin
+            .write_all(b"g")
+            .expect("the release reached the server");
         self.stdin.flush().expect("flush");
     }
 
@@ -1962,7 +2050,9 @@ impl Resetting {
         use std::io::Write;
         let mut socket = std::net::TcpStream::connect(("127.0.0.1", self.port))
             .expect("could not reach the server");
-        socket.write_all(b"GET /held HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").unwrap();
+        socket
+            .write_all(b"GET /held HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n")
+            .unwrap();
         socket.flush().unwrap();
         self.said("handling");
         socket
@@ -1985,8 +2075,15 @@ impl Resetting {
 /// `run` answered `.Ok` once signalled, so nothing ended the listener early.
 fn served_to_the_end(stopped: (Option<i32>, String, String)) {
     let (code, said, stderr) = stopped;
-    assert_eq!(code, Some(0), "the server failed.\nstdout:\n{said}\nstderr:\n{stderr}");
-    assert!(said.ends_with("served"), "`run` did not answer `.Ok`:\n{said}");
+    assert_eq!(
+        code,
+        Some(0),
+        "the server failed.\nstdout:\n{said}\nstderr:\n{stderr}"
+    );
+    assert!(
+        said.ends_with("served"),
+        "`run` did not answer `.Ok`:\n{said}"
+    );
 }
 
 /// **A client that resets before its answer is written ends only its own
@@ -2030,7 +2127,10 @@ fn a_connection_that_breaks_before_its_request_is_whole_leaves_the_listener_serv
 
     let nonsense = dialled(server.port, b"nonsense\r\n\r\n", Until::Closed);
     let nonsense = String::from_utf8_lossy(&nonsense).to_string();
-    assert!(nonsense.starts_with("HTTP/1.1 400 "), "a malformed request:\n{nonsense}");
+    assert!(
+        nonsense.starts_with("HTTP/1.1 400 "),
+        "a malformed request:\n{nonsense}"
+    );
 
     let reply = server.asked("/after");
     assert_eq!(body_of(&reply), Some("/after"), "the next client:\n{reply}");
@@ -2052,7 +2152,9 @@ fn a_server_stopped_and_continued_mid_request_still_answers_it() {
     let binary = built("e2e-stopped-request", &resetting_server());
     let server = Resetting::start(&binary, 1);
     let mut socket = std::net::TcpStream::connect(("127.0.0.1", server.port)).unwrap();
-    socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).unwrap();
+    socket
+        .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+        .unwrap();
     socket.write_all(b"GET /stopped HTTP/1.1\r\n").unwrap();
     // Ten times, so the acceptor is waiting for the rest of the head for most
     // of them.
@@ -2066,7 +2168,11 @@ fn a_server_stopped_and_continued_mid_request_still_answers_it() {
     let mut reply = Vec::new();
     let _ = socket.read_to_end(&mut reply);
     let reply = String::from_utf8_lossy(&reply).to_string();
-    assert_eq!(body_of(&reply), Some("/stopped"), "the stopped request:\n{reply}");
+    assert_eq!(
+        body_of(&reply),
+        Some("/stopped"),
+        "the stopped request:\n{reply}"
+    );
     served_to_the_end(server.stopped());
 }
 
@@ -2102,7 +2208,9 @@ fn a_tls_server_stopped_and_continued_mid_handshake_still_answers_it() {
     let running = crate::shared::announced(&binary);
     let hello = client_hello(&["h2", "http/1.1"]);
     let mut socket = std::net::TcpStream::connect(("127.0.0.1", running.2)).unwrap();
-    socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).unwrap();
+    socket
+        .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+        .unwrap();
     socket.write_all(&hello[..10]).unwrap();
     // Ten times, so the acceptor is waiting for the rest of the hello for most
     // of them.
@@ -2121,12 +2229,24 @@ fn a_tls_server_stopped_and_continued_mid_handshake_still_answers_it() {
             Ok(read) => back.extend_from_slice(&chunk[..read]),
         }
     }
-    assert_eq!(chose(&back).as_deref(), Some("h2"), "the stopped handshake: {back:?}");
+    assert_eq!(
+        chose(&back).as_deref(),
+        Some("h2"),
+        "the stopped handshake: {back:?}"
+    );
 
     crate::shared::signalling(&running.0, crate::shared::SIGTERM);
     let out = crate::shared::finished(running);
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
-    assert!(out.stdout.ends_with("served\n"), "`run` did not answer `.Ok`:\n{}", out.stdout);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    assert!(
+        out.stdout.ends_with("served\n"),
+        "`run` did not answer `.Ok`:\n{}",
+        out.stdout
+    );
 }
 
 /// **A TLS client that resets mid-handshake ends only its connection.** The
@@ -2143,20 +2263,36 @@ fn a_tls_client_that_resets_mid_handshake_leaves_the_listener_serving() {
     let hello = client_hello(&["h2", "http/1.1"]);
 
     let mut first = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
-    first.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).unwrap();
+    first
+        .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+        .unwrap();
     first.write_all(&hello).unwrap();
     first.flush().unwrap();
     let mut record = [0u8; 1];
-    first.read_exact(&mut record).expect("the server began its handshake");
+    first
+        .read_exact(&mut record)
+        .expect("the server began its handshake");
     crate::shared::reset(first);
 
     let back = dialled(port, &hello, Until::ARecord);
-    assert_eq!(chose(&back).as_deref(), Some("h2"), "the next ClientHello: {back:?}");
+    assert_eq!(
+        chose(&back).as_deref(),
+        Some("h2"),
+        "the next ClientHello: {back:?}"
+    );
 
     crate::shared::signalling(&running.0, crate::shared::SIGTERM);
     let out = crate::shared::finished(running);
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
-    assert!(out.stdout.ends_with("served\n"), "`run` did not answer `.Ok`:\n{}", out.stdout);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    assert!(
+        out.stdout.ends_with("served\n"),
+        "`run` did not answer `.Ok`:\n{}",
+        out.stdout
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -2178,10 +2314,20 @@ fn compiled(source: &str) -> buri::compiler::middle::monomorphize::Program {
     assert!(
         !analysis.diagnostics.has_errors(),
         "the source did not compile: {:?}",
-        analysis.diagnostics.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>()
+        analysis
+            .diagnostics
+            .items
+            .iter()
+            .map(|d| d.message.clone())
+            .collect::<Vec<_>>()
     );
     let entry = analysis.checked.entry.expect("the source exports `main`");
-    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
     let mut program = middle::monomorphize::run(
         &analysis.checked,
@@ -2264,11 +2410,13 @@ fn the_refusal_a_toolchain_without_networking_names_what_a_real_server_reached()
         "an ordinary `bind`-and-`run` program does not reach the keys the refusal names"
     );
     assert!(
-        gap.iter().all(|key| buri::compiler::backend::runtime_native::net_intrinsic(key)),
+        gap.iter()
+            .all(|key| buri::compiler::backend::runtime_native::net_intrinsic(key)),
         "the gap claimed a key outside the networking family: {gap:?}"
     );
     assert!(
-        !gap.iter().any(|key| key == "list.map" || key == "str.concat"),
+        !gap.iter()
+            .any(|key| key == "list.map" || key == "str.concat"),
         "the gap swept up an ordinary intrinsic the same program uses: {gap:?}"
     );
 
@@ -2287,7 +2435,10 @@ fn the_refusal_a_toolchain_without_networking_names_what_a_real_server_reached()
         refusal.message
     );
     let fix = refusal.fix.clone().expect("every diagnostic carries a fix");
-    assert!(fix.contains("net"), "the fix does not name the feature: {fix}");
+    assert!(
+        fix.contains("net"),
+        "the fix does not name the feature: {fix}"
+    );
     assert!(
         !fix.contains("report it"),
         "a toolchain built without a capability is not a bug report: {fix}"
@@ -2327,7 +2478,9 @@ mod read_loop_tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("a loopback port");
         let port = listener.local_addr().expect("an address").port();
         std::thread::spawn(move || {
-            let Ok((mut socket, _from)) = listener.accept() else { return };
+            let Ok((mut socket, _from)) = listener.accept() else {
+                return;
+            };
             // **Read what the client sent before answering anything**, which a
             // server does anyway and which one of these rows needs: a peer with
             // nothing to say would otherwise close while the client was still
@@ -2537,7 +2690,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 fn a_native_binary_writes_atomically_and_reads_what_may_not_be_there() {
     unless_ready!();
     let binary = built("e2e-atomic-surface", &read_only_surface());
-    let dir = binary.parent().expect("the program is in a workspace of its own");
+    let dir = binary
+        .parent()
+        .expect("the program is in a workspace of its own");
     let out = std::process::Command::new(&binary)
         .current_dir(dir)
         .output()
@@ -2604,7 +2759,9 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
     let port = listener.local_addr().expect("the bound address").port();
-    listener.set_nonblocking(true).expect("a listener that can be polled");
+    listener
+        .set_nonblocking(true)
+        .expect("a listener that can be polled");
     // Built and admitted before the peer's clock starts, so neither is on it.
     let binary = built("e2e-tcp-client", &tcp_client());
     crate::shared::admitted(&binary);
@@ -2630,8 +2787,12 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
             return String::from("<nobody dialled>");
         };
         socket.set_nonblocking(false).expect("a blocking socket");
-        socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a read deadline");
-        socket.set_write_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a write deadline");
+        socket
+            .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+            .expect("a read deadline");
+        socket
+            .set_write_timeout(Some(crate::shared::SERVER_DEADLINE))
+            .expect("a write deadline");
         let mut asked = Vec::new();
         let mut byte = [0_u8; 1];
         while crate::shared::read_on(&mut socket, &mut byte).expect("the request") == 1 {
@@ -2641,10 +2802,14 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
             }
         }
         // Two writes, so the program's read loop runs at least twice.
-        socket.write_all(b"po").expect("the first half of the answer");
+        socket
+            .write_all(b"po")
+            .expect("the first half of the answer");
         socket.flush().expect("the first half flushed");
         std::thread::sleep(std::time::Duration::from_millis(20));
-        socket.write_all(b"ng\n").expect("the second half of the answer");
+        socket
+            .write_all(b"ng\n")
+            .expect("the second half of the answer");
         socket.flush().expect("the second half flushed");
         String::from_utf8_lossy(&asked).into_owned()
     });
@@ -2657,9 +2822,19 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
     );
     let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
     let mut stdout = String::new();
-    child.stdout.take().expect("a piped stdout").read_to_string(&mut stdout).expect("stdout");
+    child
+        .stdout
+        .take()
+        .expect("a piped stdout")
+        .read_to_string(&mut stdout)
+        .expect("stdout");
     let mut stderr = String::new();
-    child.stderr.take().expect("a piped stderr").read_to_string(&mut stderr).expect("stderr");
+    child
+        .stderr
+        .take()
+        .expect("a piped stderr")
+        .read_to_string(&mut stderr)
+        .expect("stderr");
 
     // The client's answer is read before the peer is joined, so a client that
     // failed reports as the client failing.
@@ -2680,7 +2855,11 @@ fn a_native_binary_speaks_over_a_socket_it_dialled() {
         ],
         "stderr:\n{stderr}"
     );
-    assert_eq!(peer.join().expect("the peer thread"), "ping\n", "the program sent something else");
+    assert_eq!(
+        peer.join().expect("the peer thread"),
+        "ping\n",
+        "the program sent something else"
+    );
 }
 
 /// **A dial by name tries each address the name resolves to until one
@@ -2698,9 +2877,13 @@ fn a_native_binary_dials_the_next_address_when_the_first_refuses() {
     let port = listener.local_addr().expect("the bound port").port();
     let peer = std::thread::spawn(move || {
         let (mut socket, _) = listener.accept().expect("a dial");
-        socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a read deadline");
+        socket
+            .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+            .expect("a read deadline");
         let mut byte = [0_u8; 1];
-        while crate::shared::read_on(&mut socket, &mut byte).expect("the request") == 1 && byte != *b"\n" {}
+        while crate::shared::read_on(&mut socket, &mut byte).expect("the request") == 1
+            && byte != *b"\n"
+        {}
         socket.write_all(b"pong\n").expect("the answer");
     });
     let mut child = crate::shared::started(
@@ -2711,11 +2894,28 @@ fn a_native_binary_dials_the_next_address_when_the_first_refuses() {
     );
     let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
     let mut stdout = String::new();
-    child.stdout.take().expect("a piped stdout").read_to_string(&mut stdout).expect("stdout");
+    child
+        .stdout
+        .take()
+        .expect("a piped stdout")
+        .read_to_string(&mut stdout)
+        .expect("stdout");
     let mut stderr = String::new();
-    child.stderr.take().expect("a piped stderr").read_to_string(&mut stderr).expect("stderr");
-    assert_eq!(status.code(), Some(0), "stdout:\n{stdout}\nstderr:\n{stderr}");
-    assert!(stdout.starts_with("got pong"), "stdout:\n{stdout}\nstderr:\n{stderr}");
+    child
+        .stderr
+        .take()
+        .expect("a piped stderr")
+        .read_to_string(&mut stderr)
+        .expect("stderr");
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.starts_with("got pong"),
+        "stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
     peer.join().expect("the peer thread");
 }
 
@@ -2723,7 +2923,9 @@ fn a_native_binary_dials_the_next_address_when_the_first_refuses() {
 fn a_native_binary_touches_files_and_reads_its_own_arguments() {
     unless_ready!();
     let binary = built("e2e-host-surface", &host_surface());
-    let dir = binary.parent().expect("the program is in a workspace of its own");
+    let dir = binary
+        .parent()
+        .expect("the program is in a workspace of its own");
     let out = std::process::Command::new(&binary)
         .current_dir(dir)
         .args(["alpha", "beta"])
@@ -2763,7 +2965,6 @@ fn a_native_binary_touches_files_and_reads_its_own_arguments() {
         "the program reported removing its scratch directory and it is still there"
     );
 }
-
 
 /// A program that builds a real tree in a real temporary directory and asks
 /// the filesystem about it.
@@ -3058,7 +3259,10 @@ export fn main(host: NativeHost): Result<(), Str> {
 fn a_native_binary_reads_a_real_tree_and_removes_it() {
     unless_ready!();
     let binary = built("e2e-real-tree", &real_tree());
-    let dir = binary.parent().expect("the program is in a workspace of its own").to_path_buf();
+    let dir = binary
+        .parent()
+        .expect("the program is in a workspace of its own")
+        .to_path_buf();
 
     // Laid out again before each run: the program removes the tree it is given,
     // which is the point of that half of the row.
@@ -3093,24 +3297,48 @@ fn a_native_binary_reads_a_real_tree_and_removes_it() {
             .unwrap_or_else(|| panic!("no `{prefix}` line:\n{stdout}"))
             .to_string()
     };
-    let expected = dir.file_name().expect("a directory has a name").to_string_lossy().to_string();
-    assert_eq!(said("cwd "), expected, "the program is not where it was started");
+    let expected = dir
+        .file_name()
+        .expect("a directory has a name")
+        .to_string_lossy()
+        .to_string();
+    assert_eq!(
+        said("cwd "),
+        expected,
+        "the program is not where it was started"
+    );
     assert!(
         said("os ") == "macos" || said("os ") == "linux",
         "the operating system reported itself as `{}`",
         said("os ")
     );
-    assert_eq!(said("inherited "), "true", "the child did not see the variable it was given");
+    assert_eq!(
+        said("inherited "),
+        "true",
+        "the child did not see the variable it was given"
+    );
 
     // The links, the loop and the tree the harness laid out.
-    assert_eq!(said("link "), "symlink", "`metadata` followed the link instead of reporting it");
+    assert_eq!(
+        said("link "),
+        "symlink",
+        "`metadata` followed the link instead of reporting it"
+    );
     assert_eq!(
         said("dangling "),
         "symlink false NotFound NotFound",
         "a link to nothing is not a link that is not there"
     );
-    assert_eq!(said("gone "), "NotFound", "a path naming nothing is not `.NotFound`");
-    assert_eq!(said("chain "), "target.txt", "a chain of two links did not resolve");
+    assert_eq!(
+        said("gone "),
+        "NotFound",
+        "a path naming nothing is not `.NotFound`"
+    );
+    assert_eq!(
+        said("chain "),
+        "target.txt",
+        "a chain of two links did not resolve"
+    );
     assert_eq!(
         said("loop "),
         "self",
@@ -3136,9 +3364,17 @@ fn a_native_binary_reads_a_real_tree_and_removes_it() {
     );
 
     // The tree the program made itself.
-    assert_eq!(said("temporary "), "true", "the scratch directory is not under `TMPDIR`");
+    assert_eq!(
+        said("temporary "),
+        "true",
+        "the scratch directory is not under `TMPDIR`"
+    );
     assert_eq!(said("note "), "file 5", "the file's kind or size is wrong");
-    assert_eq!(said("modified "), "true", "the file's timestamp is not a real one");
+    assert_eq!(
+        said("modified "),
+        "true",
+        "the file's timestamp is not a real one"
+    );
     assert_eq!(said("kinds "), "true true");
     assert_eq!(said("entries "), "deep:directory note.txt:file");
     assert_eq!(
@@ -3151,7 +3387,11 @@ fn a_native_binary_reads_a_real_tree_and_removes_it() {
         "0 NotFound NotADirectory",
         "an empty directory, a missing one and a file are not three answers"
     );
-    assert_eq!(said("range "), "true", "`readRange` answered the wrong octets");
+    assert_eq!(
+        said("range "),
+        "true",
+        "`readRange` answered the wrong octets"
+    );
     assert_eq!(
         said("window "),
         "0 1 0 Other Other",
@@ -3210,7 +3450,14 @@ fn laid_out(dir: &std::path::Path) -> bool {
     let _ = std::fs::remove_dir_all(make("tree"));
     let _ = std::fs::set_permissions(make("closed"), permissions(0o755));
     let _ = std::fs::remove_dir_all(make("closed"));
-    for name in ["pointer", "dangling", "chain", "chain2", "target.txt", "outside.txt"] {
+    for name in [
+        "pointer",
+        "dangling",
+        "chain",
+        "chain2",
+        "target.txt",
+        "outside.txt",
+    ] {
         let _ = std::fs::remove_file(make(name));
     }
 
@@ -3542,7 +3789,10 @@ fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(ctx: C
 fn a_native_binary_runs_a_real_child_and_reads_what_it_wrote() {
     unless_ready!();
     let binary = built("e2e-child-processes", &child_processes());
-    let dir = binary.parent().expect("the program is in a workspace of its own").to_path_buf();
+    let dir = binary
+        .parent()
+        .expect("the program is in a workspace of its own")
+        .to_path_buf();
     std::fs::write(dir.join("helper"), "a file with a name to look up")
         .expect("the harness could not write");
 
@@ -3583,7 +3833,8 @@ fn a_native_binary_runs_a_real_child_and_reads_what_it_wrote() {
             said
         });
         let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
-        let stdout = String::from_utf8_lossy(&reading.join().expect("the reader thread")).to_string();
+        let stdout =
+            String::from_utf8_lossy(&reading.join().expect("the reader thread")).to_string();
         let stderr =
             String::from_utf8_lossy(&complaining.join().expect("the reader thread")).to_string();
         feeding.join().expect("the writer thread");
@@ -3609,9 +3860,17 @@ fn a_native_binary_runs_a_real_child_and_reads_what_it_wrote() {
         yes.starts_with("true /") && yes.ends_with("true"),
         "`which` answered a relative path, or refused the absolute one it had just given: {yes}"
     );
-    assert_eq!(said("true "), "0 0 0", "`true` did not exit 0 with nothing to say");
+    assert_eq!(
+        said("true "),
+        "0 0 0",
+        "`true` did not exit 0 with nothing to say"
+    );
     assert_eq!(said("false "), "1", "`false` did not exit 1");
-    assert_eq!(said("cat "), "0 hello", "standard input did not reach the child");
+    assert_eq!(
+        said("cat "),
+        "0 hello",
+        "standard input did not reach the child"
+    );
     assert_eq!(
         said("large "),
         "0 300000",
@@ -3644,7 +3903,11 @@ fn a_native_binary_runs_a_real_child_and_reads_what_it_wrote() {
         "4 out err",
         "a child that wrote to both streams was not read from both"
     );
-    assert_eq!(said("signal "), "137", "a child killed by a signal is not `128 + signal`");
+    assert_eq!(
+        said("signal "),
+        "137",
+        "a child killed by a signal is not `128 + signal`"
+    );
     // The directory `true` sits in, whatever that is on this machine — and
     // resolved, because `pwd` reports the physical path.
     let told = said("cwd ");
@@ -3904,7 +4167,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 fn a_wide_state_record_folded_through_a_match_leaks_nothing() {
     unless_ready!();
     let (stdout, stderr) = heap_checked("e2e-wide-state", &wide_state());
-    assert_eq!(stdout, vec!["100 209 1 0", "3 109 1 11", "2"], "stderr:\n{stderr}");
+    assert_eq!(
+        stdout,
+        vec!["100 209 1 0", "3 109 1 11", "2"],
+        "stderr:\n{stderr}"
+    );
 }
 
 /// A struct of `fields` strings, `Big`, with a constructor that puts one string
@@ -4090,7 +4357,14 @@ fn a_large_struct_held_deep_inside_options_lists_and_records_leaks_nothing() {
     let (stdout, stderr) = heap_checked("e2e-deep-big", &deep_big());
     assert_eq!(
         stdout,
-        vec!["true 3 4", "true false true", "5 4 2 3096", "4 4 4", "4 5 3", "6 7"],
+        vec![
+            "true 3 4",
+            "true false true",
+            "5 4 2 3096",
+            "4 4 4",
+            "4 5 3",
+            "6 7"
+        ],
         "stderr:\n{stderr}"
     );
 }
@@ -4382,7 +4656,12 @@ fn a_wide_payload_gives_back_fields_at_odd_offsets() {
     let (stdout, stderr) = heap_checked("e2e-odd-offsets", &odd_offsets());
     assert_eq!(
         stdout,
-        vec!["1 5 6.7.8 9 123456789 oneone three", "plain 7", "99 33 64 201.202.203 250", "empty"],
+        vec![
+            "1 5 6.7.8 9 123456789 oneone three",
+            "plain 7",
+            "99 33 64 201.202.203 250",
+            "empty"
+        ],
         "stderr:\n{stderr}"
     );
 }
@@ -4445,8 +4724,6 @@ fn an_early_return_releases_what_the_function_still_owns() {
     let (stdout, stderr) = heap_checked("e2e-try-escape", &early_return());
     assert_eq!(stdout, vec!["true false"], "stderr:\n{stderr}");
 }
-
-
 
 // ---------------------------------------------------------------------------
 // Everything an actor's messages and answers carried
@@ -4613,9 +4890,16 @@ export fn main(host: NativeHost): Result<(), Str> {
             .expect("the program did not start");
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-        assert_eq!(out.status.code(), Some(0), "{backend}: stdout:\n{stdout}\nstderr:\n{stderr}");
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "{backend}: stdout:\n{stdout}\nstderr:\n{stderr}"
+        );
         assert_eq!(stdout, "answered 5000\n", "{backend}: {stderr}");
-        assert!(stderr.contains("buri heap check: ok"), "{backend}: {stderr}");
+        assert!(
+            stderr.contains("buri heap check: ok"),
+            "{backend}: {stderr}"
+        );
     }
 }
 
@@ -4640,7 +4924,11 @@ fn ran_within(binary: &std::path::Path, within: std::time::Duration) -> crate::s
     if let Some(mut pipe) = child.stderr.take() {
         let _ = std::io::Read::read_to_string(&mut pipe, &mut stderr);
     }
-    crate::shared::Ran { status: status.code().unwrap_or(-1), stdout, stderr }
+    crate::shared::Ran {
+        status: status.code().unwrap_or(-1),
+        stdout,
+        stderr,
+    }
 }
 
 /// Sixteen tasks, each sending eight messages to one counter, and a step that
@@ -4741,7 +5029,11 @@ fn every_sender_gets_its_answer_when_many_post_at_once() {
     unless_ready!();
     let binary = built("e2e-many-senders", &many_senders());
     let out = ran_within(&binary, std::time::Duration::from_secs(60));
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert_eq!(
         out.stdout.lines().collect::<Vec<_>>(),
         vec!["refused 0", "stepped 128", "stopped true"],
@@ -4859,10 +5151,19 @@ fn a_step_sending_to_its_own_actor_is_refused_at_once() {
     unless_ready!();
     let binary = built("e2e-reentering-senders", &reentering_senders());
     let out = ran_within(&binary, std::time::Duration::from_secs(20));
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert_eq!(
         out.stdout.lines().collect::<Vec<_>>(),
-        vec!["direct answered 2", "fanned answered 4", "then count 3", "stopped true"],
+        vec![
+            "direct answered 2",
+            "fanned answered 4",
+            "then count 3",
+            "stopped true"
+        ],
         "stderr:\n{}",
         out.stderr
     );
@@ -4997,7 +5298,11 @@ fn a_spawned_task_runs_beside_the_body_that_spawned_it() {
     unless_ready!();
     let binary = built("e2e-beside-the-body", &beside_the_body());
     let out = ran_within(&binary, std::time::Duration::from_secs(60));
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert_eq!(
         out.stdout.lines().collect::<Vec<_>>(),
         vec![
@@ -5093,7 +5398,11 @@ fn a_task_that_wakes_on_another_thread_still_finishes() {
     unless_ready!();
     let binary = built("e2e-waking-on-another-thread", &waking_on_another_thread());
     let out = ran_within(&binary, std::time::Duration::from_secs(60));
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert_eq!(
         out.stdout.lines().collect::<Vec<_>>(),
         vec!["every scope waited for 360 tasks"],
@@ -5194,9 +5503,16 @@ export fn main(host: NativeHost): Result<(), Str> {
 #[test]
 fn an_actor_keeps_what_fanned_out_steps_posted_inside_a_scope() {
     unless_ready!();
-    let binary = built("e2e-fanned-out-inside-a-scope", &fanned_out_inside_a_scope());
+    let binary = built(
+        "e2e-fanned-out-inside-a-scope",
+        &fanned_out_inside_a_scope(),
+    );
     let out = ran_within(&binary, std::time::Duration::from_secs(60));
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert_eq!(
         out.stdout.lines().collect::<Vec<_>>(),
         vec!["posted 8", "churned 8 70000", "kept 8 of 8", "stopped true"],
@@ -5345,7 +5661,11 @@ fn heap_is_clean(name: &str, source: &str, lines: &[&str]) {
         Some(0),
         "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    assert_eq!(stdout.lines().collect::<Vec<_>>(), lines.to_vec(), "stderr:\n{stderr}");
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        lines.to_vec(),
+        "stderr:\n{stderr}"
+    );
     assert!(
         stderr.contains("buri heap check: ok"),
         "the heap audit did not report a clean exit.\nstderr:\n{stderr}"
@@ -5479,7 +5799,11 @@ fn an_early_return_out_of_a_match_arm_releases_what_the_match_built() {
 #[test]
 fn a_discarded_binding_releases_what_it_discarded() {
     unless_ready!();
-    heap_is_clean("e2e-discarded-bindings", &discarded_bindings(), &["kept 50000"]);
+    heap_is_clean(
+        "e2e-discarded-bindings",
+        &discarded_bindings(),
+        &["kept 50000"],
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -5697,7 +6021,11 @@ fn a_buri_client_and_a_buri_server_carry_a_message_both_ways() {
     );
     // The last of these is the reason and the state beside it: the one frame the
     // socket counted left through `connect` rather than dying with the socket.
-    for line in ["client opened 101", "client heard echo hi", "client ended .Normal 1"] {
+    for line in [
+        "client opened 101",
+        "client heard echo hi",
+        "client ended .Normal 1",
+    ] {
         assert!(
             said.stdout.contains(line),
             "the client never said `{line}`.\nit said:\n{}\nthe server said:\n{}",
@@ -5728,7 +6056,11 @@ fn a_buri_client_and_a_buri_server_carry_a_message_both_ways() {
         "what the socket's `onClose` answered never reached `run`.\nit said:\n{}",
         out.stdout
     );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
 }
 
 /// **A client that dials a port nobody holds says so, and the hooks never
@@ -5799,7 +6131,9 @@ fn one_answer(answer: &'static str) -> (u16, std::thread::JoinHandle<()>) {
     let port = listener.local_addr().expect("the bound port").port();
     let serving = std::thread::spawn(move || {
         let deadline = crate::shared::SERVER_DEADLINE;
-        let Ok((mut socket, _from)) = listener.accept() else { return };
+        let Ok((mut socket, _from)) = listener.accept() else {
+            return;
+        };
         let _read = socket.set_read_timeout(Some(deadline));
         let _written = socket.set_write_timeout(Some(deadline));
         let mut head: Vec<u8> = Vec::new();
@@ -5828,9 +6162,8 @@ fn one_answer(answer: &'static str) -> (u16, std::thread::JoinHandle<()>) {
 fn a_client_told_something_other_than_101_says_which_status_it_got() {
     unless_ready!();
     let client = built("e2e-client-dial-not-101", &dialling_client());
-    let (port, serving) = one_answer(
-        "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
-    );
+    let (port, serving) =
+        one_answer("HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
     let said = dialled_client(&client, port);
     serving.join().expect("the one-shot server finished");
     assert_eq!(
@@ -5911,18 +6244,27 @@ fn a_client_dials_the_next_address_when_the_first_refuses() {
     let port = listener.local_addr().expect("the bound port").port();
     let serving = crate::websocket::serving_on(
         listener,
-        vec![vec![Step::Hear, Step::Text(String::from("back")), Step::Bye(1000)]],
+        vec![vec![
+            Step::Hear,
+            Step::Text(String::from("back")),
+            Step::Bye(1000),
+        ]],
     );
     let said = dialled_client(&client, port);
     assert!(
         said.stdout.contains("client opened 101") && said.stdout.contains("client heard back"),
         "the client exited {}.\nstdout:\n{}\nstderr:\n{}",
-        said.status, said.stdout, said.stderr
+        said.status,
+        said.stdout,
+        said.stderr
     );
     assert_eq!(said.status, 0, "stderr:\n{}", said.stderr);
     assert_eq!(
         serving.heard(),
-        vec![vec![Heard::Text(String::from("hi")), Heard::Closed(Some(1000))]]
+        vec![vec![
+            Heard::Text(String::from("hi")),
+            Heard::Closed(Some(1000))
+        ]]
     );
 }
 
@@ -5940,7 +6282,9 @@ fn a_client_stopped_and_continued_mid_handshake_reads_the_whole_answer() {
     let client = built("e2e-client-dial-stopped", &dialling_client());
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
     let port = listener.local_addr().expect("the bound port").port();
-    listener.set_nonblocking(true).expect("a non-blocking listener");
+    listener
+        .set_nonblocking(true)
+        .expect("a non-blocking listener");
     let mut child = crate::shared::started(
         std::process::Command::new(&client)
             .arg(port.to_string())
@@ -5953,14 +6297,21 @@ fn a_client_stopped_and_continued_mid_handshake_reads_the_whole_answer() {
         match listener.accept() {
             Ok((socket, _from)) => break socket,
             Err(e) => {
-                assert!(std::time::Instant::now() < give_up_at, "the client never dialled: {e}");
+                assert!(
+                    std::time::Instant::now() < give_up_at,
+                    "the client never dialled: {e}"
+                );
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
         }
     };
     socket.set_nonblocking(false).expect("a blocking socket");
-    socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a deadline");
-    socket.set_write_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a deadline");
+    socket
+        .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+        .expect("a deadline");
+    socket
+        .set_write_timeout(Some(crate::shared::SERVER_DEADLINE))
+        .expect("a deadline");
     let mut head: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 512];
     while !head.windows(4).any(|w| w == b"\r\n\r\n") {
@@ -5969,7 +6320,9 @@ fn a_client_stopped_and_continued_mid_handshake_reads_the_whole_answer() {
             Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
         }
     }
-    socket.write_all(b"HTTP/1.1 404 Not Found\r\n").expect("the status line");
+    socket
+        .write_all(b"HTTP/1.1 404 Not Found\r\n")
+        .expect("the status line");
     // Ten times, so the client is waiting for the rest of the head for most of
     // them.
     for _ in 0..10 {
@@ -6143,7 +6496,11 @@ fn a_client_reconnects_by_calling_connect_again() {
         "the server did not upgrade twice.\nit said:\n{}",
         out.stdout
     );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -6267,9 +6624,8 @@ fn a_client_reads_every_close_a_far_side_can_send() {
         (Step::Drop, "ended .Abnormal"),
     ];
     let client = built("e2e-client-close-codes", &rounds_client());
-    let serving = crate::websocket::serving(
-        endings.iter().map(|(step, _)| vec![step.clone()]).collect(),
-    );
+    let serving =
+        crate::websocket::serving(endings.iter().map(|(step, _)| vec![step.clone()]).collect());
     let port = serving.port;
     let said = dialled_client_rounds(&client, port, endings.len());
     let sessions = serving.heard();
@@ -6278,7 +6634,11 @@ fn a_client_reads_every_close_a_far_side_can_send() {
         "the client exited {}.\nstdout:\n{}\nstderr:\n{}",
         said.status, said.stdout, said.stderr
     );
-    let lines: Vec<&str> = said.stdout.lines().filter(|l| l.starts_with("ended ")).collect();
+    let lines: Vec<&str> = said
+        .stdout
+        .lines()
+        .filter(|l| l.starts_with("ended "))
+        .collect();
     let wanted: Vec<&str> = endings.iter().map(|(_, line)| *line).collect();
     assert_eq!(
         lines, wanted,
@@ -6595,7 +6955,11 @@ fn a_hook_that_aborts_stops_the_program_rather_than_the_socket() {
     let port = serving.port;
     let said = dialled_client(&client, port);
     let _sessions = serving.heard();
-    assert_ne!(said.status, 0, "an abort inside a hook exited 0.\nstdout:\n{}", said.stdout);
+    assert_ne!(
+        said.status, 0,
+        "an abort inside a hook exited 0.\nstdout:\n{}",
+        said.stdout
+    );
     assert!(
         said.stderr.contains("division by zero"),
         "the abort did not name what went wrong.\nstderr:\n{}",
@@ -6700,10 +7064,24 @@ fn fetched(
     let mut child = crate::shared::started(&mut command);
     let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
     let mut stdout = String::new();
-    child.stdout.take().expect("a piped stdout").read_to_string(&mut stdout).expect("stdout");
+    child
+        .stdout
+        .take()
+        .expect("a piped stdout")
+        .read_to_string(&mut stdout)
+        .expect("stdout");
     let mut stderr = String::new();
-    child.stderr.take().expect("a piped stderr").read_to_string(&mut stderr).expect("stderr");
-    crate::shared::Ran { status: status.code().unwrap_or(-1), stdout, stderr }
+    child
+        .stderr
+        .take()
+        .expect("a piped stderr")
+        .read_to_string(&mut stderr)
+        .expect("stderr");
+    crate::shared::Ran {
+        status: status.code().unwrap_or(-1),
+        stdout,
+        stderr,
+    }
 }
 
 /// **A native binary sends an HTTP request and reads the whole answer**, and
@@ -6728,7 +7106,9 @@ fn a_native_binary_sends_a_request_and_reads_the_answer() {
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
     let port = listener.local_addr().expect("the bound address").port();
-    listener.set_nonblocking(true).expect("a listener that can be polled");
+    listener
+        .set_nonblocking(true)
+        .expect("a listener that can be polled");
     let closed = crate::shared::RefusedPort::hold();
     // Built and admitted before the peer's clock starts, so neither is on it.
     let binary = built("e2e-http-client", &fetching_client());
@@ -6755,8 +7135,12 @@ fn a_native_binary_sends_a_request_and_reads_the_answer() {
             return String::from("<nobody dialled>");
         };
         socket.set_nonblocking(false).expect("a blocking socket");
-        socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a read deadline");
-        socket.set_write_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a write deadline");
+        socket
+            .set_read_timeout(Some(crate::shared::SERVER_DEADLINE))
+            .expect("a read deadline");
+        socket
+            .set_write_timeout(Some(crate::shared::SERVER_DEADLINE))
+            .expect("a write deadline");
         // The head, and then the five octets of body it announces.
         let mut asked = Vec::new();
         let mut chunk = [0_u8; 1024];
@@ -6796,7 +7180,11 @@ fn a_native_binary_sends_a_request_and_reads_the_answer() {
     );
     assert_eq!(
         out.stdout.lines().collect::<Vec<_>>(),
-        vec!["201 yes made it", "refused", "bad url: not an absolute http URL: not a url"],
+        vec![
+            "201 yes made it",
+            "refused",
+            "bad url: not an absolute http URL: not a url"
+        ],
         "stderr:\n{}",
         out.stderr
     );
@@ -6807,9 +7195,18 @@ fn a_native_binary_sends_a_request_and_reads_the_answer() {
     );
 
     let asked = peer.join().expect("the peer thread");
-    assert!(asked.starts_with("POST /echo?q=1 HTTP/1.1\r\n"), "the request was:\n{asked}");
-    assert!(asked.contains("x-asked: buri\r\n"), "the request was:\n{asked}");
-    assert!(asked.ends_with("\r\n\r\nhello"), "the request was:\n{asked}");
+    assert!(
+        asked.starts_with("POST /echo?q=1 HTTP/1.1\r\n"),
+        "the request was:\n{asked}"
+    );
+    assert!(
+        asked.contains("x-asked: buri\r\n"),
+        "the request was:\n{asked}"
+    );
+    assert!(
+        asked.ends_with("\r\n\r\nhello"),
+        "the request was:\n{asked}"
+    );
 }
 
 /// **A native binary speaks HTTPS**, checks the server's certificate against
@@ -6838,10 +7235,17 @@ fn a_native_binary_speaks_https_and_refuses_a_certificate_it_cannot_trust() {
     let url = format!("https://localhost:{}/secure", running.2);
 
     let authority_text = authority.display().to_string();
-    let trusted =
-        fetched(&client, std::slice::from_ref(&url), &[("SSL_CERT_FILE", &authority_text)]);
+    let trusted = fetched(
+        &client,
+        std::slice::from_ref(&url),
+        &[("SSL_CERT_FILE", &authority_text)],
+    );
     let leaf_text = certificate.display().to_string();
-    let untrusted = fetched(&client, std::slice::from_ref(&url), &[("SSL_CERT_FILE", &leaf_text)]);
+    let untrusted = fetched(
+        &client,
+        std::slice::from_ref(&url),
+        &[("SSL_CERT_FILE", &leaf_text)],
+    );
 
     crate::shared::signalling(&running.0, crate::shared::SIGTERM);
     let served = crate::shared::finished(running);
@@ -6857,7 +7261,9 @@ fn a_native_binary_speaks_https_and_refuses_a_certificate_it_cannot_trust() {
         trusted.stderr
     );
     assert!(
-        untrusted.stdout.starts_with("transport: tls: the server's certificate was refused"),
+        untrusted
+            .stdout
+            .starts_with("transport: tls: the server's certificate was refused"),
         "a certificate from an unknown issuer was not refused.\nstdout:\n{}\nstderr:\n{}",
         untrusted.stdout,
         untrusted.stderr
@@ -6868,7 +7274,11 @@ fn a_native_binary_speaks_https_and_refuses_a_certificate_it_cannot_trust() {
         untrusted.stdout
     );
     assert_eq!(untrusted.status, 0, "stderr:\n{}", untrusted.stderr);
-    assert_eq!(served.status, 0, "stdout:\n{}\nstderr:\n{}", served.stdout, served.stderr);
+    assert_eq!(
+        served.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        served.stdout, served.stderr
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -6884,7 +7294,10 @@ const X25519_GROUP: u16 = 0x001d;
 /// that message is a `ClientHello` (`0x01`) or a `ServerHello` (`0x02`).
 fn hello_extensions(bytes: &[u8], kind: u8) -> Option<Vec<(u16, Vec<u8>)>> {
     let two = |at: usize| -> Option<usize> {
-        Some(usize::from(u16::from_be_bytes([*bytes.get(at)?, *bytes.get(at + 1)?])))
+        Some(usize::from(u16::from_be_bytes([
+            *bytes.get(at)?,
+            *bytes.get(at + 1)?,
+        ])))
     };
     // The record header, then the handshake header.
     if *bytes.first()? != 0x16 || *bytes.get(5)? != kind {
@@ -6912,7 +7325,10 @@ fn hello_extensions(bytes: &[u8], kind: u8) -> Option<Vec<(u16, Vec<u8>)>> {
 
 /// One extension's body out of [`hello_extensions`].
 fn extension_body(extensions: &[(u16, Vec<u8>)], id: u16) -> Option<&[u8]> {
-    extensions.iter().find(|(found, _)| *found == id).map(|(_, body)| body.as_slice())
+    extensions
+        .iter()
+        .find(|(found, _)| *found == id)
+        .map(|(_, body)| body.as_slice())
 }
 
 /// What a `ClientHello` offers: its `supported_groups` in order, and the groups
@@ -7009,7 +7425,9 @@ fn relay(port: u16) -> (u16, Heard) {
     let deadline = crate::shared::SERVER_DEADLINE;
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a loopback listener");
     let relayed = listener.local_addr().expect("its port").port();
-    listener.set_nonblocking(true).expect("a non-blocking listener");
+    listener
+        .set_nonblocking(true)
+        .expect("a non-blocking listener");
     let handle = std::thread::spawn(move || {
         let give_up_at = std::time::Instant::now() + deadline;
         let client = loop {
@@ -7029,8 +7447,12 @@ fn relay(port: u16) -> (u16, Heard) {
         };
         for socket in [&client, &server] {
             socket.set_nonblocking(false).expect("a blocking socket");
-            socket.set_read_timeout(Some(deadline)).expect("a read deadline");
-            socket.set_write_timeout(Some(deadline)).expect("a write deadline");
+            socket
+                .set_read_timeout(Some(deadline))
+                .expect("a read deadline");
+            socket
+                .set_write_timeout(Some(deadline))
+                .expect("a write deadline");
         }
         let pipe = |mut from: std::net::TcpStream, mut to: std::net::TcpStream| {
             std::thread::spawn(move || {
@@ -7051,9 +7473,15 @@ fn relay(port: u16) -> (u16, Heard) {
                 said
             })
         };
-        let up = pipe(client.try_clone().expect("the client"), server.try_clone().expect("the server"));
+        let up = pipe(
+            client.try_clone().expect("the client"),
+            server.try_clone().expect("the server"),
+        );
         let down = pipe(server, client);
-        (up.join().unwrap_or_default(), down.join().unwrap_or_default())
+        (
+            up.join().unwrap_or_default(),
+            down.join().unwrap_or_default(),
+        )
     });
     (relayed, handle)
 }
@@ -7077,7 +7505,11 @@ fn a_buri_client_and_server_agree_on_hybrid_post_quantum_key_exchange() {
     let (port, relayed) = relay(running.2);
     let url = format!("https://localhost:{port}/secure");
     let authority_text = authority.display().to_string();
-    let fetched = fetched(&client, std::slice::from_ref(&url), &[("SSL_CERT_FILE", &authority_text)]);
+    let fetched = fetched(
+        &client,
+        std::slice::from_ref(&url),
+        &[("SSL_CERT_FILE", &authority_text)],
+    );
     let (said, answered) = relayed.join().expect("the relay");
 
     crate::shared::signalling(&running.0, crate::shared::SIGTERM);
@@ -7095,7 +7527,10 @@ fn a_buri_client_and_server_agree_on_hybrid_post_quantum_key_exchange() {
         Some(&HYBRID_GROUP),
         "the client does not offer X25519MLKEM768 first: {groups:04x?}"
     );
-    assert!(groups.contains(&X25519_GROUP), "the client cannot fall back to X25519: {groups:04x?}");
+    assert!(
+        groups.contains(&X25519_GROUP),
+        "the client cannot fall back to X25519: {groups:04x?}"
+    );
     assert_eq!(
         shares,
         vec![HYBRID_GROUP, X25519_GROUP],
@@ -7106,7 +7541,11 @@ fn a_buri_client_and_server_agree_on_hybrid_post_quantum_key_exchange() {
         Some(HYBRID_GROUP),
         "the server did not settle on X25519MLKEM768 with a client that offered it"
     );
-    assert_eq!(served.status, 0, "stdout:\n{}\nstderr:\n{}", served.stdout, served.stderr);
+    assert_eq!(
+        served.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        served.stdout, served.stderr
+    );
 }
 
 /// **A Buri server answers a client that only knows X25519** with a
@@ -7115,7 +7554,10 @@ fn a_buri_client_and_server_agree_on_hybrid_post_quantum_key_exchange() {
 fn a_buri_server_answers_a_client_that_only_knows_classical_key_exchange() {
     unless_ready!();
     let (certificate, key, _absent) = crate::shared::tls_identity("e2e-classical");
-    let binary = built("e2e-classical-server", &tls_running_server(&certificate, &key));
+    let binary = built(
+        "e2e-classical-server",
+        &tls_running_server(&certificate, &key),
+    );
     let running = crate::shared::announced(&binary);
 
     let back = dialled(running.2, &classical_client_hello(), Until::ARecord);
@@ -7127,7 +7569,11 @@ fn a_buri_server_answers_a_client_that_only_knows_classical_key_exchange() {
         Some(X25519_GROUP),
         "the server did not settle on X25519 for a client that offered nothing else: {back:?}"
     );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -7204,7 +7650,11 @@ fn ran_to_the_end(binary: &std::path::Path) -> crate::shared::Ran {
     if let Some(mut err) = child.stderr.take() {
         let _ = err.read_to_string(&mut stderr);
     }
-    crate::shared::Ran { status: status.code().unwrap_or(-1), stdout, stderr }
+    crate::shared::Ran {
+        status: status.code().unwrap_or(-1),
+        stdout,
+        stderr,
+    }
 }
 
 /// **A timer fires where the program waits, and after `main` returns, and
@@ -7216,7 +7666,11 @@ fn a_timer_fires_while_the_program_waits_and_keeps_it_running_after_main_returns
     unless_ready!();
     let binary = built("e2e-timers", &timers(".Ok(())"));
     let out = ran_to_the_end(&binary);
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert_eq!(
         out.stdout.lines().collect::<Vec<_>>(),
         vec![
@@ -7241,7 +7695,11 @@ fn a_main_that_fails_ends_the_program_without_its_pending_timers() {
     unless_ready!();
     let binary = built("e2e-timers-failed", &timers(r#".Err("gave up")"#));
     let out = ran_to_the_end(&binary);
-    assert_eq!(out.status, 1, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 1,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert_eq!(
         out.stdout.lines().collect::<Vec<_>>(),
         vec!["fired during the wait", "the wait is over", "main returned"],
@@ -7340,7 +7798,11 @@ fn a_socket_pings_its_client_when_the_program_asks() {
         out.stdout,
         out.stderr
     );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
 }
 
 mod shapes;

@@ -18,7 +18,9 @@ use crate::compiler::standard_library::find;
 #[test]
 fn the_default_mailbox_is_the_one_core_actor_names() {
     const RUNTIME: &str = include_str!("../../../runtime/rt.rs");
-    let buri = find("core/actor").expect("`core/actor` is in the table").source;
+    let buri = find("core/actor")
+        .expect("`core/actor` is in the table")
+        .source;
     // `split` rather than `find` and a range, because a byte range into a
     // `&str` is `clippy::string_slice` and this needs no offset — what
     // follows the needle is what the second piece begins with.

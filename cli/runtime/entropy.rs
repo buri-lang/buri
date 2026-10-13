@@ -46,7 +46,12 @@ pub unsafe extern "C" fn buri_rt_host_entropy_bytes(count: i64, out: *mut BuriLi
     let len = count as usize;
     if len == 0 {
         // SAFETY: the caller promises a writable, aligned destination.
-        unsafe { out.write(BuriList { ptr: std::ptr::null_mut(), len: 0 }) };
+        unsafe {
+            out.write(BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            })
+        };
         return;
     }
     let ptr = buri_rt_alloc(len as u64);
@@ -57,5 +62,10 @@ pub unsafe extern "C" fn buri_rt_host_entropy_bytes(count: i64, out: *mut BuriLi
         crate::buri_rt_abort_entropy_unavailable();
     }
     // SAFETY: the caller promises a writable, aligned destination.
-    unsafe { out.write(BuriList { ptr, len: len as u64 }) }
+    unsafe {
+        out.write(BuriList {
+            ptr,
+            len: len as u64,
+        })
+    }
 }

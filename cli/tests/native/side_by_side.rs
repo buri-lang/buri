@@ -104,7 +104,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
         &dir,
     );
-    let Some(r) = ran_within("side-run", &source) else { return };
+    let Some(r) = ran_within("side-run", &source) else {
+        return;
+    };
     assert_eq!(r.stdout, "0 0 0 0\n");
 }
 
@@ -143,7 +145,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
         &dir,
     );
-    let Some(r) = ran_within("side-wait", &source) else { return };
+    let Some(r) = ran_within("side-wait", &source) else {
+        return;
+    };
     assert_eq!(r.stdout, "0 0 0 0\n");
 }
 
@@ -204,7 +208,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
         &dir,
     );
-    let Some(r) = ran_within("side-sleep", &source) else { return };
+    let Some(r) = ran_within("side-sleep", &source) else {
+        return;
+    };
     assert_eq!(r.stdout, "true true true true\n");
 }
 
@@ -256,7 +262,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
         &dir,
     );
-    let Some(r) = ran_within("side-fifo", &source) else { return };
+    let Some(r) = ran_within("side-fifo", &source) else {
+        return;
+    };
     assert_eq!(r.stdout, "read hello, wrote\n");
 }
 
@@ -297,7 +305,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
         &dir,
     );
-    let Some(r) = ran_within("side-scope", &source) else { return };
+    let Some(r) = ran_within("side-scope", &source) else {
+        return;
+    };
     assert_eq!(r.stdout, "body 0\n");
 }
 
@@ -340,6 +350,8 @@ export fn main(host: NativeHost): Result<(), Str> {
     .Ok(())
 }
 "#;
-    let Some(r) = ran_within("side-shared", source) else { return };
+    let Some(r) = ran_within("side-shared", source) else {
+        return;
+    };
     assert_eq!(r.stdout, "6281920\n");
 }

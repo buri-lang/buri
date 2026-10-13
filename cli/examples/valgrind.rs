@@ -32,9 +32,16 @@ use std::process::{Command, ExitCode};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+    match args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
         ["tests", tool, dir, build, program, rest @ ..] => {
-            let Some(tool) = valgrind::Tool::named(tool) else { return usage() };
+            let Some(tool) = valgrind::Tool::named(tool) else {
+                return usage();
+            };
             let mut cmd = Command::new(program);
             cmd.args(rest);
             // The runtime's tests are the one binary this runs; a build of them
@@ -46,7 +53,14 @@ fn main() -> ExitCode {
                 rest.join(" "),
                 tool = tool.name(),
             );
-            let out = valgrind::run(tool, Path::new(dir), &cmd, build, again.trim_end(), tool.unit_tests());
+            let out = valgrind::run(
+                tool,
+                Path::new(dir),
+                &cmd,
+                build,
+                again.trim_end(),
+                tool.unit_tests(),
+            );
             print!("{}", String::from_utf8_lossy(&out.stdout));
             eprint!("{}", String::from_utf8_lossy(&out.stderr));
             ExitCode::from(u8::try_from(out.status.code().unwrap_or(1)).unwrap_or(1))
@@ -63,10 +77,16 @@ fn main() -> ExitCode {
                 println!("{title}");
             }
             println!("{errors} error(s), {} distinct", titles.len());
-            if errors == 0 { ExitCode::SUCCESS } else { ExitCode::FAILURE }
+            if errors == 0 {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
         }
         ["failed", tool, dir, build, log, run] => {
-            let Some(tool) = valgrind::Tool::named(tool) else { return usage() };
+            let Some(tool) = valgrind::Tool::named(tool) else {
+                return usage();
+            };
             let issues = Path::new(dir).join("issues");
             std::fs::create_dir_all(&issues).unwrap();
             let log = std::fs::read_to_string(log).unwrap_or_default();
@@ -76,7 +96,11 @@ fn main() -> ExitCode {
                 std::fs::write(issues.join(format!("{signature}.md")), draft).unwrap();
             }
             println!("{} test(s) failed on their own", found.len());
-            if found.is_empty() { ExitCode::SUCCESS } else { ExitCode::FAILURE }
+            if found.is_empty() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
         }
         _ => usage(),
     }

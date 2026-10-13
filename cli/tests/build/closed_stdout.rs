@@ -29,13 +29,19 @@ fn example() -> Scratch {
 
 fn buri_in(scratch: &Scratch, args: &[&str]) -> Command {
     let mut cmd = buri_command();
-    cmd.args(args).arg("--color=never").current_dir(&scratch.root);
+    cmd.args(args)
+        .arg("--color=never")
+        .current_dir(&scratch.root);
     cmd
 }
 
 /// Runs `cmd` with stdout on a pipe, handing the read end to `reader`.
 /// Returns the status and stderr.
-fn piped(mut cmd: Command, what: &str, reader: impl FnOnce(std::io::PipeReader)) -> (ExitStatus, String) {
+fn piped(
+    mut cmd: Command,
+    what: &str,
+    reader: impl FnOnce(std::io::PipeReader),
+) -> (ExitStatus, String) {
     let (read, write) = std::io::pipe().expect("a pipe");
     let mut child = spawn(cmd.stdout(write));
     // The command holds the write end; ours has to go, or the reader never
@@ -116,7 +122,10 @@ fn stdout_full(mut cmd: Command, what: &str) -> (ExitStatus, String) {
 }
 
 fn spawn(cmd: &mut Command) -> Child {
-    cmd.stdin(Stdio::null()).stderr(Stdio::piped()).spawn().expect("the command runs")
+    cmd.stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the command runs")
 }
 
 fn finish(child: &mut Child, what: &str) -> (ExitStatus, String) {
@@ -127,13 +136,19 @@ fn finish(child: &mut Child, what: &str) -> (ExitStatus, String) {
 
 fn one_line(reader: std::io::PipeReader) -> String {
     let mut first = String::new();
-    std::io::BufReader::new(reader).read_line(&mut first).expect("one line reads");
+    std::io::BufReader::new(reader)
+        .read_line(&mut first)
+        .expect("one line reads");
     first
 }
 
 fn quiet(what: &str, stderr: &str) {
     for said in ["panicked", "Broken pipe", "broken pipe"] {
-        assert!(!stderr.contains(said), "`{what}` said {said:?}:\n{}", indent(stderr));
+        assert!(
+            !stderr.contains(said),
+            "`{what}` said {said:?}:\n{}",
+            indent(stderr)
+        );
     }
 }
 
@@ -145,7 +160,12 @@ fn closes_quietly(args: &[&str]) {
 
     // Gone before it starts, so the first write is the one that fails.
     let (status, stderr) = reader_gone(buri_in(&scratch, args), &what);
-    assert_eq!(status.signal(), Some(SIGPIPE), "`{what}` ended {status} rather than by SIGPIPE:\n{}", indent(&stderr));
+    assert_eq!(
+        status.signal(),
+        Some(SIGPIPE),
+        "`{what}` ended {status} rather than by SIGPIPE:\n{}",
+        indent(&stderr)
+    );
     quiet(&what, &stderr);
 
     // Leaves after one line, on a cold cache, so the command is still working
@@ -153,14 +173,21 @@ fn closes_quietly(args: &[&str]) {
     let mut first = String::new();
     let (left, left_stderr) = piped(buri_in(&scratch, args), &what, |r| first = one_line(r));
     quiet(&what, &left_stderr);
-    assert!(!first.is_empty(), "`{what}` printed nothing, so this row proves nothing");
+    assert!(
+        !first.is_empty(),
+        "`{what}` printed nothing, so this row proves nothing"
+    );
 
     // Stays to the end, on a warm cache: what a file would have held.
     scratch.run(args);
     let path = scratch.path("stdout.txt");
     let file = std::fs::File::create(&path).expect("a capture file");
-    let mut child =
-        buri_in(&scratch, args).stdin(Stdio::null()).stdout(file).stderr(Stdio::null()).spawn().expect("buri runs");
+    let mut child = buri_in(&scratch, args)
+        .stdin(Stdio::null())
+        .stdout(file)
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("buri runs");
     let to_file = hang::wait_capped(&mut child, &what, hang::cap());
     let in_file = std::fs::read_to_string(&path).expect("the capture reads back");
     std::fs::remove_file(&path).expect("the capture is removed");
@@ -169,8 +196,16 @@ fn closes_quietly(args: &[&str]) {
         std::io::Read::read_to_string(&mut { r }, &mut full).expect("stdout reads");
     });
     quiet(&what, &stderr);
-    assert_eq!(open.code(), to_file.code(), "`{what}` exits differently on a pipe");
-    assert_eq!(normalise(&full, &scratch.root), normalise(&in_file, &scratch.root), "`{what}` prints differently on a pipe");
+    assert_eq!(
+        open.code(),
+        to_file.code(),
+        "`{what}` exits differently on a pipe"
+    );
+    assert_eq!(
+        normalise(&full, &scratch.root),
+        normalise(&in_file, &scratch.root),
+        "`{what}` prints differently on a pipe"
+    );
 
     // Whether anything was written after the one line is a race, so that run
     // either finished or died by SIGPIPE.
@@ -231,7 +266,9 @@ fn a_full_stdout_is_an_error() {
         let (status, stderr) = stdout_full(buri_in(&scratch, args), &what);
         quiet(&what, &stderr);
         assert!(
-            status.code() == Some(2) && stderr.starts_with("error: cannot write to stdout: ") && stderr.lines().count() == 1,
+            status.code() == Some(2)
+                && stderr.starts_with("error: cannot write to stdout: ")
+                && stderr.lines().count() == 1,
             "`{what}` ended {status}:\n{}",
             indent(&stderr)
         );
@@ -283,11 +320,29 @@ fn program_closes(artifact: impl Fn() -> Command, what: &str) {
 
 #[test]
 fn a_native_program() {
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     let scratch = Scratch::repo("closed-stdout-native");
-    scratch.write("cmd/p/BUILD.buri", &format!("binary {{\n  outputs: [{{ platform: \"native\", variant: \"{os}-{arch}\" }}]\n}}\n"));
-    scratch.write("cmd/p/main.buri", &PRINTER.replace("HOST_MODULE", "native").replace("HOST", "NativeHost"));
+    scratch.write(
+        "cmd/p/BUILD.buri",
+        &format!(
+            "binary {{\n  outputs: [{{ platform: \"native\", variant: \"{os}-{arch}\" }}]\n}}\n"
+        ),
+    );
+    scratch.write(
+        "cmd/p/main.buri",
+        &PRINTER
+            .replace("HOST_MODULE", "native")
+            .replace("HOST", "NativeHost"),
+    );
     scratch.run(&["build", "//cmd/p"]).ok();
     let exe = scratch.path(&format!(".buri/out/native/{os}-{arch}/cmd/p/p"));
     program_closes(
@@ -303,7 +358,12 @@ fn a_native_program() {
 #[test]
 fn a_javascript_program() {
     let scratch = Scratch::repo("closed-stdout-js");
-    scratch.binary_package("cmd/p", &PRINTER.replace("HOST_MODULE", "node").replace("HOST", "NodeHost"));
+    scratch.binary_package(
+        "cmd/p",
+        &PRINTER
+            .replace("HOST_MODULE", "node")
+            .replace("HOST", "NodeHost"),
+    );
     scratch.run(&["build", "//cmd/p"]).ok();
     let artifact = scratch.artifact("cmd/p");
     program_closes(

@@ -16,7 +16,10 @@ const LINKED_LINE: &str = "test runners were linked rather than loaded into the 
 /// `//lib/a`, whose two tests pass.
 fn suite(name: &str) -> Scratch {
     let scratch = Scratch::repo(name);
-    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n  test { sources: [\"test/a.buri\"] }\n}\n",
+    );
     scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
     scratch.write(
         "lib/a/test/a.buri",
@@ -116,10 +119,17 @@ fn a_run_with_no_home_links_runners() {
         .output()
         .unwrap();
     let said = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "{}{}", said, String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}{}",
+        said,
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(said.contains("2 passed"), "{said}");
     assert!(
-        said.contains(&format!("{LINKED_LINE}there is no home directory to keep it in")),
+        said.contains(&format!(
+            "{LINKED_LINE}there is no home directory to keep it in"
+        )),
         "a homeless run didn't say why it linked:\n{said}"
     );
 }
@@ -135,7 +145,9 @@ fn a_test_host_deleted_from_its_home_leaves_suites_linking_runners() {
         std::fs::remove_file(host.path().join("test-host")).unwrap();
     }
     std::fs::remove_dir_all(scratch.path(".buri")).unwrap();
-    passes(&scratch, &["--verbose"], &env).says(LINKED_LINE).says("is incomplete");
+    passes(&scratch, &["--verbose"], &env)
+        .says(LINKED_LINE)
+        .says("is incomplete");
 }
 
 /// Two runs that link the host at once both load into one of them.
@@ -146,13 +158,20 @@ fn two_runs_linking_the_test_host_at_once_both_load() {
     let home = first.path("home").display().to_string();
     let held = Held::new("test-host-placing");
     held.hold("test-host", 1);
-    let mut one = held.start_with_env(&first, &["test", "//lib/a", "--verbose"], &[("BURI_HOME", &home)]);
+    let mut one = held.start_with_env(
+        &first,
+        &["test", "//lib/a", "--verbose"],
+        &[("BURI_HOME", &home)],
+    );
     let placing = held.reached("test-host", 1);
     passes(&second, &["--verbose"], &[("BURI_HOME", &home)]).silent_about(LINKED_LINE);
     placing.go();
     assert!(one.wait().unwrap().success(), "{}", held.printed());
     let said = held.printed();
-    assert!(said.contains("2 passed") && !said.contains(LINKED_LINE), "{said}");
+    assert!(
+        said.contains("2 passed") && !said.contains(LINKED_LINE),
+        "{said}"
+    );
 }
 
 /// An image the host can't load is reported once, as a runner that didn't
@@ -177,8 +196,15 @@ fn an_image_the_test_host_cannot_load_is_reported_once() {
     // runs again from the image it has.
     scratch.write("lib/a/test/__snapshots__/unused.png", "not a picture\n");
     let run = scratch.run(&["test", "//lib/a"]);
-    run.exits(1).says("could not start").says("buri test host: the image is format 4294967295");
-    assert_eq!(run.all().matches("buri test host:").count(), 1, "{}", indent(&run.all()));
+    run.exits(1)
+        .says("could not start")
+        .says("buri test host: the image is format 4294967295");
+    assert_eq!(
+        run.all().matches("buri test host:").count(),
+        1,
+        "{}",
+        indent(&run.all())
+    );
     assert_eq!(run.tests_passed(), 0, "{}", indent(&run.all()));
 }
 

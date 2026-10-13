@@ -28,7 +28,10 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// A repository with `//cmd/app` built for `outputs` and a library beside it.
 fn repository(outputs: &str, main: &str) -> Scratch {
     let scratch = Scratch::repo("build-driver");
-    scratch.write("cmd/app/BUILD.buri", &format!("binary {{\n    outputs: [\n{outputs}    ]\n}}\n"));
+    scratch.write(
+        "cmd/app/BUILD.buri",
+        &format!("binary {{\n    outputs: [\n{outputs}    ]\n}}\n"),
+    );
     scratch.write("cmd/app/main.buri", main);
     scratch.write("lib/one/BUILD.buri", "library {}\n");
     scratch.write("lib/one/lib.buri", "export fn one(): Int {\n    1\n}\n");
@@ -37,9 +40,13 @@ fn repository(outputs: &str, main: &str) -> Scratch {
 
 /// The only directory under `dir`: the host's variant under `.buri/out/native`.
 fn only_entry(dir: &std::path::Path) -> String {
-    let names: Vec<String> =
-        std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().to_string()).collect();
-    let [name] = names.as_slice() else { panic!("{} holds {names:?}", dir.display()) };
+    let names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    let [name] = names.as_slice() else {
+        panic!("{} holds {names:?}", dir.display())
+    };
     name.clone()
 }
 
@@ -48,22 +55,44 @@ fn only_entry(dir: &std::path::Path) -> String {
 #[test]
 fn a_native_artifact_is_checked_for_reproducibility() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
-    let verbose = scratch.run(&["build", "--check-reproducible", "--verbose", "//cmd/app", "//lib/one"]);
-    verbose.ok().says("//cmd/app is reproducible (").says(" objects)");
+    let verbose = scratch.run(&[
+        "build",
+        "--check-reproducible",
+        "--verbose",
+        "//cmd/app",
+        "//lib/one",
+    ]);
+    verbose
+        .ok()
+        .says("//cmd/app is reproducible (")
+        .says(" objects)");
     let quiet = scratch.run(&["build", "--check-reproducible", "//cmd/app"]);
     quiet.ok();
-    assert_eq!(quiet.all(), "", "a reproducible artifact is checked quietly");
-    scratch.run(&["build", "--check-reproducible", "--verbose", "//lib/one"]).ok().says("nothing to build");
+    assert_eq!(
+        quiet.all(),
+        "",
+        "a reproducible artifact is checked quietly"
+    );
+    scratch
+        .run(&["build", "--check-reproducible", "--verbose", "//lib/one"])
+        .ok()
+        .says("nothing to build");
 }
 
 /// A macOS variant that isn't this machine's has no native artifact here, and
 /// `--check-reproducible` refuses it before building anything.
 #[test]
 fn check_reproducible_refuses_another_machine_s_macos_output() {
-    let other = if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") { "x86_64" } else { "arm64" };
+    let other = if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
+        "x86_64"
+    } else {
+        "arm64"
+    };
     let variant = format!("macos-{other}");
-    let scratch =
-        repository(&format!("        {{ platform: \"native\", variant: \"{variant}\" }},\n"), NATIVE_MAIN);
+    let scratch = repository(
+        &format!("        {{ platform: \"native\", variant: \"{variant}\" }},\n"),
+        NATIVE_MAIN,
+    );
     scratch
         .run(&["build", "--check-reproducible", "//cmd/app"])
         .exits(1)
@@ -78,8 +107,16 @@ fn an_artifact_that_cannot_be_written_is_an_error() {
     scratch.run(&["build", "//cmd/app"]).ok();
     std::fs::remove_dir_all(scratch.path(".buri/out/node/cmd/app")).unwrap();
     scratch.write(".buri/out/node/cmd/app", "in the way\n");
-    scratch.run(&["build", "//cmd/app"]).exits(1).says("cannot write ").says("app.mjs");
-    scratch.run(&["build", "--force", "//cmd/app"]).exits(1).says("cannot write ").says("app.mjs");
+    scratch
+        .run(&["build", "//cmd/app"])
+        .exits(1)
+        .says("cannot write ")
+        .says("app.mjs");
+    scratch
+        .run(&["build", "--force", "//cmd/app"])
+        .exits(1)
+        .says("cannot write ")
+        .says("app.mjs");
 }
 
 /// The same for a native executable.
@@ -91,8 +128,16 @@ fn a_native_artifact_that_cannot_be_written_is_an_error() {
     let dir = format!(".buri/out/native/{variant}/cmd/app");
     std::fs::remove_dir_all(scratch.path(&dir)).unwrap();
     scratch.write(&dir, "in the way\n");
-    scratch.run(&["build", "//cmd/app"]).exits(1).says("cannot write ").says("/cmd/app/app");
-    scratch.run(&["build", "--force", "//cmd/app"]).exits(1).says("cannot write ").says("/cmd/app/app");
+    scratch
+        .run(&["build", "//cmd/app"])
+        .exits(1)
+        .says("cannot write ")
+        .says("/cmd/app/app");
+    scratch
+        .run(&["build", "--force", "//cmd/app"])
+        .exits(1)
+        .says("cannot write ")
+        .says("/cmd/app/app");
 }
 
 /// A cache lock older than any live process's, as a build killed mid-wipe
@@ -105,8 +150,16 @@ fn a_cache_lock_a_crashed_build_left_is_taken() {
     scratch.write(".buri/cache/.toolchain", "another toolchain");
     let lock = scratch.write(".buri/cache/.lock", "");
     let an_hour_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
-    std::fs::File::options().write(true).open(&lock).unwrap().set_modified(an_hour_ago).unwrap();
-    scratch.run(&["build", "--explain", "//cmd/app"]).ok().says("run    link //cmd/app node");
+    std::fs::File::options()
+        .write(true)
+        .open(&lock)
+        .unwrap()
+        .set_modified(an_hour_ago)
+        .unwrap();
+    scratch
+        .run(&["build", "--explain", "//cmd/app"])
+        .ok()
+        .says("run    link //cmd/app node");
     // A build that waited the lock out goes on without taking it.
     assert!(!lock.exists(), "the stale lock is still there");
 }
@@ -124,10 +177,21 @@ fn a_build_gives_up_on_a_held_cache_lock_and_goes_on() {
     // Dated ahead, so however slowly this machine runs, the lock is never old
     // enough to be taken for a crashed build's.
     let an_hour_ahead = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
-    std::fs::File::options().write(true).open(&lock).unwrap().set_modified(an_hour_ahead).unwrap();
-    scratch.run(&["build", "--explain", "//cmd/app"]).ok().says("cached link //cmd/app node");
+    std::fs::File::options()
+        .write(true)
+        .open(&lock)
+        .unwrap()
+        .set_modified(an_hour_ahead)
+        .unwrap();
+    scratch
+        .run(&["build", "--explain", "//cmd/app"])
+        .ok()
+        .says("cached link //cmd/app node");
     assert!(lock.exists(), "the build took a lock another build holds");
-    assert!(stray.exists(), "the build emptied the cache without the lock");
+    assert!(
+        stray.exists(),
+        "the build emptied the cache without the lock"
+    );
 }
 
 /// Every entry in the cache cut to half its length, as a crash or a full disk
@@ -171,8 +235,13 @@ fn a_cached_object_overwritten_in_place_is_compiled_again() {
 /// its entries are.
 fn cache_entries(scratch: &Scratch) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
-    for dir in std::fs::read_dir(scratch.path(".buri/cache")).unwrap().flatten() {
-        let Ok(entries) = std::fs::read_dir(dir.path()) else { continue };
+    for dir in std::fs::read_dir(scratch.path(".buri/cache"))
+        .unwrap()
+        .flatten()
+    {
+        let Ok(entries) = std::fs::read_dir(dir.path()) else {
+            continue;
+        };
         out.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_file()));
     }
     out
@@ -195,19 +264,36 @@ fn the_link_runs_through_the_c_driver_cc_names() {
         scratch
             .run_with_env(&["build", "--force", "//cmd/app"], &[("CC", missing)])
             .exits(1)
-            .says(&format!("error: no C compiler on PATH to drive the link (looked for `{missing}`)"));
+            .says(&format!(
+                "error: no C compiler on PATH to drive the link (looked for `{missing}`)"
+            ));
     }
-    let cc = std::process::Command::new("sh").args(["-c", "command -v cc"]).output().unwrap();
+    let cc = std::process::Command::new("sh")
+        .args(["-c", "command -v cc"])
+        .output()
+        .unwrap();
     let cc = String::from_utf8_lossy(&cc.stdout).trim().to_string();
     assert!(cc.starts_with('/'), "no `cc` on PATH: {cc:?}");
-    scratch.run_with_env(&["build", "--force", "//cmd/app"], &[("CC", &cc)]).ok().says("/cmd/app/app (");
+    scratch
+        .run_with_env(&["build", "--force", "//cmd/app"], &[("CC", &cc)])
+        .ok()
+        .says("/cmd/app/app (");
     // A relative path is from where `buri` runs.
     scratch.write_executable("tools/cc", &format!("#!/bin/sh\nexec {cc} \"$@\"\n"));
-    scratch.run_with_env(&["build", "--force", "//cmd/app"], &[("CC", "tools/cc")]).ok().says("/cmd/app/app (");
-    // A file that isn't a program is there, and can't be run.
-    let not_a_program = scratch.write("tools/notes", "not a program\n").display().to_string();
     scratch
-        .run_with_env(&["build", "--force", "//cmd/app"], &[("CC", &not_a_program)])
+        .run_with_env(&["build", "--force", "//cmd/app"], &[("CC", "tools/cc")])
+        .ok()
+        .says("/cmd/app/app (");
+    // A file that isn't a program is there, and can't be run.
+    let not_a_program = scratch
+        .write("tools/notes", "not a program\n")
+        .display()
+        .to_string();
+    scratch
+        .run_with_env(
+            &["build", "--force", "//cmd/app"],
+            &[("CC", &not_a_program)],
+        )
         .exits(1)
         .says(&format!("error: cannot run {not_a_program}: "))
         .says("fix: install a C toolchain, or set `CC` to one");
@@ -227,7 +313,10 @@ fn a_failing_link_reports_the_linker_s_output() {
          echo \"fake-ld: error: this linker links nothing\" >&2\nexit 1\n",
     );
     let cc = cc.display().to_string();
-    for args in [&["build", "//cmd/app"][..], &["build", "--check-reproducible", "//cmd/app"]] {
+    for args in [
+        &["build", "//cmd/app"][..],
+        &["build", "--check-reproducible", "//cmd/app"],
+    ] {
         scratch
             .run_with_env(args, &[("CC", &cc)])
             .exits(1)
@@ -243,7 +332,11 @@ fn a_failing_link_reports_the_linker_s_output() {
 #[test]
 fn buri_linker_picks_the_linker() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
-    let lld = if cfg!(target_os = "macos") { "ld64.lld" } else { "ld.lld" };
+    let lld = if cfg!(target_os = "macos") {
+        "ld64.lld"
+    } else {
+        "ld.lld"
+    };
     let has_lld = std::process::Command::new("sh")
         .args(["-c", &format!("command -v {lld}")])
         .output()
@@ -260,10 +353,16 @@ fn buri_linker_picks_the_linker() {
         }
         run.ok();
         let variant = only_entry(&scratch.path(".buri/out/native"));
-        let out = std::process::Command::new(scratch.path(&format!(".buri/out/native/{variant}/cmd/app/app")))
-            .output()
-            .unwrap();
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "native\n", "BURI_LINKER={linker}");
+        let out = std::process::Command::new(
+            scratch.path(&format!(".buri/out/native/{variant}/cmd/app/app")),
+        )
+        .output()
+        .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "native\n",
+            "BURI_LINKER={linker}"
+        );
     }
 }
 
@@ -288,17 +387,43 @@ fn a_build_with_no_home_directory() {
             .env_remove("BURI_HOME")
             .output()
             .unwrap();
-        (out.status.code(), format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)))
+        (
+            out.status.code(),
+            format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            ),
+        )
     };
-    let host = format!("native/{}-{}", std::env::consts::OS, if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" });
+    let host = format!(
+        "native/{}-{}",
+        std::env::consts::OS,
+        if cfg!(target_arch = "aarch64") {
+            "arm64"
+        } else {
+            "x86_64"
+        }
+    );
     let (code, said) = homeless(&["build", "--force", &format!("--output={host}"), "//cmd/app"]);
     assert_eq!(code, Some(0), "{said}");
     assert!(said.contains("/cmd/app/app ("), "{said}");
     if cfg!(target_os = "macos") {
-        let (code, said) = homeless(&["build", "--force", "--output=native/linux-x86_64", "//cmd/app"]);
+        let (code, said) = homeless(&[
+            "build",
+            "--force",
+            "--output=native/linux-x86_64",
+            "//cmd/app",
+        ]);
         assert_eq!(code, Some(1), "{said}");
-        assert!(said.contains("error: no home directory to cache the cross runtime under"), "{said}");
-        assert!(said.contains("fix: set `HOME`, or `BURI_HOME`, to a writable directory"), "{said}");
+        assert!(
+            said.contains("error: no home directory to cache the cross runtime under"),
+            "{said}"
+        );
+        assert!(
+            said.contains("fix: set `HOME`, or `BURI_HOME`, to a writable directory"),
+            "{said}"
+        );
     }
 }
 
@@ -325,10 +450,15 @@ fn a_test_runner_runs_from_the_program_store() {
     );
     let home = scratch.path("home").display().to_string();
     let test = |home: &str| {
-        scratch.run_with_env(&["test", "//lib/one"], &[("BURI_HOME", home), LINKED]).ok().says("1 passed");
+        scratch
+            .run_with_env(&["test", "//lib/one"], &[("BURI_HOME", home), LINKED])
+            .ok()
+            .says("1 passed");
     };
     let clean = |home: &str| {
-        scratch.run_with_env(&["clean"], &[("BURI_HOME", home)]).ok();
+        scratch
+            .run_with_env(&["clean"], &[("BURI_HOME", home)])
+            .ok();
     };
     let variant = || only_entry(&scratch.path(".buri/out/native"));
     let runner = || scratch.path(&format!(".buri/out/native/{}/test-runner", variant()));
@@ -336,9 +466,17 @@ fn a_test_runner_runs_from_the_program_store() {
 
     test(&home);
     let program = kept().expect("the runner is not a link into the store");
-    assert!(program.starts_with(&home), "{} is outside the store", program.display());
+    assert!(
+        program.starts_with(&home),
+        "{} is outside the store",
+        program.display()
+    );
     test(&home);
-    assert_eq!(kept().as_ref(), Some(&program), "a second run moved the runner");
+    assert_eq!(
+        kept().as_ref(),
+        Some(&program),
+        "a second run moved the runner"
+    );
 
     std::fs::write(&program, "changed").unwrap();
     clean(&home);
@@ -346,25 +484,51 @@ fn a_test_runner_runs_from_the_program_store() {
     assert_eq!(kept(), None, "an entry someone wrote to was handed out");
 
     let hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3 * 60 * 60);
-    for old in [program.parent().unwrap().to_path_buf(), scratch.path("home/programs/.swept")] {
-        std::fs::File::open(&old).unwrap().set_modified(hours_ago).unwrap();
+    for old in [
+        program.parent().unwrap().to_path_buf(),
+        scratch.path("home/programs/.swept"),
+    ] {
+        std::fs::File::open(&old)
+            .unwrap()
+            .set_modified(hours_ago)
+            .unwrap();
     }
     clean(&home);
     test(&home);
-    assert_eq!(kept().as_ref(), Some(&program), "the stale entry wasn't made again");
-    assert_eq!(std::fs::read(&program).unwrap(), std::fs::read(runner()).unwrap());
+    assert_eq!(
+        kept().as_ref(),
+        Some(&program),
+        "the stale entry wasn't made again"
+    );
+    assert_eq!(
+        std::fs::read(&program).unwrap(),
+        std::fs::read(runner()).unwrap()
+    );
 
     // A sweep leaves an entry something ran lately, and a stale one that
     // something is starting, under its lock.
     use std::os::unix::fs::MetadataExt;
     let inode = || std::fs::metadata(&program).unwrap().ino();
     let made = inode();
-    std::fs::File::open(scratch.path("home/programs/.swept")).unwrap().set_modified(hours_ago).unwrap();
+    std::fs::File::open(scratch.path("home/programs/.swept"))
+        .unwrap()
+        .set_modified(hours_ago)
+        .unwrap();
     clean(&home);
     test(&home);
-    assert_eq!(kept().as_ref(), Some(&program), "a sweep took an entry in use");
-    for old in [program.parent().unwrap().to_path_buf(), scratch.path("home/programs/.swept")] {
-        std::fs::File::open(&old).unwrap().set_modified(hours_ago).unwrap();
+    assert_eq!(
+        kept().as_ref(),
+        Some(&program),
+        "a sweep took an entry in use"
+    );
+    for old in [
+        program.parent().unwrap().to_path_buf(),
+        scratch.path("home/programs/.swept"),
+    ] {
+        std::fs::File::open(&old)
+            .unwrap()
+            .set_modified(hours_ago)
+            .unwrap();
     }
     let starting = std::fs::File::open(program.parent().unwrap().join("lock")).unwrap();
     starting.lock_shared().unwrap();
@@ -378,18 +542,33 @@ fn a_test_runner_runs_from_the_program_store() {
     clean(&home);
     test(&home);
     std::fs::set_permissions(entry, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert_eq!(kept().as_ref(), Some(&program), "an entry that can't be touched wasn't handed out");
+    assert_eq!(
+        kept().as_ref(),
+        Some(&program),
+        "an entry that can't be touched wasn't handed out"
+    );
 
     // A store that can't be listed still hands out entries; one that can't be
     // made leaves the runner as the linker wrote it.
     let unlisted = scratch.path("unlisted-home");
     std::fs::create_dir_all(unlisted.join("programs")).unwrap();
-    std::fs::set_permissions(unlisted.join("programs"), std::fs::Permissions::from_mode(0o300)).unwrap();
+    std::fs::set_permissions(
+        unlisted.join("programs"),
+        std::fs::Permissions::from_mode(0o300),
+    )
+    .unwrap();
     clean(&unlisted.display().to_string());
     test(&unlisted.display().to_string());
     let listed = kept();
-    std::fs::set_permissions(unlisted.join("programs"), std::fs::Permissions::from_mode(0o700)).unwrap();
-    assert!(listed.is_some_and(|p| p.starts_with(&unlisted)), "an unlistable store handed out nothing");
+    std::fs::set_permissions(
+        unlisted.join("programs"),
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    assert!(
+        listed.is_some_and(|p| p.starts_with(&unlisted)),
+        "an unlistable store handed out nothing"
+    );
     let blocked = scratch.path("blocked-home");
     std::fs::create_dir_all(&blocked).unwrap();
     std::fs::write(blocked.join("programs"), "").unwrap();
@@ -398,10 +577,18 @@ fn a_test_runner_runs_from_the_program_store() {
     assert_eq!(kept(), None, "a store under a file was used");
     let read_only = scratch.path("read-only-home");
     std::fs::create_dir_all(read_only.join("programs")).unwrap();
-    std::fs::set_permissions(read_only.join("programs"), std::fs::Permissions::from_mode(0o500)).unwrap();
+    std::fs::set_permissions(
+        read_only.join("programs"),
+        std::fs::Permissions::from_mode(0o500),
+    )
+    .unwrap();
     clean(&read_only.display().to_string());
     test(&read_only.display().to_string());
-    std::fs::set_permissions(read_only.join("programs"), std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::set_permissions(
+        read_only.join("programs"),
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
     assert_eq!(kept(), None, "a read-only store was used");
 
     let file = scratch.write("home-is-a-file", "").display().to_string();
@@ -418,7 +605,10 @@ fn a_test_runner_runs_from_the_program_store() {
         .env(LINKED.0, LINKED.1)
         .output()
         .unwrap();
-    assert!(String::from_utf8_lossy(&homeless.stdout).contains("1 passed"), "{homeless:?}");
+    assert!(
+        String::from_utf8_lossy(&homeless.stdout).contains("1 passed"),
+        "{homeless:?}"
+    );
     assert_eq!(kept(), None, "a run with no home used a store");
 }
 
@@ -441,13 +631,24 @@ fn a_test_runner_claim_a_crashed_run_left_is_taken() {
                  test \"one is one\" {{\n    assert.equal(one() * {n}, {n});\n}}\n"
             ),
         );
-        scratch.run_with_env(&["test", "//lib/one"], &[LINKED]).ok().says("1 passed");
+        scratch
+            .run_with_env(&["test", "//lib/one"], &[LINKED])
+            .ok()
+            .says("1 passed");
     };
     suite(1);
-    let lock = scratch.path(&format!(".buri/out/native/{}/.test-runner.lock", only_entry(&scratch.path(".buri/out/native"))));
+    let lock = scratch.path(&format!(
+        ".buri/out/native/{}/.test-runner.lock",
+        only_entry(&scratch.path(".buri/out/native"))
+    ));
     std::fs::write(&lock, "").unwrap();
     let a_day_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 60 * 60);
-    std::fs::File::options().write(true).open(&lock).unwrap().set_modified(a_day_ago).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&lock)
+        .unwrap()
+        .set_modified(a_day_ago)
+        .unwrap();
     suite(2);
     assert!(!lock.exists(), "the crashed run's claim is still there");
     std::fs::write(&lock, "").unwrap();
@@ -463,8 +664,14 @@ fn a_test_runner_claim_a_crashed_run_left_is_taken() {
 fn a_suite_linked_again_leaves_a_kept_binary_under_its_name_alone() {
     let scratch = Scratch::repo("build-driver-kept-name");
     for (name, answer) in [("a", 1), ("b", 2)] {
-        scratch.write(&format!("lib/{name}/BUILD.buri"), "library {\n    test {\n        sources: [\"test/t.buri\"]\n    }\n}\n");
-        scratch.write(&format!("lib/{name}/lib.buri"), "export fn one(): Int {\n    1\n}\n");
+        scratch.write(
+            &format!("lib/{name}/BUILD.buri"),
+            "library {\n    test {\n        sources: [\"test/t.buri\"]\n    }\n}\n",
+        );
+        scratch.write(
+            &format!("lib/{name}/lib.buri"),
+            "export fn one(): Int {\n    1\n}\n",
+        );
         scratch.write(
             &format!("lib/{name}/test/t.buri"),
             &format!(
@@ -473,17 +680,36 @@ fn a_suite_linked_again_leaves_a_kept_binary_under_its_name_alone() {
             ),
         );
     }
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
-    scratch.write(&format!(".buri/out/native/{os}-{arch}/.test-runner.lock"), "");
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
+    scratch.write(
+        &format!(".buri/out/native/{os}-{arch}/.test-runner.lock"),
+        "",
+    );
 
-    scratch.run(&["test", "//..."]).exits(1).says("1 passed, 1 failed").says("b is 2");
+    scratch
+        .run(&["test", "//..."])
+        .exits(1)
+        .says("1 passed, 1 failed")
+        .says("b is 2");
     scratch.write(
         "lib/a/test/t.buri",
         "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/a\" import { one };\n\n\
          test \"a is 1\" {\n    assert.equal(one(), 1);\n}\n\ntest \"a is still 1\" {\n    assert.equal(one(), 1);\n}\n",
     );
-    scratch.run(&["test", "//..."]).exits(1).says("2 passed, 1 failed").says("b is 2");
+    scratch
+        .run(&["test", "//..."])
+        .exits(1)
+        .says("2 passed, 1 failed")
+        .says("b is 2");
 }
 
 /// A tag's `doc` is how a policy says why, so a tag without one breaks the
@@ -494,13 +720,23 @@ fn a_tag_without_a_doc_gives_no_reason() {
         ("platform_violation", "//cmd/web", "[platform-violation]"),
         ("tag_violation", "//cmd/web", "[tag-conflict]"),
     ] {
-        let scratch = Scratch::copy_of("build-driver-tags", &tests_dir().join(format!("repositories/tags/{case}/repo")));
+        let scratch = Scratch::copy_of(
+            "build-driver-tags",
+            &tests_dir().join(format!("repositories/tags/{case}/repo")),
+        );
         let repo = scratch.read("REPO.buri");
-        let undocumented: String =
-            repo.lines().filter(|l| !l.trim_start().starts_with("doc:")).map(|l| format!("{l}\n")).collect();
+        let undocumented: String = repo
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("doc:"))
+            .map(|l| format!("{l}\n"))
+            .collect();
         assert_ne!(repo, undocumented, "{case} documents no tag");
         scratch.write("REPO.buri", &undocumented);
-        scratch.run(&["lint", target]).exits(1).says(code).silent_about("\": ");
+        scratch
+            .run(&["lint", target])
+            .exits(1)
+            .says(code)
+            .silent_about("\": ");
     }
 }
 
@@ -508,10 +744,21 @@ fn a_tag_without_a_doc_gives_no_reason() {
 #[test]
 fn a_binary_at_the_root_is_named_after_its_directory() {
     let scratch = Scratch::repo("build-driver-root");
-    scratch.write("BUILD.buri", "binary {\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n");
+    scratch.write(
+        "BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n",
+    );
     scratch.write("main.buri", NODE_MAIN);
-    let name = scratch.root.file_name().unwrap().to_string_lossy().to_string();
-    scratch.run(&["build"]).ok().says(&format!(".buri/out/node/{name}.mjs ("));
+    let name = scratch
+        .root
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    scratch
+        .run(&["build"])
+        .ok()
+        .says(&format!(".buri/out/node/{name}.mjs ("));
 }
 
 /// A C driver that links through the real one and answers a dry run (`-###`)
@@ -547,21 +794,48 @@ exec "$REAL_CC" "$@"
 #[test]
 fn a_dry_run_the_link_cannot_replay_goes_through_the_driver() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
-    let driver = scratch.write_executable("fake/cc", DRY_RUN_DRIVER).display().to_string();
+    let driver = scratch
+        .write_executable("fake/cc", DRY_RUN_DRIVER)
+        .display()
+        .to_string();
     let real_cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
-    let real =
-        std::process::Command::new("sh").args(["-c", &format!("command -v '{real_cc}'")]).output().unwrap();
+    let real = std::process::Command::new("sh")
+        .args(["-c", &format!("command -v '{real_cc}'")])
+        .output()
+        .unwrap();
     let real = String::from_utf8_lossy(&real.stdout).trim().to_string();
-    for mode in ["error", "two", "relative", "script", "no-objects", "failing", "missing"] {
+    for mode in [
+        "error",
+        "two",
+        "relative",
+        "script",
+        "no-objects",
+        "failing",
+        "missing",
+    ] {
         let home = scratch.path(&format!("home-{mode}")).display().to_string();
-        let env = [("CC", driver.as_str()), ("REAL_CC", real.as_str()), ("FAKE_DRY", mode), ("BURI_HOME", home.as_str())];
-        for args in [&["build", "//cmd/app"][..], &["build", "--force", "//cmd/app"]] {
+        let env = [
+            ("CC", driver.as_str()),
+            ("REAL_CC", real.as_str()),
+            ("FAKE_DRY", mode),
+            ("BURI_HOME", home.as_str()),
+        ];
+        for args in [
+            &["build", "//cmd/app"][..],
+            &["build", "--force", "//cmd/app"],
+        ] {
             scratch.run_with_env(args, &env).ok();
             let variant = only_entry(&scratch.path(".buri/out/native"));
-            let out = std::process::Command::new(scratch.path(&format!(".buri/out/native/{variant}/cmd/app/app")))
-                .output()
-                .unwrap();
-            assert_eq!(String::from_utf8_lossy(&out.stdout), "native\n", "FAKE_DRY={mode}");
+            let out = std::process::Command::new(
+                scratch.path(&format!(".buri/out/native/{variant}/cmd/app/app")),
+            )
+            .output()
+            .unwrap();
+            assert_eq!(
+                String::from_utf8_lossy(&out.stdout),
+                "native\n",
+                "FAKE_DRY={mode}"
+            );
         }
     }
 }
@@ -570,9 +844,15 @@ fn a_dry_run_the_link_cannot_replay_goes_through_the_driver() {
 /// paths, and an asset the platform doesn't have is refused by name.
 #[test]
 fn a_platform_s_assets_are_copied_and_a_missing_one_is_refused() {
-    let scratch =
-        Scratch::copy_of("build-driver-assets", &tests_dir().join("repositories/custom-platforms/platform_rules/repo"));
-    scratch.edit("platform/pair/BUILD.buri", "platform {\n", "platform {\n    assets: [\"style/site.css\"]\n");
+    let scratch = Scratch::copy_of(
+        "build-driver-assets",
+        &tests_dir().join("repositories/custom-platforms/platform_rules/repo"),
+    );
+    scratch.edit(
+        "platform/pair/BUILD.buri",
+        "platform {\n",
+        "platform {\n    assets: [\"style/site.css\"]\n",
+    );
     scratch
         .run(&["build", "//cmd/app"])
         .exits(1)
@@ -580,7 +860,10 @@ fn a_platform_s_assets_are_copied_and_a_missing_one_is_refused() {
         .says("copying it failed");
     scratch.write("platform/pair/style/site.css", "body {}\n");
     scratch.run(&["build", "//cmd/app"]).ok();
-    assert_eq!(scratch.read(".buri/out/platform/pair/cmd/app/style/site.css"), "body {}\n");
+    assert_eq!(
+        scratch.read(".buri/out/platform/pair/cmd/app/style/site.css"),
+        "body {}\n"
+    );
 }
 
 /// Sets the permission bits of `path` and everything under it.
@@ -620,8 +903,14 @@ fn another_toolchain_s_cache_is_emptied_without_a_trash_directory() {
     scratch.write(".buri/cache/zz/old", "another toolchain's entry\n");
     scratch.write(".buri/trash", "in the way\n");
     scratch.run(&["build", "//cmd/app"]).ok();
-    assert!(!scratch.path(".buri/cache/stray").exists(), "another toolchain's file entry is still there");
-    assert!(!scratch.path(".buri/cache/zz").exists(), "another toolchain's directory is still there");
+    assert!(
+        !scratch.path(".buri/cache/stray").exists(),
+        "another toolchain's file entry is still there"
+    );
+    assert!(
+        !scratch.path(".buri/cache/zz").exists(),
+        "another toolchain's directory is still there"
+    );
 
     scratch.write(".buri/cache/.toolchain", "another toolchain");
     let cache = scratch.path(".buri/cache");
@@ -641,7 +930,11 @@ fn a_damaged_linker_record_is_asked_again() {
     let env = [("BURI_HOME", home.as_str())];
     scratch.run_with_env(&["build", "//cmd/app"], &env).ok();
     let records = || -> Vec<std::path::PathBuf> {
-        std::fs::read_dir(scratch.path("home/linker-identity")).unwrap().flatten().map(|e| e.path()).collect()
+        std::fs::read_dir(scratch.path("home/linker-identity"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .collect()
     };
     assert!(!records().is_empty(), "the build remembered no linker");
     let mut said = "native";
@@ -656,10 +949,17 @@ fn a_damaged_linker_record_is_asked_again() {
                 }
             }
         }
-        scratch.edit("cmd/app/main.buri", &format!("ctx, \"{said}\""), &format!("ctx, \"{how}\""));
+        scratch.edit(
+            "cmd/app/main.buri",
+            &format!("ctx, \"{said}\""),
+            &format!("ctx, \"{how}\""),
+        );
         said = how;
         scratch.run_with_env(&["build", "//cmd/app"], &env).ok();
-        scratch.run_with_env(&["run", "//cmd/app"], &env).ok().says(how);
+        scratch
+            .run_with_env(&["run", "//cmd/app"], &env)
+            .ok()
+            .says(how);
     }
 }
 
@@ -672,12 +972,20 @@ fn a_cross_link_needs_a_c_driver_that_takes_a_target() {
     } else {
         ("linux-x86_64", "x86_64-unknown-linux-musl")
     };
-    let scratch = repository(&format!("        {{ platform: \"native\", variant: \"{variant}\" }},\n"), NATIVE_MAIN);
-    let cc = scratch.write_executable("fake/cc", "#!/bin/sh\nexit 1\n").display().to_string();
+    let scratch = repository(
+        &format!("        {{ platform: \"native\", variant: \"{variant}\" }},\n"),
+        NATIVE_MAIN,
+    );
+    let cc = scratch
+        .write_executable("fake/cc", "#!/bin/sh\nexit 1\n")
+        .display()
+        .to_string();
     scratch
         .run_with_env(&["build", "//cmd/app"], &[("CC", &cc)])
         .exits(1)
-        .says(&format!("error: the C driver cannot be pointed at {triple}, so it cannot cross-link"))
+        .says(&format!(
+            "error: the C driver cannot be pointed at {triple}, so it cannot cross-link"
+        ))
         .says("fix: install a clang that understands `--target=`, or set `CC` to one");
 }
 
@@ -688,7 +996,9 @@ fn a_cross_link_needs_a_c_driver_that_takes_a_target() {
 #[test]
 fn buri_musl_forces_the_libc_of_a_linux_link() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
-    let build = |value: &str| scratch.run_with_env(&["build", "--force", "//cmd/app"], &[("BURI_MUSL", value)]);
+    let build = |value: &str| {
+        scratch.run_with_env(&["build", "--force", "//cmd/app"], &[("BURI_MUSL", value)])
+    };
     if !cfg!(target_os = "linux") {
         build("bogus").ok();
         return;
@@ -705,13 +1015,28 @@ fn buri_musl_forces_the_libc_of_a_linux_link() {
     // A glibc link of a musl runtime archive fails in the linker, as `off` asks.
     for (value, glibc, refusal) in [
         ("off", true, "error: the link failed ("),
-        ("baked", false, "its C driver does not understand `--target=`"),
-        ("system", false, "`BURI_MUSL=system` was set and no musl driver is on PATH"),
+        (
+            "baked",
+            false,
+            "its C driver does not understand `--target=`",
+        ),
+        (
+            "system",
+            false,
+            "`BURI_MUSL=system` was set and no musl driver is on PATH",
+        ),
     ] {
         let run = build(value);
         if run.code == 0 {
-            assert_eq!(interpreted(&program()), glibc, "BURI_MUSL={value} linked the wrong libc");
-            scratch.run_with_env(&["run", "//cmd/app"], &[("BURI_MUSL", value)]).ok().says("native");
+            assert_eq!(
+                interpreted(&program()),
+                glibc,
+                "BURI_MUSL={value} linked the wrong libc"
+            );
+            scratch
+                .run_with_env(&["run", "//cmd/app"], &[("BURI_MUSL", value)])
+                .ok()
+                .says("native");
         } else {
             run.exits(1).says(refusal);
         }
@@ -741,13 +1066,22 @@ fn a_c_driver_that_is_musl_s_own_links_the_program() {
         )
         .display()
         .to_string();
-    let built = scratch.run_with_env(&["build", "//cmd/app"], &[("CC", &cc), ("BURI_MUSL", "system")]);
+    let built = scratch.run_with_env(
+        &["build", "//cmd/app"],
+        &[("CC", &cc), ("BURI_MUSL", "system")],
+    );
     if musl.is_empty() {
         built.exits(1).says("error: the link failed (");
         return;
     }
     built.ok();
-    scratch.run_with_env(&["run", "//cmd/app"], &[("CC", &cc), ("BURI_MUSL", "system")]).ok().says("native");
+    scratch
+        .run_with_env(
+            &["run", "//cmd/app"],
+            &[("CC", &cc), ("BURI_MUSL", "system")],
+        )
+        .ok()
+        .says("native");
 }
 
 /// A C driver some process is still writing can't be started. The build tries
@@ -760,7 +1094,10 @@ fn a_c_driver_still_being_written_is_reported() {
     // Open for writing for as long as the build runs, so every start is `ETXTBSY`.
     let _writing = std::fs::File::options().append(true).open(&cc).unwrap();
     scratch
-        .run_with_env(&["build", "//cmd/app"], &[("CC", &cc.display().to_string())])
+        .run_with_env(
+            &["build", "//cmd/app"],
+            &[("CC", &cc.display().to_string())],
+        )
         .exits(1)
         .says("Text file busy");
 }
@@ -777,11 +1114,15 @@ fn a_c_driver_that_cant_target_musl_links_nothing() {
         .display()
         .to_string();
     let path = scratch.path("fake").display().to_string();
-    for (musl, says) in
-        [("", "no musl driver is on PATH either"), ("baked", "its C driver does not understand `--target=`")]
-    {
+    for (musl, says) in [
+        ("", "no musl driver is on PATH either"),
+        ("baked", "its C driver does not understand `--target=`"),
+    ] {
         scratch
-            .run_with_env(&["build", "//cmd/app"], &[("CC", &cc), ("PATH", &path), ("BURI_MUSL", musl)])
+            .run_with_env(
+                &["build", "//cmd/app"],
+                &[("CC", &cc), ("PATH", &path), ("BURI_MUSL", musl)],
+            )
             .exits(1)
             .says(says);
     }
@@ -824,20 +1165,45 @@ fn a_buri_without_a_build_id_still_caches() {
             .env("BURI_HOME", scratch.path("home"))
             .output()
             .unwrap();
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         String::from_utf8_lossy(&out.stdout).to_string()
     };
-    assert!(!build(Some("xdg")).contains("cached"), "the first build was served from the cache");
-    assert!(build(Some("xdg")).contains("cached"), "the second build wasn't served from the cache");
-    for damage in ["sha256:short".to_string(), format!("sha256:{}", "z".repeat(64))] {
-        for record in std::fs::read_dir(scratch.path("xdg/buri/exe-identity")).unwrap().flatten() {
+    assert!(
+        !build(Some("xdg")).contains("cached"),
+        "the first build was served from the cache"
+    );
+    assert!(
+        build(Some("xdg")).contains("cached"),
+        "the second build wasn't served from the cache"
+    );
+    for damage in [
+        "sha256:short".to_string(),
+        format!("sha256:{}", "z".repeat(64)),
+    ] {
+        for record in std::fs::read_dir(scratch.path("xdg/buri/exe-identity"))
+            .unwrap()
+            .flatten()
+        {
             std::fs::write(record.path(), &damage).unwrap();
         }
-        assert!(build(Some("xdg")).contains("cached"), "a record holding {damage} moved the toolchain's identity");
+        assert!(
+            build(Some("xdg")).contains("cached"),
+            "a record holding {damage} moved the toolchain's identity"
+        );
     }
     scratch.write("blocked", "a file where the cache directory goes\n");
-    assert!(build(Some("blocked")).contains("cached"), "an unwritable record moved the toolchain's identity");
-    assert!(build(None).contains("cached"), "a buri with no home has another identity");
+    assert!(
+        build(Some("blocked")).contains("cached"),
+        "an unwritable record moved the toolchain's identity"
+    );
+    assert!(
+        build(None).contains("cached"),
+        "a buri with no home has another identity"
+    );
 }
 
 /// A cargo that logs each call to `$STAND_IN_LOG` and writes
@@ -875,56 +1241,123 @@ fn a_cross_runtime_is_built_once_with_cargo() {
         .map(|e| e.path().join("libburi_rt.a"))
         .find(|p| p.is_file())
         .expect("no warm cross runtime");
-    let scratch = repository("        { platform: \"native\", variant: \"linux-x86_64\" },\n", NATIVE_MAIN);
-    let cargo = scratch.write_executable("fake/cargo", STAND_IN_CARGO).display().to_string();
+    let scratch = repository(
+        "        { platform: \"native\", variant: \"linux-x86_64\" },\n",
+        NATIVE_MAIN,
+    );
+    let cargo = scratch
+        .write_executable("fake/cargo", STAND_IN_CARGO)
+        .display()
+        .to_string();
     let home = scratch.path("home").display().to_string();
     let log = scratch.path("cargo.log").display().to_string();
     let archive = archive.display().to_string();
-    let env = [("BURI_HOME", home.as_str()), ("CARGO", cargo.as_str()), ("STAND_IN_LOG", log.as_str())];
+    let env = [
+        ("BURI_HOME", home.as_str()),
+        ("CARGO", cargo.as_str()),
+        ("STAND_IN_LOG", log.as_str()),
+    ];
     scratch
         .run_with_env(&["build", "//cmd/app"], &env)
         .exits(1)
         .says("error: could not cross-build the runtime for x86_64-unknown-linux-musl")
         .says("error: no matching package named `libc` found");
-    let left: Vec<_> = std::fs::read_dir(scratch.path("home/cross")).map(|d| d.flatten().collect()).unwrap_or_default();
+    let left: Vec<_> = std::fs::read_dir(scratch.path("home/cross"))
+        .map(|d| d.flatten().collect())
+        .unwrap_or_default();
     assert!(left.is_empty(), "a failed cross build left {left:?}");
 
     // `CARGO_HOME` is the one `CARGO_*` variable the runtime's cargo keeps.
     let cargo_home = scratch.path("cargo-home").display().to_string();
-    let env = [env[0], env[1], env[2], ("STAND_IN_ARCHIVE", archive.as_str()), ("CARGO_HOME", cargo_home.as_str())];
-    let builds = || scratch.read("cargo.log").lines().filter(|l| *l == "rustc").count();
+    let env = [
+        env[0],
+        env[1],
+        env[2],
+        ("STAND_IN_ARCHIVE", archive.as_str()),
+        ("CARGO_HOME", cargo_home.as_str()),
+    ];
+    let builds = || {
+        scratch
+            .read("cargo.log")
+            .lines()
+            .filter(|l| *l == "rustc")
+            .count()
+    };
     let build = || {
-        scratch.run_with_env(&["build", "--force", "//cmd/app"], &env).ok();
-        let program = std::fs::read(scratch.path(".buri/out/native/linux-x86_64/cmd/app/app")).unwrap();
-        assert_eq!(program.get(..4), Some(&b"\x7fELF"[..]), "the cross build wrote no ELF program");
+        scratch
+            .run_with_env(&["build", "--force", "//cmd/app"], &env)
+            .ok();
+        let program =
+            std::fs::read(scratch.path(".buri/out/native/linux-x86_64/cmd/app/app")).unwrap();
+        assert_eq!(
+            program.get(..4),
+            Some(&b"\x7fELF"[..]),
+            "the cross build wrote no ELF program"
+        );
     };
     let failed = builds();
     build();
-    assert_eq!(builds(), failed + 1, "the first cross build didn't run cargo once");
+    assert_eq!(
+        builds(),
+        failed + 1,
+        "the first cross build didn't run cargo once"
+    );
     build();
-    assert_eq!(builds(), failed + 1, "the second cross build ran cargo again");
+    assert_eq!(
+        builds(),
+        failed + 1,
+        "the second cross build ran cargo again"
+    );
     let entry = || {
-        std::fs::read_dir(scratch.path("home/cross")).unwrap().flatten().map(|e| e.path()).find(|p| p.is_dir()).unwrap()
+        std::fs::read_dir(scratch.path("home/cross"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.is_dir())
+            .unwrap()
     };
     std::fs::write(entry().join("features"), "another feature\n").unwrap();
     build();
     assert_eq!(builds(), failed + 2, "a damaged feature list was reused");
     std::fs::remove_file(entry().join("musl/lib/crt1.o")).unwrap();
     build();
-    assert_eq!(builds(), failed + 3, "a sysroot missing a member was reused");
+    assert_eq!(
+        builds(),
+        failed + 3,
+        "a sysroot missing a member was reused"
+    );
     // Both rounds of a reproducibility check link against the one runtime.
-    scratch.run_with_env(&["build", "--check-reproducible", "//cmd/app"], &env).ok();
-    assert_eq!(builds(), failed + 3, "a reproducibility check built the cross runtime again");
+    scratch
+        .run_with_env(&["build", "--check-reproducible", "//cmd/app"], &env)
+        .ok();
+    assert_eq!(
+        builds(),
+        failed + 3,
+        "a reproducibility check built the cross runtime again"
+    );
     // Another build that publishes the runtime while this one builds it wins,
     // and this one links against theirs.
     let ours = entry();
     let theirs = scratch.path("theirs").display().to_string();
     std::fs::rename(&ours, &theirs).unwrap();
     let ours = ours.display().to_string();
-    let racing = [env[0], env[1], env[2], env[3], env[4], ("STAND_IN_THEIRS", theirs.as_str()), ("STAND_IN_PUBLISH", ours.as_str())];
-    scratch.run_with_env(&["build", "--force", "//cmd/app"], &racing).ok();
+    let racing = [
+        env[0],
+        env[1],
+        env[2],
+        env[3],
+        env[4],
+        ("STAND_IN_THEIRS", theirs.as_str()),
+        ("STAND_IN_PUBLISH", ours.as_str()),
+    ];
+    scratch
+        .run_with_env(&["build", "--force", "//cmd/app"], &racing)
+        .ok();
     assert_eq!(builds(), failed + 4, "the racing build didn't run cargo");
-    assert!(std::path::Path::new(&ours).join("libburi_rt.a").is_file(), "the published runtime is gone");
+    assert!(
+        std::path::Path::new(&ours).join("libburi_rt.a").is_file(),
+        "the published runtime is gone"
+    );
 }
 
 /// A failing native suite runs again from the runner it was linked into. One
@@ -942,10 +1375,16 @@ fn a_failing_suite_whose_runner_was_deleted_runs_again() {
         "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/one\" import { one };\n\n\
          test \"one is two\" {\n    assert.equal(one(), 2);\n}\n",
     );
-    scratch.run_with_env(&["test", "//lib/one"], &[LINKED]).exits(1).says("0 passed, 1 failed");
+    scratch
+        .run_with_env(&["test", "//lib/one"], &[LINKED])
+        .exits(1)
+        .says("0 passed, 1 failed");
     let variant = only_entry(&scratch.path(".buri/out/native"));
     std::fs::remove_file(scratch.path(&format!(".buri/out/native/{variant}/test-runner"))).unwrap();
-    scratch.run_with_env(&["test", "//lib/one"], &[LINKED]).exits(1).says("0 passed, 1 failed");
+    scratch
+        .run_with_env(&["test", "//lib/one"], &[LINKED])
+        .exits(1)
+        .says("0 passed, 1 failed");
 }
 
 /// A link line the driver printed once that no longer links is dropped, and
@@ -954,7 +1393,10 @@ fn a_failing_suite_whose_runner_was_deleted_runs_again() {
 #[test]
 fn a_stale_link_line_falls_back_to_the_driver() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
-    let found = std::process::Command::new("sh").args(["-c", "command -v \"${CC:-cc}\""]).output().unwrap();
+    let found = std::process::Command::new("sh")
+        .args(["-c", "command -v \"${CC:-cc}\""])
+        .output()
+        .unwrap();
     let real = String::from_utf8_lossy(&found.stdout).trim().to_string();
     let cc = scratch
         .write_executable(
@@ -967,14 +1409,20 @@ fn a_stale_link_line_falls_back_to_the_driver() {
         .display()
         .to_string();
     scratch
-        .run_with_env(&["build", "--check-reproducible", "--verbose", "//cmd/app"], &[("CC", &cc)])
+        .run_with_env(
+            &["build", "--check-reproducible", "--verbose", "//cmd/app"],
+            &[("CC", &cc)],
+        )
         .ok()
         .says("//cmd/app is reproducible (");
 }
 
 /// The link directory of `//cmd/app`'s native output, under `.buri/link`.
 fn link_dir(scratch: &Scratch) -> std::path::PathBuf {
-    scratch.path(&format!(".buri/link/{}", only_entry(&scratch.path(".buri/link"))))
+    scratch.path(&format!(
+        ".buri/link/{}",
+        only_entry(&scratch.path(".buri/link"))
+    ))
 }
 
 /// Something in the way of the link directory fails the build with the path
@@ -987,7 +1435,11 @@ fn a_link_directory_that_cannot_be_written_is_an_error() {
     std::fs::rename(scratch.path(".buri/link"), scratch.path("link-aside")).unwrap();
     scratch.write(".buri/link", "in the way\n");
     scratch.edit("cmd/app/main.buri", "ctx, \"native\"", "ctx, \"edited\"");
-    scratch.run(&["build", "//cmd/app"]).exits(1).says("error: cannot create ").says(&format!("{}: ", dir.file_name().unwrap().to_string_lossy()));
+    scratch
+        .run(&["build", "//cmd/app"])
+        .exits(1)
+        .says("error: cannot create ")
+        .says(&format!("{}: ", dir.file_name().unwrap().to_string_lossy()));
     std::fs::remove_file(scratch.path(".buri/link")).unwrap();
     std::fs::rename(scratch.path("link-aside"), scratch.path(".buri/link")).unwrap();
 
@@ -1001,7 +1453,10 @@ fn a_link_directory_that_cannot_be_written_is_an_error() {
 fn a_link_that_writes_no_program_is_an_error() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
     let cc = scratch
-        .write_executable("fake/cc", "#!/bin/sh\ncase \"$*\" in *--version*) echo \"fake cc 1.0\" ;; esac\nexit 0\n")
+        .write_executable(
+            "fake/cc",
+            "#!/bin/sh\ncase \"$*\" in *--version*) echo \"fake cc 1.0\" ;; esac\nexit 0\n",
+        )
         .display()
         .to_string();
     scratch
@@ -1017,7 +1472,8 @@ fn a_link_that_writes_no_program_is_an_error() {
 #[test]
 fn a_cache_on_another_filesystem_keeps_the_program() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
-    let elsewhere = std::path::Path::new("/dev/shm").join(format!("buri-cache-{}", std::process::id()));
+    let elsewhere =
+        std::path::Path::new("/dev/shm").join(format!("buri-cache-{}", std::process::id()));
     std::fs::create_dir_all(&elsewhere).unwrap();
     std::fs::create_dir_all(scratch.path(".buri")).unwrap();
     std::os::unix::fs::symlink(&elsewhere, scratch.path(".buri/cache")).unwrap();
@@ -1037,8 +1493,13 @@ fn a_cache_on_another_filesystem_keeps_the_program() {
 #[test]
 fn a_mac_without_lld_links_with_the_system_linker() {
     let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
-    scratch.run_with_env(&["build", "//cmd/app"], &[("PATH", "/usr/bin:/bin")]).ok();
-    scratch.run_with_env(&["run", "//cmd/app"], &[("PATH", "/usr/bin:/bin")]).ok().says("native");
+    scratch
+        .run_with_env(&["build", "//cmd/app"], &[("PATH", "/usr/bin:/bin")])
+        .ok();
+    scratch
+        .run_with_env(&["run", "//cmd/app"], &[("PATH", "/usr/bin:/bin")])
+        .ok()
+        .says("native");
 }
 
 /// A built program someone made unexecutable is made executable again by the
@@ -1052,5 +1513,8 @@ fn a_program_that_lost_its_execute_bit_gets_it_back() {
     let program = scratch.path(&format!(".buri/out/native/{variant}/cmd/app/app"));
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o644)).unwrap();
     scratch.run(&["build", "//cmd/app"]).ok().says("cached");
-    assert_eq!(std::fs::metadata(&program).unwrap().permissions().mode() & 0o777, 0o755);
+    assert_eq!(
+        std::fs::metadata(&program).unwrap().permissions().mode() & 0o777,
+        0o755
+    );
 }

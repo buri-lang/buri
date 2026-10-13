@@ -27,8 +27,11 @@ fn tables_of(src: &str) -> Tables {
 
 /// The method named `name` on the type named `ty`.
 fn method<'t>(tables: &'t Tables, ty: &str, name: &str) -> &'t FnInfo {
-    let con =
-        tables.tycons.iter().position(|c| c.name == ty).expect("the snippet declares the type");
+    let con = tables
+        .tycons
+        .iter()
+        .position(|c| c.name == ty)
+        .expect("the snippet declares the type");
     tables
         .fns
         .iter()
@@ -64,7 +67,11 @@ fn a_written_self_in_an_impl_method_parameter_is_the_impl_heads_type() {
     let TyKind::Fn(params, _) = f.params[1].ty.kind() else {
         panic!("the parameter is a function type: {:?}", f.params[1].ty)
     };
-    let wrap = tables.tycons.iter().position(|c| c.name == "Wrap").unwrap_or_default();
+    let wrap = tables
+        .tycons
+        .iter()
+        .position(|c| c.name == "Wrap")
+        .unwrap_or_default();
     assert!(
         matches!(params[0].kind(), TyKind::Con(id, args) if id.index() == wrap && args.is_empty()),
         "`Self` stayed unresolved in an `impl` method's parameter: {:?}",
@@ -78,7 +85,9 @@ fn a_written_self_in_an_impl_method_parameter_is_the_impl_heads_type() {
 fn the_self_parameter_and_a_written_self_agree() {
     let tables = tables_of(RELAY);
     let f = method(&tables, "Wrap", "relay");
-    let TyKind::Fn(params, _) = f.params[1].ty.kind() else { panic!("a function type") };
+    let TyKind::Fn(params, _) = f.params[1].ty.kind() else {
+        panic!("a function type")
+    };
     assert_eq!(f.params[0].ty, params[0]);
     assert_eq!(f.params[0].role, ParamRole::SelfParam);
 }
@@ -88,10 +97,16 @@ fn the_self_parameter_and_a_written_self_agree() {
 #[test]
 fn a_written_self_in_a_trait_signature_stays_abstract() {
     let tables = tables_of(RELAY);
-    let tr = tables.traits.iter().find(|t| t.name == "Relay").expect("the trait");
+    let tr = tables
+        .traits
+        .iter()
+        .find(|t| t.name == "Relay")
+        .expect("the trait");
     let m = tr.methods.first().expect("the method");
     assert_eq!(m.params[0].ty, Ty::SELF);
-    let TyKind::Fn(params, _) = m.params[1].ty.kind() else { panic!("a function type") };
+    let TyKind::Fn(params, _) = m.params[1].ty.kind() else {
+        panic!("a function type")
+    };
     assert_eq!(params[0], Ty::SELF);
 }
 
@@ -119,7 +134,11 @@ fn main(): () {}
     );
     let f = method(&tables, "Crate", "copy");
     let head = |ty: &Ty| matches!(ty.kind(), TyKind::Con(_, args) if **args == [Ty::param(0)]);
-    assert!(head(&f.params[1].ty), "a written `Self` parameter: {:?}", f.params[1].ty);
+    assert!(
+        head(&f.params[1].ty),
+        "a written `Self` parameter: {:?}",
+        f.params[1].ty
+    );
     assert!(head(&f.ret), "a written `Self` return: {:?}", f.ret);
 }
 
@@ -310,8 +329,16 @@ impl Quiet {
 
 fn main(): () {}
 "#;
-    for code in ["effect-parameter-not-ctx", "ctx-not-first", "self-not-first"] {
-        assert_eq!(reported(src, code), 0, "a well-formed method reported `{code}`");
+    for code in [
+        "effect-parameter-not-ctx",
+        "ctx-not-first",
+        "self-not-first",
+    ] {
+        assert_eq!(
+            reported(src, code),
+            0,
+            "a well-formed method reported `{code}`"
+        );
     }
 }
 

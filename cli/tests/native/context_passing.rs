@@ -174,7 +174,10 @@ fn contexts_passed_from_call_to_call() {
     modes.push(("js", &["--output=js"]));
     for (backend, flags) in modes {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-        cmd.current_dir(&repo).arg("test").args(flags).arg("//lib/ctx");
+        cmd.current_dir(&repo)
+            .arg("test")
+            .args(flags)
+            .arg("//lib/ctx");
         let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
         assert!(
             ran.status == 0 && ran.stdout.contains("5 passed, 0 failed"),

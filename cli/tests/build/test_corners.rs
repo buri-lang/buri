@@ -12,14 +12,19 @@ const ONE: &str = "export fn one(): Int {\n    1\n}\n";
 fn blocks(name: &str, n: usize) -> String {
     let mut out = format!("from \"//lib/{name}\" import {{ one }};\nfrom \"core/testing/assert\" import * as assert;\n");
     for i in 0..n {
-        out.push_str(&format!("\ntest \"one {i}\" {{\n    assert.equal(one(), 1);\n}}\n"));
+        out.push_str(&format!(
+            "\ntest \"one {i}\" {{\n    assert.equal(one(), 1);\n}}\n"
+        ));
     }
     out
 }
 
 /// `//lib/<name>`, with `test` as its suite's block body.
 fn library(scratch: &Scratch, name: &str, test: &str, suite: &str) {
-    scratch.write(&format!("lib/{name}/BUILD.buri"), &format!("library {{\n    test {{\n{test}    }}\n}}\n"));
+    scratch.write(
+        &format!("lib/{name}/BUILD.buri"),
+        &format!("library {{\n    test {{\n{test}    }}\n}}\n"),
+    );
     scratch.write(&format!("lib/{name}/lib.buri"), ONE);
     scratch.write(&format!("lib/{name}/test/t.buri"), suite);
 }
@@ -30,12 +35,18 @@ fn library(scratch: &Scratch, name: &str, test: &str, suite: &str) {
 #[test]
 fn a_suite_with_a_timeout_reports_each_failing_block() {
     let scratch = Scratch::repo("corners-timeout-failures");
-    let suite = "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/a\" import { deep };\n\n\
+    let suite =
+        "from \"core/testing/assert\" import * as assert;\nfrom \"//lib/a\" import { deep };\n\n\
                  test \"first\" {\n    assert.isTrue(true);\n}\n\n\
                  test \"second\" {\n    assert.equal(1, 2);\n}\n\n\
                  test \"third\" {\n    assert.isTrue(true);\n}\n\n\
                  test \"last\" {\n    assert.equal(3, 4);\n}\n";
-    library(&scratch, "a", "        sources: [\"test/t.buri\"]\n        timeout_seconds: 600\n", suite);
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.buri\"]\n        timeout_seconds: 600\n",
+        suite,
+    );
     scratch.write(
         "lib/a/lib.buri",
         "export fn deep(n: Int): Int {\n    if (n == 0) { 0 } else { deep(n + 1) + 1 }\n}\n",
@@ -47,8 +58,16 @@ fn a_suite_with_a_timeout_reports_each_failing_block() {
         .says("FAIL //lib/a  test/t.buri  \"last\"")
         .says("2 passed, 2 failed, 0 skipped");
 
-    scratch.edit("lib/a/test/t.buri", "assert.equal(1, 2);", "assert.equal(deep(1), 1);");
-    scratch.edit("lib/a/test/t.buri", "assert.equal(3, 4);", "assert.isTrue(true);");
+    scratch.edit(
+        "lib/a/test/t.buri",
+        "assert.equal(1, 2);",
+        "assert.equal(deep(1), 1);",
+    );
+    scratch.edit(
+        "lib/a/test/t.buri",
+        "assert.equal(3, 4);",
+        "assert.isTrue(true);",
+    );
     scratch
         .run(&["test", "//lib/a"])
         .exits(1)
@@ -62,12 +81,25 @@ fn a_suite_with_a_timeout_reports_each_failing_block() {
 fn suites_with_no_test_blocks_run_nothing() {
     let scratch = Scratch::repo("corners-no-blocks");
     for name in ["a", "b"] {
-        let helper = format!("from \"//lib/{name}\" import {{ one }};\n\nfn helper(): Int {{\n    one()\n}}\n");
-        library(&scratch, name, "        sources: [\"test/t.buri\"]\n", &helper);
+        let helper = format!(
+            "from \"//lib/{name}\" import {{ one }};\n\nfn helper(): Int {{\n    one()\n}}\n"
+        );
+        library(
+            &scratch,
+            name,
+            "        sources: [\"test/t.buri\"]\n",
+            &helper,
+        );
     }
-    scratch.run(&["test", "//..."]).ok().says("0 passed, 0 failed, 0 skipped");
+    scratch
+        .run(&["test", "//..."])
+        .ok()
+        .says("0 passed, 0 failed, 0 skipped");
     scratch.write("REPO.buri", "lint {\n    check_during_build: true\n}\n");
-    scratch.run(&["test", "//lib/a"]).ok().says("0 passed, 0 failed, 0 skipped");
+    scratch
+        .run(&["test", "//lib/a"])
+        .ok()
+        .says("0 passed, 0 failed, 0 skipped");
 }
 
 /// With no C compiler to link with, a native suite is refused by name, and the
@@ -75,7 +107,12 @@ fn suites_with_no_test_blocks_run_nothing() {
 #[test]
 fn a_missing_c_compiler_refuses_native_suites() {
     let scratch = Scratch::repo("corners-no-cc");
-    library(&scratch, "a", "        sources: [\"test/t.buri\"]\n", &blocks("a", 2));
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.buri\"]\n",
+        &blocks("a", 2),
+    );
     scratch
         .run_with_env(&["test", "//lib/a"], &[("CC", "/nonexistent/cc")])
         .exits(1)
@@ -83,7 +120,10 @@ fn a_missing_c_compiler_refuses_native_suites() {
         .says("fix: run the suite on JavaScript with `buri test --output=js`")
         .says("0 passed, 0 failed, 0 skipped, 1 failed to compile");
     scratch
-        .run_with_env(&["test", "//lib/a", "--output=js"], &[("CC", "/nonexistent/cc")])
+        .run_with_env(
+            &["test", "//lib/a", "--output=js"],
+            &[("CC", "/nonexistent/cc")],
+        )
         .ok()
         .says("2 passed, 0 failed, 0 skipped");
 }
@@ -110,7 +150,8 @@ fn a_javascript_runtime_that_cannot_run_fails_each_suite() {
             .says("error: cannot run the test binary: `/nonexistent/js` is not on PATH")
             .says("fix: install bun, or point BURI_JS at a JavaScript runtime");
     }
-    let quits = scratch.write_executable("quits", "#!/bin/sh\necho 'no runtime today' >&2\nexit 3\n");
+    let quits =
+        scratch.write_executable("quits", "#!/bin/sh\necho 'no runtime today' >&2\nexit 3\n");
     let quits = quits.display().to_string();
     for suite in ["//lib/short", "//lib/long"] {
         scratch
@@ -126,7 +167,8 @@ fn a_javascript_runtime_that_cannot_run_fails_each_suite() {
 #[test]
 fn a_javascript_runtime_that_reports_nothing_fails_the_suite() {
     let scratch = javascript_suites("corners-js-silent");
-    let silent = scratch.write_executable("silent", "#!/bin/sh\necho 'nothing to say' >&2\nexit 0\n");
+    let silent =
+        scratch.write_executable("silent", "#!/bin/sh\necho 'nothing to say' >&2\nexit 0\n");
     let silent = silent.display().to_string();
     for suite in ["//lib/short", "//lib/long"] {
         scratch
@@ -147,7 +189,10 @@ fn a_javascript_runtime_that_dies_in_a_test_fails_the_suite() {
         "#!/bin/sh\necho '{\"next\":0}'\nread test\necho \"died in test $test\" >&2\nexit 1\n",
     );
     scratch
-        .run_with_env(&["test", "//lib/long"], &[("BURI_JS", &dies.display().to_string())])
+        .run_with_env(
+            &["test", "//lib/long"],
+            &[("BURI_JS", &dies.display().to_string())],
+        )
         .exits(1)
         .says("error: the test binary did not run")
         .says("= died in test ");
@@ -157,7 +202,12 @@ fn a_javascript_runtime_that_dies_in_a_test_fails_the_suite() {
 #[test]
 fn a_coverage_run_with_nowhere_to_write_says_why() {
     let scratch = Scratch::repo("corners-coverage-blocked");
-    library(&scratch, "a", "        sources: [\"test/t.buri\"]\n", &blocks("a", 1));
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.buri\"]\n",
+        &blocks("a", 1),
+    );
     scratch.write(".buri/coverage", "a file where the directory goes\n");
     scratch
         .run(&["test", "//lib/a", "--coverage"])
@@ -174,8 +224,18 @@ fn a_coverage_run_with_nowhere_to_write_says_why() {
 #[test]
 fn a_watch_loop_over_a_broken_build_file_runs_once_it_is_fixed() {
     let scratch = Scratch::repo("corners-watch-broken");
-    library(&scratch, "a", "        sources: [\"test/t.buri\"]\n", &blocks("a", 1));
-    library(&scratch, "b", "        sources: [\"test/t.buri\"]\n", &blocks("b", 1));
+    library(
+        &scratch,
+        "a",
+        "        sources: [\"test/t.buri\"]\n",
+        &blocks("a", 1),
+    );
+    library(
+        &scratch,
+        "b",
+        "        sources: [\"test/t.buri\"]\n",
+        &blocks("b", 1),
+    );
     let fixed = scratch.read("lib/a/BUILD.buri");
     scratch.write("lib/a/BUILD.buri", "library {\n    test {\n");
     let buri = env!("CARGO_BIN_EXE_buri");
@@ -208,7 +268,10 @@ fn a_watch_loop_over_a_broken_build_file_runs_once_it_is_fixed() {
     let mut repaired = false;
     while !seen.contains(" passed, ") && Instant::now() < deadline {
         if let Ok(Some(status)) = child.try_wait() {
-            panic!("the loop ended {status}:\n{}", indent(&seen.replace('\r', "")));
+            panic!(
+                "the loop ended {status}:\n{}",
+                indent(&seen.replace('\r', ""))
+            );
         }
         if let Ok(bytes) = rx.recv_timeout(Duration::from_millis(100)) {
             seen.push_str(&String::from_utf8_lossy(&bytes));
@@ -223,7 +286,20 @@ fn a_watch_loop_over_a_broken_build_file_runs_once_it_is_fixed() {
     }
     let status = ctrl_c(&mut child, "buri test --watch");
     let text = seen.replace('\r', "");
-    assert_eq!(status.code(), Some(130), "the loop ended {status}:\n{}", indent(&text));
-    assert!(repaired, "the broken build file was never reported:\n{}", indent(&text));
-    assert!(text.contains("2 passed, 0 failed, 0 skipped"), "the fixed suites never ran:\n{}", indent(&text));
+    assert_eq!(
+        status.code(),
+        Some(130),
+        "the loop ended {status}:\n{}",
+        indent(&text)
+    );
+    assert!(
+        repaired,
+        "the broken build file was never reported:\n{}",
+        indent(&text)
+    );
+    assert!(
+        text.contains("2 passed, 0 failed, 0 skipped"),
+        "the fixed suites never ran:\n{}",
+        indent(&text)
+    );
 }

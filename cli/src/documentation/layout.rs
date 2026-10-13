@@ -93,7 +93,10 @@ fn unmarked(body: &str) -> String {
 fn unmark(line: &str) -> String {
     match line.strip_prefix("##") {
         Some(rest) => format!("#{rest}"),
-        None => line.strip_prefix("# ").unwrap_or(if line == "#" { "" } else { line }).to_string(),
+        None => line
+            .strip_prefix("# ")
+            .unwrap_or(if line == "#" { "" } else { line })
+            .to_string(),
     }
 }
 
@@ -133,7 +136,9 @@ fn whole(text: &str, dialect: Dialect) -> Option<String> {
 /// Statements, laid out inside a function that is then taken away again.
 fn statements(text: &str) -> Option<String> {
     let inner = whole(&format!("{WRAPPER}\n{text}}}\n"), Dialect::Source)?;
-    let body = inner.strip_prefix(&format!("{WRAPPER}\n"))?.strip_suffix("}\n")?;
+    let body = inner
+        .strip_prefix(&format!("{WRAPPER}\n"))?
+        .strip_suffix("}\n")?;
     undent(body)
 }
 
@@ -171,7 +176,10 @@ pub fn check(block: &Block) -> Option<Failure> {
 }
 
 fn indent(text: &str) -> String {
-    text.lines().map(|l| format!("  | {l}")).collect::<Vec<_>>().join("\n")
+    text.lines()
+        .map(|l| format!("  | {l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 // ---------------------------------------------------------------------------
@@ -213,16 +221,30 @@ pub fn format_document(file: &str, text: &str) -> Option<String> {
         let pad = " ".repeat(block.indent);
         let replacement: Vec<String> = body
             .lines()
-            .map(|l| if l.is_empty() { String::new() } else { format!("{pad}{l}") })
+            .map(|l| {
+                if l.is_empty() {
+                    String::new()
+                } else {
+                    format!("{pad}{l}")
+                }
+            })
             .collect();
-        edits.push((block.origin.line.saturating_sub(1), block.body.lines().count(), replacement));
+        edits.push((
+            block.origin.line.saturating_sub(1),
+            block.body.lines().count(),
+            replacement,
+        ));
     }
     for fence in markdown::fences(text) {
         if fence.lang != "textproto" {
             continue;
         }
         // A `fail` fence shows the mistake, and laying it out could fix it.
-        if fence.info.as_ref().is_ok_and(|i| i.mode.as_deref() == Some("fail")) {
+        if fence
+            .info
+            .as_ref()
+            .is_ok_and(|i| i.mode.as_deref() == Some("fail"))
+        {
             continue;
         }
         let Some(canonical) = textproto_canonical(&fence.body) else {
@@ -234,9 +256,19 @@ pub fn format_document(file: &str, text: &str) -> Option<String> {
         let pad = " ".repeat(fence.indent);
         let replacement: Vec<String> = canonical
             .lines()
-            .map(|l| if l.is_empty() { String::new() } else { format!("{pad}{l}") })
+            .map(|l| {
+                if l.is_empty() {
+                    String::new()
+                } else {
+                    format!("{pad}{l}")
+                }
+            })
             .collect();
-        edits.push((fence.body_line.saturating_sub(1), fence.body.lines().count(), replacement));
+        edits.push((
+            fence.body_line.saturating_sub(1),
+            fence.body.lines().count(),
+            replacement,
+        ));
     }
     if edits.is_empty() {
         return None;
@@ -245,7 +277,10 @@ pub fn format_document(file: &str, text: &str) -> Option<String> {
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
     for (first, count, replacement) in edits {
         let last = first.saturating_add(count);
-        invariant(last <= lines.len(), "a fence's body is lines of the document it was found in");
+        invariant(
+            last <= lines.len(),
+            "a fence's body is lines of the document it was found in",
+        );
         lines.splice(first..last, replacement);
     }
     let mut out = lines.join("\n");
@@ -261,7 +296,8 @@ pub fn format_document(file: &str, text: &str) -> Option<String> {
 /// A bare `#` is a blank line, and blank lines are the layout's: nothing hides
 /// one, so the layout is free to drop it. `## ` is an escaped `#`, shown.
 fn is_hidden(line: &str) -> bool {
-    line.strip_prefix("# ").is_some_and(|rest| !rest.trim().is_empty())
+    line.strip_prefix("# ")
+        .is_some_and(|rest| !rest.trim().is_empty())
 }
 
 /// A laid-out line as it goes back on the page. `#` cannot begin a line of
@@ -348,7 +384,11 @@ fn hide_again(block: &Block, canonical: &str) -> Option<String> {
 fn by_position(block: &Block, canonical: &str) -> Option<String> {
     // Blank lines are the layout's and are never hidden, so the runs are
     // counted over the lines that hold something.
-    let written: Vec<&str> = block.body.lines().filter(|l| !unmark(l).trim().is_empty()).collect();
+    let written: Vec<&str> = block
+        .body
+        .lines()
+        .filter(|l| !unmark(l).trim().is_empty())
+        .collect();
     let above = written.iter().take_while(|l| is_hidden(l)).count();
     let below = written.iter().rev().take_while(|l| is_hidden(l)).count();
     let hidden = written.iter().filter(|l| is_hidden(l)).count();
@@ -386,9 +426,19 @@ fn by_position(block: &Block, canonical: &str) -> Option<String> {
 /// the laid-out one. The runs are laid out around a stand-in for the visible
 /// lines, and what lands above and below it is the answer. `None` where that
 /// skeleton isn't a module either.
-fn laid_out_runs(block: &Block, written: &[&str], above: usize, below: usize) -> Option<(usize, usize)> {
+fn laid_out_runs(
+    block: &Block,
+    written: &[&str],
+    above: usize,
+    below: usize,
+) -> Option<(usize, usize)> {
     const SHOWN: &str = "__shown";
-    let unmarked = |lines: &[&str]| lines.iter().map(|l| format!("{}\n", unmark(l))).collect::<String>();
+    let unmarked = |lines: &[&str]| {
+        lines
+            .iter()
+            .map(|l| format!("{}\n", unmark(l)))
+            .collect::<String>()
+    };
     let top = unmarked(written.get(..above)?);
     let bottom = unmarked(written.get(written.len().saturating_sub(below)..)?);
     let skeleton = laid_out(&format!("{top}{SHOWN}\n{bottom}"), block)?;
@@ -422,7 +472,10 @@ pub fn format_doc_comments(source: &str) -> Option<String> {
         };
         let first = block.origin.line.saturating_sub(1);
         let last = first.saturating_add(block.body.lines().count());
-        invariant(last <= lines.len(), "`doc_comments` keeps one line per source line");
+        invariant(
+            last <= lines.len(),
+            "`doc_comments` keeps one line per source line",
+        );
         // The marker every line of this comment carries — `///` or `//!`, at
         // whatever column the comment is written in.
         let Some(marker) = lines.get(first).and_then(|l| comment_marker(l)) else {
@@ -430,7 +483,13 @@ pub fn format_doc_comments(source: &str) -> Option<String> {
         };
         let replacement: Vec<String> = body
             .lines()
-            .map(|l| if l.is_empty() { marker.clone() } else { format!("{marker} {l}") })
+            .map(|l| {
+                if l.is_empty() {
+                    marker.clone()
+                } else {
+                    format!("{marker} {l}")
+                }
+            })
             .collect();
         lines.splice(first..last, replacement);
         changed = true;
@@ -447,7 +506,9 @@ pub fn format_doc_comments(source: &str) -> Option<String> {
 /// The `///` or `//!` that opens a documentation line, with its indentation.
 fn comment_marker(line: &str) -> Option<String> {
     let trimmed = line.trim_start();
-    let marker = ["//!", "///"].into_iter().find(|m| trimmed.starts_with(m))?;
+    let marker = ["//!", "///"]
+        .into_iter()
+        .find(|m| trimmed.starts_with(m))?;
     let indent = line.len().checked_sub(trimmed.len())?;
     Some(format!("{}{marker}", " ".repeat(indent)))
 }
@@ -469,13 +530,22 @@ pub fn documents_under(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>)
 
 /// Every file under `dir` that `keep` wants, in path order, with nothing hidden
 /// and nothing built. A directory that can't be read has nothing to give.
-pub fn files_under(dir: &std::path::Path, keep: &dyn Fn(&std::path::Path) -> bool, out: &mut Vec<std::path::PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+pub fn files_under(
+    dir: &std::path::Path,
+    keep: &dyn Fn(&std::path::Path) -> bool,
+    out: &mut Vec<std::path::PathBuf>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
     entries.sort_by_key(std::fs::DirEntry::path);
     for e in entries {
         let p = e.path();
-        let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = p
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         if name.starts_with('.') || name == "target" || name == "node_modules" {
             continue;
         }
@@ -501,11 +571,19 @@ mod tests {
     #[test]
     fn a_module_indented_by_two_is_reported_and_rewritten() {
         let doc = "```buri\nexport fn double(n: Int): Int {\n  n * 2\n}\n```\n";
-        let Verdict::Drifted(text) = only(doc) else { panic!("two spaces is drift") };
+        let Verdict::Drifted(text) = only(doc) else {
+            panic!("two spaces is drift")
+        };
         assert_eq!(text, "export fn double(n: Int): Int {\n    n * 2\n}\n");
         let out = format_document("test.md", doc).expect("the document is rewritten");
-        assert_eq!(out, "```buri\nexport fn double(n: Int): Int {\n    n * 2\n}\n```\n");
-        assert!(format_document("test.md", &out).is_none(), "and then it is a fixed point");
+        assert_eq!(
+            out,
+            "```buri\nexport fn double(n: Int): Int {\n    n * 2\n}\n```\n"
+        );
+        assert!(
+            format_document("test.md", &out).is_none(),
+            "and then it is a fixed point"
+        );
     }
 
     /// The wrapper is what makes a fragment laid out at all, and it must not
@@ -514,7 +592,9 @@ mod tests {
     #[test]
     fn a_statement_fragment_keeps_its_own_column() {
         let doc = "```buri wrap=body\nlet a = {\n  let b = 1;\n  b + 1\n};\n```\n";
-        let Verdict::Drifted(text) = only(doc) else { panic!("two spaces is drift") };
+        let Verdict::Drifted(text) = only(doc) else {
+            panic!("two spaces is drift")
+        };
         assert_eq!(text, "let a = {\n    let b = 1;\n    b + 1\n};\n");
     }
 
@@ -543,7 +623,10 @@ mod tests {
         let out = format_document("test.md", doc).expect("rewritten");
         assert!(out.contains("# let small: I32 = 5;\n"), "{out}");
         assert!(out.contains("    let b = 1;\n"), "{out}");
-        assert!(format_document("test.md", &out).is_none(), "and then it is a fixed point");
+        assert!(
+            format_document("test.md", &out).is_none(),
+            "and then it is a fixed point"
+        );
     }
 
     /// A hidden import written among the visible ones is sorted with them, and
@@ -554,7 +637,10 @@ mod tests {
                    # from \"core/io\" import * as io;\n\
                    export fn f(): Int {\n  1\n}\n```\n";
         let out = format_document("test.md", doc).expect("rewritten");
-        assert!(out.contains("# from \"core/io\" import * as io;\n"), "{out}");
+        assert!(
+            out.contains("# from \"core/io\" import * as io;\n"),
+            "{out}"
+        );
         // Sorted: `core/io` before `core/str`, hidden or not.
         let io = out.find("core/io").expect("the hidden import");
         let s = out.find("core/str").expect("the visible one");
@@ -571,10 +657,19 @@ mod tests {
                    total\n\
                    # }\n```\n";
         let out = format_document("test.md", doc).expect("rewritten");
-        let shown: Vec<&str> =
-            out.lines().filter(|l| !l.starts_with("```") && !is_hidden(l)).collect();
-        assert_eq!(shown, ["    let total = first + second;", "    total"], "{out}");
-        assert!(format_document("test.md", &out).is_none(), "and then it is a fixed point:\n{out}");
+        let shown: Vec<&str> = out
+            .lines()
+            .filter(|l| !l.starts_with("```") && !is_hidden(l))
+            .collect();
+        assert_eq!(
+            shown,
+            ["    let total = first + second;", "    total"],
+            "{out}"
+        );
+        assert!(
+            format_document("test.md", &out).is_none(),
+            "and then it is a fixed point:\n{out}"
+        );
     }
 
     /// A build file in a page is printed the way `buri format` prints a
@@ -584,7 +679,10 @@ mod tests {
         let doc = "```textproto schema=build\nlibrary {\n  dependencies: [\"//lib/a\"]\n}\n```\n";
         let out = format_document("test.md", doc).expect("two spaces is drift");
         assert!(out.contains("\n    dependencies:"), "{out}");
-        assert!(format_document("test.md", &out).is_none(), "and then it is a fixed point");
+        assert!(
+            format_document("test.md", &out).is_none(),
+            "and then it is a fixed point"
+        );
     }
 
     /// A page about a broken build file shows the broken build file; the
@@ -604,6 +702,9 @@ mod tests {
         let out = format_doc_comments(source).expect("rewritten");
         assert!(out.contains("//!     1\n"), "{out}");
         assert!(out.starts_with("//! ```buri\n"), "{out}");
-        assert!(format_doc_comments(&out).is_none(), "and then it is a fixed point");
+        assert!(
+            format_doc_comments(&out).is_none(),
+            "and then it is a fixed point"
+        );
     }
 }

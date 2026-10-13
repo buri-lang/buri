@@ -37,8 +37,8 @@
 )]
 
 use super::elfobj as elf;
-use super::machobj as macho;
 use super::library::{Hole, HoleKind, Site, SiteKind, Stencil};
+use super::machobj as macho;
 use super::names::{refuse_hole_name, refuse_stencil_name};
 
 const NOP: u32 = 0xd503_201f;
@@ -129,15 +129,15 @@ pub fn extract(obj: &macho::Obj) -> Result<Vec<Stencil>, String> {
         // has no `st_size`, so a body's extent is the next symbol's start and
         // the padding is inside it; the ELF reader is handed the exact length
         // and has nothing to trim.
-        while code.len() >= 4
-            && word(&code, code.len() - 4).is_some_and(|w| w == NOP || w == 0)
-        {
+        while code.len() >= 4 && word(&code, code.len() - 4).is_some_and(|w| w == NOP || w == 0) {
             code.truncate(code.len() - 4);
         }
         let mut sites: Vec<RawSite> = Vec::new();
-        for r in obj.text_relocs.iter().filter(|r| {
-            (r.addr as usize) >= start && ((r.addr as usize) < start + code.len())
-        }) {
+        for r in obj
+            .text_relocs
+            .iter()
+            .filter(|r| (r.addr as usize) >= start && ((r.addr as usize) < start + code.len()))
+        {
             let sym = obj
                 .syms
                 .get(r.symbolnum as usize)
@@ -148,9 +148,7 @@ pub fn extract(obj: &macho::Obj) -> Result<Vec<Stencil>, String> {
                 macho::ARM64_RELOC_PAGEOFF12 => (HoleKind::Imm32, SiteKind::AddLo12),
                 macho::ARM64_RELOC_GOT_LOAD_PAGE21 => (HoleKind::Imm64, SiteKind::GotAdrp),
                 macho::ARM64_RELOC_GOT_LOAD_PAGEOFF12 => (HoleKind::Imm64, SiteKind::GotLdr),
-                other => {
-                    return Err(format!("{sname}: unhandled arm64 relocation type {other}"))
-                }
+                other => return Err(format!("{sname}: unhandled arm64 relocation type {other}")),
             };
             sites.push(RawSite {
                 off: r.addr - start as u32,
@@ -160,7 +158,11 @@ pub fn extract(obj: &macho::Obj) -> Result<Vec<Stencil>, String> {
             });
         }
         sites.sort_by_key(|s| s.off);
-        raws.push(RawFn { name: sname.to_string(), code, sites });
+        raws.push(RawFn {
+            name: sname.to_string(),
+            code,
+            sites,
+        });
     }
     finish_arm64(raws)
 }
@@ -194,7 +196,10 @@ fn macho_hole_name(sym: &str) -> String {
 /// that claim.
 pub fn extract_elf_arm64(obj: &elf::Obj) -> Result<Vec<Stencil>, String> {
     if obj.machine != elf::EM_AARCH64 {
-        return Err(format!("expected an aarch64 ELF object, got machine {}", obj.machine));
+        return Err(format!(
+            "expected an aarch64 ELF object, got machine {}",
+            obj.machine
+        ));
     }
     if let Some(other) = obj.other_sections.first() {
         return Err(format!(
@@ -231,7 +236,9 @@ pub fn extract_elf_arm64(obj: &elf::Obj) -> Result<Vec<Stencil>, String> {
                 elf::R_AARCH64_ADR_GOT_PAGE => (HoleKind::Imm64, SiteKind::GotAdrp),
                 elf::R_AARCH64_LD64_GOT_LO12_NC => (HoleKind::Imm64, SiteKind::GotLdr),
                 other => {
-                    return Err(format!("{sname}: unhandled aarch64 ELF relocation type {other}"))
+                    return Err(format!(
+                        "{sname}: unhandled aarch64 ELF relocation type {other}"
+                    ))
                 }
             };
             // Every one of these kinds takes its value from the symbol alone.
@@ -250,14 +257,18 @@ pub fn extract_elf_arm64(obj: &elf::Obj) -> Result<Vec<Stencil>, String> {
                 off: r.addr - start as u32,
                 hole,
                 site,
-                name: sym.name.strip_prefix("_JIT_").map_or_else(
-                    || sym.name.clone(),
-                    |rest| format!("JIT_{rest}"),
-                ),
+                name: sym
+                    .name
+                    .strip_prefix("_JIT_")
+                    .map_or_else(|| sym.name.clone(), |rest| format!("JIT_{rest}")),
             });
         }
         sites.sort_by_key(|s| s.off);
-        raws.push(RawFn { name: sname.clone(), code, sites });
+        raws.push(RawFn {
+            name: sname.clone(),
+            code,
+            sites,
+        });
     }
     finish_arm64(raws)
 }
@@ -293,7 +304,13 @@ fn finish_arm64(raws: Vec<RawFn>) -> Result<Vec<Stencil>, String> {
         }
 
         let mut holes: Vec<Hole> = Vec::new();
-        for RawSite { off, hole: hk, site: sk, name: hname } in &sites {
+        for RawSite {
+            off,
+            hole: hk,
+            site: sk,
+            name: hname,
+        } in &sites
+        {
             let (off, hk, sk, hname) = (*off, *hk, *sk, hname.clone());
             // A name check before the shape checks, because a hole whose target
             // the compiler invented is wrong however well-formed the
@@ -341,12 +358,11 @@ fn finish_arm64(raws: Vec<RawFn>) -> Result<Vec<Stencil>, String> {
                 // other finisher — and saying so is cheaper than a wildcard
                 // that would swallow a fourth arm added later.
                 SiteKind::Cond19 => {
-                    return Err(format!("{sname}+{off:#x}: a relocation named a Cond19 site"));
+                    return Err(format!(
+                        "{sname}+{off:#x}: a relocation named a Cond19 site"
+                    ));
                 }
-                SiteKind::LeaPc32
-                | SiteKind::GotPc32
-                | SiteKind::Rel32
-                | SiteKind::CondRel32 => {
+                SiteKind::LeaPc32 | SiteKind::GotPc32 | SiteKind::Rel32 | SiteKind::CondRel32 => {
                     return Err(format!(
                         "{sname}+{off:#x}: an x86-64 site reached the arm64 extractor"
                     ));
@@ -417,13 +433,18 @@ fn finish_arm64(raws: Vec<RawFn>) -> Result<Vec<Stencil>, String> {
                 h.kind == HoleKind::Branch
                     && h.sites.len() == 1
                     && h.sites.first().is_some_and(|s| s.off == last)
-                    && word(&code, last as usize)
-                        .is_some_and(|w| w & 0xfc00_0000 == 0x1400_0000)
+                    && word(&code, last as usize).is_some_and(|w| w & 0xfc00_0000 == 0x1400_0000)
             })
         } else {
             None
         };
-        let st = Stencil { name: sname.clone(), code, holes, tail, ..Stencil::unspilled() };
+        let st = Stencil {
+            name: sname.clone(),
+            code,
+            holes,
+            tail,
+            ..Stencil::unspilled()
+        };
         out.push(strip_dead_clears(&st).unwrap_or(st));
     }
     Ok(out)
@@ -518,8 +539,7 @@ fn remove(s: &Stencil, dead: &[bool], code: &mut [u32], name: String) -> Option<
         }
     }
     for i in 0..words {
-        let (Some(&is_dead), Some(&is_reloc), Some(&w)) =
-            (dead.get(i), reloc.get(i), code.get(i))
+        let (Some(&is_dead), Some(&is_reloc), Some(&w)) = (dead.get(i), reloc.get(i), code.get(i))
         else {
             continue;
         };
@@ -542,7 +562,11 @@ fn remove(s: &Stencil, dead: &[bool], code: &mut [u32], name: String) -> Option<
         };
         let mask = (1i64 << bits) - 1;
         let raw = ((w >> shift) as i64) & mask;
-        let d = if raw & (1 << (bits - 1)) != 0 { raw - (1 << bits) } else { raw };
+        let d = if raw & (1 << (bits - 1)) != 0 {
+            raw - (1 << bits)
+        } else {
+            raw
+        };
         let target = i as i64 + d;
         if target < 0 {
             return None;
@@ -559,9 +583,13 @@ fn remove(s: &Stencil, dead: &[bool], code: &mut [u32], name: String) -> Option<
         let slot = code.get_mut(i)?;
         *slot = (w & !((mask as u32) << shift)) | (((nd & mask) as u32) << shift);
     }
-    let mut out =
-        Stencil { name, code: Vec::with_capacity(n * 4), holes: s.holes.clone(), tail: None,
-                  ..Stencil::unspilled() };
+    let mut out = Stencil {
+        name,
+        code: Vec::with_capacity(n * 4),
+        holes: s.holes.clone(),
+        tail: None,
+        ..Stencil::unspilled()
+    };
     // Where a recorded offset's word ended up. `usize::MAX` marks a word being
     // deleted, and no offset that reaches here names one: each fold clears the
     // hole records that pointed into the words it killed before calling in.
@@ -582,7 +610,8 @@ fn remove(s: &Stencil, dead: &[bool], code: &mut [u32], name: String) -> Option<
         }
         // A site outside the body is not dead; the `moved` below is what
         // refuses it, so that one answer covers both loops.
-        h.sites.retain(|st| !dead.get(st.off as usize / 4).copied().unwrap_or(false));
+        h.sites
+            .retain(|st| !dead.get(st.off as usize / 4).copied().unwrap_or(false));
         for st in h.sites.iter_mut() {
             st.off = moved(st.off)?;
         }
@@ -595,9 +624,7 @@ fn remove(s: &Stencil, dead: &[bool], code: &mut [u32], name: String) -> Option<
     if out.code.len() >= 4 {
         let last = (out.code.len() - 4) as u32;
         out.tail = out.holes.iter().position(|h| {
-            h.kind == HoleKind::Branch
-                && h.branches.len() == 1
-                && h.branches.first() == Some(&last)
+            h.kind == HoleKind::Branch && h.branches.len() == 1 && h.branches.first() == Some(&last)
         });
     }
     Some(out)
@@ -641,7 +668,9 @@ pub fn strip_dead_clears(s: &Stencil) -> Option<Stencil> {
     let is_clear = |w: u32| w & 0xffff_ffe0 == 0xd280_0000 && (lo..=17).contains(&(w & 0x1f));
     let mut dead = vec![false; words];
     for i in 0..words {
-        let (Some(&is_reloc), Some(&w)) = (reloc.get(i), code.get(i)) else { continue };
+        let (Some(&is_reloc), Some(&w)) = (reloc.get(i), code.get(i)) else {
+            continue;
+        };
         if is_reloc || !is_clear(w) {
             continue;
         }
@@ -778,7 +807,9 @@ fn strip_dead_movs(code: &mut Vec<u8>, sites: &mut [RawSite]) -> bool {
         return false;
     }
     let cand = code.len() - 8;
-    let Some(w) = word(code, cand) else { return false };
+    let Some(w) = word(code, cand) else {
+        return false;
+    };
     // movz Xd, #0, lsl 0
     let is_zero_mov = w & 0xffff_ffe0 == 0xd280_0000 && (w & 0x1f) >= 8;
     if !is_zero_mov {
@@ -795,7 +826,6 @@ fn strip_dead_movs(code: &mut Vec<u8>, sites: &mut [RawSite]) -> bool {
     }
     true
 }
-
 
 // ---------------------------------------------------------------------------
 // The conditional-branch fold
@@ -842,7 +872,11 @@ fn cond_invert(w: u32) -> Option<u32> {
 fn cond_target(w: u32, at: usize) -> Option<usize> {
     if w & 0xff00_0010 == 0x5400_0000 || w & 0x7e00_0000 == 0x3400_0000 {
         let raw = ((w >> 5) & 0x7ffff) as i64;
-        let d = if raw & (1 << 18) != 0 { raw - (1 << 19) } else { raw };
+        let d = if raw & (1 << 18) != 0 {
+            raw - (1 << 19)
+        } else {
+            raw
+        };
         Some((at as i64 + d) as usize)
     } else {
         None
@@ -884,7 +918,10 @@ fn fold_cond_adjacent(s: &Stencil) -> Option<Stencil> {
     }
     // The test must be a conditional branch over the first arm, and must not
     // itself be a relocation site.
-    if s.holes.iter().any(|h| h.sites.iter().any(|st| st.off as usize == k * 4)) {
+    if s.holes
+        .iter()
+        .any(|h| h.sites.iter().any(|st| st.off as usize == k * 4))
+    {
         return None;
     }
     let inv = cond_invert(wk)?;
@@ -897,7 +934,12 @@ fn fold_cond_adjacent(s: &Stencil) -> Option<Stencil> {
     // there silently retargets it at the other arm: `1.5 == 1.5` took the false
     // edge while `NaN == NaN` took the true one. `k` is the only conditional
     // branch this shape allows, and it goes to `y`.
-    if code.iter().enumerate().take(k).any(|(i, &w)| cond_target(w, i) == Some(x)) {
+    if code
+        .iter()
+        .enumerate()
+        .take(k)
+        .any(|(i, &w)| cond_target(w, i) == Some(x))
+    {
         return None;
     }
     let mut s2 = Stencil {
@@ -909,13 +951,16 @@ fn fold_cond_adjacent(s: &Stencil) -> Option<Stencil> {
     };
     let mut code = code;
     *code.get_mut(k)? = inv & 0xffff_001f; // clear imm19; the JIT fills it
-    // `_JIT_X` moves from the `b` at x into the conditional at k. `hx` came
-    // from `position` over `s.holes`, and `s2.holes` is a clone of it.
+                                           // `_JIT_X` moves from the `b` at x into the conditional at k. `hx` came
+                                           // from `position` over `s.holes`, and `s2.holes` is a clone of it.
     let hole = s2.holes.get_mut(hx)?;
     hole.branches.clear();
     hole.conds.push((k * 4) as u32);
     hole.sites.retain(|st| st.off as usize != x * 4);
-    hole.sites.push(Site { off: (k * 4) as u32, kind: SiteKind::Cond19 });
+    hole.sites.push(Site {
+        off: (k * 4) as u32,
+        kind: SiteKind::Cond19,
+    });
     let mut dead = vec![false; words];
     *dead.get_mut(x)? = true;
     remove(&s2, &dead, &mut code, s.name.clone())
@@ -965,14 +1010,20 @@ fn fold_cond_last(s: &Stencil) -> Option<Stencil> {
                 return None;
             }
         }
-        if w & 0x7c00_0000 == 0x1400_0000 && !s.holes.iter().any(|h| {
-            h.sites.iter().any(|st| st.off as usize == i * 4)
-        }) {
+        if w & 0x7c00_0000 == 0x1400_0000
+            && !s
+                .holes
+                .iter()
+                .any(|h| h.sites.iter().any(|st| st.off as usize == i * 4))
+        {
             return None; // an internal unconditional branch; too clever to fold
         }
     }
     let c = c?;
-    if s.holes.iter().any(|h| h.sites.iter().any(|st| st.off as usize == c * 4)) {
+    if s.holes
+        .iter()
+        .any(|h| h.sites.iter().any(|st| st.off as usize == c * 4))
+    {
         return None;
     }
     let mut s2 = Stencil {
@@ -990,7 +1041,10 @@ fn fold_cond_last(s: &Stencil) -> Option<Stencil> {
     hole.branches.clear();
     hole.sites.retain(|st| st.off as usize != y * 4);
     hole.conds.push((c * 4) as u32);
-    hole.sites.push(Site { off: (c * 4) as u32, kind: SiteKind::Cond19 });
+    hole.sites.push(Site {
+        off: (c * 4) as u32,
+        kind: SiteKind::Cond19,
+    });
     let mut dead = vec![false; words];
     *dead.get_mut(y)? = true;
     remove(&s2, &dead, &mut code, s.name.clone())
@@ -1031,17 +1085,25 @@ pub fn swap_arms(s: &Stencil) -> Option<Stencil> {
     out.name = format!("{}+swap", s.name);
     // `k` is two words back from the end of a body of at least two, and both
     // hole indices came from `position` over the holes `out` was cloned from.
-    out.code.get_mut(k * 4..k * 4 + 4)?.copy_from_slice(&inv.to_le_bytes());
+    out.code
+        .get_mut(k * 4..k * 4 + 4)?
+        .copy_from_slice(&inv.to_le_bytes());
     let hole = out.holes.get_mut(hx)?;
     hole.conds.clear();
     hole.sites.retain(|st| st.off as usize != k * 4);
     hole.branches.push((y * 4) as u32);
-    hole.sites.push(Site { off: (y * 4) as u32, kind: SiteKind::Branch26 });
+    hole.sites.push(Site {
+        off: (y * 4) as u32,
+        kind: SiteKind::Branch26,
+    });
     let hole = out.holes.get_mut(hy)?;
     hole.branches.clear();
     hole.sites.retain(|st| st.off as usize != y * 4);
     hole.conds.push((k * 4) as u32);
-    hole.sites.push(Site { off: (k * 4) as u32, kind: SiteKind::Cond19 });
+    hole.sites.push(Site {
+        off: (k * 4) as u32,
+        kind: SiteKind::Cond19,
+    });
     out.tail = Some(hx);
     Some(out)
 }
@@ -1090,7 +1152,12 @@ fn may_read(w: u32, r: u32) -> bool {
     if w & 0xffff_f01f == 0xd503_201f {
         return false;
     }
-    let f = [w & 0x1f, (w >> 5) & 0x1f, (w >> 10) & 0x1f, (w >> 16) & 0x1f];
+    let f = [
+        w & 0x1f,
+        (w >> 5) & 0x1f,
+        (w >> 10) & 0x1f,
+        (w >> 16) & 0x1f,
+    ];
     f.contains(&r)
 }
 
@@ -1216,7 +1283,9 @@ pub fn fold_imm(s: &Stencil) -> Option<Stencil> {
             if is_reloc {
                 continue;
             }
-            let Some(imm) = to_add_sub_imm(consumer, rd) else { continue };
+            let Some(imm) = to_add_sub_imm(consumer, rd) else {
+                continue;
+            };
             if (consumer & 0x1f) != rd && !dead_after(&code, &dead, ci + 1, rd) {
                 continue;
             }

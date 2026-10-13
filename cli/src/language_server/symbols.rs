@@ -14,19 +14,19 @@
 //! definition takes the symbol's type, and signature help takes its signature.
 //! One resolver means no two requests can disagree about what the cursor is on.
 
+use super::state::Analyzed;
 use crate::compiler::modules::ModuleData;
 use crate::compiler::semantics::resolve::{Checked, Sym};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{
-    self, AstRef, ConstId, ContextDeclId, FnId, ModuleId, TraitId, Ty, TyConId, Tables,
+    self, AstRef, ConstId, ContextDeclId, FnId, ModuleId, Tables, TraitId, Ty, TyConId,
 };
-use crate::formatting;
 use crate::diagnostics::{FileId, Invariant as _, Span};
+use crate::formatting;
 use crate::parsing::flat::{self, ExprId, ExprView, Location, TypeId, TypeView};
 use crate::parsing::lexer::TokenKind;
 use crate::parsing::tree::{self, ImportClause, Item};
 use std::path::Path;
-use super::state::Analyzed;
 
 /// Why a module's scope is always there: the checker sizes its scopes to the
 /// modules it loaded.
@@ -62,24 +62,41 @@ pub enum Symbol {
     Function(FnId),
     Type(TyConId),
     Trait(TraitId),
-    TraitMethod { trait_id: TraitId, method: usize },
+    TraitMethod {
+        trait_id: TraitId,
+        method: usize,
+    },
     Const(ConstId),
     Context(ContextDeclId),
     /// A field of a struct, or of an enum variant's record payload.
-    Field { con: TyConId, variant: Option<usize>, index: usize },
-    Variant { con: TyConId, index: usize },
+    Field {
+        con: TyConId,
+        variant: Option<usize>,
+        index: usize,
+    },
+    Variant {
+        con: TyConId,
+        index: usize,
+    },
     /// A whole module, named by an import path or by a namespace alias.
     Module(ModuleId),
     /// A local or a parameter. Carried by value because it lives in a function
     /// body rather than in the tables, and there is no id that outlives the
     /// walk that found it.
-    Local { name: String, ty: Ty, span: Span },
+    Local {
+        name: String,
+        ty: Ty,
+        span: Span,
+    },
     /// A generic parameter — the `T` of `struct Pair<A, B>` or of
     /// `fn describe<C: Allocator>`. Carried by value for a local's reason: it is
     /// written in a signature and the tables keep it under the declaration
     /// that introduced it rather than under an id of its own. `span` is where
     /// it was declared, at a use as well as at the declaration.
-    Generic { name: String, span: Span },
+    Generic {
+        name: String,
+        span: Span,
+    },
 }
 
 /// A symbol, and the span of the text that named it.
@@ -133,23 +150,49 @@ pub struct Resolver<'a> {
 
 impl<'a> Resolver<'a> {
     pub fn of(analyzed: &'a Analyzed, path: &Path, text: &'a str) -> Option<Self> {
-        let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
-        let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
+        let file = analyzed
+            .session
+            .map
+            .find(&analyzed.session.workspace.rel_of(path))?;
+        let module = analyzed
+            .analysis
+            .loaded
+            .modules
+            .iter()
+            .find(|m| m.file == file)?;
         let mut written = Vec::new();
-        written_names(analyzed, module, &mut |span, symbol| written.push((span, symbol)));
+        written_names(analyzed, module, &mut |span, symbol| {
+            written.push((span, symbol))
+        });
         let mut qualifiers = Vec::new();
-        qualifier_names(analyzed, module, &mut |span, symbol| qualifiers.push((span, symbol)));
-        Some(Self { analyzed, text, file, written, literals: literals(text, file), qualifiers })
+        qualifier_names(analyzed, module, &mut |span, symbol| {
+            qualifiers.push((span, symbol))
+        });
+        Some(Self {
+            analyzed,
+            text,
+            file,
+            written,
+            literals: literals(text, file),
+            qualifiers,
+        })
     }
 
     /// The symbol one offset names.
     pub fn at(&self, offset: u32) -> Option<Found> {
         if let Some((span, symbol)) = self.written.iter().find(|(s, _)| covers(*s, offset)) {
-            return Some(Found { symbol: symbol.clone(), span: *span });
+            return Some(Found {
+                symbol: symbol.clone(),
+                span: *span,
+            });
         }
         // Open at both ends: the quotes themselves are the literal's, and a
         // cursor on one is on the literal rather than beside it.
-        if self.literals.iter().any(|(start, end)| *start < offset && offset < *end) {
+        if self
+            .literals
+            .iter()
+            .any(|(start, end)| *start < offset && offset < *end)
+        {
             return None;
         }
         let found = declared_here(self.analyzed, self.file, offset)
@@ -167,10 +210,17 @@ impl<'a> Resolver<'a> {
     fn qualifier(&self, offset: u32, found: Option<&Found>) -> Option<Found> {
         let (span, symbol) = self.qualifiers.iter().find(|(s, _)| covers(*s, offset))?;
         let written = self.text.get(span.start as usize..span.end as usize)?;
-        if found.and_then(|f| name(self.analyzed, &f.symbol)).as_deref() == Some(written) {
+        if found
+            .and_then(|f| name(self.analyzed, &f.symbol))
+            .as_deref()
+            == Some(written)
+        {
             return None;
         }
-        Some(Found { symbol: symbol.clone(), span: *span })
+        Some(Found {
+            symbol: symbol.clone(),
+            span: *span,
+        })
     }
 }
 
@@ -206,17 +256,26 @@ pub fn declaration(analyzed: &Analyzed, symbol: &Symbol) -> Span {
         Symbol::Function(id) => tables.fn_info(*id).span,
         Symbol::Type(id) => tables.tycon(*id).span,
         Symbol::Trait(id) => tables.trait_(*id).span,
-        Symbol::TraitMethod { trait_id, method } => {
-            tables.trait_(*trait_id).methods.get(*method).map_or(Span::NONE, |m| m.span)
-        }
+        Symbol::TraitMethod { trait_id, method } => tables
+            .trait_(*trait_id)
+            .methods
+            .get(*method)
+            .map_or(Span::NONE, |m| m.span),
         Symbol::Const(id) => tables.const_(*id).span,
-        Symbol::Context(id) => tables.ctx_decls.get(id.index()).map_or(Span::NONE, |c| c.span),
-        Symbol::Field { con, variant, index } => {
-            field_info(tables, *con, *variant, *index).map_or(Span::NONE, |f| f.span)
-        }
-        Symbol::Variant { con, index } => {
-            tables.tycon(*con).variants().get(*index).map_or(Span::NONE, |v| v.span)
-        }
+        Symbol::Context(id) => tables
+            .ctx_decls
+            .get(id.index())
+            .map_or(Span::NONE, |c| c.span),
+        Symbol::Field {
+            con,
+            variant,
+            index,
+        } => field_info(tables, *con, *variant, *index).map_or(Span::NONE, |f| f.span),
+        Symbol::Variant { con, index } => tables
+            .tycon(*con)
+            .variants()
+            .get(*index)
+            .map_or(Span::NONE, |v| v.span),
         // The top of the file: a module has no name of its own to point at.
         Symbol::Module(id) => match analyzed.analysis.loaded.modules.get(id.index()) {
             Some(m) => Span::point(m.file, 0),
@@ -242,9 +301,11 @@ pub fn declaration(analyzed: &Analyzed, symbol: &Symbol) -> Span {
 pub fn declaration_name(analyzed: &Analyzed, symbol: &Symbol) -> Span {
     let tables = &analyzed.analysis.checked.tables;
     let narrowed = match symbol {
-        Symbol::Field { con, variant, index } => {
-            field_syntax(analyzed, *con, *variant, *index).map(|(_, f)| f.name.span)
-        }
+        Symbol::Field {
+            con,
+            variant,
+            index,
+        } => field_syntax(analyzed, *con, *variant, *index).map(|(_, f)| f.name.span),
         Symbol::Variant { con, index } => {
             let info = tables.tycon(*con);
             match declaration_syntax(analyzed, info.module, info.span) {
@@ -303,17 +364,23 @@ pub fn name(analyzed: &Analyzed, symbol: &Symbol) -> Option<String> {
         Symbol::Function(id) => Some(tables.fn_info(*id).name.clone()),
         Symbol::Type(id) => Some(tables.tycon(*id).name.clone()),
         Symbol::Trait(id) => Some(tables.trait_(*id).name.clone()),
-        Symbol::TraitMethod { trait_id, method } => {
-            tables.trait_(*trait_id).methods.get(*method).map(|m| m.name.clone())
-        }
+        Symbol::TraitMethod { trait_id, method } => tables
+            .trait_(*trait_id)
+            .methods
+            .get(*method)
+            .map(|m| m.name.clone()),
         Symbol::Const(id) => Some(tables.const_(*id).name.clone()),
         Symbol::Context(id) => tables.ctx_decls.get(id.index()).map(|c| c.name.clone()),
-        Symbol::Field { con, variant, index } => {
-            field_info(tables, *con, *variant, *index).map(|f| f.name.clone())
-        }
-        Symbol::Variant { con, index } => {
-            tables.tycon(*con).variants().get(*index).map(|v| v.name.clone())
-        }
+        Symbol::Field {
+            con,
+            variant,
+            index,
+        } => field_info(tables, *con, *variant, *index).map(|f| f.name.clone()),
+        Symbol::Variant { con, index } => tables
+            .tycon(*con)
+            .variants()
+            .get(*index)
+            .map(|v| v.name.clone()),
         Symbol::Module(_) => None,
         Symbol::Local { name, .. } | Symbol::Generic { name, .. } => Some(name.clone()),
     }
@@ -333,9 +400,11 @@ pub fn type_of(analyzed: &Analyzed, symbol: &Symbol) -> Option<TyConId> {
         Symbol::Variant { con, .. } => Some(*con),
         Symbol::Local { ty, .. } => ty.head(),
         Symbol::Const(id) => tables.const_(*id).ty.head(),
-        Symbol::Field { con, variant, index } => {
-            field_info(tables, *con, *variant, *index)?.ty.head()
-        }
+        Symbol::Field {
+            con,
+            variant,
+            index,
+        } => field_info(tables, *con, *variant, *index)?.ty.head(),
         Symbol::Function(id) => tables.fn_info(*id).ret.head(),
         Symbol::TraitMethod { trait_id, method } => {
             tables.trait_(*trait_id).methods.get(*method)?.ret.head()
@@ -362,15 +431,27 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
             let con = tables.tycon(*id);
             match declaration_syntax(analyzed, con.module, con.span) {
                 Some((t, Item::Struct(d))) => (
-                    format!("struct {}{}", t.name(d.name), formatting::generics(t, t.list(d.generics))),
+                    format!(
+                        "struct {}{}",
+                        t.name(d.name),
+                        formatting::generics(t, t.list(d.generics))
+                    ),
                     t.docs(d.docs),
                 ),
                 Some((t, Item::Enum(d))) => (
-                    format!("enum {}{}", t.name(d.name), formatting::generics(t, t.list(d.generics))),
+                    format!(
+                        "enum {}{}",
+                        t.name(d.name),
+                        formatting::generics(t, t.list(d.generics))
+                    ),
                     t.docs(d.docs),
                 ),
                 Some((t, Item::TypeAlias(d))) => (
-                    format!("type {} = {}", t.name(d.name), formatting::type_text(t, d.ty)),
+                    format!(
+                        "type {} = {}",
+                        t.name(d.name),
+                        formatting::type_text(t, d.ty)
+                    ),
                     t.docs(d.docs),
                 ),
                 _ => (con.name.clone(), Vec::new()),
@@ -436,13 +517,13 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
                 _ => (format!("context {}", info.name), Vec::new()),
             }
         }
-        Symbol::Field { con, variant, index } => {
+        Symbol::Field {
+            con,
+            variant,
+            index,
+        } => {
             let fallback = match field_info(tables, *con, *variant, *index) {
-                Some(f) => format!(
-                    "{}: {}",
-                    f.name,
-                    types::show(tables, None, &[], &f.ty)
-                ),
+                Some(f) => format!("{}: {}", f.name, types::show(tables, None, &[], &f.ty)),
                 None => String::new(),
             };
             match field_syntax(analyzed, *con, *variant, *index) {
@@ -459,7 +540,9 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
             match declared {
                 Some((t, v)) => (formatting::variant(t, v), t.docs(v.docs)),
                 None => (
-                    info.variants().get(*index).map_or(String::new(), |v| v.name.clone()),
+                    info.variants()
+                        .get(*index)
+                        .map_or(String::new(), |v| v.name.clone()),
                     Vec::new(),
                 ),
             }
@@ -492,19 +575,26 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
 /// The type a `let` wrote for the one name it binds at `name`. A local's span
 /// is only its name, so the annotation beside it is the syntax's to give.
 fn let_annotation(analyzed: &Analyzed, name: Span) -> Option<String> {
-    let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == name.file)?;
+    let module = analyzed
+        .analysis
+        .loaded
+        .modules
+        .iter()
+        .find(|m| m.file == name.file)?;
     let tree = &module.ast.tree;
     statement_blocks(module).into_iter().find_map(|block| {
         let data = tree.block(block);
-        tree.stmts_at(data.stmts_start, data.stmts_len).iter().find_map(|stmt| {
-            let ty = tree.opt_type(stmt.ty)?;
-            match tree.pat(tree.opt_pat(stmt.pattern)?) {
-                flat::PatView::Bind { name_span, .. } if name_span == name => {
-                    Some(formatting::type_text(tree, ty))
+        tree.stmts_at(data.stmts_start, data.stmts_len)
+            .iter()
+            .find_map(|stmt| {
+                let ty = tree.opt_type(stmt.ty)?;
+                match tree.pat(tree.opt_pat(stmt.pattern)?) {
+                    flat::PatView::Bind { name_span, .. } if name_span == name => {
+                        Some(formatting::type_text(tree, ty))
+                    }
+                    _ => None,
                 }
-                _ => None,
-            }
-        })
+            })
     })
 }
 
@@ -558,7 +648,10 @@ pub fn signature(analyzed: &Analyzed, symbol: &Symbol) -> Option<Signature> {
             tree.name(declared.name),
             formatting::generics(tree, tree.list(declared.generics))
         );
-        let shown = tree.list(declared.params).iter().filter(|p| !matches!(p.kind, tree::ParamKind::SelfParam));
+        let shown = tree
+            .list(declared.params)
+            .iter()
+            .filter(|p| !matches!(p.kind, tree::ParamKind::SelfParam));
         let parameters = parameter_list(
             &mut label,
             shown.map(|p| match p.written_type() {
@@ -567,7 +660,11 @@ pub fn signature(analyzed: &Analyzed, symbol: &Symbol) -> Option<Signature> {
             }),
         );
         label.push_str(&format!("): {}", formatting::type_text(tree, declared.ret)));
-        return Some(Signature { label, parameters, docs: tree.docs(declared.docs) });
+        return Some(Signature {
+            label,
+            parameters,
+            docs: tree.docs(declared.docs),
+        });
     }
 
     let (generics, params, ret, written) = match symbol {
@@ -582,13 +679,19 @@ pub fn signature(analyzed: &Analyzed, symbol: &Symbol) -> Option<Signature> {
         _ => return None,
     };
     let mut label = format!("fn {written}(");
-    let shown = params.iter().filter(|p| p.role != types::ParamRole::SelfParam);
+    let shown = params
+        .iter()
+        .filter(|p| p.role != types::ParamRole::SelfParam);
     let parameters = parameter_list(
         &mut label,
         shown.map(|p| format!("{}: {}", p.name, types::show(tables, None, generics, &p.ty))),
     );
     label.push_str(&format!("): {}", types::show(tables, None, generics, ret)));
-    Some(Signature { label, parameters, docs: Vec::new() })
+    Some(Signature {
+        label,
+        parameters,
+        docs: Vec::new(),
+    })
 }
 
 /// Appends each parameter's text to `label`, comma-separated, and returns where
@@ -663,7 +766,10 @@ pub fn references(analyzed: &Analyzed, symbol: &Symbol) -> Vec<Span> {
 
 /// The locals a module-level `let` binds inside its value.
 pub(super) fn const_locals(checked: &Checked, id: ConstId) -> &[typed::Local] {
-    checked.const_locals.get(&id).or_ice("every constant was checked, and its locals kept with its value")
+    checked
+        .const_locals
+        .get(&id)
+        .or_ice("every constant was checked, and its locals kept with its value")
 }
 
 /// Whether two symbols are the same declaration. A local is compared by its
@@ -676,13 +782,24 @@ pub(super) fn same(a: &Symbol, b: &Symbol) -> bool {
         (Symbol::Trait(x), Symbol::Trait(y)) => x == y,
         (
             Symbol::TraitMethod { trait_id, method },
-            Symbol::TraitMethod { trait_id: t, method: m },
+            Symbol::TraitMethod {
+                trait_id: t,
+                method: m,
+            },
         ) => trait_id == t && method == m,
         (Symbol::Const(x), Symbol::Const(y)) => x == y,
         (Symbol::Context(x), Symbol::Context(y)) => x == y,
         (
-            Symbol::Field { con, variant, index },
-            Symbol::Field { con: c, variant: v, index: i },
+            Symbol::Field {
+                con,
+                variant,
+                index,
+            },
+            Symbol::Field {
+                con: c,
+                variant: v,
+                index: i,
+            },
         ) => con == c && variant == v && index == i,
         (Symbol::Variant { con, index }, Symbol::Variant { con: c, index: i }) => {
             con == c && index == i
@@ -842,15 +959,17 @@ fn name_span(analyzed: &Analyzed, span: Span, from: u32, name: &str) -> Option<S
 /// wants: an import clause is inside no type and a type is inside no import, so
 /// the two never disagree about one offset — and a scan for every use of a
 /// symbol wants them both regardless.
-fn written_names(
-    analyzed: &Analyzed,
-    module: &ModuleData,
-    out: &mut impl FnMut(Span, Symbol),
-) {
+fn written_names(analyzed: &Analyzed, module: &ModuleData, out: &mut impl FnMut(Span, Symbol)) {
     import_names(analyzed, module, out);
     let generics = generic_params(module);
     for param in &generics {
-        out(param.at, Symbol::Generic { name: param.name.clone(), span: param.at });
+        out(
+            param.at,
+            Symbol::Generic {
+                name: param.name.clone(),
+                span: param.at,
+            },
+        );
     }
     written_type_names(analyzed, module, &generics, out);
 }
@@ -912,11 +1031,7 @@ fn generic_params(module: &ModuleData) -> Vec<GenericParam> {
 /// The generic parameter a one-segment written type names, if it names one.
 ///
 /// The innermost scope wins, so a method's own `T` shadows the `impl` head's.
-fn generic_use<'p>(
-    generics: &'p [GenericParam],
-    name: &str,
-    at: Span,
-) -> Option<&'p GenericParam> {
+fn generic_use<'p>(generics: &'p [GenericParam], name: &str, at: Span) -> Option<&'p GenericParam> {
     generics
         .iter()
         .filter(|g| g.name == name && covers(g.scope, at.start) && g.scope.file == at.file)
@@ -935,12 +1050,19 @@ fn import_names(analyzed: &Analyzed, module: &ModuleData, out: &mut impl FnMut(S
             Item::ReExport(r) => (&r.path, r.path_span, tree.list(r.specs), None),
             _ => continue,
         };
-        let Some(id) = analyzed.analysis.loaded.find(path) else { continue };
+        let Some(id) = analyzed.analysis.loaded.find(path) else {
+            continue;
+        };
         out(path_span, Symbol::Module(id));
         if let Some(n) = namespace {
             out(n.span, Symbol::Module(id));
         }
-        let scope = analyzed.analysis.checked.scopes.get(id.index()).or_ice(SCOPED);
+        let scope = analyzed
+            .analysis
+            .checked
+            .scopes
+            .get(id.index())
+            .or_ice(SCOPED);
         for spec in specs {
             let Some(symbol) = scope.exports.get(tree.name(spec.name)).and_then(symbol_of) else {
                 continue;
@@ -965,14 +1087,22 @@ fn written_type_names(
 ) {
     let tree = &module.ast.tree;
     for index in 0..tree.type_nodes().len() {
-        let TypeView::Named { path, .. } = tree.ty(TypeId(index as u32)) else { continue };
+        let TypeView::Named { path, .. } = tree.ty(TypeId(index as u32)) else {
+            continue;
+        };
         for (segment, at) in path.iter().enumerate() {
             let span = tree.span_of(*at);
             // A generic parameter shadows everything the module can see, which
             // is why it is asked before the scopes are.
             if path.len() == 1 {
                 if let Some(g) = generic_use(generics, tree.text(*at), span) {
-                    out(span, Symbol::Generic { name: g.name.clone(), span: g.at });
+                    out(
+                        span,
+                        Symbol::Generic {
+                            name: g.name.clone(),
+                            span: g.at,
+                        },
+                    );
                     continue;
                 }
             }
@@ -997,14 +1127,23 @@ pub(super) fn qualifier_names(
     module: &ModuleData,
     out: &mut impl FnMut(Span, Symbol),
 ) {
-    let scope = analyzed.analysis.checked.scopes.get(module.id.index()).or_ice(SCOPED);
+    let scope = analyzed
+        .analysis
+        .checked
+        .scopes
+        .get(module.id.index())
+        .or_ice(SCOPED);
     if scope.namespaces.is_empty() {
         return;
     }
     let tree = &module.ast.tree;
     for index in 0..tree.nodes().len() {
-        let ExprView::Field { base, .. } = tree.expr(ExprId(index as u32)) else { continue };
-        let ExprView::Ident { name, span } = tree.expr(base) else { continue };
+        let ExprView::Field { base, .. } = tree.expr(ExprId(index as u32)) else {
+            continue;
+        };
+        let ExprView::Ident { name, span } = tree.expr(base) else {
+            continue;
+        };
         if let Some(id) = scope.namespaces.get(name) {
             out(span, Symbol::Module(*id));
         }
@@ -1050,7 +1189,12 @@ fn resolve_path(
     }
     // `Color.Red` — the head names the enum and the tail one of its variants.
     if let Some(Sym::Ty(con)) = scope.name(head) {
-        let index = analyzed.analysis.checked.tables.tycon(*con).variant_index(name)?;
+        let index = analyzed
+            .analysis
+            .checked
+            .tables
+            .tycon(*con)
+            .variant_index(name)?;
         return Some(Symbol::Variant { con: *con, index });
     }
     None
@@ -1083,7 +1227,10 @@ fn builtin_type(tables: &Tables, name: &str) -> Option<TyConId> {
 pub(super) fn is_method(tables: &Tables, id: FnId) -> bool {
     let info = tables.fn_info(id);
     info.self_ty.is_some()
-        || info.params.first().is_some_and(|p| p.role == types::ParamRole::SelfParam)
+        || info
+            .params
+            .first()
+            .is_some_and(|p| p.role == types::ParamRole::SelfParam)
 }
 
 pub(super) fn symbol_of(sym: &Sym) -> Option<Symbol> {
@@ -1143,12 +1290,26 @@ fn declared_here(analyzed: &Analyzed, file: FileId, offset: u32) -> Option<Found
         let id = TyConId(index as u32);
         offer(con.span, Symbol::Type(id));
         for (i, f) in con.fields().iter().enumerate() {
-            offer(f.span, Symbol::Field { con: id, variant: None, index: i });
+            offer(
+                f.span,
+                Symbol::Field {
+                    con: id,
+                    variant: None,
+                    index: i,
+                },
+            );
         }
         for (v, variant) in con.variants().iter().enumerate() {
             offer(variant.span, Symbol::Variant { con: id, index: v });
             for (i, f) in variant.fields.iter().enumerate() {
-                offer(f.span, Symbol::Field { con: id, variant: Some(v), index: i });
+                offer(
+                    f.span,
+                    Symbol::Field {
+                        con: id,
+                        variant: Some(v),
+                        index: i,
+                    },
+                );
             }
         }
     }
@@ -1156,7 +1317,13 @@ fn declared_here(analyzed: &Analyzed, file: FileId, offset: u32) -> Option<Found
         let id = TraitId(index as u32);
         offer(info.span, Symbol::Trait(id));
         for (i, m) in info.methods.iter().enumerate() {
-            offer(m.span, Symbol::TraitMethod { trait_id: id, method: i });
+            offer(
+                m.span,
+                Symbol::TraitMethod {
+                    trait_id: id,
+                    method: i,
+                },
+            );
         }
     }
     for (index, info) in tables.consts.iter().enumerate() {
@@ -1207,7 +1374,14 @@ fn in_a_body(analyzed: &Analyzed, file: FileId, text: &str, offset: u32) -> Opti
         if checked.tables.const_(id).span.file != file {
             continue;
         }
-        if let Some(found) = narrowest(analyzed, const_locals(checked, id), expr, file, text, offset) {
+        if let Some(found) = narrowest(
+            analyzed,
+            const_locals(checked, id),
+            expr,
+            file,
+            text,
+            offset,
+        ) {
             return Some(found);
         }
     }
@@ -1238,7 +1412,10 @@ fn in_one_body(
         let word = identifier_at(text, offset);
         let named = word.as_ref().map(|(n, _)| n.as_str());
         if let Some(symbol) = symbol_of_pattern(analyzed, pattern, named) {
-            return Some(Found { symbol, span: pattern.span });
+            return Some(Found {
+                symbol,
+                span: pattern.span,
+            });
         }
     }
     if let Some((_, local)) = bound {
@@ -1313,9 +1490,13 @@ fn symbol_of_pattern(
     word: Option<&str>,
 ) -> Option<Symbol> {
     let mut all = Vec::new();
-    pattern_symbols(&analyzed.analysis.checked.tables, pattern, &mut |name, symbol| {
-        all.push((name, symbol));
-    });
+    pattern_symbols(
+        &analyzed.analysis.checked.tables,
+        pattern,
+        &mut |name, symbol| {
+            all.push((name, symbol));
+        },
+    );
     pick(word, all)
 }
 
@@ -1331,12 +1512,28 @@ fn pattern_symbols(
             out(tables.tycon(*con).name.clone(), Symbol::Type(*con));
             labelled_fields(tables, *con, None, fields.iter().map(|f| f.index), out);
         }
-        typed::PatKind::Variant { con, variant, fields } => {
+        typed::PatKind::Variant {
+            con,
+            variant,
+            fields,
+        } => {
             let info = tables.tycon(*con);
             let v = info.variants().get(*variant).or_ice(VARIANT);
-            out(v.name.clone(), Symbol::Variant { con: *con, index: *variant });
+            out(
+                v.name.clone(),
+                Symbol::Variant {
+                    con: *con,
+                    index: *variant,
+                },
+            );
             out(info.name.clone(), Symbol::Type(*con));
-            labelled_fields(tables, *con, Some(*variant), fields.iter().map(|f| f.index), out);
+            labelled_fields(
+                tables,
+                *con,
+                Some(*variant),
+                fields.iter().map(|f| f.index),
+                out,
+            );
         }
         // A bind is a declaration rather than a use, and `Body::locals` already
         // holds its span.
@@ -1382,7 +1579,11 @@ fn narrowest<'a>(
     let named = word.as_ref().map(|(n, _)| n.as_str());
     let symbol = symbol_of_expr(analyzed, locals, expr, named)?;
     let span = match word {
-        Some((_, span)) => Span { file, start: span.0, end: span.1 },
+        Some((_, span)) => Span {
+            file,
+            start: span.0,
+            end: span.1,
+        },
         None => expr.span,
     };
     Some(Found { symbol, span })
@@ -1400,9 +1601,14 @@ fn symbol_of_expr(
     word: Option<&str>,
 ) -> Option<Symbol> {
     let mut all = Vec::new();
-    expression_symbols(&analyzed.analysis.checked.tables, locals, expr, &mut |name, symbol| {
-        all.push((name, symbol));
-    });
+    expression_symbols(
+        &analyzed.analysis.checked.tables,
+        locals,
+        expr,
+        &mut |name, symbol| {
+            all.push((name, symbol));
+        },
+    );
     pick(word, all)
 }
 
@@ -1422,16 +1628,31 @@ fn expression_symbols(
     match &expr.kind {
         ExprKind::Local(id) => {
             let l = locals.get(id.index()).or_ice(LOCAL);
-            out(l.name.to_string(), Symbol::Local { name: l.name.to_string(), ty: l.ty, span: l.span });
+            out(
+                l.name.to_string(),
+                Symbol::Local {
+                    name: l.name.to_string(),
+                    ty: l.ty,
+                    span: l.span,
+                },
+            );
         }
         ExprKind::Const(id) => out(tables.const_(*id).name.clone(), Symbol::Const(*id)),
         ExprKind::FnRef(func) | ExprKind::CallFn { func, .. } => {
             let id = func.decl().or_ice(DECLARED);
             out(tables.fn_info(id).name.clone(), Symbol::Function(id));
         }
-        ExprKind::CallTrait { trait_id, method, .. } => {
+        ExprKind::CallTrait {
+            trait_id, method, ..
+        } => {
             let m = tables.trait_(*trait_id).methods.get(*method).or_ice(METHOD);
-            out(m.name.clone(), Symbol::TraitMethod { trait_id: *trait_id, method: *method });
+            out(
+                m.name.clone(),
+                Symbol::TraitMethod {
+                    trait_id: *trait_id,
+                    method: *method,
+                },
+            );
         }
         ExprKind::StructLit { con, fields, .. } => {
             out(tables.tycon(*con).name.clone(), Symbol::Type(*con));
@@ -1439,14 +1660,28 @@ fn expression_symbols(
         }
         ExprKind::StructUpdate { con, updates, .. } => {
             out(tables.tycon(*con).name.clone(), Symbol::Type(*con));
-            labelled_fields(tables, *con, None, updates.iter().map(|(index, _)| *index), out);
+            labelled_fields(
+                tables,
+                *con,
+                None,
+                updates.iter().map(|(index, _)| *index),
+                out,
+            );
         }
-        ExprKind::EnumLit { con, variant, args, .. } => {
+        ExprKind::EnumLit {
+            con, variant, args, ..
+        } => {
             // `Color.Red` — either half may be written, and the leading-dot
             // shorthand writes only the second.
             let info = tables.tycon(*con);
             let v = info.variants().get(*variant).or_ice(VARIANT);
-            out(v.name.clone(), Symbol::Variant { con: *con, index: *variant });
+            out(
+                v.name.clone(),
+                Symbol::Variant {
+                    con: *con,
+                    index: *variant,
+                },
+            );
             out(info.name.clone(), Symbol::Type(*con));
             // A record variant's payload is written by label, and the label is
             // the field rather than the variant it belongs to.
@@ -1455,14 +1690,24 @@ fn expression_symbols(
         ExprKind::Field { base, index } => {
             let con = base.ty.head().or_ice(FIELD);
             let info = field_info(tables, con, None, *index).or_ice(FIELD);
-            out(info.name.clone(), Symbol::Field { con, variant: None, index: *index });
+            out(
+                info.name.clone(),
+                Symbol::Field {
+                    con,
+                    variant: None,
+                    index: *index,
+                },
+            );
         }
         ExprKind::CtxCall { decl } => {
             let info = tables.ctx_decls.get(decl.index()).or_ice(CONTEXT);
             out(info.name.clone(), Symbol::Context(*decl));
         }
         ExprKind::CtxGet { trait_id, .. } => {
-            out(tables.trait_(*trait_id).name.clone(), Symbol::Trait(*trait_id));
+            out(
+                tables.trait_(*trait_id).name.clone(),
+                Symbol::Trait(*trait_id),
+            );
         }
         ExprKind::CtxLit { bindings } => {
             for (id, _) in bindings {
@@ -1489,7 +1734,14 @@ fn labelled_fields(
     }
     for index in indices {
         if let Some(info) = field_info(tables, con, variant, index) {
-            out(info.name.clone(), Symbol::Field { con, variant, index });
+            out(
+                info.name.clone(),
+                Symbol::Field {
+                    con,
+                    variant,
+                    index,
+                },
+            );
         }
     }
 }
@@ -1534,7 +1786,12 @@ fn covers(span: Span, offset: u32) -> bool {
 // ---------------------------------------------------------------------------
 
 fn module_syntax(analyzed: &Analyzed, module: ModuleId) -> Option<&tree::Module> {
-    analyzed.analysis.loaded.modules.get(module.index()).map(|m| m.ast.as_ref())
+    analyzed
+        .analysis
+        .loaded
+        .modules
+        .get(module.index())
+        .map(|m| m.ast.as_ref())
 }
 
 /// The item a declaration's name span belongs to. Every table entry's span is
@@ -1562,7 +1819,11 @@ fn declaration_syntax(
 }
 
 /// The `trait` or `effect` item a trait's name span belongs to.
-fn trait_syntax(analyzed: &Analyzed, module: ModuleId, name: Span) -> Option<(&flat::Tree, &tree::TraitDecl)> {
+fn trait_syntax(
+    analyzed: &Analyzed,
+    module: ModuleId,
+    name: Span,
+) -> Option<(&flat::Tree, &tree::TraitDecl)> {
     match declaration_syntax(analyzed, module, name)? {
         (t, Item::Trait(d)) => Some((t, d)),
         _ => None,
@@ -1633,7 +1894,9 @@ fn field_syntax(
             tree::StructBody::Tuple(_) => None,
         },
         (Some(v), Item::Enum(d)) => match &tree.list(d.variants).get(v)?.payload {
-            tree::VariantPayload::Record(fields) => tree.list(*fields).get(index).map(|f| (tree, f)),
+            tree::VariantPayload::Record(fields) => {
+                tree.list(*fields).get(index).map(|f| (tree, f))
+            }
             _ => None,
         },
         _ => None,

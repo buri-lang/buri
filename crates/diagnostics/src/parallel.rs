@@ -65,7 +65,10 @@ pub fn width(len: usize) -> usize {
 pub fn cores() -> usize {
     static CORES: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     *CORES.get_or_init(|| {
-        let set = std::env::var("BURI_THREADS").ok().and_then(|v| v.parse::<usize>().ok()).filter(|&n| n > 0);
+        let set = std::env::var("BURI_THREADS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|&n| n > 0);
         set.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |c| c.get()))
     })
 }
@@ -85,13 +88,18 @@ pub fn cores() -> usize {
 pub fn discard<T: Send + 'static>(value: T) {
     static PREVIOUS: std::sync::Mutex<Option<std::thread::JoinHandle<()>>> =
         std::sync::Mutex::new(None);
-    let mut slot = PREVIOUS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut slot = PREVIOUS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(previous) = slot.take() {
         let _ = previous.join();
     }
     // With no thread to be had, the value was moved into the closure that could
     // not be started, so it has already been dropped where it stood.
-    *slot = std::thread::Builder::new().name("buri-discard".into()).spawn(move || drop(value)).ok();
+    *slot = std::thread::Builder::new()
+        .name("buri-discard".into())
+        .spawn(move || drop(value))
+        .ok();
 }
 
 /// `f` over `0..len`, in parallel, with the results in index order.
@@ -168,7 +176,10 @@ where
         for worker in workers {
             // A worker that did not return left its indices to the loop below.
             for (i, value) in worker.join().unwrap_or_default() {
-                #[expect(clippy::indexing_slicing, reason = "a worker takes only indices below `len`, and `slots` holds `len`")]
+                #[expect(
+                    clippy::indexing_slicing,
+                    reason = "a worker takes only indices below `len`, and `slots` holds `len`"
+                )]
                 let slot = &mut slots[i];
                 *slot = Some(value);
             }
@@ -275,7 +286,9 @@ impl Drop for Held<'_> {
 
 impl<J> Queue<J> {
     fn lock(&self) -> std::sync::MutexGuard<'_, QueueState<J>> {
-        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Queues a job behind the others. `bytes` is what a heavy job is expected
@@ -308,12 +321,18 @@ impl<J> Queue<J> {
         let mut state = self.lock();
         loop {
             let held = state.held;
-            let fits = |bytes: u64| bytes == 0 || held == 0 || held.saturating_add(bytes) <= self.budget;
+            let fits =
+                |bytes: u64| bytes == 0 || held == 0 || held.saturating_add(bytes) <= self.budget;
             let at = state.jobs.iter().position(|(_, bytes)| fits(*bytes));
             if let Some((job, bytes)) = at.and_then(|at| state.jobs.remove(at)) {
                 state.held = state.held.saturating_add(bytes);
                 let room: &dyn Release = self;
-                return Some((job, Held { room: (bytes > 0).then_some((room, bytes)) }));
+                return Some((
+                    job,
+                    Held {
+                        room: (bytes > 0).then_some((room, bytes)),
+                    },
+                ));
             }
             if let Some(job) = state.later.pop_front() {
                 return Some((job, Held { room: None }));
@@ -321,7 +340,10 @@ impl<J> Queue<J> {
             if state.closed {
                 return None;
             }
-            state = self.ready.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
+            state = self
+                .ready
+                .wait(state)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 
@@ -380,9 +402,10 @@ where
                         let tell = Tell { send };
                         while let Some((job, held)) = queue.take() {
                             // A job that panics drops its `Held` as it unwinds.
-                            let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                work(job, held, queue, &tell)
-                            }));
+                            let done =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    work(job, held, queue, &tell)
+                                }));
                             let _ = tell.send.send(done.ok());
                         }
                     });
@@ -415,7 +438,6 @@ impl<R> Tell<R> {
         let _ = self.send.send(Some(result));
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -456,7 +478,10 @@ mod tests {
             return;
         }
         let ratio = spread as f64 / alone as f64;
-        assert!((0.8..1.5).contains(&ratio), "{spread} instructions spread against {alone} alone");
+        assert!(
+            (0.8..1.5).contains(&ratio),
+            "{spread} instructions spread against {alone} alone"
+        );
     }
 
     /// A `drive` that panics still closes the queue, so the workers stop and
@@ -466,7 +491,12 @@ mod tests {
         let (done, finished) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let outcome = std::panic::catch_unwind(|| {
-                pool(4, 0, |job: u8, _, _, _| job, |_: &Queue<u8>, _| panic!("drive failed"))
+                pool(
+                    4,
+                    0,
+                    |job: u8, _, _, _| job,
+                    |_: &Queue<u8>, _| panic!("drive failed"),
+                )
             });
             let _ = done.send(outcome.is_err());
         });

@@ -52,7 +52,9 @@ fn fan_outs_of_every_width_answer_in_order_on_every_backend() {
         let again = (0..n).fold(0, |acc, i| mix(acc, digits(4 * i) + 1 + i));
         (0..n).fold(again, |acc, i| mix(acc, 4 * i))
     };
-    let nested = (0..8).fold(0, |acc, x| mix(acc, (0..200).fold(0, |a, j| mix(a, x * 1000 + 2 * j))));
+    let nested = (0..8).fold(0, |acc, x| {
+        mix(acc, (0..200).fold(0, |a, j| mix(a, x * 1000 + 2 * j)))
+    });
     let mut expected = format!("tiny {tiny}\n");
     for n in widths {
         expected += &format!("wide {n} {}\n", wide(n));
@@ -199,7 +201,11 @@ export fn main(host: NativeHost): Result<(), Str> {{
 }}
 "#
     );
-    agree("maps keyed by wide ints, fractions and timestamps", &source, &expected);
+    agree(
+        "maps keyed by wide ints, fractions and timestamps",
+        &source,
+        &expected,
+    );
 }
 
 /// **An ordered map of wide values, and `filterMap` and `values` over records
@@ -218,7 +224,16 @@ fn ordered_maps_of_wide_values_and_filter_map_answer_on_every_backend() {
     let by_key: Vec<i64> = (0..n).map(e_of).collect();
     let read = |e: i64| 3 * e + digits(2 * e) + 2;
     let gets = |removed: &dyn Fn(i64) -> bool| {
-        (0..n).fold(0, |acc, k| mix(acc, if removed(k) { -1 } else { read(by_key[k as usize]) }))
+        (0..n).fold(0, |acc, k| {
+            mix(
+                acc,
+                if removed(k) {
+                    -1
+                } else {
+                    read(by_key[k as usize])
+                },
+            )
+        })
     };
     let whole = gets(&|_| false);
     let thinned = gets(&|k| k % 3 == 0 && k < 3 * (n / 3));
@@ -241,7 +256,10 @@ fn ordered_maps_of_wide_values_and_filter_map_answer_on_every_backend() {
         2 * (0..n).filter(|e| e % 3 == 0).count(),
         (0..n).filter(|e| e % 3 == 0).sum::<i64>(),
         (0..n).filter(|e| e % 2 == 1).count(),
-        (0..n).filter(|e| e % 2 == 1).map(|e| 2 + digits(e) + digits(3 * e)).sum::<i64>(),
+        (0..n)
+            .filter(|e| e % 2 == 1)
+            .map(|e| 2 + digits(e) + digits(3 * e))
+            .sum::<i64>(),
         (0..flat_n).map(|i| i + 63).sum::<i64>(),
         (0..flat_n).sum::<i64>(),
     );
@@ -326,7 +344,11 @@ export fn main(host: NativeHost): Result<(), Str> {{
 }}
 "#
     );
-    agree("ordered maps of wide values, filterMap and values", &source, &expected);
+    agree(
+        "ordered maps of wide values, filterMap and values",
+        &source,
+        &expected,
+    );
 }
 
 /// `total` of the tree `grow(depth, at)` builds in [`TREES`].
@@ -416,7 +438,8 @@ fn deep_trees_freed_and_built_again_keep_every_node_on_every_backend() {
     agree("deep trees freed and built again", TREES, &expected);
     for (backend, build) in crate::e2e::probed_backends() {
         let r = crate::shared::ran_command(
-            std::process::Command::new(build("at-scale-trees", TREES)).env_remove("BURI_RT_HEAP_CHECK"),
+            std::process::Command::new(build("at-scale-trees", TREES))
+                .env_remove("BURI_RT_HEAP_CHECK"),
         );
         assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
         assert_eq!(r.stdout, expected, "{backend}: {}", r.stderr);
@@ -462,8 +485,13 @@ fn sorting_long_lists_agrees_on_every_backend() {
         down.sort_by_key(|&(k, _)| std::cmp::Reverse(k));
         let mut tags: Vec<String> = items.iter().map(|&(k, _)| k.to_string()).collect();
         tags.sort();
-        let digest = |xs: &[(i64, i64)]| xs.iter().fold(0, |acc, &(k, at)| mix(acc, k + at + digits(at)));
-        let tag_digest = tags.iter().fold(0, |acc, t| mix(acc, t.parse::<i64>().unwrap()));
+        let digest = |xs: &[(i64, i64)]| {
+            xs.iter()
+                .fold(0, |acc, &(k, at)| mix(acc, k + at + digits(at)))
+        };
+        let tag_digest = tags
+            .iter()
+            .fold(0, |acc, t| mix(acc, t.parse::<i64>().unwrap()));
         expected += &format!("s{shape}: {} {} {tag_digest}\n", digest(&up), digest(&down));
     }
     let source = format!(

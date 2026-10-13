@@ -240,12 +240,20 @@ pub fn watch(
     // first would let a child that exits within the launch poll through.
     if cap.is_zero() {
         stop(child);
-        return Err(Killed { what: what.to_string(), ran: Duration::ZERO, why: Why::NoTime });
+        return Err(Killed {
+            what: what.to_string(),
+            ran: Duration::ZERO,
+            why: Why::NoTime,
+        });
     }
     let start = Instant::now();
     let (busy, every) = (busy_enough(cap), sample_every(cap));
-    let mut progress =
-        Progress { at: start, spent: None, runnable: false, next: start + every };
+    let mut progress = Progress {
+        at: start,
+        spent: None,
+        runnable: false,
+        next: start + every,
+    };
     let mut nap = Duration::from_micros(200);
     loop {
         match child.try_wait() {
@@ -263,7 +271,10 @@ pub fn watch(
                     return Err(Killed {
                         what: what.to_string(),
                         ran: start.elapsed(),
-                        why: Why::Burned { spent: seen.spent, ceiling },
+                        why: Why::Burned {
+                            spent: seen.spent,
+                            ceiling,
+                        },
                     });
                 }
             }
@@ -275,7 +286,10 @@ pub fn watch(
             return Err(Killed {
                 what: what.to_string(),
                 ran: start.elapsed(),
-                why: Why::Stuck { idle, spent: progress.spent },
+                why: Why::Stuck {
+                    idle,
+                    spent: progress.spent,
+                },
             });
         }
         std::thread::sleep(nap.min(cap.saturating_sub(idle)));
@@ -334,7 +348,11 @@ pub fn capped_output(mut cmd: std::process::Command, what: &str, cap: Duration) 
         .unwrap_or_else(|e| panic!("`{what}` did not start: {e}"));
     let (out, err) = drain(&mut child);
     let status = wait_capped(&mut child, what, cap);
-    Output { status, stdout: out.take(), stderr: err.take() }
+    Output {
+        status,
+        stdout: out.take(),
+        stderr: err.take(),
+    }
 }
 
 /// Both of a child's pipes, being read on threads of their own.
@@ -359,7 +377,9 @@ impl Pipe {
     /// What the child wrote. Empty if the pipe was never piped, or if the
     /// reader died with it — a killed child's bytes are not the report.
     pub fn take(self) -> Vec<u8> {
-        self.0.map(|h| h.join().unwrap_or_default()).unwrap_or_default()
+        self.0
+            .map(|h| h.join().unwrap_or_default())
+            .unwrap_or_default()
     }
 }
 
@@ -385,7 +405,10 @@ enum Why {
     /// been going on, and what the tree had spent by the time it stopped
     /// spending. `spent` is `None` on a host that answers neither question,
     /// where the rule degrades to the wall clock it used to be everywhere.
-    Stuck { idle: Duration, spent: Option<Duration> },
+    Stuck {
+        idle: Duration,
+        spent: Option<Duration>,
+    },
     /// Past a caller's ceiling on processor time: what the tree had spent, and
     /// the ceiling it went past.
     Burned { spent: Duration, ceiling: Duration },
@@ -402,7 +425,10 @@ impl Killed {
     pub fn verdict(&self) -> String {
         let (what, ran) = (&self.what, self.ran.as_secs_f64());
         match self.why {
-            Why::Stuck { idle, spent: Some(spent) } => format!(
+            Why::Stuck {
+                idle,
+                spent: Some(spent),
+            } => format!(
                 "`{what}` was asleep and spending nothing for {:.1}s, so it was killed. It had \
                  been running {ran:.1}s, and its process tree had used {:.1}s of processor time. \
                  A tree that is neither running nor waiting to run is stuck rather than slow — a \
@@ -496,7 +522,9 @@ pub fn look(pid: u32) -> Option<Look> {
 /// tree's ticks times a billion leaves `u64` after a few years of processor
 /// time, and a reading that silently wrapped would read as a hang.
 fn scaled(count: u64, numer: u64, denom: u64) -> Option<Duration> {
-    let nanos = u128::from(count).checked_mul(u128::from(numer))?.checked_div(u128::from(denom))?;
+    let nanos = u128::from(count)
+        .checked_mul(u128::from(numer))?
+        .checked_div(u128::from(denom))?;
     Some(Duration::from_nanos(u64::try_from(nanos).ok()?))
 }
 
@@ -532,15 +560,23 @@ fn reading(pid: u32) -> Option<Look> {
     unsafe extern "C" {
         fn sysconf(name: i32) -> i64;
     }
-    let hz = u64::try_from(unsafe { sysconf(SC_CLK_TCK) }).ok().filter(|hz| *hz > 0)?;
+    let hz = u64::try_from(unsafe { sysconf(SC_CLK_TCK) })
+        .ok()
+        .filter(|hz| *hz > 0)?;
 
     let mut rows: Vec<Row> = Vec::new();
     for entry in std::fs::read_dir("/proc").ok()?.flatten() {
         let name = entry.file_name();
-        let Some(id) = name.to_str().and_then(|n| n.parse::<u32>().ok()) else { continue };
+        let Some(id) = name.to_str().and_then(|n| n.parse::<u32>().ok()) else {
+            continue;
+        };
         // A process that exits mid-walk is ordinary, not an error.
-        let Ok(text) = std::fs::read_to_string(entry.path().join("stat")) else { continue };
-        let Some(row) = stat_row(id, &text) else { continue };
+        let Ok(text) = std::fs::read_to_string(entry.path().join("stat")) else {
+            continue;
+        };
+        let Some(row) = stat_row(id, &text) else {
+            continue;
+        };
         rows.push(row);
     }
 
@@ -565,7 +601,10 @@ fn reading(pid: u32) -> Option<Look> {
             }
         }
     }
-    Some(Look { runnable, spent: scaled(total, 1_000_000_000, hz)? })
+    Some(Look {
+        runnable,
+        spent: scaled(total, 1_000_000_000, hz)?,
+    })
 }
 
 /// One process, as `/proc` describes it.
@@ -593,7 +632,10 @@ fn stat_row(id: u32, text: &str) -> Option<Row> {
     // A negative count is not a thing a clock produces; it is a field this
     // reading has no use for, and zero is the honest answer for it.
     let number = |i: usize| {
-        fields.get(i).and_then(|f| f.parse::<i64>().ok()).map(|n| u64::try_from(n).unwrap_or(0))
+        fields
+            .get(i)
+            .and_then(|f| f.parse::<i64>().ok())
+            .map(|n| u64::try_from(n).unwrap_or(0))
     };
     let runnable = matches!(fields.first(), Some(&"R") | Some(&"D"));
     let parent = u32::try_from(number(1)?).ok()?;
@@ -601,7 +643,12 @@ fn stat_row(id: u32, text: &str) -> Option<Row> {
         .checked_add(number(12)?)?
         .checked_add(number(13)?)?
         .checked_add(number(14)?)?;
-    Some(Row { id, parent, runnable, spent })
+    Some(Row {
+        id,
+        parent,
+        runnable,
+        spent,
+    })
 }
 
 /// macOS: `proc_pidinfo`'s task info per process, with `proc_listchildpids`
@@ -645,7 +692,10 @@ fn reading(pid: u32) -> Option<Look> {
         wanted.extend(children_of(this));
     }
     let (numer, denom) = timebase()?;
-    Some(Look { runnable, spent: scaled(total, u64::from(numer), u64::from(denom))? })
+    Some(Look {
+        runnable,
+        spent: scaled(total, u64::from(numer), u64::from(denom))?,
+    })
 }
 
 /// `PROC_PIDTASKINFO`'s buffer, in the order `<sys/proc_info.h>` declares it.
@@ -690,8 +740,13 @@ struct Timebase {
 // argument is the same one: a dependency for a declaration is a dependency.
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
-    fn proc_pidinfo(pid: i32, flavor: i32, arg: u64, buffer: *mut std::ffi::c_void, size: i32)
-    -> i32;
+    fn proc_pidinfo(
+        pid: i32,
+        flavor: i32,
+        arg: u64,
+        buffer: *mut std::ffi::c_void,
+        size: i32,
+    ) -> i32;
     fn proc_listchildpids(ppid: i32, buffer: *mut std::ffi::c_void, size: i32) -> i32;
     fn mach_timebase_info(info: *mut Timebase) -> i32;
 }
@@ -701,7 +756,10 @@ unsafe extern "C" {
 #[cfg(target_os = "macos")]
 fn task_info(pid: u32) -> Option<(u64, bool)> {
     let info = task_info_of(pid)?;
-    Some((info.total_user.saturating_add(info.total_system), info.numrunning > 0))
+    Some((
+        info.total_user.saturating_add(info.total_system),
+        info.numrunning > 0,
+    ))
 }
 
 /// One process's whole `PROC_PIDTASKINFO` answer, or `None` if it is gone.
@@ -725,12 +783,18 @@ fn task_info_of(pid: u32) -> Option<ProcTaskInfo> {
 /// and pid 0 is not a process anything here can read.
 #[cfg(target_os = "macos")]
 fn children_of(pid: u32) -> Vec<u32> {
-    let Ok(pid) = i32::try_from(pid) else { return Vec::new() };
+    let Ok(pid) = i32::try_from(pid) else {
+        return Vec::new();
+    };
     let mut kids = [0i32; 512];
     let size = i32::try_from(std::mem::size_of_val(&kids)).unwrap_or(i32::MAX);
     let answered = unsafe { proc_listchildpids(pid, kids.as_mut_ptr().cast(), size) };
     let found = usize::try_from(answered).unwrap_or(0).min(kids.len());
-    kids.iter().take(found).filter_map(|k| u32::try_from(*k).ok()).filter(|k| *k > 0).collect()
+    kids.iter()
+        .take(found)
+        .filter_map(|k| u32::try_from(*k).ok())
+        .filter(|k| *k > 0)
+        .collect()
 }
 
 /// The mach clock's fraction, asked once.
@@ -799,7 +863,10 @@ mod hang_tests {
             .stderr(Stdio::null())
             .status()
             .expect("`kill` is on PATH");
-        assert!(!alive.success(), "the cap fired and left process {id} running");
+        assert!(
+            !alive.success(),
+            "the cap fired and left process {id} running"
+        );
     }
 
     /// A zero cap fires however fast the child is. Here the child has already
@@ -807,11 +874,17 @@ mod hang_tests {
     /// used to win.
     #[test]
     fn a_zero_cap_fires_on_a_child_that_has_already_exited() {
-        let mut child = std::process::Command::new("true").spawn().expect("`true` is on PATH");
+        let mut child = std::process::Command::new("true")
+            .spawn()
+            .expect("`true` is on PATH");
         exited_unreaped(child.id());
         let verdict = watch(&mut child, "true", Duration::ZERO, None)
             .expect_err("a zero cap let a child through");
-        assert!(verdict.verdict().contains("was killed"), "{}", verdict.verdict());
+        assert!(
+            verdict.verdict().contains("was killed"),
+            "{}",
+            verdict.verdict()
+        );
     }
 
     /// Blocks until `pid` has exited, leaving it for its parent to reap.
@@ -826,7 +899,11 @@ mod hang_tests {
         #[cfg(not(target_os = "macos"))]
         const OPTIONS: i32 = 0x04 | 0x0100_0000;
         let mut info = [0u8; 256];
-        assert_eq!(unsafe { waitid(P_PID, pid, info.as_mut_ptr(), OPTIONS) }, 0, "waitid failed");
+        assert_eq!(
+            unsafe { waitid(P_PID, pid, info.as_mut_ptr(), OPTIONS) },
+            0,
+            "waitid failed"
+        );
     }
 
     /// A child that answers is waited for, not capped, and its status comes
@@ -857,10 +934,19 @@ mod hang_tests {
         let cap = Duration::from_secs(300);
         let busy = busy_enough(cap);
         assert_eq!(busy, Duration::from_secs(3), "one per cent of five minutes");
-        let asleep = |spent: u64| Some(Look { runnable: false, spent: Duration::from_secs(spent) });
+        let asleep = |spent: u64| {
+            Some(Look {
+                runnable: false,
+                spent: Duration::from_secs(spent),
+            })
+        };
         let start = Instant::now();
-        let mut progress =
-            Progress { at: start, spent: None, runnable: false, next: start };
+        let mut progress = Progress {
+            at: start,
+            spent: None,
+            runnable: false,
+            next: start,
+        };
 
         // The first reading starts the clock rather than running against it.
         let first = start + Duration::from_secs(1);
@@ -878,7 +964,10 @@ mod hang_tests {
         // tree spending a little the whole time is spending it.
         let later = quiet + Duration::from_secs(60);
         progress.note(later, asleep(13), busy);
-        assert_eq!(progress.at, later, "13s against a 10s mark is the 3s threshold, exactly");
+        assert_eq!(
+            progress.at, later,
+            "13s against a 10s mark is the 3s threshold, exactly"
+        );
 
         // A sum that fell is a subprocess that finished and took its time with
         // it. Reading that as silence would kill a build for making progress.
@@ -903,23 +992,51 @@ mod hang_tests {
         let cap = Duration::from_secs(300);
         let busy = busy_enough(cap);
         let start = Instant::now();
-        let mut progress =
-            Progress { at: start, spent: None, runnable: false, next: start };
+        let mut progress = Progress {
+            at: start,
+            spent: None,
+            runnable: false,
+            next: start,
+        };
 
         // A first reading, and then an hour of a tree that is runnable and has
         // spent nothing at all — which is what a starved spinner looks like,
         // and what a mac's lagging counters make an ordinary one look like.
-        progress.note(start, Some(Look { runnable: false, spent: Duration::ZERO }), busy);
+        progress.note(
+            start,
+            Some(Look {
+                runnable: false,
+                spent: Duration::ZERO,
+            }),
+            busy,
+        );
         for minute in 1..=60 {
             let now = start + Duration::from_secs(60 * minute);
-            progress.note(now, Some(Look { runnable: true, spent: Duration::ZERO }), busy);
-            assert_eq!(progress.at, now, "a runnable tree was left behind by the clock");
+            progress.note(
+                now,
+                Some(Look {
+                    runnable: true,
+                    spent: Duration::ZERO,
+                }),
+                busy,
+            );
+            assert_eq!(
+                progress.at, now,
+                "a runnable tree was left behind by the clock"
+            );
         }
 
         // The moment it stops being runnable and stops spending, the mark stops
         // moving — and the cap is what fires on that.
         let asleep = start + Duration::from_secs(60 * 61);
-        progress.note(asleep, Some(Look { runnable: false, spent: Duration::ZERO }), busy);
+        progress.note(
+            asleep,
+            Some(Look {
+                runnable: false,
+                spent: Duration::ZERO,
+            }),
+            busy,
+        );
         assert_eq!(progress.at, start + Duration::from_secs(60 * 60));
     }
 

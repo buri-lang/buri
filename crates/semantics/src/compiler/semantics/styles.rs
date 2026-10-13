@@ -62,9 +62,13 @@
 use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{bound, Env, Folder, Value};
 use crate::compiler::semantics::layered::Layered;
-use crate::compiler::semantics::resolve::{own_fn, own_type, BodyMap, ConstMap, ModuleScope, Walked};
+use crate::compiler::semantics::resolve::{
+    own_fn, own_type, BodyMap, ConstMap, ModuleScope, Walked,
+};
 use crate::compiler::semantics::typed::{self, ExprKind, Magnitude};
-use crate::compiler::semantics::types::{ConstId, FnId, FuncIdx, LocalId, ModuleId, Tables, TraitId, Ty, TyKind, TyConId};
+use crate::compiler::semantics::types::{
+    ConstId, FnId, FuncIdx, LocalId, ModuleId, Tables, TraitId, Ty, TyConId, TyKind,
+};
 use crate::diagnostics::{invariant, Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
 use std::cell::RefCell;
@@ -261,7 +265,11 @@ const PIN_FLOW: u32 = 4;
 /// same `box-shadow` `Shadow` does. Two spellings of one declaration are one
 /// slot, so the last written wins rather than both landing on the element.
 fn slot(variant: usize, sub: u32, cond: Cond) -> Option<u32> {
-    let variant = if variant == STYLE_SHADOWS { STYLE_SHADOW } else { variant };
+    let variant = if variant == STYLE_SHADOWS {
+        STYLE_SHADOW
+    } else {
+        variant
+    };
     let variant = u32::try_from(variant).ok()?;
     variant
         .checked_mul(SUB_KEYS)?
@@ -286,7 +294,11 @@ fn slot(variant: usize, sub: u32, cond: Cond) -> Option<u32> {
 /// no one class the variable could feed. `Shadows` shares `Shadow`'s slot and
 /// class, so it is folded onto `Shadow` here the way `slot` folds it.
 fn variable_property(variant: usize) -> Option<(&'static str, &'static str)> {
-    let variant = if variant == STYLE_SHADOWS { STYLE_SHADOW } else { variant };
+    let variant = if variant == STYLE_SHADOWS {
+        STYLE_SHADOW
+    } else {
+        variant
+    };
     let pair = match variant {
         12 => ("grow", "flex-grow"),
         13 => ("shrink", "flex-shrink"),
@@ -325,15 +337,12 @@ fn variable_property(variant: usize) -> Option<(&'static str, &'static str)> {
 /// nothing. Both are four values, so one numbering serves both.
 fn sub_key(variant: usize, args: &[Value]) -> u32 {
     match variant {
-        STYLE_PIN
-        | STYLE_PADDING_EDGE
-        | STYLE_BORDER_EDGE
-        | STYLE_RADIUS_CORNER
-        | STYLE_BLEED => args
-            .first()
-            .and_then(Value::as_variant)
-            .and_then(|(edge, _)| u32::try_from(edge).ok())
-            .unwrap_or(0),
+        STYLE_PIN | STYLE_PADDING_EDGE | STYLE_BORDER_EDGE | STYLE_RADIUS_CORNER | STYLE_BLEED => {
+            args.first()
+                .and_then(Value::as_variant)
+                .and_then(|(edge, _)| u32::try_from(edge).ok())
+                .unwrap_or(0)
+        }
         _ => 0,
     }
 }
@@ -341,8 +350,12 @@ fn sub_key(variant: usize, args: &[Value]) -> u32 {
 /// `(class prefix, selector, min-width)`, in `Screen`'s declaration order.
 /// Mobile-first: every one of these is a floor, so a larger tier overrides a
 /// smaller one by being written later.
-const SCREENS: [(&str, &str); 4] =
-    [("sm", "40rem"), ("md", "48rem"), ("lg", "64rem"), ("xl", "80rem")];
+const SCREENS: [(&str, &str); 4] = [
+    ("sm", "40rem"),
+    ("md", "48rem"),
+    ("lg", "64rem"),
+    ("xl", "80rem"),
+];
 
 /// `(class prefix, selector suffix)`, in `State`'s declaration order.
 const STATES: [(&str, &str); 7] = [
@@ -448,13 +461,15 @@ pub fn run(
     walked: &Walked,
 ) -> (Styled, Option<TyConId>) {
     // `ui/style` declares both, so a program has both or neither.
-    let (Some(style_con), Some(classes_con)) =
-        (own_type(loaded, scopes, "ui/style", "Style"), own_type(loaded, scopes, "ui/style", "Classes"))
-    else {
+    let (Some(style_con), Some(classes_con)) = (
+        own_type(loaded, scopes, "ui/style", "Style"),
+        own_type(loaded, scopes, "ui/style", "Classes"),
+    ) else {
         return (Styled::default(), None);
     };
     let classifiers = classifiers(loaded, scopes);
-    let extracted = own_fn(loaded, scopes, "ui/style", "extracted").or_ice("`ui/style` declares `extracted`");
+    let extracted =
+        own_fn(loaded, scopes, "ui/style", "extracted").or_ice("`ui/style` declares `extracted`");
 
     // The interpreter reads bodies and constants as they were *before* this
     // pass rewrote any of them: folding a call into an already-extracted style
@@ -464,7 +479,14 @@ pub fn run(
     // Copying the maps instead held a second `Arc` to every body, which made
     // the rewrite deep-copy what it changed anyway, and deep-copied every
     // constant whether it changed or not.
-    let flow = Flow::of(tables, style_con, loaded.find("ui/node"), walked, bodies, consts);
+    let flow = Flow::of(
+        tables,
+        style_con,
+        loaded.find("ui/node"),
+        walked,
+        bodies,
+        consts,
+    );
     let mut ex = Extractor {
         style_con,
         classes_con,
@@ -518,7 +540,12 @@ pub fn run(
     ex.recorded.clear();
     let (const_rules, body_rules) = ex.walk(&mut new_consts, &mut new_bodies, false);
     ex.fill(&mut new_consts, &mut new_bodies);
-    let styled = Styled { const_rules, body_rules, sources: ex.sources, ..Styled::default() };
+    let styled = Styled {
+        const_rules,
+        body_rules,
+        sources: ex.sources,
+        ..Styled::default()
+    };
     for (id, init) in new_consts {
         consts.insert(id, init);
     }
@@ -533,7 +560,10 @@ pub fn run(
 /// there in a program none of whose own modules imports from `ui/`.
 pub fn classifiers(loaded: &Loaded, scopes: &Layered<ModuleScope>) -> Option<(FnId, FnId)> {
     let module = "ui/style/classify";
-    Some((own_fn(loaded, scopes, module, "classify")?, own_fn(loaded, scopes, module, "classifyStyle")?))
+    Some((
+        own_fn(loaded, scopes, module, "classify")?,
+        own_fn(loaded, scopes, module, "classifyStyle")?,
+    ))
 }
 
 struct Extractor<'a> {
@@ -711,9 +741,11 @@ impl<'a> Extractor<'a> {
     fn opaque(&mut self, e: &typed::Expr, s: Sink) {
         let unseen = match &e.kind {
             ExprKind::Intrinsic { .. } => true,
-            ExprKind::CallFn { func, .. } => {
-                !self.flow.params.contains_key(&func.decl().or_ice("before monomorphization a callee is a declaration"))
-            }
+            ExprKind::CallFn { func, .. } => !self.flow.params.contains_key(
+                &func
+                    .decl()
+                    .or_ice("before monomorphization a callee is a declaration"),
+            ),
             _ => false,
         };
         self.tainted.extend(unseen.then_some(s.to));
@@ -729,12 +761,24 @@ impl<'a> Extractor<'a> {
     ) -> (Vec<StyleRule>, Vec<StyleRule>) {
         for (id, init) in consts.iter_mut() {
             let module = self.tables.const_(*id).module;
-            self.declaration(Owner::Const(*id), Demand::Const(*id), module, init, checking);
+            self.declaration(
+                Owner::Const(*id),
+                Demand::Const(*id),
+                module,
+                init,
+                checking,
+            );
         }
         let const_rules = std::mem::take(&mut self.rules);
         for (id, body) in bodies.iter_mut() {
             let module = self.tables.fn_info(*id).module;
-            self.declaration(Owner::Fn(*id), Demand::Ret(*id), module, &mut body.expr, checking);
+            self.declaration(
+                Owner::Fn(*id),
+                Demand::Ret(*id),
+                module,
+                &mut body.expr,
+                checking,
+            );
         }
         (const_rules, std::mem::take(&mut self.rules))
     }
@@ -745,10 +789,18 @@ impl<'a> Extractor<'a> {
     /// but that still has to be a style the stylesheet can hold. So a
     /// declaration where that happens is walked twice: `checking` refuses what
     /// can't be, and then the extracting walk refuses nothing a second time.
-    fn declaration(&mut self, owner: Owner, top: Demand, module: ModuleId, e: &mut typed::Expr, checking: bool) {
+    fn declaration(
+        &mut self,
+        owner: Owner,
+        top: Demand,
+        module: ModuleId,
+        e: &mut typed::Expr,
+        checking: bool,
+    ) {
         let top = Pos::At(Some(top));
         let touched = self.flow.touched.contains(&owner)
-            || self.flow.reaches(owner, &top, false, true) != self.flow.reaches(owner, &top, false, false);
+            || self.flow.reaches(owner, &top, false, true)
+                != self.flow.reaches(owner, &top, false, false);
         self.mode = match (checking, touched) {
             (true, false) => return,
             (true, true) => Mode::Checking,
@@ -818,11 +870,13 @@ impl<'a> Extractor<'a> {
         // leaves the closure alone.
         let span = e.span;
         let property = match &mut e.kind {
-            ExprKind::EnumLit { variant, args, .. } => match self.composition(span, variant, args, s, cond) {
-                Composed::Done => return,
-                Composed::Property(variant) => Some(variant),
-                Composed::Closure => None,
-            },
+            ExprKind::EnumLit { variant, args, .. } => {
+                match self.composition(span, variant, args, s, cond) {
+                    Composed::Done => return,
+                    Composed::Property(variant) => Some(variant),
+                    Composed::Closure => None,
+                }
+            }
             _ => None,
         };
         if !cond.is_plain() {
@@ -867,26 +921,43 @@ impl<'a> Extractor<'a> {
         // A constant is inlined where it's read, with the spans it was
         // written with, so that is where `survey` meets it.
         if let ExprKind::Const(c) = e.kind {
-            let init = self.original_consts.get(&c).or_ice("a constant that folded has a value");
+            let init = self
+                .original_consts
+                .get(&c)
+                .or_ice("a constant that folded has a value");
             self.sources.insert(init.span, classes.clone());
         }
         self.sources.insert(e.span, classes);
-        self.directs.entry(s.to).or_default().extend(atoms.into_iter().map(|a| (a.name, a.class)));
+        self.directs
+            .entry(s.to)
+            .or_default()
+            .extend(atoms.into_iter().map(|a| (a.name, a.class)));
     }
 
     /// A style a node is given whose value isn't known here: through
     /// `classify` where it can be, so each value it holds at run time becomes
     /// the classes the sheet has for it. A choice is descended rather than
     /// wrapped, so that each branch is extracted or wrapped on its own.
-    fn leaf_or_descend(&mut self, e: &mut typed::Expr, s: Sink, cond: Cond, classify: Option<FnId>) {
-        let choice = matches!(e.kind, ExprKind::If { .. } | ExprKind::Match { .. } | ExprKind::Block { .. });
+    fn leaf_or_descend(
+        &mut self,
+        e: &mut typed::Expr,
+        s: Sink,
+        cond: Cond,
+        classify: Option<FnId>,
+    ) {
+        let choice = matches!(
+            e.kind,
+            ExprKind::If { .. } | ExprKind::Match { .. } | ExprKind::Block { .. }
+        );
         if !self.leaf_site(s) || choice {
             self.descend(e, Some(s), cond);
             return;
         }
-        let classify = classify.or_ice("a program that hands a node a style loads `ui/style/classify`");
+        let classify =
+            classify.or_ice("a program that hands a node a style loads `ui/style/classify`");
         let to = Demand::Leaf(self.wrapped.len());
-        self.flow.edges(self.owner, e, Some(to), false, &mut self.extra);
+        self.flow
+            .edges(self.owner, e, Some(to), false, &mut self.extra);
         self.descend(e, Some(Sink { to, site: false }), cond);
         let span = e.span;
         let ty = e.ty;
@@ -894,8 +965,16 @@ impl<'a> Extractor<'a> {
         // `fill` writes the names it can be once every declaration is walked.
         *e = typed::Expr::new(
             ExprKind::CallFn {
-                func: typed::Callee::Decl { id: classify, targs: Vec::new() },
-                args: vec![value, self.known(Vec::new(), span), self.boolean(true, span), self.make(span)],
+                func: typed::Callee::Decl {
+                    id: classify,
+                    targs: Vec::new(),
+                },
+                args: vec![
+                    value,
+                    self.known(Vec::new(), span),
+                    self.boolean(true, span),
+                    self.make(span),
+                ],
             },
             ty,
             span,
@@ -914,35 +993,59 @@ impl<'a> Extractor<'a> {
     /// and whether the compiler saw every one of those values.
     fn fill(&self, consts: &mut [(ConstId, typed::Expr)], bodies: &mut [(FnId, typed::Body)]) {
         let mut found = self.wrapped.iter().map(|leaf| self.names(*leaf));
-        for (_, init) in consts.iter_mut().filter(|(id, _)| self.leafy.contains(&Owner::Const(*id))) {
+        for (_, init) in consts
+            .iter_mut()
+            .filter(|(id, _)| self.leafy.contains(&Owner::Const(*id)))
+        {
             self.fill_in(init, &mut found);
         }
-        for (_, body) in bodies.iter_mut().filter(|(id, _)| self.leafy.contains(&Owner::Fn(*id))) {
+        for (_, body) in bodies
+            .iter_mut()
+            .filter(|(id, _)| self.leafy.contains(&Owner::Fn(*id)))
+        {
             self.fill_in(&mut body.expr, &mut found);
         }
-        invariant(found.next().is_none(), "every leaf is one `classify` in a declaration that holds one");
+        invariant(
+            found.next().is_none(),
+            "every leaf is one `classify` in a declaration that holds one",
+        );
     }
 
     /// The `classify`s under `e`, in the order [`Extractor::leaf_or_descend`]
     /// wrote them: each one's children first. Only a declaration that holds
     /// one is filled in, so `classify` is loaded whenever this runs.
-    fn fill_in(&self, e: &mut typed::Expr, found: &mut dyn Iterator<Item = (Vec<(String, String)>, bool)>) {
+    fn fill_in(
+        &self,
+        e: &mut typed::Expr,
+        found: &mut dyn Iterator<Item = (Vec<(String, String)>, bool)>,
+    ) {
         typed::children_mut(e, &mut |child| self.fill_in(child, found));
         let span = e.span;
-        let ExprKind::CallFn { func, args } = &mut e.kind else { return };
+        let ExprKind::CallFn { func, args } = &mut e.kind else {
+            return;
+        };
         if ![self.classify, self.classify_style].contains(&func.decl()) {
             return;
         }
-        let (known, strict) = found.next().or_ice("every `classify` this pass wrote is one leaf");
+        let (known, strict) = found
+            .next()
+            .or_ice("every `classify` this pass wrote is one leaf");
         match (known.is_empty(), strict) {
             // Nothing the compiler saw can get here, so there is nothing to
             // look up: the value is the one the runtime writes inline.
             (true, false) => {
-                *e = std::mem::take(args).into_iter().next().or_ice("`classify` is given the style first");
+                *e = std::mem::take(args)
+                    .into_iter()
+                    .next()
+                    .or_ice("`classify` is given the style first");
             }
             _ => {
-                *args.get_mut(1).or_ice("`classify` is given the names second") = self.known(known, span);
-                *args.get_mut(2).or_ice("`classify` is given strictness third") = self.boolean(strict, span);
+                *args
+                    .get_mut(1)
+                    .or_ice("`classify` is given the names second") = self.known(known, span);
+                *args
+                    .get_mut(2)
+                    .or_ice("`classify` is given strictness third") = self.boolean(strict, span);
             }
         }
     }
@@ -951,9 +1054,15 @@ impl<'a> Extractor<'a> {
     /// those are all the values it can hold.
     fn names(&self, leaf: Demand) -> (Vec<(String, String)>, bool) {
         let reach = closure(leaf, false, &[&self.flow.edges, &self.extra]);
-        let strict = reach.iter().all(|d| !self.tainted.contains(d) && !self.flow.open(*d));
-        let mut known: Vec<(String, String)> =
-            reach.iter().filter_map(|d| self.directs.get(d)).flatten().cloned().collect();
+        let strict = reach
+            .iter()
+            .all(|d| !self.tainted.contains(d) && !self.flow.open(*d));
+        let mut known: Vec<(String, String)> = reach
+            .iter()
+            .filter_map(|d| self.directs.get(d))
+            .flatten()
+            .cloned()
+            .collect();
         known.sort();
         known.dedup();
         (known, strict)
@@ -961,7 +1070,9 @@ impl<'a> Extractor<'a> {
 
     /// `[(name, class), …]`, as a typed expression.
     fn known(&self, pairs: Vec<(String, String)>, span: Span) -> typed::Expr {
-        let text = self.tables.prim(crate::compiler::semantics::types::Prim::Str);
+        let text = self
+            .tables
+            .prim(crate::compiler::semantics::types::Prim::Str);
         let pair = Ty::tuple([text, text]);
         let items = pairs
             .into_iter()
@@ -980,7 +1091,9 @@ impl<'a> Extractor<'a> {
     }
 
     fn boolean(&self, value: bool, span: Span) -> typed::Expr {
-        let ty = self.tables.prim(crate::compiler::semantics::types::Prim::Bool);
+        let ty = self
+            .tables
+            .prim(crate::compiler::semantics::types::Prim::Bool);
         typed::Expr::new(ExprKind::Bool(value), ty, span)
     }
 
@@ -989,7 +1102,14 @@ impl<'a> Extractor<'a> {
     fn make(&self, span: Span) -> typed::Expr {
         let info = self.tables.fn_info(self.extracted);
         let ty = Ty::func(info.params.iter().map(|p| p.ty), info.ret);
-        typed::Expr::new(ExprKind::FnRef(typed::Callee::Decl { id: self.extracted, targs: Vec::new() }), ty, span)
+        typed::Expr::new(
+            ExprKind::FnRef(typed::Callee::Decl {
+                id: self.extracted,
+                targs: Vec::new(),
+            }),
+            ty,
+            span,
+        )
     }
 
     /// Records the variable-backed rule a dynamic value at no condition needs
@@ -997,12 +1117,18 @@ impl<'a> Extractor<'a> {
     /// through more than one declaration or an edge-named one — those keep
     /// degrading to an inline declaration, as [`variable_property`] says.
     fn variable_rule(&mut self, variant: usize) {
-        let Some((abbreviation, property)) = variable_property(variant) else { return };
+        let Some((abbreviation, property)) = variable_property(variant) else {
+            return;
+        };
         let class = format!("{abbreviation}-var");
         if !self.recorded.insert(class.clone()) {
             return;
         }
-        let folded = if variant == STYLE_SHADOWS { STYLE_SHADOW } else { variant };
+        let folded = if variant == STYLE_SHADOWS {
+            STYLE_SHADOW
+        } else {
+            variant
+        };
         self.rules.push(StyleRule {
             class,
             property: u16::try_from(folded).unwrap_or(0),
@@ -1023,7 +1149,9 @@ impl<'a> Extractor<'a> {
     ) -> Composed {
         match *variant {
             STYLE_GROUP => {
-                let Some(list) = args.first_mut() else { return Composed::Done };
+                let Some(list) = args.first_mut() else {
+                    return Composed::Done;
+                };
                 self.style_list(list, s, cond);
                 Composed::Done
             }
@@ -1046,9 +1174,15 @@ impl<'a> Extractor<'a> {
                     return Composed::Done;
                 };
                 let inner = if *variant == STYLE_ON {
-                    Cond { state: Some(chosen), screen: cond.screen }
+                    Cond {
+                        state: Some(chosen),
+                        screen: cond.screen,
+                    }
                 } else {
-                    Cond { state: cond.state, screen: Some(chosen) }
+                    Cond {
+                        state: cond.state,
+                        screen: Some(chosen),
+                    }
                 };
                 if let Some(list) = args.get_mut(1) {
                     self.style_list(list, s, inner);
@@ -1084,7 +1218,8 @@ impl<'a> Extractor<'a> {
                 // A closure written here is extracted inside. One that comes
                 // from elsewhere goes through `classify` whole, which wraps
                 // it in one that extracts what it answers.
-                let written = matches!(args.first().map(|f| &f.kind), Some(ExprKind::Lambda { .. }));
+                let written =
+                    matches!(args.first().map(|f| &f.kind), Some(ExprKind::Lambda { .. }));
                 if !written && self.leaf_site(s) {
                     return Composed::Closure;
                 }
@@ -1099,8 +1234,12 @@ impl<'a> Extractor<'a> {
 
     /// `Style::Extracted(pairs)`, as a typed expression.
     fn extracted(&self, atoms: &[Atom], span: Span) -> typed::Expr {
-        let int = self.tables.prim(crate::compiler::semantics::types::Prim::I64);
-        let text = self.tables.prim(crate::compiler::semantics::types::Prim::Str);
+        let int = self
+            .tables
+            .prim(crate::compiler::semantics::types::Prim::I64);
+        let text = self
+            .tables
+            .prim(crate::compiler::semantics::types::Prim::Str);
         let pair = Ty::tuple([int, text]);
         let items: Vec<typed::Expr> = atoms
             .iter()
@@ -1119,11 +1258,7 @@ impl<'a> Extractor<'a> {
                 )
             })
             .collect();
-        let list = typed::Expr::new(
-            ExprKind::Array(items),
-            Ty::array(pair),
-            span,
-        );
+        let list = typed::Expr::new(ExprKind::Array(items), Ty::array(pair), span);
         // The payload is a `Classes`, whose one field is private to
         // `ui/style`. Writing it here is what a program cannot do.
         let classes = typed::Expr::new(
@@ -1155,7 +1290,9 @@ impl<'a> Extractor<'a> {
     }
 
     fn fold_list(&mut self, e: &typed::Expr, cond: Cond) -> Option<Vec<Atom>> {
-        let Value::Array(items) = self.flow.fold(self.owner, e)? else { return None };
+        let Value::Array(items) = self.flow.fold(self.owner, e)? else {
+            return None;
+        };
         let mut atoms = Vec::new();
         for item in &items {
             flatten(item, cond, &mut atoms)?;
@@ -1211,7 +1348,9 @@ fn flatten(v: &Value, cond: Cond, out: &mut Vec<(Atom, StyleRule)>) -> Option<()
     let (variant, args) = v.as_variant()?;
     match variant {
         STYLE_GROUP => {
-            let Value::Array(items) = args.first()? else { return None };
+            let Value::Array(items) = args.first()? else {
+                return None;
+            };
             for item in items {
                 flatten(item, cond, out)?;
             }
@@ -1219,8 +1358,13 @@ fn flatten(v: &Value, cond: Cond, out: &mut Vec<(Atom, StyleRule)>) -> Option<()
         }
         STYLE_ON => {
             let (state, _) = args.first()?.as_variant()?;
-            let Value::Array(items) = args.get(1)? else { return None };
-            let inner = Cond { state: Some(u8::try_from(state).ok()?), screen: cond.screen };
+            let Value::Array(items) = args.get(1)? else {
+                return None;
+            };
+            let inner = Cond {
+                state: Some(u8::try_from(state).ok()?),
+                screen: cond.screen,
+            };
             for item in items {
                 flatten(item, inner, out)?;
             }
@@ -1228,8 +1372,13 @@ fn flatten(v: &Value, cond: Cond, out: &mut Vec<(Atom, StyleRule)>) -> Option<()
         }
         STYLE_AT => {
             let (screen, _) = args.first()?.as_variant()?;
-            let Value::Array(items) = args.get(1)? else { return None };
-            let inner = Cond { state: cond.state, screen: Some(u8::try_from(screen).ok()?) };
+            let Value::Array(items) = args.get(1)? else {
+                return None;
+            };
+            let inner = Cond {
+                state: cond.state,
+                screen: Some(u8::try_from(screen).ok()?),
+            };
             for item in items {
                 flatten(item, inner, out)?;
             }
@@ -1246,20 +1395,29 @@ fn flatten(v: &Value, cond: Cond, out: &mut Vec<(Atom, StyleRule)>) -> Option<()
 
 /// One property value: the classes it needs, each in its own slot, and the
 /// rules they put in the sheet.
-fn property(variant: usize, args: &[Value], cond: Cond, out: &mut Vec<(Atom, StyleRule)>) -> Option<()> {
+fn property(
+    variant: usize,
+    args: &[Value],
+    cond: Cond,
+    out: &mut Vec<(Atom, StyleRule)>,
+) -> Option<()> {
     // Out of the flow is one fact about the element rather than one per
     // edge, so a pin keeps its `position` in a class of its own. Four pins
     // then write four insets and one `position`, and `Position` — the
     // property that owns `position`, declared after `Pin` and so written
     // later in the sheet — overrides it wherever an element has both.
     if variant == STYLE_PIN {
-        let flow = ("pin", "out".to_owned(), vec![("", "position:absolute".to_owned())]);
+        let flow = (
+            "pin",
+            "out".to_owned(),
+            vec![("", "position:absolute".to_owned())],
+        );
         out.push(atom(variant, PIN_FLOW, cond, flow, "out")?);
     }
     let sub = sub_key(variant, args);
     let declared = declaration(variant, args, digest)?;
-    let (_, name, _) =
-        declaration(variant, args, preimage).or_ice("a value that declares under one digest declares under any");
+    let (_, name, _) = declaration(variant, args, preimage)
+        .or_ice("a value that declares under one digest declares under any");
     out.push(atom(variant, sub, cond, declared, &name)?);
     Some(())
 }
@@ -1283,7 +1441,14 @@ fn atom(
         blocks,
     };
     let name = format!("{}{}-{}", cond.prefix(), abbreviation, name);
-    Some((Atom { slot: slot(variant, sub, cond)?, class, name }, rule))
+    Some((
+        Atom {
+            slot: slot(variant, sub, cond)?,
+            class,
+            name,
+        },
+        rule,
+    ))
 }
 
 /// What reads what, each read marked when it's under a style extracted where
@@ -1315,7 +1480,11 @@ fn closure(from: Demand, all: bool, graphs: &[&Edges]) -> HashSet<Demand> {
     while let Some(d) = work.pop() {
         if found.insert(d) {
             let reads = graphs.iter().flat_map(|g| g.reads.get(&d)).flatten();
-            work.extend(reads.filter(|(_, stopped)| all || !stopped).map(|(to, _)| *to));
+            work.extend(
+                reads
+                    .filter(|(_, stopped)| all || !stopped)
+                    .map(|(to, _)| *to),
+            );
         }
     }
     found
@@ -1326,13 +1495,15 @@ fn closure(from: Demand, all: bool, graphs: &[&Edges]) -> HashSet<Demand> {
 fn reads(e: &typed::Expr) -> bool {
     let mut found = matches!(
         e.kind,
-        ExprKind::Local(_) | ExprKind::Const(_) | ExprKind::CallFn { .. } | ExprKind::FnRef(_) | ExprKind::CallTrait { .. }
+        ExprKind::Local(_)
+            | ExprKind::Const(_)
+            | ExprKind::CallFn { .. }
+            | ExprKind::FnRef(_)
+            | ExprKind::CallTrait { .. }
     );
     typed::children(e, &mut |child| found = found || reads(child));
     found
 }
-
-
 
 /// What decides whether a position's value reaches a node.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -1440,13 +1611,25 @@ impl<'a> Flow<'a> {
         }
         let mut edges = Edges::default();
         for (id, init) in walked.unsettled_constants(consts) {
-            flow.edges(Owner::Const(id), init, Some(Demand::Const(id)), false, &mut edges);
+            flow.edges(
+                Owner::Const(id),
+                init,
+                Some(Demand::Const(id)),
+                false,
+                &mut edges,
+            );
         }
         for (id, body) in walked.unsettled(bodies) {
             if let Some((t, m)) = tables.fn_info(id).impl_of {
                 edges.add(Demand::Method(t, m), Demand::Ret(id), false);
             }
-            flow.edges(Owner::Fn(id), &body.expr, Some(Demand::Ret(id)), false, &mut edges);
+            flow.edges(
+                Owner::Fn(id),
+                &body.expr,
+                Some(Demand::Ret(id)),
+                false,
+                &mut edges,
+            );
         }
         flow.demanded = closure(Demand::Node, false, &[&edges]);
         flow.reached = closure(Demand::Node, true, &[&edges]);
@@ -1468,7 +1651,10 @@ impl<'a> Flow<'a> {
             .filter_map(|id| flow.params.get(id).map(|params| (*id, params)));
         let seen: Vec<(Owner, LocalId)> = closed
             .flat_map(|(id, params)| {
-                let typed = params.iter().zip(&tables.fn_info(id).params).filter(|(_, p)| !p.ty.has_params());
+                let typed = params
+                    .iter()
+                    .zip(&tables.fn_info(id).params)
+                    .filter(|(_, p)| !p.ty.has_params());
                 typed.map(move |(l, _)| (Owner::Fn(id), *l))
             })
             .collect();
@@ -1489,14 +1675,18 @@ impl<'a> Flow<'a> {
         if !(self.is_style(&e.ty) || self.is_style_list(&e.ty)) || !reads(e) {
             return false;
         }
-        let Some(value) = self.fold(owner, e) else { return false };
+        let Some(value) = self.fold(owner, e) else {
+            return false;
+        };
         // A list folds to an array, and a style never does.
         let items = match &value {
             Value::Array(items) => &items[..],
             one => std::slice::from_ref(one),
         };
         let mut atoms = Vec::new();
-        items.iter().all(|v| flatten(v, Cond::default(), &mut atoms).is_some())
+        items
+            .iter()
+            .all(|v| flatten(v, Cond::default(), &mut atoms).is_some())
     }
 
     fn is_style(&self, ty: &Ty) -> bool {
@@ -1550,7 +1740,14 @@ impl<'a> Flow<'a> {
     /// Records what `e` reads when its value goes to `ctx`, and the same for
     /// everything under it. Under a style `stopped` where a node is given it,
     /// only [`Flow::reached`] reads it.
-    fn edges(&self, owner: Owner, e: &typed::Expr, ctx: Option<Demand>, stopped: bool, out: &mut Edges) {
+    fn edges(
+        &self,
+        owner: Owner,
+        e: &typed::Expr,
+        ctx: Option<Demand>,
+        stopped: bool,
+        out: &mut Edges,
+    ) {
         let stops = !stopped && ctx.is_some() && self.extracts(owner, e);
         if stops {
             out.stops.insert(owner);
@@ -1558,10 +1755,16 @@ impl<'a> Flow<'a> {
         let stopped = stopped || stops;
         match &e.kind {
             ExprKind::CallFn { func, .. } => {
-                out.called.insert(func.decl().or_ice("before monomorphization a callee is a declaration"));
+                out.called.insert(
+                    func.decl()
+                        .or_ice("before monomorphization a callee is a declaration"),
+                );
             }
             ExprKind::FnRef(func) => {
-                out.referenced.insert(func.decl().or_ice("before monomorphization a callee is a declaration"));
+                out.referenced.insert(
+                    func.decl()
+                        .or_ice("before monomorphization a callee is a declaration"),
+                );
             }
             _ => {}
         }
@@ -1570,10 +1773,14 @@ impl<'a> Flow<'a> {
                 ExprKind::Local(l) => Some(Demand::Local(owner, *l)),
                 ExprKind::Const(c) => Some(Demand::Const(*c)),
                 ExprKind::CallFn { func, .. } | ExprKind::FnRef(func) => {
-                    let f = func.decl().or_ice("before monomorphization a callee is a declaration");
+                    let f = func
+                        .decl()
+                        .or_ice("before monomorphization a callee is a declaration");
                     self.params.contains_key(&f).then_some(Demand::Ret(f))
                 }
-                ExprKind::CallTrait { trait_id, method, .. } => Some(Demand::Method(*trait_id, *method)),
+                ExprKind::CallTrait {
+                    trait_id, method, ..
+                } => Some(Demand::Method(*trait_id, *method)),
                 _ => None,
             };
             if let Some(read) = read {
@@ -1607,7 +1814,9 @@ impl<'a> Flow<'a> {
         match pos {
             Pos::Same => sink,
             Pos::At(d) => d.is_some_and(|d| set.contains(&d)),
-            Pos::Bound(locals) => locals.first().is_some_and(|l| set.contains(&Demand::Local(owner, *l))),
+            Pos::Bound(locals) => locals
+                .first()
+                .is_some_and(|l| set.contains(&Demand::Local(owner, *l))),
         }
     }
 
@@ -1615,11 +1824,24 @@ impl<'a> Flow<'a> {
     /// `parent`, if a node reads it: through a style extracted where it's
     /// given too when `all`. A child a node is given right where its parent
     /// is, `carries` says, is given it right there too.
-    fn sink(&self, owner: Owner, pos: &Pos, parent: Option<Sink>, carries: bool, all: bool) -> Option<Sink> {
+    fn sink(
+        &self,
+        owner: Owner,
+        pos: &Pos,
+        parent: Option<Sink>,
+        carries: bool,
+        all: bool,
+    ) -> Option<Sink> {
         let set = if all { &self.reached } else { &self.demanded };
         match pos {
-            Pos::Same => parent.map(|p| Sink { to: p.to, site: p.site && carries }),
-            Pos::At(d) => d.filter(|d| set.contains(d)).map(|to| Sink { to, site: to == Demand::Node }),
+            Pos::Same => parent.map(|p| Sink {
+                to: p.to,
+                site: p.site && carries,
+            }),
+            Pos::At(d) => d.filter(|d| set.contains(d)).map(|to| Sink {
+                to,
+                site: to == Demand::Node,
+            }),
             Pos::Bound(locals) => locals
                 .first()
                 .map(|l| Demand::Local(owner, *l))
@@ -1646,9 +1868,13 @@ impl<'a> Flow<'a> {
         match &e.kind {
             // A closure answers what its body does, which may be any of its
             // arguments.
-            ExprKind::CallValue { args, .. } => std::iter::once(Pos::Same).chain(args.iter().map(|_| Pos::Same)).collect(),
+            ExprKind::CallValue { args, .. } => std::iter::once(Pos::Same)
+                .chain(args.iter().map(|_| Pos::Same))
+                .collect(),
             ExprKind::CallFn { func, args } => {
-                let f = func.decl().or_ice("before monomorphization a callee is a declaration");
+                let f = func
+                    .decl()
+                    .or_ice("before monomorphization a callee is a declaration");
                 let info = self.tables.fn_info(f);
                 if self.in_ui_node(info.module) {
                     return all(Pos::At(Some(Demand::Node)), args.len());
@@ -1681,13 +1907,17 @@ impl<'a> Flow<'a> {
             | ExprKind::Intrinsic { args, .. }
             | ExprKind::Tuple(args)
             | ExprKind::Array(args) => all(Pos::Same, args.len()),
-            ExprKind::StructLit { con, fields: args, .. } | ExprKind::EnumLit { con, args, .. } => {
-                all(built(*con), args.len())
+            ExprKind::StructLit {
+                con, fields: args, ..
             }
-            ExprKind::StructUpdate { con, updates, .. } => {
-                std::iter::once(built(*con)).chain(updates.iter().map(|_| built(*con))).collect()
-            }
-            ExprKind::Field { .. } | ExprKind::TupleIndex { .. } | ExprKind::Try { .. } | ExprKind::Lambda { .. } => {
+            | ExprKind::EnumLit { con, args, .. } => all(built(*con), args.len()),
+            ExprKind::StructUpdate { con, updates, .. } => std::iter::once(built(*con))
+                .chain(updates.iter().map(|_| built(*con)))
+                .collect(),
+            ExprKind::Field { .. }
+            | ExprKind::TupleIndex { .. }
+            | ExprKind::Try { .. }
+            | ExprKind::Lambda { .. } => {
                 vec![Pos::Same]
             }
             ExprKind::Index { .. } => vec![Pos::Same, Pos::At(None)],
@@ -1801,7 +2031,10 @@ pub fn stylesheet(rules: &[StyleRule], used: &HashSet<String>, reset: Reset) -> 
             }
             open = Some(rule.screen);
         }
-        let state = rule.state.and_then(|s| STATES.get(s as usize)).map_or("", |s| s.1);
+        let state = rule
+            .state
+            .and_then(|s| STATES.get(s as usize))
+            .map_or("", |s| s.1);
         for (suffix, declarations) in &rule.blocks {
             let text = format!(".{}{state}{suffix}{{{declarations}}}", rule.class);
             // An animation runs only for a reader who has not asked for less
@@ -1857,8 +2090,11 @@ fn focus_ring(rules: &[&StyleRule]) -> String {
         return String::new();
     }
     classes.sort_unstable();
-    let selectors =
-        classes.iter().map(|c| format!(".{c}")).collect::<Vec<_>>().join(",");
+    let selectors = classes
+        .iter()
+        .map(|c| format!(".{c}"))
+        .collect::<Vec<_>>()
+        .join(",");
     format!(":where({selectors}):focus-visible{{outline:none}}\n")
 }
 
@@ -1875,8 +2111,11 @@ fn marker_anchor(rules: &[&StyleRule]) -> String {
         return String::new();
     }
     classes.sort_unstable();
-    let selectors =
-        classes.iter().map(|c| format!(".{c}")).collect::<Vec<_>>().join(",");
+    let selectors = classes
+        .iter()
+        .map(|c| format!(".{c}"))
+        .collect::<Vec<_>>()
+        .join(",");
     format!(":where({selectors})>*{{position:relative}}\n")
 }
 
@@ -2114,9 +2353,7 @@ impl Reset {
             ));
             // Where the mark sits. It is what makes a switch's thumb travel,
             // and it is nothing to a tick, which fills the box.
-            out.push_str(
-                ":where(input[type=checkbox]:checked){justify-content:flex-end}\n",
-            );
+            out.push_str(":where(input[type=checkbox]:checked){justify-content:flex-end}\n");
             // The two marks. A switch always has its thumb; a checkbox has its
             // tick only when it is on. Both take the box's own colour, which is
             // the one property that paints them.
@@ -2239,7 +2476,13 @@ impl Reset {
 /// module's own constructors and nowhere else. A list is the exception —
 /// `region` takes its role as a parameter, so what names one is a `Role::List`
 /// literal, and that is written at the call site.
-fn reset_in(con: TyConId, variant: usize, node_con: TyConId, role_con: Option<TyConId>, out: &mut Reset) {
+fn reset_in(
+    con: TyConId,
+    variant: usize,
+    node_con: TyConId,
+    role_con: Option<TyConId>,
+    out: &mut Reset,
+) {
     if con == node_con {
         out.tree = true;
         match variant {
@@ -2306,8 +2549,16 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         6 => {
             let (which, inner) = first?.as_variant()?;
             match which {
-                0 => Some(("lay", "col".into(), one("display", "flex;flex-direction:column"))),
-                1 => Some(("lay", "row".into(), one("display", "flex;flex-direction:row"))),
+                0 => Some((
+                    "lay",
+                    "col".into(),
+                    one("display", "flex;flex-direction:column"),
+                )),
+                1 => Some((
+                    "lay",
+                    "row".into(),
+                    one("display", "flex;flex-direction:row"),
+                )),
                 // Reversed: the document keeps the order it was written in and
                 // only the paint runs backwards, which is the whole reason a
                 // component that is handed its children can ask for one.
@@ -2322,7 +2573,9 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
                     one("display", "flex;flex-direction:row-reverse"),
                 )),
                 4 => {
-                    let Value::Array(tracks) = inner.first()? else { return None };
+                    let Value::Array(tracks) = inner.first()? else {
+                        return None;
+                    };
                     let mut rendered = Vec::new();
                     for track in tracks {
                         rendered.push(track_value(track)?);
@@ -2373,7 +2626,11 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         13 => count("shrink", "flex-shrink", first?),
         14 => {
             let n = first?.as_int()?;
-            Some(("span", integer_key(n), one("grid-column", &format!("span {n}"))))
+            Some((
+                "span",
+                integer_key(n),
+                one("grid-column", &format!("span {n}")),
+            ))
         }
         // Only the inset: the `position` a pin needs is the `pin-out` class
         // `property` writes beside this one, so that four edges compose.
@@ -2440,7 +2697,11 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
             let (css, key) = border_width_length(first?)?;
             // A width on its own draws a solid border; `BorderStyle` is
             // declared later and overrides this.
-            Some(("bw", key, one("border-style", &format!("solid;border-width:{css}"))))
+            Some((
+                "bw",
+                key,
+                one("border-style", &format!("solid;border-width:{css}")),
+            ))
         }
         // The same solid a whole-box width implies, on one edge. `BorderStyle`
         // is written later and overrides it, exactly as it does for `bw`.
@@ -2450,7 +2711,10 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
             Some((
                 "be",
                 format!("{edge}-{key}"),
-                one(&format!("{property}-style"), &format!("solid;{property}-width:{css}")),
+                one(
+                    &format!("{property}-style"),
+                    &format!("solid;{property}-width:{css}"),
+                ),
             ))
         }
         35 => {
@@ -2483,7 +2747,9 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         // browser paints them — first over last. One layer here renders what
         // `Shadow` renders, so the two arrive at one class and one rule.
         41 => {
-            let Value::Array(layers) = first? else { return None };
+            let Value::Array(layers) = first? else {
+                return None;
+            };
             let mut rendered = Vec::with_capacity(layers.len());
             for layer in layers {
                 rendered.push(shadow(layer)?);
@@ -2505,7 +2771,9 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
                     // escaped: it degrades to an inline style, and the
                     // stylesheet never contains text this did not construct.
                     if name.is_empty()
-                        || !name.chars().all(|c| c.is_ascii_alphanumeric() || " _-".contains(c))
+                        || !name
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || " _-".contains(c))
                     {
                         return None;
                     }
@@ -2517,9 +2785,14 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         43 => spacing("fs", "font-size", first?),
         44 => {
             let (which, _) = first?.as_variant()?;
-            let (css, key) = [("400", "regular"), ("500", "medium"), ("600", "semibold"), ("700", "bold")]
-                .get(which)
-                .copied()?;
+            let (css, key) = [
+                ("400", "regular"),
+                ("500", "medium"),
+                ("600", "semibold"),
+                ("700", "bold"),
+            ]
+            .get(which)
+            .copied()?;
             Some(("fw", key.into(), one("font-weight", css)))
         }
         45 => {
@@ -2556,10 +2829,13 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         }
         50 => {
             let (which, _) = first?.as_variant()?;
-            let (css, key) =
-                [("none", "none"), ("underline", "underline"), ("line-through", "strike")]
-                    .get(which)
-                    .copied()?;
+            let (css, key) = [
+                ("none", "none"),
+                ("underline", "underline"),
+                ("line-through", "strike"),
+            ]
+            .get(which)
+            .copied()?;
             Some(("tl", key.into(), one("text-decoration-line", css)))
         }
         51 => {
@@ -2650,7 +2926,11 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
             let (property, edge) = edge_property("margin", first?)?;
             let value = args.get(1)?;
             let (_, key) = length(value)?;
-            Some(("bleed", format!("{edge}-{key}"), one(&property, &outwards(value)?)))
+            Some((
+                "bleed",
+                format!("{edge}-{key}"),
+                one(&property, &outwards(value)?),
+            ))
         }
 
         // transform
@@ -2683,7 +2963,11 @@ fn declaration(variant: usize, args: &[Value], digest: Digest) -> Option<Declara
         // what is painted behind the box is blurred; the box paints over it.
         59 => {
             let (css, key) = length(first?)?;
-            Some(("bdblur", key, one("backdrop-filter", &format!("blur({css})"))))
+            Some((
+                "bdblur",
+                key,
+                one("backdrop-filter", &format!("blur({css})")),
+            ))
         }
         // The caret on its own, so a field with transparent text — the mirror a
         // syntax-highlighted `<input>` is drawn under — still has a visible one.
@@ -2734,7 +3018,11 @@ const ANIMATIONS: [(&str, &str, &str); 2] = [
         "buri-pulse 2s cubic-bezier(0.4,0,0.6,1) infinite",
         "@keyframes buri-pulse{50%{opacity:0.5}}",
     ),
-    ("spin", "buri-spin 1s linear infinite", "@keyframes buri-spin{to{rotate:360deg}}"),
+    (
+        "spin",
+        "buri-spin 1s linear infinite",
+        "@keyframes buri-spin{to{rotate:360deg}}",
+    ),
 ];
 
 /// The query an animation rule sits inside, so a reader whose platform asks for
@@ -2751,12 +3039,20 @@ fn outwards(value: &Value) -> Option<String> {
     let (which, args) = value.as_variant()?;
     let out = |n: f64, unit: &str| -> Option<String> {
         let rendered = number(n)?;
-        Some(if n > 0.0 { format!("-{rendered}{unit}") } else { "0px".to_owned() })
+        Some(if n > 0.0 {
+            format!("-{rendered}{unit}")
+        } else {
+            "0px".to_owned()
+        })
     };
     match which {
         0 => {
             let n = args.first()?.as_int()?;
-            Some(if n > 0 { format!("-{n}px") } else { "0px".to_owned() })
+            Some(if n > 0 {
+                format!("-{n}px")
+            } else {
+                "0px".to_owned()
+            })
         }
         1 => out(args.first()?.as_float()?, "rem"),
         2 => out(args.first()?.as_float()?, "em"),
@@ -2780,7 +3076,9 @@ fn alpha_of(colour: &Value) -> Option<f64> {
 
 /// One `Shadow`, as the four lengths and the colour a `box-shadow` layer is.
 fn shadow(value: &Value) -> Option<String> {
-    let Value::Struct(fields) = value else { return None };
+    let Value::Struct(fields) = value else {
+        return None;
+    };
     let (x, _) = length(fields.first()?)?;
     let (y, _) = length(fields.get(1)?)?;
     let (blur, _) = length(fields.get(2)?)?;
@@ -2798,7 +3096,11 @@ fn spacing(abbreviation: &'static str, property: &str, value: &Value) -> Option<
 /// A property whose only value is a count.
 fn count(abbreviation: &'static str, property: &str, value: &Value) -> Option<Declaration> {
     let n = value.as_int()?;
-    Some((abbreviation, integer_key(n), vec![("", format!("{property}:{n}"))]))
+    Some((
+        abbreviation,
+        integer_key(n),
+        vec![("", format!("{property}:{n}"))],
+    ))
 }
 
 /// One logical edge, as the CSS property it names under a prefix.
@@ -2889,18 +3191,25 @@ fn length(value: &Value) -> Option<(String, String)> {
 
 fn colour(value: &Value, digest: Digest) -> Option<(String, String)> {
     let (which, args) = value.as_variant()?;
-    let channel = |v: Option<&Value>| -> Option<u8> {
-        u8::try_from(v?.as_int()?).ok()
-    };
+    let channel = |v: Option<&Value>| -> Option<u8> { u8::try_from(v?.as_int()?).ok() };
     match which {
         0 => {
-            let (r, g, b) =
-                (channel(args.first())?, channel(args.get(1))?, channel(args.get(2))?);
-            Some((format!("rgb({r},{g},{b})"), format!("{r:02x}{g:02x}{b:02x}")))
+            let (r, g, b) = (
+                channel(args.first())?,
+                channel(args.get(1))?,
+                channel(args.get(2))?,
+            );
+            Some((
+                format!("rgb({r},{g},{b})"),
+                format!("{r:02x}{g:02x}{b:02x}"),
+            ))
         }
         1 => {
-            let (r, g, b) =
-                (channel(args.first())?, channel(args.get(1))?, channel(args.get(2))?);
+            let (r, g, b) = (
+                channel(args.first())?,
+                channel(args.get(1))?,
+                channel(args.get(2))?,
+            );
             let a = number(args.get(3)?.as_float()?)?;
             Some((
                 format!("rgba({r},{g},{b},{a})"),
@@ -2912,10 +3221,15 @@ fn colour(value: &Value, digest: Digest) -> Option<(String, String)> {
         // class is decided here, at compile time, and installing or switching a
         // theme only ever changes what `var(--cardlib-surface)` reads as.
         2 => {
-            let Value::Struct(parts) = args.first()? else { return None };
+            let Value::Struct(parts) = args.first()? else {
+                return None;
+            };
             let namespace = parts.first()?.as_str()?;
             let name = parts.get(1)?.as_str()?;
-            Some((format!("var(--{namespace}-{name})"), token_key(namespace, name, digest)))
+            Some((
+                format!("var(--{namespace}-{name})"),
+                token_key(namespace, name, digest),
+            ))
         }
         3 => Some(("transparent".into(), "none".into())),
         4 => Some(("inherit".into(), "inherit".into())),
@@ -2923,7 +3237,9 @@ fn colour(value: &Value, digest: Digest) -> Option<(String, String)> {
         // a token is worth until a theme is installed — so the token stays a
         // token inside a `color-mix` and follows the theme like any `var()`.
         5 => {
-            let Value::Struct(parts) = args.first()? else { return None };
+            let Value::Struct(parts) = args.first()? else {
+                return None;
+            };
             let namespace = parts.first()?.as_str()?;
             let name = parts.get(1)?.as_str()?;
             let a = number(args.get(1)?.as_float()?)?;
@@ -3107,13 +3423,21 @@ pub struct Reached {
 /// as the classes it stands for. A call to a `classify` in `unchecked` is told
 /// the compiler did not see every value it can be given, so a build that is
 /// not a test's never stops on one.
-pub fn survey(e: &mut typed::Expr, ui: UiTypes, sources: &Sources, unchecked: &[FuncIdx], out: &mut Reached) {
+pub fn survey(
+    e: &mut typed::Expr,
+    ui: UiTypes,
+    sources: &Sources,
+    unchecked: &[FuncIdx],
+    out: &mut Reached,
+) {
     if let Some(classes) = sources.get(&e.span) {
         out.classes.extend(classes.iter().cloned());
         return;
     }
     match &mut e.kind {
-        ExprKind::EnumLit { con, variant, args, .. } => {
+        ExprKind::EnumLit {
+            con, variant, args, ..
+        } => {
             if Some(*con) == ui.style {
                 collect(*variant, args, out);
             }
@@ -3123,8 +3447,13 @@ pub fn survey(e: &mut typed::Expr, ui: UiTypes, sources: &Sources, unchecked: &[
             }
         }
         ExprKind::StructLit { con, .. } if Some(*con) == ui.theme => out.themes = true,
-        ExprKind::CallFn { func: typed::Callee::Func(f), args } if unchecked.contains(f) => {
-            let strict = args.get_mut(2).or_ice("`classify` is given strictness third");
+        ExprKind::CallFn {
+            func: typed::Callee::Func(f),
+            args,
+        } if unchecked.contains(f) => {
+            let strict = args
+                .get_mut(2)
+                .or_ice("`classify` is given strictness third");
             strict.kind = ExprKind::Bool(false);
         }
         _ => {}
@@ -3139,23 +3468,35 @@ fn collect(variant: usize, args: &[typed::Expr], out: &mut Reached) {
             // `Extracted(Classes([(slot, class), …]))`: one field, and
             // the list is inside it.
             let list = match args.first() {
-                Some(typed::Expr { kind: ExprKind::StructLit { fields, .. }, .. }) => {
-                    fields.first()
-                }
+                Some(typed::Expr {
+                    kind: ExprKind::StructLit { fields, .. },
+                    ..
+                }) => fields.first(),
                 _ => None,
             };
-            if let Some(typed::Expr { kind: ExprKind::Array(items), .. }) = list {
+            if let Some(typed::Expr {
+                kind: ExprKind::Array(items),
+                ..
+            }) = list
+            {
                 // A `Classes` literal is the extractor's: a program cannot
                 // write one, its field being private.
                 for item in items {
                     let class = match &item.kind {
                         ExprKind::Tuple(pair) => match pair.get(1) {
-                            Some(typed::Expr { kind: ExprKind::Str(class), .. }) => Some(class),
+                            Some(typed::Expr {
+                                kind: ExprKind::Str(class),
+                                ..
+                            }) => Some(class),
                             _ => None,
                         },
                         _ => None,
                     };
-                    out.classes.insert(class.or_ice("the extractor writes each class as a `(slot, class)` pair").clone());
+                    out.classes.insert(
+                        class
+                            .or_ice("the extractor writes each class as a `(slot, class)` pair")
+                            .clone(),
+                    );
                 }
             }
         }

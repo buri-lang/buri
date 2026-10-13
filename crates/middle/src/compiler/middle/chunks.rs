@@ -88,7 +88,9 @@ pub fn run(program: &mut Program, split: bool) {
     // is anything to move.
     for f in 0..program.funcs.len() {
         with_body(program, f, &mut |e| {
-            let Some(root) = load_target(e, &loads) else { return };
+            let Some(root) = load_target(e, &loads) else {
+                return;
+            };
             let arg = take_arg(e);
             e.kind = ExprKind::Intrinsic {
                 name: intrinsic_keys::lazy_chunk_key(root),
@@ -99,13 +101,19 @@ pub fn run(program: &mut Program, split: bool) {
     }
 
     let in_artifact = dce::reachable(program, &dce::program_roots(program), dce::Chunks::Deferred);
-    let split_roots: Vec<usize> =
-        roots.into_iter().filter(|r| in_artifact.get(*r) != Some(&true)).collect();
+    let split_roots: Vec<usize> = roots
+        .into_iter()
+        .filter(|r| in_artifact.get(*r) != Some(&true))
+        .collect();
 
     for f in 0..program.funcs.len() {
         with_body(program, f, &mut |e| {
-            let ExprKind::Intrinsic { name, .. } = &mut e.kind else { return };
-            let Some(root) = intrinsic_keys::lazy_chunk_of(name) else { return };
+            let ExprKind::Intrinsic { name, .. } = &mut e.kind else {
+                return;
+            };
+            let Some(root) = intrinsic_keys::lazy_chunk_of(name) else {
+                return;
+            };
             match split_roots.iter().position(|r| *r == root) {
                 Some(n) => *name = intrinsic_keys::lazy_chunk_key(n),
                 // Nothing to move: the artifact reaches this function anyway.
@@ -133,7 +141,10 @@ pub fn run(program: &mut Program, split: bool) {
                 .filter(|(i, seen)| **seen && in_artifact.get(*i) != Some(&true))
                 .map(|(i, _)| i)
                 .collect();
-            Chunk { root: *root, members }
+            Chunk {
+                root: *root,
+                members,
+            }
         })
         .collect();
 }
@@ -159,7 +170,9 @@ fn load_slots(program: &Program) -> Vec<usize> {
 /// `load-not-function` has already refused, and which is answered here by
 /// splitting nothing rather than by an assertion.
 fn load_target(e: &Expr, loads: &[usize]) -> Option<usize> {
-    let ExprKind::CallFn { func, args } = &e.kind else { return None };
+    let ExprKind::CallFn { func, args } = &e.kind else {
+        return None;
+    };
     let called = func.func()?.index();
     if !loads.contains(&called) {
         return None;
@@ -172,7 +185,9 @@ fn load_target(e: &Expr, loads: &[usize]) -> Option<usize> {
 
 /// Replaces a `load` call with its own argument.
 fn unwrap_load(e: &mut Expr, loads: &[usize]) {
-    let ExprKind::CallFn { func, .. } = &e.kind else { return };
+    let ExprKind::CallFn { func, .. } = &e.kind else {
+        return;
+    };
     if !func.func().is_some_and(|i| loads.contains(&i.index())) {
         return;
     }
@@ -201,9 +216,14 @@ fn take_arg(e: &mut Expr) -> Expr {
 /// Bottom-up, because a `load` whose argument is itself rewritten must see the
 /// rewritten one — and because replacing a node in place while standing on its
 /// parent is what `children_mut` is for.
-#[expect(clippy::indexing_slicing, reason = "every caller ranges `f` over the program's functions")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "every caller ranges `f` over the program's functions"
+)]
 fn with_body(program: &mut Program, f: usize, rewrite: &mut impl FnMut(&mut Expr)) {
-    let Some(body) = program.funcs[f].body_mut() else { return };
+    let Some(body) = program.funcs[f].body_mut() else {
+        return;
+    };
     walk_mut(body, rewrite);
 }
 
@@ -239,14 +259,21 @@ mod tests {
 
     fn call(to: u32, args: Vec<Expr>) -> Expr {
         Expr::new(
-            ExprKind::CallFn { func: Callee::Func(FuncIdx(to)), args },
+            ExprKind::CallFn {
+                func: Callee::Func(FuncIdx(to)),
+                args,
+            },
             Ty::UNIT,
             Span::default(),
         )
     }
 
     fn fn_ref(to: u32) -> Expr {
-        Expr::new(ExprKind::FnRef(Callee::Func(FuncIdx(to))), Ty::UNIT, Span::default())
+        Expr::new(
+            ExprKind::FnRef(Callee::Func(FuncIdx(to))),
+            Ty::UNIT,
+            Span::default(),
+        )
     }
 
     /// slot 0 `main`, slot 1 `lazy.load`, slot 2 the loaded function, slot 3
@@ -255,7 +282,10 @@ mod tests {
         Program {
             funcs: vec![
                 func("main", FuncKind::Body(main)),
-                func("load", FuncKind::Intrinsic(intrinsic_keys::LAZY_LOAD.into())),
+                func(
+                    "load",
+                    FuncKind::Intrinsic(intrinsic_keys::LAZY_LOAD.into()),
+                ),
                 func("page", FuncKind::Body(call(3, Vec::new()))),
                 func("only_the_page", FuncKind::Body(unit())),
                 func("shared", FuncKind::Body(unit())),
@@ -293,7 +323,10 @@ mod tests {
         assert_eq!(p.chunks.len(), 1);
         assert_eq!(p.chunks[0].root, 2);
         assert_eq!(p.chunks[0].members, vec![2, 3]);
-        assert_eq!(chunk_name(p.funcs[0].body().unwrap()).as_deref(), Some("lazy.chunk.0"));
+        assert_eq!(
+            chunk_name(p.funcs[0].body().unwrap()).as_deref(),
+            Some("lazy.chunk.0")
+        );
     }
 
     /// A function the artifact reaches anyway has nothing to move out of it, so
@@ -311,7 +344,10 @@ mod tests {
         let mut p = program(body);
         run(&mut p, true);
         assert!(p.chunks.is_empty());
-        assert!(p.funcs[2].body().is_some(), "and the function is still in the artifact");
+        assert!(
+            p.funcs[2].body().is_some(),
+            "and the function is still in the artifact"
+        );
     }
 
     /// The native answer: `load` disappears, and so does its declaration.
@@ -324,7 +360,13 @@ mod tests {
             matches!(p.funcs[0].body().unwrap().kind, ExprKind::FnRef(_)),
             "the call is replaced by what it was handed"
         );
-        assert!(p.funcs[1].body().is_none(), "and nothing asks for the intrinsic any more");
-        assert!(p.funcs[2].body().is_some(), "while what it named is still reached");
+        assert!(
+            p.funcs[1].body().is_none(),
+            "and nothing asks for the intrinsic any more"
+        );
+        assert!(
+            p.funcs[2].body().is_some(),
+            "while what it named is still reached"
+        );
     }
 }

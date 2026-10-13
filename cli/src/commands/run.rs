@@ -30,11 +30,16 @@ use crate::commands::watch;
 use crate::diagnostics::Invariant as _;
 
 pub fn command_run(args: &arguments::Args) -> i32 {
-    let (mut session, targets) = match session::open_and_resolve_to_build(&args.flags, &args.targets) {
-        Ok(both) => both,
-        Err(c) => return c as i32,
-    };
-    let binaries: Vec<_> = targets.iter().copied().filter(|t| t.kind == RuleKind::Binary).collect();
+    let (mut session, targets) =
+        match session::open_and_resolve_to_build(&args.flags, &args.targets) {
+            Ok(both) => both,
+            Err(c) => return c as i32,
+        };
+    let binaries: Vec<_> = targets
+        .iter()
+        .copied()
+        .filter(|t| t.kind == RuleKind::Binary)
+        .collect();
     let &[target] = binaries.as_slice() else {
         eprintln!(
             "error: `buri run` takes exactly one binary, and this matched {}",
@@ -43,10 +48,15 @@ pub fn command_run(args: &arguments::Args) -> i32 {
         // With no argument the match is the whole repository, so the several it
         // found are the choice the user has to make; naming them is the fix.
         if let Some(first) = binaries.first() {
-            let labels: Vec<String> =
-                binaries.iter().map(|&t| session.workspace.label(t)).collect();
+            let labels: Vec<String> = binaries
+                .iter()
+                .map(|&t| session.workspace.label(t))
+                .collect();
             eprintln!("  = matched: {}", labels.join(", "));
-            eprintln!("  = fix: name one, as in `buri run {}`", session.workspace.label(*first));
+            eprintln!(
+                "  = fix: name one, as in `buri run {}`",
+                session.workspace.label(*first)
+            );
         } else {
             eprintln!("  = fix: name a package that declares a binary, as in `buri run //cmd/app`");
         }
@@ -59,16 +69,24 @@ pub fn command_run(args: &arguments::Args) -> i32 {
         let Some(hosted) = outputs.first() else {
             // A binary that declares no output still builds for the host, so
             // only `--output` can leave nothing.
-            let declared: Vec<String> = actions::selected_outputs(&session, target, &arguments::Flags::default())
-                .iter()
-                .map(Output::dir)
-                .collect();
+            let declared: Vec<String> =
+                actions::selected_outputs(&session, target, &arguments::Flags::default())
+                    .iter()
+                    .map(Output::dir)
+                    .collect();
             let names: Vec<&str> = declared.iter().map(String::as_str).collect();
             let example = names.first().copied().or_ice("a binary has an output");
-            let selector = args.flags.output.as_deref().or_ice("only `--output` leaves no output");
+            let selector = args
+                .flags
+                .output
+                .as_deref()
+                .or_ice("only `--output` leaves no output");
             return crate::commands::build::no_output_matches(selector, &names, example);
         };
-        let custom = hosted.custom.as_ref().map(|c| (c.label.value.clone(), c.point.clone()));
+        let custom = hosted
+            .custom
+            .as_ref()
+            .map(|c| (c.label.value.clone(), c.point.clone()));
         let (platform, entry) = custom.unwrap_or_default();
         let d = crate::diagnostics::Diagnostic::templated("entry-not-runnable", hosted.span)
             .with_bind("target", session.workspace.label(target))
@@ -87,8 +105,11 @@ pub fn command_run(args: &arguments::Args) -> i32 {
     // else, before a line is compiled: each is about the invocation rather
     // than about the code, and a flag quietly ignored is a loop that never
     // happened with nothing said about it.
-    let serving_flag =
-        if args.flags.watch { Some("watch") } else { args.flags.port.map(|_| "port") };
+    let serving_flag = if args.flags.watch {
+        Some("watch")
+    } else {
+        args.flags.port.map(|_| "port")
+    };
     if let Some(flag) = serving_flag {
         eprintln!(
             "error: `buri run` takes `--{flag}` only for a page, and {} runs its {} output as a \
@@ -150,7 +171,8 @@ pub fn command_run(args: &arguments::Args) -> i32 {
     command.args(&args.passthrough);
     match stopping::start(&mut command) {
         Ok(mut child) => {
-            let st = stopping::wait(&mut child).or_ice("a program this process started can be waited for");
+            let st = stopping::wait(&mut child)
+                .or_ice("a program this process started can be waited for");
             stopping::status(&st)
         }
         Err(e) => {
@@ -193,7 +215,9 @@ fn serve_page(
     };
     // What `--port=0` resolved to. Asking the listener rather than remembering
     // what was requested is the whole reason a test can use it.
-    let port = listener.local_addr().map_or(asked, |address| address.port());
+    let port = listener
+        .local_addr()
+        .map_or(asked, |address| address.port());
 
     let artifact = match build_page(&mut session, target, output, &args.flags) {
         Ok(artifact) => artifact,
@@ -281,14 +305,24 @@ fn rebuild(
     // A pass that could not get as far as a build: it says so, and it hands
     // back no input set, which is what makes the loop keep watching the one it
     // already had — including the file whose repair is what it is waiting for.
-    let stalled =
-        |code| watch::Pass { code, inputs: watch::Watched::default(), output: String::new(), quiet: false };
+    let stalled = |code| watch::Pass {
+        code,
+        inputs: watch::Watched::default(),
+        output: String::new(),
+        quiet: false,
+    };
     sources.begin_round();
-    let Ok(opened) = session::resume_or_exit(sources) else { return stalled(2) };
+    let Ok(opened) = session::resume_or_exit(sources) else {
+        return stalled(2);
+    };
     let Ok((mut session, targets)) = session::resolve_in(opened, &args.targets) else {
         return stalled(2);
     };
-    let binaries: Vec<_> = targets.iter().copied().filter(|t| t.kind == RuleKind::Binary).collect();
+    let binaries: Vec<_> = targets
+        .iter()
+        .copied()
+        .filter(|t| t.kind == RuleKind::Binary)
+        .collect();
     // The same choice `command_run` made, made again: a `BUILD.buri` is a
     // declared input, so an edit to one can take the page away — and a loop
     // that kept building whatever it found would serve something nobody asked
@@ -296,10 +330,14 @@ fn rebuild(
     let still_a_page = match binaries.as_slice() {
         &[target] => {
             let page = |o: &Output| actions::is_page(&session, o);
-            choose(&actions::selected_outputs(&session, target, &args.flags), &args.flags, &page)
-                .filter(|output| page(output))
+            choose(
+                &actions::selected_outputs(&session, target, &args.flags),
+                &args.flags,
+                &page,
+            )
+            .filter(|output| page(output))
         }
-            .map(|output| (target, output)),
+        .map(|output| (target, output)),
         _ => None,
     };
     let Some((target, output)) = still_a_page else {
@@ -312,12 +350,20 @@ fn rebuild(
         build_page(&mut session, target, &output, &args.flags)
     };
     match built {
-        Ok(artifact) => {
-            watch::Pass { code: 0, inputs, output: String::new(), quiet: artifact.cached }
-        }
+        Ok(artifact) => watch::Pass {
+            code: 0,
+            inputs,
+            output: String::new(),
+            quiet: artifact.cached,
+        },
         Err(diagnostics) => {
             session.print(&diagnostics);
-            watch::Pass { code: 1, inputs, output: String::new(), quiet: false }
+            watch::Pass {
+                code: 1,
+                inputs,
+                output: String::new(),
+                quiet: false,
+            }
         }
     }
 }
@@ -372,9 +418,9 @@ fn choose(
         // page is served. Any other entry a `js` file calls is the exception:
         // its host calls it, so there is nothing to start.
         .or_else(|| {
-            outputs.iter().find(|o| {
-                o.platform().is_javascript() && (starts_itself(o) || is_page(o))
-            })
+            outputs
+                .iter()
+                .find(|o| o.platform().is_javascript() && (starts_itself(o) || is_page(o)))
         })
         // A target that declares only an output this toolchain cannot produce
         // is built anyway, so that the refusal is the build's — which names the
@@ -389,7 +435,9 @@ fn choose(
 /// own architecture.
 fn starts_here(output: &Output) -> bool {
     output.platform() == crate::compiler::driver::host_native_platform()
-        && output.arch().is_none_or(|a| Some(a) == crate::build::link::host_arch())
+        && output
+            .arch()
+            .is_none_or(|a| Some(a) == crate::build::link::host_arch())
 }
 
 /// Whether an output's entry starts itself: it does when its platform gives
@@ -399,7 +447,11 @@ fn starts_itself(output: &crate::build::buildfile::Output) -> bool {
         return custom.js.is_none();
     }
     crate::build::platforms::bundled(output.platform().slug())
-        .and_then(|rule| rule.entries.iter().find(|e| e.name.value == output.entry_point()))
+        .and_then(|rule| {
+            rule.entries
+                .iter()
+                .find(|e| e.name.value == output.entry_point())
+        })
         .is_none_or(|entry| entry.js.is_none())
 }
 
@@ -530,13 +582,23 @@ mod stopping {
     fn remember(sig: i32) -> Option<i32> {
         let asked = sig.saturating_neg();
         // No child yet keeps the signal for [`published`]; a child answers it.
-        #[allow(deprecated, reason = "`try_update`, its new name, is newer than this crate's `rust-version`")]
-        let child =
-            STATE.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |seen| (seen <= 0).then_some(asked)).err()?;
+        #[allow(
+            deprecated,
+            reason = "`try_update`, its new name, is newer than this crate's `rust-version`"
+        )]
+        let child = STATE
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |seen| {
+                (seen <= 0).then_some(asked)
+            })
+            .err()?;
         // A terminal's signal has already reached a child in this group, and
         // sending it again is what would kill the drain it started.
         let arrived_already = SHARES_THE_GROUP.load(Ordering::Relaxed) && sig != SIGTERM;
-        if arrived_already { None } else { Some(child) }
+        if arrived_already {
+            None
+        } else {
+            Some(child)
+        }
     }
 
     /// The child exists: publish its pid, and answer the signal that arrived
@@ -643,7 +705,10 @@ mod stopping {
             // SAFETY: an ordinary `signal` call with a function this module
             // owns. None of the three is a signal that may not be caught.
             let previous = unsafe { signal(sig, forward as *const () as usize) };
-            debug_assert!(previous != SIG_ERR, "SIGHUP, SIGINT and SIGTERM can be caught");
+            debug_assert!(
+                previous != SIG_ERR,
+                "SIGHUP, SIGINT and SIGTERM can be caught"
+            );
         }
         #[cfg(feature = "test-hooks")]
         SPAWNING.raised();
@@ -651,7 +716,10 @@ mod stopping {
         // Zero is not a pid this can publish: `kill(0, …)` is every process in
         // this group, which is the one thing a command that forwards a signal
         // to one child must never do.
-        let pid = i32::try_from(child.id()).ok().filter(|&pid| pid > 0).or_ice("a child's pid is a positive i32");
+        let pid = i32::try_from(child.id())
+            .ok()
+            .filter(|&pid| pid > 0)
+            .or_ice("a child's pid is a positive i32");
         hand_over(pid);
         #[cfg(feature = "test-hooks")]
         STARTED.raised();
@@ -690,9 +758,7 @@ mod stopping {
 
     #[cfg(test)]
     mod tests {
-        use super::{
-            SHARES_THE_GROUP, SIGINT, SIGTERM, STATE, Ordering, published, remember,
-        };
+        use super::{published, remember, Ordering, SHARES_THE_GROUP, SIGINT, SIGTERM, STATE};
 
         /// **The program is told to stop exactly once, whichever of the two
         /// wins the race.**
@@ -720,7 +786,11 @@ mod stopping {
             // and starting has nothing left to send.
             STATE.store(0, Ordering::Relaxed);
             assert_eq!(published(PROGRAM), None, "nothing arrived before the child");
-            assert_eq!(remember(SIGTERM), Some(PROGRAM), "the handler signals the program");
+            assert_eq!(
+                remember(SIGTERM),
+                Some(PROGRAM),
+                "the handler signals the program"
+            );
 
             // With a terminal in front of the command a group signal has
             // already reached a running program, and forwarding it would be
@@ -729,8 +799,16 @@ mod stopping {
             STATE.store(0, Ordering::Relaxed);
             SHARES_THE_GROUP.store(true, Ordering::Relaxed);
             assert_eq!(published(PROGRAM), None);
-            assert_eq!(remember(SIGINT), None, "the terminal's signal arrived already");
-            assert_eq!(remember(SIGTERM), Some(PROGRAM), "no terminal generates a SIGTERM");
+            assert_eq!(
+                remember(SIGINT),
+                None,
+                "the terminal's signal arrived already"
+            );
+            assert_eq!(
+                remember(SIGTERM),
+                Some(PROGRAM),
+                "no terminal generates a SIGTERM"
+            );
 
             STATE.store(0, Ordering::Relaxed);
             assert_eq!(remember(SIGINT), None, "there is no child to signal yet");
@@ -761,7 +839,10 @@ mod tests {
     fn a_native_output_is_preferred_only_where_it_can_be_produced() {
         let flags = crate::commands::arguments::Flags::default();
         let host = crate::compiler::driver::host_native_platform();
-        let both = [Output::js(Span::NONE), Output::for_platform(host, Span::NONE)];
+        let both = [
+            Output::js(Span::NONE),
+            Output::for_platform(host, Span::NONE),
+        ];
         let ready = actions::native_ready(
             actions::target_of(&Output::for_platform(host, Span::NONE)),
             actions::profile_of(&flags),
@@ -791,6 +872,9 @@ mod tests {
             Platform::Macos
         };
         let only = [Output::for_platform(cross, Span::NONE)];
-        assert_eq!(choose(&only, &flags, &|_| false).map(|o| o.platform()), Some(cross));
+        assert_eq!(
+            choose(&only, &flags, &|_| false).map(|o| o.platform()),
+            Some(cross)
+        );
     }
 }

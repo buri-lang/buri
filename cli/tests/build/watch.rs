@@ -49,7 +49,10 @@ fn suite(label: &str) -> String {
 /// about the others.
 fn two_suites(name: &str) -> Scratch {
     let scratch = Scratch::repo(name);
-    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n  test { sources: [\"test/a.buri\"] }\n}\n",
+    );
     scratch.write("lib/a/lib.buri", &library("21"));
     scratch.write("lib/a/test/a.buri", &suite("//lib/a"));
 
@@ -87,7 +90,9 @@ fn declared_set_of(root: &Path, pattern: &str) -> Watched {
         workspace: std::sync::Arc::new(workspace),
         rendering: Rendering::Human { color: false },
     };
-    let targets = s.resolve_targets(&[pattern.to_string()]).expect("the pattern resolves");
+    let targets = s
+        .resolve_targets(&[pattern.to_string()])
+        .expect("the pattern resolves");
     buri::commands::watch::inputs(&s, &targets)
 }
 
@@ -144,7 +149,11 @@ fn the_declared_set_is_the_inputs_and_the_files_that_decide_them() {
     let mut sorted = listed.clone();
     sorted.sort();
     sorted.dedup();
-    assert_eq!(sorted.len(), listed.len(), "a file is swept twice per sweep");
+    assert_eq!(
+        sorted.len(),
+        listed.len(),
+        "a file is swept twice per sweep"
+    );
 }
 
 /// **A `generators` input is watched, and so is the tool that reads it.**
@@ -167,7 +176,11 @@ fn a_generators_input_and_the_tool_that_reads_it_are_watched() {
     scratch.write("tools/gen/tool.buri", "export fn generate(): Int { 1 }\n");
 
     let listed = names(&scratch.root, &declared_set(&scratch.root).files);
-    for want in ["lib/wire/units.txt", "tools/gen/tool.buri", "tools/gen/BUILD.buri"] {
+    for want in [
+        "lib/wire/units.txt",
+        "tools/gen/tool.buri",
+        "tools/gen/BUILD.buri",
+    ] {
         assert!(
             listed.iter().any(|p| p == want),
             "the declared set does not name {want}:\n{}",
@@ -188,7 +201,9 @@ fn a_snapshot_golden_is_watched_and_its_diff_is_not() {
 
     let listed = names(&scratch.root, &declared_set(&scratch.root).files);
     assert!(
-        listed.iter().any(|p| p == "lib/a/test/__snapshots__/front.png"),
+        listed
+            .iter()
+            .any(|p| p == "lib/a/test/__snapshots__/front.png"),
         "the declared set does not name the golden:\n{}",
         indent(&listed.join("\n"))
     );
@@ -218,19 +233,37 @@ fn a_platforms_files_and_dependencies_are_watched() {
          export struct KioskHost {\n  export alloc: HostAllocator,\n}\n\n\
          export fn main(host: KioskHost): Result<(), Str>;\n",
     );
-    scratch.write("platform/kiosk/extra.buri", "export fn spare(): Int { 1 }\n");
-    scratch.write("platform/kiosk/main.mjs", "import { main } from \"buri:program\";\nawait main();\n");
-    scratch.write("platform/kiosk/index.html", "<!doctype html>\n<script type=\"module\" src=\"/main.mjs\"></script>\n");
-    scratch.write("lib/words/BUILD.buri", "library {\n  visibility: [\"//visibility:public\"]\n}\n");
+    scratch.write(
+        "platform/kiosk/extra.buri",
+        "export fn spare(): Int { 1 }\n",
+    );
+    scratch.write(
+        "platform/kiosk/main.mjs",
+        "import { main } from \"buri:program\";\nawait main();\n",
+    );
+    scratch.write(
+        "platform/kiosk/index.html",
+        "<!doctype html>\n<script type=\"module\" src=\"/main.mjs\"></script>\n",
+    );
+    scratch.write(
+        "lib/words/BUILD.buri",
+        "library {\n  visibility: [\"//visibility:public\"]\n}\n",
+    );
     scratch.write("lib/words/lib.buri", "export fn word(): Str { \"hi\" }\n");
-    scratch.write("cmd/kiosk/BUILD.buri", "binary {\n  outputs: [{ platform: \"//platform/kiosk\" }]\n}\n");
+    scratch.write(
+        "cmd/kiosk/BUILD.buri",
+        "binary {\n  outputs: [{ platform: \"//platform/kiosk\" }]\n}\n",
+    );
     scratch.write(
         "cmd/kiosk/main.buri",
         "from \"//platform/kiosk\" import { KioskHost };\n\n\
          export fn main(host: KioskHost): Result<(), Str> { .Ok(()) }\n",
     );
 
-    let listed = names(&scratch.root, &declared_set_of(&scratch.root, "//cmd/kiosk").files);
+    let listed = names(
+        &scratch.root,
+        &declared_set_of(&scratch.root, "//cmd/kiosk").files,
+    );
     for want in [
         "platform/kiosk/platform.buri",
         "platform/kiosk/extra.buri",
@@ -262,8 +295,14 @@ fn a_test_only_dependency_is_watched() {
         "lib/helper/BUILD.buri",
         "library {\n  sources: [\"h.buri\"]\n  visibility: [\"//...\"]\n}\n",
     );
-    scratch.write("lib/helper/lib.buri", "from \"//lib/helper/h.buri\" export { double };\n");
-    scratch.write("lib/helper/h.buri", "export fn double(n: I64): I64 { n * 2 }\n");
+    scratch.write(
+        "lib/helper/lib.buri",
+        "from \"//lib/helper/h.buri\" export { double };\n",
+    );
+    scratch.write(
+        "lib/helper/h.buri",
+        "export fn double(n: I64): I64 { n * 2 }\n",
+    );
     scratch.write(
         "lib/subject/BUILD.buri",
         "library {\n  test {\n    sources: [\"test/x.buri\"]\n    \
@@ -280,7 +319,11 @@ fn a_test_only_dependency_is_watched() {
 
     let set = declared_set(&scratch.root);
     let listed = names(&scratch.root, &set.files);
-    for want in ["lib/helper/BUILD.buri", "lib/helper/lib.buri", "lib/helper/h.buri"] {
+    for want in [
+        "lib/helper/BUILD.buri",
+        "lib/helper/lib.buri",
+        "lib/helper/h.buri",
+    ] {
         assert!(
             listed.iter().any(|p| p == want),
             "a test-only dependency's {want} is not watched:\n{}",
@@ -345,7 +388,12 @@ fn an_edit_re_runs_its_suite_and_leaves_the_sibling_cached() {
         |trigger| {
             let run = scratch.run(&["test", "//...", "--explain"]);
             transcripts.push((names(&scratch.root, &trigger.changed), run.all()));
-            Pass { code: run.code, inputs: set.clone(), output: String::new(), quiet: true }
+            Pass {
+                code: run.code,
+                inputs: set.clone(),
+                output: String::new(),
+                quiet: true,
+            }
         },
         // The scripted mutation, and it hangs off the loop's own arming rather
         // than off a delay, because the loop stamps the declared set the moment
@@ -402,7 +450,9 @@ fn a_build_file_is_watched_and_a_new_source_arrives_through_it() {
     let scratch = two_suites("watch-build-file");
     let before = declared_set(&scratch.root);
     assert!(
-        !names(&scratch.root, &before.files).iter().any(|p| p == "lib/a/more.buri"),
+        !names(&scratch.root, &before.files)
+            .iter()
+            .any(|p| p == "lib/a/more.buri"),
         "an undeclared file was watched"
     );
 
@@ -465,7 +515,12 @@ fn a_broken_build_file_keeps_the_loop_watching() {
             // Recomputed every pass, exactly as `one_pass` does it — including
             // the pass whose repository would not load.
             let inputs = declared_set(&scratch.root);
-            Pass { code: run.code, inputs, output: String::new(), quiet: true }
+            Pass {
+                code: run.code,
+                inputs,
+                output: String::new(),
+                quiet: true,
+            }
         },
         // The repair, written the instant the broken set is stamped and before
         // the loop has swept it — the far side of the stamp, which is what the
@@ -537,9 +592,15 @@ impl Looping {
         let buri = env!("CARGO_BIN_EXE_buri");
         let mut cmd = std::process::Command::new("script");
         if cfg!(target_os = "macos") {
-            cmd.args(["-q", "/dev/null", buri, "test"]).args(args).arg("--watch");
+            cmd.args(["-q", "/dev/null", buri, "test"])
+                .args(args)
+                .arg("--watch");
         } else {
-            cmd.args(["-qec", &format!("{buri} test {} --watch", args.join(" ")), "/dev/null"]);
+            cmd.args([
+                "-qec",
+                &format!("{buri} test {} --watch", args.join(" ")),
+                "/dev/null",
+            ]);
         }
         let mut child = cmd
             .current_dir(&scratch.root)
@@ -560,12 +621,18 @@ impl Looping {
                 }
             }
         });
-        Looping { child, lines, seen: String::new() }
+        Looping {
+            child,
+            lines,
+            seen: String::new(),
+        }
     }
 
     /// Reads until pass `n`'s separator is drawn.
     fn until_pass(&mut self, n: usize) {
-        self.until(&format!("pass {n} never started"), |seen| separator_at(seen, n).is_some());
+        self.until(&format!("pass {n} never started"), |seen| {
+            separator_at(seen, n).is_some()
+        });
     }
 
     /// Reads until pass `n` has printed its summary, which a pass under
@@ -580,9 +647,14 @@ impl Looping {
         // A guard against a loop that never wakes, not a measurement.
         let deadline = std::time::Instant::now() + Duration::from_secs(240);
         while !done(&self.seen) {
-            assert!(std::time::Instant::now() < deadline, "{what}:\n{}", indent(&self.seen));
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{what}:\n{}",
+                indent(&self.seen)
+            );
             if let Ok(bytes) = self.lines.recv_timeout(Duration::from_millis(100)) {
-                self.seen.push_str(&String::from_utf8_lossy(&bytes).replace('\r', ""));
+                self.seen
+                    .push_str(&String::from_utf8_lossy(&bytes).replace('\r', ""));
             }
         }
     }
@@ -590,14 +662,21 @@ impl Looping {
     /// Ends the loop with Ctrl-C, once it is waiting for an edit.
     fn stop(mut self) {
         let status = ctrl_c(&mut self.child, "buri test --watch");
-        assert_eq!(status.code(), Some(130), "the loop ended {status}:\n{}", indent(&self.seen));
+        assert_eq!(
+            status.code(),
+            Some(130),
+            "the loop ended {status}:\n{}",
+            indent(&self.seen)
+        );
     }
 
     /// Pass `n`'s separator line.
     fn separator(&self, n: usize) -> &str {
         let at = separator_at(&self.seen, n).expect("the pass has started");
         let start = self.seen[..at].rfind('\n').map_or(0, |i| i + 1);
-        let end = self.seen[at..].find('\n').map_or(self.seen.len(), |i| at + i);
+        let end = self.seen[at..]
+            .find('\n')
+            .map_or(self.seen.len(), |i| at + i);
         &self.seen[start..end]
     }
 
@@ -605,7 +684,11 @@ impl Looping {
     /// before its separator: everything after the previous separator.
     fn reported(&self, n: usize) -> &str {
         let end = separator_at(&self.seen, n).expect("the pass has started");
-        let start = if n == 1 { 0 } else { separator_at(&self.seen, n - 1).expect("the pass has started") };
+        let start = if n == 1 {
+            0
+        } else {
+            separator_at(&self.seen, n - 1).expect("the pass has started")
+        };
         &self.seen[start..end]
     }
 }
@@ -645,19 +728,42 @@ fn a_pass_runs_once_the_tree_stops_moving() {
     held.at("sweep", 4, || {});
     looping.until_summary(2);
     let second = looping.seen[separator_at(&looping.seen, 2).unwrap()..].to_string();
-    assert!(looping.separator(2).contains("lib/a/lib.buri"), "{}", indent(&looping.seen));
-    assert!(second.contains("1 passed, 0 failed"), "pass 2 didn't run the last edit:\n{}", indent(&looping.seen));
+    assert!(
+        looping.separator(2).contains("lib/a/lib.buri"),
+        "{}",
+        indent(&looping.seen)
+    );
+    assert!(
+        second.contains("1 passed, 0 failed"),
+        "pass 2 didn't run the last edit:\n{}",
+        indent(&looping.seen)
+    );
 
-    let mut stdin = looping.child.stdin.take().expect("`script` has a piped stdin");
+    let mut stdin = looping
+        .child
+        .stdin
+        .take()
+        .expect("`script` has a piped stdin");
     held.at("sweep", 5, || {
         use std::io::Write as _;
         stdin.write_all(b"\x03").expect("Ctrl-C reaches `script`");
-        looping.until("Ctrl-C never reached the loop", |seen| seen.contains("signal again to stop now"));
+        looping.until("Ctrl-C never reached the loop", |seen| {
+            seen.contains("signal again to stop now")
+        });
     });
     let status = hang::wait_capped(&mut looping.child, "buri test --watch", hang::cap());
     drop(stdin);
-    assert_eq!(status.code(), Some(130), "the loop ended {status}:\n{}", indent(&looping.seen));
-    assert!(separator_at(&looping.seen, 3).is_none(), "a pass ran after Ctrl-C:\n{}", indent(&looping.seen));
+    assert_eq!(
+        status.code(),
+        Some(130),
+        "the loop ended {status}:\n{}",
+        indent(&looping.seen)
+    );
+    assert!(
+        separator_at(&looping.seen, 3).is_none(),
+        "a pass ran after Ctrl-C:\n{}",
+        indent(&looping.seen)
+    );
 }
 
 /// **A library's testing surface is watched, and a separator names what moved
@@ -698,7 +804,10 @@ fn a_testing_surface_edit_starts_a_pass_and_its_separator_counts_the_rest() {
         "the separator does not name two and count two:\n{}",
         indent(&looping.seen)
     );
-    assert!(separator.ends_with("more "), "a separator wider than the rule was padded: {separator}");
+    assert!(
+        separator.ends_with("more "),
+        "a separator wider than the rule was padded: {separator}"
+    );
     looping.stop();
 }
 
@@ -709,9 +818,20 @@ fn a_pattern_naming_nothing_ends_the_loop_at_once() {
     let scratch = two_suites("watch-nothing");
     let mut looping = Looping::start(&scratch, &["//lib/nothing"]);
     let status = hang::wait_capped(&mut looping.child, "buri test --watch", hang::cap());
-    looping.until("the refusal never arrived", |seen| seen.contains("//lib/nothing"));
-    assert_eq!(status.code(), Some(2), "the loop ended {status}:\n{}", indent(&looping.seen));
-    assert!(separator_at(&looping.seen, 2).is_none(), "a second pass ran:\n{}", indent(&looping.seen));
+    looping.until("the refusal never arrived", |seen| {
+        seen.contains("//lib/nothing")
+    });
+    assert_eq!(
+        status.code(),
+        Some(2),
+        "the loop ended {status}:\n{}",
+        indent(&looping.seen)
+    );
+    assert!(
+        separator_at(&looping.seen, 2).is_none(),
+        "a second pass ran:\n{}",
+        indent(&looping.seen)
+    );
 }
 
 /// **A tool's own `sources` are watched**: a suite of a tool reads them, so
@@ -722,13 +842,21 @@ fn a_tools_source_edit_starts_a_pass() {
         "watch-tool-sources",
         &tests_dir().join("repositories/languages/custom_language/repo"),
     );
-    scratch.edit("tools/lines/BUILD.buri", "tool {\n", "tool {\n    sources: [\"extra.buri\"]\n");
+    scratch.edit(
+        "tools/lines/BUILD.buri",
+        "tool {\n",
+        "tool {\n    sources: [\"extra.buri\"]\n",
+    );
     scratch.write("tools/lines/extra.buri", "export fn spare(): Int { 1 }\n");
     let mut looping = Looping::start(&scratch, &["//tools/lines"]);
     looping.until_pass(1);
     scratch.write("tools/lines/extra.buri", "export fn spare(): Int { 2 }\n");
     looping.until_pass(2);
-    assert!(looping.separator(2).contains("tools/lines/extra.buri"), "{}", indent(&looping.seen));
+    assert!(
+        looping.separator(2).contains("tools/lines/extra.buri"),
+        "{}",
+        indent(&looping.seen)
+    );
     looping.stop();
 }
 
@@ -744,16 +872,40 @@ fn a_stray_file_coming_and_going_starts_a_pass_each_way() {
     );
     let mut looping = Looping::start(&scratch, &["//libs/shapes"]);
     looping.until_pass(1);
-    std::fs::rename(scratch.path("staging/stray.json"), scratch.path("libs/shapes/stray.json")).unwrap();
+    std::fs::rename(
+        scratch.path("staging/stray.json"),
+        scratch.path("libs/shapes/stray.json"),
+    )
+    .unwrap();
     looping.until_pass(2);
-    std::fs::rename(scratch.path("libs/shapes/stray.json"), scratch.path("staging/stray.json")).unwrap();
+    std::fs::rename(
+        scratch.path("libs/shapes/stray.json"),
+        scratch.path("staging/stray.json"),
+    )
+    .unwrap();
     looping.until_pass(3);
 
     let finding = "libs/shapes/stray.json belongs to no library or binary";
-    assert!(!looping.reported(1).contains("unused-source"), "{}", indent(&looping.seen));
-    assert!(looping.separator(2).contains("libs/shapes/stray.json"), "{}", indent(&looping.seen));
-    assert!(looping.reported(2).contains(finding), "the arrival was not reported:\n{}", indent(&looping.seen));
-    assert!(looping.separator(3).contains("libs/shapes/stray.json"), "{}", indent(&looping.seen));
+    assert!(
+        !looping.reported(1).contains("unused-source"),
+        "{}",
+        indent(&looping.seen)
+    );
+    assert!(
+        looping.separator(2).contains("libs/shapes/stray.json"),
+        "{}",
+        indent(&looping.seen)
+    );
+    assert!(
+        looping.reported(2).contains(finding),
+        "the arrival was not reported:\n{}",
+        indent(&looping.seen)
+    );
+    assert!(
+        looping.separator(3).contains("libs/shapes/stray.json"),
+        "{}",
+        indent(&looping.seen)
+    );
     assert!(
         !looping.reported(3).contains("unused-source"),
         "the departure was not noticed:\n{}",
@@ -770,17 +922,33 @@ fn a_stray_file_coming_and_going_starts_a_pass_each_way() {
 fn a_schema_with_an_extension_of_its_own_starts_a_pass() {
     let scratch = Scratch::copy_of(
         "watch-schema",
-        &tests_dir().join("repositories/linting/a_schema_read_in_another_dialect_is_checked_again/repo"),
+        &tests_dir()
+            .join("repositories/linting/a_schema_read_in_another_dialect_is_checked_again/repo"),
     );
     scratch.write("REPO.buri", "lint {\n    check_during_build: true\n}\n");
     let mut looping = Looping::start(&scratch, &["//libs/x"]);
     looping.until_pass(1);
-    scratch.write("libs/x/shape.schema", "{ \"title\": \"Shape\", \"type\": \"object\" }\n");
+    scratch.write(
+        "libs/x/shape.schema",
+        "{ \"title\": \"Shape\", \"type\": \"object\" }\n",
+    );
     looping.until_pass(2);
 
-    assert!(looping.reported(1).contains("json-syntax"), "{}", indent(&looping.seen));
-    assert!(looping.separator(2).contains("libs/x/shape.schema"), "{}", indent(&looping.seen));
-    assert!(!looping.reported(2).contains("json-syntax"), "{}", indent(&looping.seen));
+    assert!(
+        looping.reported(1).contains("json-syntax"),
+        "{}",
+        indent(&looping.seen)
+    );
+    assert!(
+        looping.separator(2).contains("libs/x/shape.schema"),
+        "{}",
+        indent(&looping.seen)
+    );
+    assert!(
+        !looping.reported(2).contains("json-syntax"),
+        "{}",
+        indent(&looping.seen)
+    );
     looping.stop();
 }
 
@@ -796,13 +964,27 @@ fn an_input_elsewhere_that_stops_reading_a_schema_starts_a_pass() {
     scratch.write("REPO.buri", "lint {\n    check_during_build: true\n}\n");
     let mut looping = Looping::start(&scratch, &["//libs/a"]);
     looping.until_pass(1);
-    scratch.edit("libs/b/b.json", "//libs/a/shared.schema.json", "//libs/a/own.schema.json");
+    scratch.edit(
+        "libs/b/b.json",
+        "//libs/a/shared.schema.json",
+        "//libs/a/own.schema.json",
+    );
     looping.until_pass(2);
 
-    assert!(!looping.reported(1).contains("unused-source"), "{}", indent(&looping.seen));
-    assert!(looping.separator(2).contains("libs/b/b.json"), "{}", indent(&looping.seen));
     assert!(
-        looping.reported(2).contains("libs/a/shared.schema.json belongs to no library or binary"),
+        !looping.reported(1).contains("unused-source"),
+        "{}",
+        indent(&looping.seen)
+    );
+    assert!(
+        looping.separator(2).contains("libs/b/b.json"),
+        "{}",
+        indent(&looping.seen)
+    );
+    assert!(
+        looping
+            .reported(2)
+            .contains("libs/a/shared.schema.json belongs to no library or binary"),
         "{}",
         indent(&looping.seen)
     );
@@ -821,8 +1003,17 @@ fn under_explain_a_separator_heads_its_pass() {
     looping.until_summary(2);
 
     let second = &looping.seen[separator_at(&looping.seen, 2).unwrap()..];
-    assert!(looping.separator(2).contains("lib/a/lib.buri"), "{}", indent(&looping.seen));
-    assert_eq!(status(second, "test //lib/a"), "run", "{}", indent(&looping.seen));
+    assert!(
+        looping.separator(2).contains("lib/a/lib.buri"),
+        "{}",
+        indent(&looping.seen)
+    );
+    assert_eq!(
+        status(second, "test //lib/a"),
+        "run",
+        "{}",
+        indent(&looping.seen)
+    );
     looping.stop();
 }
 
@@ -835,7 +1026,10 @@ fn stray_repo(name: &str, check_during_build: bool) -> Scratch {
         name,
         &tests_dir().join("repositories/linting/a_stray_file_is_seen_during_build/repo"),
     );
-    scratch.write("REPO.buri", &format!("lint {{\n    check_during_build: {check_during_build}\n}}\n"));
+    scratch.write(
+        "REPO.buri",
+        &format!("lint {{\n    check_during_build: {check_during_build}\n}}\n"),
+    );
     scratch
 }
 
@@ -847,9 +1041,17 @@ fn a_stray_file_moves_nothing_without_check_during_build() {
     let set = declared_set_of(&scratch.root, "//libs/shapes");
     let listed = buri::commands::lint::directories_listed();
     let before = Snapshot::sweep(&set);
-    assert_eq!(buri::commands::lint::directories_listed(), listed, "a sweep listed a directory");
+    assert_eq!(
+        buri::commands::lint::directories_listed(),
+        listed,
+        "a sweep listed a directory"
+    );
 
-    std::fs::rename(scratch.path("staging/stray.json"), scratch.path("libs/shapes/stray.json")).unwrap();
+    std::fs::rename(
+        scratch.path("staging/stray.json"),
+        scratch.path("libs/shapes/stray.json"),
+    )
+    .unwrap();
     assert!(
         before.difference(&Snapshot::sweep(&set)).is_empty(),
         "a stray file moved the sweep without check_during_build"
@@ -862,10 +1064,19 @@ fn a_stray_file_moves_nothing_without_check_during_build() {
 #[test]
 fn a_sweep_lists_each_directory_of_a_watched_package_once() {
     let scratch = stray_repo("watch-listings", true);
-    scratch.write("libs/shapes/parts/edge.buri", "export fn edge(): Int { 1 }\n");
-    scratch.write("libs/shapes/.hidden/note.buri", "export fn note(): Int { 1 }\n");
+    scratch.write(
+        "libs/shapes/parts/edge.buri",
+        "export fn edge(): Int { 1 }\n",
+    );
+    scratch.write(
+        "libs/shapes/.hidden/note.buri",
+        "export fn note(): Int { 1 }\n",
+    );
     scratch.write("libs/shapes/inner/BUILD.buri", "library {}\n");
-    scratch.write("libs/shapes/inner/lib.buri", "export fn inner(): Int { 1 }\n");
+    scratch.write(
+        "libs/shapes/inner/lib.buri",
+        "export fn inner(): Int { 1 }\n",
+    );
     let set = declared_set_of(&scratch.root, "//libs/shapes");
 
     let listed = buri::commands::lint::directories_listed();
@@ -890,7 +1101,10 @@ fn a_sweep_lists_each_directory_of_a_watched_package_once() {
 fn writes_under_dot_buri_never_move_a_sweep() {
     let scratch = Scratch::repo("watch-dot-buri");
     scratch.write("REPO.buri", "lint {\n    check_during_build: true\n}\n");
-    scratch.write("BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write(
+        "BUILD.buri",
+        "library {\n  test { sources: [\"test/a.buri\"] }\n}\n",
+    );
     scratch.write("lib.buri", &library("21"));
     scratch.write("test/a.buri", &suite("/"));
     let set = declared_set(&scratch.root);
@@ -899,7 +1113,10 @@ fn writes_under_dot_buri_never_move_a_sweep() {
 
     let run = scratch.run(&["test", "//..."]);
     assert_eq!(run.code, 0, "{}", indent(&run.all()));
-    assert!(scratch.path(".buri").is_dir(), "the run wrote nothing under .buri/");
+    assert!(
+        scratch.path(".buri").is_dir(),
+        "the run wrote nothing under .buri/"
+    );
     assert!(
         before.difference(&Snapshot::sweep(&set)).is_empty(),
         "a run moved the sweep of its own repository"

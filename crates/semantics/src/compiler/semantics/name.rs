@@ -26,7 +26,9 @@ impl Name {
     pub fn new(text: &str) -> Name {
         let hash = BuildHasherDefault::<FxHasher>::new().hash_one(text);
         let shard = (hash >> (u64::BITS - SHARD_BITS)) as usize;
-        let shard = TABLE.get(shard).or_ice("the top `SHARD_BITS` bits of a hash index `SHARDS`");
+        let shard = TABLE
+            .get(shard)
+            .or_ice("the top `SHARD_BITS` bits of a hash index `SHARDS`");
         let mut shard = shard.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(found) = shard.get(text) {
             return Name(found);

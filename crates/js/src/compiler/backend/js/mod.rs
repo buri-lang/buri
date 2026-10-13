@@ -64,9 +64,8 @@ impl Backend for Js {
     /// what is missing *before* a backend spends time on it, rather than only
     /// after it has tried.
     fn missing_intrinsics(&self, program: &Program, tables: &Tables) -> Vec<String> {
-        let mut missing = generate::check_intrinsics(&generate::unimplemented_intrinsics(
-            program, tables,
-        ));
+        let mut missing =
+            generate::check_intrinsics(&generate::unimplemented_intrinsics(program, tables));
         missing.sort();
         missing.dedup();
         missing
@@ -110,7 +109,10 @@ impl Js {
             diags.push(
                 Diagnostic::error(
                     Span::NONE,
-                    format!("the runtime has no implementation of {}", missing.join(", ")),
+                    format!(
+                        "the runtime has no implementation of {}",
+                        missing.join(", ")
+                    ),
                 )
                 .with_fix("report it: this is a toolchain bug, not a problem with your program"),
             );
@@ -132,7 +134,12 @@ impl Js {
         // the order `middle::chunks` numbered them — which is the order
         // `$lazy(n)` asks for them in and the order the build system names the
         // files by. Nearly every program has exactly the one.
-        let generate::Output { stmts, roots, chunks, .. } = out;
+        let generate::Output {
+            stmts,
+            roots,
+            chunks,
+            ..
+        } = out;
         let mut emitted = Vec::with_capacity(chunks.len().saturating_add(1));
         let bytes = render(stmts, &roots);
         emitted.push(Emitted {

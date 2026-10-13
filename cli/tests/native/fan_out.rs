@@ -54,14 +54,19 @@ export fn main(host: NativeHost): Result<(), Str> {
   .Ok(())
 }
 "#;
-    let Some(binary) = crate::e2e::built_probed("fan-out-wakes", source, &wake_probe()) else { return };
+    let Some(binary) = crate::e2e::built_probed("fan-out-wakes", source, &wake_probe()) else {
+        return;
+    };
     let r = ran_checked(&binary);
     assert_eq!(r.status, 0, "stderr: {}", r.stderr);
     assert_eq!(r.stdout, "23991\n", "stderr: {}", r.stderr);
     let (_, live) = probed(&r.stderr);
     assert_eq!(live, 0, "blocks still live at exit");
     let woke = wakes(&r.stderr);
-    assert!(woke <= 500, "500 fan-outs of trivial steps woke {woke} threads");
+    assert!(
+        woke <= 500,
+        "500 fan-outs of trivial steps woke {woke} threads"
+    );
 }
 
 /// [`ALLOC_PROBE`], plus a line with the batches fan-outs queued and the most
@@ -109,17 +114,32 @@ export fn main(host: NativeHost): Result<(), Str> {
   .Ok(())
 }
 "#;
-    let Some(binary) = crate::e2e::built_probed("fan-out-window", source, &window_probe()) else { return };
+    let Some(binary) = crate::e2e::built_probed("fan-out-window", source, &window_probe()) else {
+        return;
+    };
     let r = ran_checked(&binary);
     assert_eq!(r.status, 0, "stderr: {}", r.stderr);
     assert_eq!(r.stdout, "909193\n", "stderr: {}", r.stderr);
     let (_, live) = probed(&r.stderr);
     assert_eq!(live, 0, "blocks still live at exit");
-    let line = r.stderr.lines().find_map(|l| l.strip_prefix("batches=")).unwrap_or_else(|| panic!("the probe printed nothing: {}", r.stderr));
+    let line = r
+        .stderr
+        .lines()
+        .find_map(|l| l.strip_prefix("batches="))
+        .unwrap_or_else(|| panic!("the probe printed nothing: {}", r.stderr));
     let (batches, peak) = line.split_once(" peak=").unwrap();
-    let (batches, peak): (u64, u64) = (batches.trim().parse().unwrap(), peak.trim().parse().unwrap());
-    assert!(batches <= 20 * 32, "20 fan-outs of 3,000 steps queued {batches} batches");
-    assert!(peak <= 257, "a fan-out of trivial steps had {peak} task stacks out at once");
+    let (batches, peak): (u64, u64) = (
+        batches.trim().parse().unwrap(),
+        peak.trim().parse().unwrap(),
+    );
+    assert!(
+        batches <= 20 * 32,
+        "20 fan-outs of 3,000 steps queued {batches} batches"
+    );
+    assert!(
+        peak <= 257,
+        "a fan-out of trivial steps had {peak} task stacks out at once"
+    );
 }
 
 /// [`ALLOC_PROBE`], plus a line with the bytes the runtime gave back to the
@@ -176,7 +196,10 @@ export fn main(host: NativeHost): Result<(), Str> {
   .Ok(())
 }
 "#;
-    let Some(binary) = crate::e2e::built_probed("fan-out-decommits", source, &decommit_probe()) else { return };
+    let Some(binary) = crate::e2e::built_probed("fan-out-decommits", source, &decommit_probe())
+    else {
+        return;
+    };
     let started = std::time::Instant::now();
     let r = ran_checked(&binary);
     let ran_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -186,5 +209,8 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(live, 0, "blocks still live at exit");
     // What one task stack's decommit gives back: all but the retained 256 KiB.
     let remaps = decommitted(&r.stderr) / (64 * 1024 * 1024 - 256 * 1024);
-    assert!(remaps <= ran_ms / 10 + 1, "320,000 shallow steps in {ran_ms} ms re-mapped {remaps} stacks");
+    assert!(
+        remaps <= ran_ms / 10 + 1,
+        "320,000 shallow steps in {ran_ms} ms re-mapped {remaps} stacks"
+    );
 }

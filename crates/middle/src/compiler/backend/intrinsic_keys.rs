@@ -186,13 +186,19 @@ pub fn json_arm(prim: Prim) -> JsonArm {
 /// `derive ToJson` whose result is not `core/json`'s `Json`, which is refused
 /// rather than guessed at.
 pub fn json_variant(tables: &Tables, ty: &Ty, arm: JsonArm) -> Option<usize> {
-    let TyKind::Con(id, _) = ty.kind() else { return None };
+    let TyKind::Con(id, _) = ty.kind() else {
+        return None;
+    };
     let name = match arm {
         JsonArm::Bool => "Bool",
         JsonArm::Num => "Num",
         JsonArm::Str => "Str",
     };
-    tables.tycon(*id).variants().iter().position(|v| v.name == name)
+    tables
+        .tycon(*id)
+        .variants()
+        .iter()
+        .position(|v| v.name == name)
 }
 
 /// The target of a numeric conversion's operation name: `toI64`, `wrapToU8`.
@@ -203,8 +209,13 @@ pub fn json_variant(tables: &Tables, ty: &Ty, arm: JsonArm) -> Option<usize> {
 /// `is_integer`/`is_float` — would call it exact by falling into its
 /// integer-to-float arm. Each backend asks for `toChar` by name.
 pub fn conversion_target(op: &str) -> Option<Prim> {
-    let name = op.strip_prefix("wrapTo").or_else(|| op.strip_prefix("to"))?;
-    Prim::all().iter().copied().find(|p| p.name() == name && (p.is_integer() || p.is_float()))
+    let name = op
+        .strip_prefix("wrapTo")
+        .or_else(|| op.strip_prefix("to"))?;
+    Prim::all()
+        .iter()
+        .copied()
+        .find(|p| p.name() == name && (p.is_integer() || p.is_float()))
 }
 
 /// The shapes a fallible `toT()` conversion comes in.
@@ -350,7 +361,14 @@ pub struct ListCall {
 /// The table, in `list.buri`'s order. Receiver first, context second,
 /// everything else after (SPEC 10.7), which is what fixes every index here.
 pub fn list_call(key: &str) -> Option<ListCall> {
-    let call = |kind, ctx, func, init| Some(ListCall { kind, ctx, func, init });
+    let call = |kind, ctx, func, init| {
+        Some(ListCall {
+            kind,
+            ctx,
+            func,
+            init,
+        })
+    };
     match key {
         "list.fold" => call(Step::Fold, None, 1, Some(2)),
         "list.foldCtx" => call(Step::Fold, Some(1), 2, Some(3)),
@@ -452,18 +470,26 @@ pub fn step_call(key: &str) -> Option<StepCall> {
         // step reading a clock out of its context read the scheduler's bytes
         // instead. The index is the closure's second parameter, between that
         // context and the element.
-        "host.HostTasks.parallel" => {
-            Some(StepCall { kind: Step::Map, ctx: Some(1), func: 3, arity: 4, index: Some(1) })
-        }
+        "host.HostTasks.parallel" => Some(StepCall {
+            kind: Step::Map,
+            ctx: Some(1),
+            func: 3,
+            arity: 4,
+            index: Some(1),
+        }),
         // `platform/effect/testing`'s scheduler, at the same four arguments. The
         // double reaches its steps through this boundary rather than through a
         // Buri loop of its own, and that is the point of it: what a test runs
         // its program through is the mechanism the program will ship on, with
         // one decision — the order — changed. Argument 0 is the live handle
         // this one genuinely reads; argument 1 is the context, as above.
-        "host_testing.TestTasks.parallel" => {
-            Some(StepCall { kind: Step::Map, ctx: Some(1), func: 3, arity: 4, index: Some(1) })
-        }
+        "host_testing.TestTasks.parallel" => Some(StepCall {
+            kind: Step::Map,
+            ctx: Some(1),
+            func: 3,
+            arity: 4,
+            index: Some(1),
+        }),
         _ => None,
     }
 }
@@ -493,7 +519,8 @@ pub const STEP_KEYS: &[&str] = &["host.HostTasks.parallel", "host_testing.TestTa
 /// Asked of both tables because a key belongs to one or the other: `mapCtx` is
 /// open-coded and `Tasks.parallel` is runtime-driven.
 pub fn ctx_step_key(key: &str) -> bool {
-    list_call(key).is_some_and(|c| c.ctx.is_some()) || step_call(key).is_some_and(|c| c.ctx.is_some())
+    list_call(key).is_some_and(|c| c.ctx.is_some())
+        || step_call(key).is_some_and(|c| c.ctx.is_some())
 }
 
 #[cfg(test)]
@@ -564,7 +591,10 @@ mod tests {
     /// other is a table whose two readers disagree about what is in it.
     #[test]
     fn the_table_and_the_roll_agree() {
-        assert!(!STEP_KEYS.is_empty(), "a mechanism with no key is a mechanism with no test");
+        assert!(
+            !STEP_KEYS.is_empty(),
+            "a mechanism with no key is a mechanism with no test"
+        );
         for key in STEP_KEYS {
             assert!(step_key(key), "{key} is on the roll and not in the table");
         }
@@ -593,18 +623,38 @@ mod tests {
     #[test]
     fn only_a_key_that_promises_an_index_is_given_one() {
         let tasks = step_call("host.HostTasks.parallel").expect("the scheduler");
-        assert_eq!(tasks.index, Some(1), "`effect Tasks` names the index second");
-        assert_ne!(tasks.index, Some(tasks.arity - 1), "the index is not the element");
+        assert_eq!(
+            tasks.index,
+            Some(1),
+            "`effect Tasks` names the index second"
+        );
+        assert_ne!(
+            tasks.index,
+            Some(tasks.arity - 1),
+            "the index is not the element"
+        );
         // A step told where it is still takes its context out of the record,
         // and that context is still the argument the table names — argument 1,
         // `ctx`, and not argument 0, which is the scheduler. The two are
         // different values and the assertion says which is which, because
         // naming the receiver here is the bug this row is the fix for.
-        assert_eq!(tasks.ctx, Some(1), "`parallel`'s context is its own parameter");
-        assert_ne!(tasks.ctx, Some(0), "argument 0 is the implementation, not the context");
+        assert_eq!(
+            tasks.ctx,
+            Some(1),
+            "`parallel`'s context is its own parameter"
+        );
+        assert_ne!(
+            tasks.ctx,
+            Some(0),
+            "argument 0 is the implementation, not the context"
+        );
         for key in STEP_KEYS {
             let call = step_call(key).expect(key);
-            assert_ne!(call.ctx, Some(call.func), "{key}: the closure is not its own context");
+            assert_ne!(
+                call.ctx,
+                Some(call.func),
+                "{key}: the closure is not its own context"
+            );
             assert_ne!(call.ctx, None, "{key}: a step is always handed a context");
         }
     }

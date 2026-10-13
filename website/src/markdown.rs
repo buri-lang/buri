@@ -83,11 +83,20 @@ struct Renderer<'a> {
 
 impl<'a> Renderer<'a> {
     fn new(resolver: &'a Resolver<'a>) -> Renderer<'a> {
-        Renderer { resolver, out: String::new(), anchors: Vec::new(), links: Vec::new() }
+        Renderer {
+            resolver,
+            out: String::new(),
+            anchors: Vec::new(),
+            links: Vec::new(),
+        }
     }
 
     fn finish(self) -> Rendered {
-        Rendered { html: self.out, anchors: self.anchors, links: self.links }
+        Rendered {
+            html: self.out,
+            anchors: self.anchors,
+            links: self.links,
+        }
     }
 
     // -- blocks -------------------------------------------------------------
@@ -146,7 +155,9 @@ impl<'a> Renderer<'a> {
              </h{level}>\n",
             anchor = highlight::escaped(&anchor),
         ));
-        self.links.push(Target::SameDocument { anchor: anchor.clone() });
+        self.links.push(Target::SameDocument {
+            anchor: anchor.clone(),
+        });
         self.anchors.push(anchor);
     }
 
@@ -175,7 +186,8 @@ impl<'a> Renderer<'a> {
         let mut cursor = at + 1;
         while cursor < lines.len() {
             let line = lines.get(cursor).copied().unwrap_or("");
-            if line.trim_start().starts_with("```") && fence_open(line).is_some_and(|(_, rest)| rest.trim().is_empty())
+            if line.trim_start().starts_with("```")
+                && fence_open(line).is_some_and(|(_, rest)| rest.trim().is_empty())
             {
                 cursor += 1;
                 break;
@@ -188,7 +200,11 @@ impl<'a> Renderer<'a> {
         // A `# ` line in a Buri example is a hidden import the doctest suite
         // compiles and the reader is not shown. `buri docs` drops them, and a
         // page that showed them would be showing a different program.
-        let body = if language == "buri" { examples::rendered(&body) } else { body };
+        let body = if language == "buri" {
+            examples::rendered(&body)
+        } else {
+            body
+        };
         let inner = highlight::block(language, &body);
         let class = if highlight::highlights(language) {
             format!(" class=\"language-{}\"", highlight::escaped(language))
@@ -197,7 +213,8 @@ impl<'a> Renderer<'a> {
         } else {
             format!(" class=\"plain-{}\"", highlight::escaped(language))
         };
-        self.out.push_str(&format!("<pre><code{class}>{inner}</code></pre>\n"));
+        self.out
+            .push_str(&format!("<pre><code{class}>{inner}</code></pre>\n"));
         cursor
     }
 
@@ -223,10 +240,12 @@ impl<'a> Renderer<'a> {
     fn table(&mut self, lines: &[&str], at: usize) -> usize {
         let header = cells(lines.get(at).copied().unwrap_or(""));
         let alignments = alignments(lines.get(at + 1).copied().unwrap_or(""));
-        self.out.push_str("<div class=\"table-scroll\">\n<table>\n<thead>\n<tr>");
+        self.out
+            .push_str("<div class=\"table-scroll\">\n<table>\n<thead>\n<tr>");
         for (column, cell) in header.iter().enumerate() {
             let body = self.inline(cell);
-            self.out.push_str(&format!("<th{}>{body}</th>", align(&alignments, column)));
+            self.out
+                .push_str(&format!("<th{}>{body}</th>", align(&alignments, column)));
         }
         self.out.push_str("</tr>\n</thead>\n<tbody>\n");
         let mut cursor = at + 2;
@@ -238,7 +257,8 @@ impl<'a> Renderer<'a> {
             self.out.push_str("<tr>");
             for (column, cell) in cells(line).iter().enumerate() {
                 let body = self.inline(cell);
-                self.out.push_str(&format!("<td{}>{body}</td>", align(&alignments, column)));
+                self.out
+                    .push_str(&format!("<td{}>{body}</td>", align(&alignments, column)));
             }
             self.out.push_str("</tr>\n");
             cursor += 1;
@@ -254,7 +274,9 @@ impl<'a> Renderer<'a> {
     /// — a nested list, a code block, a second paragraph — goes back through
     /// the block loop.
     fn list(&mut self, lines: &[&str], at: usize) -> usize {
-        let Some(first) = list_marker(lines.get(at).copied().unwrap_or("")) else { return at + 1 };
+        let Some(first) = list_marker(lines.get(at).copied().unwrap_or("")) else {
+            return at + 1;
+        };
         let tag = if first.ordered { "ol" } else { "ul" };
         let start = if first.ordered && first.number != 1 {
             format!(" start=\"{}\"", first.number)
@@ -266,7 +288,9 @@ impl<'a> Renderer<'a> {
         let mut cursor = at;
         while cursor < lines.len() {
             let line = lines.get(cursor).copied().unwrap_or("");
-            let Some(marker) = list_marker(line) else { break };
+            let Some(marker) = list_marker(line) else {
+                break;
+            };
             if marker.indent > first.indent || marker.ordered != first.ordered {
                 break;
             }
@@ -299,9 +323,9 @@ impl<'a> Renderer<'a> {
                 if list_marker(next).is_some_and(|m| m.indent <= first.indent) {
                     break;
                 }
-                if indent_of(next) < content && list_marker(next).is_none() && item
-                    .last()
-                    .is_some_and(|line| line.trim().is_empty())
+                if indent_of(next) < content
+                    && list_marker(next).is_none()
+                    && item.last().is_some_and(|line| line.trim().is_empty())
                 {
                     break;
                 }
@@ -440,9 +464,13 @@ impl<'a> Renderer<'a> {
         self.links.push(target.clone());
         match href {
             Some(href) => {
-                let external = matches!(target, Target::External { .. } | Target::Repository { .. });
+                let external =
+                    matches!(target, Target::External { .. } | Target::Repository { .. });
                 let attributes = if external { " rel=\"noreferrer\"" } else { "" };
-                format!("<a href=\"{}\"{attributes}>{label}</a>", highlight::escaped(&href))
+                format!(
+                    "<a href=\"{}\"{attributes}>{label}</a>",
+                    highlight::escaped(&href)
+                )
             }
             None => label.to_string(),
         }
@@ -509,7 +537,12 @@ fn list_marker(line: &str) -> Option<Marker> {
     let rest = line.trim_start();
     for bullet in ["- ", "* ", "+ "] {
         if rest.starts_with(bullet) {
-            return Some(Marker { indent, content: indent + 2, ordered: false, number: 1 });
+            return Some(Marker {
+                indent,
+                content: indent + 2,
+                ordered: false,
+                number: 1,
+            });
         }
     }
     let digits = rest.chars().take_while(char::is_ascii_digit).count();
@@ -520,7 +553,12 @@ fn list_marker(line: &str) -> Option<Marker> {
         return None;
     }
     let number = rest.get(..digits)?.parse::<usize>().ok()?;
-    Some(Marker { indent, content: indent + digits + 2, ordered: true, number })
+    Some(Marker {
+        indent,
+        content: indent + digits + 2,
+        ordered: true,
+        number,
+    })
 }
 
 /// Whether a line opens a block, and so ends the paragraph above it.
@@ -551,7 +589,10 @@ fn cells(line: &str) -> Vec<String> {
     let trimmed = line.trim();
     let inner = trimmed.strip_prefix('|').unwrap_or(trimmed);
     let inner = inner.strip_suffix('|').unwrap_or(inner);
-    inner.split('|').map(|cell| cell.trim().to_string()).collect()
+    inner
+        .split('|')
+        .map(|cell| cell.trim().to_string())
+        .collect()
 }
 
 fn alignments(line: &str) -> Vec<&'static str> {
@@ -582,7 +623,11 @@ fn code_span(rest: &str) -> Option<(&str, usize)> {
     let mut search = body_start;
     while let Some(found) = rest.get(search..)?.find(fence) {
         let start = search + found;
-        let run = rest.get(start..)?.bytes().take_while(|byte| *byte == b'`').count();
+        let run = rest
+            .get(start..)?
+            .bytes()
+            .take_while(|byte| *byte == b'`')
+            .count();
         if run == ticks {
             let body = rest.get(body_start..start)?;
             let body = body.strip_prefix(' ').unwrap_or(body);
@@ -678,7 +723,10 @@ mod tests {
             title: route.to_string(),
             label: String::new(),
             summary: String::new(),
-            source: Source { path: source.to_string(), directory: false },
+            source: Source {
+                path: source.to_string(),
+                directory: false,
+            },
             section: None,
             group: None,
             listed: true,
@@ -690,15 +738,23 @@ mod tests {
         Site {
             root: PathBuf::from("/nowhere"),
             pages: vec![
-                page("reference/build/tags", "crates/docs/src/docs/reference/build/tags.md"),
-                page("reference/build/testing", "crates/docs/src/docs/reference/build/testing.md"),
+                page(
+                    "reference/build/tags",
+                    "crates/docs/src/docs/reference/build/tags.md",
+                ),
+                page(
+                    "reference/build/testing",
+                    "crates/docs/src/docs/reference/build/testing.md",
+                ),
             ],
         }
     }
 
     fn rendered(text: &str) -> Rendered {
         let site = site();
-        let page = site.page("reference/build/tags").expect("the fixture has this page");
+        let page = site
+            .page("reference/build/tags")
+            .expect("the fixture has this page");
         let resolver = Resolver::for_page(&site, page);
         render(text, &resolver)
     }
@@ -714,7 +770,8 @@ mod tests {
     fn a_doc_link_to_another_page_becomes_a_link_to_that_page() {
         let out = rendered("See [testing](./testing.md#golden).\n");
         assert!(
-            out.html.contains("href=\"../../../reference/build/testing/#golden\""),
+            out.html
+                .contains("href=\"../../../reference/build/testing/#golden\""),
             "{}",
             out.html
         );
@@ -724,7 +781,8 @@ mod tests {
     fn a_doc_link_to_something_the_site_does_not_publish_goes_to_github() {
         let out = rendered("See [the design notes](../../../../../../design/).\n");
         assert!(
-            out.html.contains("https://github.com/buri-lang/buri/tree/main/design"),
+            out.html
+                .contains("https://github.com/buri-lang/buri/tree/main/design"),
             "{}",
             out.html
         );
@@ -733,7 +791,11 @@ mod tests {
     #[test]
     fn inline_runs_are_rendered_and_escaped() {
         let out = rendered("A `Vec<T>` is **strong** and *emphatic*.\n");
-        assert!(out.html.contains("<code>Vec&lt;T&gt;</code>"), "{}", out.html);
+        assert!(
+            out.html.contains("<code>Vec&lt;T&gt;</code>"),
+            "{}",
+            out.html
+        );
         assert!(out.html.contains("<strong>strong</strong>"), "{}", out.html);
         assert!(out.html.contains("<em>emphatic</em>"), "{}", out.html);
     }
@@ -757,8 +819,17 @@ mod tests {
     fn a_fenced_block_is_highlighted_and_an_unknown_language_is_not() {
         let out = rendered("```buri\nlet n = 1;\n```\n\n```sh\nburi build\n```\n");
         assert!(out.html.contains("class=\"language-buri\""), "{}", out.html);
-        assert!(out.html.contains("<span class=\"keyword\">let</span>"), "{}", out.html);
-        assert!(out.html.contains("<code class=\"plain-sh\">buri build\n</code>"), "{}", out.html);
+        assert!(
+            out.html.contains("<span class=\"keyword\">let</span>"),
+            "{}",
+            out.html
+        );
+        assert!(
+            out.html
+                .contains("<code class=\"plain-sh\">buri build\n</code>"),
+            "{}",
+            out.html
+        );
     }
 
     #[test]

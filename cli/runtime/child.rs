@@ -27,13 +27,13 @@
 //! collects it, which is what keeps its status for them, and a running one
 //! outlives the program, as in Rust's `std`.
 
-use crate::host::{fail, strs, view};
-use crate::value::{str_of, BuriStr};
 use crate::BURI_OK;
+use crate::host::{fail, strs, view};
+use crate::sync::{Mutex, MutexGuard};
+use crate::value::{BuriStr, str_of};
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicI64, Ordering};
-use crate::sync::{Mutex, MutexGuard};
 
 /// One started child: its pid, and its raw wait status once reaped.
 struct Started {
@@ -50,7 +50,9 @@ static CHILDREN: Mutex<Option<HashMap<i64, Started>>> = Mutex::new(None);
 static LAST: AtomicI64 = AtomicI64::new(0);
 
 fn table() -> MutexGuard<'static, Option<HashMap<i64, Started>>> {
-    CHILDREN.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    CHILDREN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 unsafe extern "C" {
@@ -80,7 +82,11 @@ fn signal_number(code: i64) -> Option<i32> {
 /// signal's number negated.
 fn status_code(raw: i32) -> i64 {
     let signal = raw & 0x7f;
-    if signal == 0 { i64::from((raw >> 8) & 0xff) } else { i64::from(signal).wrapping_neg() }
+    if signal == 0 {
+        i64::from((raw >> 8) & 0xff)
+    } else {
+        i64::from(signal).wrapping_neg()
+    }
 }
 
 /// Reap `pid` if it has exited, without waiting. The caller holds the lock.
@@ -147,10 +153,26 @@ fn exited(pid: i32) -> std::io::Result<()> {
         data: 0,
         udata: std::ptr::null_mut(),
     };
-    let mut event = KEvent { ident: 0, filter: 0, flags: 0, fflags: 0, data: 0, udata: std::ptr::null_mut() };
+    let mut event = KEvent {
+        ident: 0,
+        filter: 0,
+        flags: 0,
+        fflags: 0,
+        data: 0,
+        udata: std::ptr::null_mut(),
+    };
     let answer = loop {
         // SAFETY: one change in and room for one event out, both locals.
-        let got = unsafe { kevent(kq, &raw const change, 1, &raw mut event, 1, std::ptr::null()) };
+        let got = unsafe {
+            kevent(
+                kq,
+                &raw const change,
+                1,
+                &raw mut event,
+                1,
+                std::ptr::null(),
+            )
+        };
         if got >= 0 {
             // The exit, or `ESRCH` for a child that is a zombie already.
             const EV_ERROR: u16 = 0x4000;
@@ -270,7 +292,9 @@ pub unsafe extern "C" fn buri_rt_host_spawn_start_process(
     // the child's only owner from here.
     drop(child);
     let handle = LAST.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
-    table().get_or_insert_with(HashMap::new).insert(handle, Started { pid, status: None });
+    table()
+        .get_or_insert_with(HashMap::new)
+        .insert(handle, Started { pid, status: None });
     // SAFETY: the caller promises a writable destination.
     unsafe { out_ok.write(handle) };
     BURI_OK
@@ -279,7 +303,10 @@ pub unsafe extern "C" fn buri_rt_host_spawn_start_process(
 /// `Spawn::processId` — the pid a handle names, or zero for none.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_spawn_process_id(handle: i64) -> i64 {
-    table().as_ref().and_then(|t| t.get(&handle)).map_or(0, |c| i64::from(c.pid))
+    table()
+        .as_ref()
+        .and_then(|t| t.get(&handle))
+        .map_or(0, |c| i64::from(c.pid))
 }
 
 /// `Spawn::signalProcess` — `Result<(), IoError>`. A child that has exited is

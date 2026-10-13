@@ -35,13 +35,20 @@ fn passes(name: &str, test: &str, blocks: usize) {
         &repo.join("lib/BUILD.buri"),
         "library {\n    test {\n        sources: [\"test/t.buri\"]\n    }\n}\n",
     );
-    write(&repo.join("lib/lib.buri"), "export fn unused(): Int {\n    0\n}\n");
+    write(
+        &repo.join("lib/lib.buri"),
+        "export fn unused(): Int {\n    0\n}\n",
+    );
     write(&repo.join("lib/test/t.buri"), &format!("{PRELUDE}{test}"));
     let mut modes = crate::e2e::build_modes();
     modes.push(("js", &["--output=js"]));
     for (backend, flags) in modes {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-        cmd.current_dir(&repo).arg("test").args(flags).arg("//lib").arg("--force");
+        cmd.current_dir(&repo)
+            .arg("test")
+            .args(flags)
+            .arg("//lib")
+            .arg("--force");
         let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
         let summary = format!("{blocks} passed, 0 failed");
         assert!(

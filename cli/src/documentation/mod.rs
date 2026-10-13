@@ -272,7 +272,10 @@ pub struct Std {
 
 impl Std {
     pub fn load() -> Std {
-        Std { loaded: std::cell::OnceCell::new(), modules: std::cell::OnceCell::new() }
+        Std {
+            loaded: std::cell::OnceCell::new(),
+            modules: std::cell::OnceCell::new(),
+        }
     }
 
     fn loaded(&self) -> &crate::compiler::modules::Loaded {
@@ -283,7 +286,8 @@ impl Std {
     }
 
     fn modules(&self) -> &[reference::ApiModule] {
-        self.modules.get_or_init(|| reference::from_loaded(self.loaded(), &reference::std_filter))
+        self.modules
+            .get_or_init(|| reference::from_loaded(self.loaded(), &reference::std_filter))
     }
 }
 
@@ -309,16 +313,24 @@ impl DocSource for Std {
         let mut map = crate::diagnostics::SourceMap::new();
         let mut diagnostics = crate::diagnostics::Diagnostics::new();
         let mut cache = crate::parsing::parser::Cache::new();
-        let mut loader = crate::compiler::modules::Loader::new(None, &mut map, &mut diagnostics, &mut cache);
+        let mut loader =
+            crate::compiler::modules::Loader::new(None, &mut map, &mut diagnostics, &mut cache);
         loader.load_builtin_modules();
-        for path in std::iter::once(id).chain(module).filter(|path| is_std_path(path)) {
+        for path in std::iter::once(id)
+            .chain(module)
+            .filter(|path| is_std_path(path))
+        {
             loader.load_std_module(path);
         }
         let loaded = loader.finish();
         let named = |m: &crate::compiler::modules::ModuleData| {
             reference::std_filter(m) && (m.path == id || Some(m.path.as_str()) == module)
         };
-        module_page(&reference::from_loaded(&loaded, &named), id, "standard library")
+        module_page(
+            &reference::from_loaded(&loaded, &named),
+            id,
+            "standard library",
+        )
     }
 
     fn entries(&self) -> Vec<Entry> {
@@ -372,7 +384,11 @@ fn module_entries(modules: &[reference::ApiModule]) -> Vec<Entry> {
             summary: m.docs.first().cloned().unwrap_or_default(),
             text: m.docs.join("\n"),
         });
-        for item in m.items.iter().filter(|i| !i.api.via().is_some_and(|v| v.derived)) {
+        for item in m
+            .items
+            .iter()
+            .filter(|i| !i.api.via().is_some_and(|v| v.derived))
+        {
             out.push(Entry {
                 id: item.path(&m.path),
                 title: format!("{} {}", item.kind().label(), item.name),
@@ -434,7 +450,10 @@ impl Workspace {
             let package = target.package;
             let owned = |m: &crate::compiler::modules::ModuleData| m.pkg == Some(package);
             for m in reference::from_loaded(&loaded, &owned) {
-                if !modules.iter().any(|e: &reference::ApiModule| e.path == m.path) {
+                if !modules
+                    .iter()
+                    .any(|e: &reference::ApiModule| e.path == m.path)
+                {
                     modules.push(m);
                 }
             }
@@ -490,7 +509,12 @@ impl DocSource for Errors {
         // wording comes last, as reference for whoever edits the page.
         let body = match page {
             Some(p) => {
-                format!("{}\n{promise}{}{}", titled(p), wording(&p.front), attribution(&p.front))
+                format!(
+                    "{}\n{promise}{}{}",
+                    titled(p),
+                    wording(&p.front),
+                    attribution(&p.front)
+                )
             }
             None => format!("{}{promise}", e.text),
         };
@@ -528,7 +552,9 @@ fn titled(page: &frontmatter::Page) -> String {
     if text.starts_with("# ") {
         return text.to_string();
     }
-    format!("# {}\n\n{text}", page.front.title).trim_end().to_string()
+    format!("# {}\n\n{text}", page.front.title)
+        .trim_end()
+        .to_string()
 }
 
 /// What a diagnostic built from this page prints, as the templates they are.
@@ -591,7 +617,12 @@ impl DocSource for Lints {
         let code = id.strip_prefix("lint/").unwrap_or(id);
         let l = crate::documentation::lints::find(code)?;
         let body = match lints::page(code) {
-            Some(p) => format!("{}\n{}{}", titled(p), wording(&p.front), attribution(&p.front)),
+            Some(p) => format!(
+                "{}\n{}{}",
+                titled(p),
+                wording(&p.front),
+                attribution(&p.front)
+            ),
             None => l.text.to_string(),
         };
         Some(Page {
@@ -666,7 +697,11 @@ pub fn command_docs(args: &arguments::Args) -> i32 {
                     .unwrap_or_else(|| std::env::var("NO_COLOR").is_err()),
             },
         },
-        density: if args.flags.dense { Density::Dense } else { Density::Full },
+        density: if args.flags.dense {
+            Density::Dense
+        } else {
+            Density::Full
+        },
     };
 
     let mut rest = args.targets.iter().map(String::as_str);
@@ -725,7 +760,10 @@ pub fn command_docs(args: &arguments::Args) -> i32 {
 fn lint_index(presentation: &Presentation) -> String {
     let mut out = String::new();
     let (bold, dim, reset) = markdown::emphasis(presentation.render.color());
-    let _ = write!(out, "{bold}buri docs lint <code>{reset} — one lint in full\n\n");
+    let _ = write!(
+        out,
+        "{bold}buri docs lint <code>{reset} — one lint in full\n\n"
+    );
     for l in crate::documentation::lints::LINTS {
         let _ = writeln!(out, "  {:<28} {}", l.code, l.title());
     }
@@ -744,7 +782,10 @@ fn lint_index(presentation: &Presentation) -> String {
 fn error_index(presentation: &Presentation) -> String {
     let mut out = String::new();
     let (bold, dim, reset) = markdown::emphasis(presentation.render.color());
-    let _ = write!(out, "{bold}buri docs error <code>{reset} — one diagnostic in full\n\n");
+    let _ = write!(
+        out,
+        "{bold}buri docs error <code>{reset} — one diagnostic in full\n\n"
+    );
     for e in crate::documentation::errors::ERRORS {
         let _ = writeln!(out, "  {:<28} {}", e.code, e.title());
     }
@@ -761,12 +802,18 @@ fn error_index(presentation: &Presentation) -> String {
 fn command_index(presentation: &Presentation) -> String {
     let mut out = String::new();
     let (bold, dim, reset) = markdown::emphasis(presentation.render.color());
-    let _ = write!(out, "{bold}buri docs cli <command>{reset} — one command in full\n\n");
+    let _ = write!(
+        out,
+        "{bold}buri docs cli <command>{reset} — one command in full\n\n"
+    );
     for c in crate::commands::COMMANDS {
         let _ = writeln!(out, "  cli/{:<10} {}", c.name, c.blurb);
     }
-    let _ = write!(out, "\n{dim}The synopsis and flag table on each page are generated from the\n\
-                          same table that dispatches, so they cannot drift.{reset}\n");
+    let _ = write!(
+        out,
+        "\n{dim}The synopsis and flag table on each page are generated from the\n\
+                          same table that dispatches, so they cannot drift.{reset}\n"
+    );
     out
 }
 
@@ -852,7 +899,10 @@ fn index(presentation: &Presentation) -> String {
 
     let mut out = String::new();
     let (bold, dim, reset) = markdown::emphasis(presentation.render.color());
-    let _ = writeln!(out, "{bold}buri docs{reset} — the language, the build system, and this CLI\n");
+    let _ = writeln!(
+        out,
+        "{bold}buri docs{reset} — the language, the build system, and this CLI\n"
+    );
 
     // Diátaxis, in the order a reader needs it: learn, then do, then the
     // normative text, then the material nobody has to read front to back.
@@ -889,7 +939,10 @@ fn index(presentation: &Presentation) -> String {
 
     let _ = writeln!(out, "{bold}The standard library{reset}");
     let mut line = String::from("  ");
-    for m in crate::compiler::standard_library::MODULES.iter().filter(|m| !m.internal) {
+    for m in crate::compiler::standard_library::MODULES
+        .iter()
+        .filter(|m| !m.internal)
+    {
         let path = m.path;
         if line.chars().count() + path.len() + 2 > presentation.width.get() {
             let _ = writeln!(out, "{line}");
@@ -943,22 +996,60 @@ const STOPWORDS: &[&str] = &[
 /// and a thesaurus would need maintaining forever.
 const CONCEPTS: &[(&[&str], &[&str])] = &[
     (
-        &["compare", "comparator", "comparison", "sort", "sorting", "ordering", "tiebreak"],
+        &[
+            "compare",
+            "comparator",
+            "comparison",
+            "sort",
+            "sorting",
+            "ordering",
+            "tiebreak",
+        ],
         &["core/order", "core/list"],
     ),
-    (&["pad", "padding", "align", "alignment", "justify", "column"], &["core/str"]),
-    (&["hex", "hexadecimal", "base16", "nibble"], &["core/bytes", "core/character"]),
-    (&["random", "seed", "seeded", "rng", "shuffle"], &["core/random"]),
-    (&["discard", "ignore", "unused", "unhandled"], &["core/result"]),
-    (&["fixture", "fake", "mock", "stub", "double", "harness"], &["platform/effect/testing"]),
+    (
+        &["pad", "padding", "align", "alignment", "justify", "column"],
+        &["core/str"],
+    ),
+    (
+        &["hex", "hexadecimal", "base16", "nibble"],
+        &["core/bytes", "core/character"],
+    ),
+    (
+        &["random", "seed", "seeded", "rng", "shuffle"],
+        &["core/random"],
+    ),
+    (
+        &["discard", "ignore", "unused", "unhandled"],
+        &["core/result"],
+    ),
+    (
+        &["fixture", "fake", "mock", "stub", "double", "harness"],
+        &["platform/effect/testing"],
+    ),
     (&["assert", "assertion", "expect"], &["core/testing/assert"]),
     (&["file", "filesystem", "directory", "path"], &["core/fs"]),
-    (&["print", "println", "log", "stdout", "output"], &["core/io"]),
-    (&["dictionary", "hashmap", "lookup", "keyed"], &["core/map", "core/orderedmap"]),
-    (&["clock", "timestamp", "duration", "elapsed"], &["core/time", "core/date"]),
-    (&["encode", "decode", "serialize", "parse"], &["core/json", "core/proto"]),
+    (
+        &["print", "println", "log", "stdout", "output"],
+        &["core/io"],
+    ),
+    (
+        &["dictionary", "hashmap", "lookup", "keyed"],
+        &["core/map", "core/orderedmap"],
+    ),
+    (
+        &["clock", "timestamp", "duration", "elapsed"],
+        &["core/time", "core/date"],
+    ),
+    (
+        &["encode", "decode", "serialize", "parse"],
+        &["core/json", "core/proto"],
+    ),
     (&["boolean", "predicate", "truthy"], &["core/bool"]),
-    (&["concurrency", "parallel", "thread", "spawn"], &["core/tasks", "core/actor"]),
+    (
+        &["concurrency", "parallel", "thread", "spawn"],
+        &["core/tasks", "core/actor"],
+    ),
 ];
 
 /// One query word and the other spellings that mean it.
@@ -983,7 +1074,11 @@ impl Query {
     fn new(query: &str) -> Query {
         let phrase = query.to_lowercase();
         let all: Vec<&str> = phrase.split_whitespace().collect();
-        let kept: Vec<&str> = all.iter().copied().filter(|w| !STOPWORDS.contains(w)).collect();
+        let kept: Vec<&str> = all
+            .iter()
+            .copied()
+            .filter(|w| !STOPWORDS.contains(w))
+            .collect();
         // If the query is nothing but filler, search it as written rather than
         // searching nothing.
         let words: Vec<&str> = if kept.is_empty() { all } else { kept };
@@ -1001,10 +1096,16 @@ impl Query {
                         }
                     }
                 }
-                Term { spellings: spellings_of(w) }
+                Term {
+                    spellings: spellings_of(w),
+                }
             })
             .collect();
-        Query { phrase, terms, concepts }
+        Query {
+            phrase,
+            terms,
+            concepts,
+        }
     }
 }
 
@@ -1073,7 +1174,9 @@ fn name_words(name: &str) -> Vec<String> {
 /// word, because "align" is written `alignment` and "compare" `comparator`,
 /// and a reader is owed those.
 fn word_hits(text: &str, needle: &str) -> usize {
-    text.split(|c: char| !c.is_alphanumeric()).filter(|word| word.starts_with(needle)).count()
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|word| word.starts_with(needle))
+        .count()
 }
 
 /// One page's score against one query.
@@ -1116,7 +1219,10 @@ fn score(query: &Query, doc: &Doc) -> i64 {
             let (named, titled) = if w.contains(['/', '.']) {
                 (id.contains(w), title.contains(w))
             } else {
-                (id_words.iter().any(|x| x == w), title_words.iter().any(|x| x == w))
+                (
+                    id_words.iter().any(|x| x == w),
+                    title_words.iter().any(|x| x == w),
+                )
             };
             if named {
                 this += 20;
@@ -1172,11 +1278,32 @@ impl Hit {
 fn ranked(query: &Query) -> Vec<Hit> {
     let mut hits: Vec<Hit> = Vec::new();
     for source in sources() {
-        for Entry { id, title, summary, text } in source.entries() {
-            let tags: Vec<&str> = topics::find(&id).map(|t| t.tags.to_vec()).unwrap_or_default();
-            let score = score(query, &Doc { id: &id, title: &title, tags: &tags, text: &text });
+        for Entry {
+            id,
+            title,
+            summary,
+            text,
+        } in source.entries()
+        {
+            let tags: Vec<&str> = topics::find(&id)
+                .map(|t| t.tags.to_vec())
+                .unwrap_or_default();
+            let score = score(
+                query,
+                &Doc {
+                    id: &id,
+                    title: &title,
+                    tags: &tags,
+                    text: &text,
+                },
+            );
             if score > 0 {
-                hits.push(Hit { score, id, title, summary });
+                hits.push(Hit {
+                    score,
+                    id,
+                    title,
+                    summary,
+                });
             }
         }
     }
@@ -1240,7 +1367,10 @@ fn search(query: &str, presentation: &Presentation) -> i32 {
             let _ = writeln!(listing, "  {dim}{line}{reset}");
         }
     }
-    let _ = writeln!(listing, "\n{dim}Run any line above to read that page.{reset}");
+    let _ = writeln!(
+        listing,
+        "\n{dim}Run any line above to read that page.{reset}"
+    );
     arguments::out(&listing);
     0
 }
@@ -1287,7 +1417,10 @@ fn manifest() -> String {
     let mut pages: Vec<String> = Vec::new();
     for source in sources() {
         kinds.push(s(source.kind()));
-        for Entry { id, title, summary, .. } in source.entries() {
+        for Entry {
+            id, title, summary, ..
+        } in source.entries()
+        {
             let tags = topics::find(&id)
                 .map(|t| t.tags.iter().map(|x| s(x)).collect::<Vec<_>>())
                 .unwrap_or_default();
@@ -1325,7 +1458,9 @@ fn manifest() -> String {
 /// `write!` without building an intermediate `String` per page.
 fn pages_push(pages: &mut Vec<String>) -> &mut String {
     pages.push(String::new());
-    pages.last_mut().or_ice("a vector has a last element on the line after a push")
+    pages
+        .last_mut()
+        .or_ice("a vector has a last element on the line after a push")
 }
 
 /// Compiles every fenced example in the named markdown files — or, with no
@@ -1351,7 +1486,9 @@ fn doctest_command(paths: &[&str], presentation: &Presentation) -> i32 {
     } else {
         crate::documentation::examples::run_file_at
     };
-    let root = repository.or_else(|| repo_root_of(&cwd)).unwrap_or(cwd.clone());
+    let root = repository
+        .or_else(|| repo_root_of(&cwd))
+        .unwrap_or(cwd.clone());
 
     let files: Vec<std::path::PathBuf> = if paths.is_empty() {
         let mut found = Vec::new();
@@ -1370,7 +1507,11 @@ fn doctest_command(paths: &[&str], presentation: &Presentation) -> i32 {
     let mut blocks = 0usize;
     let mut checked = 0usize;
     for file in &files {
-        let rel = file.strip_prefix(&root).unwrap_or(file).display().to_string();
+        let rel = file
+            .strip_prefix(&root)
+            .unwrap_or(file)
+            .display()
+            .to_string();
         // A document the command line names has to be there. One found by the
         // walk that can't be read as text isn't documentation.
         let raw = match std::fs::read_to_string(file) {
@@ -1388,7 +1529,11 @@ fn doctest_command(paths: &[&str], presentation: &Presentation) -> i32 {
         if source && !crate::documentation::examples::has_examples(&raw) {
             continue;
         }
-        let text = if source { crate::documentation::examples::doc_comments(&raw) } else { raw };
+        let text = if source {
+            crate::documentation::examples::doc_comments(&raw)
+        } else {
+            raw
+        };
         let extracted = crate::documentation::examples::extract(&rel, &text);
         let found = extracted.blocks.len();
         // A fence that does not extract is a failure to report, not a file
@@ -1411,7 +1556,10 @@ fn doctest_command(paths: &[&str], presentation: &Presentation) -> i32 {
         return 0;
     }
     eprint!("{}", crate::documentation::examples::report(&failures));
-    eprintln!("{} example(s) do not do what the documentation says", failures.len());
+    eprintln!(
+        "{} example(s) do not do what the documentation says",
+        failures.len()
+    );
     1
 }
 
@@ -1424,7 +1572,9 @@ fn doctest_command(paths: &[&str], presentation: &Presentation) -> i32 {
 fn markdown_under(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
     let documented = |p: &std::path::Path| {
         p.extension().is_some_and(|x| x == "md" || x == "buri")
-            && !p.file_name().is_some_and(|n| n == "BUILD.buri" || n == "REPO.buri")
+            && !p
+                .file_name()
+                .is_some_and(|n| n == "BUILD.buri" || n == "REPO.buri")
     };
     crate::documentation::layout::files_under(dir, &documented, out);
 }
@@ -1481,7 +1631,9 @@ fn command_assemble(check_only: bool) -> i32 {
 fn repo_root_of(from: &std::path::Path) -> Option<std::path::PathBuf> {
     let mut dir = Some(from);
     while let Some(d) = dir {
-        if d.join("crates/docs/src/docs/SPEC.md").is_file() && d.join("crates/docs/src/docs/language").is_dir() {
+        if d.join("crates/docs/src/docs/SPEC.md").is_file()
+            && d.join("crates/docs/src/docs/language").is_dir()
+        {
             return Some(d.to_path_buf());
         }
         dir = d.parent();
@@ -1524,23 +1676,51 @@ mod tests {
 
     #[test]
     fn a_page_renders_in_every_style() {
-        let page = Prose.resolve("language/effects").expect("language/effects exists");
-        for render in [Render::Human { color: false }, Render::Markdown, Render::Json] {
-            let out = emit(&page, &Presentation { render, ..presentation() });
+        let page = Prose
+            .resolve("language/effects")
+            .expect("language/effects exists");
+        for render in [
+            Render::Human { color: false },
+            Render::Markdown,
+            Render::Json,
+        ] {
+            let out = emit(
+                &page,
+                &Presentation {
+                    render,
+                    ..presentation()
+                },
+            );
             assert!(!out.trim().is_empty(), "{render:?} rendered nothing");
         }
         // JSON is one line, so a tool can read it a page at a time.
-        let json = emit(&page, &Presentation { render: Render::Json, ..presentation() });
+        let json = emit(
+            &page,
+            &Presentation {
+                render: Render::Json,
+                ..presentation()
+            },
+        );
         assert_eq!(json.lines().count(), 1, "JSON output must be one line");
     }
 
     #[test]
     fn dense_is_shorter_but_keeps_the_examples() {
         let page = Prose.resolve("language/effects").unwrap();
-        let full = emit(&page, &Presentation { render: Render::Markdown, ..presentation() });
+        let full = emit(
+            &page,
+            &Presentation {
+                render: Render::Markdown,
+                ..presentation()
+            },
+        );
         let dense = emit(
             &page,
-            &Presentation { render: Render::Markdown, density: Density::Dense, ..presentation() },
+            &Presentation {
+                render: Render::Markdown,
+                density: Density::Dense,
+                ..presentation()
+            },
         );
         assert!(dense.len() < full.len());
         for f in markdown::fences(&crate::documentation::examples::shown(&page.body)) {
@@ -1568,7 +1748,12 @@ mod tests {
             // asserts what the shipped scorer ranks, so a changed weight fails
             // here rather than passing quietly.
             for t in topics::TOPICS {
-                let doc = Doc { id: t.id, title: t.title, tags: t.tags, text: t.text };
+                let doc = Doc {
+                    id: t.id,
+                    title: t.title,
+                    tags: t.tags,
+                    text: t.text,
+                };
                 let score = score(&q, &doc);
                 if score > 0 && best.as_ref().is_none_or(|(b, _)| score > *b) {
                     best = Some((score, t.id.to_string()));
@@ -1601,8 +1786,10 @@ mod tests {
             ("ignore a result", "core/result"),
             ("seeded random", "core/random"),
         ] {
-            let found: Vec<String> =
-                ranked(&Query::new(query)).into_iter().map(|hit| hit.id).collect();
+            let found: Vec<String> = ranked(&Query::new(query))
+                .into_iter()
+                .map(|hit| hit.id)
+                .collect();
             assert!(
                 found.iter().any(|id| id == want),
                 "searching `{query}` should return `{want}`, got {found:?}"
@@ -1617,8 +1804,11 @@ mod tests {
     #[test]
     fn every_result_is_a_command_and_every_concept_a_page() {
         let sources = sources();
-        let ids: Vec<String> =
-            sources.iter().flat_map(|s| s.entries()).map(|e| e.id).collect();
+        let ids: Vec<String> = sources
+            .iter()
+            .flat_map(|s| s.entries())
+            .map(|e| e.id)
+            .collect();
         for (words, pages) in CONCEPTS {
             for page in *pages {
                 assert!(

@@ -44,9 +44,9 @@
 )]
 
 use super::abi::{Loc, StencilTarget};
+use super::library::{Hole, HoleKind, Library, Stencil};
 use super::object::RelKind;
 use super::region::{Region, Target};
-use super::library::{Hole, HoleKind, Library, Stencil};
 use super::runtime;
 use crate::compiler::backend::counts::{Counts, Site};
 use crate::compiler::middle::ir;
@@ -110,7 +110,10 @@ const KEY_INLINE: usize = 32;
 
 impl Key {
     pub fn as_str(&self) -> &str {
-        self.inline.get(..self.len).and_then(|b| std::str::from_utf8(b).ok()).unwrap_or_default()
+        self.inline
+            .get(..self.len)
+            .and_then(|b| std::str::from_utf8(b).ok())
+            .unwrap_or_default()
     }
 }
 
@@ -131,7 +134,10 @@ impl Key {
                 break;
             }
         }
-        let s = digits.get(at..).and_then(|d| std::str::from_utf8(d).ok()).unwrap_or_default();
+        let s = digits
+            .get(at..)
+            .and_then(|d| std::str::from_utf8(d).ok())
+            .unwrap_or_default();
         self.push(s);
     }
 }
@@ -192,7 +198,10 @@ impl KeyPart for u8 {
 impl std::fmt::Write for Key {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
         let end = self.len + s.len();
-        let dst = self.inline.get_mut(self.len..end).or_ice("a stencil key fits `KEY_INLINE` bytes");
+        let dst = self
+            .inline
+            .get_mut(self.len..end)
+            .or_ice("a stencil key fits `KEY_INLINE` bytes");
         dst.copy_from_slice(s.as_bytes());
         self.len = end;
         Ok(())
@@ -250,7 +259,10 @@ const LITERAL_SLOTS: usize = 256;
 
 impl Default for Literals {
     fn default() -> Literals {
-        Literals { lib: std::ptr::null(), slots: [(0, 0, 0); LITERAL_SLOTS] }
+        Literals {
+            lib: std::ptr::null(),
+            slots: [(0, 0, 0); LITERAL_SLOTS],
+        }
     }
 }
 
@@ -263,7 +275,10 @@ impl Literals {
     /// `key`'s index in `lib`, asking the library the first time.
     fn at(&mut self, lib: &Library, key: &'static str) -> Option<usize> {
         if !std::ptr::eq(self.lib, lib) {
-            *self = Literals { lib, ..Literals::default() };
+            *self = Literals {
+                lib,
+                ..Literals::default()
+            };
         }
         let id = (key.as_ptr() as usize, key.len());
         let slot = self.slots.get_mut(Literals::slot(key))?;
@@ -513,8 +528,13 @@ pub(crate) struct FrameSig {
 }
 
 /// The frame of a function `frame_sigs` has no entry for, which no member can be.
-static NO_FRAME: FrameSig =
-    FrameSig { ret: Vec::new(), ret_size: 0, params: Vec::new(), param_end: 0, size: 0 };
+static NO_FRAME: FrameSig = FrameSig {
+    ret: Vec::new(),
+    ret_size: 0,
+    params: Vec::new(),
+    param_end: 0,
+    size: 0,
+};
 
 fn round8(n: u32) -> u32 {
     (n + 7) & !7
@@ -572,7 +592,8 @@ fn put<T>(t: &mut [T], i: usize, x: T) {
 /// Entry `i` of a side table, which has one entry per value, block or function
 /// of the code it was sized for.
 fn ent_mut<T>(t: &mut [T], i: usize) -> &mut T {
-    t.get_mut(i).or_ice("a side table has an entry for every index of its code")
+    t.get_mut(i)
+        .or_ice("a side table has an entry for every index of its code")
 }
 
 /// One more use recorded against entry `i`.
@@ -610,7 +631,12 @@ struct BlockUses {
 
 impl Default for BlockUses {
     fn default() -> BlockUses {
-        BlockUses { block: u32::MAX, count: 0, first: 0, last: 0 }
+        BlockUses {
+            block: u32::MAX,
+            count: 0,
+            first: 0,
+            last: 0,
+        }
     }
 }
 
@@ -622,7 +648,12 @@ fn note_use(uses: &mut [BlockUses], block: u32, o: &ir::ValueId, at: usize) {
         u.count += 1;
         u.last = at;
     } else {
-        *u = BlockUses { block, count: 1, first: at, last: at };
+        *u = BlockUses {
+            block,
+            count: 1,
+            first: at,
+            last: at,
+        };
     }
 }
 
@@ -633,7 +664,9 @@ fn note_use(uses: &mut [BlockUses], block: u32, o: &ir::ValueId, at: usize) {
 /// value that is its own parent.
 fn find(uf: &[u32], mut v: u32) -> u32 {
     loop {
-        let parent = *uf.get(v as usize).or_ice("a value's slot class is in the table");
+        let parent = *uf
+            .get(v as usize)
+            .or_ice("a value's slot class is in the table");
         if parent == v {
             return v;
         }
@@ -697,7 +730,11 @@ impl<'a> Jit<'a> {
     /// rather than reset, so a field added later cannot leak into the next part
     /// by being forgotten.
     pub(crate) fn into_scratch(self) -> Scratch<'a> {
-        Scratch { layouts: self.layouts, counts: self.counts, bufs: self.bufs }
+        Scratch {
+            layouts: self.layouts,
+            counts: self.counts,
+            bufs: self.bufs,
+        }
     }
 
     /// The symbol of a generated helper, registering it the first time it is
@@ -708,7 +745,11 @@ impl<'a> Jit<'a> {
     /// this part.
     pub(crate) fn helper(&mut self, h: super::glue::Helper) -> String {
         if let Some(i) = self.helper_ix.get(&h) {
-            return self.helper_names.get(*i).map(|(n, _)| n.clone()).unwrap_or_default();
+            return self
+                .helper_names
+                .get(*i)
+                .map(|(n, _)| n.clone())
+                .unwrap_or_default();
         }
         let shared = super::glue::shared_symbol(&h, &mut self.layouts);
         if let Some(i) = shared.as_ref().and_then(|n| self.shared_ix.get(n)).copied() {
@@ -786,8 +827,13 @@ impl<'a> Jit<'a> {
     /// signature is what a `FuncIdx` from some other program would get and not
     /// one from this one.
     pub(crate) fn frame_sig_of(&self, f: usize) -> &'a FrameSig {
-        static EMPTY: FrameSig =
-            FrameSig { ret: Vec::new(), ret_size: 0, params: Vec::new(), param_end: 0, size: 0 };
+        static EMPTY: FrameSig = FrameSig {
+            ret: Vec::new(),
+            ret_size: 0,
+            params: Vec::new(),
+            param_end: 0,
+            size: 0,
+        };
         self.frames.get(f).unwrap_or(&EMPTY)
     }
 
@@ -835,9 +881,12 @@ impl<'a> Jit<'a> {
         use crate::compiler::semantics::types::{substitute, TyDef, TyKind};
         match (owner.kind(), variant) {
             (TyKind::Tuple(elements), None) => elements.get(index).copied(),
-            (TyKind::Ctx(id), None) => {
-                self.tables.ctx_type(*id).bindings.get(index).map(|(_, t)| *t)
-            }
+            (TyKind::Ctx(id), None) => self
+                .tables
+                .ctx_type(*id)
+                .bindings
+                .get(index)
+                .map(|(_, t)| *t),
             (TyKind::Con(id, args), None) => match &self.tables.tycon(*id).def {
                 TyDef::Struct { fields, .. } => {
                     fields.get(index).map(|f| substitute(&f.ty, args, None))
@@ -846,7 +895,13 @@ impl<'a> Jit<'a> {
             },
             (TyKind::Con(id, args), Some(v)) => match &self.tables.tycon(*id).def {
                 TyDef::Enum { .. } => {
-                    let field = self.tables.tycon(*id).variants().get(v)?.fields.get(index)?;
+                    let field = self
+                        .tables
+                        .tycon(*id)
+                        .variants()
+                        .get(v)?
+                        .fields
+                        .get(index)?;
                     Some(substitute(&field.ty, args, None))
                 }
                 TyDef::Prim(_) | TyDef::Struct { .. } => None,
@@ -1062,7 +1117,11 @@ impl Fn2 {
     /// it is the same answer everywhere in the function. Where a *read* takes
     /// the value from is [`Fn2::loc`], which is not.
     pub fn home(&self, v: ir::ValueId) -> Loc {
-        self.reg.get(v.index()).copied().flatten().unwrap_or(Loc::Frame)
+        self.reg
+            .get(v.index())
+            .copied()
+            .flatten()
+            .unwrap_or(Loc::Frame)
     }
 
     /// Where a read in the block being emitted takes a value from.
@@ -1114,7 +1173,8 @@ impl Lists {
         self.items.clear();
         self.items.resize(sum as usize, 0);
         self.next.clear();
-        self.next.extend_from_slice(self.at.get(..n).unwrap_or_default());
+        self.next
+            .extend_from_slice(self.at.get(..n).unwrap_or_default());
         for (l, x) in pairs() {
             let k = ent_mut(&mut self.next, l);
             let at = *k as usize;
@@ -1153,7 +1213,15 @@ impl Loops {
     /// [`Loops::best`].
     fn innermost(&mut self, code: &ir::Code) -> Option<usize> {
         let nb = code.blocks.len();
-        let Loops { preds, dom, barrier, stamp, members, stack, best } = self;
+        let Loops {
+            preds,
+            dom,
+            barrier,
+            stamp,
+            members,
+            stack,
+            best,
+        } = self;
         barrier.clear();
         barrier.extend(code.blocks.iter().map(|b| b.insts.iter().any(is_barrier)));
         preds.fill(nb, || {
@@ -1275,7 +1343,10 @@ impl<'a> Jit<'a> {
     fn function(&mut self, prog: &ir::Program, fi: usize) {
         self.current = fi;
         self.region.align_code(4);
-        let f = prog.funcs.get(fi).or_ice("stencil: a unit's member is one of its program's functions");
+        let f = prog
+            .funcs
+            .get(fi)
+            .or_ice("stencil: a unit's member is one of its program's functions");
         // `plan` sized `entries` and `frames` from the same `prog.funcs`, so
         // the check above is what makes both of these present.
         let entry = self.region.code_addr();
@@ -1328,8 +1399,7 @@ impl<'a> Jit<'a> {
                     let next = order.get(oi + 1).copied().unwrap_or(usize::MAX);
                     // An `Abort` does not come back, so the terminator behind
                     // one is dead code.
-                    if !matches!(block.insts.last(), Some(ir::Inst::Abort { .. }))
-                    {
+                    if !matches!(block.insts.last(), Some(ir::Inst::Abort { .. })) {
                         self.term(prog, code, &mut st, next, &block.term, &plan);
                     }
                     self.bufs.skip = plan.skip;
@@ -1440,7 +1510,9 @@ impl<'a> Jit<'a> {
         // library, and this is the loop that used to build those three names
         // with `format!` per emitted instruction.
         for k in 0..super::library::FOLD_SUFFIXES_LEN {
-            let Some(f) = lib.fold_twin(at, k) else { continue };
+            let Some(f) = lib.fold_twin(at, k) else {
+                continue;
+            };
             let fits = f.holes.iter().all(|h| {
                 h.lo12.is_empty()
                     || match binds.iter().find(|(n, _)| same_name(n, &h.name)) {
@@ -1458,8 +1530,7 @@ impl<'a> Jit<'a> {
         }
         // The hole on the stencil's last instruction, once the fold above has
         // settled which twin is being copied.
-        let tail_name: Option<&str> =
-            s.tail.and_then(|t| s.holes.get(t)).map(|h| h.name.as_str());
+        let tail_name: Option<&str> = s.tail.and_then(|t| s.holes.get(t)).map(|h| h.name.as_str());
         let mut len = s.code.len();
         // Fallthrough elision: the continuation is the next stencil, so the
         // trailing branch is not patched, it is dropped. One A64 instruction,
@@ -1467,12 +1538,18 @@ impl<'a> Jit<'a> {
         let tail_bytes = if self.target.is_arm64() { 4 } else { 5 };
         let mut elide = false;
         if let Some(name) = tail_name {
-            if binds.iter().any(|(n, v)| matches!(v, V::Fall) && same_name(n, name)) {
+            if binds
+                .iter()
+                .any(|(n, v)| matches!(v, V::Fall) && same_name(n, name))
+            {
                 elide = true;
                 len -= tail_bytes;
             }
         }
-        let bytes = s.code.get(..len).or_ice("a stencil is longer than the tail branch it names");
+        let bytes = s
+            .code
+            .get(..len)
+            .or_ice("a stencil is longer than the tail branch it names");
         let at = self.region.put(bytes);
         let end = at + len as u64;
         // The read-only bytes clang spilled, which are not holes and take no
@@ -1570,16 +1647,25 @@ impl<'a> Jit<'a> {
                     V::Fall => Some(end),
                     V::Blk(b) => {
                         for off in &h.branches {
-                            self.fixups.push(Fix::Block { at: at + *off as u64, blk: b });
+                            self.fixups.push(Fix::Block {
+                                at: at + *off as u64,
+                                blk: b,
+                            });
                         }
                         for off in &h.conds {
-                            self.fixups.push(Fix::BlockCond { at: at + *off as u64, blk: b });
+                            self.fixups.push(Fix::BlockCond {
+                                at: at + *off as u64,
+                                blk: b,
+                            });
                         }
                         None
                     }
                     V::Fn(f) => {
                         for off in &h.branches {
-                            self.fixups.push(Fix::Func { at: at + *off as u64, f });
+                            self.fixups.push(Fix::Func {
+                                at: at + *off as u64,
+                                f,
+                            });
                         }
                         None
                     }
@@ -1622,7 +1708,9 @@ impl<'a> Jit<'a> {
                     // The stencil builder only ever produces `lo12` for
                     // offset-shaped holes, so anything else here is a library
                     // that does not match this emitter.
-                    let x = v.imm().or_ice("a hole folded into an imm12 is bound to an offset");
+                    let x = v
+                        .imm()
+                        .or_ice("a hole folded into an imm12 is bound to an offset");
                     for (o, scale) in &h.lo12 {
                         self.patch_lo12(at + *o as u64, x as u32, *scale);
                     }
@@ -1700,7 +1788,8 @@ impl<'a> Jit<'a> {
         };
         // On x86-64 a pair is `(instruction end, field)`.
         for (insn_end, field) in &h.pairs {
-            self.region.pool_ref_pc32(at + u64::from(*field), at + u64::from(*insn_end), slot);
+            self.region
+                .pool_ref_pc32(at + u64::from(*field), at + u64::from(*insn_end), slot);
         }
     }
 
@@ -1728,7 +1817,9 @@ impl<'a> Jit<'a> {
     /// reference, which is the property the rewrite exists for.
     fn patch_pc32_imm(&mut self, field: u64, insn_end: u64, v: u32) {
         debug_assert_eq!(insn_end, field + 4);
-        let start = field.checked_sub(3).or_ice("a pc-relative field has an instruction in front");
+        let start = field
+            .checked_sub(3)
+            .or_ice("a pc-relative field has an instruction in front");
         // `ModRM.reg` and `REX.R` are where the destination register is, in
         // both the `lea` and the `mov` this rewrites.
         let rex = self.region.byte_at(start, 0);
@@ -1767,9 +1858,13 @@ impl<'a> Jit<'a> {
         let d = target as i64 - at as i64;
         assert!(d % 4 == 0, "misaligned branch");
         let w = d >> 2;
-        assert!((-(1 << 25)..(1 << 25)).contains(&w), "branch out of range: {d}");
+        assert!(
+            (-(1 << 25)..(1 << 25)).contains(&w),
+            "branch out of range: {d}"
+        );
         let old = self.region.word_at(at);
-        self.region.set_word(at, (old & 0xfc00_0000) | (w as u32 & 0x03ff_ffff));
+        self.region
+            .set_word(at, (old & 0xfc00_0000) | (w as u32 & 0x03ff_ffff));
     }
 
     /// The `imm19` of a `b.cc`/`cbz`/`cbnz` the cond fold made a hole. ±1 MB,
@@ -1808,7 +1903,8 @@ impl<'a> Jit<'a> {
             "conditional branch out of imm19 range: {d} bytes"
         );
         let old = self.region.word_at(at);
-        self.region.set_word(at, (old & 0xff00_001f) | (((w as u32) & 0x7ffff) << 5));
+        self.region
+            .set_word(at, (old & 0xff00_001f) | (((w as u32) & 0x7ffff) << 5));
     }
 
     /// A `rel32`, measured from the end of its instruction — which is the four
@@ -1833,8 +1929,10 @@ impl<'a> Jit<'a> {
         let wb = self.region.word_at(add);
         let rd = wa & 0x1f;
         debug_assert_eq!(wb & 0x1f, rd);
-        self.region.set_word(adrp, 0xd280_0000 | ((v & 0xffff) << 5) | rd);
-        self.region.set_word(add, 0xf2a0_0000 | (((v >> 16) & 0xffff) << 5) | rd);
+        self.region
+            .set_word(adrp, 0xd280_0000 | ((v & 0xffff) << 5) | rd);
+        self.region
+            .set_word(add, 0xf2a0_0000 | (((v >> 16) & 0xffff) << 5) | rd);
     }
 
     /// The `imm12` field of a load or store the library builder folded the hole
@@ -1844,7 +1942,8 @@ impl<'a> Jit<'a> {
         let imm12 = v / scale;
         debug_assert!(imm12 < 4096);
         let w = self.region.word_at(at);
-        self.region.set_word(at, (w & !(0xfff << 10)) | (imm12 << 10));
+        self.region
+            .set_word(at, (w & !(0xfff << 10)) | (imm12 << 10));
     }
 
     /// The cross-function sites, once the unit is laid out.
@@ -1898,7 +1997,12 @@ impl<'a> Jit<'a> {
 pub(crate) struct Plan {
     pub skip: Vec<bool>,
     /// The comparison the branch will do itself: `(op, prim, lhs, rhs)`.
-    pub cmpbr: Option<(ir::BinOp, crate::compiler::semantics::types::Prim, ir::ValueId, ir::ValueId)>,
+    pub cmpbr: Option<(
+        ir::BinOp,
+        crate::compiler::semantics::types::Prim,
+        ir::ValueId,
+        ir::ValueId,
+    )>,
     /// A `GetTag` the switch will do itself: `(aggregate value, byte offset,
     /// tag width)`.
     pub tagsw: Option<ir::ValueId>,
@@ -1923,7 +2027,6 @@ pub(crate) struct Incbr {
     pub back: ir::BlockId,
     pub out: ir::BlockId,
 }
-
 
 impl<'a> Jit<'a> {
     /// Where every value lives in the frame, and where the scratch begins.
@@ -2026,7 +2129,10 @@ impl<'a> Jit<'a> {
     ///
     /// Answers whether it ran, which is whether `bufs.aliased` is this
     /// function's.
-    #[allow(clippy::too_many_arguments, reason = "the tables `slots` already built")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the tables `slots` already built"
+    )]
     fn alias_parts(
         &mut self,
         prog: &ir::Program,
@@ -2038,7 +2144,10 @@ impl<'a> Jit<'a> {
         opnd: &Operands,
     ) -> bool {
         let part = |i: &ir::Inst| {
-            matches!(i, ir::Inst::ArrayLen { .. } | ir::Inst::MakeStruct { .. } | ir::Inst::MakeEnum { .. })
+            matches!(
+                i,
+                ir::Inst::ArrayLen { .. } | ir::Inst::MakeStruct { .. } | ir::Inst::MakeEnum { .. }
+            )
         };
         if !code.blocks.iter().any(|b| b.insts.iter().any(part)) {
             return false;
@@ -2066,7 +2175,9 @@ impl<'a> Jit<'a> {
         }
         // `members` counts a class at its root, so one member means a class
         // of one.
-        let alone = |v: ir::ValueId| ent(&members, v.index(), 0) == 1 && ent(pin, v.index(), None).is_none();
+        let alone = |v: ir::ValueId| {
+            ent(&members, v.index(), 0) == 1 && ent(pin, v.index(), None).is_none()
+        };
         // The entry's parameters keep the slots the caller left them in.
         let entry: &[ir::ValueId] = &code.get(ir::BlockId(0)).params;
         let still = |v: ir::ValueId| {
@@ -2085,7 +2196,10 @@ impl<'a> Jit<'a> {
             }
             let stamp = bi as u32;
             let def_at = |v: ir::ValueId| {
-                def_in.get(v.index()).filter(|(db, _)| *db == stamp).map(|(_, k)| *k as usize)
+                def_in
+                    .get(v.index())
+                    .filter(|(db, _)| *db == stamp)
+                    .map(|(_, k)| *k as usize)
             };
             // Per aggregate built here, the last instruction before it that
             // touches its class. Scanning back from each field instead is `n²`
@@ -2117,12 +2231,25 @@ impl<'a> Jit<'a> {
                     continue;
                 }
                 let (dest, fields, l, variant) = match i {
-                    ir::Inst::MakeStruct { dest, fields } => {
-                        (*dest, fields, self.layout_of(prog, agg_of(code.ty_of(*dest))), None)
-                    }
-                    ir::Inst::MakeEnum { dest, variant, fields } => {
+                    ir::Inst::MakeStruct { dest, fields } => (
+                        *dest,
+                        fields,
+                        self.layout_of(prog, agg_of(code.ty_of(*dest))),
+                        None,
+                    ),
+                    ir::Inst::MakeEnum {
+                        dest,
+                        variant,
+                        fields,
+                    } => {
                         let l = self.layout_of(prog, agg_of(code.ty_of(*dest)));
-                        if matches!(&l.repr, Repr::Enum { repr: EnumRepr::Bare { .. }, .. }) {
+                        if matches!(
+                            &l.repr,
+                            Repr::Enum {
+                                repr: EnumRepr::Bare { .. },
+                                ..
+                            }
+                        ) {
                             continue;
                         }
                         (*dest, fields, l, Some(*variant as usize))
@@ -2149,11 +2276,15 @@ impl<'a> Jit<'a> {
                         || !w.is_multiple_of(8)
                         || !alone(*f)
                         || ent(uses, f.index(), 0) != 1
-                        || self.field_ty(&owner, variant, fi).is_some_and(|t| self.boxes(&owner, &t))
+                        || self
+                            .field_ty(&owner, variant, fi)
+                            .is_some_and(|t| self.boxes(&owner, &t))
                     {
                         continue;
                     }
-                    let Some(k) = def_at(*f).filter(|k| *k < j) else { continue };
+                    let Some(k) = def_at(*f).filter(|k| *k < j) else {
+                        continue;
+                    };
                     let def = b.insts.get(k);
                     let loads = matches!(
                         def,
@@ -2209,7 +2340,10 @@ impl<'a> Jit<'a> {
     /// The field is whole frame words wide and not boxed, the result is a
     /// class of its own, and the struct lives inside this frame, below `end`:
     /// past it is the callee's frame, which every call rewrites.
-    #[allow(clippy::too_many_arguments, reason = "the tables `slots` already built")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the tables `slots` already built"
+    )]
     fn forward_fields(
         &mut self,
         prog: &ir::Program,
@@ -2260,7 +2394,9 @@ impl<'a> Jit<'a> {
         }
         for (bi, b) in code.blocks.iter().enumerate() {
             for (j, i) in b.insts.iter().enumerate() {
-                let ir::Inst::GetField { dest, agg, index } = i else { continue };
+                let ir::Inst::GetField { dest, agg, index } = i else {
+                    continue;
+                };
                 let id = agg_of(code.ty_of(*agg));
                 let l = self.layout_of(prog, id);
                 let off = l.field(*index as usize);
@@ -2269,7 +2405,9 @@ impl<'a> Jit<'a> {
                 if w == 0
                     || !w.is_multiple_of(8)
                     || !alone(*dest)
-                    || self.field_ty(&owner, None, *index as usize).is_some_and(|t| self.boxes(&owner, &t))
+                    || self
+                        .field_ty(&owner, None, *index as usize)
+                        .is_some_and(|t| self.boxes(&owner, &t))
                 {
                     continue;
                 }
@@ -2436,7 +2574,10 @@ impl<'a> Jit<'a> {
     /// of a predecessor, after which nothing on that path reads the old value
     /// before the header takes the new one. Every temporary already merged into
     /// the latch's class is checked again against the header's.
-    #[allow(clippy::too_many_arguments, reason = "the tables `coalesce` already built")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the tables `coalesce` already built"
+    )]
     fn coalesce_latches(
         &mut self,
         code: &ir::Code,
@@ -2478,12 +2619,19 @@ impl<'a> Jit<'a> {
         let mut ops = Vec::new();
         let mut class = Vec::new();
         for latch in &code.blocks {
-            let ir::Term::Jump(t) = &latch.term else { continue };
+            let ir::Term::Jump(t) = &latch.term else {
+                continue;
+            };
             let header = code.get(t.block);
             for p2 in &latch.params {
-                let Some(k) = t.args.iter().position(|a| a == p2) else { continue };
+                let Some(k) = t.args.iter().position(|a| a == p2) else {
+                    continue;
+                };
                 // One argument per parameter, of its type (`ir::verify`).
-                let p1 = *header.params.get(k).or_ice("an edge passes one argument per parameter");
+                let p1 = *header
+                    .params
+                    .get(k)
+                    .or_ice("an edge passes one argument per parameter");
                 if ent(uses, p2.index(), 0) != 1
                     || ent(width, p2.index(), 0) != 8
                     || ent(pin, p2.index(), None).is_some()
@@ -2502,8 +2650,14 @@ impl<'a> Jit<'a> {
                 // That leaves the latch's class as its parameter and the
                 // temporaries its predecessors pass it, which the shapes below
                 // are of.
-                invariant(r1 != r2, "stencil: a latch's parameter is not its target's yet");
-                invariant(!ent(&pinned, r2 as usize, true), "stencil: a latch's parameter is not pinned");
+                invariant(
+                    r1 != r2,
+                    "stencil: a latch's parameter is not its target's yet",
+                );
+                invariant(
+                    !ent(&pinned, r2 as usize, true),
+                    "stencil: a latch's parameter is not pinned",
+                );
                 // Nothing in the latch reads the header parameter's class, and
                 // the jump passes it nothing but this one value: an `if`'s or a
                 // `match`'s join is defined after everything else it could read.
@@ -2532,7 +2686,10 @@ impl<'a> Jit<'a> {
                 }
                 for m in class.iter().filter(|m| **m != p2.0) {
                     let b = ent(def_block, *m as usize, u32::MAX);
-                    let block = code.blocks.get(b as usize).or_ice("a value merged on an edge is defined");
+                    let block = code
+                        .blocks
+                        .get(b as usize)
+                        .or_ice("a value merged on an edge is defined");
                     // The rest of the class is the temporaries the latch's
                     // predecessors pass it. Each definition now writes the
                     // header parameter's slot, so its block has no way out but
@@ -2546,7 +2703,10 @@ impl<'a> Jit<'a> {
                         ir::Term::Jump(j) => std::ptr::eq(code.get(j.block), latch),
                         _ => false,
                     };
-                    invariant(to_latch, "stencil: a value passed to a latch is defined in a block that jumps there");
+                    invariant(
+                        to_latch,
+                        "stencil: a value passed to a latch is defined in a block that jumps there",
+                    );
                     let at = ent(def_idx, *m as usize, u32::MAX);
                     invariant(
                         self.merge_is_safe(code, opnd, b as usize, uf, r1, ir::ValueId(*m), at),
@@ -2580,7 +2740,10 @@ impl<'a> Jit<'a> {
     ///  * an **argument**, used once, by that call, and defined by an
     ///    instruction that writes nothing but its own slot. Its definition must
     ///    not land inside a pinned result's life, whose slot it could overlap.
-    #[allow(clippy::too_many_arguments, reason = "the tables `slots` already built")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the tables `slots` already built"
+    )]
     fn pin_call_values(
         &mut self,
         prog: &ir::Program,
@@ -2604,7 +2767,10 @@ impl<'a> Jit<'a> {
             ent(&members, v.index(), 0) == 1 && ent(pin, v.index(), None).is_none()
         };
         let calls_code = |func: &crate::compiler::semantics::types::FuncIdx| {
-            matches!(prog.funcs.get(func.index()).map(|f| &f.body), Some(ir::Body::Code(_)))
+            matches!(
+                prog.funcs.get(func.index()).map(|f| &f.body),
+                Some(ir::Body::Code(_))
+            )
         };
         // Where each value is read in the block at hand — an instruction's
         // index, or `last` for the terminator — and where it is defined. One
@@ -2637,21 +2803,29 @@ impl<'a> Jit<'a> {
             for o in opnd.term(code, bi) {
                 note_use(&mut reads, stamp, o, last);
             }
-            let read_at = |v: ir::ValueId| reads.get(v.index()).copied().filter(|u| u.block == stamp);
+            let read_at =
+                |v: ir::ValueId| reads.get(v.index()).copied().filter(|u| u.block == stamp);
             let def_at = |v: ir::ValueId| {
-                defs.get(v.index()).filter(|(b, _)| *b == stamp).map(|(_, k)| *k)
+                defs.get(v.index())
+                    .filter(|(b, _)| *b == stamp)
+                    .map(|(_, k)| *k)
             };
             let pure = |from: usize, to: usize| {
                 to <= from || ent(&kept, to, 0) - ent(&kept, from, 0) == to - from
             };
             let mut results: Vec<(usize, usize)> = Vec::new();
             for (j, i) in b.insts.iter().enumerate() {
-                let ir::Inst::Call { dest: d, func, .. } = *i else { continue };
+                let ir::Inst::Call { dest: d, func, .. } = *i else {
+                    continue;
+                };
                 if !calls_code(&func) {
                     continue;
                 }
                 let fs = self.frames.get(func.index()).or_ice("a callee has a frame");
-                let off = *fs.ret.first().or_ice("a signature has one result (middle/ir.rs)");
+                let off = *fs
+                    .ret
+                    .first()
+                    .or_ice("a signature has one result (middle/ir.rs)");
                 let Some(dr) = read_at(d) else { continue };
                 let mut end = dr.last;
                 // A value is read after its definition (`ir::verify`), so
@@ -2664,8 +2838,11 @@ impl<'a> Jit<'a> {
                 let mut alias = None;
                 if dr.count == 1 {
                     let r = dr.first;
-                    if let Some(ir::Inst::Unary { op: ir::UnOp::FromBool, dest: z, .. }) =
-                        b.insts.get(r)
+                    if let Some(ir::Inst::Unary {
+                        op: ir::UnOp::FromBool,
+                        dest: z,
+                        ..
+                    }) = b.insts.get(r)
                     {
                         // Read once, by the instruction after it (`ir::UnOp::FromBool`),
                         // so it is a class of its own and nothing pinned it.
@@ -2684,13 +2861,17 @@ impl<'a> Jit<'a> {
                 results.push((j, end));
             }
             for (j, i) in b.insts.iter().enumerate() {
-                let ir::Inst::Call { func, args, .. } = i else { continue };
+                let ir::Inst::Call { func, args, .. } = i else {
+                    continue;
+                };
                 if !calls_code(func) {
                     continue;
                 }
                 let fs = self.frames.get(func.index()).or_ice("a callee has a frame");
                 for (a, off) in args.iter().zip(fs.params.iter()) {
-                    let Some(k) = def_at(*a).filter(|k| *k < j) else { continue };
+                    let Some(k) = def_at(*a).filter(|k| *k < j) else {
+                        continue;
+                    };
                     let defines = matches!(
                         b.insts.get(k),
                         Some(
@@ -2737,7 +2918,10 @@ impl<'a> Jit<'a> {
         a: ir::ValueId,
         from: u32,
     ) -> bool {
-        let b = code.blocks.get(bi).or_ice("a block index is one of its code's");
+        let b = code
+            .blocks
+            .get(bi)
+            .or_ice("a block index is one of its code's");
         // A write to the class is no separate question: every value merged
         // into it is a parameter or a temporary its own block's terminator
         // reads once, so one defined here is a second read below.
@@ -2748,7 +2932,11 @@ impl<'a> Jit<'a> {
         }
         // The terminator reads `a` itself once; anything else in the class is
         // a conflict.
-        opnd.term(code, bi).iter().filter(|o| find(uf, o.0) == root || **o == a).count() <= 1
+        opnd.term(code, bi)
+            .iter()
+            .filter(|o| find(uf, o.0) == root || **o == a)
+            .count()
+            <= 1
     }
 
     /// (k) The order the blocks are laid out in.
@@ -2840,7 +3028,9 @@ impl<'a> Jit<'a> {
         // Only a back edge into a block with parameters can make a candidate
         // below, and most functions have none: they skip the tables.
         let back_edge = code.blocks.iter().enumerate().any(|(p, b)| {
-            b.term.targets().any(|t| t.block.index() <= p && !code.get(t.block).params.is_empty())
+            b.term
+                .targets()
+                .any(|t| t.block.index() <= p && !code.get(t.block).params.is_empty())
         });
         if !back_edge {
             return (0, 0);
@@ -2872,7 +3062,13 @@ impl<'a> Jit<'a> {
                 i.operands(&mut ops);
                 let ok = inside
                     && matches!(i, ir::Inst::Binary { .. } | ir::Inst::Unary { .. })
-                    && !matches!(i, ir::Inst::Unary { op: ir::UnOp::FromBool, .. });
+                    && !matches!(
+                        i,
+                        ir::Inst::Unary {
+                            op: ir::UnOp::FromBool,
+                            ..
+                        }
+                    );
                 for o in &ops {
                     bump(&mut uses, o.index());
                     if !ok {
@@ -2911,8 +3107,13 @@ impl<'a> Jit<'a> {
             let float = ty == ir::Type::F64;
             let scalar = matches!(
                 ty,
-                ir::Type::I64 | ir::Type::Ptr | ir::Type::I1 | ir::Type::I8
-                    | ir::Type::I16 | ir::Type::I32 | ir::Type::F64
+                ir::Type::I64
+                    | ir::Type::Ptr
+                    | ir::Type::I1
+                    | ir::Type::I8
+                    | ir::Type::I16
+                    | ir::Type::I32
+                    | ir::Type::F64
             );
             if !scalar || ent(&uses, p.index(), 0) == 0 {
                 continue;
@@ -2945,7 +3146,9 @@ impl<'a> Jit<'a> {
                 }
                 let ps = code.get(t.block).params.clone();
                 for (p, a) in ps.iter().zip(t.args.iter()) {
-                    let Some(Loc::Reg(k)) = ent(out, p.index(), None) else { continue };
+                    let Some(Loc::Reg(k)) = ent(out, p.index(), None) else {
+                        continue;
+                    };
                     if p == a
                         || ent(out, a.index(), None).is_some()
                         || ent(&uses, a.index(), 0) != 1
@@ -2965,7 +3168,10 @@ impl<'a> Jit<'a> {
                         Some(ir::Inst::Binary { .. } | ir::Inst::Unary { .. })
                     ) || matches!(
                         b.insts.get(di),
-                        Some(ir::Inst::Unary { op: ir::UnOp::FromBool, .. })
+                        Some(ir::Inst::Unary {
+                            op: ir::UnOp::FromBool,
+                            ..
+                        })
                     ) {
                         continue;
                     }
@@ -2974,7 +3180,9 @@ impl<'a> Jit<'a> {
                     for i in b.insts.iter().skip(di + 1) {
                         ops.clear();
                         i.operands(&mut ops);
-                        clash |= ops.iter().any(|o| ent(out, o.index(), None) == Some(Loc::Reg(k)));
+                        clash |= ops
+                            .iter()
+                            .any(|o| ent(out, o.index(), None) == Some(Loc::Reg(k)));
                     }
                     ops.clear();
                     b.term.operands(&mut ops);
@@ -2983,7 +3191,9 @@ impl<'a> Jit<'a> {
                         // register: `a` has none yet.
                         ops.extend_from_slice(&tt.args);
                     }
-                    clash |= ops.iter().any(|o| ent(out, o.index(), None) == Some(Loc::Reg(k)));
+                    clash |= ops
+                        .iter()
+                        .any(|o| ent(out, o.index(), None) == Some(Loc::Reg(k)));
                     if clash {
                         continue;
                     }
@@ -3024,7 +3234,11 @@ impl<'a> Jit<'a> {
         // Where each value is used in the block being allocated: how often,
         // first and last. One entry per value of the function, stamped with
         // the block it describes, so moving to the next block resets nothing.
-        let mut uses = table(&mut self.bufs.block_uses, code.values(), BlockUses::default());
+        let mut uses = table(
+            &mut self.bufs.block_uses,
+            code.values(),
+            BlockUses::default(),
+        );
         let mut barrier = std::mem::take(&mut self.bufs.barrier);
         // The registers cross-block promotion took are not the local
         // allocator's to hand out.
@@ -3099,16 +3313,25 @@ impl<'a> Jit<'a> {
                 };
                 let (float, dest) = match i {
                     ir::Inst::Binary { dest, op, prim, .. } if !wide(prim) => {
-                        let f = matches!(prim, crate::compiler::semantics::types::Prim::F32 | crate::compiler::semantics::types::Prim::F64)
-                            && !op.is_comparison();
+                        let f = matches!(
+                            prim,
+                            crate::compiler::semantics::types::Prim::F32
+                                | crate::compiler::semantics::types::Prim::F64
+                        ) && !op.is_comparison();
                         (f, *dest)
                     }
                     ir::Inst::Unary { dest, prim, op, .. }
                         if !wide(prim) && *op != ir::UnOp::FromBool =>
-                    (
-                        matches!(prim, crate::compiler::semantics::types::Prim::F32 | crate::compiler::semantics::types::Prim::F64),
-                        *dest,
-                    ),
+                    {
+                        (
+                            matches!(
+                                prim,
+                                crate::compiler::semantics::types::Prim::F32
+                                    | crate::compiler::semantics::types::Prim::F64
+                            ),
+                            *dest,
+                        )
+                    }
                     _ => continue,
                 };
                 if ent(out, dest.index(), None).is_some() {
@@ -3122,7 +3345,9 @@ impl<'a> Jit<'a> {
                 // first use is past `k`, and `barrier` runs from the block's
                 // first instruction to one past its last.
                 let at = u.first;
-                let span = barrier.get(k..=at.min(n)).or_ice("a use follows its definition");
+                let span = barrier
+                    .get(k..=at.min(n))
+                    .or_ice("a use follows its definition");
                 if span.iter().any(|b| *b) {
                     continue;
                 }
@@ -3138,7 +3363,10 @@ impl<'a> Jit<'a> {
                         Some(ir::Inst::Binary { .. } | ir::Inst::Unary { .. })
                     ) && !matches!(
                         block.insts.get(at),
-                        Some(ir::Inst::Unary { op: ir::UnOp::FromBool, .. })
+                        Some(ir::Inst::Unary {
+                            op: ir::UnOp::FromBool,
+                            ..
+                        })
                     )
                 };
                 if !consumes {
@@ -3205,7 +3433,12 @@ impl<'a> Jit<'a> {
     pub(super) fn plan_block(&mut self, code: &ir::Code, st: &Fn2, block: &ir::Block) -> Plan {
         let n = block.insts.len();
         let skip = table(&mut self.bufs.skip, n, false);
-        let mut p = Plan { skip, cmpbr: None, tagsw: None, incbr: None };
+        let mut p = Plan {
+            skip,
+            cmpbr: None,
+            tagsw: None,
+            incbr: None,
+        };
         // Every `Const` whose uses are all immediates disappears.
         for (i, skip) in block.insts.iter().zip(p.skip.iter_mut()) {
             if let ir::Inst::Const { dest, .. } = i {
@@ -3224,14 +3457,20 @@ impl<'a> Jit<'a> {
                 // `Plan::skip` has one flag per instruction, so a miss on
                 // either would be this block disagreeing with itself; the
                 // fusion is simply declined rather than guessed at.
-                if let Some(ir::Inst::Binary { op, prim, lhs, rhs, .. }) = block.insts.get(k) {
+                if let Some(ir::Inst::Binary {
+                    op, prim, lhs, rhs, ..
+                }) = block.insts.get(k)
+                {
                     // Immediately before: the branch reads the operands where
                     // the comparison would have, and anything emitted between
                     // the two can reuse or clobber where that is (#297).
                     // Only a `Const` is skipped yet, so `k` is not. A `Bool`
                     // operator other than a comparison is refused by the
                     // checker (`bitwise-non-integer`) or lowered to a join.
-                    invariant(op.is_comparison(), "stencil: a branch's condition is a comparison");
+                    invariant(
+                        op.is_comparison(),
+                        "stencil: a branch's condition is a comparison",
+                    );
                     if uses(st, *cond) == 1 && (k + 1..n).all(|j| ent(&p.skip, j, false)) {
                         let a = st.loc(*lhs).tag();
                         let b = if ent(&st.folded, rhs.index(), false) {
@@ -3243,7 +3482,9 @@ impl<'a> Jit<'a> {
                             let key = key!["brcmp/", op.name(), "/", tag, "/", a, b];
                             // `sources` builds every operand shape of every
                             // comparison of every type `prim_tag` names.
-                            invariant_with(self.has(&key), || format!("stencil: the library has no {key}"));
+                            invariant_with(self.has(&key), || {
+                                format!("stencil: the library has no {key}")
+                            });
                             put(&mut p.skip, k, true);
                             p.cmpbr = Some((*op, *prim, *lhs, *rhs));
                         }
@@ -3281,14 +3522,23 @@ impl Jit<'_> {
     /// absorbs.
     fn incbr(&mut self, code: &ir::Code, st: &Fn2, block: &ir::Block) -> Option<(usize, Incbr)> {
         use crate::compiler::semantics::types::Prim;
-        let ir::Term::Jump(t) = &block.term else { return None };
+        let ir::Term::Jump(t) = &block.term else {
+            return None;
+        };
         let header = code.get(t.block);
-        let ir::Term::Branch { cond, then, else_ } = &header.term else { return None };
+        let ir::Term::Branch { cond, then, else_ } = &header.term else {
+            return None;
+        };
         if header.insts.len() != 1 || !then.args.is_empty() || !else_.args.is_empty() {
             return None;
         }
-        let Some(ir::Inst::Binary { dest, op: ir::BinOp::Ge, prim: Prim::U64, lhs, rhs }) =
-            header.insts.first()
+        let Some(ir::Inst::Binary {
+            dest,
+            op: ir::BinOp::Ge,
+            prim: Prim::U64,
+            lhs,
+            rhs,
+        }) = header.insts.first()
         else {
             return None;
         };
@@ -3297,8 +3547,13 @@ impl Jit<'_> {
         }
         let k = header.params.iter().position(|p| p == lhs)?;
         let m = block.insts.len().checked_sub(1)?;
-        let Some(ir::Inst::Binary { dest: sum, op: ir::BinOp::Add, prim, lhs: from, rhs: by }) =
-            block.insts.get(m)
+        let Some(ir::Inst::Binary {
+            dest: sum,
+            op: ir::BinOp::Add,
+            prim,
+            lhs: from,
+            rhs: by,
+        }) = block.insts.get(m)
         else {
             return None;
         };
@@ -3308,7 +3563,11 @@ impl Jit<'_> {
             || !ent(&st.folded, by.index(), false)
             || !frame(*from)
             || !frame(*rhs)
-            || header.params.iter().zip(t.args.iter()).any(|(p, a)| st.at(*p) != st.at(*a))
+            || header
+                .params
+                .iter()
+                .zip(t.args.iter())
+                .any(|(p, a)| st.at(*p) != st.at(*a))
         {
             return None;
         }
@@ -3316,16 +3575,35 @@ impl Jit<'_> {
         // this header: a user's loop enters its own through an empty block. A
         // walk is bounded by a length and steps its index once, and when the
         // index is in its frame slot `promote` gave this loop no registers.
-        invariant(!ent(&st.folded, rhs.index(), false), "stencil: a walk's bound is a length, not a constant");
-        invariant(uses(st, *sum) == 1, "stencil: a walk's next index is read only by its back edge");
+        invariant(
+            !ent(&st.folded, rhs.index(), false),
+            "stencil: a walk's bound is a length, not a constant",
+        );
+        invariant(
+            uses(st, *sum) == 1,
+            "stencil: a walk's next index is read only by its back edge",
+        );
         for (p, a) in header.params.iter().zip(t.args.iter()) {
-            invariant(frame(*p), "stencil: an unpromoted walk's variables are in its frame");
-            invariant(frame(*a), "stencil: an unpromoted walk's next values are in its frame");
+            invariant(
+                frame(*p),
+                "stencil: an unpromoted walk's variables are in its frame",
+            );
+            invariant(
+                frame(*a),
+                "stencil: an unpromoted walk's next values are in its frame",
+            );
         }
         let by = st.constants.get(by.index()).copied().flatten()?;
         Some((
             m,
-            Incbr { from: *from, by, into: *lhs, bound: *rhs, back: else_.block, out: then.block },
+            Incbr {
+                from: *from,
+                by,
+                into: *lhs,
+                bound: *rhs,
+                back: else_.block,
+                out: then.block,
+            },
         ))
     }
 }
@@ -3354,7 +3632,16 @@ struct Dominance {
 
 impl Dominance {
     fn compute(&mut self, preds: &Lists) {
-        let Dominance { range, succ, children, number, post, seen, idom, stack } = self;
+        let Dominance {
+            range,
+            succ,
+            children,
+            number,
+            post,
+            seen,
+            idom,
+            stack,
+        } = self;
         let nb = preds.len();
         let root = nb;
         let way_in = |x: usize| x == 0 || preds.of(x).is_empty();
@@ -3416,7 +3703,11 @@ impl Dominance {
                     if ent(idom, p, NONE) == NONE {
                         continue;
                     }
-                    next = if next == NONE { p } else { intersect(idom, p, next) };
+                    next = if next == NONE {
+                        p
+                    } else {
+                        intersect(idom, p, next)
+                    };
                 }
                 if ent(idom, b, NONE) != next {
                     put(idom, b, next);
@@ -3427,7 +3718,9 @@ impl Dominance {
 
         // The tree, numbered in preorder.
         let idom: &[usize] = idom;
-        children.fill(nb + 1, || post.iter().rev().skip(1).map(|b| (ent(idom, *b, root), *b)));
+        children.fill(nb + 1, || {
+            post.iter().rev().skip(1).map(|b| (ent(idom, *b, root), *b))
+        });
         range.clear();
         range.resize(nb + 1, None);
         let mut clock = 0u32;
@@ -3444,7 +3737,9 @@ impl Dominance {
                     stack.push((y, 0));
                 }
                 None => {
-                    let span = ent_mut(range, x).as_mut().or_ice("a visited block has a span");
+                    let span = ent_mut(range, x)
+                        .as_mut()
+                        .or_ice("a visited block has a span");
                     span.1 = clock;
                 }
             }
@@ -3462,7 +3757,10 @@ impl Dominance {
     /// edge enters the entry, and no block branches to itself (`ir::Code`), so
     /// `h` is neither the entry nor `p`.
     fn may_loop(&self, h: usize, p: usize) -> bool {
-        match (self.range.get(h).copied().flatten(), self.range.get(p).copied().flatten()) {
+        match (
+            self.range.get(h).copied().flatten(),
+            self.range.get(p).copied().flatten(),
+        ) {
             // No way in reaches `p`, so the walk cannot reach one either.
             (_, None) => true,
             (None, Some(_)) => false,
@@ -3595,4 +3893,3 @@ pub fn symbol_of(prog: &ir::Program, f: u32) -> String {
         None => format!("buri$missing${f}"),
     }
 }
-

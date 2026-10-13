@@ -20,7 +20,9 @@ pub fn is_entry_declaration(module: &str, name: &str) -> bool {
 }
 
 /// The same, for what gets built.
-pub fn host_type(platform: crate::build::buildfile::Platform) -> Option<(&'static str, &'static str)> {
+pub fn host_type(
+    platform: crate::build::buildfile::Platform,
+) -> Option<(&'static str, &'static str)> {
     host_type_of(platform.slug())
 }
 
@@ -63,7 +65,11 @@ mod tests {
     fn every_primitive_has_a_defining_module() {
         for p in Prim::all() {
             let path = defining_module(*p);
-            assert!(find(path).is_some(), "`{}` names a module that does not exist", p.name());
+            assert!(
+                find(path).is_some(),
+                "`{}` names a module that does not exist",
+                p.name()
+            );
         }
     }
 

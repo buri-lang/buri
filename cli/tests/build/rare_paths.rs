@@ -485,7 +485,11 @@ fn a_runner_restored_under_a_fresh_home_is_no_new_executable() {
     scratch
         .run_with_env(
             &["test", "//lib/a"],
-            &[("BURI_PROFILE", "1"), ("BURI_HOME", second.as_str()), LINKED],
+            &[
+                ("BURI_PROFILE", "1"),
+                ("BURI_HOME", second.as_str()),
+                LINKED,
+            ],
         )
         .ok()
         .says("1 passed, 0 failed")
@@ -604,14 +608,20 @@ fn a_build_file_that_cannot_be_read_is_named() {
 
     std::fs::remove_dir_all(scratch.path("lib/bad")).unwrap();
     std::fs::write(scratch.path("REPO.buri"), b"\xff\n").unwrap();
-    scratch.run(&["build", "//lib/a"]).exits(2).says("cannot read REPO.buri: stream did not contain valid UTF-8");
+    scratch
+        .run(&["build", "//lib/a"])
+        .exits(2)
+        .says("cannot read REPO.buri: stream did not contain valid UTF-8");
 }
 
 /// `buri run` of a JavaScript output where no runtime can be started says it
 /// could not start the artifact and what it needs to.
 #[test]
 fn a_run_with_no_javascript_runtime_says_what_it_needs() {
-    let scratch = Scratch::copy_of("rare-run-no-runtime", &tests_dir().join("repositories/cli/run_passthrough/repo"));
+    let scratch = Scratch::copy_of(
+        "rare-run-no-runtime",
+        &tests_dir().join("repositories/cli/run_passthrough/repo"),
+    );
     scratch
         .run_with_env(&["run", "//cmd/echo"], &[("BURI_JS", "/nonexistent/bun")])
         .exits(2)

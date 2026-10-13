@@ -124,7 +124,11 @@ fn lex(text: &str) -> Option<Vec<Token>> {
         if kind == Kind::Comment {
             text.truncate(text.trim_end().len());
         }
-        out.push(Token { kind, text, newlines });
+        out.push(Token {
+            kind,
+            text,
+            newlines,
+        });
         newlines = 0;
     }
     Some(out)
@@ -221,7 +225,10 @@ impl Reader {
     fn comments(&mut self) -> Vec<Comment> {
         let mut out = Vec::new();
         while let Some(t) = self.peek().filter(|t| t.kind == Kind::Comment) {
-            out.push(Comment { text: t.text.clone(), newlines: t.newlines });
+            out.push(Comment {
+                text: t.text.clone(),
+                newlines: t.newlines,
+            });
             self.at += 1;
         }
         out
@@ -230,8 +237,14 @@ impl Reader {
     /// Comments that start on the line the reader is on.
     fn same_line(&mut self) -> Vec<Comment> {
         let mut out = Vec::new();
-        while let Some(t) = self.peek().filter(|t| t.kind == Kind::Comment && t.newlines == 0) {
-            out.push(Comment { text: t.text.clone(), newlines: 0 });
+        while let Some(t) = self
+            .peek()
+            .filter(|t| t.kind == Kind::Comment && t.newlines == 0)
+        {
+            out.push(Comment {
+                text: t.text.clone(),
+                newlines: 0,
+            });
             self.at += 1;
         }
         out
@@ -241,9 +254,14 @@ impl Reader {
     fn items(&mut self, close: Option<&str>) -> Option<Vec<Item>> {
         let mut out = Vec::new();
         loop {
-            let Some(t) = self.peek() else { return close.is_none().then_some(out) };
+            let Some(t) = self.peek() else {
+                return close.is_none().then_some(out);
+            };
             if t.kind == Kind::Comment {
-                out.push(Item::Comment(Comment { text: t.text.clone(), newlines: t.newlines }));
+                out.push(Item::Comment(Comment {
+                    text: t.text.clone(),
+                    newlines: t.newlines,
+                }));
                 self.at += 1;
             } else if close.is_some_and(|c| t.is(c)) {
                 return Some(out);
@@ -284,7 +302,12 @@ impl Reader {
         if self.eat(";") || self.eat(",") {
             after.extend(self.same_line());
         }
-        Some(Field { newlines, name, value, after })
+        Some(Field {
+            newlines,
+            name,
+            value,
+            after,
+        })
     }
 
     fn value(&mut self) -> Option<Value> {
@@ -299,7 +322,9 @@ impl Reader {
             }
             Kind::Symbol if t.text == "[" => self.list(),
             Kind::Symbol if t.text == "-" => {
-                let n = self.next().filter(|n| matches!(n.kind, Kind::Number | Kind::Word))?;
+                let n = self
+                    .next()
+                    .filter(|n| matches!(n.kind, Kind::Number | Kind::Word))?;
                 Some(Value::Scalar(vec![format!("-{}", n.text)]))
             }
             Kind::Number | Kind::Word => Some(Value::Scalar(vec![t.text])),
@@ -321,19 +346,31 @@ impl Reader {
         loop {
             let before = self.comments();
             if self.eat("]") {
-                return Some(Value::List(List { opening, elements, closing: before }));
+                return Some(Value::List(List {
+                    opening,
+                    elements,
+                    closing: before,
+                }));
             }
             let value = self.value()?;
             let mut after = self.same_line();
             let comma = self.eat(",");
             after.extend(self.same_line());
-            elements.push(Element { before, value, after });
+            elements.push(Element {
+                before,
+                value,
+                after,
+            });
             if !comma {
                 let closing = self.comments();
                 if !self.eat("]") {
                     return None;
                 }
-                return Some(Value::List(List { opening, elements, closing }));
+                return Some(Value::List(List {
+                    opening,
+                    elements,
+                    closing,
+                }));
             }
         }
     }
@@ -342,7 +379,10 @@ impl Reader {
 /// The canonical text of a text format file, or `None` when a string, a
 /// message or a list in it does not close.
 pub fn format(text: &str) -> Option<String> {
-    let mut reader = Reader { tokens: lex(text)?, at: 0 };
+    let mut reader = Reader {
+        tokens: lex(text)?,
+        at: 0,
+    };
     let items = reader.items(None)?;
     if items.is_empty() {
         return Some(String::new());
@@ -423,7 +463,9 @@ fn value(v: &Value) -> Doc {
                     inner.push(Doc::HardLine);
                 }
                 inner.push(match &e.value {
-                    Value::Message(block) => plain(block).map_or_else(|| value(&e.value), |fields| inline(&fields)),
+                    Value::Message(block) => {
+                        plain(block).map_or_else(|| value(&e.value), |fields| inline(&fields))
+                    }
                     other => value(other),
                 });
                 if i + 1 < list.elements.len() {
@@ -471,7 +513,12 @@ fn inline(fields: &[&Field]) -> Doc {
         inner.push(Doc::Line);
         field(f, &mut inner);
     }
-    Doc::Group(vec![Doc::text("{"), Doc::Indent(inner), Doc::Line, Doc::text("}")])
+    Doc::Group(vec![
+        Doc::text("{"),
+        Doc::Indent(inner),
+        Doc::Line,
+        Doc::text("}"),
+    ])
 }
 
 #[cfg(test)]
@@ -543,7 +590,12 @@ mod tests {
     }
 
     fn comments(text: &str) -> Vec<String> {
-        lex(text).expect("lexes").into_iter().filter(|t| t.kind == Kind::Comment).map(|t| t.text).collect()
+        lex(text)
+            .expect("lexes")
+            .into_iter()
+            .filter(|t| t.kind == Kind::Comment)
+            .map(|t| t.text)
+            .collect()
     }
 
     /// Every text format file under `cli/tests`: a fixed point, the same
@@ -551,13 +603,17 @@ mod tests {
     #[test]
     fn every_text_format_file_in_the_tests_formats_to_a_fixed_point_with_its_meaning() {
         let mut files = Vec::new();
-        let mut stack = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cli/tests")];
+        let mut stack =
+            vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cli/tests")];
         while let Some(dir) = stack.pop() {
             for entry in std::fs::read_dir(&dir).expect("reads").flatten() {
                 let path = entry.path();
                 if path.is_dir() {
                     stack.push(path);
-                } else if path.extension().is_some_and(|e| e == "txtpb" || e == "textproto") {
+                } else if path
+                    .extension()
+                    .is_some_and(|e| e == "txtpb" || e == "textproto")
+                {
                     files.push(path);
                 }
             }
@@ -570,21 +626,49 @@ mod tests {
                 refused.push(path.display().to_string());
                 continue;
             };
-            assert_eq!(format(&once).as_deref(), Some(once.as_str()), "{} is not a fixed point", path.display());
-            assert_eq!(meaning(&once), meaning(&text), "{} changed meaning", path.display());
-            assert_eq!(comments(&once), comments(&text), "{} lost a comment", path.display());
+            assert_eq!(
+                format(&once).as_deref(),
+                Some(once.as_str()),
+                "{} is not a fixed point",
+                path.display()
+            );
+            assert_eq!(
+                meaning(&once),
+                meaning(&text),
+                "{} changed meaning",
+                path.display()
+            );
+            assert_eq!(
+                comments(&once),
+                comments(&text),
+                "{} lost a comment",
+                path.display()
+            );
         }
         // The repository-case manifests are text format files too. Only the
         // fixtures broken on purpose are refused, each named `broken…` but
         // one: a string that never closes, a list missing its comma, a name
         // or a value that is a stray symbol.
         let name = |p: &String| p.rsplit('/').next().unwrap_or_default().to_string();
-        assert!(refused.iter().all(|p| name(p).starts_with("broken") || p.ends_with("/syntax.txtpb")), "{refused:?}");
+        assert!(
+            refused
+                .iter()
+                .all(|p| name(p).starts_with("broken") || p.ends_with("/syntax.txtpb")),
+            "{refused:?}"
+        );
     }
 
     #[test]
     fn what_does_not_close_is_refused() {
-        for broken in ["a {", "a: \"open", "a: [1, 2", "a: }", "a: [1 2]", "a {}}", ": 1"] {
+        for broken in [
+            "a {",
+            "a: \"open",
+            "a: [1, 2",
+            "a: }",
+            "a: [1 2]",
+            "a {}}",
+            ": 1",
+        ] {
             assert_eq!(format(broken), None, "{broken}");
         }
     }

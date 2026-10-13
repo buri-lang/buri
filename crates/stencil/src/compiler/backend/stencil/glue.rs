@@ -112,7 +112,11 @@ pub enum Helper {
     /// can take the same types and mean different things by the second one.
     /// `None` is a step that is not told where it is; the register still
     /// arrives and the body ignores it.
-    Entry { params: Vec<Ty>, ret: Ty, index: Option<usize> },
+    Entry {
+        params: Vec<Ty>,
+        ret: Ty,
+        index: Option<usize>,
+    },
     /// The C-ABI **equality thunk** the reactive graph compares a write
     /// through: `extern "C" fn(frame, a, b, out)`, which runs
     /// `middle::derives`'s generated `Equal` for `ty` on the two values it is
@@ -136,10 +140,16 @@ pub enum Helper {
 /// `ld64` coalesces, and on ELF a COMDAT group per function (`mod.rs`).
 pub fn shared_symbol(h: &Helper, layouts: &mut Layouts<'_>) -> Option<String> {
     let (what, key) = match h {
-        Helper::Walk { ty, op: Op::Release } => ("release", layouts.glue_key(ty)),
+        Helper::Walk {
+            ty,
+            op: Op::Release,
+        } => ("release", layouts.glue_key(ty)),
         Helper::Walk { ty, op: Op::Retain } => ("retain", layouts.glue_key(ty)),
         Helper::Walk { ty, op: Op::Copy } => ("copy", layouts.glue_key(ty)),
-        Helper::Elems { ty, op: Op::Release } => ("elems", layouts.glue_key(ty)),
+        Helper::Elems {
+            ty,
+            op: Op::Release,
+        } => ("elems", layouts.glue_key(ty)),
         Helper::Elems { ty, op: Op::Retain } => ("retainelems", layouts.glue_key(ty)),
         Helper::Elems { ty, op: Op::Copy } => ("copyelems", layouts.glue_key(ty)),
         Helper::Env { op: Op::Copy } => return Some(String::from("buri$stencil$glue$envcopy")),
@@ -198,7 +208,6 @@ pub const ENV_WORD: u32 = (CLOSURE_ENV as u32) * 8;
 /// The same words `jit::SCRATCH_WORDS` gives every emitted body, and the same
 /// constant, so that a sequence which fits one frame fits the other.
 const SCRATCH_BYTES: u32 = super::jit::SCRATCH_WORDS as u32 * 8;
-
 
 fn round8(n: u32) -> u32 {
     (n + 7) & !7
@@ -284,7 +293,11 @@ const E_CTX: u32 = 24;
 pub fn state_shape(widths: &[u32], index: Option<usize>) -> (Vec<u32>, u32) {
     let mut at = E_CTX;
     let mut out = Vec::new();
-    for (i, w) in widths.iter().enumerate().take(widths.len().saturating_sub(1)) {
+    for (i, w) in widths
+        .iter()
+        .enumerate()
+        .take(widths.len().saturating_sub(1))
+    {
         if index == Some(i) {
             continue;
         }
@@ -303,12 +316,8 @@ impl Jit<'_> {
             Helper::Thunk { func, args, boxed } => self.thunk(prog, *func, *args, *boxed),
             Helper::Walk { ty, op } => self.walk_glue(*ty, *op),
             Helper::Elems { ty, op } => self.elems_glue(*ty, *op),
-            Helper::Env { op } => {
-                self.env_glue(if *op == Op::Copy { ENV_COPY_WORD } else { 0 })
-            }
-            Helper::Entry { params, ret, index } => {
-                self.entry_thunk(params.clone(), *ret, *index)
-            }
+            Helper::Env { op } => self.env_glue(if *op == Op::Copy { ENV_COPY_WORD } else { 0 }),
+            Helper::Entry { params, ret, index } => self.entry_thunk(params.clone(), *ret, *index),
             Helper::Equal { ty, func } => self.equal_thunk(prog, *ty, *func),
         }
         at
@@ -343,8 +352,18 @@ impl Jit<'_> {
             ],
         );
         let counted = source_ty(prog, ty).filter(|t| self.rc_counted(t));
-        let glue = counted.map(|t| self.helper(Helper::Walk { ty: t, op: Op::Release }));
-        let copy = counted.map(|t| self.helper(Helper::Walk { ty: t, op: Op::Copy }));
+        let glue = counted.map(|t| {
+            self.helper(Helper::Walk {
+                ty: t,
+                op: Op::Release,
+            })
+        });
+        let copy = counted.map(|t| {
+            self.helper(Helper::Walk {
+                ty: t,
+                op: Op::Copy,
+            })
+        });
         for (name, at) in [(glue, 0u32), (copy, ENV_COPY_WORD)] {
             match name {
                 Some(sym) => self.emit(
@@ -436,7 +455,11 @@ impl Jit<'_> {
     /// ([`Jit::walk_through`]), so its frame holds one word. A copy loads
     /// whole fields ([`Jit::walk_in_place`]), so its frame holds the widest.
     fn walk_glue_in_place(&mut self, ty: Ty, op: Op) {
-        let window = if op == Op::Copy { self.in_place_window(&ty) } else { 8 };
+        let window = if op == Op::Copy {
+            self.in_place_window(&ty)
+        } else {
+            8
+        };
         let frame = frame_for(window);
         self.glue_stub(frame);
         let mut st = self.glue_frame(frame, G_VALUE + window);
@@ -523,7 +546,10 @@ impl Jit<'_> {
         let at = at + f.offset;
         if f.boxed {
             self.load_through(G_VALUE, at, 8);
-            let here = Field { offset: 0, ..f.clone() };
+            let here = Field {
+                offset: 0,
+                ..f.clone()
+            };
             return self.walk_field(st, &here, G_VALUE, op, depth);
         }
         if self.field_out_of_line(&f.ty, depth) {
@@ -584,10 +610,15 @@ impl Jit<'_> {
         for site in self.rc_sites(ty).iter() {
             let fields: Vec<Field> = match site {
                 Site::Field(f) => vec![f.clone()],
-                Site::Tagged { arms, .. } => {
-                    arms.iter().flat_map(|arm| arm.fields.iter().cloned()).collect()
-                }
-                Site::Guarded { ty, .. } => vec![Field { offset: 0, boxed: false, ty: *ty }],
+                Site::Tagged { arms, .. } => arms
+                    .iter()
+                    .flat_map(|arm| arm.fields.iter().cloned())
+                    .collect(),
+                Site::Guarded { ty, .. } => vec![Field {
+                    offset: 0,
+                    boxed: false,
+                    ty: *ty,
+                }],
                 Site::Block { .. } => Vec::new(),
             };
             for f in fields {
@@ -674,7 +705,11 @@ impl Jit<'_> {
                             ("JIT_F", V::Fall),
                         ],
                     );
-                    let payload = Field { offset: 0, boxed: false, ty: *ty };
+                    let payload = Field {
+                        offset: 0,
+                        boxed: false,
+                        ty: *ty,
+                    };
                     self.field_in_place(st, &payload, op);
                     let here = self.region.code_addr();
                     st.place(skip, here);
@@ -682,7 +717,8 @@ impl Jit<'_> {
                 // A `Str`, a `[T]` and a closure are a few words, so a value
                 // with one of these at its top is never this wide.
                 Site::Block { .. } => {
-                    return self.unsupported(String::from("a counted block too wide for a glue frame"));
+                    return self
+                        .unsupported(String::from("a counted block too wide for a glue frame"));
                 }
             }
         }
@@ -700,7 +736,10 @@ impl Jit<'_> {
             return;
         }
         self.load_at(G_VALUE, f.offset, width);
-        let here = Field { offset: 0, ..f.clone() };
+        let here = Field {
+            offset: 0,
+            ..f.clone()
+        };
         self.walk_field(st, &here, G_VALUE, op, 0);
         if op == Op::Copy {
             self.elem_store(G_VALUE, G_PTR, G_INDEX, f.offset, width);
@@ -1109,9 +1148,10 @@ impl Jit<'_> {
     /// difference between `platform/host`'s allocators and
     /// `platform/effect/testing`'s.
     fn entry_thunk(&mut self, params: Vec<Ty>, ret: Ty, index: Option<usize>) {
-        let elem = *params.last().or_ice("a runtime-driven step takes its element");
-        let widths: Vec<u32> =
-            params.iter().map(|t| self.layouts_of(*t).size).collect();
+        let elem = *params
+            .last()
+            .or_ice("a runtime-driven step takes its element");
+        let widths: Vec<u32> = params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (ctx_at, _) = state_shape(&widths, index);
         let elem_l = self.layouts_of(elem);
         let (elem_size, elem_slot) = (elem_l.size, round8(elem_l.size).max(8));
@@ -1151,7 +1191,9 @@ impl Jit<'_> {
             .collect();
         for (off, i) in ctx_at.iter().copied().zip(ctx_params) {
             let w = widths.get(i).copied().unwrap_or(0);
-            let Some(to) = param_at.get(i).copied().filter(|_| w > 0) else { continue };
+            let Some(to) = param_at.get(i).copied().filter(|_| w > 0) else {
+                continue;
+            };
             self.emit(
                 "bin/add/u64/fi/f",
                 &[
@@ -1172,7 +1214,10 @@ impl Jit<'_> {
             if self.rc_counted(&elem) {
                 self.walk_rc(&mut st, &elem, E_ELEM, Op::Retain, 0);
             }
-            let to = param_at.last().copied().or_ice("a step takes the element it is handed");
+            let to = param_at
+                .last()
+                .copied()
+                .or_ice("a step takes the element it is handed");
             self.mv(to, E_ELEM, elem_slot);
         }
         self.mv(frame + ret_slot, E_CLOS + ENV_WORD, 8);
@@ -1304,7 +1349,10 @@ impl Jit<'_> {
     /// ownership column says it consumes its parameter, which is
     /// [`Jit::thunk`]'s reconciliation at a call with exactly one caller.
     fn equal_thunk(&mut self, prog: &ir::Program, ty: Ty, func: u32) {
-        let f = prog.funcs.get(func as usize).or_ice("an equality's function is in its program");
+        let f = prog
+            .funcs
+            .get(func as usize)
+            .or_ice("an equality's function is in its program");
         let facts = f.facts.params.clone();
         let ret_ty = f.sig.rets.first().copied();
         let callee = self.frame_sig_of(func as usize);
@@ -1322,7 +1370,10 @@ impl Jit<'_> {
 
         self.imm_to(Q_ZERO, 0);
         let counted = self.rc_counted(&ty);
-        for (i, (from, at)) in [(Q_A, Q_VALUE), (Q_B, Q_VALUE + slot)].into_iter().enumerate() {
+        for (i, (from, at)) in [(Q_A, Q_VALUE), (Q_B, Q_VALUE + slot)]
+            .into_iter()
+            .enumerate()
+        {
             if size > 0 {
                 self.elem_load(at, from, Q_ZERO, 8, size);
             }
@@ -1409,7 +1460,10 @@ impl Jit<'_> {
     ///  * the environment record is **retained** where the callee owns it,
     ///    because those bytes belong to the closure's block.
     fn thunk(&mut self, prog: &ir::Program, func: u32, args: u32, boxed: bool) {
-        let f = prog.funcs.get(func as usize).or_ice("a closure's function is in its program");
+        let f = prog
+            .funcs
+            .get(func as usize)
+            .or_ice("a closure's function is in its program");
         let sig_params = f.sig.params.clone();
         let sig_rets = f.sig.rets.clone();
         let facts = f.facts.params.clone();
@@ -1441,7 +1495,10 @@ impl Jit<'_> {
         // environment parameter at all, which is the `env == false` case and
         // where the block pointer is null.
         if env {
-            let w = sig_params.first().map(|t| self.width_of(prog, *t)).unwrap_or(0);
+            let w = sig_params
+                .first()
+                .map(|t| self.width_of(prog, *t))
+                .unwrap_or(0);
             let to = cbase + callee.params.first().copied().unwrap_or(0);
             // Unboxed, the environment parameter is the unit a capture-free
             // lambda takes (`emit.rs`'s `MakeClosure`), so it has no bytes.
@@ -1461,7 +1518,9 @@ impl Jit<'_> {
         // after the call.
         let mut borrowed: Vec<(u32, Ty)> = Vec::new();
         for (j, (t, to)) in sig_params.iter().zip(&callee.params).enumerate().skip(skip) {
-            let from = *params.get(j - skip).or_ice("a thunk has a slot per argument");
+            let from = *params
+                .get(j - skip)
+                .or_ice("a thunk has a slot per argument");
             let n = self.slot_bytes_of(prog, *t);
             self.mv(cbase + to, from, n);
             // Only a counted value has an ownership to borrow.

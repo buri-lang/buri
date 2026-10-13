@@ -38,9 +38,7 @@
 
 use crate::compiler::semantics::resolve::{BodyMap, ConstMap};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp, Stmt};
-use crate::compiler::semantics::types::{
-    ConstId, FnId, LocalId, ParamRole, Prim, Tables,
-};
+use crate::compiler::semantics::types::{ConstId, FnId, LocalId, ParamRole, Prim, Tables};
 use crate::hash::Map as HashMap;
 
 /// A value the interpreter reached.
@@ -62,7 +60,10 @@ pub enum Value {
     /// A struct, by field order.
     Struct(Vec<Value>),
     /// An enum value: which variant, and its payload.
-    Variant { variant: usize, args: Vec<Value> },
+    Variant {
+        variant: usize,
+        args: Vec<Value>,
+    },
 }
 
 impl Value {
@@ -142,12 +143,15 @@ pub struct Env<'f> {
 }
 
 impl<'a> Folder<'a> {
-    pub fn new(
-        tables: &'a Tables,
-        bodies: &'a BodyMap,
-        consts: &'a ConstMap,
-    ) -> Folder<'a> {
-        Folder { tables, bodies, consts, steps: 0, depth: 0, open_consts: Vec::new() }
+    pub fn new(tables: &'a Tables, bodies: &'a BodyMap, consts: &'a ConstMap) -> Folder<'a> {
+        Folder {
+            tables,
+            bodies,
+            consts,
+            steps: 0,
+            depth: 0,
+            open_consts: Vec::new(),
+        }
     }
 
     /// Whether a function may be inlined by the folder: pure by SPEC 10.4, and
@@ -170,7 +174,11 @@ impl<'a> Folder<'a> {
         match &e.kind {
             ExprKind::Int(v, neg) => {
                 let magnitude = i128::try_from(v.get()).ok()?;
-                Some(Value::Int(if *neg { magnitude.checked_neg()? } else { magnitude }))
+                Some(Value::Int(if *neg {
+                    magnitude.checked_neg()?
+                } else {
+                    magnitude
+                }))
             }
             ExprKind::Float(v) => {
                 // An `F32` literal denotes the binary32 value, the same
@@ -185,19 +193,24 @@ impl<'a> Folder<'a> {
             ExprKind::Bool(b) => Some(Value::Bool(*b)),
             ExprKind::Unit => Some(Value::Unit),
 
-            ExprKind::Local(l) => env.locals.get(l).cloned().or_else(|| env.outer.and_then(|outer| outer(*l))),
+            ExprKind::Local(l) => env
+                .locals
+                .get(l)
+                .cloned()
+                .or_else(|| env.outer.and_then(|outer| outer(*l))),
             ExprKind::Const(id) => self.eval_const(*id),
 
             ExprKind::Tuple(xs) => Some(Value::Tuple(self.eval_all(xs, env)?)),
             ExprKind::Array(xs) => Some(Value::Array(self.eval_all(xs, env)?)),
-            ExprKind::StructLit { fields, .. } => {
-                Some(Value::Struct(self.eval_all(fields, env)?))
-            }
-            ExprKind::EnumLit { variant, args, .. } => {
-                Some(Value::Variant { variant: *variant, args: self.eval_all(args, env)? })
-            }
+            ExprKind::StructLit { fields, .. } => Some(Value::Struct(self.eval_all(fields, env)?)),
+            ExprKind::EnumLit { variant, args, .. } => Some(Value::Variant {
+                variant: *variant,
+                args: self.eval_all(args, env)?,
+            }),
             ExprKind::StructUpdate { base, updates, .. } => {
-                let Value::Struct(mut fields) = self.eval(base, env)? else { return None };
+                let Value::Struct(mut fields) = self.eval(base, env)? else {
+                    return None;
+                };
                 for (index, value) in updates {
                     *fields.get_mut(*index)? = self.eval(value, env)?;
                 }
@@ -213,19 +226,30 @@ impl<'a> Folder<'a> {
                 _ => None,
             },
             ExprKind::Index { base, index, .. } => {
-                let Value::Array(items) = self.eval(base, env)? else { return None };
+                let Value::Array(items) = self.eval(base, env)? else {
+                    return None;
+                };
                 let at = self.eval(index, env)?.as_int()?;
                 // Indexing answers an `Option`, and both variants are ordinary
                 // values here: out of bounds is `None`, not a failure to fold.
                 let found = usize::try_from(at).ok().and_then(|i| items.get(i).cloned());
                 Some(match found {
-                    Some(v) => Value::Variant { variant: OPTION_SOME, args: vec![v] },
-                    None => Value::Variant { variant: OPTION_NONE, args: Vec::new() },
+                    Some(v) => Value::Variant {
+                        variant: OPTION_SOME,
+                        args: vec![v],
+                    },
+                    None => Value::Variant {
+                        variant: OPTION_NONE,
+                        args: Vec::new(),
+                    },
                 })
             }
 
             ExprKind::Block { stmts, tail } => {
-                let mut inner = Env { locals: env.locals.clone(), outer: env.outer };
+                let mut inner = Env {
+                    locals: env.locals.clone(),
+                    outer: env.outer,
+                };
                 for stmt in stmts {
                     match stmt {
                         Stmt::Let { pattern, value, .. } => {
@@ -253,7 +277,10 @@ impl<'a> Folder<'a> {
             ExprKind::Match { scrutinee, arms } => {
                 let value = self.eval(scrutinee, env)?;
                 for arm in arms {
-                    let mut inner = Env { locals: env.locals.clone(), outer: env.outer };
+                    let mut inner = Env {
+                        locals: env.locals.clone(),
+                        outer: env.outer,
+                    };
                     if !matches_pattern(&arm.pattern, &value, &mut inner) {
                         continue;
                     }
@@ -292,9 +319,7 @@ impl<'a> Folder<'a> {
                         typed::TemplatePart::Text(t) => out.push_str(t),
                         // Only a string hole renders without calling `show`,
                         // and `show` is a trait method this does not dispatch.
-                        typed::TemplatePart::Hole(h) => {
-                            out.push_str(self.eval(h, env)?.as_str()?)
-                        }
+                        typed::TemplatePart::Hole(h) => out.push_str(self.eval(h, env)?.as_str()?),
                     }
                 }
                 Some(Value::Str(out))
@@ -395,7 +420,10 @@ pub fn is_inlinable(tables: &Tables, id: FnId) -> bool {
     {
         return false;
     }
-    !info.generics.iter().any(|g| g.bounds.iter().any(|t| tables.trait_(*t).is_effect))
+    !info
+        .generics
+        .iter()
+        .any(|g| g.bounds.iter().any(|t| tables.trait_(*t).is_effect))
 }
 
 /// `Option`'s variant indices, which `core/option` fixes and the backend
@@ -405,7 +433,10 @@ const OPTION_NONE: usize = 1;
 
 impl<'f> Env<'f> {
     pub fn reading(outer: &'f dyn Fn(LocalId) -> Option<Value>) -> Env<'f> {
-        Env { locals: HashMap::default(), outer: Some(outer) }
+        Env {
+            locals: HashMap::default(),
+            outer: Some(outer),
+        }
     }
 }
 
@@ -447,25 +478,38 @@ fn matches_pattern(p: &typed::Pattern, v: &Value, env: &mut Env) -> bool {
         (PatKind::Bool(b), Value::Bool(c)) => b == c,
         (PatKind::Unit, Value::Unit) => true,
         (PatKind::Tuple(ps), Value::Tuple(vs)) => {
-            ps.len() == vs.len()
-                && ps.iter().zip(vs).all(|(q, w)| matches_pattern(q, w, env))
+            ps.len() == vs.len() && ps.iter().zip(vs).all(|(q, w)| matches_pattern(q, w, env))
         }
-        (PatKind::Struct { fields, .. }, Value::Struct(vs)) => fields
-            .iter()
-            .all(|f| vs.get(f.index).is_some_and(|w| matches_pattern(&f.pattern, w, env))),
-        (PatKind::Variant { variant, fields, .. }, Value::Variant { variant: got, args }) => {
+        (PatKind::Struct { fields, .. }, Value::Struct(vs)) => fields.iter().all(|f| {
+            vs.get(f.index)
+                .is_some_and(|w| matches_pattern(&f.pattern, w, env))
+        }),
+        (
+            PatKind::Variant {
+                variant, fields, ..
+            },
+            Value::Variant { variant: got, args },
+        ) => {
             *variant == *got
                 && fields.iter().all(|f| {
-                    args.get(f.index).is_some_and(|w| matches_pattern(&f.pattern, w, env))
+                    args.get(f.index)
+                        .is_some_and(|w| matches_pattern(&f.pattern, w, env))
                 })
         }
         (PatKind::Array { elems, rest }, Value::Array(vs)) => {
-            let long_enough =
-                if rest.is_open() { vs.len() >= elems.len() } else { vs.len() == elems.len() };
+            let long_enough = if rest.is_open() {
+                vs.len() >= elems.len()
+            } else {
+                vs.len() == elems.len()
+            };
             if !long_enough {
                 return false;
             }
-            if !elems.iter().zip(vs).all(|(q, w)| matches_pattern(q, w, env)) {
+            if !elems
+                .iter()
+                .zip(vs)
+                .all(|(q, w)| matches_pattern(q, w, env))
+            {
                 return false;
             }
             match rest {
@@ -552,5 +596,9 @@ fn compare<T: PartialOrd + ?Sized>(op: PrimOp, x: &T, y: &T) -> Option<Value> {
 
 /// A float result, at the width the operation was performed at.
 fn narrow(prim: Prim, v: f64) -> Option<Value> {
-    Some(Value::Float(if matches!(prim, Prim::F32) { v as f32 as f64 } else { v }))
+    Some(Value::Float(if matches!(prim, Prim::F32) {
+        v as f32 as f64
+    } else {
+        v
+    }))
 }

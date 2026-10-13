@@ -224,7 +224,9 @@ fn cascaded(report_codes: &[String], syntax: &[String]) -> bool {
 /// milliseconds and seven hundred of them are a minute. They share nothing —
 /// each builds its own source map — so the minute is a minute of one core.
 fn mapped<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
-    let threads = std::thread::available_parallelism().map_or(4, std::num::NonZero::get).min(16);
+    let threads = std::thread::available_parallelism()
+        .map_or(4, std::num::NonZero::get)
+        .min(16);
     let chunk = items.len().div_ceil(threads.max(1));
     if chunk == 0 {
         return Vec::new();
@@ -235,7 +237,10 @@ fn mapped<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
             .chunks(chunk)
             .map(|part| scope.spawn(move || part.iter().map(f).collect::<Vec<R>>()))
             .collect();
-        handles.into_iter().flat_map(|h| h.join().unwrap()).collect()
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap())
+            .collect()
     })
 }
 
@@ -246,9 +251,17 @@ fn seeds() -> Vec<Source> {
         .into_iter()
         .filter(|s| s.text.len() <= pinned::SEED_BYTES)
         .collect();
-    assert!(all.len() > 100, "the seed corpus is not reachable: {}", all.len());
+    assert!(
+        all.len() > 100,
+        "the seed corpus is not reachable: {}",
+        all.len()
+    );
     let quiet = mapped(&all, |s| report(&s.name, &s.text).1.is_empty());
-    all.into_iter().zip(quiet).filter(|(_, ok)| *ok).map(|(s, _)| s).collect()
+    all.into_iter()
+        .zip(quiet)
+        .filter(|(_, ok)| *ok)
+        .map(|(s, _)| s)
+        .collect()
 }
 
 /// Every case, with the half of the corpus it belongs in.
@@ -266,7 +279,15 @@ fn picks() -> Vec<(Chosen, bool, String)> {
         .zip(reports)
         .map(|(p, (text, codes))| {
             let cascade = cascaded(&codes, &syntax_codes(&p.mutation.source));
-            (Chosen { name: p.name, cell: p.cell, source: p.mutation.source }, cascade, text)
+            (
+                Chosen {
+                    name: p.name,
+                    cell: p.cell,
+                    source: p.mutation.source,
+                },
+                cascade,
+                text,
+            )
         })
         .collect()
 }
@@ -284,7 +305,12 @@ struct Chosen {
 fn written(picks: &[(Chosen, bool, String)]) -> String {
     let mut out = String::new();
     for (p, cascade, text) in picks {
-        let fields = [p.name.as_str(), p.cell.as_str(), p.source.as_str(), text.as_str()];
+        let fields = [
+            p.name.as_str(),
+            p.cell.as_str(),
+            p.source.as_str(),
+            text.as_str(),
+        ];
         let lengths: Vec<String> = fields.iter().map(|f| f.len().to_string()).collect();
         out.push_str(&format!("{} {}\n", lengths.join(" "), u8::from(*cascade)));
         for f in fields {
@@ -331,7 +357,10 @@ fn home(cascade: bool) -> PathBuf {
 fn write_corpus(picks: &[(Chosen, bool, String)]) {
     let mut wanted: BTreeMap<PathBuf, BTreeSet<String>> = BTreeMap::new();
     for (p, cascade, _) in picks {
-        wanted.entry(home(*cascade)).or_default().insert(p.name.clone());
+        wanted
+            .entry(home(*cascade))
+            .or_default()
+            .insert(p.name.clone());
     }
     for dir in [clean_dir(), cascades_dir()] {
         std::fs::create_dir_all(&dir).unwrap();
@@ -367,7 +396,11 @@ fn corpus() -> &'static [(Chosen, bool, String)] {
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join(format!("checking-corpus-{}", harness::sweep::run_name()));
         std::fs::create_dir_all(&dir).unwrap();
-        let lock = std::fs::File::options().create(true).append(true).open(dir.join("lock")).unwrap();
+        let lock = std::fs::File::options()
+            .create(true)
+            .append(true)
+            .open(dir.join("lock"))
+            .unwrap();
         lock.lock().unwrap();
         let path = dir.join("corpus");
         if let Ok(text) = std::fs::read_to_string(&path) {
@@ -392,13 +425,33 @@ fn corpus() -> &'static [(Chosen, bool, String)] {
 fn the_corpus_reads_back_as_it_was_written() {
     let case = |name: &str, cascade, report: &str| {
         let source = format!("fn {name}() {{\n  let s = \"é 🙂 \\n\";\n}}\n");
-        (Chosen { name: name.to_string(), cell: format!("{name} cell"), source }, cascade, report.to_string())
+        (
+            Chosen {
+                name: name.to_string(),
+                cell: format!("{name} cell"),
+                source,
+            },
+            cascade,
+            report.to_string(),
+        )
     };
-    let picks = vec![case("a", true, "error: one\n  |\n"), case("b", false, ""), case("c", true, "3 4 1\n")];
+    let picks = vec![
+        case("a", true, "error: one\n  |\n"),
+        case("b", false, ""),
+        case("c", true, "3 4 1\n"),
+    ];
     let back = read_back(&written(&picks));
     let fields = |all: &[(Chosen, bool, String)]| -> Vec<(String, String, String, bool, String)> {
         all.iter()
-            .map(|(p, c, t)| (p.name.clone(), p.cell.clone(), p.source.clone(), *c, t.clone()))
+            .map(|(p, c, t)| {
+                (
+                    p.name.clone(),
+                    p.cell.clone(),
+                    p.source.clone(),
+                    *c,
+                    t.clone(),
+                )
+            })
             .collect()
     };
     assert_eq!(fields(&back), fields(&picks));
@@ -424,13 +477,18 @@ fn a_broken_file_reports_what_is_recorded() {
             ));
             continue;
         }
-        if std::fs::read_to_string(case.join("main.buri")).unwrap_or_default()
-            != p.source
-        {
-            g.fail(format!("{side}/{}/main.buri is not what the mutator writes", p.name));
+        if std::fs::read_to_string(case.join("main.buri")).unwrap_or_default() != p.source {
+            g.fail(format!(
+                "{side}/{}/main.buri is not what the mutator writes",
+                p.name
+            ));
             continue;
         }
-        g.check(&case.join("expected.txt"), &format!("{side}/{}/expected.txt", p.name), text);
+        g.check(
+            &case.join("expected.txt"),
+            &format!("{side}/{}/expected.txt", p.name),
+            text,
+        );
     }
     g.finish("checking", picks.len());
 }
@@ -502,9 +560,18 @@ fn the_generated_corpus_is_what_the_generator_writes() {
         "{} case(s) are not what the sampler chooses. \
          `BURI_BLESS=1 cargo test -p buri --test checking` rewrites the corpus:\n  {}",
         wrong.len(),
-        wrong.iter().take(12).cloned().collect::<Vec<_>>().join("\n  ")
+        wrong
+            .iter()
+            .take(12)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n  ")
     );
-    assert!(picks.len() >= FLOOR, "the sampler chose {} cases, and the floor is {FLOOR}", picks.len());
+    assert!(
+        picks.len() >= FLOOR,
+        "the sampler chose {} cases, and the floor is {FLOOR}",
+        picks.len()
+    );
 
     let cascades = picks.iter().filter(|(_, c, _)| *c).count();
     let rows = pinned::coverage_rows(picks.iter().map(|(p, _, _)| p.cell.as_str()));
@@ -512,7 +579,9 @@ fn the_generated_corpus_is_what_the_generator_writes() {
         "checking: {} cases over {} shapes, {cascades} of them cascades\n{}",
         picks.len(),
         rows.len(),
-        rows.iter().map(|(row, n)| format!("  {row:<28} {n:>5} cases\n")).collect::<String>()
+        rows.iter()
+            .map(|(row, n)| format!("  {row:<28} {n:>5} cases\n"))
+            .collect::<String>()
     );
     let rate = cascades.saturating_mul(100) / picks.len().max(1);
     assert!(

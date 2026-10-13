@@ -175,7 +175,10 @@ impl Annotations {
     /// terminal, so its right-hand side names nothing that needs a rule.
     fn is_leaf(&self) -> bool {
         self.prose
-            || matches!(self.body, RuleBody::Token | RuleBody::Regex(_) | RuleBody::External)
+            || matches!(
+                self.body,
+                RuleBody::Token | RuleBody::Regex(_) | RuleBody::External
+            )
     }
 }
 
@@ -312,8 +315,11 @@ fn lex(src: &str) -> Result<Lexed, String> {
             // The `(*` and the `*)` are not part of the comment's text. The
             // loop above only leaves `depth` at zero by consuming a `*)`, so
             // there are at least four characters between `start` and `i`.
-            let text: String =
-                b.get(start + 2..i.saturating_sub(2)).unwrap_or_default().iter().collect();
+            let text: String = b
+                .get(start + 2..i.saturating_sub(2))
+                .unwrap_or_default()
+                .iter()
+                .collect();
             tokens.push(Token::Comment(text));
             lines.push(at);
             continue;
@@ -464,9 +470,15 @@ pub fn parse(src: &str) -> Result<Ebnf, String> {
     // `lex` pushes a line number with every token it pushes, so the two vectors
     // are the same length and this is a lookup, not a question.
     let line_of = |k: usize| {
-        lines.get(k).copied().or_ice("`lex` pushes one line number per token")
+        lines
+            .get(k)
+            .copied()
+            .or_ice("`lex` pushes one line number per token")
     };
-    let mut out = Ebnf { grammar_name: String::new(), ..Default::default() };
+    let mut out = Ebnf {
+        grammar_name: String::new(),
+        ..Default::default()
+    };
     let mut pending = Annotations::default();
     let mut i = 0;
     while let Some(token) = tokens.get(i) {
@@ -504,21 +516,32 @@ pub fn parse(src: &str) -> Result<Ebnf, String> {
                     // non-terminals that do not exist.
                     Node::Seq(Vec::new())
                 } else {
-                    let mut p = Body { tokens: &body_tokens, i: 0, line };
+                    let mut p = Body {
+                        tokens: &body_tokens,
+                        i: 0,
+                        line,
+                    };
                     let node = p.alternation()?;
                     if p.i != body_tokens.len() {
                         return Err(format!("line {line}: `{name}` has trailing input"));
                     }
                     node
                 };
-                out.productions.push(Production { name, body, annotations });
+                out.productions.push(Production {
+                    name,
+                    body,
+                    annotations,
+                });
                 for (text, at) in trailing {
                     take_directives(&text, &mut out, &mut pending, at)?;
                 }
                 i = end;
             }
             other => {
-                return Err(format!("line {}: expected a production, found {other:?}", line_of(i)))
+                return Err(format!(
+                    "line {}: expected a production, found {other:?}",
+                    line_of(i)
+                ))
             }
         }
     }
@@ -535,7 +558,12 @@ fn take_directives(
     line: usize,
 ) -> Result<(), String> {
     for (name, value) in directives(text) {
-        let words = || value.split_whitespace().map(str::to_string).collect::<Vec<_>>();
+        let words = || {
+            value
+                .split_whitespace()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        };
         match name.as_str() {
             "grammar" => out.grammar_name = value.trim().to_string(),
             "word" => out.word = Some(value.trim().to_string()),
@@ -544,9 +572,9 @@ fn take_directives(
             "conflicts" => out.conflicts.push(words()),
             "words" => {
                 for pair in value.split_whitespace() {
-                    let (k, v) = pair
-                        .split_once('=')
-                        .ok_or_else(|| format!("line {line}: `@words {pair}` is not `Camel=snake`"))?;
+                    let (k, v) = pair.split_once('=').ok_or_else(|| {
+                        format!("line {line}: `@words {pair}` is not `Camel=snake`")
+                    })?;
                     out.words.push((k.to_string(), v.to_string()));
                 }
             }
@@ -614,7 +642,10 @@ fn set_shape(pending: &mut Annotations, want: Shape, line: usize) -> Result<(), 
 
 fn parse_precedence(value: &str, line: usize) -> Result<Precedence, String> {
     let parts: Vec<&str> = value.split_whitespace().collect();
-    let number = |s: &str| s.parse::<i32>().map_err(|_| format!("line {line}: `{s}` is not a level"));
+    let number = |s: &str| {
+        s.parse::<i32>()
+            .map_err(|_| format!("line {line}: `{s}` is not a level"))
+    };
     match parts.as_slice() {
         ["left"] => Ok(Precedence::Left(None)),
         ["right"] => Ok(Precedence::Right(None)),
@@ -638,18 +669,26 @@ fn parse_cascade(value: &str, line: usize) -> Result<Cascade, String> {
         .next()
         .ok_or_else(|| format!("line {line}: `@cascade` names no operand rule"))?
         .to_string();
-    let mut cascade = Cascade { operand, levels: Vec::new() };
+    let mut cascade = Cascade {
+        operand,
+        levels: Vec::new(),
+    };
     let mut group: Vec<String> = Vec::new();
     let mut expect_fold = false;
     for w in words {
         if expect_fold {
             for production in group.drain(..) {
-                cascade.levels.push(Level { production, fold: Some(w.to_string()) });
+                cascade.levels.push(Level {
+                    production,
+                    fold: Some(w.to_string()),
+                });
             }
             expect_fold = false;
         } else if w == "=" {
             if group.is_empty() {
-                return Err(format!("line {line}: `@cascade` has an `=` with no levels before it"));
+                return Err(format!(
+                    "line {line}: `@cascade` has an `=` with no levels before it"
+                ));
             }
             expect_fold = true;
         } else {
@@ -660,7 +699,10 @@ fn parse_cascade(value: &str, line: usize) -> Result<Cascade, String> {
         return Err(format!("line {line}: `@cascade` ends in an `=`"));
     }
     for production in group {
-        cascade.levels.push(Level { production, fold: None });
+        cascade.levels.push(Level {
+            production,
+            fold: None,
+        });
     }
     Ok(cascade)
 }
@@ -693,13 +735,18 @@ impl Body<'_> {
 
     fn sequence(&mut self) -> Result<Node, String> {
         let mut items = Vec::new();
-        while matches!(self.peek(), Some(Token::Ident(_) | Token::Str(_) | Token::LParen)) {
+        while matches!(
+            self.peek(),
+            Some(Token::Ident(_) | Token::Str(_) | Token::LParen)
+        ) {
             items.push(self.labelled()?);
         }
         if items.len() > 1 {
             return Ok(Node::Seq(items));
         }
-        items.pop().ok_or_else(|| format!("line {}: an alternative is empty", self.line))
+        items
+            .pop()
+            .ok_or_else(|| format!("line {}: an alternative is empty", self.line))
     }
 
     fn labelled(&mut self) -> Result<Node, String> {
@@ -734,11 +781,17 @@ impl Body<'_> {
                 if self.peek() == Some(&Token::DotDot) {
                     self.i += 1;
                     let Some(Token::Str(hi)) = self.peek().cloned() else {
-                        return Err(format!("line {}: a range needs a second terminal", self.line));
+                        return Err(format!(
+                            "line {}: a range needs a second terminal",
+                            self.line
+                        ));
                     };
                     self.i += 1;
                     let (Some(a), Some(b)) = (one_char(&s), one_char(&hi)) else {
-                        return Err(format!("line {}: a range needs single characters", self.line));
+                        return Err(format!(
+                            "line {}: a range needs single characters",
+                            self.line
+                        ));
                     };
                     return Ok(Node::Range(a, b));
                 }
@@ -757,7 +810,10 @@ impl Body<'_> {
                 self.i += 1;
                 Ok(inner)
             }
-            other => Err(format!("line {}: expected a term, found {other:?}", self.line)),
+            other => Err(format!(
+                "line {}: expected a term, found {other:?}",
+                self.line
+            )),
         }
     }
 }
@@ -869,8 +925,11 @@ impl Re {
                 })
                 .collect(),
             Re::Alt(items) => {
-                let inner =
-                    items.iter().map(|it| it.render(false)).collect::<Vec<_>>().join("|");
+                let inner = items
+                    .iter()
+                    .map(|it| it.render(false))
+                    .collect::<Vec<_>>()
+                    .join("|");
                 if nested {
                     format!("(?:{inner})")
                 } else {
@@ -1105,7 +1164,10 @@ fn emit(ebnf: &Ebnf) -> Result<String, String> {
             continue;
         }
         let p = ebnf.find(&level.production).ok_or_else(|| {
-            format!("`@cascade` names `{}`, which is not a production", level.production)
+            format!(
+                "`@cascade` names `{}`, which is not a production",
+                level.production
+            )
         })?;
         let alts: Vec<&Node> = match &p.body {
             Node::Choice(items) => items.iter().collect(),
@@ -1113,7 +1175,9 @@ fn emit(ebnf: &Ebnf) -> Result<String, String> {
         };
         for alt in alts {
             let Node::Ref(name) = alt else { continue };
-            let member = ebnf.find(name).ok_or_else(|| format!("`{name}` is not a production"))?;
+            let member = ebnf
+                .find(name)
+                .ok_or_else(|| format!("`{name}` is not a production"))?;
             let mut refs = Vec::new();
             collect_refs(&member.body, &mut refs);
             if refs.contains(&level.production) {
@@ -1122,7 +1186,13 @@ fn emit(ebnf: &Ebnf) -> Result<String, String> {
         }
     }
 
-    let g = Gen { ebnf, names, levels, cascade, member_prec };
+    let g = Gen {
+        ebnf,
+        names,
+        levels,
+        cascade,
+        member_prec,
+    };
     g.write()
 }
 
@@ -1168,7 +1238,9 @@ impl Gen<'_> {
     /// it reads as left and the compiler objects to the chain.
     fn assoc_of(&self, level: &str, next: Option<&str>, alt: &Node) -> Result<Precedence, String> {
         let Node::Seq(items) = alt else {
-            return Err(format!("`{level}` has an alternative that is not an operator"));
+            return Err(format!(
+                "`{level}` has an alternative that is not an operator"
+            ));
         };
         let head = match items.first() {
             Some(Node::Ref(n)) => Some(n.as_str()),
@@ -1183,7 +1255,9 @@ impl Gen<'_> {
             if tail == Some(level) {
                 return Ok(Precedence::Right(None));
             }
-            return Err(format!("`{level}` opens with an operator but does not recur"));
+            return Err(format!(
+                "`{level}` opens with an operator but does not recur"
+            ));
         }
         match (head == Some(level), tail == Some(level)) {
             (true, false) => Ok(Precedence::Left(None)),
@@ -1208,7 +1282,11 @@ impl Gen<'_> {
 
         for (k, level) in self.cascade.levels.iter().enumerate() {
             let number = (k + 1) as i32;
-            let next = self.cascade.levels.get(k + 1).map(|l| l.production.as_str());
+            let next = self
+                .cascade
+                .levels
+                .get(k + 1)
+                .map(|l| l.production.as_str());
             let p = self.prod(&level.production);
             let alts: Vec<&Node> = match &p.body {
                 Node::Choice(items) => items.iter().collect(),
@@ -1337,7 +1415,10 @@ impl Gen<'_> {
             RuleBody::Raw(raw) => return Ok(Js::Atom(raw.clone())),
             RuleBody::Regex(re) => return Ok(Js::Atom(format!("/{re}/"))),
             RuleBody::Token => {
-                return Ok(Js::Atom(format!("/{}/", self.pattern(&p.body)?.render(false))))
+                return Ok(Js::Atom(format!(
+                    "/{}/",
+                    self.pattern(&p.body)?.render(false)
+                )))
             }
             RuleBody::Ebnf | RuleBody::External => {}
         }
@@ -1449,7 +1530,9 @@ impl Gen<'_> {
     fn reachable(&self) -> Vec<String> {
         // The first production is the start symbol; a grammar with none reaches
         // nothing, which is the empty rule set it describes.
-        let Some(start) = self.ebnf.productions.first() else { return Vec::new() };
+        let Some(start) = self.ebnf.productions.first() else {
+            return Vec::new();
+        };
         let mut seen: HashSet<String> = HashSet::new();
         let mut order: Vec<String> = Vec::new();
         let mut queue: Vec<String> = vec![start.name.clone()];
@@ -1486,7 +1569,10 @@ impl Gen<'_> {
         let mut out = String::new();
         out.push_str(HEADER);
         out.push_str("module.exports = grammar({\n");
-        out.push_str(&format!("  name: {},\n\n", js_string(&self.ebnf.grammar_name)));
+        out.push_str(&format!(
+            "  name: {},\n\n",
+            js_string(&self.ebnf.grammar_name)
+        ));
 
         if let Some(word) = &self.ebnf.word {
             out.push_str(&format!("  word: $ => $.{},\n\n", self.node_of(word)));
@@ -1516,8 +1602,10 @@ impl Gen<'_> {
         if !self.ebnf.conflicts.is_empty() {
             out.push_str("  conflicts: $ => [\n");
             for group in &self.ebnf.conflicts {
-                let names: Vec<String> =
-                    group.iter().map(|n| format!("$.{}", self.conflict_target(n))).collect();
+                let names: Vec<String> = group
+                    .iter()
+                    .map(|n| format!("$.{}", self.conflict_target(n)))
+                    .collect();
                 out.push_str(&format!("    [{}],\n", names.join(", ")));
             }
             out.push_str("  ],\n\n");
@@ -1608,7 +1696,11 @@ mod tests {
     #[test]
     fn the_grammar_parses_and_every_reference_resolves() {
         let g = ebnf();
-        assert!(g.productions.len() > 80, "only {} productions", g.productions.len());
+        assert!(
+            g.productions.len() > 80,
+            "only {} productions",
+            g.productions.len()
+        );
         let dangling = dangling_references(&g);
         assert!(dangling.is_empty(), "{}", dangling.join("\n"));
     }
@@ -1629,8 +1721,14 @@ mod tests {
     #[test]
     fn a_lexical_production_compiles_to_a_pattern() {
         let out = generate(buri::documentation::topics::GRAMMAR).expect("generates");
-        assert!(out.contains("integer_literal: $ => /"), "no integer pattern:\n{out}");
-        assert!(out.contains("0x[0-9a-fA-F]"), "the hexadecimal form is not derived");
+        assert!(
+            out.contains("integer_literal: $ => /"),
+            "no integer pattern:\n{out}"
+        );
+        assert!(
+            out.contains("0x[0-9a-fA-F]"),
+            "the hexadecimal form is not derived"
+        );
     }
 
     #[test]
@@ -1638,7 +1736,10 @@ mod tests {
         let out = generate(buri::documentation::topics::GRAMMAR).expect("generates");
         assert!(out.contains("prec.left(1, seq($._operand, '||', $._operand))"));
         assert!(out.contains("prec.left(2, seq($._operand, '&&', $._operand))"));
-        assert!(out.contains("prec.right(9,"), "the prefix level is not right-associative");
+        assert!(
+            out.contains("prec.right(9,"),
+            "the prefix level is not right-associative"
+        );
     }
 
     #[test]
@@ -1683,7 +1784,10 @@ WORD            ::= a lowercase word
         assert!(out.contains("name: 'tiny',"), "{out}");
         assert!(out.contains("word: $ => $.word,"), "{out}");
         assert!(out.contains("source_file: $ => repeat($._line),"), "{out}");
-        assert!(out.contains("_line: $ => choice($.declaration, $.blank),"), "{out}");
+        assert!(
+            out.contains("_line: $ => choice($.declaration, $.blank),"),
+            "{out}"
+        );
         assert!(
             out.contains("declaration: $ => prec(3, seq('let', field('name', $.word), ';')),"),
             "{out}"
@@ -1703,7 +1807,13 @@ WORD            ::= a lowercase word
         let source = "(* @grammar tiny *)\nDoc ::= Line*\nLine ::= Gone\n";
         let g = parse(source).expect("parses");
         let dangling = dangling_references(&g);
-        assert_eq!(dangling, vec!["Line names `Gone`, which is not a production"]);
-        assert!(generate(source).is_err(), "generation accepted a dangling reference");
+        assert_eq!(
+            dangling,
+            vec!["Line names `Gone`, which is not a production"]
+        );
+        assert!(
+            generate(source).is_err(),
+            "generation accepted a dangling reference"
+        );
     }
 }

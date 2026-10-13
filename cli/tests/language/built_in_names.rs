@@ -30,9 +30,11 @@ fn a_struct_named_after_a_built_in_type_is_refused() {
     for name in BUILT_IN {
         let run = app(&format!("struct {name} {{\n    x: U8,\n}}")).run(&["build", "//app"]);
         run.exits(1);
-        run.says(&format!("`{name}` is a built-in type and may not be declared"))
-            .says("[built-in-type-name]")
-            .says("app/main.buri:3:8");
+        run.says(&format!(
+            "`{name}` is a built-in type and may not be declared"
+        ))
+        .says("[built-in-type-name]")
+        .says("app/main.buri:3:8");
     }
 }
 
@@ -50,10 +52,8 @@ fn an_enum_or_an_alias_named_after_a_built_in_type_is_refused() {
 /// the struct in a literal. Now it is refused before either.
 #[test]
 fn a_struct_byte_is_refused_where_it_was_silently_u8() {
-    let run = app(
-        "struct Byte {\n    b: U8,\n}\n\nfn make(): Byte {\n    Byte { b: 1 }\n}",
-    )
-    .run(&["build", "//app"]);
+    let run = app("struct Byte {\n    b: U8,\n}\n\nfn make(): Byte {\n    Byte { b: 1 }\n}")
+        .run(&["build", "//app"]);
     run.exits(1);
     run.says("[built-in-type-name]");
 }

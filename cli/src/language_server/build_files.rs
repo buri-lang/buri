@@ -17,27 +17,25 @@
 //! Diagnostics are here too, and for the plainest reason: a build file is read
 //! by `buildfile`'s reader and by nothing else.
 
+use super::convert::{self, Position};
+use super::features::Markup;
 use crate::build::session::Session;
 use crate::build::textproto::{self, Field, Value as Node};
 use crate::diagnostics::{FileId, Span};
 use crate::json::Value;
 use std::path::{Path, PathBuf};
-use super::convert::{self, Position};
-use super::features::Markup;
 
 /// Whether this is a file this module answers for, by the toolchain's own
 /// rule: a build file is known by its name.
 pub fn is_build_file(path: &Path) -> bool {
-    matches!(path.file_name().and_then(|n| n.to_str()), Some("BUILD.buri" | "REPO.buri"))
+    matches!(
+        path.file_name().and_then(|n| n.to_str()),
+        Some("BUILD.buri" | "REPO.buri")
+    )
 }
 
 /// What the string under the cursor names, if it names anything.
-pub fn definition(
-    session: &Session,
-    path: &Path,
-    text: &str,
-    position: Position,
-) -> Option<Value> {
+pub fn definition(session: &Session, path: &Path, text: &str, position: Position) -> Option<Value> {
     let offset = convert::offset_of(text, position);
     // Parsed from the buffer rather than taken from the workspace's own copy:
     // the workspace read this file from disk, and the offsets a request
@@ -127,14 +125,17 @@ fn string_at(fields: &[Field], offset: u32) -> Option<(&str, &str)> {
     match &field.value {
         Node::Str(s, span) if covers(*span, offset) => Some((&field.name, s)),
         Node::Message(m, _) => string_at(&m.fields, offset),
-        Node::List(items, _) => items.iter().find(|i| covers(i.span(), offset)).and_then(|i| {
-            match i {
-                Node::Str(s, _) => Some((field.name.as_str(), s.as_str())),
-                // `outputs: [{ platform: "node" }]` — a list of blocks.
-                Node::Message(m, _) => string_at(&m.fields, offset),
-                _ => None,
-            }
-        }),
+        Node::List(items, _) => items
+            .iter()
+            .find(|i| covers(i.span(), offset))
+            .and_then(|i| {
+                match i {
+                    Node::Str(s, _) => Some((field.name.as_str(), s.as_str())),
+                    // `outputs: [{ platform: "node" }]` — a list of blocks.
+                    Node::Message(m, _) => string_at(&m.fields, offset),
+                    _ => None,
+                }
+            }),
         _ => None,
     }
 }
@@ -157,10 +158,11 @@ fn label_target(session: &Session, build_file: &Path, label: &str) -> Option<Val
 
 fn label_path(session: &Session, build_file: &Path, label: &str) -> Option<PathBuf> {
     let path = label.strip_prefix("//")?;
-    let id = session
-        .workspace
-        .package_by_path(path)
-        .or_else(|| session.workspace.package_by_path(path.strip_suffix("/testing")?))?;
+    let id = session.workspace.package_by_path(path).or_else(|| {
+        session
+            .workspace
+            .package_by_path(path.strip_suffix("/testing")?)
+    })?;
     let package = &session.workspace.package(id).path;
     let mut file = root_of(session, build_file);
     if !package.is_empty() {
@@ -196,7 +198,12 @@ fn tag_target(session: &Session, build_file: &Path, name: &str) -> Option<Value>
         return None;
     }
     Some(Value::object(vec![
-        ("uri", Value::str(convert::uri_of(&root_of(session, build_file).join("REPO.buri")))),
+        (
+            "uri",
+            Value::str(convert::uri_of(
+                &root_of(session, build_file).join("REPO.buri"),
+            )),
+        ),
         ("range", convert::range(&file.text, span)),
     ]))
 }
@@ -243,7 +250,9 @@ fn cursor_at(text: &str, offset: u32) -> Cursor {
     let mut commented = false;
     let mut i = 0;
     while i < end {
-        let Some(c) = bytes.get(i).copied() else { break };
+        let Some(c) = bytes.get(i).copied() else {
+            break;
+        };
         if quoted_from.is_some() {
             match c {
                 b'\\' => i = i.saturating_add(1),
@@ -339,7 +348,15 @@ fn cursor_at(text: &str, offset: u32) -> Cursor {
         }
     };
     let (block, written) = blocks.pop().unwrap_or_default();
-    Cursor { block, written, field, quoted: quoted_from.is_some(), commented, prefix, from }
+    Cursor {
+        block,
+        written,
+        field,
+        quoted: quoted_from.is_some(),
+        commented,
+        prefix,
+        from,
+    }
 }
 
 fn is_word(c: u8) -> bool {
@@ -363,7 +380,10 @@ pub fn completion(session: &Session, path: &Path, text: &str, position: Position
     if cursor.commented {
         return Value::Array(Vec::new());
     }
-    let replacing = (cursor.from, cursor.from.saturating_add(cursor.prefix.len() as u32));
+    let replacing = (
+        cursor.from,
+        cursor.from.saturating_add(cursor.prefix.len() as u32),
+    );
     let schema = super::schema::schema();
     let entries: Vec<Entry> = match (&cursor.field, cursor.quoted) {
         // A string entry: what it names depends on the field holding it.
@@ -392,8 +412,15 @@ pub fn completion(session: &Session, path: &Path, text: &str, position: Position
                 // `dependencies` is how a build file is read, and alphabetical
                 // order would be a different file every time.
                 let rank = char::from_digit((rank % 10) as u32, 10).unwrap_or('9');
-                let mut row =
-                    super::completion::item(label, *kind, detail, rank, text, replacing, Value::Null);
+                let mut row = super::completion::item(
+                    label,
+                    *kind,
+                    detail,
+                    rank,
+                    text,
+                    replacing,
+                    Value::Null,
+                );
                 // The prose is compiled into this binary already, so there is
                 // nothing for a `completionItem/resolve` to fetch and no reason
                 // to withhold it.
@@ -435,7 +462,9 @@ fn constants(schema: &super::schema::Schema, block: &str, field: &str) -> Vec<En
             .map(|v| ((*v).to_string(), 12, String::new(), Vec::new()))
             .collect();
     }
-    let Some(enumeration) = schema.enumeration(block, field) else { return Vec::new() };
+    let Some(enumeration) = schema.enumeration(block, field) else {
+        return Vec::new();
+    };
     enumeration
         .constants
         .iter()
@@ -457,7 +486,12 @@ fn labels(session: &Session) -> Vec<Entry> {
         // 9 module: a label names a package, which is where a module comes
         // from.
         out.push((package.label(), 9, "library".to_string(), Vec::new()));
-        if package.build.library.as_ref().is_some_and(|l| l.testing.is_some()) {
+        if package
+            .build
+            .library
+            .as_ref()
+            .is_some_and(|l| l.testing.is_some())
+        {
             out.push((
                 format!("{}/testing", package.label()),
                 9,
@@ -475,9 +509,24 @@ fn labels(session: &Session) -> Vec<Entry> {
 fn visibilities(session: &Session) -> Vec<Entry> {
     // 12 value throughout: none of these names a declaration.
     let mut out = vec![
-        ("//visibility:public".to_string(), 12, "every package".to_string(), Vec::new()),
-        ("//visibility:private".to_string(), 12, "this package only".to_string(), Vec::new()),
-        ("//...".to_string(), 12, "every package in this repository".to_string(), Vec::new()),
+        (
+            "//visibility:public".to_string(),
+            12,
+            "every package".to_string(),
+            Vec::new(),
+        ),
+        (
+            "//visibility:private".to_string(),
+            12,
+            "this package only".to_string(),
+            Vec::new(),
+        ),
+        (
+            "//...".to_string(),
+            12,
+            "every package in this repository".to_string(),
+            Vec::new(),
+        ),
     ];
     for package in &session.workspace.packages {
         out.push((package.label(), 12, "one package".to_string(), Vec::new()));
@@ -498,7 +547,9 @@ fn visibilities(session: &Session) -> Vec<Entry> {
 /// left out: those two are a rule's surface and are never written in
 /// `sources`.
 fn files(build_file: &Path, text: &str) -> Vec<Entry> {
-    let Some(dir) = build_file.parent() else { return Vec::new() };
+    let Some(dir) = build_file.parent() else {
+        return Vec::new();
+    };
     let mut sources = Vec::new();
     let mut schemas = Vec::new();
     crate::build::regenerate::collect(dir, dir, &mut sources, &mut schemas);
@@ -527,7 +578,11 @@ fn platforms() -> Vec<Entry> {
 fn variants() -> Vec<Entry> {
     crate::build::buildfile::PlatformName::BUNDLED
         .iter()
-        .flat_map(|p| p.variants().into_iter().map(move |v| (v.to_string(), 12, p.name().to_string(), Vec::new())))
+        .flat_map(|p| {
+            p.variants()
+                .into_iter()
+                .map(move |v| (v.to_string(), 12, p.name().to_string(), Vec::new()))
+        })
         .collect()
 }
 
@@ -540,7 +595,11 @@ fn tags(session: &Session) -> Vec<Entry> {
         .tags
         .iter()
         .map(|t| {
-            let docs = if t.doc.is_empty() { Vec::new() } else { vec![t.doc.clone()] };
+            let docs = if t.doc.is_empty() {
+                Vec::new()
+            } else {
+                vec![t.doc.clone()]
+            };
             // 12 value.
             (t.name.value.clone(), 12, "tag".to_string(), docs)
         })
@@ -584,7 +643,9 @@ pub fn hover(text: &str, position: Position, kind: Markup) -> Option<Value> {
             (field.signature.clone(), docs)
         }
     };
-    Some(super::features::rendered(text, "proto", &signature, &docs, span, kind))
+    Some(super::features::rendered(
+        text, "proto", &signature, &docs, span, kind,
+    ))
 }
 
 /// The word the offset is on, and its extent.
@@ -592,7 +653,12 @@ fn word_at(text: &str, offset: u32) -> Option<(String, u32, u32)> {
     let bytes = text.as_bytes();
     let at = (offset as usize).min(bytes.len());
     let mut start = at;
-    while start > 0 && bytes.get(start.saturating_sub(1)).copied().is_some_and(is_word) {
+    while start > 0
+        && bytes
+            .get(start.saturating_sub(1))
+            .copied()
+            .is_some_and(is_word)
+    {
         start = start.saturating_sub(1);
     }
     let mut end = at;

@@ -251,8 +251,8 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use cosmic_text::{
-    Attrs, Buffer, CacheKeyFlags, Family, FontSystem, Hinting, Metrics, Shaping, SwashCache, Weight,
-    Wrap, fontdb,
+    Attrs, Buffer, CacheKeyFlags, Family, FontSystem, Hinting, Metrics, Shaping, SwashCache,
+    Weight, Wrap, fontdb,
 };
 use taffy::prelude::*;
 use taffy::{Overflow, Point, TaffyTree, compute_leaf_layout};
@@ -460,7 +460,10 @@ pub fn encode_png(pixmap: &Pixmap) -> Vec<u8> {
 pub fn compare(golden: &[u8], pixmap: &Pixmap) -> Result<Option<Vec<u8>>, String> {
     let (width, height) = (pixmap.width(), pixmap.height());
     let inflated = image::inflated(golden);
-    if let Some(rows) = inflated.as_ref().ok().and_then(|found| found.rgba_rows(width, height))
+    if let Some(rows) = inflated
+        .as_ref()
+        .ok()
+        .and_then(|found| found.rgba_rows(width, height))
         && same_filtered(rows, pixmap)
     {
         return Ok(None);
@@ -472,12 +475,22 @@ pub fn compare(golden: &[u8], pixmap: &Pixmap) -> Result<Option<Vec<u8>>, String
         // golden it could not have written — corrupt, or from some other tool —
         // is compared by the bytes it would write, the answer a match on such a
         // picture always was.
-        Err(why) => return if encode_png(pixmap) == golden { Ok(None) } else { Err(why) },
+        Err(why) => {
+            return if encode_png(pixmap) == golden {
+                Ok(None)
+            } else {
+                Err(why)
+            };
+        }
     };
     if recorded.width == width && recorded.height == height && same_pixels(&recorded.rgba, pixmap) {
         return Ok(None);
     }
-    let actual = image::Image { width, height, rgba: straight(pixmap) };
+    let actual = image::Image {
+        width,
+        height,
+        rgba: straight(pixmap),
+    };
     Ok(Some(diff_image(&recorded, &actual)?))
 }
 
@@ -489,7 +502,9 @@ fn straight_row(premultiplied: &[u8], out: &mut [u8]) {
     for pixel in out.as_chunks_mut::<4>().0 {
         if pixel[3] != 255 {
             let p = PremultipliedColorU8::from_rgba(pixel[0], pixel[1], pixel[2], pixel[3])
-                .map_or(tiny_skia::ColorU8::from_rgba(0, 0, 0, 0), |p| p.demultiply());
+                .map_or(tiny_skia::ColorU8::from_rgba(0, 0, 0, 0), |p| {
+                    p.demultiply()
+                });
             pixel.copy_from_slice(&[p.red(), p.green(), p.blue(), p.alpha()]);
         }
     }
@@ -502,10 +517,12 @@ fn same_pixels(rgba: &[u8], pixmap: &Pixmap) -> bool {
         return false;
     }
     let mut row = vec![0_u8; stride];
-    rgba.chunks_exact(stride).zip(pixmap.data().chunks_exact(stride)).all(|(want, line)| {
-        straight_row(line, &mut row);
-        row == want
-    })
+    rgba.chunks_exact(stride)
+        .zip(pixmap.data().chunks_exact(stride))
+        .all(|(want, line)| {
+            straight_row(line, &mut row);
+            row == want
+        })
 }
 
 /// Whether a golden's inflated rows — a filter byte and the row, each — are
@@ -517,7 +534,10 @@ fn same_filtered(rows: &[u8], pixmap: &Pixmap) -> bool {
         return false;
     }
     let (mut above, mut here) = (vec![0_u8; stride], vec![0_u8; stride]);
-    for (filtered, line) in rows.chunks_exact(stride + 1).zip(pixmap.data().chunks_exact(stride)) {
+    for (filtered, line) in rows
+        .chunks_exact(stride + 1)
+        .zip(pixmap.data().chunks_exact(stride))
+    {
         let (kind, filtered) = filtered.split_at(1);
         if kind != [2] {
             return false;
@@ -528,7 +548,9 @@ fn same_filtered(rows: &[u8], pixmap: &Pixmap) -> bool {
         let differs = filtered
             .iter()
             .zip(here.iter().zip(&above))
-            .fold(0_u8, |seen, (&f, (&x, &up))| seen | (f ^ x.wrapping_sub(up)));
+            .fold(0_u8, |seen, (&f, (&x, &up))| {
+                seen | (f ^ x.wrapping_sub(up))
+            });
         if differs != 0 {
             return false;
         }
@@ -547,10 +569,16 @@ fn same_filtered(rows: &[u8], pixmap: &Pixmap) -> bool {
 fn parse_variables(text: &str) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     for block in text.split(":root{").skip(1) {
-        let Some((body, _)) = block.split_once('}') else { continue };
+        let Some((body, _)) = block.split_once('}') else {
+            continue;
+        };
         for entry in body.split(';') {
-            let Some((name, value)) = entry.split_once(':') else { continue };
-            let Some(name) = name.trim().strip_prefix("--") else { continue };
+            let Some((name, value)) = entry.split_once(':') else {
+                continue;
+            };
+            let Some(name) = name.trim().strip_prefix("--") else {
+                continue;
+            };
             let value = value.trim().to_string();
             match out.iter_mut().find(|(k, _)| k == name) {
                 Some(slot) => slot.1 = value,
@@ -585,9 +613,13 @@ struct Page {
 fn parse_page(text: &str, variables: &[(String, String)]) -> Page {
     let mut page = Page::default();
     for block in text.split("body{").skip(1) {
-        let Some((body, _)) = block.split_once('}') else { continue };
+        let Some((body, _)) = block.split_once('}') else {
+            continue;
+        };
         for entry in body.split(';') {
-            let Some((name, value)) = entry.split_once(':') else { continue };
+            let Some((name, value)) = entry.split_once(':') else {
+                continue;
+            };
             let resolved = substitute(value.trim(), variables);
             let parsed = match colour(&resolved) {
                 Some(Spec::Value(c)) => Some(c),
@@ -655,7 +687,8 @@ fn substitute_once<'a>(value: &'a str, variables: &[(String, String)]) -> Cow<'a
     while let Some(at) = rest.find("var(") {
         let (before, from) = rest.split_at(at);
         out.push_str(before);
-        let Some((inside, after)) = from.strip_prefix("var(").and_then(|f| f.split_once(')')) else {
+        let Some((inside, after)) = from.strip_prefix("var(").and_then(|f| f.split_once(')'))
+        else {
             out.push_str(from);
             return Cow::Owned(out);
         };
@@ -804,10 +837,17 @@ impl Scene {
             let (kind, rest) = line.split_at_checked(2).unwrap_or((line, ""));
             let (depth, body) = match kind {
                 "e " | "t " => split_depth(rest)?,
-                _ => return Err(format!("the scene line `{line}` is neither an `e` nor a `t`")),
+                _ => {
+                    return Err(format!(
+                        "the scene line `{line}` is neither an `e` nor a `t`"
+                    ));
+                }
             };
             if depth > open.len() {
-                return Err(format!("the scene jumps from depth {} to {depth}", open.len()));
+                return Err(format!(
+                    "the scene jumps from depth {} to {depth}",
+                    open.len()
+                ));
             }
             open.truncate(depth);
 
@@ -826,7 +866,10 @@ impl Scene {
             } else {
                 let (classes, declarations) = parse_declarations(body)?;
                 let named = |want: &str| {
-                    declarations.iter().find(|(name, _)| name == want).map(|(_, v)| v.clone())
+                    declarations
+                        .iter()
+                        .find(|(name, _)| name == want)
+                        .map(|(_, v)| v.clone())
                 };
                 let picture = named("image")
                     .map(Art::Source)
@@ -854,8 +897,9 @@ impl Scene {
                         return Err("the scene names a parent that is not there".to_string());
                     };
                     if holder.text.is_some() {
-                        return Err("a scene `t` line has a child, and a text run has none"
-                            .to_string());
+                        return Err(
+                            "a scene `t` line has a child, and a text run has none".to_string()
+                        );
                     }
                     holder.children.push(index);
                 }
@@ -863,7 +907,12 @@ impl Scene {
             open.push(index);
         }
 
-        Ok(Self { width, height, nodes, roots })
+        Ok(Self {
+            width,
+            height,
+            nodes,
+            roots,
+        })
     }
 
     fn node(&self, index: usize) -> Option<&Node> {
@@ -894,7 +943,9 @@ fn parse_viewport(line: &str) -> Result<(u32, Option<u32>), String> {
     }
     let stated = height.unwrap_or(1);
     if width == 0 || stated == 0 || width > MAX_VIEWPORT || stated > MAX_VIEWPORT {
-        return Err(format!("the viewport {width}x{down} is not between 1x1 and 8192x8192"));
+        return Err(format!(
+            "the viewport {width}x{down} is not between 1x1 and 8192x8192"
+        ));
     }
     Ok((width, height))
 }
@@ -905,8 +956,9 @@ fn split_depth(rest: &str) -> Result<(usize, &str), String> {
         Some((digits, body)) => (digits, body),
         None => (rest, ""),
     };
-    let depth: usize =
-        digits.parse().map_err(|_| format!("the scene line depth `{digits}` is not a number"))?;
+    let depth: usize = digits
+        .parse()
+        .map_err(|_| format!("the scene line depth `{digits}` is not a number"))?;
     Ok((depth, body))
 }
 
@@ -983,7 +1035,12 @@ fn parse_declarations(body: &str) -> Result<Declarations, String> {
             return Err(format!("the scene declaration `{entry}` has no `:`"));
         };
         if name == "class" {
-            classes.extend(value.split(' ').filter(|c| !c.is_empty()).map(ToString::to_string));
+            classes.extend(
+                value
+                    .split(' ')
+                    .filter(|c| !c.is_empty())
+                    .map(ToString::to_string),
+            );
         } else {
             declarations.push((name.to_string(), value.to_string()));
         }
@@ -1076,16 +1133,33 @@ fn parse_stylesheet(source: &str) -> Vec<Rule> {
             continue;
         }
         if let Some(query) = line.strip_prefix("@media (min-width:") {
-            if let Some(width) = query.strip_suffix("rem){").and_then(|n| n.parse::<f32>().ok()) {
+            if let Some(width) = query
+                .strip_suffix("rem){")
+                .and_then(|n| n.parse::<f32>().ok())
+            {
                 min_width = width * REM;
             }
             continue;
         }
-        let Some((selector, body)) = line.split_once('{') else { continue };
-        let Some(body) = body.strip_suffix('}') else { continue };
-        let Some((class, state, child)) = parse_selector(selector) else { continue };
-        let Ok((_, declarations)) = parse_declarations(body) else { continue };
-        rules.push(Rule { class, state, child, min_width, declarations });
+        let Some((selector, body)) = line.split_once('{') else {
+            continue;
+        };
+        let Some(body) = body.strip_suffix('}') else {
+            continue;
+        };
+        let Some((class, state, child)) = parse_selector(selector) else {
+            continue;
+        };
+        let Ok((_, declarations)) = parse_declarations(body) else {
+            continue;
+        };
+        rules.push(Rule {
+            class,
+            state,
+            child,
+            min_width,
+            declarations,
+        });
     }
     rules
 }
@@ -1152,8 +1226,18 @@ struct Rgba {
 }
 
 impl Rgba {
-    const CLEAR: Self = Self { r: 0, g: 0, b: 0, a: 0.0 };
-    const BLACK: Self = Self { r: 0, g: 0, b: 0, a: 1.0 };
+    const CLEAR: Self = Self {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0.0,
+    };
+    const BLACK: Self = Self {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 1.0,
+    };
 
     fn visible(self) -> bool {
         self.a > 0.0
@@ -1248,7 +1332,11 @@ impl Slider {
     /// How far along the track the thumb sits, from nought to one. A range with
     /// no width to it is at the start, which is where a browser puts it.
     fn fraction(self) -> f32 {
-        if self.max <= self.min { 0.0 } else { (self.value - self.min) / (self.max - self.min) }
+        if self.max <= self.min {
+            0.0
+        } else {
+            (self.value - self.min) / (self.max - self.min)
+        }
     }
 }
 
@@ -1474,7 +1562,11 @@ impl Computed {
     /// keeps the attribute and stops drawing it, so a box that is cleared
     /// shows the hint again.
     fn hint<'a>(&'a self, text: &str) -> Option<&'a str> {
-        if text.is_empty() { self.placeholder.as_deref() } else { None }
+        if text.is_empty() {
+            self.placeholder.as_deref()
+        } else {
+            None
+        }
     }
 
     fn border_widths(&self) -> [f32; 4] {
@@ -1548,11 +1640,17 @@ fn resolve(
         root.colour = ink;
     }
     let mut styles = vec![root.clone(); scene.nodes.len()];
-    let mut stack: Vec<(usize, Option<usize>, Computed)> =
-        scene.roots.iter().rev().map(|&i| (i, None, root.clone())).collect();
+    let mut stack: Vec<(usize, Option<usize>, Computed)> = scene
+        .roots
+        .iter()
+        .rev()
+        .map(|&i| (i, None, root.clone()))
+        .collect();
 
     while let Some((index, holder, parent)) = stack.pop() {
-        let Some(node) = scene.node(index) else { continue };
+        let Some(node) = scene.node(index) else {
+            continue;
+        };
         let mut style = parent.inherit();
         if node.text.is_none() {
             let width = scene.width as f32;
@@ -1565,7 +1663,10 @@ fn resolve(
             // written beside it and not on nothing — the theme block on its own
             // never names one. Keyed without the `--`, the way `parse_variables`
             // reads the theme block and `substitute` looks a name up.
-            let has_local = node.declarations.iter().any(|(name, _)| name.starts_with("--"));
+            let has_local = node
+                .declarations
+                .iter()
+                .any(|(name, _)| name.starts_with("--"));
             let local: Vec<(String, String)> = if has_local {
                 let mut merged = variables.to_vec();
                 for (name, value) in &node.declarations {
@@ -1596,7 +1697,9 @@ fn resolve(
                 } else {
                     node.classes.contains(&rule.class)
                 };
-                if rule.min_width <= width && rule.state.is_none_or(|s| holds(node, s, state)) && named
+                if rule.min_width <= width
+                    && rule.state.is_none_or(|s| holds(node, s, state))
+                    && named
                 {
                     for (name, value) in &rule.declarations {
                         declarations.push((name, substitute(value, vars)));
@@ -1684,11 +1787,16 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
             }
         }
         "grid-template-columns" => {
-            style.tracks =
-                value.split(' ').filter(|t| !t.is_empty()).map(|t| track(t, font_size)).collect();
+            style.tracks = value
+                .split(' ')
+                .filter(|t| !t.is_empty())
+                .map(|t| track(t, font_size))
+                .collect();
         }
         "grid-column" => {
-            style.span = value.strip_prefix("span ").and_then(|n| n.trim().parse().ok());
+            style.span = value
+                .strip_prefix("span ")
+                .and_then(|n| n.trim().parse().ok());
         }
         "grid-area" => style.area = grid_area(value).or(style.area),
         "gap" => {
@@ -1986,9 +2094,7 @@ fn item_alignment(value: &str) -> Option<AlignItems> {
         "flex-start" => Some(AlignItems::FLEX_START),
         "center" => Some(AlignItems::CENTER),
         "flex-end" => Some(AlignItems::FLEX_END),
-        "stretch" | "space-between" | "space-around" | "space-evenly" => {
-            Some(AlignItems::STRETCH)
-        }
+        "stretch" | "space-between" | "space-around" | "space-evenly" => Some(AlignItems::STRETCH),
         _ => None,
     }
 }
@@ -2043,16 +2149,21 @@ fn colour_at(value: &str, depth: usize) -> Option<Spec> {
             return None;
         }
         let inner = rest.strip_suffix(')')?;
-        let [mixed, rest] = split_top(inner, ',')[..] else { return None };
+        let [mixed, rest] = split_top(inner, ',')[..] else {
+            return None;
+        };
         if rest.trim() != "transparent" {
             return None;
         }
-        let [base, share] = split_top(mixed.trim(), ' ')[..] else { return None };
+        let [base, share] = split_top(mixed.trim(), ' ')[..] else {
+            return None;
+        };
         let fraction = share.trim().strip_suffix('%')?.parse::<f32>().ok()? / 100.0;
         return match colour_at(base, depth + 1)? {
-            Spec::Value(c) => {
-                Some(Spec::Value(Rgba { a: (c.a * fraction).clamp(0.0, 1.0), ..c }))
-            }
+            Spec::Value(c) => Some(Spec::Value(Rgba {
+                a: (c.a * fraction).clamp(0.0, 1.0),
+                ..c
+            })),
             // Nothing bound the token, so the mix is a colour that is not
             // there — which is what every property already does with one.
             Spec::Token => Some(Spec::Token),
@@ -2063,7 +2174,9 @@ fn colour_at(value: &str, depth: usize) -> Option<Spec> {
     if value.starts_with("var(") {
         return Some(Spec::Token);
     }
-    let inner = value.strip_prefix("rgba(").or_else(|| value.strip_prefix("rgb("))?;
+    let inner = value
+        .strip_prefix("rgba(")
+        .or_else(|| value.strip_prefix("rgb("))?;
     let inner = inner.strip_suffix(')')?;
     let mut parts = inner.split(',').map(str::trim);
     let r = parts.next()?.parse().ok()?;
@@ -2110,7 +2223,13 @@ fn shadow(value: &str, font_size: f32) -> Option<Shadow> {
         Spec::Value(c) => c,
         _ => return None,
     };
-    Some(Shadow { x, y, blur, spread, colour })
+    Some(Shadow {
+        x,
+        y,
+        blur,
+        spread,
+        colour,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -2123,7 +2242,11 @@ fn shadow(value: &str, font_size: f32) -> Option<Shadow> {
 /// pixel column. Half rounds up, which is one add and one floor and therefore
 /// the same instruction sequence on both platforms.
 fn px(v: f32) -> i32 {
-    if v.is_nan() { 0 } else { (v + 0.5).floor() as i32 }
+    if v.is_nan() {
+        0
+    } else {
+        (v + 0.5).floor() as i32
+    }
 }
 
 fn dimension(len: Len) -> Dimension {
@@ -2151,7 +2274,13 @@ fn spacing(len: Len) -> LengthPercentage {
 }
 
 fn taffy_style(c: &Computed) -> Style {
-    let overflow = |on: bool| if on { Overflow::Hidden } else { Overflow::Visible };
+    let overflow = |on: bool| {
+        if on {
+            Overflow::Hidden
+        } else {
+            Overflow::Visible
+        }
+    };
     Style {
         display: match c.flow {
             Flow::Flex => Display::Flex,
@@ -2206,7 +2335,10 @@ fn taffy_style(c: &Computed) -> Style {
             Some((_, column)) => Line::from_line_index(column),
             None => c.span.map_or(Line::from_span(1), Line::from_span),
         },
-        gap: Size { width: spacing(c.gap_column), height: spacing(c.gap_row) },
+        gap: Size {
+            width: spacing(c.gap_column),
+            height: spacing(c.gap_row),
+        },
         padding: Rect {
             left: spacing(c.padding[0]),
             right: spacing(c.padding[1]),
@@ -2231,11 +2363,24 @@ fn taffy_style(c: &Computed) -> Style {
                 bottom: LengthPercentage::length(w[3]),
             }
         },
-        size: Size { width: dimension(c.size[0]), height: dimension(c.size[1]) },
-        min_size: Size { width: dimension_auto(c.min[0]), height: dimension_auto(c.min[1]) },
-        max_size: Size { width: dimension_auto(c.max[0]), height: dimension_auto(c.max[1]) },
+        size: Size {
+            width: dimension(c.size[0]),
+            height: dimension(c.size[1]),
+        },
+        min_size: Size {
+            width: dimension_auto(c.min[0]),
+            height: dimension_auto(c.min[1]),
+        },
+        max_size: Size {
+            width: dimension_auto(c.max[0]),
+            height: dimension_auto(c.max[1]),
+        },
         aspect_ratio: c.aspect,
-        position: if c.absolute { Position::Absolute } else { Position::Relative },
+        position: if c.absolute {
+            Position::Absolute
+        } else {
+            Position::Relative
+        },
         // **A sticky box keeps its static position.** Its inset is the edge it
         // would be held at once a scrollport crossed it, and a snapshot has no
         // scrolling, so a browser applies none of it — while `taffy`, which
@@ -2251,7 +2396,10 @@ fn taffy_style(c: &Computed) -> Style {
                 bottom: dimension_auto(c.inset[3]),
             }
         },
-        overflow: Point { x: overflow(c.clipped[0]), y: overflow(c.clipped[1]) },
+        overflow: Point {
+            x: overflow(c.clipped[0]),
+            y: overflow(c.clipped[1]),
+        },
         ..Style::default()
     }
 }
@@ -2437,7 +2585,10 @@ impl Spare {
             Some(data) => Mask::from_vec(data, tiny_skia::IntSize::from_wh(width, height)?)?,
             None => Mask::new(width, height)?,
         };
-        Some(Self { mask: Some(mask), dirty })
+        Some(Self {
+            mask: Some(mask),
+            dirty,
+        })
     }
 }
 
@@ -2445,14 +2596,18 @@ impl std::ops::Deref for Spare {
     type Target = Mask;
     #[expect(clippy::expect_used, reason = "only `drop` takes the mask")]
     fn deref(&self) -> &Mask {
-        self.mask.as_ref().expect("a spare holds its mask until it is dropped")
+        self.mask
+            .as_ref()
+            .expect("a spare holds its mask until it is dropped")
     }
 }
 
 impl std::ops::DerefMut for Spare {
     #[expect(clippy::expect_used, reason = "only `drop` takes the mask")]
     fn deref_mut(&mut self) -> &mut Mask {
-        self.mask.as_mut().expect("a spare holds its mask until it is dropped")
+        self.mask
+            .as_mut()
+            .expect("a spare holds its mask until it is dropped")
     }
 }
 
@@ -2472,7 +2627,10 @@ impl Drop for Spare {
             }
         }
         #[cfg(test)]
-        assert!(data.iter().all(|&b| b == 0), "a spare mask was written outside its dirty stretch");
+        assert!(
+            data.iter().all(|&b| b == 0),
+            "a spare mask was written outside its dirty stretch"
+        );
         SPARES.with_borrow_mut(|spares| {
             // Spares of another canvas's size are no use to this one.
             spares.retain(|kept| kept.len() == data.len());
@@ -2620,7 +2778,14 @@ fn shape(
     // already.
     if let Some(room) = width.filter(|&w| w > 0.0) {
         if let Some(limit) = style.clamp {
-            content = clamp(fonts, &mut buffer, &content, &attrs, style.align_text, limit);
+            content = clamp(
+                fonts,
+                &mut buffer,
+                &content,
+                &attrs,
+                style.align_text,
+                limit,
+            );
         }
         if style.balance {
             balance(fonts, &mut buffer, &content, &attrs, style.align_text, room);
@@ -2700,8 +2865,11 @@ fn clamp(
     if line_count(buffer) <= limit {
         return text.to_string();
     }
-    let cuts: Vec<usize> =
-        text.char_indices().map(|(i, _)| i).chain(std::iter::once(text.len())).collect();
+    let cuts: Vec<usize> = text
+        .char_indices()
+        .map(|(i, _)| i)
+        .chain(std::iter::once(text.len()))
+        .collect();
     let ellipsised = |head: &str| format!("{}…", head.trim_end());
     // The empty prefix always fits: an ellipsis on its own is one line.
     let (mut lo, mut hi) = (0_usize, cuts.len().saturating_sub(1));
@@ -2834,13 +3002,30 @@ fn paint_with(
 
     // Every source read once, before the layout asks any of them how large it
     // is. `None` beside a node that has an `image` is the placeholder.
-    let pictures: Vec<Option<Picture>> =
-        scene.nodes.iter().map(|node| node.picture.as_ref().and_then(picture)).collect();
+    let pictures: Vec<Option<Picture>> = scene
+        .nodes
+        .iter()
+        .map(|node| node.picture.as_ref().and_then(picture))
+        .collect();
 
-    let mut built =
-        Built { ids: vec![None; scene.nodes.len()], fixed: Vec::new(), tables: Vec::new() };
-    let roots = build(scene, styles, &pictures, &mut tree, &scene.roots, &mut built)?;
-    let Built { ids, fixed, mut tables } = built;
+    let mut built = Built {
+        ids: vec![None; scene.nodes.len()],
+        fixed: Vec::new(),
+        tables: Vec::new(),
+    };
+    let roots = build(
+        scene,
+        styles,
+        &pictures,
+        &mut tree,
+        &scene.roots,
+        &mut built,
+    )?;
+    let Built {
+        ids,
+        fixed,
+        mut tables,
+    } = built;
     measure_tables(&mut tree, &mut tables, scene, styles, fonts)?;
     // **The canvas is an unstyled `stack`, sized to the page**, and that is
     // load-bearing rather than tidy: wrapping a tree in `ui.stack([], [...])`
@@ -2853,7 +3038,10 @@ fn paint_with(
     let across = scene.width as f32;
     let page = |down: Dimension| Style {
         flex_direction: FlexDirection::Column,
-        size: Size { width: Dimension::length(across), height: down },
+        size: Size {
+            width: Dimension::length(across),
+            height: down,
+        },
         ..Style::default()
     };
     // The flow on its own to begin with, and with nothing holding the page
@@ -2867,7 +3055,15 @@ fn paint_with(
     // A table narrower than its content learns so only from a layout, and its
     // new columns can narrow a table inside it, so this repeats until settled.
     for _ in 0..tables.len() {
-        lay_out(&mut tree, root, scene, styles, fonts, across_page, AvailableSpace::MaxContent)?;
+        lay_out(
+            &mut tree,
+            root,
+            scene,
+            styles,
+            fonts,
+            across_page,
+            AvailableSpace::MaxContent,
+        )?;
         if !settle_tables(&mut tree, &mut tables)? {
             break;
         }
@@ -2881,7 +3077,15 @@ fn paint_with(
     let down = match scene.height {
         Some(stated) => stated as f32,
         None => {
-            lay_out(&mut tree, root, scene, styles, fonts, across_page, AvailableSpace::MaxContent)?;
+            lay_out(
+                &mut tree,
+                root,
+                scene,
+                styles,
+                fonts,
+                across_page,
+                AvailableSpace::MaxContent,
+            )?;
             let flow = reach_of(scene, styles, &tree, &ids, &[]);
             // **Rounded up, never to the nearest.** A flex item's
             // `flex-shrink` is 1, so a page half a pixel shorter than the flow
@@ -2898,10 +3102,24 @@ fn paint_with(
     // rather than off whatever it was written inside — and it comes last, so
     // it is laid out over the page and painted over it.
     let mut children = roots;
-    children.extend(fixed.iter().filter_map(|&index| ids.get(index).copied().flatten()));
-    tree.set_style(root, page(Dimension::length(down))).map_err(|e| format!("layout: {e}"))?;
-    tree.set_children(root, &children).map_err(|e| format!("layout: {e}"))?;
-    lay_out(&mut tree, root, scene, styles, fonts, across_page, AvailableSpace::Definite(down))?;
+    children.extend(
+        fixed
+            .iter()
+            .filter_map(|&index| ids.get(index).copied().flatten()),
+    );
+    tree.set_style(root, page(Dimension::length(down)))
+        .map_err(|e| format!("layout: {e}"))?;
+    tree.set_children(root, &children)
+        .map_err(|e| format!("layout: {e}"))?;
+    lay_out(
+        &mut tree,
+        root,
+        scene,
+        styles,
+        fonts,
+        across_page,
+        AvailableSpace::Definite(down),
+    )?;
 
     // The canvas is the page, plus wherever the paint ran past it: a dock
     // pinned wider than the page, a bleed, a translate off the edge. Nothing a
@@ -2917,8 +3135,8 @@ fn paint_with(
     // the raster doubles and the layout it holds does not.
     let device = |n: u32| ((n as f32) * DEVICE_SCALE).round() as u32;
     let (dw, dh) = (device(wide), device(tall));
-    let mut canvas = Pixmap::new(dw, dh)
-        .ok_or_else(|| format!("the viewport {dw}x{dh} has no canvas"))?;
+    let mut canvas =
+        Pixmap::new(dw, dh).ok_or_else(|| format!("the viewport {dw}x{dh} has no canvas"))?;
     // A page has a colour before anything is drawn on it: the page theme's own
     // ground where one was installed, and white where none was — a translucent
     // ground landing on that white, the way a browser paints a `body`
@@ -2986,40 +3204,57 @@ fn lay_out(
 ) -> Result<(), String> {
     tree.compute_layout_with_measure(
         root,
-        Size { width: across, height: down },
+        Size {
+            width: across,
+            height: down,
+        },
         |input, _, context, style| {
-            compute_leaf_layout(input, style, |_, _| 0.0, |known, available| {
-                let Some(&mut index) = context else { return Size::ZERO };
-                let Some(node) = scene.node(index) else { return Size::ZERO };
-                let (Some(text), Some(style)) = (node.text.as_deref(), styles.get(index)) else {
-                    return Size::ZERO;
-                };
-                // **The three questions a layout engine asks are three
-                // different questions.** How wide is this run under a width I
-                // have in mind, how wide would it be if it never wrapped, and
-                // how narrow can it be made — and the third one is what a
-                // track's automatic minimum, a flex item's automatic minimum
-                // and a content-sized box are all built on. Shaping into
-                // nothing is how the shaper is asked it, and it is asked with
-                // word breaks only, because a word that will not fit still may
-                // not be split: the answer is the longest word, not the widest
-                // letter.
-                //
-                // Answering max-content to all three is what made every `fr`
-                // track as wide as its own text — `minmax(auto, 1fr)` is what
-                // `1fr` means, and an automatic minimum of the whole sentence
-                // holds the track open past its share — so `1fr 2fr` painted as
-                // two content-sized tracks and a row that ran off the page.
-                let (width, wrap) = match (known.width, available.width) {
-                    (Some(w), _) | (None, AvailableSpace::Definite(w)) => {
-                        (Some(w), Wrap::WordOrGlyph)
+            compute_leaf_layout(
+                input,
+                style,
+                |_, _| 0.0,
+                |known, available| {
+                    let Some(&mut index) = context else {
+                        return Size::ZERO;
+                    };
+                    let Some(node) = scene.node(index) else {
+                        return Size::ZERO;
+                    };
+                    let (Some(text), Some(style)) = (node.text.as_deref(), styles.get(index))
+                    else {
+                        return Size::ZERO;
+                    };
+                    // **The three questions a layout engine asks are three
+                    // different questions.** How wide is this run under a width I
+                    // have in mind, how wide would it be if it never wrapped, and
+                    // how narrow can it be made — and the third one is what a
+                    // track's automatic minimum, a flex item's automatic minimum
+                    // and a content-sized box are all built on. Shaping into
+                    // nothing is how the shaper is asked it, and it is asked with
+                    // word breaks only, because a word that will not fit still may
+                    // not be split: the answer is the longest word, not the widest
+                    // letter.
+                    //
+                    // Answering max-content to all three is what made every `fr`
+                    // track as wide as its own text — `minmax(auto, 1fr)` is what
+                    // `1fr` means, and an automatic minimum of the whole sentence
+                    // holds the track open past its share — so `1fr 2fr` painted as
+                    // two content-sized tracks and a row that ran off the page.
+                    let (width, wrap) = match (known.width, available.width) {
+                        (Some(w), _) | (None, AvailableSpace::Definite(w)) => {
+                            (Some(w), Wrap::WordOrGlyph)
+                        }
+                        (None, AvailableSpace::MinContent) => (Some(0.0), Wrap::Word),
+                        (None, AvailableSpace::MaxContent) => (None, Wrap::WordOrGlyph),
+                    };
+                    let (w, h) =
+                        measured(fonts.system(style.mono), index, text, style, width, wrap);
+                    Size {
+                        width: known.width.unwrap_or(w),
+                        height: known.height.unwrap_or(h),
                     }
-                    (None, AvailableSpace::MinContent) => (Some(0.0), Wrap::Word),
-                    (None, AvailableSpace::MaxContent) => (None, Wrap::WordOrGlyph),
-                };
-                let (w, h) = measured(fonts.system(style.mono), index, text, style, width, wrap);
-                Size { width: known.width.unwrap_or(w), height: known.height.unwrap_or(h) }
-            })
+                },
+            )
         },
     )
     .map_err(|e| format!("layout: {e}"))
@@ -3037,9 +3272,19 @@ fn reach_of(
     ids: &[Option<NodeId>],
     fixed: &[usize],
 ) -> Box2 {
-    let mut out = Box2 { l: 0, t: 0, r: 0, b: 0 };
+    let mut out = Box2 {
+        l: 0,
+        t: 0,
+        r: 0,
+        b: 0,
+    };
     let lifted = |index: usize| styles.get(index).is_some_and(|style| style.fixed);
-    let walk = Reach { scene, styles, tree, ids };
+    let walk = Reach {
+        scene,
+        styles,
+        tree,
+        ids,
+    };
     for &index in &scene.roots {
         if lifted(index) {
             continue;
@@ -3069,7 +3314,12 @@ impl Reach<'_> {
     /// this walk does not know about is a box the picture cuts off; a box it
     /// counts that `draw` does not is white space at the edge of every golden.
     fn reach(&self, index: usize, x: f32, y: f32, clip: Option<Box2>, out: &mut Box2) {
-        let Reach { scene, styles, tree, ids } = *self;
+        let Reach {
+            scene,
+            styles,
+            tree,
+            ids,
+        } = *self;
         let (Some(node), Some(style), Some(&Some(id))) =
             (scene.node(index), styles.get(index), ids.get(index))
         else {
@@ -3098,9 +3348,14 @@ impl Reach<'_> {
         let mut painted = box_;
         let edge = px(scene.width as f32);
         for shadow in &style.shadow {
-            let cast =
-                box_.offset(shadow.x, shadow.y).grow(shadow.spread + reach_of_blur(shadow.blur));
-            painted = painted.union(Box2 { l: cast.l.max(0), r: cast.r.min(edge), ..cast });
+            let cast = box_
+                .offset(shadow.x, shadow.y)
+                .grow(shadow.spread + reach_of_blur(shadow.blur));
+            painted = painted.union(Box2 {
+                l: cast.l.max(0),
+                r: cast.r.min(edge),
+                ..cast
+            });
         }
         out.absorb(painted.met_by(clip));
 
@@ -3112,8 +3367,11 @@ impl Reach<'_> {
         // Any `overflow` but `visible` — the `clip` a `Clip` writes and the `auto`
         // a `Scroll` writes alike — cuts what is under it to this box, so a scroll
         // container is measured at its own box and never at what it scrolls.
-        let inner =
-            if style.clipped[0] || style.clipped[1] { Some(box_.met_by(clip)) } else { clip };
+        let inner = if style.clipped[0] || style.clipped[1] {
+            Some(box_.met_by(clip))
+        } else {
+            clip
+        };
         let from = children_origin(style, tree, id, (x + across, y + down), (left, top));
         for &child in &node.children {
             // A fixed child hangs off the page rather than off this box, so it is
@@ -3171,18 +3429,25 @@ fn build(
 ) -> Result<Vec<NodeId>, String> {
     let mut out = Vec::with_capacity(indices.len());
     for &index in indices {
-        let Some(node) = scene.node(index) else { continue };
+        let Some(node) = scene.node(index) else {
+            continue;
+        };
         let style = styles.get(index).cloned().unwrap_or_else(Computed::root);
         let is_row = |child: usize| {
-            scene.node(child).is_some_and(|n| n.text.is_none() && n.picture.is_none())
+            scene
+                .node(child)
+                .is_some_and(|n| n.text.is_none() && n.picture.is_none())
                 && styles.get(child).is_some_and(|s| s.flow == Flow::TableRow)
         };
         let id = if node.text.is_some() {
             tree.new_leaf_with_context(taffy_style(&style), index)
                 .map_err(|e| format!("layout: {e}"))?
         } else if node.picture.is_some() {
-            tree.new_leaf(picture_style(&style, pictures.get(index).and_then(Option::as_ref)))
-                .map_err(|e| format!("layout: {e}"))?
+            tree.new_leaf(picture_style(
+                &style,
+                pictures.get(index).and_then(Option::as_ref),
+            ))
+            .map_err(|e| format!("layout: {e}"))?
         } else if style.flow == Flow::Table {
             // Anything in a table that is not a row is a row of one, the
             // way a browser wraps it in an anonymous row.
@@ -3272,7 +3537,10 @@ fn build_table(
             leaf.min_size.width = LengthPercentageAuto::auto();
             leaf.max_size.width = LengthPercentageAuto::auto();
             leaf.grid_row = Line::from_line_index(line);
-            leaf.grid_column = Line { start: line_at(1), end: line_at(-1) };
+            leaf.grid_column = Line {
+                start: line_at(1),
+                end: line_at(-1),
+            };
             let id = tree.new_leaf(leaf).map_err(fail)?;
             if let Some(slot) = built.ids.get_mut(row) {
                 *slot = Some(id);
@@ -3336,10 +3604,19 @@ fn measure_tables(
         for boxes in &table.columns {
             let (mut lo, mut hi) = (0.0_f32, 0.0_f32);
             for &id in boxes {
-                for (width, out) in
-                    [(AvailableSpace::MinContent, &mut lo), (AvailableSpace::MaxContent, &mut hi)]
-                {
-                    lay_out(tree, id, scene, styles, fonts, width, AvailableSpace::MaxContent)?;
+                for (width, out) in [
+                    (AvailableSpace::MinContent, &mut lo),
+                    (AvailableSpace::MaxContent, &mut hi),
+                ] {
+                    lay_out(
+                        tree,
+                        id,
+                        scene,
+                        styles,
+                        fonts,
+                        width,
+                        AvailableSpace::MaxContent,
+                    )?;
                     let size = tree.layout(id).map_err(fail)?.size.width;
                     *out = out.max(size);
                 }
@@ -3351,7 +3628,8 @@ fn measure_tables(
         grid.grid_template_columns = shares(&min, &max);
         // A table is never narrower than its columns can be.
         if grid.min_size.width == LengthPercentageAuto::auto() {
-            grid.min_size.width = LengthPercentageAuto::length(min.iter().sum::<f32>() + table.edges);
+            grid.min_size.width =
+                LengthPercentageAuto::length(min.iter().sum::<f32>() + table.edges);
         }
         tree.set_style(table.id, grid).map_err(fail)?;
         table.min = min;
@@ -3396,7 +3674,14 @@ fn settle_tables(tree: &mut TaffyTree<usize>, tables: &mut [TableGrid]) -> Resul
             Some(vec![room.max(0.0) / count; table.max.len()])
         } else if room > lo {
             let share = (room - lo) / (hi - lo);
-            Some(table.min.iter().zip(&table.max).map(|(&a, &b)| a + (b - a) * share).collect())
+            Some(
+                table
+                    .min
+                    .iter()
+                    .zip(&table.max)
+                    .map(|(&a, &b)| a + (b - a) * share)
+                    .collect(),
+            )
         } else {
             Some(table.min.clone())
         };
@@ -3472,7 +3757,9 @@ impl Painter<'_> {
     /// onto the viewport instead and drawn from its own list, so it is not one
     /// of these.
     fn is_deferred(&self, index: usize) -> bool {
-        self.styles.get(index).is_some_and(|style| style.absolute && !style.fixed)
+        self.styles
+            .get(index)
+            .is_some_and(|style| style.absolute && !style.fixed)
     }
 
     /// Paints the positioned boxes the in-flow walk held back, in the tree
@@ -3491,9 +3778,11 @@ impl Painter<'_> {
     /// Draws one node and its children, in document order, which is paint
     /// order: a later sibling covers an earlier one.
     fn draw(&mut self, canvas: &mut Pixmap, index: usize, x: f32, y: f32, clip: Option<&Mask>) {
-        let (Some(node), Some(style), Some(&Some(id))) =
-            (self.scene.node(index), self.styles.get(index), self.ids.get(index))
-        else {
+        let (Some(node), Some(style), Some(&Some(id))) = (
+            self.scene.node(index),
+            self.styles.get(index),
+            self.ids.get(index),
+        ) else {
             return;
         };
         // `VisuallyHidden`: paint nothing — not the box, not its children, not
@@ -3502,13 +3791,20 @@ impl Painter<'_> {
         if style.hidden {
             return;
         }
-        let Ok(layout) = self.tree.layout(id) else { return };
+        let Ok(layout) = self.tree.layout(id) else {
+            return;
+        };
         let (across, down) = shift(style, layout.size);
         let left = x + layout.location.x + across;
         let top = y + layout.location.y + down;
         let right = left + layout.size.width;
         let bottom = top + layout.size.height;
-        let box_ = Box2 { l: px(left), t: px(top), r: px(right), b: px(bottom) };
+        let box_ = Box2 {
+            l: px(left),
+            t: px(top),
+            r: px(right),
+            b: px(bottom),
+        };
 
         if let Some(text) = node.text.as_deref() {
             // The *unrounded* width, because that is the one the measure pass
@@ -3518,7 +3814,10 @@ impl Painter<'_> {
         }
 
         let radii = style.radii.map(|r| {
-            [resolve_length(r, layout.size.width), resolve_length(r, layout.size.height)]
+            [
+                resolve_length(r, layout.size.width),
+                resolve_length(r, layout.size.height),
+            ]
         });
         if !style.shadow.is_empty() {
             // An outer shadow is painted outside the border box and nowhere
@@ -3538,7 +3837,14 @@ impl Painter<'_> {
                 if shadow.blur > 0.0 {
                     cast_blurred(canvas, cast, corner, shadow, style.opacity, &outside);
                 } else if let Some(under) = outside.within(canvas, cast.on_device()) {
-                    fill(canvas, cast, corner, shadow.colour, style.opacity, Some(&under));
+                    fill(
+                        canvas,
+                        cast,
+                        corner,
+                        shadow.colour,
+                        style.opacity,
+                        Some(&under),
+                    );
                 }
             }
         }
@@ -3553,8 +3859,7 @@ impl Painter<'_> {
             fill(canvas, box_, radii, style.background, style.opacity, clip);
         }
         let widths = style.border_widths();
-        if widths.iter().any(|w| *w > 0.0)
-            && style.border_colour.unwrap_or(style.colour).visible()
+        if widths.iter().any(|w| *w > 0.0) && style.border_colour.unwrap_or(style.colour).visible()
         {
             // Four edges the same is one stroke around the box, which is the
             // border every program wrote before an edge could be named on its
@@ -3660,8 +3965,22 @@ impl Painter<'_> {
         art: &Art,
     ) {
         let Some(picture) = self.pictures.get(index).and_then(Option::as_ref) else {
-            fill(canvas, box_, circular(0.0), PLACEHOLDER_EDGE, style.opacity, clip);
-            fill(canvas, box_.grow(-1.0), circular(0.0), PLACEHOLDER_FILL, style.opacity, clip);
+            fill(
+                canvas,
+                box_,
+                circular(0.0),
+                PLACEHOLDER_EDGE,
+                style.opacity,
+                clip,
+            );
+            fill(
+                canvas,
+                box_.grow(-1.0),
+                circular(0.0),
+                PLACEHOLDER_FILL,
+                style.opacity,
+                clip,
+            );
             return;
         };
         // An icon's `currentColor` is the colour this element paints in, which
@@ -3672,7 +3991,13 @@ impl Painter<'_> {
             Art::Artwork(_) => style.colour,
             Art::Source(_) => Rgba::BLACK,
         };
-        picture.draw(canvas, box_.scale(DEVICE_SCALE), style.opacity, colour, clip);
+        picture.draw(
+            canvas,
+            box_.scale(DEVICE_SCALE),
+            style.opacity,
+            colour,
+            clip,
+        );
     }
 
     /// A slider: a bar across the middle of its box, and a round thumb on it
@@ -3722,7 +4047,12 @@ impl Painter<'_> {
         // bar first, so the fill below covers the start of it.
         fill(
             canvas,
-            Box2 { l: box_.l, t: bar_top, r: box_.r, b: bar_bottom },
+            Box2 {
+                l: box_.l,
+                t: bar_top,
+                r: box_.r,
+                b: bar_bottom,
+            },
             circular(0.0),
             style.background,
             style.opacity,
@@ -3733,7 +4063,12 @@ impl Painter<'_> {
         // with one colour cannot give beyond where its knob sits.
         fill(
             canvas,
-            Box2 { l: box_.l, t: bar_top, r: px(centre), b: bar_bottom },
+            Box2 {
+                l: box_.l,
+                t: bar_top,
+                r: px(centre),
+                b: bar_bottom,
+            },
             circular(0.0),
             style.colour,
             style.opacity,
@@ -3774,7 +4109,14 @@ impl Painter<'_> {
             // and differ only in the box the scene gives them: a thumb takes
             // the whole control, a dot half of it. The reset's `::before` draws
             // the same two discs from the same two sizes.
-            fill(canvas, box_, circular(side / 2.0), style.colour, style.opacity, clip);
+            fill(
+                canvas,
+                box_,
+                circular(side / 2.0),
+                style.colour,
+                style.opacity,
+                clip,
+            );
             return;
         }
         let unit = side / 16.0;
@@ -3813,11 +4155,12 @@ impl Painter<'_> {
         (x, y): (f32, f32),
         clip: Option<&Mask>,
     ) {
-        let (Some(style), Some(&Some(id))) = (self.styles.get(index), self.ids.get(index))
-        else {
+        let (Some(style), Some(&Some(id))) = (self.styles.get(index), self.ids.get(index)) else {
             return;
         };
-        let Ok(layout) = self.tree.layout(id) else { return };
+        let Ok(layout) = self.tree.layout(id) else {
+            return;
+        };
         let (across, down) = shift(style, layout.size);
         let left = x + layout.location.x + across;
         let top = y + layout.location.y + down;
@@ -3835,12 +4178,24 @@ impl Painter<'_> {
                     r: px(left - gap),
                     b: px(middle + size / 2.0),
                 };
-                fill(canvas, box_, circular(size / 2.0), style.colour, style.opacity, clip);
+                fill(
+                    canvas,
+                    box_,
+                    circular(size / 2.0),
+                    style.colour,
+                    style.opacity,
+                    clip,
+                );
             }
             Marker::Decimal => {
                 let text = format!("{item}.");
-                let (width, height) =
-                    extent(&shape(self.fonts.system(style.mono), &text, style, None, Wrap::WordOrGlyph));
+                let (width, height) = extent(&shape(
+                    self.fonts.system(style.mono),
+                    &text,
+                    style,
+                    None,
+                    Wrap::WordOrGlyph,
+                ));
                 let box_ = Box2 {
                     l: px(left - gap - width),
                     t: px(top),
@@ -3879,12 +4234,21 @@ impl Painter<'_> {
         // otherwise; the glyphs are drawn from the same system's cache below,
         // so a run is rasterized in the face it was shaped in.
         let (fonts, cache) = self.fonts.pair(scaled.mono);
-        let mut buffer =
-            shape(fonts, text, &scaled, Some(width * DEVICE_SCALE), Wrap::WordOrGlyph);
+        let mut buffer = shape(
+            fonts,
+            text,
+            &scaled,
+            Some(width * DEVICE_SCALE),
+            Wrap::WordOrGlyph,
+        );
         // A hint is the element's own foreground, faded — the fraction the
         // sheet's `::placeholder` rule writes, so a browser and this painter
         // draw the same grey.
-        let fade = if style.hint(text).is_some() { PLACEHOLDER_FADE } else { 1.0 };
+        let fade = if style.hint(text).is_some() {
+            PLACEHOLDER_FADE
+        } else {
+            1.0
+        };
         let colour = premultiply(style.colour, style.opacity * fade);
         if colour[3] == 0 {
             return;
@@ -3893,7 +4257,10 @@ impl Painter<'_> {
         let ink = cosmic_text::Color::rgba(colour[0], colour[1], colour[2], colour[3]);
         // The origin is the box's top-left in device pixels; the glyph offsets
         // the shaper hands back are already at the scaled size.
-        let (ox, oy) = (px(box_.l as f32 * DEVICE_SCALE), px(box_.t as f32 * DEVICE_SCALE));
+        let (ox, oy) = (
+            px(box_.l as f32 * DEVICE_SCALE),
+            px(box_.t as f32 * DEVICE_SCALE),
+        );
         let (cw, ch) = (canvas.width(), canvas.height());
         let clipped = clip;
         let pixels = canvas.pixels_mut();
@@ -3976,7 +4343,14 @@ impl Painter<'_> {
                 r: box_.l.saturating_add(px(to)),
                 b: top.saturating_add(px(thickness).max(1)),
             };
-            fill(canvas, bar, circular(0.0), style.colour, style.opacity, clip);
+            fill(
+                canvas,
+                bar,
+                circular(0.0),
+                style.colour,
+                style.opacity,
+                clip,
+            );
         }
     }
 }
@@ -4107,7 +4481,13 @@ impl Box2 {
     /// a one-pixel border astride the box's edge, so the inset is applied to
     /// the edges rather than to the box.
     fn inset_path(self, by: f32, radii: Radii) -> Option<tiny_skia::Path> {
-        rounded(self.l as f32 + by, self.t as f32 + by, self.r as f32 - by, self.b as f32 - by, radii)
+        rounded(
+            self.l as f32 + by,
+            self.t as f32 + by,
+            self.r as f32 - by,
+            self.b as f32 - by,
+            radii,
+        )
     }
 }
 
@@ -4132,7 +4512,10 @@ fn circular(radius: f32) -> Radii {
 /// reason a control presses by a pixel this way rather than with a padding.
 fn shift(style: &Computed, size: Size<f32>) -> (f32, f32) {
     style.translate.map_or((0.0, 0.0), |(across, down)| {
-        (resolve_length(across, size.width), resolve_length(down, size.height))
+        (
+            resolve_length(across, size.width),
+            resolve_length(down, size.height),
+        )
     })
 }
 
@@ -4184,8 +4567,7 @@ fn rounded(l: f32, t: f32, r: f32, b: f32, radii: Radii) -> Option<tiny_skia::Pa
 /// Scaling all four together rather than clipping each one is what keeps a box
 /// with one big corner and one small one looking like the browser's.
 fn clamp_radii(radii: Radii, width: f32, height: f32) -> Radii {
-    let mut out =
-        radii.map(|corner| corner.map(|v| if v.is_finite() { v.max(0.0) } else { 0.0 }));
+    let mut out = radii.map(|corner| corner.map(|v| if v.is_finite() { v.max(0.0) } else { 0.0 }));
     let [tl, tr, bl, br] = out;
     let mut factor = 1.0_f32;
     for (side, sum) in [
@@ -4223,8 +4605,11 @@ fn fill(
     clip: Option<&Mask>,
 ) {
     let Some(path) = box_.path(radii) else { return };
-    let paint =
-        Paint { anti_alias: true, shader: shade(colour, opacity), ..Paint::default() };
+    let paint = Paint {
+        anti_alias: true,
+        shader: shade(colour, opacity),
+        ..Paint::default()
+    };
     canvas.fill_path(&path, &paint, FillRule::Winding, to_device(), clip);
 }
 
@@ -4240,13 +4625,18 @@ fn stroke(
     // a half pixel for an odd width, which is why this is not a `grow`.
     let half = width / 2.0;
     let inner = radii.map(|corner| corner.map(|r| (r - half).max(0.0)));
-    let Some(path) = box_.inset_path(half, inner) else { return };
+    let Some(path) = box_.inset_path(half, inner) else {
+        return;
+    };
     let paint = Paint {
         anti_alias: true,
         shader: shade(style.border_colour.unwrap_or(style.colour), style.opacity),
         ..Paint::default()
     };
-    let mut pen = Stroke { width, ..Stroke::default() };
+    let mut pen = Stroke {
+        width,
+        ..Stroke::default()
+    };
     if style.border_style.first() == Some(&Border::Dashed) {
         pen.dash = StrokeDash::new(vec![width * 3.0, width * 2.0], 0.0);
     }
@@ -4292,7 +4682,13 @@ fn stroke_edges(
         pull(radii[2], (widths[0] + widths[3]) / 2.0),
         pull(radii[3], (widths[1] + widths[3]) / 2.0),
     ];
-    let inner = rounded(l + widths[0], t + widths[2], r - widths[1], b - widths[3], inner_radii);
+    let inner = rounded(
+        l + widths[0],
+        t + widths[2],
+        r - widths[1],
+        b - widths[3],
+        inner_radii,
+    );
     // The ring is zero outside the border box, so cutting the hole and meeting
     // the clip only need the rows and columns the box reaches.
     if let (Some(inner), Some(mut hole)) = (inner, Spare::new(width, height, reach)) {
@@ -4334,7 +4730,10 @@ fn stroke_edges(
                 }
             }
             let Some(line) = line.finish() else { continue };
-            let mut pen = Stroke { width: pen_width, ..Stroke::default() };
+            let mut pen = Stroke {
+                width: pen_width,
+                ..Stroke::default()
+            };
             if dashed(edge) {
                 pen.dash = StrokeDash::new(vec![pen_width * 3.0, pen_width * 2.0], 0.0);
             }
@@ -4353,7 +4752,12 @@ fn stroke_edges(
             b: ((b - widths[3]) * DEVICE_SCALE).floor() as i32 - 1,
         };
         let scale = DEVICE_SCALE as i32;
-        let device = Box2 { l: box_.l * scale, t: box_.t * scale, r: box_.r * scale, b: box_.b * scale };
+        let device = Box2 {
+            l: box_.l * scale,
+            t: box_.t * scale,
+            r: box_.r * scale,
+            b: box_.b * scale,
+        };
         fill_around(canvas, device, Some(hollow), &ring, &paint);
         return;
     }
@@ -4373,7 +4777,12 @@ fn stroke_edges(
 /// is filled.
 fn fill_around(canvas: &mut Pixmap, outer: Box2, hollow: Option<Box2>, mask: &Mask, paint: &Paint) {
     let (w, h) = (canvas.width() as i32, canvas.height() as i32);
-    let outer = Box2 { l: outer.l.clamp(0, w), t: outer.t.clamp(0, h), r: outer.r.clamp(0, w), b: outer.b.clamp(0, h) };
+    let outer = Box2 {
+        l: outer.l.clamp(0, w),
+        t: outer.t.clamp(0, h),
+        r: outer.r.clamp(0, w),
+        b: outer.b.clamp(0, h),
+    };
     let hollow = hollow
         .map(|i| Box2 {
             l: i.l.clamp(outer.l, outer.r),
@@ -4392,10 +4801,30 @@ fn fill_around(canvas: &mut Pixmap, outer: Box2, hollow: Option<Box2>, mask: &Ma
         });
     let bands = match hollow {
         Some(i) => [
-            Box2 { l: outer.l, t: outer.t, r: outer.r, b: i.t },
-            Box2 { l: outer.l, t: i.b, r: outer.r, b: outer.b },
-            Box2 { l: outer.l, t: i.t, r: i.l, b: i.b },
-            Box2 { l: i.r, t: i.t, r: outer.r, b: i.b },
+            Box2 {
+                l: outer.l,
+                t: outer.t,
+                r: outer.r,
+                b: i.t,
+            },
+            Box2 {
+                l: outer.l,
+                t: i.b,
+                r: outer.r,
+                b: outer.b,
+            },
+            Box2 {
+                l: outer.l,
+                t: i.t,
+                r: i.l,
+                b: i.b,
+            },
+            Box2 {
+                l: i.r,
+                t: i.t,
+                r: outer.r,
+                b: i.b,
+            },
         ],
         None => [outer, outer, outer, outer],
     };
@@ -4406,20 +4835,37 @@ fn fill_around(canvas: &mut Pixmap, outer: Box2, hollow: Option<Box2>, mask: &Ma
         if band.l >= band.r || band.t >= band.b {
             continue;
         }
-        let Some(rect) = tiny_skia::Rect::from_ltrb(band.l as f32, band.t as f32, band.r as f32, band.b as f32)
+        let Some(rect) =
+            tiny_skia::Rect::from_ltrb(band.l as f32, band.t as f32, band.r as f32, band.b as f32)
         else {
             continue;
         };
         let path = PathBuilder::from_rect(rect);
-        canvas.fill_path(&path, paint, FillRule::Winding, Transform::identity(), Some(mask));
+        canvas.fill_path(
+            &path,
+            paint,
+            FillRule::Winding,
+            Transform::identity(),
+            Some(mask),
+        );
     }
 }
 
 /// The frame around a picture the painter could not read.
-const PLACEHOLDER_EDGE: Rgba = Rgba { r: 153, g: 153, b: 153, a: 1.0 };
+const PLACEHOLDER_EDGE: Rgba = Rgba {
+    r: 153,
+    g: 153,
+    b: 153,
+    a: 1.0,
+};
 
 /// What is inside that frame.
-const PLACEHOLDER_FILL: Rgba = Rgba { r: 224, g: 224, b: 224, a: 1.0 };
+const PLACEHOLDER_FILL: Rgba = Rgba {
+    r: 224,
+    g: 224,
+    b: 224,
+    a: 1.0,
+};
 
 /// The pixels or the shapes of a picture, or `None` for a source this painter
 /// cannot read. An icon's artwork is always read: it is in the scene.
@@ -4459,12 +4905,22 @@ fn shade<'a>(colour: Rgba, opacity: f32) -> tiny_skia::Shader<'a> {
 /// rectangle, and anything times zero is zero, so the answer there is the
 /// fresh mask's zero; and with no clip the answer is the coverage itself,
 /// because a full clip times a coverage is that coverage.
-fn clipped(clip: Option<&Mask>, box_: Box2, radii: Radii, width: u32, height: u32) -> Option<Spare> {
+fn clipped(
+    clip: Option<&Mask>,
+    box_: Box2,
+    radii: Radii,
+    width: u32,
+    height: u32,
+) -> Option<Spare> {
     let mut shape = Spare::new(width, height, box_.on_device())?;
-    let Some(path) = box_.path(radii) else { return Some(shape) };
+    let Some(path) = box_.path(radii) else {
+        return Some(shape);
+    };
     shape.fill_path(&path, FillRule::Winding, true, to_device());
     if let Some(clip) = clip {
-        each_within(&mut shape, clip, box_.on_device(), |coverage, clip| mul255(clip, coverage));
+        each_within(&mut shape, clip, box_.on_device(), |coverage, clip| {
+            mul255(clip, coverage)
+        });
     }
     Some(shape)
 }
@@ -4484,7 +4940,18 @@ fn cast_blurred(
     outside: &Outside,
 ) {
     let (width, height) = (canvas.width(), canvas.height());
-    let Some(mut mask) = Spare::new(width, height, Box2 { l: 0, t: 0, r: 0, b: 0 }) else { return };
+    let Some(mut mask) = Spare::new(
+        width,
+        height,
+        Box2 {
+            l: 0,
+            t: 0,
+            r: 0,
+            b: 0,
+        },
+    ) else {
+        return;
+    };
     // **The blurred coverage is computed in a box the size of the cast shape
     // grown by the blur's reach, not over the whole page.** A design system
     // draws one small shadow on a huge canvas, and blurring the whole canvas to
@@ -4504,8 +4971,11 @@ fn cast_blurred(
     };
     mask.dirty = region;
     outside.apply(&mut mask, region, mul255);
-    let paint =
-        Paint { anti_alias: false, shader: shade(shadow.colour, opacity), ..Paint::default() };
+    let paint = Paint {
+        anti_alias: false,
+        shader: shade(shadow.colour, opacity),
+        ..Paint::default()
+    };
     // The box the shadow is cast from is knocked out of the mask, so most of
     // a large card's region is pixels the fill would visit to leave alone.
     fill_around(canvas, region, outside.inside, &mask, &paint);
@@ -4587,13 +5057,19 @@ fn blurred_region(mask: &mut Mask, cast: Box2, radii: Radii, radius: f32) -> Opt
     for row in 0..rh as usize {
         let from = row.saturating_mul(rw as usize);
         let to = (y0 as usize + row).saturating_mul(cw as usize) + x0 as usize;
-        if let (Some(src), Some(dst)) =
-            (region.get(from..from + rw as usize), data.get_mut(to..to + rw as usize))
-        {
+        if let (Some(src), Some(dst)) = (
+            region.get(from..from + rw as usize),
+            data.get_mut(to..to + rw as usize),
+        ) {
             dst.copy_from_slice(src);
         }
     }
-    Some(Box2 { l: x0, t: y0, r: x1, b: y1 })
+    Some(Box2 {
+        l: x0,
+        t: y0,
+        r: x1,
+        b: y1,
+    })
 }
 
 /// The clip an outer shadow paints under: what the caller was already clipped
@@ -4635,7 +5111,10 @@ impl Outside<'_> {
         let (l, r) = (region.l.clamp(0, w) as usize, region.r.clamp(0, w) as usize);
         let (t, b) = (region.t.clamp(0, h) as usize, region.b.clamp(0, h) as usize);
         let w = w as usize;
-        let (clip, hole) = (self.clip.map(Mask::data), self.hole.as_deref().map(Mask::data));
+        let (clip, hole) = (
+            self.clip.map(Mask::data),
+            self.hole.as_deref().map(Mask::data),
+        );
         let ours = mask.data_mut();
         for y in t..b {
             for i in y * w + l..y * w + r.max(l) {
@@ -4697,7 +5176,9 @@ fn each_within(mask: &mut Mask, other: &Mask, region: Box2, combine: impl Fn(u8,
     let ours = mask.data_mut();
     for y in t..b {
         let span = y * w + l..y * w + r;
-        let (Some(ours), Some(theirs)) = (ours.get_mut(span.clone()), theirs.get(span)) else { continue };
+        let (Some(ours), Some(theirs)) = (ours.get_mut(span.clone()), theirs.get(span)) else {
+            continue;
+        };
         for (mine, &their) in ours.iter_mut().zip(theirs) {
             *mine = combine(*mine, their);
         }
@@ -4717,7 +5198,9 @@ fn each_within(mask: &mut Mask, other: &Mask, region: Box2, combine: impl Fn(u8,
 /// target. Only the box width is computed in floating point, and it is one
 /// `squareRoot` of a constant times a length both platforms already agree on.
 fn blur(mask: &mut Mask, radius: f32) {
-    let Some(passes) = blur_passes(radius) else { return };
+    let Some(passes) = blur_passes(radius) else {
+        return;
+    };
     let (w, h) = (mask.width() as usize, mask.height() as usize);
     box_blur(mask.data_mut(), w, h, passes);
 }
@@ -4786,16 +5269,19 @@ fn blur_passes(radius: f32) -> Option<[(usize, usize); 3]> {
 fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, clip: Option<&Mask>) {
     // The canvas is at device resolution, so the blur radius is too.
     let device = radius * DEVICE_SCALE;
-    let Some(passes) = blur_passes(device) else { return };
+    let Some(passes) = blur_passes(device) else {
+        return;
+    };
     let (w, h) = (canvas.width() as usize, canvas.height() as usize);
     if w == 0 || h == 0 {
         return;
     }
     // The mask the blur lands through: the box's rounded shape, met with the
     // clip already in force, so the blur reaches nowhere the caller excluded.
-    let (Some(mut mask), Some(path)) =
-        (Spare::new(canvas.width(), canvas.height(), box_.on_device()), box_.path(radii))
-    else {
+    let (Some(mut mask), Some(path)) = (
+        Spare::new(canvas.width(), canvas.height(), box_.on_device()),
+        box_.path(radii),
+    ) else {
         return;
     };
     mask.fill_path(&path, FillRule::Winding, true, to_device());
@@ -4860,8 +5346,10 @@ fn backdrop_blur(canvas: &mut Pixmap, box_: Box2, radii: Radii, radius: f32, cli
             }
             for (c, plane) in planes.iter().enumerate() {
                 if let Some(byte) = dst.get_mut(i * 4 + c) {
-                    *byte = mul255(*byte, 255 - cov)
-                        .saturating_add(mul255(plane.get(region_row + rx).copied().unwrap_or(0), cov));
+                    *byte = mul255(*byte, 255 - cov).saturating_add(mul255(
+                        plane.get(region_row + rx).copied().unwrap_or(0),
+                        cov,
+                    ));
                 }
             }
         }
@@ -5008,7 +5496,10 @@ fn columns(from: &[u8], to: &mut [u8], w: usize, h: usize, size: usize, lead: us
 }
 
 /// [`columns`], with the mean handed in.
-#[expect(clippy::indexing_slicing, reason = "`row` reads only rows `0..h` of a `w * h` mask")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`row` reads only rows `0..h` of a `w * h` mask"
+)]
 fn box_columns(
     from: &[u8],
     to: &mut [u8],
@@ -5019,7 +5510,11 @@ fn box_columns(
     mean: impl Fn(u32) -> u8,
 ) {
     let (size, lead, end) = (size as isize, lead as isize, h as isize);
-    let row = |at: isize| (0..end).contains(&at).then(|| &from[at as usize * w..][..w]);
+    let row = |at: isize| {
+        (0..end)
+            .contains(&at)
+            .then(|| &from[at as usize * w..][..w])
+    };
     let mut sums = vec![0_u32; w];
     for j in 0..size {
         if let Some(line) = row(j - lead) {
@@ -5167,7 +5662,12 @@ fn paeth(a: u8, b: u8, c: u8) -> u8 {
 #[cfg(test)]
 fn apply_filter(kind: u8, line: &[u8], previous: &[u8], out: &mut [u8]) {
     for i in 0..line.len() {
-        let left = |row: &[u8]| i.checked_sub(BPP).and_then(|j| row.get(j)).copied().unwrap_or(0);
+        let left = |row: &[u8]| {
+            i.checked_sub(BPP)
+                .and_then(|j| row.get(j))
+                .copied()
+                .unwrap_or(0)
+        };
         let x = line.get(i).copied().unwrap_or(0);
         let a = left(line);
         let b = previous.get(i).copied().unwrap_or(0);
@@ -5309,12 +5809,20 @@ struct BitWriter {
 
 impl BitWriter {
     fn new(capacity: usize) -> Self {
-        Self { out: Vec::with_capacity(capacity), held: 0, count: 0 }
+        Self {
+            out: Vec::with_capacity(capacity),
+            held: 0,
+            count: 0,
+        }
     }
 
     /// A plain field: the low bit goes out first.
     fn bits(&mut self, value: u32, width: u32) {
-        let mask = if width >= 32 { u32::MAX } else { (1_u32 << width) - 1 };
+        let mask = if width >= 32 {
+            u32::MAX
+        } else {
+            (1_u32 << width) - 1
+        };
         self.held |= (value & mask) << self.count;
         self.count = self.count.saturating_add(width);
         while self.count >= 8 {
@@ -5403,7 +5911,11 @@ fn longest_match(data: &[u8], at: usize, stride: usize) -> (usize, usize) {
             distance = candidate;
         }
     }
-    if best >= MIN_MATCH { (best, distance) } else { (0, 0) }
+    if best >= MIN_MATCH {
+        (best, distance)
+    } else {
+        (0, 0)
+    }
 }
 
 /// The index in `table` of the last entry whose base is at or below `value`.
@@ -5437,13 +5949,19 @@ fn deflate(raw: &[u8], stride: usize) -> Vec<u8> {
             let (code, width) = fixed_code(257_u16.saturating_add(index as u16));
             bits.code(code, width);
             if extra > 0 {
-                bits.bits(length.saturating_sub(usize::from(base)) as u32, u32::from(extra));
+                bits.bits(
+                    length.saturating_sub(usize::from(base)) as u32,
+                    u32::from(extra),
+                );
             }
             let which = code_for(&DISTANCES, distance);
             let (first, dextra) = DISTANCES.get(which).copied().unwrap_or((1, 0));
             bits.code(which as u32, 5);
             if dextra > 0 {
-                bits.bits(distance.saturating_sub(usize::from(first)) as u32, u32::from(dextra));
+                bits.bits(
+                    distance.saturating_sub(usize::from(first)) as u32,
+                    u32::from(dextra),
+                );
             }
             at = at.saturating_add(length);
         } else {
@@ -5472,7 +5990,10 @@ fn deflate(raw: &[u8], stride: usize) -> Vec<u8> {
 /// in the archive and not a lazy `OnceLock` on the hot path — and computed by
 /// the same bit-at-a-time recurrence [`crc32`] used to run inline, so the
 /// values are provably the polynomial's own.
-#[expect(clippy::indexing_slicing, reason = "`n` counts to 256, the table's length")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`n` counts to 256, the table's length"
+)]
 const CRC_TABLE: [u32; 256] = {
     let mut table = [0_u32; 256];
     let mut n = 0;
@@ -5480,7 +6001,11 @@ const CRC_TABLE: [u32; 256] = {
         let mut c = n as u32;
         let mut bit = 0;
         while bit < 8 {
-            c = if c & 1 == 1 { (c >> 1) ^ 0xedb8_8320 } else { c >> 1 };
+            c = if c & 1 == 1 {
+                (c >> 1) ^ 0xedb8_8320
+            } else {
+                c >> 1
+            };
             bit += 1;
         }
         table[n] = c;
@@ -5500,7 +6025,10 @@ const CRC_TABLE: [u32; 256] = {
 /// diff paths now, and a byte a step is eight times less work than a bit a step
 /// on the whole `IDAT`. The table is a kilobyte of `const` bytes, worth it for
 /// that.
-#[expect(clippy::indexing_slicing, reason = "`index` is masked to a byte, and the table has 256")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`index` is masked to a byte, and the table has 256"
+)]
 fn crc32(parts: [&[u8]; 2]) -> u32 {
     let mut c = 0xffff_ffff_u32;
     for part in parts {
@@ -5543,7 +6071,13 @@ mod tests {
     const S: u32 = DEVICE_SCALE as u32;
 
     fn render_ok(scene: &str, sheet: &str, state: &str) -> Image {
-        let png = render(&Request { scene, stylesheet: sheet, state, variables: "" }).unwrap();
+        let png = render(&Request {
+            scene,
+            stylesheet: sheet,
+            state,
+            variables: "",
+        })
+        .unwrap();
         decode(&png).unwrap()
     }
 
@@ -5564,21 +6098,41 @@ mod tests {
 
     #[test]
     fn a_scene_without_the_banner_is_refused() {
-        let error = render(&Request { scene: "viewport 4 3\n", stylesheet: "", state: "rest", variables: "" });
-        assert_eq!(error, Err("the scene does not start with `buri-scene 1`".to_string()));
+        let error = render(&Request {
+            scene: "viewport 4 3\n",
+            stylesheet: "",
+            state: "rest",
+            variables: "",
+        });
+        assert_eq!(
+            error,
+            Err("the scene does not start with `buri-scene 1`".to_string())
+        );
     }
 
     #[test]
     fn a_scene_without_a_viewport_is_refused() {
         let scene = "buri-scene 1\ne 0 \n";
-        let error = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
+        let error = render(&Request {
+            scene,
+            stylesheet: "",
+            state: "rest",
+            variables: "",
+        })
+        .unwrap_err();
         assert!(error.contains("is not a viewport"), "{error}");
     }
 
     #[test]
     fn a_viewport_of_zero_is_refused() {
         let scene = "buri-scene 1\nviewport 0 3\n";
-        let error = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
+        let error = render(&Request {
+            scene,
+            stylesheet: "",
+            state: "rest",
+            variables: "",
+        })
+        .unwrap_err();
         assert!(error.contains("0x3"), "{error}");
     }
 
@@ -5748,7 +6302,11 @@ mod tests {
             "",
             "rest",
         );
-        assert_eq!(inked_pixels(&hidden), 0, "a visually-hidden run should paint nothing");
+        assert_eq!(
+            inked_pixels(&hidden),
+            0,
+            "a visually-hidden run should paint nothing"
+        );
     }
 
     /// buri#197: a `Pin` inside an open dialog paints. A dialog's scrim is a
@@ -5840,9 +6398,17 @@ mod tests {
                     background-color:rgb(20,60,40)\n\
                     e 1 height:80px;overflow:auto\n\
                     t 2 the quick brown fox jumps over the lazy dog\n";
-        let fit = render_ok(&format!("buri-scene 1\nviewport 800 fit\n{body}"), "", "rest");
+        let fit = render_ok(
+            &format!("buri-scene 1\nviewport 800 fit\n{body}"),
+            "",
+            "rest",
+        );
         assert_eq!((fit.width, fit.height), (800 * S, 172 * S));
-        let stated = render_ok(&format!("buri-scene 1\nviewport 800 172\n{body}"), "", "rest");
+        let stated = render_ok(
+            &format!("buri-scene 1\nviewport 800 172\n{body}"),
+            "",
+            "rest",
+        );
         for y in 0..fit.height {
             for x in 0..fit.width {
                 assert_eq!(at(&fit, x, y), at(&stated, x, y), "at {x},{y}");
@@ -5866,8 +6432,13 @@ mod tests {
     #[test]
     fn a_viewport_that_fits_across_is_refused() {
         let scene = "buri-scene 1\nviewport fit 600\n";
-        let error =
-            render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
+        let error = render(&Request {
+            scene,
+            stylesheet: "",
+            state: "rest",
+            variables: "",
+        })
+        .unwrap_err();
         assert!(error.contains("is not a viewport"), "{error}");
     }
 
@@ -5875,42 +6446,76 @@ mod tests {
     #[test]
     fn a_fitting_viewport_of_no_width_is_refused() {
         let scene = "buri-scene 1\nviewport 0 fit\n";
-        let error =
-            render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
+        let error = render(&Request {
+            scene,
+            stylesheet: "",
+            state: "rest",
+            variables: "",
+        })
+        .unwrap_err();
         assert!(error.contains("0"), "{error}");
     }
 
     #[test]
     fn a_depth_that_jumps_is_refused() {
         let scene = "buri-scene 1\nviewport 4 3\ne 0 \ne 2 \n";
-        let error = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
+        let error = render(&Request {
+            scene,
+            stylesheet: "",
+            state: "rest",
+            variables: "",
+        })
+        .unwrap_err();
         assert!(error.contains("jumps from depth 1 to 2"), "{error}");
     }
 
     #[test]
     fn a_line_that_is_neither_e_nor_t_is_refused() {
         let scene = "buri-scene 1\nviewport 4 3\nx 0 \n";
-        let error = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
+        let error = render(&Request {
+            scene,
+            stylesheet: "",
+            state: "rest",
+            variables: "",
+        })
+        .unwrap_err();
         assert!(error.contains("neither an `e` nor a `t`"), "{error}");
     }
 
     #[test]
     fn a_declaration_without_a_colon_is_refused() {
         let scene = "buri-scene 1\nviewport 4 3\ne 0 padding\n";
-        let error = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
+        let error = render(&Request {
+            scene,
+            stylesheet: "",
+            state: "rest",
+            variables: "",
+        })
+        .unwrap_err();
         assert!(error.contains("has no `:`"), "{error}");
     }
 
     #[test]
     fn a_child_of_a_text_run_is_refused() {
         let scene = "buri-scene 1\nviewport 4 3\nt 0 Ada\ne 1 \n";
-        let error = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap_err();
+        let error = render(&Request {
+            scene,
+            stylesheet: "",
+            state: "rest",
+            variables: "",
+        })
+        .unwrap_err();
         assert!(error.contains("a text run has none"), "{error}");
     }
 
     #[test]
     fn a_state_the_painter_does_not_know_is_refused() {
-        let error = render(&Request { scene: EMPTY, stylesheet: "", state: "wiggly", variables: "" });
+        let error = render(&Request {
+            scene: EMPTY,
+            stylesheet: "",
+            state: "wiggly",
+            variables: "",
+        });
         assert_eq!(error, Err("`wiggly` is not a snapshot state".to_string()));
     }
 
@@ -6063,8 +6668,14 @@ mod tests {
         let ink = |x0: u32, x1: u32| {
             (x0..x1).any(|x| (0..40 * S).any(|y| at(&image, x, y) != [255, 255, 255, 255]))
         };
-        assert!(ink(0, 45 * S), "the run should have drawn near the left edge");
-        assert!(!ink(60 * S, 120 * S), "the run should not reach the right half");
+        assert!(
+            ink(0, 45 * S),
+            "the run should have drawn near the left edge"
+        );
+        assert!(
+            !ink(60 * S, 120 * S),
+            "the run should not reach the right half"
+        );
     }
 
     /// The same scene with one declaration-less box wrapped around everything,
@@ -6104,10 +6715,21 @@ mod tests {
              t 1 under the box\n",
         ];
         for scene in scenes {
-            let plain = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap();
+            let plain = render(&Request {
+                scene,
+                stylesheet: "",
+                state: "rest",
+                variables: "",
+            })
+            .unwrap();
             let deeper = wrapped(scene);
-            let nested =
-                render(&Request { scene: &deeper, stylesheet: "", state: "rest", variables: "" }).unwrap();
+            let nested = render(&Request {
+                scene: &deeper,
+                stylesheet: "",
+                state: "rest",
+                variables: "",
+            })
+            .unwrap();
             assert_eq!(plain, nested, "wrapping this scene changed it:\n{deeper}");
         }
     }
@@ -6184,8 +6806,14 @@ mod tests {
                    e 0 font-size:20px;width:200px;text-align:center\nt 1 Ada\n";
         let left = first_inked_column(&render_ok(one, "", "rest")).unwrap();
         let centre = first_inked_column(&render_ok(two, "", "rest")).unwrap();
-        assert!(left < 4 * S, "a start-aligned run begins at the box's edge, not {left}");
-        assert!(centre > 60 * S, "a centred run begins in the middle, not at {centre}");
+        assert!(
+            left < 4 * S,
+            "a start-aligned run begins at the box's edge, not {left}"
+        );
+        assert!(
+            centre > 60 * S,
+            "a centred run begins in the middle, not at {centre}"
+        );
     }
 
     /// buri#173: `font-family: monospace` sets the run in a fixed-pitch face,
@@ -6213,8 +6841,10 @@ mod tests {
         );
         // The two monospace runs end within a single cell of each other,
         // because every advance is the same width.
-        let (mono_i, mono_m) =
-            (run(";font-family:monospace", 'i'), run(";font-family:monospace", 'M'));
+        let (mono_i, mono_m) = (
+            run(";font-family:monospace", 'i'),
+            run(";font-family:monospace", 'M'),
+        );
         assert!(
             mono_m.abs_diff(mono_i) < em,
             "the monospace runs should end within a cell: i at {mono_i}, M at {mono_m}"
@@ -6229,7 +6859,10 @@ mod tests {
                    t 1 Handgloves\n";
         let regular = inked_pixels(&render_ok(one, "", "rest"));
         let bold = inked_pixels(&render_ok(two, "", "rest"));
-        assert!(regular > 0 && bold > regular, "regular {regular}, bold {bold}");
+        assert!(
+            regular > 0 && bold > regular,
+            "regular {regular}, bold {bold}"
+        );
     }
 
     /// buri#93: a scalar the primary face does not carry is drawn from the
@@ -6243,7 +6876,9 @@ mod tests {
         };
         // Each of these is outside Roboto's subset and inside DejaVu Sans, so
         // each paints a glyph — ink on the page — rather than nothing.
-        for mark in ["\u{2713}", "\u{2714}", "\u{25BE}", "\u{25BC}", "\u{25CF}", "\u{221A}"] {
+        for mark in [
+            "\u{2713}", "\u{2714}", "\u{25BE}", "\u{25BC}", "\u{25CF}", "\u{221A}",
+        ] {
             assert!(inked_pixels(&run(mark)) > 0, "{mark:?} painted nothing");
         }
         // And they are real, distinct glyphs, not one tofu box repeated: a
@@ -6272,11 +6907,17 @@ mod tests {
         // only a blur puts ink there.
         assert_eq!(at(&sharp, 12 * S, 20 * S), [255, 255, 255, 255]);
         let spread = at(&soft, 12 * S, 20 * S);
-        assert!(spread[0] < 255, "a blurred shadow reaches four pixels out, not {spread:?}");
+        assert!(
+            spread[0] < 255,
+            "a blurred shadow reaches four pixels out, not {spread:?}"
+        );
         // And it fades: further out is lighter than nearer in.
         let near = at(&soft, 14 * S, 20 * S)[0];
         let far = at(&soft, 10 * S, 20 * S)[0];
-        assert!(near < far, "a blur fades outward: {near} at 14 against {far} at 10");
+        assert!(
+            near < far,
+            "a blur fades outward: {near} at 14 against {far} at 10"
+        );
     }
 
     /// The blur is the same bytes twice, which is the whole reason it is
@@ -6286,8 +6927,20 @@ mod tests {
         let scene = "buri-scene 1\nviewport 40 40\ne 0 padding:16px\n\
                      e 1 width:8px;height:8px;background-color:rgb(255,255,255);\
                      box-shadow:2px 2px 6px 1px rgb(0,0,255)\n";
-        let one = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap();
-        let two = render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap();
+        let one = render(&Request {
+            scene,
+            stylesheet: "",
+            state: "rest",
+            variables: "",
+        })
+        .unwrap();
+        let two = render(&Request {
+            scene,
+            stylesheet: "",
+            state: "rest",
+            variables: "",
+        })
+        .unwrap();
         assert_eq!(one, two);
     }
 
@@ -6311,10 +6964,22 @@ mod tests {
                      e 1 width:12px;height:12px;border-style:solid;border-width:1px;\
                      border-color:rgb(0,0,0)\n";
         let one = render_ok(scene, "", "rest");
-        assert_eq!(at(&one, 10 * S, 3 * S), [255, 255, 255, 255], "a border paints outside its box");
-        assert_eq!(at(&one, 10 * S, 4 * S), [0, 0, 0, 255], "a one-pixel border is one solid row");
+        assert_eq!(
+            at(&one, 10 * S, 3 * S),
+            [255, 255, 255, 255],
+            "a border paints outside its box"
+        );
+        assert_eq!(
+            at(&one, 10 * S, 4 * S),
+            [0, 0, 0, 255],
+            "a one-pixel border is one solid row"
+        );
         assert_eq!(at(&one, 10 * S, 5 * S), [255, 255, 255, 255]);
-        assert_eq!(at(&one, 10 * S, 15 * S), [0, 0, 0, 255], "the box's last row is the border's");
+        assert_eq!(
+            at(&one, 10 * S, 15 * S),
+            [0, 0, 0, 255],
+            "the box's last row is the border's"
+        );
 
         // Three is the same rule, three rows in: the row above the box is
         // untouched and the three inside it are solid.
@@ -6322,7 +6987,11 @@ mod tests {
         let three = render_ok(&scene, "", "rest");
         assert_eq!(at(&three, 10 * S, 3 * S), [255, 255, 255, 255]);
         for y in 4 * S..7 * S {
-            assert_eq!(at(&three, 10 * S, y), [0, 0, 0, 255], "row {y} of a three-pixel border");
+            assert_eq!(
+                at(&three, 10 * S, y),
+                [0, 0, 0, 255],
+                "row {y} of a three-pixel border"
+            );
         }
         assert_eq!(at(&three, 10 * S, 7 * S), [255, 255, 255, 255]);
     }
@@ -6335,7 +7004,10 @@ mod tests {
         let scene = "buri-scene 1\nviewport 20 20\ne 0 padding:4px\n\
                      e 1 width:12px;height:12px;border-style:solid;border-width:4px;\
                      color:rgb(18,18,28)\n";
-        assert_eq!(at(&render_ok(scene, "", "rest"), 5 * S, 10 * S), [18, 18, 28, 255]);
+        assert_eq!(
+            at(&render_ok(scene, "", "rest"), 5 * S, 10 * S),
+            [18, 18, 28, 255]
+        );
     }
 
     /// An outer shadow paints outside the border box only, so a spread-only
@@ -6345,9 +7017,21 @@ mod tests {
         let scene = "buri-scene 1\nviewport 24 24\ne 0 padding:6px\n\
                      e 1 width:12px;height:12px;box-shadow:0px 0px 0px 3px rgb(150,150,150)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!(at(&image, 4 * S, 12 * S), [150, 150, 150, 255], "the ring is three pixels out");
-        assert_eq!(at(&image, 12 * S, 12 * S), [255, 255, 255, 255], "a ring flooded the control");
-        assert_eq!(at(&image, 6 * S, 6 * S), [255, 255, 255, 255], "the box's own corner");
+        assert_eq!(
+            at(&image, 4 * S, 12 * S),
+            [150, 150, 150, 255],
+            "the ring is three pixels out"
+        );
+        assert_eq!(
+            at(&image, 12 * S, 12 * S),
+            [255, 255, 255, 255],
+            "a ring flooded the control"
+        );
+        assert_eq!(
+            at(&image, 6 * S, 6 * S),
+            [255, 255, 255, 255],
+            "the box's own corner"
+        );
     }
 
     /// The same rule with a blur and an offset instead of a spread, which is
@@ -6359,9 +7043,20 @@ mod tests {
                      e 0 padding:6px;background-color:rgb(220,60,60)\n\
                      e 1 width:12px;height:12px;box-shadow:0px 1px 2px 0px rgb(0,0,0)\n";
         let image = render_ok(scene, "", "rest");
-        assert_eq!(at(&image, 12 * S, 12 * S), [220, 60, 60, 255], "a lift flooded the box");
-        assert_eq!(at(&image, 12 * S, 6 * S), [220, 60, 60, 255], "the box's own top row");
-        assert!(at(&image, 12 * S, 19 * S)[0] < 220, "the fringe below the box is the lift");
+        assert_eq!(
+            at(&image, 12 * S, 12 * S),
+            [220, 60, 60, 255],
+            "a lift flooded the box"
+        );
+        assert_eq!(
+            at(&image, 12 * S, 6 * S),
+            [220, 60, 60, 255],
+            "the box's own top row"
+        );
+        assert!(
+            at(&image, 12 * S, 19 * S)[0] < 220,
+            "the fringe below the box is the lift"
+        );
     }
 
     /// `overflow: hidden` on a rounded box clips to the rounded shape: the
@@ -6375,7 +7070,10 @@ mod tests {
                      e 0 width:16px;height:16px;border-radius:8px;overflow:hidden\n\
                      e 1 width:16px;height:16px;background-color:rgb(255,0,0)\n";
         assert_eq!(at(&render_ok(square, "", "rest"), 0, 0), [255, 0, 0, 255]);
-        assert_eq!(at(&render_ok(round, "", "rest"), 0, 0), [255, 255, 255, 255]);
+        assert_eq!(
+            at(&render_ok(round, "", "rest"), 0, 0),
+            [255, 255, 255, 255]
+        );
     }
 
     /// `overflow: clip` is what a `Clip(true)` writes, and it clips the same
@@ -6409,9 +7107,18 @@ mod tests {
         let sheet = ".invalid_bg-ff0000[aria-invalid=true]{background-color:rgb(255,0,0)}\n";
         let scene =
             "buri-scene 1\nviewport 8 8\ne 0 class:invalid_bg-ff0000;width:8px;height:8px\n";
-        assert_eq!(at(&render_ok(scene, sheet, "invalid"), 4 * S, 4 * S), [255, 0, 0, 255]);
-        assert_eq!(at(&render_ok(scene, sheet, "hover"), 4 * S, 4 * S), [255, 255, 255, 255]);
-        assert_eq!(at(&render_ok(scene, sheet, "rest"), 4 * S, 4 * S), [255, 255, 255, 255]);
+        assert_eq!(
+            at(&render_ok(scene, sheet, "invalid"), 4 * S, 4 * S),
+            [255, 0, 0, 255]
+        );
+        assert_eq!(
+            at(&render_ok(scene, sheet, "hover"), 4 * S, 4 * S),
+            [255, 255, 255, 255]
+        );
+        assert_eq!(
+            at(&render_ok(scene, sheet, "rest"), 4 * S, 4 * S),
+            [255, 255, 255, 255]
+        );
     }
 
     /// `pointer-events` reaches the painter and paints nothing, which is the
@@ -6423,7 +7130,10 @@ mod tests {
         let through = "buri-scene 1\nviewport 8 8\n\
                        e 0 width:8px;height:8px;background-color:rgb(255,0,0);\
                        pointer-events:none\n";
-        assert_eq!(render_ok(plain, "", "rest").rgba, render_ok(through, "", "rest").rgba);
+        assert_eq!(
+            render_ok(plain, "", "rest").rgba,
+            render_ok(through, "", "rest").rgba
+        );
     }
 
     #[test]
@@ -6508,7 +7218,10 @@ mod tests {
     fn a_fractional_opacity_fades_the_text_under_it() {
         let scene = "buri-scene 1\nviewport 60 30\ne 0 font-size:24px;opacity:0.5\nt 1 Ada\n";
         let faded = darkest(&render_ok(scene, "", "rest"));
-        assert!((120..=134).contains(&faded), "half opacity over white is 127, not {faded}");
+        assert!(
+            (120..=134).contains(&faded),
+            "half opacity over white is 127, not {faded}"
+        );
     }
 
     /// The underline takes the same alpha, since it is drawn from the same
@@ -6519,7 +7232,10 @@ mod tests {
                      e 0 font-size:24px;color:rgba(0,0,0,0.5);text-decoration-line:underline\n\
                      t 1 Ada\n";
         let faded = darkest(&render_ok(scene, "", "rest"));
-        assert!((120..=134).contains(&faded), "half of black over white is 127, not {faded}");
+        assert!(
+            (120..=134).contains(&faded),
+            "half of black over white is 127, not {faded}"
+        );
     }
 
     /// **A sticky box stays where the flow put it.** A snapshot has nothing to
@@ -6553,8 +7269,7 @@ mod tests {
 
     /// The sentence every truncation test below breaks: long enough for six
     /// lines in a box eighty wide.
-    const PARAGRAPH: &str =
-        "A sentence long enough that it has to break somewhere, twice over. A sentence \
+    const PARAGRAPH: &str = "A sentence long enough that it has to break somewhere, twice over. A sentence \
          long enough that it has to break somewhere, twice over.";
 
     /// **`-webkit-line-clamp` shows at most the lines it names.** It is what
@@ -6570,15 +7285,23 @@ mod tests {
             inked_lines(&render_ok(&scene, "", "rest")).len()
         };
         let clamp = |n: u32| {
-            format!(";display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{n};overflow:hidden")
+            format!(
+                ";display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{n};overflow:hidden"
+            )
         };
         let free = lines("");
-        assert!(free > 3, "the sentence has to break more than three times, not {free}");
+        assert!(
+            free > 3,
+            "the sentence has to break more than three times, not {free}"
+        );
         assert_eq!(lines(&clamp(1)), 1);
         assert_eq!(lines(&clamp(2)), 2);
         assert_eq!(lines(&clamp(3)), 3);
         // A clamp no shorter than the run is not a truncation.
-        assert_eq!(lines(";display:-webkit-box;-webkit-line-clamp:none;overflow:visible"), free);
+        assert_eq!(
+            lines(";display:-webkit-box;-webkit-line-clamp:none;overflow:visible"),
+            free
+        );
     }
 
     /// And the last line it shows ends in an ellipsis, which is the half of
@@ -6597,7 +7320,10 @@ mod tests {
         };
         let whole = edge("Ada");
         let cut = edge("Ada bee");
-        assert!(cut > whole, "the ellipsis puts ink past `Ada`: {cut} against {whole}");
+        assert!(
+            cut > whole,
+            "the ellipsis puts ink past `Ada`: {cut} against {whole}"
+        );
     }
 
     /// **`text-wrap: balance` evens the lines out.** It breaks a run into the
@@ -6616,8 +7342,10 @@ mod tests {
             render_ok(&scene, "", "rest")
         };
         let spread = |image: &Image| {
-            let widths: Vec<u32> =
-                inked_lines(image).iter().map(|&(from, to)| to.saturating_sub(from)).collect();
+            let widths: Vec<u32> = inked_lines(image)
+                .iter()
+                .map(|&(from, to)| to.saturating_sub(from))
+                .collect();
             let (top, bottom) = (widths.iter().max().copied(), widths.iter().min().copied());
             top.unwrap_or(0).saturating_sub(bottom.unwrap_or(0))
         };
@@ -6644,7 +7372,13 @@ mod tests {
         let two = "buri-scene 1\nviewport 200 40\n\
                    e 0 width:180px;font-size:13px;text-wrap:balance\nt 1 Ada\n";
         let render = |scene: &str| {
-            render(&Request { scene, stylesheet: "", state: "rest", variables: "" }).unwrap()
+            render(&Request {
+                scene,
+                stylesheet: "",
+                state: "rest",
+                variables: "",
+            })
+            .unwrap()
         };
         assert_eq!(render(one), render(two));
     }
@@ -6675,7 +7409,10 @@ mod tests {
         pixels.extend_from_slice(&red);
         pixels.extend_from_slice(&blue);
         // The semicolon in the media type is escaped, as `describe` writes it.
-        let source = format!("data:image/png\\;base64,{}", to_base64(&encode(2, 1, &pixels)));
+        let source = format!(
+            "data:image/png\\;base64,{}",
+            to_base64(&encode(2, 1, &pixels))
+        );
         let scene = format!("buri-scene 1\nviewport 8 8\ne 0 image:{source}\n");
         let image = render_ok(&scene, "", "rest");
         // Its own size, since nothing declared one.
@@ -6691,7 +7428,10 @@ mod tests {
         let mut pixels = Vec::new();
         pixels.extend_from_slice(&[255, 0, 0, 255]);
         pixels.extend_from_slice(&[0, 0, 255, 255]);
-        let source = format!("data:image/png\\;base64,{}", to_base64(&encode(2, 1, &pixels)));
+        let source = format!(
+            "data:image/png\\;base64,{}",
+            to_base64(&encode(2, 1, &pixels))
+        );
         let scene =
             format!("buri-scene 1\nviewport 8 8\ne 0 width:8px;height:2px;image:{source}\n");
         let image = render_ok(&scene, "", "rest");
@@ -6762,7 +7502,9 @@ mod tests {
                     e 1 position:fixed;width:2px;height:9px\n";
         let rows = |scene: &str| {
             let image = render_ok(scene, "", "rest");
-            (0..10 * S).filter(|&y| at(&image, 9 * S, y) == [255, 0, 0, 255]).count()
+            (0..10 * S)
+                .filter(|&y| at(&image, 9 * S, y) == [255, 0, 0, 255])
+                .count()
         };
         assert_eq!(rows(without), rows(with));
     }
@@ -6770,8 +7512,7 @@ mod tests {
     /// The base64 alphabet, written out for the two tests above. Nothing in the
     /// painter encodes one — a scene arrives with its sources already written.
     fn to_base64(bytes: &[u8]) -> String {
-        const ALPHABET: &[u8] =
-            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         let mut out = String::new();
         for chunk in bytes.chunks(3) {
             let mut block = [0_u8; 3];
@@ -6802,8 +7543,7 @@ mod tests {
 
     #[test]
     fn an_inline_declaration_beats_a_class() {
-        let scene =
-            "buri-scene 1\nviewport 6 4\ne 0 class:box;background-color:rgb(255,0,0)\n";
+        let scene = "buri-scene 1\nviewport 6 4\ne 0 class:box;background-color:rgb(255,0,0)\n";
         let sheet = ".box{width:4px;height:2px;background-color:rgb(0,0,255)}\n";
         let image = render_ok(scene, sheet, "rest");
         assert_eq!(at(&image, 0, 0), [255, 0, 0, 255]);
@@ -6815,7 +7555,10 @@ mod tests {
         let sheet = ".box{width:4px;height:2px;background-color:rgb(0,0,255)}\n\
                      .hov:hover{background-color:rgb(255,0,0)}\n";
         assert_eq!(at(&render_ok(scene, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
-        assert_eq!(at(&render_ok(scene, sheet, "hover"), 0, 0), [255, 0, 0, 255]);
+        assert_eq!(
+            at(&render_ok(scene, sheet, "hover"), 0, 0),
+            [255, 0, 0, 255]
+        );
     }
 
     #[test]
@@ -6834,7 +7577,10 @@ mod tests {
         assert_eq!(at(&picture, 7 * S, 7 * S), [153, 153, 153, 255]);
         // And with no radius at all every corner is the placeholder.
         let square = "buri-scene 1\nviewport 8 8\ne 0 width:8px;height:8px;image:/a.png\n";
-        assert_eq!(at(&render_ok(square, "", "rest"), 0, 0), [153, 153, 153, 255]);
+        assert_eq!(
+            at(&render_ok(square, "", "rest"), 0, 0),
+            [153, 153, 153, 255]
+        );
     }
 
     #[test]
@@ -6855,7 +7601,10 @@ mod tests {
         // A box that answers for nothing is still the request's to decide.
         let plain = "buri-scene 1\nviewport 6 4\ne 0 class:box tick\n";
         assert_eq!(at(&render_ok(plain, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
-        assert_eq!(at(&render_ok(plain, sheet, "checked"), 0, 0), [255, 0, 0, 255]);
+        assert_eq!(
+            at(&render_ok(plain, sheet, "checked"), 0, 0),
+            [255, 0, 0, 255]
+        );
     }
 
     #[test]
@@ -6875,7 +7624,10 @@ mod tests {
         }
         let plain = "buri-scene 1\nviewport 6 4\ne 0 class:box ring\n";
         assert_eq!(at(&render_ok(plain, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
-        assert_eq!(at(&render_ok(plain, sheet, "focus"), 0, 0), [255, 0, 0, 255]);
+        assert_eq!(
+            at(&render_ok(plain, sheet, "focus"), 0, 0),
+            [255, 0, 0, 255]
+        );
     }
 
     #[test]
@@ -6889,7 +7641,10 @@ mod tests {
         assert_eq!(at(&render_ok(scene, sheet, "rest"), 0, 0), [255, 0, 0, 255]);
         let plain = "buri-scene 1\nviewport 6 4\ne 0 class:box off\n";
         assert_eq!(at(&render_ok(plain, sheet, "rest"), 0, 0), [0, 0, 255, 255]);
-        assert_eq!(at(&render_ok(plain, sheet, "disabled"), 0, 0), [255, 0, 0, 255]);
+        assert_eq!(
+            at(&render_ok(plain, sheet, "disabled"), 0, 0),
+            [255, 0, 0, 255]
+        );
     }
 
     #[test]
@@ -6920,7 +7675,10 @@ mod tests {
         let sheet = ".lay p{background-color:rgb(255,0,0)}\n\
                      .lay *{background-color:rgb(0,255,0)}\n\
                      .lay>p{background-color:rgb(0,0,255)}\n";
-        assert_eq!(at(&render_ok(scene, sheet, "rest"), 0, 0), [255, 255, 255, 255]);
+        assert_eq!(
+            at(&render_ok(scene, sheet, "rest"), 0, 0),
+            [255, 255, 255, 255]
+        );
     }
 
     /// buri#77: `.lay-layers{display:grid}` with `.lay-layers>*{grid-area:1/1}`
@@ -7003,8 +7761,9 @@ mod tests {
         let image = render_ok(scene, "", "rest");
         // No border and a white ground, so every non-white row is the value's
         // own ink.
-        let rows: Vec<u32> =
-            (0..image.height).filter(|&y| (0..image.width).any(|x| inked(&image, x, y))).collect();
+        let rows: Vec<u32> = (0..image.height)
+            .filter(|&y| (0..image.width).any(|x| inked(&image, x, y)))
+            .collect();
         let (&top, &bottom) = (rows.first().unwrap(), rows.last().unwrap());
         let above = top;
         let below = image.height - 1 - bottom;
@@ -7017,7 +7776,10 @@ mod tests {
             "the field's value is not centred: {above} above the ink, {below} below"
         );
         // And it is nowhere near the top edge, which is where it used to hug.
-        assert!(above > line, "the value hugs the top: only {above} above it");
+        assert!(
+            above > line,
+            "the value hugs the top: only {above} above it"
+        );
     }
 
     /// One slider, at a width and height a browser's own reset gives it.
@@ -7045,11 +7807,19 @@ mod tests {
         // centre is half a thumb inside the track, which is where a browser
         // stops it so a slider at nought is still a whole disc. Row two is
         // above the bar, so only the thumb can reach it.
-        for (image, near, at_all) in
-            [(&low, 8 * S, 96 * S), (&middle, 96 * S, 184 * S), (&high, 184 * S, 8 * S)]
-        {
-            assert!(inked(image, near, 2 * S), "the thumb is not where the value is");
-            assert!(!inked(image, at_all, 2 * S), "the thumb is where the value is not");
+        for (image, near, at_all) in [
+            (&low, 8 * S, 96 * S),
+            (&middle, 96 * S, 184 * S),
+            (&high, 184 * S, 8 * S),
+        ] {
+            assert!(
+                inked(image, near, 2 * S),
+                "the thumb is not where the value is"
+            );
+            assert!(
+                !inked(image, at_all, 2 * S),
+                "the thumb is where the value is not"
+            );
         }
         // The bar is a quarter of the sixteen pixels: along the filled run, well
         // clear of the thumb, one either side of the middle is ink and four is
@@ -7069,8 +7839,14 @@ mod tests {
         // A point well past the low slider's thumb but under the high one's:
         // filled for the slider at ninety, bare page for the one at ten. So the
         // two differ beyond the knob, which is the whole of the fix.
-        assert!(!inked(&low, 150 * S, 8 * S), "the low slider's track is filled past its thumb");
-        assert!(inked(&high, 150 * S, 8 * S), "the high slider's track is not filled to its thumb");
+        assert!(
+            !inked(&low, 150 * S, 8 * S),
+            "the low slider's track is filled past its thumb"
+        );
+        assert!(
+            inked(&high, 150 * S, 8 * S),
+            "the high slider's track is not filled to its thumb"
+        );
         // And both are filled at the very start, whatever the value.
         assert!(inked(&low, 2 * S, 8 * S) && inked(&high, 2 * S, 8 * S));
     }
@@ -7098,13 +7874,25 @@ mod tests {
         let under = render_ok(&slider("0.0 100.0 -40"), "", "rest");
         let over = render_ok(&slider("0.0 100.0 400"), "", "rest");
         let words = render_ok(&slider("0.0 100.0 loud"), "", "rest");
-        assert_eq!(under.rgba, render_ok(&slider("0.0 100.0 0"), "", "rest").rgba);
-        assert_eq!(over.rgba, render_ok(&slider("0.0 100.0 100"), "", "rest").rgba);
-        assert_eq!(words.rgba, render_ok(&slider("0.0 100.0 50"), "", "rest").rgba);
+        assert_eq!(
+            under.rgba,
+            render_ok(&slider("0.0 100.0 0"), "", "rest").rgba
+        );
+        assert_eq!(
+            over.rgba,
+            render_ok(&slider("0.0 100.0 100"), "", "rest").rgba
+        );
+        assert_eq!(
+            words.rgba,
+            render_ok(&slider("0.0 100.0 50"), "", "rest").rgba
+        );
         // The bounds are the program's, so the same fraction of a different
         // range is the same picture.
         let shifted = render_ok(&slider("-50.0 50.0 0"), "", "rest");
-        assert_eq!(shifted.rgba, render_ok(&slider("0.0 100.0 50"), "", "rest").rgba);
+        assert_eq!(
+            shifted.rgba,
+            render_ok(&slider("0.0 100.0 50"), "", "rest").rgba
+        );
     }
 
     /// Bounds the painter cannot read leave the box a box, which is the rule an
@@ -7124,7 +7912,12 @@ mod tests {
                      e 0 padding:4px;background-color:rgba(20,30,40,0.5);border-radius:3px\n\
                      e 1 font-size:14px;font-weight:700\n\
                      t 2 Ada Lovelace\n";
-        let request = Request { scene, stylesheet: "", state: "rest", variables: "" };
+        let request = Request {
+            scene,
+            stylesheet: "",
+            state: "rest",
+            variables: "",
+        };
         assert_eq!(render(&request).unwrap(), render(&request).unwrap());
     }
 
@@ -7133,8 +7926,14 @@ mod tests {
         let png = encode(1, 1, &[1, 2, 3, 4]);
         assert_eq!(png.get(..8), Some(SIGNATURE.as_slice()));
         // Length 13, then `IHDR`, then 1x1, 8-bit, colour type 6.
-        assert_eq!(png.get(8..16), Some([0, 0, 0, 13, b'I', b'H', b'D', b'R'].as_slice()));
-        assert_eq!(png.get(16..29), Some([0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0].as_slice()));
+        assert_eq!(
+            png.get(8..16),
+            Some([0, 0, 0, 13, b'I', b'H', b'D', b'R'].as_slice())
+        );
+        assert_eq!(
+            png.get(16..29),
+            Some([0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0].as_slice())
+        );
         let end = [b'I', b'E', b'N', b'D', 174, 66, 96, 130];
         assert_eq!(png.get(png.len() - 8..), Some(end.as_slice()));
     }
@@ -7166,7 +7965,11 @@ mod tests {
                     if sum > 255 * size {
                         continue;
                     }
-                    assert_eq!(u32::from(average.of_sum(sum)), (sum + half) / size, "{size} {sum}");
+                    assert_eq!(
+                        u32::from(average.of_sum(sum)),
+                        (sum + half) / size,
+                        "{size} {sum}"
+                    );
                 }
             }
             assert_eq!(average.of_sum(255 * size), 255, "{size}");
@@ -7177,7 +7980,9 @@ mod tests {
     #[test]
     fn each_row_filter_puts_its_row_back() {
         let previous: Vec<u8> = (0..24_u8).map(|i| i.wrapping_mul(17)).collect();
-        let line: Vec<u8> = (0..24_u8).map(|i| i.wrapping_mul(31).wrapping_add(7)).collect();
+        let line: Vec<u8> = (0..24_u8)
+            .map(|i| i.wrapping_mul(31).wrapping_add(7))
+            .collect();
         for kind in 0..5_u8 {
             let mut filtered = vec![0_u8; line.len()];
             apply_filter(kind, &line, &previous, &mut filtered);
@@ -7217,11 +8022,17 @@ mod tests {
                 let y = (i / 32) as u8;
                 // The alpha channel is its own ramp, so a filter that only
                 // suited the colour channels would show up here.
-                [x.wrapping_mul(8), y.wrapping_mul(10), 128, x.wrapping_add(y).wrapping_mul(3)]
+                [
+                    x.wrapping_mul(8),
+                    y.wrapping_mul(10),
+                    128,
+                    x.wrapping_add(y).wrapping_mul(3),
+                ]
             })
             .collect();
-        let noisy: Vec<u8> =
-            (0..32_u64 * 24 * 4).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
+        let noisy: Vec<u8> = (0..32_u64 * 24 * 4)
+            .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+            .collect();
         for pixels in [flat, gradient, noisy] {
             let back = decode(&encode(32, 24, &pixels)).unwrap();
             assert_eq!((back.width, back.height), (32, 24));
@@ -7231,7 +8042,9 @@ mod tests {
 
     #[test]
     fn two_encodes_of_the_same_pixels_are_the_same_bytes() {
-        let pixels: Vec<u8> = (0..64_u32 * 64 * 4).map(|i| ((i / 7) % 251) as u8).collect();
+        let pixels: Vec<u8> = (0..64_u32 * 64 * 4)
+            .map(|i| ((i / 7) % 251) as u8)
+            .collect();
         assert_eq!(encode(64, 64, &pixels), encode(64, 64, &pixels));
     }
 
@@ -7254,7 +8067,11 @@ mod tests {
     fn a_repetitive_stream_comes_out_far_smaller_than_it_went_in() {
         let raw = vec![7_u8; 4096];
         let stream = deflate(&raw, 0);
-        assert!(stream.len() < 64, "4096 identical bytes became {} bytes", stream.len());
+        assert!(
+            stream.len() < 64,
+            "4096 identical bytes became {} bytes",
+            stream.len()
+        );
         assert_eq!(image::inflate(&stream).unwrap(), raw);
     }
 
@@ -7434,7 +8251,13 @@ mod tests {
     /// A scene with a run of text on it, rendered under the theme string a
     /// snapshot installs.
     fn themed(scene: &str, variables: &str) -> Image {
-        let png = render(&Request { scene, stylesheet: "", state: "rest", variables }).unwrap();
+        let png = render(&Request {
+            scene,
+            stylesheet: "",
+            state: "rest",
+            variables,
+        })
+        .unwrap();
         decode(&png).unwrap()
     }
 
@@ -7454,7 +8277,10 @@ mod tests {
                      e 0 font-size:12px\n\
                      t 1 hi\n";
         let plain = themed(scene, "");
-        let dark = themed(scene, "body{background-color:rgb(10,10,10);color:rgb(250,250,250)}\n");
+        let dark = themed(
+            scene,
+            "body{background-color:rgb(10,10,10);color:rgb(250,250,250)}\n",
+        );
         // The page theme changed the picture, where before it changed nothing.
         assert_ne!(plain.rgba, dark.rgba);
         // The canvas is the page's near-black ground, read at a corner the text
@@ -7464,10 +8290,16 @@ mod tests {
         // ink and the darkest is the ground, which is the reverse of the plain
         // snapshot — black ink on a white canvas.
         let (brightest, darkest) = brightness_span(&dark);
-        assert!(brightest > 200 && darkest < 40, "dark page: {brightest} over {darkest}");
+        assert!(
+            brightest > 200 && darkest < 40,
+            "dark page: {brightest} over {darkest}"
+        );
         assert_eq!(at(&plain, 0, 0), [255, 255, 255, 255]);
         let (plain_brightest, plain_darkest) = brightness_span(&plain);
-        assert!(plain_brightest > 200 && plain_darkest < 40, "plain: {plain_brightest} over {plain_darkest}");
+        assert!(
+            plain_brightest > 200 && plain_darkest < 40,
+            "plain: {plain_brightest} over {plain_darkest}"
+        );
     }
 
     /// buri#162: a `flex-direction:column;flex-wrap:wrap` box wraps into two
@@ -7524,7 +8356,10 @@ mod tests {
             .0
             .iter()
             .any(|p| p[0] > 150 && p[1] < 80 && p[2] < 80);
-        assert!(reddest, "the element's own colour did not win over the page ink");
+        assert!(
+            reddest,
+            "the element's own colour did not win over the page ink"
+        );
     }
 
     #[test]
@@ -7535,7 +8370,10 @@ mod tests {
 
     #[test]
     fn a_selector_with_a_suffix_or_an_unknown_pseudo_is_not_a_rule() {
-        assert_eq!(parse_selector(".p-8"), Some(("p-8".to_string(), None, false)));
+        assert_eq!(
+            parse_selector(".p-8"),
+            Some(("p-8".to_string(), None, false))
+        );
         assert_eq!(
             parse_selector(".p-8:hover"),
             Some(("p-8".to_string(), Some(State::Hover), false))
@@ -7544,8 +8382,14 @@ mod tests {
         assert_eq!(parse_selector(r".hover\:bg:hover"), escaped);
         // The one rule about descendants the sheet writes, with and without
         // the spaces CSS allows around the combinator.
-        assert_eq!(parse_selector(".lay>*"), Some(("lay".to_string(), None, true)));
-        assert_eq!(parse_selector(".lay > *"), Some(("lay".to_string(), None, true)));
+        assert_eq!(
+            parse_selector(".lay>*"),
+            Some(("lay".to_string(), None, true))
+        );
+        assert_eq!(
+            parse_selector(".lay > *"),
+            Some(("lay".to_string(), None, true))
+        );
         assert_eq!(
             parse_selector(".lay:hover>*"),
             Some(("lay".to_string(), Some(State::Hover), true))

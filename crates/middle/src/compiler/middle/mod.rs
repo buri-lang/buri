@@ -191,10 +191,20 @@ struct Node {
 )]
 fn strongly_connected(edges: &[Vec<usize>]) -> Components {
     let n = edges.len();
-    let mut nodes = vec![Node { index: usize::MAX, low: 0, on_stack: false }; n];
+    let mut nodes = vec![
+        Node {
+            index: usize::MAX,
+            low: 0,
+            on_stack: false
+        };
+        n
+    ];
     let mut stack: Vec<usize> = Vec::new();
     let mut next = 0usize;
-    let mut out = Components { members: Vec::with_capacity(n), ends: Vec::new() };
+    let mut out = Components {
+        members: Vec::with_capacity(n),
+        ends: Vec::new(),
+    };
     // (node, how many of its edges have been taken)
     let mut work: Vec<(usize, usize)> = Vec::new();
 
@@ -205,7 +215,11 @@ fn strongly_connected(edges: &[Vec<usize>]) -> Components {
         work.push((root, 0));
         while let Some((v, taken)) = work.pop() {
             if taken == 0 {
-                nodes[v] = Node { index: next, low: next, on_stack: true };
+                nodes[v] = Node {
+                    index: next,
+                    low: next,
+                    on_stack: true,
+                };
                 next += 1;
                 stack.push(v);
             }
@@ -254,7 +268,10 @@ fn strongly_connected(edges: &[Vec<usize>]) -> Components {
 /// The function a call or a reference names. Monomorphization resolves every
 /// callee, so each pass after it sees only [`Callee::Func`].
 pub(crate) fn resolved(callee: &Callee) -> usize {
-    callee.func().or_ice("monomorphization resolved the callee").index()
+    callee
+        .func()
+        .or_ice("monomorphization resolved the callee")
+        .index()
 }
 
 /// The strongly connected components of a graph, each sorted, in the order
@@ -286,7 +303,10 @@ mod tests {
     fn cycles_are_found_and_singletons_are_not_called_recursive() {
         // 0 -> 1 -> 2 -> 1, and 3 alone.
         let edges = vec![vec![1], vec![2], vec![1], vec![]];
-        let mut groups: Vec<Vec<usize>> = strongly_connected(&edges).iter().map(<[usize]>::to_vec).collect();
+        let mut groups: Vec<Vec<usize>> = strongly_connected(&edges)
+            .iter()
+            .map(<[usize]>::to_vec)
+            .collect();
         groups.sort();
         let cycles: Vec<Vec<usize>> = groups.into_iter().filter(|g| g.len() > 1).collect();
         assert_eq!(cycles, vec![vec![1, 2]]);
@@ -296,7 +316,10 @@ mod tests {
     fn finds_self_loops_and_groups() {
         // 0 -> 0 (self), 1 <-> 2 (group), 3 -> 1 (not in a cycle)
         let edges = vec![vec![0], vec![2], vec![1], vec![1]];
-        let sccs: Vec<Vec<usize>> = strongly_connected(&edges).iter().map(<[usize]>::to_vec).collect();
+        let sccs: Vec<Vec<usize>> = strongly_connected(&edges)
+            .iter()
+            .map(<[usize]>::to_vec)
+            .collect();
         // Three components: {0}, {3}, and the pair {1, 2}.
         let mut sizes: Vec<usize> = sccs.iter().map(|s| s.len()).collect();
         sizes.sort();

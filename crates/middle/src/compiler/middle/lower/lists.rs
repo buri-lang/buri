@@ -95,7 +95,9 @@ fn step_at(key: &str) -> Option<usize> {
     match key {
         "deriveArrayEq" | "deriveArrayCompare" | "deriveArrayHash" => Some(2),
         "deriveArrayShow" => Some(1),
-        _ => derive_map(key).or_else(|| intrinsic_keys::list_call(key)).map(|c| c.func),
+        _ => derive_map(key)
+            .or_else(|| intrinsic_keys::list_call(key))
+            .map(|c| c.func),
     }
 }
 
@@ -110,13 +112,19 @@ pub(super) struct Counts<'p> {
 
 impl<'p> Counts<'p> {
     pub(super) fn new(program: &'p Program) -> Counts<'p> {
-        Counts { program, classifier: OnceLock::new() }
+        Counts {
+            program,
+            classifier: OnceLock::new(),
+        }
     }
 
     fn counted(&self, ty: &Ty) -> bool {
-        let classifier =
-            self.classifier.get_or_init(|| Mutex::new(rc::Syntactic::new(self.program)));
-        let mut c = classifier.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let classifier = self
+            .classifier
+            .get_or_init(|| Mutex::new(rc::Syntactic::new(self.program)));
+        let mut c = classifier
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         matches!(rc::Counted::counted(&mut *c, ty), rc::Answer::Yes)
     }
 }
@@ -208,7 +216,9 @@ impl FnLower<'_> {
         let ret = self.ret;
         let v = match self.list_loop(key, &vals, &tys, None, &ret) {
             Some(v) => v,
-            None => self.abort("a `core/list` function whose parameters are not the types it declares"),
+            None => {
+                self.abort("a `core/list` function whose parameters are not the types it declares")
+            }
         };
         self.set_term(Term::Return(vec![v]));
         let mut code = std::mem::take(&mut self.code);
@@ -252,7 +262,11 @@ impl FnLower<'_> {
         .or_ice("a `core/list` step is a function");
         let callee = self.callee(f, step, arity);
         let ctx = match call.ctx {
-            Some(c) => Some(Arg { value: *vals.get(c)?, ty: *tys.get(c)?, owned: false }),
+            Some(c) => Some(Arg {
+                value: *vals.get(c)?,
+                ty: *tys.get(c)?,
+                owned: false,
+            }),
             None => None,
         };
         let n = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
@@ -260,13 +274,25 @@ impl FnLower<'_> {
         let step_t = self.type_of(&step_ret);
         let ret_t = self.type_of(ret);
         let element = |l: &mut Self, i: ValueId| {
-            let value = l.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: i });
-            Arg { value, ty: elem, owned: false }
+            let value = l.emit(elem_t, |dest| Inst::ArrayGet {
+                dest,
+                array: xs,
+                index: i,
+            });
+            Arg {
+                value,
+                ty: elem,
+                owned: false,
+            }
         };
         let with_ctx = |ctx: &Option<Arg>, rest: Vec<Arg>| -> Vec<Arg> {
             let mut all: Vec<Arg> = ctx
                 .iter()
-                .map(|c| Arg { value: c.value, ty: c.ty, owned: false })
+                .map(|c| Arg {
+                    value: c.value,
+                    ty: c.ty,
+                    owned: false,
+                })
                 .collect();
             all.extend(rest);
             all
@@ -278,7 +304,11 @@ impl FnLower<'_> {
                 let w = self.walk(n, &[]);
                 let e = element(self, w.i);
                 let r = self.step(&callee, with_ctx(&ctx, vec![e]), step_t);
-                self.push(Inst::ArraySet { array: out, index: w.i, value: r });
+                self.push(Inst::ArraySet {
+                    array: out,
+                    index: w.i,
+                    value: r,
+                });
                 self.again(&w, Vec::new());
                 self.end(&w);
                 out
@@ -301,7 +331,11 @@ impl FnLower<'_> {
                 if self.counts.counted(&e.ty) {
                     self.push(Inst::IncRef { value: e.value });
                 }
-                self.push(Inst::ArraySet { array: out, index: k, value: e.value });
+                self.push(Inst::ArraySet {
+                    array: out,
+                    index: k,
+                    value: e.value,
+                });
                 let k1 = self.add_one(k);
                 let latch = self.block(&[Type::I64]);
                 self.set_term(Term::Jump(Target::new(latch, vec![k1])));
@@ -311,7 +345,11 @@ impl FnLower<'_> {
                 let k2 = *self.code.get(latch).params.first()?;
                 self.again(&w, vec![k2]);
                 self.end(&w);
-                self.emit(ret_t, |dest| Inst::ArrayPrefix { dest, array: out, len: k })
+                self.emit(ret_t, |dest| Inst::ArrayPrefix {
+                    dest,
+                    array: out,
+                    len: k,
+                })
             }
             // `map` and `filter` in one loop. The step's `Option` is this loop's,
             // so a `.Some` payload moves into the block with the count it already
@@ -336,8 +374,17 @@ impl FnLower<'_> {
                 });
                 let (kept, skip) = self.fork(held);
                 self.cur = kept;
-                let x = self.emit(b_t, |dest| Inst::GetPayload { dest, agg: r, variant: some, index: 0 });
-                self.push(Inst::ArraySet { array: out, index: k, value: x });
+                let x = self.emit(b_t, |dest| Inst::GetPayload {
+                    dest,
+                    agg: r,
+                    variant: some,
+                    index: 0,
+                });
+                self.push(Inst::ArraySet {
+                    array: out,
+                    index: k,
+                    value: x,
+                });
                 let k1 = self.add_one(k);
                 let latch = self.block(&[Type::I64]);
                 self.set_term(Term::Jump(Target::new(latch, vec![k1])));
@@ -347,7 +394,11 @@ impl FnLower<'_> {
                 let k2 = *self.code.get(latch).params.first()?;
                 self.again(&w, vec![k2]);
                 self.end(&w);
-                self.emit(ret_t, |dest| Inst::ArrayPrefix { dest, array: out, len: k })
+                self.emit(ret_t, |dest| Inst::ArrayPrefix {
+                    dest,
+                    array: out,
+                    len: k,
+                })
             }
             Step::Fold => {
                 let init = *vals.get(call.init?)?;
@@ -355,7 +406,11 @@ impl FnLower<'_> {
                 let w = self.walk(n, &[init]);
                 let acc = *w.vars.first()?;
                 let e = element(self, w.i);
-                let a = Arg { value: acc, ty: init_ty, owned: true };
+                let a = Arg {
+                    value: acc,
+                    ty: init_ty,
+                    owned: true,
+                };
                 let next = self.step(&callee, with_ctx(&ctx, vec![a, e]), step_t);
                 self.again(&w, vec![next]);
                 self.end(&w);
@@ -451,8 +506,11 @@ impl FnLower<'_> {
                 self.cur = more;
                 self.again(&w, Vec::new());
                 self.end(&w);
-                let missing =
-                    self.emit(ret_t, |dest| Inst::MakeEnum { dest, variant: none, fields: Vec::new() });
+                let missing = self.emit(ret_t, |dest| Inst::MakeEnum {
+                    dest,
+                    variant: none,
+                    fields: Vec::new(),
+                });
                 self.set_term(Term::Jump(Target::new(exit, vec![missing])));
                 self.cur = exit;
                 *self.code.get(exit).params.first()?
@@ -470,7 +528,11 @@ impl FnLower<'_> {
                 let w = self.walk(n, &[init]);
                 let acc = *w.vars.first()?;
                 let e = element(self, w.i);
-                let a = Arg { value: acc, ty: init_ty, owned: true };
+                let a = Arg {
+                    value: acc,
+                    ty: init_ty,
+                    owned: true,
+                };
                 let r = self.step(&callee, with_ctx(&ctx, vec![a, e]), step_t);
                 let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: r });
                 let failed = self.emit(Type::I1, |dest| Inst::Binary {
@@ -496,8 +558,11 @@ impl FnLower<'_> {
                 });
                 self.again(&w, vec![next]);
                 self.end(&w);
-                let done =
-                    self.emit(ret_t, |dest| Inst::MakeEnum { dest, variant: ok, fields: vec![acc] });
+                let done = self.emit(ret_t, |dest| Inst::MakeEnum {
+                    dest,
+                    variant: ok,
+                    fields: vec![acc],
+                });
                 self.set_term(Term::Jump(Target::new(exit, vec![done])));
                 self.cur = exit;
                 *self.code.get(exit).params.first()?
@@ -512,22 +577,41 @@ impl FnLower<'_> {
         let (&xs, &ys) = (vals.first()?, vals.get(2)?);
         let (a, b) = (elem_of(tys.first()?), elem_of(tys.get(2)?));
         let pair = elem_of(ret);
-        let (a_t, b_t, pair_t, ret_t) =
-            (self.type_of(&a), self.type_of(&b), self.type_of(&pair), self.type_of(ret));
+        let (a_t, b_t, pair_t, ret_t) = (
+            self.type_of(&a),
+            self.type_of(&b),
+            self.type_of(&pair),
+            self.type_of(ret),
+        );
         let la = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
         let lb = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: ys });
         let n = self.shorter(la, lb);
         let out = self.emit(ret_t, |dest| Inst::ArrayAlloc { dest, len: n });
         let w = self.walk(n, &[]);
-        let x = self.emit(a_t, |dest| Inst::ArrayGet { dest, array: xs, index: w.i });
-        let y = self.emit(b_t, |dest| Inst::ArrayGet { dest, array: ys, index: w.i });
+        let x = self.emit(a_t, |dest| Inst::ArrayGet {
+            dest,
+            array: xs,
+            index: w.i,
+        });
+        let y = self.emit(b_t, |dest| Inst::ArrayGet {
+            dest,
+            array: ys,
+            index: w.i,
+        });
         for (v, t) in [(x, &a), (y, &b)] {
             if self.counts.counted(t) {
                 self.push(Inst::IncRef { value: v });
             }
         }
-        let p = self.emit(pair_t, |dest| Inst::MakeStruct { dest, fields: vec![x, y] });
-        self.push(Inst::ArraySet { array: out, index: w.i, value: p });
+        let p = self.emit(pair_t, |dest| Inst::MakeStruct {
+            dest,
+            fields: vec![x, y],
+        });
+        self.push(Inst::ArraySet {
+            array: out,
+            index: w.i,
+            value: p,
+        });
         self.again(&w, Vec::new());
         self.end(&w);
         Some(out)
@@ -547,7 +631,11 @@ impl FnLower<'_> {
         let zero = self.int(Type::I64, 0);
         let sizing = self.walk(n, &[zero]);
         let total = *sizing.vars.first()?;
-        let ys = self.emit(inner_t, |dest| Inst::ArrayGet { dest, array: xs, index: sizing.i });
+        let ys = self.emit(inner_t, |dest| Inst::ArrayGet {
+            dest,
+            array: xs,
+            index: sizing.i,
+        });
         let l = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: ys });
         let grown = self.add(total, l);
         self.again(&sizing, vec![grown]);
@@ -557,15 +645,27 @@ impl FnLower<'_> {
         let zero = self.int(Type::I64, 0);
         let outer = self.walk(n, &[zero]);
         let k = *outer.vars.first()?;
-        let ys = self.emit(inner_t, |dest| Inst::ArrayGet { dest, array: xs, index: outer.i });
+        let ys = self.emit(inner_t, |dest| Inst::ArrayGet {
+            dest,
+            array: xs,
+            index: outer.i,
+        });
         let l = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: ys });
         let one = self.walk(l, &[]);
-        let e = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: ys, index: one.i });
+        let e = self.emit(elem_t, |dest| Inst::ArrayGet {
+            dest,
+            array: ys,
+            index: one.i,
+        });
         if counted {
             self.push(Inst::IncRef { value: e });
         }
         let at = self.add(k, one.i);
-        self.push(Inst::ArraySet { array: out, index: at, value: e });
+        self.push(Inst::ArraySet {
+            array: out,
+            index: at,
+            value: e,
+        });
         self.again(&one, Vec::new());
         self.end(&one);
         let after = self.add(k, l);
@@ -596,11 +696,27 @@ impl FnLower<'_> {
         let lb = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: ys });
         let exit = self.block(&[ret_t]);
         let pair = |l: &mut Self, i: ValueId| {
-            let x = l.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: i });
-            let y = l.emit(elem_t, |dest| Inst::ArrayGet { dest, array: ys, index: i });
+            let x = l.emit(elem_t, |dest| Inst::ArrayGet {
+                dest,
+                array: xs,
+                index: i,
+            });
+            let y = l.emit(elem_t, |dest| Inst::ArrayGet {
+                dest,
+                array: ys,
+                index: i,
+            });
             vec![
-                Arg { value: x, ty: elem, owned: false },
-                Arg { value: y, ty: elem, owned: false },
+                Arg {
+                    value: x,
+                    ty: elem,
+                    owned: false,
+                },
+                Arg {
+                    value: y,
+                    ty: elem,
+                    owned: false,
+                },
             ]
         };
         if equal {
@@ -677,13 +793,19 @@ impl FnLower<'_> {
                 });
                 let (decides, next) = self.fork(c);
                 self.cur = decides;
-                let o = self
-                    .emit(ret_t, |dest| Inst::MakeEnum { dest, variant: v, fields: Vec::new() });
+                let o = self.emit(ret_t, |dest| Inst::MakeEnum {
+                    dest,
+                    variant: v,
+                    fields: Vec::new(),
+                });
                 self.set_term(Term::Jump(Target::new(exit, vec![o])));
                 self.cur = next;
             }
-            let o =
-                self.emit(ret_t, |dest| Inst::MakeEnum { dest, variant: same, fields: Vec::new() });
+            let o = self.emit(ret_t, |dest| Inst::MakeEnum {
+                dest,
+                variant: same,
+                fields: Vec::new(),
+            });
             self.set_term(Term::Jump(Target::new(exit, vec![o])));
         }
         self.cur = exit;
@@ -712,8 +834,23 @@ impl FnLower<'_> {
         });
         let w = self.walk(n, &[sized]);
         let acc = *w.vars.first()?;
-        let e = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: w.i });
-        let args = vec![Arg { value: acc, ty: *ret, owned: true }, Arg { value: e, ty: elem, owned: false }];
+        let e = self.emit(elem_t, |dest| Inst::ArrayGet {
+            dest,
+            array: xs,
+            index: w.i,
+        });
+        let args = vec![
+            Arg {
+                value: acc,
+                ty: *ret,
+                owned: true,
+            },
+            Arg {
+                value: e,
+                ty: elem,
+                owned: false,
+            },
+        ];
         let next = self.step(&callee, args, ret_t);
         self.again(&w, vec![next]);
         self.end(&w);
@@ -740,9 +877,25 @@ impl FnLower<'_> {
         let n = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
         let strs = self.emit(shown_t, |dest| Inst::ArrayAlloc { dest, len: n });
         let w = self.walk(n, &[]);
-        let e = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: w.i });
-        let s = self.step(&callee, vec![Arg { value: e, ty: elem, owned: false }], ret_t);
-        self.push(Inst::ArraySet { array: strs, index: w.i, value: s });
+        let e = self.emit(elem_t, |dest| Inst::ArrayGet {
+            dest,
+            array: xs,
+            index: w.i,
+        });
+        let s = self.step(
+            &callee,
+            vec![Arg {
+                value: e,
+                ty: elem,
+                owned: false,
+            }],
+            ret_t,
+        );
+        self.push(Inst::ArraySet {
+            array: strs,
+            index: w.i,
+            value: s,
+        });
         self.again(&w, Vec::new());
         self.end(&w);
         let joined = self.emit(ret_t, |dest| Inst::CallIntrinsic {
@@ -750,7 +903,10 @@ impl FnLower<'_> {
             key: "show.list".into(),
             args: Box::new([strs]),
         });
-        self.push(Inst::DecRef { value: strs, drop: None });
+        self.push(Inst::DecRef {
+            value: strs,
+            drop: None,
+        });
         Some(joined)
     }
 
@@ -785,7 +941,12 @@ impl FnLower<'_> {
         let order_t = self.type_of(order_ty);
         let greater = self.variant_of(order_ty, "Greater", 2);
         let greater = self.int(Type::I32, greater as usize);
-        let order = Order { callee, elem: *elem, order_t, greater };
+        let order = Order {
+            callee,
+            elem: *elem,
+            order_t,
+            greater,
+        };
         let counted = self.counts.counted(elem);
         let zero = self.int(Type::I64, 0);
         let one = self.int(Type::I64, 1);
@@ -819,7 +980,11 @@ impl FnLower<'_> {
             let more = self.order(&order, keeps_on, x, y);
             let again = self.block(&[]);
             let stopped = self.block(&[]);
-            self.set_term(Term::Branch { cond: more, then: Target::to(again), else_: Target::to(stopped) });
+            self.set_term(Term::Branch {
+                cond: more,
+                then: Target::to(again),
+                else_: Target::to(stopped),
+            });
             self.cur = again;
             let at1 = self.add_one(at);
             self.set_term(Term::Jump(Target::new(scan, vec![at1])));
@@ -828,7 +993,11 @@ impl FnLower<'_> {
             if scan == up {
                 let first = self.bin(BinOp::Eq, Prim::I64, at, one);
                 let falls = Target::new(down, vec![two]);
-                self.set_term(Term::Branch { cond: first, then: falls, else_: neither });
+                self.set_term(Term::Branch {
+                    cond: first,
+                    then: falls,
+                    else_: neither,
+                });
             } else {
                 self.set_term(Term::Jump(neither));
             }
@@ -846,15 +1015,27 @@ impl FnLower<'_> {
         for (side, from_end) in [(backwards, true), (forwards, false)] {
             self.cur = side;
             let copy = self.walk(n, &[]);
-            let to = if from_end { self.bin(BinOp::Sub, Prim::I64, last, copy.i) } else { copy.i };
+            let to = if from_end {
+                self.bin(BinOp::Sub, Prim::I64, last, copy.i)
+            } else {
+                copy.i
+            };
             let e = get(self, xs, copy.i);
-            self.push(Inst::ArraySet { array: a0, index: to, value: e });
+            self.push(Inst::ArraySet {
+                array: a0,
+                index: to,
+                value: e,
+            });
             // The second copy is only for the release at the end to walk, and a
             // release walks nothing in a block of uncounted elements.
             if counted {
                 self.push(Inst::IncRef { value: e });
                 self.push(Inst::IncRef { value: e });
-                self.push(Inst::ArraySet { array: b0, index: to, value: e });
+                self.push(Inst::ArraySet {
+                    array: b0,
+                    index: to,
+                    value: e,
+                });
             }
             self.again(&copy, Vec::new());
             self.end(&copy);
@@ -881,7 +1062,11 @@ impl FnLower<'_> {
         let first = self.bin(BinOp::Eq, Prim::I64, into_run, zero);
         let inserted = self.block(&[]);
         let insert = self.block(&[]);
-        self.set_term(Term::Branch { cond: first, then: Target::to(inserted), else_: Target::to(insert) });
+        self.set_term(Term::Branch {
+            cond: first,
+            then: Target::to(inserted),
+            else_: Target::to(insert),
+        });
         self.cur = insert;
         let x = get(self, a0, i);
         let shift = self.block(&[Type::I64]);
@@ -891,19 +1076,35 @@ impl FnLower<'_> {
         let at_lo = self.bin(BinOp::Ge, Prim::U64, run_lo, j);
         let place = self.block(&[Type::I64]);
         let look = self.block(&[]);
-        self.set_term(Term::Branch { cond: at_lo, then: Target::new(place, vec![j]), else_: Target::to(look) });
+        self.set_term(Term::Branch {
+            cond: at_lo,
+            then: Target::new(place, vec![j]),
+            else_: Target::to(look),
+        });
         self.cur = look;
         let j1 = self.bin(BinOp::Sub, Prim::I64, j, one);
         let y = get(self, a0, j1);
         let stays = self.order(&order, BinOp::Ne, y, x);
         let moved = self.block(&[]);
-        self.set_term(Term::Branch { cond: stays, then: Target::new(place, vec![j]), else_: Target::to(moved) });
+        self.set_term(Term::Branch {
+            cond: stays,
+            then: Target::new(place, vec![j]),
+            else_: Target::to(moved),
+        });
         self.cur = moved;
-        self.push(Inst::ArraySet { array: a0, index: j, value: y });
+        self.push(Inst::ArraySet {
+            array: a0,
+            index: j,
+            value: y,
+        });
         self.set_term(Term::Jump(Target::new(shift, vec![j1])));
         self.cur = place;
         let k = *self.code.get(place).params.first()?;
-        self.push(Inst::ArraySet { array: a0, index: k, value: x });
+        self.push(Inst::ArraySet {
+            array: a0,
+            index: k,
+            value: x,
+        });
         self.set_term(Term::Jump(Target::to(inserted)));
         self.cur = inserted;
         self.again(&ins, Vec::new());
@@ -918,7 +1119,11 @@ impl FnLower<'_> {
         let sorted = self.bin(BinOp::Ge, Prim::U64, w, n);
         let exit = self.block(&[]);
         let pass = self.block(&[]);
-        self.set_term(Term::Branch { cond: sorted, then: Target::to(exit), else_: Target::to(pass) });
+        self.set_term(Term::Branch {
+            cond: sorted,
+            then: Target::to(exit),
+            else_: Target::to(pass),
+        });
         self.cur = pass;
         let span = self.add(w, w);
 
@@ -930,7 +1135,11 @@ impl FnLower<'_> {
         let passed = self.bin(BinOp::Ge, Prim::U64, lo, n);
         let swap = self.block(&[]);
         let run = self.block(&[]);
-        self.set_term(Term::Branch { cond: passed, then: Target::to(swap), else_: Target::to(run) });
+        self.set_term(Term::Branch {
+            cond: passed,
+            then: Target::to(swap),
+            else_: Target::to(run),
+        });
         self.cur = swap;
         self.set_term(Term::Jump(Target::new(widths, vec![span, b, a])));
         self.cur = run;
@@ -946,13 +1155,21 @@ impl FnLower<'_> {
         let merging = self.block(&[]);
         // A run with no partner to its right, or two in order, is copied.
         let lone = self.bin(BinOp::Ge, Prim::U64, mid, hi);
-        self.set_term(Term::Branch { cond: lone, then: Target::to(copied), else_: Target::to(paired) });
+        self.set_term(Term::Branch {
+            cond: lone,
+            then: Target::to(copied),
+            else_: Target::to(paired),
+        });
         self.cur = paired;
         let mid1 = self.bin(BinOp::Sub, Prim::I64, mid, one);
         let left_last = get(self, a, mid1);
         let right_first = get(self, a, mid);
         let in_order = self.order(&order, BinOp::Ne, left_last, right_first);
-        self.set_term(Term::Branch { cond: in_order, then: Target::to(copied), else_: Target::to(crossed) });
+        self.set_term(Term::Branch {
+            cond: in_order,
+            then: Target::to(copied),
+            else_: Target::to(crossed),
+        });
         // The right run's last sorts before the left run's first, so every
         // right element sorts strictly before every left one.
         self.cur = crossed;
@@ -960,7 +1177,11 @@ impl FnLower<'_> {
         let left_first = get(self, a, lo);
         let right_last = get(self, a, hi1);
         let reversed = self.order(&order, BinOp::Eq, left_first, right_last);
-        self.set_term(Term::Branch { cond: reversed, then: Target::to(swapped), else_: Target::to(merging) });
+        self.set_term(Term::Branch {
+            cond: reversed,
+            then: Target::to(swapped),
+            else_: Target::to(merging),
+        });
 
         // One copy loop serves every run moved whole: `len` elements from
         // `a[from..]` to `b[to..]`, then `rest` more from `a[rest_from..]`.
@@ -971,15 +1192,23 @@ impl FnLower<'_> {
         self.cur = swapped;
         let right_len = self.bin(BinOp::Sub, Prim::I64, hi, mid);
         let left_len = self.bin(BinOp::Sub, Prim::I64, mid, lo);
-        self.set_term(Term::Jump(Target::new(copy, vec![mid, lo, right_len, left_len, lo])));
+        self.set_term(Term::Jump(Target::new(
+            copy,
+            vec![mid, lo, right_len, left_len, lo],
+        )));
         self.cur = copy;
-        let [from, to, len, rest, rest_from] = <[ValueId; 5]>::try_from(self.code.get(copy).params.as_slice())
-            .or_ice("the block was made with five parameters");
+        let [from, to, len, rest, rest_from] =
+            <[ValueId; 5]>::try_from(self.code.get(copy).params.as_slice())
+                .or_ice("the block was made with five parameters");
         let moving = self.walk(len, &[]);
         let at = self.add(from, moving.i);
         let e = get(self, a, at);
         let dest_at = self.add(to, moving.i);
-        self.push(Inst::ArraySet { array: b, index: dest_at, value: e });
+        self.push(Inst::ArraySet {
+            array: b,
+            index: dest_at,
+            value: e,
+        });
         self.again(&moving, Vec::new());
         self.end(&moving);
         let after = self.add(to, len);
@@ -1010,21 +1239,43 @@ impl FnLower<'_> {
             // Read again rather than kept across the call: the copy-and-patch
             // backend runs about 5% faster on a shuffled list.
             let e = get(self, a, from);
-            self.push(Inst::ArraySet { array: b, index: out, value: e });
+            self.push(Inst::ArraySet {
+                array: b,
+                index: out,
+                value: e,
+            });
             let from1 = self.add_one(from);
             let ran_out = self.bin(BinOp::Ge, Prim::U64, from1, end);
-            let more = if side == take_left { vec![from1, ri, out1] } else { vec![li, from1, out1] };
+            let more = if side == take_left {
+                vec![from1, ri, out1]
+            } else {
+                vec![li, from1, out1]
+            };
             let tail = self.block(&[]);
-            self.set_term(Term::Branch { cond: ran_out, then: Target::to(tail), else_: Target::new(merge, more) });
+            self.set_term(Term::Branch {
+                cond: ran_out,
+                then: Target::to(tail),
+                else_: Target::new(merge, more),
+            });
             // The other side's rest, copied.
             self.cur = tail;
-            let (other, other_end) = if side == take_left { (ri, hi) } else { (li, mid) };
+            let (other, other_end) = if side == take_left {
+                (ri, hi)
+            } else {
+                (li, mid)
+            };
             let rest = self.bin(BinOp::Sub, Prim::I64, other_end, other);
-            self.set_term(Term::Jump(Target::new(copy, vec![other, out1, rest, zero, zero])));
+            self.set_term(Term::Jump(Target::new(
+                copy,
+                vec![other, out1, rest, zero, zero],
+            )));
         }
 
         self.cur = exit;
-        self.push(Inst::DecRef { value: b, drop: None });
+        self.push(Inst::DecRef {
+            value: b,
+            drop: None,
+        });
         Some(a)
     }
 
@@ -1032,8 +1283,16 @@ impl FnLower<'_> {
     /// strictly before `x`, and [`BinOp::Ne`] whether it doesn't.
     fn order(&mut self, order: &Order<'_>, op: BinOp, x: ValueId, y: ValueId) -> ValueId {
         let args = vec![
-            Arg { value: x, ty: order.elem, owned: false },
-            Arg { value: y, ty: order.elem, owned: false },
+            Arg {
+                value: x,
+                ty: order.elem,
+                owned: false,
+            },
+            Arg {
+                value: y,
+                ty: order.elem,
+                owned: false,
+            },
         ];
         let o = self.step(order.callee, args, order.order_t);
         let tag = self.emit(Type::I32, |dest| Inst::GetTag { dest, agg: o });
@@ -1042,8 +1301,18 @@ impl FnLower<'_> {
 
     /// `lhs op rhs`: a `Bool` for a comparison, and an `I64` otherwise.
     fn bin(&mut self, op: BinOp, prim: Prim, lhs: ValueId, rhs: ValueId) -> ValueId {
-        let ty = if op.is_comparison() { Type::I1 } else { Type::I64 };
-        self.emit(ty, |dest| Inst::Binary { dest, op, prim, lhs, rhs })
+        let ty = if op.is_comparison() {
+            Type::I1
+        } else {
+            Type::I64
+        };
+        self.emit(ty, |dest| Inst::Binary {
+            dest,
+            op,
+            prim,
+            lhs,
+            rhs,
+        })
     }
 
     /// The shorter of two lengths, as a join.
@@ -1098,14 +1367,26 @@ impl FnLower<'_> {
         let exit = self.block(&[ret_t]);
         let (missing, found) = self.fork(outside);
         self.cur = found;
-        let e = self.emit(elem_t, |dest| Inst::ArrayGet { dest, array: xs, index: i });
+        let e = self.emit(elem_t, |dest| Inst::ArrayGet {
+            dest,
+            array: xs,
+            index: i,
+        });
         if self.counts.counted(&elem) {
             self.push(Inst::IncRef { value: e });
         }
-        let v = self.emit(ret_t, |dest| Inst::MakeEnum { dest, variant: some, fields: vec![e] });
+        let v = self.emit(ret_t, |dest| Inst::MakeEnum {
+            dest,
+            variant: some,
+            fields: vec![e],
+        });
         self.set_term(Term::Jump(Target::new(exit, vec![v])));
         self.cur = missing;
-        let v = self.emit(ret_t, |dest| Inst::MakeEnum { dest, variant: none, fields: Vec::new() });
+        let v = self.emit(ret_t, |dest| Inst::MakeEnum {
+            dest,
+            variant: none,
+            fields: Vec::new(),
+        });
         self.set_term(Term::Jump(Target::new(exit, vec![v])));
         self.cur = exit;
         self.code.get(exit).params.first().copied()
@@ -1116,7 +1397,11 @@ impl FnLower<'_> {
     fn callee(&mut self, f: ValueId, step: Option<FuncIdx>, want: usize) -> Via {
         let thunk = Via::Thunk(f);
         let Some(func) = step else { return thunk };
-        let g = self.program.funcs.get(func.index()).or_ice("a step is a function of the program");
+        let g = self
+            .program
+            .funcs
+            .get(func.index())
+            .or_ice("a step is a function of the program");
         // An intrinsic has no body to call. A step named by reference is never
         // a merged tail-call group, which only its members' forwarders call.
         if !matches!(g.kind, FuncKind::Body(_)) {
@@ -1130,10 +1415,18 @@ impl FnLower<'_> {
             None
         } else {
             let env_t = self.type_of(&Ty::tuple([]));
-            Some(self.emit(env_t, |dest| Inst::MakeStruct { dest, fields: Vec::new() }))
+            Some(self.emit(env_t, |dest| Inst::MakeStruct {
+                dest,
+                fields: Vec::new(),
+            }))
         };
         // The column `lower::facts` copies onto the callee.
-        let own = self.plan.func(func).or_ice("`rc` plans every function").params.clone();
+        let own = self
+            .plan
+            .func(func)
+            .or_ice("`rc` plans every function")
+            .params
+            .clone();
         let own = own.into_iter().skip(usize::from(env.is_some())).collect();
         Via::Direct { func, env, own }
     }
@@ -1160,11 +1453,19 @@ impl FnLower<'_> {
                 let mut all: Vec<ValueId> = env.iter().copied().collect();
                 all.extend(values);
                 let func = *func;
-                self.emit(ret, |dest| Inst::Call { dest, func, args: all })
+                self.emit(ret, |dest| Inst::Call {
+                    dest,
+                    func,
+                    args: all,
+                })
             }
             Via::Thunk(f) => {
                 let callee = *f;
-                self.emit(ret, |dest| Inst::CallIndirect { dest, callee, args: values })
+                self.emit(ret, |dest| Inst::CallIndirect {
+                    dest,
+                    callee,
+                    args: values,
+                })
             }
         };
         for value in release {
@@ -1206,7 +1507,13 @@ impl FnLower<'_> {
         });
         let body = self.block(&[]);
         self.cur = body;
-        Walk { header, body, i, vars, ended }
+        Walk {
+            header,
+            body,
+            i,
+            vars,
+            ended,
+        }
     }
 
     /// The back edge, from the current block, with the next iteration's
@@ -1223,8 +1530,11 @@ impl FnLower<'_> {
     /// Closes the loop, and leaves the lowering in the block after it.
     fn end(&mut self, w: &Walk) {
         let done = self.block(&[]);
-        self.code.get_mut(w.header).term =
-            Term::Branch { cond: w.ended, then: Target::to(done), else_: Target::to(w.body) };
+        self.code.get_mut(w.header).term = Term::Branch {
+            cond: w.ended,
+            then: Target::to(done),
+            else_: Target::to(w.body),
+        };
         self.cur = done;
     }
 
@@ -1232,12 +1542,22 @@ impl FnLower<'_> {
     fn fork(&mut self, cond: ValueId) -> (BlockId, BlockId) {
         let then = self.block(&[]);
         let else_ = self.block(&[]);
-        self.set_term(Term::Branch { cond, then: Target::to(then), else_: Target::to(else_) });
+        self.set_term(Term::Branch {
+            cond,
+            then: Target::to(then),
+            else_: Target::to(else_),
+        });
         (then, else_)
     }
 
     fn add_one(&mut self, v: ValueId) -> ValueId {
         let one = self.int(Type::I64, 1);
-        self.emit(Type::I64, |dest| Inst::Binary { dest, op: BinOp::Add, prim: Prim::I64, lhs: v, rhs: one })
+        self.emit(Type::I64, |dest| Inst::Binary {
+            dest,
+            op: BinOp::Add,
+            prim: Prim::I64,
+            lhs: v,
+            rhs: one,
+        })
     }
 }

@@ -119,15 +119,74 @@ pub struct Module {
 
 /// Type names a module already has, so a schema cannot take them.
 const RESERVED: &[&str] = &[
-    "Str", "Int", "Float", "F32", "F64", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "Bool",
-    "Char", "Option", "Result", "Json", "Allocator", "Self",
+    "Str",
+    "Int",
+    "Float",
+    "F32",
+    "F64",
+    "I8",
+    "I16",
+    "I32",
+    "I64",
+    "U8",
+    "U16",
+    "U32",
+    "U64",
+    "Bool",
+    "Char",
+    "Option",
+    "Result",
+    "Json",
+    "Allocator",
+    "Self",
 ];
 
 const KEYWORDS: &[&str] = &[
-    "as", "const", "context", "ctx", "derive", "effect", "else", "enum", "export", "false", "fn", "for", "from",
-    "if", "impl", "import", "let", "match", "self", "struct", "test", "trait", "true", "type", "async", "await",
-    "break", "continue", "do", "in", "is", "loop", "module", "mut", "opaque", "panic", "pub", "return",
-    "unreachable", "use", "when", "where", "while", "with", "yield",
+    "as",
+    "const",
+    "context",
+    "ctx",
+    "derive",
+    "effect",
+    "else",
+    "enum",
+    "export",
+    "false",
+    "fn",
+    "for",
+    "from",
+    "if",
+    "impl",
+    "import",
+    "let",
+    "match",
+    "self",
+    "struct",
+    "test",
+    "trait",
+    "true",
+    "type",
+    "async",
+    "await",
+    "break",
+    "continue",
+    "do",
+    "in",
+    "is",
+    "loop",
+    "module",
+    "mut",
+    "opaque",
+    "panic",
+    "pub",
+    "return",
+    "unreachable",
+    "use",
+    "when",
+    "where",
+    "while",
+    "with",
+    "yield",
 ];
 
 /// How deeply `$ref`s may nest before the schema is taken to loop.
@@ -145,7 +204,10 @@ struct Gen<'a, 'r> {
 /// `Upper` camel case, from any spelling: `eu-west` is `EuWest`.
 fn upper_camel(s: &str) -> String {
     let mut out = String::new();
-    for word in s.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()) {
+    for word in s
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty())
+    {
         let mut chars = word.chars();
         out.extend(chars.next().map(|c| c.to_ascii_uppercase()));
         out.extend(chars);
@@ -163,7 +225,11 @@ fn upper_camel(s: &str) -> String {
 fn lower_camel(s: &str) -> String {
     let upper = upper_camel(s);
     let mut chars = upper.chars();
-    let mut out: String = chars.next().map(|c| c.to_ascii_lowercase()).into_iter().collect();
+    let mut out: String = chars
+        .next()
+        .map(|c| c.to_ascii_lowercase())
+        .into_iter()
+        .collect();
     out.extend(chars);
     if KEYWORDS.contains(&out.as_str()) {
         out.push('_');
@@ -178,20 +244,47 @@ fn stem(path: &str) -> &str {
 }
 
 fn docs_of(node: &Node) -> Vec<String> {
-    let text = node.get("description").and_then(Node::as_str).unwrap_or_default();
+    let text = node
+        .get("description")
+        .and_then(Node::as_str)
+        .unwrap_or_default();
     text.lines().map(|l| l.trim_end().to_string()).collect()
 }
 
 /// The keywords with no sound type mapping, and why.
 const REFUSED: &[(&str, &str)] = &[
-    ("if", "`if`, `then` and `else` make a value's shape depend on its contents"),
-    ("then", "`if`, `then` and `else` make a value's shape depend on its contents"),
-    ("else", "`if`, `then` and `else` make a value's shape depend on its contents"),
-    ("patternProperties", "`patternProperties` gives a property a type by its name's spelling"),
-    ("dependentSchemas", "`dependentSchemas` changes an object's shape by which properties it has"),
-    ("prefixItems", "`prefixItems` gives each position of an array its own type"),
-    ("allOf", "`allOf` merges schemas, and a merge is not one type"),
-    ("$dynamicRef", "`$dynamicRef` names a schema only a document's path decides"),
+    (
+        "if",
+        "`if`, `then` and `else` make a value's shape depend on its contents",
+    ),
+    (
+        "then",
+        "`if`, `then` and `else` make a value's shape depend on its contents",
+    ),
+    (
+        "else",
+        "`if`, `then` and `else` make a value's shape depend on its contents",
+    ),
+    (
+        "patternProperties",
+        "`patternProperties` gives a property a type by its name's spelling",
+    ),
+    (
+        "dependentSchemas",
+        "`dependentSchemas` changes an object's shape by which properties it has",
+    ),
+    (
+        "prefixItems",
+        "`prefixItems` gives each position of an array its own type",
+    ),
+    (
+        "allOf",
+        "`allOf` merges schemas, and a merge is not one type",
+    ),
+    (
+        "$dynamicRef",
+        "`$dynamicRef` names a schema only a document's path decides",
+    ),
 ];
 
 impl<'a, 'r> Gen<'a, 'r> {
@@ -223,7 +316,12 @@ impl<'a, 'r> Gen<'a, 'r> {
         let members = match &node.value {
             Value::Bool(true) => return Ty::Any,
             Value::Bool(false) => {
-                self.refuse(&file, node.span, "false", "`false` matches no value, so there is nothing to type");
+                self.refuse(
+                    &file,
+                    node.span,
+                    "false",
+                    "`false` matches no value, so there is nothing to type",
+                );
                 return Ty::Any;
             }
             Value::Object(members, _) => members,
@@ -239,22 +337,38 @@ impl<'a, 'r> Gen<'a, 'r> {
             }
             let schema_valued = matches!(m.value.value, Value::Object(..));
             if m.key.starts_with("unevaluated") && schema_valued {
-                self.refuse(&file, m.key_span, &m.key, "a schema for the leftover members gives them a type no field or element has");
+                self.refuse(
+                    &file,
+                    m.key_span,
+                    &m.key,
+                    "a schema for the leftover members gives them a type no field or element has",
+                );
                 return Ty::Any;
             }
-            if m.key == "additionalProperties" && schema_valued && node.get("properties").is_some() {
+            if m.key == "additionalProperties" && schema_valued && node.get("properties").is_some()
+            {
                 self.refuse(&file, m.key_span, &m.key, "a schema for the other properties beside `properties` makes an object both a struct and a map");
                 return Ty::Any;
             }
         }
         if let Some(reference) = node.get("$ref").and_then(Node::as_str) {
-            let (target_resource, target) =
-                self.reg.target(reference, resource).or_ice("the check resolved every `$ref` before anything generates");
+            let (target_resource, target) = self
+                .reg
+                .target(reference, resource)
+                .or_ice("the check resolved every `$ref` before anything generates");
             if self.depth >= MAX_DEPTH {
-                self.refuse(&file, node.span, "$ref", "the references loop without reaching an object");
+                self.refuse(
+                    &file,
+                    node.span,
+                    "$ref",
+                    "the references loop without reaching an object",
+                );
                 return Ty::Any;
             }
-            let fragment = reference.split_once('#').map(|(_, f)| f).unwrap_or_default();
+            let fragment = reference
+                .split_once('#')
+                .map(|(_, f)| f)
+                .unwrap_or_default();
             let name = match fragment.rsplit('/').next().filter(|n| !n.is_empty()) {
                 Some(last) => last.to_string(),
                 None => stem(&self.reg.file_of(target_resource)).to_string(),
@@ -265,7 +379,9 @@ impl<'a, 'r> Gen<'a, 'r> {
             return ty;
         }
         for keyword in ["oneOf", "anyOf"] {
-            let Some(m) = node.member(keyword) else { continue };
+            let Some(m) = node.member(keyword) else {
+                continue;
+            };
             let items = elements(&m.value);
             let is_null = |n: &Node| n.get("type").and_then(Node::as_str) == Some("null");
             if let [a, b] = items {
@@ -280,7 +396,12 @@ impl<'a, 'r> Gen<'a, 'r> {
                 }
                 self.refuse(&file, m.key_span, keyword, "a `oneOf` is typed only when every branch is an object with one required property whose `const` string names it");
             } else {
-                self.refuse(&file, m.key_span, keyword, "an `anyOf` has no tag saying which branch a value is");
+                self.refuse(
+                    &file,
+                    m.key_span,
+                    keyword,
+                    "an `anyOf` has no tag saying which branch a value is",
+                );
             }
             return Ty::Any;
         }
@@ -288,9 +409,17 @@ impl<'a, 'r> Gen<'a, 'r> {
             let items = elements(&e.value);
             let nullable = items.iter().any(|i| matches!(i.value, Value::Null));
             let strings: Vec<&str> = items.iter().filter_map(Node::as_str).collect();
-            let others = items.len().saturating_sub(strings.len()).saturating_sub(usize::from(nullable));
+            let others = items
+                .len()
+                .saturating_sub(strings.len())
+                .saturating_sub(usize::from(nullable));
             if strings.is_empty() || others > 0 {
-                self.refuse(&file, e.key_span, "enum", "only an `enum` of strings is a Buri enum");
+                self.refuse(
+                    &file,
+                    e.key_span,
+                    "enum",
+                    "only an `enum` of strings is a Buri enum",
+                );
                 return Ty::Any;
             }
             let name = self.fresh(node.get("title").and_then(Node::as_str).unwrap_or(hint));
@@ -300,12 +429,26 @@ impl<'a, 'r> Gen<'a, 'r> {
             for s in strings {
                 let variant = upper_camel(s);
                 if !seen.insert(variant.clone()) {
-                    self.refuse(&file, e.value.span, "enum", &format!("two values are both the variant `{variant}`"));
+                    self.refuse(
+                        &file,
+                        e.value.span,
+                        "enum",
+                        &format!("two values are both the variant `{variant}`"),
+                    );
                     continue;
                 }
-                variants.push(Variant { value: s.to_string(), name: variant, payload: None });
+                variants.push(Variant {
+                    value: s.to_string(),
+                    name: variant,
+                    payload: None,
+                });
             }
-            self.decls.push(Decl { name: name.clone(), shape: Shape::Strings(variants), docs: docs_of(node), at: (file, node.span) });
+            self.decls.push(Decl {
+                name: name.clone(),
+                shape: Shape::Strings(variants),
+                docs: docs_of(node),
+                at: (file, node.span),
+            });
             let ty = Ty::Named(name);
             return if nullable { ty.optional() } else { ty };
         }
@@ -316,7 +459,10 @@ impl<'a, 'r> Gen<'a, 'r> {
             Some(Value::Str(s)) => vec![s.as_str()],
             Some(Value::Array(items, _)) => items.iter().filter_map(Node::as_str).collect(),
             _ => {
-                if ["properties", "additionalProperties", "required"].iter().any(|k| node.get(k).is_some()) {
+                if ["properties", "additionalProperties", "required"]
+                    .iter()
+                    .any(|k| node.get(k).is_some())
+                {
                     vec!["object"]
                 } else if node.get("items").is_some() {
                     vec!["array"]
@@ -344,18 +490,32 @@ impl<'a, 'r> Gen<'a, 'r> {
             ["object"] => self.object(node, resource, hint),
             _ => {
                 let span = node.member("type").map_or(node.span, |m| m.key_span);
-                self.refuse(&file, span, "type", "a value of several types has no one Buri type");
+                self.refuse(
+                    &file,
+                    span,
+                    "type",
+                    "a value of several types has no one Buri type",
+                );
                 return Ty::Any;
             }
         };
-        if nullable { base.optional() } else { base }
+        if nullable {
+            base.optional()
+        } else {
+            base
+        }
     }
 
     fn object(&mut self, node: &'r Node, resource: usize, hint: &str) -> Ty {
         let file = self.reg.file_of(resource);
         let Some(Value::Object(properties, _)) = node.get("properties").map(|p| &p.value) else {
             return match node.get("additionalProperties") {
-                Some(schema @ Node { value: Value::Object(..), .. }) => Ty::Map(Box::new(self.ty(schema, resource, hint))),
+                Some(
+                    schema @ Node {
+                        value: Value::Object(..),
+                        ..
+                    },
+                ) => Ty::Map(Box::new(self.ty(schema, resource, hint))),
                 _ => Ty::Any,
             };
         };
@@ -371,35 +531,73 @@ impl<'a, 'r> Gen<'a, 'r> {
         for m in properties {
             // `"$schema"` says where a file's schema is, and a property with
             // one value says nothing: neither is a field.
-            if m.key == "$schema" || m.value.get("const").is_some() || matches!(m.value.value, Value::Bool(false)) {
+            if m.key == "$schema"
+                || m.value.get("const").is_some()
+                || matches!(m.value.value, Value::Bool(false))
+            {
                 continue;
             }
             let field = lower_camel(&m.key);
             if let Some(other) = fields.iter().find(|f| f.name == field) {
-                let why = format!("`{}` and `{}` are both the field `{field}`", other.key, m.key);
+                let why = format!(
+                    "`{}` and `{}` are both the field `{field}`",
+                    other.key, m.key
+                );
                 self.refuse(&file, m.key_span, "properties", &why);
                 continue;
             }
-            let ty = self.ty(&m.value, resource, &format!("{name}{}", upper_camel(&m.key)));
-            let ty = if required.contains(m.key.as_str()) { ty } else { ty.optional() };
-            fields.push(Field { key: m.key.clone(), name: field, ty, docs: docs_of(&m.value), at: (file.clone(), m.key_span) });
+            let ty = self.ty(
+                &m.value,
+                resource,
+                &format!("{name}{}", upper_camel(&m.key)),
+            );
+            let ty = if required.contains(m.key.as_str()) {
+                ty
+            } else {
+                ty.optional()
+            };
+            fields.push(Field {
+                key: m.key.clone(),
+                name: field,
+                ty,
+                docs: docs_of(&m.value),
+                at: (file.clone(), m.key_span),
+            });
         }
-        let decl = Decl { name: name.clone(), shape: Shape::Struct(fields), docs: docs_of(node), at: (file, node.span) };
+        let decl = Decl {
+            name: name.clone(),
+            shape: Shape::Struct(fields),
+            docs: docs_of(node),
+            at: (file, node.span),
+        };
         self.decls.insert(index, decl);
         Ty::Named(name)
     }
 
     /// A `oneOf` whose branches are objects told apart by one required
     /// property's `const` string: an enum, a variant per branch.
-    fn tagged(&mut self, node: &'r Node, resource: usize, items: &'r [Node], hint: &str) -> Option<Ty> {
+    fn tagged(
+        &mut self,
+        node: &'r Node,
+        resource: usize,
+        items: &'r [Node],
+        hint: &str,
+    ) -> Option<Ty> {
         let mut branches: Vec<(&'r Node, usize, Option<String>)> = Vec::new();
         for item in items {
             let r = self.reg.enter(item, resource);
             match item.get("$ref").and_then(Node::as_str) {
                 Some(reference) => {
                     let (tr, target) = self.reg.target(reference, r)?;
-                    let fragment = reference.split_once('#').map(|(_, f)| f).unwrap_or_default();
-                    let name = fragment.rsplit('/').next().filter(|n| !n.is_empty()).map(str::to_string);
+                    let fragment = reference
+                        .split_once('#')
+                        .map(|(_, f)| f)
+                        .unwrap_or_default();
+                    let name = fragment
+                        .rsplit('/')
+                        .next()
+                        .filter(|n| !n.is_empty())
+                        .map(str::to_string);
                     branches.push((target, tr, name));
                 }
                 None => branches.push((item, r, None)),
@@ -414,9 +612,12 @@ impl<'a, 'r> Gen<'a, 'r> {
             required.then(|| value.to_string())
         };
         let first = branches.first()?.0;
-        let Some(Value::Object(candidates, _)) = first.get("properties").map(|p| &p.value) else { return None };
+        let Some(Value::Object(candidates, _)) = first.get("properties").map(|p| &p.value) else {
+            return None;
+        };
         let tag = candidates.iter().map(|m| m.key.clone()).find(|key| {
-            let values: Vec<Option<String>> = branches.iter().map(|(b, _, _)| tag_of(b, key)).collect();
+            let values: Vec<Option<String>> =
+                branches.iter().map(|(b, _, _)| tag_of(b, key)).collect();
             let unique: BTreeSet<&Option<String>> = values.iter().collect();
             values.iter().all(Option::is_some) && unique.len() == values.len()
         })?;
@@ -431,11 +632,18 @@ impl<'a, 'r> Gen<'a, 'r> {
             let value = tag_of(branch, &tag).unwrap_or_default();
             let variant = upper_camel(&value);
             if !seen.insert(variant.clone()) {
-                self.refuse(&file, node.span, "oneOf", &format!("two branches are both the variant `{variant}`"));
+                self.refuse(
+                    &file,
+                    node.span,
+                    "oneOf",
+                    &format!("two branches are both the variant `{variant}`"),
+                );
                 continue;
             }
             let has_fields = match branch.get("properties").map(|p| &p.value) {
-                Some(Value::Object(ms, _)) => ms.iter().any(|m| m.key != "$schema" && m.value.get("const").is_none()),
+                Some(Value::Object(ms, _)) => ms
+                    .iter()
+                    .any(|m| m.key != "$schema" && m.value.get("const").is_none()),
                 _ => false,
             };
             let payload = match has_fields {
@@ -448,9 +656,18 @@ impl<'a, 'r> Gen<'a, 'r> {
                     }
                 }
             };
-            variants.push(Variant { value, name: variant, payload });
+            variants.push(Variant {
+                value,
+                name: variant,
+                payload,
+            });
         }
-        let decl = Decl { name: name.clone(), shape: Shape::Tagged { tag, variants }, docs: docs_of(node), at: (file, node.span) };
+        let decl = Decl {
+            name: name.clone(),
+            shape: Shape::Tagged { tag, variants },
+            docs: docs_of(node),
+            at: (file, node.span),
+        };
         self.decls.insert(index, decl);
         Some(Ty::Named(name))
     }
@@ -500,13 +717,18 @@ impl Writer {
     fn anchored(&mut self, s: &str, at: &(String, Range)) {
         let start = self.text.len();
         self.text.push_str(s);
-        self.anchors.push((start, self.text.len(), at.0.clone(), at.1));
+        self.anchors
+            .push((start, self.text.len(), at.0.clone(), at.1));
         self.text.push('\n');
     }
 
     fn docs(&mut self, docs: &[String], indent: &str) {
         for d in docs {
-            let line = if d.is_empty() { format!("{indent}///") } else { format!("{indent}/// {d}") };
+            let line = if d.is_empty() {
+                format!("{indent}///")
+            } else {
+                format!("{indent}/// {d}")
+            };
             self.line(&line);
         }
     }
@@ -529,7 +751,10 @@ fn types(gen: &Gen, w: &mut Writer) {
                     w.line(&format!("export struct {} {{", decl.name));
                     for f in fields {
                         w.docs(&f.docs, "    ");
-                        w.anchored(&format!("    export {}: {},", f.name, f.ty.spelled()), &f.at);
+                        w.anchored(
+                            &format!("    export {}: {},", f.name, f.ty.spelled()),
+                            &f.at,
+                        );
                     }
                     w.line("}");
                 }
@@ -547,7 +772,8 @@ fn types(gen: &Gen, w: &mut Writer) {
                 w.line("}");
             }
         }
-        w.anchors.push((start, w.text.len(), decl.at.0.clone(), decl.at.1));
+        w.anchors
+            .push((start, w.text.len(), decl.at.0.clone(), decl.at.1));
         w.line("");
     }
 }
@@ -563,19 +789,42 @@ fn uses_json(gen: &Gen) -> bool {
 /// The files a module is generated from, parsed, with the one the root type
 /// comes from first.
 fn generator<'a, 'r>(reg: &'a Registry<'r>) -> Gen<'a, 'r> {
-    Gen { reg, decls: Vec::new(), named: HashMap::new(), taken: BTreeSet::new(), refused: Vec::new(), depth: 0 }
+    Gen {
+        reg,
+        decls: Vec::new(),
+        named: HashMap::new(),
+        taken: BTreeSet::new(),
+        refused: Vec::new(),
+        depth: 0,
+    }
 }
 
 /// The root type of the schema file at `path`, declared.
 fn root<'r>(gen: &mut Gen<'_, 'r>, files: &'r [SchemaFile], path: &str) -> String {
-    let file = files.iter().find(|f| f.path == path).or_ice("a schema's own file is in the set it was read with");
-    let resource = gen.reg.resource_of_file(path).or_ice("every file in the set is a resource of its registry");
-    let hint = file.root.get("title").and_then(Node::as_str).unwrap_or(stem(path)).to_string();
+    let file = files
+        .iter()
+        .find(|f| f.path == path)
+        .or_ice("a schema's own file is in the set it was read with");
+    let resource = gen
+        .reg
+        .resource_of_file(path)
+        .or_ice("every file in the set is a resource of its registry");
+    let hint = file
+        .root
+        .get("title")
+        .and_then(Node::as_str)
+        .unwrap_or(stem(path))
+        .to_string();
     match gen.ty(&file.root, resource, &hint) {
         Ty::Named(name) => name,
         other => {
             let name = gen.fresh(&hint);
-            let decl = Decl { name: name.clone(), shape: Shape::Alias(other), docs: docs_of(&file.root), at: (path.to_string(), file.root.span) };
+            let decl = Decl {
+                name: name.clone(),
+                shape: Shape::Alias(other),
+                docs: docs_of(&file.root),
+                at: (path.to_string(), file.root.span),
+            };
             gen.decls.insert(0, decl);
             name
         }
@@ -608,7 +857,12 @@ pub fn schema_module(files: &[SchemaFile], path: &str) -> Result<Module, Vec<Fin
 
 /// The types of the data file's schema, and the file's contents as
 /// `export let <file>: <Root>`.
-pub fn data_module(files: &[SchemaFile], schema: &str, path: &str, data: &Node) -> Result<Module, Vec<Finding>> {
+pub fn data_module(
+    files: &[SchemaFile],
+    schema: &str,
+    path: &str,
+    data: &Node,
+) -> Result<Module, Vec<Finding>> {
     let reg = Registry::new(files);
     let mut gen = generator(&reg);
     let root = root(&mut gen, files, schema);
@@ -624,8 +878,16 @@ pub fn data_module(files: &[SchemaFile], schema: &str, path: &str, data: &Node) 
     types(&gen, &mut w);
     let start = w.text.len();
     let value = literal(&gen, data, &Ty::Named(root.clone()), 0);
-    w.line(&format!("export let {}: {root} = {value};", lower_camel(stem(path))));
-    w.anchors.push((start, w.text.len().saturating_sub(1), path.to_string(), data.span));
+    w.line(&format!(
+        "export let {}: {root} = {value};",
+        lower_camel(stem(path))
+    ));
+    w.anchors.push((
+        start,
+        w.text.len().saturating_sub(1),
+        path.to_string(),
+        data.span,
+    ));
     Ok(finish(w, root))
 }
 
@@ -645,8 +907,12 @@ pub fn contract_module(files: &[SchemaFile], path: &str) -> Result<Module, Vec<F
     w.line("");
     types(&gen, &mut w);
     let mut helpers: BTreeSet<&'static str> = BTreeSet::new();
-    w.line(&format!("/// Reads the value a tool under this contract is handed as a `{root}`."));
-    w.line(&format!("export fn decode<C: Allocator>(ctx: C, text: Str): Result<{root}, Str> {{"));
+    w.line(&format!(
+        "/// Reads the value a tool under this contract is handed as a `{root}`."
+    ));
+    w.line(&format!(
+        "export fn decode<C: Allocator>(ctx: C, text: Str): Result<{root}, Str> {{"
+    ));
     w.line("    let value = json.parse(ctx, text).mapErr(fn(_e) => \"the value is not JSON\")?;");
     w.line(&format!("    decode{root}(ctx, value)"));
     w.line("}");
@@ -666,7 +932,11 @@ fn finish(mut w: Writer, root: String) -> Module {
         w.text.pop();
     }
     w.anchors.sort_by_key(|a| (a.0, std::cmp::Reverse(a.1)));
-    Module { text: w.text, anchors: w.anchors, root }
+    Module {
+        text: w.text,
+        anchors: w.anchors,
+        root,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -674,7 +944,13 @@ fn finish(mut w: Writer, root: String) -> Module {
 // ---------------------------------------------------------------------------
 
 /// A `Result<T, Str>` expression reading `json`, a `Json`, as `ty`.
-fn read(ty: &Ty, ctx: &str, json: &str, depth: usize, helpers: &mut BTreeSet<&'static str>) -> String {
+fn read(
+    ty: &Ty,
+    ctx: &str,
+    json: &str,
+    depth: usize,
+    helpers: &mut BTreeSet<&'static str>,
+) -> String {
     let nested = |helper: &'static str, t: &Ty, helpers: &mut BTreeSet<&'static str>| {
         helpers.insert(helper);
         let (c, item) = (format!("c{depth}"), format!("item{depth}"));
@@ -704,14 +980,22 @@ fn decoder(decl: &Decl, helpers: &mut BTreeSet<&'static str>, w: &mut Writer) {
     let name = &decl.name;
     let mut body = String::new();
     match &decl.shape {
-        Shape::Alias(ty) => body.push_str(&format!("    {}\n", read(ty, "ctx", "value", 0, helpers))),
-        Shape::Struct(fields) if fields.is_empty() => body.push_str(&format!("    .Ok({name} {{}})\n")),
+        Shape::Alias(ty) => {
+            body.push_str(&format!("    {}\n", read(ty, "ctx", "value", 0, helpers)))
+        }
+        Shape::Struct(fields) if fields.is_empty() => {
+            body.push_str(&format!("    .Ok({name} {{}})\n"))
+        }
         Shape::Struct(fields) => {
             body.push_str(&format!("    .Ok({name} {{\n"));
             for f in fields {
                 helpers.insert("member");
                 let json = format!("member(value, {})", quote(&f.key));
-                body.push_str(&format!("        {}: {}?,\n", f.name, read(&f.ty, "ctx", &json, 0, helpers)));
+                body.push_str(&format!(
+                    "        {}: {}?,\n",
+                    f.name,
+                    read(&f.ty, "ctx", &json, 0, helpers)
+                ));
             }
             body.push_str("    })\n");
         }
@@ -719,14 +1003,23 @@ fn decoder(decl: &Decl, helpers: &mut BTreeSet<&'static str>, w: &mut Writer) {
             helpers.insert("readStr");
             body.push_str("    match (readStr(value)?) {\n");
             for v in variants {
-                body.push_str(&format!("        {} => .Ok({name}.{}),\n", quote(&v.value), v.name));
+                body.push_str(&format!(
+                    "        {} => .Ok({name}.{}),\n",
+                    quote(&v.value),
+                    v.name
+                ));
             }
-            body.push_str(&format!("        _ => .Err(\"expected a {name}\"),\n    }}\n"));
+            body.push_str(&format!(
+                "        _ => .Err(\"expected a {name}\"),\n    }}\n"
+            ));
         }
         Shape::Tagged { tag, variants } => {
             helpers.insert("readStr");
             helpers.insert("member");
-            body.push_str(&format!("    match (readStr(member(value, {}))?) {{\n", quote(tag)));
+            body.push_str(&format!(
+                "    match (readStr(member(value, {}))?) {{\n",
+                quote(tag)
+            ));
             for v in variants {
                 let made = match &v.payload {
                     Some(p) => format!("{name}.{}(decode{p}(ctx, value)?)", v.name),
@@ -734,10 +1027,14 @@ fn decoder(decl: &Decl, helpers: &mut BTreeSet<&'static str>, w: &mut Writer) {
                 };
                 body.push_str(&format!("        {} => .Ok({made}),\n", quote(&v.value)));
             }
-            body.push_str(&format!("        _ => .Err(\"expected a {name}\"),\n    }}\n"));
+            body.push_str(&format!(
+                "        _ => .Err(\"expected a {name}\"),\n    }}\n"
+            ));
         }
     }
-    w.line(&format!("fn decode{name}<C: Allocator>(ctx: C, value: Json): Result<{name}, Str> {{"));
+    w.line(&format!(
+        "fn decode{name}<C: Allocator>(ctx: C, value: Json): Result<{name}, Str> {{"
+    ));
     w.text.push_str(&body);
     w.line("}");
 }
@@ -880,11 +1177,15 @@ fn literal(gen: &Gen, node: &Node, ty: &Ty, indent: usize) -> String {
         (Ty::F64, Value::Number(n)) => float(n),
         (Ty::Bool, Value::Bool(b)) => b.to_string(),
         (Ty::Unit, _) => "()".to_string(),
-        (Ty::List(t), Value::Array(items, _)) => {
-            list(items.iter().map(|i| literal(gen, i, t, next)).collect(), indent)
-        }
+        (Ty::List(t), Value::Array(items, _)) => list(
+            items.iter().map(|i| literal(gen, i, t, next)).collect(),
+            indent,
+        ),
         (Ty::Map(t), Value::Object(members, _)) => list(
-            members.iter().map(|m| format!("({}, {})", quote(&m.key), literal(gen, &m.value, t, next))).collect(),
+            members
+                .iter()
+                .map(|m| format!("({}, {})", quote(&m.key), literal(gen, &m.value, t, next)))
+                .collect(),
             indent,
         ),
         (Ty::Named(name), _) => named(gen, node, name, indent),
@@ -893,21 +1194,25 @@ fn literal(gen: &Gen, node: &Node, ty: &Ty, indent: usize) -> String {
 }
 
 fn named(gen: &Gen, node: &Node, name: &str, indent: usize) -> String {
-    let decl = gen.decl(name).or_ice("every type a value names was declared");
+    let decl = gen
+        .decl(name)
+        .or_ice("every type a value names was declared");
     match &decl.shape {
         Shape::Alias(ty) => literal(gen, node, ty, indent),
         Shape::Struct(fields) => struct_literal(gen, node, name, fields, indent),
         Shape::Strings(variants) => {
             let value = node.as_str().unwrap_or_default();
-            let variant = variants.iter().find(|v| v.value == value).map_or("", |v| v.name.as_str());
+            let variant = variants
+                .iter()
+                .find(|v| v.value == value)
+                .map_or("", |v| v.name.as_str());
             format!("{name}.{variant}")
         }
         Shape::Tagged { tag, variants } => {
             let value = node.get(tag).and_then(Node::as_str).unwrap_or_default();
-            let v = variants
-                .iter()
-                .find(|v| v.value == value)
-                .or_ice("the check matched the value to one branch, and its tag is that branch's variant");
+            let v = variants.iter().find(|v| v.value == value).or_ice(
+                "the check matched the value to one branch, and its tag is that branch's variant",
+            );
             match &v.payload {
                 Some(p) => format!("{name}.{}({})", v.name, named(gen, node, p, indent)),
                 None => format!("{name}.{}", v.name),
@@ -942,11 +1247,23 @@ fn json_literal(node: &Node, indent: usize) -> String {
         Value::Number(n) => format!("Json.Num({})", float(n)),
         Value::Str(s) => format!("Json.Str({})", quote(s)),
         Value::Array(items, _) => {
-            format!("Json.Array({})", list(items.iter().map(|i| json_literal(i, next)).collect(), indent))
+            format!(
+                "Json.Array({})",
+                list(
+                    items.iter().map(|i| json_literal(i, next)).collect(),
+                    indent
+                )
+            )
         }
         Value::Object(members, _) => format!(
             "Json.Object({})",
-            list(members.iter().map(|m| format!("({}, {})", quote(&m.key), json_literal(&m.value, next))).collect(), indent)
+            list(
+                members
+                    .iter()
+                    .map(|m| format!("({}, {})", quote(&m.key), json_literal(&m.value, next)))
+                    .collect(),
+                indent
+            )
         ),
     }
 }
@@ -1005,7 +1322,10 @@ mod tests {
     fn files(texts: &[(&str, &str)]) -> Vec<SchemaFile> {
         texts
             .iter()
-            .map(|(p, t)| SchemaFile { path: p.to_string(), root: parse(t, Dialect::Json5).expect("parses").root })
+            .map(|(p, t)| SchemaFile {
+                path: p.to_string(),
+                root: parse(t, Dialect::Json5).expect("parses").root,
+            })
             .collect()
     }
 
@@ -1020,22 +1340,39 @@ mod tests {
 
     #[test]
     fn strict_json_spells_what_json5_adds() {
-        let doc = parse("{ a: Infinity, b: -Infinity, c: NaN, d: 0x10, e: .5, // x\n }", Dialect::Json5).unwrap();
-        assert_eq!(strict(&doc.root), r#"{"a":"Infinity","b":"-Infinity","c":"NaN","d":16,"e":0.5}"#);
+        let doc = parse(
+            "{ a: Infinity, b: -Infinity, c: NaN, d: 0x10, e: .5, // x\n }",
+            Dialect::Json5,
+        )
+        .unwrap();
+        assert_eq!(
+            strict(&doc.root),
+            r#"{"a":"Infinity","b":"-Infinity","c":"NaN","d":16,"e":0.5}"#
+        );
     }
 
     #[test]
     fn a_float_literal_always_has_a_point() {
         let doc = parse("[1e300, 2.5, 3]", Dialect::Json).unwrap();
-        let Value::Array(items, _) = &doc.root.value else { panic!() };
-        let spelled: Vec<String> = items.iter().map(|i| match &i.value { Value::Number(n) => float(n), _ => String::new() }).collect();
+        let Value::Array(items, _) = &doc.root.value else {
+            panic!()
+        };
+        let spelled: Vec<String> = items
+            .iter()
+            .map(|i| match &i.value {
+                Value::Number(n) => float(n),
+                _ => String::new(),
+            })
+            .collect();
         assert_eq!(spelled, vec!["1.0e300", "2.5", "3.0"]);
     }
 
     #[test]
     fn a_schema_with_no_type_is_refused_where_it_says_so() {
         let fs = files(&[("s.json", r#"{ "if": {}, "then": {} }"#)]);
-        let Err(refused) = schema_module(&fs, "s.json") else { panic!("refused") };
+        let Err(refused) = schema_module(&fs, "s.json") else {
+            panic!("refused")
+        };
         assert_eq!(refused.len(), 1);
         assert_eq!(refused[0].code, "json-untyped-keyword");
     }

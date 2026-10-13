@@ -8,7 +8,10 @@ fn suite(scratch: &Scratch, name: &str, want: i64) {
         &format!("lib/{name}/BUILD.buri"),
         &format!("library {{\n  test {{ sources: [\"test/{name}.buri\"] }}\n}}\n"),
     );
-    scratch.write(&format!("lib/{name}/lib.buri"), "export fn answer(): I64 { 1 }\n");
+    scratch.write(
+        &format!("lib/{name}/lib.buri"),
+        "export fn answer(): I64 { 1 }\n",
+    );
     scratch.write(
         &format!("lib/{name}/test/{name}.buri"),
         &format!(
@@ -75,7 +78,12 @@ fn two_suites_run_side_by_side() {
         &[("BURI_JS", &script), SMALL_HOST],
     );
     run.ok();
-    assert_eq!(run.tests_passed(), 2, "the suites did not both run:\n{}", indent(&run.all()));
+    assert_eq!(
+        run.tests_passed(),
+        2,
+        "the suites did not both run:\n{}",
+        indent(&run.all())
+    );
 }
 
 /// Suites are reported in label order whichever finishes first, and the same
@@ -100,16 +108,29 @@ fn the_report_is_in_suite_order_whichever_finishes_first() {
     );
     let report = || {
         let _ = std::fs::remove_file(&done);
-        let run = scratch
-            .run_with_env(&["test", "//...", "--output=js", "--jobs=2"], &[("BURI_JS", &script), SMALL_HOST]);
+        let run = scratch.run_with_env(
+            &["test", "//...", "--output=js", "--jobs=2"],
+            &[("BURI_JS", &script), SMALL_HOST],
+        );
         run.exits(1);
         // Everything but the summary line, which carries the time taken.
-        run.stdout.lines().filter(|l| !l.contains(" passed, ")).collect::<Vec<_>>().join("\n")
+        run.stdout
+            .lines()
+            .filter(|l| !l.contains(" passed, "))
+            .collect::<Vec<_>>()
+            .join("\n")
     };
     let first = report();
-    let a = first.find("a answers").unwrap_or_else(|| panic!("no report for //lib/a:\n{first}"));
-    let b = first.find("b answers").unwrap_or_else(|| panic!("no report for //lib/b:\n{first}"));
-    assert!(a < b, "//lib/b, which finished first, was reported first:\n{first}");
+    let a = first
+        .find("a answers")
+        .unwrap_or_else(|| panic!("no report for //lib/a:\n{first}"));
+    let b = first
+        .find("b answers")
+        .unwrap_or_else(|| panic!("no report for //lib/b:\n{first}"));
+    assert!(
+        a < b,
+        "//lib/b, which finished first, was reported first:\n{first}"
+    );
     assert_eq!(first, report(), "two runs of one tree reported differently");
 }
 
@@ -166,7 +187,10 @@ fn only_an_edit_that_can_change_behaviour_re_runs_a_suite() {
         return;
     }
     first.ok();
-    assert_eq!((test_status(&first, "a"), test_status(&first, "b")), ("run".into(), "run".into()));
+    assert_eq!(
+        (test_status(&first, "a"), test_status(&first, "b")),
+        ("run".into(), "run".into())
+    );
 
     scratch.write(
         "lib/shared/lib.buri",
@@ -180,7 +204,11 @@ fn only_an_edit_that_can_change_behaviour_re_runs_a_suite() {
         "a comment edit re-ran a suite:\n{}",
         indent(&comment.all())
     );
-    assert!(comment.stdout.contains("2 cached)"), "{}", indent(&comment.all()));
+    assert!(
+        comment.stdout.contains("2 cached)"),
+        "{}",
+        indent(&comment.all())
+    );
 
     scratch.write("lib/shared/lib.buri", "export fn base(): I64 {\n  30\n}\n");
     let behaviour = scratch.run(&["test", "//...", "--explain"]);
@@ -210,12 +238,20 @@ fn a_broken_suite_leaves_the_others_batched() {
     }
     run.exits(1);
     assert_eq!(run.tests_passed(), 2, "{}", indent(&run.all()));
-    assert!(run.stdout.contains("1 failed to compile"), "{}", indent(&run.all()));
+    assert!(
+        run.stdout.contains("1 failed to compile"),
+        "{}",
+        indent(&run.all())
+    );
     let shared = run.stdout.lines().any(|l| {
         let f: Vec<&str> = l.split_whitespace().collect();
         f.len() == 5 && f[1] == "link" && f[2] == "//lib/a,//lib/b"
     });
-    assert!(shared, "the suites that compile did not share a binary:\n{}", indent(&run.all()));
+    assert!(
+        shared,
+        "the suites that compile did not share a binary:\n{}",
+        indent(&run.all())
+    );
 }
 
 /// Many suites, each in its own binary, linked and run side by side, all pass.
@@ -234,9 +270,17 @@ fn suites_linked_and_run_side_by_side_all_start() {
     for round in 1..=3 {
         let _ = std::fs::remove_dir_all(scratch.path(".buri"));
         // A batch limit of one byte puts every suite in a binary of its own.
-        let run = scratch.run_with_env(&["test", "//...", "--force"], &[("BURI_TEST_BATCH_BYTES", "1")]);
+        let run = scratch.run_with_env(
+            &["test", "//...", "--force"],
+            &[("BURI_TEST_BATCH_BYTES", "1")],
+        );
         run.ok();
-        assert_eq!(run.tests_passed(), count, "round {round}:\n{}", indent(&run.all()));
+        assert_eq!(
+            run.tests_passed(),
+            count,
+            "round {round}:\n{}",
+            indent(&run.all())
+        );
     }
 }
 
@@ -255,11 +299,16 @@ fn a_suite_named_alone_runs_its_tests_side_by_side() {
         return;
     }
     let scratch = Scratch::repo("alone-side-by-side");
-    scratch.write("lib/a/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\"] }\n}\n");
+    scratch.write(
+        "lib/a/BUILD.buri",
+        "library {\n  test { sources: [\"test/a.buri\"] }\n}\n",
+    );
     scratch.write("lib/a/lib.buri", "export fn one(): Int { 1 }\n");
     let names: Vec<String> = (0..8).map(|i| format!("test {i}")).collect();
-    let tests: String =
-        names.iter().map(|name| format!("\ntest \"{name}\" {{\n  assert.equal(one(), 1);\n}}\n")).collect();
+    let tests: String = names
+        .iter()
+        .map(|name| format!("\ntest \"{name}\" {{\n  assert.equal(one(), 1);\n}}\n"))
+        .collect();
     scratch.write(
         "lib/a/test/a.buri",
         &format!("from \"//lib/a\" import {{ one }};\nfrom \"core/testing/assert\" import * as assert;\n{tests}"),
@@ -267,13 +316,20 @@ fn a_suite_named_alone_runs_its_tests_side_by_side() {
     let held = crate::held::Held::new("alone-side-by-side");
     held.hold("handed", 1);
     held.hold("handed", 2);
-    let mut run = held.start(&scratch, &["test", "//lib/a", "--verbose", "--jobs=4", "--color=never"]);
+    let mut run = held.start(
+        &scratch,
+        &["test", "//lib/a", "--verbose", "--jobs=4", "--color=never"],
+    );
     let first = held.reached("handed", 1);
     let second = held.reached("handed", 2);
     first.go();
     second.go();
     assert!(run.wait().unwrap().success(), "{}", held.printed());
-    assert!(!held.printed().contains(HEAP_CHECK_LINE), "{}", held.printed());
+    assert!(
+        !held.printed().contains(HEAP_CHECK_LINE),
+        "{}",
+        held.printed()
+    );
     // Listed in the order they're declared, each with its own time.
     let stdout = std::fs::read_to_string(held.dir().join("stdout")).unwrap();
     let listed: Vec<String> = stdout
@@ -281,8 +337,17 @@ fn a_suite_named_alone_runs_its_tests_side_by_side() {
         .filter(|l| l.starts_with("  ok  "))
         .map(|l| {
             let blanked = blank_test_time(l);
-            assert!(blanked.ends_with("<time>"), "an untimed test: {l:?}\n{}", indent(&stdout));
-            blanked.trim_end_matches("<time>").split_whitespace().skip(2).collect::<Vec<_>>().join(" ")
+            assert!(
+                blanked.ends_with("<time>"),
+                "an untimed test: {l:?}\n{}",
+                indent(&stdout)
+            );
+            blanked
+                .trim_end_matches("<time>")
+                .split_whitespace()
+                .skip(2)
+                .collect::<Vec<_>>()
+                .join(" ")
         })
         .collect();
     assert_eq!(listed, names, "{}", indent(&stdout));
@@ -294,7 +359,10 @@ fn a_suite_named_alone_runs_its_tests_side_by_side() {
 #[test]
 fn a_suite_named_alone_reports_as_it_did_one_process_at_a_time() {
     let scratch = Scratch::repo("alone-report");
-    scratch.write("lib/mixed/BUILD.buri", "library {\n  test { sources: [\"test/a.buri\", \"test/b.buri\"] }\n}\n");
+    scratch.write(
+        "lib/mixed/BUILD.buri",
+        "library {\n  test { sources: [\"test/a.buri\", \"test/b.buri\"] }\n}\n",
+    );
     scratch.write("lib/mixed/lib.buri", "export fn answer(): I64 { 1 }\n");
     scratch.write(
         "lib/mixed/test/a.buri",
@@ -313,8 +381,17 @@ fn a_suite_named_alone_reports_as_it_did_one_process_at_a_time() {
     let report = |args: &[&str]| {
         let run = scratch.run(args);
         run.heap_ok();
-        let lines: Vec<String> =
-            run.stdout.lines().map(|l| if l.contains(" passed, ") { l.split(" (").next().unwrap_or(l).to_string() } else { blank_test_time(l) }).collect();
+        let lines: Vec<String> = run
+            .stdout
+            .lines()
+            .map(|l| {
+                if l.contains(" passed, ") {
+                    l.split(" (").next().unwrap_or(l).to_string()
+                } else {
+                    blank_test_time(l)
+                }
+            })
+            .collect();
         (run.code, lines.join("\n"), run.stderr.clone())
     };
     let first = report(&["test", "//lib/mixed", "--force"]);
@@ -338,7 +415,14 @@ FAIL //lib/mixed  test/b.buri  \"b fails\"
     expected: \"y\"
   --> lib/mixed/test/b.buri:7:1
 ";
-    assert_eq!(first, (1, format!("{failures}\n3 passed, 3 failed, 0 skipped"), String::new()));
+    assert_eq!(
+        first,
+        (
+            1,
+            format!("{failures}\n3 passed, 3 failed, 0 skipped"),
+            String::new()
+        )
+    );
     let verbose = report(&["test", "//lib/mixed", "--force", "--verbose"]);
     let list = "\
 //lib/mixed  native  6 tests  <time>  built in <time>
@@ -350,9 +434,22 @@ FAIL //lib/mixed  test/b.buri  \"b fails\"
   FAIL  b.buri  b fails                   <time>
 shared build  <time>
 ";
-    assert_eq!(verbose, (1, format!("{list}\n{failures}\n3 passed, 3 failed, 0 skipped"), String::new()));
+    assert_eq!(
+        verbose,
+        (
+            1,
+            format!("{list}\n{failures}\n3 passed, 3 failed, 0 skipped"),
+            String::new()
+        )
+    );
     // A filtered binary holds only the tests it runs, and each is timed as itself.
-    let filtered = report(&["test", "//lib/mixed", "--force", "--verbose", "--filter=passes"]);
+    let filtered = report(&[
+        "test",
+        "//lib/mixed",
+        "--force",
+        "--verbose",
+        "--filter=passes",
+    ]);
     let list = "\
 //lib/mixed  native  3 tests  <time>  built in <time>
   ok    a.buri  a passes                  <time>
@@ -363,7 +460,14 @@ shared build  <time>
   skip  b.buri  b fails
 shared build  <time>
 ";
-    assert_eq!(filtered, (0, format!("{list}\n3 passed, 0 failed, 3 skipped"), String::new()));
+    assert_eq!(
+        filtered,
+        (
+            0,
+            format!("{list}\n3 passed, 0 failed, 3 skipped"),
+            String::new()
+        )
+    );
 }
 
 /// Every `test` line `--explain` printed, as `(label, platform)` and its status.
@@ -394,9 +498,14 @@ fn many_suites_are_each_reused_or_re_run_on_their_own_key() {
         };
         scratch.write(
             &format!("lib/s{i}/BUILD.buri"),
-            &format!("library {{\n  test {{\n    sources: [\"test/s{i}.buri\"]{backends}\n  }}\n}}\n"),
+            &format!(
+                "library {{\n  test {{\n    sources: [\"test/s{i}.buri\"]{backends}\n  }}\n}}\n"
+            ),
         );
-        scratch.write(&format!("lib/s{i}/lib.buri"), &format!("export fn answer(): I64 {{ {i} }}\n"));
+        scratch.write(
+            &format!("lib/s{i}/lib.buri"),
+            &format!("export fn answer(): I64 {{ {i} }}\n"),
+        );
         scratch.write(
             &format!("lib/s{i}/test/s{i}.buri"),
             &format!(
@@ -417,39 +526,87 @@ fn many_suites_are_each_reused_or_re_run_on_their_own_key() {
     assert_eq!(first.tests_passed(), runs, "{}", indent(&first.all()));
     let statuses = test_statuses(&first);
     assert_eq!(statuses.len(), runs, "{}", indent(&first.all()));
-    assert!(statuses.values().all(|s| s == "run"), "{}", indent(&first.all()));
+    assert!(
+        statuses.values().all(|s| s == "run"),
+        "{}",
+        indent(&first.all())
+    );
 
     let again = explain();
     again.ok();
-    assert!(test_statuses(&again).values().all(|s| s == "cached"), "{}", indent(&again.all()));
-    assert!(again.stdout.contains(&format!("{runs} passed, 0 failed, 0 skipped")), "{}", indent(&again.all()));
-    assert!(again.stdout.contains(&format!("{runs} cached)")), "{}", indent(&again.all()));
+    assert!(
+        test_statuses(&again).values().all(|s| s == "cached"),
+        "{}",
+        indent(&again.all())
+    );
+    assert!(
+        again
+            .stdout
+            .contains(&format!("{runs} passed, 0 failed, 0 skipped")),
+        "{}",
+        indent(&again.all())
+    );
+    assert!(
+        again.stdout.contains(&format!("{runs} cached)")),
+        "{}",
+        indent(&again.all())
+    );
 
     // 12 is native, 22 is on JavaScript, and 35 on both.
     let broken = [12, 22, 35];
     for i in broken {
-        scratch.edit(&format!("lib/s{i}/test/s{i}.buri"), &format!("answer(), {i})"), &format!("answer(), {})", i + 1));
+        scratch.edit(
+            &format!("lib/s{i}/test/s{i}.buri"),
+            &format!("answer(), {i})"),
+            &format!("answer(), {})", i + 1),
+        );
     }
     let failing = explain();
     failing.exits(1);
     for ((label, platform), status) in test_statuses(&failing) {
         let touched = broken.iter().any(|i| label == format!("//lib/s{i}"));
         let want = if touched { "run" } else { "cached" };
-        assert_eq!(status, want, "{label} on {platform}:\n{}", indent(&failing.all()));
+        assert_eq!(
+            status,
+            want,
+            "{label} on {platform}:\n{}",
+            indent(&failing.all())
+        );
     }
     assert!(
-        failing.stdout.contains(&format!("{} passed, 4 failed, 0 skipped", runs - 4)),
+        failing
+            .stdout
+            .contains(&format!("{} passed, 4 failed, 0 skipped", runs - 4)),
         "{}",
         indent(&failing.all())
     );
-    let failed: Vec<&str> =
-        failing.stdout.lines().filter_map(|l| l.strip_prefix("FAIL ")).filter_map(|l| l.split_whitespace().next()).collect();
-    assert_eq!(failed, ["//lib/s12", "//lib/s22", "//lib/s35", "//lib/s35"], "{}", indent(&failing.all()));
+    let failed: Vec<&str> = failing
+        .stdout
+        .lines()
+        .filter_map(|l| l.strip_prefix("FAIL "))
+        .filter_map(|l| l.split_whitespace().next())
+        .collect();
+    assert_eq!(
+        failed,
+        ["//lib/s12", "//lib/s22", "//lib/s35", "//lib/s35"],
+        "{}",
+        indent(&failing.all())
+    );
 
     for i in broken {
-        scratch.edit(&format!("lib/s{i}/test/s{i}.buri"), &format!("answer(), {})", i + 1), &format!("answer(), {i})"));
+        scratch.edit(
+            &format!("lib/s{i}/test/s{i}.buri"),
+            &format!("answer(), {})", i + 1),
+            &format!("answer(), {i})"),
+        );
     }
     let fixed = explain();
     fixed.ok();
-    assert!(fixed.stdout.contains(&format!("{runs} passed, 0 failed, 0 skipped")), "{}", indent(&fixed.all()));
+    assert!(
+        fixed
+            .stdout
+            .contains(&format!("{runs} passed, 0 failed, 0 skipped")),
+        "{}",
+        indent(&fixed.all())
+    );
 }

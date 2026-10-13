@@ -123,7 +123,10 @@ fn check(root: &Path, shards: &BTreeMap<String, Measured>, ci: bool) {
     }
     let missing: Vec<&String> = baseline.hosts.difference(&hosts).collect();
     if !missing.is_empty() {
-        println!("\nThe baseline merges {}, and this run has no shard from it.", list(missing.iter().copied()));
+        println!(
+            "\nThe baseline merges {}, and this run has no shard from it.",
+            list(missing.iter().copied())
+        );
         if ci {
             std::process::exit(1);
         }
@@ -137,8 +140,13 @@ fn check(root: &Path, shards: &BTreeMap<String, Measured>, ci: bool) {
             "\nThe baseline is {alone}'s alone, so this run's {alone} alone was compared with it. \
              On main, CI then replaces it with this run's merged numbers."
         );
-        let only = shards.iter().filter(|(host, _)| baseline.hosts.contains(*host));
-        Baseline::of(&baseline.hosts, &merge(&only.map(|(h, l)| (h.clone(), l.clone())).collect()))
+        let only = shards
+            .iter()
+            .filter(|(host, _)| baseline.hosts.contains(*host));
+        Baseline::of(
+            &baseline.hosts,
+            &merge(&only.map(|(h, l)| (h.clone(), l.clone())).collect()),
+        )
     };
     let verdict = compare(&baseline, &compared);
     println!("\n{}", verdict.report.trim_end());
@@ -154,10 +162,10 @@ fn raise(root: &Path) {
     let checked_in = root.join("coverage").join("compiler-branches.txt");
     let measured = target(root).join("compiler-branches.txt");
     let was = Baseline::parse(&std::fs::read_to_string(&checked_in).unwrap_or_default());
-    let now = Baseline::parse(
-        &std::fs::read_to_string(&measured)
-            .unwrap_or_else(|e| panic!("{} can't be read ({e}); measure first", measured.display())),
-    );
+    let now =
+        Baseline::parse(&std::fs::read_to_string(&measured).unwrap_or_else(|e| {
+            panic!("{} can't be read ({e}); measure first", measured.display())
+        }));
     let raised = if was.hosts == now.hosts {
         let Some((raised, rose)) = ratchet(&was, &now) else {
             println!("neither the total nor an area rose; the baseline stays");
@@ -168,18 +176,29 @@ fn raise(root: &Path) {
     } else {
         let missing: Vec<&String> = was.hosts.difference(&now.hosts).collect();
         if !missing.is_empty() {
-            println!("this run has no shard from {}; the baseline stays", list(missing.iter().copied()));
+            println!(
+                "this run has no shard from {}; the baseline stays",
+                list(missing.iter().copied())
+            );
             return;
         }
         println!("raised the baseline to merge {}", list(&now.hosts));
         now
     };
     std::fs::write(&checked_in, raised.render()).unwrap();
-    std::fs::copy(target(root).join("compiler.txt"), root.join("coverage").join("compiler.txt")).unwrap();
+    std::fs::copy(
+        target(root).join("compiler.txt"),
+        root.join("coverage").join("compiler.txt"),
+    )
+    .unwrap();
 }
 
 fn list<'a>(names: impl IntoIterator<Item = &'a String>) -> String {
-    names.into_iter().map(String::as_str).collect::<Vec<_>>().join(", ")
+    names
+        .into_iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Builds and runs the instrumented `buri` on this host.
@@ -206,7 +225,10 @@ impl Gate {
             .expect("rustc -vV names a host")
             .to_string();
         let sysroot = output(Command::new(&rustc).args(["--print", "sysroot"]));
-        let tools = Path::new(sysroot.trim()).join("lib/rustlib").join(&host).join("bin");
+        let tools = Path::new(sysroot.trim())
+            .join("lib/rustlib")
+            .join(&host)
+            .join("bin");
         if !tools.join("llvm-cov").exists() {
             eprintln!(
                 "{} has no llvm-cov. Run this inside `nix develop .#coverage`, whose nightly has \
@@ -215,7 +237,12 @@ impl Gate {
             );
             std::process::exit(2);
         }
-        Gate { root, target, host, tools }
+        Gate {
+            root,
+            target,
+            host,
+            tools,
+        }
     }
 
     /// The instrumented `buri` the tests run.
@@ -239,17 +266,36 @@ impl Gate {
         let instrumented = self.root.join("target").join("coverage-buri");
         run(self
             .cargo()
-            .args(["build", "-p", "buri", "--bin", "buri", "--features", "backend-llvm,test-hooks"])
+            .args([
+                "build",
+                "-p",
+                "buri",
+                "--bin",
+                "buri",
+                "--features",
+                "backend-llvm,test-hooks",
+            ])
             .env("RUSTFLAGS", RUSTFLAGS)
             .env("CARGO_TARGET_DIR", &instrumented)
             // Its build scripts are instrumented too; their profiles go nowhere that counts.
-            .env("LLVM_PROFILE_FILE", instrumented.join("build-scripts").join("%m.profraw")));
+            .env(
+                "LLVM_PROFILE_FILE",
+                instrumented.join("build-scripts").join("%m.profraw"),
+            ));
         std::fs::copy(instrumented.join("debug").join("buri"), built.join("buri")).unwrap();
         std::fs::write(built.join("root"), self.root.display().to_string()).unwrap();
         // Archived, so nothing rebuilds the `buri` that `test` swaps in.
         run(self
             .cargo()
-            .args(["nextest", "archive", "-p", "buri", "--features", "backend-llvm", "--archive-file"])
+            .args([
+                "nextest",
+                "archive",
+                "-p",
+                "buri",
+                "--features",
+                "backend-llvm",
+                "--archive-file",
+            ])
             .arg(built.join("tests.tar.zst"))
             .env_remove("RUSTFLAGS")
             .env("CARGO_TARGET_DIR", &self.target));
@@ -282,7 +328,10 @@ impl Gate {
             .arg("--extract-to")
             .arg(&extracted)
             .arg("--extract-overwrite")
-            .env("LLVM_PROFILE_FILE", profiles.join(format!("{POOL}.profraw")));
+            .env(
+                "LLVM_PROFILE_FILE",
+                profiles.join(format!("{POOL}.profraw")),
+            );
         if count > 1 {
             nextest.arg(format!("--partition=count:{index}/{count}"));
         }
@@ -328,7 +377,10 @@ impl Gate {
             self.buri().display()
         );
         ours.sort();
-        eprintln!("merging {} profile(s) from buri, leaving {others} from other binaries", ours.len());
+        eprintln!(
+            "merging {} profile(s) from buri, leaving {others} from other binaries",
+            ours.len()
+        );
         let out = self.target.join("buri.profdata");
         run(Command::new(self.tools.join("llvm-profdata"))
             .args(["merge", "-sparse", "-o"])
@@ -371,7 +423,11 @@ impl Gate {
         let _ = std::fs::remove_dir_all(&out);
         std::fs::create_dir_all(&out).unwrap();
         std::fs::write(out.join("coverage.txt"), measured.render()).unwrap();
-        std::fs::write(out.join("shard"), format!("{} {index}/{count}\n", self.host)).unwrap();
+        std::fs::write(
+            out.join("shard"),
+            format!("{} {index}/{count}\n", self.host),
+        )
+        .unwrap();
         println!("wrote {}", out.display());
     }
 
@@ -384,13 +440,18 @@ impl Gate {
                 .arg(profile)
                 .arg(self.built().join("buri")),
         );
-        let export = json::parse(&text).unwrap_or_else(|e| panic!("llvm-cov export wrote bad JSON: {e}"));
+        let export =
+            json::parse(&text).unwrap_or_else(|e| panic!("llvm-cov export wrote bad JSON: {e}"));
         let built_in = std::fs::read_to_string(self.built().join("root")).unwrap();
         let prefix = format!("{}/", built_in.trim());
         let measured = Measured::of_export(&export, |path| {
             Some(lexical(path.strip_prefix(&prefix).unwrap_or(path))).filter(|p| counted(p))
         });
-        assert!(measured.files.len() > 100, "llvm-cov exported {} of the compiler's files", measured.files.len());
+        assert!(
+            measured.files.len() > 100,
+            "llvm-cov exported {} of the compiler's files",
+            measured.files.len()
+        );
         measured
     }
 }
@@ -416,25 +477,47 @@ fn lexical(path: &str) -> String {
 fn shards(dir: &Path) -> BTreeMap<String, Measured> {
     let mut dirs = vec![dir.to_path_buf()];
     if !dir.join("shard").exists() {
-        dirs = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).collect();
+        dirs = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .collect();
     }
     let mut found: BTreeMap<String, (u32, BTreeMap<u32, PathBuf>)> = BTreeMap::new();
     for shard in dirs {
-        let Ok(which) = std::fs::read_to_string(shard.join("shard")) else { continue };
+        let Ok(which) = std::fs::read_to_string(shard.join("shard")) else {
+            continue;
+        };
         let parsed = which.split_once(' ').and_then(|(host, which)| {
             let (index, count) = which.trim().split_once('/')?;
-            Some((host.to_string(), index.parse::<u32>().ok()?, count.parse::<u32>().ok()?))
+            Some((
+                host.to_string(),
+                index.parse::<u32>().ok()?,
+                count.parse::<u32>().ok()?,
+            ))
         });
-        let (host, index, count) = parsed.unwrap_or_else(|| panic!("{} isn't `<host> <index>/<count>`", which.trim()));
-        let entry = found.entry(host.clone()).or_insert((count, BTreeMap::new()));
-        assert_eq!(entry.0, count, "shards of different runs from {host} in {}", dir.display());
+        let (host, index, count) =
+            parsed.unwrap_or_else(|| panic!("{} isn't `<host> <index>/<count>`", which.trim()));
+        let entry = found
+            .entry(host.clone())
+            .or_insert((count, BTreeMap::new()));
+        assert_eq!(
+            entry.0,
+            count,
+            "shards of different runs from {host} in {}",
+            dir.display()
+        );
         entry.1.insert(index, shard.join("coverage.txt"));
     }
     assert!(!found.is_empty(), "no shard in {}", dir.display());
     let mut platforms = BTreeMap::new();
     for (host, (count, files)) in found {
         let missing: Vec<u32> = (1..=count).filter(|i| !files.contains_key(i)).collect();
-        assert!(missing.is_empty(), "{host} is missing shard {missing:?} of {count} in {}", dir.display());
+        assert!(
+            missing.is_empty(),
+            "{host} is missing shard {missing:?} of {count} in {}",
+            dir.display()
+        );
         let mut merged = Measured::default();
         for path in files.values() {
             merged.add(&Measured::parse(&std::fs::read_to_string(path).unwrap()));
@@ -477,10 +560,16 @@ impl Measured {
         let data = &export.get("data").expect("an export has data").items()[0];
         let mut measured = Measured::default();
         for function in data.get("functions").map_or(&[][..], json::Value::items) {
-            let filenames: Vec<Option<String>> =
-                function.get("filenames").map_or(&[][..], json::Value::items).iter().map(|f| name(f.str())).collect();
+            let filenames: Vec<Option<String>> = function
+                .get("filenames")
+                .map_or(&[][..], json::Value::items)
+                .iter()
+                .map(|f| name(f.str()))
+                .collect();
             let regions = function.get("regions").map_or(&[][..], json::Value::items);
-            let Some(first) = regions.first() else { continue };
+            let Some(first) = regions.first() else {
+                continue;
+            };
             let starts = [first.items()[0].u64() as u32, first.items()[1].u64() as u32];
             let mut seen: BTreeMap<(usize, [u32; 4]), u32> = BTreeMap::new();
             for branch in function.get("branches").map_or(&[][..], json::Value::items) {
@@ -490,17 +579,25 @@ impl Measured {
                 let copy = seen.entry((file, span)).or_default();
                 let nth = *copy;
                 *copy += 1;
-                let Some(Some(path)) = filenames.get(file) else { continue };
+                let Some(Some(path)) = filenames.get(file) else {
+                    continue;
+                };
                 let record = measured.files.entry(path.clone()).or_default();
                 *record.branches.entry((starts, span, nth, 0)).or_default() += b[4];
                 *record.branches.entry((starts, span, nth, 1)).or_default() += b[5];
             }
         }
         for file in data.get("files").map_or(&[][..], json::Value::items) {
-            let Some(path) = name(file.get("filename").map_or("", json::Value::str)) else { continue };
+            let Some(path) = name(file.get("filename").map_or("", json::Value::str)) else {
+                continue;
+            };
             let record = measured.files.entry(path).or_default();
-            let counted = file.get("summary").and_then(|s| s.get("branches")).and_then(|b| b.get("count"));
-            record.folded = (record.branches.len() as u64).saturating_sub(counted.map_or(0, json::Value::u64));
+            let counted = file
+                .get("summary")
+                .and_then(|s| s.get("branches"))
+                .and_then(|b| b.get("count"));
+            record.folded =
+                (record.branches.len() as u64).saturating_sub(counted.map_or(0, json::Value::u64));
             record.lines = lines(file.get("segments").map_or(&[][..], json::Value::items));
         }
         measured
@@ -518,13 +615,24 @@ impl Measured {
                 file = Some(record);
                 continue;
             }
-            let numbers: Vec<u64> = line.split(' ').skip(1).map(|n| n.parse().expect("a count")).collect();
-            let record = file.as_deref_mut().expect("a line or branch comes after its file");
+            let numbers: Vec<u64> = line
+                .split(' ')
+                .skip(1)
+                .map(|n| n.parse().expect("a count"))
+                .collect();
+            let record = file
+                .as_deref_mut()
+                .expect("a line or branch comes after its file");
             match (line.split(' ').next(), numbers.as_slice()) {
                 (Some("line"), &[at, hits]) => *record.lines.entry(at as u32).or_default() += hits,
                 (Some("branch"), &[gl, gc, ls, cs, le, ce, nth, side, taken]) => {
                     let n = |x: u64| x as u32;
-                    let key = ([n(gl), n(gc)], [n(ls), n(cs), n(le), n(ce)], n(nth), n(side));
+                    let key = (
+                        [n(gl), n(gc)],
+                        [n(ls), n(cs), n(le), n(ce)],
+                        n(nth),
+                        n(side),
+                    );
                     *record.branches.entry(key).or_default() += taken;
                 }
                 _ => panic!("`{line}` is neither a line nor a branch"),
@@ -541,7 +649,9 @@ impl Measured {
                 out.push_str(&format!("line {at} {hits}\n"));
             }
             for (([gl, gc], [ls, cs, le, ce], nth, side), taken) in &record.branches {
-                out.push_str(&format!("branch {gl} {gc} {ls} {cs} {le} {ce} {nth} {side} {taken}\n"));
+                out.push_str(&format!(
+                    "branch {gl} {gc} {ls} {cs} {le} {ce} {nth} {side} {taken}\n"
+                ));
             }
         }
         out
@@ -571,7 +681,11 @@ impl Measured {
                 out.push_str(&format!("DA:{at},{hits}\n"));
             }
             let hit = |counts: &mut dyn Iterator<Item = &u64>| counts.filter(|&&c| c > 0).count();
-            out.push_str(&format!("LF:{}\nLH:{}\n", record.lines.len(), hit(&mut record.lines.values())));
+            out.push_str(&format!(
+                "LF:{}\nLH:{}\n",
+                record.lines.len(),
+                hit(&mut record.lines.values())
+            ));
             let mut blocks: BTreeMap<u32, Vec<Condition>> = BTreeMap::new();
             for &(starts, span, nth, _) in record.branches.keys() {
                 let on_line = blocks.entry(span[0]).or_default();
@@ -582,12 +696,23 @@ impl Measured {
             for (at, conditions) in &blocks {
                 for (block, &(starts, span, nth)) in conditions.iter().enumerate() {
                     for side in 0..2 {
-                        let taken = record.branches.get(&(starts, span, nth, side)).copied().unwrap_or(0);
-                        out.push_str(&format!("BRDA:{at},{block},{},{taken}\n", block as u32 * 2 + side));
+                        let taken = record
+                            .branches
+                            .get(&(starts, span, nth, side))
+                            .copied()
+                            .unwrap_or(0);
+                        out.push_str(&format!(
+                            "BRDA:{at},{block},{},{taken}\n",
+                            block as u32 * 2 + side
+                        ));
                     }
                 }
             }
-            out.push_str(&format!("BRF:{}\nBRH:{}\n", record.branches.len(), hit(&mut record.branches.values())));
+            out.push_str(&format!(
+                "BRF:{}\nBRH:{}\n",
+                record.branches.len(),
+                hit(&mut record.branches.values())
+            ));
             out.push_str("end_of_record\n");
         }
         out
@@ -599,20 +724,33 @@ impl Measured {
 /// the largest of those.
 fn lines(segments: &[json::Value]) -> BTreeMap<u32, u64> {
     // [line, column, count, has count, is region entry, is gap region]
-    let segments: Vec<Vec<u64>> = segments.iter().map(|s| s.items().iter().map(json::Value::u64).collect()).collect();
+    let segments: Vec<Vec<u64>> = segments
+        .iter()
+        .map(|s| s.items().iter().map(json::Value::u64).collect())
+        .collect();
     let mut out = BTreeMap::new();
-    let Some(first) = segments.first() else { return out };
+    let Some(first) = segments.first() else {
+        return out;
+    };
     let starts = |s: &Vec<u64>| s[5] == 0 && s[3] != 0 && s[4] != 0;
     let mut wrapped: Option<&Vec<u64>> = None;
     let mut next = 0;
     let mut line = first[0];
     while next < segments.len() {
-        let on_line: Vec<&Vec<u64>> = segments[next..].iter().take_while(|s| s[0] == line).collect();
+        let on_line: Vec<&Vec<u64>> = segments[next..]
+            .iter()
+            .take_while(|s| s[0] == line)
+            .collect();
         next += on_line.len();
         let entries: Vec<&&Vec<u64>> = on_line.iter().filter(|s| starts(s)).collect();
         let skipped = on_line.first().is_some_and(|s| s[3] == 0 && s[4] != 0);
         if !skipped && (wrapped.is_some_and(|w| w[3] != 0) || !entries.is_empty()) {
-            let count = entries.iter().map(|s| s[2]).chain(wrapped.map(|w| w[2])).max().unwrap_or(0);
+            let count = entries
+                .iter()
+                .map(|s| s[2])
+                .chain(wrapped.map(|w| w[2]))
+                .max()
+                .unwrap_or(0);
             out.insert(line as u32, count);
         }
         if let Some(last) = on_line.last() {
@@ -630,7 +768,10 @@ fn merge(platforms: &BTreeMap<String, Measured>) -> BTreeMap<String, Counts> {
     let paths: BTreeSet<&String> = platforms.values().flat_map(|p| p.files.keys()).collect();
     let mut files = BTreeMap::new();
     for path in paths {
-        let records: Vec<&Record> = platforms.values().filter_map(|p| p.files.get(path)).collect();
+        let records: Vec<&Record> = platforms
+            .values()
+            .filter_map(|p| p.files.get(path))
+            .collect();
         let mut lines: BTreeMap<u32, bool> = BTreeMap::new();
         let mut branches: BTreeMap<Side, bool> = BTreeMap::new();
         for record in &records {
@@ -692,7 +833,15 @@ fn ratchet(was: &Baseline, now: &Baseline) -> Option<(Baseline, Vec<String>)> {
     if rose.is_empty() {
         return None;
     }
-    Some((Baseline { hosts: now.hosts.clone(), files: now.files.clone(), areas, total }, rose))
+    Some((
+        Baseline {
+            hosts: now.hosts.clone(),
+            files: now.files.clone(),
+            areas,
+            total,
+        },
+        rose,
+    ))
 }
 
 /// Whether a source counts: the compiler's own, and not the runtime, a test,
@@ -705,7 +854,10 @@ fn counted(path: &str) -> bool {
         return true;
     }
     let mut parts = path.splitn(4, '/');
-    matches!((parts.next(), parts.next(), parts.next()), (Some("crates"), Some(_), Some("src")))
+    matches!(
+        (parts.next(), parts.next(), parts.next()),
+        (Some("crates"), Some(_), Some("src"))
+    )
 }
 
 /// The areas the gate holds apart, each by the paths that start with its
@@ -747,7 +899,11 @@ fn area_of(path: &str) -> Option<&'static str> {
 
 /// The counted files in no area: a new crate, say.
 fn unmapped(files: &BTreeMap<String, Counts>) -> Vec<String> {
-    files.keys().filter(|path| area_of(path).is_none()).cloned().collect()
+    files
+        .keys()
+        .filter(|path| area_of(path).is_none())
+        .cloned()
+        .collect()
 }
 
 /// One file's lines and branches, and how many of each the tests took.
@@ -791,7 +947,10 @@ fn module_of(path: &str) -> Option<String> {
 
 /// `compiler.txt`: per crate, then the files with the most uncovered branches.
 fn summary(hosts: &BTreeSet<String>, files: &BTreeMap<String, Counts>) -> String {
-    let mut areas: BTreeMap<&str, Counts> = AREAS.iter().map(|&(_, area)| (area, Counts::default())).collect();
+    let mut areas: BTreeMap<&str, Counts> = AREAS
+        .iter()
+        .map(|&(_, area)| (area, Counts::default()))
+        .collect();
     let mut total = Counts::default();
     for (path, counts) in files {
         if let Some(area) = area_of(path) {
@@ -805,7 +964,10 @@ fn summary(hosts: &BTreeSet<String>, files: &BTreeMap<String, Counts>) -> String
          # Branches gate, in total and per area; lines are context.\n\n",
         list(hosts)
     );
-    out.push_str(&format!("{:<24} {:>17} {:>8} {:>17} {:>8}\n", "area", "branches", "", "lines", ""));
+    out.push_str(&format!(
+        "{:<24} {:>17} {:>8} {:>17} {:>8}\n",
+        "area", "branches", "", "lines", ""
+    ));
     let row = |name: &str, c: &Counts| {
         format!(
             "{name:<24} {:>17} {:>8} {:>17} {:>8}\n",
@@ -826,15 +988,28 @@ fn summary(hosts: &BTreeSet<String>, files: &BTreeMap<String, Counts>) -> String
             modules.entry(module).or_default().add(counts);
         }
     }
-    out.push_str(&format!("\n{:<24} {:>17} {:>8} {:>17} {:>8}\n", "cli/src", "branches", "", "lines", ""));
+    out.push_str(&format!(
+        "\n{:<24} {:>17} {:>8} {:>17} {:>8}\n",
+        "cli/src", "branches", "", "lines", ""
+    ));
     for (name, counts) in &modules {
         out.push_str(&row(name, counts));
     }
 
     let mut worst: Vec<(&String, &Counts)> = files.iter().collect();
-    worst.sort_by_key(|(path, c)| (std::cmp::Reverse(c.branches - c.branches_covered), path.as_str()));
-    out.push_str(&format!("\nThe {WORST} files with the most uncovered branches:\n\n"));
-    out.push_str(&format!("{:>9} {:>17} {:>8}  file\n", "uncovered", "branches", ""));
+    worst.sort_by_key(|(path, c)| {
+        (
+            std::cmp::Reverse(c.branches - c.branches_covered),
+            path.as_str(),
+        )
+    });
+    out.push_str(&format!(
+        "\nThe {WORST} files with the most uncovered branches:\n\n"
+    ));
+    out.push_str(&format!(
+        "{:>9} {:>17} {:>8}  file\n",
+        "uncovered", "branches", ""
+    ));
     for (path, c) in worst.into_iter().take(WORST) {
         out.push_str(&format!(
             "{:>9} {:>17} {:>8}  {path}\n",
@@ -860,17 +1035,26 @@ struct Baseline {
 impl Baseline {
     /// A measurement's baseline. Every area is in it, with no branches if no file is.
     fn of(hosts: &BTreeSet<String>, measured: &BTreeMap<String, Counts>) -> Baseline {
-        let files: BTreeMap<String, (u64, u64)> =
-            measured.iter().map(|(p, c)| (p.clone(), (c.branches_covered, c.branches))).collect();
-        let mut areas: BTreeMap<String, (u64, u64)> =
-            AREAS.iter().map(|&(_, area)| (area.to_string(), (0, 0))).collect();
+        let files: BTreeMap<String, (u64, u64)> = measured
+            .iter()
+            .map(|(p, c)| (p.clone(), (c.branches_covered, c.branches)))
+            .collect();
+        let mut areas: BTreeMap<String, (u64, u64)> = AREAS
+            .iter()
+            .map(|&(_, area)| (area.to_string(), (0, 0)))
+            .collect();
         for (path, &(covered, total)) in &files {
             if let Some(counts) = area_of(path).and_then(|area| areas.get_mut(area)) {
                 counts.0 += covered;
                 counts.1 += total;
             }
         }
-        Baseline { hosts: hosts.clone(), total: sum(files.values()), areas, files }
+        Baseline {
+            hosts: hosts.clone(),
+            total: sum(files.values()),
+            areas,
+            files,
+        }
     }
 
     fn parse(text: &str) -> Baseline {
@@ -878,11 +1062,17 @@ impl Baseline {
         let mut total = None;
         let mut areas = BTreeMap::new();
         let mut files = BTreeMap::new();
-        let counts = |covered: &str, total: &str| Some((covered.parse().ok()?, total.parse().ok()?));
-        for line in text.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
+        let counts =
+            |covered: &str, total: &str| Some((covered.parse().ok()?, total.parse().ok()?));
+        for line in text
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        {
             let words: Vec<&str> = line.split(' ').collect();
             match words.as_slice() {
-                ["host" | "hosts", names @ ..] => hosts = names.iter().map(|h| h.trim().to_string()).collect(),
+                ["host" | "hosts", names @ ..] => {
+                    hosts = names.iter().map(|h| h.trim().to_string()).collect()
+                }
                 ["total", c, t, ..] => total = counts(c, t),
                 ["area", area, c, t, ..] => {
                     if let Some(counts) = counts(c, t) {
@@ -891,7 +1081,8 @@ impl Baseline {
                 }
                 _ => {
                     let mut words = line.splitn(3, ' ');
-                    let (Some(c), Some(t), Some(path)) = (words.next(), words.next(), words.next()) else {
+                    let (Some(c), Some(t), Some(path)) = (words.next(), words.next(), words.next())
+                    else {
                         continue;
                     };
                     if let Some(counts) = counts(c, t) {
@@ -902,7 +1093,12 @@ impl Baseline {
         }
         // A baseline from before areas has no total line.
         let total = total.unwrap_or_else(|| sum(files.values()));
-        Baseline { hosts, total, areas, files }
+        Baseline {
+            hosts,
+            total,
+            areas,
+            files,
+        }
     }
 
     fn render(&self) -> String {
@@ -913,13 +1109,20 @@ impl Baseline {
              # coverage/compiler/src/main.rs has the rest.\n\
              hosts {}\n\
              total {} {} {}\n",
-            self.hosts.iter().map(String::as_str).collect::<Vec<_>>().join(" "),
+            self.hosts
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(" "),
             self.total.0,
             self.total.1,
             percent(self.total.0, self.total.1)
         );
         for (area, &(covered, total)) in &self.areas {
-            out.push_str(&format!("area {area} {covered} {total} {}\n", percent(covered, total)));
+            out.push_str(&format!(
+                "area {area} {covered} {total} {}\n",
+                percent(covered, total)
+            ));
         }
         for (path, (covered, total)) in &self.files {
             out.push_str(&format!("{covered} {total} {path}\n"));
@@ -947,7 +1150,11 @@ struct Verdict {
 /// from. Per-file drops only warn: code that moves between files, or covered
 /// code that is deleted, lowers a file's count without lowering coverage.
 fn compare(baseline: &Baseline, now: &Baseline) -> Verdict {
-    let mut report = format!("branch coverage: {} in the baseline, {} now\n", share(baseline.total), share(now.total));
+    let mut report = format!(
+        "branch coverage: {} in the baseline, {} now\n",
+        share(baseline.total),
+        share(now.total)
+    );
     let falls = |was: (u64, u64), now: (u64, u64)| was.1 > 0 && now.1 > 0 && cmp(now, was).is_lt();
 
     let mut lost: Vec<(&str, String)> = Vec::new();
@@ -965,13 +1172,22 @@ fn compare(baseline: &Baseline, now: &Baseline) -> Verdict {
 
     let mut fell = Vec::new();
     if falls(baseline.total, now.total) {
-        fell.push(format!("the total: {} -> {}", share(baseline.total), share(now.total)));
+        fell.push(format!(
+            "the total: {} -> {}",
+            share(baseline.total),
+            share(now.total)
+        ));
     }
     for (area, &counts) in &now.areas {
-        let Some(&was) = baseline.areas.get(area) else { continue };
+        let Some(&was) = baseline.areas.get(area) else {
+            continue;
+        };
         if falls(was, counts) {
             fell.push(format!("{area}: {} -> {}", share(was), share(counts)));
-            for (_, line) in lost.iter().filter(|(path, _)| area_of(path) == Some(area.as_str())) {
+            for (_, line) in lost
+                .iter()
+                .filter(|(path, _)| area_of(path) == Some(area.as_str()))
+            {
                 fell.push(format!("  {line}"));
             }
         }
@@ -983,7 +1199,10 @@ fn compare(baseline: &Baseline, now: &Baseline) -> Verdict {
             "\nwarning: {} file(s) cover fewer branches than the baseline. Fine if the code moved \
              or was deleted; otherwise a test stopped reaching it:\n  {}\n",
             lost.len(),
-            lost.iter().map(|(_, line)| line.as_str()).collect::<Vec<_>>().join("\n  ")
+            lost.iter()
+                .map(|(_, line)| line.as_str())
+                .collect::<Vec<_>>()
+                .join("\n  ")
         ));
     }
     if failed {
@@ -1002,12 +1221,16 @@ fn compare(baseline: &Baseline, now: &Baseline) -> Verdict {
 }
 
 fn run(command: &mut Command) {
-    let status = command.status().unwrap_or_else(|e| panic!("{command:?} didn't start: {e}"));
+    let status = command
+        .status()
+        .unwrap_or_else(|e| panic!("{command:?} didn't start: {e}"));
     assert!(status.success(), "{command:?} failed: {status}");
 }
 
 fn output(command: &mut Command) -> String {
-    let out = command.output().unwrap_or_else(|e| panic!("{command:?} didn't start: {e}"));
+    let out = command
+        .output()
+        .unwrap_or_else(|e| panic!("{command:?} didn't start: {e}"));
     assert!(
         out.status.success(),
         "{command:?} failed: {}\n{}",
@@ -1029,7 +1252,14 @@ mod tests {
         let measured = files
             .iter()
             .map(|&(path, covered, total)| {
-                (path.to_string(), Counts { branches: total, branches_covered: covered, ..Counts::default() })
+                (
+                    path.to_string(),
+                    Counts {
+                        branches: total,
+                        branches_covered: covered,
+                        ..Counts::default()
+                    },
+                )
             })
             .collect();
         Baseline::of(&BTreeSet::from(["h".to_string()]), &measured)
@@ -1041,13 +1271,25 @@ mod tests {
         let was = baseline(&[(SYNTAX, 2, 3)]);
         let verdict = compare(&was, &baseline(&[(SYNTAX, 666_666, 1_000_000)]));
         assert!(verdict.failed, "{}", verdict.report);
-        assert!(verdict.report.contains("the total: 66.67% (2/3) -> 66.67%"), "{}", verdict.report);
+        assert!(
+            verdict.report.contains("the total: 66.67% (2/3) -> 66.67%"),
+            "{}",
+            verdict.report
+        );
     }
 
     #[test]
     fn an_area_falling_fails_though_the_total_rises() {
-        let was = baseline(&[(SYNTAX, 5, 10), ("crates/syntax/src/parser.rs", 5, 10), (LINT, 0, 10)]);
-        let now = baseline(&[(SYNTAX, 4, 10), ("crates/syntax/src/parser.rs", 5, 10), (LINT, 9, 10)]);
+        let was = baseline(&[
+            (SYNTAX, 5, 10),
+            ("crates/syntax/src/parser.rs", 5, 10),
+            (LINT, 0, 10),
+        ]);
+        let now = baseline(&[
+            (SYNTAX, 4, 10),
+            ("crates/syntax/src/parser.rs", 5, 10),
+            (LINT, 9, 10),
+        ]);
         let verdict = compare(&was, &now);
         assert!(verdict.failed, "{}", verdict.report);
         assert!(
@@ -1079,10 +1321,21 @@ mod tests {
     #[test]
     fn code_moving_between_files_warns_and_passes() {
         let was = baseline(&[(SYNTAX, 6, 10), ("crates/syntax/src/b.rs", 0, 0)]);
-        let verdict = compare(&was, &baseline(&[(SYNTAX, 3, 5), ("crates/syntax/src/b.rs", 3, 5)]));
+        let verdict = compare(
+            &was,
+            &baseline(&[(SYNTAX, 3, 5), ("crates/syntax/src/b.rs", 3, 5)]),
+        );
         assert!(!verdict.failed, "{}", verdict.report);
-        assert!(verdict.report.contains("warning: 1 file(s)"), "{}", verdict.report);
-        assert!(verdict.report.contains("lexer.rs: 6 -> 3"), "{}", verdict.report);
+        assert!(
+            verdict.report.contains("warning: 1 file(s)"),
+            "{}",
+            verdict.report
+        );
+        assert!(
+            verdict.report.contains("lexer.rs: 6 -> 3"),
+            "{}",
+            verdict.report
+        );
     }
 
     #[test]
@@ -1090,7 +1343,13 @@ mod tests {
         let was = baseline(&[(SYNTAX, 5, 10), (LINT, 5, 10)]);
         let verdict = compare(&was, &baseline(&[(SYNTAX, 6, 10), (LINT, 5, 10)]));
         assert!(!verdict.failed);
-        assert!(verdict.report.contains("rose: the total, crates/syntax. On main"), "{}", verdict.report);
+        assert!(
+            verdict
+                .report
+                .contains("rose: the total, crates/syntax. On main"),
+            "{}",
+            verdict.report
+        );
     }
 
     #[test]
@@ -1109,7 +1368,10 @@ mod tests {
 
         let (raised, rose) = ratchet(&was, &baseline(&[(SYNTAX, 5, 10), (LINT, 9, 10)])).unwrap();
         assert_eq!(rose, ["the total", "cli/lint"]);
-        assert_eq!((raised.total, raised.areas["cli/lint"]), ((14, 20), (9, 10)));
+        assert_eq!(
+            (raised.total, raised.areas["cli/lint"]),
+            ((14, 20), (9, 10))
+        );
     }
 
     #[test]
@@ -1139,7 +1401,11 @@ mod tests {
         assert_eq!(again.total, (7, 9));
         assert_eq!(again.areas, was.areas);
         assert_eq!(again.files, was.files);
-        assert!(was.render().contains("\narea cli/other 1 2 50.00%\n"), "{}", was.render());
+        assert!(
+            was.render().contains("\narea cli/other 1 2 50.00%\n"),
+            "{}",
+            was.render()
+        );
     }
 
     #[test]
@@ -1159,7 +1425,8 @@ mod tests {
         for (path, area) in cases {
             assert_eq!(area_of(path), Some(area), "{path}");
         }
-        let prefixes: std::collections::BTreeSet<&str> = AREAS.iter().map(|&(prefix, _)| prefix).collect();
+        let prefixes: std::collections::BTreeSet<&str> =
+            AREAS.iter().map(|&(prefix, _)| prefix).collect();
         assert_eq!(prefixes.len(), AREAS.len(), "two areas share a prefix");
     }
 
@@ -1167,7 +1434,16 @@ mod tests {
     fn a_file_in_no_area_is_named() {
         let files: BTreeMap<String, Counts> = [("crates/new/src/lib.rs", 1, 2), (SYNTAX, 1, 2)]
             .into_iter()
-            .map(|(p, c, t)| (p.to_string(), Counts { branches: t, branches_covered: c, ..Counts::default() }))
+            .map(|(p, c, t)| {
+                (
+                    p.to_string(),
+                    Counts {
+                        branches: t,
+                        branches_covered: c,
+                        ..Counts::default()
+                    },
+                )
+            })
             .collect();
         assert_eq!(unmapped(&files), ["crates/new/src/lib.rs"]);
     }
@@ -1175,7 +1451,11 @@ mod tests {
     #[test]
     fn every_file_in_the_baseline_is_in_an_area() {
         let checked_in = Baseline::parse(include_str!("../../compiler-branches.txt"));
-        let missing: Vec<&String> = checked_in.files.keys().filter(|path| area_of(path).is_none()).collect();
+        let missing: Vec<&String> = checked_in
+            .files
+            .keys()
+            .filter(|path| area_of(path).is_none())
+            .collect();
         assert!(missing.is_empty(), "{missing:?}");
     }
 
@@ -1201,7 +1481,10 @@ mod tests {
         let measured = Measured::of_export(&export, |p| {
             Some(p.strip_prefix("/r/").unwrap().to_string()).filter(|p| counted(p))
         });
-        assert_eq!(measured.files.keys().collect::<Vec<_>>(), ["crates/x/src/a.rs"]);
+        assert_eq!(
+            measured.files.keys().collect::<Vec<_>>(),
+            ["crates/x/src/a.rs"]
+        );
         let a = &measured.files["crates/x/src/a.rs"];
         // Six sides, one of them folded: `report` counts five.
         assert_eq!((a.branches.len(), a.folded), (6, 1));
@@ -1213,7 +1496,10 @@ mod tests {
 
     #[test]
     fn a_path_through_a_parent_directory_is_where_it_leads() {
-        assert_eq!(lexical("cli/src/../runtime/allocator.rs"), "cli/runtime/allocator.rs");
+        assert_eq!(
+            lexical("cli/src/../runtime/allocator.rs"),
+            "cli/runtime/allocator.rs"
+        );
         assert!(!counted(&lexical("cli/src/../runtime/allocator.rs")));
         assert_eq!(lexical("/r/./a/../../b.rs"), "/b.rs");
         assert_eq!(lexical("../x.rs"), "../x.rs");
@@ -1221,9 +1507,18 @@ mod tests {
 
     #[test]
     fn the_cli_is_broken_down_by_command_and_module() {
-        assert_eq!(module_of("cli/src/commands/lint.rs").as_deref(), Some("commands/lint"));
-        assert_eq!(module_of("cli/src/commands/test/runner.rs").as_deref(), Some("commands/test"));
-        assert_eq!(module_of("cli/src/language_server/mod.rs").as_deref(), Some("language_server"));
+        assert_eq!(
+            module_of("cli/src/commands/lint.rs").as_deref(),
+            Some("commands/lint")
+        );
+        assert_eq!(
+            module_of("cli/src/commands/test/runner.rs").as_deref(),
+            Some("commands/test")
+        );
+        assert_eq!(
+            module_of("cli/src/language_server/mod.rs").as_deref(),
+            Some("language_server")
+        );
         assert_eq!(module_of("cli/src/json.rs").as_deref(), Some("json"));
         assert_eq!(module_of("crates/syntax/src/lexer.rs"), None);
     }

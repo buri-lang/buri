@@ -50,8 +50,14 @@ pub fn position_of(text: &str, offset: u32) -> Position {
     let offset = (offset as usize).min(text.len());
     let above = text.as_bytes().get(..offset).unwrap_or_default();
     let line = u32::try_from(above.iter().filter(|b| **b == b'\n').count()).unwrap_or(u32::MAX);
-    let start = above.iter().rposition(|b| *b == b'\n').map_or(0, |at| at.saturating_add(1));
-    Position { line, character: units_before(text, start, offset) }
+    let start = above
+        .iter()
+        .rposition(|b| *b == b'\n')
+        .map_or(0, |at| at.saturating_add(1));
+    Position {
+        line,
+        character: units_before(text, start, offset),
+    }
 }
 
 /// The UTF-16 units of the characters that start in `start..offset`.
@@ -83,12 +89,18 @@ impl<'t> Lines<'t> {
             text.match_indices('\n')
                 .map(|(i, _)| u32::try_from(i.saturating_add(1)).unwrap_or(u32::MAX)),
         );
-        Lines { text, starts: std::borrow::Cow::Owned(starts) }
+        Lines {
+            text,
+            starts: std::borrow::Cow::Owned(starts),
+        }
     }
 
     /// The lines the source map already counted.
     pub fn of(file: &'t crate::diagnostics::SourceFile) -> Lines<'t> {
-        Lines { text: &file.text, starts: std::borrow::Cow::Borrowed(file.line_starts()) }
+        Lines {
+            text: &file.text,
+            starts: std::borrow::Cow::Borrowed(file.line_starts()),
+        }
     }
 
     /// [`position_of`], answered from the line starts.
@@ -96,7 +108,10 @@ impl<'t> Lines<'t> {
         let offset = (offset as usize).min(self.text.len());
         // The lines whose newline is above `offset`; the first line starts at 0,
         // so there is always one.
-        let line = self.starts.partition_point(|s| *s as usize <= offset).saturating_sub(1);
+        let line = self
+            .starts
+            .partition_point(|s| *s as usize <= offset)
+            .saturating_sub(1);
         let start = self.starts.get(line).map_or(0, |s| *s as usize);
         Position {
             line: u32::try_from(line).unwrap_or(u32::MAX),
@@ -126,7 +141,10 @@ pub fn positions_of(text: &str, offsets: &[u32]) -> Vec<Position> {
     let mut out = Vec::with_capacity(offsets.len());
     let mut characters = text.char_indices();
     let mut pending = characters.next();
-    let mut at = Position { line: 0, character: 0 };
+    let mut at = Position {
+        line: 0,
+        character: 0,
+    };
     for offset in offsets {
         let offset = (*offset as usize).min(text.len());
         while let Some((i, c)) = pending {
@@ -186,10 +204,16 @@ pub fn range(text: &str, span: Span) -> Value {
 /// sent. An empty range at the top needs none of that file's text, which is
 /// what lets a jump land in a file nothing has read.
 pub fn top_of(path: &Path) -> Value {
-    let start = Position { line: 0, character: 0 };
+    let start = Position {
+        line: 0,
+        character: 0,
+    };
     Value::object(vec![
         ("uri", Value::str(uri_of(path))),
-        ("range", Value::object(vec![("start", start.to_json()), ("end", start.to_json())])),
+        (
+            "range",
+            Value::object(vec![("start", start.to_json()), ("end", start.to_json())]),
+        ),
     ])
 }
 
@@ -212,13 +236,20 @@ pub fn path_of(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix("file://")?;
     // A `file://host/path` authority is not something a local editor sends,
     // and guessing at one would produce a path that silently is not the file.
-    let rest = rest.strip_prefix('/').map(|r| format!("/{r}")).unwrap_or_else(|| rest.to_string());
+    let rest = rest
+        .strip_prefix('/')
+        .map(|r| format!("/{r}"))
+        .unwrap_or_else(|| rest.to_string());
     let mut out: Vec<u8> = Vec::with_capacity(rest.len());
     let mut bytes: &[u8] = rest.as_bytes();
     while let Some((&b, tail)) = bytes.split_first() {
         // A `%` without two bytes behind it is not an escape. `uri_of` never
         // writes one, but a client's encoder is not this one.
-        match if b == b'%' { tail.split_at_checked(2) } else { None } {
+        match if b == b'%' {
+            tail.split_at_checked(2)
+        } else {
+            None
+        } {
             Some((hex, after)) => {
                 out.push(u8::from_str_radix(std::str::from_utf8(hex).ok()?, 16).ok()?);
                 bytes = after;
@@ -252,10 +283,7 @@ pub fn diagnostic(lines: &Lines<'_>, d: &Diagnostic, uri: &str) -> Value {
         related.push(Value::object(vec![
             (
                 "location",
-                Value::object(vec![
-                    ("uri", Value::str(uri)),
-                    ("range", lines.range(span)),
-                ]),
+                Value::object(vec![("uri", Value::str(uri)), ("range", lines.range(span))]),
             ),
             ("message", Value::str(message)),
         ]));
@@ -310,10 +338,34 @@ mod tests {
     fn a_position_counts_utf16_units_not_bytes() {
         // `é` is two bytes and one unit; `😀` is four bytes and two units.
         let text = "aé😀b";
-        assert_eq!(position_of(text, 0), Position { line: 0, character: 0 });
-        assert_eq!(position_of(text, 1), Position { line: 0, character: 1 });
-        assert_eq!(position_of(text, 3), Position { line: 0, character: 2 });
-        assert_eq!(position_of(text, 7), Position { line: 0, character: 4 });
+        assert_eq!(
+            position_of(text, 0),
+            Position {
+                line: 0,
+                character: 0
+            }
+        );
+        assert_eq!(
+            position_of(text, 1),
+            Position {
+                line: 0,
+                character: 1
+            }
+        );
+        assert_eq!(
+            position_of(text, 3),
+            Position {
+                line: 0,
+                character: 2
+            }
+        );
+        assert_eq!(
+            position_of(text, 7),
+            Position {
+                line: 0,
+                character: 4
+            }
+        );
     }
 
     #[test]
@@ -332,28 +384,46 @@ mod tests {
     #[test]
     fn many_positions_at_once_agree_with_one_at_a_time() {
         let text = "let x = 1;\nlet é = 2;\n😀 // a\nlast";
-        let offsets: Vec<u32> =
-            (0..=text.len() as u32).filter(|o| text.is_char_boundary(*o as usize)).collect();
+        let offsets: Vec<u32> = (0..=text.len() as u32)
+            .filter(|o| text.is_char_boundary(*o as usize))
+            .collect();
         let many = positions_of(text, &offsets);
         for (offset, position) in offsets.iter().zip(many) {
             assert_eq!(position, position_of(text, *offset), "at {offset}");
         }
         // Inside a character too, where both count the character whole.
         for offset in 0..=text.len() as u32 {
-            assert_eq!(positions_of(text, &[offset]), vec![position_of(text, offset)], "at {offset}");
+            assert_eq!(
+                positions_of(text, &[offset]),
+                vec![position_of(text, offset)],
+                "at {offset}"
+            );
         }
         // And past the end, where there is no character left to count.
-        assert_eq!(positions_of(text, &[u32::MAX]), vec![position_of(text, u32::MAX)]);
+        assert_eq!(
+            positions_of(text, &[u32::MAX]),
+            vec![position_of(text, u32::MAX)]
+        );
         assert_eq!(positions_of("", &[0, 9]).len(), 2);
     }
 
     /// The line starts answer what the walk from the top answers.
     #[test]
     fn lines_agree_with_one_position_at_a_time() {
-        for text in ["let x = 1;\nlet é = 2;\n😀 // a\nlast", "", "\n", "a\n\n", "é\r\n😀\n"] {
+        for text in [
+            "let x = 1;\nlet é = 2;\n😀 // a\nlast",
+            "",
+            "\n",
+            "a\n\n",
+            "é\r\n😀\n",
+        ] {
             let lines = Lines::new(text);
             for offset in (0..=text.len() as u32 + 1).chain([u32::MAX]) {
-                assert_eq!(lines.position(offset), position_of(text, offset), "{text:?} at {offset}");
+                assert_eq!(
+                    lines.position(offset),
+                    position_of(text, offset),
+                    "{text:?} at {offset}"
+                );
             }
         }
     }
@@ -361,8 +431,26 @@ mod tests {
     #[test]
     fn a_position_past_the_end_of_a_line_clamps_to_it() {
         let text = "ab\ncd\n";
-        assert_eq!(offset_of(text, Position { line: 0, character: 99 }), 2);
-        assert_eq!(offset_of(text, Position { line: 99, character: 0 }), text.len() as u32);
+        assert_eq!(
+            offset_of(
+                text,
+                Position {
+                    line: 0,
+                    character: 99
+                }
+            ),
+            2
+        );
+        assert_eq!(
+            offset_of(
+                text,
+                Position {
+                    line: 99,
+                    character: 0
+                }
+            ),
+            text.len() as u32
+        );
     }
 
     /// A position is whatever the client sent. Every one of these used to be a
@@ -372,21 +460,48 @@ mod tests {
     fn a_position_the_client_made_up_still_lands_somewhere() {
         let text = "aé😀\nx\n";
         let hostile = [
-            Position { line: 0, character: u32::MAX },
-            Position { line: u32::MAX, character: u32::MAX },
-            Position { line: u32::MAX, character: 0 },
+            Position {
+                line: 0,
+                character: u32::MAX,
+            },
+            Position {
+                line: u32::MAX,
+                character: u32::MAX,
+            },
+            Position {
+                line: u32::MAX,
+                character: 0,
+            },
             // Inside `é`, and inside `😀`: a UTF-16 offset the text has no
             // boundary for.
-            Position { line: 0, character: 1 },
-            Position { line: 0, character: 3 },
-            Position { line: 1, character: 500 },
-            Position { line: 2, character: 0 },
-            Position { line: 3, character: 7 },
+            Position {
+                line: 0,
+                character: 1,
+            },
+            Position {
+                line: 0,
+                character: 3,
+            },
+            Position {
+                line: 1,
+                character: 500,
+            },
+            Position {
+                line: 2,
+                character: 0,
+            },
+            Position {
+                line: 3,
+                character: 7,
+            },
         ];
         for p in hostile {
             let o = offset_of(text, p) as usize;
             assert!(o <= text.len(), "{p:?} left the file at {o}");
-            assert!(text.is_char_boundary(o), "{p:?} landed inside a character at {o}");
+            assert!(
+                text.is_char_boundary(o),
+                "{p:?} landed inside a character at {o}"
+            );
         }
         // And the empty file, where there is no line to clamp to.
         for p in hostile {
@@ -399,10 +514,28 @@ mod tests {
     #[test]
     fn a_byte_offset_that_is_not_a_boundary_still_has_a_position() {
         let text = "aé😀\nx";
-        assert_eq!(position_of(text, u32::MAX), Position { line: 1, character: 1 });
+        assert_eq!(
+            position_of(text, u32::MAX),
+            Position {
+                line: 1,
+                character: 1
+            }
+        );
         // Inside the `😀`: the character it is inside counts whole.
-        assert_eq!(position_of(text, 5), Position { line: 0, character: 4 });
-        assert_eq!(position_of("", 9), Position { line: 0, character: 0 });
+        assert_eq!(
+            position_of(text, 5),
+            Position {
+                line: 0,
+                character: 4
+            }
+        );
+        assert_eq!(
+            position_of("", 9),
+            Position {
+                line: 0,
+                character: 0
+            }
+        );
     }
 
     #[test]

@@ -107,7 +107,10 @@ thread_local! {
 
 /// This thread's phase and the reading taken when it started.
 fn now_in() -> Option<(Phase, Reading)> {
-    CURRENT.try_with(|c| *c.lock().unwrap_or_else(PoisonError::into_inner)).ok().flatten()
+    CURRENT
+        .try_with(|c| *c.lock().unwrap_or_else(PoisonError::into_inner))
+        .ok()
+        .flatten()
 }
 
 /// Counts one allocation on this thread, which is the only writer.
@@ -121,7 +124,10 @@ fn switch(next: Option<Phase>) {
     let now = read();
     let before = CURRENT
         .try_with(|c| {
-            std::mem::replace(&mut *c.lock().unwrap_or_else(PoisonError::into_inner), next.map(|p| (p, now)))
+            std::mem::replace(
+                &mut *c.lock().unwrap_or_else(PoisonError::into_inner),
+                next.map(|p| (p, now)),
+            )
         })
         .ok()
         .flatten();
@@ -148,7 +154,9 @@ pub fn reaped(pid: u32) {
     }
     // A thread outside any phase, such as one `std::thread::spawn` started.
     let phase = current().unwrap_or(Phase::Other);
-    let Some((instructions, cpu_ns)) = os::exited_child(pid) else { return };
+    let Some((instructions, cpu_ns)) = os::exited_child(pid) else {
+        return;
+    };
     let [.., child_instructions, child_cpu] = totals(phase);
     child_instructions.fetch_add(instructions, Relaxed);
     child_cpu.fetch_add(cpu_ns, Relaxed);
@@ -158,7 +166,9 @@ pub fn reaped(pid: u32) {
 /// elsewhere or where the kernel won't say. Waits like [`reaped`], and leaves
 /// reaping to the caller.
 pub fn exited_instructions(pid: u32) -> Option<u64> {
-    os::exited_child(pid).map(|(instructions, _)| instructions).filter(|&n| n > 0)
+    os::exited_child(pid)
+        .map(|(instructions, _)| instructions)
+        .filter(|&n| n > 0)
 }
 
 thread_local! {
@@ -210,11 +220,17 @@ pub fn current() -> Option<Phase> {
 #[must_use = "the phase ends when the guard drops"]
 pub fn enter(phase: Phase) -> Guard {
     if !enabled() {
-        return Guard { active: false, previous: None };
+        return Guard {
+            active: false,
+            previous: None,
+        };
     }
     let previous = now_in().map(|(p, _)| p);
     switch(Some(phase));
-    Guard { active: true, previous }
+    Guard {
+        active: true,
+        previous,
+    }
 }
 
 /// [`enter`] for a worker: the phase its spawner was in, or nothing.
@@ -286,9 +302,15 @@ pub fn report(started: Instant) -> Option<String> {
         .map(|&p| (p, totals(p).each_ref().map(|v| v.load(Relaxed))))
         .collect();
     let counted_instructions = os::thread_instructions() != 0;
-    let counted_allocations = rows.iter().any(|(_, [_, _, _, allocated, ..])| *allocated != 0);
+    let counted_allocations = rows
+        .iter()
+        .any(|(_, [_, _, _, allocated, ..])| *allocated != 0);
     let counted_children = rows.iter().any(|(_, [.., cpu])| *cpu != 0);
-    let columns = Columns { instructions: counted_instructions, allocations: counted_allocations, children: counted_children };
+    let columns = Columns {
+        instructions: counted_instructions,
+        allocations: counted_allocations,
+        children: counted_children,
+    };
     let mut out = String::from("buri profile           instructions        cpu       busy");
     if counted_allocations {
         out.push_str("   allocations");
@@ -308,7 +330,10 @@ pub fn report(started: Instant) -> Option<String> {
         out.push_str(&line(phase.name(), row, &columns));
     }
     out.push_str(&line("all phases", &sum, &columns));
-    out.push_str(&format!("wall {}\n", seconds(u64::try_from(started.elapsed().as_nanos()).unwrap_or(0))));
+    out.push_str(&format!(
+        "wall {}\n",
+        seconds(u64::try_from(started.elapsed().as_nanos()).unwrap_or(0))
+    ));
     if let Some(p) = os::process() {
         out.push_str(&format!(
             "process: {} instructions, {} cpu, {} runnable but not running, peak {} MB\n\
@@ -332,13 +357,25 @@ struct Columns {
 
 fn line(name: &str, row: &[u64; 6], columns: &Columns) -> String {
     let [count, cpu, busy, allocated, child_count, child_cpu] = *row;
-    let count = if columns.instructions { mega(count) } else { "-".to_string() };
-    let mut s = format!("  {name:<14} {count:>17} {:>10} {:>10}", seconds(cpu), seconds(busy));
+    let count = if columns.instructions {
+        mega(count)
+    } else {
+        "-".to_string()
+    };
+    let mut s = format!(
+        "  {name:<14} {count:>17} {:>10} {:>10}",
+        seconds(cpu),
+        seconds(busy)
+    );
     if columns.allocations {
         s.push_str(&format!(" {allocated:>13}"));
     }
     if columns.children {
-        s.push_str(&format!(" {:>19} {:>10}", mega(child_count), seconds(child_cpu)));
+        s.push_str(&format!(
+            " {:>19} {:>10}",
+            mega(child_count),
+            seconds(child_cpu)
+        ));
     }
     s.push('\n');
     s

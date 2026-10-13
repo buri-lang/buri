@@ -250,7 +250,9 @@ impl Jit<'_> {
                     (stride, Some(elem))
                 }
                 None => {
-                    let bare = by_ref.and_then(|i| args.get(i).map(|(_, t)| *t)).unwrap_or(dty);
+                    let bare = by_ref
+                        .and_then(|i| args.get(i).map(|(_, t)| *t))
+                        .unwrap_or(dty);
                     self.bare_carrier(prog, bare)
                 }
             };
@@ -364,8 +366,9 @@ impl Jit<'_> {
         let res = match entry.ret {
             Ret::Res | Ret::ResMsg => {
                 let l = self.layout_id_shared(prog, agg_of(dty));
-                let (ok, err, err_ty) =
-                    self.result_shape(prog, dty).or_ice("a `Ret::Res` row answers a `Result`");
+                let (ok, err, err_ty) = self
+                    .result_shape(prog, dty)
+                    .or_ice("a `Ret::Res` row answers a `Result`");
                 let err_l = self.layouts_of(err_ty);
                 let ok_bytes = self.ok_payload_bytes(prog, dty, ok);
                 // A payload with bytes is a field of the `Ok` variant.
@@ -376,8 +379,14 @@ impl Jit<'_> {
                 // its tag's width, and anything else has none and goes through
                 // a second out-pointer instead.
                 let tag_w = match &err_l.repr {
-                    Repr::Enum { repr: EnumRepr::Bare { tag }, .. }
-                    | Repr::Enum { repr: EnumRepr::Tagged { tag, .. }, .. } => Some(tag.size()),
+                    Repr::Enum {
+                        repr: EnumRepr::Bare { tag },
+                        ..
+                    }
+                    | Repr::Enum {
+                        repr: EnumRepr::Tagged { tag, .. },
+                        ..
+                    } => Some(tag.size()),
                     _ => None,
                 };
                 let err_at = super::lists::payload_at(&l, err);
@@ -392,11 +401,10 @@ impl Jit<'_> {
                 // The message shape: the entry writes `E`'s one `Str` where the
                 // variant that carries it keeps it, so the failure path zeroes
                 // only the bytes in front of it rather than the whole area.
-                let message_at = crate::compiler::backend::runtime_native::error_message_offset(
-                    &err_l,
-                )
-                // A message offset is a tagged enum's, which has a tag.
-                .filter(|_| entry.ret == Ret::ResMsg);
+                let message_at =
+                    crate::compiler::backend::runtime_native::error_message_offset(&err_l)
+                        // A message offset is a tagged enum's, which has a tag.
+                        .filter(|_| entry.ret == Ret::ResMsg);
                 if let Some(at) = message_at {
                     ints.push(Src::Addr(dslot + err_at + at));
                     // The half of the shape the **caller** owes, and it is paid
@@ -447,11 +455,20 @@ impl Jit<'_> {
             (Ret::Int(32), ir::Type::Agg(id)) => {
                 let l = self.layout_id_shared(prog, id);
                 match &l.repr {
-                    Repr::Enum { repr: EnumRepr::Bare { tag }, .. }
-                    | Repr::Enum { repr: EnumRepr::Tagged { tag, .. }, .. } => {
-                        Some(tag.size())
+                    Repr::Enum {
+                        repr: EnumRepr::Bare { tag },
+                        ..
                     }
-                    _ => return Err(format!("{}: a tag destination that is not an enum", entry.key)),
+                    | Repr::Enum {
+                        repr: EnumRepr::Tagged { tag, .. },
+                        ..
+                    } => Some(tag.size()),
+                    _ => {
+                        return Err(format!(
+                            "{}: a tag destination that is not an enum",
+                            entry.key
+                        ))
+                    }
                 }
             }
             _ => None,
@@ -564,7 +581,8 @@ impl Jit<'_> {
             Some(TyKind::Con(_, args)) => args.get(ok).copied(),
             _ => None,
         };
-        self.layouts_of(payload.or_ice("a `Result` destination has its `.Ok` type")).size
+        self.layouts_of(payload.or_ice("a `Result` destination has its `.Ok` type"))
+            .size
     }
 
     /// One C call: the arguments into the scratch area, then the `crt` stencil
@@ -586,7 +604,12 @@ impl Jit<'_> {
         dslot: u32,
         kind: &str,
     ) {
-        const { assert!(I <= MAX_INT && F <= MAX_FLOAT, "past what a `crt` stencil holds") };
+        const {
+            assert!(
+                I <= MAX_INT && F <= MAX_FLOAT,
+                "past what a `crt` stencil holds"
+            )
+        };
         self.c_call_to(V::Ext(symbol), st, ints, floats, dslot, kind);
     }
 
@@ -618,7 +641,15 @@ impl Jit<'_> {
     }
 
     /// The call itself, for at most `MAX_INT` and `MAX_FLOAT` arguments.
-    fn c_call_to(&mut self, callee_v: V, st: &Fn2, ints: &[Src], floats: &[Src], dslot: u32, kind: &str) {
+    fn c_call_to(
+        &mut self,
+        callee_v: V,
+        st: &Fn2,
+        ints: &[Src],
+        floats: &[Src],
+        dslot: u32,
+        kind: &str,
+    ) {
         let base = st.scratch + CARG_WORD * 8;
         let fbase = base + MAX_INT as u32 * 8;
         let callee = key_fmt!("{}", super::abi::rt_callee(ints.len(), floats.len(), kind));
@@ -674,12 +705,19 @@ impl Jit<'_> {
             for ((b, n), at) in binds.iter_mut().zip(&held).zip(iat.iter().chain(fat)) {
                 *b = (n, V::I(u64::from(*at)));
             }
-            let tail = [("JIT_D", V::I(u64::from(dslot))), (&*callee, callee_v), ("JIT_CONT0", V::Fall)];
+            let tail = [
+                ("JIT_D", V::I(u64::from(dslot))),
+                (&*callee, callee_v),
+                ("JIT_CONT0", V::Fall),
+            ];
             for (b, t) in binds.iter_mut().skip(args).zip(tail) {
                 *b = t;
             }
             let binds = binds.get(..args + 3).unwrap_or_default();
-            self.emit(&key!["crts/", ints.len(), "/", floats.len(), "/", kind], binds);
+            self.emit(
+                &key!["crts/", ints.len(), "/", floats.len(), "/", kind],
+                binds,
+            );
             return;
         }
 
@@ -725,8 +763,12 @@ impl Jit<'_> {
     /// element owns no counted block — which is what `cli/runtime/list.rs`
     /// reads a null pointer as.
     pub(crate) fn element_glue(&mut self, elem: Ty) -> Option<String> {
-        self.rc_counted(&elem)
-            .then(|| self.helper(super::glue::Helper::Walk { ty: elem, op: Op::Retain }))
+        self.rc_counted(&elem).then(|| {
+            self.helper(super::glue::Helper::Walk {
+                ty: elem,
+                op: Op::Retain,
+            })
+        })
     }
 
     /// [`Self::element_glue`]'s mirror: the release, for a value the runtime
@@ -736,8 +778,12 @@ impl Jit<'_> {
     /// reached from here because the runtime is the side that knows *when* a
     /// store ends and this is the side that knows *what* is in it.
     fn value_release(&mut self, ty: Ty) -> Option<String> {
-        self.rc_counted(&ty)
-            .then(|| self.helper(super::glue::Helper::Walk { ty, op: Op::Release }))
+        self.rc_counted(&ty).then(|| {
+            self.helper(super::glue::Helper::Walk {
+                ty,
+                op: Op::Release,
+            })
+        })
     }
 
     /// The per-value **equality** glue for a type the reactive graph keeps a
@@ -858,16 +904,18 @@ impl Jit<'_> {
         let in_stride = self.layouts_of(source).stride.max(1);
         let out_stride = self.layouts_of(answer).stride.max(1);
 
-        let widths: Vec<u32> =
-            params.iter().map(|t| self.layouts_of(*t).size).collect();
+        let widths: Vec<u32> = params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (ctx_at, bytes) = super::glue::state_shape(&widths, call.index);
         // A context is a *value* here rather than the dropped argument a
         // runtime entry takes, because what reads it is the step and not the
         // runtime. One that owned a count would need a retain per element, and
         // no context does: `platform/host`'s are empty structs and
         // `platform/effect/testing`'s carry a handle.
-        let supplied: Vec<(u32, ir::Type)> =
-            call.ctx.into_iter().filter_map(|i| args.get(i).copied()).collect();
+        let supplied: Vec<(u32, ir::Type)> = call
+            .ctx
+            .into_iter()
+            .filter_map(|i| args.get(i).copied())
+            .collect();
         // `ctx_at` is parallel to the supplied contexts; `widths` to the
         // closure's parameters. An index parameter sits in the second and not
         // in the first, so the walk carries its own cursor rather than reusing
@@ -900,8 +948,11 @@ impl Jit<'_> {
                 ("JIT_CONT", V::Fall),
             ],
         );
-        let thunk =
-            self.helper(super::glue::Helper::Entry { params: params.to_vec(), ret: *ret, index: call.index });
+        let thunk = self.helper(super::glue::Helper::Entry {
+            params: params.to_vec(),
+            ret: *ret,
+            index: call.index,
+        });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
         ints.push(Src::Imm(u64::from(in_stride)));
@@ -972,8 +1023,7 @@ impl Jit<'_> {
         ints: &mut Vec<Src>,
     ) {
         let (fslot, ty, params, ret) = last_closure(prog, args);
-        let widths: Vec<u32> =
-            params.iter().map(|t| self.layouts_of(*t).size).collect();
+        let widths: Vec<u32> = params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (_, bytes) = super::glue::state_shape(&widths, None);
         let state = st.frame.size;
         self.mv(state, fslot, 16);
@@ -984,8 +1034,11 @@ impl Jit<'_> {
         self.walk_rc(st, &ty, state, Op::Retain, 0);
         let stride = u64::from(self.layouts_of(ret).stride);
         let release = self.value_release(ret);
-        let thunk =
-            self.helper(super::glue::Helper::Entry { params: params.to_vec(), ret, index: None });
+        let thunk = self.helper(super::glue::Helper::Entry {
+            params: params.to_vec(),
+            ret,
+            index: None,
+        });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
         ints.push(Src::Imm(u64::from(bytes)));
@@ -1027,8 +1080,7 @@ impl Jit<'_> {
         ints: &mut Vec<Src>,
     ) {
         let (fslot, _, params, ret) = last_closure(prog, args);
-        let widths: Vec<u32> =
-            params.iter().map(|t| self.layouts_of(*t).size).collect();
+        let widths: Vec<u32> = params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (ctx_at, _bytes) = super::glue::state_shape(&widths, Some(1));
         let state = st.frame.size;
         self.mv(state, fslot, 16);
@@ -1041,7 +1093,9 @@ impl Jit<'_> {
         // the record: the runtime keeps a copy with a count of its own and
         // supplies it to every walk and handler the document drives later.
         let dropped = (0..args.len()).find(|i| entry.dropped(*i));
-        let kept = dropped.and_then(|i| args.get(i).copied()).zip(ctx_at.first().copied());
+        let kept = dropped
+            .and_then(|i| args.get(i).copied())
+            .zip(ctx_at.first().copied());
         if let Some(((from, _), off)) = kept {
             let w = widths.first().copied().unwrap_or(0);
             if w > 0 {
@@ -1090,8 +1144,7 @@ impl Jit<'_> {
         ints: &mut Vec<Src>,
     ) -> Result<(), String> {
         let (fslot, ty, params, ret) = last_closure(prog, args);
-        let widths: Vec<u32> =
-            params.iter().map(|t| self.layouts_of(*t).size).collect();
+        let widths: Vec<u32> = params.iter().map(|t| self.layouts_of(*t).size).collect();
         let (ctx_at, bytes) = super::glue::state_shape(&widths, None);
         // The context, where the row drops one (`core/tasks`'s timers): it goes
         // into the record beside the closure, as a step's does, so the handler
@@ -1119,8 +1172,11 @@ impl Jit<'_> {
         // The graph keeps the closure, so the graph owes it a reference — taken
         // here, at the handler's last use, exactly as `compute_extra` takes one.
         self.walk_rc(st, &ty, state, Op::Retain, 0);
-        let thunk =
-            self.helper(super::glue::Helper::Entry { params: params.to_vec(), ret, index: None });
+        let thunk = self.helper(super::glue::Helper::Entry {
+            params: params.to_vec(),
+            ret,
+            index: None,
+        });
         ints.push(Src::Sym(thunk));
         ints.push(Src::Addr(state));
         ints.push(Src::Imm(u64::from(bytes)));
@@ -1199,15 +1255,39 @@ impl Jit<'_> {
     fn leaves(&mut self, prog: &ir::Program, t: ir::Type) -> Vec<Leaf> {
         match t {
             ir::Type::Unit => Vec::new(),
-            ir::Type::I1 | ir::Type::I8 => vec![Leaf { offset: 0, width: 8, float: false }],
+            ir::Type::I1 | ir::Type::I8 => vec![Leaf {
+                offset: 0,
+                width: 8,
+                float: false,
+            }],
             ir::Type::I16 | ir::Type::I32 | ir::Type::I64 | ir::Type::Ptr => {
-                vec![Leaf { offset: 0, width: 8, float: false }]
+                vec![Leaf {
+                    offset: 0,
+                    width: 8,
+                    float: false,
+                }]
             }
-            ir::Type::F32 => vec![Leaf { offset: 0, width: 4, float: true }],
-            ir::Type::F64 => vec![Leaf { offset: 0, width: 8, float: true }],
+            ir::Type::F32 => vec![Leaf {
+                offset: 0,
+                width: 4,
+                float: true,
+            }],
+            ir::Type::F64 => vec![Leaf {
+                offset: 0,
+                width: 8,
+                float: true,
+            }],
             ir::Type::I128 => vec![
-                Leaf { offset: 0, width: 8, float: false },
-                Leaf { offset: 8, width: 8, float: false },
+                Leaf {
+                    offset: 0,
+                    width: 8,
+                    float: false,
+                },
+                Leaf {
+                    offset: 8,
+                    width: 8,
+                    float: false,
+                },
             ],
             ir::Type::Agg(id) => {
                 let size = self.layout_id_shared(prog, id).size;
@@ -1215,7 +1295,11 @@ impl Jit<'_> {
                     format!("stencil: an aggregate of {size} bytes at a runtime boundary")
                 });
                 (0..size / 8)
-                    .map(|i| Leaf { offset: i * 8, width: 8, float: false })
+                    .map(|i| Leaf {
+                        offset: i * 8,
+                        width: 8,
+                        float: false,
+                    })
                     .collect()
             }
         }
@@ -1242,7 +1326,9 @@ impl Jit<'_> {
 fn scalar_kind(leaf: Leaf, t: ir::Type) -> &'static str {
     if leaf.float {
         // `core/math` and the random sources answer `Float`; no row answers an `F32`.
-        return (leaf.width == 8).then_some("d").or_ice("a runtime row's float result is an F64");
+        return (leaf.width == 8)
+            .then_some("d")
+            .or_ice("a runtime row's float result is an F64");
     }
     c_int_shape(t)
 }
@@ -1330,7 +1416,11 @@ impl Jit<'_> {
         // cases: the result shape has to be the **declared** width, not the
         // register's, and not the wider of the two either. One shape for both
         // was a `Bool` read out of the top three bytes of an `int` on SysV.
-        let kind = if symbol == "buri_rt_str_equal" { "b" } else { "w" };
+        let kind = if symbol == "buri_rt_str_equal" {
+            "b"
+        } else {
+            "w"
+        };
         self.c_call(symbol, st, &args, &[], dest, kind);
     }
 
@@ -1344,7 +1434,14 @@ impl Jit<'_> {
     ///
     /// `want` empty means the answer is already the boolean, which is
     /// `buri_rt_str_equal`'s; `BinOp::Ne` is that answer inverted.
-    pub(crate) fn order_test(&mut self, st: &Fn2, raw: u32, dest: u32, op: ir::BinOp, want: &[u64]) {
+    pub(crate) fn order_test(
+        &mut self,
+        st: &Fn2,
+        raw: u32,
+        dest: u32,
+        op: ir::BinOp,
+        want: &[u64],
+    ) {
         let scratch = st.scratch + SPARE_WORD * 8;
         match (op, want) {
             (ir::BinOp::Eq, []) => self.mv(dest, raw, 8),
@@ -1412,14 +1509,33 @@ impl Jit<'_> {
             Prim::Str if !quoted => self.mv(dest, src, 24),
             Prim::Str => {
                 let (p, l) = self.str_arg(src, scr);
-                self.c_call(runtime::SHOW_STR, st, &[p, l, Src::Addr(dest)], &[], dest, "v");
+                self.c_call(
+                    runtime::SHOW_STR,
+                    st,
+                    &[p, l, Src::Addr(dest)],
+                    &[],
+                    dest,
+                    "v",
+                );
             }
             // A `Template` has no `Show`, and a hole can't hold one.
-            Prim::Template => crate::diagnostics::ice("stencil: the checker refuses to show a Template"),
+            Prim::Template => {
+                crate::diagnostics::ice("stencil: the checker refuses to show a Template")
+            }
             Prim::Char => {
-                let symbol =
-                    if quoted { runtime::SHOW_CHAR } else { runtime::CHAR_TO_STR };
-                self.c_call(symbol, st, &[Src::Word(src), Src::Addr(dest)], &[], dest, "v");
+                let symbol = if quoted {
+                    runtime::SHOW_CHAR
+                } else {
+                    runtime::CHAR_TO_STR
+                };
+                self.c_call(
+                    symbol,
+                    st,
+                    &[Src::Word(src), Src::Addr(dest)],
+                    &[],
+                    dest,
+                    "v",
+                );
             }
             Prim::F64 => self.c_call(
                 runtime::SHOW_F64,
@@ -1480,8 +1596,11 @@ impl Jit<'_> {
                 "v",
             ),
             Prim::I128 | Prim::U128 => {
-                let symbol =
-                    if prim == Prim::I128 { runtime::SHOW_I128 } else { runtime::SHOW_U128 };
+                let symbol = if prim == Prim::I128 {
+                    runtime::SHOW_I128
+                } else {
+                    runtime::SHOW_U128
+                };
                 self.c_call(
                     symbol,
                     st,
@@ -1503,7 +1622,14 @@ impl Jit<'_> {
                         ("JIT_CONT", V::Fall),
                     ],
                 );
-                self.c_call(runtime::SHOW_F64, st, &[Src::Addr(dest)], &[Src::Word(scr)], dest, "v");
+                self.c_call(
+                    runtime::SHOW_F64,
+                    st,
+                    &[Src::Addr(dest)],
+                    &[Src::Word(scr)],
+                    dest,
+                    "v",
+                );
             }
         }
     }
@@ -1560,7 +1686,11 @@ impl Jit<'_> {
     /// as three arguments — which this backend refuses by arity, so it was a "report it"
     /// diagnostic on a program the front end was right to accept.
     pub(crate) const fn concat_strs(argc: usize) -> [usize; 2] {
-        if argc == 3 { [0, 2] } else { [0, 1] }
+        if argc == 3 {
+            [0, 2]
+        } else {
+            [0, 1]
+        }
     }
 
     /// `str.concat(a, b)`, and the `str.concat(self, ctx, other)` a method call

@@ -175,8 +175,11 @@ const STD_SOURCES: &str = "crates/stdlib/src/compiler/standard_library/sources";
 /// The group's face is still `reference/standard-library`, the prose map over
 /// the top of the library, which is what a reader who does not yet know which
 /// module they want needs first.
-const STD_INDEX: Catalogue =
-    Catalogue { route: "reference/std", title: "Every module", directory: STD_SOURCES };
+const STD_INDEX: Catalogue = Catalogue {
+    route: "reference/std",
+    title: "Every module",
+    directory: STD_SOURCES,
+};
 
 /// Where a page came from, and whether that is a file or a directory. The
 /// "edit on GitHub" link is a `blob` for one and a `tree` for the other.
@@ -265,13 +268,17 @@ impl Site {
 
     /// The pages of one section, in the order the navigation lists them.
     pub fn in_section(&self, section: usize) -> impl Iterator<Item = &Page> {
-        self.pages.iter().filter(move |p| p.section == Some(section) && !p.is_index())
+        self.pages
+            .iter()
+            .filter(move |p| p.section == Some(section) && !p.is_index())
     }
 
     /// What the navigation shows under one group of the reference: its pages,
     /// or — where the group is a catalogue — the one page that lists it.
     pub fn navigation_of(&self, group: usize) -> impl Iterator<Item = &Page> {
-        self.pages.iter().filter(move |p| p.group == Some(group) && p.listed)
+        self.pages
+            .iter()
+            .filter(move |p| p.group == Some(group) && p.listed)
     }
 
     /// Everything in one group that the navigation does not name. This is what
@@ -280,7 +287,9 @@ impl Site {
     /// already names is not repeated in the catalogue that stands in for the
     /// ones it cannot.
     pub fn in_group(&self, group: usize) -> impl Iterator<Item = &Page> {
-        self.pages.iter().filter(move |p| p.group == Some(group) && !p.listed && !p.is_index())
+        self.pages
+            .iter()
+            .filter(move |p| p.group == Some(group) && !p.listed && !p.is_index())
     }
 
     /// Every file the site is generated from, for `--watch` to poll.
@@ -323,7 +332,8 @@ impl Page {
 pub fn find_root(start: &Path) -> Option<PathBuf> {
     let mut here = Some(start);
     while let Some(directory) = here {
-        if directory.join("crates/docs/src/docs").is_dir() && directory.join("README.md").is_file() {
+        if directory.join("crates/docs/src/docs").is_dir() && directory.join("README.md").is_file()
+        {
             return Some(directory.to_path_buf());
         }
         here = directory.parent();
@@ -366,7 +376,10 @@ pub fn read(root: &Path) -> Result<Site, String> {
     read_catalog(root, &mut pages)?;
     read_skills(root, &mut pages)?;
     read_normative(root, &mut pages)?;
-    Ok(Site { root: root.to_path_buf(), pages })
+    Ok(Site {
+        root: root.to_path_buf(),
+        pages,
+    })
 }
 
 fn slurp(root: &Path, path: &str) -> Result<String, String> {
@@ -381,7 +394,10 @@ fn front_page(root: &Path) -> Result<Page, String> {
         title: "Buri".to_string(),
         label: String::new(),
         summary,
-        source: Source { path: "README.md".to_string(), directory: false },
+        source: Source {
+            path: "README.md".to_string(),
+            directory: false,
+        },
         section: None,
         group: None,
         listed: false,
@@ -403,11 +419,18 @@ fn listing(section: usize) -> Page {
         title: title.to_string(),
         label: String::new(),
         summary: blurb.to_string(),
-        source: Source { path: directory.to_string(), directory: true },
+        source: Source {
+            path: directory.to_string(),
+            directory: true,
+        },
         section: Some(section),
         group: None,
         listed: false,
-        content: if section == REFERENCE { Content::Groups } else { Content::Listing(section) },
+        content: if section == REFERENCE {
+            Content::Groups
+        } else {
+            Content::Listing(section)
+        },
         see_also: Vec::new(),
         facts: Vec::new(),
         adapted_from: None,
@@ -423,7 +446,10 @@ fn group_listing(group: usize) -> Option<Page> {
         title: catalogue.title.to_string(),
         label: String::new(),
         summary: entry.blurb.to_string(),
-        source: Source { path: catalogue.directory.to_string(), directory: true },
+        source: Source {
+            path: catalogue.directory.to_string(),
+            directory: true,
+        },
         section: Some(REFERENCE),
         group: Some(group),
         listed: true,
@@ -460,12 +486,19 @@ fn read_topics(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
             title: topic.title.to_string(),
             label: topic.id.to_string(),
             summary,
-            source: Source { path, directory: false },
+            source: Source {
+                path,
+                directory: false,
+            },
             section: Some(section),
             group,
             listed: true,
             content: Content::Prose(text),
-            see_also: topic.see_also.iter().filter_map(|id| route_of_topic(id)).collect(),
+            see_also: topic
+                .see_also
+                .iter()
+                .filter_map(|id| route_of_topic(id))
+                .collect(),
             facts: Vec::new(),
             adapted_from: None,
         });
@@ -482,8 +515,7 @@ fn read_topics(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
 /// one question; a reader looking a command up is looking the *set* of them up,
 /// and the browser's own find is the index.
 fn cli_page(root: &Path) -> Result<Page, String> {
-    let topic =
-        topics::find(CLI_TOPIC).ok_or_else(|| format!("`{CLI_TOPIC}` is not a topic"))?;
+    let topic = topics::find(CLI_TOPIC).ok_or_else(|| format!("`{CLI_TOPIC}` is not a topic"))?;
     let intro = slurp(root, &topic.path())?;
     let summary = markdown::summary(&intro);
     let mut text = from_one_directory_up(&intro);
@@ -496,12 +528,19 @@ fn cli_page(root: &Path) -> Result<Page, String> {
         title: topic.title.to_string(),
         label: topic.id.to_string(),
         summary,
-        source: Source { path: CLI_DIRECTORY.to_string(), directory: true },
+        source: Source {
+            path: CLI_DIRECTORY.to_string(),
+            directory: true,
+        },
         section: Some(REFERENCE),
         group: Some(CLI),
         listed: true,
         content: Content::Prose(text),
-        see_also: topic.see_also.iter().filter_map(|id| route_of_topic(id)).collect(),
+        see_also: topic
+            .see_also
+            .iter()
+            .filter_map(|id| route_of_topic(id))
+            .collect(),
         facts: Vec::new(),
         adapted_from: None,
     })
@@ -593,7 +632,10 @@ fn read_standard_library(root: &Path, pages: &mut Vec<Page>) {
         title: STD_INDEX.title.to_string(),
         label: String::new(),
         summary: "Every module the standard library ships, and what each one is for.".to_string(),
-        source: Source { path: STD_INDEX.directory.to_string(), directory: true },
+        source: Source {
+            path: STD_INDEX.directory.to_string(),
+            directory: true,
+        },
         section: Some(REFERENCE),
         group: Some(STANDARD_LIBRARY),
         listed: true,
@@ -609,8 +651,10 @@ fn read_standard_library(root: &Path, pages: &mut Vec<Page>) {
         // module of `[T]`" — and a listing that has just written the name
         // does not need it again.
         let summary = markdown::summary(&text);
-        let summary =
-            summary.strip_prefix(&format!("{} — ", module.path)).unwrap_or(&summary).to_string();
+        let summary = summary
+            .strip_prefix(&format!("{} — ", module.path))
+            .unwrap_or(&summary)
+            .to_string();
         pages.push(Page {
             route: format!("{}/{}", STD_INDEX.route, module.path),
             // The path is the title: it is what the module is called, what
@@ -623,7 +667,9 @@ fn read_standard_library(root: &Path, pages: &mut Vec<Page>) {
             group: Some(STANDARD_LIBRARY),
             listed: false,
             content: Content::Prose(text),
-            see_also: route_of_topic("reference/standard-library").into_iter().collect(),
+            see_also: route_of_topic("reference/standard-library")
+                .into_iter()
+                .collect(),
             facts: Vec::new(),
             adapted_from: None,
         });
@@ -638,15 +684,21 @@ fn read_standard_library(root: &Path, pages: &mut Vec<Page>) {
 /// `http.buri`, so the file cannot be derived from the path. Matching on the
 /// bytes is exact, because the embedded copy *is* the file.
 fn std_sources(root: &Path) -> Vec<(String, String)> {
-    let Ok(entries) = std::fs::read_dir(root.join(STD_SOURCES)) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(root.join(STD_SOURCES)) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|extension| extension.to_str()) != Some("buri") {
             continue;
         }
-        let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue };
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         out.push((text, format!("{STD_SOURCES}/{name}")));
     }
     out.sort_by(|a, b| a.1.cmp(&b.1));
@@ -660,8 +712,14 @@ fn std_sources(root: &Path) -> Vec<(String, String)> {
 fn std_source_of(files: &[(String, String)], module: &str) -> Source {
     let embedded = buri::compiler::standard_library::source(module);
     match embedded.and_then(|text| files.iter().find(|(body, _)| body == text)) {
-        Some((_, path)) => Source { path: path.clone(), directory: false },
-        None => Source { path: STD_SOURCES.to_string(), directory: true },
+        Some((_, path)) => Source {
+            path: path.clone(),
+            directory: false,
+        },
+        None => Source {
+            path: STD_SOURCES.to_string(),
+            directory: true,
+        },
     }
 }
 
@@ -699,7 +757,10 @@ fn module_markdown(m: &ApiModule) -> String {
 /// the name a reader would write down. What a method hangs off is the first
 /// thing said under it instead, which is where the effects line already was.
 fn item_markdown(item: &ApiItem) -> String {
-    let mut out = format!("### {}\n\n```buri sig\n{}\n```\n\n", item.name, item.signature);
+    let mut out = format!(
+        "### {}\n\n```buri sig\n{}\n```\n\n",
+        item.name, item.signature
+    );
     let mut said = String::new();
     if let Api::Method { owner, via, .. } = &item.api {
         said.push_str(&format!("A method on `{owner}`"));
@@ -784,26 +845,48 @@ fn read_catalog(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
         let (title, facts, adapted_from, body) = match parsed {
             Some((front, body)) => {
                 let mut facts = vec![
-                    Fact { term: "Severity", value: front.severity.label().to_string() },
-                    Fact { term: "Message", value: front.message.clone() },
+                    Fact {
+                        term: "Severity",
+                        value: front.severity.label().to_string(),
+                    },
+                    Fact {
+                        term: "Message",
+                        value: front.message.clone(),
+                    },
                 ];
                 if let Some(label) = front.label.clone() {
-                    facts.push(Fact { term: "Label", value: label });
+                    facts.push(Fact {
+                        term: "Label",
+                        value: label,
+                    });
                 }
                 if let Some(note) = front.note.clone() {
-                    facts.push(Fact { term: "Note", value: note });
+                    facts.push(Fact {
+                        term: "Note",
+                        value: note,
+                    });
                 }
                 if let Some(fix) = front.fix.clone() {
-                    facts.push(Fact { term: "Fix", value: fix });
+                    facts.push(Fact {
+                        term: "Fix",
+                        value: fix,
+                    });
                 }
-                (front.title.clone(), facts, front.adapted_from.clone(), body.to_string())
+                (
+                    front.title.clone(),
+                    facts,
+                    front.adapted_from.clone(),
+                    body.to_string(),
+                )
             }
             None => (listed_title.to_string(), Vec::new(), None, text.clone()),
         };
         let summary = match markdown::summary(&body) {
-            sentence if sentence.trim().is_empty() => {
-                facts.iter().find(|f| f.term == "Message").map(|f| f.value.clone()).unwrap_or_default()
-            }
+            sentence if sentence.trim().is_empty() => facts
+                .iter()
+                .find(|f| f.term == "Message")
+                .map(|f| f.value.clone())
+                .unwrap_or_default(),
             sentence => sentence,
         };
         pages.push(Page {
@@ -811,12 +894,18 @@ fn read_catalog(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
             title,
             label: code.to_string(),
             summary,
-            source: Source { path, directory: false },
+            source: Source {
+                path,
+                directory: false,
+            },
             section: Some(REFERENCE),
             group: Some(group),
             listed: false,
             content: Content::Prose(body),
-            see_also: see_also.iter().filter_map(|id| route_of_topic(id)).collect(),
+            see_also: see_also
+                .iter()
+                .filter_map(|id| route_of_topic(id))
+                .collect(),
             facts,
             adapted_from,
         });
@@ -838,8 +927,13 @@ fn read_skills(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
             route: format!("reference/skills/{}", skill.name),
             title,
             label: skill.name.to_string(),
-            summary: description.clone().unwrap_or_else(|| markdown::summary(body)),
-            source: Source { path, directory: false },
+            summary: description
+                .clone()
+                .unwrap_or_else(|| markdown::summary(body)),
+            source: Source {
+                path,
+                directory: false,
+            },
             section: Some(REFERENCE),
             group: Some(SKILLS_GROUP),
             listed: true,
@@ -847,7 +941,10 @@ fn read_skills(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
             see_also: Vec::new(),
             facts: description
                 .into_iter()
-                .map(|value| Fact { term: "Use when", value })
+                .map(|value| Fact {
+                    term: "Use when",
+                    value,
+                })
                 .collect(),
             adapted_from: None,
         });
@@ -859,7 +956,12 @@ fn read_skills(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
 /// verbatim in one block, exactly as `buri docs grammar` shows them.
 fn read_normative(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
     const NORMATIVE: &[(&str, &str, &str, &str)] = &[
-        ("reference/grammar", "The normative grammar", "crates/docs/src/docs/grammar.ebnf", "ebnf"),
+        (
+            "reference/grammar",
+            "The normative grammar",
+            "crates/docs/src/docs/grammar.ebnf",
+            "ebnf",
+        ),
         (
             "reference/build-schema",
             "The BUILD.buri schema",
@@ -880,7 +982,10 @@ fn read_normative(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
             title: (*title).to_string(),
             label: path.rsplit('/').next().unwrap_or(path).to_string(),
             summary: format!("Hand-written {language}, held to the implementation by a test."),
-            source: Source { path: (*path).to_string(), directory: false },
+            source: Source {
+                path: (*path).to_string(),
+                directory: false,
+            },
             section: Some(REFERENCE),
             group: Some(NORMATIVE_GROUP),
             listed: true,
@@ -898,7 +1003,9 @@ fn read_normative(root: &Path, pages: &mut Vec<Page>) -> Result<(), String> {
 /// the keys a diagnostic page may carry; a skill declares `name` and
 /// `description`, which are not among them.
 fn split_front_block(text: &str) -> (Option<&str>, &str) {
-    let Some(rest) = text.strip_prefix("---\n") else { return (None, text) };
+    let Some(rest) = text.strip_prefix("---\n") else {
+        return (None, text);
+    };
     let mut offset = 0usize;
     for line in rest.split_inclusive('\n') {
         if line.trim_end() == "---" {
@@ -930,13 +1037,22 @@ mod tests {
     /// wherever a topic's shelf moved without its name moving.
     #[test]
     fn a_topic_id_names_the_route_its_page_is_written_to() {
-        assert_eq!(route_of_topic("language/lexical").as_deref(), Some("language/lexical"));
+        assert_eq!(
+            route_of_topic("language/lexical").as_deref(),
+            Some("language/lexical")
+        );
         assert_eq!(
             route_of_topic("getting-started/installing").as_deref(),
             Some("getting-started/installing")
         );
-        assert_eq!(route_of_topic("guides/testing").as_deref(), Some("guides/testing"));
-        assert_eq!(route_of_topic("build/tags").as_deref(), Some("reference/build/tags"));
+        assert_eq!(
+            route_of_topic("guides/testing").as_deref(),
+            Some("guides/testing")
+        );
+        assert_eq!(
+            route_of_topic("build/tags").as_deref(),
+            Some("reference/build/tags")
+        );
         assert_eq!(
             route_of_topic("reference/standard-library").as_deref(),
             Some("reference/standard-library")
@@ -982,14 +1098,21 @@ mod tests {
                 group.title
             );
             assert_eq!(page.group, Some(index));
-            assert!(page.listed, "the navigation would show nothing for `{}`", group.title);
+            assert!(
+                page.listed,
+                "the navigation would show nothing for `{}`",
+                group.title
+            );
         }
     }
 
     #[test]
     fn a_command_reference_is_demoted_but_a_fence_is_left_alone() {
         let block = command_block("# buri build\n\n```textproto\n# a comment\n```\n\n## Caching\n");
-        assert_eq!(block, "## buri build\n\n```textproto\n# a comment\n```\n\n### Caching\n");
+        assert_eq!(
+            block,
+            "## buri build\n\n```textproto\n# a comment\n```\n\n### Caching\n"
+        );
     }
 
     /// The intro is read where it sits and shown where the commands sit, and
@@ -1010,7 +1133,10 @@ mod tests {
     #[test]
     fn a_command_block_leaves_the_shared_exit_codes_to_the_intro() {
         let generated = buri::commands::reference(&COMMANDS[0]);
-        assert!(generated.contains("Exit codes:"), "the generated reference no longer states them");
+        assert!(
+            generated.contains("Exit codes:"),
+            "the generated reference no longer states them"
+        );
         assert!(!command_block(&generated).contains("Exit codes:"));
     }
 
@@ -1032,8 +1158,14 @@ mod tests {
         let page = item_markdown(&item);
         assert!(page.starts_with("### map\n"), "{page}");
         assert_eq!(buri::documentation::markdown::slug("map"), "map");
-        assert!(page.contains("```buri sig\nfn map<B, C: Allocator>"), "{page}");
-        assert!(page.contains("A method on `[A]`. Effects: `Allocator`."), "{page}");
+        assert!(
+            page.contains("```buri sig\nfn map<B, C: Allocator>"),
+            "{page}"
+        );
+        assert!(
+            page.contains("A method on `[A]`. Effects: `Allocator`."),
+            "{page}"
+        );
     }
 
     /// A pure function says so, and a struct — which cannot be called — says
@@ -1041,7 +1173,9 @@ mod tests {
     #[test]
     fn purity_is_stated_only_where_it_is_a_statement_about_the_item() {
         let pure = ApiItem {
-            api: Api::Function { effects: Vec::new() },
+            api: Api::Function {
+                effects: Vec::new(),
+            },
             name: "length".to_string(),
             signature: "fn length(self): Int".to_string(),
             docs: Vec::new(),
@@ -1065,8 +1199,14 @@ mod tests {
     /// with two titles on it is a page whose outline is wrong.
     #[test]
     fn prose_a_module_wrote_about_itself_sits_under_the_pages_own_headings() {
-        let text = demoted("# What is not here\n\n```buri\n# hidden\n```\n\n## Vectors\n", 1);
-        assert_eq!(text, "## What is not here\n\n```buri\n# hidden\n```\n\n### Vectors\n");
+        let text = demoted(
+            "# What is not here\n\n```buri\n# hidden\n```\n\n## Vectors\n",
+            1,
+        );
+        assert_eq!(
+            text,
+            "## What is not here\n\n```buri\n# hidden\n```\n\n### Vectors\n"
+        );
         assert_eq!(demoted("###### Deep\n", 2), "###### Deep\n");
         assert_eq!(demoted("#nothing\n", 1), "#nothing\n");
     }
@@ -1076,6 +1216,9 @@ mod tests {
         let (front, body) = split_front_block("---\nname: buri-cli\n---\n# Title\n");
         assert_eq!(front, Some("name: buri-cli\n"));
         assert_eq!(body, "# Title\n");
-        assert_eq!(field("name: buri-cli\n", "name").as_deref(), Some("buri-cli"));
+        assert_eq!(
+            field("name: buri-cli\n", "name").as_deref(),
+            Some("buri-cli")
+        );
     }
 }

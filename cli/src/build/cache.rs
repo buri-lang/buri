@@ -240,7 +240,12 @@ fn line(on: bool, status: Status, action: Action, label: &str, platform: &str, k
     if !on {
         return;
     }
-    let text = format!("{:<6} {} {label} {platform} {}", status.name(), action.name(), key.short());
+    let text = format!(
+        "{:<6} {} {label} {platform} {}",
+        status.name(),
+        action.name(),
+        key.short()
+    );
     let held = HELD.with(|held| match held.borrow_mut().as_mut() {
         Some(buffer) => {
             buffer.push_str(&text);
@@ -339,7 +344,10 @@ impl Cache {
     /// artifact of a hundred megabytes is not read.
     pub fn entry(&self, key: &ActionKey) -> Option<PathBuf> {
         let path = self.path(key);
-        let len = std::fs::metadata(&path).ok().filter(std::fs::Metadata::is_file)?.len();
+        let len = std::fs::metadata(&path)
+            .ok()
+            .filter(std::fs::Metadata::is_file)?
+            .len();
         match tag::get(&path) {
             Some(tag) if tag.get(..8) != Some(&len.to_le_bytes()[..]) => None,
             _ => Some(path),
@@ -452,8 +460,12 @@ mod tag {
 
     /// Tags the file at `path`, best effort.
     pub fn set(path: &Path, tag: &[u8]) {
-        #[expect(clippy::expect_used, reason = "an entry's path is the cache directory's and a hex key")]
-        let path = CString::new(path.as_os_str().as_bytes()).expect("a cache entry's path holds no NUL");
+        #[expect(
+            clippy::expect_used,
+            reason = "an entry's path is the cache directory's and a hex key"
+        )]
+        let path =
+            CString::new(path.as_os_str().as_bytes()).expect("a cache entry's path holds no NUL");
         // SAFETY: two NUL-terminated strings and a buffer of the length given.
         unsafe {
             setxattr(path.as_ptr(), NAME.as_ptr(), tag.as_ptr(), tag.len(), 0, 0);
@@ -465,7 +477,16 @@ mod tag {
         let path = CString::new(path.as_os_str().as_bytes()).ok()?;
         let mut tag = vec![0; 16];
         // SAFETY: two NUL-terminated strings and a buffer of the length given.
-        let n = unsafe { getxattr(path.as_ptr(), NAME.as_ptr(), tag.as_mut_ptr(), tag.len(), 0, 0) };
+        let n = unsafe {
+            getxattr(
+                path.as_ptr(),
+                NAME.as_ptr(),
+                tag.as_mut_ptr(),
+                tag.len(),
+                0,
+                0,
+            )
+        };
         tag.truncate(usize::try_from(n).ok()?);
         Some(tag)
     }
@@ -473,27 +494,66 @@ mod tag {
     // `path`, `name`, `value`, `size`, then macOS's `position` and `options`.
     #[cfg(target_os = "macos")]
     unsafe extern "C" {
-        fn setxattr(path: *const c_char, name: *const c_char, value: *const u8, size: usize, at: u32, opt: i32) -> i32;
-        fn getxattr(path: *const c_char, name: *const c_char, value: *mut u8, size: usize, at: u32, opt: i32) -> isize;
+        fn setxattr(
+            path: *const c_char,
+            name: *const c_char,
+            value: *const u8,
+            size: usize,
+            at: u32,
+            opt: i32,
+        ) -> i32;
+        fn getxattr(
+            path: *const c_char,
+            name: *const c_char,
+            value: *mut u8,
+            size: usize,
+            at: u32,
+            opt: i32,
+        ) -> isize;
     }
 
     #[cfg(target_os = "linux")]
     unsafe extern "C" {
         #[link_name = "setxattr"]
-        fn linux_setxattr(path: *const c_char, name: *const c_char, value: *const u8, size: usize, flags: i32) -> i32;
+        fn linux_setxattr(
+            path: *const c_char,
+            name: *const c_char,
+            value: *const u8,
+            size: usize,
+            flags: i32,
+        ) -> i32;
         #[link_name = "getxattr"]
-        fn linux_getxattr(path: *const c_char, name: *const c_char, value: *mut u8, size: usize) -> isize;
+        fn linux_getxattr(
+            path: *const c_char,
+            name: *const c_char,
+            value: *mut u8,
+            size: usize,
+        ) -> isize;
     }
 
     /// Linux's, which take no position or options, called as macOS's are.
     #[cfg(target_os = "linux")]
-    unsafe fn setxattr(path: *const c_char, name: *const c_char, value: *const u8, size: usize, _: u32, _: i32) -> i32 {
+    unsafe fn setxattr(
+        path: *const c_char,
+        name: *const c_char,
+        value: *const u8,
+        size: usize,
+        _: u32,
+        _: i32,
+    ) -> i32 {
         // SAFETY: the caller's arguments, passed on.
         unsafe { linux_setxattr(path, name, value, size, 0) }
     }
 
     #[cfg(target_os = "linux")]
-    unsafe fn getxattr(path: *const c_char, name: *const c_char, value: *mut u8, size: usize, _: u32, _: i32) -> isize {
+    unsafe fn getxattr(
+        path: *const c_char,
+        name: *const c_char,
+        value: *mut u8,
+        size: usize,
+        _: u32,
+        _: i32,
+    ) -> isize {
         // SAFETY: the caller's arguments, passed on.
         unsafe { linux_getxattr(path, name, value, size) }
     }
@@ -532,7 +592,9 @@ const TOOLCHAIN_MARKER: &str = ".toolchain";
 fn reconcile_toolchain(dir: &Path) {
     static RECONCILED: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
     let set_aside = {
-        let mut reconciled = RECONCILED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut reconciled = RECONCILED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if reconciled.iter().any(|d| d == dir) {
             return;
         }
@@ -574,7 +636,9 @@ fn set_aside_another_toolchains(dir: &Path) -> Option<PathBuf> {
     // Under the lock, so two processes that both see a new toolchain do not
     // empty the cache twice. The double-check covers another process
     // reconciling while this one waited.
-    let LockOutcome::Held(_guard) = Lock::acquire(dir) else { return None };
+    let LockOutcome::Held(_guard) = Lock::acquire(dir) else {
+        return None;
+    };
     if !names_another_toolchain(&marker) {
         return None;
     }
@@ -666,7 +730,12 @@ impl Lock {
         let path = dir.join(".lock");
         let deadline = std::time::Instant::now() + PATIENCE;
         loop {
-            if std::fs::OpenOptions::new().create_new(true).write(true).open(&path).is_ok() {
+            if std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&path)
+                .is_ok()
+            {
                 return LockOutcome::Held(Lock { path });
             }
             let abandoned = std::fs::metadata(&path)
@@ -916,21 +985,42 @@ mod tests {
         std::fs::write(link.join("main.o"), b"an object").unwrap();
 
         let opened = Cache::open(&root);
-        assert_eq!(opened.get(&key), None, "a changed toolchain did not wipe the cache");
-        assert!(!root.join(".buri/link").exists(), "a changed toolchain left its link directories");
-        assert!(!root.join(".buri/trash").exists(), "the wipe left what it set aside");
-        assert_eq!(std::fs::read_to_string(dir.join(TOOLCHAIN_MARKER)).ok().as_deref(), Some(toolchain_identity()));
+        assert_eq!(
+            opened.get(&key),
+            None,
+            "a changed toolchain did not wipe the cache"
+        );
+        assert!(
+            !root.join(".buri/link").exists(),
+            "a changed toolchain left its link directories"
+        );
+        assert!(
+            !root.join(".buri/trash").exists(),
+            "the wipe left what it set aside"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join(TOOLCHAIN_MARKER))
+                .ok()
+                .as_deref(),
+            Some(toolchain_identity())
+        );
 
         // The marker now names this toolchain, so what this open writes
         // survives the next.
         opened.put(&key, b"an entry");
-        assert_eq!(Cache::open(&root).get(&key).as_deref(), Some(&b"an entry"[..]));
+        assert_eq!(
+            Cache::open(&root).get(&key).as_deref(),
+            Some(&b"an entry"[..])
+        );
 
         // And once this process has opened the cache, a marker rewritten under
         // it — by a language server still running another `buri` — empties
         // nothing this process is using (#248).
         std::fs::write(dir.join(TOOLCHAIN_MARKER), "a-different-toolchain").unwrap();
-        assert_eq!(Cache::open(&root).get(&key).as_deref(), Some(&b"an entry"[..]));
+        assert_eq!(
+            Cache::open(&root).get(&key).as_deref(),
+            Some(&b"an entry"[..])
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -949,8 +1039,14 @@ mod tests {
         std::fs::create_dir_all(dir.join(TOOLCHAIN_MARKER)).unwrap();
         std::fs::create_dir_all(root.join(".buri/link/a-link-key")).unwrap();
 
-        assert_eq!(Cache::open(&root).get(&key).as_deref(), Some(&b"an entry"[..]));
-        assert!(root.join(".buri/link/a-link-key").exists(), "an unreadable marker removed a link directory");
+        assert_eq!(
+            Cache::open(&root).get(&key).as_deref(),
+            Some(&b"an entry"[..])
+        );
+        assert!(
+            root.join(".buri/link/a-link-key").exists(),
+            "an unreadable marker removed a link directory"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1002,9 +1098,21 @@ mod tests {
             k.finish()
         };
         let base = key("//lib/money", "library", &["cents.buri"]);
-        assert_ne!(base, key("//lib/ledger", "library", &["cents.buri"]), "the label is not in the key");
-        assert_ne!(base, key("//lib/money", "binary", &["cents.buri"]), "the rule kind is not in the key");
-        assert_ne!(base, key("//lib/money", "library", &["pence.buri"]), "a source's path is not in the key");
+        assert_ne!(
+            base,
+            key("//lib/ledger", "library", &["cents.buri"]),
+            "the label is not in the key"
+        );
+        assert_ne!(
+            base,
+            key("//lib/money", "binary", &["cents.buri"]),
+            "the rule kind is not in the key"
+        );
+        assert_ne!(
+            base,
+            key("//lib/money", "library", &["pence.buri"]),
+            "a source's path is not in the key"
+        );
         assert_ne!(
             base,
             key("//lib/money", "library", &["cents.buri", "extra.buri"]),
@@ -1023,7 +1131,11 @@ mod tests {
             k.finish()
         };
         assert_ne!(key(None), key(Some(b"")), "absent and empty share a key");
-        assert_ne!(key(Some(b"")), key(Some(b"x")), "the contents are not in the key");
+        assert_ne!(
+            key(Some(b"")),
+            key(Some(b"x")),
+            "the contents are not in the key"
+        );
         assert_eq!(key(None), key(None));
     }
 
@@ -1043,7 +1155,11 @@ mod tests {
         // One dependency, two states of its source tree that hash the same
         // because nothing output-determining moved.
         assert_eq!(dependent(b"aaaa"), dependent(b"aaaa"));
-        assert_ne!(dependent(b"aaaa"), dependent(b"bbbb"), "a dependency's key is not in the key");
+        assert_ne!(
+            dependent(b"aaaa"),
+            dependent(b"bbbb"),
+            "a dependency's key is not in the key"
+        );
 
         // And the negative twin: the builder has no way to fold a dependency's
         // *contents* in, so there is nowhere for a body edit to enter except
@@ -1063,13 +1179,19 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         {
             let held = Lock::acquire(&dir);
-            assert!(matches!(held, LockOutcome::Held(_)), "the lock was not taken");
+            assert!(
+                matches!(held, LockOutcome::Held(_)),
+                "the lock was not taken"
+            );
             assert!(dir.join(".lock").exists(), "the lock file was not created");
         }
         assert!(!dir.join(".lock").exists(), "the lock outlived its guard");
         let started = std::time::Instant::now();
         drop(Lock::acquire(&dir));
-        assert!(started.elapsed() < PATIENCE, "a released lock was waited for");
+        assert!(
+            started.elapsed() < PATIENCE,
+            "a released lock was waited for"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1091,7 +1213,10 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .filter(|n| n.contains("tmp"))
             .collect();
-        assert!(leftovers.is_empty(), "temporaries left behind: {leftovers:?}");
+        assert!(
+            leftovers.is_empty(),
+            "temporaries left behind: {leftovers:?}"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1118,7 +1243,10 @@ mod tests {
         std::fs::write(&staged, b"an artifact").expect("writing the staged file");
 
         cache.put_file(&key, &staged);
-        assert!(!staged.exists(), "put_file copied the file instead of moving it");
+        assert!(
+            !staged.exists(),
+            "put_file copied the file instead of moving it"
+        );
         let entry = cache.entry(&key).expect("the entry the file became");
         assert_eq!(std::fs::read(&entry).expect("the entry"), b"an artifact");
 
@@ -1126,7 +1254,11 @@ mod tests {
         crate::build::link::place_from(&entry, &out).expect("placing the entry");
         assert_eq!(std::fs::read(&out).expect("the output"), b"an artifact");
         let ino = |p: &std::path::Path| std::fs::metadata(p).expect("the file").ino();
-        assert_ne!(ino(&out), ino(&entry), "the artifact is the cache entry's own inode");
+        assert_ne!(
+            ino(&out),
+            ino(&entry),
+            "the artifact is the cache entry's own inode"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }

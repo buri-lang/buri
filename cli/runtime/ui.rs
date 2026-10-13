@@ -91,8 +91,8 @@
 use crate::abort::die;
 use crate::list::{Release, Retain};
 use crate::memory::{buri_rt_stack_acquire, buri_rt_stack_release};
-use crate::value::{list_of_strs, str_of, BuriList, BuriStr};
 use crate::sync::Mutex;
+use crate::value::{BuriList, BuriStr, list_of_strs, str_of};
 
 /// The per-value **equality** glue: answers whether two values of one type are
 /// the same value, by the comparison `==` makes at that type. Null where the
@@ -106,9 +106,8 @@ use crate::sync::Mutex;
 /// ([`Compute`]). The LLVM backend works on the machine stack and ignores the
 /// word. `a` and `b` address one whole value each and `out` receives a byte:
 /// non-zero for equal.
-pub type Equal = Option<
-    unsafe extern "C" fn(frame: *mut u8, a: *const u8, b: *const u8, out: *mut u8),
->;
+pub type Equal =
+    Option<unsafe extern "C" fn(frame: *mut u8, a: *const u8, b: *const u8, out: *mut u8)>;
 
 /// A runaway is a program whose watchers write what they read. The limit is not
 /// a policy, it is the difference between a diagnosis and a hung tab.
@@ -307,7 +306,9 @@ impl Graph {
         let mut stack = vec![id];
         while let Some(next) = stack.pop() {
             let (children, release, mut value, body, compute) = {
-                let Some(n) = self.get_mut(next) else { continue };
+                let Some(n) = self.get_mut(next) else {
+                    continue;
+                };
                 if n.disposed {
                     continue;
                 }
@@ -446,7 +447,11 @@ fn run(id: i64) {
     let scope = id;
     // The frame this body works in, and the whole reason a deferred call needs
     // one: the frame it was handed over in has been left.
-    let frame = if compute.frame_at >= 0 { buri_rt_stack_acquire() } else { std::ptr::null_mut() };
+    let frame = if compute.frame_at >= 0 {
+        buri_rt_stack_acquire()
+    } else {
+        std::ptr::null_mut()
+    };
     if let Ok(at) = usize::try_from(compute.frame_at) {
         // SAFETY: the backend asked for the frame at this offset in a record
         // of its own, and `keep` copied the whole of it.
@@ -457,7 +462,12 @@ fn run(id: i64) {
     // live buffer of at least the stride the memo was made with, and `scope`
     // one live word.
     unsafe {
-        (compute.entry)(compute.state, id, std::ptr::addr_of!(scope).cast(), out.as_mut_ptr());
+        (compute.entry)(
+            compute.state,
+            id,
+            std::ptr::addr_of!(scope).cast(),
+            out.as_mut_ptr(),
+        );
     }
     if !frame.is_null() {
         // SAFETY: this thread acquired it a few lines above and the thunk has
@@ -547,7 +557,9 @@ fn should_drain() -> bool {
 unsafe fn read_into(id: i64, stride: usize, out: *mut u8) {
     let stale = {
         let g = lock();
-        let Some(n) = g.get(id) else { die(&[NO_SIGNAL.as_bytes()]) };
+        let Some(n) = g.get(id) else {
+            die(&[NO_SIGNAL.as_bytes()])
+        };
         // Reading is what makes a memo run: until then it has computed nothing,
         // and a memo nothing reads never runs at all.
         n.kind == Kind::Memo && n.dirty && !n.disposed
@@ -654,7 +666,9 @@ unsafe fn write_bytes(id: i64, value: *const u8, stride: usize, differ: bool) ->
     };
     {
         let mut g = lock();
-        let Some(n) = g.get_mut(id) else { die(&[NO_SIGNAL.as_bytes()]) };
+        let Some(n) = g.get_mut(id) else {
+            die(&[NO_SIGNAL.as_bytes()])
+        };
         if !differ && n.value == fresh {
             return false;
         }
@@ -692,7 +706,11 @@ pub unsafe extern "C" fn buri_rt_ui_memo(
         Kind::Memo,
         Vec::new(),
         stride,
-        Some(Compute { entry, state, frame_at }),
+        Some(Compute {
+            entry,
+            state,
+            frame_at,
+        }),
         release,
         body,
     )
@@ -742,7 +760,11 @@ pub unsafe extern "C" fn buri_rt_ui_watch(
             Kind::Watcher,
             Vec::new(),
             0,
-            Some(Compute { entry, state, frame_at }),
+            Some(Compute {
+                entry,
+                state,
+                frame_at,
+            }),
             None,
             body,
         )
@@ -847,11 +869,7 @@ fn under_fresh_scope<R>(body: impl FnOnce(i64) -> R) -> R {
 /// record it was generated against; `out` is writable for the body's `Node`
 /// stride.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_build_node(
-    entry: ComputeEntry,
-    state: *mut u8,
-    out: *mut u8,
-) {
+pub unsafe extern "C" fn buri_rt_ui_build_node(entry: ComputeEntry, state: *mut u8, out: *mut u8) {
     under_fresh_scope(|scope| {
         // SAFETY: forwarded to the caller's promise; `scope` is one live word.
         unsafe { (entry)(state, 0, std::ptr::addr_of!(scope).cast(), out) };
@@ -887,7 +905,11 @@ pub unsafe extern "C" fn buri_rt_ui_node_register_handler(
         Kind::Owner,
         Vec::new(),
         0,
-        Some(Compute { entry, state, frame_at }),
+        Some(Compute {
+            entry,
+            state,
+            frame_at,
+        }),
         None,
         body,
     )
@@ -912,7 +934,11 @@ pub(crate) fn fire(id: i64, doc: i64) {
     };
     let Some(compute) = compute else { return };
     let event: i64 = 0;
-    let frame = if compute.frame_at >= 0 { buri_rt_stack_acquire() } else { std::ptr::null_mut() };
+    let frame = if compute.frame_at >= 0 {
+        buri_rt_stack_acquire()
+    } else {
+        std::ptr::null_mut()
+    };
     if let Ok(at) = usize::try_from(compute.frame_at) {
         // SAFETY: the backend asked for the frame at this offset in a record of
         // its own, and `keep` copied the whole of it.
@@ -930,7 +956,12 @@ pub(crate) fn fire(id: i64, doc: i64) {
     // `event` is one live word crossing as the element, and `sink` a live
     // destination a `()`-answering thunk writes nothing to.
     unsafe {
-        (compute.entry)(compute.state, 0, std::ptr::addr_of!(event).cast(), sink.as_mut_ptr());
+        (compute.entry)(
+            compute.state,
+            0,
+            std::ptr::addr_of!(event).cast(),
+            sink.as_mut_ptr(),
+        );
     }
     if !frame.is_null() {
         // SAFETY: this thread acquired it above and the thunk has returned.
@@ -966,10 +997,9 @@ pub(crate) fn set_str_signal(id: i64, text: &str) {
     }
     let fresh = BuriStr::copy_from(text.as_bytes());
     // SAFETY: `fresh` is one whole `BuriStr`, `width` bytes of it.
-    let bytes = unsafe {
-        std::slice::from_raw_parts(std::ptr::addr_of!(fresh).cast::<u8>(), width)
-    }
-    .to_vec();
+    let bytes =
+        unsafe { std::slice::from_raw_parts(std::ptr::addr_of!(fresh).cast::<u8>(), width) }
+            .to_vec();
     // SAFETY: `bytes` is one whole `Str` value of `width` bytes.
     let changed = unsafe { write_changed(id, bytes.as_ptr(), width) };
     if changed {
@@ -1089,7 +1119,11 @@ pub unsafe extern "C" fn buri_rt_ui_render_walk(
     node: *const u8,
     frame_at: i64,
 ) {
-    let frame = if frame_at >= 0 { buri_rt_stack_acquire() } else { std::ptr::null_mut() };
+    let frame = if frame_at >= 0 {
+        buri_rt_stack_acquire()
+    } else {
+        std::ptr::null_mut()
+    };
     if let Ok(at) = usize::try_from(frame_at) {
         // SAFETY: the backend asked for the frame at this offset in a record of
         // its own, past the closure's two words.
@@ -1122,7 +1156,7 @@ pub unsafe extern "C" fn buri_rt_ui_render_walk(
 /// reaches through, one lock at a time so the reconciler never holds this lock
 /// across the Buri walk that builds a row.
 pub(crate) mod rows {
-    use super::{lock, Kind};
+    use super::{Kind, lock};
 
     /// A node that runs nothing, so that something else can be disposed with
     /// it. A keyed list's rows hang off one, which is what lets a row outlive
@@ -1279,7 +1313,9 @@ pub(crate) fn render(doc: &str) -> String {
     // `Values` block binds a token; a scheme and a page name none.
     let mut bindings: Vec<(String, Bound)> = Vec::new();
     for block in &blocks {
-        let Block::Values(block_bindings) = block else { continue };
+        let Block::Values(block_bindings) = block else {
+            continue;
+        };
         for (name, bound) in block_bindings {
             match bindings.iter().position(|(k, _)| k == name) {
                 Some(at) => {
@@ -1658,7 +1694,9 @@ extern "C" fn give_back() {
             unsafe { walk(release, n.value.as_mut_ptr()) };
             n.value.clear();
         }
-        let Some(compute) = n.compute.take() else { continue };
+        let Some(compute) = n.compute.take() else {
+            continue;
+        };
         // SAFETY: the record's first words are the closure `{ code, env }`,
         // which is what `body` was generated for.
         unsafe { walk(n.body, compute.state) };
@@ -1735,7 +1773,9 @@ impl FakeTimer {
         if !self.state.is_null() {
             // SAFETY: `buri_rt_host_testing_headless_timer_start` leaked exactly
             // this boxed slice.
-            drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(self.state, self.bytes)) });
+            drop(unsafe {
+                Box::from_raw(std::ptr::slice_from_raw_parts_mut(self.state, self.bytes))
+            });
         }
     }
 }
@@ -1749,8 +1789,11 @@ struct FakeClock {
     due: std::collections::BTreeMap<(i64, i64), FakeTimer>,
 }
 
-static CLOCK: Mutex<FakeClock> =
-    Mutex::new(FakeClock { now: 0, issued: 0, due: std::collections::BTreeMap::new() });
+static CLOCK: Mutex<FakeClock> = Mutex::new(FakeClock {
+    now: 0,
+    issued: 0,
+    due: std::collections::BTreeMap::new(),
+});
 
 fn clock() -> crate::sync::MutexGuard<'static, FakeClock> {
     match CLOCK.lock() {
@@ -1788,7 +1831,16 @@ pub unsafe extern "C" fn buri_rt_host_testing_headless_timer_start(
     c.issued = c.issued.saturating_add(1);
     let handle = c.issued;
     let due = c.now.saturating_add(millis.max(0));
-    c.due.insert((due, handle), FakeTimer { entry, state: copy, bytes, frame_at, body });
+    c.due.insert(
+        (due, handle),
+        FakeTimer {
+            entry,
+            state: copy,
+            bytes,
+            frame_at,
+            body,
+        },
+    );
     handle
 }
 
@@ -1825,8 +1877,11 @@ pub extern "C" fn buri_rt_host_testing_elapse(millis: i64) {
             }
         };
         let Some((handle, timer)) = next else { break };
-        let frame =
-            if timer.frame_at >= 0 { buri_rt_stack_acquire() } else { std::ptr::null_mut() };
+        let frame = if timer.frame_at >= 0 {
+            buri_rt_stack_acquire()
+        } else {
+            std::ptr::null_mut()
+        };
         if let Ok(at) = usize::try_from(timer.frame_at) {
             // SAFETY: the backend asked for the frame at this offset in a record
             // of its own, and the start copied the whole of it.
@@ -1838,7 +1893,12 @@ pub extern "C" fn buri_rt_host_testing_elapse(millis: i64) {
         // `handle` is one live word crossing as the element, and `sink` a live
         // destination a `()`-answering thunk writes nothing to.
         unsafe {
-            (timer.entry)(timer.state, 0, std::ptr::addr_of!(handle).cast(), sink.as_mut_ptr());
+            (timer.entry)(
+                timer.state,
+                0,
+                std::ptr::addr_of!(handle).cast(),
+                sink.as_mut_ptr(),
+            );
         }
         if !frame.is_null() {
             // SAFETY: this thread acquired it above and the thunk has returned.
@@ -1917,7 +1977,10 @@ fn recorders() -> crate::sync::MutexGuard<'static, Vec<(Vec<String>, Vec<i64>)>>
 /// A `[Int]` from a slice of them: one block at an eight-byte stride.
 fn list_of_ints(items: &[i64]) -> BuriList {
     if items.is_empty() {
-        return BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        return BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
     }
     let ptr = crate::memory::buri_rt_alloc(size_of_val(items) as u64);
     for (i, item) in items.iter().enumerate() {
@@ -1925,7 +1988,10 @@ fn list_of_ints(items: &[i64]) -> BuriList {
         // 16-aligned so every eight-byte slot in it is aligned.
         unsafe { ptr.cast::<i64>().add(i).write(*item) };
     }
-    BuriList { ptr, len: items.len() as u64 }
+    BuriList {
+        ptr,
+        len: items.len() as u64,
+    }
 }
 
 /// `recorder()` — a fresh, empty log.
@@ -1976,7 +2042,10 @@ pub unsafe extern "C" fn buri_rt_host_testing_recorder_record(
 pub unsafe extern "C" fn buri_rt_host_testing_recorder_recorded(handle: i64, out: *mut BuriList) {
     let tags = {
         let all = recorders();
-        usize::try_from(handle).ok().and_then(|i| all.get(i)).map(|e| e.0.clone())
+        usize::try_from(handle)
+            .ok()
+            .and_then(|i| all.get(i))
+            .map(|e| e.0.clone())
     };
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(list_of_strs(&tags.unwrap_or_default())) };
@@ -2000,7 +2069,10 @@ pub extern "C" fn buri_rt_host_testing_recorder_note(handle: i64, value: i64) ->
 pub unsafe extern "C" fn buri_rt_host_testing_recorder_noted(handle: i64, out: *mut BuriList) {
     let values = {
         let all = recorders();
-        usize::try_from(handle).ok().and_then(|i| all.get(i)).map(|e| e.1.clone())
+        usize::try_from(handle)
+            .ok()
+            .and_then(|i| all.get(i))
+            .map(|e| e.1.clone())
     };
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(list_of_ints(&values.unwrap_or_default())) };
@@ -2108,9 +2180,7 @@ mod tests {
         let record: [*const Body; 1] = [&raw const *held];
         // SAFETY: `call` is the thunk `held` was written for, `record` names
         // it, and `held` is a heap box the case keeps.
-        let id = unsafe {
-            buri_rt_ui_memo(call, (&raw const record).cast(), 8, -1, 8, None, None)
-        };
+        let id = unsafe { buri_rt_ui_memo(call, (&raw const record).cast(), 8, -1, 8, None, None) };
         (held, id)
     }
 
@@ -2128,7 +2198,10 @@ mod tests {
     }
 
     fn children_of(id: i64) -> Vec<i64> {
-        lock().get(id).map(|n| n.children.clone()).unwrap_or_default()
+        lock()
+            .get(id)
+            .map(|n| n.children.clone())
+            .unwrap_or_default()
     }
 
     fn is_disposed(id: i64) -> bool {
@@ -2147,7 +2220,11 @@ mod tests {
     }
 
     fn install(doc: &str) -> String {
-        let mut answer = BuriStr { base: std::ptr::null_mut(), ptr: std::ptr::null(), len: 0 };
+        let mut answer = BuriStr {
+            base: std::ptr::null_mut(),
+            ptr: std::ptr::null(),
+            len: 0,
+        };
         // SAFETY: `doc` is a live view and `answer` a live local.
         unsafe {
             buri_rt_ui_theme_install_doc(
@@ -2161,7 +2238,11 @@ mod tests {
     }
 
     fn variables() -> String {
-        let mut answer = BuriStr { base: std::ptr::null_mut(), ptr: std::ptr::null(), len: 0 };
+        let mut answer = BuriStr {
+            base: std::ptr::null_mut(),
+            ptr: std::ptr::null(),
+            len: 0,
+        };
         // SAFETY: `answer` is a live local.
         unsafe { buri_rt_ui_theme_variables(&raw mut answer) };
         taken(answer)
@@ -2422,7 +2503,11 @@ mod tests {
         write_cell(n, 2);
         assert_eq!(noted(&seen), vec![0], "an open batch defers the pass");
         buri_rt_ui_flush_end();
-        assert_eq!(noted(&seen), vec![0, 2], "one pass, at the value it settled on");
+        assert_eq!(
+            noted(&seen),
+            vec![0, 2],
+            "one pass, at the value it settled on"
+        );
     }
 
     // --- disposal --------------------------------------------------------
@@ -2489,8 +2574,15 @@ mod tests {
             value
         });
         assert_eq!(subs_of(tracked).len(), 1, "the watcher reads this one");
-        assert!(subs_of(untracked).is_empty(), "a read under an owner is nobody's edge");
-        assert_eq!(children_of(owner), noted(&made), "what it made belongs to the owner");
+        assert!(
+            subs_of(untracked).is_empty(),
+            "a read under an owner is nobody's edge"
+        );
+        assert_eq!(
+            children_of(owner),
+            noted(&made),
+            "what it made belongs to the owner"
+        );
     }
 
     // --- the budget ------------------------------------------------------
@@ -2615,7 +2707,10 @@ mod tests {
     fn a_later_binding_of_one_token_replaces_an_earlier() {
         let _alone = alone();
         let block = install(&document(&[CARDLIB, DAY, NIGHT]));
-        assert!(block.contains("--cardlib-surface:rgb(24,24,27)"), "the chain follows the last");
+        assert!(
+            block.contains("--cardlib-surface:rgb(24,24,27)"),
+            "the chain follows the last"
+        );
     }
 
     #[test]
@@ -2627,14 +2722,21 @@ mod tests {
 
         let dark = install(&document(&[CARDLIB, NIGHT]));
         assert!(dark.contains("--app-bg:rgb(24,24,27)"));
-        assert!(dark.contains("--cardlib-surface:rgb(24,24,27)"), "the chain resolves again");
+        assert!(
+            dark.contains("--cardlib-surface:rgb(24,24,27)"),
+            "the chain resolves again"
+        );
         assert_eq!(
             light.matches(":root{").count(),
             dark.matches(":root{").count(),
             "the same blocks, holding other values"
         );
 
-        assert_eq!(install(&document(&[CARDLIB, DAY])), light, "switching back restores it");
+        assert_eq!(
+            install(&document(&[CARDLIB, DAY])),
+            light,
+            "switching back restores it"
+        );
     }
 
     #[test]
@@ -2648,8 +2750,14 @@ mod tests {
     #[test]
     fn a_scheme_is_a_block_that_binds_no_token() {
         let _alone = alone();
-        assert_eq!(install(&document(&["scheme dark\n"])), ":root{color-scheme:dark}\n");
-        assert_eq!(install(&document(&["scheme light\n"])), ":root{color-scheme:light}\n");
+        assert_eq!(
+            install(&document(&["scheme dark\n"])),
+            ":root{color-scheme:dark}\n"
+        );
+        assert_eq!(
+            install(&document(&["scheme light\n"])),
+            ":root{color-scheme:light}\n"
+        );
     }
 
     #[test]

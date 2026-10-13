@@ -194,7 +194,10 @@ impl RelKind {
     /// `adrp` and `b`/`bl` are relative to the instruction; the `add` of a
     /// `PAGEOFF12` pair and an absolute pointer are not.
     fn pcrel(self) -> bool {
-        matches!(self, Self::Branch26 | Self::Page21 | Self::Rel32 | Self::Pc32)
+        matches!(
+            self,
+            Self::Branch26 | Self::Page21 | Self::Rel32 | Self::Pc32
+        )
     }
 
     /// log2 of the field width: one instruction word, or one pointer.
@@ -263,8 +266,7 @@ pub fn write(
 ) -> Result<Vec<u8>, String> {
     // The addend of an `Abs64` is written into the bytes being relocated, so
     // the caller's data is copied before anything else touches it.
-    let mut bodies: Vec<Vec<u8>> =
-        sections.iter().map(|s| s.data.clone()).collect();
+    let mut bodies: Vec<Vec<u8>> = sections.iter().map(|s| s.data.clone()).collect();
     let sorted = sort_symbols(symbols);
     apply_abs64_addends(&mut bodies, sections, relocs)?;
     let per_section = group_relocs(sections, relocs, &sorted)?;
@@ -342,8 +344,7 @@ pub fn write(
     // -- LC_SEGMENT_64 --------------------------------------------------------
     out.extend_from_slice(&LC_SEGMENT_64.to_le_bytes());
     out.extend_from_slice(
-        &((SEGMENT_CMD_SIZE + SECTION_SIZE * sections.len() as u64) as u32)
-            .to_le_bytes(),
+        &((SEGMENT_CMD_SIZE + SECTION_SIZE * sections.len() as u64) as u32).to_le_bytes(),
     );
     // An object's one segment is unnamed; `segname` on each section is what
     // carries `__TEXT` and friends.
@@ -444,12 +445,14 @@ pub fn write(
                 let n_type = N_SECT
                     | if sym.global { N_EXT } else { 0 }
                     | if sym.global && sym.weak { N_PEXT } else { 0 };
-                let n_desc = if sym.global && sym.weak { N_WEAK_DEF } else { 0 };
+                let n_desc = if sym.global && sym.weak {
+                    N_WEAK_DEF
+                } else {
+                    0
+                };
                 let addr = placed
                     .get(d.section)
-                    .ok_or_else(|| {
-                        format!("symbol {} names section {}", sym.name, d.section)
-                    })?
+                    .ok_or_else(|| format!("symbol {} names section {}", sym.name, d.section))?
                     .addr;
                 out.push(n_type);
                 // `n_sect` is 1-based, and the range check above is what makes
@@ -548,9 +551,7 @@ fn apply_abs64_addends(
         let start = r.offset as usize;
         let field = body
             .get_mut(start..start + 8)
-            .ok_or_else(|| {
-                format!("Abs64 at {:#x} runs past section {name}", r.offset)
-            })?;
+            .ok_or_else(|| format!("Abs64 at {:#x} runs past section {name}", r.offset))?;
         let mut bytes = [0u8; 8];
         bytes.copy_from_slice(field);
         let sum = u64::from_le_bytes(bytes).wrapping_add(r.addend as u64);
@@ -570,16 +571,18 @@ fn group_relocs(
     symbols: &[(usize, &Symbol)],
 ) -> Result<Vec<Vec<RawReloc>>, String> {
     // Each caller index's slot in the sorted table: the inverse permutation.
-    let mut slots: Vec<(usize, u32)> =
-        symbols.iter().enumerate().map(|(new, (old, _))| (*old, new as u32)).collect();
+    let mut slots: Vec<(usize, u32)> = symbols
+        .iter()
+        .enumerate()
+        .map(|(new, (old, _))| (*old, new as u32))
+        .collect();
     slots.sort_unstable();
     let slot: Vec<u32> = slots.into_iter().map(|(_, new)| new).collect();
 
     let mut sorted: Vec<usize> = (0..relocs.len()).collect();
     sorted.sort_by_key(|i| relocs.get(*i).map(|r| (r.section, r.offset)));
 
-    let mut out: Vec<Vec<RawReloc>> =
-        (0..sections.len()).map(|_| Vec::new()).collect();
+    let mut out: Vec<Vec<RawReloc>> = (0..sections.len()).map(|_| Vec::new()).collect();
     for i in sorted {
         let r = relocs
             .get(i)
@@ -697,7 +700,10 @@ mod tests {
             },
             Symbol {
                 name: "main_entry".into(),
-                defined: Some(Definition { section: 0, offset: 0 }),
+                defined: Some(Definition {
+                    section: 0,
+                    offset: 0,
+                }),
                 global: true,
                 weak: false,
             },
@@ -713,12 +719,7 @@ mod tests {
     }
 
     fn u32at(bytes: &[u8], at: usize) -> u32 {
-        u32::from_le_bytes([
-            bytes[at],
-            bytes[at + 1],
-            bytes[at + 2],
-            bytes[at + 3],
-        ])
+        u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
     }
 
     /// An x86-64 relocation in a Mach-O object is refused rather than mapped to
@@ -739,13 +740,25 @@ mod tests {
             group: None,
             data: vec![0; 8],
         }];
-        let symbols =
-            vec![Symbol { name: String::from("f"), defined: None, global: true, weak: false }];
+        let symbols = vec![Symbol {
+            name: String::from("f"),
+            defined: None,
+            global: true,
+            weak: false,
+        }];
         for kind in [RelKind::Rel32, RelKind::Pc32] {
-            let relocs =
-                vec![Reloc { section: 0, offset: 0, kind, symbol: 0, addend: 0 }];
+            let relocs = vec![Reloc {
+                section: 0,
+                offset: 0,
+                kind,
+                symbol: 0,
+                addend: 0,
+            }];
             let out = write(&sections, &symbols, &relocs);
-            assert!(out.is_err(), "an x86-64 kind was written into a Mach-O object");
+            assert!(
+                out.is_err(),
+                "an x86-64 kind was written into a Mach-O object"
+            );
         }
     }
 
@@ -824,7 +837,10 @@ mod tests {
         let sections = vec![text(vec![0; 8])];
         let symbols = vec![Symbol {
             name: "table".into(),
-            defined: Some(Definition { section: 0, offset: 0 }),
+            defined: Some(Definition {
+                section: 0,
+                offset: 0,
+            }),
             global: false,
             weak: false,
         }];
@@ -848,8 +864,9 @@ mod tests {
         let sect = 32 + 72;
         let reloff = u32at(&o, sect + 56) as usize;
         assert_eq!(u32at(&o, sect + 60), 4, "two pairs");
-        let types: Vec<u32> =
-            (0..4).map(|i| u32at(&o, reloff + i * 8 + 4) >> 28).collect();
+        let types: Vec<u32> = (0..4)
+            .map(|i| u32at(&o, reloff + i * 8 + 4) >> 28)
+            .collect();
         assert_eq!(
             types,
             vec![
@@ -877,7 +894,10 @@ mod tests {
         }];
         let symbols = vec![Symbol {
             name: "base".into(),
-            defined: Some(Definition { section: 0, offset: 0 }),
+            defined: Some(Definition {
+                section: 0,
+                offset: 0,
+            }),
             global: true,
             weak: false,
         }];
@@ -905,7 +925,10 @@ mod tests {
         let sections = vec![text(vec![0; 4])];
         let symbols = vec![Symbol {
             name: "t".into(),
-            defined: Some(Definition { section: 0, offset: 0 }),
+            defined: Some(Definition {
+                section: 0,
+                offset: 0,
+            }),
             global: true,
             weak: false,
         }];

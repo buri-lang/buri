@@ -86,9 +86,13 @@ pub fn load_all(
     cache: &mut crate::parsing::parser::Cache,
     units: &[Unit],
 ) -> Loading {
-    load_on(ws, map, cache, snapshot::of(Opening::Builtin, true), |loader| {
-        load_units(loader, units)
-    })
+    load_on(
+        ws,
+        map,
+        cache,
+        snapshot::of(Opening::Builtin, true),
+        |loader| load_units(loader, units),
+    )
 }
 
 impl Loading {
@@ -99,12 +103,18 @@ impl Loading {
 
     /// What the opening's snapshot carried in, which every load starts with.
     pub fn opening(&self) -> &[Diagnostic] {
-        self.diagnostics.items.get(..self.opening).unwrap_or_default()
+        self.diagnostics
+            .items
+            .get(..self.opening)
+            .unwrap_or_default()
     }
 
     /// What loading reported, after the opening's own diagnostics.
     pub fn reported(&self) -> &[Diagnostic] {
-        self.diagnostics.items.get(self.opening..).unwrap_or_default()
+        self.diagnostics
+            .items
+            .get(self.opening..)
+            .unwrap_or_default()
     }
 
     /// The bytes of repository source this load holds, which is what checking
@@ -124,7 +134,13 @@ impl Loading {
 /// `map` only names files, to put the diagnostics in order. A copy taken
 /// after the load does.
 pub fn check(loading: Loading, ws: Option<&Workspace>, map: &SourceMap) -> Analysis {
-    check_on(loading, ws, map, snapshot::of(Opening::Builtin, true), Bodies::All)
+    check_on(
+        loading,
+        ws,
+        map,
+        snapshot::of(Opening::Builtin, true),
+        Bodies::All,
+    )
 }
 
 fn load_units(loader: &mut Loader, units: &[Unit]) {
@@ -188,7 +204,11 @@ fn load_on(
         load(&mut loader);
         loader.finish()
     };
-    Loading { loaded, diagnostics, opening }
+    Loading {
+        loaded,
+        diagnostics,
+        opening,
+    }
 }
 
 fn check_on(
@@ -199,11 +219,25 @@ fn check_on(
     bodies: Bodies,
 ) -> Analysis {
     let _phase = crate::profile::enter(crate::profile::Phase::Check);
-    let Loading { loaded, mut diagnostics, .. } = loading;
-    let checked =
-        Checker::resume(&loaded, ws.map(|w| w as &dyn Packages), &mut diagnostics, &snapshot.base).checking(bodies).run();
+    let Loading {
+        loaded,
+        mut diagnostics,
+        ..
+    } = loading;
+    let checked = Checker::resume(
+        &loaded,
+        ws.map(|w| w as &dyn Packages),
+        &mut diagnostics,
+        &snapshot.base,
+    )
+    .checking(bodies)
+    .run();
     diagnostics.sort(map);
-    Analysis { loaded, checked, diagnostics }
+    Analysis {
+        loaded,
+        checked,
+        diagnostics,
+    }
 }
 
 /// Loads one unit and checks the bodies the *repository* wrote, leaving the
@@ -238,7 +272,14 @@ pub fn analyze_program(
     cache: &mut crate::parsing::parser::Cache,
     unit: &Unit,
 ) -> Analysis {
-    analyze_on(ws, map, cache, Opening::Builtin, Scope::Repository, |loader| loader.load_unit(unit))
+    analyze_on(
+        ws,
+        map,
+        cache,
+        Opening::Builtin,
+        Scope::Repository,
+        |loader| loader.load_unit(unit),
+    )
 }
 
 /// [`analyze_program`] over several units as one compilation, in its two
@@ -252,14 +293,26 @@ pub fn load_programs(
     cache: &mut crate::parsing::parser::Cache,
     units: &[Unit],
 ) -> Loading {
-    load_on(ws, map, cache, snapshot::of(Opening::Builtin, false), |loader| load_units(loader, units))
+    load_on(
+        ws,
+        map,
+        cache,
+        snapshot::of(Opening::Builtin, false),
+        |loader| load_units(loader, units),
+    )
 }
 
 /// The second half of [`load_programs`]. One unit through both halves is
 /// [`analyze_program`].
 pub fn check_programs(loading: Loading, ws: Option<&Workspace>, map: &SourceMap) -> Analysis {
     let bodies = Bodies::In(repository_files(&loading.loaded));
-    check_on(loading, ws, map, snapshot::of(Opening::Builtin, false), bodies)
+    check_on(
+        loading,
+        ws,
+        map,
+        snapshot::of(Opening::Builtin, false),
+        bodies,
+    )
 }
 
 /// Which bodies a [`shared`] compilation checks: all of them, as a build's
@@ -288,8 +341,15 @@ pub struct Share {
 
 impl Share {
     /// The modules this target's own compilation holds, in load order.
-    pub fn modules<'a>(&'a self, analysis: &'a Analysis) -> impl Iterator<Item = &'a crate::compiler::modules::ModuleData> + 'a {
-        analysis.loaded.modules.iter().filter(|m| self.holds.get(m.id.index()).copied().unwrap_or(false))
+    pub fn modules<'a>(
+        &'a self,
+        analysis: &'a Analysis,
+    ) -> impl Iterator<Item = &'a crate::compiler::modules::ModuleData> + 'a {
+        analysis
+            .loaded
+            .modules
+            .iter()
+            .filter(|m| self.holds.get(m.id.index()).copied().unwrap_or(false))
     }
 }
 
@@ -348,13 +408,19 @@ pub fn shared(
         let (_, errors) = cache.parse(map.text(m.file), m.file, false);
         parse_errors.extend(errors.iter().map(said));
     }
-    if !loading.reported().iter().all(|d| parse_errors.contains(&said(d))) {
+    if !loading
+        .reported()
+        .iter()
+        .all(|d| parse_errors.contains(&said(d)))
+    {
         return None;
     }
     // A module's role, as an import of it would decide it.
     for m in &loaded.modules {
         for path in imports(m) {
-            let Some(id) = loaded.find(path) else { continue };
+            let Some(id) = loaded.find(path) else {
+                continue;
+            };
             let reached = loaded.module(id);
             if reached.pkg.is_none() {
                 continue;
@@ -375,7 +441,14 @@ pub fn shared(
     for unit in units {
         let target = unit.target?;
         let (holds, generated_rules) = reach(ws, loaded, target)?;
-        shares.insert(target, Share { holds, reported: Vec::new(), generated_rules });
+        shares.insert(
+            target,
+            Share {
+                holds,
+                reported: Vec::new(),
+                generated_rules,
+            },
+        );
     }
 
     let opening: crate::hash::Set<Said> = loading.opening().iter().map(said).collect();
@@ -388,7 +461,9 @@ pub fn shared(
         module_of.insert(m.file, m.id.index());
     }
     for d in &analysis.diagnostics.items {
-        if !opening.contains(&said(d)) && (d.span.is_none() || !module_of.contains_key(&d.span.file)) {
+        if !opening.contains(&said(d))
+            && (d.span.is_none() || !module_of.contains_key(&d.span.file))
+        {
             return None;
         }
     }
@@ -433,10 +508,11 @@ pub(crate) fn reach(
     let pkg = ws.package(target.package);
     // Each start, and the role the target loads it in; `None` for the standard
     // library's, whose role is the library's own.
-    let mut starts: Vec<(String, Option<Role>)> = crate::compiler::standard_library::prelude_modules()
-        .chain(crate::compiler::standard_library::eager_modules())
-        .map(|path| (path.to_string(), None))
-        .collect();
+    let mut starts: Vec<(String, Option<Role>)> =
+        crate::compiler::standard_library::prelude_modules()
+            .chain(crate::compiler::standard_library::eager_modules())
+            .map(|path| (path.to_string(), None))
+            .collect();
     let rules: Vec<TargetId> = ws
         .closure(target)
         .into_iter()
@@ -450,7 +526,12 @@ pub(crate) fn reach(
             return;
         }
         for m in &loaded.modules {
-            if m.disk.is_none() && ws.generated.owner(&m.path).is_some_and(|r| rules.contains(&r)) {
+            if m.disk.is_none()
+                && ws
+                    .generated
+                    .owner(&m.path)
+                    .is_some_and(|r| rules.contains(&r))
+            {
                 starts.push((m.path.clone(), Some(Role::Source)));
             }
         }
@@ -458,7 +539,11 @@ pub(crate) fn reach(
     let listed = |starts: &mut Vec<(String, Option<Role>)>,
                   sources: &[crate::build::buildfile::Spanned<String>],
                   role: Role| {
-        starts.extend(sources.iter().map(|s| (pkg.module_path(&s.value), Some(role))));
+        starts.extend(
+            sources
+                .iter()
+                .map(|s| (pkg.module_path(&s.value), Some(role))),
+        );
     };
     let mut loads_generators = true;
     match target.kind {
@@ -507,14 +592,18 @@ pub(crate) fn reach(
     let mut holds = vec![false; loaded.modules.len()];
     let mut queue: Vec<ModuleId> = Vec::new();
     for (path, role) in &starts {
-        let Some(id) = loaded.find(path) else { continue };
+        let Some(id) = loaded.find(path) else {
+            continue;
+        };
         if role.is_some_and(|role| loaded.module(id).role != role) {
             return None;
         }
         queue.push(id);
     }
     while let Some(id) = queue.pop() {
-        let Some(seen) = holds.get_mut(id.index()) else { continue };
+        let Some(seen) = holds.get_mut(id.index()) else {
+            continue;
+        };
         if std::mem::replace(seen, true) {
             continue;
         }
@@ -565,9 +654,14 @@ pub fn analyze_bodies_in(
     unit: &Unit,
     files: &[FileId],
 ) -> Analysis {
-    analyze_on(ws, map, cache, Opening::Builtin, Scope::Files(files), |loader| {
-        loader.load_unit(unit)
-    })
+    analyze_on(
+        ws,
+        map,
+        cache,
+        Opening::Builtin,
+        Scope::Files(files),
+        |loader| loader.load_unit(unit),
+    )
 }
 
 /// Loads and checks every module of the standard library, with no repository.
@@ -583,7 +677,11 @@ pub fn analyze_stdlib(map: &mut SourceMap) -> Analysis {
     };
     let checked = Checker::new(&loaded, None, &mut diags).run();
     diags.sort(map);
-    Analysis { loaded, checked, diagnostics: diags }
+    Analysis {
+        loaded,
+        checked,
+        diagnostics: diags,
+    }
 }
 
 /// Loads every module of the standard library, as [`analyze_stdlib`] does,
@@ -625,10 +723,17 @@ pub fn load(
 /// imports.
 pub fn analyze_std_module(map: &mut SourceMap, path: &str) -> Analysis {
     let mut cache = crate::parsing::parser::Cache::new();
-    analyze_on(None, map, &mut cache, Opening::Builtin, Scope::All, |loader| {
-        loader.load_builtin_modules();
-        loader.load_std_module(path);
-    })
+    analyze_on(
+        None,
+        map,
+        &mut cache,
+        Opening::Builtin,
+        Scope::All,
+        |loader| {
+            loader.load_builtin_modules();
+            loader.load_std_module(path);
+        },
+    )
 }
 
 /// Loads and checks one module given as text, on top of the whole standard
@@ -740,8 +845,12 @@ pub fn compile_snippet_js_as(
         diags.push(Diagnostic::templated("example-missing-main", Span::NONE));
         return Err(diags);
     };
-    let module_paths: Vec<String> =
-        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let module_paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut program = crate::compiler::middle::monomorphize::run(
         &analysis.checked,
         module_paths,
@@ -755,7 +864,10 @@ pub fn compile_snippet_js_as(
     actions::emit_all(
         &mut program,
         &analysis.checked.tables,
-        crate::compiler::backend::Target { platform: crate::build::buildfile::Platform::Js, arch: None },
+        crate::compiler::backend::Target {
+            platform: crate::build::buildfile::Platform::Js,
+            arch: None,
+        },
         &flags,
         &mut diags,
     )
@@ -779,23 +891,36 @@ fn execute(name: &str, source: &str, chunks: &[String]) -> Result<String, Diagno
     // otherwise overwrite each other's file mid-execution.
     let dir = std::env::temp_dir().join(format!("buri-doctest-{}", std::process::id()));
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        return Err(fail(format!("cannot create {}: {e}", dir.display()), "check TMPDIR"));
+        return Err(fail(
+            format!("cannot create {}: {e}", dir.display()),
+            "check TMPDIR",
+        ));
     }
     // The file name has to be unique across concurrently running tests, and
     // derived from the snippet so a rerun overwrites rather than accumulates.
-    let stem: String =
-        name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+    let stem: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
     let path = dir.join(format!("{stem}.mjs"));
     if let Err(e) = std::fs::write(&path, source) {
-        return Err(fail(format!("cannot write {}: {e}", path.display()), "check TMPDIR"));
+        return Err(fail(
+            format!("cannot write {}: {e}", path.display()),
+            "check TMPDIR",
+        ));
     }
     let written = actions::chunk_paths(&path, chunks);
     for (at, text) in &written {
         if let Err(e) = std::fs::write(at, text) {
-            return Err(fail(format!("cannot write {}: {e}", at.display()), "check TMPDIR"));
+            return Err(fail(
+                format!("cannot write {}: {e}", at.display()),
+                "check TMPDIR",
+            ));
         }
     }
-    let out = match crate::build::spawn::output(Command::new(crate::commands::test::js_runtime()).arg(&path)) {
+    let out = match crate::build::spawn::output(
+        Command::new(crate::commands::test::js_runtime()).arg(&path),
+    ) {
         Ok(o) => o,
         Err(e) => {
             return Err(fail(
@@ -841,7 +966,10 @@ fn execute(name: &str, source: &str, chunks: &[String]) -> Result<String, Diagno
 pub fn host_platform() -> Platform {
     let native = host_native_platform();
     if actions::native_ready(
-        crate::compiler::backend::Target { platform: native, arch: None },
+        crate::compiler::backend::Target {
+            platform: native,
+            arch: None,
+        },
         crate::compiler::backend::Profile::Debug,
     ) {
         native
@@ -869,7 +997,10 @@ mod tests {
     fn the_host_platform_is_js_exactly_when_this_toolchain_cannot_build_for_the_host() {
         let native = host_native_platform();
         let ready = actions::native_ready(
-            crate::compiler::backend::Target { platform: native, arch: None },
+            crate::compiler::backend::Target {
+                platform: native,
+                arch: None,
+            },
             crate::compiler::backend::Profile::Debug,
         );
         assert_eq!(host_platform(), if ready { native } else { Platform::Js });

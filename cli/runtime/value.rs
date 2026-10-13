@@ -65,7 +65,11 @@ impl BuriStr {
     /// The empty string: no allocation, no base, ASCII by vacuity, and a
     /// non-null `ptr` for the reason [`EMPTY`] gives.
     pub fn empty() -> BuriStr {
-        BuriStr { base: std::ptr::null_mut(), ptr: EMPTY.as_ptr(), len: BURI_RT_STR_ASCII }
+        BuriStr {
+            base: std::ptr::null_mut(),
+            ptr: EMPTY.as_ptr(),
+            len: BURI_RT_STR_ASCII,
+        }
     }
 
     /// Copy `bytes` into a fresh block and describe it.
@@ -81,7 +85,11 @@ impl BuriStr {
         // SAFETY: `base` is a fresh block of at least `n` payload bytes and
         // cannot overlap `bytes`, which the caller owns.
         unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), base, n) };
-        BuriStr { base, ptr: base, len: n as u64 | ascii_flag(bytes) }
+        BuriStr {
+            base,
+            ptr: base,
+            len: n as u64 | ascii_flag(bytes),
+        }
     }
 
     /// The bytes this view covers.
@@ -134,7 +142,10 @@ pub(crate) fn ascii_flag(bytes: &[u8]) -> u64 {
 pub fn list_of_strs(items: &[String]) -> BuriList {
     let stride = std::mem::size_of::<BuriStr>();
     if items.is_empty() {
-        return BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        return BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
     }
     let bytes = items.len().saturating_mul(stride);
     let ptr = buri_rt_alloc(bytes as u64);
@@ -144,7 +155,10 @@ pub fn list_of_strs(items: &[String]) -> BuriList {
         // the stride is a multiple of 8.
         unsafe { ptr.cast::<BuriStr>().add(i).write(str_of(item)) };
     }
-    BuriList { ptr, len: items.len() as u64 }
+    BuriList {
+        ptr,
+        len: items.len() as u64,
+    }
 }
 
 /// A `[Header]` from name/value pairs.
@@ -157,7 +171,10 @@ pub fn list_of_strs(items: &[String]) -> BuriList {
 pub fn list_of_headers(items: &[(String, String)]) -> BuriList {
     let stride = std::mem::size_of::<[BuriStr; 2]>();
     if items.is_empty() {
-        return BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        return BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
     }
     let bytes = items.len().saturating_mul(stride);
     let ptr = buri_rt_alloc(bytes as u64);
@@ -171,19 +188,28 @@ pub fn list_of_headers(items: &[(String, String)]) -> BuriList {
             element.add(1).write(str_of(value));
         }
     }
-    BuriList { ptr, len: items.len() as u64 }
+    BuriList {
+        ptr,
+        len: items.len() as u64,
+    }
 }
 
 /// A `[U8]` from bytes — stride 1, so the payload is the bytes themselves.
 pub fn list_of_bytes(bytes: &[u8]) -> BuriList {
     if bytes.is_empty() {
-        return BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        return BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
     }
     let ptr = buri_rt_alloc(bytes.len() as u64);
     // SAFETY: `ptr` is a fresh block of `bytes.len()` payload bytes, disjoint
     // from `bytes`.
     unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len()) };
-    BuriList { ptr, len: bytes.len() as u64 }
+    BuriList {
+        ptr,
+        len: bytes.len() as u64,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -223,7 +249,12 @@ pub unsafe extern "C" fn buri_rt_str_scalar_len(bytes: *const u8, len: u64) -> u
 pub unsafe extern "C" fn buri_rt_list_new(count: u64, stride: u64, out: *mut BuriList) -> *mut u8 {
     if count == 0 || stride == 0 {
         // SAFETY: the caller promises a writable, aligned destination.
-        unsafe { out.write(BuriList { ptr: std::ptr::null_mut(), len: count }) };
+        unsafe {
+            out.write(BuriList {
+                ptr: std::ptr::null_mut(),
+                len: count,
+            })
+        };
         return std::ptr::null_mut();
     }
     let ptr = buri_rt_alloc(count.saturating_mul(stride));

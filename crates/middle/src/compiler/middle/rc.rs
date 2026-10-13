@@ -269,10 +269,12 @@
               signature. The one subtraction is a `saturating_sub`."
 )]
 
-use crate::compiler::middle::{ir, resolved};
 use crate::compiler::middle::monomorphize::{self, Func, FuncKind, Program};
+use crate::compiler::middle::{ir, resolved};
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::typed::{self, Expr, ExprKind, OptionOrResult, PatKind, Pattern, Stmt};
+use crate::compiler::semantics::typed::{
+    self, Expr, ExprKind, OptionOrResult, PatKind, Pattern, Stmt,
+};
 use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
@@ -448,9 +450,10 @@ impl FuncPlan {
 
     /// The operations at one node, in the order they must be emitted.
     pub fn at(&self, node: NodeId, at: Position) -> impl Iterator<Item = &Site> {
-        self.sites.iter().filter(move |s| s.node == node && s.at == at)
+        self.sites
+            .iter()
+            .filter(move |s| s.node == node && s.at == at)
     }
-
 }
 
 /// What `lower` reads.
@@ -597,7 +600,10 @@ impl Syntactic {
 
     /// The same table, asked whether a value can reach a **list**.
     pub fn for_lists(program: &Program) -> Syntactic {
-        Syntactic { leaves: Leaves::Lists, ..Syntactic::new(program) }
+        Syntactic {
+            leaves: Leaves::Lists,
+            ..Syntactic::new(program)
+        }
     }
 
     /// Whether a leaf that carries a count but is never written through
@@ -792,7 +798,9 @@ pub fn name_discards(program: &mut Program, counted: &mut dyn Counted) {
 fn name_in(locals: &mut Vec<typed::Local>, e: &mut Expr, counted: &mut dyn Counted) {
     if let ExprKind::Block { stmts, .. } = &mut e.kind {
         for s in stmts.iter_mut() {
-            let Stmt::Let { pattern, .. } = s else { continue };
+            let Stmt::Let { pattern, .. } = s else {
+                continue;
+            };
             if binds_something(pattern) {
                 name_skipped(locals, pattern, counted);
             }
@@ -832,12 +840,20 @@ fn name_skipped(locals: &mut Vec<typed::Local>, p: &mut Pattern, counted: &mut d
 /// Wraps one pattern in a binding on a fresh local.
 fn name_one(locals: &mut Vec<typed::Local>, p: &mut Pattern) {
     let local = LocalId(locals.len() as u32);
-    locals.push(typed::Local { name: Name::new("discarded"), ty: p.ty, span: p.span });
+    locals.push(typed::Local {
+        name: Name::new("discarded"),
+        ty: p.ty,
+        span: p.span,
+    });
     // A `_` tests nothing, so the binding replaces it outright; anything else
     // still has its test to do, under the name.
     let sub = match std::mem::replace(&mut p.kind, PatKind::Wild) {
         PatKind::Wild => None,
-        other => Some(Box::new(Pattern { kind: other, ty: p.ty, span: p.span })),
+        other => Some(Box::new(Pattern {
+            kind: other,
+            ty: p.ty,
+            span: p.span,
+        })),
     };
     p.kind = PatKind::Bind { local, sub };
 }
@@ -901,14 +917,20 @@ pub fn analyze<C: Counted + Clone + Sync>(
         .funcs
         .iter()
         .any(|f| matches!(&f.kind, FuncKind::Intrinsic(key) if crosses_tasks(key)));
-    Plan { funcs, crosses_tasks }
+    Plan {
+        funcs,
+        crosses_tasks,
+    }
 }
 
 /// One function's reference-counting plan: its ownership row, its effects, and
 /// where every `incref`/`decref` goes. Pure in `i` — it reads the whole-program
 /// answers and its own classifier, and writes nothing shared — which is what
 /// lets `analyze` run it across the cores.
-#[allow(clippy::too_many_arguments, reason = "the whole-program answers a scan reads")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the whole-program answers a scan reads"
+)]
 fn scan_func(
     program: &Program,
     counted: &mut dyn Counted,
@@ -918,7 +940,10 @@ fn scan_func(
     opts: &Options,
     i: usize,
 ) -> FuncPlan {
-    let f = program.funcs.get(i).or_ice("`parallel::map_with` ranges over `program.funcs`");
+    let f = program
+        .funcs
+        .get(i)
+        .or_ice("`parallel::map_with` ranges over `program.funcs`");
     {
         let params = ownership.get(i).cloned().unwrap_or_default();
         let mut plan = FuncPlan {
@@ -932,8 +957,13 @@ fn scan_func(
             moved: Vec::new(),
         };
         if let Some(body) = f.body() {
-            let BodyIndex { sizes, mut jumps_before, mentions, binders, let_bound: bound } =
-                BodyIndex::of(body, f.locals.len());
+            let BodyIndex {
+                sizes,
+                mut jumps_before,
+                mentions,
+                binders,
+                let_bound: bound,
+            } = BodyIndex::of(body, f.locals.len());
             let (child_at, child_ids) = child_index(&sizes);
             // Each row becomes the number of jumps before it.
             let mut running = 0;
@@ -1069,9 +1099,7 @@ fn scan_func(
 /// order the scan pushed them in — which is the order two drops of two
 /// different values have to keep.
 pub fn order_sites(sites: &mut [Site]) {
-    sites.sort_by_key(|s| {
-        (s.node.0, s.at.ordinal(), matches!(s.op, RcOp::DecRef))
-    });
+    sites.sort_by_key(|s| (s.node.0, s.at.ordinal(), matches!(s.op, RcOp::DecRef)));
 }
 
 /// The plan-order invariant, asked of the operations emitted at **one key**.
@@ -1185,11 +1213,16 @@ fn grows(key: &str) -> bool {
 
 /// Whether `f` is one of [`grows`]'s, by [`infer_ownership`]'s table.
 fn grower(growers: &[bool], f: Option<FuncIdx>) -> bool {
-    f.and_then(|f| growers.get(f.index())).copied().unwrap_or(false)
+    f.and_then(|f| growers.get(f.index()))
+        .copied()
+        .unwrap_or(false)
 }
 
 fn is_fold(key: &str) -> bool {
-    matches!(key, "list.fold" | "list.foldCtx" | "list.foldResult" | "list.foldResultCtx")
+    matches!(
+        key,
+        "list.fold" | "list.foldCtx" | "list.foldResult" | "list.foldResultCtx"
+    )
 }
 
 /// Whether a [`TAKEN_BY`] parameter is handed over on the native branch too:
@@ -1231,16 +1264,23 @@ fn infer_ownership(
     // receiver alone: both native backends hand the seed to the first step,
     // and answer the shown `Str`, without a retain of their own.
     for (i, f) in program.funcs.iter().enumerate() {
-        let FuncKind::Intrinsic(key) = &f.kind else { continue };
+        let FuncKind::Intrinsic(key) = &f.kind else {
+            continue;
+        };
         let native = TAKEN_NATIVELY.iter().filter(|_| !opts.sharing);
-        let Some((_, at)) = TAKEN_BY.iter().chain(native).find(|(k, _)| *k == key.as_str()) else {
+        let Some((_, at)) = TAKEN_BY
+            .iter()
+            .chain(native)
+            .find(|(k, _)| *k == key.as_str())
+        else {
             continue;
         };
         if !opts.sharing && !taken_natively(key) {
             continue;
         }
-        *own.get_mut(i).and_then(|r| r.get_mut(*at)).or_ice("`TAKEN_BY` names a parameter the intrinsic has") =
-            ir::Ownership::Own;
+        *own.get_mut(i)
+            .and_then(|r| r.get_mut(*at))
+            .or_ice("`TAKEN_BY` names a parameter the intrinsic has") = ir::Ownership::Own;
     }
     // The fixpoint is monotone — a parameter only ever moves `Borrow -> Own`,
     // and never back — so its answer is the same whatever order the rules are
@@ -1296,7 +1336,10 @@ fn settles_once(deps: &[Vec<usize>], scc: &[usize]) -> Option<usize> {
 /// (`target -> i`). The second edge is what puts a `Continue` and its target in
 /// one component: a cross-function jump is always a cycle here, so its two ends
 /// converge together rather than one being finalized before the other.
-#[expect(clippy::indexing_slicing, reason = "`deps` has a row per function, and a callee or a jump target is one")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`deps` has a row per function, and a callee or a jump target is one"
+)]
 fn ownership_dependencies(program: &Program) -> Vec<Vec<usize>> {
     let mut deps: Vec<Vec<usize>> = vec![Vec::new(); program.funcs.len()];
     for (i, f) in program.funcs.iter().enumerate() {
@@ -1328,7 +1371,10 @@ fn promote_consuming(
     own: &mut [Vec<ir::Ownership>],
     pieces: Option<&[bool]>,
 ) -> bool {
-    let f = program.funcs.get(i).or_ice("`i` is a function of the program");
+    let f = program
+        .funcs
+        .get(i)
+        .or_ice("`i` is a function of the program");
     let Some(body) = f.body() else { return false };
     let mut consumed: HashSet<LocalId> = HashSet::default();
     consuming_uses(body, own, counted, i, &mut consumed, pieces);
@@ -1402,11 +1448,16 @@ fn loop_variables_taken(
 ) -> Vec<(usize, usize)> {
     let mut out: Vec<(usize, usize)> = Vec::new();
     for &i in scc {
-        let f = program.funcs.get(i).or_ice("a component's members are functions");
+        let f = program
+            .funcs
+            .get(i)
+            .or_ice("a component's members are functions");
         let Some(body) = f.body() else { continue };
         let row = own.get(i);
         typed::walk(body, &mut |e| {
-            let ExprKind::Continue { func, args, .. } = &e.kind else { return };
+            let ExprKind::Continue { func, args, .. } = &e.kind else {
+                return;
+            };
             let target = func.map_or(i, FuncIdx::index);
             for (k, a) in args.iter().enumerate() {
                 let through = match &a.kind {
@@ -1449,10 +1500,16 @@ fn consuming_uses(
                     bases.push(l);
                 }
             }
-            let ExprKind::Block { stmts, .. } = &e.kind else { return };
+            let ExprKind::Block { stmts, .. } = &e.kind else {
+                return;
+            };
             for st in stmts {
-                let Stmt::Let { pattern, value, .. } = st else { continue };
-                let typed::PatKind::Bind { local, sub: None } = &pattern.kind else { continue };
+                let Stmt::Let { pattern, value, .. } = st else {
+                    continue;
+                };
+                let typed::PatKind::Bind { local, sub: None } = &pattern.kind else {
+                    continue;
+                };
                 if let ExprKind::CallFn { func, args } = &value.kind {
                     if let (true, Some(r)) = (grower(g, func.func()), args.first()) {
                         grown.push((*local, r));
@@ -1470,11 +1527,23 @@ fn consuming_uses(
     // round, and only once one of its bindings is in `out`. Where none is, the
     // next round would add nothing, so it isn't run.
     let mut waiting: Vec<Waiting<'_>> = Vec::new();
-    let grew = Grew { grown: &grown, bases: &bases };
+    let grew = Grew {
+        grown: &grown,
+        bases: &bases,
+    };
     loop {
         let before = out.len();
         waiting.clear();
-        collect_consuming(body, own, counted, self_index, out, pieces, &grew, &mut waiting);
+        collect_consuming(
+            body,
+            own,
+            counted,
+            self_index,
+            out,
+            pieces,
+            &grew,
+            &mut waiting,
+        );
         if out.len() == before || !waiting.iter().any(|w| w.kept(out)) {
             return;
         }
@@ -1512,7 +1581,10 @@ impl Waiting<'_> {
     }
 }
 
-#[allow(clippy::too_many_arguments, reason = "the round's inputs, and what it leaves waiting")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the round's inputs, and what it leaves waiting"
+)]
 fn collect_consuming<'e>(
     body: &'e Expr,
     own: &[Vec<ir::Ownership>],
@@ -1557,7 +1629,9 @@ fn collect_consuming<'e>(
         | ExprKind::CallValue { args, .. } => {
             args.iter().for_each(|a| consume(a, out, counted));
         }
-        ExprKind::CtxLit { bindings } => bindings.iter().for_each(|(_, a)| consume(a, out, counted)),
+        ExprKind::CtxLit { bindings } => {
+            bindings.iter().for_each(|(_, a)| consume(a, out, counted))
+        }
         ExprKind::StructUpdate { base, updates, .. } => {
             consume(base, out, counted);
             updates.iter().for_each(|(_, a)| consume(a, out, counted));
@@ -1585,7 +1659,9 @@ fn collect_consuming<'e>(
         // `a_list_a_let_took_apart_and_handed_to_an_owning_function_grows_in_place`).
         ExprKind::Block { stmts, .. } => {
             for st in stmts {
-                let Stmt::Let { pattern, value, .. } = st else { continue };
+                let Stmt::Let { pattern, value, .. } = st else {
+                    continue;
+                };
                 let mut kept = false;
                 pattern.each_bind(&mut |l| kept |= out.contains(&l));
                 if kept {
@@ -1619,9 +1695,7 @@ fn collect_consuming<'e>(
         // field of a record an update is written over: the update moves it
         // into the first growth instead (`Scan::children`), and taking the
         // record whole for it kept the update from moving the field at all.
-        ExprKind::CallFn { func, args }
-            if pieces.is_some_and(|g| grower(g, func.func())) =>
-        {
+        ExprKind::CallFn { func, args } if pieces.is_some_and(|g| grower(g, func.func())) => {
             let taken = match args.first().map(|r| &r.kind) {
                 Some(ExprKind::Local(n)) => grown.iter().find(|(m, _)| m == n).map(|(_, r)| *r),
                 Some(ExprKind::CallFn { func, args })
@@ -1631,13 +1705,18 @@ fn collect_consuming<'e>(
                 }
                 _ => None,
             };
-            let updated = taken.and_then(field_root).is_some_and(|r| bases.contains(&r));
+            let updated = taken
+                .and_then(field_root)
+                .is_some_and(|r| bases.contains(&r));
             if let Some(r) = taken.filter(|_| !updated) {
                 consume(r, out, counted);
             }
             let row = func.func().and_then(|f| own.get(f.index()));
             for (k, a) in args.iter().enumerate() {
-                let owns = row.and_then(|r| r.get(k)).copied().unwrap_or(ir::Ownership::Own);
+                let owns = row
+                    .and_then(|r| r.get(k))
+                    .copied()
+                    .unwrap_or(ir::Ownership::Own);
                 if owns == ir::Ownership::Own {
                     consume(a, out, counted);
                 }
@@ -1646,7 +1725,10 @@ fn collect_consuming<'e>(
         ExprKind::CallFn { func, args } => {
             let row = func.func().and_then(|f| own.get(f.index()));
             for (k, a) in args.iter().enumerate() {
-                let owns = row.and_then(|r| r.get(k)).copied().unwrap_or(ir::Ownership::Own);
+                let owns = row
+                    .and_then(|r| r.get(k))
+                    .copied()
+                    .unwrap_or(ir::Ownership::Own);
                 if owns == ir::Ownership::Own {
                     consume(a, out, counted);
                 }
@@ -1659,7 +1741,10 @@ fn collect_consuming<'e>(
         ExprKind::Continue { func, args, .. } => {
             let row = own.get(func.map_or(self_index, FuncIdx::index));
             for (k, a) in args.iter().enumerate() {
-                let owns = row.and_then(|r| r.get(k)).copied().unwrap_or(ir::Ownership::Own);
+                let owns = row
+                    .and_then(|r| r.get(k))
+                    .copied()
+                    .unwrap_or(ir::Ownership::Own);
                 if owns == ir::Ownership::Own {
                     consume(a, out, counted);
                 }
@@ -1843,7 +1928,9 @@ fn effects_once(
     purity: &mut [ir::Purity],
     aborts: &mut [bool],
 ) -> bool {
-    let Some(body) = program.funcs.get(i).and_then(|f| f.body()) else { return false };
+    let Some(body) = program.funcs.get(i).and_then(|f| f.body()) else {
+        return false;
+    };
     let mut p = ir::Purity::Pure;
     let mut a = false;
     typed::walk(body, &mut |e| match &e.kind {
@@ -1855,7 +1942,13 @@ fn effects_once(
         // A jump into another function's loop is a call, and one whose effects
         // propagate the same way.
         ExprKind::Continue { func: Some(c), .. } => {
-            p = worse(p, purity.get(c.index()).copied().unwrap_or(ir::Purity::Effectful));
+            p = worse(
+                p,
+                purity
+                    .get(c.index())
+                    .copied()
+                    .unwrap_or(ir::Purity::Effectful),
+            );
             a |= aborts.get(c.index()).copied().unwrap_or(true);
         }
         // An indirect call reaches a code pointer this pass cannot name, so it
@@ -2041,7 +2134,9 @@ impl Live {
     }
 
     fn remove(&mut self, l: &LocalId) {
-        let Some((tick, owned)) = self.at.remove(l) else { return };
+        let Some((tick, owned)) = self.at.remove(l) else {
+            return;
+        };
         if owned {
             self.owned.remove(&tick);
         }
@@ -2059,7 +2154,10 @@ impl Live {
 
     fn mark(&mut self) -> Mark {
         self.open += 1;
-        Mark { log: self.log.len(), tick: self.tick }
+        Mark {
+            log: self.log.len(),
+            tick: self.tick,
+        }
     }
 
     /// Takes the set back to `mark`, and answers what had become live since
@@ -2078,7 +2176,10 @@ impl Live {
             match change {
                 Change::Added(l) => {
                     // Undone newest first, so what was added is still there.
-                    let (tick, owned) = self.at.remove(&l).or_ice("an added local is live until undone");
+                    let (tick, owned) = self
+                        .at
+                        .remove(&l)
+                        .or_ice("an added local is live until undone");
                     if owned {
                         self.owned.remove(&tick);
                     }
@@ -2202,10 +2303,13 @@ struct Scan<'a> {
     opts: &'a Options,
 }
 
-
 impl Scan<'_> {
     fn is_counted(&mut self, l: LocalId) -> bool {
-        let local = self.func.locals.get(l.index()).or_ice("a local is in its function's table");
+        let local = self
+            .func
+            .locals
+            .get(l.index())
+            .or_ice("a local is in its function's table");
         let ty = local.ty;
         self.counted_ty(&ty)
     }
@@ -2224,7 +2328,12 @@ impl Scan<'_> {
     }
 
     fn push(&mut self, node: NodeId, at: Position, op: RcOp, target: Target) {
-        self.sites.push(Site { node, at, op, target });
+        self.sites.push(Site {
+            node,
+            at,
+            op,
+            target,
+        });
         // A drop placed *after* a node runs on the path that falls out of that
         // node's bottom, and a `?` inside it has no such path: it returns. So
         // the same drop is owed on the failing path of every `?` this node
@@ -2436,8 +2545,12 @@ impl Scan<'_> {
             ExprKind::Lambda { params, .. } => inside.extend(params.iter().copied()),
             _ => {}
         });
-        let kept: HashSet<LocalId> =
-            self.owned.iter().copied().filter(|l| inside.contains(l)).collect();
+        let kept: HashSet<LocalId> = self
+            .owned
+            .iter()
+            .copied()
+            .filter(|l| inside.contains(l))
+            .collect();
         std::mem::replace(&mut self.owned, kept)
     }
 
@@ -2508,9 +2621,7 @@ impl Scan<'_> {
             // second reference only if the parent was one.
             if self.opts.sharing {
                 if let Some(root) = borrowed_root(base) {
-                    if self.owned.contains(&root)
-                        && (base_dead || self.hands_on(e, base, root))
-                    {
+                    if self.owned.contains(&root) && (base_dead || self.hands_on(e, base, root)) {
                         self.inherits.push((id, root));
                     }
                 }
@@ -2548,7 +2659,9 @@ impl Scan<'_> {
     /// releases it now. A function the field is handed to, and a push inside
     /// it, then finds the list at `rc == 1`.
     fn moves_out(&mut self, e: &Expr, base: &Expr) -> bool {
-        let Some((update, index)) = self.movable(e, base) else { return false };
+        let Some((update, index)) = self.movable(e, base) else {
+            return false;
+        };
         self.moved.push((update, index));
         true
     }
@@ -2571,7 +2684,9 @@ impl Scan<'_> {
     /// counted local this function owns and nothing after the update reads.
     /// The native question; `sharing` has [`dies_here`].
     fn dying_base(&mut self, base: &Expr, live: &Live) -> Option<LocalId> {
-        let ExprKind::Local(root) = &base.kind else { return None };
+        let ExprKind::Local(root) = &base.kind else {
+            return None;
+        };
         (self.owned.contains(root) && !live.contains(root) && self.is_counted(*root))
             .then_some(*root)
     }
@@ -2658,8 +2773,11 @@ impl Scan<'_> {
             .fold(0u64, |m, (_, f)| m | (1u64 << f));
         for site in self.sites.iter_mut().skip(first) {
             if site.target == Target::LocalExcept(root, mask) {
-                site.target =
-                    if taken == 0 { Target::Local(root) } else { Target::LocalExcept(root, taken) };
+                site.target = if taken == 0 {
+                    Target::Local(root)
+                } else {
+                    Target::LocalExcept(root, taken)
+                };
             }
         }
         live.remove(&root);
@@ -2784,8 +2902,17 @@ impl Scan<'_> {
     /// as its enum: `wide-match/20k` is one 10,000-arm match and that was 50 M
     /// steps of the walk. [`child_index`] pays for all of them once.
     fn child(&self, id: NodeId, k: usize) -> NodeId {
-        let first = self.child_at.get(id.0 as usize).copied().or_ice("every node has a row") as usize;
-        NodeId(*self.child_ids.get(first + k).or_ice("every caller asks for a child the node has"))
+        let first = self
+            .child_at
+            .get(id.0 as usize)
+            .copied()
+            .or_ice("every node has a row") as usize;
+        NodeId(
+            *self
+                .child_ids
+                .get(first + k)
+                .or_ice("every caller asks for a child the node has"),
+        )
     }
 
     /// Makes `l` live, noting whether this function owns it.
@@ -2875,9 +3002,11 @@ impl Scan<'_> {
         let mut kept_extra: Vec<LocalId> = Vec::new();
         for l in &left {
             if let Left::Added(added) = l {
-                kept_extra.extend(added.iter().copied().filter(|x| {
-                    Some(*x) != token && !live.contains(x) && self.owned.contains(x)
-                }));
+                kept_extra.extend(
+                    added.iter().copied().filter(|x| {
+                        Some(*x) != token && !live.contains(x) && self.owned.contains(x)
+                    }),
+                );
             }
         }
         kept_extra.sort_by_key(|l| l.0);
@@ -2966,9 +3095,17 @@ impl Scan<'_> {
     ) -> Vec<LocalId> {
         let wanted = |l: &LocalId| Some(*l) != skip && !mine.contains(l);
         let mut extra: Vec<LocalId> = if self.owned.len() < theirs.len() {
-            self.owned.iter().copied().filter(|l| theirs.contains(l) && wanted(l)).collect()
+            self.owned
+                .iter()
+                .copied()
+                .filter(|l| theirs.contains(l) && wanted(l))
+                .collect()
         } else {
-            theirs.iter().copied().filter(|l| self.owned.contains(l) && wanted(l)).collect()
+            theirs
+                .iter()
+                .copied()
+                .filter(|l| self.owned.contains(l) && wanted(l))
+                .collect()
         };
         extra.sort_by_key(|l| l.0);
         extra
@@ -2977,7 +3114,11 @@ impl Scan<'_> {
     /// `live ∩ owned`, sorted, reading whichever is smaller.
     fn owned_live(&self, live: &Live) -> Vec<LocalId> {
         let mut held: Vec<LocalId> = if self.owned.len() < live.len() {
-            self.owned.iter().copied().filter(|l| live.contains(l)).collect()
+            self.owned
+                .iter()
+                .copied()
+                .filter(|l| live.contains(l))
+                .collect()
         } else {
             live.iter().filter(|l| self.owned.contains(l)).collect()
         };
@@ -3058,7 +3199,11 @@ impl Scan<'_> {
                 }
                 self.enliven(live, *l);
             }
-            ExprKind::Lambda { params: ps, captures, body } => {
+            ExprKind::Lambda {
+                params: ps,
+                captures,
+                body,
+            } => {
                 // An environment is a construction over the captures, and the
                 // body does not run here.
                 for c in captures {
@@ -3189,8 +3334,11 @@ impl Scan<'_> {
                 let mut every = true;
                 let (left, jumps, _) = self.scoped(|me| {
                     me.branches(id, live, &sizes, &mut |me, i, live| {
-                        let (branch, bid): (&Expr, NodeId) =
-                            if i == 0 { (then, then_id) } else { (else_, else_id) };
+                        let (branch, bid): (&Expr, NodeId) = if i == 0 {
+                            (then, then_id)
+                        } else {
+                            (else_, else_id)
+                        };
                         me.diverged = false;
                         me.expr(branch, bid, live, mode);
                         me.flush(bid);
@@ -3253,9 +3401,7 @@ impl Scan<'_> {
             // before the back edge rather than a block leaked per iteration.
             ExprKind::Continue { func, args, .. } => {
                 let row: Vec<ir::Ownership> = match func {
-                    Some(f) => {
-                        self.ownership.get(f.index()).cloned().unwrap_or_default()
-                    }
+                    Some(f) => self.ownership.get(f.index()).cloned().unwrap_or_default(),
                     // Back into the enclosing loop, whose variables are this
                     // function's own parameters.
                     None => self.self_params.clone(),
@@ -3296,7 +3442,11 @@ impl Scan<'_> {
                 let held = self.owned_live(live);
                 // A tail-shaped operand is owned for a projection's reason
                 // ([`Scan::tail_shaped_base`]), and [`fresh_leaf`] agrees.
-                let bmode = if self.tail_shaped_base(base) { Mode::Own } else { mode };
+                let bmode = if self.tail_shaped_base(base) {
+                    Mode::Own
+                } else {
+                    mode
+                };
                 // **A lent `?` is a projection.** Its payload is words copied
                 // out of the operand, with no count of its own, so whatever
                 // owns the operand has to outlive the parent that reads them —
@@ -3342,8 +3492,11 @@ impl Scan<'_> {
                     return;
                 }
                 let bid = self.child(id, 0);
-                let bmode =
-                    if self.tail_shaped_base(base) { Mode::Own } else { Mode::Borrow };
+                let bmode = if self.tail_shaped_base(base) {
+                    Mode::Own
+                } else {
+                    Mode::Borrow
+                };
                 let base_dead = dead_after(borrowed_root(base), live);
                 let path_dead = dead_after(field_root(e), live);
                 self.expr(base, bid, live, bmode);
@@ -3359,8 +3512,11 @@ impl Scan<'_> {
                 let iid = self.child(id, 1);
                 self.expr(index, iid, live, Mode::Borrow);
                 let bid = self.child(id, 0);
-                let bmode =
-                    if self.tail_shaped_base(base) { Mode::Own } else { Mode::Borrow };
+                let bmode = if self.tail_shaped_base(base) {
+                    Mode::Own
+                } else {
+                    Mode::Borrow
+                };
                 self.expr(base, bid, live, bmode);
                 self.projected(e, base, id, bid, mode, base_dead);
             }
@@ -3403,7 +3559,9 @@ impl Scan<'_> {
             ExprKind::StructUpdate { base, updates, .. }
                 if !self.opts.sharing && self.dying_base(base, live).is_some() =>
             {
-                let root = self.dying_base(base, live).or_ice("the guard found the base dying");
+                let root = self
+                    .dying_base(base, live)
+                    .or_ice("the guard found the base dying");
                 self.update_dying(root, base, updates, id, live)
             }
             _ => self.children(e, id, live),
@@ -3416,7 +3574,14 @@ impl Scan<'_> {
     /// it: the payloads it binds are increfed out of the value and the value
     /// itself is dropped, which is MEMORY.md §5.3's dying value and the moment
     /// reuse replaces the drop with a write.
-    fn match_(&mut self, scrutinee: &Expr, arms: &[typed::Arm], id: NodeId, live: &mut Live, mode: Mode) {
+    fn match_(
+        &mut self,
+        scrutinee: &Expr,
+        arms: &[typed::Arm],
+        id: NodeId,
+        live: &mut Live,
+        mode: Mode,
+    ) {
         let token = match &scrutinee.kind {
             ExprKind::Local(l)
                 if self.is_counted(*l) && self.owned.contains(l) && !live.contains(l) =>
@@ -3448,9 +3613,8 @@ impl Scan<'_> {
         let kept = match token {
             Some(_) => None,
             None if inline => None,
-            None => borrowed_root(scrutinee).filter(|r| {
-                self.is_counted(*r) && self.owned.contains(r) && !live.contains(r)
-            }),
+            None => borrowed_root(scrutinee)
+                .filter(|r| self.is_counted(*r) && self.owned.contains(r) && !live.contains(r)),
         };
         if let Some(r) = kept {
             self.enliven(live, r);
@@ -3464,7 +3628,11 @@ impl Scan<'_> {
             self.child(id, k)
         };
         for a in arms {
-            let gid = if a.guard.is_some() { Some(next()) } else { None };
+            let gid = if a.guard.is_some() {
+                Some(next())
+            } else {
+                None
+            };
             ids.push(next());
             gids.push(gid);
         }
@@ -3541,9 +3709,12 @@ impl Scan<'_> {
         // A counted compound scrutinee is owned for `Scan::children`'s reason:
         // borrowed, its tail's alias would be dropped inside it, before the
         // arms read the payload.
-        let promoted =
-            !owns && compound(scrutinee) && self.counted_ty(&scrutinee.ty.clone());
-        let smode = if owns || promoted { Mode::Own } else { Mode::Borrow };
+        let promoted = !owns && compound(scrutinee) && self.counted_ty(&scrutinee.ty.clone());
+        let smode = if owns || promoted {
+            Mode::Own
+        } else {
+            Mode::Borrow
+        };
         self.expr(scrutinee, sid, live, smode);
         // A scrutinee read for the last time is dropped after the arms, which
         // are the things reading what it holds — a payload binding points into
@@ -3596,7 +3767,10 @@ impl Scan<'_> {
 
     /// One arm of [`Scan::match_`], scanned from what is live after the match:
     /// what its pattern binds, its body, then its guard.
-    #[allow(clippy::too_many_arguments, reason = "the match's own answers an arm reads")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the match's own answers an arm reads"
+    )]
     fn arm(
         &mut self,
         a: &typed::Arm,
@@ -3688,8 +3862,10 @@ impl Scan<'_> {
                 .copied()
                 .filter(|l| !live.contains(l) && !after_match.contains(l))
                 .collect();
-            let was_guarded: Vec<bool> =
-                fresh_bound.iter().map(|b| live.contains(b) || held.contains(b)).collect();
+            let was_guarded: Vec<bool> = fresh_bound
+                .iter()
+                .map(|b| live.contains(b) || held.contains(b))
+                .collect();
             for l in &held {
                 self.enliven(live, *l);
             }
@@ -3748,7 +3924,11 @@ impl Scan<'_> {
                 self.push(bid, Position::Before, RcOp::DecRef, Target::Local(t));
                 if !self.opts.sharing {
                     if let Some(fields) = construction(&a.body) {
-                        self.reuse.push(Reuse { token: t, at: bid, fields });
+                        self.reuse.push(Reuse {
+                            token: t,
+                            at: bid,
+                            fields,
+                        });
                     }
                 }
             }
@@ -3794,8 +3974,12 @@ impl Scan<'_> {
         let mut deferred: Vec<LocalId> = if link {
             Vec::new()
         } else if self.owned.len() < self.size(rid) as usize {
-            let mut named: Vec<LocalId> =
-                self.owned.iter().copied().filter(|l| self.names(rid, *l)).collect();
+            let mut named: Vec<LocalId> = self
+                .owned
+                .iter()
+                .copied()
+                .filter(|l| self.names(rid, *l))
+                .collect();
             named.sort_by_key(|l| l.0);
             named
         } else {
@@ -3913,12 +4097,22 @@ impl Scan<'_> {
     fn names(&self, id: NodeId, l: LocalId) -> bool {
         let start = id.0;
         let end = start.saturating_add(self.size(id));
-        let counts =
-            |(p, lambda): (u32, Option<u32>)| p >= start && p < end && lambda.is_none_or(|f| f < start);
-        if self.binders.get(l.index()).copied().flatten().is_some_and(counts) {
+        let counts = |(p, lambda): (u32, Option<u32>)| {
+            p >= start && p < end && lambda.is_none_or(|f| f < start)
+        };
+        if self
+            .binders
+            .get(l.index())
+            .copied()
+            .flatten()
+            .is_some_and(counts)
+        {
             return false;
         }
-        let at = self.mentions.get(l.index()).or_ice("`mentions` has a row per local");
+        let at = self
+            .mentions
+            .get(l.index())
+            .or_ice("`mentions` has a row per local");
         let first = at.partition_point(|(p, _)| *p < start);
         at.get(first..)
             .unwrap_or_default()
@@ -4016,7 +4210,9 @@ impl Scan<'_> {
             if self.no_reference_path(kid).is_some() || self.inline_read(kid) {
                 continue;
             }
-            let Some(l) = borrowed_root(kid) else { continue };
+            let Some(l) = borrowed_root(kid) else {
+                continue;
+            };
             if self.is_counted(l)
                 && self.owned.contains(&l)
                 && !live.contains(&l)
@@ -4122,8 +4318,12 @@ impl Scan<'_> {
     fn aliases(&mut self, stmts: &[Stmt], live: &Live) -> Vec<LocalId> {
         let mut out = Vec::new();
         for s in stmts {
-            let Stmt::Let { pattern, value, .. } = s else { continue };
-            let ExprKind::Local(x) = value.kind else { continue };
+            let Stmt::Let { pattern, value, .. } = s else {
+                continue;
+            };
+            let ExprKind::Local(x) = value.kind else {
+                continue;
+            };
             // JavaScript keeps the first case alone, for a plain `let`: its
             // marks are a different question (MEMORY.md §5.5).
             let lent = if self.opts.sharing {
@@ -4191,7 +4391,9 @@ impl Scan<'_> {
             if modes.get(k).copied() != Some(Mode::Own) {
                 continue;
             }
-            let ExprKind::Local(l) = kid.kind else { continue };
+            let ExprKind::Local(l) = kid.kind else {
+                continue;
+            };
             if !self.is_counted(l) || !self.owned.contains(&l) || live.contains(&l) {
                 continue;
             }
@@ -4266,7 +4468,9 @@ impl BodyIndex {
         ix.go(body, &mut continues, &mut lambdas);
         ix.jumps_before = vec![0; ix.sizes.len().saturating_add(1)];
         for id in continues {
-            *ix.jumps_before.get_mut(id as usize + 1).or_ice("a `Continue` is a node of the body") = 1;
+            *ix.jumps_before
+                .get_mut(id as usize + 1)
+                .or_ice("a `Continue` is a node of the body") = 1;
         }
         ix
     }
@@ -4312,20 +4516,31 @@ impl BodyIndex {
             lambdas.push(id);
         }
         let mut total = 1u32;
-        typed::children(e, &mut |k| total = total.saturating_add(self.go(k, continues, lambdas)));
+        typed::children(e, &mut |k| {
+            total = total.saturating_add(self.go(k, continues, lambdas))
+        });
         if lambda {
             lambdas.pop();
         }
-        *self.sizes.get_mut(id as usize).or_ice("`id` was pushed on the way in") = total;
+        *self
+            .sizes
+            .get_mut(id as usize)
+            .or_ice("`id` was pushed on the way in") = total;
         total
     }
 
     fn mention(&mut self, l: LocalId, at: (u32, Option<u32>)) {
-        self.mentions.get_mut(l.index()).or_ice("`mentions` has a row per local").push(at);
+        self.mentions
+            .get_mut(l.index())
+            .or_ice("`mentions` has a row per local")
+            .push(at);
     }
 
     fn bind(&mut self, l: LocalId, at: (u32, Option<u32>)) {
-        *self.binders.get_mut(l.index()).or_ice("`binders` has a row per local") = Some(at);
+        *self
+            .binders
+            .get_mut(l.index())
+            .or_ice("`binders` has a row per local") = Some(at);
     }
 }
 
@@ -4347,7 +4562,10 @@ fn jump_key(id: NodeId, args: &[Expr], scan: &Scan<'_>) -> (NodeId, Position) {
 /// A block, an `if`, or a `match`: a value that arrives through a tail, whose
 /// paths may answer aliases of different locals.
 pub fn compound(e: &Expr) -> bool {
-    matches!(e.kind, ExprKind::Block { .. } | ExprKind::If { .. } | ExprKind::Match { .. })
+    matches!(
+        e.kind,
+        ExprKind::Block { .. } | ExprKind::If { .. } | ExprKind::Match { .. }
+    )
 }
 
 /// The local a borrowed child is an alias of: itself where it is one, and the
@@ -4393,8 +4611,7 @@ fn dies_here(e: &Expr, owned: &HashSet<LocalId>, live: &Live) -> bool {
 fn handed_on_fields(root: LocalId, updates: &[(usize, Expr)]) -> Option<Vec<usize>> {
     fn reads(root: LocalId, e: &Expr, out: &mut Vec<usize>) -> bool {
         match &e.kind {
-            ExprKind::Field { base, index }
-                if matches!(base.kind, ExprKind::Local(l) if l == root) =>
+            ExprKind::Field { base, index } if matches!(base.kind, ExprKind::Local(l) if l == root) =>
             {
                 out.push(*index);
                 true
@@ -4411,7 +4628,13 @@ fn handed_on_fields(root: LocalId, updates: &[(usize, Expr)]) -> Option<Vec<usiz
         }
     }
     let once = |f: &usize| read.iter().filter(|r| *r == f).count() == 1;
-    Some(updates.iter().map(|(f, _)| *f).filter(|f| once(f)).collect())
+    Some(
+        updates
+            .iter()
+            .map(|(f, _)| *f)
+            .filter(|f| once(f))
+            .collect(),
+    )
 }
 
 /// The fields of a dying `root` a native functional update may **move** out of
@@ -4440,12 +4663,11 @@ fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
     /// where two paths read it a different number of times.
     fn on_every_path(root: LocalId, f: usize, e: &Expr) -> Option<usize> {
         let sum = |es: &[&Expr]| {
-            es.iter().try_fold(0, |n, k| on_every_path(root, f, k).map(|m| n + m))
+            es.iter()
+                .try_fold(0, |n, k| on_every_path(root, f, k).map(|m| n + m))
         };
         match &e.kind {
-            ExprKind::Field { base, index }
-                if matches!(base.kind, ExprKind::Local(l) if l == root) =>
-            {
+            ExprKind::Field { base, index } if matches!(base.kind, ExprKind::Local(l) if l == root) => {
                 Some(usize::from(*index == f))
             }
             ExprKind::If { cond, then, else_ } => {
@@ -4456,7 +4678,11 @@ fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
             ExprKind::Match { scrutinee, arms } => {
                 let mut each = None;
                 for arm in arms {
-                    if arm.guard.as_ref().is_some_and(|g| on_every_path(root, f, g) != Some(0)) {
+                    if arm
+                        .guard
+                        .as_ref()
+                        .is_some_and(|g| on_every_path(root, f, g) != Some(0))
+                    {
                         return None;
                     }
                     let n = on_every_path(root, f, &arm.body)?;
@@ -4478,8 +4704,7 @@ fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
     /// path so far, and narrows `before` to the fields seen at each `?`.
     fn taken(root: LocalId, e: &Expr, seen: &mut Vec<usize>, before: &mut Option<Vec<usize>>) {
         match &e.kind {
-            ExprKind::Field { base, index }
-                if matches!(base.kind, ExprKind::Local(l) if l == root) =>
+            ExprKind::Field { base, index } if matches!(base.kind, ExprKind::Local(l) if l == root) =>
             {
                 seen.push(*index);
             }
@@ -4513,9 +4738,10 @@ fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
             }
             ExprKind::Try { base, .. } => {
                 taken(root, base, seen, before);
-                let now = before.take().map_or_else(|| seen.clone(), |b| {
-                    b.into_iter().filter(|f| seen.contains(f)).collect()
-                });
+                let now = before.take().map_or_else(
+                    || seen.clone(),
+                    |b| b.into_iter().filter(|f| seen.contains(f)).collect(),
+                );
                 *before = Some(now);
             }
             // A field is taken by what reads it, once that has run: in
@@ -4525,8 +4751,7 @@ fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
                 let mut held = Vec::new();
                 for k in kids(e) {
                     match &k.kind {
-                        ExprKind::Field { base, index }
-                            if matches!(base.kind, ExprKind::Local(l) if l == root) =>
+                        ExprKind::Field { base, index } if matches!(base.kind, ExprKind::Local(l) if l == root) =>
                         {
                             held.push(*index);
                         }
@@ -4553,7 +4778,10 @@ fn moved_fields(root: LocalId, updates: &[(usize, Expr)]) -> Vec<usize> {
         .map(|(f, _)| *f)
         .filter(|f| *f < 64 && before.as_ref().is_none_or(|b| b.contains(f)))
         .filter(|f| {
-            values.iter().try_fold(0, |n, v| on_every_path(root, *f, v).map(|m| n + m)) == Some(1)
+            values
+                .iter()
+                .try_fold(0, |n, v| on_every_path(root, *f, v).map(|m| n + m))
+                == Some(1)
         })
         .collect()
 }

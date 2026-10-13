@@ -9,7 +9,10 @@
 use crate::harness::*;
 
 fn walkthrough() -> Scratch {
-    Scratch::copy_of("custom-platform", &tests_dir().join("repositories/custom-platforms/cloudflare_kv/repo"))
+    Scratch::copy_of(
+        "custom-platform",
+        &tests_dir().join("repositories/custom-platforms/cloudflare_kv/repo"),
+    )
 }
 
 /// What the worker answers for each token, one `status body` line each.
@@ -67,7 +70,10 @@ fn editing_the_platform_s_js_file_rebuilds_its_outputs() {
 /// `repositories/custom-platforms/cloudflare_worker`: Cloudflare Workers as a
 /// repository platform, with its `Vars` effect.
 fn workers() -> Scratch {
-    Scratch::copy_of("cloudflare-worker", &tests_dir().join("repositories/custom-platforms/cloudflare_worker/repo"))
+    Scratch::copy_of(
+        "cloudflare-worker",
+        &tests_dir().join("repositories/custom-platforms/cloudflare_worker/repo"),
+    )
 }
 
 /// Builds `target`, then runs `driver` under the JavaScript runtime from the
@@ -210,7 +216,10 @@ await say("/all");
 fn a_chunk_is_fetched_only_where_the_worker_asks_for_it() {
     let scratch = workers();
     let first = drive(&scratch, "//cmd/lazy", LAZY);
-    assert_eq!(first, "/home\nheavy /heavy\n", "with the chunk there, both answer");
+    assert_eq!(
+        first, "/home\nheavy /heavy\n",
+        "with the chunk there, both answer"
+    );
 
     let chunk = scratch.path(".buri/out/platform/cloudflare_worker/cmd/lazy/fetch.0.mjs");
     let held = std::fs::read(&chunk).expect("the build wrote a chunk beside the module");
@@ -234,10 +243,18 @@ fn a_chunk_is_fetched_only_where_the_worker_asks_for_it() {
     // truncated deploy. Neither may cost the requests that never reach the
     // `load`.
     std::fs::write(&chunk, b"export const $bind = (").expect("the chunk is writable");
-    assert_eq!(run(), "/home\nno chunk\n", "a chunk that will not load must cost only the request that needed it");
+    assert_eq!(
+        run(),
+        "/home\nno chunk\n",
+        "a chunk that will not load must cost only the request that needed it"
+    );
 
     std::fs::write(&chunk, &held).expect("the chunk goes back");
-    assert_eq!(run(), "/home\nheavy /heavy\n", "and with the chunk there, both answer");
+    assert_eq!(
+        run(),
+        "/home\nheavy /heavy\n",
+        "and with the chunk there, both answer"
+    );
 }
 
 const LAZY: &str = r#"
@@ -364,7 +381,10 @@ console.log(log.join("\n"));
 /// `repositories/custom-platforms/platform_rules`: two `JS` entries, `left`
 /// and `right`, each with a `js` file of its own.
 fn pair() -> Scratch {
-    Scratch::copy_of("platform-pair", &tests_dir().join("repositories/custom-platforms/platform_rules/repo"))
+    Scratch::copy_of(
+        "platform-pair",
+        &tests_dir().join("repositories/custom-platforms/platform_rules/repo"),
+    )
 }
 
 /// A `js` file written the ways JavaScript allows: a top-level `await` inside
@@ -402,8 +422,7 @@ fn a_js_file_keeps_every_shape_of_export_and_await_through_the_bundle() {
     scratch.write("platform/pair/left.mjs", SHAPES);
     let said = drive(&scratch, "//cmd/app", SHAPES_DRIVER);
     assert_eq!(
-        said,
-        "hello ada\nawaited in brackets\nthe statement after\none two\nb.txt\n/\n",
+        said, "hello ada\nawaited in brackets\nthe statement after\none two\nb.txt\n/\n",
         "an export or an await lost its meaning in the bundle"
     );
 }

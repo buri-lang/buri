@@ -42,18 +42,28 @@ static FELL_BACK: Mutex<Option<String>> = Mutex::new(None);
 
 /// Whether a suite built for `target` under `profile` would load into the host.
 pub fn wanted(target: Target, profile: Profile) -> bool {
-    cfg!(all(target_os = "macos", target_arch = "aarch64", feature = "backend-stencil"))
-        & ((profile, target.platform, target.arch.unwrap_or(Arch::Arm64)) == (Profile::Debug, Platform::Macos, Arch::Arm64))
+    cfg!(all(
+        target_os = "macos",
+        target_arch = "aarch64",
+        feature = "backend-stencil"
+    )) & ((profile, target.platform, target.arch.unwrap_or(Arch::Arm64))
+        == (Profile::Debug, Platform::Macos, Arch::Arm64))
 }
 
 /// Notes that a suite linked a runner, and why.
 pub fn fall_back(why: &str) {
-    FELL_BACK.lock().unwrap_or_else(PoisonError::into_inner).get_or_insert_with(|| why.to_string());
+    FELL_BACK
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get_or_insert_with(|| why.to_string());
 }
 
 /// Why suites linked runners rather than loading into the host, if any did.
 pub fn fell_back() -> Option<String> {
-    FELL_BACK.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    FELL_BACK
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
 }
 
 /// The host for `target`, linked and probed if this toolchain has none yet.
@@ -73,7 +83,8 @@ fn find(linker: &CDriver) -> Result<Host, String> {
     if std::env::var_os(LINKED).is_some() {
         return Err(format!("{LINKED} is set"));
     }
-    let home = crate::build::runtime_cross::buri_home().map_err(|_| "there is no home directory to keep it in")?;
+    let home = crate::build::runtime_cross::buri_home()
+        .map_err(|_| "there is no home directory to keep it in")?;
     in_home(&home, linker)
 }
 
@@ -93,7 +104,8 @@ pub fn in_home(home: &Path, linker: &CDriver) -> Result<Host, String> {
     if std::fs::rename(&work, &dir).is_err() {
         let _ = std::fs::remove_dir_all(&work);
     }
-    ready(&dir, &key).unwrap_or_else(|| Err(format!("cannot keep the test host in {}", dir.display())))
+    ready(&dir, &key)
+        .unwrap_or_else(|| Err(format!("cannot keep the test host in {}", dir.display())))
 }
 
 /// Where a test holds `buri` with a host linked and not yet in place
@@ -107,10 +119,16 @@ fn ready(dir: &Path, key: &str) -> Option<Result<Host, String>> {
     if probe.trim() != "ok" {
         return Some(Err(probe.trim().to_string()));
     }
-    let symbols = std::fs::read_to_string(dir.join("symbols")).ok().and_then(|t| HostSymbols::from_text(&t));
+    let symbols = std::fs::read_to_string(dir.join("symbols"))
+        .ok()
+        .and_then(|t| HostSymbols::from_text(&t));
     let path = dir.join("test-host");
     Some(match symbols {
-        Some(symbols) if path.is_file() => Ok(Host { path, key: key.to_string(), symbols }),
+        Some(symbols) if path.is_file() => Ok(Host {
+            path,
+            key: key.to_string(),
+            symbols,
+        }),
         _ => Err(format!("the test host in {} is incomplete", dir.display())),
     })
 }
@@ -137,17 +155,24 @@ fn build(dir: &Path, key: &str, linker: &CDriver) -> Result<PathBuf, String> {
     let parent = dir.parent().ok_or("the test host has no directory")?;
     let work = parent.join(format!(".{key}.{}.{n}", std::process::id()));
     let made = (|| -> Result<(), String> {
-        let io = |e: std::io::Error| format!("cannot write the test host into {}: {e}", work.display());
+        let io =
+            |e: std::io::Error| format!("cannot write the test host into {}: {e}", work.display());
         std::fs::create_dir_all(&work).map_err(io)?;
         std::fs::write(work.join("main.o"), main_object()?).map_err(io)?;
-        std::fs::write(work.join(crate::compiler::backend::runtime_native::ARCHIVE_NAME), crate::compiler::backend::runtime_native::ARCHIVE)
-            .map_err(io)?;
-        linker.link_test_host(&work).map_err(|e| format!("the test host didn't link: {e}"))?;
+        std::fs::write(
+            work.join(crate::compiler::backend::runtime_native::ARCHIVE_NAME),
+            crate::compiler::backend::runtime_native::ARCHIVE,
+        )
+        .map_err(io)?;
+        linker
+            .link_test_host(&work)
+            .map_err(|e| format!("the test host didn't link: {e}"))?;
         let host = work.join("test-host");
         let symbols = HostSymbols::of_executable(&std::fs::read(&host).map_err(io)?)?;
         std::fs::write(work.join("symbols"), symbols.to_text()).map_err(io)?;
         let _ = std::fs::remove_file(work.join("main.o"));
-        let _ = std::fs::remove_file(work.join(crate::compiler::backend::runtime_native::ARCHIVE_NAME));
+        let _ =
+            std::fs::remove_file(work.join(crate::compiler::backend::runtime_native::ARCHIVE_NAME));
         crate::build::counted::placed(&host);
         std::fs::write(work.join("probe"), probe(&host)).map_err(io)?;
         Ok(())
@@ -170,7 +195,10 @@ fn probe(host: &Path) -> String {
         Ok(out) => {
             let said = String::from_utf8_lossy(&out.stderr).trim().to_string();
             if said.is_empty() {
-                format!("the test host's probe {}", crate::build::generators::how_it_ended(&out.status))
+                format!(
+                    "the test host's probe {}",
+                    crate::build::generators::how_it_ended(&out.status)
+                )
             } else {
                 said
             }
@@ -183,7 +211,9 @@ fn probe(host: &Path) -> String {
 /// arguments as they are.
 #[cfg(feature = "backend-stencil")]
 fn main_object() -> Result<Vec<u8>, String> {
-    use crate::compiler::backend::stencil::object::{self, Definition, Reloc, RelKind, Section, Symbol};
+    use crate::compiler::backend::stencil::object::{
+        self, Definition, RelKind, Reloc, Section, Symbol,
+    };
     let section = Section {
         name: "__text",
         segment: "__TEXT",
@@ -195,10 +225,29 @@ fn main_object() -> Result<Vec<u8>, String> {
         group: None,
     };
     let symbols = [
-        Symbol { name: "main".into(), defined: Some(Definition { section: 0, offset: 0 }), global: true, weak: false },
-        Symbol { name: "buri_rt_test_host".into(), defined: None, global: true, weak: false },
+        Symbol {
+            name: "main".into(),
+            defined: Some(Definition {
+                section: 0,
+                offset: 0,
+            }),
+            global: true,
+            weak: false,
+        },
+        Symbol {
+            name: "buri_rt_test_host".into(),
+            defined: None,
+            global: true,
+            weak: false,
+        },
     ];
-    let relocs = [Reloc { section: 0, offset: 0, kind: RelKind::Branch26, symbol: 1, addend: 0 }];
+    let relocs = [Reloc {
+        section: 0,
+        offset: 0,
+        kind: RelKind::Branch26,
+        symbol: 1,
+        addend: 0,
+    }];
     object::write(&[section], &symbols, &relocs)
 }
 

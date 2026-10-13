@@ -132,11 +132,23 @@ fn the_release_artifact_flushes_too() {
         "cmd/exits",
         &program("let _ = process.exit(ctx, 3);\n    .Ok(())"),
     );
-    scratch.run(&["build", "//cmd/fails", "--release", "--force"]).ok();
-    scratch.run(&["build", "//cmd/exits", "--release", "--force"]).ok();
+    scratch
+        .run(&["build", "//cmd/fails", "--release", "--force"])
+        .ok();
+    scratch
+        .run(&["build", "//cmd/exits", "--release", "--force"])
+        .ok();
 
-    check(&scratch.exec_js_to_files("cmd/fails"), 1, "on stderr\nthe program failed\n");
-    check(&scratch.exec_js("cmd/fails"), 1, "on stderr\nthe program failed\n");
+    check(
+        &scratch.exec_js_to_files("cmd/fails"),
+        1,
+        "on stderr\nthe program failed\n",
+    );
+    check(
+        &scratch.exec_js("cmd/fails"),
+        1,
+        "on stderr\nthe program failed\n",
+    );
     check(&scratch.exec_js_to_files("cmd/exits"), 3, "on stderr\n");
     check(&scratch.exec_js("cmd/exits"), 3, "on stderr\n");
 }
@@ -157,7 +169,10 @@ fn an_abort_keeps_what_was_printed_before_it() {
     scratch.run(&["build", "//cmd/aborts", "--force"]).ok();
 
     let stdout = expected_stdout();
-    for run in [scratch.exec_js_to_files("cmd/aborts"), scratch.exec_js("cmd/aborts")] {
+    for run in [
+        scratch.exec_js_to_files("cmd/aborts"),
+        scratch.exec_js("cmd/aborts"),
+    ] {
         assert_eq!(run.code, 1, "{}: an abort exits 1", run.what);
         assert_eq!(
             run.stdout.len(),

@@ -25,7 +25,10 @@ pub fn command_version(args: &arguments::Args) -> i32 {
         // The same identity the cache key folds in ([`build::cache`]), which
         // is what tells two builds of one version apart. `unreadable` where
         // the binary can't be read, so the report says so rather than a lie.
-        println!("this executable: {}", running_exe_identity().unwrap_or("unreadable"));
+        println!(
+            "this executable: {}",
+            running_exe_identity().unwrap_or("unreadable")
+        );
     }
     if args.flags.self_check {
         let mut map = crate::diagnostics::SourceMap::new();
@@ -37,7 +40,10 @@ pub fn command_version(args: &arguments::Args) -> i32 {
             eprintln!("the bundled standard library does not check");
             return 1;
         }
-        println!("standard library: {} modules, checked", analysis.loaded.modules.len());
+        println!(
+            "standard library: {} modules, checked",
+            analysis.loaded.modules.len()
+        );
     }
     0
 }

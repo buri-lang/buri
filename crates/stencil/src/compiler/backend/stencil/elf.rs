@@ -138,7 +138,10 @@ struct Strtab {
 
 impl Strtab {
     fn new() -> Strtab {
-        Strtab { bytes: vec![0], seen: Vec::new() }
+        Strtab {
+            bytes: vec![0],
+            seen: Vec::new(),
+        }
     }
     /// Every name asked for is a section's or a symbol's, and none is empty.
     fn add(&mut self, s: &str) -> u32 {
@@ -221,7 +224,10 @@ fn r_type(target: StencilTarget, kind: RelKind, w: u32, where_: &str) -> Result<
             // A64 has no `rel32` field of any width, so neither x86-64 kind
             // can be spelled for this machine.
             RelKind::Rel32 | RelKind::Pc32 => {
-                return Err(format!("{where_}: {} has no aarch64 relocation type", x86_name(kind)))
+                return Err(format!(
+                    "{where_}: {} has no aarch64 relocation type",
+                    x86_name(kind)
+                ))
             }
         });
     }
@@ -264,7 +270,6 @@ pub fn write(
     symbols: &[Symbol],
     relocs: &[Reloc],
 ) -> Result<Vec<u8>, String> {
-
     // ELF requires every `STB_LOCAL` symbol to precede every other one, and
     // `sh_info` to say where the boundary is. The caller's indices mean nothing
     // after that sort, so they are remapped here — the same rewrite
@@ -276,10 +281,13 @@ pub fn write(
     let mut order: Vec<(usize, &Symbol)> = symbols.iter().enumerate().collect();
     order.sort_by_key(|(_, s)| s.global);
     let nlocal = order.iter().filter(|(_, s)| !s.global).count() + 1; // +1 for the null symbol at index 0.
-    // Each caller index's slot in the table, past the null symbol: the inverse
-    // permutation.
-    let mut slots: Vec<(usize, usize)> =
-        order.iter().enumerate().map(|(new, (old, _))| (*old, new + 1)).collect();
+                                                                      // Each caller index's slot in the table, past the null symbol: the inverse
+                                                                      // permutation.
+    let mut slots: Vec<(usize, usize)> = order
+        .iter()
+        .enumerate()
+        .map(|(new, (old, _))| (*old, new + 1))
+        .collect();
     slots.sort_unstable();
     let slot: Vec<usize> = slots.into_iter().map(|(_, new)| new).collect();
 
@@ -295,7 +303,12 @@ pub fn write(
     for r in relocs {
         per_section
             .get_mut(r.section)
-            .ok_or_else(|| format!("a relocation names section {}, which does not exist", r.section))?
+            .ok_or_else(|| {
+                format!(
+                    "a relocation names section {}, which does not exist",
+                    r.section
+                )
+            })?
             .push(r);
     }
 
@@ -329,9 +342,12 @@ pub fn write(
         let (shndx, value, kind) = match &s.defined {
             None => (0u16, 0u64, STT_NOTYPE),
             Some(d) => {
-                let sec = sections
-                    .get(d.section)
-                    .ok_or_else(|| format!("symbol {} is defined in a section that does not exist", s.name))?;
+                let sec = sections.get(d.section).ok_or_else(|| {
+                    format!(
+                        "symbol {} is defined in a section that does not exist",
+                        s.name
+                    )
+                })?;
                 // A symbol in an executable section is a function; one in a
                 // data or zero-fill section is an object. `--gc-sections`
                 // reads neither, but `nm`, a profiler and a backtrace all do.
@@ -364,7 +380,9 @@ pub fn write(
     for (i, group) in per_section.iter().enumerate() {
         let mut t = Vec::with_capacity(group.len() * RELA as usize);
         for r in group {
-            let sec = sections.get(i).ok_or("a relocation group lost its section")?;
+            let sec = sections
+                .get(i)
+                .ok_or("a relocation group lost its section")?;
             let at = r.offset as usize;
             let w = u32::from_le_bytes([
                 sec.data.get(at).copied().unwrap_or(0),
@@ -463,7 +481,11 @@ pub fn write(
             // hex dump of the file readable and costs nothing.
             (SHT_NOBITS, s.zerofill, at)
         } else {
-            (SHT_PROGBITS, s.data.len() as u64, place(&mut body, &mut at, &s.data, align))
+            (
+                SHT_PROGBITS,
+                s.data.len() as u64,
+                place(&mut body, &mut at, &s.data, align),
+            )
         };
         let exec = s.attributes & super::object::CODE_ATTRIBUTES != 0;
         // Code, or data that is written to. There is no third kind here: the
@@ -577,7 +599,8 @@ pub fn write(
     }
     let shoff = at;
 
-    let mut out = Vec::with_capacity((EHDR + body.len() as u64 + shdrs.len() as u64 * SHDR) as usize);
+    let mut out =
+        Vec::with_capacity((EHDR + body.len() as u64 + shdrs.len() as u64 * SHDR) as usize);
     out.extend_from_slice(b"\x7fELF");
     out.push(2); // ELFCLASS64
     out.push(1); // ELFDATA2LSB
@@ -586,7 +609,14 @@ pub fn write(
     out.push(0); // ABI version
     out.extend_from_slice(&[0u8; 7]); // e_ident padding
     out.extend_from_slice(&ET_REL.to_le_bytes());
-    out.extend_from_slice(&if target.is_arm64() { EM_AARCH64 } else { EM_X86_64 }.to_le_bytes());
+    out.extend_from_slice(
+        &if target.is_arm64() {
+            EM_AARCH64
+        } else {
+            EM_X86_64
+        }
+        .to_le_bytes(),
+    );
     out.extend_from_slice(&1u32.to_le_bytes()); // e_version
     out.extend_from_slice(&0u64.to_le_bytes()); // e_entry
     out.extend_from_slice(&0u64.to_le_bytes()); // e_phoff
@@ -607,9 +637,9 @@ pub fn write(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::runtime;
     use super::super::object::{Definition, CODE_ATTRIBUTES};
+    use super::super::runtime;
+    use super::*;
 
     use super::elfobj;
 
@@ -629,8 +659,20 @@ mod tests {
     /// is a call that returns into the wrong place.
     #[test]
     fn a_branch_is_split_by_its_instruction() {
-        let jump = r_type(StencilTarget::LinuxArm64, RelKind::Branch26, 0x1400_0000, "t").unwrap();
-        let call = r_type(StencilTarget::LinuxArm64, RelKind::Branch26, 0x9400_0000, "t").unwrap();
+        let jump = r_type(
+            StencilTarget::LinuxArm64,
+            RelKind::Branch26,
+            0x1400_0000,
+            "t",
+        )
+        .unwrap();
+        let call = r_type(
+            StencilTarget::LinuxArm64,
+            RelKind::Branch26,
+            0x9400_0000,
+            "t",
+        )
+        .unwrap();
         assert_eq!((jump, call), (R_AARCH64_JUMP26, R_AARCH64_CALL26));
     }
 
@@ -639,12 +681,33 @@ mod tests {
     #[test]
     fn a_low_twelve_is_split_by_its_instruction() {
         // `add x8, x8, #0`
-        let add = r_type(StencilTarget::LinuxArm64, RelKind::PageOff12, 0x9100_0108, "t").unwrap();
+        let add = r_type(
+            StencilTarget::LinuxArm64,
+            RelKind::PageOff12,
+            0x9100_0108,
+            "t",
+        )
+        .unwrap();
         // `ldr x8, [x8]`
-        let ldr = r_type(StencilTarget::LinuxArm64, RelKind::PageOff12, 0xf940_0108, "t").unwrap();
-        assert_eq!((add, ldr), (R_AARCH64_ADD_ABS_LO12_NC, R_AARCH64_LDST64_ABS_LO12_NC));
+        let ldr = r_type(
+            StencilTarget::LinuxArm64,
+            RelKind::PageOff12,
+            0xf940_0108,
+            "t",
+        )
+        .unwrap();
+        assert_eq!(
+            (add, ldr),
+            (R_AARCH64_ADD_ABS_LO12_NC, R_AARCH64_LDST64_ABS_LO12_NC)
+        );
         // A `str`, which no pool reference is, is refused rather than guessed.
-        assert!(r_type(StencilTarget::LinuxArm64, RelKind::PageOff12, 0xf900_0108, "t").is_err());
+        assert!(r_type(
+            StencilTarget::LinuxArm64,
+            RelKind::PageOff12,
+            0xf900_0108,
+            "t"
+        )
+        .is_err());
     }
 
     /// **Neither machine's kinds may be spelled for the other**, and the refusal
@@ -691,22 +754,51 @@ mod tests {
         let symbols = vec![
             Symbol {
                 name: String::from("f"),
-                defined: Some(Definition { section: 0, offset: 0 }),
+                defined: Some(Definition {
+                    section: 0,
+                    offset: 0,
+                }),
                 global: true,
                 weak: false,
             },
-            Symbol { name: String::from(runtime::ABORT), defined: None, global: true, weak: false },
+            Symbol {
+                name: String::from(runtime::ABORT),
+                defined: None,
+                global: true,
+                weak: false,
+            },
             Symbol {
                 name: String::from("pool"),
-                defined: Some(Definition { section: 1, offset: 0 }),
+                defined: Some(Definition {
+                    section: 1,
+                    offset: 0,
+                }),
                 global: false,
                 weak: false,
             },
         ];
         let relocs = vec![
-            Reloc { section: 0, offset: 0, kind: RelKind::Branch26, symbol: 2, addend: 0 },
-            Reloc { section: 0, offset: 4, kind: RelKind::Branch26, symbol: 1, addend: 0 },
-            Reloc { section: 1, offset: 0, kind: RelKind::Abs64, symbol: 0, addend: 3 },
+            Reloc {
+                section: 0,
+                offset: 0,
+                kind: RelKind::Branch26,
+                symbol: 2,
+                addend: 0,
+            },
+            Reloc {
+                section: 0,
+                offset: 4,
+                kind: RelKind::Branch26,
+                symbol: 1,
+                addend: 0,
+            },
+            Reloc {
+                section: 1,
+                offset: 0,
+                kind: RelKind::Abs64,
+                symbol: 0,
+                addend: 3,
+            },
         ];
         let bytes = write(StencilTarget::LinuxArm64, &sections, &symbols, &relocs).unwrap();
         let obj = elfobj::read(&bytes).expect("the writer's output must read back");
@@ -718,13 +810,17 @@ mod tests {
         let jump = obj.text_relocs.first().expect("a first relocation");
         assert_eq!(jump.kind, elfobj::R_AARCH64_JUMP26);
         assert_eq!(
-            obj.syms.get(jump.symbolnum as usize).map(|s| s.name.as_str()),
+            obj.syms
+                .get(jump.symbolnum as usize)
+                .map(|s| s.name.as_str()),
             Some("pool")
         );
         let call = obj.text_relocs.get(1).expect("a second relocation");
         assert_eq!(call.kind, elfobj::R_AARCH64_CALL26);
         assert_eq!(
-            obj.syms.get(call.symbolnum as usize).map(|s| s.name.as_str()),
+            obj.syms
+                .get(call.symbolnum as usize)
+                .map(|s| s.name.as_str()),
             Some(runtime::ABORT)
         );
         // And `f` is a function of the code section, which is what a linker
@@ -740,11 +836,19 @@ mod tests {
         let symbols = vec![
             Symbol {
                 name: String::from("a"),
-                defined: Some(Definition { section: 0, offset: 0 }),
+                defined: Some(Definition {
+                    section: 0,
+                    offset: 0,
+                }),
                 global: true,
                 weak: false,
             },
-            Symbol { name: String::from("b"), defined: None, global: true, weak: false },
+            Symbol {
+                name: String::from("b"),
+                defined: None,
+                global: true,
+                weak: false,
+            },
         ];
         let a = write(StencilTarget::LinuxArm64, &sections, &symbols, &[]).unwrap();
         let b = write(StencilTarget::LinuxArm64, &sections, &symbols, &[]).unwrap();

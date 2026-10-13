@@ -100,9 +100,16 @@ fn forward(e: &mut Expr, bases: &Set<LocalId>, paths: &mut Map<LocalId, Expr>) {
 
 /// `let name = path;` with `path` a chain of field and tuple reads off a local.
 fn path_let(s: &Stmt) -> Option<(LocalId, &Expr)> {
-    let Stmt::Let { pattern, value, .. } = s else { return None };
-    let PatKind::Bind { local, sub: None } = &pattern.kind else { return None };
-    let projects = matches!(value.kind, ExprKind::Field { .. } | ExprKind::TupleIndex { .. });
+    let Stmt::Let { pattern, value, .. } = s else {
+        return None;
+    };
+    let PatKind::Bind { local, sub: None } = &pattern.kind else {
+        return None;
+    };
+    let projects = matches!(
+        value.kind,
+        ExprKind::Field { .. } | ExprKind::TupleIndex { .. }
+    );
     (projects && is_path(value)).then_some((*local, value))
 }
 
@@ -130,24 +137,41 @@ mod tests {
     }
 
     fn field(base: Expr, index: usize) -> Expr {
-        e(ExprKind::Field { base: Box::new(base), index })
+        e(ExprKind::Field {
+            base: Box::new(base),
+            index,
+        })
     }
 
     fn let_(i: u32, value: Expr) -> Stmt {
         let pattern = Pattern {
-            kind: PatKind::Bind { local: LocalId(i), sub: None },
+            kind: PatKind::Bind {
+                local: LocalId(i),
+                sub: None,
+            },
             ty: Ty::ERROR,
             span: Span::default(),
         };
-        Stmt::Let { pattern, value, span: Span::default() }
+        Stmt::Let {
+            pattern,
+            value,
+            span: Span::default(),
+        }
     }
 
     fn block(stmts: Vec<Stmt>, tail: Expr) -> Expr {
-        e(ExprKind::Block { stmts, tail: Some(Box::new(tail)) })
+        e(ExprKind::Block {
+            stmts,
+            tail: Some(Box::new(tail)),
+        })
     }
 
     fn update(base: Expr, value: Expr) -> Expr {
-        e(ExprKind::StructUpdate { con: TyConId(0), base: Box::new(base), updates: vec![(0, value)] })
+        e(ExprKind::StructUpdate {
+            con: TyConId(0),
+            base: Box::new(base),
+            updates: vec![(0, value)],
+        })
     }
 
     /// Paths reach every later read, through nested blocks and chained `let`s;

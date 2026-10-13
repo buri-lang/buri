@@ -6,8 +6,8 @@
 //! rather than a search (SPEC 5.12.1), and it is why nothing in this module
 //! needs a fixpoint (guides/compile-speed.md).
 
-use crate::diagnostics::{Invariant as _, Span};
 use crate::compiler::semantics::layered::{DenseId, IdMap, Layered, LayeredMap};
+use crate::diagnostics::{Invariant as _, Span};
 use crate::hash::Map as HashMap;
 use std::fmt::Write as _;
 
@@ -115,7 +115,10 @@ impl Prim {
     }
 
     pub fn is_signed(self) -> bool {
-        matches!(self, Prim::I8 | Prim::I16 | Prim::I32 | Prim::I64 | Prim::I128)
+        matches!(
+            self,
+            Prim::I8 | Prim::I16 | Prim::I32 | Prim::I64 | Prim::I128
+        )
     }
 
     pub fn is_float(self) -> bool {
@@ -246,8 +249,13 @@ pub struct VariantInfo {
 pub enum TyDef {
     Prim(Prim),
     /// `record` distinguishes `struct S { a: T }` from `struct S(T)`.
-    Struct { fields: Vec<FieldInfo>, record: bool },
-    Enum { variants: Vec<VariantInfo> },
+    Struct {
+        fields: Vec<FieldInfo>,
+        record: bool,
+    },
+    Enum {
+        variants: Vec<VariantInfo>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -364,7 +372,11 @@ pub enum AstRef {
     Item { module: ModuleId, item: u32 },
     /// A method inside an `impl`: the impl's item index, and the method's
     /// index within it.
-    Method { module: ModuleId, item: u32, sub: u32 },
+    Method {
+        module: ModuleId,
+        item: u32,
+        sub: u32,
+    },
 }
 
 impl AstRef {
@@ -555,7 +567,10 @@ pub struct CtxType {
 
 impl CtxType {
     pub fn get(&self, t: TraitId) -> Option<&Ty> {
-        self.bindings.iter().find(|(id, _)| *id == t).map(|(_, ty)| ty)
+        self.bindings
+            .iter()
+            .find(|(id, _)| *id == t)
+            .map(|(_, ty)| ty)
     }
 
     pub fn has(&self, t: TraitId) -> bool {
@@ -668,7 +683,9 @@ impl Rows<'_> {
 
 impl Tables {
     pub fn tycon(&self, id: TyConId) -> &TyCon {
-        self.tycons.get(id.index()).or_ice("every TyConId was minted by add_tycon on this table")
+        self.tycons
+            .get(id.index())
+            .or_ice("every TyConId was minted by add_tycon on this table")
     }
 
     /// Whether this is `Option`, the one type the backend gives a
@@ -706,15 +723,21 @@ impl Tables {
     }
 
     pub fn fn_info(&self, id: FnId) -> &FnInfo {
-        self.fns.get(id.index()).or_ice("every FnId was minted by add_fn on this table")
+        self.fns
+            .get(id.index())
+            .or_ice("every FnId was minted by add_fn on this table")
     }
 
     pub fn trait_(&self, id: TraitId) -> &TraitInfo {
-        self.traits.get(id.index()).or_ice("every TraitId was minted by add_trait on this table")
+        self.traits
+            .get(id.index())
+            .or_ice("every TraitId was minted by add_trait on this table")
     }
 
     pub fn const_(&self, id: ConstId) -> &ConstInfo {
-        self.consts.get(id.index()).or_ice("every ConstId was minted by add_const on this table")
+        self.consts
+            .get(id.index())
+            .or_ice("every ConstId was minted by add_const on this table")
     }
 
     pub fn ctx_type(&self, id: CtxTypeId) -> &CtxType {
@@ -763,23 +786,33 @@ impl Tables {
     /// The same entries, for the phases that fill them in. Ids come from the
     /// `add_*` methods below, so the index is always in range.
     pub fn tycon_mut(&mut self, id: TyConId) -> &mut TyCon {
-        self.tycons.get_mut(id.index()).or_ice("every TyConId was minted by add_tycon")
+        self.tycons
+            .get_mut(id.index())
+            .or_ice("every TyConId was minted by add_tycon")
     }
 
     pub fn fn_info_mut(&mut self, id: FnId) -> &mut FnInfo {
-        self.fns.get_mut(id.index()).or_ice("every FnId was minted by add_fn")
+        self.fns
+            .get_mut(id.index())
+            .or_ice("every FnId was minted by add_fn")
     }
 
     pub fn trait_mut(&mut self, id: TraitId) -> &mut TraitInfo {
-        self.traits.get_mut(id.index()).or_ice("every TraitId was minted by add_trait")
+        self.traits
+            .get_mut(id.index())
+            .or_ice("every TraitId was minted by add_trait")
     }
 
     pub fn const_mut(&mut self, id: ConstId) -> &mut ConstInfo {
-        self.consts.get_mut(id.index()).or_ice("every ConstId was minted by add_const")
+        self.consts
+            .get_mut(id.index())
+            .or_ice("every ConstId was minted by add_const")
     }
 
     pub fn ctx_decl_mut(&mut self, id: ContextDeclId) -> &mut ContextDeclInfo {
-        self.ctx_decls.get_mut(id.index()).or_ice("every ContextDeclId was minted by add_ctx_decl")
+        self.ctx_decls
+            .get_mut(id.index())
+            .or_ice("every ContextDeclId was minted by add_ctx_decl")
     }
 
     pub fn add_tycon(&mut self, c: TyCon) -> TyConId {
@@ -810,9 +843,12 @@ impl Tables {
             map.entry((*name).to_owned()).or_insert(i);
         }
         // Never shrinks, so a type indexed again keeps the ones after it.
-        self.member_index.resize_with(id.index().saturating_add(1), || None);
-        *self.member_index.get_mut(id.index()).or_ice("only the checker's own types are indexed") =
-            Some(Box::new(map));
+        self.member_index
+            .resize_with(id.index().saturating_add(1), || None);
+        *self
+            .member_index
+            .get_mut(id.index())
+            .or_ice("only the checker's own types are indexed") = Some(Box::new(map));
     }
 
     /// The index for `id`, when there is one and it is the list the caller
@@ -880,7 +916,10 @@ impl Tables {
     /// Every method name `con` has, for the "did you mean" a failed lookup
     /// offers. Unordered, and `nearest` is order-independent.
     pub fn method_names(&self, con: TyConId) -> impl Iterator<Item = &str> {
-        self.methods.get(&con).into_iter().flat_map(|m| m.keys().map(String::as_str))
+        self.methods
+            .get(&con)
+            .into_iter()
+            .flat_map(|m| m.keys().map(String::as_str))
     }
 
     /// The traits `con` implements, ascending.
@@ -916,7 +955,9 @@ impl Tables {
     /// hold a `Program` and no `Tables` — `middle::rc` asks it of a callee's
     /// type, and `middle::native` takes no `Tables`.
     pub fn con_carries_effect(&self, con: TyConId) -> bool {
-        self.traits_of_con(con).iter().any(|t| self.trait_(*t).is_effect)
+        self.traits_of_con(con)
+            .iter()
+            .any(|t| self.trait_(*t).is_effect)
     }
 
     /// The first concrete constructor in `ty` that implements an effect,
@@ -930,12 +971,19 @@ impl Tables {
     pub fn effect_implementor(&self, ty: &Ty) -> Option<(TyConId, TraitId)> {
         match ty.kind() {
             TyKind::Con(id, args) => {
-                let own = self.traits_of_con(*id).iter().find(|t| self.trait_(**t).is_effect);
+                let own = self
+                    .traits_of_con(*id)
+                    .iter()
+                    .find(|t| self.trait_(**t).is_effect);
                 if let Some(t) = own {
                     return Some((*id, *t));
                 }
                 args.iter().enumerate().find_map(|(k, a)| {
-                    if self.provides(*id, k) { self.effect_implementor(a) } else { None }
+                    if self.provides(*id, k) {
+                        self.effect_implementor(a)
+                    } else {
+                        None
+                    }
                 })
             }
             TyKind::Array(e) => self.effect_implementor(e),
@@ -995,8 +1043,12 @@ impl Tables {
         // The rows a base settled stay as they are: its types can't hold one
         // declared after them, so nothing this run adds can change them.
         let settled = self.variance.base_len();
-        let mut table: Vec<Vec<bool>> =
-            self.tycons.iter().skip(settled).map(|c| vec![false; c.generics.len()]).collect();
+        let mut table: Vec<Vec<bool>> = self
+            .tycons
+            .iter()
+            .skip(settled)
+            .map(|c| vec![false; c.generics.len()])
+            .collect();
         // Only a generic constructor has a row that can change, and a program
         // declares far more `Int`s than `Option`s. Listing them once keeps the
         // fixpoint off the primitives entirely rather than walking every empty
@@ -1021,7 +1073,11 @@ impl Tables {
                     .chain(con.variants().iter().flat_map(|v| v.fields.iter()));
                 for field in stored {
                     for i in 0..arity {
-                        let rows = Rows { settled: &self.variance, from: settled, table: &table };
+                        let rows = Rows {
+                            settled: &self.variance,
+                            from: settled,
+                            table: &table,
+                        };
                         if rows.provides(index, i) || !rows.occurs_provided(&field.ty, i) {
                             continue;
                         }
@@ -1029,7 +1085,9 @@ impl Tables {
                             .checked_sub(settled)
                             .and_then(|own| table.get_mut(own))
                             .and_then(|row| row.get_mut(i))
-                            .or_ice("an own generic constructor has a row with a bit per parameter") = true;
+                            .or_ice(
+                                "an own generic constructor has a row with a bit per parameter",
+                            ) = true;
                         changed = true;
                     }
                 }
@@ -1080,9 +1138,15 @@ impl Tables {
     /// keeps the context its own type: either is local to one body, so an
     /// equal-looking one in another body need not be the same type.
     pub fn intern_ctx_type(&mut self, c: CtxType) -> CtxTypeId {
-        let closed = c.bindings.iter().all(|(_, ty)| !ty.has_vars() && !ty.has_params());
+        let closed = c
+            .bindings
+            .iter()
+            .all(|(_, ty)| !ty.has_vars() && !ty.has_params());
         if closed {
-            let same = self.ctx_types.iter().position(|other| other.bindings == c.bindings);
+            let same = self
+                .ctx_types
+                .iter()
+                .position(|other| other.bindings == c.bindings);
             if let Some(at) = same {
                 return CtxTypeId(at as u32);
             }
@@ -1116,13 +1180,17 @@ impl Tables {
     /// Field `i` of `n` is bit `n - 1 - i`, so the first field is the most
     /// significant and comparing the words is a plain struct's derived order.
     pub fn flags_word(&self, con: TyConId) -> Option<Prim> {
-        let TyDef::Struct { fields, .. } = &self.tycon(con).def else { return None };
+        let TyDef::Struct { fields, .. } = &self.tycon(con).def else {
+            return None;
+        };
         if fields.is_empty() || fields.len() > FLAGS_MAX {
             return None;
         }
         // `Flags` is derive-only, and a derive with a field that isn't a
         // `Bool` is refused, which stops the build before anything asks.
-        self.traits_of_con(con).iter().find(|t| self.trait_(**t).name == "Flags")?;
+        self.traits_of_con(con)
+            .iter()
+            .find(|t| self.trait_(**t).name == "Flags")?;
         Some(match fields.len() {
             0..=8 => Prim::U8,
             9..=16 => Prim::U16,
@@ -1136,13 +1204,18 @@ impl Tables {
     /// refused.
     pub fn index_prim(&self, con: TyConId) -> Option<Prim> {
         let field = match &self.tycon(con).def {
-            TyDef::Struct { fields, record: false } => fields.first().filter(|_| fields.len() == 1)?,
+            TyDef::Struct {
+                fields,
+                record: false,
+            } => fields.first().filter(|_| fields.len() == 1)?,
             _ => return None,
         };
         self.traits_of_con(con).iter().find(|t| {
-            self.trait_(**t).name == "Index" && self.impls.get(&(**t, con)).is_some_and(|i| i.is_derived())
+            self.trait_(**t).name == "Index"
+                && self.impls.get(&(**t, con)).is_some_and(|i| i.is_derived())
         })?;
-        self.as_prim(&field.ty).filter(|p| matches!(p, Prim::U8 | Prim::U16 | Prim::U32 | Prim::U64))
+        self.as_prim(&field.ty)
+            .filter(|p| matches!(p, Prim::U8 | Prim::U16 | Prim::U32 | Prim::U64))
     }
 
     /// [`Tables::flags_word`] of a type's head.
@@ -1179,9 +1252,10 @@ impl Tables {
             TyKind::Ctx(_) => true,
             TyKind::Con(id, args) => {
                 self.con_carries_effect(*id)
-                    || args.iter().enumerate().any(|(k, a)| {
-                        self.provides(*id, k) && self.is_effect_carrying(a, generics)
-                    })
+                    || args
+                        .iter()
+                        .enumerate()
+                        .any(|(k, a)| self.provides(*id, k) && self.is_effect_carrying(a, generics))
             }
             TyKind::Array(e) => self.is_effect_carrying(e, generics),
             TyKind::Tuple(es) => es.iter().any(|e| self.is_effect_carrying(e, generics)),
@@ -1310,24 +1384,37 @@ impl Subst {
     /// The class slot for a variable. Every [`TyVarId`] comes from `fresh`,
     /// which pushes one slot per table in step, so the id is always in range.
     fn class_slot(&mut self, id: TyVarId) -> &mut Option<NumClass> {
-        self.classes.get_mut(id.index()).or_ice("every TyVarId was minted by Subst::fresh")
+        self.classes
+            .get_mut(id.index())
+            .or_ice("every TyVarId was minted by Subst::fresh")
     }
 
     pub fn class_of(&self, id: TyVarId) -> Option<NumClass> {
-        *self.classes.get(id.index()).or_ice("every TyVarId was minted by Subst::fresh")
+        *self
+            .classes
+            .get(id.index())
+            .or_ice("every TyVarId was minted by Subst::fresh")
     }
 
     pub fn span_of(&self, id: TyVarId) -> Span {
-        *self.spans.get(id.index()).or_ice("every TyVarId was minted by Subst::fresh")
+        *self
+            .spans
+            .get(id.index())
+            .or_ice("every TyVarId was minted by Subst::fresh")
     }
 
     pub fn get(&self, id: TyVarId) -> Option<Ty> {
-        *self.slots.get(id.index()).or_ice("every TyVarId was minted by Subst::fresh")
+        *self
+            .slots
+            .get(id.index())
+            .or_ice("every TyVarId was minted by Subst::fresh")
     }
 
     fn set(&mut self, id: TyVarId, ty: Ty) {
-        *self.slots.get_mut(id.index()).or_ice("every TyVarId was minted by Subst::fresh") =
-            Some(ty);
+        *self
+            .slots
+            .get_mut(id.index())
+            .or_ice("every TyVarId was minted by Subst::fresh") = Some(ty);
     }
 
     /// Follows bound variables until the head is not one.
@@ -1439,9 +1526,7 @@ impl Subst {
                     let slot = self.class_slot(other);
                     match *slot {
                         None => *slot = Some(class),
-                        Some(existing) if existing != class => {
-                            return Err((Ty::var(id), *ty))
-                        }
+                        Some(existing) if existing != class => return Err((Ty::var(id), *ty)),
                         Some(_) => {}
                     }
                 }
@@ -1526,11 +1611,17 @@ impl Subst {
 pub fn field_types(tables: &Tables, ty: &Ty) -> Vec<Ty> {
     match ty.kind() {
         TyKind::Tuple(elements) => elements.to_vec(),
-        TyKind::Ctx(id) => tables.ctx_type(*id).bindings.iter().map(|(_, t)| *t).collect(),
+        TyKind::Ctx(id) => tables
+            .ctx_type(*id)
+            .bindings
+            .iter()
+            .map(|(_, t)| *t)
+            .collect(),
         TyKind::Con(id, args) => match &tables.tycon(*id).def {
-            TyDef::Struct { fields, .. } => {
-                fields.iter().map(|f| substitute(&f.ty, args, None)).collect()
-            }
+            TyDef::Struct { fields, .. } => fields
+                .iter()
+                .map(|f| substitute(&f.ty, args, None))
+                .collect(),
             TyDef::Prim(_) | TyDef::Enum { .. } => Vec::new(),
         },
         _ => Vec::new(),
@@ -1539,10 +1630,16 @@ pub fn field_types(tables: &Tables, ty: &Ty) -> Vec<Ty> {
 
 /// One variant's fields, as types, in declaration order.
 pub fn variant_types(tables: &Tables, ty: &Ty, variant: usize) -> Vec<Ty> {
-    let TyKind::Con(id, args) = ty.kind() else { return Vec::new() };
+    let TyKind::Con(id, args) = ty.kind() else {
+        return Vec::new();
+    };
     match &tables.tycon(*id).def {
         TyDef::Enum { .. } => match tables.tycon(*id).variants().get(variant) {
-            Some(v) => v.fields.iter().map(|f| substitute(&f.ty, args, None)).collect(),
+            Some(v) => v
+                .fields
+                .iter()
+                .map(|f| substitute(&f.ty, args, None))
+                .collect(),
             None => Vec::new(),
         },
         TyDef::Prim(_) | TyDef::Struct { .. } => Vec::new(),
@@ -1572,7 +1669,9 @@ pub fn traits_of(tables: &Tables, con: TyConId) -> std::collections::BTreeSet<St
 /// out of a table that records it, and the two would have to be kept in step
 /// by hand. `None` for anything that is not a two-armed `Result`.
 pub fn result_shape(tables: &Tables, ty: &Ty) -> Option<(usize, usize, Ty)> {
-    let TyKind::Con(id, args) = ty.kind() else { return None };
+    let TyKind::Con(id, args) = ty.kind() else {
+        return None;
+    };
     let variants = tables.tycon(*id).variants();
     let ok = variants.iter().position(|v| v.name == "Ok")?;
     let err = variants.iter().position(|v| v.name == "Err")?;
@@ -1641,7 +1740,11 @@ pub fn call_signature(
         let shown: Vec<String> = generics
             .iter()
             .map(|g| {
-                let bounds: Vec<&str> = g.bounds.iter().map(|b| tables.trait_(*b).name.as_str()).collect();
+                let bounds: Vec<&str> = g
+                    .bounds
+                    .iter()
+                    .map(|b| tables.trait_(*b).name.as_str())
+                    .collect();
                 // `T`, or `T: A + B`.
                 let colon = bounds.first().map_or("", |_| ": ");
                 format!("{}{colon}{}", g.name, bounds.join(" + "))
@@ -1895,8 +1998,17 @@ mod tests {
         // The line is the width a double still holds every integer of.
         let wide = [Prim::I64, Prim::U64, Prim::I128, Prim::U128];
         assert!(wide.iter().all(|p| p.is_bigint()));
-        let narrow = [Prim::I8, Prim::I16, Prim::I32, Prim::U8, Prim::U16, Prim::U32];
+        let narrow = [
+            Prim::I8,
+            Prim::I16,
+            Prim::I32,
+            Prim::U8,
+            Prim::U16,
+            Prim::U32,
+        ];
         assert!(narrow.iter().all(|p| !p.is_bigint()));
-        assert!([Prim::F32, Prim::F64, Prim::Bool, Prim::Str].iter().all(|p| !p.is_bigint()));
+        assert!([Prim::F32, Prim::F64, Prim::Bool, Prim::Str]
+            .iter()
+            .all(|p| !p.is_bigint()));
     }
 }

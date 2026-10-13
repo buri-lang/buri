@@ -85,7 +85,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
     for (backend, r) in run_each("marked-push-loop", source) {
-        assert_eq!(r.stdout, "2000 2000 2000 1 2000\n", "{backend}: {}", r.stderr);
+        assert_eq!(
+            r.stdout, "2000 2000 2000 1 2000\n",
+            "{backend}: {}",
+            r.stderr
+        );
         assert_eq!(r.status, 0, "{backend}: {}", r.stderr);
         let (blocks, live) = probed(&r.stderr);
         assert!(
@@ -93,7 +97,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: eight thousand pushes in a program with an actor allocated {blocks} \
              blocks: a marked list was copied on every push"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -244,8 +251,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#;
     for (backend, r) in run_each("marked-actor-sharing", source) {
         assert_eq!(
-            r.stdout,
-            "sent ab abx\nfirst ab|/2 ab|y/2,9\nsecond ab|c|/2,1 now ab|c|/2,1\n",
+            r.stdout, "sent ab abx\nfirst ab|/2 ab|y/2,9\nsecond ab|c|/2,1 now ab|c|/2,1\n",
             "{backend}: {}",
             r.stderr
         );
@@ -347,8 +353,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#;
     for (backend, r) in run_each("marked-scope-push", source) {
         assert_eq!(
-            r.stdout,
-            "tasks 8 of 8, distinct 8\nbody 41 99\n",
+            r.stdout, "tasks 8 of 8, distinct 8\nbody 41 99\n",
             "{backend}: {}",
             r.stderr
         );
@@ -467,7 +472,11 @@ fn measured(binary: &std::path::Path, args: &[&str]) -> Measured {
     // runners) reports every process as having retired nothing; that is no
     // count, the same as Linux's absent one.
     let counted = first.zip(second).map(|(a, b)| a.min(b)).filter(|&n| n > 0);
-    Measured { ran, blocks, instructions: counted }
+    Measured {
+        ran,
+        blocks,
+        instructions: counted,
+    }
 }
 
 /// **Single-threaded work costs the same whether or not the program can start
@@ -534,7 +543,11 @@ export fn main(host: NativeHost): Result<(), Str> {{
         for (path, args) in [("never started", &[][..]), ("started", &["actor"][..])] {
             let m = measured(&linked, args);
             for r in [&alone.ran, &m.ran] {
-                assert_eq!(r.stdout, "filled size=100000\n", "{backend}, {path}: {}", r.stderr);
+                assert_eq!(
+                    r.stdout, "filled size=100000\n",
+                    "{backend}, {path}: {}",
+                    r.stderr
+                );
                 assert_eq!(r.status, 0, "{backend}, {path}: {}", r.stderr);
             }
             // Starting and stopping the actor is a few blocks of its own.
@@ -542,7 +555,8 @@ export fn main(host: NativeHost): Result<(), Str> {{
                 m.blocks <= alone.blocks + 16,
                 "{backend}, actor {path}: the fill allocated {} blocks against {} without \
                  an actor in the program",
-                m.blocks, alone.blocks
+                m.blocks,
+                alone.blocks
             );
             if let (Some(with), Some(without)) = (m.instructions, alone.instructions) {
                 let ratio = with as f64 / without as f64;

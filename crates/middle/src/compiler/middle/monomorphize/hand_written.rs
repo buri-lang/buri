@@ -96,24 +96,50 @@ fn local(id: LocalId, ty: Ty) -> Expr {
 }
 
 fn bind(id: LocalId, ty: Ty) -> Pattern {
-    Pattern { kind: PatKind::Bind { local: id, sub: None }, ty, span: Span::NONE }
+    Pattern {
+        kind: PatKind::Bind {
+            local: id,
+            sub: None,
+        },
+        ty,
+        span: Span::NONE,
+    }
 }
 
 fn wild(ty: Ty) -> Pattern {
-    Pattern { kind: PatKind::Wild, ty, span: Span::NONE }
+    Pattern {
+        kind: PatKind::Wild,
+        ty,
+        span: Span::NONE,
+    }
 }
 
 fn arm(pattern: Pattern, body: Expr) -> typed::Arm {
-    typed::Arm { pattern, guard: None, body, span: Span::NONE }
+    typed::Arm {
+        pattern,
+        guard: None,
+        body,
+        span: Span::NONE,
+    }
 }
 
 fn match_(scrutinee: Expr, arms: Vec<typed::Arm>, ty: Ty) -> Expr {
-    Expr::new(ExprKind::Match { scrutinee: Box::new(scrutinee), arms }, ty, Span::NONE)
+    Expr::new(
+        ExprKind::Match {
+            scrutinee: Box::new(scrutinee),
+            arms,
+        },
+        ty,
+        Span::NONE,
+    )
 }
 
 fn call(slot: usize, args: Vec<Expr>, ret: Ty) -> Expr {
     Expr::new(
-        ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(slot as u32)), args },
+        ExprKind::CallFn {
+            func: typed::Callee::Func(FuncIdx(slot as u32)),
+            args,
+        },
         ret,
         Span::NONE,
     )
@@ -121,15 +147,25 @@ fn call(slot: usize, args: Vec<Expr>, ret: Ty) -> Expr {
 
 fn project(base: Expr, index: usize, tuple: bool, ty: Ty) -> Expr {
     let kind = if tuple {
-        ExprKind::TupleIndex { base: Box::new(base), index }
+        ExprKind::TupleIndex {
+            base: Box::new(base),
+            index,
+        }
     } else {
-        ExprKind::Field { base: Box::new(base), index }
+        ExprKind::Field {
+            base: Box::new(base),
+            index,
+        }
     };
     Expr::new(kind, ty, Span::NONE)
 }
 
 fn array_pattern(ty: Ty, elems: Vec<Pattern>, rest: ArrayRest) -> Pattern {
-    Pattern { kind: PatKind::Array { elems, rest }, ty, span: Span::NONE }
+    Pattern {
+        kind: PatKind::Array { elems, rest },
+        ty,
+        span: Span::NONE,
+    }
 }
 
 impl Monomorphizer<'_> {
@@ -146,8 +182,17 @@ impl Monomorphizer<'_> {
         if !self.reaches_hand_written(trait_id, recv, false) {
             return None;
         }
-        let ctx = if op == Op::Show { Some(args.get(1)?.ty) } else { None };
-        let slot = self.request(Key::Derived { trait_id, ty: *recv, ctx, unbounded: false });
+        let ctx = if op == Op::Show {
+            Some(args.get(1)?.ty)
+        } else {
+            None
+        };
+        let slot = self.request(Key::Derived {
+            trait_id,
+            ty: *recv,
+            ctx,
+            unbounded: false,
+        });
         Some(ExprKind::CallFn {
             func: typed::Callee::Func(FuncIdx(slot as u32)),
             args: args.to_vec(),
@@ -170,7 +215,9 @@ impl Monomorphizer<'_> {
             .iter()
             .position(|t| {
                 t.name == trait_name
-                    && module_paths.get(t.module.index()).is_some_and(|m| m == "core/order")
+                    && module_paths
+                        .get(t.module.index())
+                        .is_some_and(|m| m == "core/order")
             })
             .map(|i| TraitId(i as u32))?;
         if !self.hand_written(trait_id, &ty) && !self.reaches_hand_written(trait_id, &ty, true) {
@@ -181,7 +228,12 @@ impl Monomorphizer<'_> {
         if self.meets_opaque(trait_id, &ty, &mut Vec::new()) {
             return None;
         }
-        let slot = self.request(Key::Derived { trait_id, ty, ctx, unbounded: true });
+        let slot = self.request(Key::Derived {
+            trait_id,
+            ty,
+            ctx,
+            unbounded: true,
+        });
         Some(FuncIdx(slot as u32))
     }
 
@@ -200,26 +252,46 @@ impl Monomorphizer<'_> {
             _ => return false,
         };
         // `core/testing`, which declares both reporters, also declares `Scope`.
-        let scope = *self.checked.known_types.get("Scope").or_ice("`core/testing` declares `Scope`");
-        let str_ty = *params.get(kind_at as usize).or_ice("a reporter takes the kind it reports");
+        let scope = *self
+            .checked
+            .known_types
+            .get("Scope")
+            .or_ice("`core/testing` declares `Scope`");
+        let str_ty = *params
+            .get(kind_at as usize)
+            .or_ice("a reporter takes the kind it reports");
         let ty = *values
             .first()
             .and_then(|i| params.get(*i as usize))
             .or_ice("a reporter takes the value it reports");
         let scope_ty = Ty::con(scope, []);
-        let Some(show) = self.unbounded_fn("Show", ty, Some(scope_ty)) else { return false };
+        let Some(show) = self.unbounded_fn("Show", ty, Some(scope_ty)) else {
+            return false;
+        };
         let ctx = Expr::new(
-            ExprKind::StructLit { con: scope, targs: Vec::new(), fields: vec![self.int_lit(0)] },
+            ExprKind::StructLit {
+                con: scope,
+                targs: Vec::new(),
+                fields: vec![self.int_lit(0)],
+            },
             scope_ty,
             Span::NONE,
         );
         let mut args = vec![local(LocalId(kind_at), str_ty)];
-        args.extend(
-            values.iter().map(|i| call(show.index(), vec![local(LocalId(*i), ty), ctx.clone()], str_ty)),
-        );
+        args.extend(values.iter().map(|i| {
+            call(
+                show.index(),
+                vec![local(LocalId(*i), ty), ctx.clone()],
+                str_ty,
+            )
+        }));
         let ret = self.func_mut(slot).ret;
         let shown = Expr::new(
-            ExprKind::Intrinsic { name: shown_key.into(), targs: Vec::new(), args },
+            ExprKind::Intrinsic {
+                name: shown_key.into(),
+                targs: Vec::new(),
+                args,
+            },
             ret,
             Span::NONE,
         );
@@ -258,7 +330,9 @@ impl Monomorphizer<'_> {
     /// a map whose values have none, so that map is walked like a type with
     /// no `impl` at all (#269, #270).
     fn hand_written(&self, trait_id: TraitId, ty: &Ty) -> bool {
-        let TyKind::Con(con, _) = ty.kind() else { return false };
+        let TyKind::Con(con, _) = ty.kind() else {
+            return false;
+        };
         self.tables().as_prim(ty).is_none()
             && self
                 .tables()
@@ -303,7 +377,10 @@ impl Monomorphizer<'_> {
                 Some(_) => {
                     seen.push(*con);
                     let parts = self.parts_of(ty);
-                    let ok = parts.iter().flatten().all(|p| self.satisfies(trait_id, &p.ty, seen));
+                    let ok = parts
+                        .iter()
+                        .flatten()
+                        .all(|p| self.satisfies(trait_id, &p.ty, seen));
                     seen.pop();
                     ok
                 }
@@ -326,10 +403,18 @@ impl Monomorphizer<'_> {
 
     /// `seen` stops a recursive type: a cycle reaches nothing the rest of the
     /// type does not.
-    fn reaches_from(&self, trait_id: TraitId, ty: &Ty, unbounded: bool, seen: &mut Vec<Ty>) -> bool {
+    fn reaches_from(
+        &self,
+        trait_id: TraitId,
+        ty: &Ty,
+        unbounded: bool,
+        seen: &mut Vec<Ty>,
+    ) -> bool {
         match ty.kind() {
             TyKind::Array(e) => self.reaches_from(trait_id, e, unbounded, seen),
-            TyKind::Tuple(es) => es.iter().any(|e| self.reaches_from(trait_id, e, unbounded, seen)),
+            TyKind::Tuple(es) => es
+                .iter()
+                .any(|e| self.reaches_from(trait_id, e, unbounded, seen)),
             TyKind::Con(con, _) => {
                 if self.tables().as_prim(ty).is_some() || seen.contains(ty) {
                     return false;
@@ -364,7 +449,10 @@ impl Monomorphizer<'_> {
                 }
                 seen.push(*ty);
                 let parts = self.parts_of(ty);
-                let found = parts.iter().flatten().any(|p| self.meets_opaque(trait_id, &p.ty, seen));
+                let found = parts
+                    .iter()
+                    .flatten()
+                    .any(|p| self.meets_opaque(trait_id, &p.ty, seen));
                 seen.pop();
                 found
             }
@@ -375,7 +463,10 @@ impl Monomorphizer<'_> {
     fn parts_reach(&self, trait_id: TraitId, ty: &Ty, unbounded: bool, seen: &mut Vec<Ty>) -> bool {
         seen.push(*ty);
         let parts = self.parts_of(ty);
-        let found = parts.iter().flatten().any(|p| self.reaches_from(trait_id, &p.ty, unbounded, seen));
+        let found = parts
+            .iter()
+            .flatten()
+            .any(|p| self.reaches_from(trait_id, &p.ty, unbounded, seen));
         seen.pop();
         found
     }
@@ -388,7 +479,10 @@ impl Monomorphizer<'_> {
             _ => None,
         }
         .or_ice("only a struct or an enum has parts");
-        let part = |name: &str, t: &Ty| Part { name: name.to_string(), ty: self.sub(t, args) };
+        let part = |name: &str, t: &Ty| Part {
+            name: name.to_string(),
+            ty: self.sub(t, args),
+        };
         match &self.tables().tycon(*con).def {
             TyDef::Struct { fields, .. } => {
                 vec![fields.iter().map(|f| part(&f.name, &f.ty)).collect()]
@@ -420,11 +514,18 @@ impl Monomorphizer<'_> {
         targs.extend(ctx);
         let symbol = self.instantiation(&base, &targs);
         let module = self.declaring_module(&ty).unwrap_or_else(|| "core".into());
-        let owner = ty.head().map_or("[]".to_string(), |c| self.tables().tycon(c).name.clone());
+        let owner = ty
+            .head()
+            .map_or("[]".to_string(), |c| self.tables().tycon(c).name.clone());
         (symbol, format!("{module}:{owner}.{tag}"), Span::NONE)
     }
 
-    fn deriving(&mut self, trait_id: TraitId, ctx: Option<Ty>, unbounded: bool) -> Option<Deriving> {
+    fn deriving(
+        &mut self,
+        trait_id: TraitId,
+        ctx: Option<Ty>,
+        unbounded: bool,
+    ) -> Option<Deriving> {
         let op = Op::of(&self.tables().trait_(trait_id).name)?;
         let ret = match op {
             Op::Show => self.tables().prim(Prim::Str),
@@ -433,7 +534,13 @@ impl Monomorphizer<'_> {
             Op::Compare => Ty::con(*self.checked.known_types.get("Order")?, []),
         };
         let ctx = ctx.map(|c| (self.new_local("ctx", c, Span::NONE), c));
-        Some(Deriving { trait_id, op, ret, ctx, unbounded })
+        Some(Deriving {
+            trait_id,
+            op,
+            ret,
+            ctx,
+            unbounded,
+        })
     }
 
     fn finish(&mut self, slot: usize, params: Vec<LocalId>, ret: Ty, body: Expr) {
@@ -456,7 +563,9 @@ impl Monomorphizer<'_> {
     ) {
         self.locals = Vec::new();
         let x = self.new_local("x", ty, Span::NONE);
-        let d = self.deriving(trait_id, ctx, unbounded).or_ice("only a derivable trait is requested");
+        let d = self
+            .deriving(trait_id, ctx, unbounded)
+            .or_ice("only a derivable trait is requested");
         let y = d.op.binary().then(|| self.new_local("y", ty, Span::NONE));
         let mut params = vec![x];
         params.extend(y);
@@ -472,8 +581,13 @@ impl Monomorphizer<'_> {
             }
             TyKind::Array(e) => self.list(&d, *e, a, b, slot),
             TyKind::Tuple(es) => {
-                let parts: Vec<Part> =
-                    es.iter().map(|t| Part { name: String::new(), ty: *t }).collect();
+                let parts: Vec<Part> = es
+                    .iter()
+                    .map(|t| Part {
+                        name: String::new(),
+                        ty: *t,
+                    })
+                    .collect();
                 self.record(&d, "", false, true, &parts, a, b)
             }
             _ => self.nominal(&d, ty, a, b),
@@ -495,7 +609,9 @@ impl Monomorphizer<'_> {
         self.locals = Vec::new();
         let list = Ty::array(elem);
         let xs = self.new_local("xs", list, Span::NONE);
-        let d = self.deriving(trait_id, ctx, unbounded).or_ice("only a derivable trait is requested");
+        let d = self
+            .deriving(trait_id, ctx, unbounded)
+            .or_ice("only a derivable trait is requested");
         let acc = self.new_local("acc", d.ret, Span::NONE);
         let mut params = vec![xs, acc];
         params.extend(d.ctx.map(|(c, _)| c));
@@ -521,7 +637,10 @@ impl Monomorphizer<'_> {
         let body = match_(
             local(xs, list),
             vec![
-                arm(array_pattern(list, Vec::new(), ArrayRest::None), local(acc, ret)),
+                arm(
+                    array_pattern(list, Vec::new(), ArrayRest::None),
+                    local(acc, ret),
+                ),
                 arm(
                     array_pattern(list, vec![bind(h, elem)], ArrayRest::Bound(t)),
                     call(slot, again, ret),
@@ -544,8 +663,16 @@ impl Monomorphizer<'_> {
             self.resolve_trait_call(d.trait_id, 0, ty, targs, args, Span::NONE)
         } else if d.unbounded && self.reaches_hand_written(d.trait_id, &ty, true) {
             let ctx = d.ctx.map(|(_, ct)| ct);
-            let slot = self.request(Key::Derived { trait_id: d.trait_id, ty, ctx, unbounded: true });
-            ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(slot as u32)), args }
+            let slot = self.request(Key::Derived {
+                trait_id: d.trait_id,
+                ty,
+                ctx,
+                unbounded: true,
+            });
+            ExprKind::CallFn {
+                func: typed::Callee::Func(FuncIdx(slot as u32)),
+                args,
+            }
         } else {
             self.structural_call(d.trait_id, 0, &ty, args, Span::NONE)
         };
@@ -553,11 +680,19 @@ impl Monomorphizer<'_> {
     }
 
     fn str_lit(&self, s: &str) -> Expr {
-        Expr::new(ExprKind::Str(s.into()), self.tables().prim(Prim::Str), Span::NONE)
+        Expr::new(
+            ExprKind::Str(s.into()),
+            self.tables().prim(Prim::Str),
+            Span::NONE,
+        )
     }
 
     fn bool_lit(&self, b: bool) -> Expr {
-        Expr::new(ExprKind::Bool(b), self.tables().prim(Prim::Bool), Span::NONE)
+        Expr::new(
+            ExprKind::Bool(b),
+            self.tables().prim(Prim::Bool),
+            Span::NONE,
+        )
     }
 
     fn int_lit(&self, n: usize) -> Expr {
@@ -571,7 +706,12 @@ impl Monomorphizer<'_> {
     fn order_lit(&self, d: &Deriving, variant: usize) -> Expr {
         let con = d.ret.head().unwrap_or(TyConId(0));
         Expr::new(
-            ExprKind::EnumLit { con, targs: Vec::new(), variant, args: Vec::new() },
+            ExprKind::EnumLit {
+                con,
+                targs: Vec::new(),
+                variant,
+                args: Vec::new(),
+            },
             d.ret,
             Span::NONE,
         )
@@ -579,7 +719,11 @@ impl Monomorphizer<'_> {
 
     /// Strings joined. Every hole is already a `Str`, so this is concatenation.
     fn joined(&self, parts: Vec<TemplatePart>) -> Expr {
-        Expr::new(ExprKind::Template { parts }, self.tables().prim(Prim::Str), Span::NONE)
+        Expr::new(
+            ExprKind::Template { parts },
+            self.tables().prim(Prim::Str),
+            Span::NONE,
+        )
     }
 
     /// `[]` and `[h, ..t]`: `Equal` and `Ordered` recurse on the tails here,
@@ -607,10 +751,20 @@ impl Monomorphizer<'_> {
                         ret,
                         Span::NONE,
                     );
-                    (self.bool_lit(true), self.bool_lit(false), self.bool_lit(false), step)
+                    (
+                        self.bool_lit(true),
+                        self.bool_lit(false),
+                        self.bool_lit(false),
+                        step,
+                    )
                 } else {
                     let step = self.then(d, first, rest);
-                    (self.order_lit(d, EQUAL), self.order_lit(d, LESS), self.order_lit(d, GREATER), step)
+                    (
+                        self.order_lit(d, EQUAL),
+                        self.order_lit(d, LESS),
+                        self.order_lit(d, GREATER),
+                        step,
+                    )
                 };
                 let on_empty = match_(
                     b.clone(),
@@ -622,7 +776,11 @@ impl Monomorphizer<'_> {
                     vec![arm(empty(), only_b_empty), arm(cons(k, u), step)],
                     ret,
                 );
-                match_(a, vec![arm(empty(), on_empty), arm(cons(h, t), on_cons)], ret)
+                match_(
+                    a,
+                    vec![arm(empty(), on_empty), arm(cons(h, t), on_cons)],
+                    ret,
+                )
             }
             (Op::Show, _) => {
                 let first = self.component(d, elem, vec![local(h, elem)]);
@@ -639,7 +797,11 @@ impl Monomorphizer<'_> {
                     TemplatePart::Hole(call(items, args, ret)),
                     TemplatePart::Text("]".into()),
                 ]);
-                match_(a, vec![arm(empty(), self.str_lit("[]")), arm(cons(h, t), body)], ret)
+                match_(
+                    a,
+                    vec![arm(empty(), self.str_lit("[]")), arm(cons(h, t), body)],
+                    ret,
+                )
             }
             _ => {
                 let items = self.request(Key::DerivedItems {
@@ -659,16 +821,27 @@ impl Monomorphizer<'_> {
         let con = d.ret.head().unwrap_or(TyConId(0));
         let held = self.new_local("c", d.ret, Span::NONE);
         let equal = Pattern {
-            kind: PatKind::Variant { con, variant: EQUAL, fields: Vec::new() },
+            kind: PatKind::Variant {
+                con,
+                variant: EQUAL,
+                fields: Vec::new(),
+            },
             ty: d.ret,
             span: Span::NONE,
         };
-        match_(c, vec![arm(equal, rest), arm(bind(held, d.ret), local(held, d.ret))], d.ret)
+        match_(
+            c,
+            vec![arm(equal, rest), arm(bind(held, d.ret), local(held, d.ret))],
+            d.ret,
+        )
     }
 
     /// A struct's or a tuple's components, or one variant's payload already
     /// bound: `a` and `b` are the values, or `None` where `binds` holds them.
-    #[allow(clippy::too_many_arguments, reason = "one call per shape, each naming what it renders")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one call per shape, each naming what it renders"
+    )]
     fn record(
         &mut self,
         d: &Deriving,
@@ -679,16 +852,26 @@ impl Monomorphizer<'_> {
         a: Expr,
         b: Option<Expr>,
     ) -> Expr {
-        let a_parts: Vec<Expr> =
-            parts.iter().enumerate().map(|(i, p)| project(a.clone(), i, tuple, p.ty)).collect();
+        let a_parts: Vec<Expr> = parts
+            .iter()
+            .enumerate()
+            .map(|(i, p)| project(a.clone(), i, tuple, p.ty))
+            .collect();
         let b_parts: Option<Vec<Expr>> = b.map(|b| {
-            parts.iter().enumerate().map(|(i, p)| project(b.clone(), i, tuple, p.ty)).collect()
+            parts
+                .iter()
+                .enumerate()
+                .map(|(i, p)| project(b.clone(), i, tuple, p.ty))
+                .collect()
         });
         self.combine(d, name, record, tuple, parts, a_parts, b_parts)
     }
 
     /// The derive over components already in hand.
-    #[allow(clippy::too_many_arguments, reason = "one call per shape, each naming what it renders")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one call per shape, each naming what it renders"
+    )]
     fn combine(
         &mut self,
         d: &Deriving,
@@ -729,10 +912,15 @@ impl Monomorphizer<'_> {
                     .zip(a.into_iter().zip(b))
                     .map(|(p, (x, y))| self.component(d, p.ty, vec![x, y]))
                     .collect();
-                let Some(mut acc) = each.pop() else { return self.bool_lit(true) };
+                let Some(mut acc) = each.pop() else {
+                    return self.bool_lit(true);
+                };
                 while let Some(x) = each.pop() {
                     acc = Expr::new(
-                        ExprKind::And { lhs: Box::new(x), rhs: Box::new(acc) },
+                        ExprKind::And {
+                            lhs: Box::new(x),
+                            rhs: Box::new(acc),
+                        },
                         d.ret,
                         Span::NONE,
                     );
@@ -746,7 +934,9 @@ impl Monomorphizer<'_> {
                     .zip(a.into_iter().zip(b))
                     .map(|(p, (x, y))| self.component(d, p.ty, vec![x, y]))
                     .collect();
-                let Some(mut acc) = each.pop() else { return self.order_lit(d, EQUAL) };
+                let Some(mut acc) = each.pop() else {
+                    return self.order_lit(d, EQUAL);
+                };
                 while let Some(x) = each.pop() {
                     acc = self.then(d, x, acc);
                 }
@@ -789,7 +979,9 @@ impl Monomorphizer<'_> {
     /// A struct or an enum that reaches a hand-written impl, so a struct here
     /// has a field to reach it through.
     fn nominal(&mut self, d: &Deriving, ty: Ty, a: Expr, b: Option<Expr>) -> Expr {
-        let con = ty.head().or_ice("a type reaching a hand-written impl is a struct or an enum");
+        let con = ty
+            .head()
+            .or_ice("a type reaching a hand-written impl is a struct or an enum");
         let tycon = self.tables().tycon(con).clone();
         let parts = self.parts_of(&ty);
         match &tycon.def {
@@ -801,10 +993,16 @@ impl Monomorphizer<'_> {
                 let option = self.tables().is_option(con);
                 // `None` orders before `Some`, whatever the declaration says.
                 let rank = |i: usize, name: &str| {
-                    if option { usize::from(name != "None") } else { i }
+                    if option {
+                        usize::from(name != "None")
+                    } else {
+                        i
+                    }
                 };
-                let names: Vec<(String, bool)> =
-                    variants.iter().map(|v| (v.name.clone(), v.record)).collect();
+                let names: Vec<(String, bool)> = variants
+                    .iter()
+                    .map(|v| (v.name.clone(), v.record))
+                    .collect();
                 let rb = match (&b, d.op) {
                     (Some(b), Op::Compare) => {
                         let rb = self.new_local("rank", self.tables().prim(Prim::I64), Span::NONE);
@@ -823,11 +1021,16 @@ impl Monomorphizer<'_> {
                 let mut arms = Vec::new();
                 for (i, (vname, vrecord)) in names.iter().enumerate() {
                     let payload = parts.get(i).map_or(&[][..], Vec::as_slice);
-                    let a_binds: Vec<LocalId> =
-                        payload.iter().map(|p| self.new_local("a", p.ty, Span::NONE)).collect();
+                    let a_binds: Vec<LocalId> = payload
+                        .iter()
+                        .map(|p| self.new_local("a", p.ty, Span::NONE))
+                        .collect();
                     let a_pat = self.payload_pattern(ty, i, payload, &a_binds);
-                    let a_vals: Vec<Expr> =
-                        a_binds.iter().zip(payload).map(|(l, p)| local(*l, p.ty)).collect();
+                    let a_vals: Vec<Expr> = a_binds
+                        .iter()
+                        .zip(payload)
+                        .map(|(l, p)| local(*l, p.ty))
+                        .collect();
                     let body = match &b {
                         None => match d.op {
                             Op::Show if payload.is_empty() => self.str_lit(&format!(".{vname}")),
@@ -852,10 +1055,20 @@ impl Monomorphizer<'_> {
                                 .map(|p| self.new_local("b", p.ty, Span::NONE))
                                 .collect();
                             let b_pat = self.payload_pattern(ty, i, payload, &b_binds);
-                            let b_vals: Vec<Expr> =
-                                b_binds.iter().zip(payload).map(|(l, p)| local(*l, p.ty)).collect();
-                            let same =
-                                self.combine(d, vname, *vrecord, false, payload, a_vals, Some(b_vals));
+                            let b_vals: Vec<Expr> = b_binds
+                                .iter()
+                                .zip(payload)
+                                .map(|(l, p)| local(*l, p.ty))
+                                .collect();
+                            let same = self.combine(
+                                d,
+                                vname,
+                                *vrecord,
+                                false,
+                                payload,
+                                a_vals,
+                                Some(b_vals),
+                            );
                             let differ = match &rb {
                                 Some((rb, _)) => {
                                     let int = self.tables().prim(Prim::I64);
@@ -864,7 +1077,10 @@ impl Monomorphizer<'_> {
                                         ExprKind::Prim {
                                             op: typed::PrimOp::Lt,
                                             prim: Prim::I64,
-                                            args: vec![self.int_lit(rank(i, vname)), local(*rb, int)],
+                                            args: vec![
+                                                self.int_lit(rank(i, vname)),
+                                                local(*rb, int),
+                                            ],
                                         },
                                         bool_ty,
                                         Span::NONE,
@@ -913,7 +1129,15 @@ impl Monomorphizer<'_> {
 
     fn tag_pattern(&self, ty: Ty, variant: usize) -> Pattern {
         let con = ty.head().unwrap_or(TyConId(0));
-        Pattern { kind: PatKind::Variant { con, variant, fields: Vec::new() }, ty, span: Span::NONE }
+        Pattern {
+            kind: PatKind::Variant {
+                con,
+                variant,
+                fields: Vec::new(),
+            },
+            ty,
+            span: Span::NONE,
+        }
     }
 
     fn payload_pattern(
@@ -928,8 +1152,19 @@ impl Monomorphizer<'_> {
             .iter()
             .zip(binds)
             .enumerate()
-            .map(|(index, (p, l))| FieldPat { index, pattern: bind(*l, p.ty) })
+            .map(|(index, (p, l))| FieldPat {
+                index,
+                pattern: bind(*l, p.ty),
+            })
             .collect();
-        Pattern { kind: PatKind::Variant { con, variant, fields }, ty, span: Span::NONE }
+        Pattern {
+            kind: PatKind::Variant {
+                con,
+                variant,
+                fields,
+            },
+            ty,
+            span: Span::NONE,
+        }
     }
 }

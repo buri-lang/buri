@@ -100,7 +100,10 @@ impl Document {
     }
 
     pub fn as_message(&self) -> Message {
-        Message { fields: self.fields.clone(), trailing: self.trailing.clone() }
+        Message {
+            fields: self.fields.clone(),
+            trailing: self.trailing.clone(),
+        }
     }
 }
 
@@ -124,7 +127,10 @@ pub fn parse(text: &str, file: FileId) -> Parsed {
     // at the end of the text.
     let fields = p.fields(None);
     let trailing = std::mem::take(&mut p.comments);
-    Parsed { document: Document { fields, trailing }, errors: p.errors }
+    Parsed {
+        document: Document { fields, trailing },
+        errors: p.errors,
+    }
 }
 
 struct Parser<'a> {
@@ -205,7 +211,8 @@ impl<'a> Parser<'a> {
                     while self.position < self.src.len() && self.peek() != b'\n' {
                         self.bump_char();
                     }
-                    self.comments.push(self.slice(start, self.position).trim_end().to_string());
+                    self.comments
+                        .push(self.slice(start, self.position).trim_end().to_string());
                     newlines = 0;
                 }
                 _ => return,
@@ -265,10 +272,10 @@ impl<'a> Parser<'a> {
         } else {
             let span = Span::new(self.file, self.position, self.position.saturating_add(1));
             self.err(
-            span,
-            format!("expected `:` or `{{` after `{name}`"),
-            "write `: value` for a scalar or a list, or `{{ ... }}` for a block",
-        );
+                span,
+                format!("expected `:` or `{{` after `{name}`"),
+                "write `: value` for a scalar or a list, or `{{ ... }}` for a block",
+            );
             return None;
         };
 
@@ -407,7 +414,11 @@ impl<'a> Parser<'a> {
                     Err(_) => {
                         let span = Span::new(self.file, start, self.position);
                         let raw = raw.to_string();
-                        self.err(span, format!("`{raw}` is not a number"), "write a decimal integer, or quote it if it is meant to be text");
+                        self.err(
+                            span,
+                            format!("`{raw}` is not a number"),
+                            "write a decimal integer, or quote it if it is meant to be text",
+                        );
                         None
                     }
                 }
@@ -420,10 +431,10 @@ impl<'a> Parser<'a> {
                 let span = Span::new(self.file, self.position, self.position.saturating_add(1));
                 let found = self.rest().chars().next().unwrap_or(' ').to_string();
                 self.err(
-                span,
-                format!("expected a value, found `{found}`"),
-                "write a string, a number, a bare word, a `[list]`, or a `{{ block }}`",
-            );
+                    span,
+                    format!("expected a value, found `{found}`"),
+                    "write a string, a number, a bare word, a `[list]`, or a `{{ block }}`",
+                );
                 None
             }
         }
@@ -463,7 +474,10 @@ impl<'a> Parser<'a> {
                 self.position = self.position.saturating_add(1);
             }
         }
-        Some(Value::List(items, Span::new(self.file, start, self.position)))
+        Some(Value::List(
+            items,
+            Span::new(self.file, start, self.position),
+        ))
     }
 }
 
@@ -499,7 +513,9 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
         // does not know which kind it is looking at — which is why the top
         // level is the one place `buildfile.rs` keeps its own lists, and a test
         // below holds the two halves to this union.
-        "" => &["library", "binary", "tool", "platform", "tag", "lint", "language"],
+        "" => &[
+            "library", "binary", "tool", "platform", "tag", "lint", "language",
+        ],
         "library" => &[
             "sources",
             "generators",
@@ -519,7 +535,14 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
             "outputs",
             "test",
         ],
-        "tool" => &["sources", "dependencies", "test", "check", "format", "generate"],
+        "tool" => &[
+            "sources",
+            "dependencies",
+            "test",
+            "check",
+            "format",
+            "generate",
+        ],
         // `format` takes no contract: a typed value has lost the comments and
         // spacing a formatter lays out.
         "check" | "generate" => &["accepts"],
@@ -555,7 +578,12 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
 /// touched.
 fn ordered<'a>(fields: &'a [Field], message: &str) -> Vec<&'a Field> {
     let order = schema_order(message);
-    let rank = |f: &Field| order.iter().position(|n| *n == f.name).unwrap_or(order.len());
+    let rank = |f: &Field| {
+        order
+            .iter()
+            .position(|n| *n == f.name)
+            .unwrap_or(order.len())
+    };
     let mut out: Vec<&Field> = fields.iter().collect();
     out.sort_by_key(|f| rank(f));
     out
@@ -696,7 +724,9 @@ fn print_value(out: &mut String, v: &Value, level: usize, within: &str) {
                 })
                 .collect();
             let inline = items.len() == 1
-                && items.iter().all(|i| matches!(i, Value::Str(..) | Value::Ident(..) | Value::Int(..)));
+                && items
+                    .iter()
+                    .all(|i| matches!(i, Value::Str(..) | Value::Ident(..) | Value::Int(..)));
             let width: usize = flat.iter().map(|s| s.len().saturating_add(2)).sum();
             if inline || (width <= 60 && items.iter().all(|i| !matches!(i, Value::Message(..)))) {
                 out.push('[');
@@ -741,9 +771,13 @@ mod tests {
     #[test]
     fn list_of_messages_with_commas_between_fields() {
         let d = p("outputs: [\n  { platform: \"native\", variant: \"linux-x86_64\" },\n  { platform: \"node\", entries: [{ name: \"main\", function: \"run\" }] },\n]\n");
-        let Value::List(items, _) = &d.fields[0].value else { panic!() };
+        let Value::List(items, _) = &d.fields[0].value else {
+            panic!()
+        };
         assert_eq!(items.len(), 2);
-        let Value::Message(m, _) = &items[1] else { panic!() };
+        let Value::Message(m, _) = &items[1] else {
+            panic!()
+        };
         assert_eq!(m.fields.len(), 2);
         assert!(matches!(m.fields[1].value, Value::List(..)));
     }
@@ -752,7 +786,9 @@ mod tests {
     fn comments_attach_to_the_field_beneath() {
         let d = p("# why\nlibrary {\n  # inner\n  sources: []\n}\n");
         assert_eq!(d.fields[0].comments, vec!["# why"]);
-        let Value::Message(m, _) = &d.fields[0].value else { panic!() };
+        let Value::Message(m, _) = &d.fields[0].value else {
+            panic!()
+        };
         assert_eq!(m.fields[0].comments, vec!["# inner"]);
     }
 
@@ -790,11 +826,17 @@ mod tests {
         for src in refused {
             let r = parse(src, FileId(0));
             assert!(!r.errors.is_empty(), "{src:?} was accepted");
-            assert!(r.errors.iter().all(|e| e.fix.is_some()), "{src:?}: an error with no fix");
+            assert!(
+                r.errors.iter().all(|e| e.fix.is_some()),
+                "{src:?}: an error with no fix"
+            );
         }
         // An escape names a character rather than a byte, so `\é` is an `é`.
         assert_eq!(p("a: \"\\é\"\n").fields.len(), 1);
-        assert_eq!(p("# comment é\na: 1\n").fields[0].comments, vec!["# comment é"]);
+        assert_eq!(
+            p("# comment é\na: 1\n").fields[0].comments,
+            vec!["# comment é"]
+        );
     }
 
     /// Nesting is read by recursion, so it is bounded: without the bound a file
@@ -805,7 +847,9 @@ mod tests {
         for deep in [format!("a: {}", "[".repeat(200_000)), "a{".repeat(200_000)] {
             let r = parse(&deep, FileId(0));
             assert!(
-                r.errors.iter().any(|e| e.message.contains("nests too deeply")),
+                r.errors
+                    .iter()
+                    .any(|e| e.message.contains("nests too deeply")),
                 "{:#?}",
                 r.errors.first()
             );
@@ -831,7 +875,9 @@ mod tests {
     /// case — and gives `REPO.buri` the same treatment from the same table.
     #[test]
     fn fields_come_back_in_the_schemas_order() {
-        let out = print(&p("binary {\n  test {}\n  outputs: []\n  sources: []\n}\nlibrary {}\n"));
+        let out = print(&p(
+            "binary {\n  test {}\n  outputs: []\n  sources: []\n}\nlibrary {}\n",
+        ));
         assert_eq!(
             out,
             "library {}\n\nbinary {\n    sources: []\n    outputs: []\n    test {}\n}\n"
@@ -843,7 +889,9 @@ mod tests {
     /// diagnostic will find it.
     #[test]
     fn an_unknown_field_keeps_its_place() {
-        let out = print(&p("library {\n  whatIsThis: 1\n  sources: []\n  andThis: 2\n}\n"));
+        let out = print(&p(
+            "library {\n  whatIsThis: 1\n  sources: []\n  andThis: 2\n}\n",
+        ));
         assert_eq!(
             out,
             "library {\n    sources: []\n    whatIsThis: 1\n    andThis: 2\n}\n"

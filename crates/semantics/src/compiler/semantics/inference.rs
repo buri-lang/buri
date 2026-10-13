@@ -9,14 +9,14 @@
 //! overloading (guides/compile-speed.md).
 
 use crate::compiler::modules::Role;
-use crate::compiler::semantics::resolve::{Bodies, Checker, Sym};
 use crate::compiler::semantics::name::Name;
+use crate::compiler::semantics::resolve::{Bodies, Checker, Sym};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
+use crate::hash::Map as HashMap;
 use crate::parsing::flat;
 use crate::parsing::tree;
-use crate::hash::Map as HashMap;
 
 pub fn check_all(c: &mut Checker) {
     // What a base checked is already in the tables this checker started from.
@@ -49,7 +49,9 @@ pub fn check_all(c: &mut Checker) {
 pub(crate) fn wanted(c: &Checker, fid: FnId) -> bool {
     match &c.wanted {
         Bodies::All => true,
-        Bodies::In(_) => c.file_of(c.tables.fn_info(fid).ast).is_some_and(|f| c.wants_file(f)),
+        Bodies::In(_) => c
+            .file_of(c.tables.fn_info(fid).ast)
+            .is_some_and(|f| c.wants_file(f)),
     }
 }
 
@@ -69,7 +71,9 @@ pub(crate) fn wanted(c: &Checker, fid: FnId) -> bool {
 /// not asked about, and a diagnostic in one of them is the other file's to
 /// publish.
 fn check_bodies_the_extractor_folds(c: &mut Checker) {
-    let Bodies::In(files) = c.wanted.clone() else { return };
+    let Bodies::In(files) = c.wanted.clone() else {
+        return;
+    };
     // No `ui/style` in the closure is no extraction, and then no fold.
     if c.loaded.find("ui/style").is_none() {
         return;
@@ -97,7 +101,10 @@ fn check_bodies_the_extractor_folds(c: &mut Checker) {
             continue;
         }
         check_fn(c, id);
-        let body = c.bodies.get(&id).or_ice("a function with a body was just checked");
+        let body = c
+            .bodies
+            .get(&id)
+            .or_ice("a function with a body was just checked");
         callees_of(&body.expr, &mut queue);
     }
     std::mem::swap(c.diags, &mut aside);
@@ -111,7 +118,11 @@ fn callees_of(e: &typed::Expr, out: &mut Vec<FnId>) {
             typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => func,
             _ => return,
         };
-        out.push(callee.decl().or_ice("before monomorphization a callee is a declaration"));
+        out.push(
+            callee
+                .decl()
+                .or_ice("before monomorphization a callee is a declaration"),
+        );
     });
 }
 
@@ -138,27 +149,38 @@ fn body_ast<'a>(c: &Checker<'a>, r: AstRef) -> Option<&'a tree::FnDecl> {
 
 fn check_fn(c: &mut Checker, fid: FnId) {
     let info = c.tables.fn_info(fid);
-    let Some(decl) = body_ast(c, info.ast) else { return };
+    let Some(decl) = body_ast(c, info.ast) else {
+        return;
+    };
     let Some(body) = decl.body else { return };
 
     // A method supplied to an `effect` impl is where that effect's operation is
     // implemented, so it is the one body outside the standard library that may
     // still call an effect method on a value (`report_effect_method`).
-    let in_effect_impl =
-        info.impl_of.is_some_and(|(tid, _)| c.tables.trait_(tid).is_effect);
+    let in_effect_impl = info
+        .impl_of
+        .is_some_and(|(tid, _)| c.tables.trait_(tid).is_effect);
     // An entry builds its own context, and there may be several: a page's
     // `main` and a worker's `fetch` out of one `main.buri`. The table the
     // resolver filled says which exported functions those are.
     let in_main = c.module(info.module).role == Role::Entry
         && info.exported
         && c.entry_points.contains(&(info.module, info.name.clone()))
-        && c.module_entries.get(&info.module).and_then(|m| m.get(&info.name)) == Some(&fid);
+        && c.module_entries
+            .get(&info.module)
+            .and_then(|m| m.get(&info.name))
+            == Some(&fid);
     // The parts the body is checked against, copied once: the checker is
     // borrowed mutably from here on, and the declaration lives in its tables.
     // The parameters are read one at a time below instead, so that each name
     // is copied once, into its local.
-    let (module, self_ty, generics, expected, arity) =
-        (info.module, info.self_ty, info.generics.clone(), info.ret, info.params.len());
+    let (module, self_ty, generics, expected, arity) = (
+        info.module,
+        info.self_ty,
+        info.generics.clone(),
+        info.ret,
+        info.params.len(),
+    );
     // `Self` in a method's body names its `impl`'s head, as in its signature.
     c.self_scope = info.head;
 
@@ -169,7 +191,13 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     inf.push_scope();
     inf.params.reserve_exact(arity);
     for i in 0..arity {
-        let p = inf.c.tables.fn_info(fid).params.get(i).or_ice("the arity is the parameter count");
+        let p = inf
+            .c
+            .tables
+            .fn_info(fid)
+            .params
+            .get(i)
+            .or_ice("the arity is the parameter count");
         let (name, ty, span, role) = (Name::new(&p.name), p.ty, p.span, p.role);
         let local = inf.bind_new(name, ty, span);
         inf.params.push(local);
@@ -218,7 +246,10 @@ fn check_const_cycles(c: &mut Checker, from: usize) {
     let count = c.tables.consts.len();
     let mut refs: Vec<Vec<usize>> = vec![Vec::new(); count];
     for (i, out) in refs.iter_mut().enumerate().skip(from) {
-        let value = c.const_values.get(&ConstId(i as u32)).or_ice("every constant was just checked");
+        let value = c
+            .const_values
+            .get(&ConstId(i as u32))
+            .or_ice("every constant was just checked");
         typed::walk(value, &mut |e| {
             if let typed::ExprKind::Const(id) = e.kind {
                 out.push(id.index());
@@ -231,12 +262,16 @@ fn check_const_cycles(c: &mut Checker, from: usize) {
         const_cycles_from(start, &refs, &mut state, &mut Vec::new(), &mut cycles);
     }
     for cycle in cycles {
-        let mut names: Vec<String> =
-            cycle.iter().map(|&i| format!("`{}`", c.tables.const_(ConstId(i as u32)).name)).collect();
+        let mut names: Vec<String> = cycle
+            .iter()
+            .map(|&i| format!("`{}`", c.tables.const_(ConstId(i as u32)).name))
+            .collect();
         names.extend(names.first().cloned());
         let first = *cycle.first().or_ice("a cycle has a constant on it");
         let at = c.tables.const_(ConstId(first as u32)).span;
-        c.diags.push(Diagnostic::templated("circular-constant", at).with_bind("cycle", names.join(" -> ")));
+        c.diags.push(
+            Diagnostic::templated("circular-constant", at).with_bind("cycle", names.join(" -> ")),
+        );
     }
 }
 
@@ -295,7 +330,10 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
         return;
     }
     let info = c.tables.ctx_decl(id).clone();
-    let (decl_module, decl_index) = info.ast.item().or_ice("a named context is a module-level item");
+    let (decl_module, decl_index) = info
+        .ast
+        .item()
+        .or_ice("a named context is a module-level item");
     let decl = match c.module(decl_module).ast.items.get(decl_index as usize) {
         Some(tree::Item::Context(decl)) => decl,
         _ => crate::ice!("a named context's item is its declaration"),
@@ -349,7 +387,10 @@ fn check_tests(c: &mut Checker) {
                 self_ty: None,
                 head: None,
                 impl_of: None,
-                ast: AstRef::Item { module, item: index as u32 },
+                ast: AstRef::Item {
+                    module,
+                    item: index as u32,
+                },
                 intrinsic: false,
             });
             // The case is registered whatever this analysis was asked for, so
@@ -541,8 +582,17 @@ impl Drop for Infer<'_, '_> {
         lit_checks.clear();
         let mut pattern_names = std::mem::take(&mut self.pattern_names);
         pattern_names.clear();
-        self.c.scratch =
-            Scratch { subst, scopes, shadows, latest, scope_starts, ty_lists, obligations, lit_checks, pattern_names };
+        self.c.scratch = Scratch {
+            subst,
+            scopes,
+            shadows,
+            latest,
+            scope_starts,
+            ty_lists,
+            obligations,
+            lit_checks,
+            pattern_names,
+        };
     }
 }
 
@@ -559,12 +609,26 @@ fn name_hash(name: &str) -> u64 {
 }
 
 impl<'a, 'b> Infer<'a, 'b> {
-    fn new(c: &'a mut Checker<'b>, module: ModuleId, generics: std::sync::Arc<[GenericInfo]>, ret: Ty) -> Self {
+    fn new(
+        c: &'a mut Checker<'b>,
+        module: ModuleId,
+        generics: std::sync::Arc<[GenericInfo]>,
+        ret: Ty,
+    ) -> Self {
         let role = c.module(module).role;
         let mark = c.diags.items.len();
         let t = &c.module(module).ast.tree;
-        let Scratch { subst, scopes, shadows, latest, scope_starts, ty_lists, obligations, lit_checks, pattern_names } =
-            std::mem::take(&mut c.scratch);
+        let Scratch {
+            subst,
+            scopes,
+            shadows,
+            latest,
+            scope_starts,
+            ty_lists,
+            obligations,
+            lit_checks,
+            pattern_names,
+        } = std::mem::take(&mut c.scratch);
         Infer {
             c,
             t,
@@ -655,11 +719,18 @@ impl<'a, 'b> Infer<'a, 'b> {
         let mut expr = expr;
         self.resolve_expr(&mut expr);
         let mut locals = std::mem::take(&mut self.locals);
-        locals.iter_mut().for_each(|l| self.subst.resolve_in_place(&mut l.ty));
+        locals
+            .iter_mut()
+            .for_each(|l| self.subst.resolve_in_place(&mut l.ty));
         let mut bounds_used = self.bounds_used.take();
         bounds_used.sort_unstable();
         bounds_used.dedup();
-        typed::Body { locals, params: std::mem::take(&mut self.params), expr, bounds_used }
+        typed::Body {
+            locals,
+            params: std::mem::take(&mut self.params),
+            expr,
+            bounds_used,
+        }
     }
 
     /// Takes back everything this body reported from inside a block whose `}`
@@ -709,12 +780,18 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.resolve_callee(func);
                 args.iter_mut().for_each(|a| self.resolve_expr(a));
             }
-            typed::ExprKind::CallTrait { recv, targs, args, .. } => {
+            typed::ExprKind::CallTrait {
+                recv, targs, args, ..
+            } => {
                 self.subst.resolve_in_place(recv);
                 self.resolve_all(targs);
                 args.iter_mut().for_each(|a| self.resolve_expr(a));
             }
-            typed::ExprKind::StructLit { targs, fields: args, .. }
+            typed::ExprKind::StructLit {
+                targs,
+                fields: args,
+                ..
+            }
             | typed::ExprKind::EnumLit { targs, args, .. }
             | typed::ExprKind::Intrinsic { targs, args, .. } => {
                 self.resolve_all(targs);
@@ -780,7 +857,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     }
                 }
             }
-            typed::ExprKind::CtxLit { bindings } => bindings.iter_mut().for_each(|(_, e)| self.resolve_expr(e)),
+            typed::ExprKind::CtxLit { bindings } => {
+                bindings.iter_mut().for_each(|(_, e)| self.resolve_expr(e))
+            }
             typed::ExprKind::FnRef(c) => self.resolve_callee(c),
             _ => {}
         }
@@ -790,11 +869,15 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.subst.resolve_in_place(&mut p.ty);
         match &mut p.kind {
             typed::PatKind::Bind { sub: Some(s), .. } => self.resolve_pattern(s),
-            typed::PatKind::Tuple(ps) | typed::PatKind::Or(ps) | typed::PatKind::Array { elems: ps, .. } => {
+            typed::PatKind::Tuple(ps)
+            | typed::PatKind::Or(ps)
+            | typed::PatKind::Array { elems: ps, .. } => {
                 ps.iter_mut().for_each(|x| self.resolve_pattern(x));
             }
             typed::PatKind::Struct { fields, .. } | typed::PatKind::Variant { fields, .. } => {
-                fields.iter_mut().for_each(|f| self.resolve_pattern(&mut f.pattern));
+                fields
+                    .iter_mut()
+                    .for_each(|f| self.resolve_pattern(&mut f.pattern));
             }
             _ => {}
         }
@@ -807,10 +890,16 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     pub(crate) fn pop_scope(&mut self) {
-        let start = self.scope_starts.pop().or_ice("a scope is popped after it was pushed");
+        let start = self
+            .scope_starts
+            .pop()
+            .or_ice("a scope is popped after it was pushed");
         while self.shadows.len() > start {
             let at = self.shadows.len().saturating_sub(1);
-            let prev = self.shadows.pop().or_ice("the loop runs while there is a shadow");
+            let prev = self
+                .shadows
+                .pop()
+                .or_ice("the loop runs while there is a shadow");
             let &(hash, _) = self.scopes.get(at).or_ice("every shadow is a binding's");
             if prev == NO_SHADOW {
                 self.latest.remove(&hash);
@@ -833,7 +922,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     #[inline(never)]
     fn index_bindings(&mut self) {
         for at in self.shadows.len()..self.scopes.len() {
-            let &(h, _) = self.scopes.get(at).or_ice("the range is the unindexed bindings");
+            let &(h, _) = self
+                .scopes
+                .get(at)
+                .or_ice("the range is the unindexed bindings");
             let prev = self.latest.insert(h, at as u32).unwrap_or(NO_SHADOW);
             self.shadows.push(prev);
         }
@@ -841,7 +933,11 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     pub(crate) fn new_local(&mut self, name: &str, ty: Ty, span: Span) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
-        self.locals.push(typed::Local { name: Name::new(name), ty, span });
+        self.locals.push(typed::Local {
+            name: Name::new(name),
+            ty,
+            span,
+        });
         id
     }
 
@@ -856,8 +952,15 @@ impl<'a, 'b> Infer<'a, 'b> {
     pub(crate) fn bind(&mut self, name: &str, local: LocalId) {
         // Shadowing is permitted, both in nested scopes and within a block:
         // the innermost binding is the last one, and a lookup finds it first.
-        debug_assert!(!self.scope_starts.is_empty(), "a body is checked inside a scope pushed by `push_scope`");
-        debug_assert_eq!(self.local(local).name, name, "a local is bound under its own name");
+        debug_assert!(
+            !self.scope_starts.is_empty(),
+            "a body is checked inside a scope pushed by `push_scope`"
+        );
+        debug_assert_eq!(
+            self.local(local).name,
+            name,
+            "a local is bound under its own name"
+        );
         self.push_binding(name_hash(name), local);
     }
 
@@ -865,8 +968,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     pub(crate) fn lookup_local(&self, name: &str) -> Option<LocalId> {
         let hash = name_hash(name);
         let recent = self.scopes.get(self.shadows.len()..).unwrap_or(&[]);
-        if let Some(&(_, id)) =
-            recent.iter().rev().find(|(h, id)| *h == hash && self.local(*id).name == name)
+        if let Some(&(_, id)) = recent
+            .iter()
+            .rev()
+            .find(|(h, id)| *h == hash && self.local(*id).name == name)
         {
             return Some(id);
         }
@@ -890,7 +995,9 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     pub(crate) fn local(&self, id: LocalId) -> &typed::Local {
-        self.locals.get(id.index()).or_ice("every LocalId was minted by new_local on this body")
+        self.locals
+            .get(id.index())
+            .or_ice("every LocalId was minted by new_local on this body")
     }
 
     pub(crate) fn local_ty(&self, id: LocalId) -> Ty {
@@ -948,7 +1055,13 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// Every context type prints as "a context" elsewhere, so a type mismatch
     /// between two of them read "expected `a context`, found `a context`".
     /// This spells each one by its bindings and says what tells them apart.
-    fn report_context_mismatch(&mut self, span: Span, found: CtxTypeId, wanted: CtxTypeId, what: &str) {
+    fn report_context_mismatch(
+        &mut self,
+        span: Span,
+        found: CtxTypeId,
+        wanted: CtxTypeId,
+        what: &str,
+    ) {
         let found_shown = self.show_context(found);
         let wanted_shown = self.show_context(wanted);
         let found_bindings = &self.c.tables.ctx_type(found).bindings;
@@ -985,7 +1098,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             .iter()
             .map(|(t, ty)| {
                 let effect = &self.c.tables.trait_(*t).name;
-                format!("{effect}: {}", show(&self.c.tables, Some(&self.subst), &self.generics, ty))
+                format!(
+                    "{effect}: {}",
+                    show(&self.c.tables, Some(&self.subst), &self.generics, ty)
+                )
             })
             .collect();
         if parts.is_empty() {
@@ -1032,13 +1148,19 @@ impl<'a, 'b> Infer<'a, 'b> {
             .collect();
         let fix = match owners[..] {
             [(name, con, i)] => {
-                let carries = tables.tycon(con).variants().get(i).is_some_and(|v| !v.fields.is_empty());
+                let carries = tables
+                    .tycon(con)
+                    .variants()
+                    .get(i)
+                    .is_some_and(|v| !v.fields.is_empty());
                 let payload = if carries { "(...)" } else { "" };
                 Some(format!("write `{name}.{variant}{payload}`, or annotate what this value is being used as"))
             }
             _ => None,
         };
-        let d = self.templated("untyped-variant", span).bind("variant", variant.to_string());
+        let d = self
+            .templated("untyped-variant", span)
+            .bind("variant", variant.to_string());
         // After the bind: every `bind` re-renders the page's own fix over it.
         if let Some(fix) = fix {
             d.fix(fix);
@@ -1048,7 +1170,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// A `.member` read from a value nothing has given a type yet, such as a
     /// closure's parameter with no annotation.
     pub(crate) fn report_untyped_receiver(&mut self, member: &str, span: Span) {
-        self.templated("untyped-receiver", span).bind("member", member.to_string());
+        self.templated("untyped-receiver", span)
+            .bind("member", member.to_string());
     }
 
     /// Whether nothing has said what `t` is yet: not even that it's a number.
@@ -1097,7 +1220,11 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// `.bind(…)` for each `{placeholder}` the page names.
     pub(crate) fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
         self.c.diags.items.push(Diagnostic::templated(code, span));
-        self.c.diags.items.last_mut().or_ice("the diagnostic just pushed is the last one")
+        self.c
+            .diags
+            .items
+            .last_mut()
+            .or_ice("the diagnostic just pushed is the last one")
     }
 
     pub(crate) fn error_expr(&self, span: Span) -> typed::Expr {
@@ -1147,11 +1274,13 @@ impl<'a, 'b> Infer<'a, 'b> {
                                  components"
                             ));
                             fix = Some(match home {
-                                Some(home) => crate::compiler::semantics::types::toolchain_conformance_fix(
-                                    &trait_name,
-                                    &c,
-                                    &home,
-                                ),
+                                Some(home) => {
+                                    crate::compiler::semantics::types::toolchain_conformance_fix(
+                                        &trait_name,
+                                        &c,
+                                        &home,
+                                    )
+                                }
                                 None => format!("make `{c}` satisfy `{trait_name}` first"),
                             });
                         }
@@ -1174,14 +1303,16 @@ impl<'a, 'b> Infer<'a, 'b> {
                 {
                     // The `impl` is for another instance of the constructor.
                     let head = show(&self.c.tables, None, &imp.generics, &imp.head);
-                    note = Some(format!("the `impl {trait_name}` is for `{head}`, and `{shown}` isn't one"));
-                    fix = Some(format!("pass a `{head}`, or widen the `impl` to cover `{shown}`"));
-                } else if let Some((imp, (param, arg, missing))) = self
-                    .c
-                    .tables
-                    .impls
-                    .get(&(tr, con))
-                    .and_then(|imp| Some((imp, self.unmet_impl_bound(imp, &ty, &mut Vec::new())?)))
+                    note = Some(format!(
+                        "the `impl {trait_name}` is for `{head}`, and `{shown}` isn't one"
+                    ));
+                    fix = Some(format!(
+                        "pass a `{head}`, or widen the `impl` to cover `{shown}`"
+                    ));
+                } else if let Some((imp, (param, arg, missing))) =
+                    self.c.tables.impls.get(&(tr, con)).and_then(|imp| {
+                        Some((imp, self.unmet_impl_bound(imp, &ty, &mut Vec::new())?))
+                    })
                 {
                     // The `impl` is there, and asks something of its type
                     // arguments that this one falls short of.
@@ -1231,7 +1362,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                             &shown,
                             &home,
                         ),
-                        None => crate::compiler::semantics::types::conformance_fix(&trait_name, &shown),
+                        None => {
+                            crate::compiler::semantics::types::conformance_fix(&trait_name, &shown)
+                        }
                     });
                 }
             }
@@ -1292,7 +1425,10 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         match ty.kind() {
             TyKind::Param(i) => {
-                let held = self.generics.get(*i as usize).is_some_and(|g| g.bounds.contains(&tr));
+                let held = self
+                    .generics
+                    .get(*i as usize)
+                    .is_some_and(|g| g.bounds.contains(&tr));
                 if held {
                     self.note_bound_used(*i, tr);
                 }
@@ -1305,8 +1441,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             // when their components do (SPEC 5.11).
             TyKind::Array(e) => self.structural_trait(tr) && self.satisfies_seen(e, tr, seen),
             TyKind::Tuple(es) => {
-                self.structural_trait(tr)
-                    && es.iter().all(|e| self.satisfies_seen(e, tr, seen))
+                self.structural_trait(tr) && es.iter().all(|e| self.satisfies_seen(e, tr, seen))
             }
             TyKind::Unit => self.structural_trait(tr),
             TyKind::Con(id, args) => {
@@ -1316,7 +1451,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     let derived = imp.is_derived();
                     // `Flags` asks its fields to be `Bool`s, not to be
                     // `Flags`, and `check_flags` already said whether they are.
-                    if derived && matches!(self.c.tables.trait_(tr).name.as_str(), "Flags" | "Index") {
+                    if derived
+                        && matches!(self.c.tables.trait_(tr).name.as_str(), "Flags" | "Index")
+                    {
                         return true;
                     }
                     if derived {
@@ -1361,29 +1498,43 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         let mut bound = vec![None; imp.generics.len()];
         bind_impl_params(&imp.head, ty, &mut bound);
-        imp.generics.iter().zip(bound).enumerate().find_map(|(i, (g, arg))| {
-            let arg = arg?;
-            let missing = g.bounds.iter().find(|b| !self.satisfies_seen(&arg, **b, seen))?;
-            Some((i, arg, *missing))
-        })
+        imp.generics
+            .iter()
+            .zip(bound)
+            .enumerate()
+            .find_map(|(i, (g, arg))| {
+                let arg = arg?;
+                let missing = g
+                    .bounds
+                    .iter()
+                    .find(|b| !self.satisfies_seen(&arg, **b, seen))?;
+                Some((i, arg, *missing))
+            })
     }
 
     /// The first field or payload type of a derived type that does not itself
     /// satisfy the trait.
     /// The first component that fails, shown, with its toolchain home when it
     /// has one (see `Checker::toolchain_home`).
-    fn failing_component(&self, con: TyConId, ty: &Ty, tr: TraitId) -> Option<(String, Option<String>)> {
+    fn failing_component(
+        &self,
+        con: TyConId,
+        ty: &Ty,
+        tr: TraitId,
+    ) -> Option<(String, Option<String>)> {
         let args = match ty.kind() {
             TyKind::Con(_, a) => a.to_vec(),
             _ => Vec::new(),
         };
-        self.derived_components(con, &args).into_iter().find_map(|t| {
-            if t.head() == Some(con) || self.satisfies(&t, tr) {
-                None
-            } else {
-                Some((self.show_ty(&t), self.c.toolchain_home(&t, tr)))
-            }
-        })
+        self.derived_components(con, &args)
+            .into_iter()
+            .find_map(|t| {
+                if t.head() == Some(con) || self.satisfies(&t, tr) {
+                    None
+                } else {
+                    Some((self.show_ty(&t), self.c.toolchain_home(&t, tr)))
+                }
+            })
     }
 
     fn structural_trait(&self, tr: TraitId) -> bool {
@@ -1403,7 +1554,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         // `con` is already on `seen`, so a component that reaches back to it —
         // directly, or through an array, a tuple, or another type that holds
         // one — stops there rather than asking the question again.
-        self.derived_components(con, args).iter().all(|t| self.satisfies_seen(t, tr, seen))
+        self.derived_components(con, args)
+            .iter()
+            .all(|t| self.satisfies_seen(t, tr, seen))
     }
 
     /// What a derived implementation at `con<args>` folds over: its fields, or
@@ -1421,7 +1574,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 .collect(),
             TyDef::Prim(_) => Vec::new(),
         };
-        components.iter().map(|t| substitute(t, args, None)).collect()
+        components
+            .iter()
+            .map(|t| substitute(t, args, None))
+            .collect()
     }
 
     // -- literal ranges -----------------------------------------------------
@@ -1446,7 +1602,11 @@ impl<'a, 'b> Infer<'a, 'b> {
             };
             if !fits {
                 let name = p.name();
-                let raw = if lit.negative { format!("-{}", lit.raw) } else { lit.raw.to_string() };
+                let raw = if lit.negative {
+                    format!("-{}", lit.raw)
+                } else {
+                    lit.raw.to_string()
+                };
                 let mut d = Diagnostic::templated("literal-out-of-range", lit.span)
                     .with_bind("literal", raw.clone())
                     .with_bind("type", name);
@@ -1455,9 +1615,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     .with_fix(if lit.negative && !p.is_signed() {
                         format!("use a signed type, or drop the sign; `{name}` starts at 0")
                     } else {
-                        format!(
-                            "write a value inside `{name}`'s range, or annotate a wider type"
-                        )
+                        format!("write a value inside `{name}`'s range, or annotate a wider type")
                     });
                 if lit.negative && !p.is_signed() {
                     d = d.with_note(format!("`{name}` has no negative values"));
@@ -1676,8 +1834,14 @@ impl<'a, 'b> Infer<'a, 'b> {
                         || p.is_float()
                         || matches!(p, Prim::Bool | Prim::Char | Prim::Str);
                 }
-                let tr = *self.c.known_traits.get("Show").or_ice("`Show` is a prelude name");
-                let Some(imp) = self.c.tables.impls.get(&(tr, *id)) else { return false };
+                let tr = *self
+                    .c
+                    .known_traits
+                    .get("Show")
+                    .or_ice("`Show` is a prelude name");
+                let Some(imp) = self.c.tables.impls.get(&(tr, *id)) else {
+                    return false;
+                };
                 if !imp.is_derived() {
                     return false;
                 }
@@ -1734,7 +1898,10 @@ fn numeric_fix(actual: &Spelling, expected: &Spelling) -> String {
         // A literal has not been pinned to a type yet, so an annotation is the
         // edit, not a conversion.
         (Spelling::Literal(_), _) => {
-            return format!("annotate the literal, as in `let x: {} = ...`", expected.name());
+            return format!(
+                "annotate the literal, as in `let x: {} = ...`",
+                expected.name()
+            );
         }
         (_, Spelling::Literal(_)) => {
             return format!(
@@ -1751,8 +1918,14 @@ fn numeric_fix(actual: &Spelling, expected: &Spelling) -> String {
             | ("I16", "I32" | "I64" | "I128" | "F64")
             | ("I32", "I64" | "I128" | "F64")
             | ("I64", "I128")
-            | ("U8", "U16" | "U32" | "U64" | "U128" | "I16" | "I32" | "I64" | "I128" | "F64")
-            | ("U16", "U32" | "U64" | "U128" | "I32" | "I64" | "I128" | "F64")
+            | (
+                "U8",
+                "U16" | "U32" | "U64" | "U128" | "I16" | "I32" | "I64" | "I128" | "F64"
+            )
+            | (
+                "U16",
+                "U32" | "U64" | "U128" | "I32" | "I64" | "I128" | "F64"
+            )
             | ("U32", "U64" | "U128" | "I64" | "I128" | "F64")
             | ("U64", "U128" | "I128")
             | ("F32", "F64")
@@ -1873,7 +2046,9 @@ pub(crate) fn head_covers(head: &Ty, ty: &Ty, generics: usize, open: bool) -> bo
                 None => false,
             },
             (TyKind::Con(x, xs), TyKind::Con(y, ys)) => {
-                x == y && xs.len() == ys.len() && xs.iter().zip(ys.iter()).all(|(h, t)| go(h, t, bound, open))
+                x == y
+                    && xs.len() == ys.len()
+                    && xs.iter().zip(ys.iter()).all(|(h, t)| go(h, t, bound, open))
             }
             (TyKind::Tuple(xs), TyKind::Tuple(ys)) => {
                 xs.len() == ys.len() && xs.iter().zip(ys.iter()).all(|(h, t)| go(h, t, bound, open))
@@ -1906,11 +2081,15 @@ fn bind_impl_params(head: &Ty, ty: &Ty, bound: &mut [Option<Ty>]) {
             }
         }
         (TyKind::Con(_, xs), TyKind::Con(_, ys)) | (TyKind::Tuple(xs), TyKind::Tuple(ys)) => {
-            xs.iter().zip(ys.iter()).for_each(|(h, t)| bind_impl_params(h, t, bound));
+            xs.iter()
+                .zip(ys.iter())
+                .for_each(|(h, t)| bind_impl_params(h, t, bound));
         }
         (TyKind::Array(h), TyKind::Array(t)) => bind_impl_params(h, t, bound),
         (TyKind::Fn(xs, a), TyKind::Fn(ys, b)) => {
-            xs.iter().zip(ys.iter()).for_each(|(h, t)| bind_impl_params(h, t, bound));
+            xs.iter()
+                .zip(ys.iter())
+                .for_each(|(h, t)| bind_impl_params(h, t, bound));
             bind_impl_params(a, b, bound);
         }
         _ => {}

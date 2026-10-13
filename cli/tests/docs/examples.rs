@@ -15,12 +15,15 @@
 //! There is no way to leave a block out. One that needs more than a single
 //! file to mean anything is a `file=` of a repository, and that repository is
 //! built (`documentation::examples`).
-use buri::documentation::{examples, layout, topics};
 use crate::shard;
+use buri::documentation::{examples, layout, topics};
 use std::path::{Path, PathBuf};
 
 fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 /// Where a topic's text lives on disk, for the location a failure reports.
@@ -44,8 +47,14 @@ pub fn bless_documents_under(root: &Path, dir: &str) {
     let mut found = Vec::new();
     layout::documents_under(&root.join(dir), &mut found);
     for path in found {
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
-        let rel = path.strip_prefix(root).unwrap_or(&path).display().to_string();
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .display()
+            .to_string();
         if let Some(out) = layout::format_document(&rel, &text) {
             std::fs::write(&path, out).unwrap();
         }
@@ -71,7 +80,9 @@ pub fn document(root: &Path, rel: &str, compiled_in: &str) -> String {
         return compiled_in.to_string();
     }
     let path = root.join(rel);
-    let Ok(text) = std::fs::read_to_string(&path) else { return compiled_in.to_string() };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return compiled_in.to_string();
+    };
     match layout::format_document(rel, &text) {
         Some(out) => {
             std::fs::write(&path, &out).unwrap();
@@ -91,7 +102,10 @@ pub fn document(root: &Path, rel: &str, compiled_in: &str) -> String {
 /// nothing. This asks the only thing that cannot be wrong — the bytes.
 fn source_path(root: &Path, text: &str) -> Option<String> {
     // The standard library's sources, and the bundled platforms' `platform.buri`.
-    const DIRS: [&str; 2] = ["crates/stdlib/src/compiler/standard_library/sources", "crates/stdlib/src/platforms"];
+    const DIRS: [&str; 2] = [
+        "crates/stdlib/src/compiler/standard_library/sources",
+        "crates/stdlib/src/platforms",
+    ];
     let mut found = None;
     let mut stack: Vec<_> = DIRS.iter().map(|d| root.join(d)).collect();
     while let Some(dir) = stack.pop() {
@@ -114,7 +128,9 @@ fn source_text(root: &Path, rel: &str, compiled_in: &str) -> String {
         return compiled_in.to_string();
     }
     let path = root.join(rel);
-    let Ok(text) = std::fs::read_to_string(&path) else { return compiled_in.to_string() };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return compiled_in.to_string();
+    };
     match layout::format_doc_comments(&text) {
         Some(out) => {
             std::fs::write(&path, &out).unwrap();
@@ -133,7 +149,11 @@ pub fn docs_test(root: &Path, documents: &[String]) {
     let mut args = vec!["docs", "test", "--color=never"];
     args.extend(documents.iter().map(String::as_str));
     let out = crate::documents::ran(root, &args);
-    assert!(out.status.success(), "\n{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 /// Compiles every block of every topic of one kind.
@@ -183,7 +203,10 @@ fn readme_examples() {
     // A README whose every fence stopped extracting would pass the assertion
     // below over nothing at all.
     let compiled = examples::extract("README.md", &text).blocks.len();
-    assert!(compiled > 0, "no example extracts from README.md; this test has gone vacuous");
+    assert!(
+        compiled > 0,
+        "no example extracts from README.md; this test has gone vacuous"
+    );
     docs_test(&root, &["README.md".to_string()]);
 }
 
@@ -214,7 +237,10 @@ fn skill_examples() {
         compiled += examples::extract(&path, &text).blocks.len();
         paths.push(path);
     }
-    assert!(compiled > 0, "no example extracts from the skill pages; this test has gone vacuous");
+    assert!(
+        compiled > 0,
+        "no example extracts from the skill pages; this test has gone vacuous"
+    );
     docs_test(&root, &paths);
 }
 
@@ -229,8 +255,14 @@ fn the_examples_are_actually_extracted() {
         files += found.files.len();
     }
     eprintln!("{compiled} Buri example(s), {files} of them or of textproto files of a repository");
-    assert!(compiled > 40, "only {compiled} examples are compiled; is the harness running?");
-    assert!(files > 3, "only {files} fences are files of a repository; is the harness running?");
+    assert!(
+        compiled > 40,
+        "only {compiled} examples are compiled; is the harness running?"
+    );
+    assert!(
+        files > 3,
+        "only {files} fences are files of a repository; is the harness running?"
+    );
 }
 
 /// Every example written in a `///` or `//!` comment in the standard library.
@@ -393,7 +425,10 @@ fn every_example_is_laid_out_the_way_the_formatter_writes_source() {
         silent.len(),
         silent.join("\n  ")
     );
-    eprintln!("{clean} example(s) laid out, {} the formatter has nothing to say about", silent.len());
+    eprintln!(
+        "{clean} example(s) laid out, {} the formatter has nothing to say about",
+        silent.len()
+    );
 }
 
 /// Runs a synthetic document and returns its failures, rendered.
@@ -466,7 +501,10 @@ fn a_broken_example_is_reported_at_its_own_line() {
     let out = check(doc);
     assert!(out.contains("does not compile"), "{out}");
     // The fence body starts on line 6 of the document.
-    assert!(out.contains("test.md:6:"), "location should point at the fence:\n{out}");
+    assert!(
+        out.contains("test.md:6:"),
+        "location should point at the fence:\n{out}"
+    );
 }
 
 #[test]
@@ -485,7 +523,10 @@ fn a_fail_block_must_actually_fail() {
                ```error\n\
                expected `I64`, found `Str`\n\
                ```\n";
-    assert!(check(bad).contains("compiles"), "a compiling `fail` block must be caught");
+    assert!(
+        check(bad).contains("compiles"),
+        "a compiling `fail` block must be caught"
+    );
 }
 
 #[test]
@@ -495,7 +536,11 @@ fn an_error_annotation_is_compiled_on_its_own() {
                let bad: Int = \"nope\"; // ERROR: expected `I64`, found `Str`\n\
                let alsoOk = ok + 1;\n\
                ```\n";
-    assert_eq!(check(doc), "", "the annotated line should satisfy its own claim");
+    assert_eq!(
+        check(doc),
+        "",
+        "the annotated line should satisfy its own claim"
+    );
 }
 
 #[test]
@@ -532,11 +577,23 @@ fn a_harness_is_reusable() {
 #[test]
 fn there_is_no_way_to_leave_an_example_out() {
     let doc = "```buri ignore\nwhatever\n```\n";
-    assert!(check(doc).contains("`ignore` is not a mode"), "{}", check(doc));
+    assert!(
+        check(doc).contains("`ignore` is not a mode"),
+        "{}",
+        check(doc)
+    );
     let doc = "```textproto ignore\nname: \"api\"\n```\n";
-    assert!(check(doc).contains("`ignore` is not a mode"), "{}", check(doc));
+    assert!(
+        check(doc).contains("`ignore` is not a mode"),
+        "{}",
+        check(doc)
+    );
     let doc = "```textproto\nname: \"api\"\n```\n";
-    assert!(check(doc).contains("does not say what it is"), "{}", check(doc));
+    assert!(
+        check(doc).contains("does not say what it is"),
+        "{}",
+        check(doc)
+    );
 }
 
 /// The fences labelled as files make one repository, and it is built: a
@@ -566,7 +623,10 @@ fn a_failing_file_must_fail_with_its_code() {
 
     let fine = broken.replace("[80 443]", "[80, 443]");
     let out = check(&fine);
-    assert!(out.contains("does not fail the build with `textproto-syntax`"), "{out}");
+    assert!(
+        out.contains("does not fail the build with `textproto-syntax`"),
+        "{out}"
+    );
 }
 
 /// A fence whose info string does not parse used to be silently downgraded
@@ -610,5 +670,8 @@ fn a_run_block_executes_and_its_output_is_pinned() {
                  ```stdout\n\
                  another thing\n\
                  ```\n";
-    assert!(check(wrong).contains("prints something else"), "a wrong transcript must be caught");
+    assert!(
+        check(wrong).contains("prints something else"),
+        "a wrong transcript must be caught"
+    );
 }

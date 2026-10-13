@@ -13,10 +13,10 @@
 
 use crate::abort::{buri_rt_abort_alloc_budget, buri_rt_abort_oom};
 use crate::allocator::valgrind;
-use std::alloc::{alloc, alloc_zeroed, dealloc, realloc, Layout};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use crate::sync::{Mutex, MutexGuard};
+use std::alloc::{Layout, alloc, alloc_zeroed, dealloc, realloc};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 /// A reference count that is never decremented and never freed.
 ///
@@ -706,7 +706,11 @@ pub extern "C" fn buri_rt_alloc(payload: u64) -> *mut u8 {
 /// A kept large block for a platform allocation in a process that has opened
 /// a scope: the arm [`scoped_alloc`] falls through to, outside any arena.
 fn big_take_beside_scopes(payload: u64) -> Option<*mut u8> {
-    if payload > CACHE_MAX_PAYLOAD { big_take(payload) } else { None }
+    if payload > CACHE_MAX_PAYLOAD {
+        big_take(payload)
+    } else {
+        None
+    }
 }
 
 /// [`buri_rt_alloc`], with the payload zeroed.
@@ -790,7 +794,10 @@ fn finish_uncounted(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
         // into a store that was happening anyway. A recycled block comes
         // through here too, which is what keeps a cache hit and a fresh
         // `malloc` indistinguishable.
-        raw.cast::<Header>().write(Header { rc: 1, cap: payload | shared_mask() | flags });
+        raw.cast::<Header>().write(Header {
+            rc: 1,
+            cap: payload | shared_mask() | flags,
+        });
     }
     // SAFETY: the block is `BURI_RT_HEADER + payload` bytes, so the payload
     // start is one-past-the-header and in bounds.
@@ -1105,10 +1112,16 @@ impl Cache {
     #[inline(never)]
     fn sweep(&mut self) {
         self.since_sweep = 0;
-        let end = if self.sweeps.is_multiple_of(CACHE_MID_SWEEP_EVERY) { CACHE_SLOTS } else { CACHE_SMALL_SLOTS };
+        let end = if self.sweeps.is_multiple_of(CACHE_MID_SWEEP_EVERY) {
+            CACHE_SLOTS
+        } else {
+            CACHE_SMALL_SLOTS
+        };
         self.sweeps = self.sweeps.wrapping_add(1);
         for idx in 0..end {
-            let Some(slot) = self.slots.get_mut(idx) else { break };
+            let Some(slot) = self.slots.get_mut(idx) else {
+                break;
+            };
             if slot.idle < CACHE_GRACE_SWEEPS {
                 slot.idle += 1;
             } else if !slot.head.is_null() {
@@ -1139,7 +1152,9 @@ impl Cache {
         let payload = idx as u64;
         let bytes = slot_bytes(payload);
         let layout = layout_for(payload);
-        let Some(slot) = self.slots.get_mut(idx) else { return };
+        let Some(slot) = self.slots.get_mut(idx) else {
+            return;
+        };
         loop {
             let p = slot.head;
             if p.is_null() {
@@ -1331,7 +1346,9 @@ fn scoped_alloc(payload: u64, zeroed: bool) -> Option<*mut u8> {
                 return Take::Neither;
             }
             let idx = payload as usize;
-            let Some(slot) = cache.slots.get_mut(idx) else { return Take::Neither };
+            let Some(slot) = cache.slots.get_mut(idx) else {
+                return Take::Neither;
+            };
             let p = slot.head;
             if p.is_null() {
                 return Take::Neither;
@@ -1462,7 +1479,9 @@ unsafe fn cache_push_slow(t: &ThreadHeap, p: *mut u8, cap: u64) -> bool {
             return false;
         }
     }
-    let Some(slot) = cache.slots.get_mut(cap as usize) else { return false };
+    let Some(slot) = cache.slots.get_mut(cap as usize) else {
+        return false;
+    };
     // SAFETY: the caller promises a dead block, so its header is this file's
     // to use as list storage.
     unsafe {
@@ -1540,7 +1559,10 @@ struct BigCache {
 impl BigCache {
     /// The kept block of exactly `payload` usable bytes, if there is one.
     fn take(&mut self, payload: u64) -> Option<*mut u8> {
-        let big = self.slots.iter_mut().find(|b| !b.p.is_null() && b.cap == payload)?;
+        let big = self
+            .slots
+            .iter_mut()
+            .find(|b| !b.p.is_null() && b.cap == payload)?;
         let p = big.p;
         big.p = std::ptr::null_mut();
         self.held = self.held.saturating_sub(slot_bytes(payload));
@@ -1566,7 +1588,9 @@ impl BigCache {
             let Some((i, _)) = oldest else { return false };
             self.release(i);
         }
-        let Some(big) = self.slots.iter_mut().find(|b| b.p.is_null()) else { return false };
+        let Some(big) = self.slots.iter_mut().find(|b| b.p.is_null()) else {
+            return false;
+        };
         *big = Big { p, cap, idle: 0 };
         self.held += bytes;
         true
@@ -1574,7 +1598,9 @@ impl BigCache {
 
     /// Give kept block `i` back to the global allocator.
     fn release(&mut self, i: usize) {
-        let Some(big) = self.slots.get_mut(i) else { return };
+        let Some(big) = self.slots.get_mut(i) else {
+            return;
+        };
         let (p, cap) = (big.p, big.cap);
         if p.is_null() {
             return;
@@ -1589,7 +1615,9 @@ impl BigCache {
     /// Age every kept block one sweep, and give back those past the grace.
     fn sweep(&mut self) {
         for i in 0..BIG_SLOTS {
-            let Some(big) = self.slots.get_mut(i) else { break };
+            let Some(big) = self.slots.get_mut(i) else {
+                break;
+            };
             if big.p.is_null() {
                 continue;
             }
@@ -1619,7 +1647,10 @@ impl BigCache {
 #[inline(never)]
 fn big_take(payload: u64) -> Option<*mut u8> {
     // SAFETY: this thread's own cell; no reference to it outlives the closure.
-    CACHE.try_with(|t| unsafe { &mut *t.big.get() }.take(payload)).ok().flatten()
+    CACHE
+        .try_with(|t| unsafe { &mut *t.big.get() }.take(payload))
+        .ok()
+        .flatten()
 }
 
 /// [`cache_push_slow`] for a block past [`CACHE_MAX_PAYLOAD`]: kept if this
@@ -1722,7 +1753,12 @@ pub unsafe extern "C" fn buri_rt_realloc(p: *mut u8, payload: u64) -> *mut u8 {
         // Taking the same amount off both sides leaves live where it is.
         let bytes = payload.saturating_sub(old_cap).wrapping_sub(payload);
         let one_less = 1u64.wrapping_neg();
-        count([(ALLOCATED_BLOCKS, one_less), (FREED_BLOCKS, one_less), (ALLOCATED_BYTES, bytes), (FREED_BYTES, bytes)]);
+        count([
+            (ALLOCATED_BLOCKS, one_less),
+            (FREED_BLOCKS, one_less),
+            (ALLOCATED_BYTES, bytes),
+            (FREED_BYTES, bytes),
+        ]);
         return fresh;
     }
     // G5: a bump allocator cannot grow the block it handed out last but one, so
@@ -1757,9 +1793,15 @@ pub unsafe extern "C" fn buri_rt_realloc(p: *mut u8, payload: u64) -> *mut u8 {
     }
     // SAFETY: `raw` is a live allocation of at least the header's size.
     unsafe {
-        raw.cast::<Header>().write(Header { rc, cap: payload | flags });
+        raw.cast::<Header>().write(Header {
+            rc,
+            cap: payload | flags,
+        });
     }
-    count([(ALLOCATED_BYTES, payload.saturating_sub(old_cap)), (FREED_BYTES, old_cap.saturating_sub(payload))]);
+    count([
+        (ALLOCATED_BYTES, payload.saturating_sub(old_cap)),
+        (FREED_BYTES, old_cap.saturating_sub(payload)),
+    ]);
     // SAFETY: in bounds, as in `finish`.
     unsafe { raw.add(BURI_RT_HEADER) }
 }
@@ -2360,7 +2402,11 @@ fn heap_check_once(cell: &OnceLock<HeapCheck>) -> HeapCheck {
         };
         // Under memcheck a freed block goes back to the allocator rather than
         // into the quarantine, which would hide a read of it from memcheck.
-        let mode = if mode == HeapCheck::Full && valgrind::reroutes() { HeapCheck::Leak } else { mode };
+        let mode = if mode == HeapCheck::Full && valgrind::reroutes() {
+            HeapCheck::Leak
+        } else {
+            mode
+        };
         if mode != HeapCheck::Off {
             // SAFETY: `heap_audit` is an `extern "C" fn()` taking no arguments
             // and returning normally, which is the whole of `atexit`'s
@@ -2414,7 +2460,10 @@ struct HeapDigits {
 
 impl HeapDigits {
     fn of(mut n: u64) -> HeapDigits {
-        let mut d = HeapDigits { buf: [b'0'; 20], at: 20 };
+        let mut d = HeapDigits {
+            buf: [b'0'; 20],
+            at: 20,
+        };
         for (at, slot) in d.buf.iter_mut().enumerate().rev() {
             // `b'0'` is 0x30, so or-ing in a digit is adding it.
             *slot = b'0' | (n % 10) as u8;
@@ -2513,7 +2562,11 @@ unsafe fn quarantine_push(p: *mut u8, cap: u64) {
 /// the call rather than at exit.
 #[cold]
 fn heap_use_after_free(what: &[u8]) -> ! {
-    heap_bug(&[b"use after free: `", what, b"` was called on a block that was already freed"])
+    heap_bug(&[
+        b"use after free: `",
+        what,
+        b"` was called on a block that was already freed",
+    ])
 }
 
 /// Whether `p`'s block is one this section has quarantined.
@@ -2586,26 +2639,44 @@ fn trace_remove(p: *mut u8) {
 /// The payload preview is what turns "one block of two bytes" into a name: a
 /// leaked `Str` shows its characters, and a leaked list of pointers shows that
 /// it is one.
-#[expect(clippy::print_stderr, reason = "the leak report is what `BURI_RT_HEAP_CHECK` asked for")]
+#[expect(
+    clippy::print_stderr,
+    reason = "the leak report is what `BURI_RT_HEAP_CHECK` asked for"
+)]
 fn trace_dump() {
     let leaked = traced(|t| t.iter().map(|(a, c)| (*a, *c)).collect::<Vec<_>>());
     if leaked.is_empty() {
         return;
     }
-    eprintln!("buri heap check: {} block(s) still live at exit:", leaked.len());
+    eprintln!(
+        "buri heap check: {} block(s) still live at exit:",
+        leaked.len()
+    );
     for (addr, cap) in leaked {
         let p = addr as *mut u8;
         // SAFETY: the register only holds blocks this runtime allocated and
         // has not freed, so the header and `cap` payload bytes are readable.
         let (rc, bytes) = unsafe {
-            ((*header(p)).rc, std::slice::from_raw_parts(p.cast_const(), cap as usize))
+            (
+                (*header(p)).rc,
+                std::slice::from_raw_parts(p.cast_const(), cap as usize),
+            )
         };
         let shown = bytes.get(..32).unwrap_or(bytes);
-        let hex: String =
-            shown.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+        let hex: String = shown
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<Vec<_>>()
+            .join(" ");
         let text: String = shown
             .iter()
-            .map(|b| if b.is_ascii_graphic() || *b == b' ' { *b as char } else { '.' })
+            .map(|b| {
+                if b.is_ascii_graphic() || *b == b' ' {
+                    *b as char
+                } else {
+                    '.'
+                }
+            })
             .collect();
         eprintln!("  {cap:>8} byte(s)  rc={rc:<6}  {hex}  |{text}|");
     }
@@ -2688,7 +2759,9 @@ pub const BURI_RT_GROWTH_FLOOR: u64 = 64;
 #[must_use]
 pub fn buri_rt_grown_capacity(needed: u64, old_cap: u64) -> u64 {
     let old_cap = old_cap & BURI_RT_CAP_MASK;
-    needed.max(old_cap.saturating_mul(2)).max(BURI_RT_GROWTH_FLOOR)
+    needed
+        .max(old_cap.saturating_mul(2))
+        .max(BURI_RT_GROWTH_FLOOR)
 }
 
 /// `Some(cap)` when `p` is a live block that **nothing else references**.
@@ -2925,7 +2998,11 @@ fn counters<T>(f: impl FnOnce(&mut Vec<Counter>) -> T) -> T {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_new_counter(budget: i64) -> i64 {
     counters(|c| {
-        c.push(Counter { allocations: 0, bytes: 0, budget });
+        c.push(Counter {
+            allocations: 0,
+            bytes: 0,
+            budget,
+        });
         // A `usize` index that does not fit an `i64` is a table with 2^63
         // entries, which is not reachable: every entry costs 24 bytes.
         i64::try_from(c.len().saturating_sub(1)).unwrap_or(i64::MAX)
@@ -2961,7 +3038,11 @@ pub extern "C" fn buri_rt_alloc_charge(handle: i64, bytes: i64) -> i64 {
 /// `core/alloc`'s `count(handle)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_count(handle: i64) -> i64 {
-    counters(|c| index(handle).and_then(|i| c.get(i)).map_or(0, |e| e.allocations))
+    counters(|c| {
+        index(handle)
+            .and_then(|i| c.get(i))
+            .map_or(0, |e| e.allocations)
+    })
 }
 
 /// `core/alloc`'s `total(handle)`.
@@ -3199,7 +3280,14 @@ fn arena_map(len: usize) -> usize {
     }
     // SAFETY: a fresh anonymous private mapping; no fd, no fixed address.
     let p = unsafe {
-        mmap(core::ptr::null_mut(), len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0)
+        mmap(
+            core::ptr::null_mut(),
+            len,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANON,
+            -1,
+            0,
+        )
     };
     if p.is_null() || p as usize == MAP_FAILED {
         buri_rt_abort_oom(len as u64);
@@ -3218,7 +3306,10 @@ fn arena_reserve(a: &mut Arena, bytes: usize) {
     if bytes == 0 {
         return;
     }
-    let room = a.blocks.last().map_or(0, |&(_, len)| len.saturating_sub(a.cursor));
+    let room = a
+        .blocks
+        .last()
+        .map_or(0, |&(_, len)| len.saturating_sub(a.cursor));
     if bytes <= room {
         a.cursor = a.cursor.saturating_add(bytes);
         return;
@@ -3359,16 +3450,23 @@ pub extern "C" fn buri_rt_alloc_arena_release(handle: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_arena_count(handle: i64) -> i64 {
     let (slot, generation) = arena_slot(handle);
-    arenas(|t| t.get(slot).filter(|a| a.generation == generation).map_or(0, |a| a.allocations))
+    arenas(|t| {
+        t.get(slot)
+            .filter(|a| a.generation == generation)
+            .map_or(0, |a| a.allocations)
+    })
 }
 
 /// `core/alloc`'s `arenaTotal(handle)`.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_arena_total(handle: i64) -> i64 {
     let (slot, generation) = arena_slot(handle);
-    arenas(|t| t.get(slot).filter(|a| a.generation == generation).map_or(0, |a| a.bytes))
+    arenas(|t| {
+        t.get(slot)
+            .filter(|a| a.generation == generation)
+            .map_or(0, |a| a.bytes)
+    })
 }
-
 
 // ---------------------------------------------------------------------------
 // === G5 begin: which arena a thread is inside =============================
@@ -3440,7 +3538,11 @@ pub struct ArenaSlot {
 
 impl ArenaSlot {
     /// A thread that is inside no scope, which is what one between tasks is.
-    pub const NONE: ArenaSlot = ArenaSlot { biased: 0, at: 0, end: 0 };
+    pub const NONE: ArenaSlot = ArenaSlot {
+        biased: 0,
+        at: 0,
+        end: 0,
+    };
 }
 
 /// This thread's scope, for `rt.rs` to put aside.
@@ -3449,7 +3551,11 @@ pub fn arena_slot_of_thread() -> ArenaSlot {
     CACHE
         .try_with(|c| unsafe {
             let cache = &*c.cache.get();
-            ArenaSlot { biased: cache.arena, at: cache.arena_at, end: cache.arena_end }
+            ArenaSlot {
+                biased: cache.arena,
+                at: cache.arena_at,
+                end: cache.arena_end,
+            }
         })
         .unwrap_or(ArenaSlot::NONE)
 }
@@ -3502,11 +3608,17 @@ pub extern "C" fn buri_rt_alloc_arena_enter(handle: i64) -> i64 {
 /// `core/alloc`'s `arenaLeave(previous)` — the inverse, and the whole of it.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_alloc_arena_leave(previous: i64) -> i64 {
-    let kept = KEPT.try_with(|k| k.replace(ArenaSlot::NONE)).unwrap_or(ArenaSlot::NONE);
+    let kept = KEPT
+        .try_with(|k| k.replace(ArenaSlot::NONE))
+        .unwrap_or(ArenaSlot::NONE);
     if kept.biased != 0 && kept.biased == previous as u64 {
         set_arena_slot_of_thread(kept);
     } else {
-        set_arena_slot_of_thread(ArenaSlot { biased: previous as u64, at: 0, end: 0 });
+        set_arena_slot_of_thread(ArenaSlot {
+            biased: previous as u64,
+            at: 0,
+            end: 0,
+        });
     }
     previous
 }
@@ -3577,9 +3689,10 @@ fn set_window(at: usize, end: usize) {
 /// header, the payload, and the rounding that keeps the next block aligned.
 #[inline]
 fn block_bytes(payload: u64) -> usize {
-    (payload as usize).saturating_add(BURI_RT_HEADER).next_multiple_of(BURI_RT_ALIGN)
+    (payload as usize)
+        .saturating_add(BURI_RT_HEADER)
+        .next_multiple_of(BURI_RT_ALIGN)
 }
-
 
 // === G5 end ===============================================================
 
@@ -3774,7 +3887,6 @@ pub unsafe extern "C" fn buri_rt_copy_str(s: *mut u8) {
 }
 
 // === G5 end ===============================================================
-
 
 // ---------------------------------------------------------------------------
 // The per-thread Buri data stack (design/native track B, slice B7)
@@ -3982,7 +4094,11 @@ pub(crate) struct Blocks {
 
 impl Blocks {
     pub(crate) const fn new() -> Self {
-        Blocks { idle: Vec::new(), since_decommit: 0, retained: false }
+        Blocks {
+            idle: Vec::new(),
+            since_decommit: 0,
+            retained: false,
+        }
     }
 
     /// A block nothing on this list is inside.
@@ -4192,7 +4308,10 @@ fn map_stack() -> *mut u8 {
         };
         a | b
     };
-    assert!(freed == 0, "a thread stack's alignment slack could not be given back");
+    assert!(
+        freed == 0,
+        "a thread stack's alignment slack could not be given back"
+    );
     let p = base as *mut core::ffi::c_void;
     // Now an invariant rather than a hope. The frame offsets this block is
     // addressed with were computed against `STACK_ALIGN` and the guard below
@@ -4205,7 +4324,13 @@ fn map_stack() -> *mut u8 {
     // SAFETY: `p` names `BURI_RT_STACK_BYTES` of this process's own mapping and
     // the guard is the top `BURI_RT_STACK_GUARD` of it, which is a whole
     // number of pages at a page boundary.
-    let rc = unsafe { mprotect(p.wrapping_add(BURI_RT_STACK_USABLE).cast(), BURI_RT_STACK_GUARD, PROT_NONE) };
+    let rc = unsafe {
+        mprotect(
+            p.wrapping_add(BURI_RT_STACK_USABLE).cast(),
+            BURI_RT_STACK_GUARD,
+            PROT_NONE,
+        )
+    };
     assert!(rc == 0, "a thread stack could not be given its guard");
     let base: *mut u8 = p.cast();
     // SAFETY: `base + WARM` is inside the usable range and 8-byte aligned.
@@ -4222,7 +4347,11 @@ fn map_stack() -> *mut u8 {
 unsafe fn arm_watermark(base: *mut u8) {
     // SAFETY: the caller promises a live block, and `BURI_RT_STACK_WARM` is a
     // multiple of the page size and therefore of eight.
-    unsafe { base.add(BURI_RT_STACK_WARM).cast::<u64>().write(BURI_RT_STACK_WATERMARK) }
+    unsafe {
+        base.add(BURI_RT_STACK_WARM)
+            .cast::<u64>()
+            .write(BURI_RT_STACK_WATERMARK)
+    }
 }
 
 /// Whether the entry that just finished left the watermark alone — that is,
@@ -4514,7 +4643,10 @@ fn map_task_stack() -> *mut u8 {
         };
         a | b
     };
-    assert!(freed == 0, "a task stack's alignment slack could not be given back");
+    assert!(
+        freed == 0,
+        "a task stack's alignment slack could not be given back"
+    );
     let p = base as *mut u8;
     // Now an invariant rather than a hope, exactly as at the other stack.
     assert!(
@@ -4535,7 +4667,8 @@ fn map_task_stack() -> *mut u8 {
 /// release decommits, one word below the retained [`BURI_RT_STACK_WARM`].
 /// A task whose stack grew past the retained prefix wrote over it on the way.
 fn task_watermark(base: *mut u8) -> *mut u64 {
-    base.wrapping_add(BURI_RT_STACK_BYTES - BURI_RT_STACK_WARM - 8).cast()
+    base.wrapping_add(BURI_RT_STACK_BYTES - BURI_RT_STACK_WARM - 8)
+        .cast()
 }
 
 /// Task stacks released since one was last decommitted whatever its
@@ -4557,10 +4690,15 @@ static TASK_FLOOR_AT: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI6
 /// Whether this release is the floor's: every [`STACK_DECOMMIT_EVERY`]th, and
 /// no sooner than [`TASK_FLOOR_NS`] after the last one.
 fn task_floor() -> bool {
-    if TASK_RELEASES.fetch_add(1, Ordering::Relaxed) % STACK_DECOMMIT_EVERY != STACK_DECOMMIT_EVERY - 1 {
+    if TASK_RELEASES.fetch_add(1, Ordering::Relaxed) % STACK_DECOMMIT_EVERY
+        != STACK_DECOMMIT_EVERY - 1
+    {
         return false;
     }
-    floor_due(&TASK_FLOOR_AT, crate::host::buri_rt_host_clock_monotonic_nanoseconds())
+    floor_due(
+        &TASK_FLOOR_AT,
+        crate::host::buri_rt_host_clock_monotonic_nanoseconds(),
+    )
 }
 
 /// Whether [`TASK_FLOOR_NS`] has passed since the floor `at` last fired,
@@ -4568,7 +4706,9 @@ fn task_floor() -> bool {
 fn floor_due(at: &std::sync::atomic::AtomicI64, now: i64) -> bool {
     let last = at.load(Ordering::Relaxed);
     now.saturating_sub(last) >= TASK_FLOOR_NS
-        && at.compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed).is_ok()
+        && at
+            .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
 }
 
 /// Idle task machine stacks, capped the way [`POOL`] is and for the same
@@ -4747,7 +4887,10 @@ mod tests {
             }
             let second = [buri_rt_alloc(PAYLOAD), buri_rt_alloc(PAYLOAD)];
             for p in second {
-                assert!(first.contains(&p), "a large block wasn't reused: {first:?} then {second:?}");
+                assert!(
+                    first.contains(&p),
+                    "a large block wasn't reused: {first:?} then {second:?}"
+                );
             }
             for p in second {
                 // SAFETY: as above.
@@ -4791,7 +4934,10 @@ mod tests {
     fn a_thread_stack_is_writable_up_to_its_guard_and_comes_back() {
         let a = buri_rt_stack_acquire();
         assert!(!a.is_null());
-        assert!((a as usize).is_multiple_of(BURI_RT_STACK_ALIGN), "not 16 KiB aligned");
+        assert!(
+            (a as usize).is_multiple_of(BURI_RT_STACK_ALIGN),
+            "not 16 KiB aligned"
+        );
         // SAFETY: `a` names `BURI_RT_STACK_USABLE` writable bytes.
         unsafe {
             a.write(0xab);
@@ -4819,9 +4965,16 @@ mod tests {
     fn a_nested_acquire_is_a_different_block() {
         let outer = buri_rt_stack_acquire();
         let inner = buri_rt_stack_acquire();
-        assert_ne!(outer, inner, "a nested entry was handed the outer entry's stack");
+        assert_ne!(
+            outer, inner,
+            "a nested entry was handed the outer entry's stack"
+        );
         // Neither overlaps the other, which is the property the frames rest on.
-        let (lo, hi) = if outer < inner { (outer, inner) } else { (inner, outer) };
+        let (lo, hi) = if outer < inner {
+            (outer, inner)
+        } else {
+            (inner, outer)
+        };
         assert!(
             (hi as usize) - (lo as usize) >= BURI_RT_STACK_BYTES,
             "two live thread stacks overlap"
@@ -4893,7 +5046,10 @@ mod tests {
                 "the trim kept slack or gave away the block"
             );
             assert_eq!(raw + head, base);
-            assert_eq!(base + BURI_RT_STACK_BYTES + tail, raw + BURI_RT_STACK_RESERVE);
+            assert_eq!(
+                base + BURI_RT_STACK_BYTES + tail,
+                raw + BURI_RT_STACK_RESERVE
+            );
         }
     }
 
@@ -4961,7 +5117,6 @@ mod tests {
         }
     }
 
-
     /// **A task stack that grew past its retained prefix is decommitted on
     /// release, and a shallow one is on a floor.** The watermark spares the
     /// system call for a step that stayed shallow; these are the two cases it
@@ -4980,7 +5135,10 @@ mod tests {
         unsafe { top.sub(BURI_RT_STACK_WARM + 64).write_bytes(7, 64) };
         // SAFETY: nothing is running on it.
         unsafe { buri_rt_task_stack_release(base) };
-        assert!(decommitted() >= before + tail, "a deep task stack was kept dirty");
+        assert!(
+            decommitted() >= before + tail,
+            "a deep task stack was kept dirty"
+        );
 
         // The floor's last firing put well over 10 ms back, so the next
         // 1,024th release is the floor's, whoever else releases meanwhile.
@@ -4993,7 +5151,10 @@ mod tests {
             // SAFETY: nothing is running on it.
             unsafe { buri_rt_task_stack_release(base) };
         }
-        assert!(decommitted() >= before + tail, "{STACK_DECOMMIT_EVERY} shallow releases decommitted nothing");
+        assert!(
+            decommitted() >= before + tail,
+            "{STACK_DECOMMIT_EVERY} shallow releases decommitted nothing"
+        );
     }
 
     /// **The task floor fires once per 10 ms**, however often its count comes
@@ -5002,9 +5163,15 @@ mod tests {
     fn the_task_floor_fires_once_per_ten_milliseconds() {
         let at = std::sync::atomic::AtomicI64::new(0);
         let ms = 1_000_000;
-        assert!(!floor_due(&at, 5 * ms), "the floor fired 5 ms after the last");
+        assert!(
+            !floor_due(&at, 5 * ms),
+            "the floor fired 5 ms after the last"
+        );
         assert!(floor_due(&at, 10 * ms), "the floor waited past 10 ms");
-        assert!(!floor_due(&at, 19 * ms), "the floor fired 9 ms after the last");
+        assert!(
+            !floor_due(&at, 19 * ms),
+            "the floor fired 9 ms after the last"
+        );
         assert!(floor_due(&at, 31 * ms), "the floor waited past 21 ms");
         assert_eq!(at.load(Ordering::Relaxed), 31 * ms);
     }
@@ -5115,10 +5282,18 @@ mod tests {
             (*header(p)).cap |= BURI_RT_CAP_SHARED;
             (*header(p)).rc = BURI_RT_IMMORTAL;
             buri_rt_incref(p);
-            assert_eq!(buri_rt_rc(p), BURI_RT_IMMORTAL, "the atomic increment wrapped IMMORTAL");
+            assert_eq!(
+                buri_rt_rc(p),
+                BURI_RT_IMMORTAL,
+                "the atomic increment wrapped IMMORTAL"
+            );
             // And a decrement of one neither moves it nor frees it.
             buri_rt_decref(p, None);
-            assert_eq!(buri_rt_rc(p), BURI_RT_IMMORTAL, "the atomic decrement moved IMMORTAL");
+            assert_eq!(
+                buri_rt_rc(p),
+                BURI_RT_IMMORTAL,
+                "the atomic decrement moved IMMORTAL"
+            );
             // Freed by hand: an IMMORTAL block is `buri_rt_free`'s no-op.
             (*header(p)).rc = 1;
             buri_rt_free(p);
@@ -5148,9 +5323,17 @@ mod tests {
             buri_rt_decref(p, Some(glue));
             buri_rt_decref(p, Some(glue));
             assert_eq!(buri_rt_rc(p), 1, "an atomic decrement did not land");
-            assert_eq!(DROPPED.load(Ordering::Relaxed), 0, "the glue ran while the block lived");
+            assert_eq!(
+                DROPPED.load(Ordering::Relaxed),
+                0,
+                "the glue ran while the block lived"
+            );
             buri_rt_decref(p, Some(glue));
-            assert_eq!(DROPPED.load(Ordering::Relaxed), 1, "the glue did not run exactly once");
+            assert_eq!(
+                DROPPED.load(Ordering::Relaxed),
+                1,
+                "the glue did not run exactly once"
+            );
         }
     }
 
@@ -5189,9 +5372,17 @@ mod tests {
 
             // Marked, the count is not consulted.
             (*header(p)).cap |= BURI_RT_CAP_SHARED;
-            assert_eq!(buri_rt_unique_cap(p), None, "a marked block at one passed the test");
+            assert_eq!(
+                buri_rt_unique_cap(p),
+                None,
+                "a marked block at one passed the test"
+            );
             buri_rt_incref(p);
-            assert_eq!(buri_rt_unique_cap(p), None, "a marked block at two passed the test");
+            assert_eq!(
+                buri_rt_unique_cap(p),
+                None,
+                "a marked block at two passed the test"
+            );
             buri_rt_decref(p, None);
             assert_eq!(buri_rt_unique_cap(p), None);
             (*header(p)).cap &= BURI_RT_CAP_MASK;
@@ -5207,24 +5398,35 @@ mod tests {
     /// release glue of a `[T]` walks `cap / stride` slots.
     #[test]
     fn the_cache_returns_a_block_of_exactly_the_capacity_asked_for() {
-        without_the_heap_check("the_cache_returns_a_block_of_exactly_the_capacity_asked_for", || {
-            for payload in [0u64, 1, 24, 64, CACHE_MAX_PAYLOAD] {
-                let first = buri_rt_alloc(payload);
-                // SAFETY: `first` is this test's only reference to a live block.
-                unsafe {
-                    assert_eq!(buri_rt_cap(first), payload);
-                    buri_rt_free(first);
+        without_the_heap_check(
+            "the_cache_returns_a_block_of_exactly_the_capacity_asked_for",
+            || {
+                for payload in [0u64, 1, 24, 64, CACHE_MAX_PAYLOAD] {
+                    let first = buri_rt_alloc(payload);
+                    // SAFETY: `first` is this test's only reference to a live block.
+                    unsafe {
+                        assert_eq!(buri_rt_cap(first), payload);
+                        buri_rt_free(first);
+                    }
+                    let second = buri_rt_alloc(payload);
+                    // SAFETY: as above.
+                    unsafe {
+                        assert_eq!(second, first, "the cache did not hand the block back");
+                        assert_eq!(
+                            buri_rt_cap(second),
+                            payload,
+                            "the cache changed the capacity"
+                        );
+                        assert_eq!(
+                            buri_rt_rc(second),
+                            1,
+                            "a recycled block did not start at one"
+                        );
+                        buri_rt_free(second);
+                    }
                 }
-                let second = buri_rt_alloc(payload);
-                // SAFETY: as above.
-                unsafe {
-                    assert_eq!(second, first, "the cache did not hand the block back");
-                    assert_eq!(buri_rt_cap(second), payload, "the cache changed the capacity");
-                    assert_eq!(buri_rt_rc(second), 1, "a recycled block did not start at one");
-                    buri_rt_free(second);
-                }
-            }
-        });
+            },
+        );
     }
 
     /// A block above the ceiling is returned to the allocator rather than
@@ -5248,9 +5450,16 @@ mod tests {
             let clean = buri_rt_alloc_zeroed(32);
             // SAFETY: as above.
             unsafe {
-                assert_eq!(clean, dirty, "the cache did not hand the block back to `alloc_zeroed`");
+                assert_eq!(
+                    clean, dirty,
+                    "the cache did not hand the block back to `alloc_zeroed`"
+                );
                 for i in 0..32 {
-                    assert_eq!(*clean.add(i), 0, "byte {i} of a recycled block was not zeroed");
+                    assert_eq!(
+                        *clean.add(i),
+                        0,
+                        "byte {i} of a recycled block was not zeroed"
+                    );
                 }
                 buri_rt_free(clean);
             }
@@ -5263,8 +5472,14 @@ mod tests {
     #[test]
     fn the_cache_budget_is_a_share_of_one_process_wide_number() {
         let b = cache_budget();
-        assert!(b >= CACHE_BYTES_FLOOR, "a thread's share fell below the floor: {b}");
-        assert!(b <= CACHE_BYTES, "a thread's share exceeded the whole budget: {b}");
+        assert!(
+            b >= CACHE_BYTES_FLOOR,
+            "a thread's share fell below the floor: {b}"
+        );
+        assert!(
+            b <= CACHE_BYTES,
+            "a thread's share exceeded the whole budget: {b}"
+        );
         assert_eq!(b, cache_budget(), "the budget is not stable across calls");
     }
 
@@ -5324,7 +5539,9 @@ mod tests {
             return;
         }
         // The harness names a test without the crate: `memory::tests::…`.
-        let module = module_path!().split_once("::").map_or(module_path!(), |(_, rest)| rest);
+        let module = module_path!()
+            .split_once("::")
+            .map_or(module_path!(), |(_, rest)| rest);
         let name = format!("{module}::{test}");
         let out = std::process::Command::new(std::env::current_exe().expect("this test binary"))
             .args(["--exact", &name, "--test-threads=1"])
@@ -5339,7 +5556,10 @@ mod tests {
             String::from_utf8_lossy(&out.stderr)
         );
         // A name that matched nothing would pass with zero tests run.
-        assert!(stdout.contains("1 passed"), "`{name}` did not run:\n{stdout}");
+        assert!(
+            stdout.contains("1 passed"),
+            "`{name}` did not run:\n{stdout}"
+        );
     }
 
     /// This process's resident set in kibibytes, or `None` where `ps` is not
@@ -5360,7 +5580,9 @@ mod tests {
             body();
             return;
         }
-        let module = module_path!().split_once("::").map_or(module_path!(), |(_, rest)| rest);
+        let module = module_path!()
+            .split_once("::")
+            .map_or(module_path!(), |(_, rest)| rest);
         let name = format!("{module}::{test}");
         let out = std::process::Command::new(std::env::current_exe().expect("this test binary"))
             .args(["--exact", &name, "--test-threads=1"])
@@ -5373,7 +5595,10 @@ mod tests {
             "`{name}` failed alone:\n{stdout}\n{}",
             String::from_utf8_lossy(&out.stderr)
         );
-        assert!(stdout.contains("1 passed"), "`{name}` did not run:\n{stdout}");
+        assert!(
+            stdout.contains("1 passed"),
+            "`{name}` did not run:\n{stdout}"
+        );
     }
 
     fn heap_stats() -> BuriHeapStats {
@@ -5416,10 +5641,13 @@ mod tests {
             readied.recv().unwrap();
             return;
         }
-        let module = module_path!().split_once("::").map_or(module_path!(), |(_, rest)| rest);
+        let module = module_path!()
+            .split_once("::")
+            .map_or(module_path!(), |(_, rest)| rest);
         let name = format!("{module}::the_exit_audit_counts_threads_that_are_still_running");
         let run = |leak: bool| {
-            let mut child = std::process::Command::new(std::env::current_exe().expect("this test binary"));
+            let mut child =
+                std::process::Command::new(std::env::current_exe().expect("this test binary"));
             child
                 .args(["--exact", &name, "--test-threads=1"])
                 .env("BURI_RT_TEST_ALONE", "1")
@@ -5431,10 +5659,17 @@ mod tests {
             child.output().expect("the test binary runs")
         };
         let clean = run(false);
-        assert!(clean.status.success(), "{}", String::from_utf8_lossy(&clean.stderr));
+        assert!(
+            clean.status.success(),
+            "{}",
+            String::from_utf8_lossy(&clean.stderr)
+        );
         let leaky = run(true);
         let said = String::from_utf8_lossy(&leaky.stderr);
-        assert!(!leaky.status.success(), "a leak on a running thread passed the audit");
+        assert!(
+            !leaky.status.success(),
+            "a leak on a running thread passed the audit"
+        );
         assert!(said.contains("leak: 1 block(s) and 16 byte(s)"), "{said}");
     }
 
@@ -5444,69 +5679,82 @@ mod tests {
     /// what a lost or doubled tally would break.
     #[test]
     fn the_heap_counts_add_up_across_threads_that_come_and_go() {
-        alone_in_a_process("the_heap_counts_add_up_across_threads_that_come_and_go", || {
-            const THREADS: usize = 16;
-            const EACH: usize = 1000;
-            // Both sides of the cache: a cached size and one past it.
-            let size = |i: usize| if i.is_multiple_of(2) { 24 } else { CACHE_MAX_PAYLOAD + 40 };
-            let before = heap_stats();
+        alone_in_a_process(
+            "the_heap_counts_add_up_across_threads_that_come_and_go",
+            || {
+                const THREADS: usize = 16;
+                const EACH: usize = 1000;
+                // Both sides of the cache: a cached size and one past it.
+                let size = |i: usize| {
+                    if i.is_multiple_of(2) {
+                        24
+                    } else {
+                        CACHE_MAX_PAYLOAD + 40
+                    }
+                };
+                let before = heap_stats();
 
-            let (go, wait) = std::sync::mpsc::channel::<()>();
-            let (ready, readied) = std::sync::mpsc::channel::<()>();
-            let staying = std::thread::spawn(move || {
-                let held: Vec<usize> = (0..EACH).map(|i| buri_rt_alloc(size(i)) as usize).collect();
-                ready.send(()).unwrap();
-                wait.recv().unwrap();
-                for p in held {
-                    // SAFETY: a live block this thread allocated and holds alone.
+                let (go, wait) = std::sync::mpsc::channel::<()>();
+                let (ready, readied) = std::sync::mpsc::channel::<()>();
+                let staying = std::thread::spawn(move || {
+                    let held: Vec<usize> =
+                        (0..EACH).map(|i| buri_rt_alloc(size(i)) as usize).collect();
+                    ready.send(()).unwrap();
+                    wait.recv().unwrap();
+                    for p in held {
+                        // SAFETY: a live block this thread allocated and holds alone.
+                        unsafe { buri_rt_free(p as *mut u8) };
+                    }
+                });
+                readied.recv().unwrap();
+
+                let handed: Vec<usize> = (0..THREADS)
+                    .map(|_| {
+                        std::thread::spawn(move || {
+                            let mut kept = Vec::new();
+                            for i in 0..EACH {
+                                let p = buri_rt_alloc(size(i));
+                                if i % 2 == 0 {
+                                    // SAFETY: a live block this thread holds alone.
+                                    unsafe { buri_rt_free(p) };
+                                } else {
+                                    kept.push(p as usize);
+                                }
+                            }
+                            kept
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .flat_map(|t| t.join().unwrap())
+                    .collect();
+
+                let bytes = |n: usize, from: usize| (from..from + n).map(size).sum::<u64>();
+                let all = THREADS * EACH + EACH;
+                let mid = heap_stats();
+                assert_eq!(mid.total_blocks - before.total_blocks, all as u64);
+                assert_eq!(
+                    mid.live_blocks - before.live_blocks,
+                    (THREADS * EACH / 2 + EACH) as u64
+                );
+                assert_eq!(
+                    mid.live_bytes - before.live_bytes,
+                    THREADS as u64 * (CACHE_MAX_PAYLOAD + 40) * (EACH / 2) as u64 + bytes(EACH, 0)
+                );
+
+                for p in handed {
+                    // SAFETY: a live block another thread allocated and handed over.
                     unsafe { buri_rt_free(p as *mut u8) };
                 }
-            });
-            readied.recv().unwrap();
-
-            let handed: Vec<usize> = (0..THREADS)
-                .map(|_| {
-                    std::thread::spawn(move || {
-                        let mut kept = Vec::new();
-                        for i in 0..EACH {
-                            let p = buri_rt_alloc(size(i));
-                            if i % 2 == 0 {
-                                // SAFETY: a live block this thread holds alone.
-                                unsafe { buri_rt_free(p) };
-                            } else {
-                                kept.push(p as usize);
-                            }
-                        }
-                        kept
-                    })
-                })
-                .collect::<Vec<_>>()
-                .into_iter()
-                .flat_map(|t| t.join().unwrap())
-                .collect();
-
-            let bytes = |n: usize, from: usize| (from..from + n).map(size).sum::<u64>();
-            let all = THREADS * EACH + EACH;
-            let mid = heap_stats();
-            assert_eq!(mid.total_blocks - before.total_blocks, all as u64);
-            assert_eq!(mid.live_blocks - before.live_blocks, (THREADS * EACH / 2 + EACH) as u64);
-            assert_eq!(
-                mid.live_bytes - before.live_bytes,
-                THREADS as u64 * (CACHE_MAX_PAYLOAD + 40) * (EACH / 2) as u64 + bytes(EACH, 0)
-            );
-
-            for p in handed {
-                // SAFETY: a live block another thread allocated and handed over.
-                unsafe { buri_rt_free(p as *mut u8) };
-            }
-            assert_eq!(heap_stats().live_blocks - before.live_blocks, EACH as u64);
-            go.send(()).unwrap();
-            staying.join().unwrap();
-            let after = heap_stats();
-            assert_eq!(after.live_blocks, before.live_blocks);
-            assert_eq!(after.live_bytes, before.live_bytes);
-            assert_eq!(after.total_blocks - before.total_blocks, all as u64);
-        });
+                assert_eq!(heap_stats().live_blocks - before.live_blocks, EACH as u64);
+                go.send(()).unwrap();
+                staying.join().unwrap();
+                let after = heap_stats();
+                assert_eq!(after.live_blocks, before.live_blocks);
+                assert_eq!(after.live_bytes, before.live_bytes);
+                assert_eq!(after.total_blocks - before.total_blocks, all as u64);
+            },
+        );
     }
 
     /// **The stats struct is six words in this order**, which is an ABI two
@@ -5654,10 +5902,17 @@ mod tests {
             for t in threads {
                 let filled = t.join().expect("a thread panicked");
                 // If the threads cached nothing, the assertion below proves nothing.
-                assert!(filled >= CACHE_BYTES_FLOOR, "a thread only cached {filled} bytes");
+                assert!(
+                    filled >= CACHE_BYTES_FLOOR,
+                    "a thread only cached {filled} bytes"
+                );
             }
             let left: Vec<(u64, u64)> = rx.iter().collect();
-            assert_eq!(left.len(), THREADS, "a thread did not report on its way out");
+            assert_eq!(
+                left.len(),
+                THREADS,
+                "a thread did not report on its way out"
+            );
             for (held, published) in left {
                 assert_eq!(
                     (held, published),
@@ -5676,7 +5931,8 @@ mod tests {
         fn drop(&mut self) {
             if let Some(tx) = self.0.take() {
                 // SAFETY: this thread's own cell, and the reference does not escape.
-                let left = CACHE.with(|c| unsafe { ((*c.cache.get()).held, (*c.cache.get()).published) });
+                let left =
+                    CACHE.with(|c| unsafe { ((*c.cache.get()).held, (*c.cache.get()).published) });
                 let _ = tx.send(left);
             }
         }
@@ -5695,22 +5951,29 @@ mod tests {
     /// sweep periods the loop runs through.
     #[test]
     fn a_ping_pong_workload_keeps_its_block_through_every_sweep() {
-        without_the_heap_check("a_ping_pong_workload_keeps_its_block_through_every_sweep", || {
-            const PAYLOAD: u64 = 32;
-            let first = buri_rt_alloc(PAYLOAD);
-            // SAFETY: a live block this test holds alone.
-            unsafe { buri_rt_free(first) };
-            for i in 0..(4 * CACHE_SWEEP_OPS) {
-                let p = buri_rt_alloc(PAYLOAD);
-                assert_eq!(p, first, "the cache gave up its block on iteration {i}");
-                // SAFETY: as above.
-                unsafe { buri_rt_free(p) };
-            }
-            assert_eq!(cache_held(), slot_bytes(PAYLOAD), "the cache is not holding exactly the one block");
-            // SAFETY: drain it so the block does not outlive the test's thread on
-            // a list nothing else will look at.
-            unsafe { buri_rt_free(buri_rt_alloc(PAYLOAD)) };
-        });
+        without_the_heap_check(
+            "a_ping_pong_workload_keeps_its_block_through_every_sweep",
+            || {
+                const PAYLOAD: u64 = 32;
+                let first = buri_rt_alloc(PAYLOAD);
+                // SAFETY: a live block this test holds alone.
+                unsafe { buri_rt_free(first) };
+                for i in 0..(4 * CACHE_SWEEP_OPS) {
+                    let p = buri_rt_alloc(PAYLOAD);
+                    assert_eq!(p, first, "the cache gave up its block on iteration {i}");
+                    // SAFETY: as above.
+                    unsafe { buri_rt_free(p) };
+                }
+                assert_eq!(
+                    cache_held(),
+                    slot_bytes(PAYLOAD),
+                    "the cache is not holding exactly the one block"
+                );
+                // SAFETY: drain it so the block does not outlive the test's thread on
+                // a list nothing else will look at.
+                unsafe { buri_rt_free(buri_rt_alloc(PAYLOAD)) };
+            },
+        );
     }
 
     /// **An idle thread stack gives its pages back, and the resident set says
@@ -5792,10 +6055,17 @@ mod tests {
             // policy says they should: the retained prefix kept what was written
             // in it, and the decommitted tail came back zero-filled.
             let again = buri_rt_stack_acquire();
-            assert_eq!(again, base, "a decommitted block was not the one handed back");
+            assert_eq!(
+                again, base,
+                "a decommitted block was not the one handed back"
+            );
             // SAFETY: `again` is the live block just acquired.
             unsafe {
-                assert_eq!(again.read(), 0xa5, "the retained prefix lost its first byte");
+                assert_eq!(
+                    again.read(),
+                    0xa5,
+                    "the retained prefix lost its first byte"
+                );
                 assert_eq!(
                     again.add(BURI_RT_STACK_WARM - 1).read(),
                     0xa5,
@@ -6077,8 +6347,14 @@ mod tests {
         let a = buri_rt_alloc_arena_create();
         let big = (BURI_RT_ARENA_BLOCK * 3 + 1) as i64;
         assert_eq!(buri_rt_alloc_arena_allocate(a, big), big);
-        assert_eq!(arena_stats().0 - live_before, (BURI_RT_ARENA_BLOCK * 4) as u64);
-        assert_eq!(buri_rt_alloc_arena_release(a), (BURI_RT_ARENA_BLOCK * 4) as i64);
+        assert_eq!(
+            arena_stats().0 - live_before,
+            (BURI_RT_ARENA_BLOCK * 4) as u64
+        );
+        assert_eq!(
+            buri_rt_alloc_arena_release(a),
+            (BURI_RT_ARENA_BLOCK * 4) as i64
+        );
         assert_eq!(arena_stats().0, live_before);
     }
 
@@ -6146,8 +6422,14 @@ mod tests {
         assert_eq!(buri_rt_alloc_arena_allocate(a, 10), 10);
         assert_eq!(buri_rt_alloc_arena_allocate(b, 20), 20);
         assert_eq!(buri_rt_alloc_arena_allocate(b, 2), 2);
-        assert_eq!((buri_rt_alloc_arena_count(a), buri_rt_alloc_arena_total(a)), (1, 10));
-        assert_eq!((buri_rt_alloc_arena_count(b), buri_rt_alloc_arena_total(b)), (2, 22));
+        assert_eq!(
+            (buri_rt_alloc_arena_count(a), buri_rt_alloc_arena_total(a)),
+            (1, 10)
+        );
+        assert_eq!(
+            (buri_rt_alloc_arena_count(b), buri_rt_alloc_arena_total(b)),
+            (2, 22)
+        );
         let _ = buri_rt_alloc_arena_release(a);
         let _ = buri_rt_alloc_arena_release(b);
     }
@@ -6168,7 +6450,11 @@ mod tests {
             assert_eq!(buri_rt_alloc_arena_allocate(a, 4096), 4096);
             assert_eq!(buri_rt_alloc_arena_release(a), BURI_RT_ARENA_BLOCK as i64);
         }
-        assert_eq!(arena_stats().0, live_before, "every scope gave its pages back");
+        assert_eq!(
+            arena_stats().0,
+            live_before,
+            "every scope gave its pages back"
+        );
         // Other cases on other threads may have grown the table meanwhile, so
         // the claim is that *this* loop did not grow it by a thousand.
         assert!(
@@ -6195,7 +6481,10 @@ mod tests {
     fn a_handle_packs_the_generation_above_the_slot() {
         assert_eq!(arena_slot(arena_handle(0, 0)), (0, 0));
         assert_eq!(arena_slot(arena_handle(7, 3)), (7, 3));
-        assert_eq!(arena_slot(arena_handle(u32::MAX as usize, u32::MAX)), (u32::MAX as usize, u32::MAX));
+        assert_eq!(
+            arena_slot(arena_handle(u32::MAX as usize, u32::MAX)),
+            (u32::MAX as usize, u32::MAX)
+        );
     }
 
     /// The block length is a whole number of blocks and never zero: a mapping
@@ -6205,7 +6494,10 @@ mod tests {
         assert_eq!(arena_block_len(0), BURI_RT_ARENA_BLOCK);
         assert_eq!(arena_block_len(1), BURI_RT_ARENA_BLOCK);
         assert_eq!(arena_block_len(BURI_RT_ARENA_BLOCK), BURI_RT_ARENA_BLOCK);
-        assert_eq!(arena_block_len(BURI_RT_ARENA_BLOCK + 1), BURI_RT_ARENA_BLOCK * 2);
+        assert_eq!(
+            arena_block_len(BURI_RT_ARENA_BLOCK + 1),
+            BURI_RT_ARENA_BLOCK * 2
+        );
         // Sixteen kibibytes is arm64 macOS's page, so every block is a whole
         // number of pages on both platforms.
         assert_eq!(BURI_RT_ARENA_BLOCK % (16 * 1024), 0);
@@ -6226,7 +6518,11 @@ mod tests {
         let reserved: u64 = 64 * 1024 * 1024;
         let a = buri_rt_alloc_arena_create();
         let _ = buri_rt_alloc_arena_allocate(a, reserved as i64);
-        assert_eq!(own_tally(), before, "an arena's reservation reached the heap");
+        assert_eq!(
+            own_tally(),
+            before,
+            "an arena's reservation reached the heap"
+        );
         assert!(arena_stats().0 >= arena_before + reserved);
         let _ = buri_rt_alloc_arena_release(a);
     }
@@ -6287,7 +6583,11 @@ mod tests {
             assert_ne!(p, q, "a copy answered the block it was given");
             assert_eq!(buri_rt_rc(p), 3, "the copy took a reference on the source");
             assert_eq!(buri_rt_rc(q), 1, "a copy is not uniquely owned");
-            assert_eq!(buri_rt_cap(q), 64, "a copy did not keep the source's capacity");
+            assert_eq!(
+                buri_rt_cap(q),
+                64,
+                "a copy did not keep the source's capacity"
+            );
             for i in 0..64u64 {
                 assert_eq!(
                     q.add(i as usize).read(),
@@ -6424,8 +6724,15 @@ mod tests {
         let p = buri_rt_alloc(128);
         // SAFETY: live, just allocated.
         unsafe {
-            assert!(is_arena(header(p)), "a block inside a scope is not the scope's");
-            assert_eq!(buri_rt_cap(p), 128, "the arena bit cost the block its capacity");
+            assert!(
+                is_arena(header(p)),
+                "a block inside a scope is not the scope's"
+            );
+            assert_eq!(
+                buri_rt_cap(p),
+                128,
+                "the arena bit cost the block its capacity"
+            );
             assert_eq!(buri_rt_rc(p), 1);
             fill(p, 128);
         }
@@ -6441,7 +6748,10 @@ mod tests {
         let q = buri_rt_alloc(128);
         // SAFETY: live, just allocated.
         unsafe {
-            assert!(!is_arena(header(q)), "a block outside a scope was charged to one");
+            assert!(
+                !is_arena(header(q)),
+                "a block outside a scope was charged to one"
+            );
             buri_rt_free(q);
         }
 
@@ -6480,14 +6790,23 @@ mod tests {
         let second = buri_rt_alloc(64);
         // SAFETY: all three are live, just allocated.
         unsafe {
-            assert!(!is_arena(header(heap)), "a block outside every arena was the scope's");
-            assert!(is_arena(header(second)), "the scope stopped serving its blocks");
+            assert!(
+                !is_arena(header(heap)),
+                "a block outside every arena was the scope's"
+            );
+            assert!(
+                is_arena(header(second)),
+                "the scope stopped serving its blocks"
+            );
             buri_rt_free(heap);
             buri_rt_free(second);
             buri_rt_free(first);
         }
         let (after, _) = arena_stats();
-        assert_eq!(after, mapped, "coming back into the scope mapped another block");
+        assert_eq!(
+            after, mapped,
+            "coming back into the scope mapped another block"
+        );
 
         let _ = buri_rt_alloc_arena_leave(outer);
         let _ = buri_rt_alloc_arena_release(a);
@@ -6507,7 +6826,12 @@ mod tests {
         let _alone = arena_alone();
         let (live_before, released_before) = arena_stats();
         let before = own_tally();
-        let live = |t: [u64; TALLY_WORDS]| (t[ALLOCATED_BLOCKS] - t[FREED_BLOCKS], t[ALLOCATED_BYTES] - t[FREED_BYTES]);
+        let live = |t: [u64; TALLY_WORDS]| {
+            (
+                t[ALLOCATED_BLOCKS] - t[FREED_BLOCKS],
+                t[ALLOCATED_BYTES] - t[FREED_BYTES],
+            )
+        };
 
         let a = buri_rt_alloc_arena_create();
         let outer = buri_rt_alloc_arena_enter(a);
@@ -6558,7 +6882,11 @@ mod tests {
         // process would read as a leak.
         // SAFETY: the only reference to the copy.
         unsafe { buri_rt_free(answer) };
-        assert_eq!(live(own_tally()), live(before), "a scope's blocks stayed live after it released them");
+        assert_eq!(
+            live(own_tally()),
+            live(before),
+            "a scope's blocks stayed live after it released them"
+        );
     }
 
     /// **A scope's block never enters the platform allocator's free list.**
@@ -6583,7 +6911,11 @@ mod tests {
         let _ = buri_rt_alloc_arena_release(a);
 
         let q = buri_rt_alloc(200);
-        assert_ne!(q.addr(), inside, "a released arena's block came back from the cache");
+        assert_ne!(
+            q.addr(),
+            inside,
+            "a released arena's block came back from the cache"
+        );
         // SAFETY: live, and the only reference.
         unsafe {
             assert!(!is_arena(header(q)));
@@ -6609,9 +6941,16 @@ mod tests {
         assert_ne!(grown, p, "an arena block was grown in place");
         // SAFETY: live.
         unsafe {
-            assert!(is_arena(header(grown)), "a grown arena block left the arena");
+            assert!(
+                is_arena(header(grown)),
+                "a grown arena block left the arena"
+            );
             assert_eq!(buri_rt_cap(grown), 256);
-            assert_eq!(buri_rt_rc(grown), 2, "the count did not travel with the value");
+            assert_eq!(
+                buri_rt_rc(grown),
+                2,
+                "the count did not travel with the value"
+            );
             for i in 0..64u64 {
                 assert_eq!(grown.add(i as usize).read(), (i % 251) as u8);
             }
@@ -6644,8 +6983,14 @@ mod tests {
         };
         // SAFETY: live.
         unsafe {
-            assert!(is_arena(header(grown)), "a grown arena block left the arena");
-            assert_eq!((*header(grown)).cap & BURI_RT_CAP_SHARED, BURI_RT_CAP_SHARED);
+            assert!(
+                is_arena(header(grown)),
+                "a grown arena block left the arena"
+            );
+            assert_eq!(
+                (*header(grown)).cap & BURI_RT_CAP_SHARED,
+                BURI_RT_CAP_SHARED
+            );
             assert_eq!(buri_rt_cap(grown), 64);
             buri_rt_decref(grown, None);
         }
@@ -6671,10 +7016,17 @@ mod tests {
         assert_eq!(current_arena(), Some(inner_arena));
 
         let _ = buri_rt_alloc_arena_leave(was_outer);
-        assert_eq!(current_arena(), Some(outer_arena), "leaving the inner scope lost the outer");
+        assert_eq!(
+            current_arena(),
+            Some(outer_arena),
+            "leaving the inner scope lost the outer"
+        );
 
         let _ = buri_rt_alloc_arena_leave(none);
-        assert!(current_arena().is_none(), "leaving the outer scope left one behind");
+        assert!(
+            current_arena().is_none(),
+            "leaving the outer scope left one behind"
+        );
 
         let _ = buri_rt_alloc_arena_release(inner_arena);
         let _ = buri_rt_alloc_arena_release(outer_arena);
@@ -6713,7 +7065,10 @@ mod tests {
         unsafe { assert!(is_arena(header(mine))) };
 
         let elsewhere = std::thread::spawn(|| {
-            assert!(current_arena().is_none(), "a fresh thread began inside a scope");
+            assert!(
+                current_arena().is_none(),
+                "a fresh thread began inside a scope"
+            );
             let p = buri_rt_alloc(80);
             // SAFETY: live, just allocated on this thread.
             let charged = unsafe { is_arena(header(p)) };
@@ -6722,7 +7077,11 @@ mod tests {
             charged
         })
         .join();
-        assert_eq!(elsewhere.ok(), Some(false), "another thread was inside this scope");
+        assert_eq!(
+            elsewhere.ok(),
+            Some(false),
+            "another thread was inside this scope"
+        );
 
         // SAFETY: the only reference.
         unsafe { buri_rt_free(mine) };
@@ -6747,7 +7106,10 @@ mod tests {
     #[test]
     fn a_copy_asks_the_latch_again_rather_than_inheriting_a_mark() {
         let _latch = latch();
-        assert!(!values_may_cross_tasks(), "the silent answer is the safe one");
+        assert!(
+            !values_may_cross_tasks(),
+            "the silent answer is the safe one"
+        );
 
         // A source with the mark set by hand, as a value that had crossed a
         // task boundary would carry it.
@@ -6815,14 +7177,24 @@ mod tests {
         unsafe {
             let first = buri_rt_copy_block(source, None);
             assert_ne!(first, source);
-            assert!(is_settled(header(first)), "a marked heap copy did not settle");
+            assert!(
+                is_settled(header(first)),
+                "a marked heap copy did not settle"
+            );
             assert_eq!(buri_rt_cap(first), 64, "the bit cost the copy its capacity");
             (*header(first)).cap &= !BURI_RT_CAP_SHARED;
-            assert_eq!(buri_rt_unique_cap(first), None, "a settled block was unique");
+            assert_eq!(
+                buri_rt_unique_cap(first),
+                None,
+                "a settled block was unique"
+            );
             (*header(first)).cap |= BURI_RT_CAP_SHARED;
 
             let second = buri_rt_copy_block(first, None);
-            assert_eq!(second, first, "a settled block was copied rather than shared");
+            assert_eq!(
+                second, first,
+                "a settled block was copied rather than shared"
+            );
             assert_eq!(buri_rt_rc(first), 2);
             buri_rt_decref(second, None);
             buri_rt_decref(first, None);
@@ -6850,10 +7222,24 @@ mod tests {
             assert!(is_settled(header(settled)));
             assert_eq!(buri_rt_rc(settled), 1);
             let item = 7i64;
-            let mut out = crate::value::BuriList { ptr: std::ptr::null_mut(), len: 0 };
-            crate::list::buri_rt_list_push(settled, 1, (&raw const item).cast(), 8, None, &raw mut out);
+            let mut out = crate::value::BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            };
+            crate::list::buri_rt_list_push(
+                settled,
+                1,
+                (&raw const item).cast(),
+                8,
+                None,
+                &raw mut out,
+            );
             assert_ne!(out.ptr, settled, "a push wrote into a settled block");
-            assert_eq!(buri_rt_rc(settled), 1, "the push kept a count on the settled block");
+            assert_eq!(
+                buri_rt_rc(settled),
+                1,
+                "the push kept a count on the settled block"
+            );
             buri_rt_decref(out.ptr, None);
             buri_rt_decref(settled, None);
         }
@@ -6902,7 +7288,10 @@ mod tests {
     fn the_arena_bit_and_the_mark_are_independent() {
         let _latch = latch();
         let _alone = arena_alone();
-        assert!(!values_may_cross_tasks(), "the silent answer is the safe one");
+        assert!(
+            !values_may_cross_tasks(),
+            "the silent answer is the safe one"
+        );
         let a = buri_rt_alloc_arena_create();
         let outer = buri_rt_alloc_arena_enter(a);
 
@@ -6910,9 +7299,19 @@ mod tests {
         let cold = buri_rt_alloc(72);
         // SAFETY: live, just allocated.
         unsafe {
-            assert!(is_arena(header(cold)), "a block inside a scope is not the scope's");
-            assert!(!is_shared(header(cold)), "an unmarked program marked a block");
-            assert_eq!(buri_rt_cap(cold), 72, "the arena bit cost the block its capacity");
+            assert!(
+                is_arena(header(cold)),
+                "a block inside a scope is not the scope's"
+            );
+            assert!(
+                !is_shared(header(cold)),
+                "an unmarked program marked a block"
+            );
+            assert_eq!(
+                buri_rt_cap(cold),
+                72,
+                "the arena bit cost the block its capacity"
+            );
             assert_eq!(
                 buri_rt_unique_cap(cold),
                 Some(72),
@@ -6926,10 +7325,24 @@ mod tests {
         let warm = buri_rt_alloc(72);
         // SAFETY: live, just allocated.
         unsafe {
-            assert!(is_arena(header(warm)), "a block inside a scope is not the scope's");
-            assert!(is_shared(header(warm)), "a block inside a scope escaped the mark");
-            assert_eq!(buri_rt_cap(warm), 72, "two flags cost the block its capacity");
-            assert_eq!(buri_rt_unique_cap(warm), None, "a marked block passed the unique test");
+            assert!(
+                is_arena(header(warm)),
+                "a block inside a scope is not the scope's"
+            );
+            assert!(
+                is_shared(header(warm)),
+                "a block inside a scope escaped the mark"
+            );
+            assert_eq!(
+                buri_rt_cap(warm),
+                72,
+                "two flags cost the block its capacity"
+            );
+            assert_eq!(
+                buri_rt_unique_cap(warm),
+                None,
+                "a marked block passed the unique test"
+            );
             buri_rt_free(warm);
         }
 
@@ -7034,7 +7447,11 @@ mod tests {
         // SAFETY: live, just allocated.
         unsafe {
             for i in 0..64usize {
-                assert_eq!(q.add(i).read(), 0, "a zeroed block came back with byte {i} set");
+                assert_eq!(
+                    q.add(i).read(),
+                    0,
+                    "a zeroed block came back with byte {i} set"
+                );
             }
             buri_rt_free(q);
         }
@@ -7044,7 +7461,6 @@ mod tests {
     }
 
     // === G5 end ============================================================
-
 
     // === G3 begin: the marking latch =======================================
 
@@ -7062,7 +7478,10 @@ mod tests {
     #[test]
     fn sharing_marks_every_block_including_the_ones_before_it() {
         let _latch = latch();
-        assert!(!values_may_cross_tasks(), "the silent answer is the safe one");
+        assert!(
+            !values_may_cross_tasks(),
+            "the silent answer is the safe one"
+        );
         let before = buri_rt_alloc(96);
         // SAFETY: live, just allocated.
         assert_eq!(unsafe { count_and_mark(before) }, (1, false));
@@ -7071,7 +7490,11 @@ mod tests {
         assert!(values_may_cross_tasks());
         // SAFETY: live.
         unsafe {
-            assert_eq!(count_and_mark(before), (1, false), "the statement alone marked a block");
+            assert_eq!(
+                count_and_mark(before),
+                (1, false),
+                "the statement alone marked a block"
+            );
             assert_eq!(buri_rt_unique_cap(before), Some(96));
         }
 
@@ -7085,7 +7508,11 @@ mod tests {
                 (1, true),
                 "a block made before sharing began was still counted plainly"
             );
-            assert_eq!(buri_rt_unique_cap(before), None, "a marked block passed the unique test");
+            assert_eq!(
+                buri_rt_unique_cap(before),
+                None,
+                "a marked block passed the unique test"
+            );
             // Its count is the atomic arm's now, and still exact.
             buri_rt_incref(before);
             assert_eq!(count_and_mark(before), (2, true));
@@ -7096,15 +7523,31 @@ mod tests {
             let p = buri_rt_alloc(payload);
             // SAFETY: live, just allocated under the latch.
             unsafe {
-                assert_eq!(count_and_mark(p), (1, true), "a {payload}-byte block was not marked");
-                assert_eq!(buri_rt_cap(p), payload, "the mark cost the block its capacity");
-                assert_eq!(buri_rt_unique_cap(p), None, "a marked block passed the unique test");
+                assert_eq!(
+                    count_and_mark(p),
+                    (1, true),
+                    "a {payload}-byte block was not marked"
+                );
+                assert_eq!(
+                    buri_rt_cap(p),
+                    payload,
+                    "the mark cost the block its capacity"
+                );
+                assert_eq!(
+                    buri_rt_unique_cap(p),
+                    None,
+                    "a marked block passed the unique test"
+                );
                 buri_rt_free(p);
             }
             let z = buri_rt_alloc_zeroed(payload);
             // SAFETY: live, just allocated under the latch.
             unsafe {
-                assert_eq!(count_and_mark(z), (1, true), "a zeroed block was not marked");
+                assert_eq!(
+                    count_and_mark(z),
+                    (1, true),
+                    "a zeroed block was not marked"
+                );
                 buri_rt_free(z);
             }
         }

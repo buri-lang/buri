@@ -41,7 +41,11 @@ impl Located {
     /// A span standing for this range. Only the offsets mean anything: they are
     /// read against [`Self::text`], never against the file the id names.
     pub fn span_in(&self, borrowed: Span) -> Span {
-        Span { file: borrowed.file, start: self.start, end: self.end }
+        Span {
+            file: borrowed.file,
+            start: self.start,
+            end: self.end,
+        }
     }
 
     /// The input's bytes, which is what turns a byte offset into a line and a
@@ -141,7 +145,10 @@ pub fn doc_comment(text: &str, at: &Located) -> Vec<String> {
     // the comment above the blank line as though the blank were not there.
     for line in above.split('\n').rev() {
         let trimmed = line.trim();
-        let Some(rest) = trimmed.strip_prefix("//").or_else(|| trimmed.strip_prefix('#')) else {
+        let Some(rest) = trimmed
+            .strip_prefix("//")
+            .or_else(|| trimmed.strip_prefix('#'))
+        else {
             break;
         };
         docs.push(rest.strip_prefix(' ').unwrap_or(rest).to_string());
@@ -203,7 +210,10 @@ mod tests {
 
     #[test]
     fn both_markers_read_the_same_way() {
-        assert_eq!(docs_above("// how wide\nwidth 3\n", "width 3"), ["how wide"]);
+        assert_eq!(
+            docs_above("// how wide\nwidth 3\n", "width 3"),
+            ["how wide"]
+        );
     }
 
     #[test]

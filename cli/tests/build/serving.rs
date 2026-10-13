@@ -69,7 +69,10 @@ const GRACE: Duration = Duration::from_secs(30);
 /// The fixture: the repository the manifest case builds, copied where this
 /// process can edit it.
 fn page_repo(name: &str) -> Scratch {
-    Scratch::copy_of(name, &tests_dir().join("repositories/serving/a_page_is_served/repo"))
+    Scratch::copy_of(
+        name,
+        &tests_dir().join("repositories/serving/a_page_is_served/repo"),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +213,10 @@ impl Serving {
 /// inherited and a failing row is still owed what the child said about itself.
 fn lines(
     pipe: impl std::io::Read + Send + 'static,
-) -> (std::sync::mpsc::Receiver<String>, std::thread::JoinHandle<()>) {
+) -> (
+    std::sync::mpsc::Receiver<String>,
+    std::thread::JoinHandle<()>,
+) {
     let (sending, received) = std::sync::mpsc::channel();
     let reader = std::thread::spawn(move || {
         for line in std::io::BufReader::new(pipe).lines() {
@@ -271,9 +277,13 @@ fn port_in(line: &str) -> u16 {
         .unwrap_or_else(|| panic!("no loopback address in the announcement: {line:?}"))
         .1;
     let digits: String = address.chars().take_while(char::is_ascii_digit).collect();
-    let port: u16 =
-        digits.parse().unwrap_or_else(|e| panic!("no port in the announcement {line:?}: {e}"));
-    assert!(port > 0, "the announcement carries port 0, which is what was asked for: {line:?}");
+    let port: u16 = digits
+        .parse()
+        .unwrap_or_else(|e| panic!("no port in the announcement {line:?}: {e}"));
+    assert!(
+        port > 0,
+        "the announcement carries port 0, which is what was asked for: {line:?}"
+    );
     port
 }
 
@@ -304,19 +314,30 @@ struct Reply {
 
 impl Reply {
     fn ok(&self) -> &Reply {
-        assert!(self.status.starts_with("HTTP/1.1 200"), "not a 200: {}", self.status);
+        assert!(
+            self.status.starts_with("HTTP/1.1 200"),
+            "not a 200: {}",
+            self.status
+        );
         self
     }
 
     fn missing(&self) -> &Reply {
-        assert!(self.status.starts_with("HTTP/1.1 404"), "not a 404: {}", self.status);
+        assert!(
+            self.status.starts_with("HTTP/1.1 404"),
+            "not a 404: {}",
+            self.status
+        );
         self
     }
 
     fn header(&self, name: &str) -> String {
         self.headers
             .lines()
-            .find(|l| l.to_ascii_lowercase().starts_with(&name.to_ascii_lowercase()))
+            .find(|l| {
+                l.to_ascii_lowercase()
+                    .starts_with(&name.to_ascii_lowercase())
+            })
             .unwrap_or_else(|| panic!("no {name} header in:\n{}", indent(&self.headers)))
             .trim()
             .to_string()
@@ -365,7 +386,11 @@ fn resolved(base: &str, reference: &str) -> String {
 
 /// One `GET`, read until the peer closes.
 fn get(port: u16, path: &str) -> Reply {
-    ask(port, &format!("GET {path} HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n"), false)
+    ask(
+        port,
+        &format!("GET {path} HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n"),
+        false,
+    )
 }
 
 /// Sends `request` as it is, then reads the answer until the peer closes.
@@ -380,7 +405,10 @@ fn ask(port: u16, request: &str, hang_up: bool) -> Reply {
         match std::net::TcpStream::connect_timeout(&at, DEADLINE) {
             Ok(socket) => break socket,
             Err(e) => {
-                assert!(Instant::now() < stop, "could not reach 127.0.0.1:{port}: {e}");
+                assert!(
+                    Instant::now() < stop,
+                    "could not reach 127.0.0.1:{port}: {e}"
+                );
                 std::thread::sleep(Duration::from_millis(10));
             }
         }
@@ -399,7 +427,11 @@ fn ask(port: u16, request: &str, hang_up: bool) -> Reply {
     let text = String::from_utf8_lossy(&raw).into_owned();
     let (head, body) = text.split_once("\r\n\r\n").unwrap_or((text.as_str(), ""));
     let (status, headers) = head.split_once("\r\n").unwrap_or((head, ""));
-    Reply { status: status.to_string(), headers: headers.to_string(), body: body.to_string() }
+    Reply {
+        status: status.to_string(),
+        headers: headers.to_string(),
+        body: body.to_string(),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +462,10 @@ fn a_page_is_served_with_the_shell_for_every_route() {
     let front = get(server.port, "/");
     front.ok();
     assert_eq!(front.body, shell, "`/` is not the shell on disk");
-    assert_eq!(front.header("content-type"), "Content-Type: text/html; charset=utf-8");
+    assert_eq!(
+        front.header("content-type"),
+        "Content-Type: text/html; charset=utf-8"
+    );
     // A rebuild the browser cannot see is a rebuild that did not happen.
     assert_eq!(front.header("cache-control"), "Cache-Control: no-store");
 
@@ -440,15 +475,24 @@ fn a_page_is_served_with_the_shell_for_every_route() {
 
     // A query string is not part of a path, which is what `Request.path` and
     // the address bar both say, so it is the same page.
-    assert_eq!(get(server.port, "/components/button?tab=api").ok().body, shell);
+    assert_eq!(
+        get(server.port, "/components/button?tab=api").ok().body,
+        shell
+    );
 
     let styles = get(server.port, "/main.css");
     styles.ok().holds("padding:1rem");
-    assert_eq!(styles.header("content-type"), "Content-Type: text/css; charset=utf-8");
+    assert_eq!(
+        styles.header("content-type"),
+        "Content-Type: text/css; charset=utf-8"
+    );
 
     let module = get(server.port, "/main.mjs");
     module.ok().holds("the front page");
-    assert_eq!(module.header("content-type"), "Content-Type: text/javascript; charset=utf-8");
+    assert_eq!(
+        module.header("content-type"),
+        "Content-Type: text/javascript; charset=utf-8"
+    );
 
     // An asset that is not there is missing, not a page. A browser told the
     // stylesheet it asked for is HTML has been lied to.
@@ -511,7 +555,9 @@ fn a_watching_run_serves_what_the_rebuild_wrote() {
     // writes could also be two passes — the first of which would have rebuilt
     // half the edit, which is a race between what is asserted below.
     let source = scratch.read("cmd/site/main.buri");
-    let edited = source.replace(".Rem(1.0)", ".Rem(2.0)").replace("the front page", "the rebuilt front page");
+    let edited = source
+        .replace(".Rem(1.0)", ".Rem(2.0)")
+        .replace("the front page", "the rebuilt front page");
     assert_ne!(edited, source, "the edit changed nothing");
     scratch.write("cmd/site/main.buri", &edited);
 
@@ -519,8 +565,13 @@ fn a_watching_run_serves_what_the_rebuild_wrote() {
         let styles = get(server.port, "/main.css");
         styles.body.contains("padding:2rem").then_some(())
     });
-    assert!(rebuilt.is_some(), "the stylesheet was not rebuilt within {DEADLINE:?}");
-    get(server.port, "/main.mjs").ok().holds("the rebuilt front page");
+    assert!(
+        rebuilt.is_some(),
+        "the stylesheet was not rebuilt within {DEADLINE:?}"
+    );
+    get(server.port, "/main.mjs")
+        .ok()
+        .holds("the rebuilt front page");
     // The same server: a route with no file behind it is still the shell.
     get(server.port, "/components/button")
         .ok()
@@ -566,15 +617,25 @@ fn a_watching_run_that_cannot_rebuild_keeps_serving_the_last_page() {
     server.complained_about("unknown-name");
 
     get(server.port, "/main.mjs").ok().holds("the front page");
-    assert_eq!(get(server.port, "/").ok().body, shell, "the shell the reader had is gone");
+    assert_eq!(
+        get(server.port, "/").ok().body,
+        shell,
+        "the shell the reader had is gone"
+    );
 
     let repaired = source.replace("the front page", "the repaired front page");
     assert_ne!(repaired, source, "the repair changed nothing");
     scratch.write("cmd/site/main.buri", &repaired);
     let served = until(DEADLINE, || {
-        get(server.port, "/main.mjs").body.contains("the repaired front page").then_some(())
+        get(server.port, "/main.mjs")
+            .body
+            .contains("the repaired front page")
+            .then_some(())
     });
-    assert!(served.is_some(), "the repair was not served within {DEADLINE:?}");
+    assert!(
+        served.is_some(),
+        "the repair was not served within {DEADLINE:?}"
+    );
 }
 
 /// A binary that declares a page *and* a worker serves the page.
@@ -594,8 +655,14 @@ fn a_binary_with_a_worker_beside_its_page_serves_the_page() {
     let server = serving(&scratch, "//cmd/both", &[]);
 
     let shell = scratch.read(".buri/out/web/cmd/both/index.html");
-    assert_eq!(get(server.port, "/").ok().body, shell, "`/` is not the page's shell");
-    get(server.port, "/main.mjs").ok().holds("both halves, one tree");
+    assert_eq!(
+        get(server.port, "/").ok().body,
+        shell,
+        "`/` is not the page's shell"
+    );
+    get(server.port, "/main.mjs")
+        .ok()
+        .holds("both halves, one tree");
 }
 
 /// A repository platform that ships an `index.html` among its `assets` is a
@@ -603,7 +670,10 @@ fn a_binary_with_a_worker_beside_its_page_serves_the_page() {
 /// entry, though its `js` file would otherwise make it `entry-not-runnable`.
 #[test]
 fn a_repository_platform_with_an_index_html_is_served() {
-    let scratch = Scratch::copy_of("serving-repository", &tests_dir().join("repositories/serving/a_page_is_served/repo"));
+    let scratch = Scratch::copy_of(
+        "serving-repository",
+        &tests_dir().join("repositories/serving/a_page_is_served/repo"),
+    );
     scratch.write(
         "platform/kiosk/BUILD.buri",
         "platform {\n    entry {\n        name: \"main\"\n        backend: JS\n        js: \"main.mjs\"\n    }\n    assets: [\"index.html\"]\n}\n",
@@ -614,9 +684,15 @@ fn a_repository_platform_with_an_index_html_is_served() {
          export struct KioskHost {\n    export alloc: HostAllocator,\n    export stdout: HostStdout,\n}\n\n\
          export fn main(host: KioskHost): Result<(), Str>;\n",
     );
-    scratch.write("platform/kiosk/main.mjs", "import { main } from \"buri:program\";\nawait main();\n");
+    scratch.write(
+        "platform/kiosk/main.mjs",
+        "import { main } from \"buri:program\";\nawait main();\n",
+    );
     scratch.write("platform/kiosk/index.html", "<!doctype html>\n<title>kiosk</title>\n<script type=\"module\" src=\"/main.mjs\"></script>\n");
-    scratch.write("cmd/kiosk/BUILD.buri", "binary {\n    outputs: [{ platform: \"//platform/kiosk\" }]\n}\n");
+    scratch.write(
+        "cmd/kiosk/BUILD.buri",
+        "binary {\n    outputs: [{ platform: \"//platform/kiosk\" }]\n}\n",
+    );
     scratch.write(
         "cmd/kiosk/main.buri",
         "from \"core/io\" import * as io;\nfrom \"platform/effect\" import { Stdout };\n\
@@ -628,7 +704,10 @@ fn a_repository_platform_with_an_index_html_is_served() {
 
     let front = get(server.port, "/somewhere/deep");
     front.ok().holds("<title>kiosk</title>");
-    assert_eq!(front.header("content-type"), "Content-Type: text/html; charset=utf-8");
+    assert_eq!(
+        front.header("content-type"),
+        "Content-Type: text/html; charset=utf-8"
+    );
     get(server.port, "/main.mjs").ok().holds("the kiosk");
 }
 
@@ -637,7 +716,10 @@ fn a_repository_platform_with_an_index_html_is_served() {
 /// second entry's module as well as its own.
 #[test]
 fn a_page_platform_with_two_entries_serves_both() {
-    let scratch = Scratch::copy_of("serving-two-entries", &tests_dir().join("repositories/serving/a_page_is_served/repo"));
+    let scratch = Scratch::copy_of(
+        "serving-two-entries",
+        &tests_dir().join("repositories/serving/a_page_is_served/repo"),
+    );
     scratch.write(
         "platform/kiosk/BUILD.buri",
         "platform {\n    entry {\n        name: \"main\"\n        backend: JS\n        js: \"main.mjs\"\n    }\n    \
@@ -651,13 +733,19 @@ fn a_page_platform_with_two_entries_serves_both() {
          export fn main(host: KioskHost): Result<(), Str>;\n\
          export fn helper(host: KioskHost, name: Str): Str;\n",
     );
-    scratch.write("platform/kiosk/main.mjs", "import { main } from \"buri:program\";\nawait main();\n");
+    scratch.write(
+        "platform/kiosk/main.mjs",
+        "import { main } from \"buri:program\";\nawait main();\n",
+    );
     scratch.write(
         "platform/kiosk/helper.mjs",
         "import { helper } from \"buri:program\";\nexport const called = \"the helper file\";\nexport default helper;\n",
     );
     scratch.write("platform/kiosk/index.html", "<!doctype html>\n<title>kiosk</title>\n<script type=\"module\" src=\"/main.mjs\"></script>\n");
-    scratch.write("cmd/kiosk/BUILD.buri", "binary {\n    outputs: [{ platform: \"//platform/kiosk\" }]\n}\n");
+    scratch.write(
+        "cmd/kiosk/BUILD.buri",
+        "binary {\n    outputs: [{ platform: \"//platform/kiosk\" }]\n}\n",
+    );
     scratch.write(
         "cmd/kiosk/main.buri",
         "from \"core/io\" import * as io;\nfrom \"platform/effect\" import { Stdout };\n\
@@ -669,7 +757,9 @@ fn a_page_platform_with_two_entries_serves_both() {
     let server = serving(&scratch, "//cmd/kiosk", &[]);
 
     get(server.port, "/main.mjs").ok().holds("the kiosk");
-    get(server.port, "/helper.mjs").ok().holds("the helper file");
+    get(server.port, "/helper.mjs")
+        .ok()
+        .holds("the helper file");
 }
 
 /// A port something else is already on is a refusal naming it, rather than a
@@ -681,7 +771,9 @@ fn a_port_already_taken_is_refused_by_name() {
     let port = held.local_addr().expect("a bound address").port();
 
     let run = scratch.run(&["run", "//cmd/site", &format!("--port={port}")]);
-    run.exits(2).says(&format!("cannot listen on 127.0.0.1:{port}")).says("--port=0");
+    run.exits(2)
+        .says(&format!("cannot listen on 127.0.0.1:{port}"))
+        .says("--port=0");
     drop(held);
 }
 
@@ -702,16 +794,34 @@ fn a_request_is_read_the_way_a_browser_writes_it() {
     let head = ask(server.port, "HEAD / HTTP/1.1\r\n\r\n", false);
     head.ok();
     assert_eq!(head.body, "", "`HEAD` answered with a body");
-    assert_eq!(head.header("content-length"), format!("Content-Length: {}", shell.len()));
+    assert_eq!(
+        head.header("content-length"),
+        format!("Content-Length: {}", shell.len())
+    );
     let head = ask(server.port, "HEAD /theme.css HTTP/1.1\r\n\r\n", false);
     head.missing();
-    assert_eq!(head.body, "", "`HEAD` of a missing file answered with a body");
+    assert_eq!(
+        head.body, "",
+        "`HEAD` of a missing file answered with a body"
+    );
 
-    let post = ask(server.port, "POST / HTTP/1.1\r\ncontent-length: 0\r\n\r\n", false);
-    assert!(post.status.starts_with("HTTP/1.1 405"), "not a 405: {}", post.status);
+    let post = ask(
+        server.port,
+        "POST / HTTP/1.1\r\ncontent-length: 0\r\n\r\n",
+        false,
+    );
+    assert!(
+        post.status.starts_with("HTTP/1.1 405"),
+        "not a 405: {}",
+        post.status
+    );
     // Nothing at all is not a method either.
     let nothing = ask(server.port, "", true);
-    assert!(nothing.status.starts_with("HTTP/1.1 405"), "not a 405: {}", nothing.status);
+    assert!(
+        nothing.status.starts_with("HTTP/1.1 405"),
+        "not a 405: {}",
+        nothing.status
+    );
 
     for path in ["/./main.css", "//main.css", "/main%2Ecss"] {
         get(server.port, path).ok().holds("padding:1rem");
@@ -719,14 +829,29 @@ fn a_request_is_read_the_way_a_browser_writes_it() {
     // A `%` with no two hex digits after it is kept, and neither path names a
     // file, so both are routes.
     for path in ["/%zz", "/100%"] {
-        assert_eq!(get(server.port, path).ok().body, shell, "{path} is not the shell");
+        assert_eq!(
+            get(server.port, path).ok().body,
+            shell,
+            "{path} is not the shell"
+        );
     }
     // A request line with no path asks for the front page.
     assert_eq!(ask(server.port, "GET\r\n\r\n", false).ok().body, shell);
     // A client that hangs up before the blank line still gets its answer.
-    ask(server.port, "GET /main.css HTTP/1.1\r\nhost: 127.0.0.1\r\n", true).ok().holds("padding:1rem");
+    ask(
+        server.port,
+        "GET /main.css HTTP/1.1\r\nhost: 127.0.0.1\r\n",
+        true,
+    )
+    .ok()
+    .holds("padding:1rem");
 
-    for path in ["/a\\b", "/%5Cmain.css", "/%2e%2e/x", "/%2E%2E/%2E%2E/etc/passwd"] {
+    for path in [
+        "/a\\b",
+        "/%5Cmain.css",
+        "/%2e%2e/x",
+        "/%2E%2E/%2E%2E/etc/passwd",
+    ] {
         get(server.port, path).missing();
     }
 }
@@ -749,12 +874,26 @@ fn a_page_with_no_shell_is_refused_by_name() {
     let status = until(DEADLINE, || child.try_wait().ok().flatten());
     let Some(status) = status else {
         let _ = child.kill();
-        panic!("`buri run` was still running {DEADLINE:?} later:\n{}", held.printed())
+        panic!(
+            "`buri run` was still running {DEADLINE:?} later:\n{}",
+            held.printed()
+        )
     };
     let printed = held.printed();
-    assert_eq!(status.code(), Some(2), "`buri run` ended {status}:\n{printed}");
-    for needle in ["//cmd/site has no page to serve", "index.html is not there", "buri build //cmd/site"] {
-        assert!(printed.contains(needle), "the refusal does not say {needle:?}:\n{printed}");
+    assert_eq!(
+        status.code(),
+        Some(2),
+        "`buri run` ended {status}:\n{printed}"
+    );
+    for needle in [
+        "//cmd/site has no page to serve",
+        "index.html is not there",
+        "buri build //cmd/site",
+    ] {
+        assert!(
+            printed.contains(needle),
+            "the refusal does not say {needle:?}:\n{printed}"
+        );
     }
 }
 
@@ -776,7 +915,10 @@ fn a_watching_run_rides_out_broken_build_files() {
     server.complained_about("error");
     get(server.port, "/main.mjs").ok().holds("the front page");
 
-    scratch.write("cmd/site/BUILD.buri", "binary {\n    outputs: [{ platform: \"node\" }]\n}\n");
+    scratch.write(
+        "cmd/site/BUILD.buri",
+        "binary {\n    outputs: [{ platform: \"node\" }]\n}\n",
+    );
     server.complained_about("no longer names one page");
     get(server.port, "/main.mjs").ok().holds("the front page");
 
@@ -787,11 +929,20 @@ fn a_watching_run_rides_out_broken_build_files() {
 
     scratch.write("REPO.buri", &repo);
     let source = scratch.read("cmd/site/main.buri");
-    scratch.write("cmd/site/main.buri", &source.replace("the front page", "the repaired front page"));
+    scratch.write(
+        "cmd/site/main.buri",
+        &source.replace("the front page", "the repaired front page"),
+    );
     let served = until(DEADLINE, || {
-        get(server.port, "/main.mjs").body.contains("the repaired front page").then_some(())
+        get(server.port, "/main.mjs")
+            .body
+            .contains("the repaired front page")
+            .then_some(())
     });
-    assert!(served.is_some(), "the repair was not served within {DEADLINE:?}");
+    assert!(
+        served.is_some(),
+        "the repair was not served within {DEADLINE:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -804,8 +955,9 @@ impl Serving {
         let pid = i32::try_from(self.child.id()).expect("a pid fits an i32");
         // SAFETY: an ordinary `kill` on this row's own child.
         unsafe { kill(pid, signal) };
-        until(DEADLINE, || self.child.try_wait().ok().flatten())
-            .unwrap_or_else(|| panic!("the server was still running {DEADLINE:?} after signal {signal}"))
+        until(DEADLINE, || self.child.try_wait().ok().flatten()).unwrap_or_else(|| {
+            panic!("the server was still running {DEADLINE:?} after signal {signal}")
+        })
     }
 }
 
@@ -824,7 +976,11 @@ fn a_page_server_stops_on_a_signal_with_its_status() {
         let mut server = serving(&scratch, "//cmd/site", &[]);
         get(server.port, "/").ok();
         let status = server.stopped_by(signal);
-        assert_eq!(status.code(), Some(128 + signal), "{name}: the server ended {status}");
+        assert_eq!(
+            status.code(),
+            Some(128 + signal),
+            "{name}: the server ended {status}"
+        );
     }
 }
 
@@ -839,7 +995,11 @@ fn a_rebuild_held_reading(scratch: &Scratch) -> std::fs::File {
     unsafe extern "C" {
         fn mkfifo(path: *const std::ffi::c_char, mode: u32) -> i32;
     }
-    const O_NONBLOCK: i32 = if cfg!(target_os = "macos") { 0x4 } else { 0o4000 };
+    const O_NONBLOCK: i32 = if cfg!(target_os = "macos") {
+        0x4
+    } else {
+        0o4000
+    };
     let path = scratch.path("cmd/site/main.buri");
     // Made beside it and renamed over it, so no sweep sees the source missing.
     let beside = scratch.path("cmd/site/main.pipe");
@@ -848,21 +1008,31 @@ fn a_rebuild_held_reading(scratch: &Scratch) -> std::fs::File {
     assert_eq!(unsafe { mkfifo(name.as_ptr(), 0o644) }, 0, "mkfifo failed");
     std::fs::rename(&beside, &path).unwrap();
     // A writer that won't wait is refused until a reader has the pipe open.
-    until(DEADLINE, || std::fs::OpenOptions::new().write(true).custom_flags(O_NONBLOCK).open(&path).ok())
-        .unwrap_or_else(|| panic!("no rebuild read the source within {DEADLINE:?}"))
+    until(DEADLINE, || {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(O_NONBLOCK)
+            .open(&path)
+            .ok()
+    })
+    .unwrap_or_else(|| panic!("no rebuild read the source within {DEADLINE:?}"))
 }
 
 /// Whether anything the rebuilds wrote under `.buri/out` holds `needle`.
 fn built_holds(scratch: &Scratch, needle: &str) -> bool {
     fn walk(dir: &std::path::Path, needle: &str) -> bool {
-        std::fs::read_dir(dir).into_iter().flatten().flatten().any(|entry| {
-            let path = entry.path();
-            if path.is_dir() {
-                walk(&path, needle)
-            } else {
-                std::fs::read_to_string(&path).is_ok_and(|text| text.contains(needle))
-            }
-        })
+        std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|entry| {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, needle)
+                } else {
+                    std::fs::read_to_string(&path).is_ok_and(|text| text.contains(needle))
+                }
+            })
     }
     walk(&scratch.path(".buri/out"), needle)
 }
@@ -885,13 +1055,21 @@ fn a_rebuild_in_progress_finishes_before_the_server_stops() {
     // The edited source back as a file for everything the rebuild reads later,
     // then the same bytes down the pipe it is reading now.
     scratch.write("cmd/site/main.edited", &edited);
-    std::fs::rename(scratch.path("cmd/site/main.edited"), scratch.path("cmd/site/main.buri")).unwrap();
+    std::fs::rename(
+        scratch.path("cmd/site/main.edited"),
+        scratch.path("cmd/site/main.buri"),
+    )
+    .unwrap();
     pipe.write_all(edited.as_bytes()).unwrap();
     drop(pipe);
 
     let status = until(DEADLINE, || server.child.try_wait().ok().flatten())
         .unwrap_or_else(|| panic!("the server was still running {DEADLINE:?} after the rebuild"));
-    assert_eq!(status.code(), Some(128 + SIGTERM), "the server ended {status}");
+    assert_eq!(
+        status.code(),
+        Some(128 + SIGTERM),
+        "the server ended {status}"
+    );
     assert!(
         built_holds(&scratch, "the finished front page"),
         "the server stopped before the rebuild it was in finished"
@@ -911,7 +1089,11 @@ fn a_second_signal_stops_the_server_at_once() {
     unsafe { kill(pid, SIGTERM) };
     server.complained_about(STOPPING);
     let status = server.stopped_by(SIGTERM);
-    assert_eq!(status.signal(), Some(SIGTERM), "the second signal did not stop the server: {status}");
+    assert_eq!(
+        status.signal(),
+        Some(SIGTERM),
+        "the second signal did not stop the server: {status}"
+    );
     drop(pipe);
 }
 
@@ -1005,8 +1187,16 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// a binary that declares no output builds for JavaScript, and a JavaScript
 /// artifact is a module `bun` runs rather than a process `run` starts.
 fn native_platform() -> String {
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     format!("\"native\", variant: \"{os}-{arch}\"")
 }
 
@@ -1020,7 +1210,10 @@ fn native_repo(name: &str, source: &str) -> Option<Scratch> {
     let scratch = Scratch::repo(name);
     scratch.write(
         "cmd/program/BUILD.buri",
-        &format!("binary {{\n    outputs: [{{ platform: {} }}]\n}}\n", native_platform()),
+        &format!(
+            "binary {{\n    outputs: [{{ platform: {} }}]\n}}\n",
+            native_platform()
+        ),
     );
     scratch.write("cmd/program/main.buri", source);
     let built = scratch.run(&["build", "//cmd/program"]);
@@ -1144,7 +1337,9 @@ fn stopped(server: &mut Serving) -> std::process::ExitStatus {
 /// instead raced every concurrent test: once the program let it go, the
 /// operating system could hand it to another test's server, which answered.
 fn gone(server: &Serving) {
-    let ended = until(DEADLINE, || server.readers.iter().all(|r| r.is_finished()).then_some(()));
+    let ended = until(DEADLINE, || {
+        server.readers.iter().all(|r| r.is_finished()).then_some(())
+    });
     if ended.is_none() {
         panic!(
             "the output of `buri run` was still open {DEADLINE:?} after it exited, so the \
@@ -1167,7 +1362,9 @@ fn gone(server: &Serving) {
 /// make a clean stop look like a failure to every script that reads it.
 #[test]
 fn a_signalled_run_stops_the_server_it_started() {
-    let Some(scratch) = native_repo("run-signal", SERVER) else { return };
+    let Some(scratch) = native_repo("run-signal", SERVER) else {
+        return;
+    };
     let (mut server, first) = running(&scratch);
     announced_port(&first);
 
@@ -1193,7 +1390,9 @@ fn a_signalled_run_stops_the_server_it_started() {
 /// only come from a drain that ran.
 #[test]
 fn a_signal_to_the_whole_group_reaches_the_program_once() {
-    let Some(scratch) = native_repo("run-signal-group", SERVER) else { return };
+    let Some(scratch) = native_repo("run-signal-group", SERVER) else {
+        return;
+    };
     let (mut server, first) = running(&scratch);
     announced_port(&first);
 
@@ -1215,7 +1414,9 @@ fn a_signal_to_the_whole_group_reaches_the_program_once() {
 /// program that was killed and one that chose to fail.
 #[test]
 fn a_program_a_signal_ends_is_reported_as_the_signal() {
-    let Some(scratch) = native_repo("run-signal-uncaught", SLEEPER) else { return };
+    let Some(scratch) = native_repo("run-signal-uncaught", SLEEPER) else {
+        return;
+    };
     let (mut server, first) = running(&scratch);
     assert_eq!(first, "up", "the program did not start");
 
@@ -1251,7 +1452,9 @@ fn a_signalled_page_server_gives_up_its_port() {
 /// points ([`crate::held`]), so neither is left to the scheduler.
 #[test]
 fn a_signal_reaches_the_program_before_or_after_it_starts() {
-    let Some(scratch) = native_repo("run-signal-held", SLEEPER) else { return };
+    let Some(scratch) = native_repo("run-signal-held", SLEEPER) else {
+        return;
+    };
     for point in ["spawning", "started"] {
         let held = crate::held::Held::new(&format!("run-signal-{point}"));
         held.raise(point, 1, &[SIGTERM as u8]);
@@ -1271,23 +1474,49 @@ fn a_signal_reaches_the_program_before_or_after_it_starts() {
 /// before it starts the program and deletes the program there.
 #[test]
 fn a_program_gone_before_it_starts_is_refused() {
-    let Some(scratch) = native_repo("run-program-gone", SLEEPER) else { return };
+    let Some(scratch) = native_repo("run-program-gone", SLEEPER) else {
+        return;
+    };
     let held = crate::held::Held::new("run-program-gone");
     held.hold("spawning", 1);
     let mut child = held.start(&scratch, &["run", "//cmd/program"]);
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     held.at("spawning", 1, || {
-        std::fs::remove_file(scratch.path(&format!(".buri/out/native/{os}-{arch}/cmd/program/program"))).unwrap();
+        std::fs::remove_file(
+            scratch.path(&format!(".buri/out/native/{os}-{arch}/cmd/program/program")),
+        )
+        .unwrap();
     });
     let Some(status) = until(DEADLINE, || child.try_wait().ok().flatten()) else {
         let _ = child.kill();
-        panic!("`buri run` was still running {DEADLINE:?} later:\n{}", held.printed())
+        panic!(
+            "`buri run` was still running {DEADLINE:?} later:\n{}",
+            held.printed()
+        )
     };
     let printed = held.printed();
-    assert_eq!(status.code(), Some(2), "`buri run` ended {status}:\n{printed}");
-    assert!(printed.contains("error: cannot execute the artifact"), "{printed}");
-    assert!(!printed.contains("JavaScript runtime"), "a native program was blamed on JavaScript:\n{printed}");
+    assert_eq!(
+        status.code(),
+        Some(2),
+        "`buri run` ended {status}:\n{printed}"
+    );
+    assert!(
+        printed.contains("error: cannot execute the artifact"),
+        "{printed}"
+    );
+    assert!(
+        !printed.contains("JavaScript runtime"),
+        "a native program was blamed on JavaScript:\n{printed}"
+    );
 }
 
 /// **At a terminal, `buri run` sends on only `SIGTERM`.** The terminal sends
@@ -1297,7 +1526,9 @@ fn a_program_gone_before_it_starts_is_refused() {
 /// `SIGTERM`, which the program drains on.
 #[test]
 fn at_a_terminal_only_a_supervisors_signal_is_sent_on() {
-    let Some(scratch) = native_repo("run-signal-terminal", SERVER) else { return };
+    let Some(scratch) = native_repo("run-signal-terminal", SERVER) else {
+        return;
+    };
     let held = crate::held::Held::new("run-signal-terminal");
     held.raise("started", 1, &[SIGINT as u8]);
     let terminal = Terminal::open();
@@ -1307,7 +1538,11 @@ fn at_a_terminal_only_a_supervisors_signal_is_sent_on() {
 
     signal(&server, Aim::AtTheWrapper, SIGTERM);
     let status = stopped(&mut server);
-    assert_eq!(status.code(), Some(0), "the program was not drained once: {status}");
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "the program was not drained once: {status}"
+    );
     gone(&server);
 }
 
@@ -1346,9 +1581,20 @@ impl Terminal {
         let (mut controller, mut device) = (-1, -1);
         // SAFETY: two out-pointers, and no name, settings or size.
         let opened = unsafe {
-            openpty(&mut controller, &mut device, std::ptr::null_mut(), std::ptr::null(), std::ptr::null())
+            openpty(
+                &mut controller,
+                &mut device,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null(),
+            )
         };
-        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
+        assert_eq!(
+            opened,
+            0,
+            "openpty failed: {}",
+            std::io::Error::last_os_error()
+        );
         // SAFETY: two descriptors `openpty` just opened, owned by nothing else.
         unsafe {
             Terminal {
@@ -1366,9 +1612,17 @@ impl Terminal {
             fn setsid() -> i32;
             fn ioctl(fd: i32, request: std::ffi::c_ulong, ...) -> i32;
         }
-        const TIOCSCTTY: std::ffi::c_ulong = if cfg!(target_os = "macos") { 0x2000_7461 } else { 0x540E };
+        const TIOCSCTTY: std::ffi::c_ulong = if cfg!(target_os = "macos") {
+            0x2000_7461
+        } else {
+            0x540E
+        };
         command.env("BURI_HOLD", held.dir());
-        command.stdin(self.device.try_clone().expect("a second descriptor for the terminal"));
+        command.stdin(
+            self.device
+                .try_clone()
+                .expect("a second descriptor for the terminal"),
+        );
         // SAFETY: `setsid` and `ioctl` are on POSIX's async-signal-safe list.
         unsafe {
             command.pre_exec(|| {

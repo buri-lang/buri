@@ -50,6 +50,13 @@ fn an_entry_without_a_host_answers_its_caller() {
         .current_dir(&scratch.root)
         .output()
         .unwrap();
-    assert!(out.status.success(), "an entry failed:\n{}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(String::from_utf8_lossy(&out.stdout), "5 1\nhello Grace\n5\n10 U8\nAda\n6 1\n");
+    assert!(
+        out.status.success(),
+        "an entry failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "5 1\nhello Grace\n5\n10 U8\nAda\n6 1\n"
+    );
 }

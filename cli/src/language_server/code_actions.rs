@@ -18,13 +18,13 @@
 //! request the client will never send would be offering a fix that does
 //! nothing.
 
+use super::convert::{self, Position};
+use super::state::State;
 use crate::build::regenerate;
 use crate::build::session::Session;
 use crate::json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use super::convert::{self, Position};
-use super::state::State;
 
 /// The one `CodeActionKind` this server produces, advertised in
 /// `codeActionKinds` so a client knows in advance that it is all there is.
@@ -48,7 +48,9 @@ struct Action {
 /// nothing. So an empty context is answered from the server's own findings that
 /// intersect the range instead of with an empty list.
 pub fn list(state: &mut State, params: &Value) -> Value {
-    let Some(path) = super::uri_param(params) else { return Value::Array(Vec::new()) };
+    let Some(path) = super::uri_param(params) else {
+        return Value::Array(Vec::new());
+    };
     if !kinds_wanted(params) {
         return Value::Array(Vec::new());
     }
@@ -83,8 +85,11 @@ pub fn list(state: &mut State, params: &Value) -> Value {
 /// advertises, so a client that asked for some other family is told so with an
 /// empty list rather than handed fixes it will filter out anyway.
 fn kinds_wanted(params: &Value) -> bool {
-    let Some(only) = params.at("context.only").and_then(|o| o.as_array()) else { return true };
-    only.iter().any(|kind| matches!(kind.as_str(), Some("" | QUICKFIX)))
+    let Some(only) = params.at("context.only").and_then(|o| o.as_array()) else {
+        return true;
+    };
+    only.iter()
+        .any(|kind| matches!(kind.as_str(), Some("" | QUICKFIX)))
 }
 
 /// The findings this server itself has in `path` that the request's range
@@ -93,13 +98,26 @@ fn kinds_wanted(params: &Value) -> bool {
 /// A zero-width range — the cursor, which is what a palette invocation sends —
 /// counts as touching the finding it sits in.
 fn in_range(state: &mut State, path: &Path, params: &Value) -> Vec<Value> {
-    let Some(text) = state.text_of(path) else { return Vec::new() };
-    let Some(range) = params.get("range") else { return Vec::new() };
-    let Some(start) = range.get("start").and_then(Position::from_json) else { return Vec::new() };
-    let Some(end) = range.get("end").and_then(Position::from_json) else { return Vec::new() };
-    let (from, to) = (convert::offset_of(&text, start), convert::offset_of(&text, end));
+    let Some(text) = state.text_of(path) else {
+        return Vec::new();
+    };
+    let Some(range) = params.get("range") else {
+        return Vec::new();
+    };
+    let Some(start) = range.get("start").and_then(Position::from_json) else {
+        return Vec::new();
+    };
+    let Some(end) = range.get("end").and_then(Position::from_json) else {
+        return Vec::new();
+    };
+    let (from, to) = (
+        convert::offset_of(&text, start),
+        convert::offset_of(&text, end),
+    );
     let uri = convert::uri_of(path);
-    let Some(linted) = state.lint(path) else { return Vec::new() };
+    let Some(linted) = state.lint(path) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for d in &linted.diagnostics.items {
         if d.span.is_none() || d.span.start > to || d.span.end < from {
@@ -121,7 +139,10 @@ fn in_range(state: &mut State, path: &Path, params: &Value) -> Vec<Value> {
 pub fn resolve(state: &mut State, action: &Value) -> Value {
     let mut resolved = action.clone();
     let edit = (|| {
-        let path = action.at("data.uri").and_then(|u| u.as_str()).and_then(convert::path_of)?;
+        let path = action
+            .at("data.uri")
+            .and_then(|u| u.as_str())
+            .and_then(convert::path_of)?;
         let code = action.at("data.code")?.as_str()?.to_string();
         let title = action.at("data.title")?.as_str()?;
         // Two findings of one lint are two actions with two titles, so the
@@ -133,7 +154,9 @@ pub fn resolve(state: &mut State, action: &Value) -> Value {
     })();
     // An action with nothing to resolve is still a legal answer to this
     // request, and it is the action itself.
-    let (Some(edit), Value::Object(fields)) = (edit, &mut resolved) else { return resolved };
+    let (Some(edit), Value::Object(fields)) = (edit, &mut resolved) else {
+        return resolved;
+    };
     fields.insert("edit".to_string(), edit);
     resolved
 }
@@ -181,7 +204,9 @@ fn rendered(action: &Action, uri: &str, asked: &[Value]) -> Value {
 /// reads the findings the lint pass already computed and stops, and with it the
 /// build-file family also runs `buri gen`.
 fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) -> Vec<Action> {
-    let Some(linted) = state.lint(path) else { return Vec::new() };
+    let Some(linted) = state.lint(path) else {
+        return Vec::new();
+    };
     let session = &linted.analyzed.session;
     let mut out = Vec::new();
     let mut regenerated: BTreeSet<String> = BTreeSet::new();
@@ -194,14 +219,19 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
     let mut offered: Vec<Vec<(u32, u32, u32, String)>> = Vec::new();
 
     for d in &linted.diagnostics.items {
-        let Some(code) = d.code.as_deref() else { continue };
+        let Some(code) = d.code.as_deref() else {
+            continue;
+        };
         if !wanted.iter().any(|w| w == code) {
             continue;
         }
 
         // A finding that already knows its bytes.
         if !d.edits.is_empty() {
-            if !d.edits.iter().any(|e| !session.map.get(e.at.file).abs_path.as_os_str().is_empty())
+            if !d
+                .edits
+                .iter()
+                .any(|e| !session.map.get(e.at.file).abs_path.as_os_str().is_empty())
             {
                 continue;
             }
@@ -231,10 +261,15 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
         }
 
         // A finding whose answer is a build file `buri gen` already writes.
-        if !matches!(code, "missing-dependency" | "unused-source" | "duplicate-source") {
+        if !matches!(
+            code,
+            "missing-dependency" | "unused-source" | "duplicate-source"
+        ) {
             continue;
         }
-        let Some(package) = package_of(session, d.span.file, path) else { continue };
+        let Some(package) = package_of(session, d.span.file, path) else {
+            continue;
+        };
         // `buri gen` leaves a tool's build file as written, so a title
         // offered here would resolve to no edit.
         if session.workspace.package(package).has_tool() {
@@ -249,11 +284,19 @@ fn found(state: &mut State, path: &Path, wanted: &[String], with_edits: bool) ->
         // put off. What `buri gen` writes is the whole answer either way.
         let title = format!("{where_it_is}: as `buri gen` would write it");
         if !with_edits {
-            out.push(Action { title, code: code.to_string(), edit: None });
+            out.push(Action {
+                title,
+                code: code.to_string(),
+                edit: None,
+            });
             continue;
         }
         if let Some(edit) = regenerated_build_file(state, path, package) {
-            out.push(Action { title, code: code.to_string(), edit: Some(edit) });
+            out.push(Action {
+                title,
+                code: code.to_string(),
+                edit: Some(edit),
+            });
         }
     }
     out
@@ -271,10 +314,13 @@ fn byte_edits(session: &Session, d: &crate::diagnostics::Diagnostic) -> Value {
             ("start", convert::position_of(&f.text, e.at.start).to_json()),
             ("end", convert::position_of(&f.text, e.at.end).to_json()),
         ]);
-        by_file.entry(convert::uri_of(&f.abs_path)).or_default().push(Value::object(vec![
-            ("range", range),
-            ("newText", Value::str(&e.replacement)),
-        ]));
+        by_file
+            .entry(convert::uri_of(&f.abs_path))
+            .or_default()
+            .push(Value::object(vec![
+                ("range", range),
+                ("newText", Value::str(&e.replacement)),
+            ]));
     }
     changes(by_file)
 }
@@ -309,7 +355,12 @@ fn regenerated_build_file(
 fn changes(by_file: BTreeMap<String, Vec<Value>>) -> Value {
     Value::object(vec![(
         "changes",
-        Value::Object(by_file.into_iter().map(|(k, v)| (k, Value::Array(v))).collect()),
+        Value::Object(
+            by_file
+                .into_iter()
+                .map(|(k, v)| (k, Value::Array(v)))
+                .collect(),
+        ),
     )])
 }
 

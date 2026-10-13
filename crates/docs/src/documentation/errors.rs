@@ -59,298 +59,1123 @@ macro_rules! e {
 }
 
 pub const ERRORS: &[ErrorDoc] = &[
-    e!("accepts-duplicate-language", "A contract lists each language once", &["build/tools"]),
-    e!("accepts-missing-field", "An `accepts` entry names a language and a schema", &["build/tools"]),
-    e!("accepts-missing-generate", "A contract language needs a `generate`", &["build/tools"]),
-    e!("accepts-unknown-language", "A contract names a declared language", &["build/tools"]),
-    e!("alpha-out-of-range", "A colour's alpha is a fraction from 0 to 1", &["guides/user-interfaces"]),
-    e!("ambiguous-source", "A source two rules reach is listed explicitly", &["build/build-files"]),
-    e!("ambiguous-trait-method", "A method two bounds share needs qualifying"),
-    e!("argument-count", "A call passes the arguments its callee declares"),
-    e!("array-impl-outside-core-list", "The defining module of `[T]` is `core/list`"),
-    e!("binary-entry-import", "A binary's entry point is imported only by its own tests", &["build/libraries"]),
-    e!("binary-field-not-allowed", "Some library fields don't apply to a binary", &["build/build-files"]),
-    e!("binary-internal-import", "A binary imports its library through the surface", &["build/build-files"]),
-    e!("binary-source-import", "A library never imports its binary", &["build/build-files"]),
-    e!("bitwise-non-integer", "The bitwise operators are defined on integers"),
+    e!(
+        "accepts-duplicate-language",
+        "A contract lists each language once",
+        &["build/tools"]
+    ),
+    e!(
+        "accepts-missing-field",
+        "An `accepts` entry names a language and a schema",
+        &["build/tools"]
+    ),
+    e!(
+        "accepts-missing-generate",
+        "A contract language needs a `generate`",
+        &["build/tools"]
+    ),
+    e!(
+        "accepts-unknown-language",
+        "A contract names a declared language",
+        &["build/tools"]
+    ),
+    e!(
+        "alpha-out-of-range",
+        "A colour's alpha is a fraction from 0 to 1",
+        &["guides/user-interfaces"]
+    ),
+    e!(
+        "ambiguous-source",
+        "A source two rules reach is listed explicitly",
+        &["build/build-files"]
+    ),
+    e!(
+        "ambiguous-trait-method",
+        "A method two bounds share needs qualifying"
+    ),
+    e!(
+        "argument-count",
+        "A call passes the arguments its callee declares"
+    ),
+    e!(
+        "array-impl-outside-core-list",
+        "The defining module of `[T]` is `core/list`"
+    ),
+    e!(
+        "binary-entry-import",
+        "A binary's entry point is imported only by its own tests",
+        &["build/libraries"]
+    ),
+    e!(
+        "binary-field-not-allowed",
+        "Some library fields don't apply to a binary",
+        &["build/build-files"]
+    ),
+    e!(
+        "binary-internal-import",
+        "A binary imports its library through the surface",
+        &["build/build-files"]
+    ),
+    e!(
+        "binary-source-import",
+        "A library never imports its binary",
+        &["build/build-files"]
+    ),
+    e!(
+        "bitwise-non-integer",
+        "The bitwise operators are defined on integers"
+    ),
     e!("bound-not-trait", "A bound names a trait or an effect"),
-    e!("build-field-mismatch", "A build-file field holds one kind of value", &["build/build-files"]),
-    e!("build-file-syntax", "A build file is a well-formed textproto", &["build/build-files"]),
-    e!("build-quoted-word", "An enumerated build-file value is a bare word", &["build/build-files"]),
-    e!("build-unknown-field", "A build file uses only declared fields", &["build/build-files"]),
-    e!("build-unknown-word", "A build-file field takes one of a closed set of words", &["build/build-files"]),
-    e!("built-in-type-name", "A built-in type's name is not declared again"),
-    e!("built-in-language-tool", "A built-in language keeps its own tools", &["build/repo-config"]),
+    e!(
+        "build-field-mismatch",
+        "A build-file field holds one kind of value",
+        &["build/build-files"]
+    ),
+    e!(
+        "build-file-syntax",
+        "A build file is a well-formed textproto",
+        &["build/build-files"]
+    ),
+    e!(
+        "build-quoted-word",
+        "An enumerated build-file value is a bare word",
+        &["build/build-files"]
+    ),
+    e!(
+        "build-unknown-field",
+        "A build file uses only declared fields",
+        &["build/build-files"]
+    ),
+    e!(
+        "build-unknown-word",
+        "A build-file field takes one of a closed set of words",
+        &["build/build-files"]
+    ),
+    e!(
+        "built-in-type-name",
+        "A built-in type's name is not declared again"
+    ),
+    e!(
+        "built-in-language-tool",
+        "A built-in language keeps its own tools",
+        &["build/repo-config"]
+    ),
     e!("chain-too-long", "A chain has a bounded length"),
     e!("chained-comparison", "Comparison operators do not chain"),
-    e!("character-literal-length", "A character literal holds one scalar value"),
-    e!("circular-generator", "A generator's tool never builds from its output", &["build/generators"]),
-    e!("circular-constant", "A constant never refers back to itself"),
+    e!(
+        "character-literal-length",
+        "A character literal holds one scalar value"
+    ),
+    e!(
+        "circular-generator",
+        "A generator's tool never builds from its output",
+        &["build/generators"]
+    ),
+    e!(
+        "circular-constant",
+        "A constant never refers back to itself"
+    ),
     e!("circular-import", "Modules form a graph with no cycles"),
-    e!("circular-type-alias", "A type alias never expands to itself", &["language/types"]),
-    e!("const-declaration", "A module-level binding is written with `let`", &["language/lexical"]),
-    e!("context-binding-not-effect", "A context binding names an effect"),
-    e!("context-export", "A `context` is exported only from a test-only module"),
-    e!("context-mismatch", "Two contexts are one type when their bindings match"),
+    e!(
+        "circular-type-alias",
+        "A type alias never expands to itself",
+        &["language/types"]
+    ),
+    e!(
+        "const-declaration",
+        "A module-level binding is written with `let`",
+        &["language/lexical"]
+    ),
+    e!(
+        "context-binding-not-effect",
+        "A context binding names an effect"
+    ),
+    e!(
+        "context-export",
+        "A `context` is exported only from a test-only module"
+    ),
+    e!(
+        "context-mismatch",
+        "Two contexts are one type when their bindings match"
+    ),
     e!("context-not-called", "A context is built by calling it"),
-    e!("context-parameters", "A context declaration takes no parameters"),
-    e!("context-spread-operand", "A context spread takes another context"),
-    e!("cross-app-dependency", "An app reaches only its own packages and shared ones", &["build/build-files"]),
-    e!("cryptography-unavailable", "Secure randomness needs a cryptography-enabled toolchain"),
-    e!("ctx-not-first", "`ctx` comes first, or immediately after `self`"),
-    e!("custom-effect-outside-js", "Only a `JS` entry offers an effect its platform implements", &["build/platforms"]),
-    e!("decorative-with-role", "A decorative stack has no role", &["guides/user-interfaces"]),
-    e!("derive-missing-traits", "A `derive` clause names at least one trait"),
+    e!(
+        "context-parameters",
+        "A context declaration takes no parameters"
+    ),
+    e!(
+        "context-spread-operand",
+        "A context spread takes another context"
+    ),
+    e!(
+        "cross-app-dependency",
+        "An app reaches only its own packages and shared ones",
+        &["build/build-files"]
+    ),
+    e!(
+        "cryptography-unavailable",
+        "Secure randomness needs a cryptography-enabled toolchain"
+    ),
+    e!(
+        "ctx-not-first",
+        "`ctx` comes first, or immediately after `self`"
+    ),
+    e!(
+        "custom-effect-outside-js",
+        "Only a `JS` entry offers an effect its platform implements",
+        &["build/platforms"]
+    ),
+    e!(
+        "decorative-with-role",
+        "A decorative stack has no role",
+        &["guides/user-interfaces"]
+    ),
+    e!(
+        "derive-missing-traits",
+        "A `derive` clause names at least one trait"
+    ),
     e!("derive-not-trait", "A `derive` names a declared trait"),
-    e!("derive-only-trait", "Some traits are derived, never implemented", &["reference/standard-library"]),
-    e!("derive-operator-not-newtype", "A derived operator needs a single-field struct"),
-    e!("derive-operator-not-numeric", "A derived operator needs a wrapped number"),
+    e!(
+        "derive-only-trait",
+        "Some traits are derived, never implemented",
+        &["reference/standard-library"]
+    ),
+    e!(
+        "derive-operator-not-newtype",
+        "A derived operator needs a single-field struct"
+    ),
+    e!(
+        "derive-operator-not-numeric",
+        "A derived operator needs a wrapped number"
+    ),
     e!("derive-target-not-type", "A `derive` names a declared type"),
     e!("double-colon", "A module's members are reached with `.`"),
-    e!("duplicate-artifact-path", "Each artifact has its own path", &["build/build-files"]),
-    e!("duplicate-context-binding", "A context binds each effect once"),
+    e!(
+        "duplicate-artifact-path",
+        "Each artifact has its own path",
+        &["build/build-files"]
+    ),
+    e!(
+        "duplicate-context-binding",
+        "A context binds each effect once"
+    ),
     e!("duplicate-ctx", "A function takes one context"),
     e!("duplicate-declaration", "A name is declared once"),
-    e!("duplicate-entry", "An output fills each entry once", &["build/build-files"]),
-    e!("duplicate-extension", "An extension belongs to one language", &["build/repo-config"]),
+    e!(
+        "duplicate-entry",
+        "An output fills each entry once",
+        &["build/build-files"]
+    ),
+    e!(
+        "duplicate-extension",
+        "An extension belongs to one language",
+        &["build/repo-config"]
+    ),
     e!("duplicate-field", "A field name is used once"),
-    e!("duplicate-field-value", "A struct literal gives each field once"),
+    e!(
+        "duplicate-field-value",
+        "A struct literal gives each field once"
+    ),
     e!("duplicate-impl", "A type implements a trait once"),
-    e!("duplicate-language", "A language is declared once", &["build/repo-config"]),
+    e!(
+        "duplicate-language",
+        "A language is declared once",
+        &["build/repo-config"]
+    ),
     e!("duplicate-method", "A type has one method of each name"),
-    e!("duplicate-pattern-binding", "A pattern binds each name once"),
-    e!("duplicate-platform-entry", "A platform names each entry once", &["build/platforms"]),
+    e!(
+        "duplicate-pattern-binding",
+        "A pattern binds each name once"
+    ),
+    e!(
+        "duplicate-platform-entry",
+        "A platform names each entry once",
+        &["build/platforms"]
+    ),
     e!("duplicate-tag", "A tag is declared once", &["build/tags"]),
     e!("duplicate-test", "A test name is used once per file"),
-    e!("effect-and-trait", "No type implements both an effect and a trait"),
-    e!("effect-carrying-bound", "A type that carries an effect satisfies no trait bound"),
-    e!("effect-method-call", "An effect is performed through a function, not a method", &["language/effects"]),
-    e!("effect-missing-test-implementation", "An effect has a test implementation beside it", &["build/platforms"]),
-    e!("effect-not-imported", "A context binding names an effect this file imports"),
-    e!("effect-not-on-backend", "A host offers only what its backend implements", &["build/platforms"]),
-    e!("effect-outside-effect-directory", "An effect lives in an effect package", &["build/platforms"]),
-    e!("effect-parameter-not-ctx", "An effect-carrying parameter is `self` or `ctx`"),
-    e!("endless-function", "A function has finitely many instantiations", &["language/types"]),
-    e!("endless-type","A type has finitely many instantiations", &["language/types"]),
-    e!("entry-declaration-imported", "A platform's entry is filled, not called", &["language/effects"]),
-    e!("entry-host-mismatch", "An entry takes the host of the platform it is built for", &["build/build-files"]),
-    e!("entry-missing-field", "An output's entry names the entry and its function", &["build/build-files"]),
-    e!("entry-missing-host", "An entry takes its platform's host", &["language/effects"]),
-    e!("entry-not-runnable", "`buri run` runs an entry that starts itself", &["build/platforms"]),
-    e!("entry-point-listed", "An entry point is named by its rule, never listed", &["build/build-files"]),
-    e!("entry-signature-mismatch", "An entry has the signature its platform declares", &["build/build-files"]),
+    e!(
+        "effect-and-trait",
+        "No type implements both an effect and a trait"
+    ),
+    e!(
+        "effect-carrying-bound",
+        "A type that carries an effect satisfies no trait bound"
+    ),
+    e!(
+        "effect-method-call",
+        "An effect is performed through a function, not a method",
+        &["language/effects"]
+    ),
+    e!(
+        "effect-missing-test-implementation",
+        "An effect has a test implementation beside it",
+        &["build/platforms"]
+    ),
+    e!(
+        "effect-not-imported",
+        "A context binding names an effect this file imports"
+    ),
+    e!(
+        "effect-not-on-backend",
+        "A host offers only what its backend implements",
+        &["build/platforms"]
+    ),
+    e!(
+        "effect-outside-effect-directory",
+        "An effect lives in an effect package",
+        &["build/platforms"]
+    ),
+    e!(
+        "effect-parameter-not-ctx",
+        "An effect-carrying parameter is `self` or `ctx`"
+    ),
+    e!(
+        "endless-function",
+        "A function has finitely many instantiations",
+        &["language/types"]
+    ),
+    e!(
+        "endless-type",
+        "A type has finitely many instantiations",
+        &["language/types"]
+    ),
+    e!(
+        "entry-declaration-imported",
+        "A platform's entry is filled, not called",
+        &["language/effects"]
+    ),
+    e!(
+        "entry-host-mismatch",
+        "An entry takes the host of the platform it is built for",
+        &["build/build-files"]
+    ),
+    e!(
+        "entry-missing-field",
+        "An output's entry names the entry and its function",
+        &["build/build-files"]
+    ),
+    e!(
+        "entry-missing-host",
+        "An entry takes its platform's host",
+        &["language/effects"]
+    ),
+    e!(
+        "entry-not-runnable",
+        "`buri run` runs an entry that starts itself",
+        &["build/platforms"]
+    ),
+    e!(
+        "entry-point-listed",
+        "An entry point is named by its rule, never listed",
+        &["build/build-files"]
+    ),
+    e!(
+        "entry-signature-mismatch",
+        "An entry has the signature its platform declares",
+        &["build/build-files"]
+    ),
     e!("enum-not-value", "An enum value names a variant"),
     e!("example-missing-main", "A runnable example exports `main`"),
-    e!("expression-too-deep", "An expression nests to a bounded depth"),
-    e!("field-not-callable", "A field holding a value is not a method"),
+    e!(
+        "expression-too-deep",
+        "An expression nests to a bounded depth"
+    ),
+    e!(
+        "field-not-callable",
+        "A field holding a value is not a method"
+    ),
     e!("flags-empty", "A `Flags` type has a field"),
-    e!("flags-field-not-bool", "Every field of a `Flags` type is a `Bool`"),
+    e!(
+        "flags-field-not-bool",
+        "Every field of a `Flags` type is a `Bool`"
+    ),
     e!("flags-not-struct", "Only a struct derives `Flags`"),
     e!("flags-too-wide", "A `Flags` type has at most 64 fields"),
-    e!("float-tuple-index", "Two tuple indices in a row lex as a float"),
-    e!("generator-duplicate-module", "A generated module's name is unique", &["build/generators"]),
-    e!("generator-missing-tool", "A generator names its tool", &["build/generators"]),
-    e!("generator-not-tool", "A generator is a tool rule", &["build/generators", "build/tools"]),
-    e!("generic-effect-unsupported", "A trait or an effect takes no type parameters of its own"),
-    e!("host-field-not-production", "A host's fields are production structs", &["build/platforms"]),
-    e!("host-file-missing-method", "A `js` file implements every method its structs declare", &["build/platforms"]),
-    e!("host-import-outside-platform", "Only a platform names the backends' production values", &["language/effects"]),
-    e!("icon-not-drawable", "An icon's artwork is written out, and holds only shapes", &["guides/user-interfaces"]),
-    e!("impl-method-export", "An `impl` method is not separately exported"),
-    e!("impl-missing-method", "An `impl` supplies every method of its trait"),
+    e!(
+        "float-tuple-index",
+        "Two tuple indices in a row lex as a float"
+    ),
+    e!(
+        "generator-duplicate-module",
+        "A generated module's name is unique",
+        &["build/generators"]
+    ),
+    e!(
+        "generator-missing-tool",
+        "A generator names its tool",
+        &["build/generators"]
+    ),
+    e!(
+        "generator-not-tool",
+        "A generator is a tool rule",
+        &["build/generators", "build/tools"]
+    ),
+    e!(
+        "generic-effect-unsupported",
+        "A trait or an effect takes no type parameters of its own"
+    ),
+    e!(
+        "host-field-not-production",
+        "A host's fields are production structs",
+        &["build/platforms"]
+    ),
+    e!(
+        "host-file-missing-method",
+        "A `js` file implements every method its structs declare",
+        &["build/platforms"]
+    ),
+    e!(
+        "host-import-outside-platform",
+        "Only a platform names the backends' production values",
+        &["language/effects"]
+    ),
+    e!(
+        "icon-not-drawable",
+        "An icon's artwork is written out, and holds only shapes",
+        &["guides/user-interfaces"]
+    ),
+    e!(
+        "impl-method-export",
+        "An `impl` method is not separately exported"
+    ),
+    e!(
+        "impl-missing-method",
+        "An `impl` supplies every method of its trait"
+    ),
     e!("impl-missing-self", "Everything in an `impl` takes `self`"),
-    e!("impl-outside-type-module", "An `impl` or `derive` lives in its type's module"),
-    e!("impl-signature-mismatch", "An `impl` supplies the signature its trait declares"),
-    e!("impl-target-not-declared-type", "Only a declared type has methods"),
+    e!(
+        "impl-outside-type-module",
+        "An `impl` or `derive` lives in its type's module"
+    ),
+    e!(
+        "impl-signature-mismatch",
+        "An `impl` supplies the signature its trait declares"
+    ),
+    e!(
+        "impl-target-not-declared-type",
+        "Only a declared type has methods"
+    ),
     e!("impl-target-not-type", "An `impl` names a declared type"),
-    e!("impl-unknown-method", "An `impl` supplies only its trait's methods"),
-    e!("import-missing-extension", "A non-surface module is imported by file name", &["language/modules"]),
-    e!("index-field-not-unsigned", "An `Index` type wraps an unsigned integer"),
-    e!("index-not-newtype", "An `Index` type is a tuple struct of one field"),
-    e!("input-not-accepted", "A tool with a contract reads the languages it lists", &["build/tools"]),
-    e!("integer-missing-digits", "A base prefix is followed by digits"),
+    e!(
+        "impl-unknown-method",
+        "An `impl` supplies only its trait's methods"
+    ),
+    e!(
+        "import-missing-extension",
+        "A non-surface module is imported by file name",
+        &["language/modules"]
+    ),
+    e!(
+        "index-field-not-unsigned",
+        "An `Index` type wraps an unsigned integer"
+    ),
+    e!(
+        "index-not-newtype",
+        "An `Index` type is a tuple struct of one field"
+    ),
+    e!(
+        "input-not-accepted",
+        "A tool with a contract reads the languages it lists",
+        &["build/tools"]
+    ),
+    e!(
+        "integer-missing-digits",
+        "A base prefix is followed by digits"
+    ),
     e!("integer-too-wide", "An integer literal fits in 128 bits"),
-    e!("internal-import", "A library is imported through its surface", &["build/libraries"]),
-    e!("internal-std-import", "A program doesn't import the compiler's own modules"),
-    e!("invalid-entry-function", "An output's `entries` name functions", &["build/build-files"]),
-    e!("invalid-extension", "An extension starts with a dot", &["build/repo-config"]),
-    e!("invalid-float", "A float literal has a digit on each side of the point"),
-    e!("invalid-integer", "An integer's digits match its base prefix"),
-    e!("invalid-platform-variant", "A native variant names an operating system and an architecture", &["build/platforms"]),
-    e!("invalid-tuple-index", "A tuple index is a plain decimal number"),
-    e!("invalid-unicode-escape", "A Unicode escape names a scalar value"),
-    e!("js-outside-js-entry", "Only a `JS` entry has a `js` file", &["build/platforms"]),
-    e!("json-generate-unsupported", "`json` makes types for the JSON languages alone", &["build/tools"]),
-    e!("json-invalid-schema","A schema is one this toolchain can read", &["guides/json"]),
-    e!("json-missing-schema", "A JSON file names its schema", &["guides/json"]),
-    e!("json-schema-draft-unsupported", "A schema is JSON Schema 2020-12", &["guides/json"]),
-    e!("json-schema-violation", "A JSON file follows its schema", &["guides/json"]),
+    e!(
+        "internal-import",
+        "A library is imported through its surface",
+        &["build/libraries"]
+    ),
+    e!(
+        "internal-std-import",
+        "A program doesn't import the compiler's own modules"
+    ),
+    e!(
+        "invalid-entry-function",
+        "An output's `entries` name functions",
+        &["build/build-files"]
+    ),
+    e!(
+        "invalid-extension",
+        "An extension starts with a dot",
+        &["build/repo-config"]
+    ),
+    e!(
+        "invalid-float",
+        "A float literal has a digit on each side of the point"
+    ),
+    e!(
+        "invalid-integer",
+        "An integer's digits match its base prefix"
+    ),
+    e!(
+        "invalid-platform-variant",
+        "A native variant names an operating system and an architecture",
+        &["build/platforms"]
+    ),
+    e!(
+        "invalid-tuple-index",
+        "A tuple index is a plain decimal number"
+    ),
+    e!(
+        "invalid-unicode-escape",
+        "A Unicode escape names a scalar value"
+    ),
+    e!(
+        "js-outside-js-entry",
+        "Only a `JS` entry has a `js` file",
+        &["build/platforms"]
+    ),
+    e!(
+        "json-generate-unsupported",
+        "`json` makes types for the JSON languages alone",
+        &["build/tools"]
+    ),
+    e!(
+        "json-invalid-schema",
+        "A schema is one this toolchain can read",
+        &["guides/json"]
+    ),
+    e!(
+        "json-missing-schema",
+        "A JSON file names its schema",
+        &["guides/json"]
+    ),
+    e!(
+        "json-schema-draft-unsupported",
+        "A schema is JSON Schema 2020-12",
+        &["guides/json"]
+    ),
+    e!(
+        "json-schema-violation",
+        "A JSON file follows its schema",
+        &["guides/json"]
+    ),
     e!("json-syntax", "A JSON file parses", &["guides/json"]),
-    e!("json-untyped-keyword", "A schema that generates types maps to Buri types", &["guides/json"]),
-    e!("lambda-captures-effect", "A lambda may not capture an effect"),
-    e!("lambda-captures-generic", "A lambda may not capture a value that could be a context"),
-    e!("language-missing-name", "A `language` block has a `name`", &["build/repo-config"]),
-    e!("leading-export", "A re-export is written without a leading `export`"),
+    e!(
+        "json-untyped-keyword",
+        "A schema that generates types maps to Buri types",
+        &["guides/json"]
+    ),
+    e!(
+        "lambda-captures-effect",
+        "A lambda may not capture an effect"
+    ),
+    e!(
+        "lambda-captures-generic",
+        "A lambda may not capture a value that could be a context"
+    ),
+    e!(
+        "language-missing-name",
+        "A `language` block has a `name`",
+        &["build/repo-config"]
+    ),
+    e!(
+        "leading-export",
+        "A re-export is written without a leading `export`"
+    ),
     e!("literal-out-of-range", "A literal fits its type"),
-    e!("load-in-reactive-builder", "A reactive builder is synchronous, so it may not `load`", &["guides/websites", "guides/compile-to-js"]),
+    e!(
+        "load-in-reactive-builder",
+        "A reactive builder is synchronous, so it may not `load`",
+        &["guides/websites", "guides/compile-to-js"]
+    ),
     e!("load-not-function", "`load` takes a function name"),
     e!("match-not-exhaustive", "A `match` covers every case"),
     e!("method-not-value", "A method is not a value"),
-    e!("method-outside-impl", "A method is declared inside an `impl`"),
-    e!("misplaced-artifact-name", "A page keeps its entry's file name", &["build/build-files"]),
-    e!("misplaced-context", "A context is built only in an entry or a test"),
-    e!("misplaced-context-declaration", "A `context` is declared only in an entry or test code"),
-    e!("misplaced-rule", "A tool or platform rule lives in its own directory", &["build/tools", "build/build-files"]),
+    e!(
+        "method-outside-impl",
+        "A method is declared inside an `impl`"
+    ),
+    e!(
+        "misplaced-artifact-name",
+        "A page keeps its entry's file name",
+        &["build/build-files"]
+    ),
+    e!(
+        "misplaced-context",
+        "A context is built only in an entry or a test"
+    ),
+    e!(
+        "misplaced-context-declaration",
+        "A `context` is declared only in an entry or test code"
+    ),
+    e!(
+        "misplaced-rule",
+        "A tool or platform rule lives in its own directory",
+        &["build/tools", "build/build-files"]
+    ),
     e!("missing-arrow", "A match arm is `pattern => expression`"),
-    e!("missing-body", "A declaration outside a trait or effect has a body"),
+    e!(
+        "missing-body",
+        "A declaration outside a trait or effect has a body"
+    ),
     e!("missing-comma", "A list separates its elements with `,`"),
-    e!("missing-else", "`if` is an expression, so it needs an `else`"),
-    e!("missing-field-pattern", "A struct pattern mentions every field"),
-    e!("missing-field-value", "A literal gives every required field a value"),
-    e!("missing-host-file", "An entry with bodiless methods has a `js` file", &["build/platforms"]),
+    e!(
+        "missing-else",
+        "`if` is an expression, so it needs an `else`"
+    ),
+    e!(
+        "missing-field-pattern",
+        "A struct pattern mentions every field"
+    ),
+    e!(
+        "missing-field-value",
+        "A literal gives every required field a value"
+    ),
+    e!(
+        "missing-host-file",
+        "An entry with bodiless methods has a `js` file",
+        &["build/platforms"]
+    ),
     e!("missing-impl", "A type implements the traits its uses need"),
-    e!("missing-main", "A binary exports the entry its output fills", &["build/build-files"]),
-    e!("missing-payload-pattern", "A variant with a payload is matched with one"),
-    e!("missing-platform-variant", "An output names a variant its platform requires", &["build/build-files"]),
+    e!(
+        "missing-main",
+        "A binary exports the entry its output fills",
+        &["build/build-files"]
+    ),
+    e!(
+        "missing-payload-pattern",
+        "A variant with a payload is matched with one"
+    ),
+    e!(
+        "missing-platform-variant",
+        "An output names a variant its platform requires",
+        &["build/build-files"]
+    ),
     e!("missing-semicolon", "A declaration ends with `;`"),
-    e!("module-doc-not-first", "`//!` documents the module, so it comes first"),
-    e!("module-outside-repository", "A `//` path needs a repository"),
-    e!("native-artifact-unavailable", "A native artifact needs a toolchain that builds one", &["build/tags"]),
-    e!("needs-outside-repository", "A tool needs files in this repository", &["build/tools"]),
-    e!("networking-unavailable","The network needs a networking-enabled toolchain"),
+    e!(
+        "module-doc-not-first",
+        "`//!` documents the module, so it comes first"
+    ),
+    e!(
+        "module-outside-repository",
+        "A `//` path needs a repository"
+    ),
+    e!(
+        "native-artifact-unavailable",
+        "A native artifact needs a toolchain that builds one",
+        &["build/tags"]
+    ),
+    e!(
+        "needs-outside-repository",
+        "A tool needs files in this repository",
+        &["build/tools"]
+    ),
+    e!(
+        "networking-unavailable",
+        "The network needs a networking-enabled toolchain"
+    ),
     e!("not-callable", "A call names a function or a lambda"),
     e!("not-indexable", "Indexing is defined on arrays"),
-    e!("not-interpolatable", "A string hole holds a renderable value"),
-    e!("not-on-surface", "A method from another library is on its surface"),
+    e!(
+        "not-interpolatable",
+        "A string hole holds a renderable value"
+    ),
+    e!(
+        "not-on-surface",
+        "A method from another library is on its surface"
+    ),
     e!("not-tuple", "A numeric field access indexes a tuple"),
-    e!("or-pattern-bindings", "Or-pattern alternatives bind the same names"),
-    e!("output-missing-platform", "An output is the artifact for one platform", &["build/build-files"]),
-    e!("output-unavailable", "A build that selects no output skips the ones this host cannot build", &["build/tags"]),
-    e!("package-missing-rule", "A build file declares a rule", &["build/build-files"]),
+    e!(
+        "or-pattern-bindings",
+        "Or-pattern alternatives bind the same names"
+    ),
+    e!(
+        "output-missing-platform",
+        "An output is the artifact for one platform",
+        &["build/build-files"]
+    ),
+    e!(
+        "output-unavailable",
+        "A build that selects no output skips the ones this host cannot build",
+        &["build/tags"]
+    ),
+    e!(
+        "package-missing-rule",
+        "A build file declares a rule",
+        &["build/build-files"]
+    ),
     e!("pattern-not-array", "An array pattern matches an array"),
-    e!("pattern-not-tuple", "A tuple pattern matches a tuple of its length"),
-    e!("pattern-type-mismatch", "A pattern matches the matched value's shape"),
-    e!("payload-count", "A constructor is given the values it holds"),
-    e!("payload-pattern-count", "A payload pattern matches the values the variant holds"),
-    e!("platform-declaration-called", "A program calls functions with bodies, not its platform's declarations", &["build/platforms"]),
-    e!("platform-entry-missing-field", "A platform's entry has a name and a backend", &["build/platforms"]),
-    e!("platform-entry-undeclared", "A platform declares every entry its rule names", &["build/platforms"]),
-    e!("platform-missing-entry", "A platform has an entry", &["build/platforms"]),
-    e!("platform-testing-only-import", "Only an effect's testing surface keeps state", &["build/libraries"]),
-    e!("platform-violation", "A target is built only for a platform its closure admits", &["build/tags"]),
-    e!("postfix-on-block", "A block expression is parenthesised before `.`, `(` or `[`"),
-    e!("private-to-module", "A private declaration is private to its module", &["build/libraries"]),
-    e!("proto-ambiguous-type", "A type name says which schema it means", &["build/proto"]),
-    e!("proto-contract-unsupported", "A `.proto` file is taken as text", &["build/proto", "build/tools"]),
-    e!("proto-duplicate-field", "A message field's number and name are unique", &["build/proto"]),
-    e!("proto-duplicate-type", "A fully-qualified name names one type", &["build/proto"]),
-    e!("proto-missing-edition", "A schema declares its edition", &["build/proto"]),
-    e!("proto-syntax", "A `.proto` file is a well-formed schema", &["build/proto"]),
-    e!("proto-unknown-feature", "Every `features` value is supported", &["build/proto"]),
-    e!("proto-unknown-import", "A schema's import is written from the repository root", &["build/proto"]),
-    e!("proto-unknown-type", "A field's type names a message or an enum", &["build/proto"]),
-    e!("proto-unsupported", "The schema reader refuses what it cannot express", &["build/proto"]),
-    e!("proto-unsupported-edition", "A schema declares the edition this reader supports", &["build/proto"]),
+    e!(
+        "pattern-not-tuple",
+        "A tuple pattern matches a tuple of its length"
+    ),
+    e!(
+        "pattern-type-mismatch",
+        "A pattern matches the matched value's shape"
+    ),
+    e!(
+        "payload-count",
+        "A constructor is given the values it holds"
+    ),
+    e!(
+        "payload-pattern-count",
+        "A payload pattern matches the values the variant holds"
+    ),
+    e!(
+        "platform-declaration-called",
+        "A program calls functions with bodies, not its platform's declarations",
+        &["build/platforms"]
+    ),
+    e!(
+        "platform-entry-missing-field",
+        "A platform's entry has a name and a backend",
+        &["build/platforms"]
+    ),
+    e!(
+        "platform-entry-undeclared",
+        "A platform declares every entry its rule names",
+        &["build/platforms"]
+    ),
+    e!(
+        "platform-missing-entry",
+        "A platform has an entry",
+        &["build/platforms"]
+    ),
+    e!(
+        "platform-testing-only-import",
+        "Only an effect's testing surface keeps state",
+        &["build/libraries"]
+    ),
+    e!(
+        "platform-violation",
+        "A target is built only for a platform its closure admits",
+        &["build/tags"]
+    ),
+    e!(
+        "postfix-on-block",
+        "A block expression is parenthesised before `.`, `(` or `[`"
+    ),
+    e!(
+        "private-to-module",
+        "A private declaration is private to its module",
+        &["build/libraries"]
+    ),
+    e!(
+        "proto-ambiguous-type",
+        "A type name says which schema it means",
+        &["build/proto"]
+    ),
+    e!(
+        "proto-contract-unsupported",
+        "A `.proto` file is taken as text",
+        &["build/proto", "build/tools"]
+    ),
+    e!(
+        "proto-duplicate-field",
+        "A message field's number and name are unique",
+        &["build/proto"]
+    ),
+    e!(
+        "proto-duplicate-type",
+        "A fully-qualified name names one type",
+        &["build/proto"]
+    ),
+    e!(
+        "proto-missing-edition",
+        "A schema declares its edition",
+        &["build/proto"]
+    ),
+    e!(
+        "proto-syntax",
+        "A `.proto` file is a well-formed schema",
+        &["build/proto"]
+    ),
+    e!(
+        "proto-unknown-feature",
+        "Every `features` value is supported",
+        &["build/proto"]
+    ),
+    e!(
+        "proto-unknown-import",
+        "A schema's import is written from the repository root",
+        &["build/proto"]
+    ),
+    e!(
+        "proto-unknown-type",
+        "A field's type names a message or an enum",
+        &["build/proto"]
+    ),
+    e!(
+        "proto-unsupported",
+        "The schema reader refuses what it cannot express",
+        &["build/proto"]
+    ),
+    e!(
+        "proto-unsupported-edition",
+        "A schema declares the edition this reader supports",
+        &["build/proto"]
+    ),
     e!("reassignment", "A binding is given its value once"),
-    e!("refutable-pattern", "A `let` pattern must match every value"),
+    e!(
+        "refutable-pattern",
+        "A `let` pattern must match every value"
+    ),
     e!("relative-import", "Every module path is absolute"),
     e!("reserved-word", "Reserved words are not identifiers"),
     e!("rest-pattern-not-last", "A rest pattern comes last"),
-    e!("result-discarded", "A `Result` may not be discarded", &["language/expressions"]),
-    e!("schema-mismatch", "A file under a contract has the contract's schema", &["build/tools"]),
-    e!("schema-outside-repository", "A schema is checked into the repository", &["guides/json"]),
+    e!(
+        "result-discarded",
+        "A `Result` may not be discarded",
+        &["language/expressions"]
+    ),
+    e!(
+        "schema-mismatch",
+        "A file under a contract has the contract's schema",
+        &["build/tools"]
+    ),
+    e!(
+        "schema-outside-repository",
+        "A schema is checked into the repository",
+        &["guides/json"]
+    ),
     e!("self-not-first", "`self` is the first parameter or nothing"),
-    e!("self-outside-method", "`self` is legal only in a method body"),
-    e!("self-type-outside-impl", "`Self` names the implementing type"),
-    e!("shared-depends-on-app", "Shared code reaches no app", &["build/build-files"]),
+    e!(
+        "self-outside-method",
+        "`self` is legal only in a method body"
+    ),
+    e!(
+        "self-type-outside-impl",
+        "`Self` names the implementing type"
+    ),
+    e!(
+        "shared-depends-on-app",
+        "Shared code reaches no app",
+        &["build/build-files"]
+    ),
     e!("statement-not-unit", "A statement's value is used or bound"),
-    e!("statement-outside-test", "An expression statement is legal only in a test"),
-    e!("struct-literal-head", "A struct literal starts with a type or variant"),
-    e!("style-not-static", "A conditional style is known at compile time", &["guides/user-interfaces"]),
-    e!("tag-conflict", "A target never mixes tags that forbid each other", &["build/tags"]),
-    e!("tag-duplicate-platform", "A tag lists each platform once", &["build/tags"]),
-    e!("tag-missing-name", "A `tag` block has a `name`", &["build/tags"]),
-    e!("tag-name-not-string", "A tag is named by a quoted string", &["build/tags"]),
-    e!("tag-not-block", "A `tag` is a block in REPO.buri", &["build/tags"]),
-    e!("tag-platform-conflict", "A tag never requires and forbids the same platform", &["build/tags"]),
-    e!("tags-under-requires", "`requires` holds no `tags`", &["build/tags"]),
-    e!("test-internal-import", "A test imports its library through the surface", &["build/libraries"]),
-    e!("test-only-import", "A `testing` module is reachable only from a test", &["build/libraries"]),
-    e!("test-outside-test-source", "A `test` lives in a test source"),
-    e!("test-run-unavailable", "A test runs only where this toolchain can build it", &["build/tags"]),
+    e!(
+        "statement-outside-test",
+        "An expression statement is legal only in a test"
+    ),
+    e!(
+        "struct-literal-head",
+        "A struct literal starts with a type or variant"
+    ),
+    e!(
+        "style-not-static",
+        "A conditional style is known at compile time",
+        &["guides/user-interfaces"]
+    ),
+    e!(
+        "tag-conflict",
+        "A target never mixes tags that forbid each other",
+        &["build/tags"]
+    ),
+    e!(
+        "tag-duplicate-platform",
+        "A tag lists each platform once",
+        &["build/tags"]
+    ),
+    e!(
+        "tag-missing-name",
+        "A `tag` block has a `name`",
+        &["build/tags"]
+    ),
+    e!(
+        "tag-name-not-string",
+        "A tag is named by a quoted string",
+        &["build/tags"]
+    ),
+    e!(
+        "tag-not-block",
+        "A `tag` is a block in REPO.buri",
+        &["build/tags"]
+    ),
+    e!(
+        "tag-platform-conflict",
+        "A tag never requires and forbids the same platform",
+        &["build/tags"]
+    ),
+    e!(
+        "tags-under-requires",
+        "`requires` holds no `tags`",
+        &["build/tags"]
+    ),
+    e!(
+        "test-internal-import",
+        "A test imports its library through the surface",
+        &["build/libraries"]
+    ),
+    e!(
+        "test-only-import",
+        "A `testing` module is reachable only from a test",
+        &["build/libraries"]
+    ),
+    e!(
+        "test-outside-test-source",
+        "A `test` lives in a test source"
+    ),
+    e!(
+        "test-run-unavailable",
+        "A test runs only where this toolchain can build it",
+        &["build/tags"]
+    ),
     e!("test-source-export", "A test source exports nothing"),
-    e!("test-source-import", "Nothing imports a test source", &["build/libraries"]),
-    e!("test-timeout", "A suite finishes inside its `timeout_seconds`"),
-    e!("textproto-duplicate-field", "A single-value field is set once", &["guides/textproto"]),
-    e!("textproto-invalid-value", "A value is one its field holds", &["guides/textproto"]),
-    e!("textproto-missing-header", "A text format file names its message", &["guides/textproto"]),
-    e!("textproto-syntax", "A text format file parses", &["guides/textproto"]),
-    e!("textproto-unknown-field", "A field is one its message declares", &["guides/textproto"]),
-    e!("textproto-unknown-message", "A text format file names a message its schema declares", &["guides/textproto"]),
-    e!("textproto-unsupported", "The text format reader refuses what it cannot read", &["guides/textproto"]),
-    e!("tool-diagnostic", "A tool reports under a code the catalogue has", &["build/tools"]),
-    e!("tool-effect-unavailable", "A tool's `ctx` holds only an allocator", &["build/tools"]),
-    e!("tool-entry-point-not-exported", "A tool exports the entry point each block declares", &["build/tools"]),
+    e!(
+        "test-source-import",
+        "Nothing imports a test source",
+        &["build/libraries"]
+    ),
+    e!(
+        "test-timeout",
+        "A suite finishes inside its `timeout_seconds`"
+    ),
+    e!(
+        "textproto-duplicate-field",
+        "A single-value field is set once",
+        &["guides/textproto"]
+    ),
+    e!(
+        "textproto-invalid-value",
+        "A value is one its field holds",
+        &["guides/textproto"]
+    ),
+    e!(
+        "textproto-missing-header",
+        "A text format file names its message",
+        &["guides/textproto"]
+    ),
+    e!(
+        "textproto-syntax",
+        "A text format file parses",
+        &["guides/textproto"]
+    ),
+    e!(
+        "textproto-unknown-field",
+        "A field is one its message declares",
+        &["guides/textproto"]
+    ),
+    e!(
+        "textproto-unknown-message",
+        "A text format file names a message its schema declares",
+        &["guides/textproto"]
+    ),
+    e!(
+        "textproto-unsupported",
+        "The text format reader refuses what it cannot read",
+        &["guides/textproto"]
+    ),
+    e!(
+        "tool-diagnostic",
+        "A tool reports under a code the catalogue has",
+        &["build/tools"]
+    ),
+    e!(
+        "tool-effect-unavailable",
+        "A tool's `ctx` holds only an allocator",
+        &["build/tools"]
+    ),
+    e!(
+        "tool-entry-point-not-exported",
+        "A tool exports the entry point each block declares",
+        &["build/tools"]
+    ),
     e!("tool-failed", "A tool answers", &["build/tools"]),
-    e!("tool-missing-block", "A tool declares every entry point it exports", &["build/tools"]),
-    e!("tool-missing-entry-point", "A tool has the entry point it is asked for", &["build/tools"]),
-    e!("tool-request-mismatch", "A tool with a contract takes its root type", &["build/tools"]),
-    e!("tool-source-import", "Nothing imports a tool's modules", &["build/tools"]),
+    e!(
+        "tool-missing-block",
+        "A tool declares every entry point it exports",
+        &["build/tools"]
+    ),
+    e!(
+        "tool-missing-entry-point",
+        "A tool has the entry point it is asked for",
+        &["build/tools"]
+    ),
+    e!(
+        "tool-request-mismatch",
+        "A tool with a contract takes its root type",
+        &["build/tools"]
+    ),
+    e!(
+        "tool-source-import",
+        "Nothing imports a tool's modules",
+        &["build/tools"]
+    ),
     e!("trait-not-derivable", "Only some traits can be derived"),
     e!("trait-not-type", "A trait is a bound, not a type"),
     e!("try-error-mismatch", "`?` does not convert the error type"),
     e!("try-operand", "`?` takes a `Result` or an `Option`"),
     e!("try-return-mismatch", "`?` needs a matching return type"),
     e!("tuple-element-count", "A tuple has two elements or more"),
-    e!("tuple-struct-not-called", "A tuple struct's name constructs one"),
+    e!(
+        "tuple-struct-not-called",
+        "A tuple struct's name constructs one"
+    ),
     e!("turbofish", "Type arguments are written without `::`"),
-    e!("type-argument-count", "A type takes the arguments it declares"),
-    e!("type-arguments-on-value", "Type arguments qualify a function, not a value"),
+    e!(
+        "type-argument-count",
+        "A type takes the arguments it declares"
+    ),
+    e!(
+        "type-arguments-on-value",
+        "Type arguments qualify a function, not a value"
+    ),
     e!("type-mismatch", "A value has the type its position expects"),
-    e!("type-not-crossable", "A value crosses to a `js` file by the crossing table", &["build/platforms"]),
+    e!(
+        "type-not-crossable",
+        "A value crosses to a `js` file by the crossing table",
+        &["build/platforms"]
+    ),
     e!("type-not-value", "A type's name is not a value"),
-    e!("typed-self", "`self` is written without a type", &["language/expressions"]),
-    e!("unbraced-unicode-escape", "A Unicode escape braces its code point"),
-    e!("unclosed-delimiter", "Every delimiter a construct opens is closed"),
-    e!("unconstructible-type", "Every type can be built", &["language/types"]),
-    e!("undeclared-testing-surface", "A `testing/` directory is declared by a `testing` block", &["build/build-files"]),
+    e!(
+        "typed-self",
+        "`self` is written without a type",
+        &["language/expressions"]
+    ),
+    e!(
+        "unbraced-unicode-escape",
+        "A Unicode escape braces its code point"
+    ),
+    e!(
+        "unclosed-delimiter",
+        "Every delimiter a construct opens is closed"
+    ),
+    e!(
+        "unconstructible-type",
+        "Every type can be built",
+        &["language/types"]
+    ),
+    e!(
+        "undeclared-testing-surface",
+        "A `testing/` directory is declared by a `testing` block",
+        &["build/build-files"]
+    ),
     e!("underivable-field", "A derived trait holds for every field"),
     e!("undetermined-type", "A call resolves to a concrete type"),
-    e!("unexpected-character", "Every byte of a source file starts a token"),
-    e!("unexpected-token", "The grammar expected something else here"),
-    e!("unknown-effect", "A context binding names a declared effect"),
-    e!("unknown-entry", "An output fills the entries its platform offers", &["build/build-files"]),
-    e!("unknown-entry-function", "An output enters through a function its binary exports", &["build/build-files"]),
-    e!("unknown-escape", "A backslash escape is one of a closed set"),
-    e!("unknown-export", "An import names something its module exports"),
+    e!(
+        "unexpected-character",
+        "Every byte of a source file starts a token"
+    ),
+    e!(
+        "unexpected-token",
+        "The grammar expected something else here"
+    ),
+    e!(
+        "unknown-effect",
+        "A context binding names a declared effect"
+    ),
+    e!(
+        "unknown-entry",
+        "An output fills the entries its platform offers",
+        &["build/build-files"]
+    ),
+    e!(
+        "unknown-entry-function",
+        "An output enters through a function its binary exports",
+        &["build/build-files"]
+    ),
+    e!(
+        "unknown-escape",
+        "A backslash escape is one of a closed set"
+    ),
+    e!(
+        "unknown-export",
+        "An import names something its module exports"
+    ),
     e!("unknown-field", "A field is one its type declares"),
     e!("unknown-method", "A method is one its type declares"),
     e!("unknown-module", "A module path names exactly one file"),
     e!("unknown-name", "Every name resolves to a declaration"),
-    e!("unknown-dependency", "A dependency names a library", &["build/build-files"]),
-    e!("unknown-platform", "A platform is bundled or a repository's `platform` rule", &["build/build-files"]),
-    e!("unknown-platform-variant", "A variant is one its platform declares", &["build/build-files"]),
-    e!("unknown-positional-field", "A tuple struct's fields are numbered from zero"),
-    e!("unknown-schema", "A schema path names a file", &["guides/json"]),
-    e!("unknown-source", "Every source a rule lists exists", &["build/build-files"]),
-    e!("unknown-tag", "Every tag is declared in REPO.buri", &["build/tags"]),
-    e!("unknown-tool", "A tool name names a declared tool", &["build/tools"]),
-    e!("unknown-tuple-element", "A tuple's elements are numbered from zero"),
+    e!(
+        "unknown-dependency",
+        "A dependency names a library",
+        &["build/build-files"]
+    ),
+    e!(
+        "unknown-platform",
+        "A platform is bundled or a repository's `platform` rule",
+        &["build/build-files"]
+    ),
+    e!(
+        "unknown-platform-variant",
+        "A variant is one its platform declares",
+        &["build/build-files"]
+    ),
+    e!(
+        "unknown-positional-field",
+        "A tuple struct's fields are numbered from zero"
+    ),
+    e!(
+        "unknown-schema",
+        "A schema path names a file",
+        &["guides/json"]
+    ),
+    e!(
+        "unknown-source",
+        "Every source a rule lists exists",
+        &["build/build-files"]
+    ),
+    e!(
+        "unknown-tag",
+        "Every tag is declared in REPO.buri",
+        &["build/tags"]
+    ),
+    e!(
+        "unknown-tool",
+        "A tool name names a declared tool",
+        &["build/tools"]
+    ),
+    e!(
+        "unknown-tuple-element",
+        "A tuple's elements are numbered from zero"
+    ),
     e!("unknown-type", "Every type name resolves to a declaration"),
     e!("unknown-variant", "A variant is one its enum declares"),
-    e!("unknown-visibility", "A visibility entry is one of five forms", &["build/build-files"]),
-    e!("unnamed-namespace-import", "A namespace import must be named"),
-    e!("unreachable-alternative", "Every alternative of an or-pattern must be reachable"),
+    e!(
+        "unknown-visibility",
+        "A visibility entry is one of five forms",
+        &["build/build-files"]
+    ),
+    e!(
+        "unnamed-namespace-import",
+        "A namespace import must be named"
+    ),
+    e!(
+        "unreachable-alternative",
+        "Every alternative of an or-pattern must be reachable"
+    ),
     e!("unreachable-arm", "Every arm must be reachable"),
-    e!("unterminated-character", "A character literal closes its quote"),
+    e!(
+        "unterminated-character",
+        "A character literal closes its quote"
+    ),
     e!("unterminated-comment", "A block comment is closed"),
-    e!("unterminated-string", "A string literal closes on the line it opens"),
-    e!("unterminated-unicode-escape", "A Unicode escape closes its brace"),
-    e!("untyped-receiver", "A member is read from a value of known type"),
-    e!("untyped-struct-literal", "An untyped literal needs an expected type", &["language/types"]),
-    e!("untyped-variant", "A `.Variant` needs a known expected type"),
-    e!("variant-export", "An exported enum exports every variant", &["language/types"]),
-    e!("visibility-violation", "A dependency is visible to the package that names it", &["build/build-files"]),
+    e!(
+        "unterminated-string",
+        "A string literal closes on the line it opens"
+    ),
+    e!(
+        "unterminated-unicode-escape",
+        "A Unicode escape closes its brace"
+    ),
+    e!(
+        "untyped-receiver",
+        "A member is read from a value of known type"
+    ),
+    e!(
+        "untyped-struct-literal",
+        "An untyped literal needs an expected type",
+        &["language/types"]
+    ),
+    e!(
+        "untyped-variant",
+        "A `.Variant` needs a known expected type"
+    ),
+    e!(
+        "variant-export",
+        "An exported enum exports every variant",
+        &["language/types"]
+    ),
+    e!(
+        "visibility-violation",
+        "A dependency is visible to the package that names it",
+        &["build/build-files"]
+    ),
 ];
 
 pub fn find(code: &str) -> Option<&'static ErrorDoc> {
@@ -407,14 +1232,26 @@ mod tests {
     #[test]
     fn every_page_parses() {
         let failures = catalog().failures();
-        assert!(failures.is_empty(), "these pages do not parse:\n  {}", failures.join("\n  "));
+        assert!(
+            failures.is_empty(),
+            "these pages do not parse:\n  {}",
+            failures.join("\n  ")
+        );
     }
 
     #[test]
     fn every_migrated_page_is_titled_and_worded() {
         for p in catalog().pages() {
-            assert!(!p.front.title.trim().is_empty(), "`{}` has an empty title", p.code);
-            assert!(!p.front.message.trim().is_empty(), "`{}` has an empty message", p.code);
+            assert!(
+                !p.front.title.trim().is_empty(),
+                "`{}` has an empty title",
+                p.code
+            );
+            assert!(
+                !p.front.message.trim().is_empty(),
+                "`{}` has an empty message",
+                p.code
+            );
         }
     }
 
@@ -424,8 +1261,11 @@ mod tests {
     /// something provokes the code.
     #[test]
     fn every_page_carries_its_wording() {
-        let missing: Vec<&str> =
-            ERRORS.iter().map(|e| e.code).filter(|code| page(code).is_none()).collect();
+        let missing: Vec<&str> = ERRORS
+            .iter()
+            .map(|e| e.code)
+            .filter(|code| page(code).is_none())
+            .collect();
         assert!(
             missing.is_empty(),
             "these pages carry no `---` frontmatter block, so their diagnostics have no \

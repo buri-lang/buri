@@ -289,7 +289,10 @@ fn a_native_float_renders_as_javascript_renders_it() {
         return;
     }
     let Some(engine) = engine() else {
-        crate::ci::skipped("float parity", "no JavaScript engine (`bun` or `node`) is on PATH");
+        crate::ci::skipped(
+            "float parity",
+            "no JavaScript engine (`bun` or `node`) is on PATH",
+        );
         return;
     };
     let dir = workspace("parity");
@@ -303,7 +306,12 @@ fn a_native_float_renders_as_javascript_renders_it() {
     // is the product's — a musl one on Linux — and a harness that answered the
     // libc question differently would not link at all.
     let mut cc = crate::shared::product_cc();
-    cc.arg("-std=c11").arg("-O1").arg("-o").arg(&binary).arg(&source).arg(archive);
+    cc.arg("-std=c11")
+        .arg("-O1")
+        .arg("-o")
+        .arg(&binary)
+        .arg(&source)
+        .arg(archive);
     cc.args(crate::shared::product_link_args());
     let built = cc.output().unwrap();
     assert!(
@@ -322,13 +330,25 @@ fn a_native_float_renders_as_javascript_renders_it() {
     let rendered = dir.join("rendered.txt");
     std::fs::write(&corpus_path, &input).unwrap();
 
-    let out = Command::new(&binary).arg(&corpus_path).arg(&rendered).output().unwrap();
-    assert!(out.status.success(), "the driver failed: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new(&binary)
+        .arg(&corpus_path)
+        .arg(&rendered)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "the driver failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     let checker = dir.join("check.js");
     std::fs::write(&checker, CHECKER).unwrap();
 
-    let checked = Command::new(engine).arg(&checker).arg(&rendered).output().unwrap();
+    let checked = Command::new(engine)
+        .arg(&checker)
+        .arg(&rendered)
+        .output()
+        .unwrap();
     let report = String::from_utf8_lossy(&checked.stdout).to_string();
     assert!(
         checked.status.success(),
@@ -372,7 +392,10 @@ fn the_javascript_side_is_the_runtimes_own() {
         "return String(n);",
     ] {
         assert!(js.contains(clause), "`$f64` no longer contains `{clause}`");
-        assert!(CHECKER.contains(clause), "this file's copy no longer contains `{clause}`");
+        assert!(
+            CHECKER.contains(clause),
+            "this file's copy no longer contains `{clause}`"
+        );
     }
 }
 
@@ -415,8 +438,14 @@ fn the_runtimes_own_unit_tests_pass() {
     crate::sweep::kept::settle(&binary);
     let out = Command::new(&binary).output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout).to_string();
-    assert!(out.status.success(), "the runtime's own tests failed:\n{text}");
-    let summary = text.lines().find(|l| l.starts_with("test result")).unwrap_or_default();
+    assert!(
+        out.status.success(),
+        "the runtime's own tests failed:\n{text}"
+    );
+    let summary = text
+        .lines()
+        .find(|l| l.starts_with("test result"))
+        .unwrap_or_default();
     // Zero tests would pass silently, and this file's whole point is that a
     // test nothing runs is not a test.
     //

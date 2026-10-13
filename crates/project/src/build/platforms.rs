@@ -12,16 +12,22 @@ pub use buri_stdlib::platforms::{BUNDLED, FILES};
 
 /// The file at `path` in the bundled platform called `platform`.
 pub fn file(platform: &str, path: &str) -> Option<&'static str> {
-    FILES.iter().find(|(p, at, _)| *p == platform && *at == path).map(|(_, _, text)| *text)
+    FILES
+        .iter()
+        .find(|(p, at, _)| *p == platform && *at == path)
+        .map(|(_, _, text)| *text)
 }
 
 /// The bundled platform called `name`, read once per process.
 pub fn bundled(name: &str) -> Option<&'static PlatformRule> {
-    static RULES: std::sync::OnceLock<Vec<(&'static str, PlatformRule)>> = std::sync::OnceLock::new();
+    static RULES: std::sync::OnceLock<Vec<(&'static str, PlatformRule)>> =
+        std::sync::OnceLock::new();
     let rules = RULES.get_or_init(|| {
         BUNDLED
             .iter()
-            .filter_map(|(name, text)| Some((*name, read_build_file(text, FileId(0)).value.platform?)))
+            .filter_map(|(name, text)| {
+                Some((*name, read_build_file(text, FileId(0)).value.platform?))
+            })
             .collect()
     });
     rules.iter().find(|(n, _)| *n == name).map(|(_, rule)| rule)
@@ -42,7 +48,8 @@ mod tests {
             assert_eq!(rule.entries.len(), 1, "{name}");
             assert_eq!(rule.entries[0].name.value, "main", "{name}");
         }
-        let native = bundled("native").map(|r| (r.entries[0].variants.len(), r.entries[0].variant_required));
+        let native =
+            bundled("native").map(|r| (r.entries[0].variants.len(), r.entries[0].variant_required));
         assert_eq!(native, Some((4, false)));
     }
 
@@ -52,9 +59,17 @@ mod tests {
     fn every_file_a_bundled_platform_names_is_embedded() {
         for (name, _) in BUNDLED {
             let rule = bundled(name).unwrap_or_else(|| panic!("{name} has no `platform` rule"));
-            let named = rule.entries.iter().filter_map(|e| e.js.as_ref()).chain(&rule.assets);
+            let named = rule
+                .entries
+                .iter()
+                .filter_map(|e| e.js.as_ref())
+                .chain(&rule.assets);
             for path in named {
-                assert!(file(name, &path.value).is_some(), "{name}'s `{}` is not embedded", path.value);
+                assert!(
+                    file(name, &path.value).is_some(),
+                    "{name}'s `{}` is not embedded",
+                    path.value
+                );
             }
         }
     }

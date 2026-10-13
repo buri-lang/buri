@@ -59,6 +59,8 @@
 //! emission and one engine start per file, and one more run of each native
 //! binary.
 
+use crate::conformance::Built;
+use crate::shard;
 use buri::build::actions;
 use buri::build::buildfile::Platform;
 use buri::compiler::backend::{self, Options, Profile, Target};
@@ -66,8 +68,6 @@ use buri::compiler::driver;
 use buri::compiler::middle::monomorphize;
 use buri::compiler::modules::Role;
 use buri::diagnostics::{Diagnostics, SourceMap};
-use crate::shard;
-use crate::conformance::Built;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -110,12 +110,16 @@ const NATIVE_ONLY: &[&str] = &["ui/render.buri"];
 fn corpus_files() -> Vec<String> {
     let root = crate::shared::conformance_corpus();
     let mut out = Vec::new();
-    let Ok(packages) = std::fs::read_dir(&root) else { return out };
+    let Ok(packages) = std::fs::read_dir(&root) else {
+        return out;
+    };
     let mut packages: Vec<_> = packages.filter_map(Result::ok).collect();
     packages.sort_by_key(std::fs::DirEntry::file_name);
     for package in packages {
         let tests = package.path().join("test");
-        let Ok(entries) = std::fs::read_dir(&tests) else { continue };
+        let Ok(entries) = std::fs::read_dir(&tests) else {
+            continue;
+        };
         let mut files: Vec<_> = entries.filter_map(Result::ok).collect();
         files.sort_by_key(std::fs::DirEntry::file_name);
         for file in files {
@@ -131,7 +135,10 @@ fn corpus_files() -> Vec<String> {
 
 fn read(path: &str) -> String {
     let (package, file) = path.split_once('/').unwrap_or((path, ""));
-    let at = crate::shared::conformance_corpus().join(package).join("test").join(file);
+    let at = crate::shared::conformance_corpus()
+        .join(package)
+        .join("test")
+        .join(file);
     std::fs::read_to_string(&at).unwrap_or_else(|e| panic!("{}: {e}", at.display()))
 }
 
@@ -160,7 +167,12 @@ fn javascript(name: &str, source: &str) -> Result<Vec<(String, Verdict)>, String
     if analysis.diagnostics.has_errors() {
         return Err(String::from("the front end refused it"));
     }
-    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
@@ -171,17 +183,28 @@ fn javascript(name: &str, source: &str) -> Result<Vec<(String, Verdict)>, String
     if diagnostics.has_errors() {
         return Err(String::from("monomorphization failed"));
     }
-    let target = Target { platform: Platform::Js, arch: None };
+    let target = Target {
+        platform: Platform::Js,
+        arch: None,
+    };
     actions::prepare(&mut program, target);
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
-    let mut backend =
-        backend::select(target, Profile::Debug).map_err(|e| format!("no JavaScript backend: {e}"))?;
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "",
+    };
+    let mut backend = backend::select(target, Profile::Debug)
+        .map_err(|e| format!("no JavaScript backend: {e}"))?;
     let units = match backend.emit(&program, &analysis.checked.tables, &opts) {
         Ok(units) => units,
         Err(d) => {
             return Err(format!(
                 "the JavaScript backend refused it: {}",
-                d.items.iter().map(|i| i.message.clone()).collect::<Vec<_>>().join("; ")
+                d.items
+                    .iter()
+                    .map(|i| i.message.clone())
+                    .collect::<Vec<_>>()
+                    .join("; ")
             ))
         }
     };
@@ -348,17 +371,19 @@ fn native(name: &str, source: &str, blocks: usize) -> Result<Option<Vec<Verdict>
                 ran.status, ran.stdout, ran.stderr
             ));
         };
-        let at: usize = field_number(chunk, "i").ok_or_else(|| {
-            format!("the native binary's record names no block: {chunk}")
-        })? as usize;
+        let at: usize = field_number(chunk, "i")
+            .ok_or_else(|| format!("the native binary's record names no block: {chunk}"))?
+            as usize;
         let message = field(chunk, "message").unwrap_or_default();
-        let slot = out.get_mut(at).ok_or_else(|| {
-            format!("the native binary reported block {at} of {blocks}")
-        })?;
+        let slot = out
+            .get_mut(at)
+            .ok_or_else(|| format!("the native binary reported block {at} of {blocks}"))?;
         *slot = Verdict::Failed(message);
         from = at as i64 + 1;
     }
-    Err(String::from("the native binary reported more failures than it has blocks"))
+    Err(String::from(
+        "the native binary reported more failures than it has blocks",
+    ))
 }
 
 fn field_number(chunk: &str, name: &str) -> Option<i64> {

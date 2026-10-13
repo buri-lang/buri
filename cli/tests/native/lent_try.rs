@@ -41,7 +41,11 @@ fn passes(name: &str, lib: &str, test: &str, blocks: usize) {
     modes.push(("js", &["--output=js"]));
     for (backend, flags) in modes {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-        cmd.current_dir(&repo).arg("test").args(flags).arg("//lib").arg("--force");
+        cmd.current_dir(&repo)
+            .arg("test")
+            .args(flags)
+            .arg("//lib")
+            .arg("--force");
         let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
         let summary = format!("{blocks} passed, 0 failed");
         assert!(

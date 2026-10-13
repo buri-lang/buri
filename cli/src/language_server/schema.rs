@@ -82,7 +82,9 @@ impl Schema {
     /// itself, and its fields are the two roots' together — no file has both,
     /// which is the same union `textproto::schema_order` keeps.
     pub fn fields(&self, block: &str) -> Vec<&Field> {
-        self.blocks_named(block).flat_map(|b| b.fields.iter()).collect()
+        self.blocks_named(block)
+            .flat_map(|b| b.fields.iter())
+            .collect()
     }
 
     pub fn field(&self, block: &str, name: &str) -> Option<&Field> {
@@ -93,12 +95,15 @@ impl Schema {
     /// one. A `string` or a `uint32` field has none.
     pub fn enumeration(&self, block: &str, field: &str) -> Option<&Block> {
         let ty = &self.field(block, field)?.type_name;
-        self.blocks.iter().find(|b| !b.constants.is_empty() && ends_with_name(&b.name, ty))
+        self.blocks
+            .iter()
+            .find(|b| !b.constants.is_empty() && ends_with_name(&b.name, ty))
     }
 
     /// Whether a field of this name in this block holds `true` or `false`.
     pub fn is_boolean(&self, block: &str, field: &str) -> bool {
-        self.field(block, field).is_some_and(|f| f.type_name == "bool")
+        self.field(block, field)
+            .is_some_and(|f| f.type_name == "bool")
     }
 
     fn blocks_named(&self, name: &str) -> impl Iterator<Item = &Block> {
@@ -132,7 +137,9 @@ fn message_blocks(blocks: &[Block]) -> HashMap<String, Vec<usize>> {
             continue;
         }
         found.push(index);
-        let Some(block) = blocks.get(index) else { continue };
+        let Some(block) = blocks.get(index) else {
+            continue;
+        };
         for field in &block.fields {
             // A type nested in this message first, as protobuf scopes it:
             // `Output.Entry` and `Platform.Entry` are both written `Entry`.
@@ -141,9 +148,9 @@ fn message_blocks(blocks: &[Block]) -> HashMap<String, Vec<usize>> {
                 .iter()
                 .position(|b| b.constants.is_empty() && b.name == nested)
                 .or_else(|| {
-                    blocks
-                        .iter()
-                        .position(|b| b.constants.is_empty() && ends_with_name(&b.name, &field.type_name))
+                    blocks.iter().position(|b| {
+                        b.constants.is_empty() && ends_with_name(&b.name, &field.type_name)
+                    })
                 })
             else {
                 continue;
@@ -213,7 +220,9 @@ fn read(text: &str, out: &mut Vec<Block>) {
         };
         let declaration = line.split(';').next().unwrap_or(line).trim().to_string();
         let taken = std::mem::take(&mut docs);
-        let Some(block) = out.get_mut(index) else { continue };
+        let Some(block) = out.get_mut(index) else {
+            continue;
+        };
         // A constant when the block is an enum, a field when it is a message.
         // The two are told apart by the declaration itself: `NAME = 1` has no
         // type in front of the name.
@@ -231,7 +240,9 @@ fn read(text: &str, out: &mut Vec<Block>) {
 
 /// The name a `message X {` or an `enum X {` opens.
 fn opens_block(line: &str) -> Option<&str> {
-    let rest = line.strip_prefix("message ").or_else(|| line.strip_prefix("enum "))?;
+    let rest = line
+        .strip_prefix("message ")
+        .or_else(|| line.strip_prefix("enum "))?;
     rest.split_whitespace().next()
 }
 
@@ -244,7 +255,9 @@ fn field_of(declaration: &str, docs: Vec<String>) -> Result<Field, Vec<String>> 
         Some((&"repeated", rest)) => (true, rest),
         _ => (false, &words[..]),
     };
-    let [type_name, name, "=", _number] = rest else { return Err(docs) };
+    let [type_name, name, "=", _number] = rest else {
+        return Err(docs);
+    };
     Ok(Field {
         name: (*name).to_string(),
         type_name: (*type_name).to_string(),
@@ -270,8 +283,13 @@ fn constant_of(declaration: &str, owner: &str, mut docs: Vec<String>) -> Option<
         None => declaration,
     };
     let words: Vec<&str> = declaration.split_whitespace().collect();
-    let [name, "=", _number] = words[..] else { return None };
-    if !name.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') {
+    let [name, "=", _number] = words[..] else {
+        return None;
+    };
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    {
         return None;
     }
     Some(Constant {
@@ -288,17 +306,30 @@ mod tests {
     #[test]
     fn every_block_a_build_file_writes_is_found() {
         let schema = schema();
-        for name in
-            ["library", "binary", "test", "testing", "outputs", "platform", "entry", "tag", "lint", "rules"]
-        {
+        for name in [
+            "library", "binary", "test", "testing", "outputs", "platform", "entry", "tag", "lint",
+            "rules",
+        ] {
             assert!(schema.block(name).is_some(), "no message for `{name}`");
         }
         // Nested messages, reached through the field that holds them.
-        assert_eq!(schema.block("forbids").map(|b| b.name.as_str()), Some("Tag.Forbids"));
-        assert_eq!(schema.block("requires").map(|b| b.name.as_str()), Some("Tag.Requires"));
+        assert_eq!(
+            schema.block("forbids").map(|b| b.name.as_str()),
+            Some("Tag.Forbids")
+        );
+        assert_eq!(
+            schema.block("requires").map(|b| b.name.as_str()),
+            Some("Tag.Requires")
+        );
         // Two messages named `Entry`, each found through its own field.
-        assert_eq!(schema.block("entries").map(|b| b.name.as_str()), Some("Output.Entry"));
-        assert_eq!(schema.block("entry").map(|b| b.name.as_str()), Some("Platform.Entry"));
+        assert_eq!(
+            schema.block("entries").map(|b| b.name.as_str()),
+            Some("Output.Entry")
+        );
+        assert_eq!(
+            schema.block("entry").map(|b| b.name.as_str()),
+            Some("Platform.Entry")
+        );
     }
 
     /// The schemas and `textproto::schema_order` name the same fields. A field
@@ -307,15 +338,16 @@ mod tests {
     #[test]
     fn the_field_lists_agree_with_the_formatter() {
         let schema = schema();
-        for block in
-            [
-                "", "library", "binary", "tool", "platform", "entry", "test", "testing", "outputs", "entries", "tag",
-                "forbids", "requires", "lint", "rules",
-            ]
-        {
+        for block in [
+            "", "library", "binary", "tool", "platform", "entry", "test", "testing", "outputs",
+            "entries", "tag", "forbids", "requires", "lint", "rules",
+        ] {
             let mut ordered: Vec<&str> = crate::build::textproto::schema_order(block).to_vec();
-            let mut declared: Vec<&str> =
-                schema.fields(block).iter().map(|f| f.name.as_str()).collect();
+            let mut declared: Vec<&str> = schema
+                .fields(block)
+                .iter()
+                .map(|f| f.name.as_str())
+                .collect();
             ordered.sort_unstable();
             declared.sort_unstable();
             assert_eq!(ordered, declared, "`{block}`");
@@ -336,8 +368,11 @@ mod tests {
     fn every_lint_has_a_field_in_the_repo_schema() {
         use crate::documentation::lints;
         let schema = schema();
-        let declared: Vec<&str> =
-            schema.fields("rules").iter().map(|f| f.name.as_str()).collect();
+        let declared: Vec<&str> = schema
+            .fields("rules")
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect();
         for l in lints::LINTS {
             let field = lints::rule_field(l.code);
             assert!(
@@ -345,7 +380,10 @@ mod tests {
                 "`{}` has no `{field}` field in repo.proto",
                 l.code
             );
-            assert!(schema.is_boolean("rules", &field), "`{field}` is not a bool");
+            assert!(
+                schema.is_boolean("rules", &field),
+                "`{field}` is not a bool"
+            );
         }
         // And nothing else: a field here that is not a rule is one a
         // `REPO.buri` could write and the toolchain would refuse.
@@ -361,18 +399,30 @@ mod tests {
 
     #[test]
     fn a_field_carries_the_prose_written_above_it() {
-        let field = schema().field("library", "sources").expect("library.sources");
+        let field = schema()
+            .field("library", "sources")
+            .expect("library.sources");
         assert_eq!(field.signature, "repeated string sources");
         assert!(field.repeated);
-        assert!(field.docs[0].starts_with("Every .buri file"), "{:?}", field.docs);
+        assert!(
+            field.docs[0].starts_with("Every .buri file"),
+            "{:?}",
+            field.docs
+        );
     }
 
     #[test]
     fn a_backends_field_names_the_enum_its_values_come_from() {
-        let backend = schema().enumeration("library", "backends").expect("Backend");
+        let backend = schema()
+            .enumeration("library", "backends")
+            .expect("Backend");
         let names: Vec<&str> = backend.constants.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["BACKEND_UNSPECIFIED", "NATIVE", "JS"]);
-        let js = backend.constants.iter().find(|c| c.name == "JS").expect("JS");
+        let js = backend
+            .constants
+            .iter()
+            .find(|c| c.name == "JS")
+            .expect("JS");
         assert_eq!(js.signature, "Backend.JS = 2");
         assert!(js.docs[0].starts_with("One ES module"), "{:?}", js.docs);
         // A platform is a string, so it draws from no enum.

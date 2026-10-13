@@ -23,9 +23,17 @@ fn bound(depth: usize) -> String {
 /// `(p => body)(e)`, or `await (async p => body)(e)` where the body waits.
 fn applied(e: Expr, depth: usize, waits: bool, body: impl FnOnce(Expr) -> Expr) -> Expr {
     let p = bound(depth);
-    let arrow = Expr::Arrow { params: vec![p.clone()], body: Box::new(body(Expr::ident(p))), is_async: waits };
+    let arrow = Expr::Arrow {
+        params: vec![p.clone()],
+        body: Box::new(body(Expr::ident(p))),
+        is_async: waits,
+    };
     let call = Expr::call(arrow, vec![e]);
-    if waits { Expr::Await(Box::new(call)) } else { call }
+    if waits {
+        Expr::Await(Box::new(call))
+    } else {
+        call
+    }
 }
 
 /// A Buri value, as the `js` file receives it.
@@ -40,7 +48,11 @@ pub fn to_js(c: &Crossing, e: Expr, depth: usize) -> Expr {
         Crossing::List(inner) => {
             let p = bound(depth);
             let each = to_js(inner, Expr::ident(p.clone()), depth.saturating_add(1));
-            let arrow = Expr::Arrow { params: vec![p], body: Box::new(each), is_async: false };
+            let arrow = Expr::Arrow {
+                params: vec![p],
+                body: Box::new(each),
+                is_async: false,
+            };
             Expr::call(Expr::member(e, "map"), vec![arrow])
         }
         Crossing::Tuple(items) => applied(e, depth, false, |t| {
@@ -48,7 +60,13 @@ pub fn to_js(c: &Crossing, e: Expr, depth: usize) -> Expr {
                 items
                     .iter()
                     .enumerate()
-                    .map(|(i, c)| to_js(c, Expr::index(t.clone(), Expr::Num(i as f64)), depth.saturating_add(1)))
+                    .map(|(i, c)| {
+                        to_js(
+                            c,
+                            Expr::index(t.clone(), Expr::Num(i as f64)),
+                            depth.saturating_add(1),
+                        )
+                    })
                     .collect(),
             )
         }),
@@ -59,10 +77,15 @@ pub fn to_js(c: &Crossing, e: Expr, depth: usize) -> Expr {
         }),
         // Evaluated for its effect: under a `Result` it is `$crossThrow`'s call,
         // which throws an `.Err`.
-        Crossing::Unit => Expr::Unary { op: UnOp::Void, operand: Box::new(e) },
-        Crossing::Result(inner) => {
-            to_js(inner, Expr::call(Expr::ident("$crossThrow"), vec![e]), depth)
-        }
+        Crossing::Unit => Expr::Unary {
+            op: UnOp::Void,
+            operand: Box::new(e),
+        },
+        Crossing::Result(inner) => to_js(
+            inner,
+            Expr::call(Expr::ident("$crossThrow"), vec![e]),
+            depth,
+        ),
         Crossing::Record(fields) => applied(e, depth, false, |r| {
             Expr::Object(
                 fields
@@ -95,7 +118,11 @@ pub fn from_js(c: &Crossing, e: Expr, depth: usize) -> Expr {
             let p = bound(depth);
             let waits = inner.waits();
             let each = from_js(inner, Expr::ident(p.clone()), next);
-            let arrow = Expr::Arrow { params: vec![p], body: Box::new(each), is_async: waits };
+            let arrow = Expr::Arrow {
+                params: vec![p],
+                body: Box::new(each),
+                is_async: waits,
+            };
             let mapped = Expr::call(Expr::member(Expr::ident("Array"), "from"), vec![e, arrow]);
             if waits {
                 let all = Expr::call(Expr::member(Expr::ident("Promise"), "all"), vec![mapped]);
@@ -136,12 +163,14 @@ pub fn from_js(c: &Crossing, e: Expr, depth: usize) -> Expr {
                     .collect(),
             )
         }),
-        Crossing::Request => {
-            Expr::Await(Box::new(Expr::call(Expr::ident("$crossRequestIn"), vec![e])))
-        }
-        Crossing::Response => {
-            Expr::Await(Box::new(Expr::call(Expr::ident("$crossResponseIn"), vec![e])))
-        }
+        Crossing::Request => Expr::Await(Box::new(Expr::call(
+            Expr::ident("$crossRequestIn"),
+            vec![e],
+        ))),
+        Crossing::Response => Expr::Await(Box::new(Expr::call(
+            Expr::ident("$crossResponseIn"),
+            vec![e],
+        ))),
     }
 }
 
@@ -152,8 +181,15 @@ pub fn answer_from_js(c: &Crossing, call: Expr) -> Expr {
     match c {
         Crossing::Result(inner) => {
             let value = from_js(inner, Expr::Await(Box::new(call)), 0);
-            let thunk = Expr::Arrow { params: Vec::new(), body: Box::new(value), is_async: true };
-            Expr::Await(Box::new(Expr::call(Expr::ident("$crossCatch"), vec![thunk])))
+            let thunk = Expr::Arrow {
+                params: Vec::new(),
+                body: Box::new(value),
+                is_async: true,
+            };
+            Expr::Await(Box::new(Expr::call(
+                Expr::ident("$crossCatch"),
+                vec![thunk],
+            )))
         }
         other => from_js(other, Expr::Await(Box::new(call)), 0),
     }
@@ -179,7 +215,10 @@ pub const HOSTED_UI_DEFINITION: &str = "const $buri$ui={signal:(v)=>$host_HostUi
 
 impl Gen<'_> {
     fn known(&self) -> Known {
-        Known { request: self.program.hosted.request, response: self.program.hosted.response }
+        Known {
+            request: self.program.hosted.request,
+            response: self.program.hosted.response,
+        }
     }
 
     /// How a value of this type crosses. The checker refused every type that
@@ -203,7 +242,11 @@ impl Gen<'_> {
                 crossed.push(Expr::Object(Vec::new()));
                 continue;
             }
-            let ty = f.locals.get(param.index()).map(|l| l.ty).unwrap_or(Ty::ERROR);
+            let ty = f
+                .locals
+                .get(param.index())
+                .map(|l| l.ty)
+                .unwrap_or(Ty::ERROR);
             crossed.push(to_js(&self.crossing(&ty, false), arg.clone(), 0));
         }
         let implementation = Expr::member(Expr::call(Expr::ident(HOST_LOOKUP), Vec::new()), strukt);
@@ -229,11 +272,23 @@ impl Gen<'_> {
         // What the entry printed goes out when it answers, as a program that
         // starts itself flushes on its way out.
         let body = vec![
-            Stmt::Var { kind: VarKind::Const, name: String::from("$r"), init: Some(answer) },
+            Stmt::Var {
+                kind: VarKind::Const,
+                name: String::from("$r"),
+                init: Some(answer),
+            },
             Stmt::Raw(String::from("$host.flush();")),
-            Stmt::Return(Some(to_js(&self.crossing(&f.ret, true), Expr::ident("$r"), 0))),
+            Stmt::Return(Some(to_js(
+                &self.crossing(&f.ret, true),
+                Expr::ident("$r"),
+                0,
+            ))),
         ];
-        let entry = Expr::ArrowBlock { params, body, is_async: true };
+        let entry = Expr::ArrowBlock {
+            params,
+            body,
+            is_async: true,
+        };
         Stmt::Var {
             kind: VarKind::Const,
             name: String::from(HOSTED_PROGRAM),

@@ -77,7 +77,8 @@ fn prepare(out: &Path) -> Result<(), String> {
 
 fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if let Some(directory) = path.parent() {
-        std::fs::create_dir_all(directory).map_err(|why| format!("{}: {why}", directory.display()))?;
+        std::fs::create_dir_all(directory)
+            .map_err(|why| format!("{}: {why}", directory.display()))?;
     }
     std::fs::write(path, bytes).map_err(|why| format!("{}: {why}", path.display()))
 }
@@ -86,7 +87,10 @@ fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 fn root_of(options: &Options) -> Result<PathBuf, String> {
     if let Some(root) = &options.root {
         return pages::find_root(root).ok_or_else(|| {
-            format!("{} does not hold `crates/docs/src/docs` and a README", root.display())
+            format!(
+                "{} does not hold `crates/docs/src/docs` and a README",
+                root.display()
+            )
         });
     }
     let here = std::env::current_dir().map_err(|why| format!("the working directory: {why}"))?;
@@ -175,10 +179,9 @@ mod tests {
     /// claim. This is the second workspace member, so it needs its own.
     #[test]
     fn nothing_is_resolved_from_crates_io() {
-        let manifest = std::fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"),
-        )
-        .expect("the crate's own manifest");
+        let manifest =
+            std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"))
+                .expect("the crate's own manifest");
         let mut in_dependencies = false;
         let mut seen = 0;
         for line in manifest.lines() {
@@ -198,17 +201,19 @@ mod tests {
             );
             seen += 1;
         }
-        assert_eq!(seen, 1, "the path dependency on `buri` vanished; this test asserts nothing");
+        assert_eq!(
+            seen, 1,
+            "the path dependency on `buri` vanished; this test asserts nothing"
+        );
     }
 
     /// The output directory is under `target/`, which `.gitignore` already
     /// covers. A generated site that could be committed eventually is.
     #[test]
     fn the_default_output_is_ignored_by_git() {
-        let gitignore = std::fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../.gitignore"),
-        )
-        .expect("the repository's .gitignore");
+        let gitignore =
+            std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.gitignore"))
+                .expect("the repository's .gitignore");
         assert!(options::DEFAULT_OUTPUT.starts_with("target/"));
         assert!(
             gitignore.lines().any(|line| line.trim() == "target/"),
@@ -224,7 +229,10 @@ mod tests {
         std::fs::create_dir_all(&out).expect("a temporary directory");
         std::fs::write(out.join("something-of-yours.txt"), b"kept").expect("a file in it");
         assert!(prepare(&out).is_err());
-        assert!(out.join("something-of-yours.txt").is_file(), "it was not left alone");
+        assert!(
+            out.join("something-of-yours.txt").is_file(),
+            "it was not left alone"
+        );
         let _ = std::fs::remove_dir_all(&out);
     }
 }

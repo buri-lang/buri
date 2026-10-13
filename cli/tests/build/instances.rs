@@ -15,15 +15,31 @@ use crate::harness::{indent, Run, Scratch};
 
 /// The platform a binary here declares: this machine's own native variant.
 fn host_platform() -> String {
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     format!("\"native\", variant: \"{os}-{arch}\"")
 }
 
 /// The native artifact `//cmd/<name>` builds to.
 fn artifact(scratch: &Scratch, name: &str) -> std::path::PathBuf {
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     scratch.path(&format!(".buri/out/native/{os}-{arch}/cmd/{name}/{name}"))
 }
 
@@ -32,7 +48,10 @@ fn artifact(scratch: &Scratch, name: &str) -> std::path::PathBuf {
 fn build_and_run(scratch: &Scratch, name: &str, source: &str) -> Run {
     scratch.write(
         &format!("cmd/{name}/BUILD.buri"),
-        &format!("binary {{\n  outputs: [{{ platform: {} }}]\n}}\n", host_platform()),
+        &format!(
+            "binary {{\n  outputs: [{{ platform: {} }}]\n}}\n",
+            host_platform()
+        ),
     );
     scratch.write(&format!("cmd/{name}/main.buri"), source);
     scratch.run(&["build", &format!("//cmd/{name}")]).ok();

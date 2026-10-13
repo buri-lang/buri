@@ -13,7 +13,11 @@ use crate::harness::*;
 
 #[test]
 fn the_javascript_backend() {
-    run_corpus(&tests_dir().join("repositories/javascript"), "javascript", 1);
+    run_corpus(
+        &tests_dir().join("repositories/javascript"),
+        "javascript",
+        1,
+    );
 }
 
 /// What the driver prints: one `status body` line per call to the entry.
@@ -47,7 +51,11 @@ fn an_entry_reads_its_arguments_across_the_boundary() {
         .current_dir(&scratch.root)
         .output()
         .unwrap();
-    assert!(out.status.success(), "the entry failed:\n{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "the entry failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert_eq!(
         String::from_utf8_lossy(&out.stdout),
         "200 /a,/b /c 6 true\n200  none 0 true\n200 /only none 40 true\n"

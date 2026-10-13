@@ -165,10 +165,7 @@ pub enum Step {
     /// back is how a case takes a file away and restores it byte for byte,
     /// which no `edit` can do: an edit leaves the file there. The
     /// destination's directory is made if it is missing.
-    Move {
-        from: String,
-        to: String,
-    },
+    Move { from: String, to: String },
     File {
         path: String,
         golden: Option<String>,
@@ -222,8 +219,14 @@ pub struct Variant {
     pub variant: &'static str,
 }
 
-const LINUX_X86_64: Variant = Variant { os: "linux", variant: "linux-x86_64" };
-const MACOS_X86_64: Variant = Variant { os: "macos", variant: "macos-x86_64" };
+const LINUX_X86_64: Variant = Variant {
+    os: "linux",
+    variant: "linux-x86_64",
+};
+const MACOS_X86_64: Variant = Variant {
+    os: "macos",
+    variant: "macos-x86_64",
+};
 
 /// The host's operating system, and a variant that is deliberately **not**
 /// the host's.
@@ -275,7 +278,10 @@ pub fn families(host_os: &str) -> Vec<Vec<(&'static str, String)>> {
         ("CROSS_VARIANT", cross.variant.to_string()),
     ]];
     if let (Some(h), Some(variant)) = (host, host_variant(host_os)) {
-        v.push(vec![("HOST_PLATFORM", h.to_string()), ("HOST_VARIANT", variant)]);
+        v.push(vec![
+            ("HOST_PLATFORM", h.to_string()),
+            ("HOST_VARIANT", variant),
+        ]);
     }
     v
 }
@@ -388,7 +394,9 @@ impl Subst {
         let mut files = Vec::new();
         collect_files(root, &mut files);
         for path in files {
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
             if !text.contains("{{") {
                 continue;
             }
@@ -412,7 +420,9 @@ fn placeholders(text: &str) -> Vec<String> {
         let Some(j) = after.find("}}") else { break };
         let name = &after[..j];
         if !name.is_empty()
-            && name.chars().all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
+            && name
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
         {
             out.push(name.to_string());
         }
@@ -452,7 +462,9 @@ fn replace_tokens(text: &str, from: &str, to: &str) -> String {
 
 /// Every file under `dir`, sorted, so a scan is the same on two machines.
 fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
     paths.sort();
     for path in paths {
@@ -538,7 +550,9 @@ pub fn load_case(dir: &Path) -> Case {
                         None => None,
                         Some("LOADED") => Some(true),
                         Some("LINKED") => Some(false),
-                        Some(other) => panic!("{name}: run.suites is {other}, not one of LOADED, LINKED"),
+                        Some(other) => {
+                            panic!("{name}: run.suites is {other}, not one of LOADED, LINKED")
+                        }
                     },
                 });
             }
@@ -565,7 +579,13 @@ pub fn load_case(dir: &Path) -> Case {
                     contains: optional_str(&name, "file.contains", &message),
                     absent: optional_str(&name, "file.absent", &message),
                 };
-                if let Step::File { golden: None, contains: None, absent: None, .. } = step {
+                if let Step::File {
+                    golden: None,
+                    contains: None,
+                    absent: None,
+                    ..
+                } = step
+                {
                     panic!(
                         "{name}: a `file` step says nothing about the file; give it `golden`, \
                          `contains`, or `absent`"
@@ -604,7 +624,8 @@ pub fn load_case(dir: &Path) -> Case {
         }
     }
 
-    let doc = doc.unwrap_or_else(|| panic!("{name}: CASE.textproto has no `doc` saying what it is about"));
+    let doc = doc
+        .unwrap_or_else(|| panic!("{name}: CASE.textproto has no `doc` saying what it is about"));
     assert!(
         !steps.is_empty(),
         "{name}: CASE.textproto runs nothing, so it proves nothing"
@@ -627,7 +648,13 @@ pub fn load_case(dir: &Path) -> Case {
              `not_a_repository: true` if that is the point"
         }
     );
-    Case { name, dir: dir.to_path_buf(), doc, steps, subst }
+    Case {
+        name,
+        dir: dir.to_path_buf(),
+        doc,
+        steps,
+        subst,
+    }
 }
 
 fn as_str(case: &str, what: &str, v: &Value) -> String {
@@ -659,7 +686,10 @@ fn optional_str(case: &str, what: &str, message: &Message) -> Option<String> {
 /// Whether a debug suite built for this host loads into the test host, as
 /// `buri test` decides it.
 fn suites_load() -> bool {
-    let target = buri::compiler::backend::Target { platform: buri::compiler::driver::host_native_platform(), arch: None };
+    let target = buri::compiler::backend::Target {
+        platform: buri::compiler::driver::host_native_platform(),
+        arch: None,
+    };
     buri::build::test_host::wanted(target, buri::compiler::backend::Profile::Debug)
 }
 
@@ -682,9 +712,9 @@ fn optional_ident(case: &str, what: &str, message: &Message) -> Option<String> {
 }
 
 fn required_int(case: &str, block: &str, field: &str, message: &Message) -> i32 {
-    let f = message
-        .get(field)
-        .unwrap_or_else(|| panic!("{case}: `{block}` has no `{field}` — an exit code is never inferred"));
+    let f = message.get(field).unwrap_or_else(|| {
+        panic!("{case}: `{block}` has no `{field}` — an exit code is never inferred")
+    });
     match &f.value {
         Value::Int(n, _) => *n as i32,
         other => panic!("{case}: {block}.{field} is {}, not a number", other.kind()),
@@ -727,7 +757,16 @@ pub fn run_case(case: &Case, g: &mut Golden) {
     }
     for (i, step) in case.steps.iter().enumerate() {
         match step {
-            Step::Run { args, exit, golden, stream, stdin, cwd, host, loaded } => {
+            Step::Run {
+                args,
+                exit,
+                golden,
+                stream,
+                stdin,
+                cwd,
+                host,
+                loaded,
+            } => {
                 // A run named for another host is skipped: its golden is another
                 // host's to bless and compare, and this one asserts nothing
                 // about it. The file stays on disk for `no_golden_has_collapsed`.
@@ -768,8 +807,7 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                         let mut text =
                             text.replace("<scratch>", &scratch.root.display().to_string());
                         if let Some(second) = &second {
-                            text =
-                                text.replace("<scratch2>", &second.root.display().to_string());
+                            text = text.replace("<scratch2>", &second.root.display().to_string());
                         }
                         let mut run = drive_session(&case.name, &from, &argv, &text);
                         // The protocol's framing is a byte count, which changes
@@ -841,10 +879,19 @@ pub fn run_case(case: &Case, g: &mut Golden) {
                     let _ = std::fs::create_dir_all(parent);
                 }
                 std::fs::rename(&source, &dest).unwrap_or_else(|e| {
-                    panic!("{}: step {} cannot move {from} to {to}: {e}", case.name, i + 1)
+                    panic!(
+                        "{}: step {} cannot move {from} to {to}: {e}",
+                        case.name,
+                        i + 1
+                    )
                 });
             }
-            Step::File { path, golden, contains, absent } => {
+            Step::File {
+                path,
+                golden,
+                contains,
+                absent,
+            } => {
                 let text = scratch.read(path);
                 if let Some(golden) = golden {
                     g.check(
@@ -950,12 +997,18 @@ pub fn run_corpus(dir: &Path, what: &str, floor: usize) {
 fn names_a_linux_variant(case: &Path) -> bool {
     fn walk(path: &Path) -> bool {
         if path.is_dir() {
-            let Ok(entries) = std::fs::read_dir(path) else { return true };
-            return entries.flatten().any(|e| e.file_name() != "expected" && walk(&e.path()));
+            let Ok(entries) = std::fs::read_dir(path) else {
+                return true;
+            };
+            return entries
+                .flatten()
+                .any(|e| e.file_name() != "expected" && walk(&e.path()));
         }
         let text = std::fs::read(path).unwrap_or_default();
         let text = String::from_utf8_lossy(&text);
-        ["{{CROSS_", "linux-x86_64", "linux-arm64"].iter().any(|word| text.contains(word))
+        ["{{CROSS_", "linux-x86_64", "linux-arm64"]
+            .iter()
+            .any(|word| text.contains(word))
     }
     walk(case)
 }
@@ -1072,10 +1125,18 @@ fn collapsed_into(text: &str, shape: &str) -> bool {
 pub fn no_golden_has_collapsed(dir: &Path, what: &str) {
     let mut found: Vec<String> = Vec::new();
     for case in super::case_dirs(dir, "CASE.textproto", 1) {
-        let name = case.file_name().unwrap_or_default().to_string_lossy().to_string();
-        let Ok(entries) = std::fs::read_dir(case.join("expected")) else { continue };
+        let name = case
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let Ok(entries) = std::fs::read_dir(case.join("expected")) else {
+            continue;
+        };
         for entry in entries.filter_map(Result::ok) {
-            let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+            let Ok(text) = std::fs::read_to_string(entry.path()) else {
+                continue;
+            };
             if COLLAPSED.iter().any(|shape| collapsed_into(&text, shape)) {
                 found.push(format!("{what}/{name}"));
                 break;
@@ -1096,7 +1157,6 @@ pub fn no_golden_has_collapsed(dir: &Path, what: &str) {
          failing case — see `A_RUN_THAT_ASSERTED_NOTHING`"
     );
 }
-
 
 // ---------------------------------------------------------------------------
 // Language-server framing
@@ -1178,16 +1238,22 @@ fn drive_session(case: &str, dir: &Path, args: &[&str], session: &str) -> super:
             pending.push('\n');
             continue;
         };
-        input.write_all(&frame_requests(&pending)).expect("writing the session");
+        input
+            .write_all(&frame_requests(&pending))
+            .expect("writing the session");
         pending.clear();
         act(case, dir, directive, &mut output, &mut read_early);
     }
-    input.write_all(&frame_requests(&pending)).expect("writing the session");
+    input
+        .write_all(&frame_requests(&pending))
+        .expect("writing the session");
     // Dropped here, which closes the pipe and is what tells the server the
     // session is over.
     drop(input);
     let mut rest = Vec::new();
-    output.read_to_end(&mut rest).expect("reading the rest of the session");
+    output
+        .read_to_end(&mut rest)
+        .expect("reading the rest of the session");
     let status = child.wait().expect("the buri binary finishes");
     let mut stderr = String::new();
     if let Some(mut e) = child.stderr.take() {
@@ -1348,7 +1414,10 @@ fn apply_workspace_edit(case: &str, edit: Option<&buri::json::Value>, response: 
         for edit in edits {
             let start = offset_of(&text, edit, "range.start");
             let end = offset_of(&text, edit, "range.end");
-            let new = edit.at("newText").and_then(|t| t.as_str()).unwrap_or_default();
+            let new = edit
+                .at("newText")
+                .and_then(|t| t.as_str())
+                .unwrap_or_default();
             text.replace_range(start..end, new);
         }
         std::fs::write(&path, &text)
@@ -1358,8 +1427,14 @@ fn apply_workspace_edit(case: &str, edit: Option<&buri::json::Value>, response: 
 
 /// A position as a sortable pair, for ordering edits without the text.
 fn offset_key(edit: &buri::json::Value, at: &str) -> (u32, u32) {
-    let line = edit.at(&format!("{at}.line")).and_then(|v| v.as_u32()).unwrap_or(0);
-    let character = edit.at(&format!("{at}.character")).and_then(|v| v.as_u32()).unwrap_or(0);
+    let line = edit
+        .at(&format!("{at}.line"))
+        .and_then(|v| v.as_u32())
+        .unwrap_or(0);
+    let character = edit
+        .at(&format!("{at}.character"))
+        .and_then(|v| v.as_u32())
+        .unwrap_or(0);
     (line, character)
 }
 
@@ -1441,7 +1516,11 @@ mod placeholder_tests {
     fn the_cross_variant_is_never_the_host() {
         for host in ["macos", "linux", "windows"] {
             let (host_os, cross) = platforms_for(host);
-            assert_ne!(host_os, Some(cross.os), "{host}: the cross variant is the host's");
+            assert_ne!(
+                host_os,
+                Some(cross.os),
+                "{host}: the cross variant is the host's"
+            );
         }
     }
 
@@ -1470,8 +1549,14 @@ mod placeholder_tests {
     /// suite here, so it is asserted rather than run.
     #[test]
     fn each_host_gets_the_other_variant() {
-        assert_eq!(subst("macos").fill("--output=native/{{CROSS_VARIANT}}"), "--output=native/linux-x86_64");
-        assert_eq!(subst("linux").fill("--output=native/{{CROSS_VARIANT}}"), "--output=native/macos-x86_64");
+        assert_eq!(
+            subst("macos").fill("--output=native/{{CROSS_VARIANT}}"),
+            "--output=native/linux-x86_64"
+        );
+        assert_eq!(
+            subst("linux").fill("--output=native/{{CROSS_VARIANT}}"),
+            "--output=native/macos-x86_64"
+        );
         let host = Subst::of("test", "macos", &["{{HOST_VARIANT}}".to_string()]);
         assert!(host.fill("{{HOST_VARIANT}}").starts_with("macos-"));
     }
@@ -1482,25 +1567,57 @@ mod placeholder_tests {
     /// here for both hosts from the files themselves.
     #[test]
     fn the_cross_refusal_golden_expands_to_the_fixture_on_either_host() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/repositories/cli/output_selection");
+        let dir =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/repositories/cli/output_selection");
         let read = |rel: &str| std::fs::read_to_string(dir.join(rel)).unwrap();
-        let (fixture, golden) = (read("repo/cmd/native/BUILD.buri"), read("expected/native_cross.txt"));
+        let (fixture, golden) = (
+            read("repo/cmd/native/BUILD.buri"),
+            read("expected/native_cross.txt"),
+        );
         for (host, cross) in [("linux", "macos-x86_64"), ("macos", "linux-x86_64")] {
             let s = Subst::of("test", host, &[fixture.clone(), golden.clone()]);
             let (fixture, golden) = (s.fill(&fixture), s.fill(&golden));
-            assert!(!golden.contains("{{"), "{host}: a placeholder survived the fill");
-            assert!(golden.starts_with(&format!("error: no native artifact for {cross} ")), "{host}");
-            assert!(golden.contains(&format!("build this output on a {cross} host")), "{host}");
-            let quoted = golden.lines().find_map(|l| l.strip_prefix("9 |         ")).unwrap();
+            assert!(
+                !golden.contains("{{"),
+                "{host}: a placeholder survived the fill"
+            );
+            assert!(
+                golden.starts_with(&format!("error: no native artifact for {cross} ")),
+                "{host}"
+            );
+            assert!(
+                golden.contains(&format!("build this output on a {cross} host")),
+                "{host}"
+            );
+            let quoted = golden
+                .lines()
+                .find_map(|l| l.strip_prefix("9 |         "))
+                .unwrap();
             assert_eq!(fixture.lines().nth(8).unwrap().trim(), quoted, "{host}");
-            assert_eq!(quoted, format!("{{ platform: \"native\", variant: \"{cross}\" }},"), "{host}");
-            let carets = golden.lines().find_map(|l| l.strip_prefix("  |         ")).unwrap();
-            assert_eq!(carets, "^".repeat(quoted.len() - 1), "{host}: the carets do not span the output");
-            assert!(s.hide(&golden) == read("expected/native_cross.txt"), "{host}: the round trip lost something");
+            assert_eq!(
+                quoted,
+                format!("{{ platform: \"native\", variant: \"{cross}\" }},"),
+                "{host}"
+            );
+            let carets = golden
+                .lines()
+                .find_map(|l| l.strip_prefix("  |         "))
+                .unwrap();
+            assert_eq!(
+                carets,
+                "^".repeat(quoted.len() - 1),
+                "{host}: the carets do not span the output"
+            );
+            assert!(
+                s.hide(&golden) == read("expected/native_cross.txt"),
+                "{host}: the round trip lost something"
+            );
         }
-        assert!(Subst::of("test", "linux", &["{{HOST_VARIANT}}".to_string()])
-            .fill("{{HOST_VARIANT}}")
-            .starts_with("linux-"));
+        assert!(
+            Subst::of("test", "linux", &["{{HOST_VARIANT}}".to_string()])
+                .fill("{{HOST_VARIANT}}")
+                .starts_with("linux-")
+        );
     }
 
     /// What a Linux runner records is what the repository already holds. This
@@ -1514,8 +1631,15 @@ mod placeholder_tests {
         for host in ["macos", "linux"] {
             let s = subst(host);
             let printed = s.fill(recorded);
-            assert!(!printed.contains("{{"), "{host}: a placeholder survived the fill");
-            assert_eq!(s.hide(&printed), recorded, "{host}: the round trip lost something");
+            assert!(
+                !printed.contains("{{"),
+                "{host}: a placeholder survived the fill"
+            );
+            assert_eq!(
+                s.hide(&printed),
+                recorded,
+                "{host}: the round trip lost something"
+            );
         }
     }
 
@@ -1524,8 +1648,10 @@ mod placeholder_tests {
     #[test]
     fn only_whole_tokens_of_a_declared_placeholder_are_hidden() {
         let s = subst("macos");
-        assert_eq!(s.hide("linuxish linux-x86_64 delinux /linux/"),
-                   "linuxish {{CROSS_VARIANT}} delinux /{{CROSS_PLATFORM}}/");
+        assert_eq!(
+            s.hide("linuxish linux-x86_64 delinux /linux/"),
+            "linuxish {{CROSS_VARIANT}} delinux /{{CROSS_PLATFORM}}/"
+        );
         // A macOS host's own platform is not in this case's vocabulary, so it
         // is left exactly as the toolchain printed it.
         assert_eq!(s.hide("built for macos"), "built for macos");
@@ -1548,6 +1674,9 @@ mod placeholder_tests {
     #[test]
     fn lowercase_braces_are_not_placeholders() {
         assert!(placeholders("let x = {{ a: 1 }};").is_empty());
-        assert_eq!(placeholders("{{CROSS_VARIANT}}"), vec!["CROSS_VARIANT".to_string()]);
+        assert_eq!(
+            placeholders("{{CROSS_VARIANT}}"),
+            vec!["CROSS_VARIANT".to_string()]
+        );
     }
 }

@@ -9,7 +9,9 @@
 
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::typed::{self, Expr, ExprKind, Magnitude, PatKind, Pattern, PrimOp, Stmt};
+use crate::compiler::semantics::typed::{
+    self, Expr, ExprKind, Magnitude, PatKind, Pattern, PrimOp, Stmt,
+};
 use crate::compiler::semantics::types::{LocalId, Prim, Ty};
 use std::collections::{HashMap, HashSet};
 
@@ -27,11 +29,16 @@ pub fn key(file: &str, line: usize) -> u64 {
     fnv(file, &line.to_string())
 }
 
-
 /// The key for one probe of one decision. A line's key hashes digits after the
 /// separator and this one a letter, so the two never hash the same input.
 /// `instance` names a generic instantiation, under MC/DC only.
-pub fn branch_key(file: &str, kind: Kind, (start, end): (u32, u32), slot: usize, instance: Option<&str>) -> u64 {
+pub fn branch_key(
+    file: &str,
+    kind: Kind,
+    (start, end): (u32, u32),
+    slot: usize,
+    instance: Option<&str>,
+) -> u64 {
     let at = instance.map_or(String::new(), |i| format!("@{i}"));
     fnv(file, &format!("b{}:{start},{end},{slot}{at}", kind as u8))
 }
@@ -104,12 +111,22 @@ pub fn decisions(e: &Expr, traps: Option<&dyn Fn(&Expr) -> bool>, f: &mut impl F
     if let ExprKind::Match { arms, .. } = &e.kind {
         if !desugared(e) {
             for g in arms.iter().filter_map(|a| a.guard.as_ref()) {
-                f(Decision { kind: Kind::Guard, span: g.span, at: g.span.start, branches: 2 });
+                f(Decision {
+                    kind: Kind::Guard,
+                    span: g.span,
+                    at: g.span.start,
+                    branches: 2,
+                });
             }
         }
     }
     if traps.is_some_and(|call| traps_here(e, call)) {
-        f(Decision { kind: Kind::Trap, span: e.span, at: e.span.start, branches: 2 });
+        f(Decision {
+            kind: Kind::Trap,
+            span: e.span,
+            at: e.span.start,
+            branches: 2,
+        });
     }
     typed::children(e, &mut |c| decisions(c, traps, f));
 }
@@ -123,7 +140,12 @@ fn decision(e: &Expr) -> Option<Decision> {
         ExprKind::Try { .. } => (Kind::Try, e.span.end.saturating_sub(1), 2),
         _ => return None,
     };
-    Some(Decision { kind, span: e.span, at, branches })
+    Some(Decision {
+        kind,
+        span: e.span,
+        at,
+        branches,
+    })
 }
 
 fn desugared(e: &Expr) -> bool {
@@ -134,7 +156,11 @@ fn desugared(e: &Expr) -> bool {
 /// call `call` says can.
 fn traps_here(e: &Expr, call: &dyn Fn(&Expr) -> bool) -> bool {
     match &e.kind {
-        ExprKind::Prim { op: PrimOp::Div | PrimOp::Rem, prim, .. } => prim.is_integer(),
+        ExprKind::Prim {
+            op: PrimOp::Div | PrimOp::Rem,
+            prim,
+            ..
+        } => prim.is_integer(),
         ExprKind::CallFn { .. } => call(e),
         _ => false,
     }
@@ -166,11 +192,23 @@ impl Tree {
 
     fn build(e: &Expr) -> Tree {
         match &e.kind {
-            ExprKind::And { lhs, rhs } => Tree::And(Box::new(Tree::build(lhs)), Box::new(Tree::build(rhs)), e.span),
-            ExprKind::Or { lhs, rhs } => Tree::Or(Box::new(Tree::build(lhs)), Box::new(Tree::build(rhs)), e.span),
-            ExprKind::Prim { op: PrimOp::Not, args, .. } if logical(e) => {
-                Tree::Not(Box::new(args.first().map_or(Tree::Condition(e.span), Tree::build)))
-            }
+            ExprKind::And { lhs, rhs } => Tree::And(
+                Box::new(Tree::build(lhs)),
+                Box::new(Tree::build(rhs)),
+                e.span,
+            ),
+            ExprKind::Or { lhs, rhs } => Tree::Or(
+                Box::new(Tree::build(lhs)),
+                Box::new(Tree::build(rhs)),
+                e.span,
+            ),
+            ExprKind::Prim {
+                op: PrimOp::Not,
+                args,
+                ..
+            } if logical(e) => Tree::Not(Box::new(
+                args.first().map_or(Tree::Condition(e.span), Tree::build),
+            )),
             _ => Tree::Condition(e.span),
         }
     }
@@ -181,11 +219,17 @@ impl Tree {
             Tree::Condition(_) => (1, 1),
             Tree::And(l, r, _) => {
                 let ((tl, fl), (tr, fr)) = (l.paths(), r.paths());
-                (tl.saturating_mul(tr), fl.saturating_add(tl.saturating_mul(fr)))
+                (
+                    tl.saturating_mul(tr),
+                    fl.saturating_add(tl.saturating_mul(fr)),
+                )
             }
             Tree::Or(l, r, _) => {
                 let ((tl, fl), (tr, fr)) = (l.paths(), r.paths());
-                (tl.saturating_add(fl.saturating_mul(tr)), fl.saturating_mul(fr))
+                (
+                    tl.saturating_add(fl.saturating_mul(tr)),
+                    fl.saturating_mul(fr),
+                )
             }
             Tree::Not(x) => {
                 let (t, f) = x.paths();
@@ -240,9 +284,14 @@ impl Tree {
 
     /// Pushes each condition's value on path `i`, in source order, and
     /// answers the outcome.
-    #[allow(clippy::arithmetic_side_effects, reason = "an index below `paths()`, which `counted` keeps far from overflow")]
+    #[allow(
+        clippy::arithmetic_side_effects,
+        reason = "an index below `paths()`, which `counted` keeps far from overflow"
+    )]
     fn walk(&self, i: u64, values: &mut Vec<Option<bool>>) -> bool {
-        let skipped = |t: &Tree, values: &mut Vec<Option<bool>>| values.extend(std::iter::repeat_n(None, t.count()));
+        let skipped = |t: &Tree, values: &mut Vec<Option<bool>>| {
+            values.extend(std::iter::repeat_n(None, t.count()))
+        };
         match self {
             Tree::Condition(_) => {
                 values.push(Some(i == 0));
@@ -286,7 +335,11 @@ impl Tree {
             }
             Tree::Not(x) => {
                 let (tx, fx) = x.paths();
-                if i < fx { !x.walk(tx + i, values) } else { !x.walk(i - fx, values) }
+                if i < fx {
+                    !x.walk(tx + i, values)
+                } else {
+                    !x.walk(i - fx, values)
+                }
             }
         }
     }
@@ -296,7 +349,11 @@ impl Tree {
 fn logical(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::And { .. } | ExprKind::Or { .. } => true,
-        ExprKind::Prim { op: PrimOp::Not, args, .. } => args.first().is_some_and(logical),
+        ExprKind::Prim {
+            op: PrimOp::Not,
+            args,
+            ..
+        } => args.first().is_some_and(logical),
         _ => false,
     }
 }
@@ -427,7 +484,11 @@ fn conditions<'a>(e: &'a Expr, settled: bool, f: &mut impl FnMut(&'a Expr, bool)
             conditions(lhs, true, f);
             conditions(rhs, settled, f);
         }
-        ExprKind::Prim { op: PrimOp::Not, args, .. } if logical(e) => args.iter().for_each(|a| conditions(a, true, f)),
+        ExprKind::Prim {
+            op: PrimOp::Not,
+            args,
+            ..
+        } if logical(e) => args.iter().for_each(|a| conditions(a, true, f)),
         _ => f(e, !settled),
     }
 }
@@ -485,13 +546,28 @@ pub fn branches(program: &mut Program, options: &Options) -> Vec<derived::Derive
     };
     for (slot, f) in program.funcs.iter_mut().enumerate() {
         if let FuncKind::Body(body) = &mut f.kind {
-            let instance = options.mcdc.and_then(|names| names.get(&slot)).map(String::as_str);
-            Branches { options, instance, traps: &traps, locals: &mut f.locals }.expr(body, true);
+            let instance = options
+                .mcdc
+                .and_then(|names| names.get(&slot))
+                .map(String::as_str);
+            Branches {
+                options,
+                instance,
+                traps: &traps,
+                locals: &mut f.locals,
+            }
+            .expr(body, true);
         }
     }
     // Last, so the shadows' own branches aren't taken for the user's.
     match (options.mcdc, options.tables) {
-        (Some(_), Some(tables)) => derived::run(program, tables, options.file_of, options.i64_ty, options.bool_ty),
+        (Some(_), Some(tables)) => derived::run(
+            program,
+            tables,
+            options.file_of,
+            options.i64_ty,
+            options.bool_ty,
+        ),
         _ => Vec::new(),
     }
 }
@@ -500,17 +576,23 @@ pub fn branches(program: &mut Program, options: &Options) -> Vec<derived::Derive
 /// `core/bits` shift, or an integer type's `divide` or `remainder`, which a
 /// generic `a / b` reaches at that type.
 pub fn aborts(f: &crate::compiler::middle::monomorphize::Func) -> bool {
-    let FuncKind::Intrinsic(key) = &f.kind else { return false };
+    let FuncKind::Intrinsic(key) = &f.kind else {
+        return false;
+    };
     key.starts_with("bits.shift") || divides(key)
 }
 
 /// Whether an intrinsic is `number.<integer>.divide` or `.remainder`.
 fn divides(key: &str) -> bool {
     let mut parts = key.split('.');
-    let (Some("number"), Some(prim), Some("divide" | "remainder"), None) = (parts.next(), parts.next(), parts.next(), parts.next()) else {
+    let (Some("number"), Some(prim), Some("divide" | "remainder"), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
         return false;
     };
-    Prim::all().iter().any(|p| p.is_integer() && p.name() == prim)
+    Prim::all()
+        .iter()
+        .any(|p| p.is_integer() && p.name() == prim)
 }
 
 struct Branches<'a> {
@@ -549,8 +631,13 @@ impl Branches<'_> {
         let Some(d) = decision(e) else {
             return;
         };
-        let Some(file) = (self.options.file_of)(d.span) else { return };
-        let (first, second) = (self.key(&file, d.kind, d.span, 0), self.key(&file, d.kind, d.span, 1));
+        let Some(file) = (self.options.file_of)(d.span) else {
+            return;
+        };
+        let (first, second) = (
+            self.key(&file, d.kind, d.span, 0),
+            self.key(&file, d.kind, d.span, 1),
+        );
         let span = e.span;
         let ty = e.ty;
         match &mut e.kind {
@@ -558,7 +645,8 @@ impl Branches<'_> {
                 // { let b = base; came back; let v = b?; went on; v }
                 let operand_ty = base.ty;
                 let b = self.local(operand_ty, span);
-                let operand = std::mem::replace(&mut **base, Expr::new(ExprKind::Local(b), operand_ty, span));
+                let operand =
+                    std::mem::replace(&mut **base, Expr::new(ExprKind::Local(b), operand_ty, span));
                 let tried = std::mem::replace(e, Expr::new(ExprKind::Unit, ty, span));
                 *e = self.reached(vec![bind(b, operand, span)], tried, second, first);
             }
@@ -568,12 +656,24 @@ impl Branches<'_> {
             }
             ExprKind::Match { arms, .. } => {
                 for (i, a) in arms.iter_mut().enumerate() {
-                    hit_first(&mut a.body, self.key(&file, Kind::Match, span, i), &self.options.i64_ty);
+                    hit_first(
+                        &mut a.body,
+                        self.key(&file, Kind::Match, span, i),
+                        &self.options.i64_ty,
+                    );
                     let Some(g) = &mut a.guard else { continue };
                     let at = g.span;
-                    let (yes, no) = (self.key(&file, Kind::Guard, at, 0), self.key(&file, Kind::Guard, at, 1));
+                    let (yes, no) = (
+                        self.key(&file, Kind::Guard, at, 0),
+                        self.key(&file, Kind::Guard, at, 1),
+                    );
                     let cond = std::mem::replace(g, self.bool(false, at));
-                    *g = self.choose(at, cond, (yes, self.bool(true, at)), (no, self.bool(false, at)));
+                    *g = self.choose(
+                        at,
+                        cond,
+                        (yes, self.bool(true, at)),
+                        (no, self.bool(false, at)),
+                    );
                 }
             }
             ExprKind::And { .. } | ExprKind::Or { .. } => self.side(e, first, second),
@@ -587,16 +687,27 @@ impl Branches<'_> {
             ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
                 self.sides(lhs);
                 self.sides(rhs);
-                if matches!(e.kind, ExprKind::And { .. }) { Kind::And } else { Kind::Or }
+                if matches!(e.kind, ExprKind::And { .. }) {
+                    Kind::And
+                } else {
+                    Kind::Or
+                }
             }
-            ExprKind::Prim { op: PrimOp::Not, args, .. } => {
+            ExprKind::Prim {
+                op: PrimOp::Not,
+                args,
+                ..
+            } => {
                 args.iter_mut().for_each(|a| self.sides(a));
                 return;
             }
             _ => return,
         };
         if let Some(file) = (self.options.file_of)(e.span) {
-            let (ran, skipped) = (self.key(&file, kind, e.span, 0), self.key(&file, kind, e.span, 1));
+            let (ran, skipped) = (
+                self.key(&file, kind, e.span, 0),
+                self.key(&file, kind, e.span, 1),
+            );
             self.side(e, ran, skipped);
         }
     }
@@ -616,37 +727,68 @@ impl Branches<'_> {
     /// `{ let p = <its path>; count p; p < true paths }`.
     fn decision(&mut self, e: &mut Expr, named: Span) {
         let span = e.span;
-        let Some(file) = (self.options.file_of)(named) else { return };
+        let Some(file) = (self.options.file_of)(named) else {
+            return;
+        };
         let base = mcdc_key(&file, (named.start, named.end), self.instance);
         let whole = std::mem::replace(e, Expr::new(ExprKind::Unit, self.options.bool_ty, span));
         let (index, trues, _) = self.path(whole, &file);
         let p = self.local(self.options.i64_ty, span);
-        let key = self.prim(PrimOp::Add, vec![self.int(base, span), self.get(p, span)], span);
+        let key = self.prim(
+            PrimOp::Add,
+            vec![self.int(base, span), self.get(p, span)],
+            span,
+        );
         let hit = Expr::new(
-            ExprKind::Intrinsic { name: HIT.to_string(), targs: Vec::new(), args: vec![key] },
+            ExprKind::Intrinsic {
+                name: HIT.to_string(),
+                targs: Vec::new(),
+                args: vec![key],
+            },
             Ty::UNIT,
             span,
         );
-        let outcome = self.prim(PrimOp::Lt, vec![self.get(p, span), self.int(trues, span)], span);
+        let outcome = self.prim(
+            PrimOp::Lt,
+            vec![self.get(p, span), self.int(trues, span)],
+            span,
+        );
         let stmts = vec![bind(p, index, span), Stmt::Expr(hit)];
-        *e = Expr::new(ExprKind::Block { stmts, tail: Some(Box::new(outcome)) }, self.options.bool_ty, span);
+        *e = Expr::new(
+            ExprKind::Block {
+                stmts,
+                tail: Some(Box::new(outcome)),
+            },
+            self.options.bool_ty,
+            span,
+        );
     }
 
     /// An `I64` expression for the path `e` takes, numbered as [`Tree::decode`]
     /// reads it, with how many paths end true and how many false. True paths
     /// come first.
-    #[allow(clippy::arithmetic_side_effects, reason = "path counts of a decision `Tree::counted` admits, far below overflow")]
+    #[allow(
+        clippy::arithmetic_side_effects,
+        reason = "path counts of a decision `Tree::counted` admits, far below overflow"
+    )]
     fn path(&mut self, e: Expr, file: &str) -> (Expr, u64, u64) {
         let span = e.span;
         let not_operand = match &e.kind {
-            ExprKind::Prim { op: PrimOp::Not, args, .. } if logical(&e) => !args.is_empty(),
+            ExprKind::Prim {
+                op: PrimOp::Not,
+                args,
+                ..
+            } if logical(&e) => !args.is_empty(),
             _ => false,
         };
         match e.kind {
             ExprKind::And { lhs, rhs } => {
                 let (la, tl, fl) = self.path(*lhs, file);
                 let (rb, tr, fr) = self.path(*rhs, file);
-                let (a, b) = (self.local(self.options.i64_ty, span), self.local(self.options.i64_ty, span));
+                let (a, b) = (
+                    self.local(self.options.i64_ty, span),
+                    self.local(self.options.i64_ty, span),
+                );
                 // r true: a*tr + b. r false: tl*tr + fl + a*fr + (b - tr).
                 // l false: tl*tr + (a - tl).
                 let both = self.affine(a, tr, Some((b, 0)), 0, span);
@@ -661,7 +803,10 @@ impl Branches<'_> {
             ExprKind::Or { lhs, rhs } => {
                 let (la, tl, fl) = self.path(*lhs, file);
                 let (rb, tr, fr) = self.path(*rhs, file);
-                let (a, b) = (self.local(self.options.i64_ty, span), self.local(self.options.i64_ty, span));
+                let (a, b) = (
+                    self.local(self.options.i64_ty, span),
+                    self.local(self.options.i64_ty, span),
+                );
                 let trues = tl + fl * tr;
                 // l true: a. r true: tl + (a - tl)*tr + b. Both false:
                 // trues + (a - tl)*fr + (b - tr).
@@ -675,8 +820,15 @@ impl Branches<'_> {
                 let body = self.split(a, tl, l_true, inner, span);
                 (self.with(a, la, body, span), trues, fl * fr)
             }
-            ExprKind::Prim { op: PrimOp::Not, args, .. } if not_operand => {
-                let operand = args.into_iter().next().unwrap_or_else(|| Expr::new(ExprKind::Unit, Ty::UNIT, span));
+            ExprKind::Prim {
+                op: PrimOp::Not,
+                args,
+                ..
+            } if not_operand => {
+                let operand = args
+                    .into_iter()
+                    .next()
+                    .unwrap_or_else(|| Expr::new(ExprKind::Unit, Ty::UNIT, span));
                 let (xa, tx, fx) = self.path(operand, file);
                 let a = self.local(self.options.i64_ty, span);
                 // x true: fx + a. x false: a - tx.
@@ -710,21 +862,39 @@ impl Branches<'_> {
 
     /// `{ let a = value; body }`.
     fn with(&self, a: LocalId, value: Expr, body: Expr, span: Span) -> Expr {
-        Expr::new(ExprKind::Block { stmts: vec![bind(a, value, span)], tail: Some(Box::new(body)) }, self.options.i64_ty, span)
+        Expr::new(
+            ExprKind::Block {
+                stmts: vec![bind(a, value, span)],
+                tail: Some(Box::new(body)),
+            },
+            self.options.i64_ty,
+            span,
+        )
     }
 
     /// `if (a < bound) { below } else { above }`.
     fn split(&self, a: LocalId, bound: u64, below: Expr, above: Expr, span: Span) -> Expr {
-        let cond = self.prim(PrimOp::Lt, vec![self.get(a, span), self.int(bound, span)], span);
+        let cond = self.prim(
+            PrimOp::Lt,
+            vec![self.get(a, span), self.int(bound, span)],
+            span,
+        );
         Expr::new(
-            ExprKind::If { cond: Box::new(cond), then: Box::new(below), else_: Box::new(above) },
+            ExprKind::If {
+                cond: Box::new(cond),
+                then: Box::new(below),
+                else_: Box::new(above),
+            },
             self.options.i64_ty,
             span,
         )
     }
 
     /// `a - minus + plus`, written without the zeros.
-    #[allow(clippy::arithmetic_side_effects, reason = "each subtraction is guarded by the comparison before it")]
+    #[allow(
+        clippy::arithmetic_side_effects,
+        reason = "each subtraction is guarded by the comparison before it"
+    )]
     fn offset(&self, a: LocalId, minus: u64, plus: u64, span: Span) -> Expr {
         let mut x = self.get(a, span);
         if minus > plus {
@@ -736,7 +906,14 @@ impl Branches<'_> {
     }
 
     /// `a*scale + (b - minus) + plus`.
-    fn affine(&self, a: LocalId, scale: u64, b: Option<(LocalId, u64)>, plus: u64, span: Span) -> Expr {
+    fn affine(
+        &self,
+        a: LocalId,
+        scale: u64,
+        b: Option<(LocalId, u64)>,
+        plus: u64,
+        span: Span,
+    ) -> Expr {
         let x = self.get(a, span);
         match b {
             Some((b, minus)) => self.combine(x, scale, b, minus, plus, span),
@@ -746,12 +923,24 @@ impl Branches<'_> {
 
     /// `x*scale + (b - minus) + plus`.
     fn combine(&self, x: Expr, scale: u64, b: LocalId, minus: u64, plus: u64, span: Span) -> Expr {
-        let scaled = if scale == 1 { x } else { self.prim(PrimOp::Mul, vec![x, self.int(scale, span)], span) };
-        self.prim(PrimOp::Add, vec![scaled, self.offset(b, minus, plus, span)], span)
+        let scaled = if scale == 1 {
+            x
+        } else {
+            self.prim(PrimOp::Mul, vec![x, self.int(scale, span)], span)
+        };
+        self.prim(
+            PrimOp::Add,
+            vec![scaled, self.offset(b, minus, plus, span)],
+            span,
+        )
     }
 
     fn int(&self, n: u64, span: Span) -> Expr {
-        Expr::new(ExprKind::Int(Magnitude::new(u128::from(n)), false), self.options.i64_ty, span)
+        Expr::new(
+            ExprKind::Int(Magnitude::new(u128::from(n)), false),
+            self.options.i64_ty,
+            span,
+        )
     }
 
     fn get(&self, a: LocalId, span: Span) -> Expr {
@@ -759,8 +948,20 @@ impl Branches<'_> {
     }
 
     fn prim(&self, op: PrimOp, args: Vec<Expr>, span: Span) -> Expr {
-        let ty = if matches!(op, PrimOp::Lt) { self.options.bool_ty } else { self.options.i64_ty };
-        Expr::new(ExprKind::Prim { op, prim: Prim::I64, args }, ty, span)
+        let ty = if matches!(op, PrimOp::Lt) {
+            self.options.bool_ty
+        } else {
+            self.options.i64_ty
+        };
+        Expr::new(
+            ExprKind::Prim {
+                op,
+                prim: Prim::I64,
+                args,
+            },
+            ty,
+            span,
+        )
     }
 
     fn calls_trap(&self, call: &Expr) -> bool {
@@ -770,8 +971,13 @@ impl Branches<'_> {
     /// An abort point as `{ let a = x; ...; reached; let v = op(a, ...); went on; v }`.
     fn trap(&mut self, e: &mut Expr) {
         let span = e.span;
-        let Some(file) = (self.options.file_of)(span) else { return };
-        let (went_on, reached) = (self.key(&file, Kind::Trap, span, 0), self.key(&file, Kind::Trap, span, 1));
+        let Some(file) = (self.options.file_of)(span) else {
+            return;
+        };
+        let (went_on, reached) = (
+            self.key(&file, Kind::Trap, span, 0),
+            self.key(&file, Kind::Trap, span, 1),
+        );
         let mut op = std::mem::replace(e, Expr::new(ExprKind::Unit, Ty::UNIT, span));
         let args = match &mut op.kind {
             ExprKind::Prim { args, .. } | ExprKind::CallFn { args, .. } => args,
@@ -795,7 +1001,14 @@ impl Branches<'_> {
         stmts.push(bind(v, op, span));
         stmts.push(Stmt::Expr(hit(went_on, &self.options.i64_ty, span)));
         let tail = Expr::new(ExprKind::Local(v), ty, span);
-        Expr::new(ExprKind::Block { stmts, tail: Some(Box::new(tail)) }, ty, span)
+        Expr::new(
+            ExprKind::Block {
+                stmts,
+                tail: Some(Box::new(tail)),
+            },
+            ty,
+            span,
+        )
     }
 
     /// `if (cond) { yes } else { no }`, each side counted first.
@@ -804,7 +1017,11 @@ impl Branches<'_> {
         hit_first(&mut then, yes.0, &self.options.i64_ty);
         hit_first(&mut else_, no.0, &self.options.i64_ty);
         Expr::new(
-            ExprKind::If { cond: Box::new(cond), then: Box::new(then), else_: Box::new(else_) },
+            ExprKind::If {
+                cond: Box::new(cond),
+                then: Box::new(then),
+                else_: Box::new(else_),
+            },
             self.options.bool_ty,
             span,
         )
@@ -816,14 +1033,26 @@ impl Branches<'_> {
 
     fn local(&mut self, ty: Ty, span: Span) -> LocalId {
         let id = LocalId(self.locals.len() as u32);
-        self.locals.push(typed::Local { name: Name::new("coverage"), ty, span });
+        self.locals.push(typed::Local {
+            name: Name::new("coverage"),
+            ty,
+            span,
+        });
         id
     }
 }
 
 fn bind(local: LocalId, value: Expr, span: Span) -> Stmt {
-    let pattern = Pattern { kind: PatKind::Bind { local, sub: None }, ty: value.ty, span };
-    Stmt::Let { pattern, value, span }
+    let pattern = Pattern {
+        kind: PatKind::Bind { local, sub: None },
+        ty: value.ty,
+        span,
+    };
+    Stmt::Let {
+        pattern,
+        value,
+        span,
+    }
 }
 
 /// Counts `key` before `e` runs.
@@ -836,18 +1065,32 @@ fn hit_first(e: &mut Expr, key: u64, i64_ty: &Ty) {
     }
     let inner = std::mem::replace(e, Expr::new(ExprKind::Unit, Ty::UNIT, span));
     let ty = inner.ty;
-    *e = Expr::new(ExprKind::Block { stmts: vec![probe], tail: Some(Box::new(inner)) }, ty, span);
+    *e = Expr::new(
+        ExprKind::Block {
+            stmts: vec![probe],
+            tail: Some(Box::new(inner)),
+        },
+        ty,
+        span,
+    );
 }
 
 fn hit(key: u64, i64_ty: &Ty, span: Span) -> Expr {
-    let arg = Expr::new(ExprKind::Int(Magnitude::new(u128::from(key)), false), *i64_ty, span);
+    let arg = Expr::new(
+        ExprKind::Int(Magnitude::new(u128::from(key)), false),
+        *i64_ty,
+        span,
+    );
     Expr::new(
-        ExprKind::Intrinsic { name: HIT.to_string(), targs: Vec::new(), args: vec![arg] },
+        ExprKind::Intrinsic {
+            name: HIT.to_string(),
+            targs: Vec::new(),
+            args: vec![arg],
+        },
         Ty::UNIT,
         span,
     )
 }
-
 
 /// Calls `f` with the span of every site in `body`: the body itself, each
 /// statement and tail of a block, each branch of an `if`, each arm of a
@@ -992,7 +1235,9 @@ impl Probe<'_> {
                 self.site(body, None);
             }
             ExprKind::Block { stmts, tail } => self.block(stmts, tail, before),
-            _ => crate::compiler::semantics::typed::children_mut(e, &mut |c| self.inside(c, before)),
+            _ => {
+                crate::compiler::semantics::typed::children_mut(e, &mut |c| self.inside(c, before))
+            }
         }
     }
 

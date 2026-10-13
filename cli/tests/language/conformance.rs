@@ -62,10 +62,19 @@ fn conformance_suite_can_fail() {
     // The value, not a name: renaming a constant and its use together would
     // leave the assertion true. `edit` panics if the text is not there, so a
     // substitution that silently did nothing cannot pass for a passing test.
-    suite.edit(canary, "assert.equal(6 * 7, 42);", "assert.equal(6 * 7, 43);");
+    suite.edit(
+        canary,
+        "assert.equal(6 * 7, 42);",
+        "assert.equal(6 * 7, 43);",
+    );
 
     let run = suite.run(&["test", "//lib/canary", "--force"]);
-    assert_ne!(run.code, 0, "a broken assertion still passed:\n{}", indent(&run.all()));
+    assert_ne!(
+        run.code,
+        0,
+        "a broken assertion still passed:\n{}",
+        indent(&run.all())
+    );
     run.says("FAIL");
 }
 
@@ -208,7 +217,9 @@ fn no_recorded_diagnostic_names_an_unsolved_type() {
             if !name.starts_with("expected") {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
             for (i, line) in text.lines().enumerate() {
                 // Inside a backticked span, `_` then digits with no word on either side.
                 let quoted = line.split('`').skip(1).step_by(2);
@@ -216,7 +227,10 @@ fn no_recorded_diagnostic_names_an_unsolved_type() {
                     let b = span.as_bytes();
                     (0..b.len()).any(|at| {
                         let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'.';
-                        let digits = b[at + 1..].iter().take_while(|c| c.is_ascii_digit()).count();
+                        let digits = b[at + 1..]
+                            .iter()
+                            .take_while(|c| c.is_ascii_digit())
+                            .count();
                         b[at] == b'_'
                             && digits > 0
                             && (at == 0 || !word(b[at - 1]))
@@ -231,7 +245,11 @@ fn no_recorded_diagnostic_names_an_unsolved_type() {
     }
     let mut leaks = Vec::new();
     walk(&tests_dir(), &mut leaks);
-    assert!(leaks.is_empty(), "a diagnostic names an unsolved type:\n{}", leaks.join("\n"));
+    assert!(
+        leaks.is_empty(),
+        "a diagnostic names an unsolved type:\n{}",
+        leaks.join("\n")
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -336,7 +354,9 @@ fn the_monorepo_page_builds_as_a_web_artifact() {
     // compares *every file each output wrote* by name. That is what covers a
     // companion artifact: a `.css` present in one round and not the other is
     // its own failure rather than a difference nobody looked for.
-    example.run(&["build", "//cmd/basket", "--check-reproducible", "--force"]).ok();
+    example
+        .run(&["build", "//cmd/basket", "--check-reproducible", "--force"])
+        .ok();
 
     let module = example.artifact_in("web", "cmd/basket");
     let dir = module.parent().unwrap();
@@ -352,15 +372,27 @@ fn the_monorepo_page_builds_as_a_web_artifact() {
 
     // Two packages' tokens, each namespaced by the package that owns it, so a
     // library's `surface` and an app's could never collide.
-    assert!(sheet.contains("var(--kit-surface)"), "the library's token is not in the sheet");
-    assert!(sheet.contains("var(--basket-bg)"), "the app's token is not in the sheet");
+    assert!(
+        sheet.contains("var(--kit-surface)"),
+        "the library's token is not in the sheet"
+    );
+    assert!(
+        sheet.contains("var(--basket-bg)"),
+        "the app's token is not in the sheet"
+    );
     // Hover is a pseudo-class and a breakpoint is a media query: both exist
     // only in the static tier, and neither costs anything at run time.
     assert!(sheet.contains(":hover"), "hover did not reach the sheet");
-    assert!(sheet.contains("@media (min-width:"), "a breakpoint did not reach the sheet");
+    assert!(
+        sheet.contains("@media (min-width:"),
+        "a breakpoint did not reach the sheet"
+    );
     // And the computed tier is deliberately not there. The meter's width is
     // serialised onto its element; there is no class for "however wide it is".
-    assert!(!sheet.contains("width: "), "an inline-tier value leaked into the sheet:\n{sheet}");
+    assert!(
+        !sheet.contains("width: "),
+        "an inline-tier value leaked into the sheet:\n{sheet}"
+    );
 
     // A page runs headlessly: there is no document, so the runtime supplies
     // one. It mounts, registers its listeners, and has nothing to say — the
@@ -368,7 +400,10 @@ fn the_monorepo_page_builds_as_a_web_artifact() {
     // it wanted to.
     let run = example.exec_js_in("web", "cmd/basket");
     run.ok();
-    assert_eq!("", run.stdout, "a mounted page has nothing to say on the way out");
+    assert_eq!(
+        "", run.stdout,
+        "a mounted page has nothing to say on the way out"
+    );
     eprintln!("web: //cmd/basket built as .mjs + .css + .html, reproducibly");
 }
 
@@ -429,7 +464,9 @@ export fn main(host: NodeHost): Result<(), Str> {
 
     let artifact = scratch.artifact("cmd/deep");
     for engine in ["node", "bun"] {
-        let Ok(out) = Command::new(engine).arg(&artifact).output() else { continue };
+        let Ok(out) = Command::new(engine).arg(&artifact).output() else {
+            continue;
+        };
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         let stderr = String::from_utf8_lossy(&out.stderr).to_string();
         assert!(
@@ -437,8 +474,7 @@ export fn main(host: NodeHost): Result<(), Str> {
             "ten million tail calls overflowed on {engine}:\n{stderr}"
         );
         assert_eq!(
-            stdout,
-            "self: 10000000\nmutual: false\nand: true\nor: true\n",
+            stdout, "self: 10000000\nmutual: false\nand: true\nor: true\n",
             "wrong answer on {engine}"
         );
     }
@@ -464,7 +500,14 @@ fn float_suites_pass_under_node() {
     let suite = Scratch::copy_of("floats-on-node", &conformance_repo());
     for mode in ["--debug", "--release"] {
         let run = suite.run_with_env(
-            &["test", "//lib/numbers", "//lib/text", "--output=js", mode, "--force"],
+            &[
+                "test",
+                "//lib/numbers",
+                "//lib/text",
+                "--output=js",
+                mode,
+                "--force",
+            ],
             &[("BURI_JS", "node")],
         );
         assert!(
@@ -502,7 +545,10 @@ fn release_and_debug_agree() {
             indent(&run.all())
         );
         let passed = run.tests_passed();
-        assert!(passed > 100, "expected the whole suite {mode}, ran {passed}");
+        assert!(
+            passed > 100,
+            "expected the whole suite {mode}, ran {passed}"
+        );
         passed
     };
     let (debug, release) = both_halves(
@@ -511,10 +557,16 @@ fn release_and_debug_agree() {
         "--release",
         || {
             let suite = Scratch::copy_of("agree-suite", &conformance_repo());
-            whole("--release", &suite.run(&["test", "//...", "--release", "--force"]))
+            whole(
+                "--release",
+                &suite.run(&["test", "//...", "--release", "--force"]),
+            )
         },
     );
-    assert_eq!(debug, release, "the two modes ran different numbers of assertions");
+    assert_eq!(
+        debug, release,
+        "the two modes ran different numbers of assertions"
+    );
 
     // And a whole program's stdout, which no assertion inside a program covers.
     let example = Scratch::copy_of("agree-example", &example_repo());
@@ -522,10 +574,17 @@ fn release_and_debug_agree() {
     let mut sizes = Vec::new();
     for mode in ["--debug", "--release"] {
         example.run(&["build", "//cmd/web", mode, "--force"]).ok();
-        sizes.push(std::fs::metadata(example.artifact("cmd/web")).map(|m| m.len()).unwrap_or(0));
+        sizes.push(
+            std::fs::metadata(example.artifact("cmd/web"))
+                .map(|m| m.len())
+                .unwrap_or(0),
+        );
         outputs.push(example.exec_js("cmd/web").stdout);
     }
-    assert_eq!(outputs[0], outputs[1], "minification changed what //cmd/web prints");
+    assert_eq!(
+        outputs[0], outputs[1],
+        "minification changed what //cmd/web prints"
+    );
     assert!(
         sizes[1] < sizes[0],
         "the release artifact is not smaller than the debug one ({} vs {} bytes)",
@@ -550,13 +609,18 @@ pub(crate) fn both_halves<A: Send, B: Send>(
     second_name: &str,
     second: impl FnOnce() -> B + Send,
 ) -> (A, B) {
-    let test = std::thread::current().name().unwrap_or("a test").to_string();
+    let test = std::thread::current()
+        .name()
+        .unwrap_or("a test")
+        .to_string();
     std::thread::scope(|scope| {
-        let spawn = |half: &str| {
-            std::thread::Builder::new().name(format!("{test} ({half})"))
-        };
-        let a = spawn(first_name).spawn_scoped(scope, first).expect("a thread for a half");
-        let b = spawn(second_name).spawn_scoped(scope, second).expect("a thread for a half");
+        let spawn = |half: &str| std::thread::Builder::new().name(format!("{test} ({half})"));
+        let a = spawn(first_name)
+            .spawn_scoped(scope, first)
+            .expect("a thread for a half");
+        let b = spawn(second_name)
+            .spawn_scoped(scope, second)
+            .expect("a thread for a half");
         let (a, b) = (a.join(), b.join());
         match (a, b) {
             (Ok(a), Ok(b)) => (a, b),
@@ -583,7 +647,10 @@ fn the_example_monorepo_is_clean() {
     let test = example.run(&["test", "//...", "--force"]);
     test.ok();
     let passed = test.tests_passed();
-    assert!(passed >= 15, "expected the example suites to hold real tests, found {passed}");
+    assert!(
+        passed >= 15,
+        "expected the example suites to hold real tests, found {passed}"
+    );
     eprintln!("monorepo: {passed} tests, lint clean");
 }
 
@@ -614,7 +681,9 @@ fn no_conformance_context_asks_for_a_bound_it_does_not_use() {
     let corpus = Scratch::copy_of("conformance-bounds", &conformance_repo());
     // The corpus has findings, so the run exits 1; what is asserted is which
     // findings, not how many.
-    corpus.run(&["lint", "//...", "--error-format=json"]).silent_about("unused-context-bound");
+    corpus
+        .run(&["lint", "//...", "--error-format=json"])
+        .silent_about("unused-context-bound");
 }
 
 // ---------------------------------------------------------------------------
@@ -657,9 +726,13 @@ fn every_ast_node_kind_the_printer_can_meet_has_a_test() {
             inside = None;
             continue;
         }
-        let Some(variant) = line.strip_prefix("    ") else { continue };
-        let variant: String =
-            variant.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        let Some(variant) = line.strip_prefix("    ") else {
+            continue;
+        };
+        let variant: String = variant
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
         if variant.is_empty() {
             continue;
         }
@@ -669,7 +742,11 @@ fn every_ast_node_kind_the_printer_can_meet_has_a_test() {
         }
     }
 
-    assert!(seen > 50, "only {seen} variants were read out of {}", source.display());
+    assert!(
+        seen > 50,
+        "only {seen} variants were read out of {}",
+        source.display()
+    );
     assert!(
         missing.is_empty(),
         "cli/tests/conformance/lib/buri_ast/ never constructs {} of the {seen} node kinds \
@@ -684,7 +761,9 @@ fn read_corpus(dir: &std::path::Path) -> String {
     let mut out = String::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(next) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&next) else { continue };
+        let Ok(entries) = std::fs::read_dir(&next) else {
+            continue;
+        };
         for entry in entries.filter_map(Result::ok) {
             let path = entry.path();
             if path.is_dir() {
@@ -732,7 +811,11 @@ fn a_finding_never_names_a_file_the_author_cannot_edit() {
     let mut named: Vec<String> = Vec::new();
     let mut mine: Vec<String> = Vec::new();
     for line in run.all().lines() {
-        let Some(file) = line.split("\"file\":\"").nth(1).and_then(|r| r.split('"').next()) else {
+        let Some(file) = line
+            .split("\"file\":\"")
+            .nth(1)
+            .and_then(|r| r.split('"').next())
+        else {
             continue;
         };
         named.push(file.to_string());
@@ -892,10 +975,15 @@ fn a_request_with_a_bound_gives_up_on_a_server_that_never_answers() {
     // really handed out rather than a number the test picked and hoped for.
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
     let port = listener.local_addr().expect("the bound port").port();
-    listener.set_nonblocking(true).expect("a listener that can be polled");
+    listener
+        .set_nonblocking(true)
+        .expect("a listener that can be polled");
 
     let scratch = Scratch::repo("fetch-timeout");
-    scratch.write("cmd/dial/BUILD.buri", "binary {\n    outputs: [{ platform: \"node\" }]\n}\n");
+    scratch.write(
+        "cmd/dial/BUILD.buri",
+        "binary {\n    outputs: [{ platform: \"node\" }]\n}\n",
+    );
     scratch.write(
         "cmd/dial/main.buri",
         &format!(
@@ -931,13 +1019,16 @@ fn said<C: Allocator>(ctx: C, answer: Result<Response, NetError>): Str {{
     // The peer. It holds the first connection for as long as it lives, which is
     // until it has answered the second one.
     let serving = std::thread::spawn(move || {
-        let Some(mut stalled) = dialled_within(&listener) else { return false };
+        let Some(mut stalled) = dialled_within(&listener) else {
+            return false;
+        };
         let _asked = request_head(&mut stalled);
-        let Some(mut answering) = dialled_within(&listener) else { return false };
+        let Some(mut answering) = dialled_within(&listener) else {
+            return false;
+        };
         let _asked_again = request_head(&mut answering);
-        let _sent = answering.write_all(
-            b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nhi",
-        );
+        let _sent = answering
+            .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nhi");
         let _flushed = answering.flush();
         true
     });
@@ -974,7 +1065,10 @@ fn said<C: Allocator>(ctx: C, answer: Result<Response, NetError>): Str {{
         ended.is_some(),
         "the program outlived its own bound and had to be killed.\nit said:\n{said}\n{complained}"
     );
-    assert!(both_dialled, "the peer was not dialled twice.\nthe program said:\n{said}");
+    assert!(
+        both_dialled,
+        "the peer was not dialled twice.\nthe program said:\n{said}"
+    );
     assert_eq!(
         said, "gave up: the request timed out\nanswered 200\n",
         "the bound was not the thing that ended the first request.\nstderr:\n{complained}"
@@ -1085,7 +1179,10 @@ export fn main(host: NodeHost): Result<(), Str> {
             }
         }
     });
-    let mut blocked = Blocked { child, reader: Some(reader) };
+    let mut blocked = Blocked {
+        child,
+        reader: Some(reader),
+    };
 
     let next = |which: &str| {
         saying.recv_timeout(PATIENTLY).unwrap_or_else(|e| {
@@ -1102,8 +1199,14 @@ export fn main(host: NodeHost): Result<(), Str> {
     // flushed on its way out, and that is not what this row is about.
     let still_running = matches!(blocked.child.try_wait(), Ok(None));
 
-    assert_eq!(starting, "starting\n", "the first line is not what the program printed");
-    assert_eq!(waiting, "waiting\n", "the second line is not what the program printed");
+    assert_eq!(
+        starting, "starting\n",
+        "the first line is not what the program printed"
+    );
+    assert_eq!(
+        waiting, "waiting\n",
+        "the second line is not what the program printed"
+    );
     assert!(
         still_running,
         "the program had already exited, so both lines could have been its exit flush"
@@ -1254,7 +1357,10 @@ console.log(log.join("\n"));
         .expect("the javascript runtime runs");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(out.status.success(), "the page did not finish:\n{stdout}{stderr}");
+    assert!(
+        out.status.success(),
+        "the page did not finish:\n{stdout}{stderr}"
+    );
 
     for line in [
         "mounted",
@@ -1271,7 +1377,10 @@ console.log(log.join("\n"));
         // through `connect` rather than dying with it.
         "page ended .GoingAway 3",
     ] {
-        assert!(stdout.contains(line), "the page never said `{line}`:\n{stdout}{stderr}");
+        assert!(
+            stdout.contains(line),
+            "the page never said `{line}`:\n{stdout}{stderr}"
+        );
     }
     // The double's own log, in full. The `sent subscribe` between tick 1 and
     // tick 2 is the whole claim: the page's `onOpen` ran and the event loop had
@@ -1306,7 +1415,9 @@ fn one_answer(answer: &'static str) -> (u16, Option<std::thread::JoinHandle<()>>
     }
     let serving = std::thread::spawn(move || {
         let patience = std::time::Duration::from_secs(20);
-        let Ok((mut socket, _from)) = listener.accept() else { return };
+        let Ok((mut socket, _from)) = listener.accept() else {
+            return;
+        };
         let _read = socket.set_read_timeout(Some(patience));
         let _written = socket.set_write_timeout(Some(patience));
         let mut head: Vec<u8> = Vec::new();
@@ -1415,7 +1526,10 @@ fn silent<C: Allocator + Sockets + Stdout + WebSocketClient>(url: Str): Client<C
     scratch.run(&["build", "//cmd/dial"]).ok();
 
     let (nobody, none) = one_answer("");
-    assert!(none.is_none(), "a port with nothing behind it has no server thread");
+    assert!(
+        none.is_none(),
+        "a port with nothing behind it has no server thread"
+    );
     let (not_101, answering) =
         one_answer("HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
 
@@ -1430,10 +1544,12 @@ fn silent<C: Allocator + Sockets + Stdout + WebSocketClient>(url: Str): Client<C
     }
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(out.status.success(), "the client did not finish:\n{stdout}{stderr}");
+    assert!(
+        out.status.success(),
+        "the client did not finish:\n{stdout}{stderr}"
+    );
     assert_eq!(
-        stdout,
-        "refused .Transport\nrefused .Transport\n",
+        stdout, "refused .Transport\nrefused .Transport\n",
         "a dial that could not open answered something else, or a hook ran:\n{stderr}"
     );
 }
@@ -1651,7 +1767,10 @@ export fn main(host: NodeHost): Result<(), Str> {
     let heard = serving.heard();
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(out.status.success(), "the client did not finish:\n{stdout}{stderr}");
+    assert!(
+        out.status.success(),
+        "the client did not finish:\n{stdout}{stderr}"
+    );
     let large = "a".repeat(LARGE);
     // `Str::len` counts Unicode scalar values, so the fragmented message is
     // twelve of them and not the sixteen octets it took on the wire — and the
@@ -1781,7 +1900,10 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
     let pressed = sent.replace("say thanks", "thanks");
     // Only the region that read the path is rebuilt, so the button above it is
     // the very node the server wrote and still holds the signal a press wrote.
-    let about = pressed.replace("<article>home</article>", "<article><h2>About</h2></article>");
+    let about = pressed.replace(
+        "<article>home</article>",
+        "<article><h2>About</h2></article>",
+    );
     assert_eq!(
         stdout,
         format!(
@@ -1809,7 +1931,10 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
     // leaves the history exactly as long as it was, so Back does not return to
     // the address they were just sent away from.
     let (code, stdout, stderr) = drive("/index.html", "/index.html");
-    assert_eq!(code, 0, "the page did not resume where it redirects from:\n{stdout}{stderr}");
+    assert_eq!(
+        code, 0,
+        "the page did not resume where it redirects from:\n{stdout}{stderr}"
+    );
     assert!(
         stdout.contains("at / over 1\n"),
         "a redirect must move the address bar and add no entry:\n{stdout}{stderr}"
@@ -1822,7 +1947,10 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
     // The failure. `/about` is a page the server did not send, and `shell` wrote
     // down which page it did send, so this is refused before a node is walked.
     let (code, stdout, stderr) = drive("/about", "/");
-    assert_eq!(code, 1, "a resume at an address the server did not send must fail:\n{stdout}{stderr}");
+    assert_eq!(
+        code, 1,
+        "a resume at an address the server did not send must fail:\n{stdout}{stderr}"
+    );
     assert!(
         stderr.contains(
             "this page is not the page the server sent: it was rendered at / and the address \
@@ -2242,7 +2370,10 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     write_worker_platform(&scratch);
     scratch.run(&["build", "//cmd/edges"]).ok();
 
-    let driver = scratch.write("drive.mjs", &format!("{DOCUMENT_DOUBLE}\n{RESUME_EDGES_DRIVER}"));
+    let driver = scratch.write(
+        "drive.mjs",
+        &format!("{DOCUMENT_DOUBLE}\n{RESUME_EDGES_DRIVER}"),
+    );
     let drive = |how: &str, at: &str| {
         let out = Command::new(js_runtime())
             .arg(&driver)
@@ -2280,8 +2411,10 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     let (code, stdout, stderr) = drive("plain", "/");
     assert_eq!(code, 0, "the page did not resume:\n{stdout}{stderr}");
     let pressed = showing.replace("press me", "pressed once");
-    let about = pressed
-        .replace("<article>home</article>", "<article><h2>About</h2>about</article>");
+    let about = pressed.replace(
+        "<article>home</article>",
+        "<article><h2>About</h2>about</article>",
+    );
     let again = about.replace("pressed once", "pressed twice");
     assert_eq!(
         stdout,
@@ -2330,7 +2463,9 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
         let (code, stdout, stderr) = drive(how, "/");
         assert_eq!(code, 1, "a mismatch must fail:\n{stdout}{stderr}");
         assert!(
-            stderr.contains(&format!("this page is not the markup the server sent: {said}")),
+            stderr.contains(&format!(
+                "this page is not the markup the server sent: {said}"
+            )),
             "and it must name where: {stderr}"
         );
     }
@@ -2343,7 +2478,10 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     // another page's handlers on it. The path `shell` wrote is what catches
     // that, and it is compared before anything is walked.
     let (code, stdout, stderr) = drive("wrong-address", "/");
-    assert_eq!(code, 1, "a page resumed where the server did not render must fail");
+    assert_eq!(
+        code, 1,
+        "a page resumed where the server did not render must fail"
+    );
     assert!(
         stderr.contains(
             "this page is not the page the server sent: it was rendered at / and the address \
@@ -2355,7 +2493,10 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     // Answered at `/about` and read at `/about`: the same page. The markup is
     // not `/`'s, so this is the check saying yes rather than saying nothing.
     let (code, stdout, stderr) = drive("plain", "/about");
-    assert_eq!(code, 0, "the address the server rendered must resume:\n{stdout}{stderr}");
+    assert_eq!(
+        code, 0,
+        "the address the server rendered must resume:\n{stdout}{stderr}"
+    );
     assert!(
         stdout.contains("made 0 elements and 0 runs of text\n"),
         "and build nothing:\n{stdout}{stderr}"
@@ -2365,7 +2506,10 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     // for `/?ref=x#top` and `Request.path` answers `/`; the address bar has both
     // and `location.pathname` has neither. One page, not two.
     let (code, stdout, stderr) = drive("right-address", "/");
-    assert_eq!(code, 0, "a query string must not be a different page:\n{stdout}{stderr}");
+    assert_eq!(
+        code, 0,
+        "a query string must not be a different page:\n{stdout}{stderr}"
+    );
     assert!(
         stdout.contains("made 0 elements and 0 runs of text\n"),
         "and it must resume on the markup:\n{stdout}{stderr}"
@@ -2374,7 +2518,10 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     // Markup no `shell` wrote carries no path, so there is nothing to compare
     // and the shape is the whole check — which is what it was before.
     let (code, stdout, stderr) = drive("no-path", "/");
-    assert_eq!(code, 1, "a page with no embedded path still fails on its shape");
+    assert_eq!(
+        code, 1,
+        "a page with no embedded path still fails on its shape"
+    );
     assert!(
         stderr.contains("this page is not the markup the server sent"),
         "and by the shape rather than the address:\n{stdout}{stderr}"
@@ -2384,13 +2531,19 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     // state that is allowed to have moved on, so a value that differs is
     // corrected in place and the reader is left looking at the tree.
     let (code, stdout, stderr) = drive("changed-text", "/");
-    assert_eq!(code, 0, "a run of text that differs must not stop a resume:\n{stdout}{stderr}");
+    assert_eq!(
+        code, 0,
+        "a run of text that differs must not stop a resume:\n{stdout}{stderr}"
+    );
     assert!(
         stdout.contains(&format!("showing {showing}\n")),
         "and the tree's own text must win:\n{stdout}{stderr}"
     );
     let (code, stdout, stderr) = drive("changed-attribute", "/");
-    assert_eq!(code, 0, "an attribute that differs must not stop a resume:\n{stdout}{stderr}");
+    assert_eq!(
+        code, 0,
+        "an attribute that differs must not stop a resume:\n{stdout}{stderr}"
+    );
     assert!(
         stdout.contains(&format!("showing {showing}\n")),
         "and the tree's own attribute must win:\n{stdout}{stderr}"
@@ -2403,7 +2556,10 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     // markers the server never wrote, so it is refused like any other
     // disagreement rather than quietly registering everything a second time.
     let (code, stdout, stderr) = drive("twice", "/");
-    assert_eq!(code, 0, "the first resume must still succeed:\n{stdout}{stderr}");
+    assert_eq!(
+        code, 0,
+        "the first resume must still succeed:\n{stdout}{stderr}"
+    );
     assert!(
         stdout.contains("at / this page is not the markup the server sent"),
         "a second resume must answer .Err naming what it found:\n{stdout}{stderr}"
@@ -2411,7 +2567,10 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
 
     // --- Nowhere to resume ----------------------------------------------------
     let (code, stdout, stderr) = drive("no-body", "/");
-    assert_eq!(code, 1, "a document with no body must fail:\n{stdout}{stderr}");
+    assert_eq!(
+        code, 1,
+        "a document with no body must fail:\n{stdout}{stderr}"
+    );
     assert!(
         stderr.contains("there is nowhere to resume: this platform has no document"),
         "and it must say which of the two it is: {stderr}"
@@ -2426,7 +2585,9 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
         "and `state` must answer `.None` where no server rendered:\n{stdout}{stderr}"
     );
     assert!(
-        stderr.contains("this page is not the markup the server sent: wanted <main>, found nothing left"),
+        stderr.contains(
+            "this page is not the markup the server sent: wanted <main>, found nothing left"
+        ),
         "and the resume must name what it wanted: {stderr}"
     );
 }
@@ -2937,7 +3098,10 @@ console.log(`the timer waited: ${Date.now() - started >= 20}`);
         .expect("the javascript runtime runs");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(out.status.success(), "the page did not answer:\n{stdout}{stderr}");
+    assert!(
+        out.status.success(),
+        "the page did not answer:\n{stdout}{stderr}"
+    );
     assert_eq!(
         stdout,
         "the worker's task ran\n\
@@ -3135,7 +3299,10 @@ console.log(text_(document.body));
         .expect("the javascript runtime runs");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(out.status.success(), "the page did not answer:\n{stdout}{stderr}");
+    assert!(
+        out.status.success(),
+        "the page did not answer:\n{stdout}{stderr}"
+    );
     assert_eq!(
         stdout, "ticklog: 1 2\n",
         "a press that found the actor busy did not get its answer:\n{stderr}"

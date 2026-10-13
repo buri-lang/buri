@@ -67,14 +67,20 @@ impl Page {
         if !shell.is_file() {
             return Err(format!("{} is not there", shell.display()));
         }
-        Ok(Page { dir, shell, building: Mutex::new(()) })
+        Ok(Page {
+            dir,
+            shell,
+            building: Mutex::new(()),
+        })
     }
 
     /// Held for as long as a rebuild is writing into the artifact directory.
     pub fn building(&self) -> MutexGuard<'_, ()> {
         // A panicking responder cannot leave a page unservable: what the lock
         // guards is a moment in time rather than an invariant over data.
-        self.building.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.building
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// The file a request path is answered with, or `None` for the one shape
@@ -173,7 +179,13 @@ fn respond(stream: &TcpStream, page: &Page) -> std::io::Result<()> {
     let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("/");
     if method != "GET" && method != "HEAD" {
-        return send(stream, "405 Method Not Allowed", "text/plain; charset=utf-8", b"", true);
+        return send(
+            stream,
+            "405 Method Not Allowed",
+            "text/plain; charset=utf-8",
+            b"",
+            true,
+        );
     }
     // A query string and a fragment are not part of a path, which is what
     // `Request.path` and the address bar both say — so `/notes?page=2` is the
@@ -194,7 +206,13 @@ fn respond(stream: &TcpStream, page: &Page) -> std::io::Result<()> {
         std::fs::File::open(&file)?.read_to_end(&mut body)?;
         body
     };
-    send(stream, "200 OK", content_type(&file), &body, method == "HEAD")
+    send(
+        stream,
+        "200 OK",
+        content_type(&file),
+        &body,
+        method == "HEAD",
+    )
 }
 
 /// What the browser is told a file is.
@@ -279,7 +297,10 @@ mod tests {
         let page = Page::beside(&dir.join("main.mjs")).expect("a page");
 
         assert_eq!(page.answer("/"), Some(dir.join("index.html")));
-        assert_eq!(page.answer("/components/button"), Some(dir.join("index.html")));
+        assert_eq!(
+            page.answer("/components/button"),
+            Some(dir.join("index.html"))
+        );
         assert_eq!(page.answer("/main.css"), Some(dir.join("main.css")));
         assert_eq!(page.answer("/main.mjs"), Some(dir.join("main.mjs")));
         // The shell by its own name is the shell, which is what an address bar
@@ -312,7 +333,10 @@ mod tests {
         let dir = artifact("no-shell");
         let _ = std::fs::remove_file(dir.join("index.html"));
         let refusal = Page::beside(&dir.join("main.mjs")).expect_err("no shell");
-        assert!(refusal.contains("index.html"), "the refusal does not name the shell: {refusal}");
+        assert!(
+            refusal.contains("index.html"),
+            "the refusal does not name the shell: {refusal}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -320,15 +344,30 @@ mod tests {
     /// told about a name this table has nothing for.
     #[test]
     fn every_file_a_page_is_made_of_has_a_type() {
-        assert_eq!(content_type(Path::new("index.html")), "text/html; charset=utf-8");
-        assert_eq!(content_type(Path::new("main.css")), "text/css; charset=utf-8");
-        assert_eq!(content_type(Path::new("main.mjs")), "text/javascript; charset=utf-8");
-        assert_eq!(content_type(Path::new("main.0.js")), "text/javascript; charset=utf-8");
+        assert_eq!(
+            content_type(Path::new("index.html")),
+            "text/html; charset=utf-8"
+        );
+        assert_eq!(
+            content_type(Path::new("main.css")),
+            "text/css; charset=utf-8"
+        );
+        assert_eq!(
+            content_type(Path::new("main.mjs")),
+            "text/javascript; charset=utf-8"
+        );
+        assert_eq!(
+            content_type(Path::new("main.0.js")),
+            "text/javascript; charset=utf-8"
+        );
         assert_eq!(content_type(Path::new("data.json")), "application/json");
         assert_eq!(content_type(Path::new("logo.png")), "image/png");
         assert_eq!(content_type(Path::new("logo.svg")), "image/svg+xml");
         assert_eq!(content_type(Path::new("text.woff2")), "font/woff2");
-        assert_eq!(content_type(Path::new("LICENSE")), "application/octet-stream");
+        assert_eq!(
+            content_type(Path::new("LICENSE")),
+            "application/octet-stream"
+        );
     }
 
     #[test]

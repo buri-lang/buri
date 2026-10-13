@@ -256,16 +256,31 @@ impl Region {
     /// those two places — which is per site, never a constant four.
     pub fn pool_ref_pc32(&mut self, field: u64, insn_end: u64, slot: u64) {
         let addend = (slot & !POOL_TAG) as i64 - (insn_end as i64 - field as i64);
-        self.relocs.push(Reloc { at: field, kind: RelKind::Pc32, target: Target::Pool, addend });
+        self.relocs.push(Reloc {
+            at: field,
+            kind: RelKind::Pc32,
+            target: Target::Pool,
+            addend,
+        });
     }
 
     pub fn reloc(&mut self, at: u64, kind: RelKind, target: Target) {
-        self.relocs.push(Reloc { at, kind, target, addend: 0 });
+        self.relocs.push(Reloc {
+            at,
+            kind,
+            target,
+            addend: 0,
+        });
     }
 
     /// [`Region::reloc`] with the addend a pc-relative x86-64 field needs.
     pub fn reloc_with(&mut self, at: u64, kind: RelKind, target: Target, addend: i64) {
-        self.relocs.push(Reloc { at, kind, target, addend });
+        self.relocs.push(Reloc {
+            at,
+            kind,
+            target,
+            addend,
+        });
     }
 
     /// The bytes at an offset, for a patcher that rewrites a whole instruction
@@ -277,12 +292,16 @@ impl Region {
     pub fn set_bytes(&mut self, addr: u64, b: &[u8]) {
         let o = addr as usize;
         let slot = self.bytes.get_mut(o..o.saturating_add(b.len()));
-        slot.or_ice("a patch rewrites bytes already emitted").copy_from_slice(b);
+        slot.or_ice("a patch rewrites bytes already emitted")
+            .copy_from_slice(b);
     }
 
     pub fn word_at(&self, addr: u64) -> u32 {
         let o = addr as usize;
-        let b = self.bytes.get(o..o.saturating_add(4)).unwrap_or(&[0, 0, 0, 0]);
+        let b = self
+            .bytes
+            .get(o..o.saturating_add(4))
+            .unwrap_or(&[0, 0, 0, 0]);
         u32::from_le_bytes([
             *b.first().unwrap_or(&0),
             *b.get(1).unwrap_or(&0),
@@ -294,7 +313,8 @@ impl Region {
     pub fn set_word(&mut self, addr: u64, w: u32) {
         let o = addr as usize;
         let slot = self.bytes.get_mut(o..o.saturating_add(4));
-        slot.or_ice("a patch rewrites a word already emitted").copy_from_slice(&w.to_le_bytes());
+        slot.or_ice("a patch rewrites a word already emitted")
+            .copy_from_slice(&w.to_le_bytes());
     }
 
     /// The two sections and the relocations each still needs.
@@ -309,7 +329,12 @@ impl Region {
                 Target::Here(off) => (Target::Pool, off as i64),
                 other => (other, 0),
             };
-            self.pool_relocs.push(Reloc { at, kind: RelKind::Abs64, target, addend });
+            self.pool_relocs.push(Reloc {
+                at,
+                kind: RelKind::Abs64,
+                target,
+                addend,
+            });
         }
         Emitted {
             code: self.bytes,
@@ -409,8 +434,8 @@ impl Emitted {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::runtime;
+    use super::*;
 
     #[test]
     fn one_datum_is_pooled_once() {
@@ -508,10 +533,16 @@ mod tests {
         r.pool_target(Target::Here(here & !(1 << 40)));
         let out = r.finish();
         assert_eq!(out.pool_relocs.len(), 2);
-        assert_eq!(out.pool_relocs.first().map(|x| x.kind), Some(RelKind::Abs64));
+        assert_eq!(
+            out.pool_relocs.first().map(|x| x.kind),
+            Some(RelKind::Abs64)
+        );
         assert_eq!(out.pool_relocs.first().map(|x| x.addend), Some(0));
         assert_ne!(here & !(1 << 40), 0);
-        assert_eq!(out.pool_relocs.get(1).map(|x| x.addend), Some((here & !(1 << 40)) as i64));
+        assert_eq!(
+            out.pool_relocs.get(1).map(|x| x.addend),
+            Some((here & !(1 << 40)) as i64)
+        );
         let slot = out.pool_relocs.get(1).map(|x| x.at).unwrap_or(0) as usize;
         let w = out.pool.get(slot..slot + 8).map(|b| {
             let mut a = [0u8; 8];

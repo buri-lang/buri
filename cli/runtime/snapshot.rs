@@ -59,7 +59,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_install_themes(
 /// The custom-property block the last `installThemes` resolved to.
 fn variables_lock() -> crate::sync::MutexGuard<'static, String> {
     static VARIABLES: crate::sync::Mutex<String> = crate::sync::Mutex::new(String::new());
-    VARIABLES.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    VARIABLES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// `platform/effect/testing`'s `paint(name, scene, state)`.
@@ -99,8 +101,12 @@ fn compare(name: &str, scene: &str, state: &str) {
     };
     let sheet = stylesheet();
     let variables = variables_lock().clone();
-    let request =
-        crate::paint::Request { scene, stylesheet: &sheet, state, variables: &variables };
+    let request = crate::paint::Request {
+        scene,
+        stylesheet: &sheet,
+        state,
+        variables: &variables,
+    };
     // The raster, not the PNG: a snapshot that did not change is compared pixel
     // for pixel against the golden's *decoded* rows, so the passing path never
     // spends the encoder. The encoder runs only where a file is written — the

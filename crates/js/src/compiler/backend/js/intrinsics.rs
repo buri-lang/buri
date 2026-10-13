@@ -8,9 +8,9 @@
 
 use crate::compiler::backend::js::generate::{as_int_n, as_uint_n, Gen};
 use crate::compiler::backend::js::javascript::{BinOp, Expr};
+use crate::compiler::middle::monomorphize::Func;
 use crate::compiler::semantics::builtins::conversion_is_exact;
 use crate::compiler::semantics::types::Prim;
-use crate::compiler::middle::monomorphize::Func;
 
 impl<'a> Gen<'a> {
     /// The body of one intrinsic instantiation.
@@ -29,7 +29,11 @@ impl<'a> Gen<'a> {
         // A cell whose type reaches a hand-written `Equal` is written with it,
         // rather than with `$eq`'s comparison by shape.
         if crate::compiler::middle::monomorphize::CELL_WRITE_KEYS.contains(&key) {
-            let value = f.params.get(2).and_then(|p| f.locals.get(p.index())).map(|l| l.ty);
+            let value = f
+                .params
+                .get(2)
+                .and_then(|p| f.locals.get(p.index()))
+                .map(|l| l.ty);
             if let Some(eq) = value.and_then(|t| self.program.cell_equal.get(&t)) {
                 let (id, v) = (args.get(1)?.clone(), args.get(2)?.clone());
                 let eq = Expr::ident(self.program.funcs.get(eq.index())?.symbol.clone());
@@ -89,14 +93,19 @@ impl<'a> Gen<'a> {
         let unflat = name.len();
         name.push_str("Flat");
         if !(self.runtime_has(&name)
-            && self.tables.option_payload(&f.ret).is_some_and(|t| !self.tables.is_option_ty(t)))
+            && self
+                .tables
+                .option_payload(&f.ret)
+                .is_some_and(|t| !self.tables.is_option_ty(t)))
         {
             name.truncate(unflat);
         }
         if self.runtime_has(&name) {
             let mut all = args.to_vec();
             if let Some(d) = f.desc {
-                all.push(Expr::ident(crate::compiler::backend::js::generate::descriptor_name(d)));
+                all.push(Expr::ident(
+                    crate::compiler::backend::js::generate::descriptor_name(d),
+                ));
             }
             return Some(Expr::call(Expr::ident(name), all));
         }
@@ -111,12 +120,19 @@ impl<'a> Gen<'a> {
                 compare_inline(args.first()?, args.get(1)?)
                     .unwrap_or_else(|| Expr::call(Expr::ident("$cmp"), args.to_vec())),
             ),
-            Some("hash") => Some(Expr::call(Expr::ident("$hash"), vec![args.first()?.clone()])),
+            Some("hash") => Some(Expr::call(
+                Expr::ident("$hash"),
+                vec![args.first()?.clone()],
+            )),
             Some("show") => Some(Expr::call(Expr::ident("$str"), vec![args.first()?.clone()])),
             // `Str` and `Char` are both JavaScript strings, and a `Char` is a
             // one-character one, so both are a JSON string.
             Some("toJson") => {
-                let helper = if parts.first() == Some(&"bool") { "$json_bool" } else { "$json_str" };
+                let helper = if parts.first() == Some(&"bool") {
+                    "$json_bool"
+                } else {
+                    "$json_str"
+                };
                 Some(Expr::call(Expr::ident(helper), vec![args.first()?.clone()]))
             }
             _ => None,
@@ -255,7 +271,11 @@ impl<'a> Gen<'a> {
             "checkedAdd" | "checkedSubtract" | "checkedMultiply" | "checkedDivide" => {
                 let (x, y) = two()?;
                 let (lo, hi) = from.int_range()?;
-                let bound = if from.is_bigint() { "$checkedInBig" } else { "$checkedIn" };
+                let bound = if from.is_bigint() {
+                    "$checkedInBig"
+                } else {
+                    "$checkedIn"
+                };
                 let op = match name {
                     "checkedAdd" => BinOp::Add,
                     "checkedSubtract" => BinOp::Sub,
@@ -296,7 +316,11 @@ impl<'a> Gen<'a> {
             "checkedRemainder" => {
                 let (x, y) = two()?;
                 let (lo, hi) = from.int_range()?;
-                let bound = if from.is_bigint() { "$checkedInBig" } else { "$checkedIn" };
+                let bound = if from.is_bigint() {
+                    "$checkedInBig"
+                } else {
+                    "$checkedIn"
+                };
                 let zero = int_const(from, 0);
                 Some(Expr::cond(
                     Expr::bin(BinOp::StrictEq, y.clone(), zero),
@@ -315,7 +339,11 @@ impl<'a> Gen<'a> {
             "checkedNegate" => {
                 let v = a?;
                 let (lo, hi) = from.int_range()?;
-                let bound = if from.is_bigint() { "$checkedInBig" } else { "$checkedIn" };
+                let bound = if from.is_bigint() {
+                    "$checkedInBig"
+                } else {
+                    "$checkedIn"
+                };
                 Some(Expr::call(
                     Expr::ident(bound),
                     vec![
@@ -364,7 +392,11 @@ impl<'a> Gen<'a> {
                     return Some(self.wrap_bits(Expr::bin(op, x, y), from, from));
                 }
                 let bits = u64::from(from.bits());
-                let widest = if op == BinOp::Mul { bits.saturating_mul(2) } else { bits + 1 };
+                let widest = if op == BinOp::Mul {
+                    bits.saturating_mul(2)
+                } else {
+                    bits + 1
+                };
                 if widest <= 53 {
                     return Some(self.wrap_bits(Expr::bin(op, x, y), from, from));
                 }
@@ -389,7 +421,11 @@ impl<'a> Gen<'a> {
                 let (lo, hi) = from.int_range()?;
                 Some(Expr::call(
                     Expr::ident("$sat"),
-                    vec![Expr::bin(op, x, y), int_const(from, lo), upper_const(from, hi)],
+                    vec![
+                        Expr::bin(op, x, y),
+                        int_const(from, lo),
+                        upper_const(from, hi),
+                    ],
                 ))
             }
             // `minValue` and `maxValue` take no receiver, so a program reaches
@@ -468,10 +504,13 @@ impl<'a> Gen<'a> {
         }
         Expr::call(
             Expr::ident("$wrapTo"),
-            vec![value, Expr::Num(f64::from(to.bits())), Expr::Bool(to.is_signed())],
+            vec![
+                value,
+                Expr::Num(f64::from(to.bits())),
+                Expr::Bool(to.is_signed()),
+            ],
         )
     }
-
 }
 
 /// The same value, written the way the target type is written. A widening is
@@ -498,13 +537,21 @@ fn represent(v: Expr, from: Prim, to: Prim) -> Expr {
 /// widths, a `BigInt` at the wide ones. Every bound this file writes down goes
 /// through here, so a comparison never mixes the two by accident.
 fn int_const(p: Prim, v: i128) -> Expr {
-    if p.is_bigint() { Expr::BigInt(v.to_string()) } else { Expr::Num(v as f64) }
+    if p.is_bigint() {
+        Expr::BigInt(v.to_string())
+    } else {
+        Expr::Num(v as f64)
+    }
 }
 
 /// The upper bound, which for `U128` does not fit in an `i128` — casting it
 /// there turns `maxValue` and every `Checked`/`Saturating` bound into `-1`.
 fn upper_const(p: Prim, v: u128) -> Expr {
-    if p.is_bigint() { Expr::BigInt(v.to_string()) } else { Expr::Num(v as f64) }
+    if p.is_bigint() {
+        Expr::BigInt(v.to_string())
+    } else {
+        Expr::Num(v as f64)
+    }
 }
 
 /// `compare` at a primitive: three comparisons instead of a call into a walker

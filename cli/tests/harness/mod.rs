@@ -47,7 +47,10 @@ pub fn tests_dir() -> PathBuf {
 }
 
 pub fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 pub fn example_repo() -> PathBuf {
@@ -108,7 +111,12 @@ pub const PLATFORM_ANNOTATION: &str = "// PLATFORM:";
 /// annotation, so the rest of the line can say why.
 fn asked_platform(source: &str) -> Option<String> {
     let line = annotation(source, PLATFORM_ANNOTATION)?;
-    Some(line.split_whitespace().next().unwrap_or_default().to_string())
+    Some(
+        line.split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string(),
+    )
 }
 
 /// The build file a corpus program asks for.
@@ -116,7 +124,9 @@ pub fn build_file_for(source: &str) -> &'static str {
     match asked_platform(source).as_deref() {
         Some("WEB") => WEB_BINARY,
         Some("JS") | None => JS_BINARY,
-        Some(other) => panic!("`{PLATFORM_ANNOTATION} {other}` is not a platform a case can ask for"),
+        Some(other) => {
+            panic!("`{PLATFORM_ANNOTATION} {other}` is not a platform a case can ask for")
+        }
     }
 }
 
@@ -197,7 +207,8 @@ pub fn buri_command() -> Command {
     let mut cmd = Command::new(buri());
     cmd.env(HEAP_CHECK.0, HEAP_CHECK.1);
     cmd.env("BURI_HOME", sweep::kept::shared_cross_home());
-    cmd.env_remove("RUSTC_WRAPPER").env_remove("RUSTC_WORKSPACE_WRAPPER");
+    cmd.env_remove("RUSTC_WRAPPER")
+        .env_remove("RUSTC_WORKSPACE_WRAPPER");
     cmd
 }
 
@@ -266,7 +277,10 @@ pub fn strip_ansi(s: &str) -> String {
 }
 
 pub fn indent(s: &str) -> String {
-    s.lines().map(|l| format!("    {l}")).collect::<Vec<_>>().join("\n")
+    s.lines()
+        .map(|l| format!("    {l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// The codes whose `expected` and `actual` lines *are* the edit, so a `fix`
@@ -286,7 +300,9 @@ pub fn is_a_diagnostic_with_no_fix(line: &str) -> bool {
     if !line.starts_with('{') || line.contains("\"fix\":") {
         return false;
     }
-    !THE_MISMATCH_IS_THE_FIX.iter().any(|code| line.contains(&format!("\"code\":\"{code}\"")))
+    !THE_MISMATCH_IS_THE_FIX
+        .iter()
+        .any(|code| line.contains(&format!("\"code\":\"{code}\"")))
 }
 
 pub struct Run {
@@ -416,7 +432,11 @@ pub fn normalise(text: &str, root: &Path) -> String {
     // time does, and are normalised the same way.
     s = s.replace(env!("CARGO_PKG_VERSION"), "<version>");
     s = scrub_explain_keys(&s);
-    s = s.split('\n').map(blank_test_time).collect::<Vec<_>>().join("\n");
+    s = s
+        .split('\n')
+        .map(blank_test_time)
+        .collect::<Vec<_>>()
+        .join("\n");
     s
 }
 
@@ -618,9 +638,16 @@ fn run_in_raw(
             .stderr(Stdio::from(err))
             .spawn()
             .expect("the buri binary runs");
-        let code = hang::wait_capped(&mut child, &what, hang::cap()).code().unwrap_or(-1);
+        let code = hang::wait_capped(&mut child, &what, hang::cap())
+            .code()
+            .unwrap_or(-1);
         // The caller reads the file back; nothing came down a pipe.
-        return Run { code, stdout: String::new(), stderr: String::new(), what };
+        return Run {
+            code,
+            stdout: String::new(),
+            stderr: String::new(),
+            what,
+        };
     }
     let out = match stdin {
         None => hang::capped_output(cmd, &what, hang::cap()),
@@ -635,13 +662,22 @@ fn run_in_raw(
                 .expect("the buri binary runs");
             // Dropped at the end of the statement, which closes the pipe and is
             // what tells the server the session is over.
-            child.stdin.take().expect("stdin is piped").write_all(bytes).expect("writing stdin");
+            child
+                .stdin
+                .take()
+                .expect("stdin is piped")
+                .write_all(bytes)
+                .expect("writing stdin");
             // Drained before the wait, for the reason `hang::capped_output`
             // gives: a child blocked writing to a full pipe and a parent
             // waiting for it to exit are two processes waiting on each other.
             let (stdout, stderr) = hang::drain(&mut child);
             let status = hang::wait_capped(&mut child, &what, hang::cap());
-            std::process::Output { status, stdout: stdout.take(), stderr: stderr.take() }
+            std::process::Output {
+                status,
+                stdout: stdout.take(),
+                stderr: stderr.take(),
+            }
         }
     };
     Run {
@@ -689,7 +725,10 @@ impl Scratch {
             );
             up = parent;
         }
-        Scratch { root, name: name.to_string() }
+        Scratch {
+            root,
+            name: name.to_string(),
+        }
     }
 
     /// An empty repository: a directory holding only a `REPO.buri`.
@@ -869,12 +908,20 @@ pub fn write_executable(path: &Path, contents: impl AsRef<[u8]>) {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).unwrap();
     }
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let staged = path.with_file_name(format!(".{name}.{}.{n}.staged", std::process::id()));
-    std::fs::write(&staged, contents).unwrap_or_else(|e| panic!("cannot write {}: {e}", staged.display()));
+    std::fs::write(&staged, contents)
+        .unwrap_or_else(|e| panic!("cannot write {}: {e}", staged.display()));
     let copied = Command::new("cp").arg(&staged).arg(path).status();
     let _ = std::fs::remove_file(&staged);
-    assert!(copied.is_ok_and(|s| s.success()), "`cp` could not write {}", path.display());
+    assert!(
+        copied.is_ok_and(|s| s.success()),
+        "`cp` could not write {}",
+        path.display()
+    );
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
@@ -948,7 +995,8 @@ pub fn case_files(dir: &Path, ext: &str, floor: usize) -> Vec<PathBuf> {
 /// The one-phrase expectation a corpus file carries on its first lines:
 /// `// EXPECT:` in `tests/reject`, `// CRASH:` in `tests/crash`.
 pub fn annotation(text: &str, prefix: &str) -> Option<String> {
-    text.lines().find_map(|l| l.trim().strip_prefix(prefix).map(|s| s.trim().to_string()))
+    text.lines()
+        .find_map(|l| l.trim().strip_prefix(prefix).map(|s| s.trim().to_string()))
 }
 
 pub fn require_annotation(text: &str, prefix: &str, case: &str) -> String {

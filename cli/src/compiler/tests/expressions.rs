@@ -127,8 +127,10 @@ fn a_self_parameter_through_a_context_is_not_the_context() {
 /// that agreement; this is the other spelling, which must compile too.
 #[test]
 fn the_impl_may_spell_the_handler_with_the_concrete_type_instead() {
-    let src = snippet("acceptor.mark")
-        .replace("onRequest: fn(Self, Request) => Response", "onRequest: fn(Server, Request) => Response");
+    let src = snippet("acceptor.mark").replace(
+        "onRequest: fn(Self, Request) => Response",
+        "onRequest: fn(Server, Request) => Response",
+    );
     let errors = errors_of(&src);
     assert!(errors.is_empty(), "the snippet did not compile: {errors:?}");
 }

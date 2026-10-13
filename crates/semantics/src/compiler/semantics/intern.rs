@@ -110,11 +110,21 @@ const HAS_ERROR: u8 = 8;
 #[derive(Clone, Copy)]
 pub struct Ty(&'static TyData);
 
-static UNIT: TyData = TyData { kind: TyKindIn::Unit, hash: 0x9e37_79b9_7f4a_7c15, flags: 0 };
-static ERROR: TyData =
-    TyData { kind: TyKindIn::Error, hash: 0xc2b2_ae3d_27d4_eb4f, flags: HAS_ERROR };
-static SELF: TyData =
-    TyData { kind: TyKindIn::SelfTy, hash: 0x1656_67b1_9e37_79f9, flags: HAS_SELF };
+static UNIT: TyData = TyData {
+    kind: TyKindIn::Unit,
+    hash: 0x9e37_79b9_7f4a_7c15,
+    flags: 0,
+};
+static ERROR: TyData = TyData {
+    kind: TyKindIn::Error,
+    hash: 0xc2b2_ae3d_27d4_eb4f,
+    flags: HAS_ERROR,
+};
+static SELF: TyData = TyData {
+    kind: TyKindIn::SelfTy,
+    hash: 0x1656_67b1_9e37_79f9,
+    flags: HAS_SELF,
+};
 
 impl PartialEq for Ty {
     fn eq(&self, other: &Ty) -> bool {
@@ -285,7 +295,9 @@ fn intern(probe: TyKindIn<'_>) -> Ty {
     }
     let hash = structural_hash(&probe);
     let shard = (hash >> (u64::BITS - SHARD_BITS)) as usize;
-    let shard = TABLE.get(shard).or_ice("the top `SHARD_BITS` bits of a hash index `SHARDS`");
+    let shard = TABLE
+        .get(shard)
+        .or_ice("the top `SHARD_BITS` bits of a hash index `SHARDS`");
     let mut shard = shard.lock().unwrap_or_else(PoisonError::into_inner);
     let bucket = shard.entry(hash).or_default();
     if let Some(found) = bucket.iter().find(|t| t.0.kind == probe) {

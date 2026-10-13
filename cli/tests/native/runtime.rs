@@ -26,7 +26,7 @@
 //! 4. **The host capabilities work**, including the byte forms, the write
 //!    ordering between the buffered text stream and `writeBytes`, and the
 //!    append/rename/sync sequence a write-ahead log commits through.
-use buri::compiler::backend::runtime_native::{ARCHIVE_NAME, AVAILABLE, h3, net};
+use buri::compiler::backend::runtime_native::{h3, net, ARCHIVE_NAME, AVAILABLE};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -59,8 +59,11 @@ fn driver() -> &'static Path {
         let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
             .join(format!("runtime-driver-{}", crate::sweep::run_name()));
         std::fs::create_dir_all(&dir).unwrap();
-        let lock =
-            std::fs::File::options().create(true).append(true).open(dir.join("lock")).unwrap();
+        let lock = std::fs::File::options()
+            .create(true)
+            .append(true)
+            .open(dir.join("lock"))
+            .unwrap();
         lock.lock().unwrap();
         let binary = dir.join("driver");
         let built = dir.join("built");
@@ -77,7 +80,12 @@ fn driver() -> &'static Path {
         // so the old `-lpthread -ldl -lm` is not merely stale here, it is a
         // link against the wrong libc.
         let mut cc = crate::shared::product_cc();
-        cc.arg("-std=c11").arg("-O1").arg("-o").arg(&binary).arg(&source).arg(archive);
+        cc.arg("-std=c11")
+            .arg("-O1")
+            .arg("-o")
+            .arg(&binary)
+            .arg(&source)
+            .arg(archive);
         cc.args(crate::shared::product_link_args());
         let out = cc.output().unwrap();
         assert!(
@@ -107,7 +115,8 @@ fn run_with(args: &[&str], env: &[(&str, &str)], stdin: &str) -> Output {
 /// under it would otherwise answer a different question.
 fn run_unchecked(args: &[&str]) -> Output {
     let mut cmd = Command::new(driver());
-    cmd.env_remove("BURI_RT_HEAP_CHECK").env_remove("BURI_RT_HEAP_REPORT");
+    cmd.env_remove("BURI_RT_HEAP_CHECK")
+        .env_remove("BURI_RT_HEAP_REPORT");
     run_command(cmd, args, &[], "")
 }
 
@@ -116,7 +125,9 @@ fn run_command(mut cmd: Command, args: &[&str], env: &[(&str, &str)], stdin: &st
     for (k, v) in env {
         cmd.env(k, v);
     }
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut child = cmd.spawn().unwrap();
     {
         use std::io::Write;
@@ -147,7 +158,6 @@ fn skip() -> bool {
 }
 
 // ---------------------------------------------------------------------------
-
 
 // ---------------------------------------------------------------------------
 // The test-mode heap check, and that it can fail
@@ -186,7 +196,12 @@ fn the_heap_check_reports_a_leak() {
         return;
     }
     let out = run_with(&["heap-leak"], CHECKED, "");
-    assert_eq!(out.status.code(), Some(HEAP_CHECK_STATUS), "stderr:\n{}", stderr(&out));
+    assert_eq!(
+        out.status.code(),
+        Some(HEAP_CHECK_STATUS),
+        "stderr:\n{}",
+        stderr(&out)
+    );
     assert_eq!(stdout(&out).trim_end(), "allocated");
     assert!(
         stderr(&out).contains("buri heap check: leak: 1 block(s) and 64 byte(s)"),
@@ -207,12 +222,19 @@ fn the_heap_check_reports_a_use_after_free() {
         return;
     }
     let out = run_with(&["heap-use-after-free"], CHECKED, "");
-    assert_eq!(out.status.code(), Some(HEAP_CHECK_STATUS), "stderr:\n{}", stderr(&out));
+    assert_eq!(
+        out.status.code(),
+        Some(HEAP_CHECK_STATUS),
+        "stderr:\n{}",
+        stderr(&out)
+    );
     // It stopped *inside* the `incref`, so the line after it never printed.
     assert_eq!(stdout(&out).trim_end(), "freed");
     assert!(
-        stderr(&out).contains("use after free: `incref` was called on a block that was already \
-                               freed"),
+        stderr(&out).contains(
+            "use after free: `incref` was called on a block that was already \
+                               freed"
+        ),
         "the message did not name the operation:\n{}",
         stderr(&out)
     );
@@ -243,11 +265,18 @@ fn the_heap_check_reports_a_double_free() {
         return;
     }
     let out = run_with(&["heap-double-free"], CHECKED, "");
-    assert_eq!(out.status.code(), Some(HEAP_CHECK_STATUS), "stderr:\n{}", stderr(&out));
+    assert_eq!(
+        out.status.code(),
+        Some(HEAP_CHECK_STATUS),
+        "stderr:\n{}",
+        stderr(&out)
+    );
     assert_eq!(stdout(&out).trim_end(), "freed");
     assert!(
-        stderr(&out).contains("use after free: `free` was called on a block that was already \
-                               freed"),
+        stderr(&out).contains(
+            "use after free: `free` was called on a block that was already \
+                               freed"
+        ),
         "the message did not name the operation:\n{}",
         stderr(&out)
     );
@@ -261,7 +290,12 @@ fn the_heap_check_reports_a_write_after_free() {
         return;
     }
     let out = run_with(&["heap-write-after-free"], CHECKED, "");
-    assert_eq!(out.status.code(), Some(HEAP_CHECK_STATUS), "stderr:\n{}", stderr(&out));
+    assert_eq!(
+        out.status.code(),
+        Some(HEAP_CHECK_STATUS),
+        "stderr:\n{}",
+        stderr(&out)
+    );
     assert_eq!(stdout(&out).trim_end(), "wrote");
     assert!(
         stderr(&out).contains("a write reached a freed block"),
@@ -282,7 +316,12 @@ fn the_heap_check_is_silent_on_a_balanced_program() {
     }
     let checked = run_with(&["heap-clean"], CHECKED, "");
     let plain = run_unchecked(&["heap-clean"]);
-    assert_eq!(checked.status.code(), Some(0), "stderr:\n{}", stderr(&checked));
+    assert_eq!(
+        checked.status.code(),
+        Some(0),
+        "stderr:\n{}",
+        stderr(&checked)
+    );
     assert_eq!(stdout(&checked), stdout(&plain));
     assert_eq!(stderr(&checked), "");
     assert_eq!(stderr(&plain), "");
@@ -364,7 +403,11 @@ fn an_abort_is_not_reported_as_a_leak() {
         return;
     }
     let out = run_with(&["abort-div"], CHECKED, "");
-    assert_eq!(out.status.code(), Some(1), "an abort exits 1, not the heap-check status");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "an abort exits 1, not the heap-check status"
+    );
     assert!(
         !stderr(&out).contains("buri heap check"),
         "the audit spoke over an abort:\n{}",
@@ -422,7 +465,12 @@ fn a_build_closure_is_driven_under_a_fresh_scope() {
         return;
     }
     let out = run(&["ui-build"]);
-    assert_eq!(stdout(&out).trim_end(), "tag=111 seen=5", "stderr:\n{}", stderr(&out));
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "tag=111 seen=5",
+        "stderr:\n{}",
+        stderr(&out)
+    );
     assert!(out.status.success());
 }
 
@@ -808,7 +856,12 @@ fn the_standard_input_effect_works() {
         return;
     }
     let out = run_with(&["stdin-lines"], &[], "alpha\nbeta\n");
-    assert_eq!(stdout(&out).trim_end(), "line=alpha line=beta end", "stderr:\n{}", stderr(&out));
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "line=alpha line=beta end",
+        "stderr:\n{}",
+        stderr(&out)
+    );
 
     let out = run_with(&["stdin-bytes"], &[], "abcdef");
     assert_eq!(stdout(&out).trim_end(), "got=4:abcd then=2:ef then=none");
@@ -907,11 +960,23 @@ fn the_network_effect_fetches() {
     // `.Get` is variant 0 and the driver sends the index; `GET` is written in
     // `http.rs`'s `METHODS` and nowhere else, so this line is the assertion
     // that the index reached the request line.
-    assert!(request.starts_with("GET /probe HTTP/1.1\r\n"), "request was:\n{request}");
-    assert!(request.contains(&format!("Host: 127.0.0.1:{port}\r\n")), "request was:\n{request}");
+    assert!(
+        request.starts_with("GET /probe HTTP/1.1\r\n"),
+        "request was:\n{request}"
+    );
+    assert!(
+        request.contains(&format!("Host: 127.0.0.1:{port}\r\n")),
+        "request was:\n{request}"
+    );
     // The caller's own header, and the `Content-Length` its octet body earns.
-    assert!(request.contains("x-probe: buri\r\n"), "request was:\n{request}");
-    assert!(request.contains("Content-Length: 4\r\n"), "request was:\n{request}");
+    assert!(
+        request.contains("x-probe: buri\r\n"),
+        "request was:\n{request}"
+    );
+    assert!(
+        request.contains("Content-Length: 4\r\n"),
+        "request was:\n{request}"
+    );
     assert!(request.ends_with("\u{1f44b}"), "request was:\n{request}");
     // Two header fields come back, lowercased, and the body is the two chunks
     // joined — the response's three fields, all three read back.
@@ -966,7 +1031,10 @@ fn the_network_effect_answers_https_according_to_its_features() {
     }
 
     let out = run(&["net", "not-a-url"]);
-    assert_eq!(stdout(&out).trim_end(), "err=2 message=not an absolute http URL: not-a-url");
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "err=2 message=not an absolute http URL: not-a-url"
+    );
 }
 
 /// **The `net-h3` flag round-trips**, across the C ABI and back.
@@ -1004,15 +1072,34 @@ fn the_networking_features_agree_across_the_abi() {
             .parse()
             .unwrap_or_else(|e| panic!("`{name}` is not a number in {line}: {e}"))
     };
-    assert_eq!(bit("net=") == 1, net(), "the archive and its feature file disagree about `net`");
-    assert_eq!(bit("h3=") == 1, h3(), "the archive and its feature file disagree about `net-h3`");
+    assert_eq!(
+        bit("net=") == 1,
+        net(),
+        "the archive and its feature file disagree about `net`"
+    );
+    assert_eq!(
+        bit("h3=") == 1,
+        h3(),
+        "the archive and its feature file disagree about `net-h3`"
+    );
     // The capability mask is the same fact a third way: bit 4 is `net-h3`, and
     // it is above the four `net` ones so that neither can be read as the other.
     let caps = bit("caps=");
-    assert_eq!(caps & (1 << 4) != 0, h3(), "the capability mask disagrees with the h3 door");
-    assert_eq!(caps != 0, net(), "the capability mask disagrees with the `net` door");
+    assert_eq!(
+        caps & (1 << 4) != 0,
+        h3(),
+        "the capability mask disagrees with the h3 door"
+    );
+    assert_eq!(
+        caps != 0,
+        net(),
+        "the capability mask disagrees with the `net` door"
+    );
     // And the implication the manifest states: `net-h3 = ["net", "dep:quinn"]`.
-    assert!(!h3() || net(), "this archive claims QUIC without a networking stack under it");
+    assert!(
+        !h3() || net(),
+        "this archive claims QUIC without a networking stack under it"
+    );
     assert!(out.status.success());
 }
 
@@ -1026,7 +1113,11 @@ fn the_networking_features_agree_across_the_abi() {
 /// about the files this toolchain was **built** from, and a path read at run
 /// time would pass against a working tree the archive does not contain.
 const SWITCH_BLOCKS: [(&str, &str, &str); 3] = [
-    ("macos-arm64", "arm64-apple-darwin", include_str!("../../runtime/switch_macos_arm64.s")),
+    (
+        "macos-arm64",
+        "arm64-apple-darwin",
+        include_str!("../../runtime/switch_macos_arm64.s"),
+    ),
     (
         "linux-arm64",
         "aarch64-unknown-linux-musl",
@@ -1086,7 +1177,10 @@ fn the_three_switch_blocks_assemble_for_their_targets() {
             let unsupported = stderr.contains("unknown target")
                 || stderr.contains("unsupported")
                 || stderr.contains("No available targets");
-            assert!(unsupported, "{slug} did not assemble for {triple}:\n{stderr}");
+            assert!(
+                unsupported,
+                "{slug} did not assemble for {triple}:\n{stderr}"
+            );
             eprintln!("switch: this cc cannot target {triple}, skipping {slug}");
             continue;
         }
@@ -1103,7 +1197,11 @@ fn the_three_switch_blocks_assemble_for_their_targets() {
         // and ELF does not.
         let text = String::from_utf8_lossy(&bytes);
         let lead = if slug == "macos-arm64" { "_" } else { "" };
-        for name in ["buri_rt_task_switch", "buri_rt_task_launch", "buri_rt_task_main"] {
+        for name in [
+            "buri_rt_task_switch",
+            "buri_rt_task_launch",
+            "buri_rt_task_main",
+        ] {
             assert!(
                 text.contains(&format!("{lead}{name}")),
                 "{slug}'s object does not name {lead}{name}",
@@ -1112,7 +1210,10 @@ fn the_three_switch_blocks_assemble_for_their_targets() {
         built += 1;
     }
 
-    assert!(built > 0, "not one of the three switch blocks could be assembled on this host");
+    assert!(
+        built > 0,
+        "not one of the three switch blocks could be assembled on this host"
+    );
 }
 
 /// What machine an object file says it is for: `(container, machine)`.
@@ -1128,7 +1229,10 @@ fn container_machine(bytes: &[u8]) -> Option<(&'static str, u32)> {
     }
     let magic = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
     if magic == 0xfeed_facf {
-        return Some(("macho", u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]])));
+        return Some((
+            "macho",
+            u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+        ));
     }
     None
 }
@@ -1175,5 +1279,8 @@ fn the_two_aarch64_switch_blocks_are_one_body() {
     let darwin = instructions(SWITCH_BLOCKS[0].2, "_");
     let linux = instructions(SWITCH_BLOCKS[1].2, "");
     assert!(!darwin.is_empty(), "the darwin block has no instructions");
-    assert_eq!(darwin, linux, "the two AArch64 switch blocks have drifted apart");
+    assert_eq!(
+        darwin, linux,
+        "the two AArch64 switch blocks have drifted apart"
+    );
 }

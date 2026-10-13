@@ -198,7 +198,11 @@ fn formatted(label: &str, path: &Path, text: &str) -> String {
             "{label} does not read, so there is nothing to format.\n\
              A case's input must be a valid build file — badly laid out, not \
              broken: {:?}",
-            parsed.errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
+            parsed
+                .errors
+                .iter()
+                .map(|e| e.message.clone())
+                .collect::<Vec<_>>()
         );
         return textproto::print(&parsed.document);
     }
@@ -228,13 +232,15 @@ fn formatted(label: &str, path: &Path, text: &str) -> String {
              does about that."
         );
     }
-    laid_out(text, dialect(case)).map(|f| f.text).unwrap_or_else(|| {
-        panic!(
-            "{label} parses, but `format::source` refused its own output for it.\n\
+    laid_out(text, dialect(case))
+        .map(|f| f.text)
+        .unwrap_or_else(|| {
+            panic!(
+                "{label} parses, but `format::source` refused its own output for it.\n\
              That means the output did not parse or lost a comment — a formatter \
              bug, and one this case has caught."
-        )
-    })
+            )
+        })
 }
 
 /// `token_shape` with the edits layout is allowed to make taken out.
@@ -294,7 +300,13 @@ fn region_text(text: &str) -> Vec<String> {
     buri::formatting::broken_regions(text)
         .into_iter()
         .filter_map(|(lo, hi)| text.get(lo..hi))
-        .map(|slice| slice.lines().map(str::trim_end).collect::<Vec<_>>().join("\n"))
+        .map(|slice| {
+            slice
+                .lines()
+                .map(str::trim_end)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
         .collect()
 }
 
@@ -330,12 +342,24 @@ fn formatting_produces_the_expected_output() {
         let input = dir.join("input.buri");
         // The in-process read says whether the case parses as its name claims.
         let in_process = formatted(&format!("{case}/input.buri"), &input, &read(&input));
-        let out = if is_textproto(&case) { in_process } else { repo.read(&scratch_path(&case)) };
-        g.check(&dir.join("expected.buri"), &format!("{case}/expected.buri"), &out);
-        let named = run.all().contains(&format!("{}: has a syntax error", scratch_path(&case)));
+        let out = if is_textproto(&case) {
+            in_process
+        } else {
+            repo.read(&scratch_path(&case))
+        };
+        g.check(
+            &dir.join("expected.buri"),
+            &format!("{case}/expected.buri"),
+            &out,
+        );
+        let named = run
+            .all()
+            .contains(&format!("{}: has a syntax error", scratch_path(&case)));
         if named != is_recovery(&case) {
             let says = if named { "says" } else { "never says" };
-            g.fail(format!("{case}: `buri format` {says} it has a syntax error"));
+            g.fail(format!(
+                "{case}: `buri format` {says} it has a syntax error"
+            ));
         }
     }
     g.finish("formatting", cases.len());
@@ -364,8 +388,15 @@ fn formatting_every_expected_output_is_stable() {
     for dir in &cases {
         let case = name(dir);
         let input = dir.join("input.buri");
-        let once = expected(dir, &formatted(&format!("{case}/input.buri"), &input, &read(&input)));
-        let twice = formatted(&format!("{case}/expected.buri"), &dir.join("expected.buri"), &once);
+        let once = expected(
+            dir,
+            &formatted(&format!("{case}/input.buri"), &input, &read(&input)),
+        );
+        let twice = formatted(
+            &format!("{case}/expected.buri"),
+            &dir.join("expected.buri"),
+            &once,
+        );
         if twice != once {
             failures.push(format!(
                 "{case}: formatting the output again changes it, so the shape is not a \
@@ -444,11 +475,16 @@ fn formatting_keeps_every_case_whole() {
         let case = name(dir);
         let input_path = dir.join("input.buri");
         let input = read(&input_path);
-        let once = expected(dir, &formatted(&format!("{case}/input.buri"), &input_path, &input));
+        let once = expected(
+            dir,
+            &formatted(&format!("{case}/input.buri"), &input_path, &input),
+        );
 
         if is_textproto(&case) {
-            let (before, after) =
-                (textproto::parse(&input, FileId(0)), textproto::parse(&once, FileId(0)));
+            let (before, after) = (
+                textproto::parse(&input, FileId(0)),
+                textproto::parse(&once, FileId(0)),
+            );
             for e in &after.errors {
                 failures.push(format!("{case}: the output does not read: {}", e.message));
             }
@@ -481,7 +517,11 @@ fn formatting_keeps_every_case_whole() {
         // stronger half of it: what the formatter did not understand, it did
         // not touch.
         let mut map = SourceMap::new();
-        let id = map.add(format!("{case}/expected.buri"), dir.join("expected.buri"), once.clone());
+        let id = map.add(
+            format!("{case}/expected.buri"),
+            dir.join("expected.buri"),
+            once.clone(),
+        );
         let parsed = buri::parsing::parser::parse(&once, id);
         if is_recovery(&case) {
             let before = buri::parsing::parser::parse(&input, FileId(0)).errors.len();
@@ -534,7 +574,10 @@ fn formatting_keeps_every_case_whole() {
         failures.len(),
         failures.join("\n\n")
     );
-    eprintln!("formatting: {} cases keep their comments and tokens", cases.len());
+    eprintln!(
+        "formatting: {} cases keep their comments and tokens",
+        cases.len()
+    );
 }
 
 /// Every line is inside the margin, except where a case is named for the fact
@@ -557,7 +600,10 @@ fn formatting_stays_inside_the_margin() {
             continue;
         }
         let input = dir.join("input.buri");
-        let once = expected(dir, &formatted(&format!("{case}/input.buri"), &input, &read(&input)));
+        let once = expected(
+            dir,
+            &formatted(&format!("{case}/input.buri"), &input, &read(&input)),
+        );
         let regions = buri::formatting::broken_regions_in(&once, dialect(&case));
         let mut at = 0usize;
         for line in once.lines() {
@@ -592,10 +638,16 @@ fn formatting_stays_inside_the_margin() {
 #[test]
 fn every_checked_in_build_file_is_formatted() {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for e in entries.filter_map(Result::ok) {
             let p = e.path();
-            let n = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let n = p
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             if n.starts_with('.') || n == "target" || n == "node_modules" {
                 continue;
             }
@@ -607,13 +659,22 @@ fn every_checked_in_build_file_is_formatted() {
         }
     }
 
-    let root = tests_dir().parent().unwrap().parent().unwrap().to_path_buf();
+    let root = tests_dir()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_path_buf();
     let mut files = Vec::new();
     walk(&root.join("cli/tests"), &mut files);
     walk(&root.join("cli/src"), &mut files);
     walk(&root.join("crates"), &mut files);
     files.sort();
-    assert!(files.len() > 50, "expected the fixture repositories, found {}", files.len());
+    assert!(
+        files.len() > 50,
+        "expected the fixture repositories, found {}",
+        files.len()
+    );
 
     // The two the suite keeps deliberately misformatted, each as the question
     // its case asks: `format --check` has to have something to report.
@@ -692,7 +753,9 @@ fn recordable(text: &str) -> Result<String, &'static str> {
     if before == 0 {
         return Err("the mutation left a program that parses");
     }
-    let Some(out) = source(text) else { return Err("the formatter refused the file") };
+    let Some(out) = source(text) else {
+        return Err("the formatter refused the file");
+    };
     if source(&out).as_deref() != Some(out.as_str()) {
         return Err("formatting the output again moved it");
     }
@@ -721,9 +784,16 @@ fn recordable(text: &str) -> Result<String, &'static str> {
 }
 
 /// The mutations this corpus is made of, and why the others were passed over.
-fn picks() -> (Vec<pinned::Pick>, std::collections::BTreeMap<&'static str, usize>) {
+fn picks() -> (
+    Vec<pinned::Pick>,
+    std::collections::BTreeMap<&'static str, usize>,
+) {
     let sources = mutation::corpus(&harness::repo_root());
-    assert!(sources.len() > 100, "the seed corpus is not reachable: {}", sources.len());
+    assert!(
+        sources.len() > 100,
+        "the seed corpus is not reachable: {}",
+        sources.len()
+    );
     let mut skipped: std::collections::BTreeMap<&'static str, usize> =
         std::collections::BTreeMap::new();
     let mut keep = |m: &mutation::Mutation| match recordable(&m.source) {
@@ -742,8 +812,7 @@ fn picks() -> (Vec<pinned::Pick>, std::collections::BTreeMap<&'static str, usize
 fn write_generated_inputs() {
     let dir = generated_dir();
     let (picks, skipped) = picks();
-    let wanted: std::collections::BTreeSet<String> =
-        picks.iter().map(|p| p.name.clone()).collect();
+    let wanted: std::collections::BTreeSet<String> = picks.iter().map(|p| p.name.clone()).collect();
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for e in entries.filter_map(Result::ok) {
             let n = e.file_name().to_string_lossy().to_string();
@@ -761,7 +830,10 @@ fn write_generated_inputs() {
         let out = recordable(&p.mutation.source).unwrap();
         write_if_moved(&case.join("expected.buri"), &out);
     }
-    eprintln!("formatting: {} generated pairs written, passed over {skipped:?}", picks.len());
+    eprintln!(
+        "formatting: {} generated pairs written, passed over {skipped:?}",
+        picks.len()
+    );
 }
 
 /// nextest blesses each test in its own process, and every one of them writes
@@ -797,8 +869,7 @@ fn the_generated_corpus_is_what_the_generator_writes() {
         .filter(|e| e.path().is_dir())
         .map(|e| e.file_name().to_string_lossy().to_string())
         .collect();
-    let wanted: std::collections::BTreeSet<String> =
-        picks.iter().map(|p| p.name.clone()).collect();
+    let wanted: std::collections::BTreeSet<String> = picks.iter().map(|p| p.name.clone()).collect();
     let stale: Vec<&String> = on_disk.difference(&wanted).collect();
     let missing: Vec<&String> = wanted.difference(&on_disk).collect();
     assert!(
@@ -834,6 +905,8 @@ fn the_generated_corpus_is_what_the_generator_writes() {
         "formatting: {} generated pairs over {} shapes, passed over {skipped:?}\n{}",
         picks.len(),
         rows.len(),
-        rows.iter().map(|(row, n)| format!("  {row:<28} {n:>5} cases\n")).collect::<String>()
+        rows.iter()
+            .map(|(row, n)| format!("  {row:<28} {n:>5} cases\n"))
+            .collect::<String>()
     );
 }

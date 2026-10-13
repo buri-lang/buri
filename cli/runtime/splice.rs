@@ -23,7 +23,7 @@
 
 use std::cell::Cell;
 
-use crate::list::{block, copy_retaining, spare, Release, Retain};
+use crate::list::{Release, Retain, block, copy_retaining, spare};
 use crate::memory::{
     buri_rt_alloc, buri_rt_cap, buri_rt_decref, buri_rt_grown_capacity, buri_rt_unique_cap,
 };
@@ -64,8 +64,11 @@ unsafe fn give_back(ptr: *const u8, stride: usize, release: Release) {
         return;
     }
     RELEASING.set((stride, release));
-    let glue: Option<extern "C" fn(*mut u8)> =
-        if release.is_some() { Some(release_elements) } else { None };
+    let glue: Option<extern "C" fn(*mut u8)> = if release.is_some() {
+        Some(release_elements)
+    } else {
+        None
+    };
     // SAFETY: the caller owns a count of the live block.
     unsafe { buri_rt_decref(ptr.cast_mut(), glue) };
 }
@@ -93,7 +96,10 @@ unsafe fn release_one(at: *mut u8, stride: usize, release: Release) {
 /// covers `stride` readable bytes; `out` is writable and aligned for a
 /// [`BuriList`].
 #[unsafe(no_mangle)]
-#[allow(clippy::too_many_arguments, reason = "the flattened row: list, index, item, element glue, out")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the flattened row: list, index, item, element glue, out"
+)]
 pub unsafe extern "C" fn buri_rt_map_insert_at(
     ptr: *const u8,
     len: u64,
@@ -110,7 +116,12 @@ pub unsafe extern "C" fn buri_rt_map_insert_at(
     let total = n.saturating_add(1);
     if s == 0 {
         // SAFETY: the caller promises `out`.
-        unsafe { out.write(BuriList { ptr: std::ptr::null_mut(), len: total as u64 }) };
+        unsafe {
+            out.write(BuriList {
+                ptr: std::ptr::null_mut(),
+                len: total as u64,
+            })
+        };
         return;
     }
     let needed = total.saturating_mul(s) as u64;
@@ -128,7 +139,10 @@ pub unsafe extern "C" fn buri_rt_map_insert_at(
             unsafe {
                 std::ptr::copy(p.add(at * s), p.add((at + 1) * s), (n - at) * s);
                 copy_retaining(p.add(at * s), item, 1, s, retain);
-                out.write(BuriList { ptr: p, len: total as u64 });
+                out.write(BuriList {
+                    ptr: p,
+                    len: total as u64,
+                });
             }
             return;
         }
@@ -138,7 +152,10 @@ pub unsafe extern "C" fn buri_rt_map_insert_at(
     let fresh = match unique {
         Some(cap) => {
             let p = buri_rt_alloc(buri_rt_grown_capacity(needed, cap));
-            BuriList { ptr: p, len: total as u64 }
+            BuriList {
+                ptr: p,
+                len: total as u64,
+            }
         }
         None => block(total, s),
     };
@@ -166,7 +183,10 @@ pub unsafe extern "C" fn buri_rt_map_insert_at(
 /// # Safety
 /// As [`buri_rt_map_insert_at`].
 #[unsafe(no_mangle)]
-#[allow(clippy::too_many_arguments, reason = "the flattened row: list, index, item, element glue, out")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the flattened row: list, index, item, element glue, out"
+)]
 pub unsafe extern "C" fn buri_rt_map_replace_at(
     ptr: *const u8,
     len: u64,
@@ -181,7 +201,12 @@ pub unsafe extern "C" fn buri_rt_map_replace_at(
     let (n, s) = (len as usize, stride as usize);
     if at < 0 || at as usize >= n || s == 0 {
         // SAFETY: the caller promises `out`; the result takes the count.
-        unsafe { out.write(BuriList { ptr: ptr.cast_mut(), len }) };
+        unsafe {
+            out.write(BuriList {
+                ptr: ptr.cast_mut(),
+                len,
+            })
+        };
         return;
     }
     let at = at as usize;
@@ -196,7 +221,10 @@ pub unsafe extern "C" fn buri_rt_map_replace_at(
             }
             release_one(slot, s, release);
             std::ptr::copy_nonoverlapping(item, slot, s);
-            out.write(BuriList { ptr: ptr.cast_mut(), len });
+            out.write(BuriList {
+                ptr: ptr.cast_mut(),
+                len,
+            });
         }
         return;
     }
@@ -206,7 +234,13 @@ pub unsafe extern "C" fn buri_rt_map_replace_at(
         let f = fresh.ptr;
         copy_retaining(f, ptr, at, s, retain);
         copy_retaining(f.add(at * s), item, 1, s, retain);
-        copy_retaining(f.add((at + 1) * s), ptr.add((at + 1) * s), n - at - 1, s, retain);
+        copy_retaining(
+            f.add((at + 1) * s),
+            ptr.add((at + 1) * s),
+            n - at - 1,
+            s,
+            retain,
+        );
         give_back(ptr, s, release);
         out.write(fresh);
     }
@@ -232,14 +266,24 @@ pub unsafe extern "C" fn buri_rt_map_remove_at(
     let (n, s) = (len as usize, stride as usize);
     if at < 0 || at as usize >= n {
         // SAFETY: the caller promises `out`; the result takes the count.
-        unsafe { out.write(BuriList { ptr: ptr.cast_mut(), len }) };
+        unsafe {
+            out.write(BuriList {
+                ptr: ptr.cast_mut(),
+                len,
+            })
+        };
         return;
     }
     let at = at as usize;
     let total = n - 1;
     if s == 0 {
         // SAFETY: the caller promises `out`.
-        unsafe { out.write(BuriList { ptr: std::ptr::null_mut(), len: total as u64 }) };
+        unsafe {
+            out.write(BuriList {
+                ptr: std::ptr::null_mut(),
+                len: total as u64,
+            })
+        };
         return;
     }
     // SAFETY: the caller promises a live block.
@@ -255,9 +299,15 @@ pub unsafe extern "C" fn buri_rt_map_remove_at(
             std::ptr::write_bytes(p.add(total * s), 0, s);
             if total == 0 {
                 give_back(p, s, release);
-                out.write(BuriList { ptr: std::ptr::null_mut(), len: 0 });
+                out.write(BuriList {
+                    ptr: std::ptr::null_mut(),
+                    len: 0,
+                });
             } else {
-                out.write(BuriList { ptr: p, len: total as u64 });
+                out.write(BuriList {
+                    ptr: p,
+                    len: total as u64,
+                });
             }
         }
         return;
@@ -288,16 +338,24 @@ mod tests {
             // SAFETY: `i < cap`.
             unsafe { p.add(i * 8).cast::<i64>().write(*x) };
         }
-        BuriList { ptr: p, len: xs.len() as u64 }
+        BuriList {
+            ptr: p,
+            len: xs.len() as u64,
+        }
     }
 
     fn read(l: &BuriList) -> Vec<i64> {
         // SAFETY: `len` `i64`s live there.
-        (0..l.len as usize).map(|i| unsafe { l.ptr.add(i * 8).cast::<i64>().read() }).collect()
+        (0..l.len as usize)
+            .map(|i| unsafe { l.ptr.add(i * 8).cast::<i64>().read() })
+            .collect()
     }
 
     fn empty() -> BuriList {
-        BuriList { ptr: std::ptr::null_mut(), len: 0 }
+        BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        }
     }
 
     /// Takes `memory::latch`, because an in-place write is what a marked block
@@ -310,10 +368,30 @@ mod tests {
         let nine: i64 = 9;
         // SAFETY: each call owns the one count, and hands it to its result.
         unsafe {
-            buri_rt_map_insert_at(xs.ptr, xs.len, 1, (&raw const nine).cast(), 8, None, None, std::ptr::null(), &raw mut a);
+            buri_rt_map_insert_at(
+                xs.ptr,
+                xs.len,
+                1,
+                (&raw const nine).cast(),
+                8,
+                None,
+                None,
+                std::ptr::null(),
+                &raw mut a,
+            );
             assert_eq!(a.ptr, xs.ptr);
             assert_eq!(read(&a), [1, 9, 2, 3]);
-            buri_rt_map_replace_at(a.ptr, a.len, 3, (&raw const nine).cast(), 8, None, None, std::ptr::null(), &raw mut b);
+            buri_rt_map_replace_at(
+                a.ptr,
+                a.len,
+                3,
+                (&raw const nine).cast(),
+                8,
+                None,
+                None,
+                std::ptr::null(),
+                &raw mut b,
+            );
             assert_eq!(b.ptr, xs.ptr);
             assert_eq!(read(&b), [1, 9, 2, 9]);
             buri_rt_map_remove_at(b.ptr, b.len, 0, 8, None, None, std::ptr::null(), &raw mut c);
@@ -335,7 +413,17 @@ mod tests {
         // one of the two and gives it back.
         unsafe {
             buri_rt_incref(xs.ptr);
-            buri_rt_map_replace_at(xs.ptr, xs.len, 1, (&raw const nine).cast(), 8, None, None, std::ptr::null(), &raw mut out);
+            buri_rt_map_replace_at(
+                xs.ptr,
+                xs.len,
+                1,
+                (&raw const nine).cast(),
+                8,
+                None,
+                None,
+                std::ptr::null(),
+                &raw mut out,
+            );
             assert_ne!(out.ptr, xs.ptr);
             assert_eq!(read(&out), [1, 9, 3]);
             assert_eq!(read(&xs), [1, 2, 3]);
@@ -353,7 +441,17 @@ mod tests {
         let nine: i64 = 9;
         // SAFETY: the call owns the one count.
         unsafe {
-            buri_rt_map_insert_at(xs.ptr, xs.len, 5, (&raw const nine).cast(), 8, None, None, std::ptr::null(), &raw mut out);
+            buri_rt_map_insert_at(
+                xs.ptr,
+                xs.len,
+                5,
+                (&raw const nine).cast(),
+                8,
+                None,
+                None,
+                std::ptr::null(),
+                &raw mut out,
+            );
             assert_eq!(read(&out), [1, 2, 9]);
             assert!(buri_rt_cap(out.ptr) >= 24);
             buri_rt_free(out.ptr);
@@ -372,7 +470,17 @@ mod tests {
         let nine: i64 = 9;
         // SAFETY: the call owns the one count, and gives it back on the copy.
         unsafe {
-            buri_rt_map_replace_at(xs.ptr, xs.len, 1, (&raw const nine).cast(), 8, None, None, std::ptr::null(), &raw mut out);
+            buri_rt_map_replace_at(
+                xs.ptr,
+                xs.len,
+                1,
+                (&raw const nine).cast(),
+                8,
+                None,
+                None,
+                std::ptr::null(),
+                &raw mut out,
+            );
             assert_ne!(out.ptr, xs.ptr);
             assert_eq!(read(&out), [1, 9, 3]);
             crate::memory::buri_rt_decref(out.ptr, None);
@@ -387,7 +495,16 @@ mod tests {
         let spare_block = out.ptr;
         // SAFETY: the call owns the one count.
         unsafe {
-            buri_rt_map_remove_at(xs.ptr, xs.len, 0, 8, None, None, std::ptr::null(), &raw mut out);
+            buri_rt_map_remove_at(
+                xs.ptr,
+                xs.len,
+                0,
+                8,
+                None,
+                None,
+                std::ptr::null(),
+                &raw mut out,
+            );
             assert!(out.ptr.is_null());
             assert_eq!(out.len, 0);
             buri_rt_free(spare_block);

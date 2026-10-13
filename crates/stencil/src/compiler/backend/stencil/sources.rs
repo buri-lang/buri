@@ -35,11 +35,9 @@
 
 use super::abi::{Loc, StencilTarget, CPS_REGISTER_COUNT};
 use super::elfobj as elf;
-use super::extract::{
-    extract, extract_elf_arm64, fold_addressing, fold_cond, fold_imm, swap_arms,
-};
-use super::machobj as macho;
+use super::extract::{extract, extract_elf_arm64, fold_addressing, fold_cond, fold_imm, swap_arms};
 use super::library::{Builder, HoleKind, Stencil};
+use super::machobj as macho;
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::Mutex;
@@ -57,18 +55,90 @@ pub struct Sc {
     pub signed: bool,
 }
 
-pub const I64: Sc = Sc { tag: "i64", cty: "int64_t", bits: 64, float: false, signed: true };
-pub const U64: Sc = Sc { tag: "u64", cty: "uint64_t", bits: 64, float: false, signed: false };
-pub const I32: Sc = Sc { tag: "i32", cty: "int32_t", bits: 32, float: false, signed: true };
-pub const U32: Sc = Sc { tag: "u32", cty: "uint32_t", bits: 32, float: false, signed: false };
-pub const I16: Sc = Sc { tag: "i16", cty: "int16_t", bits: 16, float: false, signed: true };
-pub const U16: Sc = Sc { tag: "u16", cty: "uint16_t", bits: 16, float: false, signed: false };
-pub const I8: Sc = Sc { tag: "i8", cty: "int8_t", bits: 8, float: false, signed: true };
-pub const U8: Sc = Sc { tag: "u8", cty: "uint8_t", bits: 8, float: false, signed: false };
-pub const I128: Sc = Sc { tag: "i128", cty: "i128_t", bits: 128, float: false, signed: true };
-pub const U128: Sc = Sc { tag: "u128", cty: "u128_t", bits: 128, float: false, signed: false };
-pub const F64: Sc = Sc { tag: "f64", cty: "double", bits: 64, float: true, signed: true };
-pub const F32: Sc = Sc { tag: "f32", cty: "float", bits: 32, float: true, signed: true };
+pub const I64: Sc = Sc {
+    tag: "i64",
+    cty: "int64_t",
+    bits: 64,
+    float: false,
+    signed: true,
+};
+pub const U64: Sc = Sc {
+    tag: "u64",
+    cty: "uint64_t",
+    bits: 64,
+    float: false,
+    signed: false,
+};
+pub const I32: Sc = Sc {
+    tag: "i32",
+    cty: "int32_t",
+    bits: 32,
+    float: false,
+    signed: true,
+};
+pub const U32: Sc = Sc {
+    tag: "u32",
+    cty: "uint32_t",
+    bits: 32,
+    float: false,
+    signed: false,
+};
+pub const I16: Sc = Sc {
+    tag: "i16",
+    cty: "int16_t",
+    bits: 16,
+    float: false,
+    signed: true,
+};
+pub const U16: Sc = Sc {
+    tag: "u16",
+    cty: "uint16_t",
+    bits: 16,
+    float: false,
+    signed: false,
+};
+pub const I8: Sc = Sc {
+    tag: "i8",
+    cty: "int8_t",
+    bits: 8,
+    float: false,
+    signed: true,
+};
+pub const U8: Sc = Sc {
+    tag: "u8",
+    cty: "uint8_t",
+    bits: 8,
+    float: false,
+    signed: false,
+};
+pub const I128: Sc = Sc {
+    tag: "i128",
+    cty: "i128_t",
+    bits: 128,
+    float: false,
+    signed: true,
+};
+pub const U128: Sc = Sc {
+    tag: "u128",
+    cty: "u128_t",
+    bits: 128,
+    float: false,
+    signed: false,
+};
+pub const F64: Sc = Sc {
+    tag: "f64",
+    cty: "double",
+    bits: 64,
+    float: true,
+    signed: true,
+};
+pub const F32: Sc = Sc {
+    tag: "f32",
+    cty: "float",
+    bits: 32,
+    float: true,
+    signed: true,
+};
 
 /// Element widths the indexed load/store family is specialised at. Anything
 /// else goes through `eload/n`, whose size is a hole and whose body is a call.
@@ -283,7 +353,8 @@ impl Out {
         // forwards the return value for free — and it is what lets a call
         // stencil recover `fp` from the callee instead of preserving it.
         let body = body.replace("void $NAME(", "uint64_t *$NAME(");
-        self.bodies.push(format!("\n// {key}\n{}\n", body.replace("$NAME", &name)));
+        self.bodies
+            .push(format!("\n// {key}\n{}\n", body.replace("$NAME", &name)));
         self.keys.push(key.to_string());
         self.names.push(name);
     }
@@ -444,13 +515,21 @@ fn shard(o: Out) -> Vec<Out2> {
     // it is never the zero `chunks` refuses.
     let per = 200usize.max(o.bodies.len().div_ceil(10));
     let mut out = Vec::new();
-    let shards = o.bodies.chunks(per).zip(o.keys.chunks(per)).zip(o.names.chunks(per));
+    let shards = o
+        .bodies
+        .chunks(per)
+        .zip(o.keys.chunks(per))
+        .zip(o.names.chunks(per));
     for ((bodies, keys), names) in shards {
         let mut s = o.head.clone();
         for b in bodies {
             s.push_str(b);
         }
-        out.push(Out2 { src: s, keys: keys.to_vec(), names: names.to_vec() });
+        out.push(Out2 {
+            src: s,
+            keys: keys.to_vec(),
+            names: names.to_vec(),
+        });
     }
     out
 }
@@ -481,9 +560,18 @@ fn moves(o: &mut Out) {
     );
     // Store an immediate: 64-bit through the constant pool, and a 32-bit form
     // that needs no pool slot at all.
-    o.push("imm/64", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = (uint64_t)(uintptr_t)_JIT_M; TAIL; }".into());
-    o.push("imm/32", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = (uint64_t)OFF(_JIT_N); TAIL; }".into());
-    o.push("imm/z", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = 0; TAIL; }".into());
+    o.push(
+        "imm/64",
+        "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = (uint64_t)(uintptr_t)_JIT_M; TAIL; }".into(),
+    );
+    o.push(
+        "imm/32",
+        "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = (uint64_t)OFF(_JIT_N); TAIL; }".into(),
+    );
+    o.push(
+        "imm/z",
+        "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = 0; TAIL; }".into(),
+    );
     // Store an immediate at a byte width, for a narrow field of an aggregate.
     for (n, ty) in [(1u32, "uint8_t"), (2, "uint16_t"), (4, "uint32_t")] {
         o.push(
@@ -493,10 +581,16 @@ fn moves(o: &mut Out) {
     }
     // Load a narrow field of an aggregate into a whole frame word, and store
     // the low bytes of a frame word into a narrow field.
-    for (n, uty, ity) in [(1u32, "uint8_t", "int8_t"), (2, "uint16_t", "int16_t"), (4, "uint32_t", "int32_t")] {
+    for (n, uty, ity) in [
+        (1u32, "uint8_t", "int8_t"),
+        (2, "uint16_t", "int16_t"),
+        (4, "uint32_t", "int32_t"),
+    ] {
         o.push(
             &format!("loadu/{n}"),
-            format!("void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = (uint64_t)AT({uty}, _JIT_A); TAIL; }}"),
+            format!(
+                "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = (uint64_t)AT({uty}, _JIT_A); TAIL; }}"
+            ),
         );
         o.push(
             &format!("loads/{n}"),
@@ -504,7 +598,9 @@ fn moves(o: &mut Out) {
         );
         o.push(
             &format!("store/{n}"),
-            format!("void $NAME(ARGS) {{ AT({uty}, _JIT_D) = ({uty})AT(uint64_t, _JIT_A); TAIL; }}"),
+            format!(
+                "void $NAME(ARGS) {{ AT({uty}, _JIT_D) = ({uty})AT(uint64_t, _JIT_A); TAIL; }}"
+            ),
         );
     }
     // Sign- and zero-extension of a frame word from a width.
@@ -524,7 +620,12 @@ fn moves(o: &mut Out) {
     }
     // A store through a pointer held in a frame slot, at a constant offset:
     // what `MakeArray` needs once the payload has been allocated.
-    for (n, ty) in [(1u32, "uint8_t"), (2, "uint16_t"), (4, "uint32_t"), (8, "uint64_t")] {
+    for (n, ty) in [
+        (1u32, "uint8_t"),
+        (2, "uint16_t"),
+        (4, "uint32_t"),
+        (8, "uint64_t"),
+    ] {
         o.push(
             &format!("pstore/{n}"),
             format!(
@@ -648,7 +749,11 @@ fn moves(o: &mut Out) {
     );
     // Float/integer conversions, for `number.*.toF64` and friends.
     o.push("cvt/i2f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)(int64_t)AT(uint64_t, _JIT_A)); TAIL; }".into());
-    o.push("cvt/u2f", "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)AT(uint64_t, _JIT_A)); TAIL; }".into());
+    o.push(
+        "cvt/u2f",
+        "void $NAME(ARGS) { AT(uint64_t, _JIT_D) = f64_bits((double)AT(uint64_t, _JIT_A)); TAIL; }"
+            .into(),
+    );
     // Straight to binary32: through a double would round twice.
     // `u64_f32` rather than `(float)`, so that Valgrind rounds once too.
     o.push("cvt/i2f32", "void $NAME(ARGS) { uint64_t x = AT(uint64_t, _JIT_A); float f = u64_f32((x >> 63) ? 0 - x : x); AT(uint64_t, _JIT_D) = f32_bits((x >> 63) ? -f : f); TAIL; }".into());
@@ -759,7 +864,10 @@ fn arithmetic(o: &mut Out) -> Result<(), String> {
         for d in &dsts {
             let expr = format!("(({}) ^ 1)", read(U64, *a, "A"));
             let w = write(U64, *d, &expr)?;
-            o.push(&format!("un/lnot/b/{}/{}", a.tag(), d.tag()), format!("void $NAME(ARGS) {{ {w} TAIL; }}"));
+            o.push(
+                &format!("un/lnot/b/{}/{}", a.tag(), d.tag()),
+                format!("void $NAME(ARGS) {{ {w} TAIL; }}"),
+            );
         }
     }
     Ok(())
@@ -785,7 +893,10 @@ fn checks(o: &mut Out) -> Result<(), String> {
             if t.bits == 64 {
                 format!("AT(uint64_t, _JIT_D) = (uint64_t)({expr});")
             } else {
-                format!("AT(uint64_t, _JIT_D) = (uint64_t)(uint{}_t)({expr});", t.bits)
+                format!(
+                    "AT(uint64_t, _JIT_D) = (uint64_t)(uint{}_t)({expr});",
+                    t.bits
+                )
             }
         };
         for (name, builtin) in [
@@ -943,9 +1054,7 @@ fn wide(o: &mut Out) {
         for (name, cop) in [("neg", "-"), ("bnot", "~")] {
             o.push(
                 &format!("un/{name}/{tag}/f/f"),
-                format!(
-                    "void $NAME(ARGS) {{ wr128(fp, OFF(_JIT_D), (u128_t)({cop}{a})); TAIL; }}"
-                ),
+                format!("void $NAME(ARGS) {{ wr128(fp, OFF(_JIT_D), (u128_t)({cop}{a})); TAIL; }}"),
             );
         }
         // The overflow pair, as `checks` builds it at every other width.
@@ -1030,14 +1139,14 @@ fn wide(o: &mut Out) {
             &format!("cvt/to/{tag}/i"),
             String::from(
                 "void $NAME(ARGS) { wr128(fp, OFF(_JIT_D), \
-                 (u128_t)(i128_t)(int64_t)AT(uint64_t, _JIT_A)); TAIL; }"
+                 (u128_t)(i128_t)(int64_t)AT(uint64_t, _JIT_A)); TAIL; }",
             ),
         );
         o.push(
             &format!("cvt/to/{tag}/u"),
             String::from(
                 "void $NAME(ARGS) { wr128(fp, OFF(_JIT_D), \
-                 (u128_t)AT(uint64_t, _JIT_A)); TAIL; }"
+                 (u128_t)AT(uint64_t, _JIT_A)); TAIL; }",
             ),
         );
         // A double's low 128 bits after truncation toward zero, built from its
@@ -1057,9 +1166,7 @@ fn wide(o: &mut Out) {
         );
         o.push(
             &format!("cvt/from/{tag}/f"),
-            format!(
-                "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = f64_bits((double){a}); TAIL; }}"
-            ),
+            format!("void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = f64_bits((double){a}); TAIL; }}"),
         );
         // Straight to binary32: through a double would round twice. Through
         // `u128_f32` rather than `(float)`, whose libgcc `__floattisf` ends in
@@ -1089,7 +1196,10 @@ fn wide(o: &mut Out) {
 }
 
 fn control(o: &mut Out) {
-    o.push("jump", "void $NAME(ARGS) { __attribute__((musttail)) return _JIT_T(PASS); }".into());
+    o.push(
+        "jump",
+        "void $NAME(ARGS) { __attribute__((musttail)) return _JIT_T(PASS); }".into(),
+    );
     let locs = locs_for();
     for a in &locs {
         if matches!(a, Loc::Imm) {
@@ -1127,7 +1237,10 @@ fn control(o: &mut Out) {
         // (l) See `tagbr/eq8`: the byte comparison is widened so that the tag
         // constant folds into the compare.
         let (lhs, rhs) = if k == "8" {
-            (format!("(uint64_t)AT({ty}, _JIT_A)"), "(uint64_t)OFF(_JIT_N)".to_string())
+            (
+                format!("(uint64_t)AT({ty}, _JIT_A)"),
+                "(uint64_t)OFF(_JIT_N)".to_string(),
+            )
         } else {
             (format!("AT({ty}, _JIT_A)"), format!("({ty})OFF(_JIT_N)"))
         };
@@ -1179,7 +1292,10 @@ fn control(o: &mut Out) {
          (uint64_t)OFF(_JIT_N)); }"
             .into(),
     );
-    o.push("unreachable", "void $NAME(ARGS0) { (void)fp; buri_rt_abort_unreachable(); }".into());
+    o.push(
+        "unreachable",
+        "void $NAME(ARGS0) { (void)fp; buri_rt_abort_unreachable(); }".into(),
+    );
     o.push(
         "unsupported",
         "void $NAME(ARGS0) { (void)fp; buri_rt_abort_unreachable(); }".into(),
@@ -1317,7 +1433,11 @@ fn runtime_calls(o: &mut Out) {
                 let cret = return_ctype(ret);
                 let decl = format!(
                     "extern {cret} {sym}({}) HID;",
-                    if ptypes.is_empty() { String::from("void") } else { ptypes.join(", ") }
+                    if ptypes.is_empty() {
+                        String::from("void")
+                    } else {
+                        ptypes.join(", ")
+                    }
                 );
                 let call = format!("{sym}({})", args.join(", "));
                 let store = return_store(ret, &call);
@@ -1521,7 +1641,11 @@ fn calls(o: &mut Out) {
             .collect();
         let call = format!(
             "((uint64_t (*)({}))(uintptr_t)_JIT_R)({})",
-            if n == 0 { "void".to_string() } else { vec!["uint64_t"; n].join(", ") },
+            if n == 0 {
+                "void".to_string()
+            } else {
+                vec!["uint64_t"; n].join(", ")
+            },
             args.join(", ")
         );
         o.push(
@@ -1686,7 +1810,10 @@ fn supernodes(o: &mut Out) {
         for (i, d) in dsts.iter().take(n).enumerate() {
             body.push_str(&format!("AT(uint64_t, _JIT_{d}) = t{i}; "));
         }
-        o.push(&format!("movn/{n}"), format!("void $NAME(ARGS) {{ {body}TAIL; }}"));
+        o.push(
+            &format!("movn/{n}"),
+            format!("void $NAME(ARGS) {{ {body}TAIL; }}"),
+        );
     }
     // Field load fused into a comparison-and-branch: the enum-tag test that
     // every `match` in this language lowers to.
@@ -1753,9 +1880,7 @@ fn supernodes(o: &mut Out) {
         }
         o.push(
             &format!("movjump/{n}"),
-            format!(
-                "void $NAME(ARGS) {{ {body} __attribute__((musttail)) return _JIT_T(PASS); }}"
-            ),
+            format!("void $NAME(ARGS) {{ {body} __attribute__((musttail)) return _JIT_T(PASS); }}"),
         );
     }
 }
@@ -1806,7 +1931,9 @@ pub fn build_all(
                 let k = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 let Some(&(ti, i)) = work.get(k) else { return };
                 let Some(Ok(p)) = plans.get(ti) else { continue };
-                let Some(shard) = p.shards.get(i) else { continue };
+                let Some(shard) = p.shards.get(i) else {
+                    continue;
+                };
                 let r = shard_library(cc, &p.dir, i, &shard.src, &p.flags, p.target);
                 if let Some(Ok(mut slot)) = slots.get(k).map(Mutex::lock) {
                     *slot = r;
@@ -1814,9 +1941,12 @@ pub fn build_all(
             });
         }
     });
-    let mut done: Vec<Vec<Result<Vec<Stencil>, String>>> = targets.iter().map(|_| Vec::new()).collect();
+    let mut done: Vec<Vec<Result<Vec<Stencil>, String>>> =
+        targets.iter().map(|_| Vec::new()).collect();
     for ((ti, _), slot) in work.iter().zip(slots) {
-        let r = slot.into_inner().unwrap_or_else(|_| Err(String::from("a stencil shard's worker panicked")));
+        let r = slot
+            .into_inner()
+            .unwrap_or_else(|_| Err(String::from("a stencil shard's worker panicked")));
         if let Some(d) = done.get_mut(*ti) {
             d.push(r);
         }
@@ -1836,7 +1966,10 @@ pub fn build_all(
             .collect();
         assembling
             .into_iter()
-            .map(|h| h.join().unwrap_or_else(|_| Err(String::from("a stencil library's assembly panicked"))))
+            .map(|h| {
+                h.join()
+                    .unwrap_or_else(|_| Err(String::from("a stencil library's assembly panicked")))
+            })
             .collect()
     })
 }
@@ -1859,7 +1992,12 @@ fn plan(dir: &std::path::Path, cc: &str, target: StencilTarget) -> Result<Plan, 
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let flags = compile_flags(cc, target)?;
     let shards = sources(target)?;
-    Ok(Plan { target, dir, flags, shards })
+    Ok(Plan {
+        target,
+        dir,
+        flags,
+        shards,
+    })
 }
 
 /// One target's library, from its shards' stencils in shard order.
@@ -1892,7 +2030,11 @@ fn assemble(
             };
             // A symbol outside the program is only ever called. `Jit::import`
             // relocates its branches and nothing else.
-            if let Some(h) = base.holes.iter().find(|h| !h.name.starts_with("JIT_") && !h.pairs.is_empty()) {
+            if let Some(h) = base
+                .holes
+                .iter()
+                .find(|h| !h.name.starts_with("JIT_") && !h.pairs.is_empty())
+            {
                 return Err(format!("{name} ({key}) takes the address of {}", h.name));
             }
             let mut base = base.clone();
@@ -1928,7 +2070,8 @@ fn assemble(
                 for (k, v) in &variants {
                     // `Jit::elidable_at` reads the tail off the unfolded body,
                     // so a fold that moved it is no twin.
-                    let tail = |s: &Stencil| s.tail.and_then(|i| s.holes.get(i)).map(|h| h.name.clone());
+                    let tail =
+                        |s: &Stencil| s.tail.and_then(|i| s.holes.get(i)).map(|h| h.name.clone());
                     if let Some(t) = fold_addressing(v).filter(|t| tail(t) == tail(v)) {
                         extra.push((format!("{k}+fold"), t));
                     }
@@ -1956,7 +2099,10 @@ fn assemble(
 fn one_register_pairs(key: &str, v: &Stencil) -> Result<(), String> {
     let word = |o: u32| {
         let o = o as usize;
-        v.code.get(o..o + 4).and_then(|b| <[u8; 4]>::try_from(b).ok()).map(u32::from_le_bytes)
+        v.code
+            .get(o..o + 4)
+            .and_then(|b| <[u8; 4]>::try_from(b).ok())
+            .map(u32::from_le_bytes)
     };
     for h in v.holes.iter().filter(|h| h.kind == HoleKind::Imm64) {
         for (a, b) in &h.pairs {
@@ -2101,7 +2247,9 @@ fn compile_flags(cc: &str, target: StencilTarget) -> Result<Vec<String>, String>
 /// library for the targets it cannot reach and a full one for the target it
 /// can, rather than a build failure.
 pub fn can_build(cc: &str, dir: &std::path::Path, target: StencilTarget) -> bool {
-    let Ok(flags) = compile_flags(cc, target) else { return false };
+    let Ok(flags) = compile_flags(cc, target) else {
+        return false;
+    };
     let dir = dir.join(target.slug());
     if std::fs::create_dir_all(&dir).is_err() {
         return false;
@@ -2147,8 +2295,10 @@ fn shard_library(
     // `-gnu`-to-`-musl` rename produced identical objects, which is why it is
     // fine and not merely unnoticed) and it is why the one measurement that
     // settles such a change has to be taken from an empty scratch directory.
-    let unchanged =
-        std::fs::read(&c).map(|old| old == src.as_bytes()).unwrap_or(false) && obj.exists();
+    let unchanged = std::fs::read(&c)
+        .map(|old| old == src.as_bytes())
+        .unwrap_or(false)
+        && obj.exists();
     if !unchanged {
         std::fs::write(&c, src).map_err(|e| format!("{}: {e}", c.display()))?;
         let out = Command::new(cc)
@@ -2187,8 +2337,10 @@ fn shard_library(
             // coverage is exactly what a per-key refusal makes easy to miss —
             // so the *count* is the guard, and it names what it dropped.
             if dropped.len() > MAX_DROPPED_PER_SHARD {
-                let named: Vec<String> =
-                    dropped.iter().map(|d| format!("{} ({})", d.name, d.why)).collect();
+                let named: Vec<String> = dropped
+                    .iter()
+                    .map(|d| format!("{} ({})", d.name, d.why))
+                    .collect();
                 return Err(format!(
                     "shard {i} dropped {} x86-64 stencils, more than the {MAX_DROPPED_PER_SHARD} \
                      the three spilled-constant families account for:\n  {}",

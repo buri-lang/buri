@@ -30,15 +30,34 @@ pub enum VarKind {
 
 #[derive(Clone, Debug)]
 pub enum Stmt {
-    Var { kind: VarKind, name: String, init: Option<Expr> },
+    Var {
+        kind: VarKind,
+        name: String,
+        init: Option<Expr>,
+    },
     /// A function declaration. `is_async` is the `async` keyword, printed
     /// when the middle end says this instantiation can park; see
     /// [`Expr::Await`].
-    Func { name: String, params: Vec<String>, body: Vec<Stmt>, is_async: bool },
+    Func {
+        name: String,
+        params: Vec<String>,
+        body: Vec<Stmt>,
+        is_async: bool,
+    },
     Return(Option<Expr>),
-    If { cond: Expr, then: Vec<Stmt>, else_: Vec<Stmt> },
-    While { cond: Expr, body: Vec<Stmt> },
-    Switch { disc: Expr, cases: Vec<(Option<Expr>, Vec<Stmt>)> },
+    If {
+        cond: Expr,
+        then: Vec<Stmt>,
+        else_: Vec<Stmt>,
+    },
+    While {
+        cond: Expr,
+        body: Vec<Stmt>,
+    },
+    Switch {
+        disc: Expr,
+        cases: Vec<(Option<Expr>, Vec<Stmt>)>,
+    },
     Expr(Expr),
     Throw(Expr),
     Break,
@@ -81,12 +100,18 @@ impl RuntimeDecl {
                 idents.push((start as u32, end as u32));
             }
         }
-        RuntimeDecl { name, src, idents: idents.into_boxed_slice() }
+        RuntimeDecl {
+            name,
+            src,
+            idents: idents.into_boxed_slice(),
+        }
     }
 
     /// Every distinct identifier the source mentions.
     fn idents(&self) -> impl Iterator<Item = &str> {
-        self.idents.iter().filter_map(|&(start, end)| self.src.get(start as usize..end as usize))
+        self.idents
+            .iter()
+            .filter_map(|&(start, end)| self.src.get(start as usize..end as usize))
     }
 }
 
@@ -192,17 +217,48 @@ pub enum Expr {
     Array(Vec<Expr>),
     Object(Vec<(String, Expr)>),
     /// `obj.prop`
-    Member { obj: Box<Expr>, prop: String },
+    Member {
+        obj: Box<Expr>,
+        prop: String,
+    },
     /// `obj[i]`
-    Index { obj: Box<Expr>, index: Box<Expr> },
-    Call { callee: Box<Expr>, args: Vec<Expr> },
-    Unary { op: UnOp, operand: Box<Expr> },
-    Binary { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr> },
-    Cond { test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr> },
-    Assign { target: Box<Expr>, value: Box<Expr> },
-    Arrow { params: Vec<String>, body: Box<Expr>, is_async: bool },
+    Index {
+        obj: Box<Expr>,
+        index: Box<Expr>,
+    },
+    Call {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+    },
+    Unary {
+        op: UnOp,
+        operand: Box<Expr>,
+    },
+    Binary {
+        op: BinOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Cond {
+        test: Box<Expr>,
+        cons: Box<Expr>,
+        alt: Box<Expr>,
+    },
+    Assign {
+        target: Box<Expr>,
+        value: Box<Expr>,
+    },
+    Arrow {
+        params: Vec<String>,
+        body: Box<Expr>,
+        is_async: bool,
+    },
     /// An arrow whose body is a block, for anything that needs statements.
-    ArrowBlock { params: Vec<String>, body: Vec<Stmt>, is_async: bool },
+    ArrowBlock {
+        params: Vec<String>,
+        body: Vec<Stmt>,
+        is_async: bool,
+    },
     /// `await e`.
     ///
     /// A function this backend prints `async` returns a promise whether or
@@ -219,15 +275,24 @@ pub enum Expr {
 
 impl Expr {
     pub fn call(callee: Expr, args: Vec<Expr>) -> Expr {
-        Expr::Call { callee: Box::new(callee), args }
+        Expr::Call {
+            callee: Box::new(callee),
+            args,
+        }
     }
 
     pub fn member(obj: Expr, prop: &str) -> Expr {
-        Expr::Member { obj: Box::new(obj), prop: prop.to_string() }
+        Expr::Member {
+            obj: Box::new(obj),
+            prop: prop.to_string(),
+        }
     }
 
     pub fn index(obj: Expr, index: Expr) -> Expr {
-        Expr::Index { obj: Box::new(obj), index: Box::new(index) }
+        Expr::Index {
+            obj: Box::new(obj),
+            index: Box::new(index),
+        }
     }
 
     /// Simplifies as it builds, so the backend gets the peepholes without
@@ -326,9 +391,7 @@ impl Expr {
             Expr::Index { obj, index } => obj.is_pure() && index.is_pure(),
             Expr::Unary { operand, .. } => operand.is_pure(),
             Expr::Binary { lhs, rhs, .. } => lhs.is_pure() && rhs.is_pure(),
-            Expr::Cond { test, cons, alt } => {
-                test.is_pure() && cons.is_pure() && alt.is_pure()
-            }
+            Expr::Cond { test, cons, alt } => test.is_pure() && cons.is_pure() && alt.is_pure(),
             Expr::Spread(x) => x.is_pure(),
             _ => true,
         }
@@ -378,17 +441,23 @@ impl Expr {
             (Expr::Member { obj: a, prop: p }, Expr::Member { obj: b, prop: q }) => {
                 p == q && a.same_as(b)
             }
+            (Expr::Index { obj: a, index: i }, Expr::Index { obj: b, index: j }) => {
+                a.same_as(b) && i.same_as(j)
+            }
+            (Expr::Unary { op: x, operand: a }, Expr::Unary { op: y, operand: b }) => {
+                x == y && a.same_as(b)
+            }
             (
-                Expr::Index { obj: a, index: i },
-                Expr::Index { obj: b, index: j },
-            ) => a.same_as(b) && i.same_as(j),
-            (
-                Expr::Unary { op: x, operand: a },
-                Expr::Unary { op: y, operand: b },
-            ) => x == y && a.same_as(b),
-            (
-                Expr::Binary { op: x, lhs: a, rhs: b },
-                Expr::Binary { op: y, lhs: c, rhs: d },
+                Expr::Binary {
+                    op: x,
+                    lhs: a,
+                    rhs: b,
+                },
+                Expr::Binary {
+                    op: y,
+                    lhs: c,
+                    rhs: d,
+                },
             ) => x == y && a.same_as(c) && b.same_as(d),
             _ => false,
         }
@@ -405,30 +474,64 @@ impl Expr {
             Expr::Member { obj, prop } => Expr::Member { obj: go(obj), prop },
             Expr::Index { obj, index } => {
                 let obj = go(obj);
-                Expr::Index { obj, index: go(index) }
+                Expr::Index {
+                    obj,
+                    index: go(index),
+                }
             }
             Expr::Call { callee, args } => {
                 let callee = rewrite_boxed(callee, |e| r.expr(e));
-                Expr::Call { callee, args: args.into_iter().map(|a| r.expr(a)).collect() }
+                Expr::Call {
+                    callee,
+                    args: args.into_iter().map(|a| r.expr(a)).collect(),
+                }
             }
-            Expr::Unary { op, operand } => Expr::Unary { op, operand: go(operand) },
+            Expr::Unary { op, operand } => Expr::Unary {
+                op,
+                operand: go(operand),
+            },
             Expr::Binary { op, lhs, rhs } => {
                 let lhs = go(lhs);
-                Expr::Binary { op, lhs, rhs: go(rhs) }
+                Expr::Binary {
+                    op,
+                    lhs,
+                    rhs: go(rhs),
+                }
             }
             Expr::Cond { test, cons, alt } => {
                 let test = go(test);
                 let cons = go(cons);
-                Expr::Cond { test, cons, alt: go(alt) }
+                Expr::Cond {
+                    test,
+                    cons,
+                    alt: go(alt),
+                }
             }
             Expr::Assign { target, value } => {
                 let target = go(target);
-                Expr::Assign { target, value: go(value) }
+                Expr::Assign {
+                    target,
+                    value: go(value),
+                }
             }
-            Expr::Arrow { params, body, is_async } => Expr::Arrow { params, body: go(body), is_async },
-            Expr::ArrowBlock { params, body, is_async } => {
-                Expr::ArrowBlock { params, body: r.block(body), is_async }
-            }
+            Expr::Arrow {
+                params,
+                body,
+                is_async,
+            } => Expr::Arrow {
+                params,
+                body: go(body),
+                is_async,
+            },
+            Expr::ArrowBlock {
+                params,
+                body,
+                is_async,
+            } => Expr::ArrowBlock {
+                params,
+                body: r.block(body),
+                is_async,
+            },
             Expr::Await(x) => Expr::Await(go(x)),
             Expr::Spread(x) => Expr::Spread(go(x)),
             leaf => leaf,
@@ -447,7 +550,10 @@ impl Expr {
             | Expr::Spread(x) => v.expr(x),
             Expr::Index { obj: a, index: b }
             | Expr::Binary { lhs: a, rhs: b, .. }
-            | Expr::Assign { target: a, value: b } => {
+            | Expr::Assign {
+                target: a,
+                value: b,
+            } => {
                 v.expr(a);
                 v.expr(b);
             }
@@ -471,19 +577,38 @@ impl Stmt {
     /// expressions to [`Rewrite::expr`], nested bodies to [`Rewrite::block`].
     fn map_children<R: Rewrite + ?Sized>(self, r: &mut R) -> Stmt {
         match self {
-            Stmt::Var { kind, name, init } => Stmt::Var { kind, name, init: init.map(|e| r.expr(e)) },
-            Stmt::Func { name, params, body, is_async } => {
-                Stmt::Func { name, params, body: r.block(body), is_async }
-            }
+            Stmt::Var { kind, name, init } => Stmt::Var {
+                kind,
+                name,
+                init: init.map(|e| r.expr(e)),
+            },
+            Stmt::Func {
+                name,
+                params,
+                body,
+                is_async,
+            } => Stmt::Func {
+                name,
+                params,
+                body: r.block(body),
+                is_async,
+            },
             Stmt::Return(e) => Stmt::Return(e.map(|e| r.expr(e))),
             Stmt::If { cond, then, else_ } => {
                 let cond = r.expr(cond);
                 let then = r.block(then);
-                Stmt::If { cond, then, else_: r.block(else_) }
+                Stmt::If {
+                    cond,
+                    then,
+                    else_: r.block(else_),
+                }
             }
             Stmt::While { cond, body } => {
                 let cond = r.expr(cond);
-                Stmt::While { cond, body: r.block(body) }
+                Stmt::While {
+                    cond,
+                    body: r.block(body),
+                }
             }
             Stmt::Switch { disc, cases } => {
                 let disc = r.expr(disc);
@@ -586,10 +711,26 @@ fn simplified(e: Expr) -> Expr {
 /// An arrow whose body is a single `return e` is just `=> e`.
 fn concise(e: Expr) -> Expr {
     match e {
-        Expr::ArrowBlock { params, body, is_async } => match <[Stmt; 1]>::try_from(body) {
-            Ok([Stmt::Return(Some(x))]) => Expr::Arrow { params, body: Box::new(x), is_async },
-            Ok(one) => Expr::ArrowBlock { params, body: Vec::from(one), is_async },
-            Err(body) => Expr::ArrowBlock { params, body, is_async },
+        Expr::ArrowBlock {
+            params,
+            body,
+            is_async,
+        } => match <[Stmt; 1]>::try_from(body) {
+            Ok([Stmt::Return(Some(x))]) => Expr::Arrow {
+                params,
+                body: Box::new(x),
+                is_async,
+            },
+            Ok(one) => Expr::ArrowBlock {
+                params,
+                body: Vec::from(one),
+                is_async,
+            },
+            Err(body) => Expr::ArrowBlock {
+                params,
+                body,
+                is_async,
+            },
         },
         other => other,
     }
@@ -715,12 +856,20 @@ fn simplify_bin(op: BinOp, lhs: Box<Expr>, rhs: Box<Expr>) -> Expr {
             let eq = op == BinOp::StrictEq;
             if let Expr::Bool(b) = *rhs {
                 if lhs.is_boolean() {
-                    return if b == eq { *lhs } else { simplify_un(UnOp::Not, lhs) };
+                    return if b == eq {
+                        *lhs
+                    } else {
+                        simplify_un(UnOp::Not, lhs)
+                    };
                 }
             }
             if let Expr::Bool(b) = *lhs {
                 if rhs.is_boolean() {
-                    return if b == eq { *rhs } else { simplify_un(UnOp::Not, rhs) };
+                    return if b == eq {
+                        *rhs
+                    } else {
+                        simplify_un(UnOp::Not, rhs)
+                    };
                 }
             }
         }
@@ -787,15 +936,24 @@ fn literals_strictly_equal(lhs: &Expr, rhs: &Expr) -> Option<bool> {
 /// Whether `x === a` and `x === b` cannot both hold: the same `x`, which
 /// `same_as` only answers for pure ones, against two different constants.
 fn exclusive_equalities(lhs: &Expr, rhs: &Expr) -> bool {
-    let (Expr::Binary { op: BinOp::StrictEq, lhs: a, rhs: av }, Expr::Binary { op: BinOp::StrictEq, lhs: b, rhs: bv }) =
-        (lhs, rhs)
+    let (
+        Expr::Binary {
+            op: BinOp::StrictEq,
+            lhs: a,
+            rhs: av,
+        },
+        Expr::Binary {
+            op: BinOp::StrictEq,
+            lhs: b,
+            rhs: bv,
+        },
+    ) = (lhs, rhs)
     else {
         return false;
     };
     // Compared as `===` does, where `-0` is `0`. An identifier has no key:
     // `x === y && x === 1` holds when `y` is 1.
-    a.same_as(b)
-        && matches!((LiteralKey::of(av), LiteralKey::of(bv)), (Some(x), Some(y)) if x != y)
+    a.same_as(b) && matches!((LiteralKey::of(av), LiteralKey::of(bv)), (Some(x), Some(y)) if x != y)
 }
 
 fn simplify_cond(mut test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr>) -> Expr {
@@ -834,7 +992,11 @@ fn simplify_cond(mut test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr>) -> Expr {
     }
     // `!c ? a : b` is `c ? b : a`, which is one character shorter and reads
     // in the order the source did.
-    if let Expr::Unary { op: UnOp::Not, operand } = &mut *test {
+    if let Expr::Unary {
+        op: UnOp::Not,
+        operand,
+    } = &mut *test
+    {
         if operand.is_boolean() {
             let operand = std::mem::replace(operand, Box::new(Expr::Null));
             return simplify_cond(operand, alt, cons);
@@ -842,7 +1004,12 @@ fn simplify_cond(mut test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr>) -> Expr {
     }
     // A ternary whose branches share an arm folds into a single test.
     // `c ? (p ? x : y) : y`  ->  `c && p ? x : y`
-    if let Expr::Cond { test: p, cons: x, alt: y } = &*cons {
+    if let Expr::Cond {
+        test: p,
+        cons: x,
+        alt: y,
+    } = &*cons
+    {
         if y.same_as(&alt) && p.is_pure() {
             return simplify_cond(
                 Box::new(Expr::bin(BinOp::And, *test, (**p).clone())),
@@ -852,7 +1019,12 @@ fn simplify_cond(mut test: Box<Expr>, cons: Box<Expr>, alt: Box<Expr>) -> Expr {
         }
     }
     // `c ? x : (p ? x : y)`  ->  `c || p ? x : y`
-    if let Expr::Cond { test: p, cons: x, alt: y } = &*alt {
+    if let Expr::Cond {
+        test: p,
+        cons: x,
+        alt: y,
+    } = &*alt
+    {
         if x.same_as(&cons) && p.is_pure() {
             return simplify_cond(
                 Box::new(Expr::bin(BinOp::Or, *test, (**p).clone())),
@@ -877,7 +1049,11 @@ pub struct Printer {
 }
 
 pub fn print(stmts: &[Stmt], pretty: bool) -> String {
-    let mut p = Printer { out: String::new(), pretty, depth: 0 };
+    let mut p = Printer {
+        out: String::new(),
+        pretty,
+        depth: 0,
+    };
     p.stmts(stmts);
     p.out
 }
@@ -902,7 +1078,11 @@ impl Printer {
         match s {
             Stmt::Var { kind, name, init } => {
                 self.nl();
-                self.out.push_str(if *kind == VarKind::Const { "const " } else { "let " });
+                self.out.push_str(if *kind == VarKind::Const {
+                    "const "
+                } else {
+                    "let "
+                });
                 self.out.push_str(name);
                 if let Some(e) = init {
                     self.out.push('=');
@@ -910,7 +1090,12 @@ impl Printer {
                 }
                 self.out.push(';');
             }
-            Stmt::Func { name, params, body, is_async } => {
+            Stmt::Func {
+                name,
+                params,
+                body,
+                is_async,
+            } => {
                 self.nl();
                 if *is_async {
                     self.out.push_str("async ");
@@ -1120,8 +1305,7 @@ impl Printer {
             Expr::Unary { op, operand } => {
                 self.out.push_str(op.text());
                 // `- -x` must not print as `--x`.
-                if matches!(op, UnOp::Neg) && starts_with_sign(operand)
-                {
+                if matches!(op, UnOp::Neg) && starts_with_sign(operand) {
                     self.out.push(' ');
                 }
                 self.expr(operand, 13);
@@ -1134,8 +1318,7 @@ impl Printer {
                 // says which right operands begin with one, and a negative
                 // `BigInt` literal is one of them: `0n - -1n` printed as
                 // `0n--1n` is the decrement operator and does not parse.
-                let needs_space =
-                    matches!(op, BinOp::Sub | BinOp::Add) && starts_with_sign(rhs);
+                let needs_space = matches!(op, BinOp::Sub | BinOp::Add) && starts_with_sign(rhs);
                 if needs_space {
                     self.out.push(' ');
                 }
@@ -1158,7 +1341,11 @@ impl Printer {
                 self.out.push('=');
                 self.expr(value, 1);
             }
-            Expr::Arrow { params, body, is_async } => {
+            Expr::Arrow {
+                params,
+                body,
+                is_async,
+            } => {
                 if *is_async {
                     self.out.push_str("async ");
                 }
@@ -1173,7 +1360,11 @@ impl Printer {
                     self.expr(body, 1);
                 }
             }
-            Expr::ArrowBlock { params, body, is_async } => {
+            Expr::ArrowBlock {
+                params,
+                body,
+                is_async,
+            } => {
                 if *is_async {
                     self.out.push_str("async ");
                 }
@@ -1314,9 +1505,12 @@ pub fn minify(stmts: Vec<Stmt>, roots: &[String], mangle: bool) -> Vec<Stmt> {
         // The top level is declarations and expressions, never a branch, so
         // folding leaves nothing there to flatten.
         stmts = each_statement(stmts, |s| match Fold.stmt(s) {
-            Stmt::Func { name, params, body, is_async } => {
-                clean_function(name, params, body, is_async, &table)
-            }
+            Stmt::Func {
+                name,
+                params,
+                body,
+                is_async,
+            } => clean_function(name, params, body, is_async, &table),
             other => other,
         });
         // Last, so that two instances which only became the same through
@@ -1356,17 +1550,27 @@ where
     I: Fn() -> S + Sync,
     F: Fn(&mut S, Stmt) -> Stmt + Sync,
 {
-    if !worth_workers(stmts.iter().filter(|s| matches!(s, Stmt::Func { .. })).count()) {
+    if !worth_workers(
+        stmts
+            .iter()
+            .filter(|s| matches!(s, Stmt::Func { .. }))
+            .count(),
+    ) {
         let mut state = init();
         return stmts.into_iter().map(|s| f(&mut state, s)).collect();
     }
     // A lock per statement rather than one around the list: each is taken
     // exactly once, so no two workers ever wait on the same one.
-    let slots: Vec<std::sync::Mutex<Option<Stmt>>> =
-        stmts.into_iter().map(|s| std::sync::Mutex::new(Some(s))).collect();
+    let slots: Vec<std::sync::Mutex<Option<Stmt>>> = stmts
+        .into_iter()
+        .map(|s| std::sync::Mutex::new(Some(s)))
+        .collect();
     crate::parallel::map_with(slots.len(), init, |state, i| {
         let taken = slots.get(i).and_then(|slot| slot.lock().ok()?.take());
-        f(state, taken.or_ice("`parallel::map_with` asks for each index once"))
+        f(
+            state,
+            taken.or_ice("`parallel::map_with` asks for each index once"),
+        )
     })
 }
 
@@ -1431,7 +1635,10 @@ impl Fold {
             other => out.push(other),
         }
         // Nothing after `return`, `throw`, `break` or `continue` runs.
-        matches!(out.last(), Some(Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue))
+        matches!(
+            out.last(),
+            Some(Stmt::Return(_) | Stmt::Throw(_) | Stmt::Break | Stmt::Continue)
+        )
     }
 }
 
@@ -1458,12 +1665,21 @@ impl Rewrite for Fold {
                     }
                     (
                         Ok([Stmt::Expr(Expr::Assign { target, value: a })]),
-                        Ok([Stmt::Expr(Expr::Assign { target: tb, value: b })]),
+                        Ok(
+                            [Stmt::Expr(Expr::Assign {
+                                target: tb,
+                                value: b,
+                            })],
+                        ),
                     ) if target.same_as(&tb) => Stmt::Expr(Expr::Assign {
                         target,
                         value: Box::new(Expr::cond(cond, *a, *b)),
                     }),
-                    (then, else_) => Stmt::If { cond, then: back(then), else_: back(else_) },
+                    (then, else_) => Stmt::If {
+                        cond,
+                        then: back(then),
+                        else_: back(else_),
+                    },
                 }
             }
             Stmt::While { cond, body } => {
@@ -1555,7 +1771,10 @@ fn fold_block(body: Vec<Stmt>) -> Vec<Stmt> {
 }
 
 fn is_declaration(s: &Stmt) -> bool {
-    matches!(s, Stmt::Var { .. } | Stmt::Func { .. } | Stmt::RawDecl { .. })
+    matches!(
+        s,
+        Stmt::Var { .. } | Stmt::Func { .. } | Stmt::RawDecl { .. }
+    )
 }
 
 // -- shared constants --------------------------------------------------------
@@ -1570,7 +1789,12 @@ fn is_declaration(s: &Stmt) -> bool {
 fn constant_table(stmts: &[Stmt]) -> HashMap<String, Vec<Expr>> {
     let mut table: HashMap<String, Vec<Expr>> = HashMap::default();
     for s in stmts {
-        if let Stmt::Var { kind: VarKind::Const, name, init: Some(Expr::Array(items)) } = s {
+        if let Stmt::Var {
+            kind: VarKind::Const,
+            name,
+            init: Some(Expr::Array(items)),
+        } = s
+        {
             if name.starts_with("$k") {
                 table.insert(name.clone(), items.clone());
             }
@@ -1619,7 +1843,14 @@ const MIN_SWITCH_CASES: usize = 3;
 
 /// The discriminant and the literal, for a test of the form `x === 1`.
 fn equality_test(e: &Expr) -> Option<(&Expr, &Expr)> {
-    let Expr::Binary { op: BinOp::StrictEq, lhs, rhs } = e else { return None };
+    let Expr::Binary {
+        op: BinOp::StrictEq,
+        lhs,
+        rhs,
+    } = e
+    else {
+        return None;
+    };
     if !rhs.is_pure_literal() || matches!(**rhs, Expr::Ident(_)) {
         return None;
     }
@@ -1642,7 +1873,12 @@ const DISC_SET: &str = "the first arm's labels name the discriminant";
 /// The literals one arm accepts: `x === 1` gives one, `x === 1 || x === 2`
 /// gives two, all against the same discriminant.
 fn case_labels<'a>(test: &'a Expr, disc: &mut Option<&'a Expr>) -> Option<Vec<&'a Expr>> {
-    if let Expr::Binary { op: BinOp::Or, lhs, rhs } = test {
+    if let Expr::Binary {
+        op: BinOp::Or,
+        lhs,
+        rhs,
+    } = test
+    {
         let mut out = case_labels(lhs, disc)?;
         out.extend(case_labels(rhs, disc)?);
         return Some(out);
@@ -1666,14 +1902,20 @@ fn case_labels<'a>(test: &'a Expr, disc: &mut Option<&'a Expr>) -> Option<Vec<&'
 /// `return` form is taken, because there each case is a `return` and needs no
 /// `break`, so the switch is barely longer than the chain it replaces.
 fn cond_chain_to_switch(s: Stmt) -> Stmt {
-    let Stmt::Return(Some(top @ Expr::Cond { .. })) = &s else { return s };
+    let Stmt::Return(Some(top @ Expr::Cond { .. })) = &s else {
+        return s;
+    };
 
     let mut disc: Option<&Expr> = None;
     let mut arms: Vec<(Vec<&Expr>, &Expr)> = Vec::new();
     let mut cursor = top;
     let default: &Expr = loop {
-        let Expr::Cond { test, cons, alt } = cursor else { break cursor };
-        let Some(labels) = case_labels(test, &mut disc) else { return s };
+        let Expr::Cond { test, cons, alt } = cursor else {
+            break cursor;
+        };
+        let Some(labels) = case_labels(test, &mut disc) else {
+            return s;
+        };
         arms.push((labels, cons));
         cursor = alt;
     };
@@ -1691,10 +1933,16 @@ fn cond_chain_to_switch(s: Stmt) -> Stmt {
         for l in rest {
             cases.push((Some((*l).clone()), Vec::new()));
         }
-        cases.push((Some((*last).clone()), vec![Stmt::Return(Some((*value).clone()))]));
+        cases.push((
+            Some((*last).clone()),
+            vec![Stmt::Return(Some((*value).clone()))],
+        ));
     }
     cases.push((None, vec![Stmt::Return(Some(default.clone()))]));
-    Stmt::Switch { disc: disc.clone(), cases }
+    Stmt::Switch {
+        disc: disc.clone(),
+        cases,
+    }
 }
 
 /// Whether no literal appears in two arms. A repeated `case` is a syntax
@@ -1753,7 +2001,9 @@ impl LiteralKey<'_> {
 
 /// Rewrites an `if`/`else if` chain over one discriminant into a `switch`.
 fn to_switch(s: Stmt) -> Stmt {
-    let Stmt::If { .. } = &s else { return cond_chain_to_switch(s) };
+    let Stmt::If { .. } = &s else {
+        return cond_chain_to_switch(s);
+    };
 
     // Walk the chain, collecting each arm's labels, and stop at whatever the
     // final `else` turns out to be.
@@ -1763,7 +2013,9 @@ fn to_switch(s: Stmt) -> Stmt {
     let default: &[Stmt] = loop {
         match cursor {
             Stmt::If { cond, then, else_ } => {
-                let Some(labels) = case_labels(cond, &mut disc) else { return s };
+                let Some(labels) = case_labels(cond, &mut disc) else {
+                    return s;
+                };
                 arms.push((labels, then));
                 match else_.as_slice() {
                     [next @ Stmt::If { .. }] => cursor = next,
@@ -1795,7 +2047,10 @@ fn to_switch(s: Stmt) -> Stmt {
     if !default.is_empty() {
         cases.push((None, switch_body(default)));
     }
-    Stmt::Switch { disc: disc.clone(), cases: merge_equal_cases(cases) }
+    Stmt::Switch {
+        disc: disc.clone(),
+        cases: merge_equal_cases(cases),
+    }
 }
 
 /// Turns runs of cases with the same body into one body reached by several
@@ -1809,11 +2064,8 @@ fn to_switch(s: Stmt) -> Stmt {
 /// Only a body ending in a jump may be shared this way. One that runs on would
 /// reach the *next* case's body rather than its own once emptied, which is a
 /// different program.
-fn merge_equal_cases(
-    cases: Vec<(Option<Expr>, Vec<Stmt>)>,
-) -> Vec<(Option<Expr>, Vec<Stmt>)> {
-    let printed: Vec<String> =
-        cases.iter().map(|(_, b)| print(b, false)).collect();
+fn merge_equal_cases(cases: Vec<(Option<Expr>, Vec<Stmt>)>) -> Vec<(Option<Expr>, Vec<Stmt>)> {
+    let printed: Vec<String> = cases.iter().map(|(_, b)| print(b, false)).collect();
     let mut out: Vec<(Option<Expr>, Vec<Stmt>)> = Vec::with_capacity(cases.len());
     for (i, (label, body)) in cases.into_iter().enumerate() {
         let same_as_next = printed
@@ -1863,14 +2115,27 @@ fn ends_in_jump(body: &[Stmt]) -> bool {
 fn switches(body: Vec<Stmt>) -> Vec<Stmt> {
     body.into_iter()
         .map(|s| match to_switch(s) {
-            Stmt::If { cond, then, else_ } => {
-                Stmt::If { cond, then: switches(then), else_: switches(else_) }
-            }
-            Stmt::While { cond, body } => Stmt::While { cond, body: switches(body) },
+            Stmt::If { cond, then, else_ } => Stmt::If {
+                cond,
+                then: switches(then),
+                else_: switches(else_),
+            },
+            Stmt::While { cond, body } => Stmt::While {
+                cond,
+                body: switches(body),
+            },
             Stmt::Block(b) => Stmt::Block(switches(b)),
-            Stmt::Func { name, params, body, is_async } => {
-                Stmt::Func { name, params, body: switches(body), is_async }
-            }
+            Stmt::Func {
+                name,
+                params,
+                body,
+                is_async,
+            } => Stmt::Func {
+                name,
+                params,
+                body: switches(body),
+                is_async,
+            },
             Stmt::Switch { disc, cases } => Stmt::Switch {
                 disc,
                 cases: cases.into_iter().map(|(t, b)| (t, switches(b))).collect(),
@@ -1938,7 +2203,9 @@ impl LocalFacts {
         if !self.names.contains_key(name) {
             self.names.insert(name.to_string(), NameFacts::default());
         }
-        self.names.get_mut(name).or_ice("the entry was inserted a line above")
+        self.names
+            .get_mut(name)
+            .or_ice("the entry was inserted a line above")
     }
 
     fn read(&mut self, name: &str) {
@@ -2069,7 +2336,10 @@ impl<'a> Visit<'a> for LocalFacts {
 /// copied.
 enum Subst<'a> {
     Copying(&'a HashMap<String, Expr>),
-    Moving { values: &'a mut HashMap<String, Expr>, movable: &'a HashSet<String> },
+    Moving {
+        values: &'a mut HashMap<String, Expr>,
+        movable: &'a HashSet<String>,
+    },
 }
 
 impl Subst<'_> {
@@ -2100,9 +2370,10 @@ impl Rewrite for Subst<'_> {
             },
             // The target names a storage location, not a value, so it is never
             // rewritten — only what is assigned to it.
-            Expr::Assign { target, value } if matches!(&*target, Expr::Ident(_)) => {
-                Expr::Assign { target, value: rewrite_boxed(value, |e| self.expr(e)) }
-            }
+            Expr::Assign { target, value } if matches!(&*target, Expr::Ident(_)) => Expr::Assign {
+                target,
+                value: rewrite_boxed(value, |e| self.expr(e)),
+            },
             // Rebuilding may leave an arrow body that is one `return`, which is
             // the concise form.
             other => concise(simplified(other.map_children(self))),
@@ -2138,9 +2409,10 @@ impl Rewrite for DropBindings<'_> {
     /// actually go.
     fn expr(&mut self, e: Expr) -> Expr {
         match e {
-            Expr::Assign { target, value } => {
-                Expr::Assign { target, value: rewrite_boxed(value, |e| self.expr(e)) }
-            }
+            Expr::Assign { target, value } => Expr::Assign {
+                target,
+                value: rewrite_boxed(value, |e| self.expr(e)),
+            },
             // Rebuilding may leave a body that is one `return`, which is the
             // concise form — the same collapse `Subst` makes.
             other => concise(other.map_children(self)),
@@ -2193,8 +2465,7 @@ impl<'a> Visit<'a> for Cleanup<'_> {
                 // is read. This is the `const t = x;` the backend emits
                 // before every match.
                 Some(Expr::Ident(src))
-                    if !facts.is_assigned(src)
-                        && matches!(facts.declared(src), 0 | 1) =>
+                    if !facts.is_assigned(src) && matches!(facts.declared(src), 0 | 1) =>
                 {
                     self.map.insert(name.clone(), Expr::Ident(src.clone()));
                     self.dead.insert(name.clone());
@@ -2307,7 +2578,10 @@ fn resolve_one(
     if done.contains_key(name) || taken.contains(name) {
         return;
     }
-    let raw = map.get(name).cloned().or_ice("every name resolved is a key of the map");
+    let raw = map
+        .get(name)
+        .cloned()
+        .or_ice("every name resolved is a key of the map");
     // A binding cannot name itself — that would not have run — but a bound is
     // cheaper than trusting it.
     if !visiting.insert(name.to_string()) {
@@ -2317,8 +2591,11 @@ fn resolve_one(
     let mut reads = HashSet::default();
     reads_of(&raw, &mut reads);
     // Sorted, so the order values are resolved in cannot depend on hash order.
-    let mut reads: Vec<String> =
-        reads.into_iter().filter(|r| map.contains_key(*r)).map(str::to_owned).collect();
+    let mut reads: Vec<String> = reads
+        .into_iter()
+        .filter(|r| map.contains_key(*r))
+        .map(str::to_owned)
+        .collect();
     reads.sort();
     for r in &reads {
         resolve_one(r, map, movable, done, taken, visiting);
@@ -2337,7 +2614,11 @@ fn resolve_one(
     let out = if reads.is_empty() {
         raw
     } else {
-        Subst::Moving { values: done, movable }.expr(raw)
+        Subst::Moving {
+            values: done,
+            movable,
+        }
+        .expr(raw)
     };
     done.insert(name.to_string(), out);
 }
@@ -2360,9 +2641,9 @@ fn merge_declarations(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
             Stmt::While { body, .. } => merge_declarations(body, facts),
             Stmt::Block(b) => merge_declarations(b, facts),
             Stmt::Func { body, .. } => merge_declarations(body, facts),
-            Stmt::Switch { cases, .. } => {
-                cases.iter_mut().fold(false, |a, (_, b)| a | merge_declarations(b, facts))
-            }
+            Stmt::Switch { cases, .. } => cases
+                .iter_mut()
+                .fold(false, |a, (_, b)| a | merge_declarations(b, facts)),
             _ => false,
         };
     }
@@ -2371,23 +2652,31 @@ fn merge_declarations(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
     while i + 1 < body.len() {
         let next = i + 1;
         let Some(
-            [Stmt::Var { kind: VarKind::Let, name, init: None }, Stmt::Expr(Expr::Assign { target, value })],
+            [Stmt::Var {
+                kind: VarKind::Let,
+                name,
+                init: None,
+            }, Stmt::Expr(Expr::Assign { target, value })],
         ) = body.get_mut(i..=next)
         else {
             i = next;
             continue;
         };
         // Assigned anywhere else and the slot is genuinely a slot.
-        if !matches!(&**target, Expr::Ident(t) if t == name)
-            || facts.assigns(name) != 1
-        {
+        if !matches!(&**target, Expr::Ident(t) if t == name) || facts.assigns(name) != 1 {
             i = next;
             continue;
         }
         let init = std::mem::replace(&mut **value, Expr::Null);
-        let joined = Stmt::Var { kind: VarKind::Const, name: std::mem::take(name), init: Some(init) };
+        let joined = Stmt::Var {
+            kind: VarKind::Const,
+            name: std::mem::take(name),
+            init: Some(init),
+        };
         body.remove(next);
-        *body.get_mut(i).or_ice("the declaration at this index was matched a line above") = joined;
+        *body
+            .get_mut(i)
+            .or_ice("the declaration at this index was matched a line above") = joined;
         changed = true;
         i = next;
     }
@@ -2420,15 +2709,20 @@ impl Rewrite for Retarget<'_> {
         match s {
             // The declaration is the slot, so it is renamed too. Where the caller
             // has already removed it this matches nothing.
-            Stmt::Var { kind, name, init } if name == self.from => {
-                Stmt::Var { kind, name: self.to.to_string(), init }
-            }
+            Stmt::Var { kind, name, init } if name == self.from => Stmt::Var {
+                kind,
+                name: self.to.to_string(),
+                init,
+            },
             Stmt::Expr(Expr::Assign { target, value }) => {
                 let target = match *target {
                     Expr::Ident(n) if n == self.from => Expr::ident(self.to.to_string()),
                     other => other,
                 };
-                Stmt::Expr(Expr::Assign { target: Box::new(target), value })
+                Stmt::Expr(Expr::Assign {
+                    target: Box::new(target),
+                    value,
+                })
             }
             // A nested function is not entered.
             s @ Stmt::Func { .. } => s,
@@ -2452,9 +2746,9 @@ fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
             Stmt::While { body, .. } => coalesce_copies(body, facts),
             Stmt::Block(b) => coalesce_copies(b, facts),
             Stmt::Func { body, .. } => coalesce_copies(body, facts),
-            Stmt::Switch { cases, .. } => {
-                cases.iter_mut().fold(false, |a, (_, b)| a | coalesce_copies(b, facts))
-            }
+            Stmt::Switch { cases, .. } => cases
+                .iter_mut()
+                .fold(false, |a, (_, b)| a | coalesce_copies(b, facts)),
             _ => false,
         };
         if changed {
@@ -2463,13 +2757,17 @@ fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
     }
 
     for i in 0..body.len() {
-        let Some(Stmt::Var { kind: VarKind::Let, name: from, init: None }) = body.get(i) else {
+        let Some(Stmt::Var {
+            kind: VarKind::Let,
+            name: from,
+            init: None,
+        }) = body.get(i)
+        else {
             continue;
         };
         // Read exactly once, and written at least once, or there is nothing to
         // move.
-        if facts.uses(from) != 1 || facts.assigns(from) == 0
-        {
+        if facts.uses(from) != 1 || facts.assigns(from) == 0 {
             continue;
         }
         // The one read has to be the copy, and it has to sit in this same list
@@ -2479,18 +2777,22 @@ fn coalesce_copies(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
         //
         // The destination is read off the same statement that identifies the
         // copy, so there is no second match to keep in step with this one.
-        let found = body.iter().enumerate().skip(i + 1).find_map(|(j, s)| match s {
-            Stmt::Expr(Expr::Assign { target, value }) => match (&**target, &**value) {
-                (Expr::Ident(t), Expr::Ident(v)) if v == from => Some((j, t.clone(), false)),
+        let found = body
+            .iter()
+            .enumerate()
+            .skip(i + 1)
+            .find_map(|(j, s)| match s {
+                Stmt::Expr(Expr::Assign { target, value }) => match (&**target, &**value) {
+                    (Expr::Ident(t), Expr::Ident(v)) if v == from => Some((j, t.clone(), false)),
+                    _ => None,
+                },
+                Stmt::Var {
+                    name,
+                    init: Some(Expr::Ident(v)),
+                    ..
+                } if v == from && name.starts_with('$') => Some((j, name.clone(), true)),
                 _ => None,
-            },
-            Stmt::Var { name, init: Some(Expr::Ident(v)), .. }
-                if v == from && name.starts_with('$') =>
-            {
-                Some((j, name.clone(), true))
-            }
-            _ => None,
-        });
+            });
         let Some((j, to, declares)) = found else {
             continue;
         };
@@ -2570,10 +2872,7 @@ fn clean_body(body: &mut Vec<Stmt>) -> bool {
         let resolved = resolve_map(&map, &facts);
         let overshot: Vec<String> = resolved
             .iter()
-            .filter(|(name, value)| {
-                !value.is_pure_literal()
-                    && facts.uses(name) > 1
-            })
+            .filter(|(name, value)| !value.is_pure_literal() && facts.uses(name) > 1)
             .map(|(name, _)| name.clone())
             .collect();
         if overshot.is_empty() {
@@ -2628,10 +2927,7 @@ fn print_table(table: &HashMap<String, Vec<Expr>>) -> String {
     for n in names {
         out.push_str(n);
         out.push('=');
-        out.push_str(&print(
-            &[Stmt::Expr(Expr::Array(table[n].clone()))],
-            false,
-        ));
+        out.push_str(&print(&[Stmt::Expr(Expr::Array(table[n].clone()))], false));
         out.push(';');
     }
     out
@@ -2696,16 +2992,20 @@ fn read_through_locals(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
         .into_iter()
         .filter(|(name, items)| {
             // `Reads` holds at least the read that made it.
-            let Some(reads) = uses.get(name).and_then(|u| u.reads()) else { return false };
+            let Some(reads) = uses.get(name).and_then(|u| u.reads()) else {
+                return false;
+            };
             // Every read accounted for: `uses` counts bare reads of the name,
             // and each of ours is one, so a mismatch means something else read
             // it in a shape the survey did not recognise.
             if facts.uses(name) as usize != reads.values().sum::<usize>() {
                 return false;
             }
-            reads
-                .iter()
-                .all(|(k, n)| items.get(*k).is_some_and(|e| e.is_pure_literal() || *n == 1))
+            reads.iter().all(|(k, n)| {
+                items
+                    .get(*k)
+                    .is_some_and(|e| e.is_pure_literal() || *n == 1)
+            })
         })
         .collect();
     if table.is_empty() {
@@ -2743,13 +3043,14 @@ fn read_through_locals(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
 }
 
 /// The `const t = [<pure>]` bindings that could be read through.
-fn collect_aggregates(
-    body: &[Stmt],
-    facts: &LocalFacts,
-    out: &mut HashMap<String, Vec<Expr>>,
-) {
+fn collect_aggregates(body: &[Stmt], facts: &LocalFacts, out: &mut HashMap<String, Vec<Expr>>) {
     for s in body {
-        if let Stmt::Var { kind: VarKind::Const, name, init: Some(Expr::Array(items)) } = s {
+        if let Stmt::Var {
+            kind: VarKind::Const,
+            name,
+            init: Some(Expr::Array(items)),
+        } = s
+        {
             let single = facts.declared(name) == 1
                 && !facts.is_assigned(name)
                 && facts.read_where_bound(name);
@@ -2806,7 +3107,11 @@ impl Rewrite for Extract<'_> {
         match s {
             // The declarations themselves are left alone; `drop_bindings` removes
             // them, and rewriting an aggregate into itself is not the point.
-            Stmt::Var { kind: VarKind::Const, ref name, .. } if self.0.contains_key(name) => s,
+            Stmt::Var {
+                kind: VarKind::Const,
+                ref name,
+                ..
+            } if self.0.contains_key(name) => s,
             other => other.map_children(self),
         }
     }
@@ -2817,15 +3122,18 @@ impl Rewrite for Extract<'_> {
                 if let Some(items) = self.0.get(name) {
                     return items
                         .get(*i as usize)
-                        .or_ice("the table keeps only aggregates whose every read is a slot they have")
+                        .or_ice(
+                            "the table keeps only aggregates whose every read is a slot they have",
+                        )
                         .clone();
                 }
             }
         }
         match e {
-            Expr::Assign { target, value } => {
-                Expr::Assign { target, value: rewrite_boxed(value, |e| self.expr(e)) }
-            }
+            Expr::Assign { target, value } => Expr::Assign {
+                target,
+                value: rewrite_boxed(value, |e| self.expr(e)),
+            },
             other => simplified(other.map_children(self)),
         }
     }
@@ -2858,7 +3166,12 @@ fn clean_function(
     }
     // Last, so the chains it looks for have already been folded and their
     // discriminants have already settled.
-    Stmt::Func { name, params, body: switches(body), is_async }
+    Stmt::Func {
+        name,
+        params,
+        body: switches(body),
+        is_async,
+    }
 }
 
 // -- merging functions that came out the same ---------------------------------
@@ -2885,13 +3198,19 @@ fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     // keys are made on the workers.
     fn key<'a>(s: &'a Stmt, pinned: &HashSet<&str>) -> Option<FuncKey<'a>> {
         match s {
-            Stmt::Func { name, params, body, is_async } if !pinned.contains(name.as_str()) => {
-                Some(FuncKey::new(params, body, *is_async))
-            }
+            Stmt::Func {
+                name,
+                params,
+                body,
+                is_async,
+            } if !pinned.contains(name.as_str()) => Some(FuncKey::new(params, body, *is_async)),
             _ => None,
         }
     }
-    let functions = stmts.iter().filter(|s| matches!(s, Stmt::Func { .. })).count();
+    let functions = stmts
+        .iter()
+        .filter(|s| matches!(s, Stmt::Func { .. }))
+        .count();
     let keys: Vec<Option<FuncKey<'_>>> = if worth_workers(functions) {
         crate::parallel::map(stmts.len(), |i| stmts.get(i).and_then(|s| key(s, &pinned)))
     } else {
@@ -2903,7 +3222,9 @@ fn merge_identical(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     let mut first: HashMap<FuncKey<'_>, &String> = HashMap::default();
     let mut alias: HashMap<String, Expr> = HashMap::default();
     for (s, key) in stmts.iter().zip(keys) {
-        let (Stmt::Func { name, .. }, Some(key)) = (s, key) else { continue };
+        let (Stmt::Func { name, .. }, Some(key)) = (s, key) else {
+            continue;
+        };
         match first.get(&key) {
             Some(winner) => {
                 alias.insert(name.clone(), Expr::ident((*winner).clone()));
@@ -2940,7 +3261,12 @@ struct FuncKey<'a> {
 impl<'a> FuncKey<'a> {
     fn new(params: &'a [String], body: &'a [Stmt], is_async: bool) -> FuncKey<'a> {
         use std::hash::Hasher as _;
-        let mut key = FuncKey { hash: 0, params, body, is_async };
+        let mut key = FuncKey {
+            hash: 0,
+            params,
+            body,
+            is_async,
+        };
         let mut h = crate::hash::FxHasher::default();
         key.feed(&mut h);
         key.hash = h.finish();
@@ -2993,7 +3319,11 @@ impl std::hash::Hasher for Encoding {
 
 /// A number's bits, with every `NaN` the same one.
 fn num_bits(n: f64) -> u64 {
-    if n.is_nan() { f64::NAN.to_bits() } else { n.to_bits() }
+    if n.is_nan() {
+        f64::NAN.to_bits()
+    } else {
+        n.to_bits()
+    }
 }
 
 fn hash_stmts<H: std::hash::Hasher>(body: &[Stmt], h: &mut H) {
@@ -3013,7 +3343,12 @@ fn hash_stmt<H: std::hash::Hasher>(s: &Stmt, h: &mut H) {
             name.hash(h);
             hash_opt(init.as_ref(), h);
         }
-        Stmt::Func { name, params, body, is_async } => {
+        Stmt::Func {
+            name,
+            params,
+            body,
+            is_async,
+        } => {
             name.hash(h);
             params.hash(h);
             is_async.hash(h);
@@ -3085,7 +3420,10 @@ fn hash_expr<H: std::hash::Hasher>(e: &Expr, h: &mut H) {
             prop.hash(h);
         }
         Expr::Index { obj: a, index: b }
-        | Expr::Assign { target: a, value: b } => {
+        | Expr::Assign {
+            target: a,
+            value: b,
+        } => {
             hash_expr(a, h);
             hash_expr(b, h);
         }
@@ -3107,12 +3445,20 @@ fn hash_expr<H: std::hash::Hasher>(e: &Expr, h: &mut H) {
             hash_expr(cons, h);
             hash_expr(alt, h);
         }
-        Expr::Arrow { params, body, is_async } => {
+        Expr::Arrow {
+            params,
+            body,
+            is_async,
+        } => {
             params.hash(h);
             is_async.hash(h);
             hash_expr(body, h);
         }
-        Expr::ArrowBlock { params, body, is_async } => {
+        Expr::ArrowBlock {
+            params,
+            body,
+            is_async,
+        } => {
             params.hash(h);
             is_async.hash(h);
             hash_stmts(body, h);
@@ -3128,7 +3474,11 @@ fn hash_expr<H: std::hash::Hasher>(e: &Expr, h: &mut H) {
 /// what removes the parts of `core/*` a program does not use.
 fn eliminate_dead(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     let keep = reachable(&stmts, roots);
-    stmts.into_iter().zip(keep).filter_map(|(s, keep)| keep.then_some(s)).collect()
+    stmts
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(s, keep)| keep.then_some(s))
+        .collect()
 }
 
 /// What one declaration names: a run of the names [`reachable`] collected
@@ -3148,7 +3498,9 @@ fn reachable(stmts: &[Stmt], roots: &[String]) -> Vec<bool> {
     let mut used: HashSet<&str> = HashSet::default();
     for (i, s) in stmts.iter().enumerate() {
         let (name, dep) = match s {
-            Stmt::Func { name, body, params, .. } => {
+            Stmt::Func {
+                name, body, params, ..
+            } => {
                 used.clear();
                 let mut idents = Idents(&mut used);
                 body.iter().for_each(|st| idents.stmt(st));
@@ -3201,7 +3553,9 @@ fn reachable(stmts: &[Stmt], roots: &[String]) -> Vec<bool> {
         .iter()
         .enumerate()
         .map(|(i, s)| match s {
-            Stmt::Func { name, .. } | Stmt::Var { name, .. } | Stmt::RawDecl(RuntimeDecl { name, .. }) => {
+            Stmt::Func { name, .. }
+            | Stmt::Var { name, .. }
+            | Stmt::RawDecl(RuntimeDecl { name, .. }) => {
                 live.contains(name.as_str()) && declared.get(name.as_str()) == Some(&i)
             }
             _ => true,
@@ -3260,7 +3614,9 @@ pub(crate) fn rename_idents_in_expr(e: &mut Expr, f: &mut dyn FnMut(&mut String)
     match e {
         Expr::Ident(name) => f(name),
         Expr::Array(xs) | Expr::Seq(xs) => xs.iter_mut().for_each(|x| rename_idents_in_expr(x, f)),
-        Expr::Object(fields) => fields.iter_mut().for_each(|(_, x)| rename_idents_in_expr(x, f)),
+        Expr::Object(fields) => fields
+            .iter_mut()
+            .for_each(|(_, x)| rename_idents_in_expr(x, f)),
         Expr::Member { obj: x, .. }
         | Expr::Unary { operand: x, .. }
         | Expr::Arrow { body: x, .. }
@@ -3268,7 +3624,10 @@ pub(crate) fn rename_idents_in_expr(e: &mut Expr, f: &mut dyn FnMut(&mut String)
         | Expr::Spread(x) => rename_idents_in_expr(x, f),
         Expr::Index { obj: a, index: b }
         | Expr::Binary { lhs: a, rhs: b, .. }
-        | Expr::Assign { target: a, value: b } => {
+        | Expr::Assign {
+            target: a,
+            value: b,
+        } => {
             rename_idents_in_expr(a, f);
             rename_idents_in_expr(b, f);
         }
@@ -3383,10 +3742,46 @@ fn short_name(mut n: usize) -> String {
 }
 
 const RESERVED: &[&str] = &[
-    "do", "if", "in", "for", "let", "new", "try", "var", "case", "else", "enum", "eval", "null",
-    "this", "true", "void", "with", "await", "break", "catch", "class", "const", "false",
-    "super", "throw", "while", "yield", "delete", "export", "import", "return", "switch",
-    "typeof", "default", "extends", "finally", "continue", "function", "instanceof", "of",
+    "do",
+    "if",
+    "in",
+    "for",
+    "let",
+    "new",
+    "try",
+    "var",
+    "case",
+    "else",
+    "enum",
+    "eval",
+    "null",
+    "this",
+    "true",
+    "void",
+    "with",
+    "await",
+    "break",
+    "catch",
+    "class",
+    "const",
+    "false",
+    "super",
+    "throw",
+    "while",
+    "yield",
+    "delete",
+    "export",
+    "import",
+    "return",
+    "switch",
+    "typeof",
+    "default",
+    "extends",
+    "finally",
+    "continue",
+    "function",
+    "instanceof",
+    "of",
 ];
 
 /// Renames every declaration the program owns. Top-level names are mangled
@@ -3408,7 +3803,9 @@ fn mangle_program(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     let mut map: HashMap<String, String> = HashMap::default();
     let mut counter = 0usize;
     for s in &stmts {
-        let (Stmt::Func { name: g, .. } | Stmt::Var { name: g, .. }) = s else { continue };
+        let (Stmt::Func { name: g, .. } | Stmt::Var { name: g, .. }) = s else {
+            continue;
+        };
         if untouchable.contains(g.as_str()) {
             continue;
         }
@@ -3432,7 +3829,13 @@ fn mangle_program(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
     let scope = Scope::global(&map, &by_short);
     // A pool per worker: what one holds is a function of the globals alone,
     // so which statements a worker happened to rename first changes nothing.
-    each_statement_with(stmts, Pool::default, |pool, s| Rename { scope: &scope, pool }.stmt(s))
+    each_statement_with(stmts, Pool::default, |pool, s| {
+        Rename {
+            scope: &scope,
+            pool,
+        }
+        .stmt(s)
+    })
 }
 
 /// The names in scope while one body is renamed.
@@ -3453,8 +3856,16 @@ struct Scope<'a> {
 }
 
 impl<'a> Scope<'a> {
-    fn global(globals: &'a HashMap<String, String>, by_short: &'a HashMap<String, String>) -> Scope<'a> {
-        Scope { globals, by_short, locals: HashMap::default(), local_names: HashSet::default() }
+    fn global(
+        globals: &'a HashMap<String, String>,
+        by_short: &'a HashMap<String, String>,
+    ) -> Scope<'a> {
+        Scope {
+            globals,
+            by_short,
+            locals: HashMap::default(),
+            local_names: HashSet::default(),
+        }
     }
 
     /// A nested scope: everything this one binds, and whatever it binds itself
@@ -3501,7 +3912,10 @@ impl Pool {
             }
             self.names.push(candidate);
         }
-        self.names.get(i).cloned().or_ice("the walk above stops past `i`")
+        self.names
+            .get(i)
+            .cloned()
+            .or_ice("the walk above stops past `i`")
     }
 }
 
@@ -3532,16 +3946,28 @@ impl<'a> Rename<'_, 'a> {
 impl Rewrite for Rename<'_, '_> {
     fn stmt(&mut self, s: Stmt) -> Stmt {
         match s {
-            Stmt::Var { kind, name, init } => {
-                Stmt::Var { kind, name: self.name(name), init: init.map(|e| self.expr(e)) }
-            }
+            Stmt::Var { kind, name, init } => Stmt::Var {
+                kind,
+                name: self.name(name),
+                init: init.map(|e| self.expr(e)),
+            },
             // Parameters and locals get their own short names, reused across
             // functions because each is a fresh scope.
-            Stmt::Func { name, params, body, is_async } => {
+            Stmt::Func {
+                name,
+                params,
+                body,
+                is_async,
+            } => {
                 let name = self.name(name);
                 let (params, mut local, mut counter) = self.params(params);
                 let body = rename_scope(body, &mut local, &mut counter, self.pool);
-                Stmt::Func { name, params, body, is_async }
+                Stmt::Func {
+                    name,
+                    params,
+                    body,
+                    is_async,
+                }
             }
             other => other.map_children(self),
         }
@@ -3550,15 +3976,35 @@ impl Rewrite for Rename<'_, '_> {
     fn expr(&mut self, e: Expr) -> Expr {
         match e {
             Expr::Ident(name) => Expr::Ident(self.name(name)),
-            Expr::Arrow { params, body, is_async } => {
+            Expr::Arrow {
+                params,
+                body,
+                is_async,
+            } => {
                 let (params, local, _) = self.params(params);
-                let body = Rename { scope: &local, pool: self.pool }.expr(*body);
-                Expr::Arrow { params, body: Box::new(body), is_async }
+                let body = Rename {
+                    scope: &local,
+                    pool: self.pool,
+                }
+                .expr(*body);
+                Expr::Arrow {
+                    params,
+                    body: Box::new(body),
+                    is_async,
+                }
             }
-            Expr::ArrowBlock { params, body, is_async } => {
+            Expr::ArrowBlock {
+                params,
+                body,
+                is_async,
+            } => {
                 let (params, mut local, mut counter) = self.params(params);
                 let body = rename_scope(body, &mut local, &mut counter, self.pool);
-                Expr::ArrowBlock { params, body, is_async }
+                Expr::ArrowBlock {
+                    params,
+                    body,
+                    is_async,
+                }
             }
             Expr::Await(x) => Expr::awaited(self.expr(*x)),
             other => other.map_children(self),
@@ -3573,7 +4019,12 @@ struct Counter(usize);
 /// A local's short name. The pool holds no global's, so a local never shadows
 /// a global the body still needs, and a local's original name is never a
 /// global's.
-fn fresh_local(original: &str, scope: &mut Scope, counter: &mut Counter, pool: &mut Pool) -> String {
+fn fresh_local(
+    original: &str,
+    scope: &mut Scope,
+    counter: &mut Counter,
+    pool: &mut Pool,
+) -> String {
     let candidate = loop {
         let candidate = pool.at(counter.0, scope.by_short);
         counter.0 += 1;
@@ -3599,13 +4050,16 @@ fn rename_scope(
             Stmt::Var { kind, name, init } => {
                 let init = init.map(|e| Rename { scope, pool }.expr(e));
                 let renamed = fresh_local(&name, scope, counter, pool);
-                out.push(Stmt::Var { kind, name: renamed, init });
+                out.push(Stmt::Var {
+                    kind,
+                    name: renamed,
+                    init,
+                });
             }
             Stmt::If { cond, then, else_ } => {
                 let cond = Rename { scope, pool }.expr(cond);
                 let then = rename_scope(then, &mut scope.nested(), &mut counter.clone(), pool);
-                let else_ =
-                    rename_scope(else_, &mut scope.nested(), &mut counter.clone(), pool);
+                let else_ = rename_scope(else_, &mut scope.nested(), &mut counter.clone(), pool);
                 out.push(Stmt::If { cond, then, else_ });
             }
             Stmt::While { cond, body } => {
@@ -3806,7 +4260,10 @@ pub fn strip(src: &str) -> String {
                 // Keep one space only where removing it would join two tokens.
                 let prev = out.as_bytes().last().copied().unwrap_or(0);
                 let mut j = i;
-                while b.get(j).is_some_and(|c| matches!(c, b' ' | b'\t' | b'\r' | b'\n')) {
+                while b
+                    .get(j)
+                    .is_some_and(|c| matches!(c, b' ' | b'\t' | b'\r' | b'\n'))
+                {
                     j += 1;
                 }
                 let next = b.get(j).copied().unwrap_or(0);
@@ -3873,7 +4330,10 @@ const $c = 1;
         let names: Vec<&str> = cut.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, vec!["$plain", "$waits", "$c"]);
         let body = &cut.get(1).expect("the async declaration").1;
-        assert!(body.trim_start().starts_with("async function $waits"), "{body:?}");
+        assert!(
+            body.trim_start().starts_with("async function $waits"),
+            "{body:?}"
+        );
         assert!(body.trim_end().ends_with('}'), "{body:?}");
         // And the one before it did not swallow the `async`, which is the other
         // way the scan could have gone wrong.
@@ -3886,9 +4346,22 @@ const $c = 1;
     #[test]
     fn the_runtime_counts_bits_without_a_loop() {
         let cut = split_declarations(crate::compiler::backend::js::runtime_source());
-        for name in ["$bits_popCount", "$bits_leadingZeros", "$bits_trailingZeros", "$pop32", "$ctz32"] {
-            let body = &cut.iter().find(|(n, _)| n == name).unwrap_or_else(|| panic!("{name} is gone")).1;
-            assert!(!body.contains("while") && !body.contains("for ("), "{name} loops:\n{body}");
+        for name in [
+            "$bits_popCount",
+            "$bits_leadingZeros",
+            "$bits_trailingZeros",
+            "$pop32",
+            "$ctz32",
+        ] {
+            let body = &cut
+                .iter()
+                .find(|(n, _)| n == name)
+                .unwrap_or_else(|| panic!("{name} is gone"))
+                .1;
+            assert!(
+                !body.contains("while") && !body.contains("for ("),
+                "{name} loops:\n{body}"
+            );
         }
     }
 
@@ -3922,7 +4395,11 @@ const $c = 1;
 
     #[test]
     fn negative_operands_keep_their_space() {
-        let e = Expr::bin(BinOp::Sub, Expr::ident("a"), Expr::un(UnOp::Neg, Expr::ident("b")));
+        let e = Expr::bin(
+            BinOp::Sub,
+            Expr::ident("a"),
+            Expr::un(UnOp::Neg, Expr::ident("b")),
+        );
         assert_eq!(p(e), "a- -b;");
     }
 
@@ -3932,13 +4409,24 @@ const $c = 1;
     /// to fold — which is where `checkedNegate` at 128 bits actually lands.
     #[test]
     fn a_negative_literal_keeps_its_space() {
-        let sub = |lhs, rhs| Expr::Binary { op: BinOp::Sub, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+        let sub = |lhs, rhs| Expr::Binary {
+            op: BinOp::Sub,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        };
         let wide = "-170141183460469231731687303715884105728";
         assert_eq!(
-            p(Expr::bin(BinOp::Sub, Expr::BigInt("0".into()), Expr::BigInt(wide.into()))),
+            p(Expr::bin(
+                BinOp::Sub,
+                Expr::BigInt("0".into()),
+                Expr::BigInt(wide.into())
+            )),
             format!("0n- {wide}n;"),
         );
-        assert_eq!(p(sub(Expr::BigInt("0".into()), Expr::BigInt("-1".into()))), "0n- -1n;");
+        assert_eq!(
+            p(sub(Expr::BigInt("0".into()), Expr::BigInt("-1".into()))),
+            "0n- -1n;"
+        );
         assert_eq!(p(sub(Expr::Num(0.0), Expr::Num(-128.0))), "0- -128;");
         assert_eq!(
             p(Expr::Binary {
@@ -3949,7 +4437,10 @@ const $c = 1;
             "a+ -1n;",
         );
         // A positive one needs nothing.
-        assert_eq!(p(sub(Expr::BigInt("0".into()), Expr::BigInt("1".into()))), "0n-1n;");
+        assert_eq!(
+            p(sub(Expr::BigInt("0".into()), Expr::BigInt("1".into()))),
+            "0n-1n;"
+        );
     }
 
     #[test]
@@ -3971,7 +4462,10 @@ const $c = 1;
     fn a_literal_read_through_keeps_its_parentheses() {
         let length = |obj| Expr::member(obj, "length");
         assert_eq!(f(length(Expr::Undefined)), "(void 0).length");
-        assert_eq!(f(Expr::index(Expr::Undefined, Expr::Num(0.0))), "(void 0)[0]");
+        assert_eq!(
+            f(Expr::index(Expr::Undefined, Expr::Num(0.0))),
+            "(void 0)[0]"
+        );
         assert_eq!(f(Expr::call(Expr::Undefined, vec![])), "(void 0)()");
         assert_eq!(f(length(Expr::Num(1.0))), "(1).length");
         assert_eq!(f(length(Expr::Num(-1.5))), "(-1.5).length");
@@ -3979,10 +4473,20 @@ const $c = 1;
         assert_eq!(f(length(Expr::Num(0.5))), ".5.length");
         assert_eq!(f(length(Expr::BigInt("1".into()))), "1n.length");
         // `1/0` is a division, so dividing by it needs the parentheses too.
-        let raw = |op, lhs, rhs| Expr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+        let raw = |op, lhs, rhs| Expr::Binary {
+            op,
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        };
         assert_eq!(f(raw(BinOp::Div, a(), Expr::Num(f64::INFINITY))), "a/(1/0)");
         assert_eq!(f(raw(BinOp::Sub, a(), Expr::Num(-0.0))), "a- -0");
-        assert_eq!(f(Expr::Unary { op: UnOp::Neg, operand: Box::new(Expr::Num(-1.0)) }), "- -1");
+        assert_eq!(
+            f(Expr::Unary {
+                op: UnOp::Neg,
+                operand: Box::new(Expr::Num(-1.0))
+            }),
+            "- -1"
+        );
     }
 
     /// `void 0!==void 0` is false, so the `&&` it heads goes with it, read
@@ -3994,14 +4498,41 @@ const $c = 1;
         let test = Expr::bin(
             BinOp::And,
             absent(BinOp::StrictNe),
-            Expr::bin(BinOp::StrictEq, Expr::member(Expr::Undefined, "length"), Expr::Num(0.0)),
+            Expr::bin(
+                BinOp::StrictEq,
+                Expr::member(Expr::Undefined, "length"),
+                Expr::Num(0.0),
+            ),
         );
-        assert_eq!(f(Expr::cond(test, Expr::Str("a0".into()), Expr::Str("a1".into()))), "'a1'");
-        assert_eq!(f(Expr::bin(BinOp::StrictEq, Expr::Null, Expr::Null)), "true");
-        assert_eq!(f(Expr::bin(BinOp::StrictEq, Expr::Null, Expr::Undefined)), "false");
-        assert_eq!(f(Expr::bin(BinOp::StrictNe, Expr::Undefined, Expr::Num(0.0))), "true");
+        assert_eq!(
+            f(Expr::cond(
+                test,
+                Expr::Str("a0".into()),
+                Expr::Str("a1".into())
+            )),
+            "'a1'"
+        );
+        assert_eq!(
+            f(Expr::bin(BinOp::StrictEq, Expr::Null, Expr::Null)),
+            "true"
+        );
+        assert_eq!(
+            f(Expr::bin(BinOp::StrictEq, Expr::Null, Expr::Undefined)),
+            "false"
+        );
+        assert_eq!(
+            f(Expr::bin(BinOp::StrictNe, Expr::Undefined, Expr::Num(0.0))),
+            "true"
+        );
         // Different literals of one type stay with the folds that know the type.
-        assert_eq!(f(Expr::bin(BinOp::StrictEq, Expr::Num(f64::NAN), Expr::Num(f64::NAN))), "false");
+        assert_eq!(
+            f(Expr::bin(
+                BinOp::StrictEq,
+                Expr::Num(f64::NAN),
+                Expr::Num(f64::NAN)
+            )),
+            "false"
+        );
     }
 
     #[test]
@@ -4043,7 +4574,10 @@ const $c = 1;
     /// exists for equality alone, and this is what says so.
     #[test]
     fn a_negated_relational_operator_is_left_alone() {
-        assert_eq!(f(Expr::un(UnOp::Not, Expr::bin(BinOp::Lt, a(), b()))), "!(a<b)");
+        assert_eq!(
+            f(Expr::un(UnOp::Not, Expr::bin(BinOp::Lt, a(), b()))),
+            "!(a<b)"
+        );
     }
 
     /// `!!e` is `e` for a boolean and `Boolean(e)` for anything else, so the
@@ -4056,8 +4590,14 @@ const $c = 1;
 
     #[test]
     fn a_boolean_compared_against_a_literal_is_itself() {
-        assert_eq!(f(Expr::bin(BinOp::StrictEq, cmp(), Expr::Bool(true))), "a===b");
-        assert_eq!(f(Expr::bin(BinOp::StrictEq, cmp(), Expr::Bool(false))), "a!==b");
+        assert_eq!(
+            f(Expr::bin(BinOp::StrictEq, cmp(), Expr::Bool(true))),
+            "a===b"
+        );
+        assert_eq!(
+            f(Expr::bin(BinOp::StrictEq, cmp(), Expr::Bool(false))),
+            "a!==b"
+        );
     }
 
     /// `1 && true` is `true`, not `1`, so the identity needs a boolean.
@@ -4084,8 +4624,14 @@ const $c = 1;
 
     #[test]
     fn a_conditional_yielding_booleans_is_its_own_test() {
-        assert_eq!(f(Expr::cond(cmp(), Expr::Bool(true), Expr::Bool(false))), "a===b");
-        assert_eq!(f(Expr::cond(cmp(), Expr::Bool(false), Expr::Bool(true))), "a!==b");
+        assert_eq!(
+            f(Expr::cond(cmp(), Expr::Bool(true), Expr::Bool(false))),
+            "a===b"
+        );
+        assert_eq!(
+            f(Expr::cond(cmp(), Expr::Bool(false), Expr::Bool(true))),
+            "a!==b"
+        );
     }
 
     #[test]
@@ -4095,17 +4641,32 @@ const $c = 1;
 
     #[test]
     fn a_constant_branch_becomes_a_short_circuit() {
-        assert_eq!(f(Expr::cond(cmp(), Expr::Bool(true), Expr::ident("x"))), "a===b||x");
-        assert_eq!(f(Expr::cond(cmp(), Expr::ident("x"), Expr::Bool(false))), "a===b&&x");
-        assert_eq!(f(Expr::cond(cmp(), Expr::Bool(false), Expr::ident("x"))), "a!==b&&x");
-        assert_eq!(f(Expr::cond(cmp(), Expr::ident("x"), Expr::Bool(true))), "a!==b||x");
+        assert_eq!(
+            f(Expr::cond(cmp(), Expr::Bool(true), Expr::ident("x"))),
+            "a===b||x"
+        );
+        assert_eq!(
+            f(Expr::cond(cmp(), Expr::ident("x"), Expr::Bool(false))),
+            "a===b&&x"
+        );
+        assert_eq!(
+            f(Expr::cond(cmp(), Expr::Bool(false), Expr::ident("x"))),
+            "a!==b&&x"
+        );
+        assert_eq!(
+            f(Expr::cond(cmp(), Expr::ident("x"), Expr::Bool(true))),
+            "a!==b||x"
+        );
     }
 
     /// `5 ? true : x` is `true`, where `5 || x` is `5`. Without a boolean test
     /// the short circuit is a different program.
     #[test]
     fn a_constant_branch_needs_a_boolean_test() {
-        assert_eq!(f(Expr::cond(a(), Expr::Bool(true), Expr::ident("x"))), "a?true:x");
+        assert_eq!(
+            f(Expr::cond(a(), Expr::Bool(true), Expr::ident("x"))),
+            "a?true:x"
+        );
     }
 
     #[test]
@@ -4171,7 +4732,12 @@ const $c = 1;
     #[test]
     fn dead_code_elimination_keeps_only_what_is_reachable() {
         let stmts = vec![
-            Stmt::Func { name: "used".into(), params: vec![], body: vec![], is_async: false },
+            Stmt::Func {
+                name: "used".into(),
+                params: vec![],
+                body: vec![],
+                is_async: false,
+            },
             Stmt::Func {
                 name: "unused".into(),
                 params: vec![],
@@ -4211,8 +4777,12 @@ const $c = 1;
 
     #[test]
     fn roots_are_never_renamed() {
-        let stmts =
-            vec![Stmt::Func { name: "main".into(), params: vec![], body: vec![], is_async: false }];
+        let stmts = vec![Stmt::Func {
+            name: "main".into(),
+            params: vec![],
+            body: vec![],
+            is_async: false,
+        }];
         let out = print(&minify(stmts, &["main".to_string()], true), false);
         assert!(out.contains("function main("), "{out}");
     }
@@ -4265,6 +4835,9 @@ mod shared_constant_tests {
         let table = constant_table(&stmts);
         let out = ReadThrough(&table).block(stmts);
         let printed = print(&out, false);
-        assert!(printed.contains("return 3;"), "did not read through: {printed}");
+        assert!(
+            printed.contains("return 3;"),
+            "did not read through: {printed}"
+        );
     }
 }

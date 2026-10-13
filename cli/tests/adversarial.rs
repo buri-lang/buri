@@ -258,7 +258,9 @@ fn a_chain_longer_than_the_limit_is_a_diagnostic() {
 #[test]
 fn an_else_if_chain_compiles_at_the_size_generated_code_reaches() {
     let s = app("adversarial-else-if");
-    let ok: String = (0..1_000).map(|i| format!("if (x == {i}) {{ {i} }} else ")).collect();
+    let ok: String = (0..1_000)
+        .map(|i| format!("if (x == {i}) {{ {i} }} else "))
+        .collect();
     s.write(
         "app/main.buri",
         &format!(
@@ -304,7 +306,10 @@ fn a_protobuf_schema_builds_on_a_small_stack() {
         return;
     };
     let run = s.run_with_env(&["build", "//lib/big"], &[("BURI_JS", &shim)]);
-    survived(&run, "a schema with two thousand fields on a quarter-megabyte stack");
+    survived(
+        &run,
+        "a schema with two thousand fields on a quarter-megabyte stack",
+    );
     run.ok();
 }
 
@@ -316,8 +321,13 @@ fn wide_schema_repo(name: &str, fields: usize) -> Scratch {
         "lib/big/BUILD.buri",
         "library {\n  generators: [{ tool: \"proto\", inputs: [\"big.proto\"] }]\n}\n",
     );
-    s.write("lib/big/lib.buri", "from \"//lib/big/big.proto\" export { M };\n");
-    let lines: String = (0..fields).map(|i| format!("  int32 f{i} = {};\n", i + 1)).collect();
+    s.write(
+        "lib/big/lib.buri",
+        "from \"//lib/big/big.proto\" export { M };\n",
+    );
+    let lines: String = (0..fields)
+        .map(|i| format!("  int32 f{i} = {};\n", i + 1))
+        .collect();
     s.write(
         "lib/big/big.proto",
         &format!("edition = \"2026\";\n\npackage big.v1;\n\nmessage M {{\n{lines}}}\n"),
@@ -390,7 +400,11 @@ fn wide_match_build_file(native: bool) -> String {
     } else {
         None
     };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     match os.filter(|_| native) {
         Some(os) => format!(
             "binary {{\n  outputs: [{{ platform: \"node\" }}, {{ platform: \"native\", variant: \"{os}-{arch}\", entries: [{{ name: \"main\", function: \"mainNative\" }}] }}]\n}}\n"
@@ -430,7 +444,9 @@ fn wide_match_source(arms: usize) -> String {
 #[test]
 fn diagnostics_in_one_enormous_line_do_not_fill_the_disk() {
     let s = app("adversarial-one-line");
-    let chain: String = (0..20_000).map(|i| format!("if (x == {i}) {{ {i} }} else ")).collect();
+    let chain: String = (0..20_000)
+        .map(|i| format!("if (x == {i}) {{ {i} }} else "))
+        .collect();
     s.write(
         "app/main.buri",
         &format!(
@@ -456,8 +472,14 @@ fn absurd_literals_are_diagnostics() {
     let s = app("adversarial-literals");
     for (what, value) in [
         ("four hundred digits", "9".repeat(400)),
-        ("a hexadecimal of the same size", format!("0x{}", "f".repeat(400))),
-        ("a binary of the same size", format!("0b{}", "1".repeat(4000))),
+        (
+            "a hexadecimal of the same size",
+            format!("0x{}", "f".repeat(400)),
+        ),
+        (
+            "a binary of the same size",
+            format!("0b{}", "1".repeat(4000)),
+        ),
         ("an exponent that overflows", "1e999999".to_string()),
         ("a huge tuple index", format!("(1, 2).{}", "9".repeat(30))),
     ] {
@@ -476,7 +498,10 @@ fn absurd_literals_are_diagnostics() {
 fn a_literal_after_sixteen_million_others_keeps_its_value() {
     let s = app("adversarial-many-literals");
     let many = "1 ".repeat(1 << 24);
-    s.write("app/main.buri", &format!("{many}\nfn wide(): U8 {{\n  300\n}}\n"));
+    s.write(
+        "app/main.buri",
+        &format!("{many}\nfn wide(): U8 {{\n  300\n}}\n"),
+    );
     let run = s.run(&["build", "//app"]);
     survived(&run, "sixteen million literals");
     run.exits(1).says("300 is not representable in `U8`");
@@ -490,11 +515,30 @@ fn a_literal_after_sixteen_million_others_keeps_its_value() {
 fn a_hostile_build_file_is_a_diagnostic() {
     let s = app("adversarial-build-file");
     for (what, text) in [
-        ("nested braces", format!("{}{}", "binary {".repeat(10_000), "}".repeat(10_000))),
-        ("nested lists", format!("binary {{ outputs: {}{} }}", "[".repeat(10_000), "]".repeat(10_000))),
-        ("an unterminated string", "binary {\n  name: \"open\n".to_string()),
-        ("a number nothing holds", "binary {\n  timeout_seconds: 999999999999999999999999\n}\n".to_string()),
-        ("a character outside ASCII", "binary {\n  × \n}\n".to_string()),
+        (
+            "nested braces",
+            format!("{}{}", "binary {".repeat(10_000), "}".repeat(10_000)),
+        ),
+        (
+            "nested lists",
+            format!(
+                "binary {{ outputs: {}{} }}",
+                "[".repeat(10_000),
+                "]".repeat(10_000)
+            ),
+        ),
+        (
+            "an unterminated string",
+            "binary {\n  name: \"open\n".to_string(),
+        ),
+        (
+            "a number nothing holds",
+            "binary {\n  timeout_seconds: 999999999999999999999999\n}\n".to_string(),
+        ),
+        (
+            "a character outside ASCII",
+            "binary {\n  × \n}\n".to_string(),
+        ),
         ("nothing at all", String::new()),
     ] {
         s.write("app/BUILD.buri", &text);
@@ -510,7 +554,10 @@ fn a_build_file_that_is_a_directory_is_a_diagnostic() {
     std::fs::create_dir(s.path("app/BUILD.buri")).unwrap();
     let run = s.run(&["build", "//app"]);
     survived(&run, "a BUILD.buri that is a directory");
-    assert!(run.code != 0, "a directory named BUILD.buri built successfully");
+    assert!(
+        run.code != 0,
+        "a directory named BUILD.buri built successfully"
+    );
 }
 
 #[test]
@@ -520,7 +567,10 @@ fn a_repo_file_that_is_a_directory_is_a_diagnostic() {
     std::fs::create_dir(s.path("REPO.buri")).unwrap();
     let run = s.run(&["build", "//app"]);
     survived(&run, "a REPO.buri that is a directory");
-    assert!(run.code != 0, "a directory named REPO.buri built successfully");
+    assert!(
+        run.code != 0,
+        "a directory named REPO.buri built successfully"
+    );
 }
 
 #[test]
@@ -530,7 +580,10 @@ fn a_source_file_that_is_a_directory_is_a_diagnostic() {
     std::fs::create_dir(s.path("app/main.buri")).unwrap();
     let run = s.run(&["build", "//app"]);
     survived(&run, "a main.buri that is a directory");
-    assert!(run.code != 0, "a directory named main.buri built successfully");
+    assert!(
+        run.code != 0,
+        "a directory named main.buri built successfully"
+    );
 }
 
 /// A hostile schema is a diagnostic. One test per schema, each in a repository
@@ -542,7 +595,10 @@ fn a_hostile_schema_is_a_diagnostic(what: &str, text: &str) {
         "lib/bad/BUILD.buri",
         "library {\n  generators: [{ tool: \"proto\", inputs: [\"bad.proto\"] }]\n}\n",
     );
-    s.write("lib/bad/lib.buri", "from \"//lib/bad/bad.proto\" export { M };\n");
+    s.write(
+        "lib/bad/lib.buri",
+        "from \"//lib/bad/bad.proto\" export { M };\n",
+    );
     s.write("lib/bad/bad.proto", text);
     let run = s.run(&["build", "//lib/bad"]);
     survived(&run, what);
@@ -552,7 +608,11 @@ fn a_hostile_schema_is_a_diagnostic(what: &str, text: &str) {
 fn a_hostile_schema_of_nested_messages_is_a_diagnostic() {
     a_hostile_schema_is_a_diagnostic(
         "nested messages",
-        &format!("edition = \"2026\";\npackage p;\n{}{}", "message M {".repeat(10_000), "}".repeat(10_000)),
+        &format!(
+            "edition = \"2026\";\npackage p;\n{}{}",
+            "message M {".repeat(10_000),
+            "}".repeat(10_000)
+        ),
     );
 }
 
@@ -720,11 +780,17 @@ fn a_position_the_client_made_up_is_answered_rather_than_indexed() {
     }
     // A document nobody opened, a URI that is not one, and params of the wrong
     // shape entirely.
-    push(r#"{"jsonrpc":"2.0","id":20,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///nowhere/x.buri"},"position":{"line":0,"character":0}}}"#);
-    push(r#"{"jsonrpc":"2.0","id":21,"method":"textDocument/hover","params":{"textDocument":{"uri":"file://%zz%"},"position":{"line":0,"character":0}}}"#);
+    push(
+        r#"{"jsonrpc":"2.0","id":20,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///nowhere/x.buri"},"position":{"line":0,"character":0}}}"#,
+    );
+    push(
+        r#"{"jsonrpc":"2.0","id":21,"method":"textDocument/hover","params":{"textDocument":{"uri":"file://%zz%"},"position":{"line":0,"character":0}}}"#,
+    );
     push(r#"{"jsonrpc":"2.0","id":22,"method":"textDocument/hover","params":{}}"#);
     push(r#"{"jsonrpc":"2.0","id":23,"method":"textDocument/hover"}"#);
-    push(r#"{"jsonrpc":"2.0","id":24,"method":"textDocument/hover","params":{"textDocument":{"uri":42},"position":"nope"}}"#);
+    push(
+        r#"{"jsonrpc":"2.0","id":24,"method":"textDocument/hover","params":{"textDocument":{"uri":42},"position":"nope"}}"#,
+    );
     push(r#"{"jsonrpc":"2.0","id":25,"method":"nonsense/method","params":{}}"#);
     // The requests whose params are not only a position: a rename with no new
     // name and one with a new name that is not a name, a selection range whose

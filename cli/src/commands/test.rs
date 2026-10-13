@@ -36,8 +36,8 @@ use crate::build::workspace::TargetId;
 use crate::commands::arguments;
 use crate::commands::watch;
 use crate::compiler::backend::js::javascript;
-use crate::compiler::modules::Unit;
 use crate::compiler::middle::monomorphize;
+use crate::compiler::modules::Unit;
 use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::json::Value;
 use std::io::Write;
@@ -78,7 +78,11 @@ struct Diff {
 /// `None`, and a passing one has nowhere to put it.
 enum Verdict {
     Passed,
-    Failed { message: String, diff: Option<Diff>, order: Option<String> },
+    Failed {
+        message: String,
+        diff: Option<Diff>,
+        order: Option<String>,
+    },
 }
 
 struct Case {
@@ -154,7 +158,11 @@ fn build_line(build: Option<Build>) -> String {
 /// The inverse of [`build_line`]. `None` for a record written before builds
 /// were timed, which starts with its array.
 fn build_of(record: &str) -> Option<Build> {
-    let first = record.lines().next()?.strip_prefix("{\"build\":")?.strip_suffix('}')?;
+    let first = record
+        .lines()
+        .next()?
+        .strip_prefix("{\"build\":")?
+        .strip_suffix('}')?;
     if first == "\"shared\"" {
         return Some(Build::Shared);
     }
@@ -306,8 +314,11 @@ fn one_pass(
     sources: Option<&mut crate::build::sources::Sources>,
 ) -> watch::Pass {
     let watching = matches!(asked, Asked::Watching);
-    let mut out =
-        if matches!(asked, Asked::Once) { Out::Direct } else { Out::Held(String::new()) };
+    let mut out = if matches!(asked, Asked::Once) {
+        Out::Direct
+    } else {
+        Out::Held(String::new())
+    };
     let mut sources = sources;
     // A repository kept across passes has run every generator. One opened for
     // this pass alone runs only the generators its suites read, once they are
@@ -329,7 +340,12 @@ fn one_pass(
         Ok(session) => session,
         Err(msg) => {
             eprintln!("error: {msg}");
-            return watch::Pass { code: 2, inputs: watch::Watched::default(), output: out.take(), quiet: false };
+            return watch::Pass {
+                code: 2,
+                inputs: watch::Watched::default(),
+                output: out.take(),
+                quiet: false,
+            };
         }
     };
     // A graph with errors in it is still a graph: `Workspace::load` keeps every
@@ -340,7 +356,12 @@ fn one_pass(
     // state, not an exit (BUILD-AND-WATCH.md §4.3).
     let broken = session.report();
     if broken && !watching {
-        return watch::Pass { code: 2, inputs: watch::Watched::default(), output: out.take(), quiet: false };
+        return watch::Pass {
+            code: 2,
+            inputs: watch::Watched::default(),
+            output: out.take(),
+            quiet: false,
+        };
     }
     let targets = match session.resolve_targets(&args.targets) {
         Ok(t) => t,
@@ -348,12 +369,26 @@ fn one_pass(
             eprintln!("error: {msg}");
             // Nothing to watch and nothing to run: a selection that names no
             // target is a mistake in the invocation, which no edit will fix.
-            return watch::Pass { code: 2, inputs: watch::Watched::default(), output: out.take(), quiet: false };
+            return watch::Pass {
+                code: 2,
+                inputs: watch::Watched::default(),
+                output: out.take(),
+                quiet: false,
+            };
         }
     };
-    let inputs = if watching { watch::inputs(&session, &targets) } else { watch::Watched::default() };
+    let inputs = if watching {
+        watch::inputs(&session, &targets)
+    } else {
+        watch::Watched::default()
+    };
     if broken {
-        return watch::Pass { code: 2, inputs, output: out.take(), quiet: false };
+        return watch::Pass {
+            code: 2,
+            inputs,
+            output: out.take(),
+            quiet: false,
+        };
     }
     if !prepared {
         crate::build::generators::prepare_for(&mut session, &args.flags, &targets);
@@ -362,7 +397,12 @@ fn one_pass(
     if args.flags.coverage {
         if let Err(msg) = crate::build::coverage::begin(&session.root, args.flags.mcdc) {
             eprintln!("error: {msg}");
-            return watch::Pass { code: 2, inputs, output: out.take(), quiet: false };
+            return watch::Pass {
+                code: 2,
+                inputs,
+                output: out.take(),
+                quiet: false,
+            };
         }
     }
     let started = Instant::now();
@@ -375,13 +415,24 @@ fn one_pass(
     // Every suite's cache lookup first: on an unedited repository that is the
     // whole pass. The keys read and hash every suite's sources, so they are
     // taken side by side before the lookups.
-    let with_tests: Vec<TargetId> = targets.iter().copied().filter(|&t| has_tests(&session, t)).collect();
+    let with_tests: Vec<TargetId> = targets
+        .iter()
+        .copied()
+        .filter(|&t| has_tests(&session, t))
+        .collect();
     let keys = verdict_keys(&session, &with_tests, &args.flags);
     let mut slots: Vec<Slot> = Vec::new();
     let mut plans: Vec<Plan> = Vec::new();
     let mut graph = None;
     for (&target, keys) in with_tests.iter().zip(&keys) {
-        plans.push(plan(&mut session, target, args, keys, &mut graph, &mut slots));
+        plans.push(plan(
+            &mut session,
+            target,
+            args,
+            keys,
+            &mut graph,
+            &mut slots,
+        ));
     }
     let suites = plans.len();
     let shared = Shared {
@@ -390,14 +441,40 @@ fn one_pass(
         painting: std::sync::Mutex::new(Vec::new()),
         workspace: std::sync::Arc::clone(&session.workspace),
     };
-    let width = if slots.iter().all(|s| s.answer.is_some()) { 1 } else { jobs_of(&args.flags) };
+    let width = if slots.iter().all(|s| s.answer.is_some()) {
+        1
+    } else {
+        jobs_of(&args.flags)
+    };
     let tally = crate::parallel::pool(
         width,
         memory_budget(),
         |job, held, queue, tell| work(job, held, queue, tell, &shared),
-        |queue, done| drive(&mut session, args, &mut pre, &plans, &mut slots, queue, done, &mut out),
+        |queue, done| {
+            drive(
+                &mut session,
+                args,
+                &mut pre,
+                &plans,
+                &mut slots,
+                queue,
+                done,
+                &mut out,
+            )
+        },
     );
-    let Tally { passed, failed, skipped, cached, uncompiled, printed, mut hard_error, listed, held, shared_build } = tally;
+    let Tally {
+        passed,
+        failed,
+        skipped,
+        cached,
+        uncompiled,
+        printed,
+        mut hard_error,
+        listed,
+        held,
+        shared_build,
+    } = tally;
 
     // `check_during_build`: the catalogue runs over a test pass too, but only
     // one nothing already stopped — a suite that could not be built has an
@@ -429,9 +506,18 @@ fn one_pass(
         out.line("no test suites");
         // Nothing ran, so the only thing that can have failed is the catalogue.
         let code = i32::from(hard_error);
-        return watch::Pass { code, inputs, output: out.take(), quiet: false };
+        return watch::Pass {
+            code,
+            inputs,
+            output: out.take(),
+            quiet: false,
+        };
     }
-    let note = if cached > 0 { format!(", {cached} cached") } else { String::new() };
+    let note = if cached > 0 {
+        format!(", {cached} cached")
+    } else {
+        String::new()
+    };
     // Elided at zero, the way the cached note is: a clean run says nothing
     // about a suite that did not fail to compile.
     let uncompiled_note = if uncompiled > 0 {
@@ -454,8 +540,12 @@ fn one_pass(
     }
     // Why debug suites linked runners where they'd load into the test host
     // (`build/test_host.rs`): the one way they differ, for someone asking.
-    if let Some(why) = crate::build::test_host::fell_back().filter(|_| args.flags.verbose || args.flags.explain) {
-        out.line(&format!("test runners were linked rather than loaded into the test host: {why}"));
+    if let Some(why) =
+        crate::build::test_host::fell_back().filter(|_| args.flags.verbose || args.flags.explain)
+    {
+        out.line(&format!(
+            "test runners were linked rather than loaded into the test host: {why}"
+        ));
     }
     // The diagnostics went to stderr and this line goes to stdout. Flushing
     // here is what fixes their order when both descriptors are one terminal.
@@ -477,7 +567,12 @@ fn one_pass(
         && passed > 0
         && cached == passed;
     let code = if hard_error || failed > 0 { 1 } else { 0 };
-    watch::Pass { code, inputs, output: out.take(), quiet }
+    watch::Pass {
+        code,
+        inputs,
+        output: out.take(),
+        quiet,
+    }
 }
 
 /// Whether a run's verdicts may be written to the cache.
@@ -494,7 +589,8 @@ fn may_cache(cases: &[Case], flags: &arguments::Flags) -> bool {
 }
 
 fn has_tests(session: &Session, target: TargetId) -> bool {
-    session.workspace
+    session
+        .workspace
         .package(target.package)
         .test_suite(target.kind)
         .is_some_and(|t| !t.sources.is_empty())
@@ -502,7 +598,10 @@ fn has_tests(session: &Session, target: TargetId) -> bool {
 
 /// A planned target's suite: only targets with one are planned.
 fn suite(session: &Session, target: TargetId) -> crate::build::buildfile::TestSuite {
-    let suite = session.workspace.package(target.package).test_suite(target.kind);
+    let suite = session
+        .workspace
+        .package(target.package)
+        .test_suite(target.kind);
     suite.cloned().or_ice("a planned target has a test suite")
 }
 
@@ -573,7 +672,11 @@ struct Plan {
 }
 
 /// The platforms a suite runs on, and whether anyone asked for each.
-fn runs_of(session: &Session, target: TargetId, flags: &arguments::Flags) -> Vec<(Platform, Chosen)> {
+fn runs_of(
+    session: &Session,
+    target: TargetId,
+    flags: &arguments::Flags,
+) -> Vec<(Platform, Chosen)> {
     let declared: Vec<Platform> = session.workspace.suite_platforms(target);
     if !declared.is_empty() {
         declared.into_iter().map(|p| (p, Chosen::Asked)).collect()
@@ -582,7 +685,10 @@ fn runs_of(session: &Session, target: TargetId, flags: &arguments::Flags) -> Vec
         // one, and does not overrule a suite that has.
         vec![(p, Chosen::Asked)]
     } else {
-        vec![(crate::compiler::driver::host_native_platform(), Chosen::Default)]
+        vec![(
+            crate::compiler::driver::host_native_platform(),
+            Chosen::Default,
+        )]
     }
 }
 
@@ -599,7 +705,11 @@ fn verdict_keys(
     let runs: Vec<(usize, Platform)> = suites
         .iter()
         .enumerate()
-        .flat_map(|(i, &t)| runs_of(session, t, flags).into_iter().map(move |(p, _)| (i, p)))
+        .flat_map(|(i, &t)| {
+            runs_of(session, t, flags)
+                .into_iter()
+                .map(move |(p, _)| (i, p))
+        })
         .collect();
     const RUN: &str = "every run is of a suite in the list";
     let keys = crate::parallel::map(runs.len(), |r| {
@@ -607,7 +717,8 @@ fn verdict_keys(
         let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
         actions::test_key(session, *suites.get(i).or_ice(RUN), &output, flags)
     });
-    let mut by_suite: Vec<Vec<(Platform, crate::build::cache::ActionKey)>> = vec![Vec::new(); suites.len()];
+    let mut by_suite: Vec<Vec<(Platform, crate::build::cache::ActionKey)>> =
+        vec![Vec::new(); suites.len()];
     for ((i, platform), key) in runs.into_iter().zip(keys) {
         by_suite.get_mut(i).or_ice(RUN).push((platform, key));
     }
@@ -652,7 +763,11 @@ fn plan(
         actions::check_policy(session, target, &held, &mut refused);
     }
     if refused.has_errors() {
-        return Plan { target, refused, slots: Vec::new() };
+        return Plan {
+            target,
+            refused,
+            slots: Vec::new(),
+        };
     }
     let runs = runs_of(session, target, &args.flags);
     let mut mine = Vec::new();
@@ -673,9 +788,15 @@ fn plan(
         if answer.is_none() {
             // A suite the filter leaves no test in is answered unbuilt.
             let filter = args.flags.filter.as_deref();
-            answer = filter.and_then(|f| left_out(session, target, f)).map(|skipped| {
-                Ok(Outcome { cases: Vec::new(), skipped, build: None })
-            });
+            answer = filter
+                .and_then(|f| left_out(session, target, f))
+                .map(|skipped| {
+                    Ok(Outcome {
+                        cases: Vec::new(),
+                        skipped,
+                        build: None,
+                    })
+                });
         }
         let mut build = None;
         let mut linked = None;
@@ -683,17 +804,33 @@ fn plan(
             let label = session.workspace.label(target);
             let say = |status, action, key: &crate::build::cache::ActionKey| {
                 crate::build::cache::holding_explain(|| {
-                    crate::build::cache::explain(args.flags.explain, status, action, &label, platform.slug(), key);
+                    crate::build::cache::explain(
+                        args.flags.explain,
+                        status,
+                        action,
+                        &label,
+                        platform.slug(),
+                        key,
+                    );
                 })
                 .1
             };
-            explain = say(crate::build::cache::Status::Run, crate::build::cache::Action::Test, &key);
-            let graph = graph.get_or_insert_with(|| actions::graph_key(session, &args.flags)).clone();
+            explain = say(
+                crate::build::cache::Status::Run,
+                crate::build::cache::Action::Test,
+                &key,
+            );
+            let graph = graph
+                .get_or_insert_with(|| actions::graph_key(session, &args.flags))
+                .clone();
             let at = actions::test_build_key(session, target, &output, &args.flags, &graph);
             // `--force` builds again, as it links again. So does `--coverage`:
             // a recorded build may put its probes on lines an edit has moved.
-            let recalled =
-                if args.flags.force || args.flags.coverage { None } else { recall(session, &at, &key) };
+            let recalled = if args.flags.force || args.flags.coverage {
+                None
+            } else {
+                recall(session, &at, &key)
+            };
             let status = match recalled {
                 Some(_) => crate::build::cache::Status::Cached,
                 None => crate::build::cache::Status::Run,
@@ -702,7 +839,11 @@ fn plan(
             match recalled {
                 Some(Recalled::Refused(diagnostics)) => answer = Some(Err(diagnostics)),
                 Some(Recalled::Nothing { skipped }) => {
-                    answer = Some(Ok(Outcome { cases: Vec::new(), skipped, build: None }));
+                    answer = Some(Ok(Outcome {
+                        cases: Vec::new(),
+                        skipped,
+                        build: None,
+                    }));
                 }
                 Some(Recalled::Linked(l)) => linked = Some(Again::Linked(l)),
                 Some(Recalled::Bundled(b)) => linked = Some(Again::Bundled(b)),
@@ -725,12 +866,19 @@ fn plan(
             awaiting_build: false,
         });
     }
-    Plan { target, refused, slots: mine }
+    Plan {
+        target,
+        refused,
+        slots: mine,
+    }
 }
 
 /// How many builds and runs the pool holds at once: `--jobs`, or one per core.
 fn jobs_of(flags: &arguments::Flags) -> usize {
-    flags.jobs.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |c| c.get())).max(1)
+    flags
+        .jobs
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |c| c.get()))
+        .max(1)
 }
 
 /// The bytes the builds in flight may be expected to hold between them: half
@@ -813,7 +961,13 @@ fn drive(
     // one this run starts again, or nobody's.
     let whole = args.flags.filter.is_none()
         && args.flags.output.is_none()
-        && plans.len() == session.workspace.targets().into_iter().filter(|&t| has_tests(session, t)).count();
+        && plans.len()
+            == session
+                .workspace
+                .targets()
+                .into_iter()
+                .filter(|&t| has_tests(session, t))
+                .count();
     // Held for the pass, so no link this pass writes over a restored binary
     // the next pass will start again.
     let _restored = rerun(session, slots, queue, whole);
@@ -825,7 +979,9 @@ fn drive(
     loop {
         while let Some(plan) = plans.get(next) {
             let ready = plan.slots.iter().all(|&i| {
-                slots.get(i).is_some_and(|s| s.answer.is_some() && !s.awaiting_build)
+                slots
+                    .get(i)
+                    .is_some_and(|s| s.answer.is_some() && !s.awaiting_build)
             });
             if !ready {
                 break;
@@ -837,12 +993,25 @@ fn drive(
             return tally;
         }
         // `None` is a job that panicked, which is a toolchain bug.
-        let answer = done.recv().ok().flatten().or_ice("a test job stopped without an answer");
+        let answer = done
+            .recv()
+            .ok()
+            .flatten()
+            .or_ice("a test job stopped without an answer");
         match answer {
-            Done::Answer { slot, answer, explain, notes, built } => {
+            Done::Answer {
+                slot,
+                answer,
+                explain,
+                notes,
+                built,
+            } => {
                 let s = slots.get_mut(slot).or_ice(SLOT);
                 if let Some(built) = built {
-                    let at = s.build.as_ref().or_ice("a suite that was built was planned with a build key");
+                    let at = s
+                        .build
+                        .as_ref()
+                        .or_ice("a suite that was built was planned with a build key");
                     remember(session, at, &s.key, &built, &answer);
                 }
                 s.explain.push_str(&explain);
@@ -855,7 +1024,11 @@ fn drive(
             Done::Linking { slot } => slots.get_mut(slot).or_ice(SLOT).awaiting_build = true,
             // A batch whose type check failed: again without the members whose
             // code failed it, and those alone, where a diagnostic names them.
-            Done::Broken { members, member_slots, diagnostics } => {
+            Done::Broken {
+                members,
+                member_slots,
+                diagnostics,
+            } => {
                 let broken = broken_members(session, &members, &diagnostics);
                 let kept: Vec<(TargetId, usize)> = members
                     .iter()
@@ -867,8 +1040,16 @@ fn drive(
                     slots.get_mut(i).or_ice(SLOT).queued = false;
                 }
                 if kept.len() >= 2 {
-                    let (members, member_slots): (Vec<TargetId>, Vec<usize>) = kept.into_iter().unzip();
-                    queue_batch(session, &members, &member_slots, slots, queue, &mut tally.shared_build);
+                    let (members, member_slots): (Vec<TargetId>, Vec<usize>) =
+                        kept.into_iter().unzip();
+                    queue_batch(
+                        session,
+                        &members,
+                        &member_slots,
+                        slots,
+                        queue,
+                        &mut tally.shared_build,
+                    );
                 }
                 for &i in &member_slots {
                     solo(session, args, pre, slots, i, queue, &mut tally.shared_build);
@@ -882,9 +1063,16 @@ fn drive(
             // A batch that could not be trusted, or a member whose process
             // ended badly: each goes back to run alone, where a diagnostic
             // can name it.
-            Done::Abandoned { slots: abandoned, explain } => {
+            Done::Abandoned {
+                slots: abandoned,
+                explain,
+            } => {
                 let first = abandoned.first().or_ice("an abandoned batch has members");
-                slots.get_mut(*first).or_ice(SLOT).explain.push_str(&explain);
+                slots
+                    .get_mut(*first)
+                    .or_ice(SLOT)
+                    .explain
+                    .push_str(&explain);
                 for &i in &abandoned {
                     let s = slots.get_mut(i).or_ice(SLOT);
                     s.queued = false;
@@ -938,13 +1126,25 @@ fn report(
             }
             match &c.verdict {
                 Verdict::Passed => tally.passed += 1,
-                Verdict::Failed { message, diff, order } => {
+                Verdict::Failed {
+                    message,
+                    diff,
+                    order,
+                } => {
                     tally.failed += 1;
                     // Under `--verbose` a failure is told after the list,
                     // where it would be found without it.
                     let mut held = Out::Held(String::new());
                     let to = if flags.verbose { &mut held } else { &mut *out };
-                    report_failure(session, target, c, message, diff.as_ref(), order.as_deref(), to);
+                    report_failure(
+                        session,
+                        target,
+                        c,
+                        message,
+                        diff.as_ref(),
+                        order.as_deref(),
+                        to,
+                    );
                     tally.held.push_str(&held.take());
                     tally.printed = true;
                 }
@@ -960,7 +1160,13 @@ fn report(
 /// build and the processes cost. Its build comes after ([`Build`]). A cached
 /// suite shows the times of the run that cached it, and a record cached before
 /// tests or builds were timed shows none.
-fn list_suite(session: &Session, target: TargetId, platform: Platform, outcome: &Outcome, out: &mut Out) {
+fn list_suite(
+    session: &Session,
+    target: TargetId,
+    platform: Platform,
+    outcome: &Outcome,
+    out: &mut Out,
+) {
     let cases = &outcome.cases;
     let count = cases.len();
     let mut head = format!(
@@ -985,22 +1191,35 @@ fn list_suite(session: &Session, target: TargetId, platform: Platform, outcome: 
     out.line(&head);
     let file_of = |module: &str| {
         let file = module.trim_start_matches("//");
-        let file = file.strip_prefix(&session.workspace.package(target.package).path).unwrap_or(file);
+        let file = file
+            .strip_prefix(&session.workspace.package(target.package).path)
+            .unwrap_or(file);
         let file = file.trim_start_matches('/');
         file.strip_prefix("test/").unwrap_or(file).to_string()
     };
     let rows: Vec<(&str, String, String, Option<u64>)> = cases
         .iter()
         .map(|c| {
-            let status = if matches!(c.verdict, Verdict::Passed) { "ok" } else { "FAIL" };
+            let status = if matches!(c.verdict, Verdict::Passed) {
+                "ok"
+            } else {
+                "FAIL"
+            };
             (status, file_of(&c.module), escaped(&c.name), c.ns)
         })
-        .chain(outcome.skipped.iter().map(|(name, module)| ("skip", file_of(module), escaped(name), None)))
+        .chain(
+            outcome
+                .skipped
+                .iter()
+                .map(|(name, module)| ("skip", file_of(module), escaped(name), None)),
+        )
         .collect();
     let file_width = rows.iter().map(|r| r.1.chars().count()).max().unwrap_or(0);
     let name_width = rows.iter().map(|r| r.2.chars().count()).max().unwrap_or(0);
     for (status, file, name, ns) in rows {
-        let time = ns.map(|ns| format!("  {}", duration(ns))).unwrap_or_default();
+        let time = ns
+            .map(|ns| format!("  {}", duration(ns)))
+            .unwrap_or_default();
         let line = format!("  {status:<4}  {file:<file_width$}  {name:<name_width$}{time}");
         out.line(line.trim_end());
     }
@@ -1049,11 +1268,18 @@ struct Painter {
 impl Shared {
     /// Takes `dir` for the suite in `slot`, unless another suite has it.
     fn claim(&self, dir: &str, slot: usize) -> bool {
-        let mut painters = self.painting.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut painters = self
+            .painting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match painters.iter_mut().find(|p| p.dir == dir) {
             Some(p) if p.slot == slot => p.processes += 1,
             Some(_) => return false,
-            None => painters.push(Painter { dir: dir.to_string(), slot, processes: 1 }),
+            None => painters.push(Painter {
+                dir: dir.to_string(),
+                slot,
+                processes: 1,
+            }),
         }
         true
     }
@@ -1066,10 +1292,16 @@ impl Shared {
     }
 
     fn release(&self, dir: &str, slot: usize) {
-        let mut painters = self.painting.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut painters = self
+            .painting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // `&`: one decision. Which painters are left when a suite lets go is
         // the pool's timing, so the half that `&&` would skip is not a branch.
-        if let Some(p) = painters.iter_mut().find(|p| (p.dir == dir) & (p.slot == slot)) {
+        if let Some(p) = painters
+            .iter_mut()
+            .find(|p| (p.dir == dir) & (p.slot == slot))
+        {
             p.processes = p.processes.saturating_sub(1);
         }
         painters.retain(|p| p.processes > 0);
@@ -1115,9 +1347,16 @@ enum Done {
     /// These slots go back to run alone.
     Abandoned { slots: Vec<usize>, explain: String },
     /// A batch whose type check reported errors.
-    Broken { members: Vec<TargetId>, member_slots: Vec<usize>, diagnostics: Diagnostics },
+    Broken {
+        members: Vec<TargetId>,
+        member_slots: Vec<usize>,
+        diagnostics: Diagnostics,
+    },
     /// A suite's analysis, for the lint ([`Prepass`]).
-    Checked { target: TargetId, analysis: Box<crate::compiler::driver::Analysis> },
+    Checked {
+        target: TargetId,
+        analysis: Box<crate::compiler::driver::Analysis>,
+    },
     /// One of a member's processes finished, and others haven't yet.
     Progress,
     /// A build step that served several suites took `ns` ([`Build`]).
@@ -1145,9 +1384,18 @@ struct Ran {
 
 /// Locates each case at the test it names ([`locate`]).
 fn located(session: &Session, ran: Ran) -> Outcome {
-    let Ran { mut cases, skipped, roots, build } = ran;
+    let Ran {
+        mut cases,
+        skipped,
+        roots,
+        build,
+    } = ran;
     locate(session, &roots, &mut cases);
-    Outcome { cases, skipped, build }
+    Outcome {
+        cases,
+        skipped,
+        build,
+    }
 }
 
 /// The roots of a program's tests, for [`locate`].
@@ -1156,7 +1404,11 @@ fn roots_of(program: &monomorphize::Program) -> Vec<Root> {
         .roots
         .tests()
         .iter()
-        .map(|t| Root { name: t.name.clone(), module: t.module.clone(), span: t.span })
+        .map(|t| Root {
+            name: t.name.clone(),
+            module: t.module.clone(),
+            span: t.span,
+        })
         .collect()
 }
 
@@ -1205,8 +1457,14 @@ fn solo(
         return;
     }
     slot.queued = true;
-    let (target, platform, chosen, key) = (slot.target, slot.platform, slot.chosen, slot.key.clone());
-    let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
+    let (target, platform, chosen, key) =
+        (slot.target, slot.platform, slot.chosen, slot.key.clone());
+    let unit = Unit {
+        target: Some(target),
+        platform: None,
+        entry: None,
+        with_tests: true,
+    };
     let began = Instant::now();
     let loading = crate::compiler::driver::load_all(
         Some(&session.workspace),
@@ -1214,7 +1472,13 @@ fn solo(
         &mut session.parsed,
         std::slice::from_ref(&unit),
     );
-    note_reads(session, target, &key, &loading, &actions::Imports::of(loading.loaded()));
+    note_reads(
+        session,
+        target,
+        &key,
+        &loading,
+        &actions::Imports::of(loading.loaded()),
+    );
     add_shared(shared_build, since(began));
     let bytes = build_bytes(loading.source_bytes(&session.map));
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
@@ -1296,13 +1560,23 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         filter,
     } = job;
     let began = Instant::now();
-    let answer = |answer, built| Done::Answer { slot, answer, explain: String::new(), notes: String::new(), built };
+    let answer = |answer, built| Done::Answer {
+        slot,
+        answer,
+        explain: String::new(),
+        notes: String::new(),
+        built,
+    };
     let mut analysis = crate::compiler::driver::check(loading, Some(&shared.workspace), &map);
     if analysis.diagnostics.has_errors() {
         return answer(Err(analysis.diagnostics), Some(Built::Refused));
     }
-    let module_paths: Vec<String> =
-        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let module_paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
@@ -1319,11 +1593,24 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
     drop(map);
     if program.roots.tests().is_empty() {
         if keep {
-            tell.tell(Done::Checked { target, analysis: Box::new(analysis) });
+            tell.tell(Done::Checked {
+                target,
+                analysis: Box::new(analysis),
+            });
         }
-        let nothing = Built::Nothing { skipped: Vec::new() };
+        let nothing = Built::Nothing {
+            skipped: Vec::new(),
+        };
         let build = Some(Build::Own(since(began)));
-        return answer(Ok(Ran { cases: Vec::new(), skipped: Vec::new(), roots: Vec::new(), build }), Some(nothing));
+        return answer(
+            Ok(Ran {
+                cases: Vec::new(),
+                skipped: Vec::new(),
+                roots: Vec::new(),
+                build,
+            }),
+            Some(nothing),
+        );
     }
     // Counted here rather than in the runner: the names are known before the
     // binary is built, so the summary can always print the count.
@@ -1351,26 +1638,56 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         std::mem::take(&mut analysis.checked.tables)
     });
     if keep {
-        tell.tell(Done::Checked { target, analysis: Box::new(analysis) });
+        tell.tell(Done::Checked {
+            target,
+            analysis: Box::new(analysis),
+        });
     } else {
         drop(analysis);
     }
     if !platform.is_native() {
-        let job = JsJob { slot, program, tables, key, path: js, limit, on_timeout, skipped, began };
+        let job = JsJob {
+            slot,
+            program,
+            tables,
+            key,
+            path: js,
+            limit,
+            on_timeout,
+            skipped,
+            began,
+        };
         return run_js(job, held, queue, shared);
     }
     // A filtered native run does not even generate the tests it leaves out.
     if let Some(f) = filter {
         tests_mut(&mut program).retain(|t| t.name.contains(f));
     }
-    let tests: Vec<(String, String)> =
-        program.roots.tests().iter().map(|t| (t.name.clone(), t.module.clone())).collect();
+    let tests: Vec<(String, String)> = program
+        .roots
+        .tests()
+        .iter()
+        .map(|t| (t.name.clone(), t.module.clone()))
+        .collect();
     if tests.is_empty() {
-        let nothing = Built::Nothing { skipped: skipped.clone() };
+        let nothing = Built::Nothing {
+            skipped: skipped.clone(),
+        };
         let build = Some(Build::Own(since(began)));
-        return answer(Ok(Ran { cases: Vec::new(), skipped, roots: Vec::new(), build }), Some(nothing));
+        return answer(
+            Ok(Ran {
+                cases: Vec::new(),
+                skipped,
+                roots: Vec::new(),
+                build,
+            }),
+            Some(nothing),
+        );
     }
-    let paints = program.funcs.iter().any(|f| f.intrinsic_key() == Some(PAINT_KEY));
+    let paints = program
+        .funcs
+        .iter()
+        .any(|f| f.intrinsic_key() == Some(PAINT_KEY));
     let job = SoloJob {
         slot,
         label,
@@ -1426,17 +1743,48 @@ struct SoloJob {
 /// another. A suite with a `timeout_seconds` keeps its one process
 /// ([`run_alone`]), for the reason a batch refuses it.
 fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
-    let SoloJob { slot, label, private, output, mut program, tables, key, limit, on_timeout, snapshot_dir, paints, tests, roots, skipped, began } = job;
+    let SoloJob {
+        slot,
+        label,
+        private,
+        output,
+        mut program,
+        tables,
+        key,
+        limit,
+        on_timeout,
+        snapshot_dir,
+        paints,
+        tests,
+        roots,
+        skipped,
+        began,
+    } = job;
     // Taken before the link, which changes the program.
     let sheet = program.stylesheet.clone();
     let mut diagnostics = Diagnostics::new();
     let (built, explain) = crate::build::cache::holding_explain(|| {
-        actions::link_test_binary(&shared.root, &label, private, &output, &shared.flags, &mut program, &tables, &mut diagnostics)
+        actions::link_test_binary(
+            &shared.root,
+            &label,
+            private,
+            &output,
+            &shared.flags,
+            &mut program,
+            &tables,
+            &mut diagnostics,
+        )
     });
     drop(program);
     drop(tables);
     drop(held);
-    let answer = |answer| Done::Answer { slot, answer, explain: explain.clone(), notes: String::new(), built: None };
+    let answer = |answer| Done::Answer {
+        slot,
+        answer,
+        explain: explain.clone(),
+        notes: String::new(),
+        built: None,
+    };
     let (binary, link) = match built {
         Ok(built) => built,
         // The gaps `missing_intrinsics` cannot see are named by the backend
@@ -1464,7 +1812,11 @@ fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Share
         paints,
         limit,
         on_timeout,
-        remember: Some((link, std::sync::Arc::new(sheet), ran_at(&shared.root, &binary))),
+        remember: Some((
+            link,
+            std::sync::Arc::new(sheet),
+            ran_at(&shared.root, &binary),
+        )),
         alone: Some(label),
         build,
     };
@@ -1474,21 +1826,48 @@ fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Share
         snapshots.extend(binary.environment());
         let done = run_alone(&program, &spec, &seeds, &snapshots, shared);
         // A failing verdict isn't cached, so the next run starts this binary again.
-        if let Done::Answer { answer, built: Some(_), .. } = &done {
-            if !answer.as_ref().is_ok_and(|ran| ran.cases.iter().all(|c| matches!(c.verdict, Verdict::Passed))) {
+        if let Done::Answer {
+            answer,
+            built: Some(_),
+            ..
+        } = &done
+        {
+            if !answer.as_ref().is_ok_and(|ran| {
+                ran.cases
+                    .iter()
+                    .all(|c| matches!(c.verdict, Verdict::Passed))
+            }) {
                 binary.keep();
             }
         }
         drop(binary);
         return match done {
-            Done::Answer { slot, answer, notes, built, .. } => Done::Answer { slot, answer, explain, notes, built },
+            Done::Answer {
+                slot,
+                answer,
+                notes,
+                built,
+                ..
+            } => Done::Answer {
+                slot,
+                answer,
+                explain,
+                notes,
+                built,
+            },
             other => other,
         };
     }
     // Told before any process starts, so the report waits for the link's
     // `--explain` lines however soon an answer arrives.
     tell.tell(Done::Linking { slot });
-    queue_members(binary, written, vec![(spec, seeds)], queue, jobs_of(&shared.flags));
+    queue_members(
+        binary,
+        written,
+        vec![(spec, seeds)],
+        queue,
+        jobs_of(&shared.flags),
+    );
     Done::Built { slot, explain }
 }
 
@@ -1507,26 +1886,56 @@ fn run_alone(
     snapshots: &[(&str, String)],
     shared: &Shared,
 ) -> Done {
-    let MemberSpec { slot, ref tests, ref roots, ref skipped, ref snapshot_dir, paints, limit, .. } = *spec;
+    let MemberSpec {
+        slot,
+        ref tests,
+        ref roots,
+        ref skipped,
+        ref snapshot_dir,
+        paints,
+        limit,
+        ..
+    } = *spec;
     let label = spec.alone.as_deref().unwrap_or_default();
     if paints {
         shared.claim_waiting(snapshot_dir, slot);
     }
     let mut notes = String::new();
-    let ran = run_blocks(program, limit, (0, tests.len()), seeds, snapshots, &mut notes);
+    let ran = run_blocks(
+        program,
+        limit,
+        (0, tests.len()),
+        seeds,
+        snapshots,
+        &mut notes,
+    );
     if paints {
         shared.release(snapshot_dir, slot);
     }
-    let answer = |answer, notes| Done::Answer { slot, answer, explain: String::new(), notes, built: None };
+    let answer = |answer, notes| Done::Answer {
+        slot,
+        answer,
+        explain: String::new(),
+        notes,
+        built: None,
+    };
     // A binary that ran to a verdict, or out of time, is worth running again
     // next time. One that died is built again, where the death is reported.
     let blocks = match ran {
         Ok(Verdicts::Blocks(blocks)) => blocks,
         Ok(Verdicts::TimedOut) => {
             let answer = Err(spec.on_timeout.clone());
-            return Done::Answer { slot, answer, explain: String::new(), notes, built: linked_of(spec) };
+            return Done::Answer {
+                slot,
+                answer,
+                explain: String::new(),
+                notes,
+                built: linked_of(spec),
+            };
         }
-        Ok(Verdicts::HeapCheck(line)) => return answer(Err(heap_check_failed(label, &line)), notes),
+        Ok(Verdicts::HeapCheck(line)) => {
+            return answer(Err(heap_check_failed(label, &line)), notes)
+        }
         Ok(Verdicts::Died(how)) => return answer(Err(the_binary_died(label, &how)), notes),
         Ok(Verdicts::NotStarted(how)) => {
             return answer(Err(the_binary_did_not_start(label, &how)), notes)
@@ -1541,8 +1950,19 @@ fn run_alone(
         }
     };
     let cases = recorded(shared, &spec.key, tests, blocks.iter(), spec.build);
-    let ran = Ran { cases, skipped: skipped.clone(), roots: roots.clone(), build: spec.build };
-    Done::Answer { slot, answer: Ok(ran), explain: String::new(), notes, built: linked_of(spec) }
+    let ran = Ran {
+        cases,
+        skipped: skipped.clone(),
+        roots: roots.clone(),
+        build: spec.build,
+    };
+    Done::Answer {
+        slot,
+        answer: Ok(ran),
+        explain: String::new(),
+        notes,
+        built: linked_of(spec),
+    }
 }
 
 /// The environment that tells a test binary where its goldens are.
@@ -1572,21 +1992,49 @@ struct JsJob {
 }
 
 fn run_js(job: JsJob, held: Held, queue: &Queue, shared: &Shared) -> Done {
-    let JsJob { slot, mut program, tables, key, path, limit, on_timeout, skipped, began } = job;
+    let JsJob {
+        slot,
+        mut program,
+        tables,
+        key,
+        path,
+        limit,
+        on_timeout,
+        skipped,
+        began,
+    } = job;
     let mut diagnostics = Diagnostics::new();
     let roots = roots_of(&program);
     let bundle =
         match actions::emit_test_bundle(&mut program, &tables, &shared.flags, &mut diagnostics) {
             Ok(bundle) => bundle,
             Err(d) => {
-                return Done::Answer { slot, answer: Err(d), explain: String::new(), notes: String::new(), built: None }
+                return Done::Answer {
+                    slot,
+                    answer: Err(d),
+                    explain: String::new(),
+                    notes: String::new(),
+                    built: None,
+                }
             }
         };
     drop(program);
     drop(tables);
     drop(held);
-    let run = JsRun { key, path, limit, on_timeout, build: Some(Build::Own(since(began))) };
-    let suite = JsSuite { slot, origin: JsOrigin::Emitted(bundle), skipped, roots, run };
+    let run = JsRun {
+        key,
+        path,
+        limit,
+        on_timeout,
+        build: Some(Build::Own(since(began))),
+    };
+    let suite = JsSuite {
+        slot,
+        origin: JsOrigin::Emitted(bundle),
+        skipped,
+        roots,
+        run,
+    };
     start_js(suite, queue, shared)
 }
 
@@ -1645,22 +2093,48 @@ struct JsSuite {
 fn answer_js(suite: &JsSuite, ran: JsRan, shared: &Shared) -> Done {
     let slot = suite.slot;
     let (skipped, roots, build) = (suite.skipped.clone(), suite.roots.clone(), suite.run.build);
-    let answer =
-        |answer, built| Done::Answer { slot, answer, explain: String::new(), notes: String::new(), built };
+    let answer = |answer, built| Done::Answer {
+        slot,
+        answer,
+        explain: String::new(),
+        notes: String::new(),
+        built,
+    };
     match (&suite.origin, ran) {
         (JsOrigin::Emitted(bundle), JsRan::Ran(ran)) => {
             let served = matches!(&ran, Ok(cases) if may_cache(cases, &shared.flags));
             let built = (!served).then(|| {
                 let bundle = actions::put_test_bundle(&shared.root, bundle);
-                Built::Bundled(Box::new(Bundled { bundle, skipped: skipped.clone(), roots: roots.clone() }))
+                Built::Bundled(Box::new(Bundled {
+                    bundle,
+                    skipped: skipped.clone(),
+                    roots: roots.clone(),
+                }))
             });
-            answer(ran.map(|cases| Ran { cases, skipped, roots, build }), built)
+            answer(
+                ran.map(|cases| Ran {
+                    cases,
+                    skipped,
+                    roots,
+                    build,
+                }),
+                built,
+            )
         }
-        (JsOrigin::Served(_), JsRan::Ran(ran)) => {
-            answer(ran.map(|cases| Ran { cases, skipped, roots, build }), None)
-        }
+        (JsOrigin::Served(_), JsRan::Ran(ran)) => answer(
+            ran.map(|cases| Ran {
+                cases,
+                skipped,
+                roots,
+                build,
+            }),
+            None,
+        ),
         (JsOrigin::Emitted(_), JsRan::NotRun(d)) => answer(Err(d), None),
-        (JsOrigin::Served(_), JsRan::NotRun(_)) => Done::Abandoned { slots: vec![slot], explain: String::new() },
+        (JsOrigin::Served(_), JsRan::NotRun(_)) => Done::Abandoned {
+            slots: vec![slot],
+            explain: String::new(),
+        },
     }
 }
 
@@ -1683,7 +2157,9 @@ fn js_processes(tests: usize, limit: Option<u32>, flags: &arguments::Flags) -> u
     if limit.is_some() || flags.filter.is_some() {
         return 1;
     }
-    tests.div_ceil(TESTS_PER_JS_PROCESS).clamp(1, JS_PROCESSES_MAX.min(jobs_of(flags)))
+    tests
+        .div_ceil(TESTS_PER_JS_PROCESS)
+        .clamp(1, JS_PROCESSES_MAX.min(jobs_of(flags)))
 }
 
 /// Runs a suite's bundle: in this job, when it is one process, and otherwise
@@ -1705,7 +2181,10 @@ fn start_js(suite: JsSuite, queue: &Queue, shared: &Shared) -> Done {
     let tests = suite.roots.len();
     let pulled = std::sync::Arc::new(JsPulled {
         suite,
-        state: std::sync::Mutex::new(JsGathered { records: vec![None; tests], ..JsGathered::default() }),
+        state: std::sync::Mutex::new(JsGathered {
+            records: vec![None; tests],
+            ..JsGathered::default()
+        }),
     });
     for _ in 1..processes {
         queue.push_later(Job::Js(std::sync::Arc::clone(&pulled)), false);
@@ -1751,7 +2230,10 @@ impl JsGathered {
 }
 
 fn js_state(pulled: &JsPulled) -> std::sync::MutexGuard<'_, JsGathered> {
-    pulled.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    pulled
+        .state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Runs processes for a pulled suite while its tests are waiting, and answers
@@ -1782,7 +2264,11 @@ fn run_js_member(pulled: std::sync::Arc<JsPulled>, shared: &Shared) -> Done {
         return answer_js(&pulled.suite, JsRan::NotRun(d), shared);
     }
     // The array `$run` writes, joined from the records `$pull` wrote.
-    let records: Vec<&str> = state.records.iter().map(|r| r.as_deref().unwrap_or_default()).collect();
+    let records: Vec<&str> = state
+        .records
+        .iter()
+        .map(|r| r.as_deref().unwrap_or_default())
+        .collect();
     let stdout = format!("[{}]", records.join(","));
     // Joined from records `$pull` wrote, so always an array.
     let cases = cases_of(&stdout, &pulled.suite.run, shared).unwrap_or_default();
@@ -1812,8 +2298,11 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
             cmd.env(name, value);
         }
     }
-    let started =
-        crate::build::spawn::start_runner(cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()));
+    let started = crate::build::spawn::start_runner(
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    );
     let mut child = started.map_err(|e| cannot_run(&e.to_string()))?;
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let mut input = child.stdin.take();
@@ -1828,11 +2317,17 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
     let mut asked = false;
     let mut held: Option<usize> = None;
     let output = child.stdout.take().or_ice(PIPED);
-    for line in std::io::BufReader::new(output).lines().map_while(Result::ok) {
+    for line in std::io::BufReader::new(output)
+        .lines()
+        .map_while(Result::ok)
+    {
         if line.starts_with("{\"next\":") {
             asked = true;
             // Nothing is claimed once the input is closed.
-            match input.as_mut().and_then(|pipe| Some((js_state(pulled).claim()?, pipe))) {
+            match input
+                .as_mut()
+                .and_then(|pipe| Some((js_state(pulled).claim()?, pipe)))
+            {
                 Some((test, pipe)) => {
                     // A write to a process that has just died fails, and
                     // the test it holds says so below.
@@ -1848,7 +2343,10 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
             if held == Some(test) {
                 held = None;
                 let mut state = js_state(pulled);
-                let slot = state.records.get_mut(test).or_ice("a test handed out is one of the suite's");
+                let slot = state
+                    .records
+                    .get_mut(test)
+                    .or_ice("a test handed out is one of the suite's");
                 *slot = Some(record.to_string());
             }
         }
@@ -1894,8 +2392,11 @@ fn write_bundle(bundle: &str, run: &JsRun, driver: &str) -> Result<(), Diagnosti
     std::fs::write(&run.path, &source).map_err(|e| {
         let mut d = Diagnostics::new();
         d.push(
-            Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", run.path.display()))
-                .with_fix("check the directory exists and is writable"),
+            Diagnostic::error(
+                Span::NONE,
+                format!("cannot write {}: {e}", run.path.display()),
+            )
+            .with_fix("check the directory exists and is writable"),
         );
         d
     })
@@ -1934,7 +2435,12 @@ fn cases_of(stdout: &str, run: &JsRun, shared: &Shared) -> Option<Vec<Case>> {
 /// Writes a bundle with this run's driver and runs it in one process, storing
 /// its verdicts where [`may_cache`] allows.
 fn run_bundle(bundle: &str, run: &JsRun, shared: &Shared) -> JsRan {
-    let filter = shared.flags.filter.as_ref().map(|f| javascript::quote(f)).unwrap_or_else(|| "null".into());
+    let filter = shared
+        .flags
+        .filter
+        .as_ref()
+        .map(|f| javascript::quote(f))
+        .unwrap_or_else(|| "null".into());
     // `$run` is `async`, and this is module top level of an `.mjs` file.
     let driver = format!("$write(1,JSON.stringify(await $run({filter})));\n");
     if let Err(d) = write_bundle(bundle, run, &driver) {
@@ -2074,7 +2580,9 @@ fn not_ready(
             let slug = platform.slug();
             Diagnostic::templated("test-run-unavailable", span)
                 .with_bind("platform", slug)
-                .with_note(format!("{why}, so this suite can be executed only on JavaScript"))
+                .with_note(format!(
+                    "{why}, so this suite can be executed only on JavaScript"
+                ))
                 .with_fix(format!(
                     "drop {backend} from `test.backends`, or run this suite where a {slug} \
                      artifact can be built"
@@ -2108,7 +2616,10 @@ enum Gap {
     Cryptography(Vec<String>),
     /// The keys this backend has no body for, all of them: a truncated list is
     /// a run that cannot show what it is missing (buri-lang/buri#199).
-    NoBody { backend: &'static str, keys: Vec<String> },
+    NoBody {
+        backend: &'static str,
+        keys: Vec<String>,
+    },
 }
 
 /// What this program reaches that a native run cannot answer, or `None` when it
@@ -2153,7 +2664,10 @@ fn native_gap(
     if rest.is_empty() {
         return None;
     }
-    Some(Gap::NoBody { backend: backend.name(), keys: rest })
+    Some(Gap::NoBody {
+        backend: backend.name(),
+        keys: rest,
+    })
 }
 
 /// Whether a native compilation failed because this backend has no body for
@@ -2187,13 +2701,19 @@ fn gap_refusal(label: &str, gap: Gap) -> Diagnostics {
         // toolchain, and [`GAP_FIX`]'s two suggestions — declare `platforms:
         // [JS]`, or report a bug — are both the wrong instruction for it.
         Gap::Networking(operations) => {
-            diagnostics.push(crate::compiler::backend::no_networking(&operations, Span::NONE));
+            diagnostics.push(crate::compiler::backend::no_networking(
+                &operations,
+                Span::NONE,
+            ));
         }
         // The same argument, one page over: a suite that mints a token needs a
         // toolchain whose runtime has a cryptographic generator, and neither of
         // [`GAP_FIX`]'s suggestions is what to do about that.
         Gap::Cryptography(operations) => {
-            diagnostics.push(crate::compiler::backend::no_cryptography(&operations, Span::NONE));
+            diagnostics.push(crate::compiler::backend::no_cryptography(
+                &operations,
+                Span::NONE,
+            ));
         }
         Gap::NoBody { backend, keys } => {
             // Every key, not a count: a run that is refused for a gap should be
@@ -2201,8 +2721,10 @@ fn gap_refusal(label: &str, gap: Gap) -> Diagnostics {
             // the message is what the JSON carries — in the JSON too
             // (buri-lang/buri#199). `build/actions.rs`'s sibling refusal lists
             // them all the same way.
-            let reason =
-                format!("the {backend} backend has no implementation of {}", keys.join(", "));
+            let reason = format!(
+                "the {backend} backend has no implementation of {}",
+                keys.join(", ")
+            );
             diagnostics.push(
                 Diagnostic::error(Span::NONE, format!("{label} cannot run natively: {reason}"))
                     .with_fix(GAP_FIX),
@@ -2214,7 +2736,10 @@ fn gap_refusal(label: &str, gap: Gap) -> Diagnostics {
 
 fn is_backend_gap(diagnostics: &Diagnostics) -> bool {
     !diagnostics.items.is_empty()
-        && diagnostics.items.iter().all(|d| d.message.contains("has no implementation of"))
+        && diagnostics
+            .items
+            .iter()
+            .all(|d| d.message.contains("has no implementation of"))
 }
 
 /// The analyses `check_during_build` reuses.
@@ -2247,15 +2772,22 @@ impl Prepass {
 /// ([`actions::suite_unkeyed_reads`]), by verdict key. Noted on the thread that
 /// loads, or from a recorded build that still holds, and written into the
 /// verdict and the build record so a hit can check them ([`actions::held_record`]).
-static READS: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> = std::sync::Mutex::new(None);
+static READS: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> =
+    std::sync::Mutex::new(None);
 
 fn note(key: &crate::build::cache::ActionKey, reads: String) {
-    let mut noted = READS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    noted.get_or_insert_with(Default::default).insert(key.as_str().to_string(), reads);
+    let mut noted = READS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    noted
+        .get_or_insert_with(Default::default)
+        .insert(key.as_str().to_string(), reads);
 }
 
 fn noted_reads(key: &crate::build::cache::ActionKey) -> Option<String> {
-    let noted = READS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let noted = READS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     noted.as_ref()?.get(key.as_str()).cloned()
 }
 
@@ -2268,7 +2800,13 @@ fn note_reads(
     imports: &actions::Imports,
 ) {
     let files = RULE_PATHS.with(|paths| {
-        actions::suite_unkeyed_reads(session, target, loading.loaded(), imports, &mut paths.borrow_mut())
+        actions::suite_unkeyed_reads(
+            session,
+            target,
+            loading.loaded(),
+            imports,
+            &mut paths.borrow_mut(),
+        )
     });
     note(key, actions::encode_reads(session, &files));
 }
@@ -2324,7 +2862,11 @@ fn served(
         platform.slug(),
         key,
     );
-    Some(Outcome { cases, skipped: Vec::new(), build: build_of(&text) })
+    Some(Outcome {
+        cases,
+        skipped: Vec::new(),
+        build: build_of(&text),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -2435,7 +2977,9 @@ fn remember(
             out.push(0);
             put_u32(&mut out, count(diagnostics.items.len()));
             for d in &diagnostics.items {
-                put_diagnostic_with(&mut out, d, &mut |out, span| anchors.put(out, &session.map, span));
+                put_diagnostic_with(&mut out, d, &mut |out, span| {
+                    anchors.put(out, &session.map, span)
+                });
             }
         }
         Built::Nothing { skipped } => {
@@ -2464,7 +3008,9 @@ fn remember(
         }
     }
     // A build whose reads this run never noted is not recorded.
-    let Some(reads) = noted_reads(key) else { return };
+    let Some(reads) = noted_reads(key) else {
+        return;
+    };
     crate::build::cache::Cache::open(&session.root).put(at, &actions::with_reads(&reads, &out));
 }
 
@@ -2480,7 +3026,9 @@ fn put_skipped(out: &mut Vec<u8>, skipped: &Skipped) {
 
 /// The inverse of [`put_skipped`].
 fn read_skipped(r: &mut crate::commands::lint_cache::Reader) -> Option<Skipped> {
-    (0..r.u32()?).map(|_| Some((r.text()?, r.text()?))).collect()
+    (0..r.u32()?)
+        .map(|_| Some((r.text()?, r.text()?)))
+        .collect()
 }
 
 /// A suite's tests, in a build record.
@@ -2559,12 +3107,17 @@ impl Anchors {
                 if !source.name.ends_with(".buri") {
                     return None;
                 }
-                let lexed = crate::parsing::lexer::lex(&source.text, crate::diagnostics::FileId::NONE);
+                let lexed =
+                    crate::parsing::lexer::lex(&source.text, crate::diagnostics::FileId::NONE);
                 if !lexed.errors.is_empty() {
                     return None;
                 }
                 let tokens = &lexed.tokens;
-                Some((0..tokens.len()).map(|i| (tokens.loc(i).start, tokens.loc(i).end)).collect())
+                Some(
+                    (0..tokens.len())
+                        .map(|i| (tokens.loc(i).start, tokens.loc(i).end))
+                        .collect(),
+                )
             })
             .as_ref()
     }
@@ -2606,7 +3159,11 @@ impl Anchors {
         let name = r.text()?;
         let file = crate::commands::lint_cache::place(map, root, &name)?;
         if r.byte()? == 0 {
-            return Some(Span { file, start: r.u32()?, end: r.u32()? });
+            return Some(Span {
+                file,
+                start: r.u32()?,
+                end: r.u32()?,
+            });
         }
         let mut ends = [0u32; 2];
         for end in &mut ends {
@@ -2625,7 +3182,11 @@ impl Anchors {
             }
             *end = at;
         }
-        Some(Span { file, start: ends[0], end: ends[1] })
+        Some(Span {
+            file,
+            start: ends[0],
+            end: ends[1],
+        })
     }
 }
 
@@ -2634,14 +3195,19 @@ impl Anchors {
 /// point before the first token is written after a token numbered
 /// [`u32::MAX`], which starts at 0 and is empty.
 fn anchor<'a>(text: &'a str, tokens: &TokenLocations, at: u32) -> (u32, u32, &'a str) {
-    let token = match tokens.partition_point(|&(start, _)| start <= at).checked_sub(1) {
+    let token = match tokens
+        .partition_point(|&(start, _)| start <= at)
+        .checked_sub(1)
+    {
         Some(i) => u32::try_from(i).unwrap_or(u32::MAX),
         None => u32::MAX,
     };
     let Some((from, end, gap)) = locate_anchor(text, tokens, token) else {
         return (token, 0, "");
     };
-    let between = gap.filter(|_| at > end).and_then(|g| text.get(g.start as usize..g.end as usize));
+    let between = gap
+        .filter(|_| at > end)
+        .and_then(|g| text.get(g.start as usize..g.end as usize));
     (token, from, between.unwrap_or(""))
 }
 
@@ -2658,7 +3224,13 @@ fn locate_anchor(
     } else {
         let i = usize::try_from(token).ok()?;
         let &(start, end) = tokens.get(i)?;
-        (start, end, tokens.get(i.checked_add(1)?).map_or(len, |&(start, _)| start))
+        (
+            start,
+            end,
+            tokens
+                .get(i.checked_add(1)?)
+                .map_or(len, |&(start, _)| start),
+        )
     };
     Some((from, end, (next > end).then_some(end..next)))
 }
@@ -2690,7 +3262,9 @@ fn recall(
             }
             Some(Recalled::Refused(diagnostics))
         }
-        1 => Some(Recalled::Nothing { skipped: read_skipped(&mut r)? }),
+        1 => Some(Recalled::Nothing {
+            skipped: read_skipped(&mut r)?,
+        }),
         2 => {
             let link = crate::build::cache::ActionKey::parse(&r.text()?)?;
             let at = std::path::PathBuf::from(r.text()?);
@@ -2702,13 +3276,25 @@ fn recall(
                 ranges.push((count(&mut r)?, count(&mut r)?));
             }
             let roots = read_roots(&mut r, &mut session.map, &mut anchors, &root)?;
-            Some(Recalled::Linked(Box::new(Linked { link, at, sheet, paints, skipped, ranges, roots })))
+            Some(Recalled::Linked(Box::new(Linked {
+                link,
+                at,
+                sheet,
+                paints,
+                skipped,
+                ranges,
+                roots,
+            })))
         }
         3 => {
             let bundle = crate::build::cache::ActionKey::parse(&r.text()?)?;
             let skipped = read_skipped(&mut r)?;
             let roots = read_roots(&mut r, &mut session.map, &mut anchors, &root)?;
-            Some(Recalled::Bundled(Box::new(Bundled { bundle, skipped, roots })))
+            Some(Recalled::Bundled(Box::new(Bundled {
+                bundle,
+                skipped,
+                roots,
+            })))
         }
         _ => None,
     }
@@ -2722,14 +3308,26 @@ fn recall(
 /// A binary still where it ran starts from there, so it isn't a new file. In a
 /// `whole` run that starts none at the shared runner file, links may write
 /// over a binary kept there ([`actions::release_kept_runner`]).
-fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue, whole: bool) -> Vec<std::sync::Arc<actions::Claim>> {
+fn rerun(
+    session: &Session,
+    slots: &mut [Slot],
+    queue: &Queue,
+    whole: bool,
+) -> Vec<std::sync::Arc<actions::Claim>> {
     // Each binary, where it ran, and its first member's target and output.
-    let mut found: Vec<(ServedJob, std::path::PathBuf, TargetId, crate::build::buildfile::Output)> = Vec::new();
+    let mut found: Vec<(
+        ServedJob,
+        std::path::PathBuf,
+        TargetId,
+        crate::build::buildfile::Output,
+    )> = Vec::new();
     for (i, slot) in slots.iter_mut().enumerate() {
         if slot.answer.is_some() || slot.queued {
             continue;
         }
-        let Some(again) = slot.served.take() else { continue };
+        let Some(again) = slot.served.take() else {
+            continue;
+        };
         slot.queued = true;
         let target = slot.target;
         let limit = suite(session, target).timeout_seconds;
@@ -2743,17 +3341,35 @@ fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue, whole: bool) -> V
                     on_timeout: timed_out(session, target, limit),
                     build: None,
                 };
-                queue.push_later(Job::Bundled(Box::new(BundledJob { slot: i, bundled: *bundled, run })), false);
+                queue.push_later(
+                    Job::Bundled(Box::new(BundledJob {
+                        slot: i,
+                        bundled: *bundled,
+                        run,
+                    })),
+                    false,
+                );
                 continue;
             }
         };
-        let Linked { link, at, sheet, paints, skipped, ranges, roots } = *linked;
+        let Linked {
+            link,
+            at,
+            sheet,
+            paints,
+            skipped,
+            ranges,
+            roots,
+        } = *linked;
         let output = crate::build::buildfile::Output::for_platform(slot.platform, Span::NONE);
         let seeds = std::sync::Arc::new(seeds_at(&ranges, seed_of(&slot.key)));
         let spec = MemberSpec {
             slot: i,
             key: slot.key.clone(),
-            tests: roots.iter().map(|r| (r.name.clone(), r.module.clone())).collect(),
+            tests: roots
+                .iter()
+                .map(|r| (r.name.clone(), r.module.clone()))
+                .collect(),
             ranges,
             roots,
             skipped,
@@ -2768,7 +3384,12 @@ fn rerun(session: &Session, slots: &mut [Slot], queue: &Queue, whole: bool) -> V
         match found.iter_mut().find(|(j, ..)| j.link == link) {
             Some((job, ..)) => job.members.push((spec, seeds)),
             None => {
-                let job = ServedJob { binary: None, link, sheet, members: vec![(spec, seeds)] };
+                let job = ServedJob {
+                    binary: None,
+                    link,
+                    sheet,
+                    members: vec![(spec, seeds)],
+                };
                 found.push((job, session.root.join(at), target, output));
             }
         }
@@ -2865,11 +3486,21 @@ struct ServedJob {
 /// Putting it back is the build of every suite in it: its own when it holds
 /// one suite, and shared when it holds several.
 fn serve(job: ServedJob, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
-    let ServedJob { link, sheet, binary, mut members } = job;
+    let ServedJob {
+        link,
+        sheet,
+        binary,
+        mut members,
+    } = job;
     let began = Instant::now();
-    let Some(binary) = binary.and_then(|binary| actions::place_test_binary(&shared.root, &link, binary)) else {
+    let Some(binary) =
+        binary.and_then(|binary| actions::place_test_binary(&shared.root, &link, binary))
+    else {
         let slots = members.iter().map(|(m, _)| m.slot).collect();
-        return Done::Abandoned { slots, explain: String::new() };
+        return Done::Abandoned {
+            slots,
+            explain: String::new(),
+        };
     };
     let sheet = write_stylesheet(binary.path(), &sheet);
     let build = settle(members.len(), since(began), tell);
@@ -2891,14 +3522,35 @@ struct BundledJob {
 /// can't be run to a verdict, sends its suite to be built, and the build
 /// reports what went wrong.
 fn serve_bundle(job: BundledJob, queue: &Queue, shared: &Shared) -> Done {
-    let BundledJob { slot, bundled, mut run } = job;
-    let Bundled { bundle, skipped, roots } = bundled;
+    let BundledJob {
+        slot,
+        bundled,
+        mut run,
+    } = job;
+    let Bundled {
+        bundle,
+        skipped,
+        roots,
+    } = bundled;
     let began = Instant::now();
     let Some(bundle) = actions::get_test_bundle(&shared.root, &bundle) else {
-        return Done::Abandoned { slots: vec![slot], explain: String::new() };
+        return Done::Abandoned {
+            slots: vec![slot],
+            explain: String::new(),
+        };
     };
     run.build = Some(Build::Own(since(began)));
-    start_js(JsSuite { slot, origin: JsOrigin::Served(bundle), skipped, roots, run }, queue, shared)
+    start_js(
+        JsSuite {
+            slot,
+            origin: JsOrigin::Served(bundle),
+            skipped,
+            roots,
+            run,
+        },
+        queue,
+        shared,
+    )
 }
 
 /// The environment variable a native test binary reads the block to start at
@@ -3028,8 +3680,15 @@ fn seed_of(key: &crate::build::cache::ActionKey) -> u128 {
 /// an abort writes. `None` where the process said nothing, such as a block it
 /// died in.
 enum Block {
-    Passed { ns: Option<u64> },
-    Failed { message: String, diff: Option<Diff>, order: Option<String>, ns: Option<u64> },
+    Passed {
+        ns: Option<u64>,
+    },
+    Failed {
+        message: String,
+        diff: Option<Diff>,
+        order: Option<String>,
+        ns: Option<u64>,
+    },
 }
 
 /// What running a test binary's blocks produced.
@@ -3094,9 +3753,16 @@ fn run_blocks(
         // The snapshot entries are the same for every process this makes, for
         // `seeds`'s reason: where a golden lives is a fact about the package
         // and not about which process reached the block.
-        let mut env: Vec<(&str, &str)> =
-            vec![(RESUME, start.as_str()), (STOP, stop.as_str()), (SEED, seeds)];
-        env.extend(snapshots.iter().map(|(name, value)| (*name, value.as_str())));
+        let mut env: Vec<(&str, &str)> = vec![
+            (RESUME, start.as_str()),
+            (STOP, stop.as_str()),
+            (SEED, seeds),
+        ];
+        env.extend(
+            snapshots
+                .iter()
+                .map(|(name, value)| (*name, value.as_str())),
+        );
         let out = match execute(program, None, limit, &env)? {
             Execution::Finished(out) => out,
             Execution::TimedOut => return Ok(Verdicts::TimedOut),
@@ -3111,9 +3777,7 @@ fn run_blocks(
         if out.status.code() == Some(HEAP_CHECK_STATUS) {
             return Ok(Verdicts::HeapCheck(
                 heap_check_said(&stderr)
-                    .unwrap_or(
-                        "the test binary exited with the heap-check status and said nothing",
-                    )
+                    .unwrap_or("the test binary exited with the heap-check status and said nothing")
                     .to_string(),
             ));
         }
@@ -3123,7 +3787,9 @@ fn run_blocks(
         }
         let stdout = String::from_utf8_lossy(&out.stdout).to_string();
         let times = left_times(&stdout);
-        let passed = |at: usize| Block::Passed { ns: times.get(&at).copied() };
+        let passed = |at: usize| Block::Passed {
+            ns: times.get(&at).copied(),
+        };
         // A run that ended without aborting is a verdict for **every** block
         // from here on, because every one of them ran and none of them stopped
         // the process. Those verdicts are real, not assumed.
@@ -3164,7 +3830,12 @@ fn run_blocks(
             Some(n) => (n.diff, n.order, n.ns),
             None => (None, None, None),
         };
-        blocks.push(Block::Failed { message, diff, order, ns });
+        blocks.push(Block::Failed {
+            message,
+            diff,
+            order,
+            ns,
+        });
         from = at + 1;
     }
     Ok(Verdicts::Blocks(blocks))
@@ -3190,7 +3861,9 @@ fn started(stdout: &str) -> bool {
 /// The runtime writes one object per line. A line that is not one — the end of
 /// a process killed mid-write — says nothing, and is skipped.
 fn lines_of(stdout: &str) -> impl DoubleEndedIterator<Item = Value> + '_ {
-    stdout.lines().filter_map(|line| crate::json::parse(line).ok())
+    stdout
+        .lines()
+        .filter_map(|line| crate::json::parse(line).ok())
 }
 
 /// A field of a record that is a string.
@@ -3286,7 +3959,12 @@ fn record_of(name: &str, module: &str, block: &Block) -> Value {
     }
     match block {
         Block::Passed { .. } => fields.push(("ok", Value::Bool(true))),
-        Block::Failed { message, diff, order, .. } => {
+        Block::Failed {
+            message,
+            diff,
+            order,
+            ..
+        } => {
             fields.push(("ok", Value::Bool(false)));
             let mut error = vec![("message", Value::str(message))];
             if let Some(d) = diff {
@@ -3314,8 +3992,10 @@ fn recorded<'b>(
     blocks: impl Iterator<Item = &'b Block>,
     build: Option<Build>,
 ) -> Vec<Case> {
-    let records =
-        tests.iter().zip(blocks).map(|((name, module), block)| record_of(name, module, block));
+    let records = tests
+        .iter()
+        .zip(blocks)
+        .map(|((name, module), block)| record_of(name, module, block));
     let record = Value::Array(records.collect()).to_string();
     let cases = parse_results(&record);
     if may_cache(&cases, &shared.flags) {
@@ -3470,7 +4150,11 @@ fn batch(
 
 /// The members whose code holds one of `diagnostics`' errors, so a batch can go
 /// on without them. Empty when an error is in nobody's code, or in everybody's.
-fn broken_members(session: &Session, members: &[TargetId], diagnostics: &Diagnostics) -> Vec<TargetId> {
+fn broken_members(
+    session: &Session,
+    members: &[TargetId],
+    diagnostics: &Diagnostics,
+) -> Vec<TargetId> {
     let mut packages: Vec<crate::build::workspace::PackageId> = Vec::new();
     for d in diagnostics.items.iter().filter(|d| d.is_error()) {
         if d.span.file == crate::diagnostics::FileId::NONE {
@@ -3487,9 +4171,19 @@ fn broken_members(session: &Session, members: &[TargetId], diagnostics: &Diagnos
         .copied()
         .filter(|&m| {
             let mut roots = vec![m];
-            roots.extend(session.workspace.test_dep_edges(m).into_iter().map(|(dep, _)| dep));
+            roots.extend(
+                session
+                    .workspace
+                    .test_dep_edges(m)
+                    .into_iter()
+                    .map(|(dep, _)| dep),
+            );
             roots.iter().any(|&r| {
-                session.workspace.closure(r).iter().any(|t| packages.contains(&t.package))
+                session
+                    .workspace
+                    .closure(r)
+                    .iter()
+                    .any(|t| packages.contains(&t.package))
             })
         })
         .collect();
@@ -3520,7 +4214,13 @@ fn may_batch(session: &Session, target: TargetId) -> bool {
 fn artifact_tags(session: &Session, target: TargetId) -> std::collections::BTreeSet<String> {
     let mut out = std::collections::BTreeSet::new();
     let mut roots = vec![target];
-    roots.extend(session.workspace.test_dep_edges(target).into_iter().map(|(dep, _)| dep));
+    roots.extend(
+        session
+            .workspace
+            .test_dep_edges(target)
+            .into_iter()
+            .map(|(dep, _)| dep),
+    );
     for root in roots {
         for member in session.workspace.closure(root) {
             for tag in session.workspace.tags(member) {
@@ -3561,7 +4261,9 @@ fn batches_of(session: &Session, candidates: &[TargetId]) -> Vec<Vec<TargetId>> 
     for &target in candidates {
         let tags = artifact_tags(session, target);
         let slot = batches.iter_mut().find(|(carried, _)| {
-            !carried.iter().any(|a| tags.iter().any(|b| tags_forbid(session, a, b)))
+            !carried
+                .iter()
+                .any(|a| tags.iter().any(|b| tags_forbid(session, a, b)))
         });
         match slot {
             Some((carried, members)) => {
@@ -3583,7 +4285,11 @@ fn batches_of(session: &Session, candidates: &[TargetId]) -> Vec<Vec<TargetId>> 
 fn test_modules_of(session: &Session, target: TargetId) -> Vec<String> {
     let suite = suite(session, target);
     let pkg = session.workspace.package(target.package);
-    suite.sources.iter().map(|src| pkg.module_path(&src.value)).collect()
+    suite
+        .sources
+        .iter()
+        .map(|src| pkg.module_path(&src.value))
+        .collect()
 }
 
 /// Every test in `target`'s suite, in block order, when `filter` matches none
@@ -3632,7 +4338,12 @@ fn queue_batch(
     // sources load in and therefore the order the binary's blocks come out in.
     let units: Vec<Unit> = members
         .iter()
-        .map(|&target| Unit { target: Some(target), platform: None, entry: None, with_tests: true })
+        .map(|&target| Unit {
+            target: Some(target),
+            platform: None,
+            entry: None,
+            with_tests: true,
+        })
         .collect();
     let began = Instant::now();
     let loading = crate::compiler::driver::load_all(
@@ -3643,7 +4354,13 @@ fn queue_batch(
     );
     let imports = actions::Imports::of(loading.loaded());
     for (&target, &i) in members.iter().zip(member_slots) {
-        note_reads(session, target, &slots.get(i).or_ice(SLOT).key, &loading, &imports);
+        note_reads(
+            session,
+            target,
+            &slots.get(i).or_ice(SLOT).key,
+            &loading,
+            &imports,
+        );
     }
     add_shared(shared_build, since(began));
     let platform = crate::compiler::driver::host_native_platform();
@@ -3661,8 +4378,14 @@ fn queue_batch(
             .flat_map(|(i, &t)| test_modules_of(session, t).into_iter().map(move |m| (m, i)))
             .collect(),
         keys: member_slots.iter().filter_map(|&i| key_of(i)).collect(),
-        labels: members.iter().map(|&t| session.workspace.label(t)).collect(),
-        privates: members.iter().map(|&t| private_test_binary(session, t, &output)).collect(),
+        labels: members
+            .iter()
+            .map(|&t| session.workspace.label(t))
+            .collect(),
+        privates: members
+            .iter()
+            .map(|&t| private_test_binary(session, t, &output))
+            .collect(),
         dirs: members.iter().map(|&t| snapshot_dir(session, t)).collect(),
         platform,
         output,
@@ -3671,7 +4394,12 @@ fn queue_batch(
         slots.get_mut(i).or_ice(SLOT).queued = true;
     }
     let bytes = build_bytes(loading.source_bytes(&session.map));
-    let job = BatchJob { info: std::sync::Arc::new(info), loading, map: session.map.shared(), bytes };
+    let job = BatchJob {
+        info: std::sync::Arc::new(info),
+        loading,
+        map: session.map.shared(),
+        bytes,
+    };
     queue.push(Job::Batch(Box::new(job)), bytes);
 }
 
@@ -3697,7 +4425,9 @@ impl BatchInfo {
     /// loaded as test sources, so every test has one.
     fn owner_of(&self, module: &str) -> usize {
         let owner = self.owners.iter().find(|(m, _)| m == module);
-        owner.map(|(_, i)| *i).or_ice("every test belongs to a member")
+        owner
+            .map(|(_, i)| *i)
+            .or_ice("every test belongs to a member")
     }
 
     fn slot_of(&self, member: usize) -> usize {
@@ -3726,12 +4456,20 @@ struct BatchJob {
 /// A type check that fails goes back as [`Done::Broken`], so [`drive`] can try
 /// again without the members whose code failed it ([`broken_members`]).
 fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
-    let BatchJob { info, loading, map, bytes } = job;
+    let BatchJob {
+        info,
+        loading,
+        map,
+        bytes,
+    } = job;
     // Everything here serves every member, so it is all shared.
     let began = Instant::now();
     let abandoned = || {
         tell.tell(Done::Shared { ns: since(began) });
-        Done::Abandoned { slots: info.member_slots.clone(), explain: String::new() }
+        Done::Abandoned {
+            slots: info.member_slots.clone(),
+            explain: String::new(),
+        }
     };
     let mut analysis = crate::compiler::driver::check(loading, Some(&shared.workspace), &map);
     drop(map);
@@ -3743,8 +4481,12 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
             diagnostics: analysis.diagnostics,
         };
     }
-    let module_paths: Vec<String> =
-        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let module_paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
@@ -3757,7 +4499,14 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
     }
     // The gap probe cannot say *which* member reaches the intrinsic it names, so
     // a batch with a gap in it is abandoned and each member asks for itself.
-    if native_gap(info.platform, &shared.flags, &program, &analysis.checked.tables).is_some() {
+    if native_gap(
+        info.platform,
+        &shared.flags,
+        &program,
+        &analysis.checked.tables,
+    )
+    .is_some()
+    {
         return abandoned();
     }
     // What a `--filter` leaves out, per suite, counted before the roots are
@@ -3766,7 +4515,9 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
     if let Some(f) = &shared.flags.filter {
         for test in program.roots.tests() {
             if !test.name.contains(f.as_str()) {
-                let left = skipped.get_mut(info.owner_of(&test.module)).or_ice("a member's tests are its own");
+                let left = skipped
+                    .get_mut(info.owner_of(&test.module))
+                    .or_ice("a member's tests are its own");
                 left.push((test.name.clone(), test.module.clone()));
             }
         }
@@ -3777,8 +4528,13 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
     if let [group] = groups.as_slice() {
         let tables = std::sync::Arc::new(std::mem::take(&mut analysis.checked.tables));
         drop(analysis);
-        let step = Step { began, suites: info.members.len() };
-        return submit_group(&info, &skipped, group, &selected, program, tables, step, held, queue, tell, shared);
+        let step = Step {
+            began,
+            suites: info.members.len(),
+        };
+        return submit_group(
+            &info, &skipped, group, &selected, program, tables, step, held, queue, tell, shared,
+        );
     }
     // Each group is monomorphized again from the batch's one check, rooted at
     // its own tests, so each binary holds only its own code. Each is a heavy
@@ -3831,8 +4587,19 @@ struct PartJob {
 /// Monomorphizes one group of a batch from the batch's check, and builds it.
 /// A group that fails sends only its own members back to run alone.
 fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
-    let PartJob { info, analysis, tables, module_paths, skipped, group, modules } = job;
-    let step = Step { began: Instant::now(), suites: group.members.len() };
+    let PartJob {
+        info,
+        analysis,
+        tables,
+        module_paths,
+        skipped,
+        group,
+        modules,
+    } = job;
+    let step = Step {
+        began: Instant::now(),
+        suites: group.members.len(),
+    };
     let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
@@ -3842,8 +4609,13 @@ fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -
     );
     drop(analysis);
     let abandoned = || {
-        tell.tell(Done::Shared { ns: since(step.began) });
-        Done::Abandoned { slots: group.members.iter().map(|&i| info.slot_of(i)).collect(), explain: String::new() }
+        tell.tell(Done::Shared {
+            ns: since(step.began),
+        });
+        Done::Abandoned {
+            slots: group.members.iter().map(|&i| info.slot_of(i)).collect(),
+            explain: String::new(),
+        }
     };
     if diagnostics.has_errors() {
         return abandoned();
@@ -3852,7 +4624,9 @@ fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -
         tests_mut(&mut program).retain(|t| t.name.contains(f.as_str()));
     }
     let mine = selected_of(&program, &info);
-    submit_group(&info, &skipped, &group, &mine, program, tables, step, held, queue, tell, shared)
+    submit_group(
+        &info, &skipped, &group, &mine, program, tables, step, held, queue, tell, shared,
+    )
 }
 
 /// The build step a group's binary ends: when it began, and how many suites it
@@ -3887,10 +4661,17 @@ fn submit_group(
     let skipped_of = |i: usize| skipped.get(i).cloned().unwrap_or_default();
     let nothing = |i: usize, build| Done::Answer {
         slot: info.slot_of(i),
-        answer: Ok(Ran { cases: Vec::new(), skipped: skipped_of(i), roots: Vec::new(), build: Some(build) }),
+        answer: Ok(Ran {
+            cases: Vec::new(),
+            skipped: skipped_of(i),
+            roots: Vec::new(),
+            build: Some(build),
+        }),
         explain: String::new(),
         notes: String::new(),
-        built: Some(Built::Nothing { skipped: skipped_of(i) }),
+        built: Some(Built::Nothing {
+            skipped: skipped_of(i),
+        }),
     };
     if selected.is_empty() {
         let build = settle(step.suites, since(step.began), tell);
@@ -3909,8 +4690,9 @@ fn submit_group(
         .members
         .iter()
         .filter_map(|&i| {
-            let mine: Vec<usize> =
-                (0..selected.len()).filter(|&b| selected.get(b).is_some_and(|s| s.owner == i)).collect();
+            let mine: Vec<usize> = (0..selected.len())
+                .filter(|&b| selected.get(b).is_some_and(|s| s.owner == i))
+                .collect();
             Some((
                 i,
                 MemberSpec {
@@ -3925,7 +4707,11 @@ fn submit_group(
                     roots: mine
                         .iter()
                         .filter_map(|&b| tests.get(b))
-                        .map(|t| Root { name: t.name.clone(), module: t.module.clone(), span: t.span })
+                        .map(|t| Root {
+                            name: t.name.clone(),
+                            module: t.module.clone(),
+                            span: t.span,
+                        })
                         .collect(),
                     skipped: skipped_of(i),
                     snapshot_dir: info.dirs.get(i)?.clone(),
@@ -4015,7 +4801,11 @@ struct MemberSpec {
     on_timeout: Diagnostics,
     /// The `link` key, stylesheet and file of a binary this run linked, so the
     /// member's answer can record them. `None` for a binary run again.
-    remember: Option<(crate::build::cache::ActionKey, std::sync::Arc<String>, std::path::PathBuf)>,
+    remember: Option<(
+        crate::build::cache::ActionKey,
+        std::sync::Arc<String>,
+        std::path::PathBuf,
+    )>,
     /// The suite's label, when the binary is its own and was just linked
     /// ([`run_solo`]). A process that ends without a verdict then runs the
     /// suite again one process at a time ([`run_alone`]), rather than sending
@@ -4030,18 +4820,41 @@ struct MemberSpec {
 ///
 /// A link that fails sends every member back to run alone.
 fn build_group(job: GroupJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
-    let GroupJob { label, private, output, mut program, tables, seeds, members, step } = job;
+    let GroupJob {
+        label,
+        private,
+        output,
+        mut program,
+        tables,
+        seeds,
+        members,
+        step,
+    } = job;
     let sheet = program.stylesheet.clone();
     let mut diagnostics = Diagnostics::new();
     let (built, explain) = crate::build::cache::holding_explain(|| {
-        actions::link_test_binary(&shared.root, &label, private, &output, &shared.flags, &mut program, &tables, &mut diagnostics)
+        actions::link_test_binary(
+            &shared.root,
+            &label,
+            private,
+            &output,
+            &shared.flags,
+            &mut program,
+            &tables,
+            &mut diagnostics,
+        )
     });
     drop(program);
     drop(tables);
     drop(held);
     let Ok((binary, link)) = built else {
-        tell.tell(Done::Shared { ns: since(step.began) });
-        return Done::Abandoned { slots: members.iter().map(|m| m.slot).collect(), explain };
+        tell.tell(Done::Shared {
+            ns: since(step.began),
+        });
+        return Done::Abandoned {
+            slots: members.iter().map(|m| m.slot).collect(),
+            explain,
+        };
     };
     let written = write_stylesheet(binary.path(), &sheet);
     let build = settle(step.suites, since(step.began), tell);
@@ -4058,7 +4871,10 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, tell: &Tell, shared: &S
         })
         .collect();
     queue_members(binary, written, members, queue, jobs_of(&shared.flags));
-    Done::Built { slot: first, explain }
+    Done::Built {
+        slot: first,
+        explain,
+    }
 }
 
 /// Queues the work of running each member of a linked binary.
@@ -4090,12 +4906,21 @@ fn queue_members(
     // Reversed, because each first job goes to the front: the first member
     // runs first.
     for (spec, seeds) in members.into_iter().rev() {
-        let blocks: Vec<usize> = spec.ranges.iter().flat_map(|&(from, to)| from..to).collect();
-        let helpers =
-            if spec.limit.is_some() || spec.paints { 1 } else { blocks.len().clamp(1, width.max(1)) };
+        let blocks: Vec<usize> = spec
+            .ranges
+            .iter()
+            .flat_map(|&(from, to)| from..to)
+            .collect();
+        let helpers = if spec.limit.is_some() || spec.paints {
+            1
+        } else {
+            blocks.len().clamp(1, width.max(1))
+        };
         let spec = std::sync::Arc::new(spec);
-        let gathered =
-            std::sync::Arc::new(std::sync::Mutex::new(Gathered { blocks, ..Gathered::default() }));
+        let gathered = std::sync::Arc::new(std::sync::Mutex::new(Gathered {
+            blocks,
+            ..Gathered::default()
+        }));
         let job = || {
             Job::Member(MemberJob {
                 binary: std::sync::Arc::clone(&binary),
@@ -4183,7 +5008,9 @@ impl Gathered {
 }
 
 fn gathered_of(gathered: &std::sync::Mutex<Gathered>) -> std::sync::MutexGuard<'_, Gathered> {
-    gathered.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    gathered
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Runs one member's waiting blocks, and answers for the member once its last
@@ -4216,7 +5043,13 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
         drop(all);
         std::thread::sleep(Duration::from_millis(1));
     }
-    let MemberJob { binary, seeds, sheet, spec, gathered } = job;
+    let MemberJob {
+        binary,
+        seeds,
+        sheet,
+        spec,
+        gathered,
+    } = job;
     let mut snapshots = snapshot_env(&spec.snapshot_dir, shared.flags.update, sheet);
     snapshots.extend(binary.environment());
     let program = binary.program().display().to_string();
@@ -4240,7 +5073,12 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
     }
     // A failing verdict isn't cached, so the next run starts this binary again.
     let all = gathered_of(&gathered);
-    if all.timed_out || all.verdicts.iter().any(|(_, b)| matches!(b, Block::Failed { .. })) {
+    if all.timed_out
+        || all
+            .verdicts
+            .iter()
+            .any(|(_, b)| matches!(b, Block::Failed { .. }))
+    {
         binary.keep();
     }
     drop(all);
@@ -4251,7 +5089,10 @@ fn run_member(job: MemberJob, queue: &Queue, shared: &Shared) -> Done {
             match not_started {
                 Some(how) => Done::Answer {
                     slot: spec.slot,
-                    answer: Err(the_binary_did_not_start(spec.alone.as_deref().unwrap_or_default(), &how)),
+                    answer: Err(the_binary_did_not_start(
+                        spec.alone.as_deref().unwrap_or_default(),
+                        &how,
+                    )),
                     explain: String::new(),
                     notes: String::new(),
                     built: None,
@@ -4301,7 +5142,11 @@ fn run_limited(
 }
 
 /// The member's answer, from whichever of its jobs finishes last.
-fn answer_member(gathered: &std::sync::Mutex<Gathered>, spec: &MemberSpec, shared: &Shared) -> Done {
+fn answer_member(
+    gathered: &std::sync::Mutex<Gathered>,
+    spec: &MemberSpec,
+    shared: &Shared,
+) -> Done {
     let mut all = gathered_of(gathered);
     if all.answered || all.running > 0 || all.waiting() {
         return Done::Progress;
@@ -4311,16 +5156,36 @@ fn answer_member(gathered: &std::sync::Mutex<Gathered>, spec: &MemberSpec, share
     let notes: String = all.notes.iter().map(|(_, n)| n.as_str()).collect();
     if all.timed_out {
         let answer = Err(spec.on_timeout.clone());
-        return Done::Answer { slot: spec.slot, answer, explain: String::new(), notes, built: linked_of(spec) };
+        return Done::Answer {
+            slot: spec.slot,
+            answer,
+            explain: String::new(),
+            notes,
+            built: linked_of(spec),
+        };
     }
     if all.failed {
-        return Done::Abandoned { slots: vec![spec.slot], explain: String::new() };
+        return Done::Abandoned {
+            slots: vec![spec.slot],
+            explain: String::new(),
+        };
     }
     all.verdicts.sort_by_key(|(i, _)| *i);
-    let cases = recorded(shared, &spec.key, &spec.tests, all.verdicts.iter().map(|(_, block)| block), spec.build);
+    let cases = recorded(
+        shared,
+        &spec.key,
+        &spec.tests,
+        all.verdicts.iter().map(|(_, block)| block),
+        spec.build,
+    );
     Done::Answer {
         slot: spec.slot,
-        answer: Ok(Ran { cases, skipped: spec.skipped.clone(), roots: spec.roots.clone(), build: spec.build }),
+        answer: Ok(Ran {
+            cases,
+            skipped: spec.skipped.clone(),
+            roots: spec.roots.clone(),
+            build: spec.build,
+        }),
         explain: String::new(),
         notes,
         built: linked_of(spec),
@@ -4335,7 +5200,10 @@ const PULL: &str = "BURI_TEST_PULL";
 enum Pulled {
     /// A verdict for every block it was handed, and the heap check's receipt,
     /// if it printed one.
-    Ran { verdicts: Vec<(usize, Block)>, notes: String },
+    Ran {
+        verdicts: Vec<(usize, Block)>,
+        notes: String,
+    },
     /// It ended in a way that is no verdict on a block: see [`Verdicts`].
     Broken,
     /// It ended before reaching a block, and this is how.
@@ -4363,7 +5231,9 @@ fn run_pulled(
     use std::io::{BufRead as _, Read as _};
     use std::process::Stdio;
     let _phase = crate::profile::enter(crate::profile::Phase::Run);
-    let Some(mut cmd) = crate::build::spawn::command(program) else { return Pulled::Broken };
+    let Some(mut cmd) = crate::build::spawn::command(program) else {
+        return Pulled::Broken;
+    };
     cmd.env(RESUME, "0").env(PULL, "1").env(SEED, seeds);
     for (name, value) in snapshots {
         cmd.env(name, value);
@@ -4374,9 +5244,14 @@ fn run_pulled(
             cmd.env(name, value);
         }
     }
-    let started =
-        crate::build::spawn::start_runner(cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()));
-    let Ok(mut child) = started else { return Pulled::Broken };
+    let started = crate::build::spawn::start_runner(
+        cmd.stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    );
+    let Ok(mut child) = started else {
+        return Pulled::Broken;
+    };
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let mut input = child.stdin.take();
     let mut errors = child.stderr.take().or_ice(PIPED);
@@ -4394,7 +5269,9 @@ fn run_pulled(
     let mut took: Option<u64> = None;
     let mut noted: Option<Noted> = None;
     let output = child.stdout.take().or_ice(PIPED);
-    let lines = std::io::BufReader::new(output).lines().map_while(Result::ok);
+    let lines = std::io::BufReader::new(output)
+        .lines()
+        .map_while(Result::ok);
     for value in lines.filter_map(|line| crate::json::parse(&line).ok()) {
         if value.get("started").is_some() {
             reached = true;
@@ -4404,7 +5281,10 @@ fn run_pulled(
                 verdicts.push((block, Block::Passed { ns: took.take() }));
             }
             // Nothing is claimed once the input is closed.
-            match input.as_mut().and_then(|pipe| Some((gathered_of(gathered).claim()?, pipe))) {
+            match input
+                .as_mut()
+                .and_then(|pipe| Some((gathered_of(gathered).claim()?, pipe)))
+            {
                 Some((block, pipe)) => {
                     // A write to a process that has just died fails, and
                     // its status below says how it ended.
@@ -4429,7 +5309,9 @@ fn run_pulled(
     crate::profile::reaped(child.id());
     let status = child.wait();
     let stderr = reading_err.join().unwrap_or_default();
-    let Ok(status) = status else { return Pulled::Broken };
+    let Ok(status) = status else {
+        return Pulled::Broken;
+    };
     if status.code() == Some(HEAP_CHECK_STATUS) {
         return Pulled::Broken;
     }
@@ -4445,12 +5327,22 @@ fn run_pulled(
     if !reached {
         return Pulled::NotStarted(how_it_ended(&status, &stderr));
     }
-    let Some(block) = held else { return Pulled::Broken };
+    let Some(block) = held else {
+        return Pulled::Broken;
+    };
     let failed = match noted {
-        Some(n) if n.at == block => Block::Failed { message: n.message, diff: n.diff, order: n.order, ns: n.ns },
-        _ if !returned => {
-            Block::Failed { message: how_it_ended(&status, &stderr), diff: None, order: None, ns: None }
-        }
+        Some(n) if n.at == block => Block::Failed {
+            message: n.message,
+            diff: n.diff,
+            order: n.order,
+            ns: n.ns,
+        },
+        _ if !returned => Block::Failed {
+            message: how_it_ended(&status, &stderr),
+            diff: None,
+            order: None,
+            ns: None,
+        },
         _ => return Pulled::Broken,
     };
     verdicts.push((block, failed));
@@ -4459,7 +5351,11 @@ fn run_pulled(
 
 /// Where `binary` runs, under `root`, for its record.
 fn ran_at(root: &std::path::Path, binary: &actions::TestBinary) -> std::path::PathBuf {
-    binary.path().strip_prefix(root).map(std::path::Path::to_path_buf).unwrap_or_default()
+    binary
+        .path()
+        .strip_prefix(root)
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_default()
 }
 
 /// The record of a member's place in a binary this run linked.
@@ -4540,7 +5436,10 @@ const BATCH_BYTES_VARIABLE: &str = "BURI_TEST_BATCH_BYTES";
 /// The most code one batched test binary may hold: `BURI_TEST_BATCH_BYTES`
 /// where it is set to a number, and [`BATCH_BYTES`] otherwise.
 fn batch_limit() -> u64 {
-    std::env::var(BATCH_BYTES_VARIABLE).ok().and_then(|v| v.trim().parse().ok()).unwrap_or(BATCH_BYTES)
+    std::env::var(BATCH_BYTES_VARIABLE)
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(BATCH_BYTES)
 }
 
 /// Machine code per node of a function's tree, in bytes.
@@ -4563,7 +5462,8 @@ fn estimated_bytes(func: &monomorphize::Func) -> u64 {
         crate::compiler::semantics::typed::children(e, &mut |c| n = n.saturating_add(nodes(c)));
         n
     }
-    func.body().map_or(0, |b| nodes(b).saturating_mul(BYTES_PER_NODE))
+    func.body()
+        .map_or(0, |b| nodes(b).saturating_mul(BYTES_PER_NODE))
 }
 
 /// Divides a batch's members between binaries.
@@ -4596,8 +5496,11 @@ fn groups_of(
     // What each member reaches from its own test blocks.
     let reach = |member: usize| -> Vec<usize> {
         let mut seen = vec![false; funcs];
-        let mut work: Vec<usize> =
-            selected.iter().filter(|s| s.owner == member).map(|s| s.func).collect();
+        let mut work: Vec<usize> = selected
+            .iter()
+            .filter(|s| s.owner == member)
+            .map(|s| s.func)
+            .collect();
         let mut out = Vec::new();
         while let Some(f) = work.pop() {
             match seen.get_mut(f) {
@@ -4642,7 +5545,9 @@ fn groups_of(
             groups.len() - 1
         });
         {
-            let (group, size) = groups.get_mut(slot).or_ice("`fits` names a group in the list");
+            let (group, size) = groups
+                .get_mut(slot)
+                .or_ice("`fits` names a group in the list");
             *size = size.saturating_add(added(&group.reaches));
             for &f in &reached {
                 *group.reaches.get_mut(f).or_ice(FUNC) = true;
@@ -4683,7 +5588,9 @@ fn noted_failure(stdout: &str) -> Option<Noted> {
     // per block that returned, and those carry an index and nothing else
     // (`cli/runtime/testing.rs`'s `note_left`). A block that aborted writes its
     // line after them, so the last message is still this process's failure.
-    let line = lines_of(stdout).rev().find(|line| text_of(line, "message").is_some())?;
+    let line = lines_of(stdout)
+        .rev()
+        .find(|line| text_of(line, "message").is_some())?;
     noted_of(&line)
 }
 
@@ -4701,7 +5608,10 @@ fn noted_of(line: &Value) -> Option<Noted> {
 /// Both rendered values of a failed comparison. Half a diff is no diff: one
 /// side alone is not something the other can be printed against.
 fn diff_of(value: &Value) -> Option<Diff> {
-    Some(Diff { actual: text_of(value, "actual")?, expected: text_of(value, "expected")? })
+    Some(Diff {
+        actual: text_of(value, "actual")?,
+        expected: text_of(value, "expected")?,
+    })
 }
 
 /// Attaches each case to the source location of the test it names.
@@ -4713,7 +5623,10 @@ fn diff_of(value: &Value) -> Option<Diff> {
 /// `duplicate-test` refuses them before anything is compiled.
 fn locate(session: &Session, roots: &[Root], cases: &mut [Case]) {
     for c in cases.iter_mut() {
-        if let Some(t) = roots.iter().find(|t| t.name == c.name && t.module == c.module) {
+        if let Some(t) = roots
+            .iter()
+            .find(|t| t.name == c.name && t.module == c.module)
+        {
             if !t.span.is_none() {
                 let f = session.map.get(t.span.file);
                 let (line, col) = f.line_col(t.span.start);
@@ -4867,7 +5780,8 @@ fn execute(
             cmd.env(name, value);
         }
     }
-    let mut child = crate::build::spawn::start_runner(cmd.stdout(Stdio::piped()).stderr(Stdio::piped()))?;
+    let mut child =
+        crate::build::spawn::start_runner(cmd.stdout(Stdio::piped()).stderr(Stdio::piped()))?;
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
     let Some(limit) = limit else {
         return Ok(Execution::Finished(crate::build::spawn::finish(child)?));
@@ -4897,13 +5811,18 @@ fn execute(
 /// record that is not a whole array is no record, so a run cut off part way
 /// reads as a run that produced nothing rather than as the tests it got to.
 fn parse_results(text: &str) -> Vec<Case> {
-    records_of(text).map(|records| cases_in(&records)).unwrap_or_default()
+    records_of(text)
+        .map(|records| cases_in(&records))
+        .unwrap_or_default()
 }
 
 /// The record array in what a runner wrote, if it wrote one.
 fn records_of(text: &str) -> Option<Vec<Value>> {
     let last = text.trim_end().lines().next_back().unwrap_or_default();
-    let array = last.find('[').and_then(|i| last.get(i..)).unwrap_or_default();
+    let array = last
+        .find('[')
+        .and_then(|i| last.get(i..))
+        .unwrap_or_default();
     match crate::json::parse(array) {
         Ok(Value::Array(records)) => Some(records),
         _ => None,
@@ -4920,7 +5839,9 @@ fn cases_in(records: &[Value]) -> Vec<Case> {
             } else {
                 let error = record.get("error");
                 Verdict::Failed {
-                    message: error.and_then(|e| text_of(e, "message")).unwrap_or_default(),
+                    message: error
+                        .and_then(|e| text_of(e, "message"))
+                        .unwrap_or_default(),
                     diff: error.and_then(diff_of),
                     order: text_of(record, "order"),
                 }
@@ -4971,7 +5892,11 @@ fn escaped(name: &str) -> String {
 /// is flush left reads as the report having ended, and an abort message is free
 /// to span lines.
 fn indented(message: &str) -> String {
-    message.split('\n').map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n")
+    message
+        .split('\n')
+        .map(|l| format!("  {l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Output names the target, the file, and the test (TESTING.md, "Running").
@@ -4986,7 +5911,9 @@ fn report_failure(
 ) {
     let label = session.workspace.label(target);
     let file = c.module.trim_start_matches("//");
-    let file = file.strip_prefix(&session.workspace.package(target.package).path).unwrap_or(file);
+    let file = file
+        .strip_prefix(&session.workspace.package(target.package).path)
+        .unwrap_or(file);
     let file = file.trim_start_matches('/');
     // No `.buri` appended: a module path is the file, so the name is already
     // on it. Gluing one on produced `test/cents.buri.buri`, which this line
@@ -5043,8 +5970,12 @@ mod tests {
             let mut map = crate::diagnostics::SourceMap::new();
             let mut r = crate::commands::lint_cache::Reader::after(b"", &out).expect("a reader");
             let mut anchors = Anchors::default();
-            let token = anchors.read(&mut r, &mut map, &dir).map(|s| (s.start, s.end));
-            let between = anchors.read(&mut r, &mut map, &dir).map(|s| (s.start, s.end));
+            let token = anchors
+                .read(&mut r, &mut map, &dir)
+                .map(|s| (s.start, s.end));
+            let between = anchors
+                .read(&mut r, &mut map, &dir)
+                .map(|s| (s.start, s.end));
             (token, between)
         };
         let moved = "// above\nfn f(): Int {   1 } // one\n";
@@ -5067,7 +5998,10 @@ mod tests {
     #[test]
     fn a_dead_process_is_blamed_on_the_block_that_never_finished() {
         let left = |indices: &[usize]| {
-            indices.iter().map(|i| format!("{{\"i\":{i},\"left\":1}}\n")).collect::<String>()
+            indices
+                .iter()
+                .map(|i| format!("{{\"i\":{i},\"left\":1}}\n"))
+                .collect::<String>()
         };
         // Nothing finished: the block it was told to start at.
         assert_eq!(died_after("", 0, 3), Some(0));
@@ -5081,7 +6015,10 @@ mod tests {
         // Every block finished, and the process died outside all of them.
         assert_eq!(died_after(&left(&[0, 1, 2]), 0, 3), None);
         // A failure line is not a `left` line, and does not count as one.
-        assert_eq!(died_after("{\"i\":0,\"message\":\"boom\"}\n", 0, 3), Some(0));
+        assert_eq!(
+            died_after("{\"i\":0,\"message\":\"boom\"}\n", 0, 3),
+            Some(0)
+        );
     }
 
     /// A failure line is read past the `left` lines around it, and a process
@@ -5105,7 +6042,11 @@ mod tests {
         assert_eq!(quote_title("a\\b\tc"), "\"a\\\\b\\tc\"");
         assert_eq!(quote_title("ring\u{7}\u{1b}"), "\"ring\\u{7}\\u{1b}\"");
         for title in ["plain", "say \"hi\"", "two\nlines", "a\\b\tc", "ring\u{7}"] {
-            assert_eq!(quote_title(title).lines().count(), 1, "{title:?} broke the line");
+            assert_eq!(
+                quote_title(title).lines().count(),
+                1,
+                "{title:?} broke the line"
+            );
         }
     }
 
@@ -5136,8 +6077,12 @@ mod tests {
             }
             is_backend_gap(&diagnostics)
         };
-        assert!(of(&["the stencil backend has no implementation of character.isDigit"]));
-        assert!(of(&["the native runtime has no implementation of `json.decode`"]));
+        assert!(of(&[
+            "the stencil backend has no implementation of character.isDigit"
+        ]));
+        assert!(of(&[
+            "the native runtime has no implementation of `json.decode`"
+        ]));
         assert!(of(&[
             "the llvm backend has no implementation of testing_assert.report",
             "the native runtime has no implementation of `bytes.toUtf8`",
@@ -5145,7 +6090,9 @@ mod tests {
         // Not a gap: an empty failure, a failure of another kind, and a
         // mixture with one of each.
         assert!(!of(&[]));
-        assert!(!of(&["cannot declare the entry point: duplicate definition"]));
+        assert!(!of(&[
+            "cannot declare the entry point: duplicate definition"
+        ]));
         assert!(!of(&[
             "the stencil backend has no implementation of character.isDigit",
             "cannot declare the entry point: duplicate definition",
@@ -5158,9 +6105,15 @@ mod tests {
     /// carries, so listing them here fixes both surfaces at once.
     #[test]
     fn a_backend_gap_lists_every_missing_key() {
-        let keys =
-            vec!["number.I64.toI32".to_string(), "number.U32.toChar".to_string(), "z.z".to_string()];
-        let gap = Gap::NoBody { backend: "llvm", keys };
+        let keys = vec![
+            "number.I64.toI32".to_string(),
+            "number.U32.toChar".to_string(),
+            "z.z".to_string(),
+        ];
+        let gap = Gap::NoBody {
+            backend: "llvm",
+            keys,
+        };
         let diagnostics = gap_refusal("a suite", gap);
         let message = &diagnostics.items.first().expect("a refusal").message;
         assert!(message.contains("number.I64.toI32"), "{message}");
@@ -5201,7 +6154,10 @@ mod tests {
     /// suite of no tests.
     #[test]
     fn a_record_this_runner_writes_is_one_it_reads() {
-        let diff = Diff { actual: String::from("\"a\\tb\""), expected: String::from("2") };
+        let diff = Diff {
+            actual: String::from("\"a\\tb\""),
+            expected: String::from("2"),
+        };
         let note = "the tasks completed in the order 0, 2, 1 — replay it with `tasks().seed(1)`";
         let failed = |diff, order: Option<&str>| Block::Failed {
             message: String::from("assert.equal failed"),
@@ -5210,7 +6166,11 @@ mod tests {
             ns: None,
         };
         let record = Value::Array(vec![
-            record_of("a title", "//lib/x/test/x", &Block::Passed { ns: Some(1_500) }),
+            record_of(
+                "a title",
+                "//lib/x/test/x",
+                &Block::Passed { ns: Some(1_500) },
+            ),
             record_of("say \"hi\"", "//lib/x/test/x", &failed(Some(diff), None)),
             record_of("scheduled", "//lib/x/test/x", &failed(None, Some(note))),
         ])
@@ -5227,7 +6187,12 @@ mod tests {
         // a rendered value: `$show` already escaped them, and the record
         // escapes what it is handed.
         assert_eq!(cases[1].name, "say \"hi\"");
-        let Verdict::Failed { message, diff: Some(d), order } = &cases[1].verdict else {
+        let Verdict::Failed {
+            message,
+            diff: Some(d),
+            order,
+        } = &cases[1].verdict
+        else {
             panic!("the failing record did not read back as a failure");
         };
         assert_eq!(message, "assert.equal failed");
@@ -5266,7 +6231,9 @@ mod tests {
     /// `ms`, the field it had instead, is not taken for one.
     #[test]
     fn a_record_from_before_times_reads_back_without_them() {
-        let cases = parse_results("[{\"module\":\"//lib/x/test/x\",\"ms\":0,\"name\":\"old\",\"ok\":true}]");
+        let cases = parse_results(
+            "[{\"module\":\"//lib/x/test/x\",\"ms\":0,\"name\":\"old\",\"ok\":true}]",
+        );
         assert_eq!(cases.len(), 1);
         assert_eq!(cases[0].ns, None);
     }
@@ -5287,7 +6254,10 @@ mod tests {
         // A block that returned says how long it took on its `left` line, once
         // per run, and the last run's line covers them all.
         let times = left_times("{\"i\":0,\"left\":1,\"ns\":7}\n{\"i\":1,\"left\":1,\"ns\":8}\n{\"i\":1,\"left\":1,\"ns\":9}\n");
-        assert_eq!((times.get(&0), times.get(&1), times.get(&2)), (Some(&7), Some(&9), None));
+        assert_eq!(
+            (times.get(&0), times.get(&1), times.get(&2)),
+            (Some(&7), Some(&9), None)
+        );
         assert_eq!(noted.message, "assert.equal failed");
         let diff = noted.diff.expect("both sides were there");
         assert_eq!((diff.actual.as_str(), diff.expected.as_str()), ("1", "2"));

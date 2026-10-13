@@ -113,9 +113,7 @@ pub(super) fn read(source: &str) -> Option<Picture> {
     let (kind, body) = data_uri(source)?;
     match kind.as_str() {
         "image/png" => decode(&body).ok().map(Picture::Raster),
-        "image/svg+xml" => {
-            Svg::parse(core::str::from_utf8(&body).ok()?).map(Picture::Vector)
-        }
+        "image/svg+xml" => Svg::parse(core::str::from_utf8(&body).ok()?).map(Picture::Vector),
         _ => None,
     }
 }
@@ -139,7 +137,11 @@ fn data_uri(source: &str) -> Option<(String, Vec<u8>)> {
     let mut parts = meta.split(';');
     let kind = parts.next().unwrap_or("").trim().to_ascii_lowercase();
     let base64ed = parts.any(|p| p.trim().eq_ignore_ascii_case("base64"));
-    let bytes = if base64ed { base64(body)? } else { percent(body) };
+    let bytes = if base64ed {
+        base64(body)?
+    } else {
+        percent(body)
+    };
     Some((kind, bytes))
 }
 
@@ -218,7 +220,12 @@ impl Image {
             .checked_add(x as usize)?
             .checked_mul(4)?;
         let slice = self.rgba.get(i..i.checked_add(4)?)?;
-        Some([*slice.first()?, *slice.get(1)?, *slice.get(2)?, *slice.get(3)?])
+        Some([
+            *slice.first()?,
+            *slice.get(1)?,
+            *slice.get(2)?,
+            *slice.get(3)?,
+        ])
     }
 }
 
@@ -246,15 +253,26 @@ fn scaled(canvas: &mut Pixmap, image: &Image, box_: Box2, opacity: f32, clip: Op
         let sy = (i64::from(y - box_.t) * i64::from(image.height)) / i64::from(height);
         for x in box_.l.max(0)..box_.r.min(cw as i32) {
             let sx = (i64::from(x - box_.l) * i64::from(image.width)) / i64::from(width);
-            let (Ok(sx), Ok(sy)) = (u32::try_from(sx), u32::try_from(sy)) else { continue };
-            let Some(source) = image.pixel(sx, sy) else { continue };
-            let i = (y as u32 as usize).saturating_mul(cw as usize).saturating_add(x as usize);
+            let (Ok(sx), Ok(sy)) = (u32::try_from(sx), u32::try_from(sy)) else {
+                continue;
+            };
+            let Some(source) = image.pixel(sx, sy) else {
+                continue;
+            };
+            let i = (y as u32 as usize)
+                .saturating_mul(cw as usize)
+                .saturating_add(x as usize);
             let coverage = clip.map_or(255, |mask| mask.data().get(i).copied().unwrap_or(0));
             let a = mul255(mul255(source[3], coverage), alpha);
             if a == 0 {
                 continue;
             }
-            let src = [mul255(source[0], a), mul255(source[1], a), mul255(source[2], a), a];
+            let src = [
+                mul255(source[0], a),
+                mul255(source[1], a),
+                mul255(source[2], a),
+                a,
+            ];
             if let Some(slot) = pixels.get_mut(i) {
                 *slot = over(src, *slot);
             }
@@ -304,7 +322,12 @@ impl Inflated {
     /// The pixels, whatever colour type, bit depth and filters they were
     /// written with.
     pub(super) fn decode(self) -> Result<Image, String> {
-        let Self { header, palette, transparency, mut raw } = self;
+        let Self {
+            header,
+            palette,
+            transparency,
+            mut raw,
+        } = self;
         unfiltered(&header, &mut raw)?;
         header.expand(raw, &palette, &transparency)
     }
@@ -314,7 +337,10 @@ impl Inflated {
     /// other shape, which only [`Self::decode`] can answer for.
     pub(super) fn rgba_rows(&self, width: u32, height: u32) -> Option<&[u8]> {
         let header = &self.header;
-        (header.colour == 6 && header.depth == 8 && header.width == width && header.height == height)
+        (header.colour == 6
+            && header.depth == 8
+            && header.width == width
+            && header.height == height)
             .then_some(self.raw.as_slice())
     }
 }
@@ -332,12 +358,21 @@ pub(super) fn inflated(png: &[u8]) -> Result<Inflated, String> {
     let mut zlib: Vec<u8> = Vec::new();
 
     while offset < png.len() {
-        let head = png.get(offset..offset.saturating_add(8)).ok_or_else(|| bad("ends mid-chunk"))?;
+        let head = png
+            .get(offset..offset.saturating_add(8))
+            .ok_or_else(|| bad("ends mid-chunk"))?;
         let len = be32(head, 0).ok_or_else(|| bad("ends mid-chunk"))? as usize;
-        let kind = head.get(4..8).ok_or_else(|| bad("ends mid-chunk"))?.to_vec();
+        let kind = head
+            .get(4..8)
+            .ok_or_else(|| bad("ends mid-chunk"))?
+            .to_vec();
         let start = offset.saturating_add(8);
-        let end = start.checked_add(len).ok_or_else(|| bad("names a chunk longer than itself"))?;
-        let data = png.get(start..end).ok_or_else(|| bad("names a chunk longer than itself"))?;
+        let end = start
+            .checked_add(len)
+            .ok_or_else(|| bad("names a chunk longer than itself"))?;
+        let data = png
+            .get(start..end)
+            .ok_or_else(|| bad("names a chunk longer than itself"))?;
         match kind.as_slice() {
             b"IHDR" => header = Some(Header::parse(data)?),
             b"PLTE" => palette = data.as_chunks::<3>().0.to_vec(),
@@ -355,7 +390,12 @@ pub(super) fn inflated(png: &[u8]) -> Result<Inflated, String> {
     if raw.len() != header.raw_bytes()? {
         return Err(bad("holds fewer rows than its header says"));
     }
-    Ok(Inflated { header, palette, transparency, raw })
+    Ok(Inflated {
+        header,
+        palette,
+        transparency,
+        raw,
+    })
 }
 
 /// What IHDR says, checked.
@@ -381,10 +421,14 @@ impl Header {
             return Err(bad(&format!("is {width}x{height}, which has no pixels")));
         }
         if width > MAX_SIDE || height > MAX_SIDE {
-            return Err(bad(&format!("is {width}x{height}, larger than this painter reads")));
+            return Err(bad(&format!(
+                "is {width}x{height}, larger than this painter reads"
+            )));
         }
         if data.get(10) != Some(&0) || data.get(11) != Some(&0) {
-            return Err(bad("uses a compression or filter method that does not exist"));
+            return Err(bad(
+                "uses a compression or filter method that does not exist",
+            ));
         }
         if interlace != 0 {
             return Err(bad("is interlaced, which this painter does not read"));
@@ -396,9 +440,16 @@ impl Header {
             _ => false,
         };
         if !ok {
-            return Err(bad(&format!("is colour type {colour} at {depth} bits, which is not a PNG")));
+            return Err(bad(&format!(
+                "is colour type {colour} at {depth} bits, which is not a PNG"
+            )));
         }
-        Ok(Self { width, height, depth, colour })
+        Ok(Self {
+            width,
+            height,
+            depth,
+            colour,
+        })
     }
 
     /// Samples to a pixel: grey, RGB, palette index, grey and alpha, RGBA.
@@ -421,7 +472,12 @@ impl Header {
 
     /// The whole raw stream: a filter byte and a row, per row.
     fn raw_bytes(&self) -> Result<usize, String> {
-        let bad = || format!("the PNG {}x{} is too large to hold", self.width, self.height);
+        let bad = || {
+            format!(
+                "the PNG {}x{} is too large to hold",
+                self.width, self.height
+            )
+        };
         self.stride()
             .and_then(|stride| stride.checked_add(1))
             .and_then(|row| row.checked_mul(self.height as usize))
@@ -450,7 +506,11 @@ impl Header {
             return Err(bad("is a palette image with no PLTE"));
         }
         if self.colour == 6 && self.depth == 8 {
-            return Ok(Image { width: self.width, height: self.height, rgba: rows });
+            return Ok(Image {
+                width: self.width,
+                height: self.height,
+                rgba: rows,
+            });
         }
         let stride = self.stride().ok_or_else(|| bad("is too wide to hold"))?;
         let mut rgba = Vec::with_capacity(pixel_bytes(self.width, self.height)?);
@@ -475,8 +535,9 @@ impl Header {
                     ],
                     3 => {
                         let at = usize::from(pixel[0]);
-                        let entry =
-                            palette.get(at).ok_or_else(|| bad("names a palette entry it has not"))?;
+                        let entry = palette
+                            .get(at)
+                            .ok_or_else(|| bad("names a palette entry it has not"))?;
                         let alpha = transparency.get(at).copied().unwrap_or(255);
                         [
                             u16::from(entry[0]),
@@ -512,7 +573,11 @@ impl Header {
                 ]);
             }
         }
-        Ok(Image { width: self.width, height: self.height, rgba })
+        Ok(Image {
+            width: self.width,
+            height: self.height,
+            rgba,
+        })
     }
 
     /// A sample at this file's depth, as an eight-bit one. One, two and four
@@ -601,7 +666,11 @@ fn unfiltered(header: &Header, raw: &mut Vec<u8>) -> Result<(), String> {
         let kind = raw[start];
         let (done, rest) = raw.split_at_mut(start);
         let row = &mut rest[1..=stride];
-        let previous = if index == 0 { &zeroes[..] } else { &done[(index - 1) * stride..index * stride] };
+        let previous = if index == 0 {
+            &zeroes[..]
+        } else {
+            &done[(index - 1) * stride..index * stride]
+        };
         unfilter(kind, row, previous, step)?;
         raw.copy_within(start + 1..start + 1 + stride, index * stride);
     }
@@ -644,7 +713,11 @@ pub(super) fn unfilter(
         }
         3 => {
             for i in 0..row.len() {
-                let a = if i >= step { u16::from(row[i - step]) } else { 0 };
+                let a = if i >= step {
+                    u16::from(row[i - step])
+                } else {
+                    0
+                };
                 row[i] = row[i].wrapping_add(((a + u16::from(previous[i])) / 2) as u8);
             }
         }
@@ -653,18 +726,26 @@ pub(super) fn unfilter(
                 row[i] = row[i].wrapping_add(paeth(0, previous[i], 0));
             }
             for i in step..row.len() {
-                row[i] =
-                    row[i].wrapping_add(paeth(row[i - step], previous[i], previous[i - step]));
+                row[i] = row[i].wrapping_add(paeth(row[i - step], previous[i], previous[i - step]));
             }
         }
-        _ => return Err(format!("the PNG uses row filter {kind}, which does not exist")),
+        _ => {
+            return Err(format!(
+                "the PNG uses row filter {kind}, which does not exist"
+            ));
+        }
     }
     Ok(())
 }
 
 fn be32(data: &[u8], at: usize) -> Option<u32> {
     let slice = data.get(at..at.checked_add(4)?)?;
-    Some(u32::from_be_bytes([*slice.first()?, *slice.get(1)?, *slice.get(2)?, *slice.get(3)?]))
+    Some(u32::from_be_bytes([
+        *slice.first()?,
+        *slice.get(1)?,
+        *slice.get(2)?,
+        *slice.get(3)?,
+    ]))
 }
 
 // ---------------------------------------------------------------------------
@@ -686,13 +767,20 @@ struct BitReader<'a> {
 
 impl<'a> BitReader<'a> {
     fn new(data: &'a [u8], at: usize) -> Self {
-        Self { data, at, held: 0, count: 0 }
+        Self {
+            data,
+            at,
+            held: 0,
+            count: 0,
+        }
     }
 
     /// Tops `held` up to at least 57 bits, or to the end of the data.
     fn refill(&mut self) {
         while self.count <= 56 {
-            let Some(&byte) = self.data.get(self.at) else { return };
+            let Some(&byte) = self.data.get(self.at) else {
+                return;
+            };
             self.held |= u64::from(byte) << self.count;
             self.count += 8;
             self.at += 1;
@@ -705,7 +793,10 @@ impl<'a> BitReader<'a> {
         if self.count < width {
             self.refill();
         }
-        ((self.held & ((1_u64 << width) - 1)) as u32, self.count.min(width))
+        (
+            (self.held & ((1_u64 << width) - 1)) as u32,
+            self.count.min(width),
+        )
     }
 
     fn consume(&mut self, width: u32) {
@@ -757,7 +848,10 @@ impl Huffman {
         if counts[0] as usize == lengths.len() {
             return None;
         }
-        let longest = (1..16_u32).rev().find(|&n| counts[n as usize] > 0).unwrap_or(1);
+        let longest = (1..16_u32)
+            .rev()
+            .find(|&n| counts[n as usize] > 0)
+            .unwrap_or(1);
         // The first code of each length, RFC 1951 §3.2.2.
         let mut next = [0_u32; 16];
         let mut code = 0_u32;
@@ -875,8 +969,9 @@ fn inflate_capped(zlib: &[u8], cap: usize) -> Result<Vec<u8>, String> {
 }
 
 /// The order the code-length code's own lengths arrive in, RFC 1951 §3.2.7.
-const CODE_LENGTH_ORDER: [usize; 19] =
-    [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+const CODE_LENGTH_ORDER: [usize; 19] = [
+    16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+];
 
 /// A dynamic block's two trees, read out of the code-length code ahead of them.
 fn dynamic_trees(reader: &mut BitReader) -> Result<(Huffman, Huffman), String> {
@@ -900,12 +995,16 @@ fn dynamic_trees(reader: &mut BitReader) -> Result<(Huffman, Huffman), String> {
     let total = literals.saturating_add(distances);
     let mut lengths: Vec<u8> = Vec::with_capacity(total);
     while lengths.len() < total {
-        let symbol = code.decode(reader).ok_or_else(|| bad("holds a code no tree has"))?;
+        let symbol = code
+            .decode(reader)
+            .ok_or_else(|| bad("holds a code no tree has"))?;
         match symbol {
             0..=15 => lengths.push(symbol as u8),
             16 => {
-                let last =
-                    lengths.last().copied().ok_or_else(|| bad("repeats a length before one"))?;
+                let last = lengths
+                    .last()
+                    .copied()
+                    .ok_or_else(|| bad("repeats a length before one"))?;
                 let more = reader.bits(2).ok_or_else(|| bad("ends mid-header"))? + 3;
                 for _ in 0..more {
                     lengths.push(last);
@@ -928,7 +1027,10 @@ fn dynamic_trees(reader: &mut BitReader) -> Result<(Huffman, Huffman), String> {
     let (lit, dist) = lengths.split_at(literals);
     let literals = Huffman::new(lit).ok_or_else(|| bad("has an empty literal tree"))?;
     // Every distance length zero is legal: a block of literals alone.
-    let distances = Huffman::new(dist).unwrap_or(Huffman { longest: 1, table: vec![0; 2] });
+    let distances = Huffman::new(dist).unwrap_or(Huffman {
+        longest: 1,
+        table: vec![0; 2],
+    });
     Ok((literals, distances))
 }
 
@@ -945,23 +1047,35 @@ fn block(
         if out.len() > cap {
             return Err(bad("writes more than the header says the image holds"));
         }
-        let symbol = literals.decode(reader).ok_or_else(|| bad("holds a code no tree has"))?;
+        let symbol = literals
+            .decode(reader)
+            .ok_or_else(|| bad("holds a code no tree has"))?;
         match symbol {
             0..=255 => out.push(symbol as u8),
             256 => return Ok(()),
             257..=285 => {
                 let index = usize::from(symbol).saturating_sub(257);
-                let (base, extra) =
-                    LENGTHS.get(index).copied().ok_or_else(|| bad("names no length"))?;
-                let more = reader.bits(u32::from(extra)).ok_or_else(|| bad("ends mid-match"))?;
+                let (base, extra) = LENGTHS
+                    .get(index)
+                    .copied()
+                    .ok_or_else(|| bad("names no length"))?;
+                let more = reader
+                    .bits(u32::from(extra))
+                    .ok_or_else(|| bad("ends mid-match"))?;
                 let length = usize::from(base).saturating_add(more as usize);
 
                 let which = usize::from(
-                    distances.decode(reader).ok_or_else(|| bad("holds a code no tree has"))?,
+                    distances
+                        .decode(reader)
+                        .ok_or_else(|| bad("holds a code no tree has"))?,
                 );
-                let (first, dextra) =
-                    DISTANCES.get(which).copied().ok_or_else(|| bad("names no distance"))?;
-                let more = reader.bits(u32::from(dextra)).ok_or_else(|| bad("ends mid-match"))?;
+                let (first, dextra) = DISTANCES
+                    .get(which)
+                    .copied()
+                    .ok_or_else(|| bad("names no distance"))?;
+                let more = reader
+                    .bits(u32::from(dextra))
+                    .ok_or_else(|| bad("ends mid-match"))?;
                 let distance = usize::from(first).saturating_add(more as usize);
 
                 if distance == 0 || distance > out.len() {
@@ -1096,7 +1210,11 @@ impl Svg {
 
         while let Some(tag) = tags.next() {
             match tag {
-                Tag::Open { name, attributes, empty } => {
+                Tag::Open {
+                    name,
+                    attributes,
+                    empty,
+                } => {
                     let inherited = match skip_from {
                         Some(_) => stack.last()?.clone(),
                         None => {
@@ -1150,7 +1268,10 @@ impl Svg {
             return;
         }
         let outer = Transform::from_translate(box_.l as f32, box_.t as f32)
-            .pre_concat(Transform::from_scale(width / self.view[2], height / self.view[3]))
+            .pre_concat(Transform::from_scale(
+                width / self.view[2],
+                height / self.view[3],
+            ))
             .pre_concat(Transform::from_translate(-self.view[0], -self.view[1]));
 
         for shape in &self.shapes {
@@ -1187,11 +1308,21 @@ impl Svg {
 impl Ink {
     fn shade<'a>(self, current: Rgba, opacity: f32) -> tiny_skia::Shader<'a> {
         let [r, g, b] = self.colour.unwrap_or([current.r, current.g, current.b]);
-        let a = (self.alpha * opacity * if self.colour.is_none() { current.a } else { 1.0 })
-            .clamp(0.0, 1.0);
-        let solid =
-            tiny_skia::Color::from_rgba(f32::from(r) / 255.0, f32::from(g) / 255.0, f32::from(b) / 255.0, a)
-                .unwrap_or(tiny_skia::Color::TRANSPARENT);
+        let a = (self.alpha
+            * opacity
+            * if self.colour.is_none() {
+                current.a
+            } else {
+                1.0
+            })
+        .clamp(0.0, 1.0);
+        let solid = tiny_skia::Color::from_rgba(
+            f32::from(r) / 255.0,
+            f32::from(g) / 255.0,
+            f32::from(b) / 255.0,
+            a,
+        )
+        .unwrap_or(tiny_skia::Color::TRANSPARENT);
         tiny_skia::Shader::SolidColor(solid)
     }
 }
@@ -1201,7 +1332,9 @@ fn frame(attributes: &[(String, String)]) -> Option<([f32; 4], (f32, f32))> {
     let declared = |name: &str| attribute(attributes, name).and_then(|v| length(&v));
     let (width, height) = (declared("width"), declared("height"));
     let view = attribute(attributes, "viewBox").and_then(|v| {
-        let mut numbers = v.split([',', ' ', '\t', '\n', '\r']).filter(|p| !p.is_empty());
+        let mut numbers = v
+            .split([',', ' ', '\t', '\n', '\r'])
+            .filter(|p| !p.is_empty());
         let mut next = || numbers.next().and_then(|n| n.parse::<f32>().ok());
         Some([next()?, next()?, next()?, next()?])
     });
@@ -1257,26 +1390,35 @@ impl Inherited {
     }
 
     fn fill_ink(&self) -> Option<Ink> {
-        self.fill.map(|colour| Ink { colour, alpha: self.opacity * self.fill_opacity })
+        self.fill.map(|colour| Ink {
+            colour,
+            alpha: self.opacity * self.fill_opacity,
+        })
     }
 
     fn stroke_ink(&self) -> Option<(Ink, Pen)> {
         let colour = self.stroke?;
         Some((
-            Ink { colour, alpha: self.opacity * self.stroke_opacity },
-            Pen { width: self.width, cap: self.cap, join: self.join },
+            Ink {
+                colour,
+                alpha: self.opacity * self.stroke_opacity,
+            },
+            Pen {
+                width: self.width,
+                cap: self.cap,
+                join: self.join,
+            },
         ))
     }
 }
 
 /// One shape element, appended if this is one.
-fn shape(
-    name: &str,
-    attributes: &[(String, String)],
-    inherited: &Inherited,
-    out: &mut Vec<Shape>,
-) {
-    let number = |key: &str| attribute(attributes, key).and_then(|v| length(&v)).unwrap_or(0.0);
+fn shape(name: &str, attributes: &[(String, String)], inherited: &Inherited, out: &mut Vec<Shape>) {
+    let number = |key: &str| {
+        attribute(attributes, key)
+            .and_then(|v| length(&v))
+            .unwrap_or(0.0)
+    };
     let mut builder = PathBuilder::new();
     match name {
         "rect" => {
@@ -1336,7 +1478,9 @@ fn shape(
             }
         }
         "path" => {
-            let Some(data) = attribute(attributes, "d") else { return };
+            let Some(data) = attribute(attributes, "d") else {
+                return;
+            };
             draw_path(&mut builder, &data);
         }
         _ => return,
@@ -1346,7 +1490,12 @@ fn shape(
     if fill.is_none() && stroke.is_none() {
         return;
     }
-    out.push(Shape { path, transform: inherited.transform, fill, stroke });
+    out.push(Shape {
+        path,
+        transform: inherited.transform,
+        fill,
+        stroke,
+    });
 }
 
 /// A rounded rectangle, its corners as the four-cubic circle every rasterizer
@@ -1369,7 +1518,10 @@ fn rounded(builder: &mut PathBuilder, x: f32, y: f32, w: f32, h: f32, rx: f32, r
 }
 
 fn attribute(attributes: &[(String, String)], name: &str) -> Option<String> {
-    attributes.iter().find(|(key, _)| key == name).map(|(_, value)| value.trim().to_string())
+    attributes
+        .iter()
+        .find(|(key, _)| key == name)
+        .map(|(_, value)| value.trim().to_string())
 }
 
 /// A user-space length: a number, with `px` allowed on it because a page writes
@@ -1428,8 +1580,10 @@ fn ink(value: &str) -> Option<Option<[u8; 3]>> {
         };
     }
     let lowered = text.to_ascii_lowercase();
-    if let Some(inner) =
-        lowered.strip_prefix("rgba(").or_else(|| lowered.strip_prefix("rgb(")).map(str::trim)
+    if let Some(inner) = lowered
+        .strip_prefix("rgba(")
+        .or_else(|| lowered.strip_prefix("rgb("))
+        .map(str::trim)
     {
         let inner = inner.strip_suffix(')')?;
         let mut parts = inner.split([',', ' ', '/']).filter(|p| !p.is_empty());
@@ -1445,7 +1599,10 @@ fn ink(value: &str) -> Option<Option<[u8; 3]>> {
         };
         return Some(Some([channel()?, channel()?, channel()?]));
     }
-    NAMED.iter().find(|(name, _)| *name == lowered).map(|(_, rgb)| Some(*rgb))
+    NAMED
+        .iter()
+        .find(|(name, _)| *name == lowered)
+        .map(|(_, rgb)| Some(*rgb))
 }
 
 // ---------------------------------------------------------------------------
@@ -1470,7 +1627,9 @@ fn transform(value: &str) -> Transform {
             .collect();
         let at = |i: usize| numbers.get(i).copied();
         let step = match (name.trim(), numbers.len()) {
-            ("translate", 1..) => Transform::from_translate(at(0).unwrap_or(0.0), at(1).unwrap_or(0.0)),
+            ("translate", 1..) => {
+                Transform::from_translate(at(0).unwrap_or(0.0), at(1).unwrap_or(0.0))
+            }
             ("scale", 1) => Transform::from_scale(at(0).unwrap_or(1.0), at(0).unwrap_or(1.0)),
             ("scale", 2..) => Transform::from_scale(at(0).unwrap_or(1.0), at(1).unwrap_or(1.0)),
             ("rotate", 1) => Transform::from_rotate(at(0).unwrap_or(0.0)),
@@ -1525,7 +1684,11 @@ fn draw_path(builder: &mut PathBuilder, data: &str) {
         }
         // Every coordinate of a relative command is against the current point,
         // which is where it was when the command started.
-        let base = if command.is_ascii_lowercase() { at } else { (0.0, 0.0) };
+        let base = if command.is_ascii_lowercase() {
+            at
+        } else {
+            (0.0, 0.0)
+        };
         let letter = command.to_ascii_uppercase();
         if letter != b'M' && letter != b'Z' && !open {
             builder.move_to(at.0, at.1);
@@ -1533,13 +1696,17 @@ fn draw_path(builder: &mut PathBuilder, data: &str) {
         }
         match letter {
             b'M' => {
-                let (Some(x), Some(y)) = (numbers.number(), numbers.number()) else { break };
+                let (Some(x), Some(y)) = (numbers.number(), numbers.number()) else {
+                    break;
+                };
                 let to = (base.0 + x, base.1 + y);
                 builder.move_to(to.0, to.1);
                 (at, start, control, open) = (to, to, to, true);
             }
             b'L' => {
-                let (Some(x), Some(y)) = (numbers.number(), numbers.number()) else { break };
+                let (Some(x), Some(y)) = (numbers.number(), numbers.number()) else {
+                    break;
+                };
                 let to = (base.0 + x, base.1 + y);
                 builder.line_to(to.0, to.1);
                 (at, control) = (to, to);
@@ -1556,14 +1723,20 @@ fn draw_path(builder: &mut PathBuilder, data: &str) {
             }
             b'C' | b'S' => {
                 let first = if letter == b'C' {
-                    let (Some(x), Some(y)) = (numbers.number(), numbers.number()) else { break };
+                    let (Some(x), Some(y)) = (numbers.number(), numbers.number()) else {
+                        break;
+                    };
                     (base.0 + x, base.1 + y)
                 } else {
                     // `S` reflects the last cubic's second handle.
                     (2.0 * at.0 - control.0, 2.0 * at.1 - control.1)
                 };
-                let (Some(x2), Some(y2)) = (numbers.number(), numbers.number()) else { break };
-                let (Some(x), Some(y)) = (numbers.number(), numbers.number()) else { break };
+                let (Some(x2), Some(y2)) = (numbers.number(), numbers.number()) else {
+                    break;
+                };
+                let (Some(x), Some(y)) = (numbers.number(), numbers.number()) else {
+                    break;
+                };
                 let second = (base.0 + x2, base.1 + y2);
                 let to = (base.0 + x, base.1 + y);
                 builder.cubic_to(first.0, first.1, second.0, second.1, to.0, to.1);
@@ -1571,22 +1744,30 @@ fn draw_path(builder: &mut PathBuilder, data: &str) {
             }
             b'Q' | b'T' => {
                 let handle = if letter == b'Q' {
-                    let (Some(x), Some(y)) = (numbers.number(), numbers.number()) else { break };
+                    let (Some(x), Some(y)) = (numbers.number(), numbers.number()) else {
+                        break;
+                    };
                     (base.0 + x, base.1 + y)
                 } else {
                     (2.0 * at.0 - control.0, 2.0 * at.1 - control.1)
                 };
-                let (Some(x), Some(y)) = (numbers.number(), numbers.number()) else { break };
+                let (Some(x), Some(y)) = (numbers.number(), numbers.number()) else {
+                    break;
+                };
                 let to = (base.0 + x, base.1 + y);
                 builder.quad_to(handle.0, handle.1, to.0, to.1);
                 (at, control) = (to, handle);
             }
             b'A' => {
-                let (Some(rx), Some(ry)) = (numbers.number(), numbers.number()) else { break };
+                let (Some(rx), Some(ry)) = (numbers.number(), numbers.number()) else {
+                    break;
+                };
                 let (Some(angle), Some(large)) = (numbers.number(), numbers.number()) else {
                     break;
                 };
-                let (Some(sweep), Some(x)) = (numbers.number(), numbers.number()) else { break };
+                let (Some(sweep), Some(x)) = (numbers.number(), numbers.number()) else {
+                    break;
+                };
                 let Some(y) = numbers.number() else { break };
                 let to = (base.0 + x, base.1 + y);
                 arc(builder, at, (rx, ry), angle, large != 0.0, sweep != 0.0, to);
@@ -1666,7 +1847,10 @@ fn arc(
     let k = 4.0 / 3.0 * (step / 4.0).tan();
     let map = |a: f32| {
         let (s, c) = a.sin_cos();
-        (cx + cos * rx * c - sin * ry * s, cy + sin * rx * c + cos * ry * s)
+        (
+            cx + cos * rx * c - sin * ry * s,
+            cy + sin * rx * c + cos * ry * s,
+        )
     };
     let tangent = |a: f32| {
         let (s, c) = a.sin_cos();
@@ -1679,7 +1863,14 @@ fn arc(
         let (qx, qy) = map(b);
         let (tax, tay) = tangent(a);
         let (tbx, tby) = tangent(b);
-        builder.cubic_to(px + k * tax, py + k * tay, qx - k * tbx, qy - k * tby, qx, qy);
+        builder.cubic_to(
+            px + k * tax,
+            py + k * tay,
+            qx - k * tbx,
+            qy - k * tby,
+            qx,
+            qy,
+        );
     }
 }
 
@@ -1691,7 +1882,10 @@ struct Numbers<'a> {
 
 impl<'a> Numbers<'a> {
     fn new(text: &'a str) -> Self {
-        Self { bytes: text.as_bytes(), at: 0 }
+        Self {
+            bytes: text.as_bytes(),
+            at: 0,
+        }
     }
 
     fn skip(&mut self) {
@@ -1740,7 +1934,10 @@ impl<'a> Numbers<'a> {
             }
             self.at = self.at.saturating_add(1);
         }
-        let text = self.bytes.get(start..self.at).and_then(|b| core::str::from_utf8(b).ok())?;
+        let text = self
+            .bytes
+            .get(start..self.at)
+            .and_then(|b| core::str::from_utf8(b).ok())?;
         text.parse::<f32>().ok().filter(|n| n.is_finite())
     }
 }
@@ -1751,7 +1948,11 @@ impl<'a> Numbers<'a> {
 
 /// One element boundary. Text between tags is not a picture, so it is skipped.
 enum Tag {
-    Open { name: String, attributes: Vec<(String, String)>, empty: bool },
+    Open {
+        name: String,
+        attributes: Vec<(String, String)>,
+        empty: bool,
+    },
     Close,
 }
 
@@ -1803,7 +2004,11 @@ impl<'a> Tags<'a> {
                 continue;
             }
             let attributes = parse_attributes(inside.get(split..).unwrap_or(""));
-            return Some(Tag::Open { name, attributes, empty });
+            return Some(Tag::Open {
+                name,
+                attributes,
+                empty,
+            });
         }
     }
 }
@@ -1818,10 +2023,15 @@ fn parse_attributes(text: &str) -> Vec<(String, String)> {
             at = at.saturating_add(1);
         }
         let start = at;
-        while bytes.get(at).is_some_and(|b| *b != b'=' && !b.is_ascii_whitespace()) {
+        while bytes
+            .get(at)
+            .is_some_and(|b| *b != b'=' && !b.is_ascii_whitespace())
+        {
             at = at.saturating_add(1);
         }
-        let Some(name) = text.get(start..at) else { break };
+        let Some(name) = text.get(start..at) else {
+            break;
+        };
         if name.is_empty() {
             break;
         }
@@ -1844,7 +2054,9 @@ fn parse_attributes(text: &str) -> Vec<(String, String)> {
         while bytes.get(at).is_some_and(|b| *b != quote) {
             at = at.saturating_add(1);
         }
-        let Some(value) = text.get(from..at) else { break };
+        let Some(value) = text.get(from..at) else {
+            break;
+        };
         at = at.saturating_add(1);
         out.push((name.to_string(), entities(value)));
     }
@@ -2057,14 +2269,23 @@ mod tests {
     #[test]
     fn colour_reads_at_both_depths() {
         assert_eq!(rgba(&png(RGB8)), vec![[255, 0, 0, 255], [0, 128, 255, 255]]);
-        assert_eq!(rgba(&png(RGB16)), vec![[255, 0, 0, 255], [0, 128, 255, 255]]);
+        assert_eq!(
+            rgba(&png(RGB16)),
+            vec![[255, 0, 0, 255], [0, 128, 255, 255]]
+        );
         assert_eq!(rgba(&png(RGBA16)), vec![[0x12, 0x56, 0x9a, 0xde]]);
     }
 
     #[test]
     fn grey_with_an_alpha_channel_reads_at_both_depths() {
-        assert_eq!(rgba(&png(GREYA8)), vec![[100, 100, 100, 255], [200, 200, 200, 0]]);
-        assert_eq!(rgba(&png(GREYA16)), vec![[100, 100, 100, 255], [200, 200, 200, 0]]);
+        assert_eq!(
+            rgba(&png(GREYA8)),
+            vec![[100, 100, 100, 255], [200, 200, 200, 0]]
+        );
+        assert_eq!(
+            rgba(&png(GREYA16)),
+            vec![[100, 100, 100, 255], [200, 200, 200, 0]]
+        );
     }
 
     #[test]
@@ -2082,7 +2303,10 @@ mod tests {
         let clear = rgba(&png(TRNS_GREY));
         assert_eq!(clear.get(1), Some(&[85, 85, 85, 0]));
         assert_eq!(clear.get(2), Some(&[170, 170, 170, 255]));
-        assert_eq!(rgba(&png(TRNS_RGB)), vec![[255, 0, 0, 255], [0, 128, 255, 0]]);
+        assert_eq!(
+            rgba(&png(TRNS_RGB)),
+            vec![[255, 0, 0, 255], [0, 128, 255, 0]]
+        );
         let palette = rgba(&png(TRNS_PAL));
         assert_eq!(palette.first(), Some(&[255, 0, 0, 0]));
         assert_eq!(palette.get(1), Some(&[0, 255, 0, 128]));
@@ -2115,13 +2339,32 @@ mod tests {
         };
         let mut canvas = Pixmap::new(size, size).expect("a canvas");
         canvas.fill(tiny_skia::Color::WHITE);
-        let box_ = Box2 { l: 0, t: 0, r: size as i32, b: size as i32 };
-        svg.draw(&mut canvas, box_, 1.0, Rgba { r: 0, g: 0, b: 255, a: 1.0 }, None);
+        let box_ = Box2 {
+            l: 0,
+            t: 0,
+            r: size as i32,
+            b: size as i32,
+        };
+        svg.draw(
+            &mut canvas,
+            box_,
+            1.0,
+            Rgba {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 1.0,
+            },
+            None,
+        );
         canvas
     }
 
     fn at(canvas: &Pixmap, x: u32, y: u32) -> [u8; 4] {
-        let p = canvas.pixel(x, y).expect("a pixel inside the canvas").demultiply();
+        let p = canvas
+            .pixel(x, y)
+            .expect("a pixel inside the canvas")
+            .demultiply();
         [p.red(), p.green(), p.blue(), p.alpha()]
     }
 
@@ -2230,8 +2473,9 @@ mod tests {
             ("matrix", "matrix(1 0 0 1 5 5)", 15, 15),
             ("two of them", "translate(5 0) translate(0 5)", 15, 15),
         ] {
-            let canvas =
-                box10(&format!("<rect width='5' height='5' fill='red' transform='{list}'/>"));
+            let canvas = box10(&format!(
+                "<rect width='5' height='5' fill='red' transform='{list}'/>"
+            ));
             assert_eq!(at(&canvas, x, y), RED, "`{name}` did not move the rect");
         }
     }
@@ -2250,7 +2494,14 @@ mod tests {
 
     #[test]
     fn every_colour_form_reads() {
-        for form in ["#f00", "#ff0000", "#ff0000ff", "rgb(255,0,0)", "rgba(255, 0, 0, 1)", "red"] {
+        for form in [
+            "#f00",
+            "#ff0000",
+            "#ff0000ff",
+            "rgb(255,0,0)",
+            "rgba(255, 0, 0, 1)",
+            "red",
+        ] {
             let canvas = box10(&format!("<rect width='10' height='10' fill='{form}'/>"));
             assert_eq!(at(&canvas, 10, 10), RED, "`{form}` did not read as red");
         }
@@ -2260,12 +2511,19 @@ mod tests {
     #[test]
     fn the_opacities_multiply_into_the_colour() {
         for attribute in ["opacity='0.5'", "fill-opacity='0.5'"] {
-            let canvas = box10(&format!("<rect width='10' height='10' fill='red' {attribute}/>"));
-            assert_eq!(at(&canvas, 10, 10), [255, 127, 127, 255], "with {attribute}");
+            let canvas = box10(&format!(
+                "<rect width='10' height='10' fill='red' {attribute}/>"
+            ));
+            assert_eq!(
+                at(&canvas, 10, 10),
+                [255, 127, 127, 255],
+                "with {attribute}"
+            );
         }
-        let canvas =
-            box10("<line x1='0' y1='5' x2='10' y2='5' stroke='red' stroke-width='4' \
-                   stroke-opacity='0.5'/>");
+        let canvas = box10(
+            "<line x1='0' y1='5' x2='10' y2='5' stroke='red' stroke-width='4' \
+                   stroke-opacity='0.5'/>",
+        );
         assert_eq!(at(&canvas, 10, 10), [255, 127, 127, 255]);
     }
 
@@ -2318,7 +2576,18 @@ mod tests {
         };
         let mut canvas = Pixmap::new(20, 20).unwrap();
         canvas.fill(tiny_skia::Color::WHITE);
-        svg.draw(&mut canvas, Box2 { l: 0, t: 0, r: 20, b: 20 }, 1.0, Rgba::BLACK, None);
+        svg.draw(
+            &mut canvas,
+            Box2 {
+                l: 0,
+                t: 0,
+                r: 20,
+                b: 20,
+            },
+            1.0,
+            Rgba::BLACK,
+            None,
+        );
         assert_eq!(at(&canvas, 10, 10), RED);
     }
 
@@ -2346,10 +2615,23 @@ mod tests {
     fn a_sized_box_scales_the_picture_into_it() {
         let source = "data:image/svg+xml,<svg viewBox='0 0 2 2'>\
                       <rect width='1' height='2' fill='red'/></svg>";
-        let Some(picture) = read(source) else { panic!("the SVG did not read") };
+        let Some(picture) = read(source) else {
+            panic!("the SVG did not read")
+        };
         let mut canvas = Pixmap::new(40, 40).unwrap();
         canvas.fill(tiny_skia::Color::WHITE);
-        picture.draw(&mut canvas, Box2 { l: 0, t: 0, r: 40, b: 40 }, 1.0, Rgba::BLACK, None);
+        picture.draw(
+            &mut canvas,
+            Box2 {
+                l: 0,
+                t: 0,
+                r: 40,
+                b: 40,
+            },
+            1.0,
+            Rgba::BLACK,
+            None,
+        );
         assert_eq!(at(&canvas, 5, 20), RED);
         assert_eq!(at(&canvas, 35, 20), WHITE);
     }

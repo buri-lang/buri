@@ -9,7 +9,10 @@ pub enum Destination {
     /// `[text](#anchor)`: a heading in this document.
     SameDocument { anchor: String },
     /// `[text](path)` or `[text](path#anchor)`.
-    File { path: String, anchor: Option<String> },
+    File {
+        path: String,
+        anchor: Option<String>,
+    },
     /// `http://` or `https://`. Outside the corpus, so nothing resolves it.
     External { url: String },
     /// `[text]()`, reported so the link checker can say so.
@@ -40,7 +43,10 @@ pub fn links(text: &str) -> Vec<Link> {
     let mut out = Vec::new();
     for (index, line) in text.lines().enumerate() {
         let line_no = index + 1;
-        if fenced.iter().any(|(first, last)| (*first..=*last).contains(&line_no)) {
+        if fenced
+            .iter()
+            .any(|(first, last)| (*first..=*last).contains(&line_no))
+        {
             continue;
         }
         let b = line.as_bytes();
@@ -84,19 +90,27 @@ pub fn links(text: &str) -> Vec<Link> {
 
 fn destination_of(destination: &str) -> Destination {
     if destination.starts_with("http://") || destination.starts_with("https://") {
-        return Destination::External { url: destination.to_string() };
+        return Destination::External {
+            url: destination.to_string(),
+        };
     }
     if let Some(anchor) = destination.strip_prefix('#') {
-        return Destination::SameDocument { anchor: anchor.to_string() };
+        return Destination::SameDocument {
+            anchor: anchor.to_string(),
+        };
     }
     if destination.is_empty() {
         return Destination::Nowhere;
     }
     match destination.split_once('#') {
-        Some((path, anchor)) => {
-            Destination::File { path: path.to_string(), anchor: Some(anchor.to_string()) }
-        }
-        None => Destination::File { path: destination.to_string(), anchor: None },
+        Some((path, anchor)) => Destination::File {
+            path: path.to_string(),
+            anchor: Some(anchor.to_string()),
+        },
+        None => Destination::File {
+            path: destination.to_string(),
+            anchor: None,
+        },
     }
 }
 
@@ -145,9 +159,16 @@ fn links_are_extracted_with_their_anchors() {
     assert_eq!(
         destinations,
         vec![
-            &Destination::SameDocument { anchor: "here".into() },
-            &Destination::File { path: "other.md".into(), anchor: None },
-            &Destination::External { url: "https://x.test".into() },
+            &Destination::SameDocument {
+                anchor: "here".into()
+            },
+            &Destination::File {
+                path: "other.md".into(),
+                anchor: None
+            },
+            &Destination::External {
+                url: "https://x.test".into()
+            },
             &Destination::Nowhere,
         ]
     );
@@ -158,17 +179,26 @@ fn a_link_inside_a_fence_is_not_a_link() {
     let text = "[a](a.md)\n```text\n[b](b.md)\n```\n  ```\n  [c](c.md)\n  ```\n[d](d.md)\n";
     let lines: Vec<usize> = links(text).iter().map(|l| l.line).collect();
     assert_eq!(lines, vec![1, 8]);
-    assert!(links("```\n[a](a.md)").is_empty(), "an unclosed fence runs to the end");
+    assert!(
+        links("```\n[a](a.md)").is_empty(),
+        "an unclosed fence runs to the end"
+    );
 }
 
 #[test]
 fn an_unclosed_fence_is_found() {
     assert_eq!(unterminated_fence("```buri"), Some(1));
-    assert_eq!(unterminated_fence("a\n```\nb\n```\n\n```text\nc\n"), Some(6));
+    assert_eq!(
+        unterminated_fence("a\n```\nb\n```\n\n```text\nc\n"),
+        Some(6)
+    );
     assert_eq!(unterminated_fence("```\n```"), None);
     assert_eq!(unterminated_fence("```\n\n\n```\n"), None);
     assert_eq!(unterminated_fence("no fences\n"), None);
-    let spec = concat!(env!("CARGO_MANIFEST_DIR"), "/../crates/docs/src/docs/SPEC.md");
+    let spec = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../crates/docs/src/docs/SPEC.md"
+    );
     let spec = std::fs::read_to_string(spec).unwrap();
     assert_eq!(unterminated_fence(&spec), None);
 }
@@ -177,7 +207,12 @@ fn an_unclosed_fence_is_found() {
 /// stop between them.
 #[test]
 fn a_malformed_document_is_read_rather_than_indexed_past() {
-    for text in ["# 🎈\n\n[é](ü.md#ñ)\n\n| á | é |\n|---|---|\n| ü | ñ |\n", "`é", "**é", "[é"] {
+    for text in [
+        "# 🎈\n\n[é](ü.md#ñ)\n\n| á | é |\n|---|---|\n| ü | ñ |\n",
+        "`é",
+        "**é",
+        "[é",
+    ] {
         let _ = links(text);
         let _ = unterminated_fence(text);
     }

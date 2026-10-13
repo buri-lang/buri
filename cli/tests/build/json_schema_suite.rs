@@ -26,18 +26,59 @@ use std::collections::BTreeMap;
 
 /// A group whose schema is refused by design, the finding it draws, and why.
 const REFUSED: &[(&str, &str, &str, &str)] = &[
-    ("vocabulary", "schema that uses custom metaschema with with no validation vocabulary", "json-schema-draft-unsupported", DRAFT),
-    ("vocabulary", "ignore unrecognized optional vocabulary", "json-schema-draft-unsupported", DRAFT),
-    ("defs", "validate definition against metaschema", "schema-outside-repository", META),
-    ("ref", "remote ref, containing refs itself", "schema-outside-repository", META),
-    ("refRemote", "remote HTTP ref with different $id", "schema-outside-repository", RETRIEVAL),
-    ("refRemote", "remote HTTP ref with different URN $id", "schema-outside-repository", RETRIEVAL),
-    ("pattern", "pattern with Unicode property escape requires unicode mode", "json-invalid-schema", UNICODE),
-    ("patternProperties", "patternProperties with Unicode property escape", "json-invalid-schema", UNICODE),
+    (
+        "vocabulary",
+        "schema that uses custom metaschema with with no validation vocabulary",
+        "json-schema-draft-unsupported",
+        DRAFT,
+    ),
+    (
+        "vocabulary",
+        "ignore unrecognized optional vocabulary",
+        "json-schema-draft-unsupported",
+        DRAFT,
+    ),
+    (
+        "defs",
+        "validate definition against metaschema",
+        "schema-outside-repository",
+        META,
+    ),
+    (
+        "ref",
+        "remote ref, containing refs itself",
+        "schema-outside-repository",
+        META,
+    ),
+    (
+        "refRemote",
+        "remote HTTP ref with different $id",
+        "schema-outside-repository",
+        RETRIEVAL,
+    ),
+    (
+        "refRemote",
+        "remote HTTP ref with different URN $id",
+        "schema-outside-repository",
+        RETRIEVAL,
+    ),
+    (
+        "pattern",
+        "pattern with Unicode property escape requires unicode mode",
+        "json-invalid-schema",
+        UNICODE,
+    ),
+    (
+        "patternProperties",
+        "patternProperties with Unicode property escape",
+        "json-invalid-schema",
+        UNICODE,
+    ),
 ];
 
 const DRAFT: &str = "only the 2020-12 meta-schema is known; a custom meta-schema is refused";
-const META: &str = "the 2020-12 meta-schema is known by name but not bundled, and nothing is fetched";
+const META: &str =
+    "the 2020-12 meta-schema is known by name but not bundled, and nothing is fetched";
 const RETRIEVAL: &str = "a schema is reached by its path or its `$id`, so a URL it was served at but does not declare reaches nothing";
 const UNICODE: &str = "`\\p{…}` is refused by name, rather than read as something else";
 
@@ -105,12 +146,18 @@ impl<'a> Raw<'a> {
                 }
             }
         }
-        Raw { text: &s[start..*at], items }
+        Raw {
+            text: &s[start..*at],
+            items,
+        }
     }
 
     fn get(&self, key: &str) -> Option<&Raw<'a>> {
         let quoted = format!("\"{key}\"");
-        self.items.iter().find(|(k, _)| *k == quoted).map(|(_, v)| v)
+        self.items
+            .iter()
+            .find(|(k, _)| *k == quoted)
+            .map(|(_, v)| v)
     }
 }
 
@@ -153,28 +200,50 @@ fn the_json_schema_test_suite() {
     let remotes = tests_dir().join("json-schema/remotes");
     let mut defs = Vec::new();
     for path in files_under(&remotes) {
-        let rel = path.strip_prefix(&remotes).unwrap().to_string_lossy().to_string();
+        let rel = path
+            .strip_prefix(&remotes)
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
         let text = std::fs::read_to_string(&path).unwrap();
         let text = match Raw::parse(&text).get("$id") {
             Some(_) => text,
-            None => text.replacen('{', &format!("{{\"$id\": \"http://localhost:1234/{rel}\", "), 1),
+            None => text.replacen(
+                '{',
+                &format!("{{\"$id\": \"http://localhost:1234/{rel}\", "),
+                1,
+            ),
         };
         s.write(&format!("lib/suite/remotes/{rel}"), &text);
-        defs.push(format!("\"r{}\": {{\"$ref\": \"remotes/{rel}\"}}", defs.len()));
+        defs.push(format!(
+            "\"r{}\": {{\"$ref\": \"remotes/{rel}\"}}",
+            defs.len()
+        ));
     }
     let defs = defs.join(", ");
 
     let dir = tests_dir().join("json-schema/tests");
-    let mut paths: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
+    let mut paths: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
     paths.sort();
     let mut groups = Vec::new();
     for path in &paths {
         let stem = path.file_stem().unwrap().to_string_lossy().to_string();
         let text = std::fs::read_to_string(path).unwrap();
         for (gi, (_, group)) in Raw::parse(&text).items.iter().enumerate() {
-            let what = group.get("description").unwrap().text.trim_matches('"').to_string();
+            let what = group
+                .get("description")
+                .unwrap()
+                .text
+                .trim_matches('"')
+                .to_string();
             let prefix = format!("{stem}-{gi}");
-            s.write(&format!("lib/suite/{prefix}.schema.json"), group.get("schema").unwrap().text);
+            s.write(
+                &format!("lib/suite/{prefix}.schema.json"),
+                group.get("schema").unwrap().text,
+            );
             s.write(
                 &format!("lib/suite/{prefix}.wrap.schema.json"),
                 &format!(
@@ -182,30 +251,52 @@ fn the_json_schema_test_suite() {
                      \"properties\": {{\"value\": {{\"$ref\": \"{prefix}.schema.json\"}}}}, \"$defs\": {{{defs}}}}}\n"
                 ),
             );
-            let refused = REFUSED.iter().find(|r| r.0 == stem && r.1 == what).map(|r| r.2);
+            let refused = REFUSED
+                .iter()
+                .find(|r| r.0 == stem && r.1 == what)
+                .map(|r| r.2);
             let mut cases = Vec::new();
             for (ci, (_, case)) in group.get("tests").unwrap().items.iter().enumerate() {
                 let file = format!("{prefix}-{ci}.json");
                 s.write(
                     &format!("lib/suite/{file}"),
-                    &format!("{{\"$schema\": \"{prefix}.wrap.schema.json\", \"value\": {}}}\n", case.get("data").unwrap().text),
+                    &format!(
+                        "{{\"$schema\": \"{prefix}.wrap.schema.json\", \"value\": {}}}\n",
+                        case.get("data").unwrap().text
+                    ),
                 );
                 let valid = case.get("valid").unwrap().text == "true";
-                let what = case.get("description").unwrap().text.trim_matches('"').to_string();
+                let what = case
+                    .get("description")
+                    .unwrap()
+                    .text
+                    .trim_matches('"')
+                    .to_string();
                 cases.push(Case { file, valid, what });
             }
-            groups.push(Group { prefix, what: format!("{stem} / {what}"), refused, cases });
+            groups.push(Group {
+                prefix,
+                what: format!("{stem} / {what}"),
+                refused,
+                cases,
+            });
         }
     }
     for r in REFUSED {
         assert!(
-            groups.iter().any(|g| g.what == format!("{} / {}", r.0, r.1)),
+            groups
+                .iter()
+                .any(|g| g.what == format!("{} / {}", r.0, r.1)),
             "REFUSED names a group the suite does not have: {} / {}",
             r.0,
             r.1
         );
     }
-    let inputs: Vec<String> = groups.iter().flat_map(|g| &g.cases).map(|c| format!("        \"{}\",\n", c.file)).collect();
+    let inputs: Vec<String> = groups
+        .iter()
+        .flat_map(|g| &g.cases)
+        .map(|c| format!("        \"{}\",\n", c.file))
+        .collect();
     s.write(
         "lib/suite/BUILD.buri",
         &format!("library {{\n    generators: [\n        {{ tool: \"//tools/gen\", inputs: [\n{}        ] }},\n    ]\n}}\n", inputs.concat()),
@@ -215,26 +306,46 @@ fn the_json_schema_test_suite() {
     run.exits(1);
     // Each file's findings, by code.
     let mut found: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for line in run.stdout.lines().chain(run.stderr.lines()).filter(|l| l.starts_with('{')) {
+    for line in run
+        .stdout
+        .lines()
+        .chain(run.stderr.lines())
+        .filter(|l| l.starts_with('{'))
+    {
         let d = buri::json::parse(line).unwrap();
-        let (Some(code), Some(file)) = (d.get("code").and_then(|c| c.as_str()), d.at("location.file").and_then(|f| f.as_str())) else {
+        let (Some(code), Some(file)) = (
+            d.get("code").and_then(|c| c.as_str()),
+            d.at("location.file").and_then(|f| f.as_str()),
+        ) else {
             continue;
         };
-        found.entry(file.trim_start_matches("lib/suite/").to_string()).or_default().push(code.to_string());
+        found
+            .entry(file.trim_start_matches("lib/suite/").to_string())
+            .or_default()
+            .push(code.to_string());
     }
 
     let mut failures = Vec::new();
     let mut cases = 0;
     for g in &groups {
-        let mine = |f: &str| f.starts_with(&format!("{}.", g.prefix)) || f.starts_with(&format!("{}-", g.prefix));
-        let codes: Vec<&String> = found.iter().filter(|(f, _)| mine(f)).flat_map(|(_, c)| c).collect();
+        let mine = |f: &str| {
+            f.starts_with(&format!("{}.", g.prefix)) || f.starts_with(&format!("{}-", g.prefix))
+        };
+        let codes: Vec<&String> = found
+            .iter()
+            .filter(|(f, _)| mine(f))
+            .flat_map(|(_, c)| c)
+            .collect();
         if let Some(code) = g.refused {
             if !codes.iter().any(|c| *c == code) {
                 failures.push(format!("{}: expected `{code}`, found {codes:?}", g.what));
             }
             continue;
         }
-        for (file, codes) in found.iter().filter(|(f, _)| f.starts_with(&format!("{}.", g.prefix))) {
+        for (file, codes) in found
+            .iter()
+            .filter(|(f, _)| f.starts_with(&format!("{}.", g.prefix)))
+        {
             failures.push(format!("{}: the schema drew {codes:?} at {file}", g.what));
         }
         for case in &g.cases {
@@ -246,12 +357,20 @@ fn the_json_schema_test_suite() {
             };
             if !ok {
                 let expected = if case.valid { "valid" } else { "invalid" };
-                failures.push(format!("{} / {} ({}): expected {expected}, found {codes:?}", g.what, case.what, case.file));
+                failures.push(format!(
+                    "{} / {} ({}): expected {expected}, found {codes:?}",
+                    g.what, case.what, case.file
+                ));
             }
         }
     }
     assert!(cases > 1000, "only {cases} cases ran");
-    assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
 
 /// A generator that answers with one module. The check runs before it, and

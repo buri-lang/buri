@@ -45,7 +45,11 @@ pub fn command_query(args: &arguments::Args) -> i32 {
     let lookup = |label: &str| -> Option<TargetId> {
         let path = label.strip_prefix("//")?;
         let id = session.workspace.package_by_path(path)?;
-        session.workspace.targets().into_iter().find(|t| t.package == id)
+        session
+            .workspace
+            .targets()
+            .into_iter()
+            .find(|t| t.package == id)
     };
 
     // Five of the six queries take one label and refuse an unknown one
@@ -93,8 +97,9 @@ pub fn command_query(args: &arguments::Args) -> i32 {
                     let mut nodes = path.iter();
                     // `dep_path` builds its answer starting from `from`, so a
                     // path it returns always has that first element.
-                    let (start, _) =
-                        nodes.next().or_ice("`dep_path` returns a path that begins at `from`");
+                    let (start, _) = nodes
+                        .next()
+                        .or_ice("`dep_path` returns a path that begins at `from`");
                     println!("{}", session.workspace.label(*start));
                     for (node, span) in nodes {
                         let where_ = match span {
@@ -163,14 +168,18 @@ pub fn command_query(args: &arguments::Args) -> i32 {
                 // A generator's input is a source of this target too: what the
                 // generator makes of it is compiled into the artifact.
                 all.extend(
-                    lib.generators.iter().flat_map(|g| g.inputs.iter().map(|x| x.value.clone())),
+                    lib.generators
+                        .iter()
+                        .flat_map(|g| g.inputs.iter().map(|x| x.value.clone())),
                 );
             }
             if let Some(bin) = &p.build.binary {
                 all.push("main.buri".to_string());
                 all.extend(bin.sources.iter().map(|x| x.value.clone()));
                 all.extend(
-                    bin.generators.iter().flat_map(|g| g.inputs.iter().map(|x| x.value.clone())),
+                    bin.generators
+                        .iter()
+                        .flat_map(|g| g.inputs.iter().map(|x| x.value.clone())),
                 );
             }
             all.sort();

@@ -65,7 +65,10 @@ pub fn add(count: Count) {
     add_n(count, 1);
 }
 
-#[expect(clippy::indexing_slicing, reason = "`COUNTS` is `COUNTS_LEN` long, one slot per `Count`")]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`COUNTS` is `COUNTS_LEN` long, one slot per `Count`"
+)]
 pub fn add_n(count: Count, n: u64) {
     if crate::profile::enabled() {
         COUNTS[count as usize].fetch_add(n, Relaxed);
@@ -88,7 +91,10 @@ pub fn explained(status: Status, action: Action) {
 /// Notes that `path` is an executable just written as a new file.
 pub fn placed(path: &Path) {
     if crate::profile::enabled() {
-        FRESH.lock().unwrap_or_else(PoisonError::into_inner).extend(std::fs::canonicalize(path).ok());
+        FRESH
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .extend(std::fs::canonicalize(path).ok());
     }
 }
 
@@ -101,7 +107,9 @@ pub fn moved(from: &Path, to: Option<&Path>) {
     // A path that doesn't resolve is none of the noted ones, which all did.
     let from = std::fs::canonicalize(from).ok();
     let mut fresh = FRESH.lock().unwrap_or_else(PoisonError::into_inner);
-    let Some(at) = fresh.iter().position(|p| from.as_ref() == Some(p)) else { return };
+    let Some(at) = fresh.iter().position(|p| from.as_ref() == Some(p)) else {
+        return;
+    };
     fresh.swap_remove(at);
     if let Some(to) = to.and_then(|to| std::fs::canonicalize(to).ok()) {
         fresh.push(to);
@@ -124,5 +132,9 @@ pub fn started(program: &std::ffi::OsStr) {
 
 /// One `<name> <count>` line per count, for the profile report.
 pub fn lines() -> String {
-    NAMES.iter().zip(&COUNTS).map(|(name, n)| format!("{name} {}\n", n.load(Relaxed))).collect()
+    NAMES
+        .iter()
+        .zip(&COUNTS)
+        .map(|(name, n)| format!("{name} {}\n", n.load(Relaxed)))
+        .collect()
 }

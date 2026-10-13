@@ -174,7 +174,9 @@ impl Pattern {
             return Err(format!("`{s}` has a trailing slash"));
         }
         if rest.contains("...") {
-            return Err(format!("`{s}` is not a label; the only pattern forms are `//pkg/...` and `//...`"));
+            return Err(format!(
+                "`{s}` is not a label; the only pattern forms are `//pkg/...` and `//...`"
+            ));
         }
         Ok(Pattern::Package(rest.to_string()))
     }
@@ -191,8 +193,7 @@ impl Pattern {
             // The asymmetry is load-bearing until somebody decides which of the
             // two is wrong; merging the arms is not a behaviour-preserving edit.
             Pattern::Recursive(p) => {
-                package_path == p
-                    || (p.is_empty() || package_path.starts_with(&format!("{p}/")))
+                package_path == p || (p.is_empty() || package_path.starts_with(&format!("{p}/")))
             }
         }
     }
@@ -307,7 +308,9 @@ pub enum ModuleKind {
 #[derive(Clone, Debug)]
 pub enum ModuleLocation {
     /// A `core/...` module, shipping with the toolchain.
-    Std { path: String },
+    Std {
+        path: String,
+    },
     InPackage(PackageModule),
 }
 
@@ -366,5 +369,7 @@ pub fn names_a_file(path: &str) -> bool {
 /// Any module path with a `testing` segment is test-only. The rule is in the
 /// import line rather than in a build file three directories away.
 pub fn is_test_only_path(path: &str) -> bool {
-    path.trim_start_matches("//").split('/').any(|seg| seg == "testing")
+    path.trim_start_matches("//")
+        .split('/')
+        .any(|seg| seg == "testing")
 }

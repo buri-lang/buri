@@ -32,7 +32,11 @@ fn ran_bounded(binary: &std::path::Path) -> Ran {
     if let Some(mut pipe) = child.stderr.take() {
         let _ = std::io::Read::read_to_string(&mut pipe, &mut stderr);
     }
-    Ran { status: status.code().unwrap_or(-1), stdout, stderr }
+    Ran {
+        status: status.code().unwrap_or(-1),
+        stdout,
+        stderr,
+    }
 }
 
 /// One program on every native backend built in, each with the allocation
@@ -96,7 +100,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
     for (backend, r) in run_each("actor-scoped-keeps-state", source) {
-        assert_eq!(r.status, 0, "{backend}: stdout:\n{}\nstderr:\n{}", r.stdout, r.stderr);
+        assert_eq!(
+            r.status, 0,
+            "{backend}: stdout:\n{}\nstderr:\n{}",
+            r.stdout, r.stderr
+        );
         assert_eq!(r.stdout, "answered 300 of 400\n", "{backend}: {}", r.stderr);
         let (blocks, live) = probed(&r.stderr);
         assert!(
@@ -104,7 +112,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             "{backend}: three hundred messages to an actor that keeps a 400-entry state made \
              {blocks} blocks inside a scope, so each crossing copied the whole state"
         );
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -252,7 +263,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
     for (backend, r) in run_each("actor-scoped-outlives", source) {
-        assert_eq!(r.status, 0, "{backend}: stdout:\n{}\nstderr:\n{}", r.stdout, r.stderr);
+        assert_eq!(
+            r.status, 0,
+            "{backend}: stdout:\n{}\nstderr:\n{}",
+            r.stdout, r.stderr
+        );
         assert_eq!(
             r.stdout.lines().collect::<Vec<_>>(),
             vec![
@@ -265,7 +280,10 @@ export fn main(host: NativeHost): Result<(), Str> {
             r.stderr
         );
         let (blocks, live) = probed(&r.stderr);
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }
 
@@ -379,14 +397,25 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
     for (backend, r) in run_each("actor-scoped-fanned-out", source) {
-        assert_eq!(r.status, 0, "{backend}: stdout:\n{}\nstderr:\n{}", r.stdout, r.stderr);
+        assert_eq!(
+            r.status, 0,
+            "{backend}: stdout:\n{}\nstderr:\n{}",
+            r.stdout, r.stderr
+        );
         assert_eq!(
             r.stdout.lines().collect::<Vec<_>>(),
-            vec!["first 3 posted 9 churned 8 70000", "kept 8 of 11 seeds 3", "stopped true"],
+            vec![
+                "first 3 posted 9 churned 8 70000",
+                "kept 8 of 11 seeds 3",
+                "stopped true"
+            ],
             "{backend}: {}",
             r.stderr
         );
         let (blocks, live) = probed(&r.stderr);
-        assert_eq!(live, 0, "{backend}: {blocks} blocks allocated and {live} still live at exit");
+        assert_eq!(
+            live, 0,
+            "{backend}: {blocks} blocks allocated and {live} still live at exit"
+        );
     }
 }

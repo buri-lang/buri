@@ -28,8 +28,8 @@ pub mod build;
 pub mod clean;
 pub mod format;
 pub mod generate;
-pub mod interrupt;
 pub mod init;
+pub mod interrupt;
 pub mod lint;
 /// What the last lint pass found for a target, kept in `.buri/cache` so that a
 /// second run re-analyses only the targets whose closure moved.
@@ -380,7 +380,11 @@ pub fn flag(name: &str) -> Option<&'static Flag> {
 
 /// The commands that accept a flag, for the "you wanted one of these" message.
 pub fn commands_taking(name: &str) -> Vec<&'static str> {
-    COMMANDS.iter().filter(|c| c.flags.contains(&name)).map(|c| c.name).collect()
+    COMMANDS
+        .iter()
+        .filter(|c| c.flags.contains(&name))
+        .map(|c| c.name)
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +407,15 @@ pub const COMMANDS: &[Command] = &[
         args: "[targets]",
         blurb: "compile",
         doc: crate::documentation::embedded::cli::BUILD,
-        flags: &["release", "debug", "output", "force", "explain", "check-reproducible", "dense"],
+        flags: &[
+            "release",
+            "debug",
+            "output",
+            "force",
+            "explain",
+            "check-reproducible",
+            "dense",
+        ],
         run: |args| once(args, build::command_build),
         subcommands: &[],
         hidden: false,
@@ -414,8 +426,8 @@ pub const COMMANDS: &[Command] = &[
         blurb: "compile and run test suites",
         doc: crate::documentation::embedded::cli::TEST,
         flags: &[
-            "release", "debug", "output", "filter", "force", "explain", "watch", "dense",
-            "update", "jobs", "coverage",
+            "release", "debug", "output", "filter", "force", "explain", "watch", "dense", "update",
+            "jobs", "coverage",
         ],
         run: |args| once(args, test::command_test),
         subcommands: &[],
@@ -426,7 +438,9 @@ pub const COMMANDS: &[Command] = &[
         args: "<target> [-- args]",
         blurb: "build one binary and execute it",
         doc: crate::documentation::embedded::cli::RUN,
-        flags: &["release", "debug", "output", "force", "explain", "dense", "port", "watch"],
+        flags: &[
+            "release", "debug", "output", "force", "explain", "dense", "port", "watch",
+        ],
         run: run::command_run,
         subcommands: &[],
         hidden: false,
@@ -552,7 +566,10 @@ fn counted(args: &Args, command: fn(&Args) -> i32) -> i32 {
     let code = command(args);
     if crate::profile::enabled() {
         eprintln!("graph work {}", crate::build::workspace::graph_work());
-        eprintln!("modules loaded {}", crate::compiler::modules::modules_loaded());
+        eprintln!(
+            "modules loaded {}",
+            crate::compiler::modules::modules_loaded()
+        );
         eprint!("{}", crate::build::counted::lines());
     }
     code
@@ -623,10 +640,22 @@ fn rows() -> Vec<(String, &'static str, &'static str)> {
 /// The help for one namespace: what `buri add` alone prints, and what its two
 /// refusals print under them. Generated from the same table that dispatches.
 pub fn subcommand_usage(name: &str) -> String {
-    let Some(c) = find(name) else { return String::new() };
+    let Some(c) = find(name) else {
+        return String::new();
+    };
     let mut out = format!("buri {} — {}\n\n", c.name, c.blurb);
-    let name_width = c.subcommands.iter().map(|s| s.name.len()).max().unwrap_or(0);
-    let width = c.subcommands.iter().map(|s| s.args.len()).max().unwrap_or(0);
+    let name_width = c
+        .subcommands
+        .iter()
+        .map(|s| s.name.len())
+        .max()
+        .unwrap_or(0);
+    let width = c
+        .subcommands
+        .iter()
+        .map(|s| s.args.len())
+        .max()
+        .unwrap_or(0);
     for s in c.subcommands {
         let _ = writeln!(
             out,
@@ -693,7 +722,11 @@ pub fn reference(c: &Command) -> String {
     if !c.subcommands.is_empty() {
         out.push_str("## Subcommands\n\n| Subcommand | What it does |\n|---|---|\n");
         for s in c.subcommands {
-            let _ = writeln!(out, "| `buri {} {} {}` | {} |", c.name, s.name, s.args, s.blurb);
+            let _ = writeln!(
+                out,
+                "| `buri {} {} {}` | {} |",
+                c.name, s.name, s.args, s.blurb
+            );
         }
         out.push('\n');
     }
@@ -732,7 +765,11 @@ mod tests {
         let mut seen = HashSet::new();
         for c in COMMANDS {
             assert!(seen.insert(c.name), "`{}` is registered twice", c.name);
-            assert!(!c.doc.trim().is_empty(), "`buri {}` has no prose page", c.name);
+            assert!(
+                !c.doc.trim().is_empty(),
+                "`buri {}` has no prose page",
+                c.name
+            );
         }
     }
 
@@ -743,7 +780,11 @@ mod tests {
     fn flags_and_commands_agree() {
         for c in COMMANDS {
             for name in c.flags {
-                assert!(flag(name).is_some(), "`buri {}` lists unknown flag `--{name}`", c.name);
+                assert!(
+                    flag(name).is_some(),
+                    "`buri {}` lists unknown flag `--{name}`",
+                    c.name
+                );
                 assert!(
                     !flag(name).unwrap().global,
                     "`--{name}` is global; `buri {}` should not list it",
@@ -797,8 +838,18 @@ mod tests {
         for c in COMMANDS {
             let mut seen = HashSet::new();
             for s in c.subcommands {
-                assert!(seen.insert(s.name), "`buri {} {}` is registered twice", c.name, s.name);
-                assert!(!s.blurb.trim().is_empty(), "`buri {} {}` has no blurb", c.name, s.name);
+                assert!(
+                    seen.insert(s.name),
+                    "`buri {} {}` is registered twice",
+                    c.name,
+                    s.name
+                );
+                assert!(
+                    !s.blurb.trim().is_empty(),
+                    "`buri {} {}` has no blurb",
+                    c.name,
+                    s.name
+                );
                 assert!(
                     !s.name.contains(' '),
                     "`{}` is two words; a subcommand of a subcommand is another table",
@@ -828,9 +879,18 @@ mod tests {
     #[test]
     fn a_namespace_prints_what_it_can_be_asked_for() {
         let text = subcommand_usage("add");
-        assert!(text.contains("buri add skills"), "the list omits the one subcommand there is");
-        assert!(text.contains("buri docs cli add"), "the list does not say where the page is");
-        assert!(subcommand_usage("nonesuch").is_empty(), "a command that is not there has no list");
+        assert!(
+            text.contains("buri add skills"),
+            "the list omits the one subcommand there is"
+        );
+        assert!(
+            text.contains("buri docs cli add"),
+            "the list does not say where the page is"
+        );
+        assert!(
+            subcommand_usage("nonesuch").is_empty(),
+            "a command that is not there has no list"
+        );
     }
 
     /// Both ways of asking for a subcommand that is not there: none named, and

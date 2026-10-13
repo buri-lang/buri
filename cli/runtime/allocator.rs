@@ -187,7 +187,10 @@ impl Drop for Held {
 }
 
 fn lock(flag: &'static AtomicBool) -> Held {
-    while flag.compare_exchange_weak(false, true, Acquire, Relaxed).is_err() {
+    while flag
+        .compare_exchange_weak(false, true, Acquire, Relaxed)
+        .is_err()
+    {
         std::thread::yield_now();
     }
     Held(flag)
@@ -225,7 +228,14 @@ fn reserve() -> *mut u8 {
     use std::ffi::c_void;
     // `c_void`, as `memory.rs` declares them in the runtime.
     unsafe extern "C" {
-        fn mmap(addr: *mut c_void, len: usize, prot: i32, flags: i32, fd: i32, offset: i64) -> *mut c_void;
+        fn mmap(
+            addr: *mut c_void,
+            len: usize,
+            prot: i32,
+            flags: i32,
+            fd: i32,
+            offset: i64,
+        ) -> *mut c_void;
         fn munmap(addr: *mut c_void, len: usize) -> i32;
     }
     const PROT_READ_WRITE: i32 = 1 | 2;
@@ -578,7 +588,10 @@ pub mod valgrind;
 ///
 /// # Safety
 /// `chunk` has a non-zero size.
-#[cfg_attr(all(feature = "valgrind", target_env = "musl", not(test)), inline(never))]
+#[cfg_attr(
+    all(feature = "valgrind", target_env = "musl", not(test)),
+    inline(never)
+)]
 #[cfg_attr(not(all(feature = "valgrind", target_env = "musl", not(test))), inline)]
 unsafe fn system_alloc(chunk: Layout, size: usize, zeroed: bool) -> *mut u8 {
     if valgrind::MUSL && valgrind::memcheck() {
@@ -586,7 +599,13 @@ unsafe fn system_alloc(chunk: Layout, size: usize, zeroed: bool) -> *mut u8 {
         return unsafe { valgrind::alloc(chunk, size, zeroed) };
     }
     // SAFETY: forwarded.
-    let p = unsafe { if zeroed { System.alloc_zeroed(chunk) } else { System.alloc(chunk) } };
+    let p = unsafe {
+        if zeroed {
+            System.alloc_zeroed(chunk)
+        } else {
+            System.alloc(chunk)
+        }
+    };
     if valgrind::MUSL && !p.is_null() && valgrind::helgrind() {
         valgrind::fresh(p, chunk.size());
     }
@@ -597,7 +616,10 @@ unsafe fn system_alloc(chunk: Layout, size: usize, zeroed: bool) -> *mut u8 {
 ///
 /// # Safety
 /// `p` came from [`system_alloc`] for `chunk`.
-#[cfg_attr(all(feature = "valgrind", target_env = "musl", not(test)), inline(never))]
+#[cfg_attr(
+    all(feature = "valgrind", target_env = "musl", not(test)),
+    inline(never)
+)]
 #[cfg_attr(not(all(feature = "valgrind", target_env = "musl", not(test))), inline)]
 unsafe fn system_dealloc(p: *mut u8, chunk: Layout) {
     if valgrind::annotating() {
@@ -744,7 +766,10 @@ unsafe impl GlobalAlloc for Allocator {
             let mut head = remote.blocks.load(Relaxed);
             loop {
                 p.cast::<*mut u8>().write(head);
-                match remote.blocks.compare_exchange_weak(head, p, Release, Relaxed) {
+                match remote
+                    .blocks
+                    .compare_exchange_weak(head, p, Release, Relaxed)
+                {
                     Ok(_) => break,
                     Err(now) => head = now,
                 }
@@ -815,7 +840,10 @@ unsafe impl GlobalAlloc for Allocator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{mpsc, Mutex, MutexGuard};
+    // Two lines: `buri` (2021) and `buri-rt-tests` (2024) both build this
+    // file, and their `cargo fmt` styles sort one braced list differently.
+    use std::sync::mpsc;
+    use std::sync::{Mutex, MutexGuard};
 
     /// One test at a time: they share the pool and the page counter. Nothing
     /// else in this binary uses `Allocator`, whose global is the system's.
@@ -838,7 +866,10 @@ mod tests {
 
     unsafe fn check(p: *mut u8, size: usize, seed: usize) {
         for i in 0..size {
-            assert_eq!(unsafe { p.add(i).read() }, seed.wrapping_mul(31).wrapping_add(i) as u8);
+            assert_eq!(
+                unsafe { p.add(i).read() },
+                seed.wrapping_mul(31).wrapping_add(i) as u8
+            );
         }
     }
 
@@ -927,8 +958,9 @@ mod tests {
         const N: usize = 4 * PAGE / 48;
         std::thread::scope(|s| {
             s.spawn(|| {
-                let blocks: Vec<usize> =
-                    (0..N).map(|_| unsafe { Allocator.alloc(layout(48)) } as usize).collect();
+                let blocks: Vec<usize> = (0..N)
+                    .map(|_| unsafe { Allocator.alloc(layout(48)) } as usize)
+                    .collect();
                 std::thread::scope(|s| {
                     s.spawn(|| {
                         for &p in &blocks {
@@ -937,8 +969,9 @@ mod tests {
                     });
                 });
                 let before = NEXT_PAGE.load(Relaxed);
-                let again: Vec<usize> =
-                    (0..N).map(|_| unsafe { Allocator.alloc(layout(48)) } as usize).collect();
+                let again: Vec<usize> = (0..N)
+                    .map(|_| unsafe { Allocator.alloc(layout(48)) } as usize)
+                    .collect();
                 let mut sorted = again.clone();
                 sorted.sort_unstable();
                 sorted.dedup();
@@ -957,8 +990,9 @@ mod tests {
         const N: usize = 16 * PAGE / 48;
         std::thread::scope(|s| {
             s.spawn(|| {
-                let blocks: Vec<usize> =
-                    (0..N).map(|_| unsafe { Allocator.alloc(layout(48)) } as usize).collect();
+                let blocks: Vec<usize> = (0..N)
+                    .map(|_| unsafe { Allocator.alloc(layout(48)) } as usize)
+                    .collect();
                 std::thread::scope(|s| {
                     s.spawn(|| {
                         for &p in &blocks {
@@ -986,8 +1020,9 @@ mod tests {
         let n = (KEEP + 64) * PAGE / 1024;
         std::thread::scope(|s| {
             s.spawn(|| {
-                let blocks: Vec<usize> =
-                    (0..n).map(|_| unsafe { Allocator.alloc(layout(1000)) } as usize).collect();
+                let blocks: Vec<usize> = (0..n)
+                    .map(|_| unsafe { Allocator.alloc(layout(1000)) } as usize)
+                    .collect();
                 for &p in &blocks {
                     unsafe { Allocator.dealloc(p as *mut u8, layout(1000)) };
                 }
@@ -998,8 +1033,9 @@ mod tests {
                 assert!(RELEASED_TOP.load(Relaxed) >= released + 32);
                 // Every page comes back from the pool or the released stack.
                 let before = NEXT_PAGE.load(Relaxed);
-                let again: Vec<usize> =
-                    (0..n).map(|_| unsafe { Allocator.alloc(layout(1000)) } as usize).collect();
+                let again: Vec<usize> = (0..n)
+                    .map(|_| unsafe { Allocator.alloc(layout(1000)) } as usize)
+                    .collect();
                 assert_eq!(NEXT_PAGE.load(Relaxed), before);
                 for (i, &p) in again.iter().enumerate() {
                     unsafe { fill(p as *mut u8, 1000, i) };

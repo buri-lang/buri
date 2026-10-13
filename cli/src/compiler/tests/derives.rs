@@ -4,7 +4,9 @@
 
 use crate::compiler::middle::derives::*;
 use crate::compiler::middle::monomorphize::{self, Program};
-use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt, TemplatePart};
+use crate::compiler::semantics::typed::{
+    self, Expr, ExprKind, PatKind, Pattern, Stmt, TemplatePart,
+};
 use crate::compiler::semantics::types::FuncIdx;
 use crate::diagnostics::{Diagnostics, SourceMap};
 
@@ -29,7 +31,12 @@ fn compile(src: &str) -> (Program, crate::compiler::semantics::types::Tables) {
     assert!(errors.is_empty(), "the snippet did not compile: {errors:?}");
     let entry = analysis.checked.entry.expect("the snippet exports `main`");
     let mut diags = Diagnostics::new();
-    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut program = monomorphize::run(
         &analysis.checked,
         paths,
@@ -65,10 +72,19 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// functions print by symbol so that a golden does not move when an
 /// unrelated function is added to the program.
 fn print(program: &Program, f: FuncIdx) -> String {
-    let Some(func) = program.funcs.get(f.index()) else { return "<missing>".into() };
-    let Some(body) = func.body() else { return format!("{} = <unbuilt>", name_of(program, f)) };
+    let Some(func) = program.funcs.get(f.index()) else {
+        return "<missing>".into();
+    };
+    let Some(body) = func.body() else {
+        return format!("{} = <unbuilt>", name_of(program, f));
+    };
     let params: Vec<String> = func.params.iter().map(|p| format!("l{}", p.0)).collect();
-    format!("{}({}) = {}", name_of(program, f), params.join(", "), sexp(program, body))
+    format!(
+        "{}({}) = {}",
+        name_of(program, f),
+        params.join(", "),
+        sexp(program, body)
+    )
 }
 
 fn name_of(program: &Program, f: FuncIdx) -> String {
@@ -76,12 +92,10 @@ fn name_of(program: &Program, f: FuncIdx) -> String {
         // The trailing `$<descriptor>` is an interning detail, and a golden
         // that carried it would move whenever an unrelated type was
         // described first.
-        Some(func) if func.symbol.starts_with("$derive$") => {
-            match func.symbol.rfind('$') {
-                Some(cut) => func.symbol.get(..cut).unwrap_or(&func.symbol).to_string(),
-                None => func.symbol.clone(),
-            }
-        }
+        Some(func) if func.symbol.starts_with("$derive$") => match func.symbol.rfind('$') {
+            Some(cut) => func.symbol.get(..cut).unwrap_or(&func.symbol).to_string(),
+            None => func.symbol.clone(),
+        },
         _ => format!("f{}", f.0),
     }
 }
@@ -179,7 +193,9 @@ fn pat(p: &Pattern) -> String {
     match &p.kind {
         PatKind::Wild => "_".into(),
         PatKind::Bind { local, .. } => format!("l{}", local.0),
-        PatKind::Variant { variant, fields, .. } => {
+        PatKind::Variant {
+            variant, fields, ..
+        } => {
             let fs: Vec<String> = fields.iter().map(|f| pat(&f.pattern)).collect();
             if fs.is_empty() {
                 format!(".v{variant}")
@@ -222,12 +238,22 @@ fn printed(program: &Program, out: &Derives, op: Op) -> Vec<String> {
 #[test]
 fn every_derive_call_site_becomes_a_direct_call() {
     let (mut program, _) = compile(POINT);
-    assert!(!remaining(&program).is_empty(), "the JS-shaped program has the intrinsics");
+    assert!(
+        !remaining(&program).is_empty(),
+        "the JS-shaped program has the intrinsics"
+    );
     let out = run(&mut program);
     assert_eq!(remaining(&program), Vec::<String>::new());
-    assert!(out.rewritten >= 4, "four operations at least: {}", out.rewritten);
+    assert!(
+        out.rewritten >= 4,
+        "four operations at least: {}",
+        out.rewritten
+    );
     for i in &out.instances {
-        let f = program.funcs.get(i.func.index()).expect("a generated function");
+        let f = program
+            .funcs
+            .get(i.func.index())
+            .expect("a generated function");
         assert!(f.body().is_some(), "{} has no body", f.symbol);
     }
 }
@@ -331,7 +357,10 @@ export fn main(host: NodeHost): Result<(), Str> {
     let _ = run(&mut program);
     // `joiner_of` asserts there is at most one, and both shapes render five
     // pieces, so finding it at all is the sharing.
-    assert!(joiner_of(&program, 5).is_some(), "the arity-5 joiner is shared");
+    assert!(
+        joiner_of(&program, 5).is_some(),
+        "the arity-5 joiner is shared"
+    );
 }
 
 /// Hashing threads an accumulator and mirrors `$hashInto`: the field count
@@ -412,7 +441,8 @@ export fn main(host: NodeHost): Result<(), Str> {
     let out = run(&mut program);
     let eqs = printed(&program, &out, Op::Eq);
     assert!(
-        eqs.iter().any(|s| s.contains("deriveArrayEq(l0, l1, &$derive$eq$P)")),
+        eqs.iter()
+            .any(|s| s.contains("deriveArrayEq(l0, l1, &$derive$eq$P)")),
         "{eqs:?}"
     );
 }
@@ -444,14 +474,26 @@ export fn main(host: NodeHost): Result<(), Str> {
 "#;
     let (mut program, _) = compile(src);
     let out = run(&mut program);
-    let eq: Vec<FuncIdx> =
-        out.routes.iter().filter(|(o, _, _)| *o == Op::Eq).map(|(_, _, f)| *f).collect();
+    let eq: Vec<FuncIdx> = out
+        .routes
+        .iter()
+        .filter(|(o, _, _)| *o == Op::Eq)
+        .map(|(_, _, f)| *f)
+        .collect();
     assert_eq!(eq.len(), 2, "two descriptors ask for equality");
     assert_eq!(eq.first(), eq.get(1), "and one function answers both");
-    let show: Vec<FuncIdx> =
-        out.routes.iter().filter(|(o, _, _)| *o == Op::Show).map(|(_, _, f)| *f).collect();
+    let show: Vec<FuncIdx> = out
+        .routes
+        .iter()
+        .filter(|(o, _, _)| *o == Op::Show)
+        .map(|(_, _, f)| *f)
+        .collect();
     assert_eq!(show.len(), 2);
-    assert_ne!(show.first(), show.get(1), "rendering prints the name, so it does not share");
+    assert_ne!(
+        show.first(),
+        show.get(1),
+        "rendering prints the name, so it does not share"
+    );
 }
 
 /// A type that contains itself terminates, because the function is claimed
@@ -476,14 +518,21 @@ export fn main(host: NodeHost): Result<(), Str> {
     let (mut program, _) = compile(src);
     let out = run(&mut program);
     assert!(
-        out.instances.iter().any(|i| i.op == Op::Eq && i.shape.contains('^')),
+        out.instances
+            .iter()
+            .any(|i| i.op == Op::Eq && i.shape.contains('^')),
         "the shape key closes its own cycle"
     );
-    let all: Vec<String> = out.instances.iter().map(|i| print(&program, i.func)).collect();
+    let all: Vec<String> = out
+        .instances
+        .iter()
+        .map(|i| print(&program, i.func))
+        .collect();
     // `Rose` calls the list's function, and the list's function calls back
     // into `Rose` — the cycle the reserved slot exists for.
     assert!(
-        all.iter().any(|s| s.starts_with("$derive$eq$Rose") && s.contains("$derive$eq$list")),
+        all.iter()
+            .any(|s| s.starts_with("$derive$eq$Rose") && s.contains("$derive$eq$list")),
         "{all:?}"
     );
     assert!(
@@ -565,7 +614,10 @@ export fn main(host: NodeHost): Result<(), Str> {
         .filter_map(|f| f.body())
         .any(|b| matches!(b.kind, ExprKind::Loop { .. }));
     assert!(looped, "`tail_calls` made a loop of it");
-    assert!(!remaining(&program).is_empty(), "and the derive is inside it");
+    assert!(
+        !remaining(&program).is_empty(),
+        "and the derive is inside it"
+    );
     let out = run(&mut program);
     assert_eq!(remaining(&program), Vec::<String>::new());
     assert!(out.rewritten > 0);
@@ -583,7 +635,10 @@ fn the_js_path_still_carries_descriptor_walks() {
         crate::compiler::backend::Profile::Debug,
     );
     let code = crate::compiler::backend::js::javascript::print(&js.stmts, true);
-    assert!(code.contains("$D0"), "the descriptor table is still emitted");
+    assert!(
+        code.contains("$D0"),
+        "the descriptor table is still emitted"
+    );
     assert!(!code.contains("$derive$"), "and nothing generated is in it");
     // Running the native pass afterwards must not be what a JavaScript
     // build did: it is a different branch of the pipeline entirely.

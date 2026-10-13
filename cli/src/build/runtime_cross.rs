@@ -138,11 +138,18 @@ pub fn resolve(target: Target) -> Result<Cross, link_refusal::Refusal> {
     use std::sync::Mutex;
     static MEMO: Mutex<Vec<(Target, Result<Cross, link_refusal::Refusal>)>> =
         Mutex::new(Vec::new());
-    if let Some((_, answer)) = MEMO.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().find(|(t, _)| *t == target) {
+    if let Some((_, answer)) = MEMO
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .find(|(t, _)| *t == target)
+    {
         return answer.clone();
     }
     let answer = resolve_uncached(target);
-    MEMO.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((target, answer.clone()));
+    MEMO.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push((target, answer.clone()));
     answer
 }
 
@@ -325,7 +332,11 @@ fn build_in(
 /// failed those links with `cannot write the musl sysroot … No such file or
 /// directory`. Only a directory [`read_cache`] does not accept, which no
 /// process can be using, is replaced.
-fn publish(tmp: &Path, dir: &Path, features: &[String]) -> Result<Option<Cross>, link_refusal::Refusal> {
+fn publish(
+    tmp: &Path,
+    dir: &Path,
+    features: &[String],
+) -> Result<Option<Cross>, link_refusal::Refusal> {
     if std::fs::rename(tmp, dir).is_ok() {
         return Ok(None);
     }
@@ -401,7 +412,14 @@ fn run_cargo(
              cross build needs the network if they are not already fetched"
         ),
     );
-    for line in last.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev() {
+    for line in last
+        .lines()
+        .rev()
+        .take(8)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+    {
         refusal.notes.push(line.to_string());
     }
     Err(refusal)
@@ -513,9 +531,14 @@ fn tool(var: &str, default: &str) -> String {
 /// was never installed, so the `libc.a` inside is the answer rather than the
 /// path.
 fn self_contained(rustc: &str, triple: &str) -> Option<PathBuf> {
-    let out = crate::build::spawn::output(Command::new(rustc).args(["--print", "target-libdir", "--target", triple]))
-        .ok()
-        .filter(|o| o.status.success())?;
+    let out = crate::build::spawn::output(Command::new(rustc).args([
+        "--print",
+        "target-libdir",
+        "--target",
+        triple,
+    ]))
+    .ok()
+    .filter(|o| o.status.success())?;
     let libdir = PathBuf::from(String::from_utf8(out.stdout).ok()?.trim().to_string());
     let dir = libdir.join("self-contained");
     dir.join("libc.a").is_file().then_some(dir)
@@ -553,7 +576,11 @@ pub fn rust_lld_dir() -> Option<PathBuf> {
     let rustc = tool("RUSTC", "rustc");
     let sysroot = tool_version(&rustc, &["--print", "sysroot"])?;
     let host = host_triple(&rustc)?;
-    let bin = PathBuf::from(sysroot.trim()).join("lib").join("rustlib").join(host).join("bin");
+    let bin = PathBuf::from(sysroot.trim())
+        .join("lib")
+        .join("rustlib")
+        .join(host)
+        .join("bin");
     ["gcc-ld-unwrapped", "gcc-ld"]
         .into_iter()
         .map(|name| bin.join(name))
@@ -697,7 +724,10 @@ mod tests {
             use std::os::unix::fs::MetadataExt;
             assert_eq!(before.ino(), after.ino(), "the winner's file was replaced");
         }
-        assert_eq!(std::fs::read_to_string(&member).ok().as_deref(), Some("first"));
+        assert_eq!(
+            std::fs::read_to_string(&member).ok().as_deref(),
+            Some("first")
+        );
         assert!(!tmp.exists(), "the loser's build directory is left behind");
         let _ = std::fs::remove_dir_all(&root);
     }

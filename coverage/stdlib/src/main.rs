@@ -64,7 +64,10 @@ fn main() {
     for (name, native, flags) in RUNS {
         runs.push((name, gate.measure(&buri, name, native, flags)));
     }
-    let disagreements: Vec<String> = ALIKE.iter().flat_map(|&(a, b)| disagree(&runs[a], &runs[b])).collect();
+    let disagreements: Vec<String> = ALIKE
+        .iter()
+        .flat_map(|&(a, b)| disagree(&runs[a], &runs[b]))
+        .collect();
     let merged = merge(runs.iter().map(|(_, m)| m));
     let now = Baseline::of(&gate.host, &merged);
 
@@ -74,7 +77,10 @@ fn main() {
     std::fs::write(gate.target.join("stdlib.txt"), summary(&merged)).unwrap();
     print!("{}", summary(&merged));
     if !disagreements.is_empty() {
-        eprintln!("\nThe backends counted differently, which is a coverage bug:\n  {}", disagreements.join("\n  "));
+        eprintln!(
+            "\nThe backends counted differently, which is a coverage bug:\n  {}",
+            disagreements.join("\n  ")
+        );
         std::process::exit(1);
     }
 
@@ -90,13 +96,21 @@ fn main() {
         }
         std::fs::write(&baseline_path, now.render()).unwrap();
         std::fs::write(&summary_path, summary(&merged)).unwrap();
-        println!("\nwrote {} and {}", baseline_path.display(), summary_path.display());
+        println!(
+            "\nwrote {} and {}",
+            baseline_path.display(),
+            summary_path.display()
+        );
         return;
     }
     if baseline.host != gate.host {
         println!(
             "\nThe baseline is for {}, not {}, so nothing was compared.",
-            if baseline.host.is_empty() { "no host" } else { &baseline.host },
+            if baseline.host.is_empty() {
+                "no host"
+            } else {
+                &baseline.host
+            },
             gate.host
         );
         return;
@@ -119,7 +133,10 @@ struct Gate {
 
 impl Gate {
     fn new() -> Gate {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap();
         let target = root.join("target").join("stdlib-coverage");
         std::fs::create_dir_all(&target).unwrap();
         let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
@@ -142,17 +159,36 @@ impl Gate {
             panic!("{} can't be read ({e}); measure first", measured.display())
         }));
         if compare(&was, &now).failed || !rises(&was, &now) {
-            println!("MC/DC didn't rise above {}; the baseline stays", percent(was.total()));
+            println!(
+                "MC/DC didn't rise above {}; the baseline stays",
+                percent(was.total())
+            );
             return;
         }
         std::fs::copy(&measured, &checked_in).unwrap();
-        std::fs::copy(self.target.join("stdlib.txt"), self.root.join("coverage").join("stdlib.txt")).unwrap();
-        println!("raised the baseline from {} to {}", percent(was.total()), percent(now.total()));
+        std::fs::copy(
+            self.target.join("stdlib.txt"),
+            self.root.join("coverage").join("stdlib.txt"),
+        )
+        .unwrap();
+        println!(
+            "raised the baseline from {} to {}",
+            percent(was.total()),
+            percent(now.total())
+        );
     }
 
     /// A `buri` that can build for every backend.
     fn build(&self) -> PathBuf {
-        run(self.cargo().args(["build", "-p", "buri", "--features", "backend-llvm", "--profile", "validate"]));
+        run(self.cargo().args([
+            "build",
+            "-p",
+            "buri",
+            "--features",
+            "backend-llvm",
+            "--profile",
+            "validate",
+        ]));
         self.root.join("target").join("validate").join("buri")
     }
 
@@ -171,7 +207,8 @@ impl Gate {
                 }
                 let build = package.path().join("BUILD.buri");
                 let text = std::fs::read_to_string(&build).unwrap();
-                std::fs::write(&build, text.replace("backends: [JS]", "backends: [NATIVE]")).unwrap();
+                std::fs::write(&build, text.replace("backends: [JS]", "backends: [NATIVE]"))
+                    .unwrap();
             }
         }
         let started = std::time::Instant::now();
@@ -238,7 +275,8 @@ fn parse(lcov: &str) -> Modules {
     let mut current: Option<&mut Module> = None;
     for line in lcov.lines() {
         if let Some(file) = line.strip_prefix("SF:") {
-            current = (!file.ends_with(".buri")).then(|| modules.entry(file.to_string()).or_default());
+            current =
+                (!file.ends_with(".buri")).then(|| modules.entry(file.to_string()).or_default());
             continue;
         }
         let Some(m) = current.as_mut() else { continue };
@@ -246,14 +284,33 @@ fn parse(lcov: &str) -> Modules {
             // line,block,branch,taken; the branch may hold commas.
             let (head, taken) = rest.rsplit_once(',').unwrap();
             let mut parts = head.splitn(3, ',');
-            let (l, block, branch) = (parts.next().unwrap(), parts.next().unwrap(), parts.next().unwrap());
-            let taken = if taken == "-" { None } else { Some(taken.parse().unwrap()) };
-            m.branches.insert((l.parse().unwrap(), block.parse().unwrap(), branch.to_string()), taken);
+            let (l, block, branch) = (
+                parts.next().unwrap(),
+                parts.next().unwrap(),
+                parts.next().unwrap(),
+            );
+            let taken = if taken == "-" {
+                None
+            } else {
+                Some(taken.parse().unwrap())
+            };
+            m.branches.insert(
+                (
+                    l.parse().unwrap(),
+                    block.parse().unwrap(),
+                    branch.to_string(),
+                ),
+                taken,
+            );
         } else if let Some(rest) = line.strip_prefix("MCDC:") {
             // line,size,sense,taken,index,expression; both senses alike.
             let parts: Vec<&str> = rest.splitn(6, ',').collect();
             if parts[2] == "t" {
-                let key = (parts[0].parse().unwrap(), parts[4].parse().unwrap(), parts[5].to_string());
+                let key = (
+                    parts[0].parse().unwrap(),
+                    parts[4].parse().unwrap(),
+                    parts[5].to_string(),
+                );
                 m.conditions.insert(key, parts[3] != "0");
             }
         }
@@ -276,7 +333,10 @@ fn disagree((one, a): &(&str, Modules), (two, b): &(&str, Modules)) -> Vec<Strin
 
 fn show(stats: Option<Stats>) -> String {
     stats.map_or("nothing".to_string(), |s| {
-        format!("{}/{} conditions, {}/{} branches", s.shown, s.conditions, s.hit, s.branches)
+        format!(
+            "{}/{} conditions, {}/{} branches",
+            s.shown, s.conditions, s.hit, s.branches
+        )
     })
 }
 
@@ -299,7 +359,9 @@ fn merge<'a>(runs: impl Iterator<Item = &'a Modules>) -> BTreeMap<String, Stats>
             }
         }
     }
-    all.iter().map(|(name, m)| (name.clone(), Stats::of(m))).collect()
+    all.iter()
+        .map(|(name, m)| (name.clone(), Stats::of(m)))
+        .collect()
 }
 
 /// A module's counts.
@@ -318,7 +380,9 @@ impl Stats {
         let mut decisions: BTreeMap<(u64, &str), bool> = BTreeMap::new();
         for ((line, _, expression), shown) in &m.conditions {
             // `'c' in 'decision'`, then the instantiation, if any.
-            let decision = expression.split_once("' in '").map_or(expression.as_str(), |(_, d)| d);
+            let decision = expression
+                .split_once("' in '")
+                .map_or(expression.as_str(), |(_, d)| d);
             *decisions.entry((*line, decision)).or_insert(true) &= *shown;
         }
         Stats {
@@ -326,7 +390,11 @@ impl Stats {
             conditions: m.conditions.len() as u64,
             decided: decisions.values().filter(|d| **d).count() as u64,
             decisions: decisions.len() as u64,
-            hit: m.branches.values().filter(|t| t.is_some_and(|n| n > 0)).count() as u64,
+            hit: m
+                .branches
+                .values()
+                .filter(|t| t.is_some_and(|n| n > 0))
+                .count() as u64,
             branches: m.branches.len() as u64,
         }
     }
@@ -375,15 +443,23 @@ fn summary(modules: &BTreeMap<String, Stats>) -> String {
             percent((s.hit, s.branches)),
         )
     };
-    out.push_str(&format!("{:<28} {:>19} {:>19} {:>21}\n", "module", "conditions", "decisions", "branches"));
+    out.push_str(&format!(
+        "{:<28} {:>19} {:>19} {:>21}\n",
+        "module", "conditions", "decisions", "branches"
+    ));
     for (name, s) in modules {
         out.push_str(&row(name, s));
     }
     out.push_str(&row("total", &total));
 
-    let mut worst: Vec<(&String, &Stats)> = modules.iter().filter(|(_, s)| s.shown < s.conditions).collect();
+    let mut worst: Vec<(&String, &Stats)> = modules
+        .iter()
+        .filter(|(_, s)| s.shown < s.conditions)
+        .collect();
     worst.sort_by_key(|(name, s)| (std::cmp::Reverse(s.conditions - s.shown), name.as_str()));
-    out.push_str(&format!("\nThe {WORST} modules with the most unshown conditions:\n\n"));
+    out.push_str(&format!(
+        "\nThe {WORST} modules with the most unshown conditions:\n\n"
+    ));
     out.push_str(&format!("{:>8} {:>19}  module\n", "unshown", "conditions"));
     for (name, s) in worst.into_iter().take(WORST) {
         out.push_str(&format!(
@@ -406,20 +482,28 @@ impl Baseline {
     fn of(host: &str, modules: &BTreeMap<String, Stats>) -> Baseline {
         Baseline {
             host: host.to_string(),
-            modules: modules.iter().map(|(n, s)| (n.clone(), (s.shown, s.conditions))).collect(),
+            modules: modules
+                .iter()
+                .map(|(n, s)| (n.clone(), (s.shown, s.conditions)))
+                .collect(),
         }
     }
 
     fn parse(text: &str) -> Baseline {
         let mut host = String::new();
         let mut modules = BTreeMap::new();
-        for line in text.lines().filter(|l| !l.starts_with('#') && !l.trim().is_empty()) {
+        for line in text
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        {
             if let Some(h) = line.strip_prefix("host ") {
                 host = h.trim().to_string();
                 continue;
             }
             let mut words = line.splitn(3, ' ');
-            let (Some(shown), Some(total), Some(module)) = (words.next(), words.next(), words.next()) else {
+            let (Some(shown), Some(total), Some(module)) =
+                (words.next(), words.next(), words.next())
+            else {
                 continue;
             };
             if let (Ok(shown), Ok(total)) = (shown.parse(), total.parse()) {
@@ -430,7 +514,9 @@ impl Baseline {
     }
 
     fn total(&self) -> (u64, u64) {
-        self.modules.values().fold((0, 0), |(s, t), &(ms, mt)| (s + ms, t + mt))
+        self.modules
+            .values()
+            .fold((0, 0), |(s, t), &(ms, mt)| (s + ms, t + mt))
     }
 
     fn render(&self) -> String {
@@ -463,7 +549,9 @@ fn rises(was: &Baseline, now: &Baseline) -> bool {
     was.host != now.host
         || cmp(now.total(), was.total()).is_gt()
         || now.modules.iter().any(|(m, &s)| {
-            was.modules.get(m).is_some_and(|&w| w.1 > 0 && s.1 > 0 && cmp(s, w).is_gt())
+            was.modules
+                .get(m)
+                .is_some_and(|&w| w.1 > 0 && s.1 > 0 && cmp(s, w).is_gt())
         })
 }
 
@@ -487,9 +575,17 @@ fn compare(baseline: &Baseline, now: &Baseline) -> Verdict {
         fell.push("the total".to_string());
     }
     for (module, &s) in &now.modules {
-        let Some(&w) = baseline.modules.get(module) else { continue };
+        let Some(&w) = baseline.modules.get(module) else {
+            continue;
+        };
         if w.1 > 0 && s.1 > 0 && cmp(s, w).is_lt() {
-            fell.push(format!("{module}: {} ({}) -> {} ({})", percent(w), fraction(w), percent(s), fraction(s)));
+            fell.push(format!(
+                "{module}: {} ({}) -> {} ({})",
+                percent(w),
+                fraction(w),
+                percent(s),
+                fraction(s)
+            ));
         }
     }
     let failed = !fell.is_empty();
@@ -500,18 +596,24 @@ fn compare(baseline: &Baseline, now: &Baseline) -> Verdict {
             fell.join("\n  ")
         ));
     } else if rises(baseline, now) {
-        report.push_str("\nMC/DC rose. On main, CI raises the baseline to this run's numbers itself.\n");
+        report.push_str(
+            "\nMC/DC rose. On main, CI raises the baseline to this run's numbers itself.\n",
+        );
     }
     Verdict { report, failed }
 }
 
 fn run(command: &mut Command) {
-    let status = command.status().unwrap_or_else(|e| panic!("{command:?} didn't start: {e}"));
+    let status = command
+        .status()
+        .unwrap_or_else(|e| panic!("{command:?} didn't start: {e}"));
     assert!(status.success(), "{command:?} failed: {status}");
 }
 
 fn output(command: &mut Command) -> String {
-    let out = command.output().unwrap_or_else(|e| panic!("{command:?} didn't start: {e}"));
+    let out = command
+        .output()
+        .unwrap_or_else(|e| panic!("{command:?} didn't start: {e}"));
     assert!(out.status.success(), "{command:?} failed: {}", out.status);
     String::from_utf8(out.stdout).unwrap()
 }
@@ -523,7 +625,10 @@ mod tests {
     fn baseline(modules: &[(&str, u64, u64)]) -> Baseline {
         Baseline {
             host: "h".to_string(),
-            modules: modules.iter().map(|(m, s, t)| (m.to_string(), (*s, *t))).collect(),
+            modules: modules
+                .iter()
+                .map(|(m, s, t)| (m.to_string(), (*s, *t)))
+                .collect(),
         }
     }
 
@@ -561,7 +666,17 @@ mod tests {
         let b = parse("SF:core/list\nBRDA:3,0,0,0\nBRDA:3,0,1,2\nMCDC:3,2,t,0,0,'a' in 'a && b'\nMCDC:3,2,t,1,1,'b' in 'a && b'\n");
         let merged = merge([&a, &b].into_iter());
         let list = merged.get("core/list").unwrap();
-        assert_eq!((list.hit, list.branches, list.shown, list.conditions, list.decided, list.decisions), (2, 2, 2, 2, 1, 1));
+        assert_eq!(
+            (
+                list.hit,
+                list.branches,
+                list.shown,
+                list.conditions,
+                list.decided,
+                list.decisions
+            ),
+            (2, 2, 2, 2, 1, 1)
+        );
         assert!(!merged.contains_key("lib/x.buri"));
         assert_eq!(disagree(&("one", a), &("two", b)).len(), 1);
     }

@@ -212,14 +212,18 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
     }
     let machine = u16le(bytes, 18)?;
     if machine != EM_AARCH64 && machine != EM_X86_64 {
-        return Err(format!("ELF object is for machine {machine}, not aarch64 or x86-64"));
+        return Err(format!(
+            "ELF object is for machine {machine}, not aarch64 or x86-64"
+        ));
     }
     let shoff = u64le(bytes, 40)? as usize;
     let shentsize = u16le(bytes, 58)? as usize;
     let shnum = u16le(bytes, 60)? as usize;
     let shstrndx = u16le(bytes, 62)? as usize;
     if shentsize != SHDR_SIZE {
-        return Err(format!("ELF section headers are {shentsize} bytes, not {SHDR_SIZE}"));
+        return Err(format!(
+            "ELF section headers are {shentsize} bytes, not {SHDR_SIZE}"
+        ));
     }
 
     let mut shdrs = Vec::with_capacity(shnum);
@@ -240,9 +244,13 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
 
     // The section-name string table, needed before any section can be named.
     let shstr = {
-        let sh = shdrs.get(shstrndx).ok_or("ELF object names a section-name table it lacks")?;
+        let sh = shdrs
+            .get(shstrndx)
+            .ok_or("ELF object names a section-name table it lacks")?;
         let at = sh.offset as usize;
-        bytes.get(at..at + sh.size as usize).ok_or_else(|| truncated(at))?
+        bytes
+            .get(at..at + sh.size as usize)
+            .ok_or_else(|| truncated(at))?
     };
     let name_of = |sh: &Shdr| cstr(shstr, sh.name as usize);
 
@@ -255,7 +263,10 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
         if name == ".text" {
             text_index = i as u16;
             let at = sh.offset as usize;
-            text = bytes.get(at..at + sh.size as usize).ok_or_else(|| truncated(at))?.to_vec();
+            text = bytes
+                .get(at..at + sh.size as usize)
+                .ok_or_else(|| truncated(at))?
+                .to_vec();
         } else if sh.flags & SHF_ALLOC != 0
             && sh.size > 0
             && (sh.kind == SHT_PROGBITS || sh.kind == SHT_NOBITS)
@@ -269,7 +280,10 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
             let data = if sh.kind == SHT_NOBITS {
                 Vec::new()
             } else {
-                bytes.get(at..at + sh.size as usize).ok_or_else(|| truncated(at))?.to_vec()
+                bytes
+                    .get(at..at + sh.size as usize)
+                    .ok_or_else(|| truncated(at))?
+                    .to_vec()
             };
             other_sections.push(Other {
                 name,
@@ -289,7 +303,10 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
     let mut syms = Vec::new();
     for sh in shdrs.iter().filter(|s| s.kind == SHT_SYMTAB) {
         if sh.entsize as usize != SYM_SIZE {
-            return Err(format!("ELF symbols are {} bytes, not {SYM_SIZE}", sh.entsize));
+            return Err(format!(
+                "ELF symbols are {} bytes, not {SYM_SIZE}",
+                sh.entsize
+            ));
         }
         let strtab = {
             let s = shdrs
@@ -297,7 +314,9 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
                 .filter(|s| s.kind == SHT_STRTAB)
                 .ok_or("the ELF symbol table names no string table")?;
             let at = s.offset as usize;
-            bytes.get(at..at + s.size as usize).ok_or_else(|| truncated(at))?
+            bytes
+                .get(at..at + s.size as usize)
+                .ok_or_else(|| truncated(at))?
         };
         let n = (sh.size / SYM_SIZE as u64) as usize;
         for i in 0..n {
@@ -319,9 +338,15 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
     // relocation anywhere else belongs to a section `other_sections` already
     // reported.
     let mut text_relocs = Vec::new();
-    for sh in shdrs.iter().filter(|s| s.kind == SHT_RELA && s.info as u16 == text_index) {
+    for sh in shdrs
+        .iter()
+        .filter(|s| s.kind == SHT_RELA && s.info as u16 == text_index)
+    {
         if sh.entsize as usize != RELA_SIZE {
-            return Err(format!("ELF relocations are {} bytes, not {RELA_SIZE}", sh.entsize));
+            return Err(format!(
+                "ELF relocations are {} bytes, not {RELA_SIZE}",
+                sh.entsize
+            ));
         }
         let n = (sh.size / RELA_SIZE as u64) as usize;
         for i in 0..n {
@@ -341,7 +366,13 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
     // about it from `other_sections`. Local label symbols (`.L…`) in a spilled
     // constant pool are exactly that case, so they are left in the table for
     // the caller to trace and not refused here.
-    Ok(Obj { machine, text, text_relocs, syms, other_sections })
+    Ok(Obj {
+        machine,
+        text,
+        text_relocs,
+        syms,
+        other_sections,
+    })
 }
 
 /// The functions in `.text`, as `(name, start, end)` in section order.

@@ -147,8 +147,16 @@ fn split(rest: &str) -> Result<(Frontmatter, &str), String> {
 
 /// The keys a page may carry. Anything else is a misspelling, and is reported
 /// as one.
-const KEYS: &[&str] =
-    &["title", "severity", "message", "label", "note", "fix", "reproduction", "adapted-from"];
+const KEYS: &[&str] = &[
+    "title",
+    "severity",
+    "message",
+    "label",
+    "note",
+    "fix",
+    "reproduction",
+    "adapted-from",
+];
 
 fn fields(block: &str) -> Result<Frontmatter, String> {
     let mut found: Vec<(&str, String)> = Vec::new();
@@ -165,19 +173,30 @@ fn fields(block: &str) -> Result<Frontmatter, String> {
         let (key, raw) = line
             .split_once(':')
             .ok_or_else(|| format!("line {at}: expected `key: value`, found `{line}`"))?;
-        require(KEYS.contains(&key), || format!("line {at}: `{key}` is not a frontmatter key"))?;
+        require(KEYS.contains(&key), || {
+            format!("line {at}: `{key}` is not a frontmatter key")
+        })?;
         let unset = !found.iter().any(|(k, _)| *k == key);
         require(unset, || format!("line {at}: `{key}` is set twice"))?;
         found.push((key, scalar(raw).map_err(|why| format!("line {at}: {why}"))?));
     }
 
-    let get = |key: &str| found.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone());
+    let get = |key: &str| {
+        found
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.clone())
+    };
     let title = get("title").ok_or("a page needs a `title`")?;
     let message = get("message").ok_or("a page needs a `message`")?;
     let severity = match get("severity").as_deref() {
         None | Some("error") => Severity::Error,
         Some("warning") => Severity::Warning,
-        Some(other) => return Err(format!("`severity: {other}`; expected `error` or `warning`")),
+        Some(other) => {
+            return Err(format!(
+                "`severity: {other}`; expected `error` or `warning`"
+            ))
+        }
     };
     let reproducible = match get("reproduction").as_deref() {
         None => true,
@@ -223,7 +242,9 @@ fn scalar(raw: &str) -> Result<String, String> {
     if let Some(inner) = quoted('\'') {
         return Ok(inner.to_string());
     }
-    let Some(inner) = quoted('"') else { return Ok(text.to_string()) };
+    let Some(inner) = quoted('"') else {
+        return Ok(text.to_string());
+    };
     let mut out = String::with_capacity(inner.len());
     let mut chars = inner.chars();
     while let Some(c) = chars.next() {
@@ -266,7 +287,9 @@ fn pieces(template: &str) -> Vec<Piece<'_>> {
         let next = bytes.get(at.saturating_add(1)).copied();
         if (here == b'{' || here == b'}') && next == Some(here) {
             // A doubled brace: keep one of the pair and start again after both.
-            out.push(Piece::Text(template.get(text_from..at.saturating_add(1)).unwrap_or("")));
+            out.push(Piece::Text(
+                template.get(text_from..at.saturating_add(1)).unwrap_or(""),
+            ));
             at = at.saturating_add(2);
             text_from = at;
             continue;
@@ -335,14 +358,18 @@ mod tests {
 
     #[test]
     fn a_page_without_frontmatter_is_not_an_error() {
-        assert!(parse("# A page\n\nprose\n").expect("no frontmatter is fine").is_none());
+        assert!(parse("# A page\n\nprose\n")
+            .expect("no frontmatter is fine")
+            .is_none());
     }
 
     #[test]
     fn the_fields_are_read_and_the_body_is_untouched() {
         let text = "---\ntitle: A title\nseverity: warning\nmessage: a message\n\
                     fix: do the other thing\n---\n# A page\n\nprose\n";
-        let (front, body) = parse(text).expect("this parses").expect("there is frontmatter");
+        let (front, body) = parse(text)
+            .expect("this parses")
+            .expect("there is frontmatter");
         assert_eq!(front.title, "A title");
         assert_eq!(front.severity, Severity::Warning);
         assert_eq!(front.message, "a message");
@@ -357,7 +384,9 @@ mod tests {
     #[test]
     fn a_citation_is_read_off_the_frontmatter() {
         let text = "---\ntitle: t\nmessage: m\nadapted-from: somebody, MIT license\n---\nprose\n";
-        let (front, body) = parse(text).expect("this parses").expect("there is frontmatter");
+        let (front, body) = parse(text)
+            .expect("this parses")
+            .expect("there is frontmatter");
         assert_eq!(front.adapted_from.as_deref(), Some("somebody, MIT license"));
         assert_eq!(body, "prose\n");
     }
@@ -373,9 +402,18 @@ mod tests {
             ("---\ntitle: t\nmesage: m\n---\n", "not a frontmatter key"),
             ("---\ntitle: t\nmessage: m\nmessage: n\n---\n", "set twice"),
             ("---\ntitle: t\nmessage:\n---\n", "value is empty"),
-            ("---\ntitle: t\nmessage: m\nseverity: loud\n---\n", "expected `error`"),
-            ("---\ntitle: t\nmessage: m\nreproduction: maybe\n---\n", "the only value is `none`"),
-            ("---\ntitle: t\nmessage: m\nnonsense\n---\n", "expected `key: value`"),
+            (
+                "---\ntitle: t\nmessage: m\nseverity: loud\n---\n",
+                "expected `error`",
+            ),
+            (
+                "---\ntitle: t\nmessage: m\nreproduction: maybe\n---\n",
+                "the only value is `none`",
+            ),
+            (
+                "---\ntitle: t\nmessage: m\nnonsense\n---\n",
+                "expected `key: value`",
+            ),
         ] {
             let why = parse(text).expect_err("this must not parse");
             assert!(why.contains(expect), "expected {expect:?} in {why:?}");
@@ -385,7 +423,9 @@ mod tests {
     #[test]
     fn a_quoted_value_keeps_its_edges() {
         let text = "---\ntitle: t\nmessage: \"  spaced  \"\nnote: 'plain'\n---\n";
-        let (front, _) = parse(text).expect("this parses").expect("there is frontmatter");
+        let (front, _) = parse(text)
+            .expect("this parses")
+            .expect("there is frontmatter");
         assert_eq!(front.message, "  spaced  ");
         assert_eq!(front.note.as_deref(), Some("plain"));
     }

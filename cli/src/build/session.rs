@@ -52,8 +52,9 @@ pub fn open(flags: &Flags) -> Result<Session, String> {
 /// a caller that keeps the repository between commands.
 pub fn root_of_cwd() -> Result<PathBuf, String> {
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-    find_root(&cwd)
-        .ok_or_else(|| "not in a Buri repository: no REPO.buri in this directory or any above it".into())
+    find_root(&cwd).ok_or_else(|| {
+        "not in a Buri repository: no REPO.buri in this directory or any above it".into()
+    })
 }
 
 /// The same, for a root that is already known.
@@ -70,11 +71,7 @@ pub fn open_at(root: &std::path::Path, flags: &Flags) -> Result<Session, String>
     // Here, because this is where a repository becomes something to ask
     // questions of. `build::sources` runs them again with the editor's unsaved
     // text, and a rule whose inputs have not moved since is a lookup.
-    crate::build::generators::prepare(
-        &mut session,
-        flags,
-        &crate::build::sources::Overlay::new(),
-    );
+    crate::build::generators::prepare(&mut session, flags, &crate::build::sources::Overlay::new());
     Ok(session)
 }
 
@@ -85,11 +82,14 @@ pub fn open_graph_at(root: &std::path::Path, flags: &Flags) -> Result<Session, S
     let root = root.to_path_buf();
     let mut map = SourceMap::new();
     let mut diagnostics = Diagnostics::new();
-    let workspace = Workspace::load(&root, &mut map, &mut diagnostics).map_err(|e| e.to_string())?;
+    let workspace =
+        Workspace::load(&root, &mut map, &mut diagnostics).map_err(|e| e.to_string())?;
     let rendering = match flags.error_format {
         ErrorFormat::Json => Rendering::Json,
         ErrorFormat::Human => Rendering::Human {
-            color: flags.color.unwrap_or_else(|| std::env::var("NO_COLOR").is_err()),
+            color: flags
+                .color
+                .unwrap_or_else(|| std::env::var("NO_COLOR").is_err()),
         },
     };
     // `--dense` means the same thing here as it does for `buri docs`: the
@@ -113,7 +113,9 @@ impl Session {
         let patterns: Vec<Pattern> = if args.is_empty() {
             vec![Pattern::All]
         } else {
-            args.iter().map(|a| Pattern::parse(a)).collect::<Result<_, _>>()?
+            args.iter()
+                .map(|a| Pattern::parse(a))
+                .collect::<Result<_, _>>()?
         };
 
         let mut out = Vec::new();
@@ -199,7 +201,10 @@ pub fn open_or_exit(flags: &Flags) -> Result<Session, u8> {
 /// every file the last pass read and parsed is already in it. Everything above
 /// goes through here too, with a `Sources` that lives for the one command —
 /// same work, and one door.
-#[expect(clippy::print_stderr, reason = "the same argument as `open_or_exit` above")]
+#[expect(
+    clippy::print_stderr,
+    reason = "the same argument as `open_or_exit` above"
+)]
 pub fn resume_or_exit(sources: &mut crate::build::sources::Sources) -> Result<Session, u8> {
     match sources.session(&crate::build::sources::Overlay::new()) {
         Ok(session) => Ok(session),
@@ -224,8 +229,14 @@ pub fn open_and_resolve(flags: &Flags, args: &[String]) -> Result<(Session, Vec<
 /// [`open_and_resolve`], running only the generators the targets read
 /// ([`crate::build::generators::prepare_for`]). For `buri build` and
 /// `buri run`, which read nothing else.
-#[expect(clippy::print_stderr, reason = "the same argument as `open_or_exit` above")]
-pub fn open_and_resolve_to_build(flags: &Flags, args: &[String]) -> Result<(Session, Vec<TargetId>), u8> {
+#[expect(
+    clippy::print_stderr,
+    reason = "the same argument as `open_or_exit` above"
+)]
+pub fn open_and_resolve_to_build(
+    flags: &Flags,
+    args: &[String],
+) -> Result<(Session, Vec<TargetId>), u8> {
     let opened = root_of_cwd().and_then(|root| open_graph_at(&root, flags));
     let session = match opened {
         Ok(session) => session,

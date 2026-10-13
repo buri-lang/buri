@@ -32,13 +32,19 @@ pub struct Layered<T> {
 
 impl<T> Default for Layered<T> {
     fn default() -> Self {
-        Layered { base: Arc::from(Vec::new()), own: Vec::new() }
+        Layered {
+            base: Arc::from(Vec::new()),
+            own: Vec::new(),
+        }
     }
 }
 
 impl<T: Clone> Clone for Layered<T> {
     fn clone(&self) -> Self {
-        Layered { base: Arc::clone(&self.base), own: self.own.clone() }
+        Layered {
+            base: Arc::clone(&self.base),
+            own: self.own.clone(),
+        }
     }
 }
 
@@ -105,7 +111,10 @@ impl<T> Layered<T> {
 
     /// A list that shares every entry of this one and has none of its own.
     pub fn layer(&self) -> Layered<T> {
-        Layered { base: Arc::clone(&self.base), own: Vec::new() }
+        Layered {
+            base: Arc::clone(&self.base),
+            own: Vec::new(),
+        }
     }
 }
 
@@ -204,9 +213,12 @@ impl<I: DenseId, T> IdMap<I, T> {
             Some(own) => self.slot(own).get_or_insert_with(T::default),
             None => {
                 let base = &self.base;
-                self.replaced
-                    .entry(i)
-                    .or_insert_with(|| base.get(i).and_then(Option::as_ref).cloned().unwrap_or_default())
+                self.replaced.entry(i).or_insert_with(|| {
+                    base.get(i)
+                        .and_then(Option::as_ref)
+                        .cloned()
+                        .unwrap_or_default()
+                })
             }
         }
     }
@@ -228,14 +240,19 @@ impl<I: DenseId, T> IdMap<I, T> {
         if self.own.len() <= own {
             self.own.resize_with(own.saturating_add(1), || None);
         }
-        self.own.get_mut(own).or_ice("the slots were just grown past this one")
+        self.own
+            .get_mut(own)
+            .or_ice("the slots were just grown past this one")
     }
 
     /// The entries this map holds itself rather than reads from its base:
     /// what was written since [`IdMap::layer`]. Unordered.
     pub fn written(&self) -> impl Iterator<Item = (I, &T)> {
         let from = self.base.len();
-        let replaced = self.replaced.iter().map(|(i, value)| (I::from_index(*i), value));
+        let replaced = self
+            .replaced
+            .iter()
+            .map(|(i, value)| (I::from_index(*i), value));
         let own = self.own.iter().enumerate().filter_map(move |(i, value)| {
             Some((I::from_index(from.saturating_add(i)), value.as_ref()?))
         });
@@ -278,7 +295,9 @@ impl<I: DenseId, T> IdMap<I, T> {
         T: Clone,
     {
         let len = self.base.len().saturating_add(self.own.len());
-        let all: Vec<Option<T>> = (0..len).map(|i| self.get(&I::from_index(i)).cloned()).collect();
+        let all: Vec<Option<T>> = (0..len)
+            .map(|i| self.get(&I::from_index(i)).cloned())
+            .collect();
         self.base = Arc::from(all);
         self.own = Vec::new();
         self.replaced = HashMap::default();
@@ -324,13 +343,19 @@ pub struct LayeredMap<K, V> {
 
 impl<K, V> Default for LayeredMap<K, V> {
     fn default() -> Self {
-        LayeredMap { base: Arc::new(HashMap::default()), own: HashMap::default() }
+        LayeredMap {
+            base: Arc::new(HashMap::default()),
+            own: HashMap::default(),
+        }
     }
 }
 
 impl<K: Clone, V: Clone> Clone for LayeredMap<K, V> {
     fn clone(&self) -> Self {
-        LayeredMap { base: Arc::clone(&self.base), own: self.own.clone() }
+        LayeredMap {
+            base: Arc::clone(&self.base),
+            own: self.own.clone(),
+        }
     }
 }
 
@@ -358,7 +383,9 @@ impl<K: Eq + Hash, V> LayeredMap<K, V> {
     /// Every entry, the analysis's own and then the base's it hasn't
     /// replaced. Unordered, as a hash map's walk is.
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
-        self.own.iter().chain(self.base.iter().filter(|(k, _)| !self.own.contains_key(*k)))
+        self.own
+            .iter()
+            .chain(self.base.iter().filter(|(k, _)| !self.own.contains_key(*k)))
     }
 
     pub fn keys(&self) -> impl Iterator<Item = &K> {
@@ -384,7 +411,10 @@ impl<K: Eq + Hash, V> LayeredMap<K, V> {
 
     /// A map that shares every entry of this one and has none of its own.
     pub fn layer(&self) -> LayeredMap<K, V> {
-        LayeredMap { base: Arc::clone(&self.base), own: HashMap::default() }
+        LayeredMap {
+            base: Arc::clone(&self.base),
+            own: HashMap::default(),
+        }
     }
 }
 
@@ -437,8 +467,14 @@ mod tests {
         layer.insert(Id(2), "C");
         layer.insert(Id(4), "e");
         *layer.get_mut(&Id(0)).unwrap() = "A";
-        assert_eq!(layer.iter().collect::<Vec<_>>(), vec![(Id(0), &"A"), (Id(2), &"C"), (Id(4), &"e")]);
-        assert_eq!(base.iter().collect::<Vec<_>>(), vec![(Id(0), &"a"), (Id(2), &"c")]);
+        assert_eq!(
+            layer.iter().collect::<Vec<_>>(),
+            vec![(Id(0), &"A"), (Id(2), &"C"), (Id(4), &"e")]
+        );
+        assert_eq!(
+            base.iter().collect::<Vec<_>>(),
+            vec![(Id(0), &"a"), (Id(2), &"c")]
+        );
         let mut written: Vec<_> = layer.written().collect();
         written.sort_by_key(|(id, _)| id.0);
         assert_eq!(written, vec![(Id(0), &"A"), (Id(2), &"C"), (Id(4), &"e")]);

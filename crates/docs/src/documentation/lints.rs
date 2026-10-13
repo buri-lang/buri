@@ -47,31 +47,82 @@ macro_rules! l {
 
 /// Every `buri lint` finding, in the order the index lists them.
 pub const LINTS: &[LintDoc] = &[
-    l!("circular-dependency", "Two targets may not depend on each other", &["build/build-files"]),
-    l!("ctx-rebinding", "`ctx` names the context a function was handed"),
-    l!("dead-code", "Every declaration is reachable", &["build/libraries"]),
+    l!(
+        "circular-dependency",
+        "Two targets may not depend on each other",
+        &["build/build-files"]
+    ),
+    l!(
+        "ctx-rebinding",
+        "`ctx` names the context a function was handed"
+    ),
+    l!(
+        "dead-code",
+        "Every declaration is reachable",
+        &["build/libraries"]
+    ),
     l!("deep-nesting", "Branches nest shallowly"),
     l!("duplicate-import", "A module is imported once"),
-    l!("duplicate-source", "A source file is listed by one rule", &["build/build-files"]),
-    l!("empty-test-suite", "A `test` block declares the sources it tests"),
-    l!("hand-rolled-comparator", "A comparator over a primitive is already in `core/order`"),
-    l!("hand-rolled-hex-digits", "The standard library keeps the hex digits"),
-    l!("hand-rolled-ignore", "A `match` that drops a `Result` is `ignore` written out", &["language/expressions"]),
-    l!("ignored-result", "Every `ignore` of a `Result` is reported", &["language/expressions"]),
-    l!("missing-dependency", "A package lists every library it uses", &["build/build-files"]),
+    l!(
+        "duplicate-source",
+        "A source file is listed by one rule",
+        &["build/build-files"]
+    ),
+    l!(
+        "empty-test-suite",
+        "A `test` block declares the sources it tests"
+    ),
+    l!(
+        "hand-rolled-comparator",
+        "A comparator over a primitive is already in `core/order`"
+    ),
+    l!(
+        "hand-rolled-hex-digits",
+        "The standard library keeps the hex digits"
+    ),
+    l!(
+        "hand-rolled-ignore",
+        "A `match` that drops a `Result` is `ignore` written out",
+        &["language/expressions"]
+    ),
+    l!(
+        "ignored-result",
+        "Every `ignore` of a `Result` is reported",
+        &["language/expressions"]
+    ),
+    l!(
+        "missing-dependency",
+        "A package lists every library it uses",
+        &["build/build-files"]
+    ),
     l!("oversized-function", "A function is one responsibility"),
     l!("test-missing-assertion", "A test asserts something"),
     l!("test-title-newline", "A test title is one line"),
     l!("time-unit-conversion", "A length of time is a `Duration`"),
     l!("todo-comment", "A `TODO` comment is unfinished work"),
     l!("parameter-count", "A function takes few parameters"),
-    l!("unsatisfiable-target", "A target admits at least one platform", &["build/tags"]),
+    l!(
+        "unsatisfiable-target",
+        "A target admits at least one platform",
+        &["build/tags"]
+    ),
     l!("unused-context", "A function that takes `ctx` uses it"),
-    l!("unused-context-bound", "A context asks for the effects it uses"),
+    l!(
+        "unused-context-bound",
+        "A context asks for the effects it uses"
+    ),
     l!("unused-field", "Every field is read"),
     l!("unused-import", "Every import is used"),
-    l!("unused-source", "Every source file belongs to a rule", &["build/build-files"]),
-    l!("unused-type", "Every declared type is used", &["build/libraries"]),
+    l!(
+        "unused-source",
+        "Every source file belongs to a rule",
+        &["build/build-files"]
+    ),
+    l!(
+        "unused-type",
+        "Every declared type is used",
+        &["build/libraries"]
+    ),
     l!("unused-variable", "Every `let` binding is read"),
     l!("unused-variant", "Every variant is constructed or matched"),
 ];
@@ -109,7 +160,10 @@ pub fn rule_fields() -> &'static [&'static str] {
 
 /// The code a `rules` field is about, for a field that names one.
 pub fn code_of_rule_field(field: &str) -> Option<&'static str> {
-    LINTS.iter().map(|l| l.code).find(|code| rule_field(code) == field)
+    LINTS
+        .iter()
+        .map(|l| l.code)
+        .find(|code| rule_field(code) == field)
 }
 
 /// The findings that are about something the program does not need, rather
@@ -195,7 +249,11 @@ mod tests {
         assert_eq!(fields.len(), LINTS.len() + 1);
         for l in LINTS {
             let field = rule_field(l.code);
-            assert!(fields.contains(&field.as_str()), "`{}` has no `rules` field", l.code);
+            assert!(
+                fields.contains(&field.as_str()),
+                "`{}` has no `rules` field",
+                l.code
+            );
             assert!(
                 field.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
                 "`{field}` is not a field name a textproto file can write"
@@ -203,29 +261,48 @@ mod tests {
             assert_eq!(code_of_rule_field(&field), Some(l.code));
         }
         assert_eq!(code_of_rule_field("default"), None);
-        assert_eq!(code_of_rule_field("unused-import"), None, "a code is not a field name");
+        assert_eq!(
+            code_of_rule_field("unused-import"),
+            None,
+            "a code is not a field name"
+        );
     }
 
     #[test]
     fn every_migrated_page_is_titled_and_worded() {
         for p in catalog().pages() {
-            assert!(!p.front.title.trim().is_empty(), "`{}` has an empty title", p.code);
-            assert!(!p.front.message.trim().is_empty(), "`{}` has an empty message", p.code);
+            assert!(
+                !p.front.title.trim().is_empty(),
+                "`{}` has an empty title",
+                p.code
+            );
+            assert!(
+                !p.front.message.trim().is_empty(),
+                "`{}` has an empty message",
+                p.code
+            );
         }
     }
 
     #[test]
     fn every_page_parses() {
         let failures = catalog().failures();
-        assert!(failures.is_empty(), "these pages do not parse:\n  {}", failures.join("\n  "));
+        assert!(
+            failures.is_empty(),
+            "these pages do not parse:\n  {}",
+            failures.join("\n  ")
+        );
     }
 
     /// The same guard `errors.rs` carries: a page that lost its `---` block
     /// leaves its finding with no message, and nothing else notices.
     #[test]
     fn every_page_carries_its_wording() {
-        let missing: Vec<&str> =
-            LINTS.iter().map(|l| l.code).filter(|code| page(code).is_none()).collect();
+        let missing: Vec<&str> = LINTS
+            .iter()
+            .map(|l| l.code)
+            .filter(|code| page(code).is_none())
+            .collect();
         assert!(
             missing.is_empty(),
             "these pages carry no `---` frontmatter block, so their findings have no message \

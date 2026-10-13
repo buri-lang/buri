@@ -106,7 +106,10 @@ impl Shape {
             let span = tokens.span(i);
             let (s, e) = (span.start as usize, span.end as usize);
             let kind = tokens.kind(i);
-            if matches!(kind, TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket) {
+            if matches!(
+                kind,
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket
+            ) {
                 stack.pop();
             }
             let here = stack.last().copied();
@@ -115,7 +118,9 @@ impl Shape {
             }
             shape.kind.push(kind);
             shape.start.push(s);
-            shape.text.push(text.get(s..e).unwrap_or_default().to_string());
+            shape
+                .text
+                .push(text.get(s..e).unwrap_or_default().to_string());
             shape.nest.push(here.map_or(Nest::Module, |(n, _)| n));
             shape.opener.push(here.map(|(_, at)| at));
             shape.decl.push(decl);
@@ -184,14 +189,16 @@ fn cell_of(shape: &Shape, m: &Mutation) -> Option<String> {
         }
         None => String::from("-"),
     };
-    let before = i.checked_sub(1).and_then(|b| shape.kind.get(b)).copied().map_or_else(
-        || String::from("-"),
-        tag,
-    );
-    let after = shape.kind.get(i.saturating_add(1)).copied().map_or_else(
-        || String::from("-"),
-        tag,
-    );
+    let before = i
+        .checked_sub(1)
+        .and_then(|b| shape.kind.get(b))
+        .copied()
+        .map_or_else(|| String::from("-"), tag);
+    let after = shape
+        .kind
+        .get(i.saturating_add(1))
+        .copied()
+        .map_or_else(|| String::from("-"), tag);
     Some(format!(
         "{} {} | {decl} | {opener} | {before}>{after}",
         m.kind.name(),
@@ -234,7 +241,13 @@ fn stem(file: &str) -> String {
     };
     owner
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -293,11 +306,18 @@ pub fn select_with(
         if src.text.len() > SEED_BYTES {
             continue;
         }
-        let Some(shape) = Shape::of(&src.text) else { continue };
+        let Some(shape) = Shape::of(&src.text) else {
+            continue;
+        };
         for m in mutations_of(src, seed, per_kind) {
-            let Some(cell) = cell_of(&shape, &m) else { continue };
+            let Some(cell) = cell_of(&shape, &m) else {
+                continue;
+            };
             let rank = hash(&format!("{}\0{}\0{}", src.name, m.what, m.source));
-            cells.entry(cell).or_default().push((rank, src.name.clone(), m));
+            cells
+                .entry(cell)
+                .or_default()
+                .push((rank, src.name.clone(), m));
         }
     }
     for candidates in cells.values_mut() {
@@ -315,7 +335,11 @@ pub fn select_with(
             if !keep(&m) {
                 continue;
             }
-            taken.push(Pick { name: name_of(&m), cell: cell.clone(), mutation: m });
+            taken.push(Pick {
+                name: name_of(&m),
+                cell: cell.clone(),
+                mutation: m,
+            });
         }
         if taken.is_empty() {
             continue;

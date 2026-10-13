@@ -26,14 +26,21 @@ pub(super) fn unconstructible(
     decls: &[TyConId],
     refused: &HashSet<TyConId>,
 ) -> (Vec<TyConId>, Vec<(TyConId, Why)>) {
-    let none: Vec<TyConId> =
-        decls.iter().copied().filter(|&c| !Search::new(tables, refused.clone()).declared(c)).collect();
+    let none: Vec<TyConId> = decls
+        .iter()
+        .copied()
+        .filter(|&c| !Search::new(tables, refused.clone()).declared(c))
+        .collect();
     let mut out = Vec::new();
     for &c in &none {
         // Every unbuildable type outside this one's cycle counts as buildable,
         // so what is left is this one's own doing.
         let mut assumed = refused.clone();
-        assumed.extend(none.iter().copied().filter(|&o| !(reaches(tables, &none, c, o) && reaches(tables, &none, o, c))));
+        assumed.extend(
+            none.iter()
+                .copied()
+                .filter(|&o| !(reaches(tables, &none, c, o) && reaches(tables, &none, o, c))),
+        );
         let mut search = Search::new(tables, assumed);
         if !search.declared(c) {
             out.push((c, search.why(c)));
@@ -51,12 +58,18 @@ fn reaches(tables: &Tables, among: &[TyConId], from: TyConId, to: TyConId) -> bo
             return true;
         }
         let con = tables.tycon(c);
-        let fields = con.fields().iter().chain(con.variants().iter().flat_map(|v| v.fields.iter()));
+        let fields = con
+            .fields()
+            .iter()
+            .chain(con.variants().iter().flat_map(|v| v.fields.iter()));
         let mut held = Vec::new();
         for f in fields {
             mentioned(&f.ty, &mut held);
         }
-        stack.extend(held.into_iter().filter(|h| among.contains(h) && seen.insert(*h)));
+        stack.extend(
+            held.into_iter()
+                .filter(|h| among.contains(h) && seen.insert(*h)),
+        );
     }
     false
 }
@@ -88,7 +101,11 @@ struct Search<'a> {
 
 impl<'a> Search<'a> {
     fn new(tables: &'a Tables, assumed: HashSet<TyConId>) -> Search<'a> {
-        Search { tables, assumed, open: Vec::new() }
+        Search {
+            tables,
+            assumed,
+            open: Vec::new(),
+        }
     }
 
     /// Whether a declaration has a value when each of its parameters does.
@@ -109,9 +126,9 @@ impl<'a> Search<'a> {
         let found = match &tables.tycon(c).def {
             TyDef::Prim(_) => true,
             TyDef::Struct { fields, .. } => fields.iter().all(|f| self.ty(&f.ty, &given)),
-            TyDef::Enum { variants } => {
-                variants.iter().any(|v| v.fields.iter().all(|f| self.ty(&f.ty, &given)))
-            }
+            TyDef::Enum { variants } => variants
+                .iter()
+                .any(|v| v.fields.iter().all(|f| self.ty(&f.ty, &given))),
         };
         self.open.pop();
         found
@@ -119,7 +136,9 @@ impl<'a> Search<'a> {
 
     fn ty(&mut self, ty: &Ty, given: &[bool]) -> bool {
         match ty.kind() {
-            TyKind::Param(i) => *given.get(*i as usize).or_ice("a type parameter outside its declaration's arguments"),
+            TyKind::Param(i) => *given
+                .get(*i as usize)
+                .or_ice("a type parameter outside its declaration's arguments"),
             TyKind::Con(c, args) => {
                 let args = args.iter().map(|a| self.ty(a, given)).collect();
                 self.has(*c, args)

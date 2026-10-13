@@ -27,10 +27,11 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     if args.flags.check_reproducible {
         return check_reproducible(args);
     }
-    let (mut session, targets) = match session::open_and_resolve_to_build(&args.flags, &args.targets) {
-        Ok(both) => both,
-        Err(c) => return c as i32,
-    };
+    let (mut session, targets) =
+        match session::open_and_resolve_to_build(&args.flags, &args.targets) {
+            Ok(both) => both,
+            Err(c) => return c as i32,
+        };
 
     // `--output` selects one of the outputs a target declares. A selector that
     // matches none of them is the thing you asked *with* being wrong, and has
@@ -76,13 +77,22 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         actions::check_tags(&session, target, &mut diagnostics);
         // A check that found nothing is recorded, and finds nothing again
         // while its sources and the graph stand still.
-        let key = (!diagnostics.has_errors()).then(|| actions::library_check_key(&session, target, &args.flags, &mut members));
-        let clean = !args.flags.force && key.as_ref().is_some_and(|key| actions::clean_check_holds(&session, key));
+        let key = (!diagnostics.has_errors())
+            .then(|| actions::library_check_key(&session, target, &args.flags, &mut members));
+        let clean = !args.flags.force
+            && key
+                .as_ref()
+                .is_some_and(|key| actions::clean_check_holds(&session, key));
         asked.insert(target, (diagnostics, key.filter(|_| !clean)));
     }
     // A library is checked, not built for an output, and it is handed no host
     // at all. See `Unit::platform`.
-    let unit = |target| crate::compiler::modules::Unit { target: Some(target), platform: None, entry: None, with_tests: false };
+    let unit = |target| crate::compiler::modules::Unit {
+        target: Some(target),
+        platform: None,
+        entry: None,
+        with_tests: false,
+    };
     let checked: Vec<crate::compiler::modules::Unit> = targets
         .iter()
         .filter(|t| asked.get(t).is_some_and(|(_, key)| key.is_some()))
@@ -102,10 +112,19 @@ pub fn command_build(args: &arguments::Args) -> i32 {
         if target.kind != RuleKind::Binary {
             // Every library and tool in `targets` asked above.
             let (mut diagnostics, key) = asked.remove(&target).unwrap_or_default();
-            let share = shared.as_ref().and_then(|s| Some((s, s.shares.get(&target)?)));
+            let share = shared
+                .as_ref()
+                .and_then(|s| Some((s, s.shares.get(&target)?)));
             if let (Some(key), Some((shared, share))) = (&key, share) {
                 if share.reported.is_empty() {
-                    actions::record_clean_share(&session, target, key, &shared.analysis, share, &mut rule_paths);
+                    actions::record_clean_share(
+                        &session,
+                        target,
+                        key,
+                        &shared.analysis,
+                        share,
+                        &mut rule_paths,
+                    );
                 }
                 diagnostics.extend(share.reported.iter().cloned());
             } else if let Some(key) = key {
@@ -136,11 +155,16 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                     let note = if a.cached { ", cached" } else { "" };
                     println!("{} ({} bytes{note})", rel.display(), a.bytes);
                 }
-                Err(diagnostics) if args.flags.output.is_none() && foreign(&output, &diagnostics) => {
+                Err(diagnostics)
+                    if args.flags.output.is_none() && foreign(&output, &diagnostics) =>
+                {
                     reported.push(
-                        crate::diagnostics::Diagnostic::templated("output-unavailable", output.span)
-                            .with_bind("selector", output.dir())
-                            .with_bind("target", session.workspace.label(target)),
+                        crate::diagnostics::Diagnostic::templated(
+                            "output-unavailable",
+                            output.span,
+                        )
+                        .with_bind("selector", output.dir())
+                        .with_bind("target", session.workspace.label(target)),
                     );
                 }
                 Err(diagnostics) => reported.extend(diagnostics.items),
@@ -179,17 +203,28 @@ pub fn command_build(args: &arguments::Args) -> i32 {
 pub fn no_output_matches(selector: &str, declared: &[&str], example: &str) -> i32 {
     eprintln!("error: no declared output matches `--output={selector}`");
     eprintln!("  = declared: {}", declared.join(", "));
-    eprintln!("  = fix: name one of them, as in `--output={example}`, or add the output to the rule");
+    eprintln!(
+        "  = fix: name one of them, as in `--output={example}`, or add the output to the rule"
+    );
     2
 }
 
-fn foreign(output: &crate::build::buildfile::Output, diagnostics: &crate::diagnostics::Diagnostics) -> bool {
-    const HOST_REFUSALS: [&str; 3] =
-        ["native-artifact-unavailable", "networking-unavailable", "cryptography-unavailable"];
+fn foreign(
+    output: &crate::build::buildfile::Output,
+    diagnostics: &crate::diagnostics::Diagnostics,
+) -> bool {
+    const HOST_REFUSALS: [&str; 3] = [
+        "native-artifact-unavailable",
+        "networking-unavailable",
+        "cryptography-unavailable",
+    ];
     let mut errors = diagnostics.items.iter().filter(|d| d.is_error()).peekable();
     errors.peek().or_ice("a build that failed reports an error");
-    errors.all(|d| d.code.as_deref().is_some_and(|c| HOST_REFUSALS.contains(&c)))
-        && !crate::build::link::is_host_target(actions::target_of(output))
+    errors.all(|d| {
+        d.code
+            .as_deref()
+            .is_some_and(|c| HOST_REFUSALS.contains(&c))
+    }) && !crate::build::link::is_host_target(actions::target_of(output))
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +254,10 @@ fn foreign(output: &crate::build::buildfile::Output, diagnostics: &crate::diagno
 ///   it was written to differs between them, which is the failure mode this is
 ///   most likely to catch.
 fn check_reproducible(args: &arguments::Args) -> i32 {
-    let mut flags = arguments::Flags { force: true, ..arguments::Flags::default() };
+    let mut flags = arguments::Flags {
+        force: true,
+        ..arguments::Flags::default()
+    };
     // Everything that is part of the configuration has to be carried across,
     // because "the same configuration" is half of what is being claimed.
     flags.mode = args.flags.mode;
@@ -239,7 +277,14 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
     };
 
     for entry in plan {
-        let Entry { label, path, package_path, artifact, platform, output } = entry;
+        let Entry {
+            label,
+            path,
+            package_path,
+            artifact,
+            platform,
+            output,
+        } = entry;
         if platform.is_native() {
             if let Some(gap) =
                 actions::native_gap(actions::target_of(&output), actions::profile_of(&flags))
@@ -249,7 +294,15 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
                 eprintln!("  = fix: {}", gap.fix);
                 return 1;
             }
-            match check_native(&label, &path, &package_path, &artifact, &output, &flags, args) {
+            match check_native(
+                &label,
+                &path,
+                &package_path,
+                &artifact,
+                &output,
+                &flags,
+                args,
+            ) {
                 Ok(moved) => {
                     compared += 1;
                     differed |= moved;
@@ -296,8 +349,12 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
             let written = round_dir.join(&package_path).join(&artifact);
             let mut files: Vec<(String, String)> =
                 vec![(artifact.clone(), compiled.module.clone())];
-            let sheet = (!compiled.stylesheet.is_empty())
-                .then(|| (actions::stylesheet_path(&written), compiled.stylesheet.clone()));
+            let sheet = (!compiled.stylesheet.is_empty()).then(|| {
+                (
+                    actions::stylesheet_path(&written),
+                    compiled.stylesheet.clone(),
+                )
+            });
             for (companion, text) in sheet
                 .into_iter()
                 // A `core/lazy` chunk is a file this build wrote, and the
@@ -497,19 +554,14 @@ fn check_native(
         let _ = std::fs::remove_dir_all(&round_dir);
         let (mut session, target) = round_session(label, flags)?;
         let mut diagnostics = crate::diagnostics::Diagnostics::new();
-        let objects = match actions::compile_objects(
-            &mut session,
-            target,
-            output,
-            flags,
-            &mut diagnostics,
-        ) {
-            Ok(objects) => objects,
-            Err(diagnostics) => {
-                session.print(&diagnostics);
-                return Err(1);
-            }
-        };
+        let objects =
+            match actions::compile_objects(&mut session, target, output, flags, &mut diagnostics) {
+                Ok(objects) => objects,
+                Err(diagnostics) => {
+                    session.print(&diagnostics);
+                    return Err(1);
+                }
+            };
         let linker = match link::select(actions::target_of(output)) {
             Ok(l) => {
                 chosen = l.chosen_outside();
@@ -535,8 +587,7 @@ fn check_native(
             target: actions::target_of(output),
             unit_prefix: &prefix,
         };
-        if let Err(diagnostics) =
-            link::run(&objects.units, &objects.rows, &linker, &written, &opts)
+        if let Err(diagnostics) = link::run(&objects.units, &objects.rows, &linker, &written, &opts)
         {
             session.print(&diagnostics);
             return Err(1);
@@ -548,7 +599,11 @@ fn check_native(
                 return Err(2);
             }
         };
-        let units = objects.units.into_iter().map(|u| (u.name, u.bytes)).collect();
+        let units = objects
+            .units
+            .into_iter()
+            .map(|u| (u.name, u.bytes))
+            .collect();
         *slot = Round { units, exe };
         let _ = std::fs::remove_dir_all(&round_dir);
     }
@@ -647,7 +702,11 @@ fn plan(args: &arguments::Args, flags: &arguments::Flags) -> Result<Plan, i32> {
                 return Err(1);
             }
             let full = actions::artifact_path(&session, target, &output);
-            let reported = full.strip_prefix(&session.root).unwrap_or(&full).display().to_string();
+            let reported = full
+                .strip_prefix(&session.root)
+                .unwrap_or(&full)
+                .display()
+                .to_string();
             let name = full
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())

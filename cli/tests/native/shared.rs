@@ -169,10 +169,15 @@ pub fn heap_check_failure(status: i32, stderr: &str) -> Option<&str> {
     if status != HEAP_CHECK_STATUS {
         return None;
     }
-    Some(stderr.lines().find(|l| l.starts_with("buri heap check:")).unwrap_or(
-        "the program exited with the heap-check status and said nothing, which is a \
+    Some(
+        stderr
+            .lines()
+            .find(|l| l.starts_with("buri heap check:"))
+            .unwrap_or(
+                "the program exited with the heap-check status and said nothing, which is a \
          harness bug rather than a program's",
-    ))
+            ),
+    )
 }
 
 /// How many blocks a run leaked, where the failure was a leak.
@@ -316,13 +321,22 @@ pub fn place_program(objects: &[PathBuf], binary: &Path) -> std::process::Output
         let host = test_host();
         let bytes: Vec<Vec<u8>> = objects.iter().map(|o| std::fs::read(o).unwrap()).collect();
         let units: Vec<&[u8]> = bytes.iter().map(Vec::as_slice).collect();
-        let image = buri::build::image::link(&units, &host.symbols, &host.key)
-            .unwrap_or_else(|why| panic!("{} doesn't load into the test host: {why}", binary.display()));
+        let image =
+            buri::build::image::link(&units, &host.symbols, &host.key).unwrap_or_else(|why| {
+                panic!(
+                    "{} doesn't load into the test host: {why}",
+                    binary.display()
+                )
+            });
         std::fs::write(binary.with_extension("image"), image).unwrap();
         let _ = std::fs::remove_file(binary);
         std::os::unix::fs::symlink(&host.path, binary).unwrap();
         let status = std::process::ExitStatus::from_raw(0);
-        return std::process::Output { status, stdout: Vec::new(), stderr: Vec::new() };
+        return std::process::Output {
+            status,
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+        };
     }
     let out = link_program(objects, binary);
     crate::sweep::kept::settle(binary);
@@ -339,7 +353,8 @@ fn test_host() -> &'static buri::build::test_host::Host {
             platform: link::host_platform().expect("a macOS host"),
             arch: link::host_arch(),
         };
-        let linker = link::select(target).unwrap_or_else(|r| panic!("no linker for the test host: {}", r.message));
+        let linker = link::select(target)
+            .unwrap_or_else(|r| panic!("no linker for the test host: {}", r.message));
         buri::build::test_host::in_home(crate::sweep::kept::shared_cross_home(), &linker)
             .unwrap_or_else(|why| panic!("the test host can't be had: {why}"))
     })
@@ -407,7 +422,11 @@ pub const SERVER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(
 /// and on CI one did: `https://` got a reset instead of `Refused`.
 pub struct RefusedPort {
     pub port: u16,
-    _held: (std::net::TcpListener, std::net::TcpStream, std::net::TcpStream),
+    _held: (
+        std::net::TcpListener,
+        std::net::TcpStream,
+        std::net::TcpStream,
+    ),
 }
 
 impl RefusedPort {
@@ -416,8 +435,14 @@ impl RefusedPort {
         let client = std::net::TcpStream::connect(listener.local_addr().expect("its address"))
             .expect("a loopback connection");
         let (server, _) = listener.accept().expect("the connection accepted");
-        let port = client.local_addr().expect("the connection's source port").port();
-        RefusedPort { port, _held: (listener, client, server) }
+        let port = client
+            .local_addr()
+            .expect("the connection's source port")
+            .port();
+        RefusedPort {
+            port,
+            _held: (listener, client, server),
+        }
     }
 }
 
@@ -478,7 +503,9 @@ unsafe extern "C" {
 fn has_run(child: &std::process::Child) -> bool {
     // `struct rusage_info_v0` from `<sys/resource.h>`, 96 bytes; only the user
     // time, right after the UUID, is read.
-    let Ok(pid) = i32::try_from(child.id()) else { return true };
+    let Ok(pid) = i32::try_from(child.id()) else {
+        return true;
+    };
     let mut usage = [0u64; 12];
     // SAFETY: flavor 0 is `RUSAGE_INFO_V0`, which fills exactly 96 bytes.
     let asked = unsafe { proc_pid_rusage(pid, 0, usage.as_mut_ptr()) };
@@ -505,7 +532,8 @@ pub fn exited_instructions(pid: u32) -> Option<u64> {
     let mut usage = [0u64; 37];
     // SAFETY: `rusage_info_v4` is 37 `u64`s, and the child stays a zombie
     // until the caller reaps it.
-    if unsafe { proc_pid_rusage(i32::try_from(pid).ok()?, RUSAGE_INFO_V4, usage.as_mut_ptr()) } != 0 {
+    if unsafe { proc_pid_rusage(i32::try_from(pid).ok()?, RUSAGE_INFO_V4, usage.as_mut_ptr()) } != 0
+    {
         return None;
     }
     // `ri_instructions`.
@@ -578,7 +606,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     },
   }
 }
-"#
+"#,
     )
 }
 
@@ -590,7 +618,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 /// the acceptor answers with `net.rs`'s `MAX_HANDLERS` on `Listener.handlers`
 /// and `run` fans out to it.
 pub fn concurrent_server(requests: usize, gate: Option<&str>) -> String {
-    let wait = gate.map_or(String::new(), |url| format!("let _gate = http.get(c, \"{url}\");\n      "));
+    let wait = gate.map_or(String::new(), |url| {
+        format!("let _gate = http.get(c, \"{url}\");\n      ")
+    });
     format!(
         r#"from "platform/effect" import {{ Allocator, Clock, Listen, Network, Stdout, Tasks }};
 from "native" import {{ NativeHost }};
@@ -650,7 +680,10 @@ impl Gate {
     pub fn open(width: usize) -> Gate {
         use std::io::Write;
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a port for the gate");
-        let url = format!("http://127.0.0.1:{}/gate", listener.local_addr().unwrap().port());
+        let url = format!(
+            "http://127.0.0.1:{}/gate",
+            listener.local_addr().unwrap().port()
+        );
         listener.set_nonblocking(true).unwrap();
         let held = std::thread::spawn(move || {
             let until = std::time::Instant::now() + SERVER_DEADLINE;
@@ -663,7 +696,9 @@ impl Gate {
                         // The request's head, so the answer comes after it.
                         let mut head = Vec::new();
                         let mut byte = [0u8; 1];
-                        while !head.ends_with(b"\r\n\r\n") && matches!(read_on(&mut stream, &mut byte), Ok(1)) {
+                        while !head.ends_with(b"\r\n\r\n")
+                            && matches!(read_on(&mut stream, &mut byte), Ok(1))
+                        {
                             head.extend_from_slice(&byte);
                         }
                         held.push(stream);
@@ -675,10 +710,15 @@ impl Gate {
                 }
             }
             let met = held.len();
-            let status = if met == width { "200 OK" } else { "503 Service Unavailable" };
+            let status = if met == width {
+                "200 OK"
+            } else {
+                "503 Service Unavailable"
+            };
             for mut stream in held {
                 let _ = stream.write_all(
-                    format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").as_bytes(),
+                    format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+                        .as_bytes(),
                 );
             }
             met
@@ -763,7 +803,14 @@ pub fn served(binary: &Path, target: &str) -> (Ran, String) {
     let ran = Ran {
         status: status.code().unwrap_or(-1),
         // The first line is the port line, kept to the two words it is.
-        stdout: format!("{}\n{rest}", first.split_whitespace().take(2).collect::<Vec<_>>().join(" ")),
+        stdout: format!(
+            "{}\n{rest}",
+            first
+                .split_whitespace()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
         stderr,
     };
     (ran, String::from_utf8_lossy(&reply).to_string())
@@ -825,9 +872,7 @@ pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>) {
                 socket.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
                 socket.set_write_timeout(Some(SERVER_DEADLINE)).unwrap();
                 socket
-                    .write_all(
-                        format!("GET /r{i} HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").as_bytes(),
-                    )
+                    .write_all(format!("GET /r{i} HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").as_bytes())
                     .unwrap();
                 socket.flush().unwrap();
                 let mut reply = Vec::new();
@@ -836,8 +881,10 @@ pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>) {
             })
         })
         .collect();
-    let replies: Vec<String> =
-        clients.into_iter().map(|c| c.join().expect("a client finished")).collect();
+    let replies: Vec<String> = clients
+        .into_iter()
+        .map(|c| c.join().expect("a client finished"))
+        .collect();
 
     let status = child.wait().expect("the server exited");
     let (first, rest) = reader.join().expect("the reader thread finished");
@@ -849,7 +896,11 @@ pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>) {
         status: status.code().unwrap_or(-1),
         stdout: format!(
             "{}\n{rest}",
-            first.split_whitespace().take(2).collect::<Vec<_>>().join(" ")
+            first
+                .split_whitespace()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ")
         ),
         stderr,
     };
@@ -878,7 +929,10 @@ pub fn each_answered_its_own(replies: &[String]) {
 
 /// The three things every backend's server row asserts about the answer.
 pub fn served_the_path(reply: &str, path: &str) {
-    assert!(reply.starts_with("HTTP/1.1 200 OK\r\n"), "the server did not answer 200:\n{reply}");
+    assert!(
+        reply.starts_with("HTTP/1.1 200 OK\r\n"),
+        "the server did not answer 200:\n{reply}"
+    );
     assert!(
         reply.contains("content-type: text/plain; charset=utf-8\r\n"),
         "`http.text`'s content type did not survive the wire:\n{reply}"
@@ -907,7 +961,8 @@ pub const SIGINT: i32 = 2;
 // dependency.
 unsafe extern "C" {
     fn kill(pid: i32, sig: i32) -> i32;
-    fn setsockopt(fd: i32, level: i32, name: i32, value: *const core::ffi::c_void, len: u32) -> i32;
+    fn setsockopt(fd: i32, level: i32, name: i32, value: *const core::ffi::c_void, len: u32)
+        -> i32;
 }
 
 /// A port where the first address `localhost` resolves to refuses and a later
@@ -935,7 +990,13 @@ pub fn localhost_second_listens() -> (std::net::TcpListener, Refusing) {
         let (accepted, _) = far.accept().expect("the loopback connection");
         let port = near.local_addr().expect("the connected port").port();
         if let Ok(listener) = std::net::TcpListener::bind((later, port)) {
-            return (listener, Refusing { _near: near, _far: accepted });
+            return (
+                listener,
+                Refusing {
+                    _near: near,
+                    _far: accepted,
+                },
+            );
         }
     }
     panic!("no port was free on both {first} and {later}");
@@ -970,9 +1031,20 @@ pub fn reset(socket: std::net::TcpStream) {
     let linger = [1i32, 0i32];
     // SAFETY: `linger` is the C `struct linger`, two `int`s, and outlives the call.
     let set = unsafe {
-        setsockopt(socket.as_raw_fd(), LINGER.0, LINGER.1, linger.as_ptr().cast(), 8)
+        setsockopt(
+            socket.as_raw_fd(),
+            LINGER.0,
+            LINGER.1,
+            linger.as_ptr().cast(),
+            8,
+        )
     };
-    assert_eq!(set, 0, "could not set SO_LINGER: {}", std::io::Error::last_os_error());
+    assert_eq!(
+        set,
+        0,
+        "could not set SO_LINGER: {}",
+        std::io::Error::last_os_error()
+    );
     drop(socket);
 }
 
@@ -1063,7 +1135,11 @@ pub fn signalled(binary: &Path, signal: i32) -> (Ran, String) {
             let Ok(line) = line else { break };
             // Two words is every line these fixtures print: `port <n>`,
             // `handling`, `served`.
-            let short: String = line.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+            let short: String = line
+                .split_whitespace()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ");
             if short.is_empty() {
                 continue;
             }
@@ -1077,7 +1153,8 @@ pub fn signalled(binary: &Path, signal: i32) -> (Ran, String) {
     // difference between a bound and a bound per iteration: a child printing a
     // line a second would otherwise renew its own reprieve forever.
     let port = saying_until(&saying, SERVER_DEADLINE, |line| {
-        line.strip_prefix("port ").and_then(|p| p.parse::<u16>().ok())
+        line.strip_prefix("port ")
+            .and_then(|p| p.parse::<u16>().ok())
     });
     let port = port.unwrap_or_else(|| {
         let _ = child.kill();
@@ -1110,7 +1187,9 @@ pub fn signalled(binary: &Path, signal: i32) -> (Ran, String) {
     // And now wait until the handler says it is running, which is what makes
     // the signal land on a request that is genuinely in flight rather than on
     // one that might be.
-    let handling = saying_until(&saying, SERVER_DEADLINE, |line| (line == "handling").then_some(()));
+    let handling = saying_until(&saying, SERVER_DEADLINE, |line| {
+        (line == "handling").then_some(())
+    });
     if handling.is_none() {
         let _ = child.kill();
         panic!("the server never entered its handler within {SERVER_DEADLINE:?}");
@@ -1187,7 +1266,11 @@ pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
         let mut lines: Vec<String> = Vec::new();
         for line in reader.lines() {
             let Ok(line) = line else { break };
-            let short: String = line.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+            let short: String = line
+                .split_whitespace()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ");
             if short.is_empty() {
                 continue;
             }
@@ -1198,7 +1281,8 @@ pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
     });
 
     let port = saying_until(&saying, SERVER_DEADLINE, |line| {
-        line.strip_prefix("port ").and_then(|p| p.parse::<u16>().ok())
+        line.strip_prefix("port ")
+            .and_then(|p| p.parse::<u16>().ok())
     });
     let port = port.unwrap_or_else(|| {
         let _ = child.kill();
@@ -1220,12 +1304,16 @@ pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
     };
     socket.set_read_timeout(Some(SERVER_DEADLINE)).unwrap();
     socket.set_write_timeout(Some(SERVER_DEADLINE)).unwrap();
-    socket.write_all(b"GET /in-flight HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n").unwrap();
+    socket
+        .write_all(b"GET /in-flight HTTP/1.1\r\nhost: 127.0.0.1\r\n\r\n")
+        .unwrap();
     socket.flush().unwrap();
 
     // The handler says so before it sleeps, so from here the request is
     // provably inside one rather than probably.
-    let handling = saying_until(&saying, SERVER_DEADLINE, |line| (line == "handling").then_some(()));
+    let handling = saying_until(&saying, SERVER_DEADLINE, |line| {
+        (line == "handling").then_some(())
+    });
     if handling.is_none() {
         let _ = child.kill();
         panic!("the server never entered its handler within {SERVER_DEADLINE:?}");
@@ -1277,7 +1365,9 @@ pub fn saying_until<T>(
         if left.is_zero() {
             return None;
         }
-        let Ok(line) = saying.recv_timeout(left) else { return None };
+        let Ok(line) = saying.recv_timeout(left) else {
+            return None;
+        };
         if let Some(found) = read(&line) {
             return Some(found);
         }
@@ -1301,7 +1391,10 @@ pub fn signalling(child: &std::process::Child, signal: i32) {
 /// A process that will not stop is killed rather than waited on forever, and
 /// the panic says which of the two happened. That is the whole of the rule this
 /// file states about every other wait, applied to the one std does not bound.
-pub fn waited(child: &mut std::process::Child, within: std::time::Duration) -> std::process::ExitStatus {
+pub fn waited(
+    child: &mut std::process::Child,
+    within: std::time::Duration,
+) -> std::process::ExitStatus {
     let until = std::time::Instant::now() + within;
     loop {
         match child.try_wait() {
@@ -1320,7 +1413,11 @@ pub fn waited(child: &mut std::process::Child, within: std::time::Duration) -> s
 
 /// What every backend's shutdown row asserts about what came back.
 pub fn drained_gracefully(out: &Ran, reply: &str) {
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     // The request that was in a handler when the signal arrived was answered
     // whole — a status line, `http.text`'s content type, and the path the
     // handler was given.
@@ -1530,7 +1627,10 @@ pub fn tls_bind_answers(stdout: &str, absent: &Path) {
         .lines()
         .find_map(|line| line.strip_prefix("opened "))
         .unwrap_or_else(|| panic!("the program printed no opened line:\n{stdout}"));
-    let port: u32 = opened.trim().parse().unwrap_or_else(|_| panic!("a port, not {opened:?}"));
+    let port: u32 = opened
+        .trim()
+        .parse()
+        .unwrap_or_else(|_| panic!("a port, not {opened:?}"));
     assert!(port > 0, "a secured listener was not given a port: {port}");
 }
 
@@ -1541,21 +1641,24 @@ pub fn tls_bind_answers(stdout: &str, absent: &Path) {
 /// about a backend.
 pub fn conformance_repository() -> Option<&'static Workspace> {
     static REPOSITORY: OnceLock<Option<Workspace>> = OnceLock::new();
-    REPOSITORY.get_or_init(|| {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance");
-        // Through `session::open_at` rather than `Workspace::load`, because a
-        // `generators` entry names a program and loading the graph does not run
-        // it. `//lib/proto` declares one, so a workspace loaded the short way
-        // has no module behind `point.proto` and the *front end* refuses every
-        // file that imports it — which would read here as a backend that
-        // stopped compiling them.
-        let session = buri::build::session::open_at(&root, &buri::commands::arguments::Flags::default()).ok()?;
-        if session.diagnostics.has_errors() {
-            return None;
-        }
-        std::sync::Arc::try_unwrap(session.workspace).ok()
-    })
-    .as_ref()
+    REPOSITORY
+        .get_or_init(|| {
+            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance");
+            // Through `session::open_at` rather than `Workspace::load`, because a
+            // `generators` entry names a program and loading the graph does not run
+            // it. `//lib/proto` declares one, so a workspace loaded the short way
+            // has no module behind `point.proto` and the *front end* refuses every
+            // file that imports it — which would read here as a backend that
+            // stopped compiling them.
+            let session =
+                buri::build::session::open_at(&root, &buri::commands::arguments::Flags::default())
+                    .ok()?;
+            if session.diagnostics.has_errors() {
+                return None;
+            }
+            std::sync::Arc::try_unwrap(session.workspace).ok()
+        })
+        .as_ref()
 }
 
 /// The corpus root the file walkers start from.
@@ -1654,7 +1757,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     },
   }
 }
-"#
+"#,
     )
 }
 
@@ -1710,7 +1813,11 @@ pub fn broadcast_reaches_the_other_socket(binary: &Path) {
         "the room did not grow between the two publishes:\n{}",
         out.stdout
     );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert!(
         out.stdout.ends_with("served\n"),
         "the server did not run to its own end:\n{}",
@@ -1840,7 +1947,11 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// exactly [`served`]'s. The existing rows are left as they are: what they
 /// share is a shape rather than a dependency, and rewriting four working tests
 /// to prove that is churn.
-type Announced = (std::process::Child, std::thread::JoinHandle<(String, String)>, u16);
+type Announced = (
+    std::process::Child,
+    std::thread::JoinHandle<(String, String)>,
+    u16,
+);
 
 /// Start a server binary and read the port off its first line, bounded.
 ///
@@ -1891,7 +2002,11 @@ pub fn finished(announced: Announced) -> Ran {
         status: status.code().unwrap_or(-1),
         stdout: format!(
             "{}\n{rest}",
-            first.split_whitespace().take(2).collect::<Vec<_>>().join(" ")
+            first
+                .split_whitespace()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ")
         ),
         stderr,
     }
@@ -1976,7 +2091,10 @@ impl Talking {
             if head.ends_with(b"\r\n\r\n") {
                 break;
             }
-            assert!(head.len() < 8 * 1024, "no blank line in the upgrade response");
+            assert!(
+                head.len() < 8 * 1024,
+                "no blank line in the upgrade response"
+            );
         }
         let head = String::from_utf8_lossy(&head).to_string();
         assert!(
@@ -1987,7 +2105,11 @@ impl Talking {
             head.to_ascii_lowercase().contains("sec-websocket-accept:"),
             "the 101 carried no accept key: {head}"
         );
-        Talking { socket, over: Vec::new(), closed: None }
+        Talking {
+            socket,
+            over: Vec::new(),
+            closed: None,
+        }
     }
 
     /// The close code the server sent, once [`Talking::heard`] has answered

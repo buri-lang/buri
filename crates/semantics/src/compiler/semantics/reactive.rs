@@ -45,7 +45,9 @@ pub fn run(
     walked: &Walked,
     waiting: &HashSet<FnId>,
 ) -> HashSet<FnId> {
-    let Some(load) = own_fn(loaded, scopes, "core/lazy", "load") else { return HashSet::default() };
+    let Some(load) = own_fn(loaded, scopes, "core/lazy", "load") else {
+        return HashSet::default();
+    };
     let builders: Vec<(FnId, &'static str)> = [
         ("computed", "computed"),
         ("each", "each"),
@@ -105,7 +107,10 @@ fn reaches(e: &typed::Expr, load: FnId, waiting: &HashSet<FnId>) -> Option<Span>
         return None;
     }
     if let ExprKind::CallFn { func, .. } = &e.kind {
-        if func.decl().is_some_and(|f| f == load || waiting.contains(&f)) {
+        if func
+            .decl()
+            .is_some_and(|f| f == load || waiting.contains(&f))
+        {
             return Some(e.span);
         }
     }
@@ -146,5 +151,8 @@ fn walk(
 
 /// The name a refused builder is reported under, when `f` is one.
 fn builder_label(f: FnId, builders: &[(FnId, &'static str)]) -> Option<&'static str> {
-    builders.iter().find(|(id, _)| *id == f).map(|(_, label)| *label)
+    builders
+        .iter()
+        .find(|(id, _)| *id == f)
+        .map(|(_, label)| *label)
 }

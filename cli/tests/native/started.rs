@@ -24,7 +24,9 @@ const DEADLINE: Duration = Duration::from_secs(120);
 /// The native executable, built once.
 fn native() -> Option<&'static Path> {
     static BUILT: OnceLock<Option<PathBuf>> = OnceLock::new();
-    BUILT.get_or_init(|| crate::e2e::ready().then(|| crate::e2e::built("started", SOURCE))).as_deref()
+    BUILT
+        .get_or_init(|| crate::e2e::ready().then(|| crate::e2e::built("started", SOURCE)))
+        .as_deref()
 }
 
 /// The JavaScript artifact and the engine to run it, built once.
@@ -34,7 +36,10 @@ fn javascript() -> Option<&'static (String, PathBuf)> {
         .get_or_init(|| {
             let engine = crate::shared::js_engine()?;
             let (checked, paths) = crate::agreement::analyze("started", SOURCE);
-            Some((engine, crate::agreement::emit_js("started", &checked, &paths)))
+            Some((
+                engine,
+                crate::agreement::emit_js("started", &checked, &paths),
+            ))
         })
         .as_ref()
 }
@@ -64,8 +69,8 @@ fn ran(on: On, mode: &str) -> Option<String> {
     let mut command = match on {
         On::Native => {
             let binary = native()?;
-            let mut command =
-                crate::valgrind::command(binary, "process.start").unwrap_or_else(|| Command::new(binary));
+            let mut command = crate::valgrind::command(binary, "process.start")
+                .unwrap_or_else(|| Command::new(binary));
             crate::shared::heap_checked(&mut command);
             command
         }
@@ -86,9 +91,13 @@ fn ran(on: On, mode: &str) -> Option<String> {
         .stdout(std::fs::File::create(&out).unwrap())
         .stderr(std::fs::File::create(&err).unwrap());
     let mut child = command.spawn().unwrap();
-    let waited = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| crate::shared::waited(&mut child, DEADLINE)));
+    let waited = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::shared::waited(&mut child, DEADLINE)
+    }));
     let stdout = std::fs::read_to_string(&out).unwrap();
-    let Ok(status) = waited else { panic!("{mode} on {on:?} hung after printing:\n{stdout}") };
+    let Ok(status) = waited else {
+        panic!("{mode} on {on:?} hung after printing:\n{stdout}")
+    };
     let stderr = std::fs::read_to_string(&err).unwrap();
     assert_eq!(
         status.code(),
@@ -229,7 +238,9 @@ fn many_children_are_waited_on_at_once() {
 #[test]
 fn a_child_outlives_the_program_that_started_it() {
     for on in [On::Native, On::JavaScript] {
-        let Some(stdout) = ran(on, "outlives") else { continue };
+        let Some(stdout) = ran(on, "outlives") else {
+            continue;
+        };
         let pid: i32 = stdout
             .trim()
             .strip_prefix("pid ")
@@ -240,7 +251,10 @@ fn a_child_outlives_the_program_that_started_it() {
         // SAFETY: the sleeper the program started; nothing else has its pid
         // while it is alive.
         unsafe { kill(pid, 9) };
-        assert!(alive, "{on:?}: the child died with the program that started it");
+        assert!(
+            alive,
+            "{on:?}: the child died with the program that started it"
+        );
     }
 }
 

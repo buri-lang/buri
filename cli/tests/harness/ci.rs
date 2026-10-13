@@ -102,9 +102,14 @@ pub fn native_host_gap() -> Option<String> {
     use buri::build::{actions, link};
     use buri::compiler::backend::{Profile, Target};
     let Some(platform) = link::host_platform() else {
-        return Some(String::from("no native backend exists for this host's platform"));
+        return Some(String::from(
+            "no native backend exists for this host's platform",
+        ));
     };
-    let target = Target { platform, arch: link::host_arch() };
+    let target = Target {
+        platform,
+        arch: link::host_arch(),
+    };
     if let Some(gap) = actions::native_gap(target, Profile::Debug) {
         return Some(gap.reason);
     }

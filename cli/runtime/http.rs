@@ -197,7 +197,9 @@ fn parse(url: &str) -> Result<Url<'_>, NetFail> {
     // implementation that ignored credentials would send an unauthenticated
     // request and report the server's refusal, which is the wrong error.
     if authority.contains('@') {
-        return Err(NetFail::BadUrl(format!("userinfo in a URL is not supported: {url}")));
+        return Err(NetFail::BadUrl(format!(
+            "userinfo in a URL is not supported: {url}"
+        )));
     }
     let (host, port) = match authority.rsplit_once(':') {
         Some((h, p)) => match p.parse::<u16>() {
@@ -206,7 +208,13 @@ fn parse(url: &str) -> Result<Url<'_>, NetFail> {
         },
         None => (authority, if tls { 443 } else { 80 }),
     };
-    Ok(Url { authority, host, port, target: if target.is_empty() { "/" } else { target }, tls })
+    Ok(Url {
+        authority,
+        host,
+        port,
+        target: if target.is_empty() { "/" } else { target },
+        tls,
+    })
 }
 
 /// The socket, and — for `https://` — the TLS session over it.
@@ -349,7 +357,9 @@ fn within<T: Send + 'static>(
             let _ = answer.send(work());
         })
         .map_err(|e| {
-            NetFail::Transport(format!("{what} needs a thread, and one could not be started: {e}"))
+            NetFail::Transport(format!(
+                "{what} needs a thread, and one could not be started: {e}"
+            ))
         })?;
     match wait.recv_timeout(deadline) {
         Ok(value) => Ok(value),
@@ -358,9 +368,9 @@ fn within<T: Send + 'static>(
         // return early means it panicked. Its own message has already been
         // printed by the panic hook; this is the caller being told that the
         // step has no answer rather than being told to keep waiting.
-        Err(RecvTimeoutError::Disconnected) => {
-            Err(NetFail::Transport(format!("{what} ended without an answer")))
-        }
+        Err(RecvTimeoutError::Disconnected) => Err(NetFail::Transport(format!(
+            "{what} ended without an answer"
+        ))),
     }
 }
 
@@ -413,8 +423,10 @@ fn fetch_within(
     let addrs = resolve(url.host, url.port, deadline)?;
 
     let sock = dial_any(&addrs, deadline).map_err(|e| io_fail(&e))?;
-    sock.set_read_timeout(Some(deadline)).map_err(|e| io_fail(&e))?;
-    sock.set_write_timeout(Some(deadline)).map_err(|e| io_fail(&e))?;
+    sock.set_read_timeout(Some(deadline))
+        .map_err(|e| io_fail(&e))?;
+    sock.set_write_timeout(Some(deadline))
+        .map_err(|e| io_fail(&e))?;
     // A request/response exchange is one write and one read, so Nagle can only
     // add a round trip's worth of delay to the front of it.
     let _ = sock.set_nodelay(true);
@@ -438,7 +450,9 @@ fn fetch_within(
         // something, and quietly sending a different thing is worse than not
         // sending it.
         if name.contains(['\r', '\n', ':']) || value.contains(['\r', '\n']) {
-            return Err(NetFail::Transport(format!("header `{name}` is not a header field")));
+            return Err(NetFail::Transport(format!(
+                "header `{name}` is not a header field"
+            )));
         }
         head.push_str(&format!("{name}: {value}\r\n"));
     }
@@ -540,8 +554,9 @@ fn read_to_end(
 }
 
 fn parse_response(raw: &[u8]) -> Result<HttpResponse, NetFail> {
-    let split = find(raw, b"\r\n\r\n")
-        .ok_or_else(|| NetFail::Transport("truncated response: no header terminator".to_string()))?;
+    let split = find(raw, b"\r\n\r\n").ok_or_else(|| {
+        NetFail::Transport("truncated response: no header terminator".to_string())
+    })?;
     let (head, rest) = raw.split_at(split);
     let body = rest.get(4..).unwrap_or(&[]);
     let head = String::from_utf8_lossy(head);
@@ -560,7 +575,9 @@ fn parse_response(raw: &[u8]) -> Result<HttpResponse, NetFail> {
     let mut chunked = false;
     let mut fields: Vec<(String, String)> = Vec::new();
     for line in lines {
-        let Some((name, value)) = line.split_once(':') else { continue };
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
         let value = value.trim();
         if name.eq_ignore_ascii_case("content-length") {
             length = value.parse::<usize>().ok();
@@ -580,7 +597,11 @@ fn parse_response(raw: &[u8]) -> Result<HttpResponse, NetFail> {
             None => body.to_vec(),
         }
     };
-    Ok(HttpResponse { status, headers: fields, body: bytes })
+    Ok(HttpResponse {
+        status,
+        headers: fields,
+        body: bytes,
+    })
 }
 
 fn dechunk(mut body: &[u8]) -> Result<Vec<u8>, NetFail> {
@@ -640,8 +661,15 @@ mod tests {
             std::thread::sleep(Duration::from_secs(60));
             0_u8
         });
-        assert!(matches!(answer, Err(NetFail::Timeout)), "a step that never answers is a Timeout");
-        assert!(start.elapsed() < SOON, "the wait took {:?}", start.elapsed());
+        assert!(
+            matches!(answer, Err(NetFail::Timeout)),
+            "a step that never answers is a Timeout"
+        );
+        assert!(
+            start.elapsed() < SOON,
+            "the wait took {:?}",
+            start.elapsed()
+        );
     }
 
     /// An address literal is dialled, not looked up.
@@ -694,7 +722,9 @@ mod tests {
     /// hours.
     #[test]
     fn a_response_that_drips_ends_at_the_budget() {
-        let mut peer = Endless { every: Duration::from_millis(1) };
+        let mut peer = Endless {
+            every: Duration::from_millis(1),
+        };
         let mut out = Vec::new();
         let started = Instant::now();
         let answer = read_to_end(
@@ -703,8 +733,15 @@ mod tests {
             Instant::now() + Duration::from_millis(100),
             RESPONSE_LIMIT,
         );
-        assert!(matches!(answer, Err(NetFail::Timeout)), "a drip is a Timeout");
-        assert!(started.elapsed() < SOON, "the read ran {:?}", started.elapsed());
+        assert!(
+            matches!(answer, Err(NetFail::Timeout)),
+            "a drip is a Timeout"
+        );
+        assert!(
+            started.elapsed() < SOON,
+            "the read ran {:?}",
+            started.elapsed()
+        );
     }
 
     /// **A response larger than this client will read is refused, and says so.**
@@ -716,20 +753,33 @@ mod tests {
     /// have one.
     #[test]
     fn a_response_larger_than_the_cap_is_refused_and_says_so() {
-        let mut peer = Endless { every: Duration::ZERO };
+        let mut peer = Endless {
+            every: Duration::ZERO,
+        };
         let mut out = Vec::new();
         let started = Instant::now();
-        let answer =
-            read_to_end(&mut peer, &mut out, Instant::now() + Duration::from_secs(60), 64 * 1024);
+        let answer = read_to_end(
+            &mut peer,
+            &mut out,
+            Instant::now() + Duration::from_secs(60),
+            64 * 1024,
+        );
         match answer {
             Err(NetFail::Transport(said)) => {
                 assert!(said.contains("larger than"), "{said}");
-                assert!(said.contains("65536"), "the refusal names the cap it hit: {said}");
+                assert!(
+                    said.contains("65536"),
+                    "the refusal names the cap it hit: {said}"
+                );
             }
             Err(other) => panic!("an endless response was refused as {}", other.message()),
             Ok(()) => panic!("an endless response was read to its end"),
         }
-        assert!(started.elapsed() < SOON, "the read ran {:?}", started.elapsed());
+        assert!(
+            started.elapsed() < SOON,
+            "the read ran {:?}",
+            started.elapsed()
+        );
     }
 
     /// A dial to an address nothing answers for ends at the deadline.
@@ -745,10 +795,19 @@ mod tests {
     #[test]
     fn a_dial_that_goes_nowhere_ends_at_the_deadline() {
         let start = Instant::now();
-        let answer =
-            fetch_within(Duration::from_millis(250), 0, "http://192.0.2.1:81/probe", &[], b"");
+        let answer = fetch_within(
+            Duration::from_millis(250),
+            0,
+            "http://192.0.2.1:81/probe",
+            &[],
+            b"",
+        );
         assert!(answer.is_err(), "TEST-NET-1 answered an HTTP request");
-        assert!(start.elapsed() < SOON, "the dial took {:?}", start.elapsed());
+        assert!(
+            start.elapsed() < SOON,
+            "the dial took {:?}",
+            start.elapsed()
+        );
     }
 
     /// What a `Request.withTimeout` becomes, including the two numbers that
@@ -766,7 +825,6 @@ mod tests {
         assert_eq!(bound(250), Duration::from_millis(250));
         assert_eq!(bound(1), Duration::from_millis(1));
     }
-
 
     /// **A server that accepts and then says nothing ends at the caller's
     /// bound, and the same server answering does not.**
@@ -787,7 +845,9 @@ mod tests {
         use std::net::TcpListener;
         let listener = TcpListener::bind("127.0.0.1:0").expect("a bound port");
         let port = listener.local_addr().expect("the bound port").port();
-        listener.set_nonblocking(true).expect("a listener that can be polled");
+        listener
+            .set_nonblocking(true)
+            .expect("a listener that can be polled");
 
         // `answer` is what the peer writes once it has read a whole head, or
         // nothing at all — which is the stall.
@@ -877,6 +937,10 @@ mod tests {
         let start = Instant::now();
         let answer = fetch_within(bound(250), 0, "http://192.0.2.1:81/probe", &[], b"");
         assert!(answer.is_err(), "TEST-NET-1 answered an HTTP request");
-        assert!(start.elapsed() < SOON, "the dial took {:?}", start.elapsed());
+        assert!(
+            start.elapsed() < SOON,
+            "the dial took {:?}",
+            start.elapsed()
+        );
     }
 }

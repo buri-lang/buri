@@ -39,7 +39,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub fn command_generate(args: &arguments::Args) -> i32 {
     let code = generate_all(args);
     if crate::profile::enabled() {
-        eprintln!("build files worked out {}", WORKED_OUT.load(Ordering::Relaxed));
+        eprintln!(
+            "build files worked out {}",
+            WORKED_OUT.load(Ordering::Relaxed)
+        );
     }
     code
 }
@@ -80,22 +83,29 @@ fn generate_all(args: &arguments::Args) -> i32 {
         .filter(|(_, stale)| stale.is_none_or(|stale| stale && !check))
         .map(|(p, _)| *p)
         .collect();
-    let mut worked: BTreeMap<PackageId, Result<Worked, crate::diagnostics::Diagnostic>> = BTreeMap::new();
+    let mut worked: BTreeMap<PackageId, Result<Worked, crate::diagnostics::Diagnostic>> =
+        BTreeMap::new();
     if !todo.is_empty() {
         let units: Vec<TargetId> = todo
             .iter()
             .flat_map(|&package| {
                 let p = session.workspace.package(package);
-                [(RuleKind::Library, p.has_library()), (RuleKind::Binary, p.has_binary())]
-                    .into_iter()
-                    .filter(|(_, has)| *has)
-                    .map(move |(kind, _)| TargetId { package, kind })
+                [
+                    (RuleKind::Library, p.has_library()),
+                    (RuleKind::Binary, p.has_binary()),
+                ]
+                .into_iter()
+                .filter(|(_, has)| *has)
+                .map(move |(kind, _)| TargetId { package, kind })
             })
             .collect();
         let batch = Batch::of(&mut session, &units);
         for &package in &todo {
             WORKED_OUT.fetch_add(1, Ordering::Relaxed);
-            worked.insert(package, regenerate::regenerate_in(&mut session, package, batch.as_ref()));
+            worked.insert(
+                package,
+                regenerate::regenerate_in(&mut session, package, batch.as_ref()),
+            );
         }
         // Before anything is written: a record holds the tree it was worked
         // out from.
@@ -122,7 +132,10 @@ fn generate_all(args: &arguments::Args) -> i32 {
         if !check {
             let path = session.workspace.package(package).build_path.clone();
             if std::fs::write(&path, &update.text).is_ok() {
-                println!("updated {}", session.workspace.file_in(package, "BUILD.buri"));
+                println!(
+                    "updated {}",
+                    session.workspace.file_in(package, "BUILD.buri")
+                );
                 for line in &update.summary {
                     println!("  {line}");
                 }
@@ -162,7 +175,11 @@ impl Answers {
     fn open(session: &Session, flags: &arguments::Flags) -> Answers {
         let mut sources = crate::build::sources::Sources::at(&session.root, flags.clone());
         let graph = sources.graph_key(&crate::build::sources::Overlay::new());
-        Answers { cache: Cache::open(&session.root), root: session.root.clone(), graph }
+        Answers {
+            cache: Cache::open(&session.root),
+            root: session.root.clone(),
+            graph,
+        }
     }
 
     /// Each package's key, worked out on every core.
@@ -186,24 +203,38 @@ impl Answers {
         let records: Vec<Option<Record>> = self
             .keys(workspace, packages)
             .iter()
-            .map(|key| self.cache.get(key.as_ref()?).and_then(|bytes| Record::decode(&bytes)))
+            .map(|key| {
+                self.cache
+                    .get(key.as_ref()?)
+                    .and_then(|bytes| Record::decode(&bytes))
+            })
             .collect();
         let generated_hold = |record: &Record| {
             record.generated.iter().all(|(path, kind, key)| {
-                let Some(package) = workspace.package_by_path(path) else { return false };
-                let Some(kind) = kind_named(kind) else { return false };
+                let Some(package) = workspace.package_by_path(path) else {
+                    return false;
+                };
+                let Some(kind) = kind_named(kind) else {
+                    return false;
+                };
                 generator_key(workspace, TargetId { package, kind }) == *key
             })
         };
-        let names: BTreeSet<&str> =
-            records.iter().flatten().flat_map(|r| r.reads.iter().map(|(rel, _)| rel.as_str())).collect();
+        let names: BTreeSet<&str> = records
+            .iter()
+            .flatten()
+            .flat_map(|r| r.reads.iter().map(|(rel, _)| rel.as_str()))
+            .collect();
         let digests = self.digests(names.into_iter().map(|rel| self.root.join(rel)).collect());
         records
             .into_iter()
             .map(|record| {
                 let record = record?;
                 let held = generated_hold(&record)
-                    && record.reads.iter().all(|(rel, was)| digests.get(&self.root.join(rel)) == Some(was));
+                    && record
+                        .reads
+                        .iter()
+                        .all(|(rel, was)| digests.get(&self.root.join(rel)) == Some(was));
                 held.then_some(record.stale)
             })
             .collect()
@@ -216,11 +247,16 @@ impl Answers {
         worked: &BTreeMap<PackageId, Result<Worked, crate::diagnostics::Diagnostic>>,
     ) {
         let workspace = &*session.workspace;
-        let done: Vec<(PackageId, &Worked)> =
-            worked.iter().filter_map(|(p, w)| Some((*p, w.as_ref().ok()?))).collect();
+        let done: Vec<(PackageId, &Worked)> = worked
+            .iter()
+            .filter_map(|(p, w)| Some((*p, w.as_ref().ok()?)))
+            .collect();
         let packages: Vec<PackageId> = done.iter().map(|(p, _)| *p).collect();
         let keys = self.keys(workspace, &packages);
-        let files: BTreeSet<PathBuf> = done.iter().flat_map(|(_, w)| w.reads.iter().cloned()).collect();
+        let files: BTreeSet<PathBuf> = done
+            .iter()
+            .flat_map(|(_, w)| w.reads.iter().cloned())
+            .collect();
         let digests = self.digests(files.into_iter().collect());
         for ((_, w), key) in done.iter().zip(&keys) {
             let Some(key) = key else { continue };
@@ -235,7 +271,11 @@ impl Answers {
                     reads.insert(workspace.rel_of(path), digest);
                 }
             }
-            let mut out = format!("{FORMAT}\n{}\n{}\n", if w.update.is_some() { "stale" } else { "same" }, generated.len());
+            let mut out = format!(
+                "{FORMAT}\n{}\n{}\n",
+                if w.update.is_some() { "stale" } else { "same" },
+                generated.len()
+            );
             for (path, kind, key) in &generated {
                 out.push_str(&format!("{path}\t{kind}\t{key}\n"));
             }
@@ -248,7 +288,9 @@ impl Answers {
 
     /// The digest of each file's bytes now, or `absent`, read on every core.
     fn digests(&self, files: Vec<PathBuf>) -> BTreeMap<PathBuf, String> {
-        let digests = crate::parallel::map(files.len(), |i| files.get(i).map_or_else(String::new, |p| digest(p)));
+        let digests = crate::parallel::map(files.len(), |i| {
+            files.get(i).map_or_else(String::new, |p| digest(p))
+        });
         files.into_iter().zip(digests).collect()
     }
 }
@@ -259,11 +301,19 @@ fn digest(path: &Path) -> String {
 
 /// A digest of the key a rule's generators last ran under, which spans lines.
 fn generator_key(workspace: &Workspace, rule: TargetId) -> String {
-    hash_bytes(workspace.generated.key_of(rule).unwrap_or_default().as_bytes())
+    hash_bytes(
+        workspace
+            .generated
+            .key_of(rule)
+            .unwrap_or_default()
+            .as_bytes(),
+    )
 }
 
 fn kind_named(name: &str) -> Option<RuleKind> {
-    [RuleKind::Library, RuleKind::Binary, RuleKind::Tool].into_iter().find(|k| k.name() == name)
+    [RuleKind::Library, RuleKind::Binary, RuleKind::Tool]
+        .into_iter()
+        .find(|k| k.name() == name)
 }
 
 /// One package's answer as [`Answers::remember`] wrote it.
@@ -291,13 +341,21 @@ impl Record {
         let mut generated = Vec::with_capacity(count);
         for _ in 0..count {
             let mut fields = lines.next()?.splitn(3, '\t');
-            generated.push((fields.next()?.to_string(), fields.next()?.to_string(), fields.next()?.to_string()));
+            generated.push((
+                fields.next()?.to_string(),
+                fields.next()?.to_string(),
+                fields.next()?.to_string(),
+            ));
         }
         let mut reads = Vec::new();
         for line in lines {
             let (rel, digest) = line.split_once('\t')?;
             reads.push((rel.to_string(), digest.to_string()));
         }
-        Some(Record { stale, generated, reads })
+        Some(Record {
+            stale,
+            generated,
+            reads,
+        })
     }
 }

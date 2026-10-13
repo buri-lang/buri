@@ -122,7 +122,10 @@ pub fn broken_regions(text: &str) -> Vec<(usize, usize)> {
 /// The same, for text read as `dialect`.
 pub fn broken_regions_in(text: &str, dialect: Dialect) -> Vec<(usize, usize)> {
     let (parsed, _) = read(text, dialect);
-    regions(&parsed).into_iter().map(|s| (s.start as usize, s.end as usize)).collect()
+    regions(&parsed)
+        .into_iter()
+        .map(|s| (s.start as usize, s.end as usize))
+        .collect()
 }
 
 /// Which of the two things a file is, which is the whole of what the formatter
@@ -157,12 +160,22 @@ fn regions(parsed: &crate::parsing::parser::Parsed) -> Vec<Span> {
             *b = true;
         }
     }
-    items.iter().zip(&broken).filter(|(_, b)| **b).map(|(s, _)| *s).collect()
+    items
+        .iter()
+        .zip(&broken)
+        .filter(|(_, b)| **b)
+        .map(|(s, _)| *s)
+        .collect()
 }
 
 /// Every declaration's span, and whether the recovery skipped over it.
 fn shape(parsed: &crate::parsing::parser::Parsed) -> (Vec<Span>, Vec<bool>) {
-    parsed.module.items.iter().map(|i| (i.span(), matches!(i, Item::Error(_)))).unzip()
+    parsed
+        .module
+        .items
+        .iter()
+        .map(|i| (i.span(), matches!(i, Item::Error(_))))
+        .unzip()
 }
 
 /// The declaration a diagnostic is about.
@@ -211,7 +224,10 @@ fn names_a_missing_token(code: Option<&str>) -> bool {
 /// be sure of. It is refused whole, as before.
 fn placed(parsed: &crate::parsing::parser::Parsed) -> bool {
     let (items, skipped) = shape(parsed);
-    parsed.errors.iter().all(|e| holder(&items, &skipped, e).is_some())
+    parsed
+        .errors
+        .iter()
+        .all(|e| holder(&items, &skipped, e).is_some())
 }
 
 /// What each region says, line by line with trailing spaces off — the form the
@@ -221,7 +237,11 @@ fn region_text(text: &str, regions: &[Span]) -> Vec<String> {
         .iter()
         .map(|s| {
             let slice = text.get(s.start as usize..s.end as usize).unwrap_or("");
-            slice.lines().map(str::trim_end).collect::<Vec<_>>().join("\n")
+            slice
+                .lines()
+                .map(str::trim_end)
+                .collect::<Vec<_>>()
+                .join("\n")
         })
         .collect()
 }
@@ -232,8 +252,13 @@ pub fn source_unchecked(text: &str) -> String {
     let broken = regions(&parsed);
     let mut tv = Comments::read(text, kept, &parsed.module.tree);
     render(
-        &Build { tv: &mut tv, t: &parsed.module.tree, src: text, broken: &broken }
-            .module(&parsed.module),
+        &Build {
+            tv: &mut tv,
+            t: &parsed.module.tree,
+            src: text,
+            broken: &broken,
+        }
+        .module(&parsed.module),
     )
 }
 
@@ -279,8 +304,13 @@ pub fn formatted(text: &str, dialect: Dialect) -> Option<Formatted> {
     let mut before = shapes_of(text, &kept, |d| tree.doc_lines(d));
     let mut tv = Comments::read(text, kept, &parsed.module.tree);
     let out = render(
-        &Build { tv: &mut tv, t: &parsed.module.tree, src: text, broken: &broken }
-            .module(&parsed.module),
+        &Build {
+            tv: &mut tv,
+            t: &parsed.module.tree,
+            src: text,
+            broken: &broken,
+        }
+        .module(&parsed.module),
     );
 
     // A formatter that produces something that does not parse is worse than no
@@ -304,7 +334,10 @@ pub fn formatted(text: &str, dialect: Dialect) -> Option<Formatted> {
     if before != afterwards {
         return None;
     }
-    let regions = after.iter().map(|s| (s.start as usize, s.end as usize)).collect();
+    let regions = after
+        .iter()
+        .map(|s| (s.start as usize, s.end as usize))
+        .collect();
     Some(Formatted { text: out, regions })
 }
 
@@ -402,13 +435,19 @@ mod group {
         /// The group around `doc`, breaking exactly when `doc` does.
         pub fn of(doc: Doc<'s>) -> Group<'s> {
             let breaks = super::breaks(&doc);
-            Group { doc: Box::new(doc), breaks }
+            Group {
+                doc: Box::new(doc),
+                breaks,
+            }
         }
 
         /// The same group, broken. Deliberately one-way: a caller may insist a
         /// group breaks, and may never claim one does not.
         pub fn forced(self) -> Group<'s> {
-            Group { doc: self.doc, breaks: true }
+            Group {
+                doc: self.doc,
+                breaks: true,
+            }
         }
 
         pub fn doc(&self) -> &Doc<'s> {
@@ -461,7 +500,11 @@ fn group(d: Doc) -> Doc {
 
 /// Two candidate layouts: all on a line, or the one to fall back to.
 fn alt<'s>(flat: Doc<'s>, next: Doc<'s>) -> Doc<'s> {
-    Doc::Alt { flat: Box::new(flat), next: Box::new(next), rest: Vec::new() }
+    Doc::Alt {
+        flat: Box::new(flat),
+        next: Box::new(next),
+        rest: Vec::new(),
+    }
 }
 
 /// The same document with its outermost group broken.
@@ -478,9 +521,20 @@ fn force(d: Doc) -> Doc {
         // is not an `Alt`; repeating it says the same thing — the strict
         // measurement and the fallback land on the same document — in a shape
         // the layout pass can still read.
-        Doc::Alt { flat: _, next, rest } => {
-            invariant(rest.is_empty(), "only a lambda is a hugged `Alt`, and it has two candidates");
-            Doc::Alt { flat: next.clone(), next, rest }
+        Doc::Alt {
+            flat: _,
+            next,
+            rest,
+        } => {
+            invariant(
+                rest.is_empty(),
+                "only a lambda is a hugged `Alt`, and it has two candidates",
+            );
+            Doc::Alt {
+                flat: next.clone(),
+                next,
+                rest,
+            }
         }
         Doc::Concat(mut xs) => {
             let last = xs.pop().map(force);
@@ -550,7 +604,13 @@ fn filled(items: Vec<Doc>) -> Doc {
     let items = items
         .into_iter()
         .enumerate()
-        .map(|(i, it)| if i == last { it } else { cat(vec![it, text(",")]) })
+        .map(|(i, it)| {
+            if i == last {
+                it
+            } else {
+                cat(vec![it, text(",")])
+            }
+        })
         .collect();
     Doc::Fill(items)
 }
@@ -744,7 +804,14 @@ fn render(doc: &Doc) -> String {
     while let Some((ind, mode, cmd)) = stack.pop() {
         let d = match cmd {
             Cmd::Fill(parts) => {
-                fill_step(&mut stack, &mut local, ind, mode, parts, WIDTH.saturating_sub(pos));
+                fill_step(
+                    &mut stack,
+                    &mut local,
+                    ind,
+                    mode,
+                    parts,
+                    WIDTH.saturating_sub(pos),
+                );
                 continue;
             }
             Cmd::One(d) => d,
@@ -840,9 +907,14 @@ fn render(doc: &Doc) -> String {
                 }
                 stack.push((ind, Mode::Break, Cmd::One(chosen.unwrap_or(fallback))));
             }
-            Doc::Fill(parts) => {
-                fill_step(&mut stack, &mut local, ind, mode, parts, WIDTH.saturating_sub(pos))
-            }
+            Doc::Fill(parts) => fill_step(
+                &mut stack,
+                &mut local,
+                ind,
+                mode,
+                parts,
+                WIDTH.saturating_sub(pos),
+            ),
         }
     }
     out
@@ -858,10 +930,26 @@ fn fill_step<'a>(
     items: &'a [Doc],
     rem: usize,
 ) {
-    let (content, tail) = items.split_first().or_ice("a fill has an item, and a step passes on only a tail that does");
-    let content_fits = fits(&[], &[(ind, Mode::Flat, Cmd::One(content))], local, rem, false);
+    let (content, tail) = items
+        .split_first()
+        .or_ice("a fill has an item, and a step passes on only a tail that does");
+    let content_fits = fits(
+        &[],
+        &[(ind, Mode::Flat, Cmd::One(content))],
+        local,
+        rem,
+        false,
+    );
     let Some(next) = tail.first() else {
-        stack.push((ind, if content_fits { Mode::Flat } else { Mode::Break }, Cmd::One(content)));
+        stack.push((
+            ind,
+            if content_fits {
+                Mode::Flat
+            } else {
+                Mode::Break
+            },
+            Cmd::One(content),
+        ));
         return;
     };
     let pair = fits(
@@ -926,7 +1014,13 @@ impl Docs {
     }
 
     fn blank_above(&self) -> bool {
-        matches!(self, Docs::Lines { blank_above: true, .. })
+        matches!(
+            self,
+            Docs::Lines {
+                blank_above: true,
+                ..
+            }
+        )
     }
 }
 
@@ -1074,7 +1168,8 @@ impl Comments {
             if let Some(c) = t.comments.first() {
                 let previous = at.checked_sub(1).map(|i| tokens.span(i).end as usize);
                 let same_line = previous.is_some_and(|end| {
-                    text.get(end..c.offset as usize).is_some_and(|gap| !gap.contains('\n'))
+                    text.get(end..c.offset as usize)
+                        .is_some_and(|gap| !gap.contains('\n'))
                 });
                 if same_line && c.text(text).starts_with("//") {
                     beside_code.push(c.offset);
@@ -1082,9 +1177,15 @@ impl Comments {
             }
             let start = tokens.span(at).start;
             let lines = tree.doc_lines(t.docs).map(str::to_string).collect();
-            entries.push(Entry { trivia: Trivia::read(start, t, lines), claimed: false });
+            entries.push(Entry {
+                trivia: Trivia::read(start, t, lines),
+                claimed: false,
+            });
         }
-        Comments { entries, beside_code }
+        Comments {
+            entries,
+            beside_code,
+        }
     }
 
     /// The comment written at the end of a line inside `lo .. hi`, taken out of
@@ -1101,11 +1202,16 @@ impl Comments {
         for e in self.entries.iter_mut().skip(start) {
             let at = e.trivia.at();
             match &mut e.trivia {
-                Trivia::Run { comments, docs, blank, detached, .. }
-                    if !e.claimed
-                        && comments.first().is_some_and(|c| {
-                            (lo..hi).contains(&c.offset) && beside.binary_search(&c.offset).is_ok()
-                        }) =>
+                Trivia::Run {
+                    comments,
+                    docs,
+                    blank,
+                    detached,
+                    ..
+                } if !e.claimed
+                    && comments.first().is_some_and(|c| {
+                        (lo..hi).contains(&c.offset) && beside.binary_search(&c.offset).is_ok()
+                    }) =>
                 {
                     // The run's paragraph break moves onto whatever is now
                     // first: the blank line above a run is a fact about its
@@ -1192,12 +1298,7 @@ impl Comments {
         self.drain_where(lo, hi, |t| !t.documented())
     }
 
-    fn drain_where(
-        &mut self,
-        lo: u32,
-        hi: u32,
-        keep: impl Fn(&Trivia) -> bool,
-    ) -> Vec<Trivia> {
+    fn drain_where(&mut self, lo: u32, hi: u32, keep: impl Fn(&Trivia) -> bool) -> Vec<Trivia> {
         let mut out = Vec::new();
         let start = self.first_at(lo);
         for e in self.entries.iter_mut().skip(start) {
@@ -1317,7 +1418,11 @@ fn spec_list(t: &Tree, specs: &[ImportSpec]) -> Vec<String> {
             None => t.name(s.name).to_string(),
         })
         .collect();
-    out.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b)));
+    out.sort_by(|a, b| {
+        a.to_lowercase()
+            .cmp(&b.to_lowercase())
+            .then_with(|| a.cmp(b))
+    });
     out
 }
 
@@ -1370,7 +1475,9 @@ impl<'t> Build<'t> {
         for t in ts {
             // A blank line has no lines to print. Which of the two a `Trivia`
             // is, is the variant, so there is no `is_empty()` to forget.
-            let Trivia::Run { comments, .. } = t else { continue };
+            let Trivia::Run { comments, .. } = t else {
+                continue;
+            };
             for c in comments {
                 if c.blank_before && printed > 0 {
                     lines.push(Doc::Blank);
@@ -1406,7 +1513,9 @@ impl<'t> Build<'t> {
         }
         let mut documented = false;
         for t in ts {
-            let Trivia::Run { docs, .. } = t else { continue };
+            let Trivia::Run { docs, .. } = t else {
+                continue;
+            };
             if docs.lines().is_empty() {
                 continue;
             }
@@ -1428,7 +1537,11 @@ impl<'t> Build<'t> {
         // because the runs before it are no longer above a token of their own
         // once they have been printed here — the next read sees one run, and
         // one gap under it.
-        if ts.iter().rfind(|t| t.is_run()).is_some_and(|t| t.detached()) {
+        if ts
+            .iter()
+            .rfind(|t| t.is_run())
+            .is_some_and(|t| t.detached())
+        {
             lines.push(Doc::Blank);
         }
         // Every line above ends with its own break; the caller joins this with
@@ -1491,7 +1604,9 @@ impl<'t> Build<'t> {
     /// back — inside a sorted run the blanks belong to the grouping, not to
     /// where the line used to sit.
     fn import_trivia(&mut self, at: u32, first: bool) -> Doc<'t> {
-        let Some(t) = self.tv.take(at) else { return Doc::Nil };
+        let Some(t) = self.tv.take(at) else {
+            return Doc::Nil;
+        };
         if !t.is_run() {
             return Doc::Nil;
         }
@@ -1724,7 +1839,11 @@ impl<'t> Build<'t> {
                 let ex = if d.exported { "export " } else { "" };
                 let t = self.tree();
                 let g = generics(t, t.list(d.generics));
-                text(format!("{ex}type {}{g} = {};", t.name(d.name), type_text(t, d.ty)))
+                text(format!(
+                    "{ex}type {}{g} = {};",
+                    t.name(d.name),
+                    type_text(t, d.ty)
+                ))
             }
             Item::Let(d) => {
                 let ex = if d.exported { "export " } else { "" };
@@ -1764,7 +1883,11 @@ impl<'t> Build<'t> {
                 let g = generics(t, t.list(d.generics));
                 let head = match d.trait_ty {
                     Some(tr) => {
-                        format!("impl{g} {} for {}", type_text(t, tr), type_text(t, d.self_ty))
+                        format!(
+                            "impl{g} {} for {}",
+                            type_text(t, tr),
+                            type_text(t, d.self_ty)
+                        )
                     }
                     None => format!("impl{g} {}", type_text(t, d.self_ty)),
                 };
@@ -1788,8 +1911,11 @@ impl<'t> Build<'t> {
             }
             Item::Derive(d) => {
                 let t = self.tree();
-                let traits: Vec<Doc<'t>> =
-                    t.type_list(d.traits).iter().map(|x| text(type_text(t, *x))).collect();
+                let traits: Vec<Doc<'t>> = t
+                    .type_list(d.traits)
+                    .iter()
+                    .map(|x| text(type_text(t, *x)))
+                    .collect();
                 // No trailing comma when the list wraps: the grammar has none
                 // before `for`, so a broken clause carrying one does not parse.
                 group(cat(vec![
@@ -1802,7 +1928,10 @@ impl<'t> Build<'t> {
             Item::Context(d) => {
                 let ex = if d.exported { "export " } else { "" };
                 let body = self.context_body(d.body);
-                braced(&format!("{ex}context {} {{", self.tree().name(d.name)), body)
+                braced(
+                    &format!("{ex}context {} {{", self.tree().name(d.name)),
+                    body,
+                )
             }
             Item::Test(d) => {
                 let body = self.block_lines(d.body);
@@ -1825,7 +1954,10 @@ impl<'t> Build<'t> {
     /// starts one byte later to say so.
     fn verbatim(&mut self, at: Span) -> Doc<'t> {
         self.tv.drain(at.start.saturating_add(1), at.end);
-        let src = self.src.get(at.start as usize..at.end as usize).unwrap_or("");
+        let src = self
+            .src
+            .get(at.start as usize..at.end as usize)
+            .unwrap_or("");
         // A declaration begins at column zero, so its lines go back as they
         // are. `HardBreak` rather than `HardLine` because a blank line inside
         // the region is a line the author wrote.
@@ -1848,7 +1980,9 @@ impl<'t> Build<'t> {
     /// The span is the literal's: an import whose path is anything else did
     /// not parse, and is printed as written.
     fn path_literal(&self, at: Span) -> &str {
-        self.src.get(at.start as usize..at.end as usize).or_ice("an import's path is in the file it was read from")
+        self.src
+            .get(at.start as usize..at.end as usize)
+            .or_ice("an import's path is in the file it was read from")
     }
 
     /// `<head> { a, b, c };`, filled when it does not fit the width.
@@ -1920,10 +2054,18 @@ impl<'t> Build<'t> {
             .collect();
         let close = format!("): {}{tail}", type_text(t, d.ret));
         if params.is_empty() {
-            return text(format!("{lead}fn {}{}({close}", t.name(d.name), generics(t, t.list(d.generics))));
+            return text(format!(
+                "{lead}fn {}{}({close}",
+                t.name(d.name),
+                generics(t, t.list(d.generics))
+            ));
         }
         group(cat(vec![
-            text(format!("{lead}fn {}{}(", t.name(d.name), generics(t, t.list(d.generics)))),
+            text(format!(
+                "{lead}fn {}{}(",
+                t.name(d.name),
+                generics(t, t.list(d.generics))
+            )),
             nest(cat(vec![
                 Doc::SoftLine,
                 join(cat(vec![text(","), Doc::Line]), params),
@@ -1948,8 +2090,10 @@ impl<'t> Build<'t> {
         // written among its parameters, and only what is left over — a comment
         // above the return type, say, which has no line of its own — comes
         // back above the declaration.
-        let sig_end =
-            d.body.map(|b| self.tree().block_span(b).start).unwrap_or(d.span.end);
+        let sig_end = d
+            .body
+            .map(|b| self.tree().block_span(b).start)
+            .unwrap_or(d.span.end);
         let ex = if exported { "export " } else { "" };
         let decl = match d.body {
             None => self.signature_doc(d, ex, ";"),
@@ -1980,10 +2124,15 @@ impl<'t> Build<'t> {
         let g = generics(t, t.list(d.generics));
         match &d.body {
             StructBody::Tuple(fields) => {
-                let inner = t.list(*fields)
+                let inner = t
+                    .list(*fields)
                     .iter()
                     .map(|f| {
-                        format!("{}{}", if f.exported { "export " } else { "" }, type_text(t, f.ty))
+                        format!(
+                            "{}{}",
+                            if f.exported { "export " } else { "" },
+                            type_text(t, f.ty)
+                        )
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -2003,7 +2152,9 @@ impl<'t> Build<'t> {
                     let c = self.flush(inside, f.span.start);
                     // And the one written beside it stays beside it, after the
                     // comma the list puts there.
-                    let next = fields.get(i.saturating_add(1)).map_or(d.span.end, |n| n.span.start);
+                    let next = fields
+                        .get(i.saturating_add(1))
+                        .map_or(d.span.end, |n| n.span.start);
                     let beside = self.trailing(f.span.end, next);
                     items.push((with_comment(c, text(field_decl(t, f))), beside));
                 }
@@ -2025,7 +2176,10 @@ impl<'t> Build<'t> {
         let mut items = Vec::new();
         for (i, v) in t.list(d.variants).iter().enumerate() {
             let c = self.flush(inside, v.span.start);
-            let next = t.list(d.variants).get(i.saturating_add(1)).map_or(d.span.end, |n| n.span.start);
+            let next = t
+                .list(d.variants)
+                .get(i.saturating_add(1))
+                .map_or(d.span.end, |n| n.span.start);
             let beside = self.trailing(v.span.end, next);
             items.push((with_comment(c, text(variant(t, v))), beside));
         }
@@ -2064,7 +2218,12 @@ impl<'t> Build<'t> {
             .chain(tail_at)
             .chain(std::iter::once(b.span.end))
             .collect();
-        for (i, s) in self.tree().stmts_at(b.stmts_start, b.stmts_len).iter().enumerate() {
+        for (i, s) in self
+            .tree()
+            .stmts_at(b.stmts_start, b.stmts_len)
+            .iter()
+            .enumerate()
+        {
             // A blank line between two statements is a paragraph break inside
             // a function, and grouping the steps of a long one is what it is
             // for. One of them, however many were typed, and none at all above
@@ -2191,12 +2350,18 @@ impl<'t> Build<'t> {
                 block_doc(inner)
             }
             ExprView::If { .. } => self.if_chain(e),
-            ExprView::Match { scrutinee, arms, span } => self.match_expr(scrutinee, arms, span),
+            ExprView::Match {
+                scrutinee,
+                arms,
+                span,
+            } => self.match_expr(scrutinee, arms, span),
             ExprView::ContextExpr { body, .. } => {
                 let body = self.context_body(body);
                 braced("context {", body)
             }
-            ExprView::Lambda { params, ret, body, .. } => {
+            ExprView::Lambda {
+                params, ret, body, ..
+            } => {
                 // Braces, unless the body fits beside the parameter list. A
                 // body hanging under a bare `=>` reads as a continuation of
                 // nothing; the braced form is the block body the grammar
@@ -2252,7 +2417,12 @@ impl<'t> Build<'t> {
                 };
                 cat(vec![b, text(format!(".{index}"))])
             }
-            ExprView::StructLit { head, spread, fields, span } => {
+            ExprView::StructLit {
+                head,
+                spread,
+                fields,
+                span,
+            } => {
                 // An anonymous literal is the same body with nothing in front
                 // of it, so the space that parts a head from its `{` belongs to
                 // the head rather than to the brace.
@@ -2357,7 +2527,13 @@ impl<'t> Build<'t> {
                 if let Some(c) = self.flush(lo, span.end.saturating_sub(1)) {
                     inner.push(cat(vec![Doc::HardLine, c]));
                 }
-                let literal = group(cat(vec![h, text("{"), nest(cat(inner)), Doc::Line, text("}")]));
+                let literal = group(cat(vec![
+                    h,
+                    text("{"),
+                    nest(cat(inner)),
+                    Doc::Line,
+                    text("}"),
+                ]));
                 if aside {
                     force(literal)
                 } else {
@@ -2397,7 +2573,9 @@ impl<'t> Build<'t> {
         let mut lead = "if (";
         loop {
             match self.tree().expr(node) {
-                ExprView::If { cond, then, else_, .. } => {
+                ExprView::If {
+                    cond, then, else_, ..
+                } => {
                     let c = self.expr(cond);
                     // The condition is its own group: a wide `if` need not mean
                     // a condition that did not fit.
@@ -2625,7 +2803,11 @@ fn args_doc<'s>(ds: Vec<Doc<'s>>, hug: bool) -> Doc<'s> {
     v.push(force(last.clone()));
     v.push(text(")"));
     let plain = bracketed("(", ds, ")");
-    Doc::Alt { flat: Box::new(plain.clone()), next: Box::new(cat(v)), rest: vec![plain] }
+    Doc::Alt {
+        flat: Box::new(plain.clone()),
+        next: Box::new(cat(v)),
+        rest: vec![plain],
+    }
 }
 
 /// `<head>` and a body on lines of its own, always — the shape every
@@ -2720,7 +2902,9 @@ fn derive_groups<'a>(t: &Tree, items: &[&'a Item]) -> Vec<(Vec<&'a Item>, &'a It
     // one-segment path is the whole of what can be matched here.
     fn derives_for<'t>(t: &'t Tree, item: &Item) -> Option<&'t str> {
         let Item::Derive(d) = item else { return None };
-        let TypeView::Named { path, args, .. } = t.ty(d.self_ty) else { return None };
+        let TypeView::Named { path, args, .. } = t.ty(d.self_ty) else {
+            return None;
+        };
         match path {
             [only] if args.is_empty() => Some(t.text(*only)),
             _ => None,
@@ -2849,7 +3033,6 @@ fn chain<'t>(t: &'t Tree, e: ExprId, links: &mut Vec<Link<'t>>) -> ExprId {
     }
 }
 
-
 /// Whether a trailing argument has a shape of its own that a wide call can
 /// spill into, rather than one that would have to be indented as a unit.
 fn huggable(t: &Tree, e: ExprId) -> bool {
@@ -2876,7 +3059,9 @@ fn breakable(t: &Tree, e: ExprId) -> bool {
             let mut links = Vec::new();
             let base = chain(t, e, &mut links);
             links.iter().filter(|l| matches!(l, Link::Field(_))).count() >= 2
-                || links.iter().any(|l| matches!(l, Link::Call(a) if !a.is_empty()))
+                || links
+                    .iter()
+                    .any(|l| matches!(l, Link::Call(a) if !a.is_empty()))
                 || breakable(t, base)
         }
         ExprView::TupleIndex { base, .. } | ExprView::Unary { operand: base, .. } => {
@@ -2885,7 +3070,6 @@ fn breakable(t: &Tree, e: ExprId) -> bool {
         _ => t.kind(e).is_block_like(),
     }
 }
-
 
 /// A block-like expression may not head a postfix chain (design/grammar-rationale.md 12.13), so it
 /// gets parentheses; so does anything that binds looser than a postfix
@@ -2908,7 +3092,11 @@ fn spine(t: &Tree, e: ExprId, p: u8, out: &mut Vec<(ExprId, BinOp)>) -> ExprId {
             // so a comparison standing under a comparison was written inside
             // parentheses and is one operand rather than one more link.
             // Gathering it would print the chain the grammar refuses.
-            let head = if p == CMP_PREC { lhs } else { spine(t, lhs, p, out) };
+            let head = if p == CMP_PREC {
+                lhs
+            } else {
+                spine(t, lhs, p, out)
+            };
             out.push((rhs, op));
             return head;
         }
@@ -3028,7 +3216,11 @@ pub fn constructor(t: &Tree, d: &StructDecl) -> Option<String> {
             "{}{}({})",
             t.name(d.name),
             generics(t, t.list(d.generics)),
-            t.list(*fields).iter().map(|f| type_text(t, f.ty)).collect::<Vec<_>>().join(", ")
+            t.list(*fields)
+                .iter()
+                .map(|f| type_text(t, f.ty))
+                .collect::<Vec<_>>()
+                .join(", ")
         )),
         StructBody::Record(_) => None,
     }
@@ -3043,7 +3235,11 @@ pub fn variant(t: &Tree, v: &Variant) -> String {
         VariantPayload::Record(fs) => format!(
             "{} {{ {} }}",
             t.name(v.name),
-            t.list(*fs).iter().map(|f| field_decl(t, f)).collect::<Vec<_>>().join(", ")
+            t.list(*fs)
+                .iter()
+                .map(|f| field_decl(t, f))
+                .collect::<Vec<_>>()
+                .join(", ")
         ),
     }
 }
@@ -3067,7 +3263,11 @@ pub fn call_signature(t: &Tree, d: &FnDecl) -> String {
         .map(|p| param_text(t, p))
         .collect::<Vec<_>>()
         .join(", ");
-    format!("{}{}({params})", t.name(d.name), generics(t, t.list(d.generics)))
+    format!(
+        "{}{}({params})",
+        t.name(d.name),
+        generics(t, t.list(d.generics))
+    )
 }
 
 pub fn signature(t: &Tree, d: &FnDecl) -> String {
@@ -3101,7 +3301,10 @@ pub fn generics(t: &Tree, g: &[GenericParam]) -> String {
 }
 
 fn type_list(t: &Tree, ids: &[TypeId]) -> String {
-    ids.iter().map(|i| type_text(t, *i)).collect::<Vec<_>>().join(", ")
+    ids.iter()
+        .map(|i| type_text(t, *i))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub fn type_text(t: &Tree, id: TypeId) -> String {
@@ -3280,8 +3483,7 @@ fn pattern_str(t: &Tree, p: PatId) -> String {
             format!("({})", pattern_list(t, elems))
         }
         PatView::Array { elems, rest, .. } => {
-            let mut parts: Vec<String> =
-                elems.iter().map(|e| pattern_str(t, *e)).collect();
+            let mut parts: Vec<String> = elems.iter().map(|e| pattern_str(t, *e)).collect();
             if let Some(r) = rest {
                 parts.push(match r {
                     Some(n) => format!("..{}", t.text(n)),
@@ -3290,22 +3492,41 @@ fn pattern_str(t: &Tree, p: PatId) -> String {
             }
             format!("[{}]", parts.join(", "))
         }
-        PatView::Or { alts, .. } => {
-            alts.iter().map(|a| pattern_str(t, *a)).collect::<Vec<_>>().join(" | ")
-        }
+        PatView::Or { alts, .. } => alts
+            .iter()
+            .map(|a| pattern_str(t, *a))
+            .collect::<Vec<_>>()
+            .join(" | "),
         // What the parser could not read comes back as it was written. The
         // declaration around it is printed verbatim anyway — `regions` marks
         // every declaration a syntax error lands in — so this is the answer
         // that keeps the tokens rather than one that could be reached.
-        PatView::Error { span } => t.text(Location { start: span.start, end: span.end }).into(),
-        PatView::Path { path, dotted, payload, .. } => {
-            let joined = path.iter().map(|s| t.text(*s)).collect::<Vec<_>>().join(".");
+        PatView::Error { span } => t
+            .text(Location {
+                start: span.start,
+                end: span.end,
+            })
+            .into(),
+        PatView::Path {
+            path,
+            dotted,
+            payload,
+            ..
+        } => {
+            let joined = path
+                .iter()
+                .map(|s| t.text(*s))
+                .collect::<Vec<_>>()
+                .join(".");
             // A dotted path is `.Variant`, so the one segment and the join of
             // one segment are the same string.
             let base = if dotted { format!(".{joined}") } else { joined };
             let Some(pay) = payload else { return base };
             if !pay.record {
-                return format!("{base}({})", pattern_list(t, t.pkids_at(pay.start, pay.len)));
+                return format!(
+                    "{base}({})",
+                    pattern_list(t, t.pkids_at(pay.start, pay.len))
+                );
             }
             let mut parts: Vec<String> = t
                 .fpats_at(pay.start, pay.len)
@@ -3327,7 +3548,10 @@ fn pattern_str(t: &Tree, p: PatId) -> String {
 }
 
 fn pattern_list(t: &Tree, ps: &[PatId]) -> String {
-    ps.iter().map(|p| pattern_str(t, *p)).collect::<Vec<_>>().join(", ")
+    ps.iter()
+        .map(|p| pattern_str(t, *p))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 // -- what formatting must not change ---------------------------------------
@@ -3415,22 +3639,18 @@ mod tests {
         let (mut want, mut got) = (comment_shape(src), comment_shape(&out));
         want.sort();
         got.sort();
-        assert_eq!(want, got, "a comment was lost formatting:\n{src}\ninto:\n{out}");
+        assert_eq!(
+            want, got,
+            "a comment was lost formatting:\n{src}\ninto:\n{out}"
+        );
         assert!(
-            crate::parsing::parser::parse(&out, FileId(0)).errors.is_empty(),
+            crate::parsing::parser::parse(&out, FileId(0))
+                .errors
+                .is_empty(),
             "the output does not parse:\n{out}"
         );
         out
     }
-
-
-
-
-
-
-
-
-
 
     /// Every other place a comment can be written, held to the one property
     /// that matters: none of them is a place it can be deleted.
@@ -3487,25 +3707,6 @@ mod tests {
         assert!(comment_shape(src).len() == 1);
         assert!(comment_shape(&source(src).unwrap()) == comment_shape(src));
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     /// The whole grammar at once: every construct, wide enough to have to
     /// wrap, with a comment in every place one can be written. This is the

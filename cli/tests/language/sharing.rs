@@ -29,7 +29,7 @@
 
 use std::process::{Command, Stdio};
 
-use crate::harness::{JS_BINARY, Scratch, js_runtime};
+use crate::harness::{js_runtime, Scratch, JS_BINARY};
 
 /// The runtime, plus a script that asks it the questions a Buri program
 /// cannot: what a host array is, and what a mark is written on.
@@ -132,9 +132,15 @@ fn a_host_array_is_never_written_through() {
     let scratch = Scratch::empty("js-sharing-host-array");
     let probe = scratch.write(
         "probe.mjs",
-        &format!("{}\n{HOST_ARRAY_PROBE}", buri::compiler::backend::js::runtime_source()),
+        &format!(
+            "{}\n{HOST_ARRAY_PROBE}",
+            buri::compiler::backend::js::runtime_source()
+        ),
     );
-    let out = Command::new(js_runtime()).arg(&probe).output().expect("the javascript runtime runs");
+    let out = Command::new(js_runtime())
+        .arg(&probe)
+        .output()
+        .expect("the javascript runtime runs");
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
@@ -535,17 +541,41 @@ fn added(scratch: &Scratch, package: &str, runs: u64, size: u64) -> Cost {
         let args = [runs.to_string(), size.to_string()];
         let (first, said) = launched(scratch, package, &args);
         let (second, again) = launched(scratch, package, &args);
-        assert_eq!((first.copied, &said), (second.copied, &again), "two launches of `{package} {args:?}` differ");
-        let fewer = first.instructions.zip(second.instructions).map(|(a, b)| a.min(b));
-        (Cost { copied: first.copied, instructions: fewer }, said)
+        assert_eq!(
+            (first.copied, &said),
+            (second.copied, &again),
+            "two launches of `{package} {args:?}` differ"
+        );
+        let fewer = first
+            .instructions
+            .zip(second.instructions)
+            .map(|(a, b)| a.min(b));
+        (
+            Cost {
+                copied: first.copied,
+                instructions: fewer,
+            },
+            said,
+        )
     };
     let (once, said_once) = cost(runs);
     let (twice, said_twice) = cost(2 * runs);
-    let wrote = |said: &str| said.trim().parse::<u64>().unwrap_or_else(|_| panic!("`{package}` printed {said:?}"));
-    assert_eq!(wrote(&said_twice), 2 * wrote(&said_once), "`{package}`'s second batch did different work");
+    let wrote = |said: &str| {
+        said.trim()
+            .parse::<u64>()
+            .unwrap_or_else(|_| panic!("`{package}` printed {said:?}"))
+    };
+    assert_eq!(
+        wrote(&said_twice),
+        2 * wrote(&said_once),
+        "`{package}`'s second batch did different work"
+    );
     Cost {
         copied: twice.copied.saturating_sub(once.copied),
-        instructions: twice.instructions.zip(once.instructions).map(|(t, o)| t.saturating_sub(o)),
+        instructions: twice
+            .instructions
+            .zip(once.instructions)
+            .map(|(t, o)| t.saturating_sub(o)),
     }
 }
 
@@ -602,7 +632,13 @@ if (typeof Bun !== "undefined" && Bun.argv !== process.argv) Bun.argv.splice(2, 
 await import(pathToFileURL(artifact).href);
 "#,
     );
-    let what = format!("{} {} {} {}", js_runtime(), wrapper.display(), artifact.display(), args.join(" "));
+    let what = format!(
+        "{} {} {} {}",
+        js_runtime(),
+        wrapper.display(),
+        artifact.display(),
+        args.join(" ")
+    );
     let child = Command::new(js_runtime())
         .arg(&wrapper)
         .arg(&artifact)
@@ -613,7 +649,9 @@ await import(pathToFileURL(artifact).href);
         .spawn()
         .unwrap_or_else(|e| panic!("`{what}` did not run: {e}"));
     let instructions = buri::profile::exited_instructions(child.id());
-    let out = child.wait_with_output().unwrap_or_else(|e| panic!("`{what}` did not finish: {e}"));
+    let out = child
+        .wait_with_output()
+        .unwrap_or_else(|e| panic!("`{what}` did not finish: {e}"));
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     assert!(out.status.success(), "`{what}` failed:\n{stdout}{stderr}");
@@ -622,7 +660,13 @@ await import(pathToFileURL(artifact).href);
         .find_map(|l| l.strip_prefix("copied="))
         .and_then(|n| n.trim().parse().ok())
         .unwrap_or_else(|| panic!("`{what}` reported no count:\n{stdout}{stderr}"));
-    (Cost { copied, instructions }, stdout)
+    (
+        Cost {
+            copied,
+            instructions,
+        },
+        stdout,
+    )
 }
 
 /// A fold whose record grows **two** lists in one functional update, and reads

@@ -16,14 +16,16 @@
               width, runs only after the width has been bounded"
 )]
 
-use crate::compiler::backend::Profile;
 use crate::compiler::backend::js::crossing::HOSTED_PROGRAM;
+use crate::compiler::backend::js::javascript::{
+    self, BinOp, Expr, RuntimeDecl, Stmt, UnOp, VarKind,
+};
 use crate::compiler::backend::js::park::{self, Parking};
-use crate::compiler::backend::js::javascript::{self, BinOp, Expr, RuntimeDecl, Stmt, UnOp, VarKind};
-use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp};
-use crate::compiler::semantics::types::{LocalId, Prim, Tables, Ty, TyConId, TyKind, TyDef};
+use crate::compiler::backend::Profile;
 use crate::compiler::middle::monomorphize::{self, Desc, FuncKind, Program, ProgramRoots};
 use crate::compiler::middle::rc;
+use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp};
+use crate::compiler::semantics::types::{LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind};
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
 use std::sync::OnceLock;
@@ -86,8 +88,17 @@ fn node_key(e: &typed::Expr) -> usize {
 impl FnState {
     /// The state for a function whose locals are named positionally.
     fn for_locals(locals: &[typed::Local]) -> FnState {
-        let names = locals.iter().enumerate().map(|(li, l)| local_name(li, &l.name)).collect();
-        FnState { names, temp: 0, loops: LoopSlots::default(), marks: Marks::default() }
+        let names = locals
+            .iter()
+            .enumerate()
+            .map(|(li, l)| local_name(li, &l.name))
+            .collect();
+        FnState {
+            names,
+            temp: 0,
+            loops: LoopSlots::default(),
+            marks: Marks::default(),
+        }
     }
 }
 
@@ -154,7 +165,10 @@ fn runtime_declarations(pretty: bool) -> &'static [RuntimeDecl] {
     };
     if pretty {
         return WRITTEN.get_or_init(|| {
-            split().iter().map(|(name, src)| RuntimeDecl::new(name.clone(), src.clone())).collect()
+            split()
+                .iter()
+                .map(|(name, src)| RuntimeDecl::new(name.clone(), src.clone()))
+                .collect()
         });
     }
     STRIPPED.get_or_init(|| {
@@ -173,7 +187,11 @@ fn scan_runtime_names() -> HashSet<String> {
     // this never slices the string at a position it has not checked.
     for i in 0..bytes.len() {
         let rest = bytes.get(i..).or_ice("`i` is below the length");
-        for kw in [b"function $".as_slice(), b"const $".as_slice(), b"let $".as_slice()] {
+        for kw in [
+            b"function $".as_slice(),
+            b"const $".as_slice(),
+            b"let $".as_slice(),
+        ] {
             if rest.starts_with(kw) {
                 // The keyword ends with the `$` that begins the name.
                 let start = i.saturating_add(kw.len()).saturating_sub(1);
@@ -252,7 +270,9 @@ impl<'a> Gen<'a> {
     /// The same question as [`Gen::parks`] asked where there is no name to ask
     /// it under, and the reason [`Parking`] tracks function values at all.
     fn value_parks(&self, callee: &typed::Expr) -> bool {
-        self.parking.as_ref().is_some_and(|p| p.value_parks(self.slot, callee))
+        self.parking
+            .as_ref()
+            .is_some_and(|p| p.value_parks(self.slot, callee))
     }
 
     /// The marks for one body, from the plan's node numbers and one pre-order
@@ -282,14 +302,18 @@ impl<'a> Gen<'a> {
             if site.op != rc::RcOp::IncRef {
                 continue;
             }
-            let &(key, is_local_read) =
-                nodes.get(site.node.index()).or_ice("a site names a node of the body's preorder");
+            let &(key, is_local_read) = nodes
+                .get(site.node.index())
+                .or_ice("a site names a node of the body's preorder");
             match site.target {
                 // A projection: the value this node produces is a second
                 // reference to something a parent still holds.
                 rc::Target::Node(_) => {
-                    let parent =
-                        plan.inherits.iter().find(|(n, _)| *n == site.node).map(|(_, l)| *l);
+                    let parent = plan
+                        .inherits
+                        .iter()
+                        .find(|(n, _)| *n == site.node)
+                        .map(|(_, l)| *l);
                     marks.value.insert(key, parent);
                 }
                 // A local read that keeps the local alive past it — and, where
@@ -318,10 +342,15 @@ pub fn unimplemented_intrinsics(program: &Program, tables: &Tables) -> Vec<Strin
     let mut g = Gen::over(program, tables, Profile::Debug, &no_sharing);
     let mut out = Vec::new();
     for (i, f) in program.funcs.iter().enumerate() {
-        let FuncKind::Intrinsic(key) = &f.kind else { continue };
+        let FuncKind::Intrinsic(key) = &f.kind else {
+            continue;
+        };
         g.func = FnState::for_locals(&f.locals);
-        let args: Vec<Expr> =
-            f.params.iter().map(|p| Expr::ident(g.local_name_of(p))).collect();
+        let args: Vec<Expr> = f
+            .params
+            .iter()
+            .map(|p| Expr::ident(g.local_name_of(p)))
+            .collect();
         if g.intrinsic(i, key, &args, f).is_none() {
             out.push(key.clone());
         }
@@ -329,11 +358,7 @@ pub fn unimplemented_intrinsics(program: &Program, tables: &Tables) -> Vec<Strin
     out
 }
 
-pub fn generate(
-    program: &Program,
-    tables: &Tables,
-    profile: Profile,
-) -> Output {
+pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output {
     let (sharing, parking) = analyses(program);
     let mut g = Gen::over(program, tables, profile, &sharing);
     g.parking = Some(&parking);
@@ -460,7 +485,14 @@ pub fn generate(
         crate::parallel::map_with(
             defined.len(),
             || g.worker(),
-            |w, n| w.function(defined.get(n).copied().or_ice("`n` is below the count it was asked for")),
+            |w, n| {
+                w.function(
+                    defined
+                        .get(n)
+                        .copied()
+                        .or_ice("`n` is below the count it was asked for"),
+                )
+            },
         )
     } else {
         let mut w = g.worker();
@@ -511,7 +543,9 @@ pub fn generate(
             stmts.push(g.hosted_export(name, &sym, f));
             roots.push(String::from(HOSTED_PROGRAM));
             if program.hosted.ui {
-                stmts.push(Stmt::Raw(String::from(super::crossing::HOSTED_UI_DEFINITION)));
+                stmts.push(Stmt::Raw(String::from(
+                    super::crossing::HOSTED_UI_DEFINITION,
+                )));
                 roots.push(String::from(super::crossing::HOSTED_UI));
             }
         } else {
@@ -544,7 +578,12 @@ pub fn generate(
     }
 
     let (stmts, roots, chunks) = split_chunks(program, stmts, roots);
-    Output { stmts, roots, missing_intrinsics: g.missing, chunks }
+    Output {
+        stmts,
+        roots,
+        missing_intrinsics: g.missing,
+        chunks,
+    }
 }
 
 /// The slots of the functions the artifact declares: every one, except an
@@ -631,10 +670,13 @@ impl<'a> Gen<'a> {
         // the host hands back, and an `async` function returns that through
         // the promise its caller is already awaiting.
         let is_async = self.parks(fi);
-        let plan = self.sharing.funcs.get(fi).or_ice("the sharing plan has a row per function");
+        let plan = self
+            .sharing
+            .funcs
+            .get(fi)
+            .or_ice("the sharing plan has a row per function");
         self.func.marks = self.marks_for(f, plan);
-        let mut params: Vec<String> =
-            f.params.iter().map(|p| self.local_name_of(p)).collect();
+        let mut params: Vec<String> = f.params.iter().map(|p| self.local_name_of(p)).collect();
 
         // A body the middle end turned into a loop takes one more parameter
         // than the tree says: the entry a caller enters at. Nothing else about
@@ -693,7 +735,12 @@ impl<'a> Gen<'a> {
         );
 
         Emitted {
-            decl: Stmt::Func { name: f.symbol.clone(), params, body, is_async },
+            decl: Stmt::Func {
+                name: f.symbol.clone(),
+                params,
+                body,
+                is_async,
+            },
             consts: std::mem::take(&mut self.consts),
             missing: std::mem::take(&mut self.missing),
         }
@@ -703,7 +750,11 @@ impl<'a> Gen<'a> {
     /// this generator's table, and the function's names for them become the
     /// table's.
     fn adopt(&mut self, e: Emitted) -> Stmt {
-        let Emitted { mut decl, consts, missing } = e;
+        let Emitted {
+            mut decl,
+            consts,
+            missing,
+        } = e;
         self.missing.extend(missing);
         if consts.is_empty() {
             return decl;
@@ -713,10 +764,17 @@ impl<'a> Gen<'a> {
         // interning compares printed text.
         let mut names: Vec<String> = Vec::with_capacity(consts.len());
         let rename = |names: &[String], name: &mut String| {
-            let Some(i) = name.strip_prefix("$k").and_then(|n| n.parse::<usize>().ok()) else {
+            let Some(i) = name
+                .strip_prefix("$k")
+                .and_then(|n| n.parse::<usize>().ok())
+            else {
                 return;
             };
-            name.clone_from(names.get(i).or_ice("a constant holds only constants shared before it"));
+            name.clone_from(
+                names
+                    .get(i)
+                    .or_ice("a constant holds only constants shared before it"),
+            );
         };
         // Each passed `intern`'s test on the worker, so it is shared here too.
         for mut c in consts {
@@ -763,7 +821,10 @@ fn split_chunks(
     let mut moved: Vec<(String, Vec<usize>)> = Vec::new();
     for (n, chunk) in program.chunks.iter().enumerate() {
         for member in &chunk.members {
-            let f = program.funcs.get(*member).or_ice("a chunk member is a function slot");
+            let f = program
+                .funcs
+                .get(*member)
+                .or_ice("a chunk member is a function slot");
             match moved.iter_mut().find(|(s, _)| *s == f.symbol) {
                 Some((_, chunks)) => chunks.push(n),
                 None => moved.push((f.symbol.clone(), vec![n])),
@@ -771,7 +832,11 @@ fn split_chunks(
         }
     }
     let chunk_of = |name: &str| {
-        moved.iter().find(|(s, _)| s == name).map(|(_, c)| c.as_slice()).unwrap_or_default()
+        moved
+            .iter()
+            .find(|(s, _)| s == name)
+            .map(|(_, c)| c.as_slice())
+            .unwrap_or_default()
     };
 
     let mut kept: Vec<Stmt> = Vec::new();
@@ -787,7 +852,9 @@ fn split_chunks(
             continue;
         }
         for n in mine {
-            let body = bodies.get_mut(*n).or_ice("a chunk number counts the program's chunks");
+            let body = bodies
+                .get_mut(*n)
+                .or_ice("a chunk number counts the program's chunks");
             body.push(s.clone());
         }
     }
@@ -839,7 +906,10 @@ fn split_chunks(
             name: env_name(n),
             params: Vec::new(),
             body: vec![Stmt::Return(Some(Expr::Object(
-                borrowed.iter().map(|b| (b.clone(), Expr::ident(b.clone()))).collect(),
+                borrowed
+                    .iter()
+                    .map(|b| (b.clone(), Expr::ident(b.clone())))
+                    .collect(),
             )))],
             is_async: false,
         });
@@ -849,7 +919,11 @@ fn split_chunks(
         // that `$lazy` has one thing to call rather than a condition.
         let mut stmts: Vec<Stmt> = borrowed
             .iter()
-            .map(|b| Stmt::Var { kind: VarKind::Let, name: b.clone(), init: None })
+            .map(|b| Stmt::Var {
+                kind: VarKind::Let,
+                name: b.clone(),
+                init: None,
+            })
             .collect();
         stmts.push(Stmt::Func {
             name: String::from(BIND),
@@ -1018,7 +1092,11 @@ fn local_name(i: usize, original: &str) -> String {
     let mut name = String::with_capacity(original.len().saturating_add(4));
     // A source name starts with a letter or `_`, and a generated one is a word,
     // so the result is an identifier; with nothing kept it is still `_<i>`.
-    name.extend(original.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_'));
+    name.extend(
+        original
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_'),
+    );
     let _ = write!(name, "_{i}");
     name
 }
@@ -1031,7 +1109,9 @@ impl<'a> Gen<'a> {
     /// The primitive a value of `ty` is: its own, or the word a `derive
     /// Flags` struct is stored in.
     pub(crate) fn prim_of(&self, ty: &Ty) -> Option<Prim> {
-        self.tables.as_prim(ty).or_else(|| self.tables.flags_word_of(ty))
+        self.tables
+            .as_prim(ty)
+            .or_else(|| self.tables.flags_word_of(ty))
     }
 
     pub(crate) fn prim_op_pub(&mut self, op: PrimOp, prim: Prim, args: Vec<Expr>) -> Expr {
@@ -1153,8 +1233,9 @@ impl<'a> Gen<'a> {
 
         // Built once against placeholders, purely to see what the expansion
         // does with each argument.
-        let probe: Vec<Expr> =
-            (0..args.len()).map(|i| Expr::ident(format!("$$arg{i}"))).collect();
+        let probe: Vec<Expr> = (0..args.len())
+            .map(|i| Expr::ident(format!("$$arg{i}")))
+            .collect();
         let shape = self.intrinsic(index, &key, &probe, callee)?;
         if js_size(&shape) > MAX_INLINE_INTRINSIC {
             return None;
@@ -1207,7 +1288,11 @@ fn nonzero_literal(e: Option<&Expr>) -> bool {
 /// A name qualifies only when it is another shared constant.
 fn shareable(e: &Expr) -> bool {
     match e {
-        Expr::Num(_) | Expr::BigInt(_) | Expr::Str(_) | Expr::Bool(_) | Expr::Null
+        Expr::Num(_)
+        | Expr::BigInt(_)
+        | Expr::Str(_)
+        | Expr::Bool(_)
+        | Expr::Null
         | Expr::Undefined => true,
         Expr::Ident(n) => n.starts_with("$k"),
         Expr::Array(xs) => xs.iter().all(shareable),
@@ -1251,7 +1336,10 @@ struct ArgUse {
 
 impl ArgUse {
     fn new(arity: usize) -> ArgUse {
-        ArgUse { args: vec![ArgFacts::default(); arity], order: Vec::new() }
+        ArgUse {
+            args: vec![ArgFacts::default(); arity],
+            order: Vec::new(),
+        }
     }
 }
 
@@ -1268,9 +1356,7 @@ fn survey_args(e: &Expr, under_cond: bool, out: &mut ArgUse) {
         return;
     }
     match e {
-        Expr::Array(xs) | Expr::Seq(xs) => {
-            xs.iter().for_each(|x| survey_args(x, under_cond, out))
-        }
+        Expr::Array(xs) | Expr::Seq(xs) => xs.iter().for_each(|x| survey_args(x, under_cond, out)),
         Expr::Object(fs) => fs.iter().for_each(|(_, v)| survey_args(v, under_cond, out)),
         Expr::Member { obj, .. } => survey_args(obj, under_cond, out),
         Expr::Index { obj, index } => {
@@ -1366,7 +1452,11 @@ fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
         }
     };
     let zero_of_p = || {
-        if p.is_bigint() { Expr::BigInt("0".into()) } else { Expr::Num(0.0) }
+        if p.is_bigint() {
+            Expr::BigInt("0".into())
+        } else {
+            Expr::Num(0.0)
+        }
     };
 
     if op == PrimOp::BitNot {
@@ -1441,9 +1531,7 @@ fn js_size(e: &Expr) -> usize {
         Expr::Object(fs) => fs.iter().map(|(_, v)| js_size(v)).sum(),
         Expr::Member { obj, .. } => js_size(obj),
         Expr::Index { obj, index } => js_size(obj) + js_size(index),
-        Expr::Call { callee, args } => {
-            js_size(callee) + args.iter().map(js_size).sum::<usize>()
-        }
+        Expr::Call { callee, args } => js_size(callee) + args.iter().map(js_size).sum::<usize>(),
         Expr::Unary { operand, .. } => js_size(operand),
         Expr::Binary { lhs, rhs, .. } => js_size(lhs) + js_size(rhs),
         Expr::Cond { test, cons, alt } => js_size(test) + js_size(cons) + js_size(alt),
@@ -1456,7 +1544,6 @@ fn js_size(e: &Expr) -> usize {
 }
 
 impl<'a> Gen<'a> {
-
     // -----------------------------------------------------------------------
     // Statement position
     // -----------------------------------------------------------------------
@@ -1480,7 +1567,11 @@ impl<'a> Gen<'a> {
                 self.tail(then, &mut t);
                 let mut f = Vec::new();
                 self.tail(else_, &mut f);
-                out.push(Stmt::If { cond: c, then: t, else_: f });
+                out.push(Stmt::If {
+                    cond: c,
+                    then: t,
+                    else_: f,
+                });
             }
             ExprKind::Match { scrutinee, arms } => {
                 let s = self.expr(scrutinee, out);
@@ -1511,15 +1602,25 @@ impl<'a> Gen<'a> {
                             // passing.
                             cases.push((Some(Expr::Num(i as f64)), vec![Stmt::Block(inner)]));
                         }
-                        vec![Stmt::Switch { disc: Expr::ident(DISPATCH), cases }]
+                        vec![Stmt::Switch {
+                            disc: Expr::ident(DISPATCH),
+                            cases,
+                        }]
                     }
                 };
-                out.push(Stmt::While { cond: Expr::Bool(true), body });
+                out.push(Stmt::While {
+                    cond: Expr::Bool(true),
+                    body,
+                });
             }
             // A jump back to the top of this function's own loop: rebind and
             // continue. A jump into *another* function's loop is a call, and
             // falls through to the expression form below.
-            ExprKind::Continue { func: None, entry, args } => {
+            ExprKind::Continue {
+                func: None,
+                entry,
+                args,
+            } => {
                 let values = self.exprs(args, out);
                 self.rebind(*entry, values, out);
             }
@@ -1599,7 +1700,9 @@ impl<'a> Gen<'a> {
 
         let mut deferred: Vec<(String, Expr)> = Vec::new();
         for (i, target) in targets.iter().enumerate() {
-            let Some(Some(v)) = values.get(i).cloned() else { continue };
+            let Some(Some(v)) = values.get(i).cloned() else {
+                continue;
+            };
             let read_later = values
                 .get(i.saturating_add(1)..)
                 .unwrap_or_default()
@@ -1608,7 +1711,11 @@ impl<'a> Gen<'a> {
                 .any(|later| reads_ident(later, target));
             if read_later {
                 let t = self.fresh();
-                out.push(Stmt::Var { kind: VarKind::Const, name: t.clone(), init: Some(v) });
+                out.push(Stmt::Var {
+                    kind: VarKind::Const,
+                    name: t.clone(),
+                    init: Some(v),
+                });
                 deferred.push((target.clone(), Expr::ident(t)));
             } else {
                 out.push(assign(target, v));
@@ -1706,7 +1813,11 @@ impl<'a> Gen<'a> {
         let word = self.tables.prim(prim);
         let mask = self.int_literal(1u128 << shift, false, &word);
         let zero = self.int_literal(0, false, &word);
-        Expr::bin(BinOp::StrictNe, Expr::bin(BinOp::BitAnd, subject.clone(), mask), zero)
+        Expr::bin(
+            BinOp::StrictNe,
+            Expr::bin(BinOp::BitAnd, subject.clone(), mask),
+            zero,
+        )
     }
 
     /// Every name an irrefutable pattern binds, with its type.
@@ -1719,9 +1830,9 @@ impl<'a> Gen<'a> {
                 }
             }
             PatKind::Tuple(ps) => ps.iter().for_each(|k| Self::typed_binds(k, out)),
-            PatKind::Struct { fields, .. } => {
-                fields.iter().for_each(|k| Self::typed_binds(&k.pattern, out))
-            }
+            PatKind::Struct { fields, .. } => fields
+                .iter()
+                .for_each(|k| Self::typed_binds(&k.pattern, out)),
             _ => {}
         }
     }
@@ -1737,7 +1848,11 @@ impl<'a> Gen<'a> {
     ) {
         // Bind the scrutinee once: it is evaluated before the arms are tried.
         let s = self.fresh();
-        out.push(Stmt::Var { kind: VarKind::Const, name: s.clone(), init: Some(subject) });
+        out.push(Stmt::Var {
+            kind: VarKind::Const,
+            name: s.clone(),
+            init: Some(subject),
+        });
         let subject = Expr::ident(s);
 
         // What is tested, and in what order, was decided by
@@ -1793,12 +1908,20 @@ impl<'a> Gen<'a> {
                     let mut gout = Vec::new();
                     let gv = self.expr(g, &mut gout);
                     inner.extend(gout);
-                    inner.push(Stmt::If { cond: gv, then: taken, else_: Vec::new() });
+                    inner.push(Stmt::If {
+                        cond: gv,
+                        then: taken,
+                        else_: Vec::new(),
+                    });
                 }
                 None => inner.extend(taken),
             }
             match self.test(&arm.pattern, &subject) {
-                Some(cond) => body.push(Stmt::If { cond, then: inner, else_: Vec::new() }),
+                Some(cond) => body.push(Stmt::If {
+                    cond,
+                    then: inner,
+                    else_: Vec::new(),
+                }),
                 None => body.extend(inner),
             }
         }
@@ -1808,7 +1931,10 @@ impl<'a> Gen<'a> {
         )));
         match target {
             None => out.push(Stmt::Block(body)),
-            Some(_) => out.push(Stmt::While { cond: Expr::Bool(true), body }),
+            Some(_) => out.push(Stmt::While {
+                cond: Expr::Bool(true),
+                body,
+            }),
         }
     }
 
@@ -1860,9 +1986,8 @@ impl<'a> Gen<'a> {
         // by running the test, and the test is where the alternative's
         // bindings are assigned — so dropping it would leave the body reading
         // names nothing ever wrote.
-        let last = !self.defensive_aborts
-            && i + 1 == arms.len()
-            && !Self::test_assigns(&arm.pattern);
+        let last =
+            !self.defensive_aborts && i + 1 == arms.len() && !Self::test_assigns(&arm.pattern);
         match self.test(&arm.pattern, subject) {
             // The last arm, or an irrefutable one, needs no test.
             _ if last => out.extend(body),
@@ -1870,7 +1995,11 @@ impl<'a> Gen<'a> {
             Some(cond) => {
                 let mut else_ = Vec::new();
                 self.arm_chain(subject, arms, i + 1, &mut else_, target);
-                out.push(Stmt::If { cond, then: body, else_ });
+                out.push(Stmt::If {
+                    cond,
+                    then: body,
+                    else_,
+                });
             }
         }
     }
@@ -1912,19 +2041,21 @@ impl<'a> Gen<'a> {
             // for could only ever answer false here. A `NaN` subject fails this
             // test on every backend, which is `float_eq` at a non-`NaN`
             // literal.
-            PatKind::Float(v) => {
-                Some(Expr::bin(BinOp::StrictEq, subject.clone(), Expr::Num(*v)))
-            }
-            PatKind::Str(s) => {
-                Some(Expr::bin(BinOp::StrictEq, subject.clone(), Expr::Str(s.clone())))
-            }
+            PatKind::Float(v) => Some(Expr::bin(BinOp::StrictEq, subject.clone(), Expr::Num(*v))),
+            PatKind::Str(s) => Some(Expr::bin(
+                BinOp::StrictEq,
+                subject.clone(),
+                Expr::Str(s.clone()),
+            )),
             PatKind::Char(c) => Some(Expr::bin(
                 BinOp::StrictEq,
                 subject.clone(),
                 Expr::Str(c.to_string()),
             )),
             PatKind::Tuple(ps) => self.all_tests(
-                ps.iter().enumerate().map(|(i, p)| (p, Expr::index(subject.clone(), Expr::Num(i as f64)))),
+                ps.iter()
+                    .enumerate()
+                    .map(|(i, p)| (p, Expr::index(subject.clone(), Expr::Num(i as f64)))),
             ),
             PatKind::Struct { con, fields } => {
                 let parts: Vec<(&typed::Pattern, Expr)> = fields
@@ -1933,11 +2064,19 @@ impl<'a> Gen<'a> {
                     .collect();
                 self.all_tests(parts.into_iter())
             }
-            PatKind::Variant { con, variant, fields } => {
+            PatKind::Variant {
+                con,
+                variant,
+                fields,
+            } => {
                 if let Some(nested) = self.option_nesting(&pattern.ty) {
                     // `Some` is anything but absence; `None` is absence.
                     let present = Expr::bin(
-                        if *variant == 1 { BinOp::StrictEq } else { BinOp::StrictNe },
+                        if *variant == 1 {
+                            BinOp::StrictEq
+                        } else {
+                            BinOp::StrictNe
+                        },
                         subject.clone(),
                         Expr::Undefined,
                     );
@@ -1945,8 +2084,7 @@ impl<'a> Gen<'a> {
                         return Some(present);
                     }
                     let inner = self.option_value(subject.clone(), nested);
-                    return match self
-                        .all_tests(fields.iter().map(|f| (&f.pattern, inner.clone())))
+                    return match self.all_tests(fields.iter().map(|f| (&f.pattern, inner.clone())))
                     {
                         Some(t) => Some(Expr::bin(BinOp::And, present, t)),
                         None => Some(present),
@@ -1958,16 +2096,21 @@ impl<'a> Gen<'a> {
                 } else {
                     Expr::index(subject.clone(), Expr::Num(0.0))
                 };
-                let mut cond =
-                    Expr::bin(BinOp::StrictEq, tag, Expr::Num(*variant as f64));
+                let mut cond = Expr::bin(BinOp::StrictEq, tag, Expr::Num(*variant as f64));
                 // A single-variant enum needs no tag test.
                 if self.tables.tycon(*con).variants().len() == 1 {
                     return self.all_tests(fields.iter().map(|f| {
-                        (&f.pattern, Expr::index(subject.clone(), Expr::Num((f.index + 1) as f64)))
+                        (
+                            &f.pattern,
+                            Expr::index(subject.clone(), Expr::Num((f.index + 1) as f64)),
+                        )
                     }));
                 }
                 if let Some(inner) = self.all_tests(fields.iter().map(|f| {
-                    (&f.pattern, Expr::index(subject.clone(), Expr::Num((f.index + 1) as f64)))
+                    (
+                        &f.pattern,
+                        Expr::index(subject.clone(), Expr::Num((f.index + 1) as f64)),
+                    )
                 })) {
                     cond = Expr::bin(BinOp::And, cond, inner);
                 }
@@ -1981,9 +2124,10 @@ impl<'a> Gen<'a> {
                     Expr::bin(BinOp::StrictEq, len, Expr::Num(elems.len() as f64))
                 };
                 if let Some(inner) = self.all_tests(
-                    elems.iter().enumerate().map(|(i, p)| {
-                        (p, Expr::index(subject.clone(), Expr::Num(i as f64)))
-                    }),
+                    elems
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| (p, Expr::index(subject.clone(), Expr::Num(i as f64)))),
                 ) {
                     cond = Expr::bin(BinOp::And, cond, inner);
                 }
@@ -2113,7 +2257,11 @@ impl<'a> Gen<'a> {
                 alts.first().or_ice(OR_ALTERNATIVES).binds(&mut declared);
                 for local in declared {
                     let name = self.local_name_of(&local);
-                    out.push(Stmt::Var { kind: VarKind::Let, name, init: None });
+                    out.push(Stmt::Var {
+                        kind: VarKind::Let,
+                        name,
+                        init: None,
+                    });
                 }
             }
             PatKind::Bind { sub: Some(s), .. } => self.hoist_or_declarations(s, out),
@@ -2173,7 +2321,11 @@ impl<'a> Gen<'a> {
             }
             PatKind::Tuple(ps) => {
                 for (i, p) in ps.iter().enumerate() {
-                    self.bind_assignments(p, &Expr::index(subject.clone(), Expr::Num(i as f64)), out);
+                    self.bind_assignments(
+                        p,
+                        &Expr::index(subject.clone(), Expr::Num(i as f64)),
+                        out,
+                    );
                 }
             }
             PatKind::Struct { con, fields } => {
@@ -2274,10 +2426,15 @@ impl<'a> Gen<'a> {
         if !self.func.marks.done.insert(key) {
             return;
         }
-        let Some(locals) = self.func.marks.locals.get(&key).cloned() else { return };
+        let Some(locals) = self.func.marks.locals.get(&key).cloned() else {
+            return;
+        };
         for l in locals {
             let name = self.local_name_of(&l);
-            out.push(Stmt::Expr(Expr::call(Expr::ident("$share"), vec![Expr::ident(name)])));
+            out.push(Stmt::Expr(Expr::call(
+                Expr::ident("$share"),
+                vec![Expr::ident(name)],
+            )));
         }
     }
 
@@ -2311,7 +2468,11 @@ impl<'a> Gen<'a> {
             ExprKind::Bool(b) => Expr::Bool(*b),
             ExprKind::Unit => Expr::Num(0.0),
             ExprKind::Local(l) => Expr::ident(
-                self.func.names.get(l.0 as usize).cloned().unwrap_or_else(|| format!("v{}", l.0)),
+                self.func
+                    .names
+                    .get(l.0 as usize)
+                    .cloned()
+                    .unwrap_or_else(|| format!("v{}", l.0)),
             ),
             ExprKind::Const(_) => Expr::Num(0.0),
             // Both of these name a `Program::funcs` slot, which is what
@@ -2333,7 +2494,11 @@ impl<'a> Gen<'a> {
                     Some(x) => x,
                     None => Expr::call(Expr::ident(self.symbol(idx.index())), args),
                 };
-                if parks { Expr::awaited(call) } else { call }
+                if parks {
+                    Expr::awaited(call)
+                } else {
+                    call
+                }
             }
             // Awaited when the value this callee position can hold may park.
             // There is no name to look the answer up under, so
@@ -2345,7 +2510,11 @@ impl<'a> Gen<'a> {
                 let c = self.expr(callee, out);
                 let args = self.exprs(args, out);
                 let call = Expr::call(c, args);
-                if parks { Expr::awaited(call) } else { call }
+                if parks {
+                    Expr::awaited(call)
+                } else {
+                    call
+                }
             }
             ExprKind::CallTrait { .. } => Expr::Num(0.0),
             ExprKind::StructLit { fields, .. } => {
@@ -2404,24 +2573,25 @@ impl<'a> Gen<'a> {
                             let value = self.expr(v, out);
                             fields.push(value);
                         }
-                        None => fields.push(Expr::index(
-                            Expr::ident(name.clone()),
-                            Expr::Num(i as f64),
-                        )),
+                        None => {
+                            fields.push(Expr::index(Expr::ident(name.clone()), Expr::Num(i as f64)))
+                        }
                     }
                 }
                 Expr::Array(fields)
             }
-            ExprKind::EnumLit { con, variant, args, .. } => {
+            ExprKind::EnumLit {
+                con, variant, args, ..
+            } => {
                 if let Some(nested) = self.option_nesting(&e.ty) {
                     // Variant 0 is `Some`, 1 is `None`; `Tables::is_option`
                     // checks that.
                     if *variant == 1 {
                         return Expr::Undefined;
                     }
-                    let arg = args
-                        .first()
-                        .or_ice("`Some` is declared with one field, so the checker gives it one argument");
+                    let arg = args.first().or_ice(
+                        "`Some` is declared with one field, so the checker gives it one argument",
+                    );
                     let v = self.expr(arg, out);
                     return if nested {
                         Expr::call(Expr::ident("$some"), vec![v])
@@ -2450,7 +2620,11 @@ impl<'a> Gen<'a> {
                 let i = self.expr(index, out);
                 // `xs[i]` is an `Option<T>`; `$list_getFlat` when `T` is
                 // not an `Option` too, as `list.get` is.
-                let get = if self.option_nesting(&e.ty) == Some(false) { "$list_getFlat" } else { "$list_get" };
+                let get = if self.option_nesting(&e.ty) == Some(false) {
+                    "$list_getFlat"
+                } else {
+                    "$list_get"
+                };
                 Expr::call(Expr::ident(get), vec![b, i])
             }
             ExprKind::Block { stmts, tail } => {
@@ -2475,16 +2649,28 @@ impl<'a> Gen<'a> {
                     return Expr::cond(c, t, f);
                 }
                 let name = self.fresh();
-                out.push(Stmt::Var { kind: VarKind::Let, name: name.clone(), init: None });
+                out.push(Stmt::Var {
+                    kind: VarKind::Let,
+                    name: name.clone(),
+                    init: None,
+                });
                 t_stmts.push(assign(&name, t));
                 f_stmts.push(assign(&name, f));
-                out.push(Stmt::If { cond: c, then: t_stmts, else_: f_stmts });
+                out.push(Stmt::If {
+                    cond: c,
+                    then: t_stmts,
+                    else_: f_stmts,
+                });
                 Expr::ident(name)
             }
             ExprKind::Match { scrutinee, arms } => {
                 let s = self.expr(scrutinee, out);
                 let name = self.fresh();
-                out.push(Stmt::Var { kind: VarKind::Let, name: name.clone(), init: None });
+                out.push(Stmt::Var {
+                    kind: VarKind::Let,
+                    name: name.clone(),
+                    init: None,
+                });
                 let mut body = Vec::new();
                 self.match_stmts(s, arms, &mut body, Some(&name));
                 out.extend(body);
@@ -2502,22 +2688,33 @@ impl<'a> Gen<'a> {
             // whoever calls it — see [`Parking`] for why no program in
             // this tree builds one the runtime then calls.
             ExprKind::Lambda { params, body, .. } => {
-                let names: Vec<String> =
-                    params.iter().map(|p| self.local_name_of(p)).collect();
+                let names: Vec<String> = params.iter().map(|p| self.local_name_of(p)).collect();
                 let mut inner = Vec::new();
                 self.tail(body, &mut inner);
                 let is_async = javascript::has_await(&inner);
-                Expr::ArrowBlock { params: names, body: inner, is_async }
+                Expr::ArrowBlock {
+                    params: names,
+                    body: inner,
+                    is_async,
+                }
             }
             // Entering the function a mutually tail-recursive group was merged
             // into: an ordinary call, plus the entry, which is what the
             // dispatch parameter of `middle::tail_calls` is here.
-            ExprKind::Continue { func: Some(target), entry, args } => {
+            ExprKind::Continue {
+                func: Some(target),
+                entry,
+                args,
+            } => {
                 let args = std::iter::once(Expr::Num(*entry as f64))
                     .chain(self.exprs(args, out))
                     .collect();
                 let call = Expr::call(Expr::ident(self.symbol(target.index())), args);
-                if self.parks(target.index()) { Expr::awaited(call) } else { call }
+                if self.parks(target.index()) {
+                    Expr::awaited(call)
+                } else {
+                    call
+                }
             }
             // A jump back to the top of a loop is statements, and `tail` is
             // the only place they can go; a loop is a whole function body, and
@@ -2531,7 +2728,9 @@ impl<'a> Gen<'a> {
             | ExprKind::Continue { func: None, .. }
             | ExprKind::Closure { .. } => Expr::call(
                 Expr::ident("$abort"),
-                vec![Expr::Str("a middle-end node reached the JavaScript backend".to_string())],
+                vec![Expr::Str(
+                    "a middle-end node reached the JavaScript backend".to_string(),
+                )],
             ),
             ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
                 let is_and = matches!(e.kind, ExprKind::And { .. });
@@ -2553,7 +2752,11 @@ impl<'a> Gen<'a> {
                 } else {
                     Expr::un(UnOp::Not, Expr::ident(name.clone()))
                 };
-                out.push(Stmt::If { cond, then: r_stmts, else_: Vec::new() });
+                out.push(Stmt::If {
+                    cond,
+                    then: r_stmts,
+                    else_: Vec::new(),
+                });
                 Expr::ident(name)
             }
             ExprKind::Try { base, .. } => {
@@ -2646,7 +2849,10 @@ impl<'a> Gen<'a> {
                 // through one, so neither it nor anything built inside it may
                 // be shared with another occurrence.
                 let items = self.inside_context(|g| {
-                    bindings.iter().map(|(_, v)| g.expr(v, out)).collect::<Vec<Expr>>()
+                    bindings
+                        .iter()
+                        .map(|(_, v)| g.expr(v, out))
+                        .collect::<Vec<Expr>>()
                 });
                 Expr::Array(items)
             }
@@ -2730,8 +2936,11 @@ impl<'a> Gen<'a> {
                             Expr::Num(n) => Expr::ident(descriptor_name(n as usize)),
                             other => other,
                         };
-                        let helper =
-                            if name == "structuralShow" { "$show" } else { "$json_of" };
+                        let helper = if name == "structuralShow" {
+                            "$show"
+                        } else {
+                            "$json_of"
+                        };
                         Expr::call(Expr::ident(helper), vec![value, d])
                     }
                     // The runner's end-of-block hook, which
@@ -2815,7 +3024,11 @@ impl<'a> Gen<'a> {
                     let init = std::mem::replace(prev, Expr::ident(name.clone()));
                     out.insert(
                         at,
-                        Stmt::Var { kind: VarKind::Const, name, init: Some(init) },
+                        Stmt::Var {
+                            kind: VarKind::Const,
+                            name,
+                            init: Some(init),
+                        },
                     );
                     at += 1;
                 }
@@ -2877,7 +3090,11 @@ impl<'a> Gen<'a> {
                 let b = args.pop().or_ice(BINARY_ARITY);
                 let a = args.pop().or_ice(BINARY_ARITY);
                 let same = float_eq(a, b);
-                if op == PrimOp::Eq { same } else { Expr::un(UnOp::Not, same) }
+                if op == PrimOp::Eq {
+                    same
+                } else {
+                    Expr::un(UnOp::Not, same)
+                }
             }
             PrimOp::Eq => two(BinOp::StrictEq, &mut args),
             PrimOp::Ne => two(BinOp::StrictNe, &mut args),
@@ -2917,9 +3134,7 @@ impl<'a> Gen<'a> {
             // one exception being an unsigned complement, which is negative
             // and needs narrowing back. JavaScript's own `&` coerces to 32-bit
             // signed and would have discarded everything above bit 31.
-            PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor | PrimOp::BitNot
-                if big =>
-            {
+            PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor | PrimOp::BitNot if big => {
                 let v = match op {
                     PrimOp::BitAnd => two(BinOp::BitAnd, &mut args),
                     PrimOp::BitOr => two(BinOp::BitOr, &mut args),
@@ -2938,9 +3153,7 @@ impl<'a> Gen<'a> {
             // `255`. Narrowing the result to the type's own width fixes the
             // representation without touching the operation. The checker
             // refuses these operators on anything but an integer.
-            PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor | PrimOp::BitNot
-                if !p.is_signed() =>
-            {
+            PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor | PrimOp::BitNot if !p.is_signed() => {
                 let v = match op {
                     PrimOp::BitAnd => two(BinOp::BitAnd, &mut args),
                     PrimOp::BitOr => two(BinOp::BitOr, &mut args),
@@ -3045,12 +3258,21 @@ impl<'a> Gen<'a> {
                 desc
             }
             Desc::Unit => vec![Expr::Num(1.0)],
-            Desc::Struct { name, record, fields } => vec![
+            Desc::Struct {
+                name,
+                record,
+                fields,
+            } => vec![
                 Expr::Num(2.0),
                 Expr::Str(name.clone()),
                 Expr::Bool(*record),
                 Expr::Array(fields.iter().map(|f| Expr::Str(f.name.clone())).collect()),
-                Expr::Array(fields.iter().map(|f| Expr::ident(descriptor_name(f.ty))).collect()),
+                Expr::Array(
+                    fields
+                        .iter()
+                        .map(|f| Expr::ident(descriptor_name(f.ty)))
+                        .collect(),
+                ),
             ],
             Desc::Enum { name, variants } => vec![
                 Expr::Num(3.0),
@@ -3082,7 +3304,12 @@ impl<'a> Gen<'a> {
             }
             Desc::Tuple(items) => vec![
                 Expr::Num(5.0),
-                Expr::Array(items.iter().map(|t| Expr::ident(descriptor_name(*t))).collect()),
+                Expr::Array(
+                    items
+                        .iter()
+                        .map(|t| Expr::ident(descriptor_name(*t)))
+                        .collect(),
+                ),
             ],
             Desc::Option(inner) => {
                 vec![Expr::Num(7.0), Expr::ident(descriptor_name(*inner))]
@@ -3100,13 +3327,22 @@ impl<'a> Gen<'a> {
             // as the struct of `Bool`s it stands for, with the bit each field
             // is (`middle::flags`). Naming the two conversions here is what
             // keeps them out of a program with no such struct.
-            Desc::Flags { name, record, fields, prim } => {
+            Desc::Flags {
+                name,
+                record,
+                fields,
+                prim,
+            } => {
                 let word = self.tables.prim(*prim);
                 let n = fields.len();
                 let masks = (0..n)
                     .map(|i| self.int_literal(1u128 << (n - 1 - i), false, &word))
                     .collect();
-                let plain = Desc::Struct { name: name.clone(), record: *record, fields: fields.clone() };
+                let plain = Desc::Struct {
+                    name: name.clone(),
+                    record: *record,
+                    fields: fields.clone(),
+                };
                 vec![
                     Expr::Num(8.0),
                     Expr::Array(self.descriptor(&plain)),
@@ -3206,9 +3442,10 @@ impl<'a> Gen<'a> {
 
         // The conjunction comparing a run of components held at `offset..`.
         let fields = |types: &[usize], offset: usize| -> Expr {
-            let mut it = types.iter().enumerate().map(|(k, t)| {
-                self.eq_call(*t, at(a(), k + offset), at(b(), k + offset))
-            });
+            let mut it = types
+                .iter()
+                .enumerate()
+                .map(|(k, t)| self.eq_call(*t, at(a(), k + offset), at(b(), k + offset)));
             match it.next() {
                 None => Expr::Bool(true),
                 Some(first) => it.fold(first, |acc, x| Expr::bin(BinOp::And, acc, x)),
@@ -3237,11 +3474,7 @@ impl<'a> Gen<'a> {
                     name: "$i".into(),
                     init: Some(Expr::Num(0.0)),
                 });
-                let step = self.eq_call(
-                    *inner,
-                    Expr::index(a(), idx()),
-                    Expr::index(b(), idx()),
-                );
+                let step = self.eq_call(*inner, Expr::index(a(), idx()), Expr::index(b(), idx()));
                 body.push(Stmt::While {
                     cond: Expr::bin(BinOp::Lt, idx(), len(a())),
                     body: vec![
@@ -3272,11 +3505,20 @@ impl<'a> Gen<'a> {
                     .map(|(k, v)| {
                         // Payloads start at 1: slot 0 is the tag.
                         let types: Vec<usize> = v.fields.iter().map(|f| f.ty).collect();
-                        (Some(Expr::Num(k as f64)), vec![Stmt::Return(Some(fields(&types, 1)))])
+                        (
+                            Some(Expr::Num(k as f64)),
+                            vec![Stmt::Return(Some(fields(&types, 1)))],
+                        )
                     })
-                    .chain(std::iter::once((None, vec![Stmt::Return(Some(Expr::Bool(false)))])))
+                    .chain(std::iter::once((
+                        None,
+                        vec![Stmt::Return(Some(Expr::Bool(false)))],
+                    )))
                     .collect();
-                body.push(Stmt::Switch { disc: at(a(), 0), cases });
+                body.push(Stmt::Switch {
+                    disc: at(a(), 0),
+                    cases,
+                });
             }
             _ => return None,
         }
@@ -3405,7 +3647,10 @@ mod tests {
     fn a_plain_forwarder_uses_each_argument_once_in_order() {
         let e = Expr::call(Expr::ident("$str_split"), vec![arg(0), arg(1), arg(2)]);
         let u = survey(&e, 3);
-        assert_eq!(u.args.iter().map(|a| a.count).collect::<Vec<_>>(), vec![1, 1, 1]);
+        assert_eq!(
+            u.args.iter().map(|a| a.count).collect::<Vec<_>>(),
+            vec![1, 1, 1]
+        );
         assert!(u.args.iter().all(|a| !a.conditional));
         assert_eq!(u.order, vec![0, 1, 2]);
     }
@@ -3418,7 +3663,11 @@ mod tests {
         let e = Expr::cond(
             Expr::bin(BinOp::Lt, v.clone(), Expr::Num(0.0)),
             Expr::Num(-1.0),
-            Expr::cond(Expr::bin(BinOp::Gt, v.clone(), Expr::Num(0.0)), Expr::Num(1.0), v),
+            Expr::cond(
+                Expr::bin(BinOp::Gt, v.clone(), Expr::Num(0.0)),
+                Expr::Num(1.0),
+                v,
+            ),
         );
         let u = survey(&e, 1);
         assert!(u.args[0].count > 1);
@@ -3494,6 +3743,9 @@ mod tests {
     #[test]
     fn size_counts_every_node() {
         assert_eq!(js_size(&Expr::ident("x")), 1);
-        assert_eq!(js_size(&Expr::call(Expr::ident("f"), vec![Expr::ident("x")])), 3);
+        assert_eq!(
+            js_size(&Expr::call(Expr::ident("f"), vec![Expr::ident("x")])),
+            3
+        );
     }
 }

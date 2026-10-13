@@ -17,11 +17,16 @@ use std::path::{Path, PathBuf};
 
 fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR is <root>/cli.
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 fn buri_sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
     entries.sort_by_key(|e| e.path());
     for e in entries {
@@ -41,7 +46,9 @@ fn buri_sources(dir: &Path, out: &mut Vec<PathBuf>) {
 /// Every `.rs` file under `dir`, for the tests that read this repository's own
 /// source rather than its corpora.
 fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
     entries.sort_by_key(std::fs::DirEntry::path);
     for e in entries {
@@ -61,7 +68,9 @@ fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
 /// that are outputs rather than sources. Nothing under `target/` is in the
 /// published crate either, which is what the caller is asking about.
 fn manifests_under(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
     entries.sort_by_key(std::fs::DirEntry::path);
     for e in entries {
@@ -94,7 +103,11 @@ fn corpus(root: &Path) -> Vec<PathBuf> {
 fn every_source_in_the_repository_parses() {
     let root = repo_root();
     let files = corpus(&root);
-    assert!(files.len() > 30, "expected the corpus, found {} files", files.len());
+    assert!(
+        files.len() > 30,
+        "expected the corpus, found {} files",
+        files.len()
+    );
 
     let mut failures = String::new();
     for path in &files {
@@ -107,7 +120,10 @@ fn every_source_in_the_repository_parses() {
             failures.push_str(&map.render(e, false));
         }
     }
-    assert!(failures.is_empty(), "the corpus does not parse:\n{failures}");
+    assert!(
+        failures.is_empty(),
+        "the corpus does not parse:\n{failures}"
+    );
 }
 
 /// **A file parsed before it has an id, then moved to one, is what parsing it
@@ -120,13 +136,21 @@ fn a_module_parsed_ahead_and_moved_to_its_file_is_what_parsing_it_there_gives() 
     use buri::diagnostics::FileId;
     use buri::parsing::parser::{parse, parse_stdlib};
     let root = repo_root();
-    let files: Vec<PathBuf> =
-        repository_files(&root).into_iter().filter(|p| p.extension().is_some_and(|x| x == "buri")).collect();
-    assert!(files.len() > 300, "found {} files; the walk is broken", files.len());
+    let files: Vec<PathBuf> = repository_files(&root)
+        .into_iter()
+        .filter(|p| p.extension().is_some_and(|x| x == "buri"))
+        .collect();
+    assert!(
+        files.len() > 300,
+        "found {} files; the walk is broken",
+        files.len()
+    );
     let (ahead, there) = (FileId(u32::MAX - 1), FileId(7));
     let mut moved = Vec::new();
     for path in &files {
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
         for read in [parse, parse_stdlib] {
             let want = read(&text, there);
             let mut got = read(&text, ahead);
@@ -134,16 +158,28 @@ fn a_module_parsed_ahead_and_moved_to_its_file_is_what_parsing_it_there_gives() 
             for e in &mut got.errors {
                 e.refile(there);
             }
-            if format!("{:?}{:?}", want.module, want.errors) != format!("{:?}{:?}", got.module, got.errors) {
-                moved.push(path.strip_prefix(&root).unwrap_or(path).display().to_string());
+            if format!("{:?}{:?}", want.module, want.errors)
+                != format!("{:?}{:?}", got.module, got.errors)
+            {
+                moved.push(
+                    path.strip_prefix(&root)
+                        .unwrap_or(path)
+                        .display()
+                        .to_string(),
+                );
             }
         }
     }
-    assert!(moved.is_empty(), "a refiled parse differs from a parse in place for {moved:?}");
+    assert!(
+        moved.is_empty(),
+        "a refiled parse differs from a parse in place for {moved:?}"
+    );
 }
 
 fn proto_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
     entries.sort_by_key(|e| e.path());
     for e in entries {
@@ -164,7 +200,11 @@ fn every_build_file_reads() {
     let root = repo_root();
     let mut files = Vec::new();
     proto_files(&root.join("cli/tests/example"), &mut files);
-    assert!(files.len() >= 7, "expected the example build files, found {}", files.len());
+    assert!(
+        files.len() >= 7,
+        "expected the example build files, found {}",
+        files.len()
+    );
 
     let mut failures = String::new();
     for path in &files {
@@ -181,7 +221,10 @@ fn every_build_file_reads() {
             failures.push_str(&map.render(e, false));
         }
     }
-    assert!(failures.is_empty(), "the example build files do not read:\n{failures}");
+    assert!(
+        failures.is_empty(),
+        "the example build files do not read:\n{failures}"
+    );
 }
 
 /// `buri format` and `buri gen` must never fight over a file, so formatting is
@@ -298,18 +341,21 @@ const UNFORMATTED_BY_DESIGN: &[(&str, &str)] = &[
 /// another, with the diff that explained it already blessed away. So a drift
 /// here is reported with the command that regenerates it, and the file is left
 /// exactly as it was.
-const GENERATED_NOT_BLESSED: &[(&str, &str)] = &[(
-    "cli/benches/corpora",
-    "a saved benchmark corpus is output, so it is re-recorded rather than laid out: \
+const GENERATED_NOT_BLESSED: &[(&str, &str)] = &[
+    (
+        "cli/benches/corpora",
+        "a saved benchmark corpus is output, so it is re-recorded rather than laid out: \
      `BURI_BLESS=1 cargo bench -p buri --bench compiler -- --record=<name>`. If \
      `benches/generate.rs` moved, `GENERATOR_REVISION` and the forty pinned manifests \
      move with it (`design/PERFORMANCE.md` §6)",
-), (
-    "cli/tests/matches",
-    "generated match programs, written by `cli/tests/native/matches/generate.rs` through \
+    ),
+    (
+        "cli/tests/matches",
+        "generated match programs, written by `cli/tests/native/matches/generate.rs` through \
      `formatting::source` and held to it byte for byte, so they are re-generated rather \
      than laid out: `BURI_BLESS=1 cargo test -p buri --test native matches::`",
-)];
+    ),
+];
 
 /// Whether a path is generated output, and the row saying how to regenerate it.
 fn regenerated_rather_than_blessed(rel: &str) -> Option<&'static str> {
@@ -399,7 +445,10 @@ fn canonical(rel: &str, name: &str, text: &str) -> Option<String> {
 /// said out loud.
 fn repository_files(root: &Path) -> Vec<PathBuf> {
     let mut names = git_names(root, &["ls-files", "-z"]);
-    names.extend(git_names(root, &["ls-files", "-z", "--others", "--exclude-standard"]));
+    names.extend(git_names(
+        root,
+        &["ls-files", "-z", "--others", "--exclude-standard"],
+    ));
     let mut out: Vec<PathBuf> = names
         .into_iter()
         .filter(|name| !name.ends_with('/'))
@@ -445,8 +494,14 @@ fn every_buri_file(root: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
         if path.extension().is_none_or(|x| x != "buri") {
             continue;
         }
-        let rel = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
-        if UNFORMATTED_BY_DESIGN.iter().any(|(dir, _)| rel.starts_with(&format!("{dir}/")))
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        if UNFORMATTED_BY_DESIGN
+            .iter()
+            .any(|(dir, _)| rel.starts_with(&format!("{dir}/")))
             || is_golden(&rel)
             || std::fs::read_to_string(&path).is_ok_and(|t| is_template(&t))
         {
@@ -488,16 +543,29 @@ fn every_buri_file(root: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
 fn every_source_in_the_repository_is_formatted() {
     let root = repo_root();
     let (files, exempt) = every_buri_file(&root);
-    assert!(files.len() > 300, "found {} files to check; the walk is broken", files.len());
-    assert!(!exempt.is_empty(), "nothing is exempt; the exemption list has stopped matching");
+    assert!(
+        files.len() > 300,
+        "found {} files to check; the walk is broken",
+        files.len()
+    );
+    assert!(
+        !exempt.is_empty(),
+        "nothing is exempt; the exemption list has stopped matching"
+    );
     let blessing = std::env::var_os("BURI_BLESS").is_some();
 
     let mut drifted = Vec::new();
     let mut stale_output = Vec::new();
     let mut refused = Vec::new();
     for path in &files {
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
-        let rel = path.strip_prefix(&root).unwrap_or(path).display().to_string();
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let rel = path
+            .strip_prefix(&root)
+            .unwrap_or(path)
+            .display()
+            .to_string();
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         match canonical(&rel, &name, &text) {
             Some(formatted) if formatted != text => {
@@ -530,8 +598,15 @@ fn every_source_in_the_repository_is_formatted() {
         "{} generated `.buri` file(s) are not what `buri format` would write, and \
          blessing is not the fix for them:\n  {}\n{}",
         stale_output.len(),
-        stale_output.iter().map(|(rel, _)| rel.as_str()).collect::<Vec<_>>().join("\n  "),
-        stale_output.first().map(|(_, how)| *how).unwrap_or_default()
+        stale_output
+            .iter()
+            .map(|(rel, _)| rel.as_str())
+            .collect::<Vec<_>>()
+            .join("\n  "),
+        stale_output
+            .first()
+            .map(|(_, how)| *how)
+            .unwrap_or_default()
     );
     assert!(
         drifted.is_empty(),
@@ -542,7 +617,11 @@ fn every_source_in_the_repository_is_formatted() {
         files.len(),
         drifted.join("\n  ")
     );
-    eprintln!("{} formatted, {} exempt by design", files.len(), exempt.len());
+    eprintln!(
+        "{} formatted, {} exempt by design",
+        files.len(),
+        exempt.len()
+    );
 }
 
 /// Runs one `git` command in `root` and insists it worked.
@@ -600,7 +679,10 @@ fn the_walk_sees_a_file_that_is_not_committed_yet() {
     let root = &scratch.root;
     let laid_out = canonical("cli/lib/probe.buri", "probe.buri", DRIFTED)
         .expect("the probe source parses, so it has a canonical form");
-    assert_ne!(laid_out, DRIFTED, "the probe source is already formatted, so it proves nothing");
+    assert_ne!(
+        laid_out, DRIFTED,
+        "the probe source is already formatted, so it proves nothing"
+    );
 
     scratch.write(".gitignore", "target/\n");
     scratch.write("cli/lib/committed.buri", &laid_out);
@@ -619,7 +701,12 @@ fn the_walk_sees_a_file_that_is_not_committed_yet() {
     let rel = |files: &[PathBuf]| -> Vec<String> {
         files
             .iter()
-            .map(|p| p.strip_prefix(root).unwrap_or(p).to_string_lossy().replace('\\', "/"))
+            .map(|p| {
+                p.strip_prefix(root)
+                    .unwrap_or(p)
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
             .collect()
     };
     let (checked, exempt) = (rel(&checked), rel(&exempt));
@@ -700,8 +787,10 @@ fn formatting_keeps_every_comment() {
     for path in &files {
         let text = std::fs::read_to_string(path).unwrap();
         let once = buri::formatting::source_unchecked(&text);
-        let (mut before, mut after) =
-            (harness::shape::comment_shape(&text), harness::shape::comment_shape(&once));
+        let (mut before, mut after) = (
+            harness::shape::comment_shape(&text),
+            harness::shape::comment_shape(&once),
+        );
         comments += before.len();
         before.sort();
         after.sort();
@@ -712,7 +801,10 @@ fn formatting_keeps_every_comment() {
             path.strip_prefix(&root).unwrap().display()
         );
     }
-    assert!(comments > 500, "only {comments} comments in the corpus; the scan is not working");
+    assert!(
+        comments > 500,
+        "only {comments} comments in the corpus; the scan is not working"
+    );
 }
 
 /// Formatting preserves *meaning*: the conformance repository, formatted from
@@ -756,12 +848,18 @@ fn formatting_the_corpus_preserves_what_it_means() {
             let formatted = harness::Scratch::copy_of("meaning-formatted", &source);
             let mut files = Vec::new();
             buri_sources(&formatted.root, &mut files);
-            assert!(files.len() > 30, "expected the suite, found {} files", files.len());
+            assert!(
+                files.len() > 30,
+                "expected the suite, found {} files",
+                files.len()
+            );
             let mut changed = 0;
             for path in &files {
                 let text = std::fs::read_to_string(path).unwrap();
-                let flattened: String =
-                    text.lines().map(|l| format!("{}\n", l.trim_start())).collect();
+                let flattened: String = text
+                    .lines()
+                    .map(|l| format!("{}\n", l.trim_start()))
+                    .collect();
                 let once = buri::formatting::source(&flattened)
                     .unwrap_or_else(|| panic!("{} does not format", path.display()));
                 if once != flattened {
@@ -769,7 +867,10 @@ fn formatting_the_corpus_preserves_what_it_means() {
                 }
                 std::fs::write(path, &once).unwrap();
             }
-            assert!(changed > 10, "formatting rewrote only {changed} of the suite's files");
+            assert!(
+                changed > 10,
+                "formatting rewrote only {changed} of the suite's files"
+            );
             let after = formatted.run(&["test", "//...", "--force"]);
             (formatted, after, changed)
         },
@@ -786,8 +887,14 @@ fn formatting_the_corpus_preserves_what_it_means() {
         harness::indent(&after.all())
     );
     let (want, got) = (before.tests_passed(), after.tests_passed());
-    assert!(want > 500, "only {want} assertions ran; the comparison proves nothing");
-    assert_eq!(got, want, "the formatted suite passes {got} assertions rather than {want}");
+    assert!(
+        want > 500,
+        "only {want} assertions ran; the comparison proves nothing"
+    );
+    assert_eq!(
+        got, want,
+        "the formatted suite passes {got} assertions rather than {want}"
+    );
     eprintln!("formatting: {changed} files rewritten, {got} assertions unchanged");
 }
 
@@ -884,10 +991,14 @@ fn dependencies_stay_behind_the_bar() {
             // report as dependencies called `"http1",` and `]`. Both manifests
             // owe the scanner one entry per line and both say so where their
             // tables are written.
-            let Some((lhs, _)) = line.split_once('=') else { continue };
+            let Some((lhs, _)) = line.split_once('=') else {
+                continue;
+            };
             let name = lhs.trim();
             if name.is_empty()
-                || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                || !name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
             {
                 continue;
             }
@@ -904,7 +1015,9 @@ fn dependencies_stay_behind_the_bar() {
     let cli = std::fs::read_to_string(repo_root().join("cli/Cargo.toml")).expect("cli/Cargo.toml");
     let optional_crates: Vec<String> = declared(&cli)
         .into_iter()
-        .filter(|(_, line)| line.contains("path = \"../crates/") && line.contains("optional = true"))
+        .filter(|(_, line)| {
+            line.contains("path = \"../crates/") && line.contains("optional = true")
+        })
         .map(|(name, _)| name)
         .collect();
     let mut manifests = vec![("buri".to_string(), cli.clone())];
@@ -950,7 +1063,10 @@ fn dependencies_stay_behind_the_bar() {
             seen += 1;
         }
     }
-    assert!(seen > 0, "the admitted dependencies vanished; this test is now asserting nothing");
+    assert!(
+        seen > 0,
+        "the admitted dependencies vanished; this test is now asserting nothing"
+    );
 
     // -- the runtime's set, which is closed by an exact list ------------------
     //
@@ -1008,8 +1124,10 @@ fn dependencies_stay_behind_the_bar() {
     ];
     let runtime = std::fs::read_to_string(repo_root().join("cli/runtime/manifest.toml"))
         .expect("cli/runtime/manifest.toml");
-    let mut runtime_deps: Vec<String> =
-        declared(&runtime).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
+    let mut runtime_deps: Vec<String> = declared(&runtime)
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect::<Vec<_>>();
     runtime_deps.sort();
     assert_eq!(
         runtime_deps, RUNTIME_ADMITTED,
@@ -1215,7 +1333,10 @@ fn the_runtime_tests_build_the_shipped_runtime() {
     }
     let shipped = read("cli/runtime/manifest.toml");
     let tested = read("runtime-tests/Cargo.toml");
-    assert!(!tables(&shipped).is_empty(), "manifest.toml has no dependencies to compare");
+    assert!(
+        !tables(&shipped).is_empty(),
+        "manifest.toml has no dependencies to compare"
+    );
     assert_eq!(
         tables(&tested),
         tables(&shipped),
@@ -1289,7 +1410,9 @@ fn the_editor_integration_is_whole() {
     // so a second copy under the grammar would be a second thing to keep in
     // step and nothing would report the drift.
     assert!(
-        !repo_root().join("editors/tree-sitter-buri/queries").exists(),
+        !repo_root()
+            .join("editors/tree-sitter-buri/queries")
+            .exists(),
         "there are two copies of the highlight queries; there must be one"
     );
 
@@ -1350,9 +1473,17 @@ fn the_editor_integration_is_whole() {
         .collect();
     let digests: Vec<&str> = manifest
         .lines()
-        .filter_map(|l| l.trim().strip_prefix("# grammar-sha256 = \"")?.strip_suffix('"'))
+        .filter_map(|l| {
+            l.trim()
+                .strip_prefix("# grammar-sha256 = \"")?
+                .strip_suffix('"')
+        })
         .collect();
-    assert_eq!(commits.len(), 2, "editors/zed/extension.toml no longer pins exactly two grammars");
+    assert_eq!(
+        commits.len(),
+        2,
+        "editors/zed/extension.toml no longer pins exactly two grammars"
+    );
     assert_eq!(
         digests.len(),
         2,
@@ -1436,11 +1567,19 @@ fn the_llvm_feature_is_confined_to_the_files_the_bar_names() {
     rust_sources(&repo_root().join("cli/src"), &mut sources);
     rust_sources(&repo_root().join("crates"), &mut sources);
     rust_sources(&repo_root().join("cli/tests"), &mut sources);
-    assert!(sources.len() > 50, "found {} Rust sources; the walk is broken", sources.len());
+    assert!(
+        sources.len() > 50,
+        "found {} Rust sources; the walk is broken",
+        sources.len()
+    );
 
     let mut gates = 0;
     for path in &sources {
-        let rel = path.strip_prefix(repo_root()).unwrap_or(path).to_string_lossy().to_string();
+        let rel = path
+            .strip_prefix(repo_root())
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string();
         let text = std::fs::read_to_string(path).unwrap();
         for (n, line) in text.lines().enumerate() {
             // Prose names the feature all over the repository, and prose
@@ -1460,7 +1599,10 @@ fn the_llvm_feature_is_confined_to_the_files_the_bar_names() {
             );
         }
     }
-    assert!(gates > 0, "no `backend-llvm` gate found at all; this test is asserting nothing");
+    assert!(
+        gates > 0,
+        "no `backend-llvm` gate found at all; this test is asserting nothing"
+    );
     eprintln!("llvm delta: {gates} gates, all inside the bar's feature leg");
 }
 
@@ -1493,7 +1635,10 @@ fn the_tree_sitter_grammar_is_generated_from_the_ebnf() {
 
     if std::env::var_os("BURI_BLESS").is_some() {
         std::fs::write(&path, &generated).unwrap();
-        eprintln!("editors/tree-sitter-buri/grammar.js: recorded {} bytes", generated.len());
+        eprintln!(
+            "editors/tree-sitter-buri/grammar.js: recorded {} bytes",
+            generated.len()
+        );
         return;
     }
     let recorded = std::fs::read_to_string(&path).unwrap_or_default();
@@ -1545,7 +1690,11 @@ fn every_reference_in_the_ebnf_resolves() {
     let ebnf = crate::grammar::parse(buri::documentation::topics::GRAMMAR)
         .unwrap_or_else(|e| panic!("crates/docs/src/docs/grammar.ebnf does not parse:\n{e}"));
     let dangling = crate::grammar::dangling_references(&ebnf);
-    assert!(dangling.is_empty(), "crates/docs/src/docs/grammar.ebnf:\n  {}", dangling.join("\n  "));
+    assert!(
+        dangling.is_empty(),
+        "crates/docs/src/docs/grammar.ebnf:\n  {}",
+        dangling.join("\n  ")
+    );
     assert!(
         ebnf.productions.len() > 80,
         "only {} productions were read; the file is not being parsed",
@@ -1560,9 +1709,12 @@ fn every_reference_in_the_ebnf_resolves() {
 /// Every file under `dir` whose bytes are text this repository writes by hand
 /// or records as a golden, for the tests that read the tree itself.
 fn text_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    const KINDS: &[&str] =
-        &["rs", "c", "h", "md", "toml", "buri", "proto", "json", "jsonl", "txt", "sh", "js"];
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    const KINDS: &[&str] = &[
+        "rs", "c", "h", "md", "toml", "buri", "proto", "json", "jsonl", "txt", "sh", "js",
+    ];
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
     entries.sort_by_key(std::fs::DirEntry::path);
     for e in entries {
@@ -1573,7 +1725,11 @@ fn text_files(dir: &Path, out: &mut Vec<PathBuf>) {
             // and scratch trees rather than anybody's source — see
             // [`repository_files`], which is how the file-list question is asked
             // where the answer has to be exact.
-            let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let name = p
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             if name.starts_with('.') || name == "target" || name == "node_modules" {
                 continue;
             }
@@ -1613,12 +1769,22 @@ fn the_removed_backend_is_not_cross_referenced() {
     let mut files = Vec::new();
     text_files(&repo_root().join("cli"), &mut files);
     text_files(&repo_root().join("crates"), &mut files);
-    assert!(files.len() > 500, "found {} files under cli/ and crates/; the walk is broken", files.len());
+    assert!(
+        files.len() > 500,
+        "found {} files under cli/ and crates/; the walk is broken",
+        files.len()
+    );
 
     let mut hits = 0;
     for path in &files {
-        let rel = path.strip_prefix(repo_root()).unwrap_or(path).to_string_lossy().to_string();
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        let rel = path
+            .strip_prefix(repo_root())
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string();
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
         for (n, line) in text.lines().enumerate() {
             if !line.to_ascii_lowercase().contains(&needle) {
                 continue;

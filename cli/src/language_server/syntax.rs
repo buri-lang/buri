@@ -12,12 +12,12 @@
 //! "every span covering this offset" is a scan over three arrays rather than a
 //! walk over anything.
 
+use super::convert::{self, Position};
 use crate::diagnostics::{FileId, Span};
 use crate::json::Value;
 use crate::parsing::flat::{ExprId, PatId, TypeId};
 use crate::parsing::parser;
 use crate::parsing::tree::{Item, Module, StructBody, VariantPayload};
-use super::convert::{self, Position};
 
 /// The outline, nested: an `impl` holds its methods, a struct its fields, an
 /// enum its variants.
@@ -54,9 +54,13 @@ pub fn flattened(outline: &Value, uri: &str) -> Value {
 }
 
 fn flatten_into(symbols: &Value, uri: &str, container: Option<&str>, out: &mut Vec<Value>) {
-    let Some(items) = symbols.as_array() else { return };
+    let Some(items) = symbols.as_array() else {
+        return;
+    };
     for item in items {
-        let Some(name) = item.get("name").and_then(|n| n.as_str()) else { continue };
+        let Some(name) = item.get("name").and_then(|n| n.as_str()) else {
+            continue;
+        };
         let mut fields = vec![
             ("name", Value::str(name)),
             ("kind", item.get("kind").cloned().unwrap_or(Value::Null)),
@@ -99,12 +103,18 @@ mod kind {
 fn item_symbol(text: &str, module: &Module, item: &Item) -> Option<Value> {
     let tree = &module.tree;
     match item {
-        Item::Fn(d) => {
-            Some(symbol(text, tree.name(d.name), kind::FUNCTION, d.span, d.name.span, Vec::new()))
-        }
+        Item::Fn(d) => Some(symbol(
+            text,
+            tree.name(d.name),
+            kind::FUNCTION,
+            d.span,
+            d.name.span,
+            Vec::new(),
+        )),
         Item::Struct(d) => {
             let fields = match &d.body {
-                StructBody::Record(fields) => tree.list(*fields)
+                StructBody::Record(fields) => tree
+                    .list(*fields)
                     .iter()
                     .map(|f| {
                         let name = tree.name(f.name);
@@ -114,7 +124,14 @@ fn item_symbol(text: &str, module: &Module, item: &Item) -> Option<Value> {
                 // A tuple field has no name, so there is nothing to list.
                 StructBody::Tuple(_) => Vec::new(),
             };
-            Some(symbol(text, tree.name(d.name), kind::STRUCT, d.span, d.name.span, fields))
+            Some(symbol(
+                text,
+                tree.name(d.name),
+                kind::STRUCT,
+                d.span,
+                d.name.span,
+                fields,
+            ))
         }
         Item::Enum(d) => {
             let variants = tree
@@ -122,7 +139,8 @@ fn item_symbol(text: &str, module: &Module, item: &Item) -> Option<Value> {
                 .iter()
                 .map(|v| {
                     let fields = match &v.payload {
-                        VariantPayload::Record(fields) => tree.list(*fields)
+                        VariantPayload::Record(fields) => tree
+                            .list(*fields)
                             .iter()
                             .map(|f| {
                                 symbol(
@@ -137,41 +155,91 @@ fn item_symbol(text: &str, module: &Module, item: &Item) -> Option<Value> {
                             .collect(),
                         VariantPayload::None | VariantPayload::Tuple(_) => Vec::new(),
                     };
-                    symbol(text, tree.name(v.name), kind::ENUM_MEMBER, v.span, v.name.span, fields)
+                    symbol(
+                        text,
+                        tree.name(v.name),
+                        kind::ENUM_MEMBER,
+                        v.span,
+                        v.name.span,
+                        fields,
+                    )
                 })
                 .collect();
-            Some(symbol(text, tree.name(d.name), kind::ENUM, d.span, d.name.span, variants))
+            Some(symbol(
+                text,
+                tree.name(d.name),
+                kind::ENUM,
+                d.span,
+                d.name.span,
+                variants,
+            ))
         }
         Item::Trait(d) => {
             let methods = tree
                 .list(d.methods)
                 .iter()
                 .map(|m| {
-                    symbol(text, tree.name(m.name), kind::METHOD, m.span, m.name.span, Vec::new())
+                    symbol(
+                        text,
+                        tree.name(m.name),
+                        kind::METHOD,
+                        m.span,
+                        m.name.span,
+                        Vec::new(),
+                    )
                 })
                 .collect();
-            Some(symbol(text, tree.name(d.name), kind::CLASS, d.span, d.name.span, methods))
+            Some(symbol(
+                text,
+                tree.name(d.name),
+                kind::CLASS,
+                d.span,
+                d.name.span,
+                methods,
+            ))
         }
         Item::Impl(d) => {
             // An `impl` has no name of its own, so it is named by its head —
             // which is also the only part of it a reader scans for.
             let self_ty = crate::formatting::type_text(tree, d.self_ty);
             let name = match d.trait_ty {
-                Some(t) => format!("impl {} for {self_ty}", crate::formatting::type_text(tree, t)),
+                Some(t) => format!(
+                    "impl {} for {self_ty}",
+                    crate::formatting::type_text(tree, t)
+                ),
                 None => format!("impl {self_ty}"),
             };
             let methods = tree
                 .list(d.methods)
                 .iter()
                 .map(|m| {
-                    symbol(text, tree.name(m.name), kind::METHOD, m.span, m.name.span, Vec::new())
+                    symbol(
+                        text,
+                        tree.name(m.name),
+                        kind::METHOD,
+                        m.span,
+                        m.name.span,
+                        Vec::new(),
+                    )
                 })
                 .collect();
-            Some(symbol(text, &name, kind::OBJECT, d.span, tree.type_span(d.self_ty), methods))
+            Some(symbol(
+                text,
+                &name,
+                kind::OBJECT,
+                d.span,
+                tree.type_span(d.self_ty),
+                methods,
+            ))
         }
-        Item::Let(d) => {
-            Some(symbol(text, tree.name(d.name), kind::CONSTANT, d.span, d.name.span, Vec::new()))
-        }
+        Item::Let(d) => Some(symbol(
+            text,
+            tree.name(d.name),
+            kind::CONSTANT,
+            d.span,
+            d.name.span,
+            Vec::new(),
+        )),
         Item::TypeAlias(d) => Some(symbol(
             text,
             tree.name(d.name),
@@ -180,15 +248,25 @@ fn item_symbol(text: &str, module: &Module, item: &Item) -> Option<Value> {
             d.name.span,
             Vec::new(),
         )),
-        Item::Context(d) => {
-            Some(symbol(text, tree.name(d.name), kind::STRUCT, d.span, d.name.span, Vec::new()))
-        }
+        Item::Context(d) => Some(symbol(
+            text,
+            tree.name(d.name),
+            kind::STRUCT,
+            d.span,
+            d.name.span,
+            Vec::new(),
+        )),
         // A test is named by a sentence rather than by an identifier, and it is
         // listed because finding one is the commonest reason to open the file
         // it is in.
-        Item::Test(d) => {
-            Some(symbol(text, &d.name, kind::FUNCTION, d.span, d.name_span, Vec::new()))
-        }
+        Item::Test(d) => Some(symbol(
+            text,
+            &d.name,
+            kind::FUNCTION,
+            d.span,
+            d.name_span,
+            Vec::new(),
+        )),
         Item::Import(_) | Item::ReExport(_) | Item::Derive(_) | Item::Error(_) => None,
     }
 }
@@ -271,8 +349,10 @@ fn body_fold(text: &str, span: Span) -> Option<Value> {
 }
 
 fn fold(start: u32, end: u32, kind: Option<&str>) -> Value {
-    let mut fields =
-        vec![("startLine", Value::number(start)), ("endLine", Value::number(end))];
+    let mut fields = vec![
+        ("startLine", Value::number(start)),
+        ("endLine", Value::number(end)),
+    ];
     if let Some(k) = kind {
         fields.push(("kind", Value::str(k)));
     }
@@ -349,7 +429,11 @@ fn chain(text: &str, covering: &[(u32, u32)]) -> Value {
                 continue;
             }
         }
-        let span = Span { file: FileId(0), start: *start, end: *end };
+        let span = Span {
+            file: FileId(0),
+            start: *start,
+            end: *end,
+        };
         let mut fields = vec![("range", convert::range(text, span))];
         if let Some(parent) = built.take() {
             fields.push(("parent", parent));

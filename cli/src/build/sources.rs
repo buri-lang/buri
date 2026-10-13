@@ -142,7 +142,10 @@ impl Sources {
         for path in &files {
             hasher.write(path.as_os_str().as_encoded_bytes());
         }
-        let listing = Rc::new(Listing { files, names: hasher.finish() });
+        let listing = Rc::new(Listing {
+            files,
+            names: hasher.finish(),
+        });
         self.round.listing = Some(Rc::clone(&listing));
         listing
     }
@@ -265,7 +268,10 @@ impl Sources {
     /// next.
     pub fn keep(&mut self, session: &Session) {
         self.take_stock(session);
-        let warm = self.warm.as_mut().or_ice("a session to keep came from `Sources::session`");
+        let warm = self
+            .warm
+            .as_mut()
+            .or_ice("a session to keep came from `Sources::session`");
         // The two read caches and nothing else: the diagnostics loading the
         // repository collected belong to the warm copy, and a caller that has
         // reported and cleared its own must not clear them here.
@@ -318,7 +324,10 @@ impl Sources {
         if moved.is_empty() && fresh.is_empty() {
             return Ok(());
         }
-        let warm = self.warm.as_mut().or_ice("`refresh_now` opens a warm copy first");
+        let warm = self
+            .warm
+            .as_mut()
+            .or_ice("`refresh_now` opens a warm copy first");
         // The copy this makes when the session is shared is what leaves every
         // analysis already in hand reading the text it was built on.
         let session = Rc::make_mut(warm);
@@ -351,8 +360,11 @@ impl Sources {
     /// Each held file whose bytes moved, with the text it moved to, or `None`
     /// when one of them can't be read now.
     fn moved(&mut self, overlay: &Overlay) -> Option<Vec<(PathBuf, FileId, String)>> {
-        let known: Vec<(PathBuf, FileId, u64)> =
-            self.held.iter().map(|(p, (f, h))| (p.clone(), *f, *h)).collect();
+        let known: Vec<(PathBuf, FileId, u64)> = self
+            .held
+            .iter()
+            .map(|(p, (f, h))| (p.clone(), *f, *h))
+            .collect();
         let mut moved = Vec::new();
         for (path, file, was) in known {
             if self.content_hash(&path, overlay) == was {
@@ -375,7 +387,8 @@ impl Sources {
             if file.abs_path.as_os_str().is_empty() || self.held.contains_key(&file.abs_path) {
                 continue;
             }
-            self.held.insert(file.abs_path.clone(), (id, hash_of(&file.text)));
+            self.held
+                .insert(file.abs_path.clone(), (id, hash_of(&file.text)));
         }
     }
 }
@@ -396,7 +409,11 @@ impl Sources {
 ///
 /// [`generators::worked_out_from`]: crate::build::generators::worked_out_from
 pub fn closure_of(workspace: &Workspace, analysis: &Analysis) -> Vec<PathBuf> {
-    closure_over(workspace, &analysis.loaded.generated_rules, analysis.loaded.modules.iter())
+    closure_over(
+        workspace,
+        &analysis.loaded.generated_rules,
+        analysis.loaded.modules.iter(),
+    )
 }
 
 /// [`closure_of`], for one target's share of a compilation of several: the
@@ -433,7 +450,10 @@ fn hash_of(text: &str) -> u64 {
 
 /// Whether a path is one of the build graph's own files rather than a source.
 fn is_graph_file(path: &Path) -> bool {
-    matches!(path.file_name().and_then(|n| n.to_str()), Some("BUILD.buri" | "REPO.buri"))
+    matches!(
+        path.file_name().and_then(|n| n.to_str()),
+        Some("BUILD.buri" | "REPO.buri")
+    )
 }
 
 #[cfg(test)]
@@ -441,8 +461,7 @@ mod tests {
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("buri-sources-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("buri-sources-{name}-{}", std::process::id()));
         let _ = std::fs::create_dir_all(dir.join("lib/shop"));
         let _ = std::fs::write(dir.join("REPO.buri"), "name: \"scratch\"\n");
         let _ = std::fs::write(
@@ -453,7 +472,10 @@ mod tests {
             dir.join("lib/shop/lib.buri"),
             "from \"//lib/shop/cart.buri\" export { two };\n\npub fn one(): I64 {\n  1\n}\n",
         );
-        let _ = std::fs::write(dir.join("lib/shop/cart.buri"), "pub fn two(): I64 {\n  2\n}\n");
+        let _ = std::fs::write(
+            dir.join("lib/shop/cart.buri"),
+            "pub fn two(): I64 {\n  2\n}\n",
+        );
         dir
     }
 
@@ -492,17 +514,34 @@ mod tests {
         let overlay = Overlay::new();
 
         let first = analysed(&mut sources, &overlay);
-        let unchanged = first.map.find("lib/shop/lib.buri").expect("lib.buri was read");
-        let edited = first.map.find("lib/shop/cart.buri").expect("cart.buri was read");
+        let unchanged = first
+            .map
+            .find("lib/shop/lib.buri")
+            .expect("lib.buri was read");
+        let edited = first
+            .map
+            .find("lib/shop/cart.buri")
+            .expect("cart.buri was read");
 
-        let _ = std::fs::write(dir.join("lib/shop/cart.buri"), "pub fn two(): I64 {\n  3\n}\n");
+        let _ = std::fs::write(
+            dir.join("lib/shop/cart.buri"),
+            "pub fn two(): I64 {\n  3\n}\n",
+        );
         sources.begin_round();
-        let second = sources.session(&overlay).expect("the repository opens again");
+        let second = sources
+            .session(&overlay)
+            .expect("the repository opens again");
 
         assert_eq!(second.map.find("lib/shop/lib.buri"), Some(unchanged));
         assert_eq!(second.map.find("lib/shop/cart.buri"), Some(edited));
-        assert!(second.map.text(edited).contains('3'), "the edited file was re-read");
-        assert!(first.map.text(edited).contains('2'), "the first session kept its own text");
+        assert!(
+            second.map.text(edited).contains('3'),
+            "the edited file was re-read"
+        );
+        assert!(
+            first.map.text(edited).contains('2'),
+            "the first session kept its own text"
+        );
         assert_eq!(sources.reads.opened, 1, "the repository was opened once");
     }
 
@@ -520,15 +559,19 @@ mod tests {
             "library {\n  name: \"shop\"\n  srcs: [\"lib.buri\"]\n}\n",
         );
         sources.begin_round();
-        let _ = sources.session(&overlay).expect("the repository opens again");
-        assert_eq!(sources.reads.opened, 2, "the graph moved, so it was read again");
+        let _ = sources
+            .session(&overlay)
+            .expect("the repository opens again");
+        assert_eq!(
+            sources.reads.opened, 2,
+            "the graph moved, so it was read again"
+        );
     }
 
     /// A repository whose one library is a `.proto` schema and the module that
     /// re-exports what it becomes.
     fn schema_scratch(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("buri-schema-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("buri-schema-{name}-{}", std::process::id()));
         let _ = std::fs::create_dir_all(dir.join("lib/wire"));
         let _ = std::fs::write(dir.join("REPO.buri"), "");
         let _ = std::fs::write(
@@ -557,7 +600,11 @@ mod tests {
         let mut sources = Sources::at(&dir, Flags::default());
         let overlay = Overlay::new();
         let mut session = sources.session(&overlay).expect("the repository opens");
-        let target = *session.workspace.targets().first().expect("the library is a target");
+        let target = *session
+            .workspace
+            .targets()
+            .first()
+            .expect("the library is a target");
         let unit = crate::compiler::modules::Unit {
             target: Some(target),
             platform: None,
@@ -573,12 +620,19 @@ mod tests {
 
         let schema = dir.join("lib/wire/point.proto");
         let closure = closure_of(&session.workspace, &analysis);
-        assert!(closure.contains(&schema), "the schema is in the closure it feeds");
+        assert!(
+            closure.contains(&schema),
+            "the schema is in the closure it feeds"
+        );
 
         let before = sources.closure_key(&closure, &overlay);
         let _ = std::fs::write(&schema, SCHEMA.replace("int32 x = 1;", "int32 y = 2;"));
         sources.begin_round();
-        assert_ne!(before, sources.closure_key(&closure, &overlay), "the edit moved the key");
+        assert_ne!(
+            before,
+            sources.closure_key(&closure, &overlay),
+            "the edit moved the key"
+        );
     }
 
     /// An overlaid buffer is what an analysis reads, whether or not anything
@@ -594,7 +648,10 @@ mod tests {
         );
 
         let session = sources.session(&overlay).expect("the repository opens");
-        let file = session.map.find("lib/shop/lib.buri").expect("the buffer is in the map");
+        let file = session
+            .map
+            .find("lib/shop/lib.buri")
+            .expect("the buffer is in the map");
         assert!(session.map.text(file).contains("99"), "the buffer won");
     }
 }

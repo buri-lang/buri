@@ -137,7 +137,11 @@ fn lex(text: &str) -> Option<Vec<Token>> {
         if kind == Kind::LineComment {
             text.truncate(text.trim_end().len());
         }
-        out.push(Token { kind, text, newlines });
+        out.push(Token {
+            kind,
+            text,
+            newlines,
+        });
         newlines = 0;
     }
     Some(out)
@@ -152,7 +156,11 @@ struct Comment {
 
 impl Comment {
     fn of(t: &Token) -> Comment {
-        Comment { text: t.text.clone(), newlines: t.newlines, line: t.kind == Kind::LineComment }
+        Comment {
+            text: t.text.clone(),
+            newlines: t.newlines,
+            line: t.kind == Kind::LineComment,
+        }
     }
 }
 
@@ -229,7 +237,9 @@ impl Reader {
     fn items(&mut self, nested: bool) -> Option<Vec<Item>> {
         let mut out = Vec::new();
         loop {
-            let Some(t) = self.peek() else { return (!nested).then_some(out) };
+            let Some(t) = self.peek() else {
+                return (!nested).then_some(out);
+            };
             if t.is_comment() {
                 out.push(Item::Comment(Comment::of(t)));
                 self.at += 1;
@@ -252,13 +262,23 @@ impl Reader {
                 continue;
             }
             if depth == 0 && t.is(";") {
-                pieces.push(Piece { token: t, after: Vec::new() });
+                pieces.push(Piece {
+                    token: t,
+                    after: Vec::new(),
+                });
                 let trailing = self.same_line();
-                return Some(Statement { newlines, pieces, block: None, trailing });
+                return Some(Statement {
+                    newlines,
+                    pieces,
+                    block: None,
+                    trailing,
+                });
             }
             // A `{` after `=` or `:` is an option's value; any other opens a
             // block of statements.
-            let value = pieces.last().is_some_and(|p| p.token.is("=") || p.token.is(":"));
+            let value = pieces
+                .last()
+                .is_some_and(|p| p.token.is("=") || p.token.is(":"));
             if depth == 0 && t.is("{") && !value {
                 let opening = self.same_line();
                 let items = self.items(true)?;
@@ -268,8 +288,17 @@ impl Reader {
                     self.at += 1;
                 }
                 let trailing = self.same_line();
-                let block = Some(Block { opening, items, semicolon });
-                return Some(Statement { newlines, pieces, block, trailing });
+                let block = Some(Block {
+                    opening,
+                    items,
+                    semicolon,
+                });
+                return Some(Statement {
+                    newlines,
+                    pieces,
+                    block,
+                    trailing,
+                });
             }
             if t.kind == Kind::Symbol && matches!(t.text.as_str(), "(" | "[" | "<" | "{") {
                 depth += 1;
@@ -277,7 +306,10 @@ impl Reader {
             if t.kind == Kind::Symbol && matches!(t.text.as_str(), ")" | "]" | ">" | "}") {
                 depth = depth.checked_sub(1)?;
             }
-            pieces.push(Piece { token: t, after: Vec::new() });
+            pieces.push(Piece {
+                token: t,
+                after: Vec::new(),
+            });
         }
     }
 }
@@ -285,7 +317,10 @@ impl Reader {
 /// The canonical text of a `.proto` file, or `None` when a string, a comment
 /// or a bracket in it does not close.
 pub fn format(text: &str) -> Option<String> {
-    let mut reader = Reader { tokens: lex(text)?, at: 0 };
+    let mut reader = Reader {
+        tokens: lex(text)?,
+        at: 0,
+    };
     let items = reader.items(false)?;
     if items.is_empty() {
         return Some(String::new());
@@ -382,11 +417,15 @@ fn pieces(ps: &[Piece]) -> Doc {
                 out.push(Doc::text(" "));
             }
         }
-        let options = p.token.is("[") && prev.is_some_and(|q| matches!(q.token.kind, Kind::Number | Kind::Word));
-        let group = options.then(|| matching(ps, k)).flatten().and_then(|close| {
-            let doc = options_group(p, ps.get(k + 1..close)?, ps.get(close)?);
-            Some((doc, close))
-        });
+        let options = p.token.is("[")
+            && prev.is_some_and(|q| matches!(q.token.kind, Kind::Number | Kind::Word));
+        let group = options
+            .then(|| matching(ps, k))
+            .flatten()
+            .and_then(|close| {
+                let doc = options_group(p, ps.get(k + 1..close)?, ps.get(close)?);
+                Some((doc, close))
+            });
         match group {
             Some((doc, close)) => {
                 out.push(doc);
@@ -452,7 +491,12 @@ fn options_group(open: &Piece, inside: &[Piece], close: &Piece) -> Doc {
     let last = inside.get(start..).unwrap_or_default();
     inner.push(pieces(last));
     Doc::Concat(vec![
-        Doc::Group(vec![piece(open), Doc::Indent(inner), Doc::SoftLine, Doc::text("]")]),
+        Doc::Group(vec![
+            piece(open),
+            Doc::Indent(inner),
+            Doc::SoftLine,
+            Doc::text("]"),
+        ]),
         Doc::Concat(close.after.iter().flat_map(suffix).collect()),
     ])
 }
@@ -490,7 +534,10 @@ mod tests {
     #[test]
     fn blank_lines_collapse_to_one_and_leave_block_edges() {
         let text = "\n\nedition = \"2026\";\n\n\n\nmessage A {\n\n  int32 a = 1;\n\n\n  int32 b = 2;\n\n}\n\n";
-        assert_eq!(fmt(text), "edition = \"2026\";\n\nmessage A {\n    int32 a = 1;\n\n    int32 b = 2;\n}\n");
+        assert_eq!(
+            fmt(text),
+            "edition = \"2026\";\n\nmessage A {\n    int32 a = 1;\n\n    int32 b = 2;\n}\n"
+        );
     }
 
     #[test]
@@ -503,7 +550,8 @@ mod tests {
     #[test]
     fn long_options_break_one_per_line() {
         let long = "x".repeat(60);
-        let text = format!("message A {{ string s = 1 [json_name = \"{long}\", deprecated = true]; }}");
+        let text =
+            format!("message A {{ string s = 1 [json_name = \"{long}\", deprecated = true]; }}");
         let want = format!("message A {{\n    string s = 1 [\n        json_name = \"{long}\",\n        deprecated = true\n    ];\n}}\n");
         assert_eq!(fmt(&text), want);
     }
@@ -517,7 +565,13 @@ mod tests {
 
     #[test]
     fn what_does_not_close_is_refused() {
-        for broken in ["message A {", "message A { int32 a = 1; }}", "string s = \"open;", "/* open", "a = (1;"] {
+        for broken in [
+            "message A {",
+            "message A { int32 a = 1; }}",
+            "string s = \"open;",
+            "/* open",
+            "a = (1;",
+        ] {
             assert_eq!(format(broken), None, "{broken}");
         }
     }
@@ -525,9 +579,13 @@ mod tests {
     /// Non-comment tokens, and comments with their whitespace squeezed.
     fn meaning(text: &str) -> (Vec<String>, Vec<String>) {
         let tokens = lex(text).expect("lexes");
-        let (comments, rest): (Vec<Token>, Vec<Token>) = tokens.into_iter().partition(Token::is_comment);
+        let (comments, rest): (Vec<Token>, Vec<Token>) =
+            tokens.into_iter().partition(Token::is_comment);
         let squeeze = |t: Token| t.text.split_whitespace().collect::<Vec<_>>().join(" ");
-        (rest.into_iter().map(|t| t.text).collect(), comments.into_iter().map(squeeze).collect())
+        (
+            rest.into_iter().map(|t| t.text).collect(),
+            comments.into_iter().map(squeeze).collect(),
+        )
     }
 
     /// Every `.proto` file under `cli/tests`, the vendored conformance schemas
@@ -535,7 +593,8 @@ mod tests {
     #[test]
     fn every_schema_in_the_tests_formats_to_a_fixed_point_with_its_meaning() {
         let mut files = Vec::new();
-        let mut stack = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cli/tests")];
+        let mut stack =
+            vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cli/tests")];
         while let Some(dir) = stack.pop() {
             for entry in std::fs::read_dir(&dir).expect("reads").flatten() {
                 let path = entry.path();
@@ -554,11 +613,27 @@ mod tests {
                 refused.push(path.display().to_string());
                 continue;
             };
-            assert_eq!(format(&once).as_deref(), Some(once.as_str()), "{} is not a fixed point", path.display());
-            assert_eq!(meaning(&once), meaning(&text), "{} changed meaning", path.display());
+            assert_eq!(
+                format(&once).as_deref(),
+                Some(once.as_str()),
+                "{} is not a fixed point",
+                path.display()
+            );
+            assert_eq!(
+                meaning(&once),
+                meaning(&text),
+                "{} changed meaning",
+                path.display()
+            );
         }
         // Only the fixtures broken on purpose, each named `broken…`: a
         // message, a comment or a string that never closes.
-        assert!(refused.iter().all(|p| p.rsplit('/').next().is_some_and(|n| n.starts_with("broken"))), "{refused:?}");
+        assert!(
+            refused.iter().all(|p| p
+                .rsplit('/')
+                .next()
+                .is_some_and(|n| n.starts_with("broken"))),
+            "{refused:?}"
+        );
     }
 }

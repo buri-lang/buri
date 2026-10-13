@@ -12,22 +12,19 @@
 //! is how every other request decides what a name refers to, and through the
 //! module's scope when the body around it did not check.
 
-use crate::compiler::semantics::resolve::Sym;
-use crate::json::Value;
-use std::path::Path;
 use super::convert::{self, Position};
 use super::state::Analyzed;
 use super::symbols::{self, Symbol};
+use crate::compiler::semantics::resolve::Sym;
+use crate::json::Value;
+use std::path::Path;
 
-pub fn help(
-    analyzed: &Analyzed,
-    path: &Path,
-    text: &str,
-    position: Position,
-) -> Option<Value> {
+pub fn help(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -> Option<Value> {
     let offset = convert::offset_of(text, position);
     let call = enclosing_call(text, offset)?;
-    let name = &text.get(call.name.0 as usize..call.name.1 as usize)?.to_string();
+    let name = &text
+        .get(call.name.0 as usize..call.name.1 as usize)?
+        .to_string();
     let signature = callee(analyzed, path, text, call.name.0, name)?;
     Some(Value::object(vec![
         ("signatures", Value::Array(vec![rendered(&signature)])),
@@ -80,8 +77,16 @@ fn callee(
     }
     // Then the module's own scope, for the ordinary case this request exists
     // for: a call being typed, whose body therefore did not check.
-    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
-    let module = analyzed.analysis.loaded.modules.iter().find(|m| m.file == file)?;
+    let file = analyzed
+        .session
+        .map
+        .find(&analyzed.session.workspace.rel_of(path))?;
+    let module = analyzed
+        .analysis
+        .loaded
+        .modules
+        .iter()
+        .find(|m| m.file == file)?;
     let scope = analyzed.analysis.checked.scopes.get(module.id.index())?;
     match scope.name(name) {
         Some(Sym::Fn(id)) => symbols::signature(analyzed, &Symbol::Function(*id)),
@@ -160,7 +165,11 @@ fn enclosing_call(text: &str, offset: u32) -> Option<Call> {
             _ => {
                 match byte {
                     b'(' | b'[' | b'{' => {
-                        stack.push(Open { delimiter: byte, at: index, commas: 0 });
+                        stack.push(Open {
+                            delimiter: byte,
+                            at: index,
+                            commas: 0,
+                        });
                     }
                     b')' | b']' | b'}' => {
                         stack.pop();
@@ -186,7 +195,10 @@ fn enclosing_call(text: &str, offset: u32) -> Option<Call> {
     // and it is a place whose own commas belong to the list, not to the call.
     let open = stack.iter().rev().find(|o| o.delimiter == b'(')?;
     let name = name_before(text, open.at)?;
-    Some(Call { name, argument: open.commas })
+    Some(Call {
+        name,
+        argument: open.commas,
+    })
 }
 
 /// The identifier that ends just before `open`, skipping the spaces between.
@@ -218,7 +230,9 @@ mod tests {
         let offset = text.find('|')? as u32;
         let text = text.replace('|', "");
         let call = enclosing_call(&text, offset)?;
-        let name = text.get(call.name.0 as usize..call.name.1 as usize)?.to_string();
+        let name = text
+            .get(call.name.0 as usize..call.name.1 as usize)?
+            .to_string();
         Some((name, call.argument))
     }
 

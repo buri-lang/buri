@@ -38,7 +38,9 @@ pub fn run(
     diags: &mut Diagnostics,
     walked: &Walked,
 ) {
-    let Some(stack) = own_type(loaded, scopes, "ui/node", "Stack") else { return };
+    let Some(stack) = own_type(loaded, scopes, "ui/node", "Stack") else {
+        return;
+    };
     let mut each = |e: &typed::Expr| {
         typed::walk(e, &mut |e| check(e, stack, tables, bodies, consts, diags));
     };
@@ -64,13 +66,22 @@ fn check(
     match &e.kind {
         ExprKind::StructLit { con, .. } if *con == stack => {}
         ExprKind::StructUpdate { con, updates, .. }
-            if *con == stack && updates.iter().any(|(i, _)| [STACK_ROLE, STACK_DECORATIVE].contains(i)) => {}
+            if *con == stack
+                && updates
+                    .iter()
+                    .any(|(i, _)| [STACK_ROLE, STACK_DECORATIVE].contains(i)) => {}
         _ => return,
     }
     let mut folder = Folder::new(tables, bodies, consts);
-    let mut fold = |index| e.written_field(index).and_then(|f| folder.eval(f, &Env::default()));
+    let mut fold = |index| {
+        e.written_field(index)
+            .and_then(|f| folder.eval(f, &Env::default()))
+    };
     let role_value = fold(STACK_ROLE);
-    let without_role = role_value.as_ref().and_then(Value::as_variant).is_some_and(|(v, _)| v == OPTION_NONE);
+    let without_role = role_value
+        .as_ref()
+        .and_then(Value::as_variant)
+        .is_some_and(|(v, _)| v == OPTION_NONE);
     if without_role {
         return;
     }
@@ -82,6 +93,8 @@ fn check(
     };
     if !shown {
         let span = e.written_field(STACK_DECORATIVE).map_or(e.span, |f| f.span);
-        diags.items.push(Diagnostic::templated("decorative-with-role", span));
+        diags
+            .items
+            .push(Diagnostic::templated("decorative-with-role", span));
     }
 }

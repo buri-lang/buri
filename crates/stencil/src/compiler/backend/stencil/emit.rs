@@ -22,8 +22,8 @@
               bounded by a program already in memory"
 )]
 
-use super::jit::KeyArg;
 use super::abi::Loc;
+use super::jit::KeyArg;
 use crate::compiler::backend::intrinsic_keys::{
     checked_kind, conversion_target, json_arm, json_variant, native_body, CheckedKind, JsonArm,
 };
@@ -35,9 +35,9 @@ enum RSrc {
     Reg(u8),
     Slot(u32),
 }
+use super::glue::Helper;
 use super::jit::{agg_of, enum_of, Fn2, Jit, Plan, V};
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
-use super::glue::Helper;
 use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
@@ -181,7 +181,11 @@ impl<'a> Jit<'a> {
             .unwrap_or((1, "mov/1"));
             self.emit(
                 key,
-                &[("JIT_D", V::I(d as u64)), ("JIT_A", V::I(s as u64)), ("JIT_CONT", V::Fall)],
+                &[
+                    ("JIT_D", V::I(d as u64)),
+                    ("JIT_A", V::I(s as u64)),
+                    ("JIT_CONT", V::Fall),
+                ],
             );
             d += n;
             s += n;
@@ -191,16 +195,27 @@ impl<'a> Jit<'a> {
 
     pub(crate) fn imm_to(&mut self, dst: u32, v: u64) {
         if v == 0 {
-            self.emit("imm/z", &[("JIT_D", V::I(dst as u64)), ("JIT_CONT", V::Fall)]);
+            self.emit(
+                "imm/z",
+                &[("JIT_D", V::I(dst as u64)), ("JIT_CONT", V::Fall)],
+            );
         } else if v < (1u64 << 32) {
             self.emit(
                 "imm/32",
-                &[("JIT_D", V::I(dst as u64)), ("JIT_N", V::I(v)), ("JIT_CONT", V::Fall)],
+                &[
+                    ("JIT_D", V::I(dst as u64)),
+                    ("JIT_N", V::I(v)),
+                    ("JIT_CONT", V::Fall),
+                ],
             );
         } else {
             self.emit(
                 "imm/64",
-                &[("JIT_D", V::I(dst as u64)), ("JIT_M", V::I(v)), ("JIT_CONT", V::Fall)],
+                &[
+                    ("JIT_D", V::I(dst as u64)),
+                    ("JIT_M", V::I(v)),
+                    ("JIT_CONT", V::Fall),
+                ],
             );
         }
     }
@@ -209,10 +224,17 @@ impl<'a> Jit<'a> {
     /// the 64-bit form: a region address never fits 32 bits, and the pooled
     /// word it produces is what `cache.rs` relocates.
     pub(crate) fn imm_to_ptr(&mut self, dst: u32, v: u64) {
-        debug_assert!(super::region::is_pool_handle(v), "not a constant-pool handle");
+        debug_assert!(
+            super::region::is_pool_handle(v),
+            "not a constant-pool handle"
+        );
         self.emit(
             "imm/64",
-            &[("JIT_D", V::I(dst as u64)), ("JIT_M", V::Ptr(v)), ("JIT_CONT", V::Fall)],
+            &[
+                ("JIT_D", V::I(dst as u64)),
+                ("JIT_M", V::Ptr(v)),
+                ("JIT_CONT", V::Fall),
+            ],
         );
     }
 
@@ -226,7 +248,11 @@ impl<'a> Jit<'a> {
                     2 => "store/2",
                     _ => "store/4",
                 },
-                &[("JIT_D", V::I(dst as u64)), ("JIT_A", V::I(src as u64)), ("JIT_CONT", V::Fall)],
+                &[
+                    ("JIT_D", V::I(dst as u64)),
+                    ("JIT_A", V::I(src as u64)),
+                    ("JIT_CONT", V::Fall),
+                ],
             ),
             _ => self.mv(dst, src, w),
         }
@@ -243,7 +269,11 @@ impl<'a> Jit<'a> {
                     2 => "loadu/2",
                     _ => "loadu/4",
                 },
-                &[("JIT_D", V::I(dst as u64)), ("JIT_A", V::I(src as u64)), ("JIT_CONT", V::Fall)],
+                &[
+                    ("JIT_D", V::I(dst as u64)),
+                    ("JIT_A", V::I(src as u64)),
+                    ("JIT_CONT", V::Fall),
+                ],
             ),
             _ => self.mv(dst, src, w),
         }
@@ -279,7 +309,11 @@ impl<'a> Jit<'a> {
                         }
                         let x = bits as u64;
                         let x = if *negative { x.wrapping_neg() } else { x };
-                        let x = if w >= 8 { x } else { x & ((1u64 << (w * 8)) - 1) };
+                        let x = if w >= 8 {
+                            x
+                        } else {
+                            x & ((1u64 << (w * 8)) - 1)
+                        };
                         self.imm_to(off, x);
                     }
                     Const::Float(f) => {
@@ -304,15 +338,20 @@ impl<'a> Jit<'a> {
                     }
                 }
             }
-            Inst::Unary { dest, op, prim, arg } => {
-                self.unary(prog, code, st, *dest, *op, *prim, *arg)
-            }
-            Inst::Binary { dest, op, prim, lhs, rhs } => {
-                self.binary(st, *dest, *op, *prim, *lhs, *rhs)
-            }
-            Inst::Call { dest, func, args } => {
-                self.call(prog, code, st, *dest, func.0, args)
-            }
+            Inst::Unary {
+                dest,
+                op,
+                prim,
+                arg,
+            } => self.unary(prog, code, st, *dest, *op, *prim, *arg),
+            Inst::Binary {
+                dest,
+                op,
+                prim,
+                lhs,
+                rhs,
+            } => self.binary(st, *dest, *op, *prim, *lhs, *rhs),
+            Inst::Call { dest, func, args } => self.call(prog, code, st, *dest, func.0, args),
             Inst::CallIndirect { dest, callee, args } => {
                 self.call_indirect(prog, code, st, std::slice::from_ref(dest), *callee, args)
             }
@@ -322,9 +361,7 @@ impl<'a> Jit<'a> {
             Inst::MakeStruct { dest, fields } => {
                 let d = st.at(*dest);
                 let (l, owner) = match code.ty_of(*dest) {
-                    ir::Type::Agg(id) => {
-                        (self.layout_id_shared(prog, id), &prog.type_info(id).ty)
-                    }
+                    ir::Type::Agg(id) => (self.layout_id_shared(prog, id), &prog.type_info(id).ty),
                     _ => return self.unsupported("MakeStruct of a non-aggregate".into()),
                 };
                 let ftys = field_types(self.tables, owner);
@@ -343,9 +380,7 @@ impl<'a> Jit<'a> {
             }
             Inst::GetField { dest, agg, index } => {
                 let (l, owner) = match code.ty_of(*agg) {
-                    ir::Type::Agg(id) => {
-                        (self.layout_id_shared(prog, id), &prog.type_info(id).ty)
-                    }
+                    ir::Type::Agg(id) => (self.layout_id_shared(prog, id), &prog.type_info(id).ty),
                     _ => return self.unsupported("GetField of a non-aggregate".into()),
                 };
                 let w = self.width_of(prog, code.ty_of(*dest));
@@ -358,14 +393,19 @@ impl<'a> Jit<'a> {
                 }
                 self.load_w(st.at(*dest), src, w);
             }
-            Inst::MakeEnum { dest, variant, fields } => {
-                self.make_enum(prog, code, st, *dest, *variant, fields)
-            }
-            Inst::GetPayload { dest, agg, variant, index } => {
+            Inst::MakeEnum {
+                dest,
+                variant,
+                fields,
+            } => self.make_enum(prog, code, st, *dest, *variant, fields),
+            Inst::GetPayload {
+                dest,
+                agg,
+                variant,
+                index,
+            } => {
                 let (l, owner) = match code.ty_of(*agg) {
-                    ir::Type::Agg(id) => {
-                        (self.layout_id_shared(prog, id), &prog.type_info(id).ty)
-                    }
+                    ir::Type::Agg(id) => (self.layout_id_shared(prog, id), &prog.type_info(id).ty),
                     _ => return self.unsupported("GetPayload of a non-aggregate".into()),
                 };
                 let w = self.width_of(prog, code.ty_of(*dest));
@@ -411,7 +451,11 @@ impl<'a> Jit<'a> {
                 });
                 self.emit(
                     "imm/64",
-                    &[("JIT_D", V::I(d as u64)), ("JIT_M", V::Sym(thunk)), ("JIT_CONT", V::Fall)],
+                    &[
+                        ("JIT_D", V::I(d as u64)),
+                        ("JIT_M", V::Sym(thunk)),
+                        ("JIT_CONT", V::Fall),
+                    ],
                 );
                 match env {
                     Some(e) => self.build_env(prog, code, st, d + super::glue::ENV_WORD, *e),
@@ -525,7 +569,11 @@ impl<'a> Jit<'a> {
                 );
                 self.mv(d + 8, n, 8);
             }
-            Inst::ArraySet { array, index, value } => {
+            Inst::ArraySet {
+                array,
+                index,
+                value,
+            } => {
                 let (stride, w, _) = self.array_elem(prog, code.ty_of(*array));
                 self.elem_store(st.at(*value), st.at(*array), st.at(*index), stride, w);
             }
@@ -605,7 +653,10 @@ impl<'a> Jit<'a> {
         let _ = (code, op);
         let arg = *args.first().or_ice("a `Structural::Show` has its value");
         let source = prog.type_info(ty).ty;
-        let prim = self.tables.as_prim(&source).or_ice("a `Structural::Show` left by derives is at a primitive");
+        let prim = self
+            .tables
+            .as_prim(&source)
+            .or_ice("a `Structural::Show` left by derives is at a primitive");
         let d = st.at(dest);
         let a = st.at(arg);
         // `quoted = false`: a `Char` renders as its own bytes.
@@ -711,7 +762,10 @@ impl<'a> Jit<'a> {
             _ => None,
         }
         .or_ice("`Json` is a tagged enum");
-        let off = *l.variant(variant).first().or_ice("each `Json` arm a primitive takes carries a payload");
+        let off = *l
+            .variant(variant)
+            .first()
+            .or_ice("each `Json` arm a primitive takes carries a payload");
         let (d, a) = (st.at(dest), st.at(arg));
         self.imm_w(d, tag.size(), variant as u64);
         match arm {
@@ -788,7 +842,11 @@ impl<'a> Jit<'a> {
                     2 => "immw/2",
                     _ => "immw/4",
                 },
-                &[("JIT_D", V::I(dst as u64)), ("JIT_N", V::I(v)), ("JIT_CONT", V::Fall)],
+                &[
+                    ("JIT_D", V::I(dst as u64)),
+                    ("JIT_N", V::I(v)),
+                    ("JIT_CONT", V::Fall),
+                ],
             ),
             _ => self.imm_to(dst, v),
         }
@@ -807,12 +865,9 @@ impl<'a> Jit<'a> {
         let a = st.at(agg);
         let (repr, variants) = enum_of(&l);
         match repr {
-            EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => {
-                self.load_w(d, a, tag.size())
-            }
+            EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => self.load_w(d, a, tag.size()),
             EnumRepr::Niche { null_at } => {
-                let null_variant =
-                    variants.iter().position(|v| v.is_empty()).unwrap_or(1) as u64;
+                let null_variant = variants.iter().position(|v| v.is_empty()).unwrap_or(1) as u64;
                 let other = u64::from(null_variant == 0);
                 self.emit(
                     "niche_tag",
@@ -843,7 +898,9 @@ impl<'a> Jit<'a> {
         op: Op,
     ) {
         // A scalar has no counts.
-        let ir::Type::Agg(id) = code.ty_of(value) else { return };
+        let ir::Type::Agg(id) = code.ty_of(value) else {
+            return;
+        };
         // Borrowed, not cloned: a `Ty` is a tree and this is asked once per
         // reference operation in the program, which is the most common
         // instruction `middle::rc` emits.
@@ -886,14 +943,7 @@ impl<'a> Jit<'a> {
     /// [`RC_DEPTH`]: a recursive type reaches itself through a **box**, which is
     /// a leaf here, and a deep non-recursive one goes out of line into its own
     /// glue.
-    pub(crate) fn walk_rc(
-        &mut self,
-        st: &mut Fn2,
-        ty: &Ty,
-        at: u32,
-        op: Op,
-        depth: u32,
-    ) {
+    pub(crate) fn walk_rc(&mut self, st: &mut Fn2, ty: &Ty, at: u32, op: Op, depth: u32) {
         let sites = self.rc_sites(ty);
         for site in sites.iter() {
             match site {
@@ -992,14 +1042,7 @@ impl<'a> Jit<'a> {
     /// emitted body holds at most [`RC_INLINE`] levels plus one call per deeper
     /// field. A `Str`, a `[T]` and a closure never go out of line: the call
     /// would cost more than the instruction it replaced.
-    pub(crate) fn walk_field(
-        &mut self,
-        st: &mut Fn2,
-        f: &Field,
-        at: u32,
-        op: Op,
-        depth: u32,
-    ) {
+    pub(crate) fn walk_field(&mut self, st: &mut Fn2, f: &Field, at: u32, op: Op, depth: u32) {
         let at = at + f.offset;
         if f.boxed {
             let glue = (op != Op::Retain && self.rc_counted(&f.ty))
@@ -1015,7 +1058,10 @@ impl<'a> Jit<'a> {
     /// Whether an unboxed field of `ty`, `depth` levels into a walk, goes
     /// through its type's glue rather than inline ([`Jit::walk_field`]).
     pub(crate) fn field_out_of_line(&mut self, ty: &Ty, depth: u32) -> bool {
-        let compound = matches!(self.layout_shared(ty).repr, Repr::Aggregate | Repr::Enum { .. });
+        let compound = matches!(
+            self.layout_shared(ty).repr,
+            Repr::Aggregate | Repr::Enum { .. }
+        );
         // A light field stays inline however deep, until the walk nears
         // [`RC_DEPTH`]; the glue starts its own count from zero.
         let light = depth + 2 < RC_DEPTH && self.rc_weight(ty) <= RC_LIGHT;
@@ -1023,13 +1069,7 @@ impl<'a> Jit<'a> {
     }
 
     /// `op` on one nullable block pointer, with the glue its contents need.
-    pub(crate) fn block_op(
-        &mut self,
-        st: &mut Fn2,
-        at: u32,
-        glue: &Glue,
-        op: Op,
-    ) {
+    pub(crate) fn block_op(&mut self, st: &mut Fn2, at: u32, glue: &Glue, op: Op) {
         let glue = match glue {
             // A `Str` is `{ base, ptr, len }` and `ptr` points *into* `base`,
             // so a copy rebases as well as replaces (`buri_rt_copy_str`).
@@ -1054,13 +1094,7 @@ impl<'a> Jit<'a> {
     /// block of bytes — a `Str`'s allocation, a `[Int]`. A retain never needs
     /// one. A null pointer copies to a null pointer, so a niche and a static
     /// `Str`'s absent base need no test.
-    fn count_block(
-        &mut self,
-        st: &mut Fn2,
-        at: u32,
-        op: Op,
-        glue: Option<String>,
-    ) {
+    fn count_block(&mut self, st: &mut Fn2, at: u32, op: Op, glue: Option<String>) {
         match (op, glue) {
             (Op::Retain, _) => self.incref(at),
             (Op::Release, Some(g)) => {
@@ -1077,7 +1111,10 @@ impl<'a> Jit<'a> {
             }
             (Op::Release, None) => {
                 let (key, mask) = self.rc_key("decref/free", "decref/free/shared");
-                self.emit(key, &[("JIT_A", V::I(u64::from(at))), mask, ("JIT_CONT0", V::Fall)])
+                self.emit(
+                    key,
+                    &[("JIT_A", V::I(u64::from(at))), mask, ("JIT_CONT0", V::Fall)],
+                )
             }
             (Op::Copy, glue) => {
                 let g = glue.map_or(Src::Imm(0), Src::Sym);
@@ -1089,7 +1126,10 @@ impl<'a> Jit<'a> {
     /// A retain of the block whose pointer is at frame offset `at`.
     pub(crate) fn incref(&mut self, at: u32) {
         let (key, mask) = self.rc_key("incref", "incref/shared");
-        self.emit(key, &[("JIT_A", V::I(u64::from(at))), mask, ("JIT_CONT", V::Fall)]);
+        self.emit(
+            key,
+            &[("JIT_A", V::I(u64::from(at))), mask, ("JIT_CONT", V::Fall)],
+        );
     }
 
     /// The count stencil to use, and the binding for its mask hole.
@@ -1099,7 +1139,11 @@ impl<'a> Jit<'a> {
     /// fan-out is counted atomically after it (buri-lang/buri#243). Any other
     /// program keeps the plain stencil; the plain one has no `R` hole, so the
     /// binding is never read.
-    fn rc_key(&self, plain: &'static str, shared: &'static str) -> (&'static str, (&'static str, V)) {
+    fn rc_key(
+        &self,
+        plain: &'static str,
+        shared: &'static str,
+    ) -> (&'static str, (&'static str, V)) {
         if self.shares {
             (shared, ("JIT_R", V::Ext(runtime::SHARED_MASK)))
         } else {
@@ -1167,9 +1211,23 @@ impl<'a> Jit<'a> {
         // defaults are answers no operand here can actually ask for:
         // "materialised" and "not an immediate", which is what a value with no
         // `Const` definition is.
-        let lb = if folded(st, rhs) { Loc::Imm } else { st.loc(rhs) };
+        let lb = if folded(st, rhs) {
+            Loc::Imm
+        } else {
+            st.loc(rhs)
+        };
         let ld = st.home(dest);
-        let key = key!["bin/", name, "/", tag, "/", la.tag(), lb.tag(), "/", ld.tag()];
+        let key = key![
+            "bin/",
+            name,
+            "/",
+            tag,
+            "/",
+            la.tag(),
+            lb.tag(),
+            "/",
+            ld.tag()
+        ];
         // `sources.rs` generates every operation at every type and location
         // the IR can ask for, so the key is always in the library.
         let k = constant(st, rhs);
@@ -1218,19 +1276,35 @@ impl<'a> Jit<'a> {
             // for any other unary operation. Spelling this `f/f` was a real
             // miscompile: the stencil wrote the frame while the consumer read
             // the register.
-            let key =
-                key!["un/lnot/b/", st.loc(arg).tag(), "/", st.home(dest).tag()];
+            let key = key!["un/lnot/b/", st.loc(arg).tag(), "/", st.home(dest).tag()];
             return self.emit(
                 &key,
-                &[("JIT_A", V::I(a as u64)), ("JIT_D", V::I(d as u64)), ("JIT_CONT", V::Fall)],
+                &[
+                    ("JIT_A", V::I(a as u64)),
+                    ("JIT_D", V::I(d as u64)),
+                    ("JIT_CONT", V::Fall),
+                ],
             );
         }
         let (tag, _, _) = num_tag(prim);
         let name = if op == UnOp::Neg { "neg" } else { "bnot" };
-        let key = key!["un/", name, "/", tag, "/", st.loc(arg).tag(), "/", st.home(dest).tag()];
+        let key = key![
+            "un/",
+            name,
+            "/",
+            tag,
+            "/",
+            st.loc(arg).tag(),
+            "/",
+            st.home(dest).tag()
+        ];
         self.emit(
             &key,
-            &[("JIT_A", V::I(a as u64)), ("JIT_D", V::I(d as u64)), ("JIT_CONT", V::Fall)],
+            &[
+                ("JIT_A", V::I(a as u64)),
+                ("JIT_D", V::I(d as u64)),
+                ("JIT_CONT", V::Fall),
+            ],
         );
         let _ = (prog, code);
     }
@@ -1304,7 +1378,10 @@ impl<'a> Jit<'a> {
                 ("JIT_CONT0", V::Fall),
             ],
         );
-        let off = callee.ret.first().or_ice("a signature has one result (middle/ir.rs)");
+        let off = callee
+            .ret
+            .first()
+            .or_ice("a signature has one result (middle/ir.rs)");
         let n = self.slot_bytes_of(prog, code.ty_of(dest));
         self.mv(st.at(dest), base + *off, n);
     }
@@ -1373,9 +1450,7 @@ impl<'a> Jit<'a> {
     ) {
         let scr = st.scratch;
         let d = st.at(dest);
-        let arg = |st: &Fn2, i: usize| -> u32 {
-            args.get(i).map(|v| st.at(*v)).unwrap_or(0)
-        };
+        let arg = |st: &Fn2, i: usize| -> u32 { args.get(i).map(|v| st.at(*v)).unwrap_or(0) };
         match key {
             // A failed assertion is an abort, and the kind is what makes it
             // attributable (`cli/runtime/testing.rs`). Both are the shape
@@ -1389,7 +1464,14 @@ impl<'a> Jit<'a> {
             "testing_assert.failExpectedShown" => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
                 let (vp, vl) = self.str_arg(arg(st, 1), scr + 8);
-                self.c_call(runtime::TEST_FAIL_EXPECTED, st, &[kp, kl, vp, vl], &[], 0, "v");
+                self.c_call(
+                    runtime::TEST_FAIL_EXPECTED,
+                    st,
+                    &[kp, kl, vp, vl],
+                    &[],
+                    0,
+                    "v",
+                );
             }
             "testing_assert.reportShown" => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
@@ -1441,7 +1523,6 @@ impl<'a> Jit<'a> {
         }
     }
 
-
     // -- terminators -------------------------------------------------------
 
     pub(crate) fn term(
@@ -1457,7 +1538,11 @@ impl<'a> Jit<'a> {
             Term::Jump(x) => {
                 let fall = x.block.index() == next;
                 if let Some(b) = plan.incbr {
-                    let out = if b.out.index() == next { V::Fall } else { V::Blk(b.out.0) };
+                    let out = if b.out.index() == next {
+                        V::Fall
+                    } else {
+                        V::Blk(b.out.0)
+                    };
                     let key = self.arm_key("incbr/lt", "JIT_F");
                     self.emit(
                         key,
@@ -1508,9 +1593,17 @@ impl<'a> Jit<'a> {
                 // other's sit behind a label; the label goes to the arm whose
                 // own target is the next block, so that its jump goes too.
                 let y_is_then = then.block.index() == next;
-                let (x, y) = if y_is_then { (else_, then) } else { (then, else_) };
+                let (x, y) = if y_is_then {
+                    (else_, then)
+                } else {
+                    (then, else_)
+                };
                 let lf = st.label();
-                let (tv, fv) = if y_is_then { (V::Blk(lf), V::Fall) } else { (V::Fall, V::Blk(lf)) };
+                let (tv, fv) = if y_is_then {
+                    (V::Blk(lf), V::Fall)
+                } else {
+                    (V::Fall, V::Blk(lf))
+                };
                 let fall = if y_is_then { "JIT_F" } else { "JIT_T" };
                 self.cond(st, *cond, plan, tv, fv, fall);
                 self.edge(prog, code, st, x);
@@ -1630,7 +1723,11 @@ impl<'a> Jit<'a> {
         if let Some((op, prim, lhs, rhs)) = plan.cmpbr {
             let (tag, _, _) = prim_tag(prim)?;
             let la = st.loc(lhs).tag();
-            let lb = if folded(st, rhs) { "i".into() } else { st.loc(rhs).tag() };
+            let lb = if folded(st, rhs) {
+                "i".into()
+            } else {
+                st.loc(rhs).tag()
+            };
             let k = key!["brcmp/", op.name(), "/", tag, "/", la, lb];
             return self.has(&k).then_some(k);
         }
@@ -1667,7 +1764,9 @@ impl<'a> Jit<'a> {
         // `rtcall.rs` names `br/f` without asking. A library without
         // a branch stencil is broken, so this stops here rather than emitting
         // a fall-through that would run the wrong arm.
-        let key = self.cond_key(st, cond, plan).or_ice("stencil: the level has a branch stencil");
+        let key = self
+            .cond_key(st, cond, plan)
+            .or_ice("stencil: the level has a branch stencil");
         let key = self.arm_key(&key, fall);
         if let Some((_, _, lhs, rhs)) = plan.cmpbr {
             let k = constant(st, rhs);
@@ -1685,7 +1784,11 @@ impl<'a> Jit<'a> {
         }
         self.emit(
             key,
-            &[("JIT_A", V::I(st.at(cond) as u64)), ("JIT_T", tv), ("JIT_F", fv)],
+            &[
+                ("JIT_A", V::I(st.at(cond) as u64)),
+                ("JIT_T", tv),
+                ("JIT_F", fv),
+            ],
         );
     }
 
@@ -1722,25 +1825,38 @@ impl<'a> Jit<'a> {
     /// read here is from the jumping block's side of a promotion's region.
     fn jump_into_test(&mut self, code: &ir::Code, st: &mut Fn2, t: &Target) -> bool {
         let header = code.get(t.block);
-        let Term::Branch { cond, then, else_ } = &header.term else { return false };
+        let Term::Branch { cond, then, else_ } = &header.term else {
+            return false;
+        };
         if header.insts.len() != 1 || !then.args.is_empty() || !else_.args.is_empty() {
             return false;
         }
         let frame = |v: ir::ValueId| matches!(st.home(v), Loc::Frame);
-        let copies = header.params.iter().zip(t.args.iter()).any(|(p, a)| {
-            !frame(*p) || !frame(*a) || st.at(*p) != st.at(*a)
-        });
+        let copies = header
+            .params
+            .iter()
+            .zip(t.args.iter())
+            .any(|(p, a)| !frame(*p) || !frame(*a) || st.at(*p) != st.at(*a));
         if copies {
             return false;
         }
         let plan = self.plan_block(code, st, header);
-        let Some((_, _, lhs, rhs)) = plan.cmpbr else { return false };
+        let Some((_, _, lhs, rhs)) = plan.cmpbr else {
+            return false;
+        };
         if !frame(lhs) || !frame(rhs) {
             return false;
         }
         // The loop's way back is the `else` arm (`lower/lists.rs`), so the
         // `then` arm is the one left for the trailing jump.
-        self.cond(st, *cond, &plan, V::Blk(then.block.0), V::Blk(else_.block.0), "JIT_T");
+        self.cond(
+            st,
+            *cond,
+            &plan,
+            V::Blk(then.block.0),
+            V::Blk(else_.block.0),
+            "JIT_T",
+        );
         true
     }
 
@@ -1813,11 +1929,16 @@ impl<'a> Jit<'a> {
                     // slot still needs it when anything reads the slot.
                     if write_through(st, *p) {
                         self.emit(
-                            &key![if code.ty_of(*p) == ir::Type::F64 { "stwg" } else { "stw" }, "/r", k],
-                            &[
-                                ("JIT_D", V::I(st.at(*p) as u64)),
-                                ("JIT_CONT", V::Fall),
+                            &key![
+                                if code.ty_of(*p) == ir::Type::F64 {
+                                    "stwg"
+                                } else {
+                                    "stw"
+                                },
+                                "/r",
+                                k
                             ],
+                            &[("JIT_D", V::I(st.at(*p) as u64)), ("JIT_CONT", V::Fall)],
                         );
                     }
                     continue;
@@ -1831,9 +1952,9 @@ impl<'a> Jit<'a> {
         // register is its number and its class.
         let mut tmp = st.scratch + 56;
         while !pend.is_empty() {
-            let ready = pend.iter().position(|(k, f, _)| {
-                !pend.iter().any(|(_, g, s)| g == f && *s == RSrc::Reg(*k))
-            });
+            let ready = pend
+                .iter()
+                .position(|(k, f, _)| !pend.iter().any(|(_, g, s)| g == f && *s == RSrc::Reg(*k)));
             match ready {
                 Some(i) => {
                     let (k, f, src) = pend.remove(i);
@@ -1850,7 +1971,9 @@ impl<'a> Jit<'a> {
                     // and no entry's source can be a slot. A slot here would
                     // mean the search above missed a move that was ready, and
                     // emitting the permutation anyway would drop it.
-                    let &(_, f, src) = pend.first().or_ice("the loop runs while `pend` has an entry");
+                    let &(_, f, src) = pend
+                        .first()
+                        .or_ice("the loop runs while `pend` has an entry");
                     let j = match src {
                         RSrc::Reg(j) => Some(j),
                         RSrc::Slot(_) => None,
@@ -1885,7 +2008,10 @@ impl<'a> Jit<'a> {
         }
         let mut tmp = st.scratch + 48;
         while !pending.is_empty() {
-            match pending.iter().position(|(d, _, _)| !pending.iter().any(|(_, s, _)| s == d)) {
+            match pending
+                .iter()
+                .position(|(d, _, _)| !pending.iter().any(|(_, s, _)| s == d))
+            {
                 Some(i) => {
                     let (d, s, n) = pending.remove(i);
                     self.mv(d, s, n);
@@ -1893,7 +2019,9 @@ impl<'a> Jit<'a> {
                 None => {
                     // A cycle: break it through a scratch slot. The loop's own
                     // test says there is a first entry to break it at.
-                    let &(_, s, n) = pending.first().or_ice("the loop runs while `pending` has an entry");
+                    let &(_, s, n) = pending
+                        .first()
+                        .or_ice("the loop runs while `pending` has an entry");
                     self.mv(tmp, s, n);
                     for p in pending.iter_mut() {
                         if p.1 == s {
@@ -1981,7 +2109,10 @@ impl<'a> Jit<'a> {
             self.emit("ret", &[]);
             return;
         }
-        if let Some(t) = key.strip_prefix("number.").and_then(|k| k.strip_suffix(".show")) {
+        if let Some(t) = key
+            .strip_prefix("number.")
+            .and_then(|k| k.strip_suffix(".show"))
+        {
             match prim_of_name(t) {
                 Some(prim) => {
                     self.show_prim(st, prim, p(0), ret0, true);
@@ -2019,7 +2150,11 @@ impl<'a> Jit<'a> {
             // zero-extended at its own width — so the source is
             // sign-extended first where it is signed, and masked to the
             // target's width after.
-            let to = if op == "toChar" { Some(Prim::Char) } else { conversion_target(op) };
+            let to = if op == "toChar" {
+                Some(Prim::Char)
+            } else {
+                conversion_target(op)
+            };
             if let Some(to) = to {
                 // An **aggregate** result is the whole of the test, and it
                 // is the same one `llvm/emit.rs::numeric` makes before its
@@ -2167,7 +2302,11 @@ impl<'a> Jit<'a> {
         // copy is a second name for one block rather than a second reference
         // to it, and without the retain the second drop is a double free.
         if key == "str.format" {
-            let last = fs.params.last().copied().or_ice("`str.format` takes the template it answers");
+            let last = fs
+                .params
+                .last()
+                .copied()
+                .or_ice("`str.format` takes the template it answers");
             self.mv(ret0, last, 24);
             self.incref(ret0);
             self.emit("ret", &[]);
@@ -2222,8 +2361,13 @@ impl<'a> Jit<'a> {
         fs: &super::jit::FrameSig,
         st: &mut Fn2,
     ) -> bool {
-        let Some(entry) = super::runtime::entry(key) else { return false };
-        let f = prog.funcs.get(fi).or_ice("a body is one of its program's functions");
+        let Some(entry) = super::runtime::entry(key) else {
+            return false;
+        };
+        let f = prog
+            .funcs
+            .get(fi)
+            .or_ice("a body is one of its program's functions");
         let args: Vec<(u32, ir::Type)> = f
             .sig
             .params
@@ -2231,7 +2375,11 @@ impl<'a> Jit<'a> {
             .enumerate()
             .map(|(i, t)| (fs.params.get(i).copied().unwrap_or(0), *t))
             .collect();
-        let ret = f.sig.rets.first().or_ice("a signature has one result (middle/ir.rs)");
+        let ret = f
+            .sig
+            .rets
+            .first()
+            .or_ice("a signature has one result (middle/ir.rs)");
         let dest = (fs.ret.first().copied().unwrap_or(0), *ret);
         match self.rt_call(prog, st, entry, dest, &args) {
             Ok(()) => true,
@@ -2362,8 +2510,11 @@ impl Jit<'_> {
             // scalar is two mixes and the runtime owns that; a `Bool` is one
             // mix of its low word.
             "hash" => {
-                let symbol =
-                    if prim == Prim::Char { runtime::HASH_CHAR } else { runtime::MIX };
+                let symbol = if prim == Prim::Char {
+                    runtime::HASH_CHAR
+                } else {
+                    runtime::MIX
+                };
                 let seed = st.scratch + super::rtcall::SPARE_WORD * 8;
                 self.imm_to(seed, runtime::HASH_SEED);
                 let args = [Src::Word(seed), Src::Word(a)];
@@ -2391,7 +2542,10 @@ impl Jit<'_> {
     /// The two scratch words the overflow pair lands in: the result, and the
     /// flag beside it.
     fn overflow_slots(st: &Fn2) -> (u32, u32) {
-        (st.scratch + super::rtcall::RAW_WORD * 8, st.scratch + super::rtcall::SPARE_WORD * 8)
+        (
+            st.scratch + super::rtcall::RAW_WORD * 8,
+            st.scratch + super::rtcall::SPARE_WORD * 8,
+        )
     }
 
     /// `chk/<op>/<tag>` — the result and the overflow flag. Answers `false`
@@ -2522,7 +2676,11 @@ impl Jit<'_> {
         let result = self.layout_of_type(ty);
         let error = self.layout_of_type(error_ty);
         let ok_at = super::lists::payload_at(&result, 0);
-        let err_at = result.variant(1).first().copied().or_ice("`.Err` carries its error");
+        let err_at = result
+            .variant(1)
+            .first()
+            .copied()
+            .or_ice("`.Err` carries its error");
 
         let bound = st.scratch + super::rtcall::SPARE_WORD * 8;
         let verdict = st.scratch;
@@ -2535,9 +2693,10 @@ impl Jit<'_> {
                 let (tag, _, _) = num_tag(from);
                 let (from_lo, from_hi) = from.int_range().or_ice("an integer has a range");
                 let (to_lo, to_hi) = to.int_range().or_ice("an integer has a range");
-                for (op, needed, pattern) in
-                    [("lt", to_lo > from_lo, to_lo as u128), ("gt", to_hi < from_hi, to_hi)]
-                {
+                for (op, needed, pattern) in [
+                    ("lt", to_lo > from_lo, to_lo as u128),
+                    ("gt", to_hi < from_hi, to_hi),
+                ] {
                     if !needed {
                         continue;
                     }
@@ -2667,7 +2826,11 @@ impl Jit<'_> {
         let brkey = self.arm_key("br/f", "JIT_F");
         self.emit(
             brkey,
-            &[("JIT_A", V::I(u64::from(verdict))), ("JIT_T", V::Blk(target)), ("JIT_F", V::Fall)],
+            &[
+                ("JIT_A", V::I(u64::from(verdict))),
+                ("JIT_T", V::Blk(target)),
+                ("JIT_F", V::Fall),
+            ],
         );
     }
 
@@ -2865,14 +3028,22 @@ impl Jit<'_> {
     /// leaves a NaN a NaN.
     fn abs_signum(&mut self, st: &mut Fn2, prim: Prim, abs: bool, a: u32, dest: u32) {
         let (tag, bits, _) = num_tag(prim);
-        let mask = if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 };
+        let mask = if bits >= 64 {
+            u64::MAX
+        } else {
+            (1u64 << bits) - 1
+        };
         // A sign test at sixteen bytes reads the high half, which the `signum`
         // comparisons below cannot: they are `bin/{lt,gt}/{tag}/fi/f` and there
         // is no immediate form that wide. So it goes through the same wide
         // compare against a materialised zero.
         if abs {
             if prim.is_float() {
-                let sign = if prim == Prim::F32 { 0x7fff_ffffu64 } else { !(1u64 << 63) };
+                let sign = if prim == Prim::F32 {
+                    0x7fff_ffffu64
+                } else {
+                    !(1u64 << 63)
+                };
                 self.emit(
                     "bin/and/u64/fi/f",
                     &[
@@ -2915,9 +3086,17 @@ impl Jit<'_> {
         // below — answers zero, exactly as the two `select`s `llvm/emit.rs`
         // chains do.
         let (zero, one, minus) = if prim == Prim::F64 {
-            (0u128, u128::from(1.0f64.to_bits()), u128::from((-1.0f64).to_bits()))
+            (
+                0u128,
+                u128::from(1.0f64.to_bits()),
+                u128::from((-1.0f64).to_bits()),
+            )
         } else if prim == Prim::F32 {
-            (0, u128::from(1.0f32.to_bits()), u128::from((-1.0f32).to_bits()))
+            (
+                0,
+                u128::from(1.0f32.to_bits()),
+                u128::from((-1.0f32).to_bits()),
+            )
         } else if bits > 64 {
             (0, 1, u128::MAX)
         } else {
@@ -2933,7 +3112,15 @@ impl Jit<'_> {
         }
         for (op, v) in [("gt", one), ("lt", minus)] {
             let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
-            let key = key!["bin/", op, "/", tag, "/", if wide { "ff" } else { "fi" }, "/f"];
+            let key = key![
+                "bin/",
+                op,
+                "/",
+                tag,
+                "/",
+                if wide { "ff" } else { "fi" },
+                "/f"
+            ];
             self.emit(
                 &key,
                 &[
@@ -3063,7 +3250,11 @@ impl Jit<'_> {
                 let brkey = self.arm_key("br/f", "JIT_T");
                 self.emit(
                     brkey,
-                    &[("JIT_A", V::I(u64::from(scr))), ("JIT_T", V::Fall), ("JIT_F", V::Blk(skip))],
+                    &[
+                        ("JIT_A", V::I(u64::from(scr))),
+                        ("JIT_T", V::Fall),
+                        ("JIT_F", V::Blk(skip)),
+                    ],
                 );
             }
             self.imm_to(raw, value);
@@ -3086,7 +3277,9 @@ impl Jit<'_> {
         let (a, w) = (Src::Word(acc), Src::Word(v));
         let (w8, w16) = (Src::Word(v + 8), Src::Word(v + 16));
         match prim {
-            P::Str | P::Template => self.c_call(runtime::HASH_STR, st, &[a, w, w8, w16], &[], dest, "i"),
+            P::Str | P::Template => {
+                self.c_call(runtime::HASH_STR, st, &[a, w, w8, w16], &[], dest, "i")
+            }
             P::Char => self.c_call(runtime::HASH_CHAR, st, &[a, w], &[], dest, "i"),
             P::F32 | P::F64 => {
                 let wide = if prim == P::F32 {
@@ -3121,14 +3314,7 @@ impl Jit<'_> {
     /// to the target, which is the same zero-extension at the new width. A
     /// 128-bit type on either side has stencils of its own, because it is two
     /// words rather than one.
-    fn convert(
-        &mut self,
-        st: &Fn2,
-        from: Prim,
-        to: Prim,
-        src: u32,
-        dest: u32,
-    ) {
+    fn convert(&mut self, st: &Fn2, from: Prim, to: Prim, src: u32, dest: u32) {
         let (ftag, fw, fsigned) = num_tag(from);
         let (ttag, tw, _) = num_tag(to);
         // The sixteen-byte types, first, because everything below assumes a
@@ -3173,7 +3359,11 @@ impl Jit<'_> {
         }
         match (from.is_float(), to.is_float()) {
             (true, true) => {
-                let key = if to == Prim::F32 { "cvt/f2f32" } else { "cvt/f322f" };
+                let key = if to == Prim::F32 {
+                    "cvt/f2f32"
+                } else {
+                    "cvt/f322f"
+                };
                 if from == to {
                     self.mv(dest, src, 8);
                     return;
@@ -3266,8 +3456,14 @@ impl Jit<'_> {
     /// The tag width of an enum destination, or `None` when it is not one.
     fn tag_width(&mut self, prog: &ir::Program, id: ir::TypeId) -> Option<u32> {
         match &self.layout_id_shared(prog, id).repr {
-            Repr::Enum { repr: EnumRepr::Bare { tag }, .. }
-            | Repr::Enum { repr: EnumRepr::Tagged { tag, .. }, .. } => Some(tag.size()),
+            Repr::Enum {
+                repr: EnumRepr::Bare { tag },
+                ..
+            }
+            | Repr::Enum {
+                repr: EnumRepr::Tagged { tag, .. },
+                ..
+            } => Some(tag.size()),
             _ => None,
         }
     }
@@ -3291,7 +3487,9 @@ impl Jit<'_> {
         a: u32,
         count: Option<u32>,
     ) -> bool {
-        let Some(op) = key.strip_prefix("bits.") else { return false };
+        let Some(op) = key.strip_prefix("bits.") else {
+            return false;
+        };
         // The operand's width comes from the key's suffix; the bare names are
         // `Int`, which is sixty-four bits.
         let (width, unsigned) = match op {
@@ -3300,7 +3498,9 @@ impl Jit<'_> {
             _ if op.ends_with("U64") => (64, true),
             _ => (64, false),
         };
-        let stem = op.trim_end_matches(|c: char| c.is_ascii_digit()).trim_end_matches('U');
+        let stem = op
+            .trim_end_matches(|c: char| c.is_ascii_digit())
+            .trim_end_matches('U');
         // The stencil is named after the machine's shift, `core/bits` after the
         // word — the same split `stencil_op` above names for the arithmetic.
         let stem = match stem {
@@ -3311,7 +3511,10 @@ impl Jit<'_> {
         };
         // The one-operand family: three counts and the byte reversal, none of
         // which takes a shift count and so none of which needs the range check.
-        if matches!(stem, "popCount" | "leadingZeros" | "trailingZeros" | "byteSwap") {
+        if matches!(
+            stem,
+            "popCount" | "leadingZeros" | "trailingZeros" | "byteSwap"
+        ) {
             // `sources.rs` generates every width `core/bits` declares.
             let k = key!["bits/", stem, "/", width];
             self.emit(
@@ -3394,10 +3597,13 @@ fn bound_pattern(prim: Prim, low: bool) -> Option<u128> {
     if bits >= 128 {
         return Some(pattern);
     }
-    let mask = if bits == 64 { u128::from(u64::MAX) } else { (1u128 << bits) - 1 };
+    let mask = if bits == 64 {
+        u128::from(u64::MAX)
+    } else {
+        (1u128 << bits) - 1
+    };
     Some(pattern & mask)
 }
-
 
 /// Which intrinsic keys this backend has a body for, asked ahead of emission.
 ///

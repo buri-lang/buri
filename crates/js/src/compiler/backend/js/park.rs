@@ -307,10 +307,16 @@ fn is_fn_ty(t: &Ty) -> bool {
 fn fn_lets(body: &Expr) -> Vec<(LocalId, &Expr)> {
     let mut out = Vec::new();
     typed::walk(body, &mut |e| {
-        let ExprKind::Block { stmts, .. } = &e.kind else { return };
+        let ExprKind::Block { stmts, .. } = &e.kind else {
+            return;
+        };
         for s in stmts {
-            let Stmt::Let { pattern, value, .. } = s else { continue };
-            let typed::PatKind::Bind { local, sub: None } = &pattern.kind else { continue };
+            let Stmt::Let { pattern, value, .. } = s else {
+                continue;
+            };
+            let typed::PatKind::Bind { local, sub: None } = &pattern.kind else {
+                continue;
+            };
             if is_fn_ty(&value.ty) {
                 out.push((*local, value));
             }
@@ -399,8 +405,11 @@ pub fn parkability(program: &Program) -> Parking {
 
     // What can be followed, decided once: the tree does not move.
     let addressed = address_taken(program);
-    let lets: Vec<Vec<(LocalId, &Expr)>> =
-        program.funcs.iter().map(|f| f.body().map(fn_lets).unwrap_or_default()).collect();
+    let lets: Vec<Vec<(LocalId, &Expr)>> = program
+        .funcs
+        .iter()
+        .map(|f| f.body().map(fn_lets).unwrap_or_default())
+        .collect();
     for (i, (f, slot)) in program.funcs.iter().zip(w.resolved.iter_mut()).enumerate() {
         if !addressed.get(i).copied().unwrap_or(true) {
             for p in &f.params {
@@ -445,7 +454,10 @@ pub fn parkability(program: &Program) -> Parking {
         changed = false;
 
         for &(target, from, args) in &edges {
-            let tf = program.funcs.get(target).or_ice("an edge's target is a function slot");
+            let tf = program
+                .funcs
+                .get(target)
+                .or_ice("an edge's target is a function slot");
             // A call passes one argument per parameter, and so does a jump.
             for (a, &p) in args.iter().zip(&tf.params) {
                 if !is_fn_ty(&a.ty) || !w.value_parks(from, a) {
@@ -516,13 +528,17 @@ pub fn parkability(program: &Program) -> Parking {
             let parks = match &f.kind {
                 FuncKind::Intrinsic(key) => {
                     intrinsic_keys::ctx_step_key(key)
-                        && f.params.iter().any(|p| w.parking.get(i).is_some_and(|s| s.contains(*p)))
+                        && f.params
+                            .iter()
+                            .any(|p| w.parking.get(i).is_some_and(|s| s.contains(*p)))
                 }
                 FuncKind::Body(body) => w.body_parks(i, body),
                 FuncKind::Unbuilt => false,
             };
             if parks {
-                *w.parks.get_mut(i).or_ice("the column has a row per function") = true;
+                *w.parks
+                    .get_mut(i)
+                    .or_ice("the column has a row per function") = true;
                 changed = true;
             }
         }

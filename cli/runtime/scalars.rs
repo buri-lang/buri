@@ -72,8 +72,8 @@
               its length"
 )]
 
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use crate::sync::{Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 /// The shortest view worth indexing, in bytes. A shorter one is walked: the
 /// walk is short, and keeping it out means a burst of small strings cannot
@@ -107,7 +107,10 @@ struct Kept {
     next: usize,
 }
 
-static KEPT: Mutex<Kept> = Mutex::new(Kept { slots: [None, None, None, None], next: 0 });
+static KEPT: Mutex<Kept> = Mutex::new(Kept {
+    slots: [None, None, None, None],
+    next: 0,
+});
 
 /// Each slot's `base`, or `0` when the slot is empty, for [`forget`] to read
 /// without the lock. Written only under it.
@@ -128,7 +131,10 @@ static INDEXED: AtomicBool = AtomicBool::new(false);
 static SCANNED: AtomicU64 = AtomicU64::new(0);
 
 fn scanned(bytes: usize) {
-    SCANNED.store(SCANNED.load(Ordering::Relaxed).wrapping_add(bytes as u64), Ordering::Relaxed);
+    SCANNED.store(
+        SCANNED.load(Ordering::Relaxed).wrapping_add(bytes as u64),
+        Ordering::Relaxed,
+    );
 }
 
 /// How many bytes the runtime has read to turn scalar indices into byte
@@ -170,7 +176,12 @@ impl Index {
             seen = seen.wrapping_add(count_starts(run) as u32);
             marks.push(seen);
         }
-        Index { base, start: bytes.as_ptr() as usize, len: bytes.len(), marks }
+        Index {
+            base,
+            start: bytes.as_ptr() as usize,
+            len: bytes.len(),
+            marks,
+        }
     }
 
     fn covers(&self, base: usize, start: usize, len: usize) -> bool {
@@ -208,7 +219,10 @@ impl Index {
     unsafe fn offset_of(&self, g: usize) -> usize {
         // The last run whose count before it is at most `g`: the run after it
         // has more than `g` scalars before it, so scalar `g` starts in this one.
-        let k = self.marks.partition_point(|m| *m as usize <= g).saturating_sub(1);
+        let k = self
+            .marks
+            .partition_point(|m| *m as usize <= g)
+            .saturating_sub(1);
         let mut seen = self.marks.get(k).copied().unwrap_or(0) as usize;
         // SAFETY: forwarded.
         let bytes = unsafe { self.bytes() };
@@ -245,10 +259,10 @@ fn with_index<T>(base: *mut u8, bytes: &[u8], answer: impl FnOnce(&Index, usize)
     let key = base as usize;
     let start = bytes.as_ptr() as usize;
     let mut kept = kept();
-    let found = kept
-        .slots
-        .iter()
-        .position(|s| s.as_ref().is_some_and(|ix| ix.covers(key, start, bytes.len())));
+    let found = kept.slots.iter().position(|s| {
+        s.as_ref()
+            .is_some_and(|ix| ix.covers(key, start, bytes.len()))
+    });
     let slot = match found {
         Some(slot) => slot,
         None => {
@@ -358,7 +372,10 @@ fn walk(bytes: &[u8], index: usize) -> usize {
 #[inline]
 pub(crate) fn forget(p: *mut u8) {
     let key = p as usize;
-    if !INDEXED.load(Ordering::Relaxed) || key == 0 || KEYS.iter().all(|k| k.load(Ordering::Relaxed) != key) {
+    if !INDEXED.load(Ordering::Relaxed)
+        || key == 0
+        || KEYS.iter().all(|k| k.load(Ordering::Relaxed) != key)
+    {
         return;
     }
     forget_slow(key);
@@ -450,7 +467,11 @@ mod tests {
             })
             .collect();
         let block = Block::of(&text);
-        let bounds: Vec<usize> = text.char_indices().map(|(at, _)| at).chain([text.len()]).collect();
+        let bounds: Vec<usize> = text
+            .char_indices()
+            .map(|(at, _)| at)
+            .chain([text.len()])
+            .collect();
         let cuts = [0usize, 1, 2, 63, 64, 65, 200];
         for &a in &cuts {
             for &b in &cuts {
@@ -460,7 +481,11 @@ mod tests {
                     continue;
                 }
                 let view = block.bytes(from, to);
-                let scalars = text.get(from..to).expect("cuts on char boundaries").chars().count();
+                let scalars = text
+                    .get(from..to)
+                    .expect("cuts on char boundaries")
+                    .chars()
+                    .count();
                 for i in 0..scalars + 3 {
                     // SAFETY: `block` is live and `view` is inside it.
                     let got = unsafe { byte_offset(block.0, view, false, i) };
@@ -469,7 +494,11 @@ mod tests {
                 for at in 0..=view.len() {
                     // SAFETY: as above.
                     let got = unsafe { scalars_before(block.0, view, false, at) };
-                    assert_eq!(got, count_starts(&view[..at]), "view {from}..{to}, byte {at}");
+                    assert_eq!(
+                        got,
+                        count_starts(&view[..at]),
+                        "view {from}..{to}, byte {at}"
+                    );
                 }
             }
         }
@@ -522,6 +551,9 @@ mod tests {
         let _ = unsafe { byte_offset(block.0, block.bytes(0, text.len()), false, 10) };
         // SAFETY: as above.
         unsafe { buri_rt_str_written(block.0) };
-        assert!(KEYS.iter().all(|k| k.load(Ordering::Relaxed) != block.0 as usize));
+        assert!(
+            KEYS.iter()
+                .all(|k| k.load(Ordering::Relaxed) != block.0 as usize)
+        );
     }
 }

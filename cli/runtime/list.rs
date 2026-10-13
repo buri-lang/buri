@@ -47,11 +47,11 @@
 //!   neither is needed by the conformance corpus that the native set runs, so
 //!   they are named here rather than half-built.
 
+use crate::BURI_OK;
 use crate::memory::{
     buri_rt_alloc, buri_rt_cap, buri_rt_claim_unique, buri_rt_grown_capacity, buri_rt_unclaim,
 };
 use crate::value::BuriList;
-use crate::BURI_OK;
 
 /// The per-element retain: increfs the counted pointers inside one element, in
 /// place. Null where the element type holds none.
@@ -100,10 +100,16 @@ pub(crate) unsafe fn copy_retaining(
 /// free.
 pub(crate) fn block(count: usize, stride: usize) -> BuriList {
     if count == 0 || stride == 0 {
-        return BuriList { ptr: std::ptr::null_mut(), len: count as u64 };
+        return BuriList {
+            ptr: std::ptr::null_mut(),
+            len: count as u64,
+        };
     }
     let ptr = buri_rt_alloc((count.saturating_mul(stride)) as u64);
-    BuriList { ptr, len: count as u64 }
+    BuriList {
+        ptr,
+        len: count as u64,
+    }
 }
 
 /// Where the `add` new elements of an append go, with the prefix already
@@ -170,7 +176,10 @@ unsafe fn append_dest(
 ) -> BuriList {
     let total = n.saturating_add(add);
     if stride == 0 || total == 0 {
-        return BuriList { ptr: std::ptr::null_mut(), len: total as u64 };
+        return BuriList {
+            ptr: std::ptr::null_mut(),
+            len: total as u64,
+        };
     }
     let needed = total.saturating_mul(stride) as u64;
     if !ptr.is_null() {
@@ -186,7 +195,10 @@ unsafe fn append_dest(
                     || unsafe { spare(ptr.add(used), add.saturating_mul(stride)) });
             if fits {
                 // The claimed reference is the result's.
-                return BuriList { ptr: ptr.cast_mut(), len: total as u64 };
+                return BuriList {
+                    ptr: ptr.cast_mut(),
+                    len: total as u64,
+                };
             }
             // SAFETY: claimed just above, and not written through.
             unsafe { buri_rt_unclaim(ptr) };
@@ -202,7 +214,10 @@ unsafe fn append_dest(
                     std::ptr::write_bytes(fresh.add(used), 0, headroom);
                 }
             }
-            return BuriList { ptr: fresh, len: total as u64 };
+            return BuriList {
+                ptr: fresh,
+                len: total as u64,
+            };
         }
     }
     let out = block(total, stride);
@@ -221,7 +236,9 @@ pub(crate) unsafe fn spare(at: *const u8, bytes: usize) -> bool {
     let bytes = unsafe { std::slice::from_raw_parts(at, bytes) };
     // A word at a time: OR-ing whole chunks lets the loop vectorise.
     let (words, rest) = bytes.as_chunks::<8>();
-    let any = words.iter().fold(0u64, |acc, w| acc | u64::from_ne_bytes(*w));
+    let any = words
+        .iter()
+        .fold(0u64, |acc, w| acc | u64::from_ne_bytes(*w));
     any == 0 && rest.iter().all(|b| *b == 0)
 }
 
@@ -382,7 +399,13 @@ pub unsafe extern "C" fn buri_rt_list_slice(
     // SAFETY: `from + count <= n`, so the source range is inside the block.
     unsafe {
         if !ptr.is_null() {
-            copy_retaining(result.ptr, ptr.add(from.saturating_mul(s)), count, s, retain);
+            copy_retaining(
+                result.ptr,
+                ptr.add(from.saturating_mul(s)),
+                count,
+                s,
+                retain,
+            );
         }
         out.write(result);
     }
@@ -524,8 +547,7 @@ pub unsafe extern "C" fn buri_rt_list_range(start: i64, end: i64, out: *mut Buri
 /// `middle/rc.rs`'s "a call through a function value owns its arguments",
 /// settled on the side of the boundary that knows the type — which is why there
 /// is no `retain` parameter here beside the strides.
-pub type StepEntry =
-    unsafe extern "C" fn(state: *mut u8, index: u64, arg: *const u8, out: *mut u8);
+pub type StepEntry = unsafe extern "C" fn(state: *mut u8, index: u64, arg: *const u8, out: *mut u8);
 
 #[cfg(test)]
 mod tests {
@@ -542,7 +564,10 @@ mod tests {
             for at in 0..len {
                 run[at] = 1;
                 // SAFETY: as above.
-                assert!(!unsafe { spare(run.as_ptr(), len) }, "{len} bytes, a one at {at}");
+                assert!(
+                    !unsafe { spare(run.as_ptr(), len) },
+                    "{len} bytes, a one at {at}"
+                );
                 run[at] = 0;
             }
         }
@@ -550,7 +575,10 @@ mod tests {
 
     #[test]
     fn a_range_is_half_open() {
-        let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut out = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         // SAFETY: `out` is a live local.
         unsafe { buri_rt_list_range(2, 5, &raw mut out) };
         assert_eq!(out.len, 3);
@@ -571,15 +599,19 @@ mod tests {
     #[test]
     fn a_slice_clamps_rather_than_aborting() {
         let src: [i64; 4] = [10, 20, 30, 40];
-        let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut out = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         // SAFETY: `src` covers four `i64`s and `out` is a live local.
         unsafe {
             buri_rt_list_slice(src.as_ptr().cast(), 4, -3, 99, 8, None, &raw mut out);
         }
         assert_eq!(out.len, 4);
         // SAFETY: four `i64`s were just written there.
-        let got: Vec<i64> =
-            (0..4).map(|i| unsafe { out.ptr.add(i * 8).cast::<i64>().read() }).collect();
+        let got: Vec<i64> = (0..4)
+            .map(|i| unsafe { out.ptr.add(i * 8).cast::<i64>().read() })
+            .collect();
         assert_eq!(got, vec![10, 20, 30, 40]);
         // SAFETY: a fresh block with one reference.
         unsafe { crate::memory::buri_rt_free(out.ptr) };
@@ -595,14 +627,27 @@ mod tests {
     /// it back to `1`.
     #[test]
     fn a_unique_push_grows_in_place() {
-        let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut acc = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         let mut allocations = 0u32;
         for i in 0i64..1000 {
-            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            let mut out = BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            };
             // SAFETY: `acc` is this test's own live list and `i` is a live
             // local of the element's stride.
             unsafe {
-                buri_rt_list_push(acc.ptr, acc.len, (&raw const i).cast(), 8, None, &raw mut out);
+                buri_rt_list_push(
+                    acc.ptr,
+                    acc.len,
+                    (&raw const i).cast(),
+                    8,
+                    None,
+                    &raw mut out,
+                );
             }
             if out.ptr != acc.ptr {
                 allocations += 1;
@@ -615,12 +660,16 @@ mod tests {
         }
         assert_eq!(acc.len, 1000);
         // SAFETY: a thousand `i64`s were written there in order.
-        let got: Vec<i64> =
-            (0..1000).map(|i| unsafe { acc.ptr.add(i * 8).cast::<i64>().read() }).collect();
+        let got: Vec<i64> = (0..1000)
+            .map(|i| unsafe { acc.ptr.add(i * 8).cast::<i64>().read() })
+            .collect();
         assert_eq!(got, (0..1000).collect::<Vec<i64>>());
         // Doubling from a 64-byte floor over 8000 bytes: eight growths, plus
         // the first allocation. A linear implementation would report 1000.
-        assert!(allocations <= 12, "one push per element allocated {allocations} times");
+        assert!(
+            allocations <= 12,
+            "one push per element allocated {allocations} times"
+        );
         // SAFETY: the last reference. Whether the *process* leaked is
         // `cli/tests/native/runtime.rs`'s question and not this one: the
         // counters are global and `cargo test` runs these in parallel, so a
@@ -631,12 +680,25 @@ mod tests {
     /// Nine pushes onto `[]`, so the list has headroom: 72 bytes in a 128-byte
     /// block. The caller holds the only reference.
     fn nine() -> BuriList {
-        let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut acc = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         for i in 0i64..9 {
-            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            let mut out = BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            };
             // SAFETY: `acc` is the caller's own live list.
             unsafe {
-                buri_rt_list_push(acc.ptr, acc.len, (&raw const i).cast(), 8, None, &raw mut out);
+                buri_rt_list_push(
+                    acc.ptr,
+                    acc.len,
+                    (&raw const i).cast(),
+                    8,
+                    None,
+                    &raw mut out,
+                );
                 crate::memory::buri_rt_decref(acc.ptr, None);
             }
             acc = out;
@@ -650,13 +712,26 @@ mod tests {
     fn a_unique_push_onto_a_marked_list_grows_in_place() {
         let _latch = crate::memory::latch();
         crate::memory::share_now();
-        let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut acc = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         let mut allocations = 0u32;
         for i in 0i64..1000 {
-            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            let mut out = BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            };
             // SAFETY: as in `a_unique_push_grows_in_place`.
             unsafe {
-                buri_rt_list_push(acc.ptr, acc.len, (&raw const i).cast(), 8, None, &raw mut out);
+                buri_rt_list_push(
+                    acc.ptr,
+                    acc.len,
+                    (&raw const i).cast(),
+                    8,
+                    None,
+                    &raw mut out,
+                );
                 crate::memory::buri_rt_decref(acc.ptr, None);
             }
             if out.ptr != acc.ptr {
@@ -665,12 +740,19 @@ mod tests {
             acc = out;
         }
         // SAFETY: a live block.
-        assert!(unsafe { crate::memory::count_and_mark(acc.ptr) }.1, "the list was not marked");
+        assert!(
+            unsafe { crate::memory::count_and_mark(acc.ptr) }.1,
+            "the list was not marked"
+        );
         // SAFETY: a thousand `i64`s were written there in order.
-        let got: Vec<i64> =
-            (0..1000).map(|i| unsafe { acc.ptr.add(i * 8).cast::<i64>().read() }).collect();
+        let got: Vec<i64> = (0..1000)
+            .map(|i| unsafe { acc.ptr.add(i * 8).cast::<i64>().read() })
+            .collect();
         assert_eq!(got, (0..1000).collect::<Vec<i64>>());
-        assert!(allocations <= 12, "a marked push loop allocated {allocations} times");
+        assert!(
+            allocations <= 12,
+            "a marked push loop allocated {allocations} times"
+        );
         // SAFETY: the last reference.
         unsafe { crate::memory::buri_rt_free(acc.ptr) };
         crate::memory::forget_values_may_cross_tasks();
@@ -697,7 +779,10 @@ mod tests {
                         let start = &start;
                         s.spawn(move || {
                             let item = 100 + t as i64;
-                            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+                            let mut out = BuriList {
+                                ptr: std::ptr::null_mut(),
+                                len: 0,
+                            };
                             start.wait();
                             // SAFETY: `base` outlives the scope, and this
                             // thread borrows it without a count.
@@ -722,8 +807,9 @@ mod tests {
                 let p = p as *mut u8;
                 assert_eq!(n, 10);
                 // SAFETY: each answer is a live list of ten `i64`s.
-                let got: Vec<i64> =
-                    (0..10).map(|i| unsafe { p.add(i * 8).cast::<i64>().read() }).collect();
+                let got: Vec<i64> = (0..10)
+                    .map(|i| unsafe { p.add(i * 8).cast::<i64>().read() })
+                    .collect();
                 let mut want: Vec<i64> = (0..9).collect();
                 want.push(100 + t as i64);
                 assert_eq!(got, want, "thread {t} answered another thread's element");
@@ -733,8 +819,9 @@ mod tests {
             }
             assert!(in_place <= 1, "{in_place} threads wrote into one block");
             // SAFETY: `base` is live, and nothing wrote into its nine slots.
-            let kept: Vec<i64> =
-                (0..9).map(|i| unsafe { base.ptr.add(i * 8).cast::<i64>().read() }).collect();
+            let kept: Vec<i64> = (0..9)
+                .map(|i| unsafe { base.ptr.add(i * 8).cast::<i64>().read() })
+                .collect();
             assert_eq!(kept, (0..9).collect::<Vec<i64>>());
             for &(p, _) in &answers {
                 // SAFETY: each answer holds one reference.
@@ -750,12 +837,25 @@ mod tests {
     /// still holds must not touch what that other holder can see.
     #[test]
     fn a_shared_push_leaves_the_original_alone() {
-        let mut base = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut base = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         for i in 0i64..8 {
-            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            let mut out = BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            };
             // SAFETY: as above.
             unsafe {
-                buri_rt_list_push(base.ptr, base.len, (&raw const i).cast(), 8, None, &raw mut out);
+                buri_rt_list_push(
+                    base.ptr,
+                    base.len,
+                    (&raw const i).cast(),
+                    8,
+                    None,
+                    &raw mut out,
+                );
                 crate::memory::buri_rt_decref(base.ptr, None);
             }
             base = out;
@@ -764,17 +864,40 @@ mod tests {
         // testing for, and what the two pushes below must respect.
         // SAFETY: `base` is a live block.
         unsafe { crate::memory::buri_rt_incref(base.ptr) };
-        let held = BuriList { ptr: base.ptr, len: base.len };
+        let held = BuriList {
+            ptr: base.ptr,
+            len: base.len,
+        };
 
         let (mut one, mut two) = (
-            BuriList { ptr: std::ptr::null_mut(), len: 0 },
-            BuriList { ptr: std::ptr::null_mut(), len: 0 },
+            BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            },
+            BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            },
         );
         let (a, b) = (100i64, 200i64);
         // SAFETY: `base` is live and each item is a live local.
         unsafe {
-            buri_rt_list_push(base.ptr, base.len, (&raw const a).cast(), 8, None, &raw mut one);
-            buri_rt_list_push(base.ptr, base.len, (&raw const b).cast(), 8, None, &raw mut two);
+            buri_rt_list_push(
+                base.ptr,
+                base.len,
+                (&raw const a).cast(),
+                8,
+                None,
+                &raw mut one,
+            );
+            buri_rt_list_push(
+                base.ptr,
+                base.len,
+                (&raw const b).cast(),
+                8,
+                None,
+                &raw mut two,
+            );
         }
         assert_ne!(one.ptr, base.ptr, "a shared list was mutated in place");
         assert_ne!(two.ptr, base.ptr, "a shared list was mutated in place");
@@ -782,9 +905,15 @@ mod tests {
 
         let read = |l: &BuriList| -> Vec<i64> {
             // SAFETY: `l.len` elements of eight bytes were written there.
-            (0..l.len as usize).map(|i| unsafe { l.ptr.add(i * 8).cast::<i64>().read() }).collect()
+            (0..l.len as usize)
+                .map(|i| unsafe { l.ptr.add(i * 8).cast::<i64>().read() })
+                .collect()
         };
-        assert_eq!(read(&held), (0..8).collect::<Vec<i64>>(), "the other holder's value changed");
+        assert_eq!(
+            read(&held),
+            (0..8).collect::<Vec<i64>>(),
+            "the other holder's value changed"
+        );
         assert_eq!(read(&base), (0..8).collect::<Vec<i64>>());
         assert_eq!(read(&one).last().copied(), Some(100));
         assert_eq!(read(&two).last().copied(), Some(200));
@@ -806,13 +935,26 @@ mod tests {
     fn a_counted_element_type_grows_in_place_over_zeroed_headroom() {
         unsafe extern "C" fn nothing(_: *mut u8) {}
         let retain: Retain = Some(nothing);
-        let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut acc = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         let mut allocations = 0u32;
         for i in 1i64..=1000 {
-            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            let mut out = BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            };
             // SAFETY: `acc` is this test's own live list.
             unsafe {
-                buri_rt_list_push(acc.ptr, acc.len, (&raw const i).cast(), 8, retain, &raw mut out);
+                buri_rt_list_push(
+                    acc.ptr,
+                    acc.len,
+                    (&raw const i).cast(),
+                    8,
+                    retain,
+                    &raw mut out,
+                );
                 crate::memory::buri_rt_decref(acc.ptr, None);
             }
             if out.ptr != acc.ptr {
@@ -820,16 +962,23 @@ mod tests {
             }
             acc = out;
         }
-        assert!(allocations <= 12, "one push per element allocated {allocations} times");
+        assert!(
+            allocations <= 12,
+            "one push per element allocated {allocations} times"
+        );
         // SAFETY: a thousand `i64`s were written there, and the block's
         // capacity covers the rest.
         unsafe {
-            let got: Vec<i64> =
-                (0..1000).map(|i| acc.ptr.add(i * 8).cast::<i64>().read()).collect();
+            let got: Vec<i64> = (0..1000)
+                .map(|i| acc.ptr.add(i * 8).cast::<i64>().read())
+                .collect();
             assert_eq!(got, (1..=1000).collect::<Vec<i64>>());
             let cap = crate::memory::buri_rt_cap(acc.ptr) as usize;
             assert!(cap > 8000, "the last growth left no headroom to check");
-            assert!(spare(acc.ptr.add(8000), cap - 8000), "the headroom is not zeroed");
+            assert!(
+                spare(acc.ptr.add(8000), cap - 8000),
+                "the headroom is not zeroed"
+            );
             crate::memory::buri_rt_free(acc.ptr);
         }
     }
@@ -841,31 +990,77 @@ mod tests {
     fn a_slot_a_longer_list_left_behind_is_not_written_over() {
         unsafe extern "C" fn nothing(_: *mut u8) {}
         let retain: Retain = Some(nothing);
-        let mut base = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut base = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         for i in 1i64..=4 {
-            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            let mut out = BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            };
             // SAFETY: `base` is this test's own live list.
             unsafe {
-                buri_rt_list_push(base.ptr, base.len, (&raw const i).cast(), 8, retain, &raw mut out);
+                buri_rt_list_push(
+                    base.ptr,
+                    base.len,
+                    (&raw const i).cast(),
+                    8,
+                    retain,
+                    &raw mut out,
+                );
                 crate::memory::buri_rt_decref(base.ptr, None);
             }
             base = out;
         }
         let (long, short) = (50i64, 60i64);
-        let mut longer = BuriList { ptr: std::ptr::null_mut(), len: 0 };
-        let mut other = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut longer = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
+        let mut other = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         // SAFETY: `base` is live and each item is a live local.
         unsafe {
-            buri_rt_list_push(base.ptr, base.len, (&raw const long).cast(), 8, retain, &raw mut longer);
-            assert_eq!(longer.ptr, base.ptr, "the first push did not take the in-place path");
+            buri_rt_list_push(
+                base.ptr,
+                base.len,
+                (&raw const long).cast(),
+                8,
+                retain,
+                &raw mut longer,
+            );
+            assert_eq!(
+                longer.ptr, base.ptr,
+                "the first push did not take the in-place path"
+            );
             // The longer list dies, and `base` is unique again.
             crate::memory::buri_rt_decref(longer.ptr, None);
-            buri_rt_list_push(base.ptr, base.len, (&raw const short).cast(), 8, retain, &raw mut other);
-            assert_ne!(other.ptr, base.ptr, "a push wrote over a slot the block still owned");
-            assert_eq!(base.ptr.add(32).cast::<i64>().read(), 50, "the old element was moved");
+            buri_rt_list_push(
+                base.ptr,
+                base.len,
+                (&raw const short).cast(),
+                8,
+                retain,
+                &raw mut other,
+            );
+            assert_ne!(
+                other.ptr, base.ptr,
+                "a push wrote over a slot the block still owned"
+            );
+            assert_eq!(
+                base.ptr.add(32).cast::<i64>().read(),
+                50,
+                "the old element was moved"
+            );
             assert_eq!(other.ptr.add(32).cast::<i64>().read(), 60);
             let cap = crate::memory::buri_rt_cap(other.ptr) as usize;
-            assert!(spare(other.ptr.add(40), cap - 40), "the grown block's headroom is not zeroed");
+            assert!(
+                spare(other.ptr.add(40), cap - 40),
+                "the grown block's headroom is not zeroed"
+            );
             crate::memory::buri_rt_free(other.ptr);
             crate::memory::buri_rt_free(base.ptr);
         }
@@ -876,10 +1071,16 @@ mod tests {
     #[test]
     fn a_unique_concat_appends_in_place() {
         let src: [i64; 3] = [7, 8, 9];
-        let mut acc = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut acc = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         let mut allocations = 0u32;
         for _ in 0..100 {
-            let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            let mut out = BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            };
             // SAFETY: `src` covers three `i64`s and `acc` is this test's list.
             unsafe {
                 buri_rt_list_concat(
@@ -900,10 +1101,17 @@ mod tests {
         }
         assert_eq!(acc.len, 300);
         // SAFETY: three hundred `i64`s were written there, three at a time.
-        let got: Vec<i64> =
-            (0..300).map(|i| unsafe { acc.ptr.add(i * 8).cast::<i64>().read() }).collect();
-        assert_eq!(got, (0..300).map(|i| 7 + (i % 3) as i64).collect::<Vec<i64>>());
-        assert!(allocations <= 10, "one concat per step allocated {allocations} times");
+        let got: Vec<i64> = (0..300)
+            .map(|i| unsafe { acc.ptr.add(i * 8).cast::<i64>().read() })
+            .collect();
+        assert_eq!(
+            got,
+            (0..300).map(|i| 7 + (i % 3) as i64).collect::<Vec<i64>>()
+        );
+        assert!(
+            allocations <= 10,
+            "one concat per step allocated {allocations} times"
+        );
         // SAFETY: the last reference.
         unsafe { crate::memory::buri_rt_free(acc.ptr) };
     }
@@ -915,10 +1123,19 @@ mod tests {
         let out = (&raw mut slot).cast::<u8>();
         // SAFETY: `src` covers two `i64`s and `slot` is a live local.
         unsafe {
-            assert_eq!(buri_rt_list_get(src.as_ptr().cast(), 2, 1, 8, None, out), BURI_OK);
+            assert_eq!(
+                buri_rt_list_get(src.as_ptr().cast(), 2, 1, 8, None, out),
+                BURI_OK
+            );
             assert_eq!(slot, 8);
-            assert_eq!(buri_rt_list_get(src.as_ptr().cast(), 2, 2, 8, None, out), BURI_ABSENT);
-            assert_eq!(buri_rt_list_get(src.as_ptr().cast(), 2, -1, 8, None, out), BURI_ABSENT);
+            assert_eq!(
+                buri_rt_list_get(src.as_ptr().cast(), 2, 2, 8, None, out),
+                BURI_ABSENT
+            );
+            assert_eq!(
+                buri_rt_list_get(src.as_ptr().cast(), 2, -1, 8, None, out),
+                BURI_ABSENT
+            );
         }
     }
 }

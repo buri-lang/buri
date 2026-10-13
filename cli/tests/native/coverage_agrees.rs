@@ -24,7 +24,10 @@ fn corpus(name: &str, native: bool) -> PathBuf {
         .join(format!("native-coverage-agrees-{}", std::process::id()))
         .join(name);
     let _ = std::fs::remove_dir_all(&repo);
-    copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance"), &repo);
+    copy(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance"),
+        &repo,
+    );
     if native {
         let javascript_only = crate::conformance::javascript_only_packages();
         for package in std::fs::read_dir(repo.join("lib")).unwrap() {
@@ -61,7 +64,10 @@ fn copy(from: &Path, to: &Path) {
 /// line and anything a failure printed, sorted, and the summary.
 fn verdicts(repo: &Path, flags: &[&str], coverage: &[&str]) -> (i32, Vec<String>, String) {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
-    cmd.current_dir(repo).args(["test", "//...", "--verbose"]).args(flags).args(coverage);
+    cmd.current_dir(repo)
+        .args(["test", "//...", "--verbose"])
+        .args(flags)
+        .args(coverage);
     let ran = crate::shared::ran_command(&mut cmd);
     let mut lines = Vec::new();
     let mut summary = None;
@@ -70,10 +76,21 @@ fn verdicts(repo: &Path, flags: &[&str], coverage: &[&str]) -> (i32, Vec<String>
             summary = Some(line.rsplit_once(" (").map_or(line, |(s, _)| s).to_string());
             break;
         }
-        let fields: Vec<&str> = line.split("  ").map(str::trim).filter(|f| !f.is_empty()).collect();
+        let fields: Vec<&str> = line
+            .split("  ")
+            .map(str::trim)
+            .filter(|f| !f.is_empty())
+            .collect();
         if line.starts_with("//") {
             // label, backend, how many tests; then times.
-            lines.push(fields.iter().take(3).copied().collect::<Vec<_>>().join("  "));
+            lines.push(
+                fields
+                    .iter()
+                    .take(3)
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join("  "),
+            );
         } else if line.starts_with("  ok ") || line.starts_with("  FAIL ") {
             // verdict, file, name; then a time.
             lines.push(fields[..fields.len().saturating_sub(1)].join("  "));
@@ -83,19 +100,34 @@ fn verdicts(repo: &Path, flags: &[&str], coverage: &[&str]) -> (i32, Vec<String>
     }
     lines.sort();
     let summary = summary.unwrap_or_else(|| {
-        panic!("{coverage:?} {flags:?} printed no summary:\n{}\n{}", ran.stdout, ran.stderr)
+        panic!(
+            "{coverage:?} {flags:?} printed no summary:\n{}\n{}",
+            ran.stdout, ran.stderr
+        )
     });
     (ran.status, lines, summary)
 }
 
 /// The corpus on one backend, in each mode, each in a copy of its own.
 pub(crate) fn agrees(backend: &str, native: bool, flags: &[&str]) {
-    let plain = verdicts(&corpus(&format!("{backend}-plain"), native), flags, MODES[0]);
-    assert!(plain.0 == 0, "{backend}: the corpus fails without coverage: {}", plain.2);
+    let plain = verdicts(
+        &corpus(&format!("{backend}-plain"), native),
+        flags,
+        MODES[0],
+    );
+    assert!(
+        plain.0 == 0,
+        "{backend}: the corpus fails without coverage: {}",
+        plain.2
+    );
     for mode in &MODES[1..] {
-        let name = format!("{backend}{}", mode[0].trim_start_matches('-').replace('=', "-"));
+        let name = format!(
+            "{backend}{}",
+            mode[0].trim_start_matches('-').replace('=', "-")
+        );
         let covered = verdicts(&corpus(&name, native), flags, mode);
-        let (was, now): (BTreeSet<&String>, BTreeSet<&String>) = (plain.1.iter().collect(), covered.1.iter().collect());
+        let (was, now): (BTreeSet<&String>, BTreeSet<&String>) =
+            (plain.1.iter().collect(), covered.1.iter().collect());
         let differs: Vec<String> = was
             .symmetric_difference(&now)
             .map(|l| format!("{} {l}", if now.contains(l) { "+" } else { "-" }))

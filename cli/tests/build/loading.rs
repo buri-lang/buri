@@ -9,8 +9,14 @@ use crate::harness::*;
 /// same three paths: a library, the library's file spelled out, and `extra`.
 fn app(extra: &str) -> Scratch {
     let scratch = Scratch::repo("loading");
-    scratch.write("lib/shared/BUILD.buri", "library {\n    visibility: [\"//...\"]\n}\n");
-    scratch.write("lib/shared/lib.buri", "export fn base(): Int {\n    40\n}\n");
+    scratch.write(
+        "lib/shared/BUILD.buri",
+        "library {\n    visibility: [\"//...\"]\n}\n",
+    );
+    scratch.write(
+        "lib/shared/lib.buri",
+        "export fn base(): Int {\n    40\n}\n",
+    );
     scratch.write(
         "app/BUILD.buri",
         "binary {\n    dependencies: [\"//lib/shared\"]\n    outputs: [{ platform: \"node\" }]\n}\n",
@@ -46,8 +52,14 @@ fn app(extra: &str) -> Scratch {
 #[test]
 fn each_import_of_a_missing_module_is_reported_where_it_is_written() {
     for (path, problem) in [
-        ("//lib/missing", "\"//lib/missing\" is in no package of this repository"),
-        ("//lib/shared/gone.buri", "\"//lib/shared/gone.buri\" names no file (lib/shared/gone.buri)"),
+        (
+            "//lib/missing",
+            "\"//lib/missing\" is in no package of this repository",
+        ),
+        (
+            "//lib/shared/gone.buri",
+            "\"//lib/shared/gone.buri\" names no file (lib/shared/gone.buri)",
+        ),
     ] {
         let scratch = app(&format!("from \"{path}\" import {{ gone }};"));
         let run = scratch.run(&["build", "//app"]);
@@ -55,8 +67,15 @@ fn each_import_of_a_missing_module_is_reported_where_it_is_written() {
         for file in ["app/a.buri:3:6", "app/b.buri:3:6"] {
             run.says(file);
         }
-        let reported = strip_ansi(&run.all()).matches(&format!("{problem} [unknown-module]")).count();
-        assert_eq!(reported, 2, "want one report per import of {path}:\n{}", indent(&run.all()));
+        let reported = strip_ansi(&run.all())
+            .matches(&format!("{problem} [unknown-module]"))
+            .count();
+        assert_eq!(
+            reported,
+            2,
+            "want one report per import of {path}:\n{}",
+            indent(&run.all())
+        );
     }
 }
 
@@ -120,10 +139,17 @@ fn modules_read_side_by_side_load_as_they_would_one_at_a_time() {
     run.exits(1);
     run.says("wide/m2.buri:2:9").says("wide/m5.buri:1:14");
 
-    let unreadable = wide(|i| if i == 3 { b"export fn f3(): Int { \xff }\n".to_vec() } else { returning(i) });
+    let unreadable = wide(|i| {
+        if i == 3 {
+            b"export fn f3(): Int { \xff }\n".to_vec()
+        } else {
+            returning(i)
+        }
+    });
     let run = unreadable.run(&["build", "//wide"]);
     run.exits(1);
-    run.says("cannot read wide/m3.buri").says("wide/main.buri:7:6");
+    run.says("cannot read wide/m3.buri")
+        .says("wide/main.buri:7:6");
 }
 
 // ---------------------------------------------------------------------------
@@ -169,10 +195,16 @@ fn pinned_shape(name: &str) -> crate::generate::Program {
     let text = std::fs::read_to_string(&manifest).unwrap();
     let field = |key: &str| {
         let prefix = format!("{key} = ");
-        text.lines().find_map(|l| l.strip_prefix(&prefix)).unwrap_or_default().to_string()
+        text.lines()
+            .find_map(|l| l.strip_prefix(&prefix))
+            .unwrap_or_default()
+            .to_string()
     };
     let (_, profile) = crate::generate::profile(&field("profile")).unwrap();
-    let mut params = crate::generate::Params { shape: profile.shape, ..crate::generate::Params::default() };
+    let mut params = crate::generate::Params {
+        shape: profile.shape,
+        ..crate::generate::Params::default()
+    };
     for pair in field("params").split_whitespace() {
         let (k, v) = pair.split_once('=').unwrap();
         params.set(k, v).unwrap();
@@ -204,8 +236,15 @@ fn costs(name: &str) -> Option<(u64, u64)> {
     let program = pinned_shape(name);
     let lines = program.lines() as u64;
     let parse = counted(|| {
-        let parse = |(i, m): (usize, &crate::generate::Module)| buri::parsing::parser::parse(&m.text, FileId(i as u32));
-        program.modules.iter().enumerate().map(parse).collect::<Vec<_>>()
+        let parse = |(i, m): (usize, &crate::generate::Module)| {
+            buri::parsing::parser::parse(&m.text, FileId(i as u32))
+        };
+        program
+            .modules
+            .iter()
+            .enumerate()
+            .map(parse)
+            .collect::<Vec<_>>()
     })?;
     let snapshot = snapshot::of(Opening::Builtin, true);
     let load = counted(|| {
@@ -219,7 +258,13 @@ fn costs(name: &str) -> Option<(u64, u64)> {
             loader.load_source(&m.path, role, m.text.clone());
         }
         let loaded = loader.finish();
-        assert!(!diagnostics.items.iter().any(|d| d.severity == Severity::Error), "{name} does not load");
+        assert!(
+            !diagnostics
+                .items
+                .iter()
+                .any(|d| d.severity == Severity::Error),
+            "{name} does not load"
+        );
         loaded
     })?;
     Some((parse / lines, load / lines))
@@ -233,12 +278,19 @@ fn parsing_and_loading_each_pinned_shape_stay_within_their_instruction_bounds() 
     let mut over = Vec::new();
     let mut table = String::new();
     for (name, parse_bound, load_bound) in BOUNDS {
-        let Some((parse, load)) = costs(name) else { return };
-        table.push_str(&format!("  {name:18} parse {parse:5} of {parse_bound:5}   load {load:5} of {load_bound:5}\n"));
+        let Some((parse, load)) = costs(name) else {
+            return;
+        };
+        table.push_str(&format!(
+            "  {name:18} parse {parse:5} of {parse_bound:5}   load {load:5} of {load_bound:5}\n"
+        ));
         if parse > parse_bound || load > load_bound {
             over.push(name);
         }
     }
     eprintln!("{table}");
-    assert!(over.is_empty(), "instructions a line over their bounds on {over:?}:\n{table}");
+    assert!(
+        over.is_empty(),
+        "instructions a line over their bounds on {over:?}:\n{table}"
+    );
 }

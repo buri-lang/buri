@@ -46,8 +46,16 @@ use crate::harness::{ci, Run, Scratch};
 /// runs — the heap check is the *native* runtime's, so a defaulted binary would
 /// be a test that asserted nothing and said so nowhere.
 fn host_platform() -> String {
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     format!("\"native\", variant: \"{os}-{arch}\"")
 }
 
@@ -55,7 +63,8 @@ fn native_binary(platform: &str) -> String {
     format!("binary {{\n  outputs: [{{ platform: {platform} }}]\n}}\n")
 }
 
-const LIBRARY: &str = "library {\n    test {\n        sources: [\"test/counting.buri\"]\n    }\n}\n";
+const LIBRARY: &str =
+    "library {\n    test {\n        sources: [\"test/counting.buri\"]\n    }\n}\n";
 
 /// A program that allocates. A program that does not would answer `allocated=0`
 /// and prove nothing: the audit it passed is the audit of an empty heap.
@@ -113,8 +122,7 @@ fn an_artifact_buri_ran_is_asked_for_its_blocks_back() {
     scratch.write("cmd/counting/BUILD.buri", &native_binary(&host_platform()));
     scratch.write("cmd/counting/main.buri", COUNTING);
 
-    let run =
-        scratch.run_with_env(&["run", "//cmd/counting"], &[("BURI_RT_HEAP_REPORT", "1")]);
+    let run = scratch.run_with_env(&["run", "//cmd/counting"], &[("BURI_RT_HEAP_REPORT", "1")]);
     if !asked(&run) {
         no_native_run("buri run //cmd/counting", &run);
         return;
@@ -143,14 +151,21 @@ fn buri_test_runs_its_test_binaries_under_the_heap_check() {
     scratch.write("lib/counting/lib.buri", "export fn version(): Int { 1 }\n");
     scratch.write("lib/counting/test/counting.buri", COUNTING_TEST);
 
-    let run = scratch
-        .run_with_env(&["test", "//lib/counting", "--force"], &[("BURI_RT_HEAP_REPORT", "1")]);
+    let run = scratch.run_with_env(
+        &["test", "//lib/counting", "--force"],
+        &[("BURI_RT_HEAP_REPORT", "1")],
+    );
     if !asked(&run) {
         no_native_run("buri test //lib/counting", &run);
         return;
     }
     run.ok().says("buri heap check: ok (").says("live=0");
-    assert_eq!(run.tests_passed(), 1, "the suite did not run:\n{}", run.all());
+    assert_eq!(
+        run.tests_passed(),
+        1,
+        "the suite did not run:\n{}",
+        run.all()
+    );
     assert!(
         !run.all().contains("allocated=0"),
         "the test binary allocated nothing, so the audit it passed was of an empty heap:\n{}",
@@ -173,8 +188,10 @@ fn a_release_artifact_is_asked_for_its_blocks_back_or_is_refused_by_name() {
     scratch.write("cmd/counting/BUILD.buri", &native_binary(&host_platform()));
     scratch.write("cmd/counting/main.buri", COUNTING);
 
-    let run = scratch
-        .run_with_env(&["run", "//cmd/counting", "--release"], &[("BURI_RT_HEAP_REPORT", "1")]);
+    let run = scratch.run_with_env(
+        &["run", "//cmd/counting", "--release"],
+        &[("BURI_RT_HEAP_REPORT", "1")],
+    );
     if asked(&run) {
         run.ok().says("buri heap check: ok (").says("live=0");
         assert!(
@@ -186,7 +203,8 @@ fn a_release_artifact_is_asked_for_its_blocks_back_or_is_refused_by_name() {
         return;
     }
     assert_ne!(
-        run.code, 0,
+        run.code,
+        0,
         "a release artifact ran and was never asked for its blocks back:\n{}",
         run.all()
     );

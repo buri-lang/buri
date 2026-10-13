@@ -33,7 +33,9 @@ use crate::harness::*;
 /// program reaching more or less of the runtime than its neighbours.
 fn program_only(artifact: &str) -> String {
     let mut rest = artifact.to_string();
-    for (_, src) in buri::compiler::backend::js::javascript::split_declarations(buri::compiler::backend::js::runtime_source()) {
+    for (_, src) in buri::compiler::backend::js::javascript::split_declarations(
+        buri::compiler::backend::js::runtime_source(),
+    ) {
         rest = rest.replacen(src.trim(), "", 1);
     }
     // The entry epilogue is the same fifteen lines of `try`/`catch` in every
@@ -71,9 +73,13 @@ fn program_only(artifact: &str) -> String {
 /// back out of the artifact rather than asking the compiler for it is
 /// deliberate: what is recorded here is what a page would actually load.
 fn stylesheet_of(artifact: &str) -> String {
-    let Some(rest) = artifact.split("$ui_sheet=").nth(1) else { return String::new() };
+    let Some(rest) = artifact.split("$ui_sheet=").nth(1) else {
+        return String::new();
+    };
     let mut chars = rest.chars();
-    let Some(quote) = chars.next() else { return String::new() };
+    let Some(quote) = chars.next() else {
+        return String::new();
+    };
     let mut out = String::new();
     while let Some(c) = chars.next() {
         if c == quote {
@@ -162,9 +168,16 @@ fn generated_javascript_matches_its_record() {
     ));
     // One number for the whole corpus, because what matters is the trend: a
     // pass that starts fusing functions together shows up here first.
-    sizes.push_str(&format!("largest function: {} bytes, {}\n", biggest.1, biggest.0));
+    sizes.push_str(&format!(
+        "largest function: {} bytes, {}\n",
+        biggest.1, biggest.0
+    ));
 
-    g.check(&dir.join("sizes.txt"), "golden_javascript/sizes.txt", &sizes);
+    g.check(
+        &dir.join("sizes.txt"),
+        "golden_javascript/sizes.txt",
+        &sizes,
+    );
     g.finish("golden-js", cases.len());
 }
 
@@ -246,13 +259,19 @@ fn golden_case(case: &std::path::Path) -> CaseResult {
             ));
         }
     } else {
-        g.check(&css, &format!("golden_javascript/{name}/expected.css"), &sheet);
+        g.check(
+            &css,
+            &format!("golden_javascript/{name}/expected.css"),
+            &sheet,
+        );
     }
 
     let debug_out = scratch.exec_js_in(out_dir, "cmd/x");
     debug_out.ok();
 
-    scratch.run(&["build", "//cmd/x", "--release", "--force"]).ok();
+    scratch
+        .run(&["build", "//cmd/x", "--release", "--force"])
+        .ok();
     let release = std::fs::read_to_string(scratch.artifact_in(out_dir, "cmd/x")).unwrap();
     let release_out = scratch.exec_js_in(out_dir, "cmd/x");
     release_out.ok();
@@ -416,10 +435,15 @@ export fn main(host: NodeHost): Result<(), Str> {
     let debug_out = scratch.exec_js("cmd/x");
     debug_out.ok();
     assert_eq!(debug_out.stdout.trim(), "0 8", "{}", debug_out.stdout);
-    scratch.run(&["build", "//cmd/x", "--release", "--force"]).ok();
+    scratch
+        .run(&["build", "//cmd/x", "--release", "--force"])
+        .ok();
     let release_out = scratch.exec_js("cmd/x");
     release_out.ok();
-    assert_eq!(release_out.stdout, debug_out.stdout, "release and debug disagree");
+    assert_eq!(
+        release_out.stdout, debug_out.stdout,
+        "release and debug disagree"
+    );
 }
 
 /// A sleeping program leaves the event loop free.
@@ -494,7 +518,10 @@ export fn main(host: NodeHost): Result<(), Str> {
         .find_map(|l| l.strip_prefix("ticks "))
         .and_then(|n| n.trim().parse().ok())
         .unwrap_or_else(|| {
-            panic!("no tick count in\n{text}\nstderr:\n{}", String::from_utf8_lossy(&out.stderr))
+            panic!(
+                "no tick count in\n{text}\nstderr:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            )
         });
     assert!(
         ticks >= 1,
@@ -644,8 +671,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let scratch = Scratch::repo("symbol-context-identity");
     scratch.binary_package("cmd/x", program);
     scratch.run(&["build", "//cmd/x", "--force"]).ok();
-    let generated =
-        program_only(&std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap());
+    let generated = program_only(&std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap());
 
     let mut symbols: Vec<String> = generated
         .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
@@ -712,7 +738,9 @@ export fn main(host: NodeHost): Result<(), Str> {
     out.ok();
     assert_eq!(out.stdout, "inside\nafter 7\n", "{}", out.stderr);
 
-    scratch.run(&["build", "//cmd/x", "--release", "--force"]).ok();
+    scratch
+        .run(&["build", "//cmd/x", "--release", "--force"])
+        .ok();
     let release = scratch.exec_js("cmd/x");
     release.ok();
     assert_eq!(release.stdout, out.stdout, "release and debug disagree");
@@ -821,8 +849,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let scratch = Scratch::repo("can-park-precision");
     scratch.binary_package("cmd/x", program);
     scratch.run(&["build", "//cmd/x", "--force"]).ok();
-    let generated =
-        program_only(&std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap());
+    let generated = program_only(&std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap());
 
     let sleepy = declaration(&generated, "$sleepy");
     assert!(
@@ -976,8 +1003,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let scratch = Scratch::repo("can-park-by-type");
     scratch.binary_package("cmd/x", program);
     scratch.run(&["build", "//cmd/x", "--force"]).ok();
-    let generated =
-        program_only(&std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap());
+    let generated = program_only(&std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap());
 
     let force = declaration(&generated, "$force");
     assert!(

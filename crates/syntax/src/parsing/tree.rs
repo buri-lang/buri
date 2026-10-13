@@ -7,7 +7,7 @@
 //! settled during name resolution rather than during parsing.
 
 use crate::diagnostics::Span;
-use crate::parsing::flat::{Docs, List, NONE, TypeId, TypeList};
+use crate::parsing::flat::{Docs, List, TypeId, TypeList, NONE};
 
 /// A name a declaration introduces, or one segment of a written path.
 ///
@@ -161,7 +161,6 @@ impl Item {
             Item::Error(at) => *at,
         }
     }
-
 
     pub fn is_exported(&self) -> bool {
         match self {

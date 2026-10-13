@@ -4,13 +4,16 @@
 //! checks what the documents *are*: that every fence is scannable and tagged,
 //! that every link resolves, and that the checked-in `crates/docs/src/docs/SPEC.md`
 //! still matches what `buri docs assemble` produces.
+use crate::{pool, scanning, shard};
 use buri::documentation::{assemble, markdown, topics};
 use std::path::{Path, PathBuf};
-use crate::{pool, scanning, shard};
 
 fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR is <root>/cli.
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 /// The `buri` binary, **under the runtime's test-mode heap check**.
@@ -32,7 +35,11 @@ fn buri() -> std::process::Command {
 /// Runs `buri` in `dir` and answers what it said, having first checked that no
 /// Buri program it started leaked a block or reached a freed one.
 pub fn ran(dir: &Path, args: &[&str]) -> std::process::Output {
-    let out = buri().args(args).current_dir(dir).output().expect("the buri binary runs");
+    let out = buri()
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("the buri binary runs");
     heap_ok(&format!("buri {}", args.join(" ")), &out);
     out
 }
@@ -44,8 +51,8 @@ pub fn ran(dir: &Path, args: &[&str]) -> std::process::Output {
 /// is a child, and what comes back is the runner's exit code with the check's
 /// sentence in its report.
 fn heap_ok(what: &str, out: &std::process::Output) {
-    let said = String::from_utf8_lossy(&out.stderr).to_string()
-        + &String::from_utf8_lossy(&out.stdout);
+    let said =
+        String::from_utf8_lossy(&out.stderr).to_string() + &String::from_utf8_lossy(&out.stdout);
     let line = said
         .lines()
         .find(|l| l.contains("buri heap check:") && !l.contains("buri heap check: ok"));
@@ -151,9 +158,15 @@ fn the_fence_census_is_what_we_think_it_is() {
             }
         }
     }
-    assert!(buri >= 100, "only {buri} buri fences; the scanner is missing blocks");
+    assert!(
+        buri >= 100,
+        "only {buri} buri fences; the scanner is missing blocks"
+    );
     assert!(textproto >= 20, "only {textproto} textproto fences");
-    eprintln!("buri: {buri}, textproto: {textproto}, other: {}", other.len());
+    eprintln!(
+        "buri: {buri}, textproto: {textproto}, other: {}",
+        other.len()
+    );
 }
 
 /// Every `[text](target)` and `[text](#anchor)` points at something real.
@@ -166,8 +179,10 @@ fn every_link_resolves() {
     let mut broken = Vec::new();
     for doc in &documents() {
         let text = read(doc);
-        let anchors: Vec<String> =
-            markdown::headings(&text).iter().map(|h| markdown::slug(h.title)).collect();
+        let anchors: Vec<String> = markdown::headings(&text)
+            .iter()
+            .map(|h| markdown::slug(h.title))
+            .collect();
         // A link resolves from wherever a reader meets the text. A topic
         // assembled into another file is met there, so its links are written
         // relative to that document's directory. Every other topic is a page
@@ -187,7 +202,10 @@ fn every_link_resolves() {
             match &link.destination {
                 scanning::Destination::External { .. } => {}
                 scanning::Destination::Nowhere => {
-                    broken.push(format!("{doc}:{}: `[{}]()` points nowhere", link.line, link.text));
+                    broken.push(format!(
+                        "{doc}:{}: `[{}]()` points nowhere",
+                        link.line, link.text
+                    ));
                 }
                 scanning::Destination::SameDocument { anchor } => {
                     if !anchors.contains(anchor) {
@@ -229,7 +247,10 @@ fn every_link_resolves() {
 /// topic and forget to regenerate, and this fails.
 #[test]
 fn the_assembled_documents_are_not_stale() {
-    let out = ran(&repo_root().join("crates/docs"), &["docs", "assemble", "--check"]);
+    let out = ran(
+        &repo_root().join("crates/docs"),
+        &["docs", "assemble", "--check"],
+    );
     assert!(
         out.status.success(),
         "{}  Run `buri docs assemble` and commit the result.",
@@ -246,7 +267,10 @@ fn assembling_is_refused_outside_the_toolchain_checkout() {
     let dir = std::env::temp_dir().join(format!("buri-assemble-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("a scratch repository");
     std::fs::write(dir.join("REPO.buri"), "").expect("its REPO.buri");
-    for args in [&["docs", "assemble", "--check"][..], &["docs", "assemble"][..]] {
+    for args in [
+        &["docs", "assemble", "--check"][..],
+        &["docs", "assemble"][..],
+    ] {
         let out = ran(&dir, args);
         assert_eq!(out.status.code(), Some(2), "`buri {}`", args.join(" "));
         assert_eq!(
@@ -254,7 +278,11 @@ fn assembling_is_refused_outside_the_toolchain_checkout() {
             "error: `buri docs assemble` must run inside the Buri repository\n"
         );
     }
-    let written: Vec<_> = std::fs::read_dir(&dir).expect("the scratch repository").flatten().map(|e| e.file_name()).collect();
+    let written: Vec<_> = std::fs::read_dir(&dir)
+        .expect("the scratch repository")
+        .flatten()
+        .map(|e| e.file_name())
+        .collect();
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(written, ["REPO.buri"]);
 }
@@ -277,7 +305,11 @@ fn assembling_writes_back_what_drifted() {
     };
 
     let refused = said(&["docs", "assemble", "--check"]);
-    assert_eq!(refused.0, Some(2), "a SPEC.md with no topics beside it is no checkout: {refused:?}");
+    assert_eq!(
+        refused.0,
+        Some(2),
+        "a SPEC.md with no topics beside it is no checkout: {refused:?}"
+    );
 
     std::fs::create_dir_all(docs.join("language")).expect("the topics' directory");
     assert_eq!(
@@ -291,15 +323,30 @@ fn assembling_writes_back_what_drifted() {
                 .to_string()
         )
     );
-    assert_eq!(std::fs::read_to_string(&spec).expect("SPEC.md"), "# An old specification\n");
+    assert_eq!(
+        std::fs::read_to_string(&spec).expect("SPEC.md"),
+        "# An old specification\n"
+    );
 
     assert_eq!(
         said(&["docs", "assemble"]),
-        (Some(0), "wrote crates/docs/src/docs/SPEC.md\n".to_string(), String::new())
+        (
+            Some(0),
+            "wrote crates/docs/src/docs/SPEC.md\n".to_string(),
+            String::new()
+        )
     );
     let written = std::fs::read_to_string(&spec).expect("SPEC.md");
-    for args in [&["docs", "assemble", "--check"][..], &["docs", "assemble"][..]] {
-        assert_eq!(said(args), (Some(0), "no drift\n".to_string(), String::new()), "`buri {}`", args.join(" "));
+    for args in [
+        &["docs", "assemble", "--check"][..],
+        &["docs", "assemble"][..],
+    ] {
+        assert_eq!(
+            said(args),
+            (Some(0), "no drift\n".to_string(), String::new()),
+            "`buri {}`",
+            args.join(" ")
+        );
     }
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(written, read("crates/docs/src/docs/SPEC.md"));
@@ -334,18 +381,34 @@ fn a_directory_that_cannot_be_read_is_passed_over() {
     let locked = dir.join("locked");
     std::fs::create_dir_all(&locked).expect("a scratch directory");
     std::fs::write(dir.join("REPO.buri"), "").expect("the repository");
-    std::fs::write(dir.join("page.md"), "```buri\nexport fn one(): I64 {\n    1\n}\n```\n").expect("the page");
-    std::fs::write(locked.join("page.md"), "```buri\nexport fn  two(): I64 { \"2\" }\n```\n").expect("a page");
+    std::fs::write(
+        dir.join("page.md"),
+        "```buri\nexport fn one(): I64 {\n    1\n}\n```\n",
+    )
+    .expect("the page");
+    std::fs::write(
+        locked.join("page.md"),
+        "```buri\nexport fn  two(): I64 { \"2\" }\n```\n",
+    )
+    .expect("a page");
     std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).expect("locked");
     let tested = ran(&dir, &["docs", "test"]);
     let formatted = ran(&dir, &["format", "--check"]);
     let _ = std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755));
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(
-        (tested.status.code(), String::from_utf8_lossy(&tested.stderr).to_string()),
+        (
+            tested.status.code(),
+            String::from_utf8_lossy(&tested.stderr).to_string()
+        ),
         (Some(0), String::new())
     );
-    assert_eq!(formatted.status.code(), Some(0), "{}", String::from_utf8_lossy(&formatted.stderr));
+    assert_eq!(
+        formatted.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&formatted.stderr)
+    );
 }
 
 /// Every file of `cli/tests/tutorial/` appears verbatim as a fence body of
@@ -357,12 +420,15 @@ fn a_directory_that_cannot_be_read_is_passed_over() {
 #[test]
 fn the_tutorial_page_and_its_repository_are_the_same_bytes() {
     let text = read("crates/docs/src/docs/getting-started/tutorial.md");
-    let bodies: Vec<String> = markdown::fences(&text).into_iter().map(|f| f.body).collect();
+    let bodies: Vec<String> = markdown::fences(&text)
+        .into_iter()
+        .map(|f| f.body)
+        .collect();
     let mut walk = vec![repo_root().join("cli/tests/tutorial")];
     let mut checked = 0usize;
     while let Some(dir) = walk.pop() {
-        let entries = std::fs::read_dir(&dir)
-            .unwrap_or_else(|e| panic!("reading {}: {e}", dir.display()));
+        let entries =
+            std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("reading {}: {e}", dir.display()));
         for entry in entries.flatten() {
             let path = entry.path();
             let name = entry.file_name();
@@ -386,7 +452,10 @@ fn the_tutorial_page_and_its_repository_are_the_same_bytes() {
             }
         }
     }
-    assert!(checked >= 11, "only {checked} files compared; the fixture has thinned");
+    assert!(
+        checked >= 11,
+        "only {checked} files compared; the fixture has thinned"
+    );
 }
 
 /// Every keyword the grammar names is a keyword the lexer has, and vice versa.
@@ -441,12 +510,21 @@ fn manifest_shard(at: usize, count: usize) {
     // invocation: what is being checked is that *a fresh process* answers,
     // and a batched form would no longer check it.
     let answered = pool::map(&mine, |id| {
-        ran(&std::env::temp_dir(), &["docs", id, "--format=json"]).status.success()
+        ran(&std::env::temp_dir(), &["docs", id, "--format=json"])
+            .status
+            .success()
     });
-    let mut broken: Vec<&String> =
-        mine.iter().zip(answered).filter(|(_, ok)| !ok).map(|(id, _)| *id).collect();
+    let mut broken: Vec<&String> = mine
+        .iter()
+        .zip(answered)
+        .filter(|(_, ok)| !ok)
+        .map(|(id, _)| *id)
+        .collect();
     broken.sort();
-    assert!(broken.is_empty(), "the manifest advertises pages that do not exist: {broken:?}");
+    assert!(
+        broken.is_empty(),
+        "the manifest advertises pages that do not exist: {broken:?}"
+    );
 }
 
 shards! {
@@ -466,7 +544,11 @@ fn manifest_ids() -> Vec<String> {
     assert_eq!(text.lines().count(), 1, "the manifest must be one line");
 
     let ids = ids_in(&text);
-    assert!(ids.len() > 30, "the manifest advertises only {} pages", ids.len());
+    assert!(
+        ids.len() > 30,
+        "the manifest advertises only {} pages",
+        ids.len()
+    );
     ids
 }
 
@@ -483,8 +565,16 @@ fn docs_work_outside_a_repository() {
         let mut argv: Vec<&str> = args.clone();
         argv.push("--color=never");
         let out = ran(&std::env::temp_dir(), &argv);
-        assert!(out.status.success(), "`buri {}` failed outside a repository", args.join(" "));
-        assert!(!out.stdout.is_empty(), "`buri {}` printed nothing", args.join(" "));
+        assert!(
+            out.status.success(),
+            "`buri {}` failed outside a repository",
+            args.join(" ")
+        );
+        assert!(
+            !out.stdout.is_empty(),
+            "`buri {}` printed nothing",
+            args.join(" ")
+        );
     }
 }
 
@@ -514,7 +604,10 @@ fn search_answers_an_intent_and_every_result_is_runnable() {
         (&["ignore", "a", "result"][..], "core/result.ignore"),
         // A phrase in a title, a word that is a whole title, two words naming
         // one concept, and words that end in an `s` that isn't a plural.
-        (&["your", "first", "program"][..], "getting-started/first-program"),
+        (
+            &["your", "first", "program"][..],
+            "getting-started/first-program",
+        ),
         (&["installing"][..], "getting-started/installing"),
         (&["sort", "comparator"][..], "core/list.sortBy"),
         (&["address"][..], "core/actor.Address"),
@@ -524,7 +617,11 @@ fn search_answers_an_intent_and_every_result_is_runnable() {
         argv.extend(query.iter().copied());
         argv.push("--color=never");
         let out = ran(&std::env::temp_dir(), &argv);
-        assert!(out.status.success(), "`buri docs search {}` failed", query.join(" "));
+        assert!(
+            out.status.success(),
+            "`buri docs search {}` failed",
+            query.join(" ")
+        );
         let listing = String::from_utf8_lossy(&out.stdout).to_string();
 
         // Every result is offered as the command that reads it: the line opens
@@ -544,8 +641,14 @@ fn search_answers_an_intent_and_every_result_is_runnable() {
         // is what says the two halves agree: an id search prints and an id
         // `buri docs` accepts are the same id.
         let page = ran(&std::env::temp_dir(), &["docs", want, "--color=never"]);
-        assert!(page.status.success(), "`buri docs {want}` was offered and does not run");
-        assert!(!page.stdout.is_empty(), "`buri docs {want}` printed nothing");
+        assert!(
+            page.status.success(),
+            "`buri docs {want}` was offered and does not run"
+        );
+        assert!(
+            !page.stdout.is_empty(),
+            "`buri docs {want}` printed nothing"
+        );
     }
 }
 
@@ -553,8 +656,10 @@ fn search_answers_an_intent_and_every_result_is_runnable() {
 /// `command` per hit, spelled out rather than reassembled from the id.
 #[test]
 fn a_json_search_hit_carries_its_command() {
-    let out =
-        ran(&std::env::temp_dir(), &["docs", "search", "compare", "ints", "--format=json"]);
+    let out = ran(
+        &std::env::temp_dir(),
+        &["docs", "search", "compare", "ints", "--format=json"],
+    );
     assert!(out.status.success());
     let json = String::from_utf8_lossy(&out.stdout).to_string();
     assert_eq!(json.lines().count(), 1, "JSON output must be one line");
@@ -569,10 +674,16 @@ fn a_json_search_hit_carries_its_command() {
 /// is held is that it answers, with commands.
 #[test]
 fn a_query_of_filler_still_answers() {
-    let out = ran(&std::env::temp_dir(), &["docs", "search", "the", "--color=never"]);
+    let out = ran(
+        &std::env::temp_dir(),
+        &["docs", "search", "the", "--color=never"],
+    );
     assert!(out.status.success(), "`buri docs search the` found nothing");
     let listing = String::from_utf8_lossy(&out.stdout).to_string();
-    assert!(listing.lines().any(|l| l.starts_with("buri docs ")), "no page offered:\n{listing}");
+    assert!(
+        listing.lines().any(|l| l.starts_with("buri docs ")),
+        "no page offered:\n{listing}"
+    );
 }
 
 /// The ids in one line of `buri docs` JSON, in order, without a JSON parser:
@@ -603,24 +714,37 @@ fn index() -> String {
 fn the_json_index_lists_every_page() {
     let json = index();
     assert_eq!(json.lines().count(), 1, "the index must be one line");
-    assert!(json.starts_with("{\"topics\":[{\"kind\":") && json.ends_with("]}\n"), "{json}");
+    assert!(
+        json.starts_with("{\"topics\":[{\"kind\":") && json.ends_with("]}\n"),
+        "{json}"
+    );
     let rows = json.matches("{\"kind\":").count();
     for key in ["\",\"id\":", "\",\"title\":", "\",\"summary\":"] {
         assert_eq!(json.matches(key).count(), rows, "a row without `{key}`");
     }
     for kind in ["topic", "normative", "command", "error", "lint", "api"] {
-        assert!(json.contains(&format!("{{\"kind\":\"{kind}\"")), "no `{kind}` page in the index");
+        assert!(
+            json.contains(&format!("{{\"kind\":\"{kind}\"")),
+            "no `{kind}` page in the index"
+        );
     }
     let ids = ids_in(&json);
     for topic in topics::TOPICS {
-        assert!(ids.iter().any(|id| id == topic.id), "the index leaves out `{}`", topic.id);
+        assert!(
+            ids.iter().any(|id| id == topic.id),
+            "the index leaves out `{}`",
+            topic.id
+        );
     }
 }
 
 /// Every page that isn't one item of a library's API: the topics, the
 /// commands, the diagnostics. The rendering is the same code for all of them.
 fn pages() -> Vec<String> {
-    ids_in(&index()).into_iter().filter(|id| !id.contains('.')).collect()
+    ids_in(&index())
+        .into_iter()
+        .filter(|id| !id.contains('.'))
+        .collect()
 }
 
 /// `--color=always` changes a page by its escapes and nothing else: the same
@@ -635,9 +759,17 @@ fn colour_changes_nothing_but_the_escapes() {
         let stripped = strip_escapes(&colour);
         colour == stripped || stripped != String::from_utf8_lossy(&plain.stdout)
     });
-    let mut broken: Vec<&String> = pages.iter().zip(differ).filter(|(_, d)| *d).map(|(id, _)| id).collect();
+    let mut broken: Vec<&String> = pages
+        .iter()
+        .zip(differ)
+        .filter(|(_, d)| *d)
+        .map(|(id, _)| id)
+        .collect();
     broken.sort();
-    assert!(broken.is_empty(), "these pages read differently in colour: {broken:?}");
+    assert!(
+        broken.is_empty(),
+        "these pages read differently in colour: {broken:?}"
+    );
 }
 
 /// A hidden `# ` line is compiled and never shown, on a topic page and on a
@@ -653,9 +785,17 @@ fn no_page_shows_a_hidden_line() {
             .filter(|f| f.lang == "buri")
             .any(|f| f.body.lines().any(|l| l == "#" || l.starts_with("# ")))
     });
-    let mut broken: Vec<&String> = ids.iter().zip(shown).filter(|(_, s)| *s).map(|(id, _)| id).collect();
+    let mut broken: Vec<&String> = ids
+        .iter()
+        .zip(shown)
+        .filter(|(_, s)| *s)
+        .map(|(id, _)| id)
+        .collect();
     broken.sort();
-    assert!(broken.is_empty(), "these pages show a hidden line: {broken:?}");
+    assert!(
+        broken.is_empty(),
+        "these pages show a hidden line: {broken:?}"
+    );
 }
 
 /// The text with every `ESC [ … m` sequence taken out.
@@ -687,22 +827,41 @@ fn dense_keeps_every_example_verbatim() {
             String::from_utf8_lossy(&ran(&std::env::temp_dir(), &args).stdout).to_string()
         };
         let (full, dense) = (page(false), page(true));
-        let bodies = |text: &str| markdown::fences(text).into_iter().map(|f| f.body).collect::<Vec<_>>();
+        let bodies = |text: &str| {
+            markdown::fences(text)
+                .into_iter()
+                .map(|f| f.body)
+                .collect::<Vec<_>>()
+        };
         dense.len() > full.len() || bodies(&dense) != bodies(&full)
     });
-    let mut broken: Vec<&String> = pages.iter().zip(abridged).filter(|(_, a)| *a).map(|(id, _)| id).collect();
+    let mut broken: Vec<&String> = pages
+        .iter()
+        .zip(abridged)
+        .filter(|(_, a)| *a)
+        .map(|(id, _)| id)
+        .collect();
     broken.sort();
-    assert!(broken.is_empty(), "these pages lose an example under --dense: {broken:?}");
+    assert!(
+        broken.is_empty(),
+        "these pages lose an example under --dense: {broken:?}"
+    );
 }
 
 /// An unknown topic is a bad invocation, not a failure of the thing asked
 /// about, so it exits 2 and suggests something.
 #[test]
 fn an_unknown_topic_exits_two_with_a_suggestion() {
-    let out = ran(&std::env::temp_dir(), &["docs", "language/effect", "--color=never"]);
+    let out = ran(
+        &std::env::temp_dir(),
+        &["docs", "language/effect", "--color=never"],
+    );
     assert_eq!(out.status.code(), Some(2));
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("language/effects"), "expected a suggestion, got:\n{err}");
+    assert!(
+        err.contains("language/effects"),
+        "expected a suggestion, got:\n{err}"
+    );
 }
 
 /// No document may name a flag the binary does not accept.
@@ -827,7 +986,10 @@ fn every_assertion_the_agent_pages_name_exists() {
             }
         }
     }
-    assert!(checked > 20, "only {checked} names were checked; are the pages still being read?");
+    assert!(
+        checked > 20,
+        "only {checked} names were checked; are the pages still being read?"
+    );
     assert!(
         wrong.is_empty(),
         "these pages name an assertion the module disagrees about:\n{}\n  \
@@ -847,13 +1009,17 @@ fn std_exports(path: &str) -> std::collections::HashSet<String> {
         .unwrap_or_else(|| panic!("`{path}` is not a standard library module"));
     let mut out = std::collections::HashSet::new();
     for line in module.source.lines() {
-        let Some(rest) = line.strip_prefix("export ") else { continue };
+        let Some(rest) = line.strip_prefix("export ") else {
+            continue;
+        };
         let rest = ["fn ", "let ", "struct ", "enum ", "type "]
             .iter()
             .find_map(|keyword| rest.strip_prefix(keyword))
             .unwrap_or(rest);
-        let name: String =
-            rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
         if !name.is_empty() {
             out.insert(name);
         }
@@ -879,8 +1045,10 @@ fn member_mentions(line: &str, prefix: &str) -> Vec<(String, bool)> {
         if before.ends_with(|c: char| c.is_alphanumeric() || c == '_' || c == '/' || c == '.') {
             continue;
         }
-        let name: String =
-            line[at..].chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        let name: String = line[at..]
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
         if name.is_empty() || !name.starts_with(|c: char| c.is_alphabetic() || c == '_') {
             continue;
         }
@@ -894,7 +1062,10 @@ fn member_mentions(line: &str, prefix: &str) -> Vec<(String, bool)> {
 /// opening backtick are not words, so they come out first: "There is **no
 /// `assert.fail`**" says `no` exactly as the unadorned sentence does.
 fn denies(before: &str) -> bool {
-    let words: String = before.chars().filter(|c| !matches!(c, '*' | '_' | '`')).collect();
+    let words: String = before
+        .chars()
+        .filter(|c| !matches!(c, '*' | '_' | '`'))
+        .collect();
     let words = words.trim_end();
     words.ends_with(" no") || words.ends_with(" not") || words == "no"
 }
@@ -944,11 +1115,23 @@ fn a_closed_pipe_is_not_an_error() {
 fn the_standard_library_reference_is_complete() {
     let mut map = buri::diagnostics::SourceMap::new();
     let analysis = buri::compiler::driver::analyze_stdlib(&mut map);
-    assert!(!analysis.diagnostics.has_errors(), "the standard library must check");
-    let modules = buri::documentation::reference::from_loaded(&analysis.loaded, &buri::documentation::reference::std_filter);
+    assert!(
+        !analysis.diagnostics.has_errors(),
+        "the standard library must check"
+    );
+    let modules = buri::documentation::reference::from_loaded(
+        &analysis.loaded,
+        &buri::documentation::reference::std_filter,
+    );
 
-    let public = buri::compiler::standard_library::MODULES.iter().filter(|m| !m.internal);
-    assert_eq!(modules.len(), public.count(), "a module is missing from the reference");
+    let public = buri::compiler::standard_library::MODULES
+        .iter()
+        .filter(|m| !m.internal);
+    assert_eq!(
+        modules.len(),
+        public.count(),
+        "a module is missing from the reference"
+    );
     let mut empty = Vec::new();
     for m in &modules {
         if m.items.is_empty() {
@@ -966,8 +1149,14 @@ fn buri_docs_leaves_out_internal_modules() {
     let dir = std::env::temp_dir();
     let index = ran(&dir, &["docs", "--color=never"]);
     let index = String::from_utf8_lossy(&index.stdout);
-    assert!(index.contains("ui/style"), "the index lists no `ui/style`:\n{index}");
-    assert!(!index.contains("ui/style/classify"), "the index lists `ui/style/classify`:\n{index}");
+    assert!(
+        index.contains("ui/style"),
+        "the index lists no `ui/style`:\n{index}"
+    );
+    assert!(
+        !index.contains("ui/style/classify"),
+        "the index lists `ui/style/classify`:\n{index}"
+    );
 
     for topic in ["ui/style/classify", "ui/style/classify.classify"] {
         let out = ran(&dir, &["docs", topic, "--color=never"]);
@@ -981,7 +1170,10 @@ fn buri_docs_leaves_out_internal_modules() {
 
     let search = ran(&dir, &["docs", "search", "classify", "--color=never"]);
     let search = String::from_utf8_lossy(&search.stdout);
-    assert!(!search.contains("ui/style/classify"), "a search finds `ui/style/classify`:\n{search}");
+    assert!(
+        !search.contains("ui/style/classify"),
+        "a search finds `ui/style/classify`:\n{search}"
+    );
 }
 
 /// Every conformance the source declares is on the module's page.
@@ -1001,7 +1193,10 @@ fn buri_docs_leaves_out_internal_modules() {
 fn every_conformance_in_the_source_is_on_its_module_page() {
     let mut map = buri::diagnostics::SourceMap::new();
     let analysis = buri::compiler::driver::analyze_stdlib(&mut map);
-    assert!(!analysis.diagnostics.has_errors(), "the standard library must check");
+    assert!(
+        !analysis.diagnostics.has_errors(),
+        "the standard library must check"
+    );
     let modules = buri::documentation::reference::from_loaded(
         &analysis.loaded,
         &buri::documentation::reference::std_filter,
@@ -1009,7 +1204,10 @@ fn every_conformance_in_the_source_is_on_its_module_page() {
 
     let mut missing = Vec::new();
     let mut checked = 0;
-    for std_module in buri::compiler::standard_library::MODULES.iter().filter(|m| !m.internal) {
+    for std_module in buri::compiler::standard_library::MODULES
+        .iter()
+        .filter(|m| !m.internal)
+    {
         let m = modules
             .iter()
             .find(|m| m.path == std_module.path)
@@ -1046,7 +1244,9 @@ fn declared_conformances(source: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for line in source.lines() {
         if let Some(rest) = line.strip_prefix("derive ") {
-            let Some((traits, ty)) = rest.split_once(" for ") else { continue };
+            let Some((traits, ty)) = rest.split_once(" for ") else {
+                continue;
+            };
             let ty = type_head(ty.trim().trim_end_matches(';'));
             for satisfies in traits.split(',') {
                 out.push((ty.clone(), type_head(satisfies)));
@@ -1062,7 +1262,9 @@ fn declared_conformances(source: &str) -> Vec<(String, String)> {
                 None => rest,
             };
             // An inherent `impl Foo {` names no trait and promises nothing.
-            let Some((satisfies, ty)) = rest.split_once(" for ") else { continue };
+            let Some((satisfies, ty)) = rest.split_once(" for ") else {
+                continue;
+            };
             out.push((type_head(ty.trim_end_matches('{')), type_head(satisfies)));
         }
     }
@@ -1075,8 +1277,12 @@ fn declared_conformances(source: &str) -> Vec<(String, String)> {
 fn exports_type(source: &str, name: &str) -> bool {
     source.lines().any(|line| {
         for keyword in ["export struct ", "export enum "] {
-            let Some(rest) = line.strip_prefix(keyword) else { continue };
-            let Some(after) = rest.strip_prefix(name) else { continue };
+            let Some(rest) = line.strip_prefix(keyword) else {
+                continue;
+            };
+            let Some(after) = rest.strip_prefix(name) else {
+                continue;
+            };
             if !after.starts_with(|c: char| c.is_alphanumeric() || c == '_') {
                 return true;
             }
@@ -1090,9 +1296,15 @@ fn exports_type(source: &str, name: &str) -> bool {
 fn conformances_on_the_page(page: &str) -> std::collections::HashSet<(String, String)> {
     let mut out = std::collections::HashSet::new();
     for line in page.lines() {
-        let Some(heading) = line.strip_prefix("### ") else { continue };
-        let Some((method, satisfies)) = heading.split_once(" — via ") else { continue };
-        let Some((owner, _)) = method.rsplit_once('.') else { continue };
+        let Some(heading) = line.strip_prefix("### ") else {
+            continue;
+        };
+        let Some((method, satisfies)) = heading.split_once(" — via ") else {
+            continue;
+        };
+        let Some((owner, _)) = method.rsplit_once('.') else {
+            continue;
+        };
         out.insert((type_head(owner), type_head(satisfies)));
     }
     out
@@ -1111,7 +1323,10 @@ fn type_head(written: &str) -> String {
 /// way it already said `Duration.show`.
 #[test]
 fn a_derived_conformance_reaches_the_page_a_user_reads() {
-    let out = ran(&std::env::temp_dir(), &["docs", "core/time", "--color=never"]);
+    let out = ran(
+        &std::env::temp_dir(),
+        &["docs", "core/time", "--color=never"],
+    );
     assert!(out.status.success(), "`buri docs core/time` failed");
     let page = String::from_utf8_lossy(&out.stdout);
     for want in [
@@ -1128,7 +1343,10 @@ fn a_derived_conformance_reaches_the_page_a_user_reads() {
         // showed.
         "Duration.show — via Show",
     ] {
-        assert!(page.contains(want), "`buri docs core/time` does not list `{want}`:\n{page}");
+        assert!(
+            page.contains(want),
+            "`buri docs core/time` does not list `{want}`:\n{page}"
+        );
     }
 }
 
@@ -1146,21 +1364,50 @@ fn a_builder_page_prints_its_config_struct() {
     let cases: &[(&str, &[&str])] = &[
         (
             "ui/node.stack",
-            &["A container", "styles: [Style]", "children: [Node<C>]", "role: Option<Role>"],
+            &[
+                "A container",
+                "styles: [Style]",
+                "children: [Node<C>]",
+                "role: Option<Role>",
+            ],
         ),
-        ("ui/node.spacer", &["size: Option<Length>", "grows to push its siblings apart"]),
-        ("ui/node.toggle", &["isOn: Signal<Bool>", "on while it holds true"]),
-        ("ui/node.dialog", &["isOpen: Signal<Bool>", "Open while it holds true"]),
-        ("ui/node.image", &["alt: Alt", "What the picture is to a reader"]),
-        ("ui/node.picker", &["options: [(Str, Node<C>)]", "one (key, content) pair per choice"]),
-        ("ui/node.field", &["value: Signal<Str>", "isDisabled: Option<Prop<Bool>>"]),
+        (
+            "ui/node.spacer",
+            &["size: Option<Length>", "grows to push its siblings apart"],
+        ),
+        (
+            "ui/node.toggle",
+            &["isOn: Signal<Bool>", "on while it holds true"],
+        ),
+        (
+            "ui/node.dialog",
+            &["isOpen: Signal<Bool>", "Open while it holds true"],
+        ),
+        (
+            "ui/node.image",
+            &["alt: Alt", "What the picture is to a reader"],
+        ),
+        (
+            "ui/node.picker",
+            &[
+                "options: [(Str, Node<C>)]",
+                "one (key, content) pair per choice",
+            ],
+        ),
+        (
+            "ui/node.field",
+            &["value: Signal<Str>", "isDisabled: Option<Prop<Bool>>"],
+        ),
     ];
     for (topic, wants) in cases {
         let out = ran(&std::env::temp_dir(), &["docs", topic, "--color=never"]);
         assert!(out.status.success(), "`buri docs {topic}` failed");
         let page = String::from_utf8_lossy(&out.stdout);
         for want in *wants {
-            assert!(page.contains(want), "`buri docs {topic}` never prints `{want}`:\n{page}");
+            assert!(
+                page.contains(want),
+                "`buri docs {topic}` never prints `{want}`:\n{page}"
+            );
         }
     }
 }
@@ -1182,13 +1429,23 @@ fn a_builder_page_prints_its_config_struct() {
 fn the_prose_map_names_every_module_and_no_others() {
     let root = repo_root();
     let page = read("crates/docs/src/docs/reference/standard-library.md");
-    for module in buri::compiler::standard_library::MODULES.iter().filter(|m| m.internal) {
-        assert!(!page.contains(module.path), "the map names the internal module `{}`", module.path);
+    for module in buri::compiler::standard_library::MODULES
+        .iter()
+        .filter(|m| m.internal)
+    {
+        assert!(
+            !page.contains(module.path),
+            "the map names the internal module `{}`",
+            module.path
+        );
     }
 
     let mut missing = Vec::new();
     let mut unlinked = Vec::new();
-    for module in buri::compiler::standard_library::MODULES.iter().filter(|m| !m.internal) {
+    for module in buri::compiler::standard_library::MODULES
+        .iter()
+        .filter(|m| !m.internal)
+    {
         if !page.contains(module.path) {
             missing.push(module.path);
             continue;
@@ -1227,7 +1484,9 @@ fn the_prose_map_names_every_module_and_no_others() {
         let end = rest.find(".buri").map(|i| i + ".buri".len());
         if let Some(end) = end {
             let named = &rest[..end];
-            if named.chars().all(|c| c.is_ascii_lowercase() || c == '_' || c == '.')
+            if named
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c == '_' || c == '.')
                 && !shipped.contains(named)
             {
                 stale.push(named.to_string());
@@ -1236,7 +1495,10 @@ fn the_prose_map_names_every_module_and_no_others() {
     }
     stale.sort();
     stale.dedup();
-    assert!(stale.is_empty(), "the map links at sources the library does not ship: {stale:?}");
+    assert!(
+        stale.is_empty(),
+        "the map links at sources the library does not ship: {stale:?}"
+    );
 }
 
 /// Where a module's text came from, as the map links it: `sources/http.buri`
@@ -1257,7 +1519,9 @@ fn std_source_file(root: &std::path::Path, text: &str) -> Option<String> {
         }
     }
     for platform in buri::build::buildfile::PlatformName::BUNDLED.map(|p| p.name()) {
-        let path = root.join(format!("crates/stdlib/src/platforms/{platform}/platform.buri"));
+        let path = root.join(format!(
+            "crates/stdlib/src/platforms/{platform}/platform.buri"
+        ));
         if std::fs::read_to_string(&path).is_ok_and(|t| t == text) {
             return Some(format!("platforms/{platform}/platform.buri"));
         }
@@ -1271,9 +1535,19 @@ fn std_source_file(root: &std::path::Path, text: &str) -> Option<String> {
 fn documented_items_carry_their_documentation() {
     let mut map = buri::diagnostics::SourceMap::new();
     let analysis = buri::compiler::driver::analyze_stdlib(&mut map);
-    let modules = buri::documentation::reference::from_loaded(&analysis.loaded, &buri::documentation::reference::std_filter);
-    let documented: usize = modules.iter().flat_map(|m| &m.items).filter(|i| !i.docs.is_empty()).count();
-    assert!(documented > 20, "only {documented} items carry documentation; is `///` still attached?");
+    let modules = buri::documentation::reference::from_loaded(
+        &analysis.loaded,
+        &buri::documentation::reference::std_filter,
+    );
+    let documented: usize = modules
+        .iter()
+        .flat_map(|m| &m.items)
+        .filter(|i| !i.docs.is_empty())
+        .count();
+    assert!(
+        documented > 20,
+        "only {documented} items carry documentation; is `///` still attached?"
+    );
 
     for m in &modules {
         assert!(!m.docs.is_empty(), "{} has no `//!` header", m.path);
@@ -1300,7 +1574,10 @@ fn a_workspace_library_renders_its_public_surface() {
         &repo_root().join("cli/tests/example"),
         &["docs", "//lib/money/lib.buri", "--format=markdown"],
     );
-    assert!(out.status.success(), "`buri docs //lib/money/lib.buri` failed");
+    assert!(
+        out.status.success(),
+        "`buri docs //lib/money/lib.buri` failed"
+    );
     let page = String::from_utf8_lossy(&out.stdout);
 
     // Everything `lib.buri` re-exports, and nothing it deliberately withholds.
@@ -1313,7 +1590,10 @@ fn a_workspace_library_renders_its_public_surface() {
     );
     // A re-exported type brings its methods, because conformance travels with
     // the type.
-    assert!(page.contains("Cents.add"), "methods of a re-exported type should be listed");
+    assert!(
+        page.contains("Cents.add"),
+        "methods of a re-exported type should be listed"
+    );
 }
 
 /// `//!` documents the module and may only appear before the first item.
@@ -1324,10 +1604,16 @@ fn a_module_doc_comment_must_come_first() {
     let file = map.add("x".to_string(), std::path::PathBuf::new(), text.to_string());
     let parsed = buri::parsing::parser::parse(map.text(file), file);
     assert!(
-        parsed.errors.iter().any(|d| d.message.contains("must come first")),
+        parsed
+            .errors
+            .iter()
+            .any(|d| d.message.contains("must come first")),
         "a late `//!` should be reported"
     );
-    assert_eq!(parsed.module.tree.docs(parsed.module.docs), vec!["fine".to_string()]);
+    assert_eq!(
+        parsed.module.tree.docs(parsed.module.docs),
+        vec!["fine".to_string()]
+    );
 }
 
 /// Every error page's reproduction still produces the code the page is about.
@@ -1368,7 +1654,9 @@ fn the_catalog_and_the_compiler_agree() {
     let dir = repo_root().join("cli/tests/reject");
     for entry in std::fs::read_dir(&dir).expect("the reject corpus exists") {
         let path = entry.expect("a corpus entry").path().join("expected.json");
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         for line in text.lines() {
             // No JSON parser here on purpose; the field is unambiguous.
             if let Some(at) = line.find("\"code\":\"") {
@@ -1378,11 +1666,20 @@ fn the_catalog_and_the_compiler_agree() {
             }
         }
     }
-    assert!(emitted.len() > 30, "only {} codes in the corpus", emitted.len());
+    assert!(
+        emitted.len() > 30,
+        "only {} codes in the corpus",
+        emitted.len()
+    );
 
-    let missing: Vec<&String> =
-        emitted.iter().filter(|c| buri::documentation::errors::find(c).is_none()).collect();
-    assert!(missing.is_empty(), "the compiler emits codes with no page: {missing:?}");
+    let missing: Vec<&String> = emitted
+        .iter()
+        .filter(|c| buri::documentation::errors::find(c).is_none())
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "the compiler emits codes with no page: {missing:?}"
+    );
 }
 
 /// Every diagnostic in the reject corpus carries a code. An uncoded error is
@@ -1394,7 +1691,9 @@ fn every_rejected_program_names_the_rule_it_broke() {
     for entry in std::fs::read_dir(&dir).expect("the reject corpus exists") {
         let case = entry.expect("a corpus entry").path();
         let path = case.join("expected.json");
-        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
         for line in text.lines() {
             if line.trim().is_empty() {
                 continue;
@@ -1406,7 +1705,10 @@ fn every_rejected_program_names_the_rule_it_broke() {
     }
     uncoded.sort();
     uncoded.dedup();
-    assert!(uncoded.is_empty(), "these cases produce an uncoded diagnostic: {uncoded:?}");
+    assert!(
+        uncoded.is_empty(),
+        "these cases produce an uncoded diagnostic: {uncoded:?}"
+    );
 }
 
 /// `buri docs test` gives any repository the whole documentation-testing
@@ -1439,7 +1741,10 @@ fn a_repository_can_test_its_own_documentation() {
     let readme = example.join("README.md");
     let original = std::fs::read_to_string(&readme).expect("the README exists");
     let broken = original.replace("a latte costs $4.50", "a latte costs $9.99");
-    assert_ne!(broken, original, "the transcript this test perturbs has moved");
+    assert_ne!(
+        broken, original,
+        "the transcript this test perturbs has moved"
+    );
     std::fs::write(&readme, &broken).expect("writing the README");
 
     let bad = ran(&example, &["docs", "test", "--color=never"]);
@@ -1504,7 +1809,11 @@ fn every_emitted_code_is_documented() {
     let mut sources = Vec::new();
     rust_sources(&root.join("cli/src"), &mut sources);
     rust_sources(&root.join("crates"), &mut sources);
-    assert!(sources.len() > 20, "only {} Rust sources found", sources.len());
+    assert!(
+        sources.len() > 20,
+        "only {} Rust sources found",
+        sources.len()
+    );
 
     let mut undocumented: Vec<String> = Vec::new();
     let mut found = 0;
@@ -1536,11 +1845,16 @@ fn every_emitted_code_is_documented() {
         undocumented.join("\n  ")
     );
     // A scan that finds nothing passes vacuously.
-    assert!(found > 50, "only {found} code sites found; the scan is not working");
+    assert!(
+        found > 50,
+        "only {found} code sites found; the scan is not working"
+    );
 }
 
 fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
     entries.sort_by_key(|e| e.path());
     for e in entries {
@@ -1566,7 +1880,9 @@ fn codes_in(text: &str) -> Vec<String> {
         let mut rest = text;
         while let Some(i) = rest.find(marker) {
             rest = rest[i + marker.len()..].trim_start();
-            let Some(quoted) = rest.strip_prefix('"') else { continue };
+            let Some(quoted) = rest.strip_prefix('"') else {
+                continue;
+            };
             rest = quoted;
             if let Some(end) = rest.find('"') {
                 let code = &rest[..end];

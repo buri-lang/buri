@@ -161,7 +161,9 @@ fn every_case_is_a_manifest_a_repository_and_the_goldens_it_names() {
             .collect();
         entries.sort();
         if entries != ["CASE.textproto", "expected", "repo"] {
-            wrong.push(format!("{name}: holds {entries:?}, not the three a case is"));
+            wrong.push(format!(
+                "{name}: holds {entries:?}, not the three a case is"
+            ));
         }
 
         // Every `golden:` the manifest names, against every file recorded.
@@ -170,7 +172,9 @@ fn every_case_is_a_manifest_a_repository_and_the_goldens_it_names() {
             .steps
             .iter()
             .filter_map(|s| match s {
-                Step::Run { golden: Some(g), .. } => Some(g.clone()),
+                Step::Run {
+                    golden: Some(g), ..
+                } => Some(g.clone()),
                 _ => None,
             })
             .collect();
@@ -188,7 +192,12 @@ fn every_case_is_a_manifest_a_repository_and_the_goldens_it_names() {
             ));
         }
     }
-    assert!(wrong.is_empty(), "{} case(s) malformed:\n  {}", wrong.len(), wrong.join("\n  "));
+    assert!(
+        wrong.is_empty(),
+        "{} case(s) malformed:\n  {}",
+        wrong.len(),
+        wrong.join("\n  ")
+    );
 }
 
 /// No recorded report holds an elapsed time, a scratch path, or a byte count.
@@ -203,10 +212,14 @@ fn no_recorded_report_pins_a_time_or_a_path() {
     let mut wrong = Vec::new();
     for dir in case_dirs(&corpus(), "CASE.textproto", 21) {
         let name = dir.file_name().unwrap().to_string_lossy().to_string();
-        let Ok(entries) = std::fs::read_dir(dir.join("expected")) else { continue };
+        let Ok(entries) = std::fs::read_dir(dir.join("expected")) else {
+            continue;
+        };
         for e in entries.filter_map(Result::ok) {
             let file = e.file_name().to_string_lossy().to_string();
-            let Ok(text) = std::fs::read_to_string(e.path()) else { continue };
+            let Ok(text) = std::fs::read_to_string(e.path()) else {
+                continue;
+            };
             for (n, line) in text.lines().enumerate() {
                 let at = format!("{name}/{file}:{}", n + 1);
                 if line.contains('/') && (line.contains("/tmp") || line.contains("/target/")) {
@@ -219,8 +232,8 @@ fn no_recorded_report_pins_a_time_or_a_path() {
                     let end = rest.find("s)").or_else(|| rest.find("s,"));
                     if let Some(j) = end {
                         let inner = &rest[..j];
-                        let numeric =
-                            !inner.is_empty() && inner.chars().all(|c| c.is_ascii_digit() || c == '.');
+                        let numeric = !inner.is_empty()
+                            && inner.chars().all(|c| c.is_ascii_digit() || c == '.');
                         if numeric && inner != "0.0" {
                             wrong.push(format!("{at}: an elapsed time — {line:?}"));
                         }
@@ -271,7 +284,10 @@ fn every_case_documents_itself_and_runs_the_test_command() {
             wrong.push(format!("{}: never runs `buri test`", case.name));
         }
         if case.doc.len() < 30 {
-            wrong.push(format!("{}: `doc` says almost nothing — {:?}", case.name, case.doc));
+            wrong.push(format!(
+                "{}: `doc` says almost nothing — {:?}",
+                case.name, case.doc
+            ));
         }
         for (other, doc) in &docs {
             if *doc == case.doc {
@@ -280,7 +296,12 @@ fn every_case_documents_itself_and_runs_the_test_command() {
         }
         docs.push((case.name.clone(), case.doc.clone()));
     }
-    assert!(wrong.is_empty(), "{} case(s):\n  {}", wrong.len(), wrong.join("\n  "));
+    assert!(
+        wrong.is_empty(),
+        "{} case(s):\n  {}",
+        wrong.len(),
+        wrong.join("\n  ")
+    );
 }
 
 /// The corpus again, on the backend the default chooses, compared against the
@@ -342,10 +363,10 @@ fn default_backend_shard(at: usize, count: usize) {
             ));
         }
     }
-    let known: Vec<(String, usize)> =
-        known.iter().map(|(c, i)| ((*c).to_string(), *i)).collect();
+    let known: Vec<(String, usize)> = known.iter().map(|(c, i)| ((*c).to_string(), *i)).collect();
     assert_eq!(
-        differ, known,
+        differ,
+        known,
         "the default path and `--output=js` disagree somewhere this test does not \
          already say they do:\n{}",
         how.join("\n")
@@ -391,9 +412,15 @@ fn default_backend_cases() -> usize {
 /// `build::incrementality`, on every machine.
 fn no_native_default() -> Option<String> {
     let host = buri::compiler::driver::host_native_platform();
-    let target = buri::compiler::backend::Target { platform: host, arch: None };
+    let target = buri::compiler::backend::Target {
+        platform: host,
+        arch: None,
+    };
     if !buri::build::actions::native_ready(target, buri::compiler::backend::Profile::Debug) {
-        return Some(format!("this toolchain cannot build a {} test binary", host.slug()));
+        return Some(format!(
+            "this toolchain cannot build a {} test binary",
+            host.slug()
+        ));
     }
     let cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
     if buri::build::spawn::resolve(&cc).is_none() {

@@ -51,12 +51,12 @@
 //! and a program that matches `Other` and compares its string is reading an
 //! operating system's diagnostic, not a language's.
 
+use crate::BURI_OK;
 use crate::http;
 use crate::rng;
-use crate::value::{list_of_bytes, list_of_headers, list_of_strs, str_of, BuriList, BuriStr};
-use crate::BURI_OK;
-use std::io::{Read, Seek, Write};
 use crate::sync::Mutex;
+use crate::value::{BuriList, BuriStr, list_of_bytes, list_of_headers, list_of_strs, str_of};
+use std::io::{Read, Seek, Write};
 
 /// Bytes buffered before a flush happens on its own. `$host` flushes after 64
 /// pushed strings; a byte count is the same idea against a runtime that has
@@ -185,7 +185,13 @@ pub(crate) fn has_dit() -> bool {
             let mut len = size_of::<i32>();
             // SAFETY: a NUL-terminated name, and `value` holds the `len` bytes asked for.
             let rc = unsafe {
-                sysctlbyname(c"hw.optional.arm.FEAT_DIT".as_ptr(), (&raw mut value).cast(), &raw mut len, std::ptr::null_mut(), 0)
+                sysctlbyname(
+                    c"hw.optional.arm.FEAT_DIT".as_ptr(),
+                    (&raw mut value).cast(),
+                    &raw mut len,
+                    std::ptr::null_mut(),
+                    0,
+                )
             };
             let yes = rc == 0 && value == 1;
             ANSWER.store(if yes { YES } else { NO }, Relaxed);
@@ -199,7 +205,9 @@ pub(crate) fn has_dit() -> bool {
 pub(crate) fn dit_is_set() -> bool {
     let dit: u64;
     // SAFETY: a read of the calling thread's own state, on a CPU with FEAT_DIT.
-    unsafe { std::arch::asm!("mrs {}, dit", out(reg) dit, options(nomem, nostack, preserves_flags)) };
+    unsafe {
+        std::arch::asm!("mrs {}, dit", out(reg) dit, options(nomem, nostack, preserves_flags))
+    };
     dit != 0
 }
 
@@ -702,7 +710,10 @@ pub unsafe extern "C" fn buri_rt_host_file_system_append_file(
     let path = unsafe { text(pptr, plen) };
     // SAFETY: forwarded.
     let body = unsafe { view(bptr, blen) };
-    let opened = std::fs::OpenOptions::new().create(true).append(true).open(&path);
+    let opened = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path);
     let mut file = match opened {
         Ok(file) => file,
         // SAFETY: the caller promises a writable destination.
@@ -852,7 +863,6 @@ pub unsafe extern "C" fn buri_rt_host_file_system_sync_file(
     }
 }
 
-
 /// `Metadata` — `struct { kind: EntryKind, size: Int, modified: Instant }`.
 ///
 /// `EntryKind` is four variants with no payload, which `middle/layout.rs` gives
@@ -876,7 +886,12 @@ pub struct BuriMetadata {
 /// Here rather than there so the layout has one definition: two transcriptions
 /// of one struct is one of them being wrong.
 pub(crate) fn metadata_of(kind: i8, size: i64) -> BuriMetadata {
-    BuriMetadata { kind, pad: [0; 7], size, modified: 0 }
+    BuriMetadata {
+        kind,
+        pad: [0; 7],
+        size,
+        modified: 0,
+    }
 }
 
 /// What a `std::fs::Metadata` is, as `EntryKind`'s variant index.
@@ -906,7 +921,9 @@ fn modified_millis(m: &std::fs::Metadata) -> i64 {
     let Ok(at) = m.modified() else { return 0 };
     match at.duration_since(std::time::UNIX_EPOCH) {
         Ok(d) => i64::try_from(d.as_millis()).unwrap_or(i64::MAX),
-        Err(e) => i64::try_from(e.duration().as_millis()).unwrap_or(i64::MAX).saturating_neg(),
+        Err(e) => i64::try_from(e.duration().as_millis())
+            .unwrap_or(i64::MAX)
+            .saturating_neg(),
     }
 }
 
@@ -1088,7 +1105,10 @@ pub(crate) unsafe fn headers(ptr: *const u8, len: u64) -> Vec<(String, String)> 
         let element = unsafe { &*ptr.cast::<BuriHeader>().add(i) };
         // SAFETY: an element of a live list holds live `Str` views.
         out.push(unsafe {
-            (element.name.as_str().into_owned(), element.value.as_str().into_owned())
+            (
+                element.name.as_str().into_owned(),
+                element.value.as_str().into_owned(),
+            )
         });
     }
     out
@@ -1284,7 +1304,9 @@ pub unsafe extern "C" fn buri_rt_host_environment_variable(
 ) -> i32 {
     // SAFETY: forwarded.
     let name = unsafe { text(ptr, len) };
-    let Some(value) = std::env::var_os(&name) else { return 0 };
+    let Some(value) = std::env::var_os(&name) else {
+        return 0;
+    };
     let value = str_of(&value.to_string_lossy());
     // SAFETY: the caller promises a writable destination.
     unsafe { out.write(value) };
@@ -1302,13 +1324,15 @@ pub unsafe extern "C" fn buri_rt_host_environment_variable(
 pub unsafe extern "C" fn buri_rt_host_environment_arguments(out: *mut BuriList) {
     let recorded = lock(&ARGS).clone();
     let args = recorded.unwrap_or_else(|| {
-        std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()).collect()
+        std::env::args_os()
+            .skip(1)
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
     });
     let value = list_of_strs(&args);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
 }
-
 
 /// `Environment::currentDirectory` — where the process is, as text.
 ///
@@ -1321,7 +1345,9 @@ pub unsafe extern "C" fn buri_rt_host_environment_arguments(out: *mut BuriList) 
 /// `out` must be writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_environment_current_directory(out: *mut BuriStr) {
-    let at = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let at = std::env::current_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let value = str_of(&at);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
@@ -1338,7 +1364,12 @@ pub unsafe extern "C" fn buri_rt_host_environment_current_directory(out: *mut Bu
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_environment_all_variables(out: *mut BuriList) {
     let pairs: Vec<(String, String)> = std::env::vars_os()
-        .map(|(k, v)| (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned()))
+        .map(|(k, v)| {
+            (
+                k.to_string_lossy().into_owned(),
+                v.to_string_lossy().into_owned(),
+            )
+        })
         .collect();
     let value = list_of_headers(&pairs);
     // SAFETY: the caller promises a writable, aligned destination.

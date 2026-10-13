@@ -7,7 +7,10 @@ use std::path::Path;
 /// A repository with one Node binary, the cheapest thing to build twice.
 fn repository() -> Scratch {
     let scratch = Scratch::repo("executable-identity");
-    scratch.write("cmd/app/BUILD.buri", "binary {\n    outputs: [{ platform: \"node\" }]\n}\n");
+    scratch.write(
+        "cmd/app/BUILD.buri",
+        "binary {\n    outputs: [{ platform: \"node\" }]\n}\n",
+    );
     scratch.write(
         "cmd/app/main.buri",
         "from \"node\" import { NodeHost };\n\nexport fn main(host: NodeHost): Result<(), Str> {\n    .Ok(())\n}\n",
@@ -34,11 +37,23 @@ fn caches(scratch: &Scratch, exe: &Path) {
             .env("XDG_CACHE_HOME", scratch.path("xdg"))
             .output()
             .unwrap();
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         String::from_utf8_lossy(&out.stdout).to_string()
     };
-    assert!(!build().contains("cached"), "{} found a build it never made", exe.display());
-    assert!(build().contains("cached"), "{} didn't know itself the second time", exe.display());
+    assert!(
+        !build().contains("cached"),
+        "{} found a build it never made",
+        exe.display()
+    );
+    assert!(
+        build().contains("cached"),
+        "{} didn't know itself the second time",
+        exe.display()
+    );
 }
 
 /// A universal (fat) Mach-O has no `LC_UUID` at its start, so `buri` knows
@@ -67,7 +82,10 @@ fn a_universal_buri_still_caches() {
 fn a_buri_with_widely_aligned_notes_still_caches() {
     let mut bytes = std::fs::read(buri()).unwrap();
     let le = |bytes: &[u8], at: usize, len: usize| {
-        bytes[at..at + len].iter().rev().fold(0usize, |acc, &b| acc << 8 | usize::from(b))
+        bytes[at..at + len]
+            .iter()
+            .rev()
+            .fold(0usize, |acc, &b| acc << 8 | usize::from(b))
     };
     // The program header table: offset, entry size and count.
     let (table, entry, count) = (le(&bytes, 32, 8), le(&bytes, 54, 2), le(&bytes, 56, 2));

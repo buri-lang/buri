@@ -231,7 +231,10 @@ pub struct Builder {
 
 impl Builder {
     pub fn new(config: String) -> Builder {
-        Builder { config, ..Builder::default() }
+        Builder {
+            config,
+            ..Builder::default()
+        }
     }
 
     pub fn push(&mut self, key: String, s: Stencil) {
@@ -284,7 +287,10 @@ impl Library {
     /// The stencil at `i`, read out of the bytes the first time.
     pub fn stencil(&self, i: usize) -> Option<&Stencil> {
         let (record, code) = *self.starts.get(i)?;
-        self.stencils.get(i)?.get_or_init(|| read_stencil(self.bytes, record, code).ok()).as_ref()
+        self.stencils
+            .get(i)?
+            .get_or_init(|| read_stencil(self.bytes, record, code).ok())
+            .as_ref()
     }
 
     /// How many stencils the library has.
@@ -320,7 +326,11 @@ impl Library {
 
     fn twin(&self, i: usize, k: usize) -> Option<(usize, &Stencil)> {
         let s = self.stencil(i)?;
-        let j = *self.twins.get(i)?.get_or_init(|| self.twins_of(&s.name)).get(k)?;
+        let j = *self
+            .twins
+            .get(i)?
+            .get_or_init(|| self.twins_of(&s.name))
+            .get(k)?;
         if j == NO_TWIN {
             return None;
         }
@@ -331,7 +341,10 @@ impl Library {
     fn twins_of(&self, name: &str) -> [u32; TWINS] {
         let mut out = [NO_TWIN; TWINS];
         let mut twin = String::new();
-        for (slot, suffix) in out.iter_mut().zip(FOLD_SUFFIXES.iter().chain([&SWAP_SUFFIX])) {
+        for (slot, suffix) in out
+            .iter_mut()
+            .zip(FOLD_SUFFIXES.iter().chain([&SWAP_SUFFIX]))
+        {
             twin.clear();
             twin.push_str(name);
             twin.push_str(suffix);
@@ -342,7 +355,6 @@ impl Library {
         out
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // The serialized library
@@ -374,8 +386,14 @@ struct Cursor<'a> {
 
 impl<'a> Cursor<'a> {
     fn take(&mut self, n: usize) -> Result<&'a [u8], String> {
-        let end = self.at.checked_add(n).ok_or("stencil library: length overflow")?;
-        let out = self.bytes.get(self.at..end).ok_or("stencil library: truncated")?;
+        let end = self
+            .at
+            .checked_add(n)
+            .ok_or("stencil library: length overflow")?;
+        let out = self
+            .bytes
+            .get(self.at..end)
+            .ok_or("stencil library: truncated")?;
         self.at = end;
         Ok(out)
     }
@@ -475,7 +493,10 @@ fn put_record(out: &mut Vec<u8>, s: &Stencil) {
 
 /// The stencil whose record starts at `record` and whose code starts at `code`.
 fn read_stencil(bytes: &[u8], record: u32, code: u32) -> Result<Stencil, String> {
-    let mut c = Cursor { bytes, at: record as usize };
+    let mut c = Cursor {
+        bytes,
+        at: record as usize,
+    };
     let name = c.str()?;
     let len = c.usize()?;
     let tail = c.u32()?;
@@ -504,9 +525,18 @@ fn read_stencil(bytes: &[u8], record: u32, code: u32) -> Result<Stencil, String>
     let nr = c.usize()?;
     let mut const_refs = Vec::with_capacity(nr);
     for _ in 0..nr {
-        const_refs.push(ConstRef { field: c.u32()?, insn_end: c.u32()?, at: c.u32()? });
+        const_refs.push(ConstRef {
+            field: c.u32()?,
+            insn_end: c.u32()?,
+            at: c.u32()?,
+        });
     }
-    let code = Cursor { bytes, at: code as usize }.take(len)?.to_vec();
+    let code = Cursor {
+        bytes,
+        at: code as usize,
+    }
+    .take(len)?
+    .to_vec();
     Ok(Stencil {
         name,
         code,
@@ -542,7 +572,9 @@ impl Builder {
             put_record(&mut records, s);
             code_at = code_at.saturating_add(s.code.len());
         }
-        let table_end = out.len().saturating_add(self.stencils.len().saturating_mul(8));
+        let table_end = out
+            .len()
+            .saturating_add(self.stencils.len().saturating_mul(8));
         let code_base = table_end.saturating_add(records.len());
         for (record, code) in starts {
             put_u32(&mut out, table_end.saturating_add(record) as u32);
@@ -595,7 +627,10 @@ mod tests {
             holes: vec![Hole {
                 name: String::from("_JIT_A"),
                 kind: HoleKind::Imm32,
-                sites: vec![Site { off: 0, kind: SiteKind::Adrp }],
+                sites: vec![Site {
+                    off: 0,
+                    kind: SiteKind::Adrp,
+                }],
                 pairs: vec![(0, 4)],
                 branches: vec![8],
                 conds: vec![],
@@ -603,7 +638,11 @@ mod tests {
             }],
             consts: vec![9, 9, 9, 9, 9, 9, 9, 9],
             consts_align: 16,
-            const_refs: vec![ConstRef { field: 2, insn_end: 6, at: 0 }],
+            const_refs: vec![ConstRef {
+                field: 2,
+                insn_end: 6,
+                at: 0,
+            }],
             tail: Some(0),
         };
         let mut lib = Builder::new(String::from("r3"));
@@ -636,7 +675,11 @@ mod tests {
 
         let mut with_twins = sample();
         for suffix in FOLD_SUFFIXES {
-            let mut twin = with_twins.stencils.first().cloned().expect("the sample stencil");
+            let mut twin = with_twins
+                .stencils
+                .first()
+                .cloned()
+                .expect("the sample stencil");
             twin.name = format!("bin/add/i64/ff/f{suffix}");
             with_twins.push(twin.name.clone(), twin);
         }
@@ -683,7 +726,10 @@ mod tests {
         assert_eq!(s.consts, vec![9, 9, 9, 9, 9, 9, 9, 9]);
         assert_eq!(s.consts_align, 16);
         assert_eq!(s.const_refs.len(), 1);
-        assert_eq!(s.const_refs.first().map(|c| (c.field, c.insn_end, c.at)), Some((2, 6, 0)));
+        assert_eq!(
+            s.const_refs.first().map(|c| (c.field, c.insn_end, c.at)),
+            Some((2, 6, 0))
+        );
         // The relocation records are the build script's working notes and are
         // deliberately not carried.
         assert!(h.sites.is_empty());

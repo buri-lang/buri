@@ -107,7 +107,9 @@ fn measured(backend: &str, binary: &Path, args: &[&str], expected: &str) -> Opti
         assert_eq!(r.status, 0, "{backend} {args:?}: {}", r.stderr);
         assert_eq!(r.stdout, expected, "{backend} {args:?}: {}", r.stderr);
     }
-    rest.into_iter().try_fold(first?, |a, b| b.map(|b| a.min(b))).filter(|&n| n > 0)
+    rest.into_iter()
+        .try_fold(first?, |a, b| b.map(|b| a.min(b)))
+        .filter(|&n| n > 0)
 }
 
 /// Instructions per insert and per lookup, with `keys` the arguments after the
@@ -115,7 +117,10 @@ fn measured(backend: &str, binary: &Path, args: &[&str], expected: &str) -> Opti
 fn costs(backend: &str, binary: &Path, size: u64, keys: &[&str]) -> Option<(u64, u64)> {
     let n = size.to_string();
     let run = |mode: &str, expected: &str| {
-        let args: Vec<&str> = [mode, n.as_str()].into_iter().chain(keys.iter().copied()).collect();
+        let args: Vec<&str> = [mode, n.as_str()]
+            .into_iter()
+            .chain(keys.iter().copied())
+            .collect();
         measured(backend, binary, &args, expected)
     };
     let idle = run("none", "0\n");
@@ -123,7 +128,10 @@ fn costs(backend: &str, binary: &Path, size: u64, keys: &[&str]) -> Option<(u64,
     let got: u64 = (0..LOOKUPS).map(|i| i * 7 % size).sum();
     let read = run("get", &format!("{got}\n"));
     let (idle, built, read) = (idle?, built?, read?);
-    Some((built.saturating_sub(idle) / size, read.saturating_sub(built) / LOOKUPS))
+    Some((
+        built.saturating_sub(idle) / size,
+        read.saturating_sub(built) / LOOKUPS,
+    ))
 }
 
 /// **Keys that differ only above bit 32 cost what keys that differ in their
@@ -135,15 +143,22 @@ fn a_map_of_keys_that_differ_only_above_bit_32_costs_what_any_other_does() {
     const HIGH: &str = "4294967296";
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
-        let binary = build("map-keys", &PROGRAM.replace("LOOKUPS", &LOOKUPS.to_string()));
+        let binary = build(
+            "map-keys",
+            &PROGRAM.replace("LOOKUPS", &LOOKUPS.to_string()),
+        );
         let small = costs(backend, &binary, 1000, &[HIGH]);
         let low = costs(backend, &binary, 8000, &["1"]);
         let high = costs(backend, &binary, 8000, &[HIGH]);
         eprintln!("{backend}: (insert, lookup) instructions, low {low:?}, high {high:?}, high at 1,000 {small:?}");
-        let (Some(small), Some(low), Some(high)) = (small, low, high) else { continue };
+        let (Some(small), Some(low), Some(high)) = (small, low, high) else {
+            continue;
+        };
         let mut over = |what: &str, got: u64, against: u64| {
             if got * 4 > against * 5 {
-                failures.push(format!("{backend}: {what} is {got} instructions against {against}"));
+                failures.push(format!(
+                    "{backend}: {what} is {got} instructions against {against}"
+                ));
             }
         };
         over("an insert of a key above bit 32", high.0, low.0);
@@ -176,7 +191,10 @@ fn a_map_of_fractional_float_keys_costs_what_whole_ones_do() {
     const STAMPS: &[&str] = &["1000", "1700000000000"];
     let mut failures = Vec::new();
     for (backend, build) in crate::e2e::probed_backends() {
-        let binary = build("map-float-keys", &FLOATS.replace("LOOKUPS", &LOOKUPS.to_string()));
+        let binary = build(
+            "map-float-keys",
+            &FLOATS.replace("LOOKUPS", &LOOKUPS.to_string()),
+        );
         let whole = costs(backend, &binary, 8000, &["1"]);
         let small = costs(backend, &binary, 1000, FRACTION);
         let fraction = costs(backend, &binary, 8000, FRACTION);
@@ -193,7 +211,9 @@ fn a_map_of_fractional_float_keys_costs_what_whole_ones_do() {
         };
         let mut over = |what: &str, got: u64, against: u64| {
             if got * 4 > against * 5 {
-                failures.push(format!("{backend}: {what} is {got} instructions against {against}"));
+                failures.push(format!(
+                    "{backend}: {what} is {got} instructions against {against}"
+                ));
             }
         };
         over("an insert of a fractional key", fraction.0, whole.0);

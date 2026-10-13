@@ -178,7 +178,10 @@ fn request(default: usize, args: [usize; 6]) -> usize {
 }
 
 /// Valgrind doesn't run here.
-#[cfg(not(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))))]
+#[cfg(not(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+)))]
 #[inline(always)]
 fn request(default: usize, _args: [usize; 6]) -> usize {
     default
@@ -289,17 +292,27 @@ fn redzone(align: usize) -> usize {
 #[inline(never)]
 pub(crate) unsafe fn alloc(chunk: Layout, size: usize, zeroed: bool) -> *mut u8 {
     let rz = redzone(chunk.align());
-    let Ok(outer) = Layout::from_size_align(chunk.size().saturating_add(2 * rz), chunk.align()) else {
+    let Ok(outer) = Layout::from_size_align(chunk.size().saturating_add(2 * rz), chunk.align())
+    else {
         return null_mut();
     };
     // SAFETY: a non-zero size.
-    let base = unsafe { if zeroed { System.alloc_zeroed(outer) } else { System.alloc(outer) } };
+    let base = unsafe {
+        if zeroed {
+            System.alloc_zeroed(outer)
+        } else {
+            System.alloc(outer)
+        }
+    };
     if base.is_null() {
         return base;
     }
     let p = base.wrapping_add(rz);
     mark(MAKE_MEM_NOACCESS, base, outer.size());
-    request(0, [MALLOCLIKE_BLOCK, p.addr(), size, rz, usize::from(zeroed), 0]);
+    request(
+        0,
+        [MALLOCLIKE_BLOCK, p.addr(), size, rz, usize::from(zeroed), 0],
+    );
     p
 }
 
@@ -307,7 +320,17 @@ pub(crate) unsafe fn alloc(chunk: Layout, size: usize, zeroed: bool) -> *mut u8 
 #[cold]
 #[inline(never)]
 pub(crate) fn resize(p: *mut u8, chunk: Layout, old: usize, new: usize) {
-    request(0, [RESIZEINPLACE_BLOCK, p.addr(), old, new, redzone(chunk.align()), 0]);
+    request(
+        0,
+        [
+            RESIZEINPLACE_BLOCK,
+            p.addr(),
+            old,
+            new,
+            redzone(chunk.align()),
+            0,
+        ],
+    );
 }
 
 /// What a held block's redzone records, to find the next one and free this.
@@ -341,17 +364,39 @@ pub(crate) unsafe fn dealloc(p: *mut u8, chunk: Layout) {
     let size = chunk.size() + 2 * rz;
     if size > QUARANTINE {
         // SAFETY: the size and alignment `alloc` made the block with.
-        unsafe { release(base, Link { next: null_mut(), size, align: chunk.align() }) };
+        unsafe {
+            release(
+                base,
+                Link {
+                    next: null_mut(),
+                    size,
+                    align: chunk.align(),
+                },
+            )
+        };
         return;
     }
     let _held = super::lock(&LOCK);
     // SAFETY: the lock is held, and every link is in a held block's redzone.
     unsafe {
-        write_link(base, Link { next: null_mut(), size, align: chunk.align() });
+        write_link(
+            base,
+            Link {
+                next: null_mut(),
+                size,
+                align: chunk.align(),
+            },
+        );
         if TAIL.is_null() {
             HEAD = base;
         } else {
-            write_link(TAIL, Link { next: base, ..read_link(TAIL) });
+            write_link(
+                TAIL,
+                Link {
+                    next: base,
+                    ..read_link(TAIL)
+                },
+            );
         }
         TAIL = base;
         HELD += size;
@@ -389,7 +434,12 @@ unsafe fn write_link(base: *mut u8, link: Link) {
 unsafe fn release(base: *mut u8, link: Link) {
     mark(MAKE_MEM_DEFINED, base, link.size);
     // SAFETY: `base` came from `System` at this size and alignment.
-    unsafe { System.dealloc(base, Layout::from_size_align_unchecked(link.size, link.align)) };
+    unsafe {
+        System.dealloc(
+            base,
+            Layout::from_size_align_unchecked(link.size, link.align),
+        )
+    };
 }
 
 /// Tells the tool `[low, high)` is a stack, and answers its id.

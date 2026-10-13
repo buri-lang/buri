@@ -50,7 +50,9 @@ fn lacking(backend: Backend) -> &'static [&'static str] {
 /// The host type a signature takes first, when that is a struct its
 /// platform's `platform.buri` declares.
 pub fn declared_host(tables: &Tables, platform: ModuleId, params: &[ParamInfo]) -> Option<TyConId> {
-    let TyKind::Con(con, args) = (params.first()?.ty).kind() else { return None };
+    let TyKind::Con(con, args) = (params.first()?.ty).kind() else {
+        return None;
+    };
     let tycon = tables.tycon(*con);
     (args.is_empty() && tycon.module == platform && matches!(tycon.def, TyDef::Struct { .. }))
         .then_some(*con)
@@ -68,7 +70,12 @@ pub fn js_structs(
     platform: ModuleId,
     host: TyConId,
 ) -> Vec<(TyConId, Vec<FnId>)> {
-    let mut reach = Reach { tables, platform, cons: vec![host], fns: Vec::new() };
+    let mut reach = Reach {
+        tables,
+        platform,
+        cons: vec![host],
+        fns: Vec::new(),
+    };
     let (mut next_con, mut next_fn) = (0, 0);
     loop {
         if let Some(&con) = reach.cons.get(next_con) {
@@ -78,7 +85,11 @@ pub fn js_structs(
             for field in tycon.fields().iter().chain(variants) {
                 reach.ty(field.ty);
             }
-            let methods = tables.fns.iter().enumerate().filter(|(_, f)| f.self_ty == Some(con));
+            let methods = tables
+                .fns
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| f.self_ty == Some(con));
             for (i, _) in methods {
                 reach.fn_(FnId(i as u32));
             }
@@ -93,11 +104,12 @@ pub fn js_structs(
                 typed::walk(&body.expr, &mut |e| {
                     reach.ty(e.ty);
                     match &e.kind {
-                        typed::ExprKind::StructLit { con, .. } | typed::ExprKind::EnumLit { con, .. } => {
-                            reach.con(*con)
-                        }
+                        typed::ExprKind::StructLit { con, .. }
+                        | typed::ExprKind::EnumLit { con, .. } => reach.con(*con),
                         typed::ExprKind::CallFn { func, .. } | typed::ExprKind::FnRef(func) => {
-                            reach.fn_(func.decl().or_ice("a checked body names declarations: monomorphization hasn't run"));
+                            reach.fn_(func.decl().or_ice(
+                                "a checked body names declarations: monomorphization hasn't run",
+                            ));
                         }
                         _ => {}
                     }
@@ -108,7 +120,9 @@ pub fn js_structs(
         }
     }
     let reached = reach.cons.into_iter().filter(|c| *c != host);
-    reached.map(|con| (con, bodiless_methods(tables, con))).collect()
+    reached
+        .map(|con| (con, bodiless_methods(tables, con)))
+        .collect()
 }
 
 /// What [`js_structs`] has found so far, in the order it found it.
@@ -152,16 +166,27 @@ impl Reach<'_> {
 /// Every type of the platform's own with methods declared without a body,
 /// each with them: what some entry's `js` file implements.
 fn bodiless_structs(tables: &Tables, platform: ModuleId) -> Vec<(TyConId, Vec<FnId>)> {
-    let cons = tables.tycons.iter().enumerate().filter(|(_, t)| t.module == platform);
-    cons.map(|(i, _)| (TyConId(i as u32), bodiless_methods(tables, TyConId(i as u32))))
-        .filter(|(_, methods)| !methods.is_empty())
-        .collect()
+    let cons = tables
+        .tycons
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.module == platform);
+    cons.map(|(i, _)| {
+        (
+            TyConId(i as u32),
+            bodiless_methods(tables, TyConId(i as u32)),
+        )
+    })
+    .filter(|(_, methods)| !methods.is_empty())
+    .collect()
 }
 
 /// The methods a platform's own production struct declares without a body.
 fn bodiless_methods(tables: &Tables, con: TyConId) -> Vec<FnId> {
     let fns = tables.fns.iter().enumerate();
-    fns.filter(|(_, f)| f.self_ty == Some(con) && f.intrinsic).map(|(i, _)| FnId(i as u32)).collect()
+    fns.filter(|(_, f)| f.self_ty == Some(con) && f.intrinsic)
+        .map(|(i, _)| FnId(i as u32))
+        .collect()
 }
 
 impl<'a> Checker<'a> {
@@ -179,7 +204,11 @@ impl<'a> Checker<'a> {
     /// The repository platforms whose entry this function fills, one per
     /// output naming one, or `None` where no output of a repository platform
     /// enters through it.
-    pub(super) fn custom_entries(&self, module: ModuleId, name: &str) -> Option<Vec<CustomPlatform>> {
+    pub(super) fn custom_entries(
+        &self,
+        module: ModuleId,
+        name: &str,
+    ) -> Option<Vec<CustomPlatform>> {
         // A build is of one output, and only its own entry is its business.
         if let (Some(_), Some(built)) = (self.loaded.platform, self.loaded.entry.as_deref()) {
             return match (&self.loaded.custom, built == name) {
@@ -188,10 +217,21 @@ impl<'a> Checker<'a> {
             };
         }
         let (ws, pkg) = (self.ws?, self.module(module).pkg?);
-        let target = TargetId { package: pkg, kind: RuleKind::Binary };
+        let target = TargetId {
+            package: pkg,
+            kind: RuleKind::Binary,
+        };
         let mut out: Vec<CustomPlatform> = Vec::new();
-        for c in ws.declared_entries(target).into_iter().filter(|e| e.name == name).filter_map(|e| e.custom) {
-            if !out.iter().any(|o| o.label.value == c.label.value && o.point == c.point) {
+        for c in ws
+            .declared_entries(target)
+            .into_iter()
+            .filter(|e| e.name == name)
+            .filter_map(|e| e.custom)
+        {
+            if !out
+                .iter()
+                .any(|o| o.label.value == c.label.value && o.point == c.point)
+            {
                 out.push(c);
             }
         }
@@ -201,7 +241,8 @@ impl<'a> Checker<'a> {
     /// The `platform.buri` a repository platform's label names, when this
     /// compilation loaded it.
     fn platform_module(&self, custom: &CustomPlatform) -> Option<ModuleId> {
-        self.loaded.find(&format!("//{}/platform.buri", custom.package_path()))
+        self.loaded
+            .find(&format!("//{}/platform.buri", custom.package_path()))
     }
 
     fn shown(&self, ty: &Ty) -> String {
@@ -210,9 +251,16 @@ impl<'a> Checker<'a> {
 
     /// `fn fetch(host: CloudflareHost, request: Request): Response`.
     fn signature_text(&self, name: &str, info: &FnInfo) -> String {
-        let params: Vec<String> =
-            info.params.iter().map(|p| format!("{}: {}", p.name, self.shown(&p.ty))).collect();
-        format!("fn {name}({}): {}", params.join(", "), self.shown(&info.ret))
+        let params: Vec<String> = info
+            .params
+            .iter()
+            .map(|p| format!("{}: {}", p.name, self.shown(&p.ty)))
+            .collect();
+        format!(
+            "fn {name}({}): {}",
+            params.join(", "),
+            self.shown(&info.ret)
+        )
     }
 
     /// One function against the entry a repository platform declares for it:
@@ -224,7 +272,9 @@ impl<'a> Checker<'a> {
         name: &str,
         custom: &CustomPlatform,
     ) {
-        let Some(platform) = self.platform_module(custom) else { return };
+        let Some(platform) = self.platform_module(custom) else {
+            return;
+        };
         let label = custom.label.value.clone();
         let Some(Sym::Fn(decl)) = self.scope(platform).own.get(&custom.point).cloned() else {
             let point = &custom.point;
@@ -281,12 +331,20 @@ impl<'a> Checker<'a> {
         // An unknown type on either side was reported where it was written.
         let agree = |a: &Ty, b: &Ty| a == b || a.is_error() || b.is_error();
         let same = info.params.len() == want.params.len()
-            && info.params.iter().zip(&want.params).skip(skip).all(|(a, b)| agree(&a.ty, &b.ty))
+            && info
+                .params
+                .iter()
+                .zip(&want.params)
+                .skip(skip)
+                .all(|(a, b)| agree(&a.ty, &b.ty))
             && agree(&info.ret, &want.ret);
         if !same {
             self.templated("entry-signature-mismatch", d.span)
                 .bind("entry", name.to_string())
-                .bind("requirement", format!("have the signature `{label}` declares, `{wanted}`"))
+                .bind(
+                    "requirement",
+                    format!("have the signature `{label}` declares, `{wanted}`"),
+                )
                 .fix(format!("write it `{wanted}`"));
         } else if custom.js.is_none()
             && !(host.is_some()
@@ -375,10 +433,11 @@ impl<'a> Checker<'a> {
             let struct_name = self.tables.tycon(con).name.clone();
             if from_host {
                 if lacking(custom.backend).contains(&struct_name.as_str()) {
-                    let effects: Vec<String> = standard_library::effects_of_host_struct(&struct_name)
-                        .iter()
-                        .map(|e| format!("`{e}`"))
-                        .collect();
+                    let effects: Vec<String> =
+                        standard_library::effects_of_host_struct(&struct_name)
+                            .iter()
+                            .map(|e| format!("`{e}`"))
+                            .collect();
                     if self.already(field.span, "effect-not-on-backend") {
                         continue;
                     }
@@ -425,7 +484,10 @@ impl<'a> Checker<'a> {
     /// Whether an error with this code is already reported at this span, so a
     /// platform two outputs name is told about once.
     fn already(&self, span: Span, code: &str) -> bool {
-        self.diags.items.iter().any(|d| d.span == span && d.code.as_deref() == Some(code))
+        self.diags
+            .items
+            .iter()
+            .any(|d| d.span == span && d.code.as_deref() == Some(code))
     }
 
     /// The parameters after the first `skip`, and the answer, of a signature a
@@ -493,10 +555,19 @@ impl<'a> Checker<'a> {
                 continue;
             }
             let module = self.module(t.module);
-            let (Some(pkg), true) = (module.pkg, is_effect_package_module(Some(ws), module)) else { continue };
+            let (Some(pkg), true) = (module.pkg, is_effect_package_module(Some(ws), module)) else {
+                continue;
+            };
             let package = ws.package(pkg);
-            let has_testing = package.build.library.as_ref().is_some_and(|l| l.testing.is_some());
-            let surface = self.loaded.find(&package.module_path("testing/lib.buri")).is_some();
+            let has_testing = package
+                .build
+                .library
+                .as_ref()
+                .is_some_and(|l| l.testing.is_some());
+            let surface = self
+                .loaded
+                .find(&package.module_path("testing/lib.buri"))
+                .is_some();
             if has_testing && !surface {
                 continue;
             }

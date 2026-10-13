@@ -26,9 +26,15 @@ impl Server {
             .stderr(std::process::Stdio::null())
             .spawn()
             .expect("the language server did not start");
-        let mut server = Server { process, next_id: 0 };
+        let mut server = Server {
+            process,
+            next_id: 0,
+        };
         let root = buri::json::Value::str(format!("file://{}", root.display())).to_string();
-        server.ask("initialize", &format!(r#"{{"rootUri":{root},"capabilities":{{}}}}"#));
+        server.ask(
+            "initialize",
+            &format!(r#"{{"rootUri":{root},"capabilities":{{}}}}"#),
+        );
         server.notify("initialized", "{}");
         server
     }
@@ -38,7 +44,9 @@ impl Server {
     fn ask(&mut self, method: &str, params: &str) -> buri::json::Value {
         self.next_id += 1;
         let id = self.next_id;
-        self.write(&format!(r#"{{"jsonrpc":"2.0","id":{id},"method":"{method}","params":{params}}}"#));
+        self.write(&format!(
+            r#"{{"jsonrpc":"2.0","id":{id},"method":"{method}","params":{params}}}"#
+        ));
         loop {
             let message = buri::json::parse(&self.read()).expect("the server wrote JSON");
             if message.get("id").and_then(|v| v.as_u32()) == Some(id as u32) {
@@ -48,7 +56,9 @@ impl Server {
     }
 
     fn notify(&mut self, method: &str, params: &str) {
-        self.write(&format!(r#"{{"jsonrpc":"2.0","method":"{method}","params":{params}}}"#));
+        self.write(&format!(
+            r#"{{"jsonrpc":"2.0","method":"{method}","params":{params}}}"#
+        ));
     }
 
     /// A buffer's whole text, as `didOpen` at version 1 and `didChange` after.
@@ -71,34 +81,61 @@ impl Server {
     /// Every finding a pull reports for `uri`: its code, line and columns.
     fn pull(&mut self, uri: &str) -> Vec<(String, u32, u32, u32)> {
         let uri = buri::json::Value::str(uri).to_string();
-        let answer = self.ask("textDocument/diagnostic", &format!(r#"{{"textDocument":{{"uri":{uri}}}}}"#));
-        let items = answer.at("result.items").and_then(|v| v.as_array()).expect("a full report");
+        let answer = self.ask(
+            "textDocument/diagnostic",
+            &format!(r#"{{"textDocument":{{"uri":{uri}}}}}"#),
+        );
+        let items = answer
+            .at("result.items")
+            .and_then(|v| v.as_array())
+            .expect("a full report");
         items
             .iter()
             .map(|item| {
                 let n = |path: &str| item.at(path).and_then(|v| v.as_u32()).unwrap();
                 let end_line = n("range.end.line");
                 assert_eq!(end_line, n("range.start.line"), "a bound spans one line");
-                let code = item.get("code").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                (code, n("range.start.line"), n("range.start.character"), n("range.end.character"))
+                let code = item
+                    .get("code")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                (
+                    code,
+                    n("range.start.line"),
+                    n("range.start.character"),
+                    n("range.end.character"),
+                )
             })
             .collect()
     }
 
     fn write(&mut self, body: &str) {
         use std::io::Write;
-        let stdin = self.process.stdin.as_mut().expect("the server's stdin is a pipe");
+        let stdin = self
+            .process
+            .stdin
+            .as_mut()
+            .expect("the server's stdin is a pipe");
         write!(stdin, "Content-Length: {}\r\n\r\n{body}", body.len()).unwrap();
         stdin.flush().unwrap();
     }
 
     fn read(&mut self) -> String {
         use std::io::Read;
-        let stdout = self.process.stdout.as_mut().expect("the server's stdout is a pipe");
+        let stdout = self
+            .process
+            .stdout
+            .as_mut()
+            .expect("the server's stdout is a pipe");
         let mut headers = String::new();
         while !headers.ends_with("\r\n\r\n") {
             let mut byte = [0u8; 1];
-            assert_eq!(stdout.read(&mut byte).unwrap(), 1, "the server closed the stream");
+            assert_eq!(
+                stdout.read(&mut byte).unwrap(),
+                1,
+                "the server closed the stream"
+            );
             headers.push(byte[0] as char);
         }
         let length: usize = headers
@@ -126,7 +163,9 @@ impl Server {
 /// comment of multi-byte characters, so a position counted in bytes or from
 /// the wrong line start lands elsewhere.
 fn unused_bounds(lead: usize, n: usize) -> String {
-    let mut text: String = (0..lead).map(|i| format!("// A line above everything, {i}.\n")).collect();
+    let mut text: String = (0..lead)
+        .map(|i| format!("// A line above everything, {i}.\n"))
+        .collect();
     text.push_str("from \"platform/effect\" import { Allocator };\n\n");
     for i in 0..n {
         text.push_str(&format!(
@@ -141,7 +180,12 @@ fn unused_bounds(lead: usize, n: usize) -> String {
 fn bound_at(lead: usize, i: usize) -> (String, u32, u32, u32) {
     let line = lead + 3 + 6 * i;
     let start = "export fn p".len() + i.to_string().len() + "<C: ".len();
-    ("unused-context-bound".to_string(), line as u32, start as u32, (start + "Allocator".len()) as u32)
+    (
+        "unused-context-bound".to_string(),
+        line as u32,
+        start as u32,
+        (start + "Allocator".len()) as u32,
+    )
 }
 
 /// That `found` is `want`, naming the first finding where they part rather
@@ -183,19 +227,35 @@ fn two_thousand_findings_in_one_file_are_each_published_once_where_they_are() {
     let mut server = Server::open(&scratch.root);
 
     server.text(&uri, 1, &text);
-    same("opened", &server.pull(&uri), &(0..n).map(|i| bound_at(0, i)).collect::<Vec<_>>());
+    same(
+        "opened",
+        &server.pull(&uri),
+        &(0..n).map(|i| bound_at(0, i)).collect::<Vec<_>>(),
+    );
 
     // Three lines above everything move every finding down three.
     server.text(&uri, 2, &unused_bounds(3, n));
-    same("three lines in", &server.pull(&uri), &(0..n).map(|i| bound_at(3, i)).collect::<Vec<_>>());
+    same(
+        "three lines in",
+        &server.pull(&uri),
+        &(0..n).map(|i| bound_at(3, i)).collect::<Vec<_>>(),
+    );
 
     // The last ten functions gone, and their findings with them.
     server.text(&uri, 3, &unused_bounds(3, n - 10));
-    same("ten functions out", &server.pull(&uri), &(0..n - 10).map(|i| bound_at(3, i)).collect::<Vec<_>>());
+    same(
+        "ten functions out",
+        &server.pull(&uri),
+        &(0..n - 10).map(|i| bound_at(3, i)).collect::<Vec<_>>(),
+    );
 
     // Back to the file on disk, findings and all.
     server.text(&uri, 4, &text);
-    same("as on disk", &server.pull(&uri), &(0..n).map(|i| bound_at(0, i)).collect::<Vec<_>>());
+    same(
+        "as on disk",
+        &server.pull(&uri),
+        &(0..n).map(|i| bound_at(0, i)).collect::<Vec<_>>(),
+    );
     server.close();
 }
 
@@ -203,9 +263,14 @@ fn two_thousand_findings_in_one_file_are_each_published_once_where_they_are() {
 /// from `total`, which hands `ctx` on. Every hundredth is also passed to
 /// `apply` as a value, so its parameter has to stay.
 fn unused_contexts(n: usize) -> String {
-    let items: String = (0..n).map(|i| format!("fn p{i}<C: Allocator>(ctx: C, x: Int): Int {{\n    x * {i}\n}}\n\n")).collect();
+    let items: String = (0..n)
+        .map(|i| format!("fn p{i}<C: Allocator>(ctx: C, x: Int): Int {{\n    x * {i}\n}}\n\n"))
+        .collect();
     let calls: Vec<String> = (0..n).map(|i| format!("p{i}(ctx, {i})")).collect();
-    let values: Vec<String> = (0..n).step_by(100).map(|i| format!("apply(ctx, p{i})")).collect();
+    let values: Vec<String> = (0..n)
+        .step_by(100)
+        .map(|i| format!("apply(ctx, p{i})"))
+        .collect();
     format!(
         "from \"platform/effect\" import {{ Allocator, Stdout }};\n\
          from \"node\" import {{ NodeHost }};\n\
@@ -230,28 +295,62 @@ fn unused_contexts(n: usize) -> String {
 fn lint_fix_removes_a_thousand_unused_contexts_and_the_program_still_runs() {
     let scratch = Scratch::repo("many-findings-fixed");
     let n = 1000;
-    scratch.write("app/BUILD.buri", "binary {\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n");
+    scratch.write(
+        "app/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: \"node\" },\n    ]\n}\n",
+    );
     scratch.write("app/main.buri", &unused_contexts(n));
-    let answer = (0..n).map(|i| i * i).sum::<usize>() + (0..n).step_by(100).map(|i| 7 * i).sum::<usize>();
+    let answer =
+        (0..n).map(|i| i * i).sum::<usize>() + (0..n).step_by(100).map(|i| 7 * i).sum::<usize>();
 
     let before = scratch.run(&["run", "//app"]);
     before.ok();
-    assert_eq!(before.stdout, format!("{answer}\n"), "{}", indent(&before.all()));
+    assert_eq!(
+        before.stdout,
+        format!("{answer}\n"),
+        "{}",
+        indent(&before.all())
+    );
     let linted = scratch.run(&["lint", "//..."]);
     linted.exits(1);
-    assert_eq!(linted.all().matches("[unused-context]").count(), n, "{}", indent(&linted.all()));
+    assert_eq!(
+        linted.all().matches("[unused-context]").count(),
+        n,
+        "{}",
+        indent(&linted.all())
+    );
 
     let fixed = scratch.run(&["lint", "--fix", "//..."]);
-    assert!(fixed.all().contains(&format!("fixed {} findings", n - n / 100)), "{}", indent(&fixed.all()));
+    assert!(
+        fixed
+            .all()
+            .contains(&format!("fixed {} findings", n - n / 100)),
+        "{}",
+        indent(&fixed.all())
+    );
     let source = scratch.read("app/main.buri");
     for i in 0..n {
         let (head, call) = if i % 100 == 0 {
-            (format!("fn p{i}<C: Allocator>(ctx: C, x: Int): Int {{"), format!("p{i}(ctx, {i})"))
+            (
+                format!("fn p{i}<C: Allocator>(ctx: C, x: Int): Int {{"),
+                format!("p{i}(ctx, {i})"),
+            )
         } else {
-            (format!("fn p{i}<C: Allocator>(x: Int): Int {{"), format!("p{i}({i})"))
+            (
+                format!("fn p{i}<C: Allocator>(x: Int): Int {{"),
+                format!("p{i}({i})"),
+            )
         };
-        assert!(source.contains(&format!("{head}\n")), "p{i}'s signature after the fix:\n{}", indent(&source));
-        assert!(source.contains(&format!("{call} +\n")), "p{i}'s call after the fix:\n{}", indent(&source));
+        assert!(
+            source.contains(&format!("{head}\n")),
+            "p{i}'s signature after the fix:\n{}",
+            indent(&source)
+        );
+        assert!(
+            source.contains(&format!("{call} +\n")),
+            "p{i}'s call after the fix:\n{}",
+            indent(&source)
+        );
     }
 
     let after = scratch.run(&["run", "//app"]);
@@ -259,5 +358,10 @@ fn lint_fix_removes_a_thousand_unused_contexts_and_the_program_still_runs() {
     assert_eq!(after.stdout, before.stdout, "{}", indent(&after.all()));
     let again = scratch.run(&["lint", "//..."]);
     again.exits(1);
-    assert_eq!(again.all().matches("[unused-context]").count(), n / 100, "{}", indent(&again.all()));
+    assert_eq!(
+        again.all().matches("[unused-context]").count(),
+        n / 100,
+        "{}",
+        indent(&again.all())
+    );
 }

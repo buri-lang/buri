@@ -89,7 +89,11 @@ impl Tool {
     /// some tests leave a block behind on purpose, such as an immortal one.
     pub fn unit_tests(self) -> &'static [&'static str] {
         match self {
-            Tool::Memcheck => &["--leak-check=no", "--show-leak-kinds=none", "--errors-for-leak-kinds=none"],
+            Tool::Memcheck => &[
+                "--leak-check=no",
+                "--show-leak-kinds=none",
+                "--errors-for-leak-kinds=none",
+            ],
             Tool::Helgrind => &[],
         }
     }
@@ -117,9 +121,11 @@ const FLAGS: &[&str] = &[
 /// The tool `BURI_MEMCHECK` or `BURI_HELGRIND` asks for, and the directory
 /// its runs go to.
 fn chosen() -> Option<(Tool, PathBuf)> {
-    [Tool::Memcheck, Tool::Helgrind]
-        .into_iter()
-        .find_map(|t| std::env::var_os(t.variable()).filter(|d| !d.is_empty()).map(|d| (t, PathBuf::from(d))))
+    [Tool::Memcheck, Tool::Helgrind].into_iter().find_map(|t| {
+        std::env::var_os(t.variable())
+            .filter(|d| !d.is_empty())
+            .map(|d| (t, PathBuf::from(d)))
+    })
 }
 
 /// Whether `program` is one this domain built.
@@ -129,7 +135,10 @@ fn ours(program: &Path) -> bool {
 
 /// How to rerun the running test under `tool`.
 fn again_for(tool: Tool) -> String {
-    let test = std::thread::current().name().unwrap_or_default().to_string();
+    let test = std::thread::current()
+        .name()
+        .unwrap_or_default()
+        .to_string();
     let conformance = std::env::var("BURI_CONFORMANCE_BUILD")
         .map(|b| format!(" BURI_CONFORMANCE_BUILD={b}"))
         .unwrap_or_default();
@@ -151,31 +160,62 @@ pub fn output(cmd: &Command, build: &str) -> Option<Output> {
         return None;
     }
     let mut under = wrapped(tool, &dir, cmd, build, &again_for(tool), &[]);
-    Some(under.output().unwrap_or_else(|e| panic!("cannot start valgrind: {e}")))
+    Some(
+        under
+            .output()
+            .unwrap_or_else(|e| panic!("cannot start valgrind: {e}")),
+    )
 }
 
 /// `binary` under the tool the environment asks for, as a command the caller
 /// starts and talks to, such as a server. `None` when no tool is asked for.
 pub fn command(binary: &Path, build: &str) -> Option<Command> {
     let (tool, dir) = chosen()?;
-    ours(binary).then(|| wrapped(tool, &dir, &Command::new(binary), build, &again_for(tool), &[]))
+    ours(binary).then(|| {
+        wrapped(
+            tool,
+            &dir,
+            &Command::new(binary),
+            build,
+            &again_for(tool),
+            &[],
+        )
+    })
 }
 
 /// Runs `cmd` under `tool` with `extra` flags, leaving its report in `dir/runs`.
 ///
 /// `again` is how to rerun it, for the issue.
-pub fn run(tool: Tool, dir: &Path, cmd: &Command, build: &str, again: &str, extra: &[&str]) -> Output {
+pub fn run(
+    tool: Tool,
+    dir: &Path,
+    cmd: &Command,
+    build: &str,
+    again: &str,
+    extra: &[&str],
+) -> Output {
     wrapped(tool, dir, cmd, build, again, extra)
         .output()
         .unwrap_or_else(|e| panic!("cannot start valgrind: {e}"))
 }
 
 /// `cmd` under `tool`, its report bound for `dir/runs`.
-fn wrapped(tool: Tool, dir: &Path, cmd: &Command, build: &str, again: &str, extra: &[&str]) -> Command {
+fn wrapped(
+    tool: Tool,
+    dir: &Path,
+    cmd: &Command,
+    build: &str,
+    again: &str,
+    extra: &[&str],
+) -> Command {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let runs = dir.join("runs");
     std::fs::create_dir_all(&runs).unwrap();
-    let name = format!("{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed));
+    let name = format!(
+        "{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    );
     let program = Path::new(cmd.get_program());
     let about = format!("{}\n{}\n{build}\n{again}\n", tool.name(), program.display());
     std::fs::write(runs.join(format!("{name}.about")), about).unwrap();
@@ -184,12 +224,22 @@ fn wrapped(tool: Tool, dir: &Path, cmd: &Command, build: &str, again: &str, extr
     wrapped
         .arg(format!("--tool={}", tool.name()))
         // An `extra` flag replaces the one of its name.
-        .args(flags.iter().filter(|f| !extra.iter().any(|e| e.split('=').next() == f.split('=').next())))
+        .args(flags.iter().filter(|f| {
+            !extra
+                .iter()
+                .any(|e| e.split('=').next() == f.split('=').next())
+        }))
         .args(extra)
         .arg(format!("--suppressions={}", tool.suppressions()))
         .arg("--xml=yes")
-        .arg(format!("--xml-file={}", runs.join(format!("{name}.xml")).display()))
-        .arg(format!("--log-file={}", runs.join(format!("{name}.log")).display()))
+        .arg(format!(
+            "--xml-file={}",
+            runs.join(format!("{name}.xml")).display()
+        ))
+        .arg(format!(
+            "--log-file={}",
+            runs.join(format!("{name}.log")).display()
+        ))
         .arg(program)
         .args(cmd.get_args());
     for (key, value) in cmd.get_envs() {
@@ -248,7 +298,10 @@ pub fn failures(log: &str, tool: &str, build: &str, run: &str) -> Vec<(String, S
     let mut found = Vec::new();
     let mut lines = log.lines().peekable();
     while let Some(line) = lines.next() {
-        let Some(name) = line.strip_prefix("---- ").and_then(|l| l.strip_suffix(" stdout ----")) else {
+        let Some(name) = line
+            .strip_prefix("---- ")
+            .and_then(|l| l.strip_suffix(" stdout ----"))
+        else {
             continue;
         };
         let mut output = Vec::new();
@@ -387,13 +440,25 @@ impl Error {
                 }
             }
         }
-        self.stacks.iter().flatten().any(|f| f.contains("Arc") && f.contains("drop_slow")).then_some("an Arc's last drop")
+        self.stacks
+            .iter()
+            .flatten()
+            .any(|f| f.contains("Arc") && f.contains("drop_slow"))
+            .then_some("an Arc's last drop")
     }
 }
 
 /// Frames that are where memory came from or was copied, not who misused it.
-const PLUMBING: &[&str] =
-    &["buri_rt::allocator::", "__rustc::__rust_", "buri_rt_alloc", "malloc", "calloc", "realloc", "free", "mem"];
+const PLUMBING: &[&str] = &[
+    "buri_rt::allocator::",
+    "__rustc::__rust_",
+    "buri_rt_alloc",
+    "malloc",
+    "calloc",
+    "realloc",
+    "free",
+    "mem",
+];
 
 impl Error {
     /// The first frame that isn't [`PLUMBING`]: the access, where its stack
@@ -439,7 +504,9 @@ pub fn errors(xml: &str) -> Vec<Error> {
     let mut rest = xml;
     while let Some((error, after)) = element(rest, "error") {
         rest = after;
-        let kind = element(error, "kind").map(|(k, _)| unescape(k)).unwrap_or_default();
+        let kind = element(error, "kind")
+            .map(|(k, _)| unescape(k))
+            .unwrap_or_default();
         let mut text = String::new();
         let mut frames = Vec::new();
         let mut stacks = Vec::new();
@@ -450,7 +517,9 @@ pub fn errors(xml: &str) -> Vec<Error> {
             match tag {
                 "what" => text.push_str(&format!("{}\n", unescape(body))),
                 "xwhat" => {
-                    let what = element(body, "text").map(|(t, _)| unescape(t)).unwrap_or_default();
+                    let what = element(body, "text")
+                        .map(|(t, _)| unescape(t))
+                        .unwrap_or_default();
                     text.push_str(&format!("{what}\n"));
                 }
                 "auxwhat" => text.push_str(&format!(" {}\n", unescape(body))),
@@ -467,7 +536,10 @@ pub fn errors(xml: &str) -> Vec<Error> {
                             (_, _, Some(obj)) => format!("in {obj}"),
                             _ => String::new(),
                         };
-                        text.push_str(&format!("   {lead} {} ({place})\n", name.as_deref().unwrap_or("???")));
+                        text.push_str(&format!(
+                            "   {lead} {} ({place})\n",
+                            name.as_deref().unwrap_or("???")
+                        ));
                         lead = "by";
                         // The file too: a frame `std` inlined is a bare name.
                         stack.push(format!("{} {place}", name.as_deref().unwrap_or("???")));
@@ -482,9 +554,21 @@ pub fn errors(xml: &str) -> Vec<Error> {
             }
         }
         let suppression = element(error, "rawtext")
-            .map(|(raw, _)| raw.trim().trim_start_matches("<![CDATA[").trim_end_matches("]]>").trim().to_string())
+            .map(|(raw, _)| {
+                raw.trim()
+                    .trim_start_matches("<![CDATA[")
+                    .trim_end_matches("]]>")
+                    .trim()
+                    .to_string()
+            })
             .unwrap_or_default();
-        found.push(Error { kind, text, frames, stacks, suppression });
+        found.push(Error {
+            kind,
+            text,
+            frames,
+            stacks,
+            suppression,
+        });
     }
     found
 }
@@ -500,7 +584,10 @@ fn element<'a>(xml: &'a str, tag: &str) -> Option<(&'a str, &'a str)> {
 
 /// Whichever of `tags` comes first in `xml`, with its body and what follows.
 fn next_of<'a>(xml: &'a str, tags: &[&'static str]) -> Option<(&'static str, &'a str, &'a str)> {
-    let (_, tag) = tags.iter().filter_map(|&t| xml.find(&format!("<{t}>")).map(|at| (at, t))).min()?;
+    let (_, tag) = tags
+        .iter()
+        .filter_map(|&t| xml.find(&format!("<{t}>")).map(|at| (at, t)))
+        .min()?;
     element(xml, tag).map(|(body, after)| (tag, body, after))
 }
 
@@ -574,7 +661,15 @@ fn an_error_reads_back_with_its_frames_and_a_stable_signature() {
     let found = errors(xml);
     assert_eq!(found.len(), 3);
     assert_eq!(found[0].kind, "InvalidRead");
-    assert_eq!(found[0].frames, ["memcpy", "buri_rt_list_get", "buri::lib::total", "buri_rt_free"]);
+    assert_eq!(
+        found[0].frames,
+        [
+            "memcpy",
+            "buri_rt_list_get",
+            "buri::lib::total",
+            "buri_rt_free"
+        ]
+    );
     assert_eq!(
         found[0].text,
         "Invalid read of size 8\n   at memcpy (in /p)\n   by buri_rt_list_get (list.rs:12)\n   \
@@ -585,19 +680,34 @@ fn an_error_reads_back_with_its_frames_and_a_stable_signature() {
     assert_eq!(found[0].culprit(), "buri_rt_list_get");
     assert_eq!(found[1].culprit(), "buri.glue.release_elems");
     assert_eq!(found[2].culprit(), "an unnamed frame");
-    assert_eq!(found[2].text, "48 bytes in 1 blocks are definitely lost\n   at malloc ()\n");
+    assert_eq!(
+        found[2].text,
+        "48 bytes in 1 blocks are definitely lost\n   at malloc ()\n"
+    );
     // Another line, caller or hash suffix is the same bug.
     let moved = xml
         .replace("<line>12</line>", "<line>40</line>")
-        .replace("buri::lib::total::h0123456789abcdef", "buri::lib::other::hfedcba9876543210")
-        .replace("dc36b4dd995183993ac57eaf625b0de6", "12f94a3a22e7f9c6ec20450fab2a81ab");
+        .replace(
+            "buri::lib::total::h0123456789abcdef",
+            "buri::lib::other::hfedcba9876543210",
+        )
+        .replace(
+            "dc36b4dd995183993ac57eaf625b0de6",
+            "12f94a3a22e7f9c6ec20450fab2a81ab",
+        );
     let again = errors(&moved);
     assert_eq!(again[0].signature(), found[0].signature());
     assert_eq!(again[1].signature(), found[1].signature());
     assert_ne!(found[0].signature(), found[1].signature());
     let draft = found[0].draft("memcheck", "/t/program", "stencil debug", "cargo test");
-    assert!(draft.starts_with(&format!("memcheck: InvalidRead in buri_rt_list_get [{}]\n", found[0].signature())));
-    assert_eq!(found[0].suppression, "{\n   <insert_a_suppression_name_here>\n   Memcheck:Addr8\n   fun:memcpy\n}");
+    assert!(draft.starts_with(&format!(
+        "memcheck: InvalidRead in buri_rt_list_get [{}]\n",
+        found[0].signature()
+    )));
+    assert_eq!(
+        found[0].suppression,
+        "{\n   <insert_a_suppression_name_here>\n   Memcheck:Addr8\n   fun:memcpy\n}"
+    );
     assert!(draft.contains(&found[0].suppression));
 }
 
@@ -612,15 +722,22 @@ fn a_race_ordered_by_code_helgrind_cannot_see_is_not_ours() {
         )
     };
     let frame = |name: &str| format!("<frame><fn>{name}</fn></frame>");
-    assert_eq!(errors(&race(&frame("buri_rt::rt::push")))[0].unseen_order(), None);
+    assert_eq!(
+        errors(&race(&frame("buri_rt::rt::push")))[0].unseen_order(),
+        None
+    );
     let tokio = errors(&race(&frame("tokio::sync::notify::Notify::notify_waiters")));
     assert_eq!(tokio[0].unseen_order(), Some("tokio's own locks"));
     // Below our code, tokio or `std`'s threads are where it was called from,
     // not why.
-    let called = errors(&race(&(frame("buri_rt::net::serve") + &frame("tokio::runtime::task::raw::poll"))));
+    let called = errors(&race(
+        &(frame("buri_rt::net::serve") + &frame("tokio::runtime::task::raw::poll")),
+    ));
     assert_eq!(called[0].unseen_order(), None);
-    let spawned = errors(&race(&(frame("buri_rt::rt::tests::a_close")
-        + &frame("{closure#0}<std::thread::lifecycle::spawn_unchecked>"))));
+    let spawned = errors(&race(
+        &(frame("buri_rt::rt::tests::a_close")
+            + &frame("{closure#0}<std::thread::lifecycle::spawn_unchecked>")),
+    ));
     assert_eq!(spawned[0].unseen_order(), None);
     // The `std` inlined into a caller isn't the culprit; the caller is.
     let inlined = errors(
@@ -630,7 +747,9 @@ fn a_race_ordered_by_code_helgrind_cannot_see_is_not_ours() {
     );
     assert_eq!(inlined[0].culprit(), "buri_rt_incref");
     let drops: String = (0..10).map(|_| frame("drop_glue")).collect();
-    let arc = errors(&race(&(drops + &frame("<alloc::sync::Arc<buri_rt::rt::Task>>::drop_slow"))));
+    let arc = errors(&race(
+        &(drops + &frame("<alloc::sync::Arc<buri_rt::rt::Task>>::drop_slow")),
+    ));
     assert_eq!(arc[0].unseen_order(), Some("an Arc's last drop"));
     // Helgrind can lose the rest of the stack below a frame musl inlined, so
     // the race has only `alloc_meta`'s own frames (issue #300).
@@ -670,6 +789,9 @@ test result: FAILED. 1 passed; 1 failed
     )));
     assert!(draft.contains("`numbers/integers.buri` exited 1:\nassert.equal failed\n```"));
     assert!(draft.contains("https://run"));
-    assert_ne!(*signature, failures(log, "memcheck", "stencil debug", "https://run")[0].0);
+    assert_ne!(
+        *signature,
+        failures(log, "memcheck", "stencil debug", "https://run")[0].0
+    );
     assert!(failures("test result: ok. 2 passed", "memcheck", "stencil debug", "").is_empty());
 }

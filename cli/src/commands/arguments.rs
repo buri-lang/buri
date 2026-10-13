@@ -181,7 +181,11 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
                 if mode_named.is_some_and(|prev| prev != name) {
                     return Err("`--release` and `--debug` are exclusive".into());
                 }
-                mode_named = Some(if name == "release" { "release" } else { "debug" });
+                mode_named = Some(if name == "release" {
+                    "release"
+                } else {
+                    "debug"
+                });
             }
             (flag.set)(&mut flags, value.as_deref())?;
             continue;
@@ -192,7 +196,12 @@ pub fn parse(argv: &[String]) -> Result<Args, String> {
     if flags.watch {
         refuse_watch(&command, &flags)?;
     }
-    Ok(Args { command, targets, flags, passthrough })
+    Ok(Args {
+        command,
+        targets,
+        flags,
+        passthrough,
+    })
 }
 
 /// The two things `--watch` will not be combined with.
@@ -309,7 +318,9 @@ pub fn reader_gone() -> ! {
     reason = "a failed write to stdout is the one thing that cannot be reported on stdout"
 )]
 pub fn failed_print(message: &str) {
-    let Some(why) = message.strip_prefix("failed printing to stdout: ") else { return };
+    let Some(why) = message.strip_prefix("failed printing to stdout: ") else {
+        return;
+    };
     if why.ends_with("(os error 32)") {
         reader_gone();
     }

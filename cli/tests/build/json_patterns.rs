@@ -137,16 +137,27 @@ fn json_patterns_match_what_they_say() {
     );
 
     // `None` for a text the matcher abandons.
-    let mut rows: Vec<(String, String, Option<bool>)> =
-        MATCHES.iter().map(|(p, t, m)| (p.to_string(), t.to_string(), Some(*m))).collect();
+    let mut rows: Vec<(String, String, Option<bool>)> = MATCHES
+        .iter()
+        .map(|(p, t, m)| (p.to_string(), t.to_string(), Some(*m)))
+        .collect();
     rows.extend(too_costly().into_iter().map(|(p, t)| (p, t, None)));
-    let mut refusals: Vec<(String, String)> = REFUSED.iter().map(|(p, w)| (p.to_string(), w.to_string())).collect();
-    refusals.push((format!("{}a{}", "(".repeat(102), ")".repeat(102)), "groups nest too deeply".to_string()));
+    let mut refusals: Vec<(String, String)> = REFUSED
+        .iter()
+        .map(|(p, w)| (p.to_string(), w.to_string()))
+        .collect();
+    refusals.push((
+        format!("{}a{}", "(".repeat(102), ")".repeat(102)),
+        "groups nest too deeply".to_string(),
+    ));
 
     let mut schema = format!("{{\"$schema\": \"{SCHEMA}\", \"properties\": {{\n");
     let mut data = String::from("{\"$schema\": \"matches.schema.json\",\n");
     for (i, (pattern, text, _)) in rows.iter().enumerate() {
-        schema.push_str(&format!("\"m{i}\": {{\"pattern\": {}}},\n", quoted(pattern)));
+        schema.push_str(&format!(
+            "\"m{i}\": {{\"pattern\": {}}},\n",
+            quoted(pattern)
+        ));
         data.push_str(&format!("\"m{i}\": {},\n", quoted(text)));
     }
     schema.push_str("\"$schema\": true}}\n");
@@ -156,23 +167,46 @@ fn json_patterns_match_what_they_say() {
 
     let mut refused = format!("{{\"$schema\": \"{SCHEMA}\", \"properties\": {{\n");
     for (i, (pattern, _)) in refusals.iter().enumerate() {
-        refused.push_str(&format!("\"r{i}\": {{\"pattern\": {}}},\n", quoted(pattern)));
+        refused.push_str(&format!(
+            "\"r{i}\": {{\"pattern\": {}}},\n",
+            quoted(pattern)
+        ));
     }
     refused.push_str("\"$schema\": true}}\n");
     s.write("lib/p/refused.schema.json", &refused);
-    s.write("lib/p/refused.json", "{\"$schema\": \"refused.schema.json\"}\n");
+    s.write(
+        "lib/p/refused.json",
+        "{\"$schema\": \"refused.schema.json\"}\n",
+    );
 
     let run = s.run(&["lint", "//lib/p", "--error-format=json"]);
     run.exits(1);
     let mut said: Vec<(String, u32, String)> = Vec::new();
-    for line in run.stdout.lines().chain(run.stderr.lines()).filter(|l| l.starts_with('{')) {
+    for line in run
+        .stdout
+        .lines()
+        .chain(run.stderr.lines())
+        .filter(|l| l.starts_with('{'))
+    {
         let d = buri::json::parse(line).unwrap();
-        let text = |path: &str| d.at(path).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let text = |path: &str| {
+            d.at(path)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
         let line = d.at("location.line").and_then(|v| v.as_u32()).unwrap();
-        said.push((text("location.file"), line, format!("{} {}", text("code"), text("message"))));
+        said.push((
+            text("location.file"),
+            line,
+            format!("{} {}", text("code"), text("message")),
+        ));
     }
     let at = |file: &str, line: usize| -> Vec<&str> {
-        said.iter().filter(|(f, l, _)| f == file && *l as usize == line).map(|(_, _, m)| m.as_str()).collect()
+        said.iter()
+            .filter(|(f, l, _)| f == file && *l as usize == line)
+            .map(|(_, _, m)| m.as_str())
+            .collect()
     };
 
     let mut failures = Vec::new();
@@ -186,7 +220,9 @@ fn json_patterns_match_what_they_say() {
         };
         if !ok {
             let text: String = text.chars().take(60).collect();
-            failures.push(format!("`{pattern}` against {text:?}: expected {matches:?}, found {found:?}"));
+            failures.push(format!(
+                "`{pattern}` against {text:?}: expected {matches:?}, found {found:?}"
+            ));
         }
     }
     for (i, (pattern, why)) in refusals.iter().enumerate() {
@@ -196,5 +232,10 @@ fn json_patterns_match_what_they_say() {
             failures.push(format!("`{pattern}`: expected {want:?}, found {found:?}"));
         }
     }
-    assert!(failures.is_empty(), "{} failures:\n{}\n\nall:\n{said:#?}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}\n\nall:\n{said:#?}",
+        failures.len(),
+        failures.join("\n")
+    );
 }

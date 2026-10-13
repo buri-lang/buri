@@ -34,7 +34,10 @@ fn bytes(stderr: &str) -> u64 {
 /// `struct W<n>` with `n` `Bool` fields, deriving `Flags`.
 fn flags_struct(n: usize) -> String {
     let fields: Vec<String> = (0..n).map(|i| format!("f{i}: Bool")).collect();
-    format!("derive Flags, Equal for W{n};\nstruct W{n} {{ {} }}\n", fields.join(", "))
+    format!(
+        "derive Flags, Equal for W{n};\nstruct W{n} {{ {} }}\n",
+        fields.join(", ")
+    )
 }
 
 /// **The word is the smallest that holds every field.** 8 flags are a byte, 9
@@ -90,7 +93,16 @@ export fn main(host: NativeHost): Result<(), Str> {{
 "#,
         arms.join("\n    ")
     ));
-    let rows = [("W8", 1, 8), ("W9", 2, 9), ("W16", 2, 16), ("W17", 4, 17), ("W32", 4, 32), ("W33", 8, 33), ("W64", 8, 64), ("Held", 2, 8)];
+    let rows = [
+        ("W8", 1, 8),
+        ("W9", 2, 9),
+        ("W16", 2, 16),
+        ("W17", 4, 17),
+        ("W32", 4, 32),
+        ("W33", 8, 33),
+        ("W64", 8, 64),
+        ("Held", 2, 8),
+    ];
     let probe = bytes_probe();
     for (backend, build) in crate::e2e::probed_builds(&probe) {
         let binary = build("flags-stride", &source);
@@ -101,11 +113,20 @@ export fn main(host: NativeHost): Result<(), Str> {{
                 crate::shared::ran_command(crate::shared::heap_checked(&mut cmd))
             };
             let (none, many) = (run("0000"), run("1000"));
-            assert_eq!(many.stdout, format!("{held}\n"), "{backend} {ty}: {}", many.stderr);
+            assert_eq!(
+                many.stdout,
+                format!("{held}\n"),
+                "{backend} {ty}: {}",
+                many.stderr
+            );
             assert_eq!(none.stdout, many.stdout, "{backend} {ty}: {}", none.stderr);
             for r in [&none, &many] {
                 assert_eq!(r.status, 0, "{backend} {ty}: {}", r.stderr);
-                assert_eq!(probed(&r.stderr).1, 0, "{backend} {ty}: blocks still live at exit");
+                assert_eq!(
+                    probed(&r.stderr).1,
+                    0,
+                    "{backend} {ty}: blocks still live at exit"
+                );
             }
             let grew = bytes(&many.stderr) - bytes(&none.stderr);
             assert_eq!(
@@ -161,7 +182,10 @@ fn a_failing_assert_prints_flags_as_the_plain_struct_on_every_backend() {
         assert_eq!(status, 1, "{context}");
         assert!(stdout.contains("0 passed, 3 failed"), "{context}");
         for line in expected {
-            assert!(stdout.contains(line), "{backend}: missing\n{line}\nin\n{stdout}\n{stderr}");
+            assert!(
+                stdout.contains(line),
+                "{backend}: missing\n{line}\nin\n{stdout}\n{stderr}"
+            );
         }
     }
 }

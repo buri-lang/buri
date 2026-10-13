@@ -160,7 +160,9 @@ impl Store {
         if let Some(Some(known)) = self.hashes.get(at) {
             return *known;
         }
-        let path = self.root.join(self.names.get(at).map_or("", String::as_str));
+        let path = self
+            .root
+            .join(self.names.get(at).map_or("", String::as_str));
         let hash = self.sources.content_hash(&path, &self.overlay);
         if let Some(slot) = self.hashes.get_mut(at) {
             *slot = Some(hash);
@@ -222,7 +224,8 @@ impl Store {
         set.sort_unstable();
         set.dedup();
         let set = std::rc::Rc::new(set);
-        self.sets.insert(key.as_str().to_string(), std::rc::Rc::clone(&set));
+        self.sets
+            .insert(key.as_str().to_string(), std::rc::Rc::clone(&set));
         Some(set)
     }
 
@@ -236,8 +239,12 @@ impl Store {
         let mut covered = vec![false; closure.len()];
         let mut children: Vec<ActionKey> = Vec::new();
         for (dep, _) in session.workspace.dep_edges(target) {
-            let Some(key) = self.nodes.get(&dep).cloned() else { continue };
-            let Some(set) = self.set_of(&key) else { continue };
+            let Some(key) = self.nodes.get(&dep).cloned() else {
+                continue;
+            };
+            let Some(set) = self.set_of(&key) else {
+                continue;
+            };
             // Both sorted: one pass says whether `set` is inside `closure`,
             // and where.
             let mut at = Vec::with_capacity(set.len());
@@ -262,12 +269,19 @@ impl Store {
             }
         }
         let mut out = NODE_FORMAT.to_vec();
-        let own: Vec<u32> =
-            closure.iter().zip(&covered).filter(|(_, c)| !**c).map(|(f, _)| *f).collect();
+        let own: Vec<u32> = closure
+            .iter()
+            .zip(&covered)
+            .filter(|(_, c)| !**c)
+            .map(|(f, _)| *f)
+            .collect();
         put_u32(&mut out, own.len() as u32);
         for f in own {
             let hash = self.hash(f);
-            put_text(&mut out, self.names.get(f as usize).map_or("", String::as_str));
+            put_text(
+                &mut out,
+                self.names.get(f as usize).map_or("", String::as_str),
+            );
             put_u64(&mut out, hash);
         }
         children.sort_by(|a, b| a.as_str().cmp(b.as_str()));
@@ -280,7 +294,8 @@ impl Store {
             self.cache.put(&key, &out);
         }
         self.holds.insert(key.as_str().to_string(), true);
-        self.sets.insert(key.as_str().to_string(), std::rc::Rc::new(closure.to_vec()));
+        self.sets
+            .insert(key.as_str().to_string(), std::rc::Rc::new(closure.to_vec()));
         key
     }
 
@@ -344,7 +359,10 @@ impl Store {
     ) {
         let key = self.key(session, target);
         self.say(Status::Run, session, target, &key);
-        let mut ids: Vec<u32> = closure.iter().map(|path| self.id_of_path(session, path)).collect();
+        let mut ids: Vec<u32> = closure
+            .iter()
+            .map(|path| self.id_of_path(session, path))
+            .collect();
         ids.sort_unstable();
         ids.dedup();
         let mut findings = Vec::new();
@@ -354,7 +372,11 @@ impl Store {
                 put_diagnostic(&mut findings, &session.map, d);
             }
         }
-        self.pending.push(Pending { target, closure: ids, findings });
+        self.pending.push(Pending {
+            target,
+            closure: ids,
+            findings,
+        });
     }
 
     /// Writes what [`Store::remember`] took. A target's node can name its
@@ -423,7 +445,14 @@ fn put_optional(out: &mut Vec<u8>, text: Option<&String>) {
 /// A span, with its file named rather than numbered: a [`FileId`] is an index
 /// into one process's source map and means nothing in the next one.
 pub(crate) fn put_span(out: &mut Vec<u8>, map: &SourceMap, span: Span) {
-    put_text(out, if span.is_none() { "" } else { map.name(span.file) });
+    put_text(
+        out,
+        if span.is_none() {
+            ""
+        } else {
+            map.name(span.file)
+        },
+    );
     put_u32(out, span.start);
     put_u32(out, span.end);
 }
@@ -483,7 +512,10 @@ impl<'a> Reader<'a> {
 
     /// A cursor past `format`, for a record that starts with it.
     pub(crate) fn after(format: &[u8], bytes: &'a [u8]) -> Option<Reader<'a>> {
-        (bytes.get(..format.len()) == Some(format)).then_some(Reader { bytes, at: format.len() })
+        (bytes.get(..format.len()) == Some(format)).then_some(Reader {
+            bytes,
+            at: format.len(),
+        })
     }
 
     fn take(&mut self, count: usize) -> Option<&'a [u8]> {
@@ -543,11 +575,7 @@ pub(crate) fn read_span(reader: &mut Reader, map: &mut SourceMap, root: &Path) -
     Some(Span { file, start, end })
 }
 
-fn read_findings(
-    reader: &mut Reader,
-    map: &mut SourceMap,
-    root: &Path,
-) -> Option<Vec<Diagnostic>> {
+fn read_findings(reader: &mut Reader, map: &mut SourceMap, root: &Path) -> Option<Vec<Diagnostic>> {
     let count = reader.u32()?;
     let mut out = Vec::new();
     for _ in 0..count {
@@ -588,13 +616,19 @@ pub(crate) fn read_diagnostic_with(
     let mut secondary_spans = Vec::new();
     for _ in 0..reader.u32()? {
         let span = read_span(reader)?;
-        secondary_spans.push(SecondarySpan { span, label: reader.text()? });
+        secondary_spans.push(SecondarySpan {
+            span,
+            label: reader.text()?,
+        });
     }
     let code = reader.optional()?;
     let mut edits = Vec::new();
     for _ in 0..reader.u32()? {
         let at = read_span(reader)?;
-        edits.push(Edit { at, replacement: reader.text()? });
+        edits.push(Edit {
+            at,
+            replacement: reader.text()?,
+        });
     }
     Some(Diagnostic {
         severity,
@@ -650,14 +684,20 @@ mod tests {
             label: Some("this import".to_string()),
             expected: Some("`Str`".to_string()),
             actual: Some("`Cents`".to_string()),
-            notes: vec!["one note".to_string(), "a note\nwith a newline in it".to_string()],
+            notes: vec![
+                "one note".to_string(),
+                "a note\nwith a newline in it".to_string(),
+            ],
             fix: Some("remove the import".to_string()),
             secondary_spans: vec![SecondarySpan {
                 span: Span::new(id, 0, 4),
                 label: "declared here".to_string(),
             }],
             code: Some("unused-import".to_string()),
-            edits: vec![Edit { at: Span::new(id, 0, 29), replacement: String::new() }],
+            edits: vec![Edit {
+                at: Span::new(id, 0, 29),
+                replacement: String::new(),
+            }],
             template: None,
         };
 
@@ -716,13 +756,20 @@ mod tests {
         put_u32(&mut bytes, 1);
         put_diagnostic(&mut bytes, &map, &d);
 
-        assert!(Reader::new(b"buri-lint-findings-0\n").is_none(), "another format was read");
+        assert!(
+            Reader::new(b"buri-lint-findings-0\n").is_none(),
+            "another format was read"
+        );
         assert!(Reader::new(b"").is_none(), "an empty file was read");
         for length in 0..bytes.len() {
-            let Some(prefix) = bytes.get(..length) else { continue };
-            let read = Reader::new(prefix)
-                .and_then(|mut r| read_findings(&mut r, &mut map, &root));
-            assert!(read.is_none(), "a record truncated to {length} bytes was read");
+            let Some(prefix) = bytes.get(..length) else {
+                continue;
+            };
+            let read = Reader::new(prefix).and_then(|mut r| read_findings(&mut r, &mut map, &root));
+            assert!(
+                read.is_none(),
+                "a record truncated to {length} bytes was read"
+            );
         }
         let _ = std::fs::remove_dir_all(&root);
     }

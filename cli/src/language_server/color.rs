@@ -12,14 +12,14 @@
 //! beside `Rgb(shade, 0, 0)` would be a guess at what `shade` is worth at run
 //! time, and a colour the server cannot compute is not one it should draw.
 
+use super::convert;
+use super::state::Analyzed;
 use crate::compiler::semantics::resolve::Sym;
 use crate::compiler::semantics::typed::{self, ExprKind};
-use crate::compiler::semantics::types::{TyConId, Tables};
+use crate::compiler::semantics::types::{Tables, TyConId};
 use crate::diagnostics::Span;
 use crate::json::Value;
 use std::path::Path;
-use super::convert;
-use super::state::Analyzed;
 
 /// A colour in the protocol's terms: four channels, each 0.0 to 1.0.
 type Rgba = [f64; 4];
@@ -45,7 +45,10 @@ pub fn document_colors(analyzed: &Analyzed, path: &Path, text: &str) -> Option<V
 
 /// The colours `document_colors` reports, by span.
 fn swatches(analyzed: &Analyzed, path: &Path) -> Option<Vec<(Span, Rgba)>> {
-    let file = analyzed.session.map.find(&analyzed.session.workspace.rel_of(path))?;
+    let file = analyzed
+        .session
+        .map
+        .find(&analyzed.session.workspace.rel_of(path))?;
     let con = color_constructor(analyzed)?;
     let tables = &analyzed.analysis.checked.tables;
 
@@ -54,7 +57,15 @@ fn swatches(analyzed: &Analyzed, path: &Path) -> Option<Vec<(Span, Rgba)>> {
         if e.span.file != file {
             return;
         }
-        let ExprKind::EnumLit { con: written, variant, args, .. } = &e.kind else { return };
+        let ExprKind::EnumLit {
+            con: written,
+            variant,
+            args,
+            ..
+        } = &e.kind
+        else {
+            return;
+        };
         if *written != con {
             return;
         }
@@ -115,10 +126,7 @@ pub fn presentations(analyzed: &Analyzed, path: &Path, text: &str, params: &Valu
                 Value::object(vec![
                     (
                         "range",
-                        Value::object(vec![
-                            ("start", start.to_json()),
-                            ("end", end.to_json()),
-                        ]),
+                        Value::object(vec![("start", start.to_json()), ("end", end.to_json())]),
                     ),
                     ("newText", Value::str(&label)),
                 ]),
@@ -134,8 +142,20 @@ pub fn presentations(analyzed: &Analyzed, path: &Path, text: &str, params: &Valu
 /// any `Color` a repository happens to define: the swatch stands for the
 /// standard library's constructors and nothing else.
 fn color_constructor(analyzed: &Analyzed) -> Option<TyConId> {
-    let index = analyzed.analysis.loaded.modules.iter().position(|m| m.path == "ui/style")?;
-    match analyzed.analysis.checked.scopes.get(index)?.own.get("Color")? {
+    let index = analyzed
+        .analysis
+        .loaded
+        .modules
+        .iter()
+        .position(|m| m.path == "ui/style")?;
+    match analyzed
+        .analysis
+        .checked
+        .scopes
+        .get(index)?
+        .own
+        .get("Color")?
+    {
         Sym::Ty(id) => Some(*id),
         _ => None,
     }

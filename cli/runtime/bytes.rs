@@ -45,8 +45,8 @@
 //!
 //! `lib.rs` §3. Every result is a fresh block; every argument is borrowed.
 
-use crate::value::{list_of_bytes, str_of, BuriList, BuriStr};
 use crate::BURI_OK;
+use crate::value::{BuriList, BuriStr, list_of_bytes, str_of};
 
 /// Borrow a `[U8]` argument. `lib.rs` §2 rule 1 flattens it to `ptr` and `len`,
 /// and `U8`'s stride is one byte, so the block *is* the slice.
@@ -168,11 +168,7 @@ pub unsafe extern "C" fn buri_rt_bytes_from_utf8(
 /// JavaScript's decoders canonicalize too (`$canonicalNan`), because whether a
 /// `number` keeps a payload depends on the engine. VALUE-MODEL.md §12 row 16.
 fn canonical(x: f64) -> f64 {
-    if x.is_nan() {
-        f64::NAN
-    } else {
-        x
-    }
+    if x.is_nan() { f64::NAN } else { x }
 }
 
 /// `bytes.f64ToBytes(ctx, x) -> [U8]` — eight octets, **little-endian**, which
@@ -223,8 +219,12 @@ pub unsafe extern "C" fn buri_rt_bytes_f64_from_bytes(
 ) -> i32 {
     // SAFETY: the caller promises the range.
     let b = unsafe { octets(ptr, len) };
-    let Ok(start) = usize::try_from(at) else { return 0 };
-    let Some(window) = b.get(start..start.saturating_add(8)) else { return 0 };
+    let Ok(start) = usize::try_from(at) else {
+        return 0;
+    };
+    let Some(window) = b.get(start..start.saturating_add(8)) else {
+        return 0;
+    };
     let mut raw = [0u8; 8];
     raw.copy_from_slice(window);
     // SAFETY: the caller promises a writable, aligned destination.
@@ -249,8 +249,12 @@ pub unsafe extern "C" fn buri_rt_bytes_f32_from_bytes(
 ) -> i32 {
     // SAFETY: the caller promises the range.
     let b = unsafe { octets(ptr, len) };
-    let Ok(start) = usize::try_from(at) else { return 0 };
-    let Some(window) = b.get(start..start.saturating_add(4)) else { return 0 };
+    let Ok(start) = usize::try_from(at) else {
+        return 0;
+    };
+    let Some(window) = b.get(start..start.saturating_add(4)) else {
+        return 0;
+    };
     let mut raw = [0u8; 4];
     raw.copy_from_slice(window);
     let widened = f64::from(f32::from_bits(u32::from_le_bytes(raw)));
@@ -268,7 +272,12 @@ mod tests {
         let mut err = 0i64;
         // SAFETY: both destinations are live locals, and the slice is live.
         let disc = unsafe {
-            buri_rt_bytes_from_utf8(bytes.as_ptr(), bytes.len() as u64, &raw mut out, &raw mut err)
+            buri_rt_bytes_from_utf8(
+                bytes.as_ptr(),
+                bytes.len() as u64,
+                &raw mut out,
+                &raw mut err,
+            )
         };
         if disc == BURI_OK {
             // SAFETY: the entry wrote a live `Str`.
@@ -313,7 +322,10 @@ mod tests {
 
     #[test]
     fn the_float_patterns_are_little_endian() {
-        let mut list = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut list = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         // SAFETY: `list` is a live local.
         unsafe { buri_rt_bytes_f64_to_bytes(1.0, &raw mut list) };
         // SAFETY: the entry wrote a live block of eight octets.
@@ -322,24 +334,31 @@ mod tests {
 
         let mut back = 0f64;
         // SAFETY: the slice and the destination are live.
-        let disc = unsafe {
-            buri_rt_bytes_f64_from_bytes(bytes.as_ptr(), 8, 0, &raw mut back)
-        };
+        let disc = unsafe { buri_rt_bytes_f64_from_bytes(bytes.as_ptr(), 8, 0, &raw mut back) };
         assert_eq!(disc, BURI_OK);
         assert!((back - 1.0).abs() < f64::EPSILON);
 
         // Short, and negative: both are `.None` rather than an abort.
         // SAFETY: as above.
-        assert_eq!(unsafe { buri_rt_bytes_f64_from_bytes(bytes.as_ptr(), 8, 1, &raw mut back) }, 0);
+        assert_eq!(
+            unsafe { buri_rt_bytes_f64_from_bytes(bytes.as_ptr(), 8, 1, &raw mut back) },
+            0
+        );
         // SAFETY: as above.
-        assert_eq!(unsafe { buri_rt_bytes_f64_from_bytes(bytes.as_ptr(), 8, -1, &raw mut back) }, 0);
+        assert_eq!(
+            unsafe { buri_rt_bytes_f64_from_bytes(bytes.as_ptr(), 8, -1, &raw mut back) },
+            0
+        );
         // SAFETY: the block the entry wrote, held by nothing else.
         unsafe { crate::memory::buri_rt_free(list.ptr) };
     }
 
     #[test]
     fn a_thirty_two_bit_pattern_is_four_octets_and_widens_back() {
-        let mut list = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut list = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         // SAFETY: `list` is a live local.
         unsafe { buri_rt_bytes_f32_to_bytes(-2.5, &raw mut list) };
         // SAFETY: the entry wrote a live block of four octets.
@@ -347,9 +366,7 @@ mod tests {
         assert_eq!(bytes, &[0, 0, 0x20, 0xC0]);
         let mut back = 0f64;
         // SAFETY: the slice and the destination are live.
-        let disc = unsafe {
-            buri_rt_bytes_f32_from_bytes(bytes.as_ptr(), 4, 0, &raw mut back)
-        };
+        let disc = unsafe { buri_rt_bytes_f32_from_bytes(bytes.as_ptr(), 4, 0, &raw mut back) };
         assert_eq!(disc, BURI_OK);
         assert!((back + 2.5).abs() < f64::EPSILON);
         // SAFETY: the block the entry wrote, held by nothing else.
@@ -373,7 +390,10 @@ mod tests {
             assert_eq!(disc, BURI_OK);
             assert_eq!(back.to_bits(), f64::NAN.to_bits());
 
-            let mut list = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+            let mut list = BuriList {
+                ptr: std::ptr::null_mut(),
+                len: 0,
+            };
             // SAFETY: `list` is a live local.
             unsafe { buri_rt_bytes_f64_to_bytes(back, &raw mut list) };
             // SAFETY: the entry wrote a live block of eight octets.
@@ -395,7 +415,10 @@ mod tests {
         assert_eq!(disc, BURI_OK);
         assert_eq!(back.to_bits(), f64::NAN.to_bits());
 
-        let mut list = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        let mut list = BuriList {
+            ptr: std::ptr::null_mut(),
+            len: 0,
+        };
         // SAFETY: `list` is a live local.
         unsafe { buri_rt_bytes_f32_to_bytes(back, &raw mut list) };
         // SAFETY: the entry wrote a live block of four octets.

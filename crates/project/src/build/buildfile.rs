@@ -32,7 +32,10 @@ impl<T> Spanned<T> {
 
 impl<T: Default> Default for Spanned<T> {
     fn default() -> Spanned<T> {
-        Spanned { value: T::default(), span: Span::NONE }
+        Spanned {
+            value: T::default(),
+            span: Span::NONE,
+        }
     }
 }
 
@@ -108,13 +111,21 @@ impl Platform {
         self.backend() == Backend::Native
     }
 
-    pub const ALL: [Platform; 4] = [Platform::Linux, Platform::Macos, Platform::Js, Platform::Web];
+    pub const ALL: [Platform; 4] = [
+        Platform::Linux,
+        Platform::Macos,
+        Platform::Js,
+        Platform::Web,
+    ];
 
     /// `native, node, web`: the bundled platforms, as a diagnostic lists them.
     pub fn names_phrase() -> String {
-        PlatformName::BUNDLED.iter().map(|p| p.name()).collect::<Vec<_>>().join(", ")
+        PlatformName::BUNDLED
+            .iter()
+            .map(|p| p.name())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
-
 }
 
 /// How a program is compiled. Closed: a backend is built into the CLI.
@@ -160,7 +171,8 @@ pub enum PlatformName {
 }
 
 impl PlatformName {
-    pub const BUNDLED: [PlatformName; 3] = [PlatformName::Native, PlatformName::Node, PlatformName::Web];
+    pub const BUNDLED: [PlatformName; 3] =
+        [PlatformName::Native, PlatformName::Node, PlatformName::Web];
 
     /// A bundled platform by its bare name.
     pub fn bundled(s: &str) -> Option<PlatformName> {
@@ -220,7 +232,9 @@ impl PlatformName {
 
     /// The names of the platform's entries.
     pub fn entries(self) -> Vec<&'static str> {
-        self.rule().map(|r| r.entries.iter().map(|e| e.name.value.as_str()).collect()).unwrap_or_default()
+        self.rule()
+            .map(|r| r.entries.iter().map(|e| e.name.value.as_str()).collect())
+            .unwrap_or_default()
     }
 }
 
@@ -288,7 +302,9 @@ impl PlatformRef {
     /// Whether this names the platform `output` is built for.
     pub fn names(&self, output: &OutputPlatform) -> bool {
         match (self, output) {
-            (PlatformRef::Bundled(p), OutputPlatform::Bundled(built)) => p.platforms().contains(built),
+            (PlatformRef::Bundled(p), OutputPlatform::Bundled(built)) => {
+                p.platforms().contains(built)
+            }
             (PlatformRef::Repository(label), OutputPlatform::Repository { label: built, .. }) => {
                 label == built
             }
@@ -344,7 +360,9 @@ impl Admitted {
     pub fn naming(&self, platform: &OutputPlatform) -> Option<&str> {
         let backend = self.backends.iter().find(|b| b.value == platform.backend());
         let named = self.platforms.iter().find(|p| p.value.names(platform));
-        backend.map(|b| b.value.proto()).or(named.map(|p| p.value.name()))
+        backend
+            .map(|b| b.value.proto())
+            .or(named.map(|p| p.value.name()))
     }
 
     /// `backends NATIVE`, `platforms web`: the lists as a note writes them.
@@ -419,7 +437,10 @@ pub fn native_variant(variant: &str) -> Option<(NativePlatform, Arch)> {
 pub enum OutputTarget {
     /// `arch` is `None` for an output the CLI made up, which builds for the
     /// host's architecture.
-    Native { platform: NativePlatform, arch: Option<Spanned<Arch>> },
+    Native {
+        platform: NativePlatform,
+        arch: Option<Spanned<Arch>>,
+    },
     Js,
     Web,
 }
@@ -466,19 +487,31 @@ pub struct CustomPlatform {
 impl CustomPlatform {
     /// `cloudflare_worker`: the platform's directory under `platform/`.
     pub fn name(&self) -> &str {
-        self.label.value.strip_prefix("//platform/").unwrap_or(&self.label.value)
+        self.label
+            .value
+            .strip_prefix("//platform/")
+            .unwrap_or(&self.label.value)
     }
 
     /// `platform/cloudflare_worker`: the platform's package path.
     pub fn package_path(&self) -> &str {
-        self.label.value.strip_prefix("//").unwrap_or(&self.label.value)
+        self.label
+            .value
+            .strip_prefix("//")
+            .unwrap_or(&self.label.value)
     }
 }
 
 impl Output {
     /// The default output, `node`.
     pub fn js(span: Span) -> Output {
-        Output { target: OutputTarget::Js, artifact_name: None, entry: None, custom: None, span }
+        Output {
+            target: OutputTarget::Js,
+            artifact_name: None,
+            entry: None,
+            custom: None,
+            span,
+        }
     }
 
     /// An output for a platform chosen at run time, as `buri test` does. A
@@ -486,15 +519,23 @@ impl Output {
     pub fn for_platform(platform: Platform, span: Span) -> Output {
         let target = match platform {
             Platform::Js => OutputTarget::Js,
-            Platform::Linux => {
-                OutputTarget::Native { platform: NativePlatform::Linux, arch: None }
-            }
-            Platform::Macos => {
-                OutputTarget::Native { platform: NativePlatform::Macos, arch: None }
-            }
+            Platform::Linux => OutputTarget::Native {
+                platform: NativePlatform::Linux,
+                arch: None,
+            },
+            Platform::Macos => OutputTarget::Native {
+                platform: NativePlatform::Macos,
+                arch: None,
+            },
             Platform::Web => OutputTarget::Web,
         };
-        Output { target, artifact_name: None, entry: None, custom: None, span }
+        Output {
+            target,
+            artifact_name: None,
+            entry: None,
+            custom: None,
+            span,
+        }
     }
 
     pub fn platform(&self) -> Platform {
@@ -517,9 +558,10 @@ impl Output {
     /// What this output is built for, as a library's and a tag's lists see it.
     pub fn output_platform(&self) -> OutputPlatform {
         match &self.custom {
-            Some(custom) => {
-                OutputPlatform::Repository { label: custom.label.value.clone(), backend: custom.backend }
-            }
+            Some(custom) => OutputPlatform::Repository {
+                label: custom.label.value.clone(),
+                backend: custom.backend,
+            },
             None => OutputPlatform::Bundled(self.platform()),
         }
     }
@@ -535,7 +577,9 @@ impl Output {
 
     /// The function this output enters through.
     pub fn entry_name(&self) -> &str {
-        self.entry.as_ref().map_or(self.entry_point(), |e| e.value.as_str())
+        self.entry
+            .as_ref()
+            .map_or(self.entry_point(), |e| e.value.as_str())
     }
 
     pub fn arch(&self) -> Option<Arch> {
@@ -700,7 +744,9 @@ impl Tool {
 
     /// Every contract, over both entry points.
     pub fn contracts(&self) -> impl Iterator<Item = &Accepts> {
-        self.check_accepts.iter().chain(self.generate_accepts.iter())
+        self.check_accepts
+            .iter()
+            .chain(self.generate_accepts.iter())
     }
 }
 
@@ -758,8 +804,14 @@ pub fn check_variant(
         ),
         Some(v) if !variants.contains(&v.value.as_str()) => {
             let (available, fix) = match variants.first() {
-                None => (format!("`{platform}` has no variants"), "remove `variant`".to_string()),
-                Some(first) => (format!("available: {}", variants.join(", ")), format!("write `variant: \"{first}\"`")),
+                None => (
+                    format!("`{platform}` has no variants"),
+                    "remove `variant`".to_string(),
+                ),
+                Some(first) => (
+                    format!("available: {}", variants.join(", ")),
+                    format!("write `variant: \"{first}\"`"),
+                ),
             };
             let mut d = Diagnostic::templated("unknown-platform-variant", v.span)
                 .with_bind("variant", v.value.clone())
@@ -778,9 +830,14 @@ pub fn check_variant(
 /// Holds an output's `artifact_name` to its platform: a platform with assets
 /// names each artifact after its entry, because the assets load it by that
 /// name, as `web`'s `index.html` loads `/main.mjs`.
-pub fn check_artifact_name(platform: &str, rule: &PlatformRule, name: &Spanned<String>) -> Option<Diagnostic> {
-    (!rule.assets.is_empty())
-        .then(|| Diagnostic::templated("misplaced-artifact-name", name.span).with_bind("platform", platform))
+pub fn check_artifact_name(
+    platform: &str,
+    rule: &PlatformRule,
+    name: &Spanned<String>,
+) -> Option<Diagnostic> {
+    (!rule.assets.is_empty()).then(|| {
+        Diagnostic::templated("misplaced-artifact-name", name.span).with_bind("platform", platform)
+    })
 }
 
 /// Holds an output's `variant` to each of its platform's entries: an entry
@@ -792,7 +849,10 @@ pub fn check_entry_variants(
     variant: Option<&Spanned<String>>,
 ) -> Option<Diagnostic> {
     let v = variant?;
-    let refusing = rule.entries.iter().find(|e| !e.variants.iter().any(|known| known.value == v.value))?;
+    let refusing = rule
+        .entries
+        .iter()
+        .find(|e| !e.variants.iter().any(|known| known.value == v.value))?;
     let (available, fix) = match refusing.variants.first() {
         None => (
             format!("its entry `{}` has no variants", refusing.name.value),
@@ -801,8 +861,15 @@ pub fn check_entry_variants(
         Some(_) => {
             let names: Vec<&str> = refusing.variants.iter().map(|k| k.value.as_str()).collect();
             (
-                format!("its entry `{}` declares: {}", refusing.name.value, names.join(", ")),
-                format!("name a variant every entry declares, or add `{}` to `{}`'s", v.value, refusing.name.value),
+                format!(
+                    "its entry `{}` declares: {}",
+                    refusing.name.value,
+                    names.join(", ")
+                ),
+                format!(
+                    "name a variant every entry declares, or add `{}` to `{}`'s",
+                    v.value, refusing.name.value
+                ),
             )
         }
     };
@@ -845,7 +912,10 @@ pub fn check_entries(
             continue;
         }
         if filled.contains(&name.value.as_str()) {
-            errors.push(Diagnostic::templated("duplicate-entry", name.span).with_bind("entry", name.value.clone()));
+            errors.push(
+                Diagnostic::templated("duplicate-entry", name.span)
+                    .with_bind("entry", name.value.clone()),
+            );
             continue;
         }
         filled.push(&name.value);
@@ -858,7 +928,10 @@ pub fn check_entries(
             && s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
             && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
         if !ok {
-            errors.push(Diagnostic::templated("invalid-entry-function", function.span).with_bind("function", s.clone()));
+            errors.push(
+                Diagnostic::templated("invalid-entry-function", function.span)
+                    .with_bind("function", s.clone()),
+            );
             continue;
         }
         passed.push((name.clone(), function.clone()));
@@ -1033,7 +1106,9 @@ impl Reader {
     /// `.bind(…)` for each `{placeholder}` the page names.
     fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
         self.errors.push(Diagnostic::templated(code, span));
-        self.errors.last_mut().or_ice("the diagnostic just pushed is the last one")
+        self.errors
+            .last_mut()
+            .or_ice("the diagnostic just pushed is the last one")
     }
 
     /// The common shape: a field holds one kind of value and was given
@@ -1050,13 +1125,7 @@ impl Reader {
     /// known field when there is one.
     ///
     /// `skip` is passed over here and answered where the block is read.
-    fn check_known(
-        &mut self,
-        message: &Message,
-        known: &[&str],
-        skip: &[&str],
-        what: &str,
-    ) {
+    fn check_known(&mut self, message: &Message, known: &[&str], skip: &[&str], what: &str) {
         for f in &message.fields {
             if skip.contains(&f.name.as_str()) {
                 continue;
@@ -1069,7 +1138,11 @@ impl Reader {
                     .bind("block", what)
                     .bind(
                         "known_fields",
-                        if known.is_empty() { "nothing".to_string() } else { known.join(", ") },
+                        if known.is_empty() {
+                            "nothing".to_string()
+                        } else {
+                            known.join(", ")
+                        },
                     );
                 // A near miss replaces the page's fix: the two sentences share
                 // no phrase, and it is one rule with one message.
@@ -1199,7 +1272,9 @@ impl Reader {
                 Some(p) => Some(Spanned::new(p, *sp)),
                 None => {
                     let names: Vec<&str> = PlatformName::BUNDLED.iter().map(|p| p.name()).collect();
-                    let d = self.templated("unknown-platform", *sp).bind("platform", s.clone());
+                    let d = self
+                        .templated("unknown-platform", *sp)
+                        .bind("platform", s.clone());
                     if let Some(n) = nearest(s, &names) {
                         d.fix(format!("did you mean `\"{n}\"`?"));
                     }
@@ -1207,7 +1282,8 @@ impl Reader {
                 }
             },
             Value::Ident(s, sp) => {
-                self.templated("unknown-platform", *sp).bind("platform", s.clone());
+                self.templated("unknown-platform", *sp)
+                    .bind("platform", s.clone());
                 None
             }
             other => {
@@ -1233,7 +1309,8 @@ impl Reader {
                         out.push(Spanned::new(PlatformRef::Repository(label.clone()), *sp));
                     }
                     _ => out.extend(
-                        self.platform_name(item).map(|p| Spanned::new(PlatformRef::Bundled(p.value), p.span)),
+                        self.platform_name(item)
+                            .map(|p| Spanned::new(PlatformRef::Bundled(p.value), p.span)),
                     ),
                 }
             }
@@ -1242,7 +1319,10 @@ impl Reader {
     }
 
     fn admitted(&mut self, message: &Message) -> Admitted {
-        Admitted { backends: self.backends(message), platforms: self.platform_refs(message) }
+        Admitted {
+            backends: self.backends(message),
+            platforms: self.platform_refs(message),
+        }
     }
 
     /// A tag's two lists: each names a backend or a platform once, and none is
@@ -1290,7 +1370,8 @@ impl Reader {
                 // The sentence is the parser's: it names which of the five
                 // forms the entry came closest to.
                 Err(why) => {
-                    self.templated("unknown-visibility", entry.span).bind("problem", why);
+                    self.templated("unknown-visibility", entry.span)
+                        .bind("problem", why);
                 }
             }
         }
@@ -1307,7 +1388,12 @@ impl Reader {
     /// with the nearest rule offered as the fix.
     fn lint_rules(&mut self, message: &Message) -> LintRules {
         use crate::documentation::lints;
-        self.check_known(message, textproto::schema_order("rules"), &[], "a `rules` block");
+        self.check_known(
+            message,
+            textproto::schema_order("rules"),
+            &[],
+            "a `rules` block",
+        );
         let mut rules = LintRules::default();
         if let Some(f) = message.get("default") {
             match &f.value {
@@ -1361,14 +1447,21 @@ impl Reader {
                 self.wrong_kind(f.value.span(), "language", "a block", &kind);
                 continue;
             };
-            self.check_known(m, textproto::schema_order("language"), &[], "a `language` block");
+            self.check_known(
+                m,
+                textproto::schema_order("language"),
+                &[],
+                "a `language` block",
+            );
             let Some(name) = self.spanned_string(m, "name") else {
                 if m.get("name").is_none() {
                     self.templated("language-missing-name", *span);
                 }
                 continue;
             };
-            let built_in = languages.named(&name.value).is_some_and(crate::languages::Language::is_built_in);
+            let built_in = languages
+                .named(&name.value)
+                .is_some_and(crate::languages::Language::is_built_in);
             if built_in {
                 for tool in ["check", "format", "generate"] {
                     if let Some(field) = m.get(tool) {
@@ -1385,11 +1478,12 @@ impl Reader {
                     continue;
                 }
                 declared.push((name.value.clone(), name.span));
-                let mut tool = |field: &str| {
-                    self.spanned_string(m, field)
+                let mut tool = |field: &str| self.spanned_string(m, field);
+                let tools = Tools {
+                    check: tool("check"),
+                    format: tool("format"),
+                    generate: tool("generate"),
                 };
-                let tools =
-                    Tools { check: tool("check"), format: tool("format"), generate: tool("generate") };
                 languages.all.push(Language {
                     name: name.value.clone(),
                     extensions: Vec::new(),
@@ -1403,15 +1497,16 @@ impl Reader {
                     && !e.contains('/')
                     && !e.contains(char::is_whitespace);
                 if !valid {
-                    self.templated("invalid-extension", extension.span).bind("extension", e.clone());
+                    self.templated("invalid-extension", extension.span)
+                        .bind("extension", e.clone());
                     continue;
                 }
-                let owner = languages
-                    .all
-                    .iter()
-                    .find_map(|l| {
-                        l.extensions.iter().find(|x| x.value == *e).map(|x| (l.name.clone(), x.span))
-                    });
+                let owner = languages.all.iter().find_map(|l| {
+                    l.extensions
+                        .iter()
+                        .find(|x| x.value == *e)
+                        .map(|x| (l.name.clone(), x.span))
+                });
                 if let Some((owner, first)) = owner {
                     let d = self
                         .templated("duplicate-extension", extension.span)
@@ -1448,18 +1543,28 @@ impl Reader {
                     self.wrong_kind(item.span(), "accepts", "a block", &kind);
                     continue;
                 };
-                self.check_known(m, textproto::schema_order("accepts"), &[], "an `accepts` entry");
+                self.check_known(
+                    m,
+                    textproto::schema_order("accepts"),
+                    &[],
+                    "an `accepts` entry",
+                );
                 let language = self.spanned_string(m, "language");
                 let type_schema = self.spanned_string(m, "type_schema");
                 let (Some(language), Some(type_schema)) = (language, type_schema) else {
                     for field in ["language", "type_schema"] {
                         if m.get(field).is_none() {
-                            self.templated("accepts-missing-field", *span).bind("field", field);
+                            self.templated("accepts-missing-field", *span)
+                                .bind("field", field);
                         }
                     }
                     continue;
                 };
-                out.push(Accepts { language, type_schema, span: *span });
+                out.push(Accepts {
+                    language,
+                    type_schema,
+                    span: *span,
+                });
             }
         }
         out
@@ -1491,7 +1596,12 @@ impl Reader {
 
     fn testing_surface(&mut self, parent: &Message) -> Option<TestingSurface> {
         let (m, span) = self.sub_message(parent, "testing")?;
-        self.check_known(m, textproto::schema_order("testing"), &[], "a `testing` block");
+        self.check_known(
+            m,
+            textproto::schema_order("testing"),
+            &[],
+            "a `testing` block",
+        );
         Some(TestingSurface {
             sources: self.strings(m, "sources"),
             dependencies: self.strings(m, "dependencies"),
@@ -1535,7 +1645,11 @@ impl Reader {
                         continue;
                     }
                 };
-                out.push(Generator { tool, inputs, span: *span });
+                out.push(Generator {
+                    tool,
+                    inputs,
+                    span: *span,
+                });
             }
         }
         out
@@ -1601,7 +1715,13 @@ impl Reader {
 
         let variants = platform.value.variants();
         let required = platform.value.variant_required();
-        if let Some(d) = check_variant(platform.value.name(), &variants, required, variant.as_ref(), span) {
+        if let Some(d) = check_variant(
+            platform.value.name(),
+            &variants,
+            required,
+            variant.as_ref(),
+            span,
+        ) {
             self.errors.push(d);
             return None;
         }
@@ -1611,9 +1731,12 @@ impl Reader {
                 return None;
             }
         }
-        let arch = variant
-            .as_ref()
-            .and_then(|v| v.value.split_once('-').and_then(|(_, a)| Arch::parse(a)).map(|a| Spanned::new(a, v.span)));
+        let arch = variant.as_ref().and_then(|v| {
+            v.value
+                .split_once('-')
+                .and_then(|(_, a)| Arch::parse(a))
+                .map(|a| Spanned::new(a, v.span))
+        });
 
         let items = self.entry_items(m, &entry_names);
         let (passed, errors) = check_entries(platform.value.name(), &entry_names, &items);
@@ -1632,7 +1755,13 @@ impl Reader {
                 OutputTarget::Native { platform: os, arch }
             }
         };
-        Some(Output { target, artifact_name, entry, custom: None, span })
+        Some(Output {
+            target,
+            artifact_name,
+            entry,
+            custom: None,
+            span,
+        })
     }
 
     /// `entries: [{ name: "main", function: "mainForNode" }]`, as written:
@@ -1652,14 +1781,30 @@ impl Reader {
                     self.wrong_kind(item.span(), "entries", "a block", &kind);
                     continue;
                 };
-                self.check_known(e, textproto::schema_order("entries"), &[], "an `entries` item");
-                let (Some(name), Some(function)) =
-                    (self.spanned_string(e, "name"), self.spanned_string(e, "function"))
-                else {
-                    let missing = if e.get("name").is_none() { "name" } else { "function" };
+                self.check_known(
+                    e,
+                    textproto::schema_order("entries"),
+                    &[],
+                    "an `entries` item",
+                );
+                let (Some(name), Some(function)) = (
+                    self.spanned_string(e, "name"),
+                    self.spanned_string(e, "function"),
+                ) else {
+                    let missing = if e.get("name").is_none() {
+                        "name"
+                    } else {
+                        "function"
+                    };
                     if e.get(missing).is_none() {
-                        let example = if missing == "name" { names.first().copied().unwrap_or("main") } else { "main" };
-                        self.templated("entry-missing-field", *span).bind("field", missing).bind("example", example);
+                        let example = if missing == "name" {
+                            names.first().copied().unwrap_or("main")
+                        } else {
+                            "main"
+                        };
+                        self.templated("entry-missing-field", *span)
+                            .bind("field", missing)
+                            .bind("example", example);
                     }
                     continue;
                 };
@@ -1671,7 +1816,12 @@ impl Reader {
 
     /// A `platform` rule.
     fn platform_rule(&mut self, m: &Message, span: Span) -> PlatformRule {
-        self.check_known(m, textproto::schema_order("platform"), &[], "a `platform` rule");
+        self.check_known(
+            m,
+            textproto::schema_order("platform"),
+            &[],
+            "a `platform` rule",
+        );
         let mut entries = Vec::new();
         for f in m.all("entry") {
             let Value::Message(e, entry_span) = &f.value else {
@@ -1714,21 +1864,29 @@ impl Reader {
                         .bind("example", example);
                 }
             }
-            let (Some(name), Some(backend)) = (name, backend) else { continue };
-            if entries.iter().any(|known: &PlatformEntry| known.name.value == name.value) {
-                self.templated("duplicate-platform-entry", name.span).bind("entry", name.value.clone());
+            let (Some(name), Some(backend)) = (name, backend) else {
+                continue;
+            };
+            if entries
+                .iter()
+                .any(|known: &PlatformEntry| known.name.value == name.value)
+            {
+                self.templated("duplicate-platform-entry", name.span)
+                    .bind("entry", name.value.clone());
                 continue;
             }
             if backend.value == Backend::Native {
                 if let Some(js) = &js {
-                    self.templated("js-outside-js-entry", js.span).bind("entry", name.value.clone());
+                    self.templated("js-outside-js-entry", js.span)
+                        .bind("entry", name.value.clone());
                     continue;
                 }
                 // A native variant is the target triple, so it has to say one.
                 let mut malformed = false;
                 for v in &variants {
                     if native_variant(&v.value).is_none() {
-                        self.templated("invalid-platform-variant", v.span).bind("variant", v.value.clone());
+                        self.templated("invalid-platform-variant", v.span)
+                            .bind("variant", v.value.clone());
                         malformed = true;
                     }
                 }
@@ -1736,7 +1894,14 @@ impl Reader {
                     continue;
                 }
             }
-            entries.push(PlatformEntry { name, backend, js, variants, variant_required, span: *entry_span });
+            entries.push(PlatformEntry {
+                name,
+                backend,
+                js,
+                variants,
+                variant_required,
+                span: *entry_span,
+            });
         }
         if m.all("entry").next().is_none() {
             self.templated("platform-missing-entry", span);
@@ -1808,12 +1973,19 @@ pub struct ReadResult<T> {
 
 pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     let parsed = textproto::parse(text, file);
-    let mut reader = Reader { errors: parsed.errors };
+    let mut reader = Reader {
+        errors: parsed.errors,
+    };
     let message = parsed.document.as_message();
     reader.check_known(&message, BUILD_FILE_RULES, &[], "a build file");
 
     let library = reader.sub_message(&message, "library").map(|(m, span)| {
-        reader.check_known(m, textproto::schema_order("library"), &[], "a `library` rule");
+        reader.check_known(
+            m,
+            textproto::schema_order("library"),
+            &[],
+            "a `library` rule",
+        );
         Library {
             sources: reader.strings(m, "sources"),
             generators: reader.generators(m),
@@ -1832,7 +2004,12 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         // says — and no `visibility`, because nothing can depend on a binary.
         // The two fields reported below get that one diagnostic, not a second
         // `build-unknown-field` on the same span.
-        reader.check_known(m, textproto::schema_order("binary"), &["platforms", "visibility"], "a `binary` rule");
+        reader.check_known(
+            m,
+            textproto::schema_order("binary"),
+            &["platforms", "visibility"],
+            "a `binary` rule",
+        );
         for bad in ["platforms", "visibility"] {
             if let Some(f) = m.get(bad) {
                 let note = if bad == "platforms" {
@@ -1863,7 +2040,12 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         reader.check_known(m, textproto::schema_order("tool"), &[], "a `tool` rule");
         let mut block = |name: &str| {
             let (b, span) = reader.sub_message(m, name)?;
-            reader.check_known(b, textproto::schema_order(name), &[], &format!("a `{name}` block"));
+            reader.check_known(
+                b,
+                textproto::schema_order(name),
+                &[],
+                &format!("a `{name}` block"),
+            );
             let accepts = reader.accepts(b);
             Some((span, accepts))
         };
@@ -1881,10 +2063,17 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         }
     });
 
-    let platform = reader.sub_message(&message, "platform").map(|(m, span)| reader.platform_rule(m, span));
+    let platform = reader
+        .sub_message(&message, "platform")
+        .map(|(m, span)| reader.platform_rule(m, span));
 
     ReadResult {
-        value: BuildFile { library, binary, tool, platform },
+        value: BuildFile {
+            library,
+            binary,
+            tool,
+            platform,
+        },
         document: parsed.document,
         errors: reader.errors,
     }
@@ -1892,7 +2081,9 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
 
 pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
     let parsed = textproto::parse(text, file);
-    let mut reader = Reader { errors: parsed.errors };
+    let mut reader = Reader {
+        errors: parsed.errors,
+    };
     let message = parsed.document.as_message();
     reader.check_known(&message, REPO_FILE_RULES, &[], "REPO.buri");
 
@@ -1920,14 +2111,24 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         let mut forbids_tags = Vec::new();
         let mut forbids = Admitted::default();
         if let Some((block, _)) = reader.sub_message(m, "forbids") {
-            reader.check_known(block, textproto::schema_order("forbids"), &[], "a `forbids` block");
+            reader.check_known(
+                block,
+                textproto::schema_order("forbids"),
+                &[],
+                "a `forbids` block",
+            );
             forbids_tags = reader.strings(block, "tags");
             forbids = reader.admitted(block);
         }
 
         let mut requires = Admitted::default();
         if let Some((block, _)) = reader.sub_message(m, "requires") {
-            reader.check_known(block, textproto::schema_order("requires"), &[], "a `requires` block");
+            reader.check_known(
+                block,
+                textproto::schema_order("requires"),
+                &[],
+                "a `requires` block",
+            );
             if let Some(t) = block.get("tags") {
                 reader.templated("tags-under-requires", t.name_span);
             }
@@ -1970,7 +2171,11 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
     let languages = reader.languages(&parsed.document);
 
     ReadResult {
-        value: RepoConfig { tags, lint, languages },
+        value: RepoConfig {
+            tags,
+            lint,
+            languages,
+        },
         document: parsed.document,
         errors: reader.errors,
     }
@@ -1988,8 +2193,11 @@ mod tests {
     /// is what makes the union a fact rather than a comment.
     #[test]
     fn the_two_top_level_lists_are_the_formatter_s_union() {
-        let mut halves: Vec<&str> =
-            BUILD_FILE_RULES.iter().chain(REPO_FILE_RULES).copied().collect();
+        let mut halves: Vec<&str> = BUILD_FILE_RULES
+            .iter()
+            .chain(REPO_FILE_RULES)
+            .copied()
+            .collect();
         halves.sort_unstable();
         let mut whole: Vec<&str> = textproto::schema_order("").to_vec();
         whole.sort_unstable();
@@ -2012,7 +2220,10 @@ library {
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
         let lib = read.value.library.unwrap();
         assert_eq!(lib.sources.len(), 2);
-        assert_eq!(lib.visibility[0].value, crate::build::workspace::Visibility::Public);
+        assert_eq!(
+            lib.visibility[0].value,
+            crate::build::workspace::Visibility::Public
+        );
         assert_eq!(lib.test.unwrap().sources.len(), 1);
     }
 
@@ -2056,7 +2267,11 @@ library {
     }
 
     fn codes(src: &str) -> Vec<String> {
-        read_build_file(src, FileId(0)).errors.iter().filter_map(|e| e.code.clone()).collect()
+        read_build_file(src, FileId(0))
+            .errors
+            .iter()
+            .filter_map(|e| e.code.clone())
+            .collect()
     }
 
     #[test]
@@ -2071,7 +2286,10 @@ library {
             codes("binary {\n  outputs: [{ platform: \"node\", variant: \"linux-arm64\" }]\n}\n"),
             ["unknown-platform-variant"]
         );
-        assert_eq!(codes("binary {\n  outputs: [{ platform: \"deno\" }]\n}\n"), ["unknown-platform"]);
+        assert_eq!(
+            codes("binary {\n  outputs: [{ platform: \"deno\" }]\n}\n"),
+            ["unknown-platform"]
+        );
     }
 
     /// An unknown variant names every one there is.
@@ -2083,7 +2301,10 @@ library {
         );
         let d = &read.errors[0];
         assert_eq!(d.message, "`linux-mips` is not a variant of `native`");
-        assert_eq!(d.notes, ["available: linux-arm64, linux-x86_64, macos-arm64, macos-x86_64"]);
+        assert_eq!(
+            d.notes,
+            ["available: linux-arm64, linux-x86_64, macos-arm64, macos-x86_64"]
+        );
 
         let read = read_build_file(
             "binary {\n  outputs: [{ platform: \"node\", variant: \"linux-arm64\" }]\n}\n",
@@ -2095,28 +2316,45 @@ library {
     #[test]
     fn entries_are_a_list_of_names_and_functions() {
         let one = |entries: &str| {
-            codes(&format!("binary {{\n  outputs: [{{ platform: \"node\", entries: [{entries}] }}]\n}}\n"))
+            codes(&format!(
+                "binary {{\n  outputs: [{{ platform: \"node\", entries: [{entries}] }}]\n}}\n"
+            ))
         };
         assert!(one("{ name: \"main\", function: \"run\" }").is_empty());
-        assert_eq!(one("{ name: \"fetch\", function: \"go\" }"), ["unknown-entry"]);
+        assert_eq!(
+            one("{ name: \"fetch\", function: \"go\" }"),
+            ["unknown-entry"]
+        );
         assert_eq!(
             one("{ name: \"main\", function: \"a\" }, { name: \"main\", function: \"b\" }"),
             ["duplicate-entry"]
         );
         assert_eq!(one("{ function: \"run\" }"), ["entry-missing-field"]);
         assert_eq!(one("{ name: \"main\" }"), ["entry-missing-field"]);
-        assert_eq!(one("{ main: \"run\" }"), ["build-unknown-field", "entry-missing-field"]);
+        assert_eq!(
+            one("{ main: \"run\" }"),
+            ["build-unknown-field", "entry-missing-field"]
+        );
     }
 
     /// A library's list names a repository platform by its label, kept as
     /// written for the workspace to check.
     #[test]
     fn a_list_names_a_repository_platform_by_label() {
-        let read = read_build_file("library {\n  platforms: [\"//platform/worker\", \"web\"]\n}\n", FileId(0));
+        let read = read_build_file(
+            "library {\n  platforms: [\"//platform/worker\", \"web\"]\n}\n",
+            FileId(0),
+        );
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
         let admits = read.value.library.unwrap().admits;
-        let worker = OutputPlatform::Repository { label: "//platform/worker".into(), backend: Backend::Js };
-        let other = OutputPlatform::Repository { label: "//platform/other".into(), backend: Backend::Js };
+        let worker = OutputPlatform::Repository {
+            label: "//platform/worker".into(),
+            backend: Backend::Js,
+        };
+        let other = OutputPlatform::Repository {
+            label: "//platform/other".into(),
+            backend: Backend::Js,
+        };
         assert!(admits.admits(&worker));
         assert!(admits.admits(&OutputPlatform::Bundled(Platform::Web)));
         assert!(!admits.admits(&other));
@@ -2124,7 +2362,10 @@ library {
 
         let read = read_build_file("library {\n  backends: [JS]\n}\n", FileId(0));
         let admits = read.value.library.unwrap().admits;
-        assert!(admits.admits(&other), "a backend admits every platform it builds");
+        assert!(
+            admits.admits(&other),
+            "a backend admits every platform it builds"
+        );
         assert!(!admits.admits(&OutputPlatform::Bundled(Platform::Linux)));
     }
 
@@ -2137,8 +2378,15 @@ library {
         let rule = read.value.platform.unwrap();
         assert_eq!(rule.entries[0].name.value, "fetch");
         assert_eq!(rule.entries[0].backend.value, Backend::Js);
-        assert_eq!(rule.entries[0].js.as_ref().map(|j| j.value.as_str()), Some("fetch.mjs"));
-        let variants: Vec<&str> = rule.entries[0].variants.iter().map(|v| v.value.as_str()).collect();
+        assert_eq!(
+            rule.entries[0].js.as_ref().map(|j| j.value.as_str()),
+            Some("fetch.mjs")
+        );
+        let variants: Vec<&str> = rule.entries[0]
+            .variants
+            .iter()
+            .map(|v| v.value.as_str())
+            .collect();
         assert_eq!(variants, ["a", "b"]);
         assert!(rule.entries[0].variant_required);
         // Variants moved onto each entry.
@@ -2153,7 +2401,10 @@ library {
         let read = read_build_file("library {\n  source: []\n}\n", FileId(0));
         assert!(read.errors[0].message.contains("unknown field `source`"));
         // The suggestion is the fix, not background: it is the edit to make.
-        assert!(read.errors[0].fix.as_deref().is_some_and(|f| f.contains("sources")));
+        assert!(read.errors[0]
+            .fix
+            .as_deref()
+            .is_some_and(|f| f.contains("sources")));
     }
 
     /// A typo in a `visibility` entry is reported where it is written. Before,
@@ -2163,7 +2414,10 @@ library {
     fn a_visibility_that_is_not_one_is_an_error() {
         let source = "library {\n  visibility: [\"//visibility:pubic\"]\n}\n";
         let read = read_build_file(source, FileId(0));
-        let named = read.errors.iter().any(|e| e.message.contains("//visibility:pubic"));
+        let named = read
+            .errors
+            .iter()
+            .any(|e| e.message.contains("//visibility:pubic"));
         assert!(named, "{:#?}", read.errors);
         assert!(read.value.library.unwrap().visibility.is_empty());
     }
@@ -2171,7 +2425,10 @@ library {
     #[test]
     fn a_binary_has_no_visibility() {
         let read = read_build_file("binary {\n  visibility: []\n}\n", FileId(0));
-        assert!(read.errors.iter().any(|e| e.message.contains("no `visibility` field")));
+        assert!(read
+            .errors
+            .iter()
+            .any(|e| e.message.contains("no `visibility` field")));
     }
 
     #[test]
@@ -2194,7 +2451,10 @@ library {
     fn duplicate_tags_are_rejected() {
         let src = "tag { name: \"a\" }\ntag { name: \"a\" }\n";
         let read = read_repo_config(src, FileId(0));
-        assert!(read.errors.iter().any(|e| e.message.contains("declared twice")));
+        assert!(read
+            .errors
+            .iter()
+            .any(|e| e.message.contains("declared twice")));
     }
 
     /// Both fields, both spelled out, both landing where the struct says.
@@ -2227,9 +2487,21 @@ library {
     #[test]
     fn an_unknown_field_in_the_lint_block_is_rejected() {
         let read = read_repo_config("lint { fail_on_findings: true }\n", FileId(0));
-        let d = read.errors.first().expect("`fail_on_findings` is not a field");
-        assert_eq!(d.message, "unknown field `fail_on_findings` in a `lint` block");
-        assert!(d.fix.as_deref().is_some_and(|f| f.contains("fail_on_finding")), "{:#?}", d.fix);
+        let d = read
+            .errors
+            .first()
+            .expect("`fail_on_findings` is not a field");
+        assert_eq!(
+            d.message,
+            "unknown field `fail_on_findings` in a `lint` block"
+        );
+        assert!(
+            d.fix
+                .as_deref()
+                .is_some_and(|f| f.contains("fail_on_finding")),
+            "{:#?}",
+            d.fix
+        );
         assert!(!read.value.lint.fail_on_finding);
     }
 
@@ -2237,9 +2509,15 @@ library {
     /// value rather than a truthy string.
     #[test]
     fn a_lint_field_that_is_not_a_bool_is_rejected() {
-        for src in ["lint { check_during_build: \"yes\" }\n", "lint { check_during_build: 1 }\n"] {
+        for src in [
+            "lint { check_during_build: \"yes\" }\n",
+            "lint { check_during_build: 1 }\n",
+        ] {
             let read = read_repo_config(src, FileId(0));
-            let named = read.errors.iter().any(|e| e.message.contains("`true` or `false`"));
+            let named = read
+                .errors
+                .iter()
+                .any(|e| e.message.contains("`true` or `false`"));
             assert!(named, "{src:?}: {:#?}", read.errors);
             assert!(!read.value.lint.check_during_build);
         }
@@ -2260,7 +2538,10 @@ library {
         // Everything else is what it was.
         assert!(rules.enabled("unused-import"));
         assert!(!rules.everything_runs());
-        assert_eq!(rules.disabled(), ["hand-rolled-hex-digits", "ignored-result"]);
+        assert_eq!(
+            rules.disabled(),
+            ["hand-rolled-hex-digits", "ignored-result"]
+        );
     }
 
     /// `enabled(rule) = override.unwrap_or(default)`, and the one interesting
@@ -2275,7 +2556,10 @@ library {
         assert_eq!(rules.default, RuleDefault::Disabled);
         assert!(rules.enabled("unused-import"));
         assert!(!rules.enabled("unused-variable"));
-        assert_eq!(rules.disabled().len(), crate::documentation::lints::LINTS.len() - 1);
+        assert_eq!(
+            rules.disabled().len(),
+            crate::documentation::lints::LINTS.len() - 1
+        );
     }
 
     /// No block, and an empty one, are the same claim: the whole catalogue
@@ -2306,8 +2590,17 @@ library {
     fn a_misspelled_rule_is_an_unknown_field() {
         let read = read_repo_config("lint { rules { unused_improt: false } }\n", FileId(0));
         let d = read.errors.first().expect("`unused_improt` is not a rule");
-        assert_eq!(d.message, "unknown field `unused_improt` in a `rules` block");
-        assert!(d.fix.as_deref().is_some_and(|f| f.contains("unused_import")), "{:#?}", d.fix);
+        assert_eq!(
+            d.message,
+            "unknown field `unused_improt` in a `rules` block"
+        );
+        assert!(
+            d.fix
+                .as_deref()
+                .is_some_and(|f| f.contains("unused_import")),
+            "{:#?}",
+            d.fix
+        );
         assert!(read.value.lint.rules.everything_runs());
 
         // A code spelled the way a finding prints it is not a field name
@@ -2323,8 +2616,16 @@ library {
     fn a_rule_default_that_is_not_one_is_rejected() {
         let read = read_repo_config("lint { rules { default: ENABLE } }\n", FileId(0));
         let d = read.errors.first().expect("`ENABLE` is not a rule default");
-        assert!(d.message.contains("`ENABLE` is not a rule default"), "{}", d.message);
-        assert!(d.fix.as_deref().is_some_and(|f| f.contains("ENABLED")), "{:#?}", d.fix);
+        assert!(
+            d.message.contains("`ENABLE` is not a rule default"),
+            "{}",
+            d.message
+        );
+        assert!(
+            d.fix.as_deref().is_some_and(|f| f.contains("ENABLED")),
+            "{:#?}",
+            d.fix
+        );
         // And the file is read as if it had not been written, rather than as
         // an allow list nobody asked for.
         assert!(read.value.lint.rules.everything_runs());
@@ -2339,7 +2640,10 @@ library {
     #[test]
     fn a_rule_that_is_not_a_bool_is_rejected() {
         let read = read_repo_config("lint { rules { dead_code: \"no\" } }\n", FileId(0));
-        let named = read.errors.iter().any(|e| e.message.contains("`true` or `false`"));
+        let named = read
+            .errors
+            .iter()
+            .any(|e| e.message.contains("`true` or `false`"));
         assert!(named, "{:#?}", read.errors);
         assert!(read.value.lint.rules.enabled("dead-code"));
     }
@@ -2360,7 +2664,10 @@ library {
             .first()
             .expect("a removed field is still a field REPO.buri does not have");
         assert_eq!(d.message, "unknown field `toolchain` in REPO.buri");
-        assert_eq!(d.fix.as_deref(), Some("REPO.buri accepts: tag, lint, language"));
+        assert_eq!(
+            d.fix.as_deref(),
+            Some("REPO.buri accepts: tag, lint, language")
+        );
         assert!(
             nearest("toolchain", REPO_FILE_RULES).is_none(),
             "a field REPO.buri has was suggested for `toolchain`"

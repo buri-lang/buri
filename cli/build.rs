@@ -315,7 +315,10 @@ fn write_if_different(path: &Path, bytes: &[u8]) {
 fn digest_beside(out: &Path) -> String {
     let bytes = match std::fs::read(out) {
         Ok(b) => b,
-        Err(e) => fail(&format!("could not read back {} to hash it: {e}", out.display())),
+        Err(e) => fail(&format!(
+            "could not read back {} to hash it: {e}",
+            out.display()
+        )),
     };
     let digest = sha256::hash_bytes(&bytes);
     write_digest_beside(out, &digest);
@@ -435,7 +438,11 @@ fn product_target(rustc: &str, host: &str) -> Product {
     // Not Linux at all: Darwin, and the unsupported hosts that never get here.
     // The host triple is the answer and there is no Linux libc to name.
     if !host.contains("-linux-gnu") {
-        return Product { target: host.to_string(), sysroot: None, libc: "" };
+        return Product {
+            target: host.to_string(),
+            sysroot: None,
+            libc: "",
+        };
     }
 
     // Linux/glibc, the one host where the product is not the host.
@@ -448,7 +455,11 @@ fn product_target(rustc: &str, host: &str) -> Product {
     // the ABI suffix and named one that is not.
     let musl = host.replace("-linux-gnu", "-linux-musl");
     match self_contained(rustc, &musl) {
-        Some(dir) => Product { target: musl, sysroot: Some(dir), libc: "musl" },
+        Some(dir) => Product {
+            target: musl,
+            sysroot: Some(dir),
+            libc: "musl",
+        },
         // The degrade. Not an error, for the reason the C-compiler probe below
         // is not an error: this is the configuration every checkout had before
         // musl, it builds and it links, and what it loses is portability of the
@@ -460,7 +471,11 @@ fn product_target(rustc: &str, host: &str) -> Product {
                  will depend on this machine's glibc and will not run on a Linux with an older \
                  one. `rustup target add {musl}` and rebuild to get static-musl executables."
             );
-            Product { target: host.to_string(), sysroot: None, libc: "gnu" }
+            Product {
+                target: host.to_string(),
+                sysroot: None,
+                libc: "gnu",
+            }
         }
     }
 }
@@ -670,8 +685,11 @@ fn musl_cc_env(command: &mut Command, target: &str, cc: &str) {
 /// moment two versions of one crate appear, and two do — the runtime's lockfile
 /// carries `getrandom` at 0.2 and 0.3 — so both would compile to
 /// `deps/libgetrandom.rlib`.
-const RUNTIME_RUSTC_ARGS: &[&str] =
-    &["--remap-path-prefix==./runtime", "-Cmetadata=buri_rt", "-Cextra-filename="];
+const RUNTIME_RUSTC_ARGS: &[&str] = &[
+    "--remap-path-prefix==./runtime",
+    "-Cmetadata=buri_rt",
+    "-Cextra-filename=",
+];
 
 /// Copies `from` over `to`, **only if the bytes differ**.
 ///
@@ -914,7 +932,11 @@ fn nested(cargo: &str, rustc: &str) -> Command {
 fn resolves(cargo: &str, rustc: &str, pkg: &Path, target: &str) -> Option<bool> {
     for offline in [true, false] {
         let mut command = nested(cargo, rustc);
-        command.arg("fetch").arg("--locked").arg("--manifest-path").arg(pkg.join("Cargo.toml"));
+        command
+            .arg("fetch")
+            .arg("--locked")
+            .arg("--manifest-path")
+            .arg(pkg.join("Cargo.toml"));
         command.args(["--target", target]);
         if offline {
             command.arg("--offline");
@@ -1100,7 +1122,9 @@ fn portable(value: &std::ffi::OsStr, out_dir: &Path) -> Vec<u8> {
 /// The target directory `out_dir` is in: the nearest directory above it
 /// holding the `CACHEDIR.TAG` cargo writes when it creates one.
 fn target_dir_of(out_dir: &Path) -> Option<&Path> {
-    out_dir.ancestors().find(|dir| dir.join("CACHEDIR.TAG").is_file())
+    out_dir
+        .ancestors()
+        .find(|dir| dir.join("CACHEDIR.TAG").is_file())
 }
 
 /// Hashes every file under `dir`, name and bytes, in sorted order.
@@ -1167,7 +1191,10 @@ fn hash_environment(h: &mut sha256::Sha256, command: &Command, out_dir: &Path) {
     h.text("env");
     for (key, value) in env {
         let Some(value) = value else { continue };
-        let skip = SHELL_BOOKKEEPING.iter().chain(SET_FOR_EVERY_SCRIPT).chain(SCRATCH);
+        let skip = SHELL_BOOKKEEPING
+            .iter()
+            .chain(SET_FOR_EVERY_SCRIPT)
+            .chain(SCRATCH);
         if skip.into_iter().any(|name| key == *name) {
             continue;
         }
@@ -1179,8 +1206,15 @@ fn hash_environment(h: &mut sha256::Sha256, command: &Command, out_dir: &Path) {
 /// What Cargo sets for every build script it runs. The nested cargo sets its
 /// own for each script it runs and reads none of these itself, so they reach
 /// nothing. Leaving them out lets a test build and a dev build share a key.
-const SET_FOR_EVERY_SCRIPT: &[&str] =
-    &["OUT_DIR", "TARGET", "HOST", "NUM_JOBS", "OPT_LEVEL", "DEBUG", "PROFILE"];
+const SET_FOR_EVERY_SCRIPT: &[&str] = &[
+    "OUT_DIR",
+    "TARGET",
+    "HOST",
+    "NUM_JOBS",
+    "OPT_LEVEL",
+    "DEBUG",
+    "PROFILE",
+];
 
 /// Scratch directories. `nix develop` names a fresh one on every invocation,
 /// so hashing them made every rerun of this script a nested build. Compilers
@@ -1218,7 +1252,16 @@ const SCRATCH: &[&str] = &["TMPDIR", "TMP", "TEMP", "TEMPDIR", "NIX_BUILD_TOP"];
 /// a stamp that says it is fine — so a name only belongs here when it can be
 /// argued to reach *nothing*, not merely when it looks harmless.
 const SHELL_BOOKKEEPING: &[&str] = &[
-    "_", "SHLVL", "PWD", "OLDPWD", "TERM", "TERM_SESSION_ID", "COLUMNS", "LINES", "SSH_TTY", "out",
+    "_",
+    "SHLVL",
+    "PWD",
+    "OLDPWD",
+    "TERM",
+    "TERM_SESSION_ID",
+    "COLUMNS",
+    "LINES",
+    "SSH_TTY",
+    "out",
 ];
 
 /// Where the stamp is written: beside the archive, like its digest and its
@@ -1248,7 +1291,10 @@ fn read_stamp(out: &Path) -> Option<(String, String)> {
 
 /// Writes the stamp for a build that has just succeeded.
 fn write_stamp(out: &Path, inputs: &str, archive: &str) {
-    write_if_different(&stamp_path(out), format!("{STAMP}\n{inputs}\n{archive}\n").as_bytes());
+    write_if_different(
+        &stamp_path(out),
+        format!("{STAMP}\n{inputs}\n{archive}\n").as_bytes(),
+    );
 }
 
 /// Removes any stamp, for a path that is about to leave an archive the stamp
@@ -1499,8 +1545,19 @@ fn runtime_archive(manifest: &Path) {
     // directory whose archive has since been emptied, truncated or removed is
     // a miss however well the inputs match.
     let stamp = stamp_of(
-        manifest, &runtime, &pkg, &target, product.libc, &sysroot, &features, relock, &cargo,
-        &rustc, &cc, &command, &out_dir,
+        manifest,
+        &runtime,
+        &pkg,
+        &target,
+        product.libc,
+        &sysroot,
+        &features,
+        relock,
+        &cargo,
+        &rustc,
+        &cc,
+        &command,
+        &out_dir,
     );
     if let (Some(fresh), Some((inputs, archive))) = (&stamp, read_stamp(&out)) {
         let current = std::fs::read(&out).map(|bytes| sha256::hash_bytes(&bytes));
@@ -1516,8 +1573,10 @@ fn runtime_archive(manifest: &Path) {
     }
     // Another `OUT_DIR` may have built this archive already. Held until the
     // end, so a second script with the same key waits rather than building.
-    let shared =
-        stamp.as_deref().filter(|_| !relock).and_then(|key| SharedArchive::open(&out_dir, key));
+    let shared = stamp
+        .as_deref()
+        .filter(|_| !relock)
+        .and_then(|key| SharedArchive::open(&out_dir, key));
     if let (Some(shared), Some(fresh)) = (&shared, &stamp) {
         if let Some((bytes, digest)) = shared.get() {
             write_if_different(&out, &bytes);
@@ -1596,9 +1655,10 @@ fn runtime_archive(manifest: &Path) {
     let built = built_archive(&release);
     let bytes = match std::fs::read(&built) {
         Ok(bytes) => bytes,
-        Err(e) => {
-            fail(&format!("cargo reported success but {} could not be read: {e}", built.display()))
-        }
+        Err(e) => fail(&format!(
+            "cargo reported success but {} could not be read: {e}",
+            built.display()
+        )),
     };
     // Through `write_if_different` for the reason that function gives, and the
     // reason bites hardest here: the archive is the largest thing the crate
@@ -1676,16 +1736,22 @@ impl SharedArchive {
             target.map(|dir| dir.join("buri-runtime")),
             home.map(|dir| dir.join(".buri/toolchain-build/runtime")),
         ];
-        let stores: Vec<Store> =
-            roots.into_iter().flatten().filter_map(|root| Store::open(&root, key)).collect();
+        let stores: Vec<Store> = roots
+            .into_iter()
+            .flatten()
+            .filter_map(|root| Store::open(&root, key))
+            .collect();
         (!stores.is_empty()).then_some(SharedArchive { stores })
     }
 
     /// The first kept archive whose bytes still match their digest, copied
     /// into the stores asked before it.
     fn get(&self) -> Option<(Vec<u8>, String)> {
-        let (at, found) =
-            self.stores.iter().enumerate().find_map(|(at, store)| Some((at, store.get()?)))?;
+        let (at, found) = self
+            .stores
+            .iter()
+            .enumerate()
+            .find_map(|(at, store)| Some((at, store.get()?)))?;
         for store in self.stores.iter().take(at) {
             store.put(&found.0, &found.1);
         }
@@ -1711,7 +1777,10 @@ impl Store {
         prune(root);
         let lock = std::fs::File::create(root.join(format!("{key}.lock"))).ok()?;
         lock.lock().ok()?;
-        Some(Store { entry: root.join(key), _lock: lock })
+        Some(Store {
+            entry: root.join(key),
+            _lock: lock,
+        })
     }
 
     /// The kept archive and its digest, when its bytes still match it.
@@ -1737,7 +1806,9 @@ impl Store {
 /// archive behind, and each one is about 16 MB.
 fn prune(root: &Path) {
     const WEEK: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 60 * 60);
-    let Ok(entries) = std::fs::read_dir(root) else { return };
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
     for entry in entries.flatten().filter(|e| e.path().is_dir()) {
         let used = std::fs::metadata(entry.path().join("used")).and_then(|m| m.modified());
         if used.is_ok_and(|t| t.elapsed().is_ok_and(|age| age > WEEK)) {
@@ -1752,7 +1823,11 @@ fn prune(root: &Path) {
 /// A version probe rather than a `which`: `cc` on a machine with the Xcode
 /// command-line tools missing exists, is on `PATH`, and fails with a dialog.
 fn can_compile(cc: &str) -> bool {
-    Command::new(cc).arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+    Command::new(cc)
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 /// macOS and Linux. The runtime is `std` over `cfg(unix)`, and no other host

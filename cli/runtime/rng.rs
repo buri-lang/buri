@@ -59,7 +59,12 @@ fn next_u64() -> u64 {
     };
     let s = guard.get_or_insert_with(|| {
         let mut seed = os_seed();
-        [split_mix(&mut seed), split_mix(&mut seed), split_mix(&mut seed), split_mix(&mut seed)]
+        [
+            split_mix(&mut seed),
+            split_mix(&mut seed),
+            split_mix(&mut seed),
+            split_mix(&mut seed),
+        ]
     });
 
     let result = s[0].wrapping_add(s[3]).rotate_left(23).wrapping_add(s[0]);
@@ -81,7 +86,10 @@ fn below(range: u64) -> u64 {
     let mut m = u128::from(next_u64()).wrapping_mul(u128::from(range));
     let mut low = m as u64;
     if low < range {
-        #[expect(clippy::arithmetic_side_effects, reason = "`low < range`, so `range` is not zero")]
+        #[expect(
+            clippy::arithmetic_side_effects,
+            reason = "`low < range`, so `range` is not zero"
+        )]
         let threshold = range.wrapping_neg() % range;
         while low < threshold {
             m = u128::from(next_u64()).wrapping_mul(u128::from(range));

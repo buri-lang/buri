@@ -24,7 +24,7 @@
 //! reads the same answer to write the conversion, so the two cannot disagree
 //! about what crosses.
 
-use crate::compiler::semantics::types::{substitute, Prim, Tables, Ty, TyKind, TyConId, TyDef};
+use crate::compiler::semantics::types::{substitute, Prim, Tables, Ty, TyConId, TyDef, TyKind};
 
 /// How one value crosses.
 #[derive(Clone, Debug, PartialEq)]
@@ -114,7 +114,9 @@ fn classify_in(
             if tables.as_prim(elem) == Some(Prim::U8) {
                 return Ok(Crossing::Bytes);
             }
-            Ok(Crossing::List(Box::new(classify_in(tables, known, elem, false, open)?)))
+            Ok(Crossing::List(Box::new(classify_in(
+                tables, known, elem, false, open,
+            )?)))
         }
         TyKind::Con(id, args) => {
             let con = *id;
@@ -182,7 +184,9 @@ fn classify_in(
                 _ => Err(*ty),
             }
         }
-        TyKind::Var(_) | TyKind::Param(_) | TyKind::Fn(..) | TyKind::Ctx(_) | TyKind::SelfTy => Err(*ty),
+        TyKind::Var(_) | TyKind::Param(_) | TyKind::Fn(..) | TyKind::Ctx(_) | TyKind::SelfTy => {
+            Err(*ty)
+        }
     }
 }
 

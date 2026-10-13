@@ -27,13 +27,12 @@
 use buri::build::buildfile::{Arch, Platform};
 use buri::build::link::{self, Row};
 use buri::build::workspace::Workspace;
-use buri::compiler::backend::LinkOptions;
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
-use buri::compiler::backend::{Backend, Emitted, Options, Profile, Target};
 use buri::compiler::backend::stencil::{
-    self as stencil, abi as stencil_abi, unavailable_reason as stencil_unavailable_reason,
-    Stencil,
+    self as stencil, abi as stencil_abi, unavailable_reason as stencil_unavailable_reason, Stencil,
 };
+use buri::compiler::backend::LinkOptions;
+use buri::compiler::backend::{Backend, Emitted, Options, Profile, Target};
 use buri::compiler::driver;
 use buri::compiler::middle::{self, monomorphize};
 use buri::compiler::modules::Role;
@@ -62,7 +61,9 @@ use std::sync::OnceLock;
 /// unchanged wherever the backend does.
 fn skip_reason() -> Option<String> {
     if !AVAILABLE {
-        return Some(String::from("this toolchain carries no native runtime archive"));
+        return Some(String::from(
+            "this toolchain carries no native runtime archive",
+        ));
     }
     stencil_unavailable_reason()
 }
@@ -118,16 +119,31 @@ use crate::shared::{self, probed, Ran, ALLOC_PROBE};
 
 /// The whole pipeline, for one snippet, with an optional C probe linked
 /// beside it.
-fn lowered(source: &str) -> (monomorphize::Program, buri::compiler::semantics::types::Tables) {
+fn lowered(
+    source: &str,
+) -> (
+    monomorphize::Program,
+    buri::compiler::semantics::types::Tables,
+) {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, "main", source, Role::Entry);
     assert!(
         !analysis.diagnostics.has_errors(),
         "the snippet did not compile: {:?}",
-        analysis.diagnostics.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>()
+        analysis
+            .diagnostics
+            .items
+            .iter()
+            .map(|d| d.message.clone())
+            .collect::<Vec<_>>()
     );
     let entry = analysis.checked.entry.expect("the snippet exports `main`");
-    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         &analysis.checked,
@@ -148,7 +164,11 @@ fn lowered(source: &str) -> (monomorphize::Program, buri::compiler::semantics::t
 /// beside it.
 pub fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     // A probe is C, which only a link takes.
-    let link = if probe.is_some() { shared::link_program } else { shared::place_program };
+    let link = if probe.is_some() {
+        shared::link_program
+    } else {
+        shared::place_program
+    };
     build_linked_by(name, source, probe, link)
 }
 
@@ -161,14 +181,24 @@ fn build_linked_by(
     link: fn(&[PathBuf], &Path) -> std::process::Output,
 ) -> PathBuf {
     let (program, tables) = lowered(source);
-    let target = Target { platform: host_platform(), arch: None };
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let target = Target {
+        platform: host_platform(),
+        arch: None,
+    };
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "",
+    };
     let mut backend = Stencil::default();
     let units = match backend.emit(&program, &tables, &opts) {
         Ok(units) => units,
         Err(d) => panic!(
             "the backend refused the program: {:?}",
-            d.items.iter().map(|i| i.message.clone()).collect::<Vec<_>>()
+            d.items
+                .iter()
+                .map(|i| i.message.clone())
+                .collect::<Vec<_>>()
         ),
     };
     assert!(!units.is_empty(), "no codegen units were emitted");
@@ -242,8 +272,15 @@ fn build_linked_by(
 fn emitted(name: &str, source: &str) -> Vec<(String, Vec<u8>)> {
     let _ = name;
     let (program, tables) = lowered(source);
-    let target = Target { platform: host_platform(), arch: None };
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let target = Target {
+        platform: host_platform(),
+        arch: None,
+    };
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "",
+    };
     let units = Stencil::default()
         .emit(&program, &tables, &opts)
         .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
@@ -310,8 +347,15 @@ export fn main(host: NativeHost): Result<(), Str> {
 fn refusal(name: &str, source: &str) -> Vec<String> {
     let _ = name;
     let (program, tables) = lowered(source);
-    let target = Target { platform: host_platform(), arch: None };
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let target = Target {
+        platform: host_platform(),
+        arch: None,
+    };
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "",
+    };
     let missing = Stencil::default().missing_intrinsics(&program, &tables);
     if !missing.is_empty() {
         return missing;
@@ -341,7 +385,6 @@ fn run_with(name: &str, source: &str, probe: Option<&str>) -> Ran {
     crate::shared::ran_checked(&build_with(name, source, probe))
 }
 
-
 // -----------------------------------------------------------------------
 // How the emission is arranged, and the bytes that must not move for it
 // -----------------------------------------------------------------------
@@ -363,8 +406,15 @@ fn an_adopted_lowering_emits_the_bytes_the_backend_would_have_lowered_itself() {
         return;
     }
     let (program, tables) = lowered(EMITTER_SHAPES);
-    let target = Target { platform: host_platform(), arch: None };
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let target = Target {
+        platform: host_platform(),
+        arch: None,
+    };
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "",
+    };
 
     let alone = Stencil::default()
         .emit(&program, &tables, &opts)
@@ -396,8 +446,15 @@ fn a_backend_that_adopted_a_lowering_lowers_the_next_program_for_itself() {
     if !supported() {
         return;
     }
-    let target = Target { platform: host_platform(), arch: None };
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let target = Target {
+        platform: host_platform(),
+        arch: None,
+    };
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "",
+    };
     let (first, first_tables) = lowered(EMITTER_SHAPES);
     let (second, second_tables) = lowered(
         r#"
@@ -454,8 +511,15 @@ fn emitting_one_program_twice_gives_the_same_objects_in_the_same_order() {
         return;
     }
     let (program, tables) = lowered(EMITTER_SHAPES);
-    let target = Target { platform: host_platform(), arch: None };
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let target = Target {
+        platform: host_platform(),
+        arch: None,
+    };
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "",
+    };
     let once = Stencil::default()
         .emit(&program, &tables, &opts)
         .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
@@ -463,10 +527,20 @@ fn emitting_one_program_twice_gives_the_same_objects_in_the_same_order() {
         .emit(&program, &tables, &opts)
         .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
     let names: Vec<&str> = once.iter().map(|u| u.name.as_str()).collect();
-    assert!(names.len() > 1, "one unit cannot show an ordering: {names:?}");
-    assert_eq!(names, twice.iter().map(|u| u.name.as_str()).collect::<Vec<_>>());
+    assert!(
+        names.len() > 1,
+        "one unit cannot show an ordering: {names:?}"
+    );
+    assert_eq!(
+        names,
+        twice.iter().map(|u| u.name.as_str()).collect::<Vec<_>>()
+    );
     for (a, b) in once.iter().zip(&twice) {
-        assert_eq!(a.bytes, b.bytes, "the bytes of {} moved between emissions", a.name);
+        assert_eq!(
+            a.bytes, b.bytes,
+            "the bytes of {} moved between emissions",
+            a.name
+        );
     }
 }
 
@@ -548,8 +622,15 @@ fn a_unit_of_several_parts_emits_the_same_bytes_twice() {
         stencil::PART_MEMBERS
     );
     let (program, tables) = lowered(&source);
-    let target = Target { platform: host_platform(), arch: None };
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let target = Target {
+        platform: host_platform(),
+        arch: None,
+    };
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "",
+    };
     let once = Stencil::default()
         .emit(&program, &tables, &opts)
         .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
@@ -561,7 +642,11 @@ fn a_unit_of_several_parts_emits_the_same_bytes_twice() {
         twice.iter().map(|u| u.name.as_str()).collect::<Vec<_>>()
     );
     for (a, b) in once.iter().zip(&twice) {
-        assert_eq!(a.bytes, b.bytes, "the bytes of {} moved between emissions", a.name);
+        assert_eq!(
+            a.bytes, b.bytes,
+            "the bytes of {} moved between emissions",
+            a.name
+        );
     }
 }
 
@@ -580,7 +665,12 @@ fn a_unit_of_several_parts_links_and_runs() {
     let n = stencil::PART_MEMBERS * 3 / 2;
     let ran = run("many-parts", &many_functions(n));
     assert_eq!(ran.status, 0, "{}", ran.stderr);
-    assert_eq!(ran.stdout, format!("{}\n", many_functions_answer(n)), "{}", ran.stderr);
+    assert_eq!(
+        ran.stdout,
+        format!("{}\n", many_functions_answer(n)),
+        "{}",
+        ran.stderr
+    );
 }
 
 /// And the program those bytes are of runs, and prints what it computes.
@@ -600,7 +690,10 @@ fn the_emitter_shapes_program_runs_and_frees_everything() {
     assert_eq!(ran.stdout, "7 18 k0,k1,k2,k3\n", "{}", ran.stderr);
     let (total, live) = probed(&ran.stderr);
     assert!(total > 0, "the program allocated nothing");
-    assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
+    assert_eq!(
+        live, 0,
+        "{total} blocks allocated and {live} still live at exit"
+    );
 }
 
 /// The first program: a hand-written `main` sets up the Buri stack, calls a
@@ -892,7 +985,9 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#,
     );
     assert!(
-        messages.iter().any(|m| m.contains("a step whose context owns a reference count")),
+        messages
+            .iter()
+            .any(|m| m.contains("a step whose context owns a reference count")),
         "a refusal has to name the shape: {messages:?}"
     );
 }
@@ -923,7 +1018,11 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(first.len(), second.len(), "a different number of units");
     for (a, b) in first.iter().zip(&second) {
         assert_eq!(a.0, b.0, "unit names differ");
-        assert_eq!(a.1, b.1, "unit `{}` is not byte-identical between two emissions", a.0);
+        assert_eq!(
+            a.1, b.1,
+            "unit `{}` is not byte-identical between two emissions",
+            a.0
+        );
     }
 
     // And **across processes**, which is the property `--check-reproducible`
@@ -959,8 +1058,14 @@ export fn main(host: NativeHost): Result<(), Str> {
         .filter_map(|l| l.rsplit_once(DIGEST).and_then(|(_, r)| r.strip_prefix('=')))
         .filter_map(|n| n.parse().ok())
         .collect();
-    assert!(!theirs.is_empty(), "the second process printed no digest:\n{text}");
-    assert_eq!(mine, theirs, "the objects differ between two processes:\n{text}");
+    assert!(
+        !theirs.is_empty(),
+        "the second process printed no digest:\n{text}"
+    );
+    assert_eq!(
+        mine, theirs,
+        "the objects differ between two processes:\n{text}"
+    );
 }
 
 /// The environment variable that turns this test into its own child.
@@ -1085,8 +1190,14 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
     assert_eq!(ran.status, 0, "{}", ran.stderr);
     let (total, live) = probed(&ran.stderr);
-    assert!(total > 0, "the program allocated nothing, so this asserts nothing");
-    assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
+    assert!(
+        total > 0,
+        "the program allocated nothing, so this asserts nothing"
+    );
+    assert_eq!(
+        live, 0,
+        "{total} blocks allocated and {live} still live at exit"
+    );
 }
 
 /// **A memo and a watcher run natively**, which is the runtime calling back
@@ -1143,7 +1254,10 @@ fn ignore(value: Int): () {
 }
 "#;
     let binary = build_tests("graph", source);
-    let out = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
+    let out = Command::new(&binary)
+        .env("BURI_TEST_FROM", "0")
+        .output()
+        .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -1226,7 +1340,10 @@ test "a Bool signal read inside a memo" {
 }
 "#;
     let binary = build_tests("narrow-cell", source);
-    let out = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
+    let out = Command::new(&binary)
+        .env("BURI_TEST_FROM", "0")
+        .output()
+        .unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -1295,7 +1412,10 @@ test "a cell written many times" {{
 
     let run = |name: &str, writes: usize| {
         let binary = build_tests_with(name, &source(writes), Some(ALLOC_PROBE));
-        let out = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
+        let out = Command::new(&binary)
+            .env("BURI_TEST_FROM", "0")
+            .output()
+            .unwrap();
         assert_eq!(
             out.status.code(),
             Some(0),
@@ -1307,7 +1427,10 @@ test "a cell written many times" {{
 
     let (total_few, live_few) = run("cell-writes-few", 20);
     let (_, live_many) = run("cell-writes-many", 200);
-    assert!(total_few > 20, "{total_few} blocks: the program allocated nothing to leak");
+    assert!(
+        total_few > 20,
+        "{total_few} blocks: the program allocated nothing to leak"
+    );
     assert_eq!(
         live_few, live_many,
         "twenty writes left {live_few} blocks live and two hundred left {live_many}: the cell \
@@ -1383,8 +1506,14 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(ran.status, 0, "{}", ran.stderr);
     assert_eq!(ran.stdout, "aa+bbb|c mm zzzz 8\n", "{}", ran.stderr);
     let (total, live) = probed(&ran.stderr);
-    assert!(total > 20, "the program allocated {total} blocks, so this asserts little");
-    assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
+    assert!(
+        total > 20,
+        "the program allocated {total} blocks, so this asserts little"
+    );
+    assert_eq!(
+        live, 0,
+        "{total} blocks allocated and {live} still live at exit"
+    );
 }
 
 /// The five shapes `glue.rs` added, each of which is a **pair** that has to
@@ -1444,14 +1573,19 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
     assert_eq!(ran.status, 0, "{}", ran.stderr);
     assert_eq!(
-        ran.stdout,
-        "Row { names: [\"t1a\", \"t1b\", \"t1c\", \"d4\"] } 2 4\n",
+        ran.stdout, "Row { names: [\"t1a\", \"t1b\", \"t1c\", \"d4\"] } 2 4\n",
         "{}",
         ran.stderr
     );
     let (total, live) = probed(&ran.stderr);
-    assert!(total > 5, "the program allocated {total} blocks, so this asserts little");
-    assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
+    assert!(
+        total > 5,
+        "the program allocated {total} blocks, so this asserts little"
+    );
+    assert_eq!(
+        live, 0,
+        "{total} blocks allocated and {live} still live at exit"
+    );
 }
 
 /// `Checked`, `Saturating` and `Wrapping` answer the **type's own range**, at
@@ -1641,7 +1775,10 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(ran.status, 0, "{}", ran.stderr);
     assert_eq!(ran.stdout, "a1b2--\n", "{}", ran.stderr);
     let (total, live) = probed(&ran.stderr);
-    assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
+    assert_eq!(
+        live, 0,
+        "{total} blocks allocated and {live} still live at exit"
+    );
 }
 
 /// A `Str` ten structs deep is still released. The backend once gave up
@@ -1690,8 +1827,14 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert_eq!(ran.status, 0, "{}", ran.stderr);
     assert_eq!(ran.stdout, "deep 10\n", "{}", ran.stderr);
     let (total, live) = probed(&ran.stderr);
-    assert!(total > 0, "the program allocated nothing, so this asserts nothing");
-    assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
+    assert!(
+        total > 0,
+        "the program allocated nothing, so this asserts nothing"
+    );
+    assert_eq!(
+        live, 0,
+        "{total} blocks allocated and {live} still live at exit"
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -1767,7 +1910,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#,
     );
-    assert_eq!(r.stdout, "abcd\nabcd-one\nabcd-two\nabcd\n", "stderr: {}", r.stderr);
+    assert_eq!(
+        r.stdout, "abcd\nabcd-one\nabcd-two\nabcd\n",
+        "stderr: {}",
+        r.stderr
+    );
     assert_eq!(r.status, 0);
 }
 
@@ -1799,7 +1946,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#,
     );
-    assert_eq!(r.stdout, "left\nright\nleft!!\nleft,right\n", "stderr: {}", r.stderr);
+    assert_eq!(
+        r.stdout, "left\nright\nleft!!\nleft,right\n",
+        "stderr: {}",
+        r.stderr
+    );
     assert_eq!(r.status, 0);
 }
 
@@ -1846,7 +1997,10 @@ export fn main(host: NativeHost): Result<(), Str> {
         blocks < 60,
         "four thousand pushes allocated {blocks} blocks: the uniqueness fast path did not fire"
     );
-    assert_eq!(live, 0, "{blocks} blocks allocated and {live} still live at exit");
+    assert_eq!(
+        live, 0,
+        "{blocks} blocks allocated and {live} still live at exit"
+    );
 }
 
 /// The guard beside it: a slot past one list's end can hold an element a
@@ -1929,7 +2083,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#,
     );
-    assert_eq!(r.stdout, "abcd abcd-one abcd-two 4\nabcd-two 8\n", "stderr: {}", r.stderr);
+    assert_eq!(
+        r.stdout, "abcd abcd-one abcd-two 4\nabcd-two 8\n",
+        "stderr: {}",
+        r.stderr
+    );
     assert_eq!(r.status, 0);
 }
 
@@ -1952,15 +2110,20 @@ fn repository() -> Option<&'static Workspace> {
 /// Every `<package>/<file>.buri` in the corpus, in a stable order.
 fn corpus_files() -> Vec<String> {
     let mut out = Vec::new();
-    let mut packages: Vec<_> =
-        std::fs::read_dir(corpus()).unwrap().filter_map(Result::ok).collect();
+    let mut packages: Vec<_> = std::fs::read_dir(corpus())
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
     packages.sort_by_key(std::fs::DirEntry::file_name);
     for package in packages {
         let tests = package.path().join("test");
         if !tests.is_dir() {
             continue;
         }
-        let mut files: Vec<_> = std::fs::read_dir(&tests).unwrap().filter_map(Result::ok).collect();
+        let mut files: Vec<_> = std::fs::read_dir(&tests)
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
         files.sort_by_key(std::fs::DirEntry::file_name);
         for file in files {
             out.push(format!(
@@ -2015,10 +2178,19 @@ fn compile_corpus(path: &str) -> Compiled {
     if analysis.diagnostics.has_errors() {
         return Compiled::Front(String::from("the front end refused it"));
     }
-    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
-    let mut program =
-        monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
+    let mut program = monomorphize::run(
+        &analysis.checked,
+        paths,
+        &mut diagnostics,
+        monomorphize::Roots::Tests,
+    );
     if diagnostics.has_errors() {
         return Compiled::Front(String::from("monomorphization failed"));
     }
@@ -2032,8 +2204,15 @@ fn compile_corpus(path: &str) -> Compiled {
     if !missing.is_empty() {
         return Compiled::Refused(format!("missing {}", missing.join(", ")));
     }
-    let target = Target { platform: host_platform(), arch: None };
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let target = Target {
+        platform: host_platform(),
+        arch: None,
+    };
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "",
+    };
     match Stencil::default().emit(&program, &analysis.checked.tables, &opts) {
         Ok(units) => Compiled::Units(units, sheet),
         Err(d) => Compiled::Refused(messages(&d).join("; ")),
@@ -2377,20 +2556,33 @@ fn collect(files: &[String], depth: Depth, fault: &str) -> Census {
                 seen.0 = Some(Verdict::Unfinished(alone.ended));
             }
         }
-        let answer = seen.0.unwrap_or_else(|| Verdict::Unfinished(batch.ended.clone()));
+        let answer = seen
+            .0
+            .unwrap_or_else(|| Verdict::Unfinished(batch.ended.clone()));
         verdict.push((path.clone(), answer));
         if let Some(out) = seen.1 {
             ran.push((path.clone(), out));
         }
     }
-    Census { verdict, ran, unfinished }
+    Census {
+        verdict,
+        ran,
+        unfinished,
+    }
 }
 
 /// What a report holds about one file, removed from it.
 fn take(report: &mut Report, path: &str) -> (Option<Verdict>, Option<Ran>) {
-    let verdict =
-        report.verdict.iter().position(|(p, _)| p == path).map(|i| report.verdict.remove(i).1);
-    let ran = report.ran.iter().position(|(p, _)| p == path).map(|i| report.ran.remove(i).1);
+    let verdict = report
+        .verdict
+        .iter()
+        .position(|(p, _)| p == path)
+        .map(|i| report.verdict.remove(i).1);
+    let ran = report
+        .ran
+        .iter()
+        .position(|(p, _)| p == path)
+        .map(|i| report.ran.remove(i).1);
     (verdict, ran)
 }
 
@@ -2431,7 +2623,9 @@ fn ask(files: &[String], depth: Depth, fault: &str) -> Report {
     for line in text.lines() {
         let Some(at) = line.find(LINE) else { continue };
         let mut fields = line[at + LINE.len()..].split('\t');
-        let (Some(path), Some(kind)) = (fields.next(), fields.next()) else { continue };
+        let (Some(path), Some(kind)) = (fields.next(), fields.next()) else {
+            continue;
+        };
         let mut next = || unescape(fields.next().unwrap_or_default());
         match kind {
             "front" => verdict.push((path.to_string(), Verdict::Front(next()))),
@@ -2441,7 +2635,14 @@ fn ask(files: &[String], depth: Depth, fault: &str) -> Report {
                 let status = next().parse().unwrap_or(-1);
                 let stdout = next();
                 let stderr = next();
-                ran.push((path.to_string(), Ran { status, stdout, stderr }));
+                ran.push((
+                    path.to_string(),
+                    Ran {
+                        status,
+                        stdout,
+                        stderr,
+                    },
+                ));
             }
             // A line this parser does not know is a child that has learned to
             // say something this one has not. Silence rather than a failure:
@@ -2456,7 +2657,11 @@ fn ask(files: &[String], depth: Depth, fault: &str) -> Report {
         ended.push_str(" and said:\n");
         ended.push_str(said);
     }
-    Report { verdict, ran, ended }
+    Report {
+        verdict,
+        ran,
+        ended,
+    }
 }
 
 /// This process, as the census child.
@@ -2480,7 +2685,11 @@ fn report_census(spec: &str) {
         }
         if path == faulted && kind == "fail" {
             say(path, "compiles", &[]);
-            say(path, "ran", &[&FAULT_STATUS.to_string(), "", &escape(FAULT_SAID)]);
+            say(
+                path,
+                "ran",
+                &[&FAULT_STATUS.to_string(), "", &escape(FAULT_SAID)],
+            );
             return;
         }
         match compile_corpus(path) {
@@ -2497,7 +2706,11 @@ fn report_census(spec: &str) {
                     say(
                         path,
                         "ran",
-                        &[&out.status.to_string(), &escape(&out.stdout), &escape(&out.stderr)],
+                        &[
+                            &out.status.to_string(),
+                            &escape(&out.stdout),
+                            &escape(&out.stderr),
+                        ],
                     );
                 }
             }
@@ -2714,8 +2927,11 @@ fn the_corpus_census_is_a_ratchet() {
             "`{path}` used to compile under stencil and no longer does"
         );
     }
-    let unlisted: Vec<&str> =
-        compiles.iter().copied().filter(|p| !CORPUS_COMPILES.contains(p)).collect();
+    let unlisted: Vec<&str> = compiles
+        .iter()
+        .copied()
+        .filter(|p| !CORPUS_COMPILES.contains(p))
+        .collect();
     assert!(
         unlisted.is_empty(),
         "{unlisted:?} compile under stencil now — add them to `CORPUS_COMPILES`, which is \
@@ -2752,8 +2968,14 @@ fn corpus_files_shard(at: usize, count: usize) {
     if std::env::var_os(CENSUS).is_some() {
         return;
     }
-    let mine: Vec<&str> = shard::of(CORPUS_COMPILES, at, count).into_iter().copied().collect();
-    assert!(!mine.is_empty(), "shard {at} of {count} holds no corpus file");
+    let mine: Vec<&str> = shard::of(CORPUS_COMPILES, at, count)
+        .into_iter()
+        .copied()
+        .collect();
+    assert!(
+        !mine.is_empty(),
+        "shard {at} of {count} holds no corpus file"
+    );
     let files: Vec<String> = mine.iter().map(|p| (*p).to_string()).collect();
     let census = collect(&files, Depth::Run, "");
     assert!(
@@ -2767,12 +2989,20 @@ fn corpus_files_shard(at: usize, count: usize) {
         let full = corpus().join(package).join("test").join(file);
         let source = std::fs::read_to_string(&full).unwrap();
         let blocks = source.matches("\ntest \"").count();
-        assert!(blocks > 0, "`{path}` has no test blocks, so running it proves nothing");
+        assert!(
+            blocks > 0,
+            "`{path}` has no test blocks, so running it proves nothing"
+        );
     }
     let failures = failures_in(&census, &mine);
     // Every failing file, not the first: two platforms failing on two
     // different files is one report here and two runs otherwise.
-    assert!(failures.is_empty(), "{} corpus files failed:\n{}", failures.len(), failures.join("\n"));
+    assert!(
+        failures.is_empty(),
+        "{} corpus files failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
 }
 
 shards! {
@@ -2795,11 +3025,10 @@ fn failures_in(census: &Census, wanted: &[&str]) -> Vec<String> {
     let mut failures = Vec::new();
     for path in wanted {
         let Some((_, out)) = census.ran.iter().find(|(p, _)| p == path) else {
-            let why = census
-                .verdict
-                .iter()
-                .find(|(p, _)| p == path)
-                .map_or_else(|| String::from("the census never asked about it"), |(_, v)| v.say());
+            let why = census.verdict.iter().find(|(p, _)| p == path).map_or_else(
+                || String::from("the census never asked about it"),
+                |(_, v)| v.say(),
+            );
             failures.push(format!("`{path}` never ran: {why}"));
             continue;
         };
@@ -2861,7 +3090,10 @@ fn a_crashing_corpus_file_is_attributed_to_it() {
     // And the whole of that verdict: `beside` is a file `CORPUS_COMPILES`
     // names, so a census that stopped at the objects has not finished it.
     assert!(
-        census.ran.iter().any(|(p, out)| p == beside && out.status == 0),
+        census
+            .ran
+            .iter()
+            .any(|(p, out)| p == beside && out.status == 0),
         "`{beside}`'s program was never run beside the crash"
     );
 }
@@ -2882,10 +3114,18 @@ fn a_failing_corpus_file_is_named() {
     }
     let path = CORPUS_COMPILES[0];
     let census = collect(&[String::from(path)], Depth::Run, &format!("{path}=fail"));
-    assert!(census.unfinished.is_empty(), "nothing crashed: {:?}", census.unfinished);
+    assert!(
+        census.unfinished.is_empty(),
+        "nothing crashed: {:?}",
+        census.unfinished
+    );
     let failures = failures_in(&census, &[path]);
     assert_eq!(failures.len(), 1, "one file failed: {failures:?}");
-    assert!(failures[0].contains(path), "the failure has to name the file: {}", failures[0]);
+    assert!(
+        failures[0].contains(path),
+        "the failure has to name the file: {}",
+        failures[0]
+    );
     assert!(
         failures[0].contains(&format!("exited {FAULT_STATUS}")),
         "the failure has to carry the exit status: {}",
@@ -2927,15 +3167,28 @@ test "third" { assert.equal(3, 3); }
     let binary = build_tests("resume", source);
 
     // From the top: the second block aborts, and the third never runs.
-    let whole = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
-    assert_ne!(whole.status.code(), Some(0), "a failing block must end the process");
+    let whole = Command::new(&binary)
+        .env("BURI_TEST_FROM", "0")
+        .output()
+        .unwrap();
+    assert_ne!(
+        whole.status.code(),
+        Some(0),
+        "a failing block must end the process"
+    );
     let report = String::from_utf8_lossy(&whole.stderr).to_string();
-    assert!(report.contains("assert.equal failed"), "the abort is the assertion's: {report}");
+    assert!(
+        report.contains("assert.equal failed"),
+        "the abort is the assertion's: {report}"
+    );
 
     // Started *after* the failure but before the last block: the runner's
     // resume, and the proof that `buri_rt_test_enter` is consulted per block
     // rather than once.
-    let after = Command::new(&binary).env("BURI_TEST_FROM", "2").output().unwrap();
+    let after = Command::new(&binary)
+        .env("BURI_TEST_FROM", "2")
+        .output()
+        .unwrap();
     assert_eq!(
         after.status.code(),
         Some(0),
@@ -2944,7 +3197,10 @@ test "third" { assert.equal(3, 3); }
     );
     // And one *before* it still fails, which is what says the blocks before
     // the resume point were skipped rather than the whole suite.
-    let middle = Command::new(&binary).env("BURI_TEST_FROM", "1").output().unwrap();
+    let middle = Command::new(&binary)
+        .env("BURI_TEST_FROM", "1")
+        .output()
+        .unwrap();
     assert_ne!(middle.status.code(), Some(0));
 }
 
@@ -2979,7 +3235,10 @@ fn the_products_own_link_produces_a_program_that_runs() {
         eprintln!("no linkable host platform");
         return;
     };
-    let target = Target { platform, arch: link::host_arch() };
+    let target = Target {
+        platform,
+        arch: link::host_arch(),
+    };
     let source = r#"
 from "native" import { NativeHost };
 from "core/io" import * as io;
@@ -2990,7 +3249,11 @@ export fn main(host: NativeHost): Result<(), Str> {
 }
 "#;
     let (program, tables) = lowered(source);
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "cmd/app",
+    };
     let units = Stencil::default()
         .emit(&program, &tables, &opts)
         .unwrap_or_else(|d| panic!("the backend refused the program: {:?}", messages(&d)));
@@ -3015,12 +3278,20 @@ export fn main(host: NativeHost): Result<(), Str> {
         .iter()
         .map(|u| Row {
             unit: u.name.trim_end_matches(".o").to_string(),
-            key: u.key.as_ref().map(|k| k.as_str().to_string()).unwrap_or_default(),
+            key: u
+                .key
+                .as_ref()
+                .map(|k| k.as_str().to_string())
+                .unwrap_or_default(),
             cached: false,
         })
         .collect();
     let out = dir.join("app");
-    let options = LinkOptions { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+    let options = LinkOptions {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "cmd/app",
+    };
     if let Err(d) = link::run(&units, &rows, &linker, &out, &options) {
         panic!("the product's link failed: {:?}", messages(&d));
     }
@@ -3164,7 +3435,10 @@ fn hello_world_still_links_the_runtime_archive() {
         eprintln!("no linkable host platform");
         return;
     };
-    let target = Target { platform, arch: link::host_arch() };
+    let target = Target {
+        platform,
+        arch: link::host_arch(),
+    };
     if let Err(refusal) = link::select(target) {
         eprintln!("{}", refusal.text());
         return;
@@ -3195,7 +3469,11 @@ export fn main(host: NativeHost): Result<(), Str> {
     let mut linked: Vec<(&str, u64)> = Vec::new();
     for (name, source) in programs {
         let (program, tables) = lowered(source);
-        let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+        let opts = Options {
+            profile: Profile::Debug,
+            target,
+            unit_prefix: "cmd/app",
+        };
         let units = Stencil::default()
             .emit(&program, &tables, &opts)
             .unwrap_or_else(|d| panic!("the backend refused {name}: {:?}", messages(&d)));
@@ -3213,12 +3491,20 @@ export fn main(host: NativeHost): Result<(), Str> {
             .iter()
             .map(|u| Row {
                 unit: u.name.trim_end_matches(".o").to_string(),
-                key: u.key.as_ref().map(|k| k.as_str().to_string()).unwrap_or_default(),
+                key: u
+                    .key
+                    .as_ref()
+                    .map(|k| k.as_str().to_string())
+                    .unwrap_or_default(),
                 cached: false,
             })
             .collect();
         let out = dir.join("app");
-        let options = LinkOptions { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+        let options = LinkOptions {
+            profile: Profile::Debug,
+            target,
+            unit_prefix: "cmd/app",
+        };
         if let Err(d) = link::run(&units, &rows, &linker, &out, &options) {
             panic!("the product's link failed for {name}: {:?}", messages(&d));
         }
@@ -3331,7 +3617,11 @@ fn debug_stripped_size(artifact: &Path, to: &Path) -> Option<u64> {
     // executes anything.
     let ran = Command::new("strip").arg("-S").arg(to).output().ok()?;
     if !ran.status.success() {
-        eprintln!("`strip -S` refused {}: {}", to.display(), String::from_utf8_lossy(&ran.stderr));
+        eprintln!(
+            "`strip -S` refused {}: {}",
+            to.display(),
+            String::from_utf8_lossy(&ran.stderr)
+        );
         return None;
     }
     std::fs::metadata(to).ok().map(|m| m.len())
@@ -3350,17 +3640,28 @@ fn thread_local_initialiser_size(artifact: &Path) -> Option<u64> {
         eprintln!("no `{tool}` on this host, so the thread-local initialiser goes unmeasured");
         return None;
     };
-    assert!(ran.status.success(), "`{tool}` refused {}", artifact.display());
+    assert!(
+        ran.status.success(),
+        "`{tool}` refused {}",
+        artifact.display()
+    );
     let listing = String::from_utf8_lossy(&ran.stdout).into_owned();
     let hex = |s: &str| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok();
     if cfg!(target_os = "macos") {
         // `sectname __thread_data`, then `segname`, `addr` and `size 0x…`.
-        let mut lines = listing.lines().skip_while(|l| l.split_whitespace().ne(["sectname", section]));
-        let Some(_) = lines.next() else { return Some(0) };
+        let mut lines = listing
+            .lines()
+            .skip_while(|l| l.split_whitespace().ne(["sectname", section]));
+        let Some(_) = lines.next() else {
+            return Some(0);
+        };
         lines.find_map(|l| l.trim().strip_prefix("size ").and_then(hex))
     } else {
         // `[17] .tdata  PROGBITS  <addr> <offset> <size> …`.
-        let Some(line) = listing.lines().find(|l| l.split_whitespace().any(|w| w == section)) else {
+        let Some(line) = listing
+            .lines()
+            .find(|l| l.split_whitespace().any(|w| w == section))
+        else {
             return Some(0);
         };
         let after = line.split_once(section)?.1;
@@ -3578,7 +3879,8 @@ export fn main(host: NativeHost): Result<(), Str> {
     let ran = run_with("thread-entry", source, Some(THREAD_PROBE));
     assert_eq!(ran.status, 0, "{}", ran.stderr);
     assert_eq!(
-        ran.stdout, "depth 10000\ndepth 10000\n",
+        ran.stdout,
+        "depth 10000\ndepth 10000\n",
         "the root ran {} time(s), not twice: {:?}",
         ran.stdout.lines().count(),
         ran.stdout
@@ -3589,7 +3891,10 @@ export fn main(host: NativeHost): Result<(), Str> {
         "the thread wrote {clobbered} bytes into the process's own Buri stack: it \
          is running on the static block, not on one of its own"
     );
-    assert!(!inside, "the block the thread acquired is inside `buri$stencil$stack`");
+    assert!(
+        !inside,
+        "the block the thread acquired is inside `buri$stencil$stack`"
+    );
 }
 
 /// **A runaway recursion on a thread faults at the thread's own guard.**
@@ -3710,7 +4015,10 @@ export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }";
     let (_, bytes) = units.first().expect("no unit was emitted");
     let door = buri::compiler::backend::task_thread::MAIN_ENTRY;
     let needle = door.as_bytes();
-    assert!(bytes.windows(needle.len()).any(|w| w == needle), "no unit names {door}");
+    assert!(
+        bytes.windows(needle.len()).any(|w| w == needle),
+        "no unit names {door}"
+    );
 
     // And what the link does with it, which is the half that is per-target.
     let binary = build_linked_by("thread-door-link", source, None, shared::driver_link);
@@ -3777,7 +4085,9 @@ fn symbol_span(listing: &str, symbol: &str) -> Option<u64> {
     }
     rows.sort_unstable();
     let at = rows.iter().find(|(_, is_it)| *is_it).map(|(at, _)| *at)?;
-    rows.iter().find(|(a, _)| *a > at).map(|(next, _)| next.saturating_sub(at))
+    rows.iter()
+        .find(|(a, _)| *a > at)
+        .map(|(next, _)| next.saturating_sub(at))
 }
 
 /// The rows of an `nm` listing that name `symbol`, for a failure message.
@@ -3787,7 +4097,11 @@ fn symbol_span(listing: &str, symbol: &str) -> Option<u64> {
 /// screens of `GCC_except_table` in front of the one line that mattered.
 fn rows_naming(listing: &str, symbol: &str) -> String {
     let rows: Vec<&str> = listing.lines().filter(|l| l.contains(symbol)).collect();
-    if rows.is_empty() { String::from("(no row names it)") } else { rows.join("\n") }
+    if rows.is_empty() {
+        String::from("(no row names it)")
+    } else {
+        rows.join("\n")
+    }
 }
 
 /// A `.buri` snippet with `test` blocks, compiled as a test binary and linked.
@@ -3804,18 +4118,39 @@ fn build_tests_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     assert!(
         !analysis.diagnostics.has_errors(),
         "the snippet did not compile: {:?}",
-        analysis.diagnostics.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>()
+        analysis
+            .diagnostics
+            .items
+            .iter()
+            .map(|d| d.message.clone())
+            .collect::<Vec<_>>()
     );
-    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     let mut diagnostics = Diagnostics::new();
-    let mut program =
-        monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
+    let mut program = monomorphize::run(
+        &analysis.checked,
+        paths,
+        &mut diagnostics,
+        monomorphize::Roots::Tests,
+    );
     assert!(!diagnostics.has_errors(), "monomorphization failed");
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
 
-    let target = Target { platform: host_platform(), arch: None };
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let target = Target {
+        platform: host_platform(),
+        arch: None,
+    };
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "",
+    };
     let units = Stencil::default()
         .emit(&program, &analysis.checked.tables, &opts)
         .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
@@ -3848,8 +4183,16 @@ fn build_tests_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     let binary = dir.join("program");
     // `build/link.rs`'s platform flags and its driver, for `build_with`'s
     // reason, where a probe is linked in.
-    let out = if probe.is_some() { shared::link_program(&objects, &binary) } else { shared::place_program(&objects, &binary) };
-    assert!(out.status.success(), "the link failed:\n{}", String::from_utf8_lossy(&out.stderr));
+    let out = if probe.is_some() {
+        shared::link_program(&objects, &binary)
+    } else {
+        shared::place_program(&objects, &binary)
+    };
+    assert!(
+        out.status.success(),
+        "the link failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     crate::sweep::kept::settle(&binary);
     binary
 }
@@ -3888,7 +4231,11 @@ fn build_tests_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
 /// of the file applies to a missing C compiler.
 fn cross_tools() -> Option<()> {
     for t in ["ld.lld", "llvm-nm", "llvm-objdump", "llvm-readelf"] {
-        Command::new(t).arg("--version").output().ok().filter(|o| o.status.success())?;
+        Command::new(t)
+            .arg("--version")
+            .output()
+            .ok()
+            .filter(|o| o.status.success())?;
     }
     Some(())
 }
@@ -3904,8 +4251,15 @@ fn cross_units(source: &str, arch: Arch) -> Option<Vec<buri::compiler::backend::
         return None;
     }
     let (program, tables) = lowered(source);
-    let target = Target { platform: Platform::Linux, arch: Some(arch) };
-    let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+    let target = Target {
+        platform: Platform::Linux,
+        arch: Some(arch),
+    };
+    let opts = Options {
+        profile: Profile::Debug,
+        target,
+        unit_prefix: "cmd/app",
+    };
     match Stencil::default().emit(&program, &tables, &opts) {
         Ok(units) => Some(units),
         Err(d) => {
@@ -3995,7 +4349,9 @@ fn shared_glue_is_kept_once_per_program_on_elf() {
         eprintln!("no cross tool-chain on PATH");
         return;
     }
-    let Some(units) = cross_units(SHARED_GLUE_PROGRAM, Arch::X86_64) else { return };
+    let Some(units) = cross_units(SHARED_GLUE_PROGRAM, Arch::X86_64) else {
+        return;
+    };
     let dir = workspace("cross-shared-glue");
     let objects = write_objects(&dir, &units);
 
@@ -4018,11 +4374,23 @@ fn shared_glue_is_kept_once_per_program_on_elf() {
     );
 
     let exe = dir.join("app");
-    link_with_stub(&dir, &objects, &exe, "x86_64-unknown-linux-musl", "elf_x86_64");
+    link_with_stub(
+        &dir,
+        &objects,
+        &exe,
+        "x86_64-unknown-linux-musl",
+        "elf_x86_64",
+    );
     let listed = tool("llvm-nm", &["--defined-only", &exe.display().to_string()]);
     for name in &repeated {
-        let copies = listed.lines().filter(|l| l.split_whitespace().last() == Some(name)).count();
-        assert_eq!(copies, 1, "{name} is defined {copies} times in the linked image");
+        let copies = listed
+            .lines()
+            .filter(|l| l.split_whitespace().last() == Some(name))
+            .count();
+        assert_eq!(
+            copies, 1,
+            "{name} is defined {copies} times in the linked image"
+        );
     }
 }
 
@@ -4036,9 +4404,14 @@ fn objects_link_and_every_relocation_resolves(
         eprintln!("no cross tool-chain on PATH");
         return;
     }
-    let Some(units) = cross_units(CROSS_PROGRAM, arch) else { return };
+    let Some(units) = cross_units(CROSS_PROGRAM, arch) else {
+        return;
+    };
     assert!(!units.is_empty(), "no codegen units were emitted");
-    let dir = workspace(&format!("cross-{}", triple.split('-').next().unwrap_or(triple)));
+    let dir = workspace(&format!(
+        "cross-{}",
+        triple.split('-').next().unwrap_or(triple)
+    ));
     let objects = write_objects(&dir, &units);
 
     // Every object is an ELF for the right machine, with the sections a unit
@@ -4046,8 +4419,16 @@ fn objects_link_and_every_relocation_resolves(
     // a reader written beside a writer agrees with it by construction.
     for o in &objects {
         let h = tool("llvm-readelf", &["-h", &o.display().to_string()]);
-        assert!(h.contains(machine), "{}: not a {machine} ELF:\n{h}", o.display());
-        assert!(h.contains("REL (Relocatable file)"), "{}: not relocatable", o.display());
+        assert!(
+            h.contains(machine),
+            "{}: not a {machine} ELF:\n{h}",
+            o.display()
+        );
+        assert!(
+            h.contains("REL (Relocatable file)"),
+            "{}: not relocatable",
+            o.display()
+        );
     }
 
     let exe = dir.join("app");
@@ -4068,8 +4449,15 @@ fn objects_link_and_every_relocation_resolves(
     // wrong offset — the failure a container port makes — turns the instruction
     // it landed in into exactly that.
     let dis = tool("llvm-objdump", &["-d", &exe.display().to_string()]);
-    assert!(!dis.contains("<unknown>"), "the linked image does not disassemble cleanly");
-    assert!(dis.contains("<main>"), "the linked image has no main:\n{}", &dis[..dis.len().min(400)]);
+    assert!(
+        !dis.contains("<unknown>"),
+        "the linked image does not disassemble cleanly"
+    );
+    assert!(
+        dis.contains("<main>"),
+        "the linked image has no main:\n{}",
+        &dis[..dis.len().min(400)]
+    );
 
     // (4) The thread door nothing references is *still there*, and small. This
     // is the ELF half of
@@ -4101,14 +4489,20 @@ fn objects_link_and_every_relocation_resolves(
 #[test]
 fn a_cross_emission_is_reproducible() {
     for arch in [Arch::Arm64, Arch::X86_64] {
-        let (Some(a), Some(b)) = (cross_units(CROSS_PROGRAM, arch), cross_units(CROSS_PROGRAM, arch))
-        else {
+        let (Some(a), Some(b)) = (
+            cross_units(CROSS_PROGRAM, arch),
+            cross_units(CROSS_PROGRAM, arch),
+        ) else {
             continue;
         };
         assert_eq!(a.len(), b.len());
         for (x, y) in a.iter().zip(&b) {
             assert_eq!(x.name, y.name);
-            assert_eq!(x.bytes, y.bytes, "{} is not reproducible for {arch:?}", x.name);
+            assert_eq!(
+                x.bytes, y.bytes,
+                "{} is not reproducible for {arch:?}",
+                x.name
+            );
         }
     }
 }
@@ -4136,22 +4530,35 @@ export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }";
     for (stencil_target, target) in [
         (
             stencil_abi::StencilTarget::MacosArm64,
-            Target { platform: Platform::Macos, arch: Some(Arch::Arm64) },
+            Target {
+                platform: Platform::Macos,
+                arch: Some(Arch::Arm64),
+            },
         ),
         (
             stencil_abi::StencilTarget::LinuxArm64,
-            Target { platform: Platform::Linux, arch: Some(Arch::Arm64) },
+            Target {
+                platform: Platform::Linux,
+                arch: Some(Arch::Arm64),
+            },
         ),
         (
             stencil_abi::StencilTarget::LinuxX86_64,
-            Target { platform: Platform::Linux, arch: Some(Arch::X86_64) },
+            Target {
+                platform: Platform::Linux,
+                arch: Some(Arch::X86_64),
+            },
         ),
     ] {
         if !buri::compiler::backend::stencil::available_for(stencil_target) {
             eprintln!("this toolchain has no {} stencils", stencil_target.slug());
             continue;
         }
-        let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+        let opts = Options {
+            profile: Profile::Debug,
+            target,
+            unit_prefix: "cmd/app",
+        };
         let units = Stencil::default()
             .emit(&program, &tables, &opts)
             .unwrap_or_else(|d| panic!("{} refused: {:?}", stencil_target.slug(), messages(&d)));
@@ -4161,12 +4568,27 @@ export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }";
             bytes.windows(n.len()).any(|w| w == n)
         };
         use buri::compiler::backend::task_thread;
-        assert!(names(task_thread::MAIN_ENTRY), "{}: no door", stencil_target.slug());
-        assert!(names(task_thread::STACK_ACQUIRE), "{}: the door takes no stack", stencil_target.slug());
-        assert!(names(task_thread::STACK_RELEASE), "{}: the door keeps its stack", stencil_target.slug());
+        assert!(
+            names(task_thread::MAIN_ENTRY),
+            "{}: no door",
+            stencil_target.slug()
+        );
+        assert!(
+            names(task_thread::STACK_ACQUIRE),
+            "{}: the door takes no stack",
+            stencil_target.slug()
+        );
+        assert!(
+            names(task_thread::STACK_RELEASE),
+            "{}: the door keeps its stack",
+            stencil_target.slug()
+        );
         seen += 1;
     }
-    assert!(seen > 0, "no target's stencils were available: nothing was checked");
+    assert!(
+        seen > 0,
+        "no target's stencils were available: nothing was checked"
+    );
     eprintln!("the thread door was checked on {seen} of the three targets");
 }
 
@@ -4181,14 +4603,19 @@ export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }";
 /// and no `main` — is gone, because `asm.rs` now writes one.
 #[test]
 fn an_unsupported_cross_target_is_refused_with_a_reason() {
-    let (program, tables) = lowered("from \"native\" import { NativeHost };
+    let (program, tables) = lowered(
+        "from \"native\" import { NativeHost };
 
-export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }");
+export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }",
+    );
     // x86-64 Linux is emitted for, not refused: everything it needs exists.
     if buri::compiler::backend::stencil::available_for(stencil_abi::StencilTarget::LinuxX86_64) {
         let opts = Options {
             profile: Profile::Debug,
-            target: Target { platform: Platform::Linux, arch: Some(Arch::X86_64) },
+            target: Target {
+                platform: Platform::Linux,
+                arch: Some(Arch::X86_64),
+            },
             unit_prefix: "",
         };
         let out = Stencil::default().emit(&program, &tables, &opts);
@@ -4201,10 +4628,17 @@ export fn main(host: NativeHost): Result<(), Str> { .Ok(()) }");
     // And macOS x86-64 is a combination no library is built for at all.
     let mac = Options {
         profile: Profile::Debug,
-        target: Target { platform: Platform::Macos, arch: Some(Arch::X86_64) },
+        target: Target {
+            platform: Platform::Macos,
+            arch: Some(Arch::X86_64),
+        },
         unit_prefix: "",
     };
-    let msgs = Stencil::default().emit(&program, &tables, &mac).err().map(|d| messages(&d)).unwrap_or_default();
+    let msgs = Stencil::default()
+        .emit(&program, &tables, &mac)
+        .err()
+        .map(|d| messages(&d))
+        .unwrap_or_default();
     assert!(
         msgs.iter().any(|m| m.contains("macos-x86_64")),
         "macos-x86_64 was not refused by name: {msgs:?}"
@@ -4263,7 +4697,10 @@ fn link_with_stub(dir: &Path, objects: &[PathBuf], out: &Path, triple: &str, emu
     }
     undefined.retain(|name| !defined.contains(name));
     undefined.sort();
-    assert!(!undefined.is_empty(), "a program with no external references is not this one");
+    assert!(
+        !undefined.is_empty(),
+        "a program with no external references is not this one"
+    );
     let mut c = String::from("// generated: the shape of every symbol these objects need\n");
     for name in &undefined {
         // Everything a stencil unit imports is a function: the runtime archive's
@@ -4277,7 +4714,12 @@ fn link_with_stub(dir: &Path, objects: &[PathBuf], out: &Path, triple: &str, emu
     let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
     let res = Command::new(&cc)
         .arg(format!("--target={triple}"))
-        .args(["-c", "-O0", "-ffreestanding", "-fno-asynchronous-unwind-tables"])
+        .args([
+            "-c",
+            "-O0",
+            "-ffreestanding",
+            "-fno-asynchronous-unwind-tables",
+        ])
         .arg(&stub_c)
         .arg("-o")
         .arg(&stub_o)
@@ -4290,7 +4732,14 @@ fn link_with_stub(dir: &Path, objects: &[PathBuf], out: &Path, triple: &str, emu
     );
 
     let mut ld = Command::new("ld.lld");
-    ld.args(["-m", emulation, "-static", "--entry=main", "--gc-sections", "-o"]);
+    ld.args([
+        "-m",
+        emulation,
+        "-static",
+        "--entry=main",
+        "--gc-sections",
+        "-o",
+    ]);
     ld.arg(out);
     for o in objects {
         ld.arg(o);
@@ -4341,10 +4790,26 @@ fn cross_emission_throughput() {
 
     println!("target          score   instructions a line   units");
     for (name, target) in [
-        ("macos-arm64", Target { platform: Platform::Macos, arch: Some(Arch::Arm64) }),
-        ("linux-arm64", Target { platform: Platform::Linux, arch: Some(Arch::Arm64) }),
+        (
+            "macos-arm64",
+            Target {
+                platform: Platform::Macos,
+                arch: Some(Arch::Arm64),
+            },
+        ),
+        (
+            "linux-arm64",
+            Target {
+                platform: Platform::Linux,
+                arch: Some(Arch::Arm64),
+            },
+        ),
     ] {
-        let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
+        let opts = Options {
+            profile: Profile::Debug,
+            target,
+            unit_prefix: "cmd/app",
+        };
         // One uncounted emission of each size, so neither the stencil
         // library's decode nor a first touch of a fresh allocation is counted.
         let units = match (
@@ -4363,7 +4828,10 @@ fn cross_emission_throughput() {
                     buri::profile::counted(|| {
                         for _ in 0..reps {
                             let emitted = Stencil::default().emit(program, tables, &opts);
-                            assert!(emitted.is_ok(), "{name}: an emission that worked a moment ago refused");
+                            assert!(
+                                emitted.is_ok(),
+                                "{name}: an emission that worked a moment ago refused"
+                            );
                         }
                     })
                     .1
@@ -4377,7 +4845,10 @@ fn cross_emission_throughput() {
             continue;
         }
         let score = (large_cost as f64 / large_lines) / (small_cost as f64 / small_lines);
-        println!("{name:<15} {score:>5.2}   {:>19.0}   {units}", large_cost as f64 / large_lines);
+        println!(
+            "{name:<15} {score:>5.2}   {:>19.0}   {units}",
+            large_cost as f64 / large_lines
+        );
         assert!(
             score < EMIT_BOUND,
             "{name}: emitting {large_lines} lines in one program costs {score:.2} times as many \
@@ -4469,8 +4940,16 @@ export fn main(host: NativeHost): Result<(), Str> {{
     };
     let few = run_with("template-leak-few", &source(20), Some(ALLOC_PROBE));
     let many = run_with("template-leak-many", &source(200), Some(ALLOC_PROBE));
-    assert!(few.stdout.ends_with("total 320\n"), "stdout was: {:?}", few.stdout);
-    assert!(many.stdout.ends_with("total 3200\n"), "stdout was: {:?}", many.stdout);
+    assert!(
+        few.stdout.ends_with("total 320\n"),
+        "stdout was: {:?}",
+        few.stdout
+    );
+    assert!(
+        many.stdout.ends_with("total 3200\n"),
+        "stdout was: {:?}",
+        many.stdout
+    );
     let (_, live_few) = probed(&few.stderr);
     let (_, live_many) = probed(&many.stderr);
     assert_eq!(
@@ -4478,7 +4957,11 @@ export fn main(host: NativeHost): Result<(), Str> {{
         "twenty interpolations left {live_few} blocks live and two hundred left \
          {live_many}: the join leaks per iteration"
     );
-    assert_eq!(live_many, 0, "the heap did not come back balanced: {}", many.stderr);
+    assert_eq!(
+        live_many, 0,
+        "the heap did not come back balanced: {}",
+        many.stderr
+    );
 }
 
 /// The same question for a hole whose type's `Show` is derived (SPEC 3.6).
@@ -4530,7 +5013,11 @@ export fn main(host: NativeHost): Result<(), Str> {{
         "twenty derived-hole interpolations left {live_few} blocks live and two hundred \
          left {live_many}: rendering the hole leaks per iteration"
     );
-    assert_eq!(live_many, 0, "the heap did not come back balanced: {}", many.stderr);
+    assert_eq!(
+        live_many, 0,
+        "the heap did not come back balanced: {}",
+        many.stderr
+    );
 }
 
 /// **A Buri server answers a real request, on a real socket.**
@@ -4559,7 +5046,11 @@ fn a_server_answers_a_request_on_a_socket() {
     }
     let binary = build_with("server", &crate::shared::one_shot_server(), None);
     let (out, reply) = crate::shared::served(&binary, "/ping?x=1");
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert!(
         out.stdout.ends_with("served\n"),
         "the server did not run to its own end:\n{}",
@@ -4648,7 +5139,11 @@ fn a_secured_server_opens_its_port_and_says_why_when_it_cannot() {
     let source = crate::shared::tls_server(&certificate, &key, &absent);
     let binary = build_with("server-tls", &source, None);
     let out = crate::shared::ran(&binary);
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     crate::shared::tls_bind_answers(&out.stdout, &absent);
 }
 
@@ -4667,7 +5162,11 @@ fn eight_requests_at_once_are_each_answered_on_their_own_connection() {
     let source = crate::shared::concurrent_server(REQUESTS, None);
     let binary = build_with("server-concurrent", &source, None);
     let (out, replies) = crate::shared::served_many(&binary, REQUESTS);
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert!(
         out.stdout.ends_with("served\n"),
         "the server did not run to its own end:\n{}",
@@ -4685,7 +5184,11 @@ fn a_broadcast_actor_reaches_a_socket_it_did_not_publish_on() {
     if !supported() {
         return;
     }
-    let binary = build_with("socket-broadcast", &crate::shared::broadcasting_socket_server(2), None);
+    let binary = build_with(
+        "socket-broadcast",
+        &crate::shared::broadcasting_socket_server(2),
+        None,
+    );
     crate::shared::broadcast_reaches_the_other_socket(&binary);
 }
 
@@ -4732,7 +5235,11 @@ fn a_socket_counts_the_messages_it_was_sent() {
         out.stdout,
         out.stderr
     );
-    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    assert_eq!(
+        out.status, 0,
+        "stdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
     assert!(
         out.stdout.contains("closed .Normal\n"),
         "the close hook did not run with the reason the client sent:\n{}",
@@ -4829,7 +5336,6 @@ fn a_many_variant_enums_derived_functions_are_linear_in_its_variants() {
     );
 }
 
-
 /// [`many_variants`]' enum with no derives, matched in full by one function
 /// whose arms each read the payload, so each arm releases a counted value.
 fn many_arms(n: usize) -> String {
@@ -4892,7 +5398,11 @@ fn a_match_over_many_counted_variants_is_linear_in_its_arms() {
     if !supported() {
         return;
     }
-    grows_linearly("a match over an enum's variants", |n| main_unit_bytes(&many_arms(n)), 64);
+    grows_linearly(
+        "a match over an enum's variants",
+        |n| main_unit_bytes(&many_arms(n)),
+        64,
+    );
 }
 
 /// A struct of `n` `Str` fields, shared into a list, copied out and dropped,
@@ -4934,7 +5444,9 @@ export fn main(host: NativeHost): Result<(), Str> {{
 /// `call` nine bytes ahead.
 fn glue_frames(bytes: &[u8]) -> Vec<u32> {
     let word = |at: usize| {
-        bytes.get(at..at + 4).map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
+        bytes
+            .get(at..at + 4)
+            .map(|w| u32::from_le_bytes([w[0], w[1], w[2], w[3]]))
     };
     let mut frames = Vec::new();
     for at in 0..bytes.len() {
@@ -4944,7 +5456,10 @@ fn glue_frames(bytes: &[u8]) -> Vec<u32> {
             else {
                 break;
             };
-            if a == 0xf81f_0ffe && b & 0xffc0_03ff == 0xd100_03ff && c == 0xf900_03e0 && d == 0x9100_03e0
+            if a == 0xf81f_0ffe
+                && b & 0xffc0_03ff == 0xd100_03ff
+                && c == 0xf900_03e0
+                && d == 0x9100_03e0
             {
                 frames.push((b >> 10) & 0xfff);
             }
@@ -4971,7 +5486,11 @@ fn glue_for_a_wide_struct_frames_less_than_the_struct() {
         .iter()
         .flat_map(|(_, bytes)| glue_frames(bytes))
         .collect();
-    assert!(frames.len() >= 3, "found {} glue stubs, so this test checks nothing", frames.len());
+    assert!(
+        frames.len() >= 3,
+        "found {} glue stubs, so this test checks nothing",
+        frames.len()
+    );
     let widest = frames.iter().copied().max().unwrap_or(0);
     assert!(
         widest < width,
@@ -5034,13 +5553,26 @@ fn a_loaded_program_runs_as_its_linked_executable() {
         return;
     }
     let run = |binary: &Path, args: &[&str]| {
-        let out = shared::heap_checked(Command::new(binary).args(args)).output().unwrap();
+        let out = shared::heap_checked(Command::new(binary).args(args))
+            .output()
+            .unwrap();
         let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
-        (out.status.code(), out.status.signal(), text(&out.stdout), text(&out.stderr))
+        (
+            out.status.code(),
+            out.status.signal(),
+            text(&out.stdout),
+            text(&out.stderr),
+        )
     };
     for (name, source, args) in LOADED_PROGRAMS {
-        let loaded = run(&build_linked_by(name, source, None, shared::place_program), args);
-        let linked = run(&build_linked_by(name, source, None, shared::link_program), args);
+        let loaded = run(
+            &build_linked_by(name, source, None, shared::place_program),
+            args,
+        );
+        let linked = run(
+            &build_linked_by(name, source, None, shared::link_program),
+            args,
+        );
         assert_eq!(loaded, linked, "{name}: loaded, then linked");
     }
 }
@@ -5057,10 +5589,30 @@ fn a_debug_program_and_suite_are_no_new_executables() {
     let (_, source, args) = LOADED_PROGRAMS[0];
     let program = build_with("unlinked-program", source, None);
     let ran = shared::ran_command(shared::heap_checked(Command::new(&program).args(args)));
-    assert_eq!((ran.status, ran.stdout.as_str()), (0, "2 first\n"), "{}", ran.stderr);
-    let suite = build_tests("unlinked-suite", "from \"core/testing/assert\" import * as assert;\ntest \"one\" { assert.equal(1, 1); }\n");
-    let out = Command::new(&suite).env("BURI_TEST_FROM", "0").output().unwrap();
-    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        (ran.status, ran.stdout.as_str()),
+        (0, "2 first\n"),
+        "{}",
+        ran.stderr
+    );
+    let suite = build_tests(
+        "unlinked-suite",
+        "from \"core/testing/assert\" import * as assert;\ntest \"one\" { assert.equal(1, 1); }\n",
+    );
+    let out = Command::new(&suite)
+        .env("BURI_TEST_FROM", "0")
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let want = if shared::LOADED { 0 } else { 2 };
-    assert_eq!(shared::new_executables() - before, want, "executables linked for a program and a suite");
+    assert_eq!(
+        shared::new_executables() - before,
+        want,
+        "executables linked for a program and a suite"
+    );
 }

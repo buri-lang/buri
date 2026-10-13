@@ -25,8 +25,11 @@ impl Decimal {
     /// From the parts of a decimal literal: the digits before the point, the
     /// digits after it, and the exponent.
     pub fn from_parts(negative: bool, whole: &str, fraction: &str, exp: i64) -> Decimal {
-        let digits: Vec<u8> =
-            whole.bytes().chain(fraction.bytes()).map(|b| b.saturating_sub(b'0')).collect();
+        let digits: Vec<u8> = whole
+            .bytes()
+            .chain(fraction.bytes())
+            .map(|b| b.saturating_sub(b'0'))
+            .collect();
         let fraction_len = i64::try_from(fraction.len()).unwrap_or(i64::MAX);
         Decimal::normalized(negative, digits, exp.saturating_sub(fraction_len))
     }
@@ -59,9 +62,17 @@ impl Decimal {
             exp = exp.saturating_add(1);
         }
         if digits.is_empty() {
-            return Decimal { negative: false, digits, exp: 0 };
+            return Decimal {
+                negative: false,
+                digits,
+                exp: 0,
+            };
         }
-        Decimal { negative, digits, exp }
+        Decimal {
+            negative,
+            digits,
+            exp,
+        }
     }
 
     pub fn is_zero(&self) -> bool {
@@ -79,7 +90,9 @@ impl Decimal {
     /// Where the leading digit sits, which orders two magnitudes before any
     /// digit is compared.
     fn magnitude(&self) -> i64 {
-        i64::try_from(self.digits.len()).unwrap_or(i64::MAX).saturating_add(self.exp)
+        i64::try_from(self.digits.len())
+            .unwrap_or(i64::MAX)
+            .saturating_add(self.exp)
     }
 
     fn cmp_magnitude(&self, other: &Decimal) -> Ordering {
@@ -123,12 +136,12 @@ impl Decimal {
             }),
             _ => return self.f64_multiple_of(divisor),
         };
-        let mut rest = self
-            .digits
-            .iter()
-            .fold(0u128, |r, d| {
-                r.saturating_mul(10).saturating_add(u128::from(*d)).checked_rem(modulus).unwrap_or(0)
-            });
+        let mut rest = self.digits.iter().fold(0u128, |r, d| {
+            r.saturating_mul(10)
+                .saturating_add(u128::from(*d))
+                .checked_rem(modulus)
+                .unwrap_or(0)
+        });
         // Past the 127th zero every power of two and of five a 128-bit divisor
         // can hold has been supplied, so more zeros change nothing.
         let zeros = self.exp.saturating_sub(divisor.exp).min(130);
@@ -150,7 +163,12 @@ impl Decimal {
         }
         let mut n: i64 = 0;
         let zeros = usize::try_from(self.exp).ok()?;
-        for d in self.digits.iter().copied().chain(std::iter::repeat_n(0, zeros)) {
+        for d in self
+            .digits
+            .iter()
+            .copied()
+            .chain(std::iter::repeat_n(0, zeros))
+        {
             n = n.checked_mul(10)?.checked_add(i64::from(d))?;
         }
         Some(if self.negative { n.checked_neg()? } else { n })
@@ -160,9 +178,15 @@ impl Decimal {
         if self.is_zero() {
             return 0.0;
         }
-        let digits: String = self.digits.iter().map(|d| char::from(b'0'.saturating_add(*d))).collect();
+        let digits: String = self
+            .digits
+            .iter()
+            .map(|d| char::from(b'0'.saturating_add(*d)))
+            .collect();
         let sign = if self.negative { "-" } else { "" };
-        format!("{sign}{digits}e{}", self.exp).parse().unwrap_or(f64::NAN)
+        format!("{sign}{digits}e{}", self.exp)
+            .parse()
+            .unwrap_or(f64::NAN)
     }
 }
 

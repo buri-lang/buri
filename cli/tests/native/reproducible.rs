@@ -65,8 +65,16 @@ fn main_module() -> String {
 
 /// The host's variant, as a build file spells it.
 fn host_variant() -> String {
-    let os = if cfg!(target_os = "macos") { "macos" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x86_64"
+    };
     format!("{os}-{arch}")
 }
 
@@ -110,11 +118,17 @@ fn built(round: &Path, mode: &[&str]) -> Vec<u8> {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-    let artifact = round.join(".buri/out/native").join(host_variant()).join("cmd/app/app");
+    let artifact = round
+        .join(".buri/out/native")
+        .join(host_variant())
+        .join("cmd/app/app");
     let ran = Command::new(&artifact).output().expect("run the artifact");
     // `run(2)` is two calls: an even module counts one entry in each, an odd
     // one two items, so a pair of modules adds six.
-    assert_eq!(String::from_utf8_lossy(&ran.stdout), format!("{}\n", 3 * MODULES));
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout),
+        format!("{}\n", 3 * MODULES)
+    );
     std::fs::read(&artifact).unwrap()
 }
 
@@ -131,7 +145,10 @@ fn two_cold_builds_agree_byte_for_byte_on_every_native_backend() {
             a == b,
             "two cold builds of one program on the {backend} backend wrote different \
              executables, first at byte {:?}",
-            a.iter().zip(&b).position(|(x, y)| x != y).or(Some(a.len().min(b.len())))
+            a.iter()
+                .zip(&b)
+                .position(|(x, y)| x != y)
+                .or(Some(a.len().min(b.len())))
         );
     }
 }

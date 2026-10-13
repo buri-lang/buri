@@ -8,7 +8,10 @@
 use crate::harness::*;
 
 fn walkthrough() -> Scratch {
-    Scratch::copy_of("host-files", &tests_dir().join("repositories/custom-platforms/cloudflare_kv/repo"))
+    Scratch::copy_of(
+        "host-files",
+        &tests_dir().join("repositories/custom-platforms/cloudflare_kv/repo"),
+    )
 }
 
 const FILE: &str = "platform/cloudflare_worker/fetch.mjs";
@@ -69,7 +72,11 @@ fn a_file_written_every_way_is_read_and_still_answers() {
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "the worker failed:\n{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "the worker failed:\n{stdout}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert_eq!(
         stdout,
         "200 hello ada\n401 \n\
@@ -139,7 +146,12 @@ fn a_file_cut_off_or_malformed_anywhere_still_builds() {
     for (name, text) in rows {
         scratch.write(FILE, &text);
         let run = scratch.run(&["build", "//cmd/site"]);
-        assert_eq!(run.code, 0, "{name}: the build refused the file:\n{}", indent(&run.all()));
+        assert_eq!(
+            run.code,
+            0,
+            "{name}: the build refused the file:\n{}",
+            indent(&run.all())
+        );
     }
 }
 
@@ -148,7 +160,13 @@ fn a_file_cut_off_or_malformed_anywhere_still_builds() {
 #[test]
 fn a_one_parameter_arrow_is_counted() {
     let scratch = walkthrough();
-    scratch.write(FILE, &format!("{HEAD}{}", KV.replace("get: async (self, namespace, key) =>", "get: self =>")));
+    scratch.write(
+        FILE,
+        &format!(
+            "{HEAD}{}",
+            KV.replace("get: async (self, namespace, key) =>", "get: self =>")
+        ),
+    );
     scratch
         .run(&["build", "//cmd/site"])
         .exits(1)
@@ -160,6 +178,12 @@ fn a_one_parameter_arrow_is_counted() {
 #[test]
 fn a_default_import_named_as_is_refused() {
     let scratch = walkthrough();
-    scratch.write(FILE, &format!("import as from \"buri:program\";\n{HEAD}{KV}"));
-    scratch.run(&["build", "//cmd/site"]).exits(1).says("\"buri:program\" does not export `default`");
+    scratch.write(
+        FILE,
+        &format!("import as from \"buri:program\";\n{HEAD}{KV}"),
+    );
+    scratch
+        .run(&["build", "//cmd/site"])
+        .exits(1)
+        .says("\"buri:program\" does not export `default`");
 }

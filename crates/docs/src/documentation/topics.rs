@@ -75,7 +75,14 @@ pub struct Topic {
 }
 
 const fn t(id: &'static str, title: &'static str, kind: Kind, text: &'static str) -> Topic {
-    Topic { id, title, kind, text, tags: &[], see_also: &[] }
+    Topic {
+        id,
+        title,
+        kind,
+        text,
+        tags: &[],
+        see_also: &[],
+    }
 }
 
 const fn tagged(
@@ -86,7 +93,14 @@ const fn tagged(
     tags: &'static [&'static str],
     see_also: &'static [&'static str],
 ) -> Topic {
-    Topic { id, title, kind, text, tags, see_also }
+    Topic {
+        id,
+        title,
+        kind,
+        text,
+        tags,
+        see_also,
+    }
 }
 
 pub const TOPICS: &[Topic] = &[
@@ -96,15 +110,30 @@ pub const TOPICS: &[Topic] = &[
         "Why Buri",
         Kind::GettingStarted,
         include_str!("../docs/getting-started/why-buri.md"),
-        &["goals", "safe", "fast", "friendly", "immutable", "effects", "grammar", "name"],
-        &["getting-started/installing", "getting-started/first-program", "language/introduction"],
+        &[
+            "goals",
+            "safe",
+            "fast",
+            "friendly",
+            "immutable",
+            "effects",
+            "grammar",
+            "name",
+        ],
+        &[
+            "getting-started/installing",
+            "getting-started/first-program",
+            "language/introduction",
+        ],
     ),
     tagged(
         "getting-started/installing",
         "Installing",
         Kind::GettingStarted,
         include_str!("../docs/getting-started/installing.md"),
-        &["install", "nix", "homebrew", "cargo", "init", "scaffold", "skills", "agent"],
+        &[
+            "install", "nix", "homebrew", "cargo", "init", "scaffold", "skills", "agent",
+        ],
         &["getting-started/first-program", "guides/editor-setup"],
     ),
     t(
@@ -137,7 +166,15 @@ pub const TOPICS: &[Topic] = &[
         "Source text and lexical structure",
         Kind::Language,
         include_str!("../docs/language/lexical.md"),
-        &["comment", "identifier", "keyword", "literal", "string", "interpolation", "utf-8"],
+        &[
+            "comment",
+            "identifier",
+            "keyword",
+            "literal",
+            "string",
+            "interpolation",
+            "utf-8",
+        ],
         &["language/notation"],
     ),
     tagged(
@@ -153,7 +190,10 @@ pub const TOPICS: &[Topic] = &[
         "Types",
         Kind::Language,
         include_str!("../docs/language/types.md"),
-        &["struct", "enum", "tuple", "array", "generic", "trait", "derive", "Int", "Float", "number"],
+        &[
+            "struct", "enum", "tuple", "array", "generic", "trait", "derive", "Int", "Float",
+            "number",
+        ],
         &["language/expressions"],
     ),
     tagged(
@@ -161,7 +201,17 @@ pub const TOPICS: &[Topic] = &[
         "Expressions",
         Kind::Language,
         include_str!("../docs/language/expressions.md"),
-        &["if", "match", "method", "call", "lambda", "operator", "precedence", "?", "abort"],
+        &[
+            "if",
+            "match",
+            "method",
+            "call",
+            "lambda",
+            "operator",
+            "precedence",
+            "?",
+            "abort",
+        ],
         &["language/patterns"],
     ),
     tagged(
@@ -177,7 +227,14 @@ pub const TOPICS: &[Topic] = &[
         "Evaluation",
         Kind::Language,
         include_str!("../docs/language/evaluation.md"),
-        &["strict", "order", "immutability", "tail call", "recursion", "closure"],
+        &[
+            "strict",
+            "order",
+            "immutability",
+            "tail call",
+            "recursion",
+            "closure",
+        ],
         &[],
     ),
     t(
@@ -191,7 +248,16 @@ pub const TOPICS: &[Topic] = &[
         "Effects and purity",
         Kind::Language,
         include_str!("../docs/language/effects.md"),
-        &["ctx", "context", "capability", "pure", "io", "allocation", "Allocator", "side effect"],
+        &[
+            "ctx",
+            "context",
+            "capability",
+            "pure",
+            "io",
+            "allocation",
+            "Allocator",
+            "side effect",
+        ],
         &["language/programs", "build/testing"],
     ),
     tagged(
@@ -231,7 +297,18 @@ pub const TOPICS: &[Topic] = &[
         "The standard library",
         Kind::Reference,
         include_str!("../docs/reference/standard-library.md"),
-        &["core", "stdlib", "std", "list", "map", "json", "crypto", "alloc", "allocator", "simd"],
+        &[
+            "core",
+            "stdlib",
+            "std",
+            "list",
+            "map",
+            "json",
+            "crypto",
+            "alloc",
+            "allocator",
+            "simd",
+        ],
         &["language/effects", "guides/user-interfaces"],
     ),
     // -- The build system --------------------------------------------------
@@ -248,7 +325,14 @@ pub const TOPICS: &[Topic] = &[
         "BUILD.buri",
         Kind::Build,
         include_str!("../docs/reference/build/build-files.md"),
-        &["sources", "dependencies", "binary", "library", "textproto", "visibility"],
+        &[
+            "sources",
+            "dependencies",
+            "binary",
+            "library",
+            "textproto",
+            "visibility",
+        ],
         &["build/repo-config"],
     ),
     tagged(
@@ -288,7 +372,16 @@ pub const TOPICS: &[Topic] = &[
         "Importing a `.proto` schema",
         Kind::Build,
         include_str!("../docs/reference/build/proto.md"),
-        &["proto", "protobuf", "schema", "wire format", "varint", "oneof", "serialization", "json"],
+        &[
+            "proto",
+            "protobuf",
+            "schema",
+            "wire format",
+            "varint",
+            "oneof",
+            "serialization",
+            "json",
+        ],
         &["build/build-files", "guides/proto"],
     ),
     tagged(
@@ -304,7 +397,15 @@ pub const TOPICS: &[Topic] = &[
         "Tools: check, format and generate from a language",
         Kind::Build,
         include_str!("../docs/reference/build/tools.md"),
-        &["tool", "check", "format", "generate", "language", "core/tool", "core/format"],
+        &[
+            "tool",
+            "check",
+            "format",
+            "generate",
+            "language",
+            "core/tool",
+            "core/format",
+        ],
         &["build/generators", "build/repo-config", "build/build-files"],
     ),
     tagged(
@@ -320,7 +421,9 @@ pub const TOPICS: &[Topic] = &[
         "Platforms, effect packages and the crossing table",
         Kind::Build,
         include_str!("../docs/reference/build/platforms.md"),
-        &["platform", "host", "entry", "effect", "backend", "crossing", "js", "assets"],
+        &[
+            "platform", "host", "entry", "effect", "backend", "crossing", "js", "assets",
+        ],
         &["guides/custom-platforms", "build/build-files"],
     ),
     // -- The guides ---------------------------------------------------------
@@ -332,7 +435,15 @@ pub const TOPICS: &[Topic] = &[
         "Using the build system",
         Kind::Guide,
         include_str!("../docs/guides/build-system.md"),
-        &["BUILD.buri", "package", "label", "visibility", "dependency", "gen", "monorepo"],
+        &[
+            "BUILD.buri",
+            "package",
+            "label",
+            "visibility",
+            "dependency",
+            "gen",
+            "monorepo",
+        ],
         &["guides/testing", "build/overview"],
     ),
     tagged(
@@ -340,7 +451,9 @@ pub const TOPICS: &[Topic] = &[
         "Testing your code",
         Kind::Guide,
         include_str!("../docs/guides/testing.md"),
-        &["test", "assert", "double", "fake", "fixture", "golden", "filter", "watch"],
+        &[
+            "test", "assert", "double", "fake", "fixture", "golden", "filter", "watch",
+        ],
         &["build/testing", "guides/effects"],
     ),
     tagged(
@@ -348,7 +461,15 @@ pub const TOPICS: &[Topic] = &[
         "Set up your editor",
         Kind::Guide,
         include_str!("../docs/guides/editor-setup.md"),
-        &["lsp", "language server", "editor", "ide", "zed", "highlighting", "tree-sitter"],
+        &[
+            "lsp",
+            "language server",
+            "editor",
+            "ide",
+            "zed",
+            "highlighting",
+            "tree-sitter",
+        ],
         &[],
     ),
     tagged(
@@ -356,7 +477,17 @@ pub const TOPICS: &[Topic] = &[
         "Effects and capabilities",
         Kind::Guide,
         include_str!("../docs/guides/effects.md"),
-        &["ctx", "context", "capability", "host", "attenuation", "pure", "purity", "mock", "alloc"],
+        &[
+            "ctx",
+            "context",
+            "capability",
+            "host",
+            "attenuation",
+            "pure",
+            "purity",
+            "mock",
+            "alloc",
+        ],
         &["language/effects", "build/testing"],
     ),
     t(
@@ -393,7 +524,9 @@ pub const TOPICS: &[Topic] = &[
         "User interfaces",
         Kind::Guide,
         include_str!("../docs/guides/user-interfaces.md"),
-        &["ui", "signal", "reactive", "node", "style", "theme", "dom", "browser", "web"],
+        &[
+            "ui", "signal", "reactive", "node", "style", "theme", "dom", "browser", "web",
+        ],
         &["reference/standard-library"],
     ),
     tagged(
@@ -419,7 +552,16 @@ pub const TOPICS: &[Topic] = &[
         "Compile to JavaScript",
         Kind::Guide,
         include_str!("../docs/guides/compile-to-js.md"),
-        &["javascript", "js", "node", "bun", "browser", "web", "esm", "mjs"],
+        &[
+            "javascript",
+            "js",
+            "node",
+            "bun",
+            "browser",
+            "web",
+            "esm",
+            "mjs",
+        ],
         &["build/build-files", "build/tags"],
     ),
     tagged(
@@ -427,7 +569,15 @@ pub const TOPICS: &[Topic] = &[
         "Write your own platform",
         Kind::Guide,
         include_str!("../docs/guides/custom-platforms.md"),
-        &["platform", "cloudflare", "worker", "kv", "custom effect", "host", "js file"],
+        &[
+            "platform",
+            "cloudflare",
+            "worker",
+            "kv",
+            "custom effect",
+            "host",
+            "js file",
+        ],
         &["build/platforms", "guides/effects"],
     ),
     tagged(
@@ -454,15 +604,7 @@ pub const TOPICS: &[Topic] = &[
         Kind::Guide,
         include_str!("../docs/guides/websites.md"),
         &[
-            "website",
-            "web",
-            "worker",
-            "render",
-            "ssr",
-            "resume",
-            "route",
-            "routing",
-            "location",
+            "website", "web", "worker", "render", "ssr", "resume", "route", "routing", "location",
             "hydrate",
         ],
         &["guides/user-interfaces", "build/build-files"],
@@ -480,7 +622,14 @@ pub const TOPICS: &[Topic] = &[
         "Check text format files against a message",
         Kind::Guide,
         include_str!("../docs/guides/textproto.md"),
-        &["textproto", "txtpb", "text format", "protobuf", "config", "language"],
+        &[
+            "textproto",
+            "txtpb",
+            "text format",
+            "protobuf",
+            "config",
+            "language",
+        ],
         &["guides/proto", "build/tools"],
     ),
     tagged(
@@ -488,7 +637,15 @@ pub const TOPICS: &[Topic] = &[
         "Check JSON against a schema",
         Kind::Guide,
         include_str!("../docs/guides/json.md"),
-        &["json", "jsonc", "json5", "schema", "json schema", "config", "language"],
+        &[
+            "json",
+            "jsonc",
+            "json5",
+            "schema",
+            "json schema",
+            "config",
+            "language",
+        ],
         &["build/generators", "build/repo-config"],
     ),
     tagged(
@@ -504,7 +661,13 @@ pub const TOPICS: &[Topic] = &[
         "Reproducible builds",
         Kind::Guide,
         include_str!("../docs/guides/reproducibility.md"),
-        &["cache", "incremental", "explain", "deterministic", "hermetic"],
+        &[
+            "cache",
+            "incremental",
+            "explain",
+            "deterministic",
+            "hermetic",
+        ],
         &["build/hermeticity"],
     ),
 ];
@@ -570,7 +733,11 @@ mod tests {
     fn every_see_also_names_a_topic() {
         for t in TOPICS {
             for other in t.see_also {
-                assert!(find(other).is_some(), "`{}` points at `{other}`, which does not exist", t.id);
+                assert!(
+                    find(other).is_some(),
+                    "`{}` points at `{other}`, which does not exist",
+                    t.id
+                );
             }
         }
     }
@@ -585,7 +752,10 @@ mod tests {
             let Some(h) = headings.first() else {
                 panic!("`{}` has no heading", t.id);
             };
-            let written = h.title.trim_start_matches(|c: char| c.is_ascii_digit() || c == '.').trim();
+            let written = h
+                .title
+                .trim_start_matches(|c: char| c.is_ascii_digit() || c == '.')
+                .trim();
             let normalize = |s: &str| s.replace(['`', ':'], "").to_lowercase();
             assert!(
                 normalize(written).starts_with(&normalize(t.title))

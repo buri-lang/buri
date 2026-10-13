@@ -81,10 +81,21 @@ pub fn build(opening: Opening, bodies: bool) -> Snapshot {
         }
         loader.finish()
     };
-    let wanted = if bodies { Bodies::All } else { Bodies::In(Vec::new()) };
+    let wanted = if bodies {
+        Bodies::All
+    } else {
+        Bodies::In(Vec::new())
+    };
     let base = {
         let _phase = crate::profile::enter(crate::profile::Phase::Check);
-        Checker::new(&loaded, None, &mut diagnostics).checking(wanted).base()
+        Checker::new(&loaded, None, &mut diagnostics)
+            .checking(wanted)
+            .base()
     };
-    Snapshot { modules: loaded.modules, by_path: loaded.by_path, diagnostics, base }
+    Snapshot {
+        modules: loaded.modules,
+        by_path: loaded.by_path,
+        diagnostics,
+        base,
+    }
 }

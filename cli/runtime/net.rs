@@ -171,15 +171,15 @@
               counters, and offsets inside a buffer that bounds them"
 )]
 
+use crate::sync::{Condvar, Mutex, MutexGuard};
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicI64, Ordering};
-use crate::sync::{Condvar, Mutex, MutexGuard};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -417,8 +417,7 @@ fn accepts(protocol: Protocol) -> Result<(), String> {
 /// naming `.Http2` without a `tls` is refused at the bind rather than silently
 /// answered in HTTP/1.1, because a server that quietly did not do what it was
 /// configured to do is the failure that is found in production.
-pub const H2_NEEDS_TLS: &str =
-    "HTTP/2 is negotiated by ALPN inside the TLS handshake (RFC 7540 §3.3), so a server that asks \
+pub const H2_NEEDS_TLS: &str = "HTTP/2 is negotiated by ALPN inside the TLS handshake (RFC 7540 §3.3), so a server that asks \
      for `.Http2` needs a certificate: set `Server`'s `tls` field, or ask for `.Http1` alone";
 
 // ---------------------------------------------------------------------------
@@ -658,7 +657,10 @@ pub struct ServeErr {
 
 impl ServeErr {
     fn new(cause: ServeFail, detail: impl Into<String>) -> ServeErr {
-        ServeErr { cause, detail: detail.into() }
+        ServeErr {
+            cause,
+            detail: detail.into(),
+        }
     }
 
     fn io(e: &std::io::Error, what: &str) -> ServeErr {
@@ -1181,7 +1183,11 @@ impl Wire {
 
     /// How long a write on this wire may wait: the socket's write deadline.
     fn patience(&self) -> Duration {
-        self.stream().write_timeout().ok().flatten().unwrap_or_default()
+        self.stream()
+            .write_timeout()
+            .ok()
+            .flatten()
+            .unwrap_or_default()
     }
 }
 
@@ -1363,9 +1369,13 @@ fn connections<T>(with: impl FnOnce(&mut HashMap<i64, Pending>) -> T) -> T {
 /// the reason [`ACCEPTORS`] states: a worker inside an accept keeps the socket
 /// open even when another worker closes the listener underneath it.
 fn listening(handle: i64) -> Result<Arc<Listening>, ServeErr> {
-    acceptors(|table| table.get(&handle).map(Arc::clone).ok_or_else(ServeErr::closed))
+    acceptors(|table| {
+        table
+            .get(&handle)
+            .map(Arc::clone)
+            .ok_or_else(ServeErr::closed)
+    })
 }
-
 
 /// The sentence a `net`-off toolchain owes a server that asked for TLS.
 ///
@@ -1373,8 +1383,7 @@ fn listening(handle: i64) -> Result<Arc<Listening>, ServeErr> {
 /// side of the wire, and for its reason: with the feature off there is no
 /// `rustls` in the archive, so the true answer is about how the toolchain was
 /// built and not about what the acceptor can frame.
-pub const TLS_OFF: &str =
-    "TLS is not supported by this toolchain's native runtime: it was built without the runtime's \
+pub const TLS_OFF: &str = "TLS is not supported by this toolchain's native runtime: it was built without the runtime's \
      `net` feature, so it carries no TLS code. Serve cleartext by leaving `Server`'s `tls` field \
      unset";
 
@@ -1400,8 +1409,16 @@ fn identity(plan: &ServePlan) -> Result<Option<Arc<rustls::ServerConfig>>, Serve
             ServeFail::Transport,
             format!(
                 "tls: a {} with no {} is not an identity a server can present",
-                if certificate.is_some() { "certificate" } else { "private key" },
-                if certificate.is_some() { "private key" } else { "certificate" }
+                if certificate.is_some() {
+                    "certificate"
+                } else {
+                    "private key"
+                },
+                if certificate.is_some() {
+                    "private key"
+                } else {
+                    "certificate"
+                }
             ),
         )),
     }
@@ -1436,9 +1453,16 @@ pub fn bind(
     if plan.protocols.contains(&Protocol::Http2) && secure.is_none() {
         return Err(ServeErr::new(ServeFail::Unsupported, H2_NEEDS_TLS));
     }
-    let host = if address.is_empty() { "127.0.0.1" } else { address };
+    let host = if address.is_empty() {
+        "127.0.0.1"
+    } else {
+        address
+    };
     let Ok(port) = u16::try_from(port.clamp(0, i64::from(u16::MAX))) else {
-        return Err(ServeErr::new(ServeFail::AddressNotAvailable, format!("bad port: {port}")));
+        return Err(ServeErr::new(
+            ServeFail::AddressNotAvailable,
+            format!("bad port: {port}"),
+        ));
     };
     let listener = TcpListener::bind((host, port))
         .map_err(|e| ServeErr::io(&e, &format!("listening on {host}:{port}")))?;
@@ -1522,7 +1546,8 @@ fn accepting_on(listening: &Arc<Listening>, handle: i64) {
                 let mut gate = listening.gate();
                 gate.outstanding = gate.outstanding.saturating_sub(1);
                 gate.finished = true;
-                gate.failure.get_or_insert_with(|| ServeErr::io(&e, "accepting"));
+                gate.failure
+                    .get_or_insert_with(|| ServeErr::io(&e, "accepting"));
                 drop(gate);
                 listening.tell_every_worker();
                 return;
@@ -1563,7 +1588,9 @@ fn dispatch(work: impl FnOnce() + Send + 'static) {
     }
     #[cfg(not(feature = "net"))]
     {
-        let _ = std::thread::Builder::new().name(String::from("buri-connection")).spawn(work);
+        let _ = std::thread::Builder::new()
+            .name(String::from("buri-connection"))
+            .spawn(work);
     }
 }
 
@@ -1686,7 +1713,10 @@ pub fn accept(handle: i64) -> Result<i64, ServeErr> {
 #[cfg(feature = "net")]
 async fn accepting(handle: i64) -> Result<i64, ServeErr> {
     let listening = listening(handle)?;
-    let waiting_until = listening.plan.idle.map(|idle| (Instant::now() + idle, idle));
+    let waiting_until = listening
+        .plan
+        .idle
+        .map(|idle| (Instant::now() + idle, idle));
     loop {
         let mut arrived = std::pin::pin!(listening.workers.notified());
         arrived.as_mut().enable();
@@ -1697,7 +1727,10 @@ async fn accepting(handle: i64) -> Result<i64, ServeErr> {
             arrived.await;
             continue;
         };
-        if tokio::time::timeout_at(deadline.into(), arrived).await.is_err() {
+        if tokio::time::timeout_at(deadline.into(), arrived)
+            .await
+            .is_err()
+        {
             return listening.taken().unwrap_or_else(|| {
                 Err(ServeErr::new(
                     ServeFail::Timeout,
@@ -1711,7 +1744,10 @@ async fn accepting(handle: i64) -> Result<i64, ServeErr> {
 #[cfg(not(feature = "net"))]
 pub fn accept(handle: i64) -> Result<i64, ServeErr> {
     let listening = listening(handle)?;
-    let waiting_until = listening.plan.idle.map(|idle| (Instant::now() + idle, idle));
+    let waiting_until = listening
+        .plan
+        .idle
+        .map(|idle| (Instant::now() + idle, idle));
     let mut gate = listening.gate();
     loop {
         if let Some(connection) = gate.ready.pop_front() {
@@ -1834,7 +1870,11 @@ fn read_request(
             Err(_) => return Err(408),
         }
     };
-    let Head { method, target, headers } = parse_head(buffer.get(..head).unwrap_or(&[]))?;
+    let Head {
+        method,
+        target,
+        headers,
+    } = parse_head(buffer.get(..head).unwrap_or(&[]))?;
     let declared = headers
         .iter()
         .find(|(n, _)| n == "content-length")
@@ -1847,7 +1887,10 @@ fn read_request(
     // A `transfer-encoding` this acceptor does not frame is refused rather than
     // guessed at: a body read with the wrong framing is a body that belongs to
     // the next request.
-    if headers.iter().any(|(n, v)| n == "transfer-encoding" && !v.trim().is_empty()) {
+    if headers
+        .iter()
+        .any(|(n, v)| n == "transfer-encoding" && !v.trim().is_empty())
+    {
         return Err(501);
     }
     let mut body = buffer.split_off(head.saturating_add(4));
@@ -1869,7 +1912,12 @@ fn read_request(
         }
     }
     body.truncate(declared);
-    Ok(ServerRequest { method, target, headers, body })
+    Ok(ServerRequest {
+        method,
+        target,
+        headers,
+        body,
+    })
 }
 
 /// A request line and the header fields after it: everything a
@@ -1887,11 +1935,10 @@ fn parse_head(head: &[u8]) -> Result<Head, u16> {
     let mut lines = text.split("\r\n");
     let request_line = lines.next().ok_or(400u16)?;
     let mut parts = request_line.split(' ');
-    let (verb, target, version) =
-        match (parts.next(), parts.next(), parts.next(), parts.next()) {
-            (Some(v), Some(t), Some(p), None) => (v, t, p),
-            _ => return Err(400),
-        };
+    let (verb, target, version) = match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some(v), Some(t), Some(p), None) => (v, t, p),
+        _ => return Err(400),
+    };
     if !version.starts_with("HTTP/1.") {
         return Err(505);
     }
@@ -1914,7 +1961,11 @@ fn parse_head(head: &[u8]) -> Result<Head, u16> {
         // comparison and never a case-insensitive scan.
         headers.push((name.trim().to_ascii_lowercase(), value.trim().to_string()));
     }
-    Ok(Head { method, target: target.to_string(), headers })
+    Ok(Head {
+        method,
+        target: target.to_string(),
+        headers,
+    })
 }
 
 /// A status and nothing else, for a connection the acceptor is refusing.
@@ -1990,7 +2041,10 @@ fn write_response(
     for (name, value) in headers {
         head.push_str(&format!("{name}: {value}\r\n"));
     }
-    head.push_str(&format!("content-length: {}\r\nconnection: close\r\n\r\n", body.len()));
+    head.push_str(&format!(
+        "content-length: {}\r\nconnection: close\r\n\r\n",
+        body.len()
+    ));
     wire.write_all(head.as_bytes())
         .and_then(|()| wire.write_all(body))
         .and_then(|()| wire.flush())
@@ -2158,7 +2212,9 @@ fn drain_sockets_on(_handle: i64) {}
 /// its last worker returns, which is one line further along the path a request
 /// limit already takes, and a drain that closed the port would be racing that.
 pub fn drain(handle: i64) -> bool {
-    let Ok(listening) = listening(handle) else { return true };
+    let Ok(listening) = listening(handle) else {
+        return true;
+    };
     listening.begin_drain();
     drain_sockets_on(handle);
     let drained = listening.drained(Instant::now() + listening.plan.drain);
@@ -2175,14 +2231,22 @@ pub fn drain(handle: i64) -> bool {
 /// one of them asked for, because a deadline is a promise to the slowest
 /// listener and not a budget divided between them.
 fn drain_all() {
-    let listeners: Vec<(i64, Arc<Listening>)> =
-        acceptors(|table| table.iter().map(|(handle, open)| (*handle, Arc::clone(open))).collect());
+    let listeners: Vec<(i64, Arc<Listening>)> = acceptors(|table| {
+        table
+            .iter()
+            .map(|(handle, open)| (*handle, Arc::clone(open)))
+            .collect()
+    });
     // No port open is a signal with nothing to drain, which is the race at the
     // very end of a server's life: the last `close` gave the signals back a
     // moment after this one was delivered. Nothing to do, and nothing lost —
     // the disposition is the operating system's again, so the next one
     // terminates the process the ordinary way.
-    let Some(until) = listeners.iter().map(|(_, l)| l.plan.drain).max().map(|d| Instant::now() + d)
+    let Some(until) = listeners
+        .iter()
+        .map(|(_, l)| l.plan.drain)
+        .max()
+        .map(|d| Instant::now() + d)
     else {
         return;
     };
@@ -2237,11 +2301,11 @@ fn drain_all() {
 /// unavailable exactly where the acceptor is not: a `net`-off runtime has no
 /// reactor, and this file's acceptor is compiled into that archive too.
 mod shutdown {
+    use crate::sync::Mutex;
     use std::os::unix::io::AsRawFd;
     use std::os::unix::net::UnixStream;
-    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-    use crate::sync::Mutex;
     use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
     /// `SIGINT` — a person at a terminal. Two on both platforms this runtime
     /// is built for; `ARCHITECTURE.md` §9 admits Linux and macOS and no third.
@@ -2400,7 +2464,9 @@ mod shutdown {
         if *made {
             return;
         }
-        let Ok((reading, writing)) = UnixStream::pair() else { return };
+        let Ok((reading, writing)) = UnixStream::pair() else {
+            return;
+        };
         let fd = writing.as_raw_fd();
         // The writing end is kept alive by the `OnceLock` for as long as the
         // process is: a descriptor whose owner was dropped is a number the next
@@ -2524,7 +2590,10 @@ fn h2(
     let io = crate::tls::AsyncTls::adopt(stream, conn).map_err(|_| ())?;
     let driving = Arc::clone(listening);
     crate::rt::handle().spawn(async move {
-        let service = Multiplexed { listening: Arc::clone(&driving), handle };
+        let service = Multiplexed {
+            listening: Arc::clone(&driving),
+            handle,
+        };
         let connection = hyper::server::conn::http2::Builder::new(Spawn)
             .max_concurrent_streams(MAX_STREAMS)
             .serve_connection(io, service);
@@ -2652,10 +2721,15 @@ async fn answering(
     // The wire spelling is the runtime's business and never Buri's, exactly as
     // it is in `parse_head` one screen up: `METHODS` is the one table, and a
     // method it does not name is a `501` here as it is there.
-    let Some(method) = crate::http::METHODS.iter().position(|m| *m == parts.method.as_str()) else {
+    let Some(method) = crate::http::METHODS
+        .iter()
+        .position(|m| *m == parts.method.as_str())
+    else {
         return only(501);
     };
-    let Ok(method) = i32::try_from(method) else { return only(501) };
+    let Ok(method) = i32::try_from(method) else {
+        return only(501);
+    };
     // `:path` as the client sent it, which is what `Request.path()` and
     // `Request.query()` read. HTTP/2 sends the origin form in a pseudo-header,
     // so unlike HTTP/1.1 there is nothing to strip and nothing to reconstruct.
@@ -2688,7 +2762,12 @@ async fn answering(
         // these there can be.
         counted: false,
         answer: Some(Answer::Stream(back)),
-        request: Some(ServerRequest { method, target, headers, body }),
+        request: Some(ServerRequest {
+            method,
+            target,
+            headers,
+            body,
+        }),
         // RFC 9113 §8.5 replaced `upgrade:` outright, so an h2 stream asking
         // the HTTP/1.1 way is asking for a mechanism the protocol removed.
         upgrade: None,
@@ -2778,7 +2857,12 @@ impl hyper::body::Body for Once {
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
-        Poll::Ready(self.get_mut().0.take().map(|bytes| Ok(hyper::body::Frame::data(bytes))))
+        Poll::Ready(
+            self.get_mut()
+                .0
+                .take()
+                .map(|bytes| Ok(hyper::body::Frame::data(bytes))),
+        )
     }
 
     fn is_end_stream(&self) -> bool {
@@ -2797,8 +2881,8 @@ impl hyper::body::Body for Once {
 #[cfg(feature = "net")]
 fn only(status: u16) -> hyper::Response<Once> {
     let mut response = hyper::Response::new(Once(None));
-    *response.status_mut() = hyper::StatusCode::from_u16(status)
-        .unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
+    *response.status_mut() =
+        hyper::StatusCode::from_u16(status).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
     response
 }
 
@@ -2913,10 +2997,17 @@ fn upgrade_key(request: &ServerRequest) -> Option<String> {
         return None;
     }
     let field = |name: &str| {
-        request.headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.trim().to_string())
+        request
+            .headers
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.trim().to_string())
     };
     let names = |value: Option<String>, token: &str| {
-        value.is_some_and(|v| v.split(',').any(|part| part.trim().eq_ignore_ascii_case(token)))
+        value.is_some_and(|v| {
+            v.split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case(token))
+        })
     };
     if !names(field("upgrade"), "websocket") || !names(field("connection"), "upgrade") {
         return None;
@@ -2938,13 +3029,11 @@ fn upgrade_key(request: &ServerRequest) -> Option<String> {
 /// `listenUpgrade` means "this is an ordinary request", and the connection is
 /// still there to be answered. The words are for whoever reads a `ServeError`
 /// out of a hand-written loop.
-pub const NOT_AN_UPGRADE: &str =
-    "this request is not a WebSocket upgrade: an upgrade is a GET carrying `upgrade: websocket`, \
+pub const NOT_AN_UPGRADE: &str = "this request is not a WebSocket upgrade: an upgrade is a GET carrying `upgrade: websocket`, \
      `connection: upgrade`, `sec-websocket-version: 13` and a `sec-websocket-key`";
 
 /// The sentence a `net`-off toolchain owes a program that asked for one.
-pub const SOCKETS_OFF: &str =
-    "WebSockets are not supported by this toolchain's native runtime: it was built without the \
+pub const SOCKETS_OFF: &str = "WebSockets are not supported by this toolchain's native runtime: it was built without the \
      runtime's `net` feature, so it carries no RFC 6455 framing. Leave `Server`'s `websocket` \
      field unset and answer the request in `onRequest`";
 
@@ -2954,8 +3043,7 @@ pub const SOCKETS_OFF: &str =
 /// *server* to leave `Server`'s `websocket` field unset, and there is no field
 /// to leave unset here. What a client can do instead is nothing, so the
 /// sentence says what the toolchain is missing and stops.
-pub const WEB_SOCKET_CLIENT_OFF: &str =
-    "WebSocket clients are not supported by this toolchain's native runtime: it was built \
+pub const WEB_SOCKET_CLIENT_OFF: &str = "WebSocket clients are not supported by this toolchain's native runtime: it was built \
      without the runtime's `net` feature, so it carries no RFC 6455 framing and no TLS. \
      `WebSocketClient.connect` needs a toolchain built with it";
 
@@ -2988,15 +3076,30 @@ pub struct Received {
 
 impl Received {
     fn text(text: &str) -> Received {
-        Received { frame: 0, text: text.to_string(), data: Vec::new(), code: 0 }
+        Received {
+            frame: 0,
+            text: text.to_string(),
+            data: Vec::new(),
+            code: 0,
+        }
     }
 
     fn binary(data: &[u8]) -> Received {
-        Received { frame: 1, text: String::new(), data: data.to_vec(), code: 0 }
+        Received {
+            frame: 1,
+            text: String::new(),
+            data: data.to_vec(),
+            code: 0,
+        }
     }
 
     fn closed(code: i64) -> Received {
-        Received { frame: 2, text: String::new(), data: Vec::new(), code }
+        Received {
+            frame: 2,
+            text: String::new(),
+            data: Vec::new(),
+            code,
+        }
     }
 }
 
@@ -3035,13 +3138,13 @@ const NO_CLOSE_CODE: i64 = 1005;
 
 #[cfg(feature = "net")]
 mod sockets {
+    use crate::sync::{Mutex, MutexGuard};
     use std::collections::{HashMap, VecDeque};
     use std::future::Future;
     use std::io::Write;
     use std::os::unix::io::{AsRawFd, RawFd};
-    use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-    use crate::sync::{Mutex, MutexGuard};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
     use std::task::Poll;
 
     use tokio::io::unix::AsyncFd;
@@ -3050,8 +3153,8 @@ mod sockets {
     use tungstenite::protocol::{CloseFrame, Role, WebSocket, WebSocketConfig};
 
     use super::{
-        Answer, GOING_AWAY, NOT_AN_UPGRADE, NO_CLOSE_CODE, NO_CLOSE_FRAME, OVERFLOWED,
-        OVERFLOW_CODE, Received, ServeErr, ServeFail, Wire, connections, listening,
+        Answer, GOING_AWAY, NO_CLOSE_CODE, NO_CLOSE_FRAME, NOT_AN_UPGRADE, OVERFLOW_CODE,
+        OVERFLOWED, Received, ServeErr, ServeFail, Wire, connections, listening,
     };
 
     /// How long one write of a closing socket may wait for the client to
@@ -3150,7 +3253,10 @@ mod sockets {
         fn new(framing: WebSocket<Wire>) -> std::io::Result<Open> {
             let fd = framing.get_ref().stream().as_raw_fd();
             let _reactor = crate::rt::handle().enter();
-            Ok(Open { ready: AsyncFd::new(fd)?, framing })
+            Ok(Open {
+                ready: AsyncFd::new(fd)?,
+                framing,
+            })
         }
     }
 
@@ -3159,7 +3265,10 @@ mod sockets {
             Socketed {
                 listener,
                 bound,
-                out: Mutex::new(Outbound { queue: VecDeque::new(), ending: None }),
+                out: Mutex::new(Outbound {
+                    queue: VecDeque::new(),
+                    ending: None,
+                }),
                 framing: Mutex::new(Some(open)),
                 woken: Notify::new(),
                 retired: AtomicBool::new(false),
@@ -3247,8 +3356,14 @@ mod sockets {
     /// lines did not reach the client is a socket that was never going to work.
     pub(super) fn upgrade(connection: i64) -> Result<i64, ServeErr> {
         let taken = connections(|table| {
-            let ours = table.get(&connection).is_some_and(|pending| pending.upgrade.is_some());
-            if ours { table.remove(&connection) } else { None }
+            let ours = table
+                .get(&connection)
+                .is_some_and(|pending| pending.upgrade.is_some());
+            if ours {
+                table.remove(&connection)
+            } else {
+                None
+            }
         });
         let Some(pending) = taken else {
             return Err(ServeErr::new(ServeFail::Unsupported, NOT_AN_UPGRADE));
@@ -3303,7 +3418,9 @@ mod sockets {
             Ok(framed) => framed,
             Err(e) => return refused(format!("watching the socket: {e}")),
         };
-        let bound = open.as_ref().map_or(super::SOCKET_BUFFER, |l| l.plan.socket_buffer);
+        let bound = open
+            .as_ref()
+            .map_or(super::SOCKET_BUFFER, |l| l.plan.socket_buffer);
         let socket = NEXT_SOCKET.fetch_add(1, Ordering::Relaxed);
         let state = Arc::new(Socketed::new(listener, bound, framed));
         table(|open| open.insert(socket, state));
@@ -3377,9 +3494,13 @@ mod sockets {
     }
 
     async fn receiving(socket: i64) -> Result<Received, ServeErr> {
-        let Some(state) = socketed(socket) else { return Err(ServeErr::closed()) };
+        let Some(state) = socketed(socket) else {
+            return Err(ServeErr::closed());
+        };
         // Taken out rather than locked, so no lock is held across the wait.
-        let Some(mut open) = state.framing().take() else { return Err(ServeErr::closed()) };
+        let Some(mut open) = state.framing().take() else {
+            return Err(ServeErr::closed());
+        };
         // Set when a write has answered `WouldBlock`, so the wait asks about
         // room to write as well as bytes to read. Cleared as soon as a flush
         // goes through.
@@ -3442,7 +3563,9 @@ mod sockets {
         let ending = {
             let mut out = state.out();
             while !*blocked {
-                let Some(queued) = out.queue.pop_front() else { break };
+                let Some(queued) = out.queue.pop_front() else {
+                    break;
+                };
                 let message = match queued {
                     Queued::Text(text) => tungstenite::Message::Text(text.into()),
                     Queued::Binary(data) => tungstenite::Message::Binary(data.into()),
@@ -3485,7 +3608,10 @@ mod sockets {
             // then a reason rather than a socket that stopped.
             closing(
                 framing,
-                Some(CloseFrame { code: CloseCode::from(end.code), reason: end.reason.into() }),
+                Some(CloseFrame {
+                    code: CloseCode::from(end.code),
+                    reason: end.reason.into(),
+                }),
             );
             return Turn::Ended(Received::closed(end.told));
         }
@@ -3506,9 +3632,7 @@ mod sockets {
                     break;
                 }
                 Ok(tungstenite::Message::Close(frame)) => {
-                    ended = Some(
-                        frame.map_or(NO_CLOSE_CODE, |f| i64::from(u16::from(f.code))),
-                    );
+                    ended = Some(frame.map_or(NO_CLOSE_CODE, |f| i64::from(u16::from(f.code))));
                     break;
                 }
                 // **Ping and pong are the runtime's**, which is what this
@@ -3516,9 +3640,7 @@ mod sockets {
                 // flush below writes it, and nothing above this line ever
                 // learns that a heartbeat happened.
                 Ok(_) => continue,
-                Err(tungstenite::Error::Io(e))
-                    if e.kind() == std::io::ErrorKind::WouldBlock =>
-                {
+                Err(tungstenite::Error::Io(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     break;
                 }
                 // Every other way a read ends is this socket ending: the
@@ -3622,7 +3744,9 @@ mod sockets {
     /// socket that closed a moment ago from one that never existed, and it was
     /// never in a position to answer "did this arrive" for either.
     fn send(socket: i64, message: Queued) {
-        let Some(state) = socketed(socket) else { return };
+        let Some(state) = socketed(socket) else {
+            return;
+        };
         {
             let mut out = state.out();
             // A socket that is already ending takes nothing more: the close
@@ -3669,15 +3793,20 @@ mod sockets {
     /// caller gave is both what the far side is sent and what `onClose` is
     /// told, so a program that closes with `.Normal` sees `.Normal`.
     pub(super) fn close(socket: i64, code: i64, reason: &str) {
-        let Some(state) = socketed(socket) else { return };
+        let Some(state) = socketed(socket) else {
+            return;
+        };
         {
             let mut out = state.out();
             if out.ending.is_some() {
                 return;
             }
             let wire = u16::try_from(code.clamp(1000, 4999)).unwrap_or(1000);
-            out.ending =
-                Some(Ending { code: wire, reason: reason.to_string(), told: i64::from(wire) });
+            out.ending = Some(Ending {
+                code: wire,
+                reason: reason.to_string(),
+                told: i64::from(wire),
+            });
         }
         state.wake();
     }
@@ -3725,7 +3854,10 @@ mod sockets {
     /// The sockets a listener accepted.
     fn on(listener: i64) -> Vec<Arc<Socketed>> {
         table(|open| {
-            open.values().filter(|s| s.listener == listener).map(Arc::clone).collect()
+            open.values()
+                .filter(|s| s.listener == listener)
+                .map(Arc::clone)
+                .collect()
         })
     }
 
@@ -4110,16 +4242,22 @@ mod client {
         };
         let part = buffer.split_off(head.saturating_add(4));
         let (status, headers) = parse_head(buffer.get(..head).unwrap_or(&[]))?;
-        Ok(Answered { status, headers, part })
+        Ok(Answered {
+            status,
+            headers,
+            part,
+        })
     }
 
     /// The status line and the header fields after it.
     fn parse_head(head: &[u8]) -> Result<(i64, Vec<(String, String)>), ServeErr> {
         let bad = |what: String| {
-            ServeErr::new(ServeFail::Transport, format!("the server's handshake response {what}"))
+            ServeErr::new(
+                ServeFail::Transport,
+                format!("the server's handshake response {what}"),
+            )
         };
-        let text = std::str::from_utf8(head)
-            .map_err(|_| bad(String::from("is not text")))?;
+        let text = std::str::from_utf8(head).map_err(|_| bad(String::from("is not text")))?;
         let mut lines = text.split("\r\n");
         let status_line = lines.next().unwrap_or("");
         let mut parts = status_line.splitn(3, ' ');
@@ -4136,8 +4274,9 @@ mod client {
             if line.is_empty() {
                 continue;
             }
-            let (name, value) =
-                line.split_once(':').ok_or_else(|| bad(format!("has no colon in `{line}`")))?;
+            let (name, value) = line
+                .split_once(':')
+                .ok_or_else(|| bad(format!("has no colon in `{line}`")))?;
             // Lowercased on the way in, which is what `Header`'s declaration
             // promises a reader — the acceptor's `parse_head` does the same to
             // a request's fields.
@@ -4160,10 +4299,16 @@ mod client {
             ));
         }
         let field = |name: &str| {
-            headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
+            headers
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, v)| v.as_str())
         };
         let names = |value: Option<&str>, token: &str| {
-            value.is_some_and(|v| v.split(',').any(|part| part.trim().eq_ignore_ascii_case(token)))
+            value.is_some_and(|v| {
+                v.split(',')
+                    .any(|part| part.trim().eq_ignore_ascii_case(token))
+            })
         };
         if !names(field("upgrade"), "websocket") {
             return refused(String::from(
@@ -4172,7 +4317,9 @@ mod client {
             ));
         }
         if !names(field("connection"), "upgrade") {
-            return refused(String::from("the server's 101 carries no `connection: upgrade`"));
+            return refused(String::from(
+                "the server's 101 carries no `connection: upgrade`",
+            ));
         }
         // **The whole point of the header**, and the one thing this side
         // borrows from `tungstenite`'s handshake half: SHA-1 over the key that
@@ -4234,16 +4381,18 @@ mod client {
             for (slot, byte) in block.iter_mut().zip(group) {
                 *slot = *byte;
             }
-            let packed = (u32::from(block[0]) << 16)
-                | (u32::from(block[1]) << 8)
-                | u32::from(block[2]);
+            let packed =
+                (u32::from(block[0]) << 16) | (u32::from(block[1]) << 8) | u32::from(block[2]);
             for sextet in 0..4usize {
                 // A group of three fills all four characters, a group of two
                 // fills three, and a group of one fills two — the rest is
                 // padding, which is what makes the length a multiple of four.
                 let digit = if sextet <= group.len() {
                     let shift = 18_u32.saturating_sub(6 * sextet as u32);
-                    ALPHABET.get(((packed >> shift) & 63) as usize).copied().unwrap_or(b'A')
+                    ALPHABET
+                        .get(((packed >> shift) & 63) as usize)
+                        .copied()
+                        .unwrap_or(b'A')
                 } else {
                     b'='
                 };
@@ -4339,17 +4488,21 @@ unsafe fn plan_of(ptr: *const u8, len: u64) -> Result<ServePlan, ServeErr> {
         let element = unsafe { &*ptr.cast::<BuriServe>().add(index) };
         match element.tag {
             // SAFETY: the tag says which arm of the union is live.
-            0 => plan.protocols.push(protocol_of(i64::from(unsafe { element.payload.protocol }))?),
+            0 => plan
+                .protocols
+                .push(protocol_of(i64::from(unsafe { element.payload.protocol }))?),
             // SAFETY: as above, and an element of a live list holds live `Str`
             // views.
             1 => {
-                plan.certificate =
-                    Some(PathBuf::from(unsafe { element.payload.text.as_str() }.into_owned()));
+                plan.certificate = Some(PathBuf::from(
+                    unsafe { element.payload.text.as_str() }.into_owned(),
+                ));
             }
             // SAFETY: as above.
             2 => {
-                plan.key =
-                    Some(PathBuf::from(unsafe { element.payload.text.as_str() }.into_owned()));
+                plan.key = Some(PathBuf::from(
+                    unsafe { element.payload.text.as_str() }.into_owned(),
+                ));
             }
             // SAFETY: the tag says the payload area holds an `Int`. A negative
             // number is `.None` reaching here the long way — nothing in
@@ -4454,7 +4607,11 @@ pub struct BuriServeError {
 
 impl BuriServeError {
     fn of(e: &ServeErr) -> BuriServeError {
-        BuriServeError { cause: e.cause.tag(), pad: [0; 7], detail: str_of(&e.detail) }
+        BuriServeError {
+            cause: e.cause.tag(),
+            pad: [0; 7],
+            detail: str_of(&e.detail),
+        }
     }
 }
 
@@ -4513,7 +4670,11 @@ pub unsafe extern "C" fn buri_rt_host_listen_bind(
         Ok((handle, bound, handlers)) => {
             // SAFETY: the caller promises a writable destination.
             unsafe {
-                out.write(BuriListener { handle, port: i64::from(bound), handlers })
+                out.write(BuriListener {
+                    handle,
+                    port: i64::from(bound),
+                    handlers,
+                })
             };
             crate::BURI_OK
         }
@@ -5018,13 +5179,17 @@ mod tests {
     #[test]
     fn an_interrupted_step_is_taken_again() {
         let mut left = 3;
-        let answer = uninterrupted(&mut left, |_| Duration::from_secs(60), |left| {
-            if *left == 0 {
-                return Ok("done");
-            }
-            *left -= 1;
-            Err(std::io::ErrorKind::Interrupted.into())
-        });
+        let answer = uninterrupted(
+            &mut left,
+            |_| Duration::from_secs(60),
+            |left| {
+                if *left == 0 {
+                    return Ok("done");
+                }
+                *left -= 1;
+                Err(std::io::ErrorKind::Interrupted.into())
+            },
+        );
         assert_eq!(answer.map_err(|e| e.kind()), Ok("done"));
         assert_eq!(left, 0);
     }
@@ -5033,14 +5198,24 @@ mod tests {
     /// out, and any other failure is passed on as it is.
     #[test]
     fn an_interruption_past_the_deadline_is_a_timeout() {
-        let interrupted: std::io::Result<()> = uninterrupted(&mut (), |_| Duration::ZERO, |_| {
-            Err(std::io::ErrorKind::Interrupted.into())
-        });
-        assert_eq!(interrupted.map_err(|e| e.kind()), Err(std::io::ErrorKind::TimedOut));
-        let reset: std::io::Result<()> = uninterrupted(&mut (), |_| Duration::ZERO, |_| {
-            Err(std::io::ErrorKind::ConnectionReset.into())
-        });
-        assert_eq!(reset.map_err(|e| e.kind()), Err(std::io::ErrorKind::ConnectionReset));
+        let interrupted: std::io::Result<()> = uninterrupted(
+            &mut (),
+            |_| Duration::ZERO,
+            |_| Err(std::io::ErrorKind::Interrupted.into()),
+        );
+        assert_eq!(
+            interrupted.map_err(|e| e.kind()),
+            Err(std::io::ErrorKind::TimedOut)
+        );
+        let reset: std::io::Result<()> = uninterrupted(
+            &mut (),
+            |_| Duration::ZERO,
+            |_| Err(std::io::ErrorKind::ConnectionReset.into()),
+        );
+        assert_eq!(
+            reset.map_err(|e| e.kind()),
+            Err(std::io::ErrorKind::ConnectionReset)
+        );
     }
 
     /// The flag round-trips: the feature the crate was compiled with, the bit
@@ -5095,9 +5270,15 @@ mod tests {
             assert_eq!(serves(Protocol::Http3), Ok(()));
         } else {
             let refused = serves(Protocol::Http3);
-            assert!(refused.is_err(), "HTTP/3 was allowed by a runtime with no QUIC in it");
+            assert!(
+                refused.is_err(),
+                "HTTP/3 was allowed by a runtime with no QUIC in it"
+            );
             let message = refused.unwrap_err();
-            assert!(message.contains("net-h3"), "the refusal does not name the feature: {message}");
+            assert!(
+                message.contains("net-h3"),
+                "the refusal does not name the feature: {message}"
+            );
             assert!(
                 message.contains("BURI_RUNTIME_NET_H3=1"),
                 "the refusal does not say how to turn it on: {message}"
@@ -5119,7 +5300,11 @@ mod tests {
     fn the_acceptor_speaks_http1_and_http2_and_names_what_it_does_not() {
         assert_eq!(accepts(Protocol::Http1), Ok(()));
         if cfg!(feature = "net") {
-            assert_eq!(accepts(Protocol::Http2), Ok(()), "HTTP/2 is spoken where `hyper` is");
+            assert_eq!(
+                accepts(Protocol::Http2),
+                Ok(()),
+                "HTTP/2 is spoken where `hyper` is"
+            );
         } else {
             let two = accepts(Protocol::Http2).expect_err("no `hyper`, no HTTP/2");
             assert!(two.contains("`net` feature"), "{two}");
@@ -5230,7 +5415,10 @@ mod tests {
         // is what "one payload area, read according to the tag" means.
         assert_eq!(std::mem::size_of::<BuriServePayload>(), str_bytes);
         assert_eq!(std::mem::align_of::<BuriServePayload>(), 8);
-        assert_eq!(std::mem::offset_of!(BuriServe, payload) + std::mem::size_of::<i64>(), 16);
+        assert_eq!(
+            std::mem::offset_of!(BuriServe, payload) + std::mem::size_of::<i64>(),
+            16
+        );
     }
 
     /// A `[Serve]` decodes into the plan the acceptor keeps, tag by tag.
@@ -5244,8 +5432,18 @@ mod tests {
         let certificate = String::from("/etc/ssl/leaf.pem");
         let key = String::from("/etc/ssl/leaf.key");
         let items = [
-            BuriServe { tag: 0, payload: BuriServePayload { protocol: Protocol::Http1 as i8 } },
-            BuriServe { tag: 0, payload: BuriServePayload { protocol: Protocol::Http2 as i8 } },
+            BuriServe {
+                tag: 0,
+                payload: BuriServePayload {
+                    protocol: Protocol::Http1 as i8,
+                },
+            },
+            BuriServe {
+                tag: 0,
+                payload: BuriServePayload {
+                    protocol: Protocol::Http2 as i8,
+                },
+            },
             BuriServe {
                 tag: 1,
                 payload: BuriServePayload {
@@ -5254,16 +5452,27 @@ mod tests {
             },
             BuriServe {
                 tag: 2,
-                payload: BuriServePayload { text: std::mem::ManuallyDrop::new(borrowed(&key)) },
+                payload: BuriServePayload {
+                    text: std::mem::ManuallyDrop::new(borrowed(&key)),
+                },
             },
-            BuriServe { tag: 3, payload: BuriServePayload { millis: 2_500 } },
-            BuriServe { tag: 4, payload: BuriServePayload { millis: 8 } },
+            BuriServe {
+                tag: 3,
+                payload: BuriServePayload { millis: 2_500 },
+            },
+            BuriServe {
+                tag: 4,
+                payload: BuriServePayload { millis: 8 },
+            },
         ];
         // SAFETY: six live elements, at the stride asserted above.
         let plan = unsafe { plan_of(items.as_ptr().cast(), items.len() as u64) }
             .expect("a plan this runtime knows every tag of");
         assert_eq!(plan.protocols, vec![Protocol::Http1, Protocol::Http2]);
-        assert_eq!(plan.certificate.as_deref(), Some(std::path::Path::new(&certificate)));
+        assert_eq!(
+            plan.certificate.as_deref(),
+            Some(std::path::Path::new(&certificate))
+        );
         assert_eq!(plan.key.as_deref(), Some(std::path::Path::new(&key)));
         // The `Int` arm of the same payload area, read back at the same offset
         // a `Str` is read at — which is the claim the union makes and the one
@@ -5279,14 +5488,20 @@ mod tests {
         assert_eq!(empty.socket_buffer, None);
         // A negative deadline is `.None` arriving the long way round, and it
         // reads as "chose nothing" rather than as a deadline already past.
-        let negative = [BuriServe { tag: 3, payload: BuriServePayload { millis: -1 } }];
+        let negative = [BuriServe {
+            tag: 3,
+            payload: BuriServePayload { millis: -1 },
+        }];
         // SAFETY: one live element.
         let negative = unsafe { plan_of(negative.as_ptr().cast(), 1) }.expect("a plan");
         assert_eq!(negative.drain, None);
         // A buffer of zero is read the same way and for a reason of its own: a
         // socket whose queue holds nothing would close on its first `send`,
         // which is not a configuration anybody means.
-        let none = [BuriServe { tag: 4, payload: BuriServePayload { millis: 0 } }];
+        let none = [BuriServe {
+            tag: 4,
+            payload: BuriServePayload { millis: 0 },
+        }];
         // SAFETY: one live element.
         let none = unsafe { plan_of(none.as_ptr().cast(), 1) }.expect("a plan");
         assert_eq!(none.socket_buffer, None);
@@ -5298,15 +5513,20 @@ mod tests {
         {
             assert_eq!(
                 plan.alpn(),
-                vec![crate::tls::ALPN_HTTP1.to_vec(), crate::tls::ALPN_H2.to_vec()]
+                vec![
+                    crate::tls::ALPN_HTTP1.to_vec(),
+                    crate::tls::ALPN_H2.to_vec()
+                ]
             );
             assert_eq!(empty.alpn(), vec![crate::tls::ALPN_HTTP1.to_vec()]);
         }
 
         // A tag no variant has is the program and the runtime disagreeing, and
         // is refused rather than read as one of the three.
-        let unknown =
-            [BuriServe { tag: 7, payload: BuriServePayload { protocol: 0 } }];
+        let unknown = [BuriServe {
+            tag: 7,
+            payload: BuriServePayload { protocol: 0 },
+        }];
         // SAFETY: one live element.
         let refused = unsafe { plan_of(unknown.as_ptr().cast(), 1) }
             .expect_err("there is no eighth serve option");
@@ -5342,9 +5562,15 @@ mod tests {
 
         let client = std::thread::spawn(move || {
             let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-            socket.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-            socket.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-            socket.write_all(b"GET /inflight HTTP/1.1\r\nhost: h\r\n\r\n").expect("request");
+            socket
+                .set_read_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
+            socket
+                .set_write_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
+            socket
+                .write_all(b"GET /inflight HTTP/1.1\r\nhost: h\r\n\r\n")
+                .expect("request");
             socket.flush().expect("flush");
             let mut reply = Vec::new();
             let _ = socket.read_to_end(&mut reply);
@@ -5370,18 +5596,26 @@ mod tests {
 
         // And now the listener says it will answer no more, which is the
         // `.Closed` `core/net/server`'s `run` turns into `.Ok(())`.
-        assert_eq!(accept(handle).expect_err("drained").cause, ServeFail::Closed);
+        assert_eq!(
+            accept(handle).expect_err("drained").cause,
+            ServeFail::Closed
+        );
 
         // A client that arrives after the drain is not answered. The port is
         // still open — `run` closes it, one line further along — so the connect
         // succeeds and nothing comes back.
         let mut late = TcpStream::connect(("127.0.0.1", port)).expect("the port is still open");
-        late.set_read_timeout(Some(Duration::from_millis(500))).expect("a deadline");
-        late.set_write_timeout(Some(Duration::from_millis(500))).expect("a deadline");
+        late.set_read_timeout(Some(Duration::from_millis(500)))
+            .expect("a deadline");
+        late.set_write_timeout(Some(Duration::from_millis(500)))
+            .expect("a deadline");
         let _ = late.write_all(b"GET /late HTTP/1.1\r\nhost: h\r\n\r\n");
         let mut nothing = Vec::new();
         let _ = late.read_to_end(&mut nothing);
-        assert!(nothing.is_empty(), "a drained listener answered a new connection: {nothing:?}");
+        assert!(
+            nothing.is_empty(),
+            "a drained listener answered a new connection: {nothing:?}"
+        );
 
         close(handle);
     }
@@ -5412,9 +5646,15 @@ mod tests {
 
         let client = std::thread::spawn(move || {
             let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-            socket.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-            socket.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-            socket.write_all(b"GET /abandoned HTTP/1.1\r\nhost: h\r\n\r\n").expect("request");
+            socket
+                .set_read_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
+            socket
+                .set_write_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
+            socket
+                .write_all(b"GET /abandoned HTTP/1.1\r\nhost: h\r\n\r\n")
+                .expect("request");
             socket.flush().expect("flush");
             let mut reply = Vec::new();
             let _ = socket.read_to_end(&mut reply);
@@ -5422,20 +5662,38 @@ mod tests {
         });
 
         let connection = accept(handle).expect("one connection");
-        assert_eq!(request(connection).expect("its request").target, "/abandoned");
+        assert_eq!(
+            request(connection).expect("its request").target,
+            "/abandoned"
+        );
         // And nothing answers it.
         let started = Instant::now();
-        assert!(!drain(handle), "the drain claimed to have drained a request nobody answered");
+        assert!(
+            !drain(handle),
+            "the drain claimed to have drained a request nobody answered"
+        );
         let waited = started.elapsed();
-        assert!(waited >= Duration::from_millis(150), "the drain did not wait: {waited:?}");
-        assert!(waited < Duration::from_secs(10), "the deadline did not bound it: {waited:?}");
+        assert!(
+            waited >= Duration::from_millis(150),
+            "the drain did not wait: {waited:?}"
+        );
+        assert!(
+            waited < Duration::from_secs(10),
+            "the deadline did not bound it: {waited:?}"
+        );
 
-        assert_eq!(accept(handle).expect_err("drained").cause, ServeFail::Closed);
+        assert_eq!(
+            accept(handle).expect_err("drained").cause,
+            ServeFail::Closed
+        );
         // Giving the port back is what drops the connection nobody answered,
         // and the client sees the socket close rather than a response.
         close(handle);
         let reply = client.join().expect("the client finished");
-        assert!(reply.is_empty(), "a request nobody answered was answered anyway: {reply:?}");
+        assert!(
+            reply.is_empty(),
+            "a request nobody answered was answered anyway: {reply:?}"
+        );
     }
 
     /// **`SIGINT` and `SIGTERM` are this runtime's exactly while a port is
@@ -5460,8 +5718,16 @@ mod tests {
         let (handle, _port, _handlers) =
             bind("127.0.0.1", 0, &ServePlan::default(), -1, 60).expect("a bound port");
         let ours = shutdown::handler_address();
-        assert_eq!(disposition(shutdown::SIGTERM), ours, "SIGTERM is not this runtime's");
-        assert_eq!(disposition(shutdown::SIGINT), ours, "SIGINT is not this runtime's");
+        assert_eq!(
+            disposition(shutdown::SIGTERM),
+            ours,
+            "SIGTERM is not this runtime's"
+        );
+        assert_eq!(
+            disposition(shutdown::SIGINT),
+            ours,
+            "SIGINT is not this runtime's"
+        );
         close(handle);
     }
 
@@ -5532,16 +5798,26 @@ mod tests {
         // that runs until CI kills it.
         let client = std::thread::spawn(move || {
             let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-            socket.set_write_timeout(Some(Duration::from_secs(10))).expect("a deadline");
-            socket.write_all(b"POST /a/b?x=1 HTTP/1.1\r\nHost: h\r\nContent-Length").expect("head");
-            socket.write_all(b": 5\r\nX-Mixed-Case: Yes\r\n\r\nhello").expect("rest");
+            socket
+                .set_write_timeout(Some(Duration::from_secs(10)))
+                .expect("a deadline");
+            socket
+                .write_all(b"POST /a/b?x=1 HTTP/1.1\r\nHost: h\r\nContent-Length")
+                .expect("head");
+            socket
+                .write_all(b": 5\r\nX-Mixed-Case: Yes\r\n\r\nhello")
+                .expect("rest");
             socket.flush().expect("flush");
             socket
         });
         let (mut accepted, _) = listener.accept().expect("accept");
         deadlines(&accepted, Duration::from_secs(10)).expect("deadlines");
-        let request = read_request(&mut accepted, 1024, Instant::now() + Duration::from_secs(10))
-            .expect("a whole request");
+        let request = read_request(
+            &mut accepted,
+            1024,
+            Instant::now() + Duration::from_secs(10),
+        )
+        .expect("a whole request");
         let _client = client.join().expect("the writer finished");
 
         assert_eq!(crate::http::method_name(request.method), "POST");
@@ -5550,7 +5826,10 @@ mod tests {
         // Lowercased on the way in, which is what `Header`'s declaration
         // promises: `request.header("x-mixed-case")` is an exact comparison.
         assert!(
-            request.headers.iter().any(|(n, v)| n == "x-mixed-case" && v == "Yes"),
+            request
+                .headers
+                .iter()
+                .any(|(n, v)| n == "x-mixed-case" && v == "Yes"),
             "{:?}",
             request.headers
         );
@@ -5564,16 +5843,21 @@ mod tests {
         let head = head.to_vec();
         let client = std::thread::spawn(move || {
             let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-            socket.set_write_timeout(Some(Duration::from_secs(10))).expect("a deadline");
+            socket
+                .set_write_timeout(Some(Duration::from_secs(10)))
+                .expect("a deadline");
             let _ = socket.write_all(&head);
             let _ = socket.flush();
             socket
         });
         let (mut accepted, _) = listener.accept().expect("accept");
         deadlines(&accepted, Duration::from_secs(10)).expect("deadlines");
-        let status =
-            read_request(&mut accepted, limit, Instant::now() + Duration::from_secs(10))
-                .unwrap_err();
+        let status = read_request(
+            &mut accepted,
+            limit,
+            Instant::now() + Duration::from_secs(10),
+        )
+        .unwrap_err();
         let _client = client.join().expect("the writer finished");
         status
     }
@@ -5583,12 +5867,18 @@ mod tests {
         assert_eq!(refused_status(b"not a request line\r\n\r\n", 1024), 400);
         assert_eq!(refused_status(b"GET / HTTP/2.0\r\n\r\n", 1024), 505);
         assert_eq!(refused_status(b"BREW / HTTP/1.1\r\n\r\n", 1024), 501);
-        assert_eq!(refused_status(b"POST / HTTP/1.1\r\ncontent-length: 99\r\n\r\n", 8), 413);
+        assert_eq!(
+            refused_status(b"POST / HTTP/1.1\r\ncontent-length: 99\r\n\r\n", 8),
+            413
+        );
         // A framing this acceptor does not drive is refused rather than
         // guessed at: a body read with the wrong framing belongs to the next
         // request.
         assert_eq!(
-            refused_status(b"POST / HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n", 1024),
+            refused_status(
+                b"POST / HTTP/1.1\r\ntransfer-encoding: chunked\r\n\r\n",
+                1024
+            ),
             501
         );
     }
@@ -5609,7 +5899,10 @@ mod tests {
         fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
             if !self.head.is_empty() {
                 let n = self.head.len().min(buffer.len());
-                buffer.get_mut(..n).unwrap_or(&mut []).copy_from_slice(&self.head[..n]);
+                buffer
+                    .get_mut(..n)
+                    .unwrap_or(&mut [])
+                    .copy_from_slice(&self.head[..n]);
                 self.head.drain(..n);
                 return Ok(n);
             }
@@ -5644,12 +5937,19 @@ mod tests {
     fn a_client_that_drips_is_refused_at_the_budget_and_not_at_the_byte_cap() {
         let budget = Duration::from_millis(120);
 
-        let mut head = Drip { head: Vec::new(), every: Duration::from_millis(2) };
+        let mut head = Drip {
+            head: Vec::new(),
+            every: Duration::from_millis(2),
+        };
         let started = Instant::now();
         let status = read_request(&mut head, 8 * 1024, Instant::now() + budget)
             .expect_err("a request that never ended was accepted");
         assert_eq!(status, 408, "a drip is a stalled client");
-        assert!(started.elapsed() < PROMPTLY, "the head drip ran {:?}", started.elapsed());
+        assert!(
+            started.elapsed() < PROMPTLY,
+            "the head drip ran {:?}",
+            started.elapsed()
+        );
 
         // And the same again after a complete, well-formed head: a declared
         // body that arrives one byte at a time is the second loop.
@@ -5661,7 +5961,11 @@ mod tests {
         let status = read_request(&mut body, 8 * 1024, Instant::now() + budget)
             .expect_err("a body that never ended was accepted");
         assert_eq!(status, 408);
-        assert!(started.elapsed() < PROMPTLY, "the body drip ran {:?}", started.elapsed());
+        assert!(
+            started.elapsed() < PROMPTLY,
+            "the body drip ran {:?}",
+            started.elapsed()
+        );
     }
 
     /// The whole of `bind`, `accept`, `respond` and `close`, against a real
@@ -5673,15 +5977,30 @@ mod tests {
     /// server test that could hang is a suite that runs until CI kills it.
     #[test]
     fn a_bound_listener_answers_one_request_and_then_says_it_is_closed() {
-        let (handle, port, _handlers) =
-            bind("127.0.0.1", 0, &ServePlan::speaking(&[Protocol::Http1]), 1, 10_000).expect("a bound port");
-        assert!(port > 0, "port 0 should have been replaced by the one the OS chose");
+        let (handle, port, _handlers) = bind(
+            "127.0.0.1",
+            0,
+            &ServePlan::speaking(&[Protocol::Http1]),
+            1,
+            10_000,
+        )
+        .expect("a bound port");
+        assert!(
+            port > 0,
+            "port 0 should have been replaced by the one the OS chose"
+        );
 
         let client = std::thread::spawn(move || {
             let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-            socket.set_read_timeout(Some(Duration::from_secs(10))).expect("a deadline");
-            socket.set_write_timeout(Some(Duration::from_secs(10))).expect("a deadline");
-            socket.write_all(b"GET /ping HTTP/1.1\r\nhost: h\r\n\r\n").expect("request");
+            socket
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .expect("a deadline");
+            socket
+                .set_write_timeout(Some(Duration::from_secs(10)))
+                .expect("a deadline");
+            socket
+                .write_all(b"GET /ping HTTP/1.1\r\nhost: h\r\n\r\n")
+                .expect("request");
             socket.flush().expect("flush");
             let mut reply = Vec::new();
             let _ = socket.read_to_end(&mut reply);
@@ -5689,20 +6008,32 @@ mod tests {
         });
 
         let connection = accept(handle).expect("one connection");
-        assert!(connection > 0, "a connection id is minted for every accepted request");
+        assert!(
+            connection > 0,
+            "a connection id is minted for every accepted request"
+        );
         let read = request(connection).expect("the request on it");
         assert_eq!(read.target, "/ping");
         // Read once: the second call is a connection nobody is holding a
         // request for, which is the same `.Closed` a stale connection gets.
-        assert_eq!(request(connection).expect_err("read twice").cause, ServeFail::Closed);
-        respond(connection, 200, &[("x-from".into(), "buri".into())], b"pong")
-            .expect("a response");
+        assert_eq!(
+            request(connection).expect_err("read twice").cause,
+            ServeFail::Closed
+        );
+        respond(
+            connection,
+            200,
+            &[("x-from".into(), "buri".into())],
+            b"pong",
+        )
+        .expect("a response");
         // Answering the same connection twice writes nothing and is not an
         // error: it has been answered, which is a state a loop can be in
         // without having done anything wrong.
         respond(connection, 200, &[], b"again").expect("a second answer is a no-op");
 
-        let reply = String::from_utf8_lossy(&client.join().expect("the client finished")).to_string();
+        let reply =
+            String::from_utf8_lossy(&client.join().expect("the client finished")).to_string();
         assert!(reply.starts_with("HTTP/1.1 200 OK\r\n"), "{reply}");
         assert!(reply.contains("x-from: buri\r\n"), "{reply}");
         assert!(reply.contains("content-length: 4\r\n"), "{reply}");
@@ -5729,7 +6060,8 @@ mod tests {
     /// for a client that is never coming.
     #[test]
     fn an_idle_listener_gives_up_when_it_was_told_to() {
-        let (handle, port, _handlers) = bind("127.0.0.1", 0, &ServePlan::default(), -1, 60).expect("a bound port");
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &ServePlan::default(), -1, 60).expect("a bound port");
         assert!(port > 0);
         let started = Instant::now();
         let timed_out = accept(handle).expect_err("nobody connected");
@@ -5739,7 +6071,11 @@ mod tests {
             "the deadline did not bound the wait: {:?}",
             started.elapsed()
         );
-        assert!(timed_out.detail.contains("60"), "the message names no deadline: {}", timed_out.detail);
+        assert!(
+            timed_out.detail.contains("60"),
+            "the message names no deadline: {}",
+            timed_out.detail
+        );
         close(handle);
     }
 
@@ -5764,17 +6100,28 @@ mod tests {
     /// down.
     #[test]
     fn a_client_that_pauses_before_writing_is_still_framed() {
-        let (handle, port, _handlers) =
-            bind("127.0.0.1", 0, &ServePlan::speaking(&[Protocol::Http1]), 1, 20_000)
-                .expect("a bound port");
+        let (handle, port, _handlers) = bind(
+            "127.0.0.1",
+            0,
+            &ServePlan::speaking(&[Protocol::Http1]),
+            1,
+            20_000,
+        )
+        .expect("a bound port");
         let client = std::thread::spawn(move || {
             let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-            socket.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-            socket.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            socket
+                .set_read_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
+            socket
+                .set_write_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
             // Long enough that the acceptor is certainly waiting on this socket
             // before a byte of the request exists.
             std::thread::sleep(Duration::from_millis(300));
-            socket.write_all(b"GET /late HTTP/1.1\r\nhost: h\r\n\r\n").expect("request");
+            socket
+                .write_all(b"GET /late HTTP/1.1\r\nhost: h\r\n\r\n")
+                .expect("request");
             socket.flush().expect("flush");
             let mut reply = Vec::new();
             let _ = socket.read_to_end(&mut reply);
@@ -5783,7 +6130,10 @@ mod tests {
 
         let connection = accept(handle).expect("the connection, framed after the pause");
         let read = request(connection).expect("the request on it");
-        assert_eq!(read.target, "/late", "a paused client was answered somebody else's request");
+        assert_eq!(
+            read.target, "/late",
+            "a paused client was answered somebody else's request"
+        );
         respond(connection, 200, &[], b"late").expect("a response");
         let reply = client.join().expect("the client finished");
         assert!(
@@ -5798,8 +6148,14 @@ mod tests {
     /// a message rather than a tag, and no port is held.
     #[test]
     fn a_protocol_this_acceptor_does_not_frame_is_refused_at_the_bind() {
-        let refused = bind("127.0.0.1", 0, &ServePlan::speaking(&[Protocol::Http3]), -1, 60)
-            .expect_err("HTTP/3 is not framed here");
+        let refused = bind(
+            "127.0.0.1",
+            0,
+            &ServePlan::speaking(&[Protocol::Http3]),
+            -1,
+            60,
+        )
+        .expect_err("HTTP/3 is not framed here");
         assert_eq!(refused.cause, ServeFail::Unsupported);
         if cfg!(feature = "net-h3") {
             assert!(refused.detail.contains("HTTP/3"), "{}", refused.detail);
@@ -5807,14 +6163,21 @@ mod tests {
             // A toolchain with no QUIC in it owes the message that names the
             // build switch, not the one about this file — a user can act on the
             // first and can only wait for the second.
-            assert!(refused.detail.contains("BURI_RUNTIME_NET_H3=1"), "{}", refused.detail);
+            assert!(
+                refused.detail.contains("BURI_RUNTIME_NET_H3=1"),
+                "{}",
+                refused.detail
+            );
         }
         // And an index no variant has is a program and a runtime disagreeing
         // about the enum, which is refused rather than transmuted.
         let unknown = protocol_of(9).expect_err("there is no tenth protocol");
         assert_eq!(unknown.cause, ServeFail::Unsupported);
         assert!(unknown.detail.contains("disagree"), "{}", unknown.detail);
-        assert!(protocol_of(-1).is_err(), "a negative index is not a protocol either");
+        assert!(
+            protocol_of(-1).is_err(),
+            "a negative index is not a protocol either"
+        );
     }
 
     /// **HTTP/2 without a certificate is refused at the bind**, and not quietly
@@ -5832,15 +6195,24 @@ mod tests {
     #[cfg(feature = "net")]
     #[test]
     fn http2_without_a_certificate_is_refused_at_the_bind() {
-        let refused = bind("127.0.0.1", 0, &ServePlan::speaking(&[Protocol::Http2]), -1, 60)
-            .expect_err("h2 is negotiated inside a handshake there is none of");
+        let refused = bind(
+            "127.0.0.1",
+            0,
+            &ServePlan::speaking(&[Protocol::Http2]),
+            -1,
+            60,
+        )
+        .expect_err("h2 is negotiated inside a handshake there is none of");
         assert_eq!(refused.cause, ServeFail::Unsupported);
         assert!(refused.detail.contains("ALPN"), "{}", refused.detail);
         assert!(refused.detail.contains("tls"), "{}", refused.detail);
         // And HTTP/1.1 beside it does not rescue it: the plan asked for two
         // protocols and one of them is unreachable.
         let both = ServePlan::speaking(&[Protocol::Http1, Protocol::Http2]);
-        assert!(bind("127.0.0.1", 0, &both, -1, 60).is_err(), "one bad protocol is a bad plan");
+        assert!(
+            bind("127.0.0.1", 0, &both, -1, 60).is_err(),
+            "one bad protocol is a bad plan"
+        );
     }
 
     /// The bind answers how many handlers it will host, and it is a number a
@@ -5852,9 +6224,13 @@ mod tests {
     /// requests overlap. [`MAX_HANDLERS`] says why it is sixty-four.
     #[test]
     fn a_bind_answers_the_handler_count_it_will_host() {
-        let (handle, _port, handlers) = bind("127.0.0.1", 0, &ServePlan::default(), -1, 60).expect("a bound port");
+        let (handle, _port, handlers) =
+            bind("127.0.0.1", 0, &ServePlan::default(), -1, 60).expect("a bound port");
         assert_eq!(handlers, MAX_HANDLERS);
-        assert!(handlers >= 1, "a listener with no handlers is a port nobody answers");
+        assert!(
+            handlers >= 1,
+            "a listener with no handlers is a port nobody answers"
+        );
         close(handle);
     }
 
@@ -5873,16 +6249,25 @@ mod tests {
     #[test]
     fn eight_workers_hold_eight_requests_at_once() {
         const WORKERS: usize = 8;
-        let (handle, port, _handlers) =
-            bind("127.0.0.1", 0, &ServePlan::speaking(&[Protocol::Http1]), WORKERS as i64, 20_000)
-                .expect("a bound port");
+        let (handle, port, _handlers) = bind(
+            "127.0.0.1",
+            0,
+            &ServePlan::speaking(&[Protocol::Http1]),
+            WORKERS as i64,
+            20_000,
+        )
+        .expect("a bound port");
 
         let clients: Vec<_> = (0..WORKERS)
             .map(|i| {
                 std::thread::spawn(move || {
                     let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-                    socket.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-                    socket.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+                    socket
+                        .set_read_timeout(Some(Duration::from_secs(20)))
+                        .expect("a deadline");
+                    socket
+                        .set_write_timeout(Some(Duration::from_secs(20)))
+                        .expect("a deadline");
                     socket
                         .write_all(format!("GET /{i} HTTP/1.1\r\nhost: h\r\n\r\n").as_bytes())
                         .expect("request");
@@ -5909,9 +6294,15 @@ mod tests {
                 (connection, read)
             })
             .collect();
-        let paths: std::collections::BTreeSet<String> =
-            held.iter().map(|(_, request)| request.target.clone()).collect();
-        assert_eq!(paths.len(), WORKERS, "two workers were handed the same request: {paths:?}");
+        let paths: std::collections::BTreeSet<String> = held
+            .iter()
+            .map(|(_, request)| request.target.clone())
+            .collect();
+        assert_eq!(
+            paths.len(),
+            WORKERS,
+            "two workers were handed the same request: {paths:?}"
+        );
 
         // **Ordering independence**: the answers go out in the reverse of the
         // order the requests came in, and every client still gets its own.
@@ -5948,7 +6339,8 @@ mod tests {
     /// finishing under a test binary that joins its threads at exit.
     #[test]
     fn closing_a_listener_wakes_the_workers_blocked_on_it() {
-        let (handle, _port, _handlers) = bind("127.0.0.1", 0, &ServePlan::default(), -1, -1).expect("a bound port");
+        let (handle, _port, _handlers) =
+            bind("127.0.0.1", 0, &ServePlan::default(), -1, -1).expect("a bound port");
         let workers: Vec<_> = (0..3)
             .map(|_| std::thread::spawn(move || accept(handle).err().map(|e| e.cause)))
             .collect();
@@ -5975,17 +6367,29 @@ mod tests {
     /// answered, and a server told to answer one question answered four.
     #[test]
     fn a_limit_of_one_hands_out_one_request_however_many_workers_wait() {
-        let (handle, port, _handlers) =
-            bind("127.0.0.1", 0, &ServePlan::speaking(&[Protocol::Http1]), 1, -1).expect("a bound port");
+        let (handle, port, _handlers) = bind(
+            "127.0.0.1",
+            0,
+            &ServePlan::speaking(&[Protocol::Http1]),
+            1,
+            -1,
+        )
+        .expect("a bound port");
         let workers: Vec<_> = (0..4)
             .map(|_| std::thread::spawn(move || accept(handle)))
             .collect();
         std::thread::sleep(Duration::from_millis(200));
         let client = std::thread::spawn(move || {
             let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-            socket.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-            socket.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-            socket.write_all(b"GET /once HTTP/1.1\r\nhost: h\r\n\r\n").expect("request");
+            socket
+                .set_read_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
+            socket
+                .set_write_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
+            socket
+                .write_all(b"GET /once HTTP/1.1\r\nhost: h\r\n\r\n")
+                .expect("request");
             socket.flush().expect("flush");
             let mut reply = Vec::new();
             let _ = socket.read_to_end(&mut reply);
@@ -6004,7 +6408,10 @@ mod tests {
             }
         }
         assert_eq!(served.len(), 1, "the limit of one was spent more than once");
-        assert_eq!(closed, 3, "the other workers were not told the listener was finished");
+        assert_eq!(
+            closed, 3,
+            "the other workers were not told the listener was finished"
+        );
         let connection = served.pop().expect("the one connection");
         let read = request(connection).expect("the request on it");
         assert_eq!(read.target, "/once");
@@ -6130,7 +6537,9 @@ mod tests {
             let (conn, sock) = handshaken(port, vec![crate::tls::ALPN_HTTP1.to_vec()]);
             let chosen = conn.alpn_protocol().map(<[u8]>::to_vec);
             let mut stream = rustls::StreamOwned::new(conn, sock);
-            stream.write_all(b"GET /over-tls HTTP/1.1\r\nhost: localhost\r\n\r\n").expect("write");
+            stream
+                .write_all(b"GET /over-tls HTTP/1.1\r\nhost: localhost\r\n\r\n")
+                .expect("write");
             stream.flush().expect("flush");
             let mut reply = Vec::new();
             let _ = stream.read_to_end(&mut reply);
@@ -6143,10 +6552,20 @@ mod tests {
         // The handler is handed nothing about the transport, which is the point
         // of the `Wire`: a `Request` is four fields and none of them is "how it
         // arrived".
-        assert_eq!(read.headers.iter().find(|(n, _)| n == "host").map(|(_, v)| v.as_str()),
-                   Some("localhost"));
-        respond(connection, 200, &[("x-from".into(), "buri".into())], b"pong")
-            .expect("a response");
+        assert_eq!(
+            read.headers
+                .iter()
+                .find(|(n, _)| n == "host")
+                .map(|(_, v)| v.as_str()),
+            Some("localhost")
+        );
+        respond(
+            connection,
+            200,
+            &[("x-from".into(), "buri".into())],
+            b"pong",
+        )
+        .expect("a response");
 
         let (chosen, reply) = client.join().expect("the client finished");
         assert_eq!(
@@ -6186,8 +6605,13 @@ mod tests {
             bind("127.0.0.1", 0, &plan, 2, 30_000).expect("a bound port");
 
         let client = std::thread::spawn(move || {
-            let (conn, sock) =
-                handshaken(port, vec![crate::tls::ALPN_H2.to_vec(), crate::tls::ALPN_HTTP1.to_vec()]);
+            let (conn, sock) = handshaken(
+                port,
+                vec![
+                    crate::tls::ALPN_H2.to_vec(),
+                    crate::tls::ALPN_HTTP1.to_vec(),
+                ],
+            );
             let chosen = conn.alpn_protocol().map(<[u8]>::to_vec);
             assert_eq!(
                 chosen.as_deref(),
@@ -6196,9 +6620,10 @@ mod tests {
             );
             crate::rt::handle().block_on(async move {
                 let io = crate::tls::AsyncTls::adopt(sock, conn).expect("an async connection");
-                let (send, driving) = hyper::client::conn::http2::handshake::<_, _, Once>(Spawn, io)
-                    .await
-                    .expect("an h2 handshake");
+                let (send, driving) =
+                    hyper::client::conn::http2::handshake::<_, _, Once>(Spawn, io)
+                        .await
+                        .expect("an h2 handshake");
                 crate::rt::handle().spawn(async move {
                     let _driven = driving.await;
                 });
@@ -6299,8 +6724,9 @@ mod tests {
                     .expect("a request");
                 let response = send.send_request(request).await.expect("a response");
                 let status = response.status().as_u16();
-                let body =
-                    collected(response.into_body(), 64 * 1024).await.expect("a body");
+                let body = collected(response.into_body(), 64 * 1024)
+                    .await
+                    .expect("a body");
                 let _ = answered.send(());
                 // And now the client does nothing at all, holding its
                 // connection open. What ends this wait is the server's GOAWAY —
@@ -6318,17 +6744,28 @@ mod tests {
         let connection = accept(handle).expect("the one stream");
         assert_eq!(request(connection).expect("its request").target, "/keep");
         respond(connection, 200, &[], b"kept").expect("a response");
-        was_answered.recv_timeout(PATIENCE).expect("the client read its answer");
+        was_answered
+            .recv_timeout(PATIENCE)
+            .expect("the client read its answer");
 
         let started = Instant::now();
-        assert!(drain(handle), "the drain gave up on an h2 connection it should have ended");
+        assert!(
+            drain(handle),
+            "the drain gave up on an h2 connection it should have ended"
+        );
         let waited = started.elapsed();
-        assert!(waited < Duration::from_secs(5), "the GOAWAY did not end it: {waited:?}");
+        assert!(
+            waited < Duration::from_secs(5),
+            "the GOAWAY did not end it: {waited:?}"
+        );
 
         let (status, body, ended) = client.join().expect("the client finished");
         assert_eq!((status, body.as_str()), (200, "kept"));
         assert!(ended, "the client's connection was never sent a GOAWAY");
-        assert_eq!(accept(handle).expect_err("drained").cause, ServeFail::Closed);
+        assert_eq!(
+            accept(handle).expect_err("drained").cause,
+            ServeFail::Closed
+        );
         close(handle);
     }
 
@@ -6353,9 +6790,19 @@ mod tests {
         let response =
             crate::rt::handle().block_on(answered_within(written, Duration::from_millis(80)));
         let waited = started.elapsed();
-        assert_eq!(response.status().as_u16(), 504, "a handler that never answered was not a 504");
-        assert!(waited >= Duration::from_millis(60), "{waited:?} is not a wait at all");
-        assert!(waited < Duration::from_secs(5), "the stream waited {waited:?}");
+        assert_eq!(
+            response.status().as_u16(),
+            504,
+            "a handler that never answered was not a 504"
+        );
+        assert!(
+            waited >= Duration::from_millis(60),
+            "{waited:?} is not a wait at all"
+        );
+        assert!(
+            waited < Duration::from_secs(5),
+            "the stream waited {waited:?}"
+        );
         // Held across the wait on purpose: this is the deadline arm and not the
         // dropped-sender one.
         drop(back);
@@ -6434,10 +6881,16 @@ mod tests {
         let started = Instant::now();
         let _either_way = drain(handle);
         let waited = started.elapsed();
-        assert!(waited < Duration::from_secs(5), "the drain itself ran {waited:?}");
+        assert!(
+            waited < Duration::from_secs(5),
+            "the drain itself ran {waited:?}"
+        );
 
         let ended = client.join().expect("the client finished");
-        assert!(ended, "the connection outlived its GOAWAY and its drain deadline");
+        assert!(
+            ended,
+            "the connection outlived its GOAWAY and its drain deadline"
+        );
         close(handle);
     }
 
@@ -6450,8 +6903,8 @@ mod tests {
     #[cfg(feature = "net")]
     #[test]
     fn a_certificate_the_runtime_cannot_read_stops_the_bind() {
-        let missing = std::env::temp_dir()
-            .join(format!("buri-rt-net-{}-absent.pem", std::process::id()));
+        let missing =
+            std::env::temp_dir().join(format!("buri-rt-net-{}-absent.pem", std::process::id()));
         let _ = std::fs::remove_file(&missing);
         let (_certificate, key) = identity_files("refused");
         let plan = ServePlan {
@@ -6463,7 +6916,11 @@ mod tests {
         };
         let refused = bind("127.0.0.1", 0, &plan, -1, 60).expect_err("there is no such file");
         assert_eq!(refused.cause, ServeFail::Transport);
-        assert!(refused.detail.contains(&missing.display().to_string()), "{}", refused.detail);
+        assert!(
+            refused.detail.contains(&missing.display().to_string()),
+            "{}",
+            refused.detail
+        );
 
         // A file that exists and holds no certificate is the other half of the
         // same question, and gets a different sentence rather than the same one.
@@ -6574,13 +7031,19 @@ mod tests {
 
         let client = std::thread::spawn(move || {
             let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-            stream.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-            stream.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
+            stream
+                .set_write_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
             let (mut socket, response) =
                 tungstenite::client(format!("ws://127.0.0.1:{port}/socket"), stream)
                     .expect("the handshake");
             assert_eq!(response.status().as_u16(), 101);
-            socket.send(tungstenite::Message::text("ping")).expect("a message out");
+            socket
+                .send(tungstenite::Message::text("ping"))
+                .expect("a message out");
             let back = socket.read().expect("a message back");
             socket
                 .close(Some(tungstenite::protocol::CloseFrame {
@@ -6595,14 +7058,17 @@ mod tests {
         });
 
         let socket = upgraded_socket(handle);
-        let arrived = received_within(socket, handle, SOCKET_DEADLINE)
-            .expect("the client's message");
-        assert_eq!(arrived.frame, 0, "a text frame arrived as frame {}", arrived.frame);
+        let arrived =
+            received_within(socket, handle, SOCKET_DEADLINE).expect("the client's message");
+        assert_eq!(
+            arrived.frame, 0,
+            "a text frame arrived as frame {}",
+            arrived.frame
+        );
         assert_eq!(arrived.text, "ping");
         sockets::send_text(socket, "pong");
         // The second receive is what writes it, and then waits for the close.
-        let closed =
-            received_within(socket, handle, SOCKET_DEADLINE).expect("the client's close");
+        let closed = received_within(socket, handle, SOCKET_DEADLINE).expect("the client's close");
         assert_eq!(closed.frame, 2, "the socket's last event is its close");
         assert_eq!(closed.code, 1000, "a clean close is 1000");
 
@@ -6612,7 +7078,10 @@ mod tests {
         // **`.Closed` is the last answer a socket gives**: it is gone from the
         // table, a message to it is dropped, and asking again is `.Err`.
         sockets::send_text(socket, "nobody is there");
-        assert_eq!(sockets::receive(socket).expect_err("spent").cause, ServeFail::Closed);
+        assert_eq!(
+            sockets::receive(socket).expect_err("spent").cause,
+            ServeFail::Closed
+        );
         assert!(!sockets::is_open(socket), "the socket was not retired");
 
         close(handle);
@@ -6638,8 +7107,12 @@ mod tests {
 
         let client = std::thread::spawn(move || {
             let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-            stream.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-            stream.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
+            stream
+                .set_write_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
             let (mut socket, _response) =
                 tungstenite::client(format!("ws://127.0.0.1:{port}/socket"), stream)
                     .expect("the handshake");
@@ -6667,7 +7140,10 @@ mod tests {
             closed.code, OVERFLOWED,
             "an overflow is the platform's own reason and not a wire code"
         );
-        assert!(closed.code < 0, "a wire code is unsigned, so this one cannot be forged");
+        assert!(
+            closed.code < 0,
+            "a wire code is unsigned, so this one cannot be forged"
+        );
 
         assert_eq!(
             client.join().expect("the client finished"),
@@ -6696,9 +7172,15 @@ mod tests {
 
         let client = std::thread::spawn(move || {
             let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-            stream.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-            stream.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-            stream.write_all(b"GET /ordinary HTTP/1.1\r\nhost: h\r\n\r\n").expect("request");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
+            stream
+                .set_write_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
+            stream
+                .write_all(b"GET /ordinary HTTP/1.1\r\nhost: h\r\n\r\n")
+                .expect("request");
             stream.flush().expect("flush");
             let mut reply = Vec::new();
             let _ = stream.read_to_end(&mut reply);
@@ -6710,7 +7192,11 @@ mod tests {
         assert_eq!(read.target, "/ordinary");
         let refused = sockets::upgrade(connection).expect_err("this was not an upgrade");
         assert_eq!(refused.cause, ServeFail::Unsupported);
-        assert!(refused.detail.contains("upgrade: websocket"), "{}", refused.detail);
+        assert!(
+            refused.detail.contains("upgrade: websocket"),
+            "{}",
+            refused.detail
+        );
         // Still answerable, which is the half that matters.
         respond(connection, 200, &[], b"handled").expect("a response");
 
@@ -6738,8 +7224,12 @@ mod tests {
 
         let client = std::thread::spawn(move || {
             let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-            stream.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-            stream.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
+            stream
+                .set_write_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
             let (mut socket, _response) =
                 tungstenite::client(format!("ws://127.0.0.1:{port}/socket"), stream)
                     .expect("the handshake");
@@ -6758,10 +7248,13 @@ mod tests {
         let socket = upgraded_socket(handle);
         let began = Instant::now();
         let draining = std::thread::spawn(move || drain(handle));
-        let closed =
-            received_within(socket, handle, SOCKET_DEADLINE).expect("the drain's close");
+        let closed = received_within(socket, handle, SOCKET_DEADLINE).expect("the drain's close");
         assert_eq!(closed.frame, 2);
-        assert_eq!(closed.code, i64::from(GOING_AWAY), "a drained socket is going away");
+        assert_eq!(
+            closed.code,
+            i64::from(GOING_AWAY),
+            "a drained socket is going away"
+        );
         assert!(
             draining.join().expect("the drain finished"),
             "the drain timed out rather than closing the socket it was holding"
@@ -6773,7 +7266,10 @@ mod tests {
         );
         assert_eq!(client.join().expect("the client finished"), GOING_AWAY);
 
-        assert_eq!(accept(handle).expect_err("drained").cause, ServeFail::Closed);
+        assert_eq!(
+            accept(handle).expect_err("drained").cause,
+            ServeFail::Closed
+        );
         close(handle);
     }
 
@@ -6789,8 +7285,12 @@ mod tests {
 
         let client = std::thread::spawn(move || {
             let stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
-            stream.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
-            stream.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
+            stream
+                .set_write_timeout(Some(Duration::from_secs(20)))
+                .expect("a deadline");
             let (mut socket, _response) =
                 tungstenite::client(format!("ws://127.0.0.1:{port}/socket"), stream)
                     .expect("the handshake");
@@ -6801,8 +7301,14 @@ mod tests {
         close(handle);
         // The socket is gone with the listener, so its own loop is told the
         // ordinary thing a spent handle is told and runs its close hook.
-        assert_eq!(sockets::receive(socket).expect_err("gone").cause, ServeFail::Closed);
-        assert!(!sockets::is_open(socket), "the listener did not take its socket with it");
+        assert_eq!(
+            sockets::receive(socket).expect_err("gone").cause,
+            ServeFail::Closed
+        );
+        assert!(
+            !sockets::is_open(socket),
+            "the listener did not take its socket with it"
+        );
         client.join().expect("the client finished");
     }
 
@@ -6851,7 +7357,9 @@ mod tests {
         let serving = std::thread::spawn(move || {
             let (mut stream, _from) = listener.accept().expect("one connection");
             stream.set_read_timeout(Some(PROMPTLY)).expect("a deadline");
-            stream.set_write_timeout(Some(PROMPTLY)).expect("a deadline");
+            stream
+                .set_write_timeout(Some(PROMPTLY))
+                .expect("a deadline");
             let mut head: Vec<u8> = Vec::new();
             let mut chunk = [0u8; 512];
             while find(&head, b"\r\n\r\n").is_none() {
@@ -6887,9 +7395,8 @@ mod tests {
         // The dial has to be in flight while the acceptor is inside its own
         // accept, so it runs on a thread and the acceptor's three steps run
         // here.
-        let dialling = std::thread::spawn(move || {
-            client::connect(&format!("ws://127.0.0.1:{port}/socket"))
-        });
+        let dialling =
+            std::thread::spawn(move || client::connect(&format!("ws://127.0.0.1:{port}/socket")));
         let server = upgraded_socket(handle);
         let open = dialling
             .join()
@@ -6906,12 +7413,16 @@ mod tests {
             open.headers
         );
         assert!(
-            open.headers.iter().any(|(n, _)| n == "sec-websocket-accept"),
+            open.headers
+                .iter()
+                .any(|(n, _)| n == "sec-websocket-accept"),
             "the signature the client checked is one of the fields it hands back: {:?}",
             open.headers
         );
         assert!(
-            open.headers.iter().all(|(n, _)| n.chars().all(|c| !c.is_ascii_uppercase())),
+            open.headers
+                .iter()
+                .all(|(n, _)| n.chars().all(|c| !c.is_ascii_uppercase())),
             "`Header` promises lowercased names: {:?}",
             open.headers
         );
@@ -6927,24 +7438,34 @@ mod tests {
 
         let arrived =
             received_within(server, handle, SOCKET_DEADLINE).expect("the client's message");
-        assert_eq!(arrived.frame, 0, "a text frame arrived as frame {}", arrived.frame);
+        assert_eq!(
+            arrived.frame, 0,
+            "a text frame arrived as frame {}",
+            arrived.frame
+        );
         assert_eq!(arrived.text, "ping");
         sockets::send_text(server, "pong");
-        let ending =
-            std::thread::spawn(move || received_within(server, handle, SOCKET_DEADLINE));
+        let ending = std::thread::spawn(move || received_within(server, handle, SOCKET_DEADLINE));
 
         let back = listening
             .join()
             .expect("the client's receive finished")
             .expect("the server's message");
-        assert_eq!(back.frame, 0, "a text frame arrived as frame {}", back.frame);
+        assert_eq!(
+            back.frame, 0,
+            "a text frame arrived as frame {}",
+            back.frame
+        );
         assert_eq!(back.text, "pong");
 
         // And the close, decided by the client and seen by both.
         sockets::close(dialled, 1000, "done");
         let closed =
             received_within(dialled, handle, SOCKET_DEADLINE).expect("the client's own close");
-        assert_eq!(closed.frame, 2, "a dialled socket's last event is its close");
+        assert_eq!(
+            closed.frame, 2,
+            "a dialled socket's last event is its close"
+        );
         assert_eq!(closed.code, 1000);
         let ended = ending
             .join()
@@ -6955,8 +7476,14 @@ mod tests {
 
         // **`.Closed` is the last answer a dialled socket gives**, exactly as
         // it is for an accepted one.
-        assert!(!sockets::is_open(dialled), "the dialled socket was not retired");
-        assert_eq!(sockets::receive(dialled).expect_err("spent").cause, ServeFail::Closed);
+        assert!(
+            !sockets::is_open(dialled),
+            "the dialled socket was not retired"
+        );
+        assert_eq!(
+            sockets::receive(dialled).expect_err("spent").cause,
+            ServeFail::Closed
+        );
 
         close(handle);
     }
@@ -7022,8 +7549,7 @@ mod tests {
         // is the client's own handshake, and the framing from `Role::Server`,
         // because the point after that is that a `Wire::ClientTls` frames.
         let serving = std::thread::spawn(move || {
-            let sock =
-                fixture::accept_within(&listeners, PROMPTLY).expect("the client connected");
+            let sock = fixture::accept_within(&listeners, PROMPTLY).expect("the client connected");
             let _read = sock.set_read_timeout(Some(PROMPTLY));
             let _written = sock.set_write_timeout(Some(PROMPTLY));
             let conn = rustls::ServerConnection::new(std::sync::Arc::new(config))
@@ -7049,7 +7575,9 @@ mod tests {
                 "HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\n\
                  connection: Upgrade\r\nsec-websocket-accept: {accept}\r\n\r\n"
             );
-            stream.write_all(answer.as_bytes()).expect("the 101 was written");
+            stream
+                .write_all(answer.as_bytes())
+                .expect("the 101 was written");
             stream.flush().expect("the 101 left");
             let mut framing = tungstenite::WebSocket::from_raw_socket(
                 stream,
@@ -7069,20 +7597,35 @@ mod tests {
 
         let open = client::connect(&format!("wss://localhost:{port}/socket"))
             .expect("a wss handshake this fixture completed");
-        assert_eq!(open.status, 101, "a handshake over TLS answers 101 like any other");
+        assert_eq!(
+            open.status, 101,
+            "a handshake over TLS answers 101 like any other"
+        );
         assert!(
-            open.headers.iter().any(|(n, _)| n == "sec-websocket-accept"),
+            open.headers
+                .iter()
+                .any(|(n, _)| n == "sec-websocket-accept"),
             "the signature the client checked is one of the fields it hands back: {:?}",
             open.headers
         );
         let socket = open.socket;
         sockets::send_text(socket, "ping");
         let back = dialled_within(socket, SOCKET_DEADLINE).expect("the server's echo");
-        assert_eq!(back.frame, 0, "a text frame arrived as frame {}", back.frame);
-        assert_eq!(back.text, "echo ping", "the echo crossed the TLS stream whole");
+        assert_eq!(
+            back.frame, 0,
+            "a text frame arrived as frame {}",
+            back.frame
+        );
+        assert_eq!(
+            back.text, "echo ping",
+            "the echo crossed the TLS stream whole"
+        );
         sockets::close(socket, 1000, "done");
         let heard = serving.join().expect("the server finished");
-        assert_eq!(heard, "ping", "the client's frame reached the far side masked and whole");
+        assert_eq!(
+            heard, "ping",
+            "the client's frame reached the far side masked and whole"
+        );
     }
 
     /// A dial to a port nobody holds is a `Transport` failure with a sentence
@@ -7096,7 +7639,8 @@ mod tests {
             .expect_err("nobody is listening");
         assert_eq!(refused.cause, ServeFail::Transport);
         assert!(
-            refused.detail.contains(&port.to_string()) && refused.detail.to_lowercase().contains("refused"),
+            refused.detail.contains(&port.to_string())
+                && refused.detail.to_lowercase().contains("refused"),
             "a dead port is a Transport failure saying it was refused, naming the port: {}",
             refused.detail
         );
@@ -7126,7 +7670,9 @@ mod tests {
             ServeFail::Transport
         );
         assert_eq!(
-            client::connect("ws://host:not-a-port/").expect_err("bad port").cause,
+            client::connect("ws://host:not-a-port/")
+                .expect_err("bad port")
+                .cause,
             ServeFail::Transport
         );
     }
@@ -7136,9 +7682,8 @@ mod tests {
     #[cfg(feature = "net")]
     #[test]
     fn a_server_that_does_not_switch_protocols_is_refused_with_its_status() {
-        let (port, serving) = one_answer(
-            "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
-        );
+        let (port, serving) =
+            one_answer("HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
         let refused = client::connect(&format!("ws://127.0.0.1:{port}/socket"))
             .expect_err("a 404 is not an upgrade");
         assert_eq!(refused.cause, ServeFail::Transport);
@@ -7203,12 +7748,19 @@ mod tests {
         assert_eq!(client::base64(b"M"), "TQ==");
         assert_eq!(client::base64(b"Ma"), "TWE=");
         assert_eq!(client::base64(b"Man"), "TWFu");
-        assert_eq!(client::base64(b"the sample nonce"), "dGhlIHNhbXBsZSBub25jZQ==");
+        assert_eq!(
+            client::base64(b"the sample nonce"),
+            "dGhlIHNhbXBsZSBub25jZQ=="
+        );
         // Every octet, so the alphabet is checked rather than the twenty
         // characters an ASCII string happens to reach.
         let every: Vec<u8> = (0..=255u8).collect();
         let encoded = client::base64(&every);
-        assert_eq!(encoded.len(), 344, "256 octets is 344 characters with padding");
+        assert_eq!(
+            encoded.len(),
+            344,
+            "256 octets is 344 characters with padding"
+        );
         assert!(encoded.ends_with('='), "256 is not a multiple of three");
     }
 
@@ -7224,7 +7776,10 @@ mod tests {
                 (String::from("upgrade"), String::from("websocket")),
                 (String::from("connection"), String::from("Upgrade")),
                 (String::from("sec-websocket-version"), String::from("13")),
-                (String::from("sec-websocket-key"), String::from("dGhlIHNhbXBsZSBub25jZQ==")),
+                (
+                    String::from("sec-websocket-key"),
+                    String::from("dGhlIHNhbXBsZSBub25jZQ=="),
+                ),
             ];
             for (name, value) in extra {
                 headers.retain(|(had, _)| had != name);
@@ -7239,7 +7794,10 @@ mod tests {
                 body: Vec::new(),
             }
         };
-        assert_eq!(upgrade_key(&head(&[])).as_deref(), Some("dGhlIHNhbXBsZSBub25jZQ=="));
+        assert_eq!(
+            upgrade_key(&head(&[])).as_deref(),
+            Some("dGhlIHNhbXBsZSBub25jZQ==")
+        );
         // A list, matched token by token and case-insensitively, which is what
         // every browser actually sends.
         assert!(upgrade_key(&head(&[("connection", "keep-alive, Upgrade")])).is_some());
@@ -7264,13 +7822,13 @@ mod tests {
     /// serves are about the *answer*. The URL rows below are about what this
     /// client **asked**, so they need the head.
     #[cfg(feature = "net")]
-    fn one_answer_heard(
-        answer: &'static str,
-    ) -> (u16, std::thread::JoinHandle<String>) {
+    fn one_answer_heard(answer: &'static str) -> (u16, std::thread::JoinHandle<String>) {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
         let port = listener.local_addr().expect("the bound port").port();
         let serving = std::thread::spawn(move || {
-            let Ok((mut stream, _from)) = listener.accept() else { return String::new() };
+            let Ok((mut stream, _from)) = listener.accept() else {
+                return String::new();
+            };
             let _read = stream.set_read_timeout(Some(PROMPTLY));
             let _written = stream.set_write_timeout(Some(PROMPTLY));
             let mut head: Vec<u8> = Vec::new();
@@ -7321,7 +7879,8 @@ mod tests {
                 "the request line for `{path}` was:\n{head}"
             );
             assert!(
-                head.to_ascii_lowercase().contains(&format!("host: 127.0.0.1:{port}\r\n")),
+                head.to_ascii_lowercase()
+                    .contains(&format!("host: 127.0.0.1:{port}\r\n")),
                 "the `host` field carries the authority the URL named, port and all:\n{head}"
             );
         }
@@ -7353,7 +7912,9 @@ mod tests {
             "an unclosed bracket is refused by name"
         );
         assert_eq!(
-            client::connect("ws://[::1]:not-a-port/socket").expect_err("a bad port").cause,
+            client::connect("ws://[::1]:not-a-port/socket")
+                .expect_err("a bad port")
+                .cause,
             ServeFail::Transport
         );
 
@@ -7364,7 +7925,9 @@ mod tests {
         };
         let port = listener.local_addr().expect("the bound port").port();
         let serving = std::thread::spawn(move || {
-            let Ok((mut stream, _from)) = listener.accept() else { return String::new() };
+            let Ok((mut stream, _from)) = listener.accept() else {
+                return String::new();
+            };
             let _read = stream.set_read_timeout(Some(PROMPTLY));
             let mut head: Vec<u8> = Vec::new();
             let mut chunk = [0u8; 512];
@@ -7389,7 +7952,8 @@ mod tests {
             refused.detail
         );
         assert!(
-            head.to_ascii_lowercase().contains(&format!("host: [::1]:{port}\r\n")),
+            head.to_ascii_lowercase()
+                .contains(&format!("host: [::1]:{port}\r\n")),
             "the `host` field keeps the brackets RFC 9110 §7.2 asks for:\n{head}"
         );
     }
@@ -7414,9 +7978,8 @@ mod tests {
         let plan = socket_plan(None);
         let (handle, port, _handlers) =
             bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
-        let dialling = std::thread::spawn(move || {
-            client::connect(&format!("ws://127.0.0.1:{port}/socket"))
-        });
+        let dialling =
+            std::thread::spawn(move || client::connect(&format!("ws://127.0.0.1:{port}/socket")));
         let _server = upgraded_socket(handle);
         let dialled = dialling
             .join()
@@ -7442,7 +8005,10 @@ mod tests {
             closed.code, OVERFLOWED,
             "an overflow is the platform's own reason and not a wire code"
         );
-        assert!(!sockets::is_open(dialled), "the dialled socket was not retired");
+        assert!(
+            !sockets::is_open(dialled),
+            "the dialled socket was not retired"
+        );
         close(handle);
     }
 
@@ -7455,13 +8021,13 @@ mod tests {
     /// end — and the row would pass while asserting nothing. This peer will
     /// write anything.
     #[cfg(feature = "net")]
-    fn one_unbounded_peer(
-        message: String,
-    ) -> (u16, std::thread::JoinHandle<()>) {
+    fn one_unbounded_peer(message: String) -> (u16, std::thread::JoinHandle<()>) {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
         let port = listener.local_addr().expect("the bound port").port();
         let serving = std::thread::spawn(move || {
-            let Ok((mut stream, _from)) = listener.accept() else { return };
+            let Ok((mut stream, _from)) = listener.accept() else {
+                return;
+            };
             let _read = stream.set_read_timeout(Some(PROMPTLY));
             let _written = stream.set_write_timeout(Some(PROMPTLY));
             let mut head: Vec<u8> = Vec::new();
@@ -7534,7 +8100,8 @@ mod tests {
             let got = dialled_within(dialled, SOCKET_DEADLINE).expect("an answer either way");
             if over {
                 assert_eq!(
-                    got.frame, 2,
+                    got.frame,
+                    2,
                     "a message past the ceiling was accepted: {} octets arrived",
                     got.text.len()
                 );
@@ -7542,7 +8109,10 @@ mod tests {
                     got.code, NO_CLOSE_FRAME,
                     "a peer that overran the ceiling ends the socket abnormally"
                 );
-                assert!(!sockets::is_open(dialled), "the dialled socket was not retired");
+                assert!(
+                    !sockets::is_open(dialled),
+                    "the dialled socket was not retired"
+                );
             } else {
                 assert_eq!(got.frame, 0, "a message *at* the ceiling is a message");
                 assert_eq!(got.text.len(), size, "and it crossed whole");
@@ -7582,7 +8152,9 @@ mod tests {
             .expect("the fixture certificate and the key that signed it");
         let (tls_port, listeners) = fixture::loopback();
         let serving = std::thread::spawn(move || {
-            let Some(sock) = fixture::accept_within(&listeners, PROMPTLY) else { return };
+            let Some(sock) = fixture::accept_within(&listeners, PROMPTLY) else {
+                return;
+            };
             let _read = sock.set_read_timeout(Some(PROMPTLY));
             let _written = sock.set_write_timeout(Some(PROMPTLY));
             let Ok(conn) = rustls::ServerConnection::new(std::sync::Arc::new(config)) else {
@@ -7619,7 +8191,9 @@ mod tests {
         // certificate here to check anyway.
         let plain = TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
         let plain_port = plain.local_addr().expect("the bound port").port();
-        plain.set_nonblocking(true).expect("a listener that can give up");
+        plain
+            .set_nonblocking(true)
+            .expect("a listener that can give up");
         let hanging_up = std::thread::spawn(move || {
             let until = Instant::now() + PROMPTLY;
             while Instant::now() < until {

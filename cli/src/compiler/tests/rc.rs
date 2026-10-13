@@ -36,7 +36,12 @@ pub(crate) fn compile(src: &str) -> Program {
     assert!(errors.is_empty(), "the snippet did not compile: {errors:?}");
     let entry = analysis.checked.entry.expect("the snippet exports `main`");
     let mut diags = Diagnostics::new();
-    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let paths: Vec<String> = analysis
+        .loaded
+        .modules
+        .iter()
+        .map(|m| m.path.clone())
+        .collect();
     // Deliberately *not* through `middle::run`: the inliner pastes a
     // one-call function into its caller and dead-code elimination then
     // takes the original away, so a test about a two-line function would
@@ -44,7 +49,12 @@ pub(crate) fn compile(src: &str) -> Program {
     // the tree, and the tree is the same shape either way — the balance
     // tests below run over every function of the standard library that the
     // snippet reaches, which is where the interesting shapes come from.
-    monomorphize::run(&analysis.checked, paths, &mut diags, monomorphize::Roots::Main(entry))
+    monomorphize::run(
+        &analysis.checked,
+        paths,
+        &mut diags,
+        monomorphize::Roots::Main(entry),
+    )
 }
 
 pub(crate) fn find(program: &Program, name: &str) -> FuncIdx {
@@ -107,7 +117,10 @@ export fn main(host: NodeHost): Result<(), Str> {
 }
 "#,
     );
-    assert!(run(&program).crosses_tasks, "a program that fans out was not marked");
+    assert!(
+        run(&program).crosses_tasks,
+        "a program that fans out was not marked"
+    );
 }
 
 /// The key list is a **prefix**, and that is the direction an omission has
@@ -144,7 +157,10 @@ fn every_task_host_key_crosses_and_nothing_else_does() {
         "host.HostStdout.println",
         "host_testing.TestTasks.parallel",
     ] {
-        assert!(!crosses_tasks(key), "{key} put its program on atomic counting");
+        assert!(
+            !crosses_tasks(key),
+            "{key} put its program on atomic counting"
+        );
     }
     assert!(
         crate::compiler::backend::js::park::suspends("host.HostTasks.parallel")
@@ -215,7 +231,9 @@ impl State {
 
 impl Balance<'_> {
     fn counted_local(&mut self, l: LocalId) -> bool {
-        let Some(local) = self.func.locals.get(l.index()) else { return false };
+        let Some(local) = self.func.locals.get(l.index()) else {
+            return false;
+        };
         let ty = local.ty;
         matches!(self.counted.counted(&ty), Answer::Yes)
     }
@@ -311,8 +329,7 @@ impl Balance<'_> {
                                 self.walk(value, sid, Mode::Borrow, st);
                                 self.suppress = held;
                                 let ty = value.ty;
-                                if fresh(value)
-                                    && matches!(self.counted.counted(&ty), Answer::Yes)
+                                if fresh(value) && matches!(self.counted.counted(&ty), Answer::Yes)
                                 {
                                     st.bump_temp(sid, 1);
                                 }
@@ -367,14 +384,15 @@ impl Balance<'_> {
                 // The same promotion the scan makes for a compound scrutinee.
                 let promoted = !consumed
                     && compound(scrutinee)
-                    && matches!(
-                        self.counted.counted(&scrutinee.ty.clone()),
-                        Answer::Yes
-                    );
+                    && matches!(self.counted.counted(&scrutinee.ty.clone()), Answer::Yes);
                 self.walk(
                     scrutinee,
                     sid,
-                    if consumed || promoted { Mode::Own } else { Mode::Borrow },
+                    if consumed || promoted {
+                        Mode::Own
+                    } else {
+                        Mode::Borrow
+                    },
                     st,
                 );
                 if promoted {
@@ -447,8 +465,7 @@ impl Balance<'_> {
                 // which are this function's parameters.
                 if func.is_none() {
                     for (k, p) in self.func.params.iter().enumerate() {
-                        if row.get(k).copied() == Some(ir::Ownership::Own)
-                            && self.counted_local(*p)
+                        if row.get(k).copied() == Some(ir::Ownership::Own) && self.counted_local(*p)
                         {
                             st.bump(*p, 1);
                         }
@@ -462,7 +479,11 @@ impl Balance<'_> {
                 // started in, or the next iteration starts richer or
                 // poorer than this one did and the difference is a leak or
                 // a double free per iteration.
-                let want = if func.is_none() { self.header.clone() } else { State::default() };
+                let want = if func.is_none() {
+                    self.header.clone()
+                } else {
+                    State::default()
+                };
                 let mut want = want;
                 want.normalize();
                 if end.locals != want.locals || end.temps != want.temps {
@@ -485,10 +506,7 @@ impl Balance<'_> {
                 for (k, kid) in kids.iter().enumerate() {
                     let kid_id = self.child(id, k);
                     let m = modes.get(k).copied().unwrap_or(Mode::Borrow);
-                    let counted = matches!(
-                        self.counted.counted(&kid.ty.clone()),
-                        Answer::Yes
-                    );
+                    let counted = matches!(self.counted.counted(&kid.ty.clone()), Answer::Yes);
                     // The same promotion `Scan::children` makes: a counted
                     // compound child is owned, and its value is a
                     // temporary the sites drop.
@@ -521,7 +539,8 @@ impl Balance<'_> {
         }
         for (_, v) in &st.locals {
             if *v < 0 {
-                self.errors.push(format!("a count went negative in {}", self.func.debug_name));
+                self.errors
+                    .push(format!("a count went negative in {}", self.func.debug_name));
                 break;
             }
         }
@@ -530,11 +549,12 @@ impl Balance<'_> {
     /// Whether the plan says the match consumed its scrutinee: a `DecRef`
     /// of the scrutinee's local at an arm entry.
     fn consumes_scrutinee(&self, scrutinee: &Expr) -> bool {
-        let ExprKind::Local(l) = &scrutinee.kind else { return false };
-        self.plan
-            .sites
-            .iter()
-            .any(|s| s.op == RcOp::DecRef && s.target == Target::Local(*l) && s.at == Position::Before)
+        let ExprKind::Local(l) = &scrutinee.kind else {
+            return false;
+        };
+        self.plan.sites.iter().any(|s| {
+            s.op == RcOp::DecRef && s.target == Target::Local(*l) && s.at == Position::Before
+        })
     }
 }
 
@@ -542,12 +562,13 @@ impl Balance<'_> {
 fn check_balance(program: &Program) -> Vec<String> {
     let mut counted = Syntactic::new(program);
     let plan = analyze(program, &mut counted, &Options::default());
-    let own: Vec<Vec<ir::Ownership>> =
-        plan.funcs.iter().map(|f| f.params.clone()).collect();
+    let own: Vec<Vec<ir::Ownership>> = plan.funcs.iter().map(|f| f.params.clone()).collect();
     let mut errors = Vec::new();
     for (i, f) in program.funcs.iter().enumerate() {
         let Some(body) = f.body() else { continue };
-        let Some(fp) = plan.funcs.get(i) else { continue };
+        let Some(fp) = plan.funcs.get(i) else {
+            continue;
+        };
         let mut sizes = Vec::new();
         subtree_sizes(body, &mut sizes);
         let mut b = Balance {
@@ -578,7 +599,8 @@ fn check_balance(program: &Program) -> Vec<String> {
             continue;
         }
         if !st.locals.is_empty() || !st.temps.is_empty() {
-            b.errors.push(format!("{} ends holding {st:?}", f.debug_name));
+            b.errors
+                .push(format!("{} ends holding {st:?}", f.debug_name));
         }
         errors.extend(b.errors);
     }
@@ -709,13 +731,22 @@ fn preorder_agrees_across_a_loop() {
             loops += 1;
         }
         let mut by_walk: Vec<String> = Vec::new();
-        typed::walk(body, &mut |e| by_walk.push(format!("{:?}", std::ptr::from_ref(e))));
+        typed::walk(body, &mut |e| {
+            by_walk.push(format!("{:?}", std::ptr::from_ref(e)))
+        });
         let mut by_preorder: Vec<String> = Vec::new();
-        preorder(body, &mut |_, e| by_preorder.push(format!("{:?}", std::ptr::from_ref(e))));
+        preorder(body, &mut |_, e| {
+            by_preorder.push(format!("{:?}", std::ptr::from_ref(e)))
+        });
         assert_eq!(by_walk, by_preorder, "{} numbers differently", f.debug_name);
         let mut sizes = Vec::new();
         let total = subtree_sizes(body, &mut sizes);
-        assert_eq!(total as usize, by_walk.len(), "{} sizes short", f.debug_name);
+        assert_eq!(
+            total as usize,
+            by_walk.len(),
+            "{} sizes short",
+            f.debug_name
+        );
     }
     assert!(loops > 0, "the snippet has a tail-recursive function");
 }
@@ -769,7 +800,9 @@ fn a_jump_owns_what_it_did_not_pass_through() {
     subtree_sizes(body, &mut sizes);
     let mut carried: Vec<NodeId> = Vec::new();
     preorder(body, &mut |id, e| {
-        let ExprKind::Continue { args, .. } = &e.kind else { return };
+        let ExprKind::Continue { args, .. } = &e.kind else {
+            return;
+        };
         let mut cur = id.0 + 1;
         for _ in 0..args.len() {
             carried.push(NodeId(cur));
@@ -811,7 +844,11 @@ fn a_loop_drops_what_it_does_not_carry_before_the_back_edge() {
         .iter()
         .filter_map(|s| match s.target {
             Target::Local(l) | Target::LocalExcept(l, _) => func.locals.get(l.index()).map(|x| {
-                format!("{} {}", if s.op == RcOp::IncRef { "inc" } else { "dec" }, x.name)
+                format!(
+                    "{} {}",
+                    if s.op == RcOp::IncRef { "inc" } else { "dec" },
+                    x.name
+                )
             }),
             Target::Node(_) => None,
         })
@@ -894,7 +931,12 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// the bug through it.
 #[test]
 fn every_increment_at_a_key_runs_before_every_decrement() {
-    let site = |op, target| Site { node: NodeId(148), at: Position::After, op, target };
+    let site = |op, target| Site {
+        node: NodeId(148),
+        at: Position::After,
+        op,
+        target,
+    };
     let mut sites = vec![
         site(RcOp::DecRef, Target::Local(LocalId(65))),
         site(RcOp::IncRef, Target::Node(NodeId(148))),
@@ -1097,7 +1139,9 @@ export fn main(host: NodeHost): Result<(), Str> {
         .iter()
         .filter(|s| s.op == RcOp::IncRef)
         .filter_map(|s| match s.target {
-            Target::Local(l) | Target::LocalExcept(l, _) => func.locals.get(l.index()).map(|x| x.name.to_string()),
+            Target::Local(l) | Target::LocalExcept(l, _) => {
+                func.locals.get(l.index()).map(|x| x.name.to_string())
+            }
             Target::Node(_) => None,
         })
         .collect();
@@ -1188,7 +1232,9 @@ fn preorder_matches_typed_walk() {
     for f in &program.funcs {
         let Some(body) = f.body() else { continue };
         let mut by_walk: Vec<String> = Vec::new();
-        typed::walk(body, &mut |e| by_walk.push(format!("{:?}", std::ptr::from_ref(e))));
+        typed::walk(body, &mut |e| {
+            by_walk.push(format!("{:?}", std::ptr::from_ref(e)))
+        });
         let mut by_preorder: Vec<String> = Vec::new();
         let mut ids: Vec<u32> = Vec::new();
         preorder(body, &mut |id, e| {
@@ -1211,9 +1257,21 @@ fn a_parameter_is_borrowed_unless_the_body_takes_it() {
     let program = compile(PROGRAM);
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
-    let borrowed = plan.func(find(&program, "size")).expect("a plan").params.clone();
-    assert_eq!(borrowed, vec![ir::Ownership::Borrow], "reading a field borrows");
-    let owned = plan.func(find(&program, "wrap")).expect("a plan").params.clone();
+    let borrowed = plan
+        .func(find(&program, "size"))
+        .expect("a plan")
+        .params
+        .clone();
+    assert_eq!(
+        borrowed,
+        vec![ir::Ownership::Borrow],
+        "reading a field borrows"
+    );
+    let owned = plan
+        .func(find(&program, "wrap"))
+        .expect("a plan")
+        .params
+        .clone();
     assert_eq!(owned, vec![ir::Ownership::Own], "storing takes the count");
 }
 
@@ -1275,12 +1333,20 @@ export fn main(host: NodeHost): Result<(), Str> {
         .iter()
         .filter(|s| s.op == RcOp::IncRef)
         .filter_map(|s| match s.target {
-            Target::Local(l) | Target::LocalExcept(l, _) => func.locals.get(l.index()).map(|x| x.name.as_str()),
+            Target::Local(l) | Target::LocalExcept(l, _) => {
+                func.locals.get(l.index()).map(|x| x.name.as_str())
+            }
             Target::Node(_) => None,
         })
         .collect();
-    assert!(marked.contains(&"xs"), "the capture was spent by the closure: {marked:?}");
-    assert!(!marked.contains(&"acc"), "the fold's accumulator stopped writing through");
+    assert!(
+        marked.contains(&"xs"),
+        "the capture was spent by the closure: {marked:?}"
+    );
+    assert!(
+        !marked.contains(&"acc"),
+        "the fold's accumulator stopped writing through"
+    );
 }
 
 /// The whole program's counts balance, on every path.
@@ -1321,7 +1387,9 @@ fn a_chain_of_short_circuits_is_scanned_once_per_operand() {
     for i in (0..LINKS - 1).rev() {
         chain = format!("((a{i} == b{i}) && {chain})");
     }
-    let params: Vec<String> = (0..LINKS).map(|i| format!("a{i}: Str, b{i}: Str")).collect();
+    let params: Vec<String> = (0..LINKS)
+        .map(|i| format!("a{i}: Str, b{i}: Str"))
+        .collect();
     let args: Vec<String> = (0..LINKS).map(|i| format!("\"x{i}\", \"x{i}\"")).collect();
     let src = format!(
         r#"
@@ -1412,7 +1480,11 @@ fn named_sites(program: &Program, i: FuncIdx, fp: &FuncPlan) -> Vec<String> {
                 Target::Node(n) => format!("n{}", n.0),
             };
             let op = if s.op == RcOp::IncRef { "inc" } else { "dec" };
-            let at = if s.at == Position::Before { "before" } else { "after" };
+            let at = if s.at == Position::Before {
+                "before"
+            } else {
+                "after"
+            };
             format!("{op} {what} {at} n{}", s.node.0)
         })
         .collect()
@@ -1651,7 +1723,6 @@ Row { name: "b", tags: [] },
     assert_eq!(check_balance(&program), Vec::<String>::new());
 }
 
-
 /// A match that consumes its scrutinee pairs the dying value with the
 /// construction in the arm — MEMORY.md §5.3's reuse, in its analysis form.
 #[test]
@@ -1682,15 +1753,28 @@ export fn main(host: NodeHost): Result<(), Str> {
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
     let swap = plan.func(find(&program, "swap")).expect("a plan");
-    assert_eq!(swap.params, vec![ir::Ownership::Own], "the match consumes it");
+    assert_eq!(
+        swap.params,
+        vec![ir::Ownership::Own],
+        "the match consumes it"
+    );
     assert_eq!(swap.reuse.len(), 2, "one per arm: {:?}", swap.reuse);
     assert!(swap.reuse.iter().any(|r| r.fields == 2), "{:?}", swap.reuse);
     // The pairing is beside the drop, not in place of it: each paired value
     // is still released where the arm takes it.
     for r in &swap.reuse {
         let target = Target::Local(r.token);
-        let drop = Site { node: r.at, at: Position::Before, op: RcOp::DecRef, target };
-        assert!(swap.sites.contains(&drop), "{r:?} has no drop in {:?}", swap.sites);
+        let drop = Site {
+            node: r.at,
+            at: Position::Before,
+            op: RcOp::DecRef,
+            target,
+        };
+        assert!(
+            swap.sites.contains(&drop),
+            "{r:?} has no drop in {:?}",
+            swap.sites
+        );
     }
 }
 
@@ -1854,7 +1938,10 @@ export fn main(host: NodeHost): Result<(), Str> {
         Some(ir::Purity::Effectful),
         "printing is not pure"
     );
-    assert_eq!(plan.func(find(&program, "double")).map(|f| f.can_abort), Some(false));
+    assert_eq!(
+        plan.func(find(&program, "double")).map(|f| f.can_abort),
+        Some(false)
+    );
 }
 
 /// A type the classifier cannot answer for carries no operations and is named,
@@ -1906,10 +1993,24 @@ export fn main(host: NodeHost): Result<(), Str> {
 "#;
     let program = compile(SRC);
     let mut counted = Syntactic::new(&program);
-    let f = program.funcs.get(find(&program, "showFirst").index()).expect("a function");
-    let ctx_ty = f.locals.first().map(|l| l.ty).expect("the context parameter");
-    let opt_ty = f.locals.get(1).map(|l| l.ty).expect("the `Option<Str>` parameter");
-    assert!(matches!(ctx_ty.kind(), TyKind::Ctx(_)), "the first parameter is the context");
+    let f = program
+        .funcs
+        .get(find(&program, "showFirst").index())
+        .expect("a function");
+    let ctx_ty = f
+        .locals
+        .first()
+        .map(|l| l.ty)
+        .expect("the context parameter");
+    let opt_ty = f
+        .locals
+        .get(1)
+        .map(|l| l.ty)
+        .expect("the `Option<Str>` parameter");
+    assert!(
+        matches!(ctx_ty.kind(), TyKind::Ctx(_)),
+        "the first parameter is the context"
+    );
     // `host.alloc` and `host.stdout` are zero-sized markers, so the answer
     // here is `No` — which is the point: the defect was `Unknown`, which
     // means "no operations at all" for a type that may well hold a
@@ -1920,7 +2021,11 @@ export fn main(host: NodeHost): Result<(), Str> {
     // And nothing in the whole program is left unanswered, which is the
     // property the leak was a symptom of rather than one function's plan.
     let plan = analyze(&program, &mut Syntactic::new(&program), &Options::default());
-    let unanswered: Vec<&Ty> = plan.funcs.iter().flat_map(|f| f.unclassified.iter()).collect();
+    let unanswered: Vec<&Ty> = plan
+        .funcs
+        .iter()
+        .flat_map(|f| f.unclassified.iter())
+        .collect();
     assert_eq!(unanswered, Vec::<&Ty>::new());
 }
 
@@ -2120,11 +2225,17 @@ export fn main(host: NodeHost): Result<(), Str> {
 #[test]
 fn the_tree_is_unchanged() {
     let program = compile(PROGRAM);
-    let before: Vec<String> =
-        program.funcs.iter().map(|f| format!("{:?}", f.body())).collect();
+    let before: Vec<String> = program
+        .funcs
+        .iter()
+        .map(|f| format!("{:?}", f.body()))
+        .collect();
     let plan = run(&program);
-    let after: Vec<String> =
-        program.funcs.iter().map(|f| format!("{:?}", f.body())).collect();
+    let after: Vec<String> = program
+        .funcs
+        .iter()
+        .map(|f| format!("{:?}", f.body()))
+        .collect();
     assert_eq!(before, after);
     assert_eq!(plan.funcs.len(), program.funcs.len());
 }

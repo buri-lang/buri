@@ -48,7 +48,10 @@ fn vectors() -> Vec<Vector> {
         let [verdict, name, request, response] = parts[..] else {
             panic!("malformed vector: {line}");
         };
-        assert!(verdict == "pass" || verdict == "fail", "malformed verdict: {line}");
+        assert!(
+            verdict == "pass" || verdict == "fail",
+            "malformed verdict: {line}"
+        );
         out.push(Vector {
             fails: verdict == "fail",
             name: name.to_string(),
@@ -103,7 +106,10 @@ fn unframe(mut b: &[u8]) -> Vec<Vec<u8>> {
 /// protocol has rather than a shortcut this test takes.
 #[test]
 fn the_recorded_exchanges_still_hold() {
-    replay(&Scratch::copy_of("proto-vectors", &proto_dir().join("repo")));
+    replay(&Scratch::copy_of(
+        "proto-vectors",
+        &proto_dir().join("repo"),
+    ));
 }
 
 /// The same exchanges, after `buri format` has laid out both vendored schemas:
@@ -114,7 +120,11 @@ fn formatting_the_schemas_changes_no_answer() {
     let schema = "lib/conformance/test_messages_proto3.proto";
     let before = scratch.read(schema);
     scratch.run(&["format"]).ok();
-    assert_ne!(scratch.read(schema), before, "formatting left {schema} as it was");
+    assert_ne!(
+        scratch.read(schema),
+        before,
+        "formatting left {schema} as it was"
+    );
     // A fixed point: a second run finds nothing to change.
     scratch.run(&["format", "--check"]).ok();
     replay(&scratch);
@@ -145,7 +155,12 @@ fn replay(scratch: &Scratch) {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap_or_else(|e| panic!("cannot start `{runtime}`: {e}"));
-    child.stdin.take().unwrap().write_all(&stdin).expect("writing the requests");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&stdin)
+        .expect("writing the requests");
     let out = child.wait_with_output().expect("the testee did not finish");
     let got = unframe(&out.stdout);
 
@@ -164,7 +179,11 @@ fn replay(scratch: &Scratch) {
             wrong.push(format!(
                 "{} ({}):\n    request:  {}\n    recorded: {}\n    now:      {}",
                 v.name,
-                if v.fails { "listed as failing" } else { "passed the runner" },
+                if v.fails {
+                    "listed as failing"
+                } else {
+                    "passed the runner"
+                },
                 hex(&v.request),
                 hex(&v.response),
                 hex(have)
@@ -202,7 +221,11 @@ fn the_conformance_runner_passes() {
     let scratch = Scratch::copy_of("proto-runner", &proto_dir().join("repo"));
     scratch.run(&["build", "//cmd/testee"]).ok();
     let artifact = scratch.path(".buri/out/node/cmd/testee/testee.mjs");
-    assert!(artifact.is_file(), "the testee did not build: {}", artifact.display());
+    assert!(
+        artifact.is_file(),
+        "the testee did not build: {}",
+        artifact.display()
+    );
     // The runner `execv`s the program it is given, which searches no `PATH`, so
     // the JavaScript runtime goes to it by absolute path and the artifact as its
     // argument.
@@ -265,8 +288,11 @@ fn on_path(name: &str) -> PathBuf {
 /// the list.
 #[test]
 fn the_failure_list_is_the_recorded_failures() {
-    let recorded: std::collections::BTreeSet<String> =
-        vectors().into_iter().filter(|v| v.fails).map(|v| v.name).collect();
+    let recorded: std::collections::BTreeSet<String> = vectors()
+        .into_iter()
+        .filter(|v| v.fails)
+        .map(|v| v.name)
+        .collect();
     let listed: std::collections::BTreeSet<String> = listed().into_iter().collect();
     let unrecorded: Vec<_> = listed.difference(&recorded).collect();
     let unlisted: Vec<_> = recorded.difference(&listed).collect();
@@ -285,8 +311,11 @@ fn the_failure_list_is_the_recorded_failures() {
 /// of them: a recording narrowed by accident would pass every other test here.
 #[test]
 fn the_recording_covers_every_fixed_class_of_bug() {
-    let names: std::collections::BTreeSet<String> =
-        vectors().into_iter().filter(|v| !v.fails).map(|v| v.name).collect();
+    let names: std::collections::BTreeSet<String> = vectors()
+        .into_iter()
+        .filter(|v| !v.fails)
+        .map(|v| v.name)
+        .collect();
     let wanted = [
         // NaN and the infinities, as strings.
         "Required.Proto3.JsonInput.DoubleFieldNan.JsonOutput",
@@ -336,7 +365,10 @@ fn the_recording_covers_every_fixed_class_of_bug() {
         "Recommended.Proto3.ValueRejectNanNumberValue.JsonOutput",
     ];
     let missing: Vec<_> = wanted.iter().filter(|w| !names.contains(**w)).collect();
-    assert!(missing.is_empty(), "vectors.txt does not record these passing: {missing:?}");
+    assert!(
+        missing.is_empty(),
+        "vectors.txt does not record these passing: {missing:?}"
+    );
 }
 
 fn hex(b: &[u8]) -> String {
@@ -355,7 +387,11 @@ fn the_framing_is_four_little_endian_bytes_and_a_body() {
     frame(&vec![7u8; 300], &mut buf);
     assert_eq!(&buf[..4], &[0, 0, 0, 0]);
     assert_eq!(&buf[4..8], &[3, 0, 0, 0]);
-    assert_eq!(&buf[11..15], &[44, 1, 0, 0], "300 is 0x012c, low byte first");
+    assert_eq!(
+        &buf[11..15],
+        &[44, 1, 0, 0],
+        "300 is 0x012c, low byte first"
+    );
     let frames = unframe(&buf);
     assert_eq!(frames.len(), 3);
     assert_eq!(frames[0].len(), 0);

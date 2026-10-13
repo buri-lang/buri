@@ -151,7 +151,12 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
                     String::from_utf8_lossy(rest.get(..end).unwrap_or_default()).into_owned();
                 // N_TYPE mask 0x0e; N_SECT == 0x0e means "defined in a section".
                 let defined = n_type & 0x0e == 0x0e;
-                syms.push(Sym { name, sect: n_sect, value, defined });
+                syms.push(Sym {
+                    name,
+                    sect: n_sect,
+                    value,
+                    defined,
+                });
             }
         }
         off += cmdsize;
@@ -162,7 +167,12 @@ pub fn read(bytes: &[u8]) -> Result<Obj, String> {
             return Err(format!("symbol {} is defined outside __text", s.name));
         }
     }
-    Ok(Obj { text, text_relocs, syms, other_sections })
+    Ok(Obj {
+        text,
+        text_relocs,
+        syms,
+        other_sections,
+    })
 }
 
 /// The functions in `__text`, as `(name, start, end)` in section order.

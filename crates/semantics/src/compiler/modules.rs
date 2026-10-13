@@ -37,7 +37,10 @@ impl Role {
 
     /// Where a context may be built (SPEC 11.3).
     pub fn may_build_context(self) -> bool {
-        matches!(self, Role::Entry | Role::TestSource | Role::TestOnly | Role::Platform)
+        matches!(
+            self,
+            Role::Entry | Role::TestSource | Role::TestOnly | Role::Platform
+        )
     }
 }
 
