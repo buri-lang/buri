@@ -25,7 +25,9 @@ use crate::compiler::backend::Profile;
 use crate::compiler::middle::monomorphize::{self, Desc, FuncKind, Program, ProgramRoots};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp};
-use crate::compiler::semantics::types::{LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind};
+use crate::compiler::semantics::types::{
+    field_types, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind,
+};
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
 use std::sync::OnceLock;
@@ -2519,37 +2521,57 @@ impl<'a> Gen<'a> {
                 //
                 // `..base` is evaluated first and once, whether or not any
                 // field survives it, because the source says so.
+                //
+                // A field carried over is a field read out of the base, and a
+                // second reference to it if the base is still held: it is
+                // marked as such (`$fromShared`), or a push onto the copy's
+                // list wrote through the original's. A number or a string
+                // holds nothing a push writes.
                 let b = self.expr(base, out);
                 let arity = self.tables.tycon(*con).fields().len();
+                let carried: Vec<bool> = field_types(self.tables, &e.ty)
+                    .iter()
+                    .map(|ty| self.tables.as_prim(ty).is_none())
+                    .collect();
+                let carries = |i: usize| {
+                    carried.get(i).copied().unwrap_or(true) && !updates.iter().any(|(j, _)| *j == i)
+                };
                 let name = self.fresh();
-
-                // Past a certain width, naming every field costs more than a
-                // bulk copy does, in output and in work — so a wide struct is
-                // still copied and patched.
-                if arity > MAX_SPELLED_UPDATE {
-                    out.push(Stmt::Var {
-                        kind: VarKind::Const,
-                        name: name.clone(),
-                        init: Some(Expr::call(Expr::member(b, "slice"), vec![])),
-                    });
-                    for (i, v) in updates {
-                        let value = self.expr(v, out);
-                        out.push(Stmt::Expr(Expr::Assign {
-                            target: Box::new(Expr::index(
-                                Expr::ident(name.clone()),
-                                Expr::Num(*i as f64),
-                            )),
-                            value: Box::new(value),
-                        }));
-                    }
-                    return Expr::ident(name);
-                }
-
                 out.push(Stmt::Var {
                     kind: VarKind::Const,
                     name: name.clone(),
                     init: Some(b),
                 });
+                let read_base = || Expr::ident(name.clone());
+                let read = |i: usize| Expr::index(read_base(), Expr::Num(i as f64));
+                let shared =
+                    |i: usize| Expr::call(Expr::ident("$fromShared"), vec![read_base(), read(i)]);
+
+                // Past a certain width, naming every field costs more than a
+                // bulk copy does, in output and in work — so a wide struct is
+                // still copied and patched.
+                if arity > MAX_SPELLED_UPDATE {
+                    for i in (0..arity).filter(|i| carries(*i)) {
+                        out.push(Stmt::Expr(shared(i)));
+                    }
+                    let copy = self.fresh();
+                    out.push(Stmt::Var {
+                        kind: VarKind::Const,
+                        name: copy.clone(),
+                        init: Some(Expr::call(Expr::member(read_base(), "slice"), vec![])),
+                    });
+                    for (i, v) in updates {
+                        let value = self.expr(v, out);
+                        out.push(Stmt::Expr(Expr::Assign {
+                            target: Box::new(Expr::index(
+                                Expr::ident(copy.clone()),
+                                Expr::Num(*i as f64),
+                            )),
+                            value: Box::new(value),
+                        }));
+                    }
+                    return Expr::ident(copy);
+                }
 
                 // Left to right over the fields, so a replacement expression
                 // runs in field order rather than in the order it was written
@@ -2562,9 +2584,8 @@ impl<'a> Gen<'a> {
                             let value = self.expr(v, out);
                             fields.push(value);
                         }
-                        None => {
-                            fields.push(Expr::index(Expr::ident(name.clone()), Expr::Num(i as f64)))
-                        }
+                        None if carries(i) => fields.push(shared(i)),
+                        None => fields.push(read(i)),
                     }
                 }
                 Expr::Array(fields)
