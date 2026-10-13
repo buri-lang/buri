@@ -1,0 +1,28 @@
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/style" import { Style };
+
+/// What a box is given.
+export struct BoxProps<C> {
+    export children: [Node<C>],
+    export styles: Option<[Style]>,
+}
+
+/// A box with a blue ground and whatever styles it is handed.
+export fn box<C>(props: BoxProps<C>): Node<C> {
+    ui.stack({
+        styles: [
+            .Background(.Rgb(200, 200, 255)),
+            .Group(props.styles.withDefault([])),
+        ],
+        children: props.children,
+    })
+}
+
+/// A box handed its styles directly.
+export fn plain<C>(children: [Node<C>], styles: [Style]): Node<C> {
+    ui.stack({
+        styles: [.Background(.Rgb(200, 200, 255)), .Group(styles)],
+        children: children,
+    })
+}

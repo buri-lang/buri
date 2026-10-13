@@ -1,0 +1,27 @@
+# A style a node is handed through a field of a struct, where the struct is
+# built in a module other than the one that gives the node its styles
+# (buri-lang/buri#306).
+#
+# **The claim is that the style reaches the node.** `BoxProps<C>` is generic,
+# so the compiler used to pass each call's struct on to wherever the call's
+# result went, as it does for a generic helper such as `xs.get(1)`. But `box`
+# gives its parameter to a node itself, so what the struct holds never reached
+# the names `classify` looks a style up by. The node then wrote the style as
+# an inline variable that no rule in the sheet reads, and rendered as if it had
+# never been given it.
+#
+# Three ways in, so none of them regresses: the struct built in another module,
+# the struct built in the module that gives the node its styles, and the same
+# list handed straight to a `[Style]` parameter. Each block asserts the markup
+# the node renders and the rule the stylesheet holds for it.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a style a node is handed through a struct field, built in this module or another, is its class in the markup and its rule in the sheet"
+
+run {
+  args: ["test", "//lib/panel", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
