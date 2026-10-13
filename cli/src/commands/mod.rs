@@ -891,10 +891,6 @@ mod tests {
             text.contains("buri docs cli add"),
             "the list does not say where the page is"
         );
-        assert!(
-            subcommand_usage("nonesuch").is_empty(),
-            "a command that is not there has no list"
-        );
     }
 
     /// Both ways of asking for a subcommand that is not there: none named, and
