@@ -7,7 +7,7 @@ core/actor                       195/395   49.4%      31/215   14.4%       230/4
 core/alloc                           2/3   66.7%         1/2   50.0%           3/4   75.0%
 core/bigint                        78/92   84.8%       61/75   81.3%       158/172   91.9%
 core/bool                            2/6   33.3%         2/6   33.3%          5/12   41.7%
-core/buri/ast                    782/928   84.3%     391/529   73.9%     1373/1531   89.7%
+core/buri/ast                    903/923   97.8%     502/522   96.2%     1501/1521   98.7%
 core/bytes                        99/133   74.4%      71/105   67.6%       202/239   84.5%
 core/character                     20/22   90.9%       10/12   83.3%         36/38   94.7%
 core/cli                         121/132   91.7%       52/63   82.5%       126/137   92.0%
@@ -23,8 +23,8 @@ core/heap                          45/52   86.5%       25/32   78.1%         57/
 core/indexset                     79/155   51.0%      73/148   49.3%       207/298   69.5%
 core/io                              4/5   80.0%         2/3   66.7%           5/6   83.3%
 core/json                        184/232   79.3%      83/124   66.9%       265/313   84.7%
-core/list                        229/273   83.9%     121/156   77.6%       286/330   86.7%
-core/map                         302/667   45.3%     127/430   29.5%       437/906   48.2%
+core/list                        240/284   84.5%     128/163   78.5%       300/344   87.2%
+core/map                         321/696   46.1%     139/450   30.9%       464/948   48.9%
 core/math                          42/43   97.7%       36/37   97.3%         81/82   98.8%
 core/net/http                     63/128   49.2%       24/27   88.9%        82/147   55.8%
 core/net/server                  115/229   50.2%      32/116   27.6%       148/268   55.2%
@@ -32,9 +32,9 @@ core/net/tcp                         1/2   50.0%         0/1    0.0%           1
 core/net/url                     114/125   91.2%       65/76   85.5%       169/180   93.9%
 core/net/websocket                 12/23   52.2%         2/8   25.0%         13/24   54.2%
 core/number                        42/69   60.9%       39/65   60.0%       106/136   77.9%
-core/option                      406/683   59.4%     114/343   33.2%       409/686   59.6%
+core/option                      416/689   60.4%     120/346   34.7%       419/692   60.5%
 core/order                         28/40   70.0%       15/24   62.5%         38/52   73.1%
-core/orderedmap                 551/1314   41.9%     250/880   28.4%      811/1769   45.8%
+core/orderedmap                 674/1222   55.2%     350/806   43.4%      969/1621   59.8%
 core/orderedset                    14/18   77.8%       14/18   77.8%         32/36   88.9%
 core/path                         94/103   91.3%       61/70   87.1%       147/156   94.2%
 core/proto                       267/326   81.9%     155/208   74.5%       467/529   88.3%
@@ -57,7 +57,7 @@ core/testing/check                   3/5   60.0%         3/5   60.0%          8/
 core/time                          12/23   52.2%       11/22   50.0%         27/46   58.7%
 core/uuid                          14/19   73.7%       11/16   68.8%         31/36   86.1%
 std/codegen/proto                316/349   90.5%     179/208   86.1%       493/527   93.5%
-std/codegen/proto/schema         314/431   72.9%     164/254   64.6%       511/631   81.0%
+std/codegen/proto/schema         412/412  100.0%     243/243  100.0%       606/606  100.0%
 std/codegen/proto/wellknown         2/21    9.5%        1/20    5.0%         18/40   45.0%
 ui/node                          738/792   93.2%     214/253   84.6%       826/884   93.4%
 ui/prop                            13/15   86.7%         4/5   80.0%         13/15   86.7%
@@ -66,18 +66,16 @@ ui/style                             1/6   16.7%         0/1    0.0%           1
 ui/style/classify                184/226   81.4%       34/49   69.4%       188/230   81.7%
 ui/theme                           18/24   75.0%        7/10   70.0%         20/26   76.9%
 ui/web                               2/3   66.7%         1/2   50.0%           3/4   75.0%
-total                         6892/10057   68.5%   3258/5883   55.4%   10305/13852   74.4%
+total                          7274/9987   72.8%   3573/5821   61.4%   10737/13731   78.2%
 
 The 30 modules with the most unshown conditions:
 
  unshown          conditions  module
-     763    551/1314   41.9%  core/orderedmap
-     365     302/667   45.3%  core/map
-     277     406/683   59.4%  core/option
+     548    674/1222   55.2%  core/orderedmap
+     375     321/696   46.1%  core/map
+     273     416/689   60.4%  core/option
      257     331/588   56.3%  core/result
      200     195/395   49.4%  core/actor
-     146     782/928   84.3%  core/buri/ast
-     117     314/431   72.9%  std/codegen/proto/schema
      114     115/229   50.2%  core/net/server
       81      76/157   48.4%  core/crypto
       76      79/155   51.0%  core/indexset
@@ -86,7 +84,7 @@ The 30 modules with the most unshown conditions:
       54     738/792   93.2%  ui/node
       51       15/66   22.7%  core/tasks
       48     184/232   79.3%  core/json
-      44     229/273   83.9%  core/list
+      44     240/284   84.5%  core/list
       42     184/226   81.4%  ui/style/classify
       41       52/93   55.9%  core/simd
       39     160/199   80.4%  core/date
@@ -94,6 +92,7 @@ The 30 modules with the most unshown conditions:
       33     316/349   90.5%  std/codegen/proto
       27       42/69   60.9%  core/number
       27     239/266   89.8%  core/str
+      20     903/923   97.8%  core/buri/ast
       19        2/21    9.5%  std/codegen/proto/wellknown
       14       78/92   84.8%  core/bigint
       14      94/108   87.0%  core/compression
@@ -101,3 +100,4 @@ The 30 modules with the most unshown conditions:
       11     121/132   91.7%  core/cli
       11     114/125   91.2%  core/net/url
       11       12/23   52.2%  core/net/websocket
+      11       12/23   52.2%  core/random

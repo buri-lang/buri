@@ -1,13 +1,13 @@
 # The standard library's MC/DC conditions shown, per module: shown, total,
 # module. CI's stdlib-coverage job raises it on main; never edit a count
 # by hand. coverage/stdlib/src/main.rs has the rest.
-# total 6892 10057 (68.5%)
+# total 7274 9987 (72.8%)
 host x86_64-unknown-linux-gnu
 195 395 core/actor
 2 3 core/alloc
 78 92 core/bigint
 2 6 core/bool
-782 928 core/buri/ast
+903 923 core/buri/ast
 99 133 core/bytes
 20 22 core/character
 121 132 core/cli
@@ -23,8 +23,8 @@ host x86_64-unknown-linux-gnu
 79 155 core/indexset
 4 5 core/io
 184 232 core/json
-229 273 core/list
-302 667 core/map
+240 284 core/list
+321 696 core/map
 42 43 core/math
 63 128 core/net/http
 115 229 core/net/server
@@ -32,9 +32,9 @@ host x86_64-unknown-linux-gnu
 114 125 core/net/url
 12 23 core/net/websocket
 42 69 core/number
-406 683 core/option
+416 689 core/option
 28 40 core/order
-551 1314 core/orderedmap
+674 1222 core/orderedmap
 14 18 core/orderedset
 94 103 core/path
 267 326 core/proto
@@ -57,7 +57,7 @@ host x86_64-unknown-linux-gnu
 12 23 core/time
 14 19 core/uuid
 316 349 std/codegen/proto
-314 431 std/codegen/proto/schema
+412 412 std/codegen/proto/schema
 2 21 std/codegen/proto/wellknown
 738 792 ui/node
 13 15 ui/prop
