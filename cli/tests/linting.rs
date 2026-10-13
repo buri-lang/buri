@@ -168,7 +168,15 @@ const FLOOR: usize = 250;
 /// 600 (2.33%)**. Most of the new fixtures are packages that import each
 /// other, so they are not seeds, and the seed set shifts only by what the
 /// single-module fixtures gained.
-const INVENTED_CEILING: usize = 3;
+///
+/// A parse error that loses its place — an unclosed delimiter, a token the
+/// parser cannot use — now takes the findings that depend on what it broke
+/// with it: `oversized-function` on a body that ran on into the next one, and
+/// the `unused-*` findings whose evidence sat in the text up to the next
+/// declaration read whole. That moves it to **14 of 2,000 (0.70%) and 2 of 600
+/// (0.33%)**, and the ceiling to one: both round down to zero, and the point
+/// of headroom is what makes it a bound rather than a description.
+const INVENTED_CEILING: usize = 1;
 
 /// What share of the cases may lose a finding whose evidence survived.
 ///

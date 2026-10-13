@@ -15,11 +15,3 @@ error: expected `enum`, found `Tally` [unexpected-token]
    = expected: `enum`
    = actual: `Tally`
    = fix: write `enum` first: `enum Tally`
-warning: nothing uses `Tally` [unused-type]
-  --> lib/recovery_swap_adjacent_module_cents_281e0b/lib.buri:14:1
-   |
-14 | Tally enum {
-   | ^^^^^
-   |
-   = a type nothing names, builds or matches is a shape the program does not have
-   = fix: delete it, or use it — a type meant to be published belongs on the library's surface

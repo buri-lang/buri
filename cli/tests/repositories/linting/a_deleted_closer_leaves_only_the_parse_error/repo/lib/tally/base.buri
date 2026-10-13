@@ -1,0 +1,7 @@
+// What the other two files import, as `from "//lib/tally/base.buri" import { one };`.
+// Naming an import is what keeps the pair out of the seeds of the mutation
+// corpus in `cli/tests/linting.rs`, which lints single modules.
+
+export fn one(): I64 {
+    1
+}

@@ -1,0 +1,21 @@
+// The enum's `}` is deleted, so the parser loses its place at `apply`. The
+// types and the fields below were never wrong, and the report does not say so.
+
+from "//lib/tally/base.buri" import { one };
+
+struct Ledger {
+    entries: I64,
+}
+
+enum Step {
+    Up,
+    Down,
+}
+
+export fn apply(n: I64): I64 {
+    let ledger = Ledger { entries: n };
+    match (Step.Up) {
+        .Up => ledger.entries + one(),
+        .Down => ledger.entries - 1,
+    }
+}

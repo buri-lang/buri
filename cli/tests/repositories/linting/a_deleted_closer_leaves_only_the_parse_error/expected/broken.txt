@@ -1,0 +1,45 @@
+error: "//lib/tally/steps.buri" does not export `apply` [unknown-export]
+ --> lib/tally/lib.buri:3:40
+  |
+3 | from "//lib/tally/steps.buri" export { apply };
+  |                                        ^^^^^
+  |
+  = a re-export may name only what its module path exports
+  = fix: check the spelling, or drop `apply` from this list
+
+    A re-export names only what its module exports, so a library's surface is
+    never wider than the modules behind it. A namespace like fs stands for the
+    module its import named, and only that module's exports may follow the dot.
+    This covers types, bounds and impl heads too, such as list.Vector<Int> and
+    <T: order.Comparable>. If no import bound the namespace at all, the error is
+    unknown-name instead.
+
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/tally/long.buri:30:1
+   |
+30 | export fn second(n: I64): I64 {
+   | ^^^^^^
+   |
+ --> lib/tally/long.buri:6:30
+  |
+6 | export fn first(n: I64): I64 {
+  |                              ^ opened here
+  |
+  = fix: write `}` here
+
+    An unclosed construct claims the next closer it meets, and every error after
+    that would be about the miscount. Naming the opener stops that cascade.
+
+    Where an unclosed block ends is the parser's guess, so this is the only
+    error you get about it. The editor still completes and hovers the names
+    bound inside, but nothing else in it is reported until you close it.
+
+error: expected an identifier, found `fn` [unexpected-token]
+  --> lib/tally/steps.buri:14:8
+   |
+14 | export fn apply(n: I64): I64 {
+   |        ^^
+   |
+   = expected: an identifier
+   = actual: `fn`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

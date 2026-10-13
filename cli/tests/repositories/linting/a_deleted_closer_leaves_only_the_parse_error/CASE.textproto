@@ -1,0 +1,40 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a deleted closing brace: the parse error is the whole report, with no unused type, field or variable made of the mess it left"
+
+edit {
+  file: "lib/tally/steps.buri"
+  replace: "    Down,\n}\n"
+  with: "    Down,\n"
+}
+
+edit {
+  file: "lib/tally/long.buri"
+  replace: "    a21\n}\n\nexport fn second"
+  with: "    a21\n\nexport fn second"
+}
+
+run {
+  args: ["lint", "//lib/tally"]
+  exit: 1
+  golden: "broken.txt"
+}
+
+edit {
+  file: "lib/tally/steps.buri"
+  replace: "    Down,\n"
+  with: "    Down,\n}\n"
+}
+
+edit {
+  file: "lib/tally/long.buri"
+  replace: "    a21\n\nexport fn second"
+  with: "    a21\n}\n\nexport fn second"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

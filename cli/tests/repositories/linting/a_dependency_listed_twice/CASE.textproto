@@ -3,13 +3,26 @@
 #
 # The second lint answers from what the first one remembered, and the record
 # for `//lib/a` names `//lib/b`'s once however many times the build file does.
+# The finding is about the build file itself, so it is there on every run.
 
-doc: "a library that lists one dependency twice lints clean, and lints clean again from what the first run remembered"
+doc: "a library that lists one dependency twice is told so, on the first run and on the one that answers from what the first remembered; with one entry it lints clean"
 
 run {
   args: ["lint", "//..."]
-  exit: 0
-  golden: "clean.txt"
+  exit: 1
+  golden: "twice.txt"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "twice.txt"
+}
+
+edit {
+  file: "lib/a/BUILD.buri"
+  replace: "[\"//lib/b\", \"//lib/b\"]"
+  with: "[\"//lib/b\"]"
 }
 
 run {

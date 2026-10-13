@@ -1,0 +1,14 @@
+warning: //lib/a lists //lib/b more than once [redundant-dependency]
+ --> lib/a/BUILD.buri:5:31
+  |
+5 |     dependencies: ["//lib/b", "//lib/b"]
+  |                               ^^^^^^^^^
+  |
+  = fix: delete the entry from `dependencies`
+
+    An entry for the package itself, or for a dependency already listed, adds no
+    edge. It only makes the next reader wonder what it was for.
+
+    - dependencies: ["//lib/b", "//lib/b"] names //lib/b twice.
+    - In //lib/b, dependencies: ["//lib/b"] names the package to itself.
+
