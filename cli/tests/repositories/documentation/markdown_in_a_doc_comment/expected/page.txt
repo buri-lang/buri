@@ -7,7 +7,11 @@ It has run at version 2. 3 settings since spring. Nothing else changed.
 
 ####### Seven hashes is not a heading
 
-See the \] key (keys.md) and [the dial](dial.md that never closes.
+Escapes: 1 * 2 _ 3 \q, a code \* span, and a ] and \d key (keys.md).
+
+See the ] key (keys.md) and [the dial](dial.md that never closes.
+
+A lone backslash ends this paragraph \
 
   ```buri
   let quoted = 1;

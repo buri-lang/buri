@@ -734,6 +734,14 @@ fn inline(s: &str, color: bool) -> String {
     // being wrong about that is a panic in the middle of somebody's `///`
     // comment.
     while let Some(ch) = s.get(i..).and_then(|rest| rest.chars().next()) {
+        // A `\` before ASCII punctuation shows the punctuation alone.
+        if ch == '\\' {
+            if let Some(next) = escaped(s.get(i + 1..).unwrap_or("")) {
+                out.push(next);
+                i += 2;
+                continue;
+            }
+        }
         if ch == '`' {
             if let Some(end) = s.get(i + 1..).and_then(|rest| rest.find('`')) {
                 let _ = write!(
@@ -760,7 +768,7 @@ fn inline(s: &str, color: bool) -> String {
             if let Some(close) = find_balanced(b, i, b'[', b']') {
                 if b.get(close + 1) == Some(&b'(') {
                     if let Some(paren) = find_balanced(b, close + 1, b'(', b')') {
-                        let label = s.get(i + 1..close).unwrap_or("");
+                        let label = unescape(s.get(i + 1..close).unwrap_or(""));
                         let destination = s.get(close + 2..paren).unwrap_or("");
                         let _ = write!(out, "{label} {dim}({destination}){reset}");
                         i = paren + 1;
@@ -771,6 +779,28 @@ fn inline(s: &str, color: bool) -> String {
         }
         out.push(ch);
         i += ch.len_utf8();
+    }
+    out
+}
+
+/// The punctuation character a `\` escapes, given the text after the `\`.
+fn escaped(rest: &str) -> Option<char> {
+    rest.chars().next().filter(char::is_ascii_punctuation)
+}
+
+/// `s` with each `\` before ASCII punctuation dropped.
+fn unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.char_indices();
+    while let Some((i, c)) = chars.next() {
+        if c == '\\' {
+            if let Some(next) = escaped(s.get(i + 1..).unwrap_or("")) {
+                chars.next();
+                out.push(next);
+                continue;
+            }
+        }
+        out.push(c);
     }
     out
 }
