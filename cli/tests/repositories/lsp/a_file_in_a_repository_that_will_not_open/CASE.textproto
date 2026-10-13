@@ -1,0 +1,22 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+# The repository's `REPO.buri` is Latin-1, not UTF-8, so it cannot be read at
+# all. It is staged as `REPO.latin1` and moved over a readable `REPO.buri`
+# before the session starts, because the repository's own formatting check
+# reads every checked-in `REPO.buri` as text.
+
+doc: "a file opened in a repository that will not load is told nothing rather than something made up, and the server says why"
+
+move {
+  from: "REPO.latin1"
+  to: "REPO.buri"
+}
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

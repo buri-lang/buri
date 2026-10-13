@@ -1,0 +1,11 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository,
+# whose `REPO.buri` does not load.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Nothing can be analysed, so the open publishes no findings, and the
+# server says the repository will not open.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri", "languageId": "buri", "version": 1, "text": "//! What a shop sells.\n\n/// One thing for sale.\nexport struct Item {\n    /// What the label on the shelf says.\n    export name: Str,\n    /// What it costs, in whole cents.\n    export price: I64,\n}\n\n/// What one of them costs.\nexport fn ticket(item: Item): I64 {\n    item.price\n}\n"}}}
+# The pull answers the same: nothing.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/shop/catalog.buri"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

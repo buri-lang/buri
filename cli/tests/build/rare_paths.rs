@@ -6,8 +6,9 @@
 //! kept under a fresh `BURI_HOME`, a platform asset read as a schema, a
 //! `platform` rule outside `//platform/`, `format` on a `testing` surface, and
 //! the generator paths a contract, a missing schema or a tool nobody declared
-//! takes; and the language server's sweep of a deeply nested file, and a sweep
-//! that lands while the server sits idle.
+//! takes; and the language server's sweep of a deeply nested file, a sweep
+//! that lands while the server sits idle, and one that lands on a repository
+//! that no longer opens.
 use crate::harness::*;
 
 const PLATFORM: &str =
@@ -758,4 +759,56 @@ fn a_sweep_publishes_when_it_lands_on_an_idle_server() {
     server.send(&scratch, SHUTDOWN);
     server.send(&scratch, EXIT);
     server.finish().ok();
+}
+
+/// A sweep that lands after its repository stopped opening says nothing about
+/// it.
+///
+/// The worker reads the files a sweep was handed with, and `REPO.buri` was
+/// open in the editor then. Closed, the copy on disk is what the server
+/// reads, and that is not UTF-8: nothing in the repository can be analysed,
+/// so the type error the sweep found is not published.
+#[test]
+fn a_sweep_landing_on_a_repository_that_no_longer_opens_is_not_published() {
+    let scratch = Scratch::repo("rare-sweep-unopened");
+    scratch.write("lib/a/BUILD.buri", "library {\n}\n");
+    scratch.write("lib/a/lib.buri", ONE);
+    let initialize = r#"{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "initializationOptions": {"analysis": "deferred"}}}"#;
+    let pull = |id: u32| {
+        format!(
+            r#"{{"jsonrpc": "2.0", "id": {id}, "method": "workspace/diagnostic", "params": {{"previousResultIds": []}}}}"#
+        )
+    };
+    let close = r#"{"jsonrpc": "2.0", "method": "textDocument/didClose", "params": {"textDocument": {"uri": "file://<scratch>/REPO.buri"}}}"#;
+    let wait = r#"{"jsonrpc": "2.0", "id": 4, "method": "buri/awaitAnalysis", "params": {}}"#;
+    let mut server = Server::start(&scratch);
+    for line in [
+        initialize.to_string(),
+        INITIALIZED.to_string(),
+        did_open(&scratch, "REPO.buri"),
+        did_open(&scratch, "lib/a/lib.buri"),
+        pull(2),
+    ] {
+        server.send(&scratch, &line);
+    }
+    server.answer(2);
+    let mut broken = scratch.read("REPO.buri").into_bytes();
+    broken.extend_from_slice(b"# \xff\n");
+    std::fs::write(scratch.path("REPO.buri"), broken).unwrap();
+    scratch.write("lib/a/lib.buri", "export fn one(): Int {\n    \"one\"\n}\n");
+    for line in [did_change(&scratch, "lib/a/lib.buri"), pull(3)] {
+        server.send(&scratch, &line);
+    }
+    server.answer(3);
+    server.send(&scratch, close);
+    server.send(&scratch, wait);
+    server.answer(4);
+    server.send(&scratch, SHUTDOWN);
+    server.send(&scratch, EXIT);
+    server
+        .finish()
+        .ok()
+        .says("this repository will not open")
+        .says(r#""swept":2"#)
+        .silent_about("found `Str`");
 }

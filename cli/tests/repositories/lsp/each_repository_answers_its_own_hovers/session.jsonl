@@ -1,0 +1,12 @@
+# One JSON-RPC request per line. `<scratch>` and `<scratch2>` become the two
+# copied repositories: the same file at the same path, documented differently.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"workspaceFolders": [{"uri": "file://<scratch>", "name": "first"}, {"uri": "file://<scratch2>", "name": "second"}]}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Each hover names its own repository's doc comment, though both files have
+# the same path inside their repository, neither is open, and the first's
+# analysis is already on file.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri"}, "position": {"line": 1, "character": 11}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch2>/lib/alpha/rate.buri"}, "position": {"line": 1, "character": 11}}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/alpha/rate.buri"}, "position": {"line": 1, "character": 11}}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
