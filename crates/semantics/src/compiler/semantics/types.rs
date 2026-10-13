@@ -77,6 +77,30 @@ pub enum Prim {
 }
 
 impl Prim {
+    /// This primitive's entry in a table laid out in [`Prim::all`] order.
+    pub fn pick<T: Copy>(self, table: &[T; 16]) -> T {
+        let [bool, i8, i16, i32, i64, i128, u8, u16, u32, u64, u128, f32, f64, char, str, template] =
+            *table;
+        match self {
+            Prim::Bool => bool,
+            Prim::I8 => i8,
+            Prim::I16 => i16,
+            Prim::I32 => i32,
+            Prim::I64 => i64,
+            Prim::I128 => i128,
+            Prim::U8 => u8,
+            Prim::U16 => u16,
+            Prim::U32 => u32,
+            Prim::U64 => u64,
+            Prim::U128 => u128,
+            Prim::F32 => f32,
+            Prim::F64 => f64,
+            Prim::Char => char,
+            Prim::Str => str,
+            Prim::Template => template,
+        }
+    }
+
     /// The type constructor every `Tables` holds this primitive at.
     pub fn con(self) -> TyConId {
         TyConId(self as u32)
@@ -1262,7 +1286,7 @@ impl Tables {
     }
 
     pub fn prim(&self, p: Prim) -> Ty {
-        self.prims[p as usize]
+        p.pick(&self.prims)
     }
 
     /// The word a `derive Flags` struct is stored in: the smallest unsigned
@@ -1994,6 +2018,7 @@ mod tests {
         for p in Prim::all() {
             assert!(matches!(t.tycon(t.prim_id(*p)).def, TyDef::Prim(q) if q == *p));
             assert_eq!(t.prim(*p), Ty::con(t.prim_id(*p), []));
+            assert_eq!(p.pick(Prim::all()), *p);
         }
     }
 

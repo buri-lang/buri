@@ -607,7 +607,7 @@ impl Env {
         // `web.navigate(ctx, path)` is an `==`. The cutoff's comparison is
         // generated for such a program all the same, so where no call site
         // named the result type it comes off the primitive.
-        let b = prims[Prim::Bool as usize];
+        let b = Prim::Bool.pick(&prims);
         result.entry(Op::Eq).or_insert(b);
         Env {
             ty_of,
@@ -2465,7 +2465,7 @@ impl Generator {
     }
 
     fn prim_ty(&self, p: Prim) -> Ty {
-        self.env.prims[p as usize]
+        p.pick(&self.env.prims)
     }
 
     fn int_lit(&self, n: usize) -> Expr {

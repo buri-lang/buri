@@ -635,10 +635,7 @@ impl Shadows<'_> {
         }
         let (func, ret) = self.request(op, t)?;
         Some(Expr::new(
-            ExprKind::CallFunc {
-                func: func,
-                args: values,
-            },
+            ExprKind::CallFunc { func, args: values },
             ret,
             span,
         ))
