@@ -217,6 +217,9 @@ pub struct Decision {
     pub tree: bool,
 }
 
+/// How a call aborts, if it can: what `decisions` asks of every call.
+pub type TrapCall<'a> = dyn Fn(&Expr) -> Option<Aborts> + 'a;
+
 /// Calls `f` with every decision in `body`, lambdas' included, `builtins`'
 /// calls too, and the expression that makes it: a guard's decision is the
 /// guard. With `traps`, which says how a call can abort, the abort points too.
@@ -226,7 +229,7 @@ pub struct Decision {
 /// the operator's span, which an arm someone wrote can't.
 pub fn decisions(
     e: &Expr,
-    traps: Option<&dyn Fn(&Expr) -> Option<Aborts>>,
+    traps: Option<&TrapCall<'_>>,
     consts: &ConstMap,
     builtins: Builtins,
     f: &mut impl FnMut(Decision, &Expr),
@@ -315,7 +318,7 @@ fn desugared(e: &Expr) -> bool {
 /// Whether `e` is an operation that can abort: an integer `/` or `%`, or a
 /// call `call` says can, unless a constant last operand spares it. A built
 /// body has its constants inlined, so it needs no `consts`.
-fn traps_here(e: &Expr, call: &dyn Fn(&Expr) -> Option<Aborts>, consts: Option<&ConstMap>) -> bool {
+fn traps_here(e: &Expr, call: &TrapCall<'_>, consts: Option<&ConstMap>) -> bool {
     let (how, args) = match &e.kind {
         ExprKind::Prim {
             op: PrimOp::Div | PrimOp::Rem,
@@ -391,10 +394,15 @@ fn constant(e: &Expr, consts: Option<&ConstMap>) -> Option<i128> {
             }?;
             let bits = prim.bits();
             let (low, high) = if prim.is_signed() {
-                let low = i128::MIN >> (128 - bits);
+                let low = i128::MIN.wrapping_shr(128u32.saturating_sub(bits));
                 (low, !low)
             } else {
-                (0, 1i128.checked_shl(bits).map_or(i128::MAX, |top| top - 1))
+                (
+                    0,
+                    1i128
+                        .checked_shl(bits)
+                        .map_or(i128::MAX, |top| top.saturating_sub(1)),
+                )
             };
             (low..=high).contains(&v).then_some(v)
         }
