@@ -720,6 +720,8 @@ pub struct Gate {
     dials: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     /// How many times the gate found its accept queue empty after being asked.
     idle: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// How many held handlers the gate has seen hang up.
+    hung_up: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 const NOT_ASKED: usize = usize::MAX;
@@ -742,7 +744,8 @@ impl Gate {
         listener.set_nonblocking(true).unwrap();
         let dials = std::sync::Arc::new(AtomicUsize::new(NOT_ASKED));
         let idle = std::sync::Arc::new(AtomicUsize::new(0));
-        let (asked, polled) = (dials.clone(), idle.clone());
+        let hung_up = std::sync::Arc::new(AtomicUsize::new(0));
+        let (asked, polled, gone) = (dials.clone(), idle.clone(), hung_up.clone());
         let held = std::thread::spawn(move || {
             let mut held: Vec<std::net::TcpStream> = Vec::new();
             let mut accepted = 0usize;
@@ -768,6 +771,9 @@ impl Gate {
                     // Nothing is queued to be accepted, so this is where the
                     // gate may give up.
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        let before = held.len();
+                        held.retain(still_open);
+                        gone.fetch_add(before - held.len(), Ordering::Release);
                         let said = asked.load(Ordering::Acquire);
                         if said != NOT_ASKED {
                             // Every dial has completed, so the count is
@@ -811,6 +817,7 @@ impl Gate {
             held,
             dials,
             idle,
+            hung_up,
         }
     }
 
@@ -915,7 +922,17 @@ mod gate_tests {
     fn a_handler_that_hung_up_is_not_counted() {
         // Two arrivals fill the gate, so its patience never comes into it.
         let gate = Gate::patient(2, Duration::from_secs(600));
+        let hung_up = gate.hung_up.clone();
         drop(dialled(&gate));
+        // The late one dials only once the gate has seen the hang-up, however
+        // long the kernel takes to deliver it. Bounded, so a gate that never
+        // sees it shows as a count of two.
+        let until = std::time::Instant::now() + Duration::from_secs(20);
+        while hung_up.load(std::sync::atomic::Ordering::Acquire) < 1
+            && std::time::Instant::now() < until
+        {
+            std::thread::yield_now();
+        }
         let late = dialled(&gate);
         let met = gate.met(2);
         let answer = answer(late);
