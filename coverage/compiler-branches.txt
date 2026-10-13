@@ -3,13 +3,13 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15156 15397 98.43%
-area cli/build 1690 1707 99.00%
+total 15128 15363 98.47%
+area cli/build 1692 1709 99.01%
 area cli/documentation 477 480 99.38%
 area cli/format 94 94 100.00%
 area cli/language_server 1246 1268 98.26%
-area cli/lint 582 592 98.31%
-area cli/other 536 564 95.04%
+area cli/lint 563 570 98.77%
+area cli/other 532 558 95.34%
 area cli/run 58 58 100.00%
 area cli/serve+watch 69 70 98.57%
 area cli/test 484 508 95.28%
@@ -19,7 +19,7 @@ area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 1019 1056 96.50%
 area crates/llvm 596 600 99.33%
-area crates/middle 1857 1902 97.63%
+area crates/middle 1850 1894 97.68%
 area crates/project 1341 1358 98.75%
 area crates/semantics 2196 2202 99.73%
 area crates/stdlib 12 12 100.00%
@@ -45,7 +45,7 @@ area crates/syntax 1194 1196 99.83%
 14 14 cli/src/build/spawn.rs
 14 14 cli/src/build/test_host.rs
 108 108 cli/src/build/tools.rs
-300 300 cli/src/build/workspace.rs
+302 302 cli/src/build/workspace.rs
 0 0 cli/src/commands/add/mod.rs
 8 8 cli/src/commands/add/skills.rs
 41 44 cli/src/commands/arguments.rs
@@ -55,7 +55,7 @@ area crates/syntax 1194 1196 99.83%
 30 30 cli/src/commands/generate.rs
 26 26 cli/src/commands/init.rs
 1 2 cli/src/commands/interrupt.rs
-547 556 cli/src/commands/lint.rs
+528 534 cli/src/commands/lint.rs
 35 36 cli/src/commands/lint_cache.rs
 20 20 cli/src/commands/mod.rs
 39 40 cli/src/commands/query.rs
@@ -67,7 +67,7 @@ area crates/syntax 1194 1196 99.83%
 0 0 cli/src/compiler/backend/mod.rs
 1 2 cli/src/compiler/backend/runtime_native.rs
 50 62 cli/src/compiler/driver.rs
-195 204 cli/src/compiler/modules.rs
+191 198 cli/src/compiler/modules.rs
 4 4 cli/src/compiler/snapshot.rs
 4 4 cli/src/documentation/assemble.rs
 169 170 cli/src/documentation/examples.rs
@@ -148,7 +148,7 @@ area crates/syntax 1194 1196 99.83%
 139 140 crates/middle/src/compiler/middle/lower.rs
 39 40 crates/middle/src/compiler/middle/lower/lists.rs
 18 18 crates/middle/src/compiler/middle/mod.rs
-185 198 crates/middle/src/compiler/middle/monomorphize.rs
+178 190 crates/middle/src/compiler/middle/monomorphize.rs
 104 108 crates/middle/src/compiler/middle/monomorphize/hand_written.rs
 587 596 crates/middle/src/compiler/middle/rc.rs
 40 40 crates/middle/src/compiler/middle/tail_calls.rs
