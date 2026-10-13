@@ -1,6 +1,7 @@
-# A division by a nonzero literal, or by a module-level `let` holding one,
-# can't abort, so `--coverage=mcdc` counts no decision for it: `half`,
-# `column` and the generic `middle` add none. `share` divides by what its
+# A division by a nonzero literal, by a module-level `let` holding one, or by
+# `-`, `+` and `*` over those, can't abort, so `--coverage=mcdc` counts no
+# decision for it: `half`, `column`, `flip`, `quarter` and the generic `middle`
+# add none, and nor does the float division in `ratio`. `share` divides by what its
 # caller passes, which no test makes zero, so its one condition reads unshown.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.

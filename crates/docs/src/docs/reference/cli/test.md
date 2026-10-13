@@ -264,7 +264,7 @@ It also counts what `--coverage` leaves out:
   aborted. Dividing by a nonzero constant can't abort, so `n / 2` and
   `n / (ROWS + 1)` count nothing. Neither does a shift by a constant
   inside its value's width, such as `bits.shiftRightU64(n, 56)`. A constant
-  here is a literal, a `let` holding one, or `+`, `-` and `*` over those;
+  here is a literal, a `let` holding one, or `-`, `+` and `*` over those;
 - the code a `derive` stands for, on the `derive`'s line, per operation and
   type: which variant, whether the other value is the same variant, and which
   field an `Equal` or `Ordered` stopped at, as in `Equal Point, x: differs`.

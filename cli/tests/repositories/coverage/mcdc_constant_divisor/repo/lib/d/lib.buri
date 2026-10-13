@@ -1,3 +1,4 @@
 from "//lib/d/d.buri" export {
-    column, half, high, middle, pages, past, rows, share, spread, wide,
+    column, flip, half, high, middle, pages, past, quarter, ratio, rows, share, spread,
+    wide,
 };

@@ -7,6 +7,9 @@ test "constant divisors" {
     assert.equal(d.middle([1, 2, 3, 4]), 2);
     assert.equal(d.rows(11), 2);
     assert.equal(d.pages([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), 2);
+    assert.equal(d.flip(9), -2);
+    assert.equal(d.quarter(9), 2);
+    assert.equal(d.ratio(3.0, 2.0), 1.5);
 }
 
 test "constant shifts" {
