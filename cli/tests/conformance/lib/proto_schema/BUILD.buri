@@ -4,6 +4,7 @@ library {
     test {
         sources: [
             "test/edges.buri",
+            "test/malformed.buri",
             "test/reading.buri",
             "test/refusals.buri",
         ]

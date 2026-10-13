@@ -318,6 +318,10 @@ test "a feature misspelt near two names is offered the closer one" {
         fix(ctx, "mepea_eeld_encoding"),
         "did you mean `features.message_encoding`?",
     );
+    assert.equal(
+        fix(ctx, "field_prge_encoding"),
+        "did you mean `features.field_presence`?",
+    );
 }
 
 test "a known feature given a value it does not take lists the values it does" {
