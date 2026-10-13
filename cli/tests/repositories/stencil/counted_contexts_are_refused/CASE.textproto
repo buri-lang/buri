@@ -1,11 +1,12 @@
-# A context that owns a reference count, handed to a step or a timer the
-# runtime runs later. The debug backend names both calls it can't compile and
-# runs nothing. JavaScript runs the same suite.
+# A context that owns a reference count, handed to a timer the runtime runs
+# later. The debug backend names the call it can't compile and runs nothing.
+# JavaScript runs the same suite. A step is handed one too, and runs: see
+# stencil/a_step_is_handed_a_counted_context.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a step and a timer whose context owns a count are refused by name on the debug backend and run on JavaScript"
+doc: "a timer whose context owns a count is refused by name on the debug backend and runs on JavaScript"
 
 run {
   args: ["test", "//lib/steps", "--force"]

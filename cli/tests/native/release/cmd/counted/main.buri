@@ -1,0 +1,101 @@
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "core/tasks" import * as tasks;
+from "native" import { NativeHost };
+from "platform/effect" import { Allocator, Region, Stdout, Tasks };
+
+// An allocator that holds a `Str`, so the context every task is handed owns a
+// count, and the tasks take and give it back on the host's threads.
+struct Named {
+    name: Str,
+}
+
+impl Allocator for Named {
+    fn allocate(self, bytes: Int): Region {
+        Region(bytes + self.name.length() - self.name.length())
+    }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+    let base = context {
+        Allocator: host.alloc,
+        Stdout: host.stdout,
+    };
+    let ctx = context {
+        Allocator: Named { name: str.format(base, "${7}") },
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let items = [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+    ];
+    let out = tasks.parallel(ctx, items, fn(c, i, n) => {
+        str.format(c, "${i}-${n}").length()
+    });
+    io
+        .println(base, str.format(base, "${out.length()} ${out[63]}"))
+        .mapErr(fn(_e) => "could not write to standard output")
+}

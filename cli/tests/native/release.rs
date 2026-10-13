@@ -94,6 +94,28 @@ fn a_program_fans_out_wide_values_on_the_host() {
     );
 }
 
+/// **A program fans a context that owns a count out over the host's
+/// threads**, and every task's count on it is given back.
+#[test]
+fn a_program_fans_out_a_counted_context_on_the_host() {
+    skip_unless_executable!();
+    let repo = scratch("counted");
+    copy(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/native/release"),
+        &repo,
+    );
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_buri"));
+    cmd.current_dir(&repo)
+        .args(["run", "--release", "//cmd/counted"]);
+    let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
+    assert_eq!(
+        (ran.status, ran.stdout.as_str()),
+        (0, "64 .Some(5)\n"),
+        "{}",
+        ran.stderr
+    );
+}
+
 /// **The native set's files in a package that also holds a JavaScript-only
 /// one pass under `--release`.** `coverage_agrees` moves a corpus package to
 /// the native backends whole or not at all, so `numbers/integers.buri` stays
@@ -174,8 +196,8 @@ fn a_value_nested_seventy_structs_deep_keeps_its_count() {
     passes(&repo, &["//lib/deep"]);
 }
 
-/// **A step or a timer whose context owns a count is refused**, each once and
-/// with no internal error after it.
+/// **A timer whose context owns a count is refused**, with no internal error
+/// after it. A step handed one runs: `lib/contexts`.
 #[test]
 fn a_context_that_owns_a_count_is_refused() {
     skip_unless_executable!();
@@ -190,12 +212,6 @@ fn a_context_that_owns_a_count_is_refused() {
     let ran = crate::shared::ran_command(&mut cmd);
     let err = &ran.stderr;
     assert_ne!(ran.status, 0, "{err}");
-    assert!(
-        err.contains(
-            "`host_testing.TestTasks.parallel` was given a step whose context owns a count"
-        ),
-        "{err}"
-    );
     assert!(
         err.contains("`tasks.timerStart` was given a handler whose context owns a count"),
         "{err}"

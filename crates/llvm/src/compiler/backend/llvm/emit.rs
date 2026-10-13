@@ -162,7 +162,7 @@ pub struct Unit<'ctx, 'a> {
     /// elems)`.
     glues: Map<Ty, [Option<FunctionValue<'ctx>>; 6]>,
     /// The C-ABI entry thunks of [`Job::Entry`], one per step signature.
-    entries: Map<(Vec<Ty>, Ty, Option<usize>), FunctionValue<'ctx>>,
+    entries: Map<(Vec<Ty>, Ty, Option<usize>, bool), FunctionValue<'ctx>>,
     /// The C-ABI equality thunks of [`Job::Equal`], one per cell type.
     equals: Map<Ty, FunctionValue<'ctx>>,
     /// [`Unit::env_glue`]'s release and copy.
@@ -3052,38 +3052,22 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     let step = self.agg_ty(ir_ty);
                     let (ps, r) = fn_parts(step);
                     let step_index = step_call(key).and_then(|c| c.index);
-                    // A context that owns a reference count would need a
-                    // retain per element rather than a copy, and none does:
-                    // `platform/host`'s allocators are empty structs and
-                    // `platform/effect/testing`'s carry a handle. Refused here,
-                    // where there is a span to hang it on.
-                    if ps
-                        .iter()
-                        .enumerate()
-                        .take(ps.len().saturating_sub(1))
-                        .any(|(i, t)| step_index != Some(i) && self.rc_counted(t))
-                    {
-                        self.error(
-                            span,
-                            format!("`{key}` was given a step whose context owns a count"),
-                            "this is a toolchain bug; report it",
-                        );
-                        return None;
-                    }
                     let bytes = self.step_state_bytes(ps, step_index);
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(record, &slots, 8, &pieces);
                     // The contexts, beside the closure. They are Buri arguments
                     // this row `Arg::Dropped`s out of the C signature, and this
                     // is where they go instead — read back by the entry thunk,
-                    // which is the only thing that wants them.
+                    // which is the only thing that wants them. The record
+                    // lends them: the caller keeps its count for the whole
+                    // call, and the thunk takes one per element.
                     let ctx_at = self.step_ctx_offsets(ps, step_index);
                     // The checker passes the step one context per one it takes.
                     let from = step_call(key).and_then(|c| c.ctx).map(|i| arg(args, i));
                     for (at, arg) in ctx_at.iter().copied().zip(from) {
                         self.store_ctx(state, code, arg, record, at);
                     }
-                    let thunk = self.entry_thunk(ps, r, step_index);
+                    let thunk = self.entry_thunk(ps, r, step_index, true);
                     let inn = element.or_ice("a step reads a list");
                     let outn = elements.answer.or_ice("a step writes a list");
                     let (a, b) = (self.reprs.stride_of(&inn), self.reprs.stride_of(&outn));
@@ -3109,7 +3093,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     self.store_slots(record, &slots, 8, &pieces);
                     let glue = self.glue(Op::Retain, &body).or_ice("a closure is counted");
                     let _ = self.builder.build_call(glue, &[record.into()], "");
-                    let thunk = self.entry_thunk(ps, r, None);
+                    let thunk = self.entry_thunk(ps, r, None, false);
                     let stride = self.reprs.stride_of(r);
                     let release = self
                         .glue(Op::Release, r)
@@ -3159,7 +3143,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // No retain: the walk is invoked once, during this call, and
                     // released by `middle::rc` at its last use here — the
                     // runtime keeps nothing of it.
-                    let thunk = self.entry_thunk(ps, r, Some(1));
+                    let thunk = self.entry_thunk(ps, r, Some(1), false);
                     let word = self.ctx.i64_type();
                     argv.push(function_pointer(thunk).into());
                     argv.push(record.into());
@@ -3217,7 +3201,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // environment a reference — taken here, given back at exit.
                     let glue = self.glue(Op::Retain, &body).or_ice("a closure is counted");
                     let _ = self.builder.build_call(glue, &[record.into()], "");
-                    let thunk = self.entry_thunk(ps, r, None);
+                    let thunk = self.entry_thunk(ps, r, None, false);
                     let word = self.ctx.i64_type();
                     argv.push(function_pointer(thunk).into());
                     argv.push(record.into());
@@ -4340,11 +4324,14 @@ enum Job<'ctx> {
     /// `void(state, index, arg, out)`, which runs one closure once on one
     /// element. `params` and `ret` are that closure's own signature, and
     /// `index` is which of `params` the runtime's loop counter goes into.
+    /// `lent` is whether the record only lends its contexts, so that the thunk
+    /// takes a count on each one per call.
     Entry {
         value: FunctionValue<'ctx>,
         params: Vec<Ty>,
         ret: Ty,
         index: Option<usize>,
+        lent: bool,
     },
     /// The C-ABI **equality thunk** the reactive graph compares a write
     /// through: `void(frame, a, b, out)`, which runs `middle::derives`'s
@@ -4779,14 +4766,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// second call site at the same element types wants the same function. The
     /// index *position* is in the key rather than derived from the types: two
     /// steps can take the same types and mean different things by the second
-    /// parameter.
+    /// parameter. So is `lent`, for the same reason: a step's record lends its
+    /// contexts, and a walk's or a handler's holds a count the runtime took.
     fn entry_thunk(
         &mut self,
         params: &[Ty],
         ret: &Ty,
         index: Option<usize>,
+        lent: bool,
     ) -> FunctionValue<'ctx> {
-        let key = (params.to_vec(), *ret, index);
+        let key = (params.to_vec(), *ret, index, lent);
         if let Some(f) = self.entries.get(&key) {
             return *f;
         }
@@ -4809,6 +4798,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             params: params.to_vec(),
             ret: *ret,
             index,
+            lent,
         });
         f
     }
@@ -4830,7 +4820,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// The **contexts** come out of the record rather than out of `arg`: they
     /// are the same value at every element, and a C signature has no parameter
     /// for one. A zero-sized context is no leaves at all; `TestAllocator`'s handle
-    /// is one, and [`STEP_CTX`] is where it was put.
+    /// is one, and [`STEP_CTX`] is where it was put. Where the record only
+    /// lends them (`lent`, a step's) each is retained as the element is, since
+    /// the step owns it too; a walk's or a handler's carries a count already.
     ///
     /// The **index** comes out of neither. It is the runtime's loop counter,
     /// which changes per element and which nothing on this side of the boundary
@@ -4843,6 +4835,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         params: &[Ty],
         ret: &Ty,
         index: Option<usize>,
+        lent: bool,
     ) {
         let ptr_t = self.ptr_ty();
         // `(record, counter, arg, out)`.
@@ -4895,46 +4888,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 continue;
             }
             let (_, off) = from_record.next().or_ice("every context has its offset");
-            let r = self.reprs.of_ty(t);
-            let (slots, align) = (r.slots.clone(), r.layout.align);
-            if slots.is_empty() {
+            if self.reprs.of_ty(t).slots.is_empty() {
                 continue;
             }
             let at = repr::byte_offset(self.ctx, &self.builder, record, i64::from(off), "step.ctx");
-            if repr::in_memory(&slots) {
-                let value = self.load_value(at, &slots, align);
-                argv.push(value.into());
-                continue;
-            }
-            for piece in self.load_slots(at, &slots, align) {
-                argv.push(piece.into());
-            }
+            self.load_argument(state, t, at, lent, &mut argv);
         }
         let elem = params.last().or_ice("a step takes its element last");
-        let r = self.reprs.of_ty(elem);
-        let (slots, align) = (r.slots.clone(), r.layout.align);
         // Copied out of the runtime's element: the step owns its argument.
-        if repr::in_memory(&slots) {
-            let value = self.load_value(arg, &slots, align);
-            if let (true, BasicValueEnum::PointerValue(base)) = (self.rc_counted(elem), value) {
-                let place = Place::Memory {
-                    base,
-                    align: repr::memory_align(&slots),
-                };
-                self.walk_rc(state, elem, &place, 0, Op::Retain);
-            }
-            argv.push(value.into());
-        } else {
-            let pieces = self.load_slots(arg, &slots, align);
-            if self.rc_counted(elem) {
-                let place = Place::Registers {
-                    slots,
-                    pieces: pieces.clone(),
-                };
-                self.walk_rc(state, elem, &place, 0, Op::Retain);
-            }
-            argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
-        }
+        self.load_argument(state, elem, arg, true, &mut argv);
         let answer = self.machine_call(Callee::Indirect(fty, code), &sig, &ret_slots, argv);
         state.observed.opaque = true;
         if let Some(answer) = answer {
@@ -4942,6 +4904,42 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.store_value(out, &ret_slots, align, answer);
         }
         let _ = self.builder.build_return(None);
+    }
+
+    /// One argument of type `ty` out of `at`, onto `argv`, and retained first
+    /// when `retain` says the callee is to own a count the memory only lends.
+    fn load_argument(
+        &mut self,
+        state: &mut Function<'ctx>,
+        ty: &Ty,
+        at: PointerValue<'ctx>,
+        retain: bool,
+        argv: &mut Vec<BasicMetadataValueEnum<'ctx>>,
+    ) {
+        let r = self.reprs.of_ty(ty);
+        let (slots, align) = (r.slots.clone(), r.layout.align);
+        let retain = retain && self.rc_counted(ty);
+        if repr::in_memory(&slots) {
+            let value = self.load_value(at, &slots, align);
+            if let (true, BasicValueEnum::PointerValue(base)) = (retain, value) {
+                let place = Place::Memory {
+                    base,
+                    align: repr::memory_align(&slots),
+                };
+                self.walk_rc(state, ty, &place, 0, Op::Retain);
+            }
+            argv.push(value.into());
+        } else {
+            let pieces = self.load_slots(at, &slots, align);
+            if retain {
+                let place = Place::Registers {
+                    slots,
+                    pieces: pieces.clone(),
+                };
+                self.walk_rc(state, ty, &place, 0, Op::Retain);
+            }
+            argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
+        }
     }
 
     /// Where each of a step's context arguments sits inside the state record,
@@ -5114,9 +5112,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 return;
             }
             Job::Entry {
-                params, ret, index, ..
+                params,
+                ret,
+                index,
+                lent,
+                ..
             } => {
-                self.build_entry(&mut state, &params, &ret, index);
+                self.build_entry(&mut state, &params, &ret, index, lent);
                 return;
             }
             Job::Equal { func, ty, .. } => {

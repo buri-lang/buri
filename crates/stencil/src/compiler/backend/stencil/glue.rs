@@ -112,10 +112,15 @@ pub enum Helper {
     /// can take the same types and mean different things by the second one.
     /// `None` is a step that is not told where it is; the register still
     /// arrives and the body ignores it.
+    ///
+    /// `lent` is whether the record only lends its contexts, as a step's does,
+    /// so that the thunk takes a count on each one per call. A walk's or a
+    /// handler's carries a count the runtime took for it.
     Entry {
         params: Vec<Ty>,
         ret: Ty,
         index: Option<usize>,
+        lent: bool,
     },
     /// The C-ABI **equality thunk** the reactive graph compares a write
     /// through: `extern "C" fn(frame, a, b, out)`, which runs
@@ -317,7 +322,12 @@ impl Jit<'_> {
             Helper::Walk { ty, op } => self.walk_glue(*ty, *op),
             Helper::Elems { ty, op } => self.elems_glue(*ty, *op),
             Helper::Env { op } => self.env_glue(if *op == Op::Copy { ENV_COPY_WORD } else { 0 }),
-            Helper::Entry { params, ret, index } => self.entry_thunk(params.clone(), *ret, *index),
+            Helper::Entry {
+                params,
+                ret,
+                index,
+                lent,
+            } => self.entry_thunk(params.clone(), *ret, *index, *lent),
             Helper::Equal { ty, func } => self.equal_thunk(prog, *ty, *func),
         }
         at
@@ -1146,8 +1156,10 @@ impl Jit<'_> {
     /// so it has a C argument of its own. A zero-sized context costs nothing here and a
     /// context carrying a handle costs a copy, which is the whole of the
     /// difference between `platform/host`'s allocators and
-    /// `platform/effect/testing`'s.
-    fn entry_thunk(&mut self, params: Vec<Ty>, ret: Ty, index: Option<usize>) {
+    /// `platform/effect/testing`'s. Where the record only lends them (`lent`)
+    /// a counted context is retained as the element is, since the step owns
+    /// it too.
+    fn entry_thunk(&mut self, params: Vec<Ty>, ret: Ty, index: Option<usize>, lent: bool) {
         let elem = *params
             .last()
             .or_ice("a runtime-driven step takes its element");
@@ -1204,6 +1216,9 @@ impl Jit<'_> {
                 ],
             );
             self.elem_load(to, E_CTXP, E_ZERO, 8, w);
+            if let Some(t) = params.get(i).filter(|t| lent && self.rc_counted(t)) {
+                self.walk_rc(&mut st, t, to, Op::Retain, 0);
+            }
         }
         if elem_size > 0 {
             self.elem_load(E_ELEM, E_ARG, E_ZERO, 8, elem_size);

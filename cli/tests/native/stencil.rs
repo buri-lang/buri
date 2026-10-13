@@ -948,7 +948,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 ///
 /// Shapes stay unimplemented on purpose (`backend/stencil/mod.rs`'s header), and
 /// what has to be true of every one of them is that the build stops with a
-/// sentence. A step whose context owns a reference count is the one used
+/// sentence. A timer whose context owns a reference count is the one used
 /// here: the emitter names it and stops (`stencil/counted_contexts_are_refused`
 /// is the same refusal through `buri test`).
 ///
@@ -964,6 +964,7 @@ fn a_refused_shape_is_a_diagnostic_and_not_an_object() {
         r#"
 from "native" import { NativeHost };
 from "core/tasks" import * as tasks;
+from "core/time" import * as time;
 from "platform/effect" import { Allocator, Region, Tasks };
 
 // An allocator that owns a `Str`, so a context binding it owns a count.
@@ -979,7 +980,7 @@ impl Allocator for Named {
 
 export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: Named { name: "pool" }, Tasks: host.tasks };
-  let _ = tasks.parallel(ctx, [1, 2], fn(c, i, x) => x + i);
+  let _ = tasks.after(ctx, time.milliseconds(1), fn(c) => ());
   .Ok(())
 }
 "#,
@@ -987,7 +988,7 @@ export fn main(host: NativeHost): Result<(), Str> {
     assert!(
         messages
             .iter()
-            .any(|m| m.contains("a step whose context owns a reference count")),
+            .any(|m| m.contains("a handler whose context owns a reference count")),
         "a refusal has to name the shape: {messages:?}"
     );
 }
