@@ -1,0 +1,7 @@
+library {
+    sources: ["builtins.buri"]
+
+    test {
+        sources: ["test/builtins.buri"]
+    }
+}

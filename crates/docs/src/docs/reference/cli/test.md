@@ -168,6 +168,31 @@ path is a branch:
 | a guard, `.Some(n) if n > 9 =>` | true, false |
 | `a && b`, `a \|\| b` | `b` ran, `b` was skipped |
 | `x?` | execution went on, `?` returned early |
+| `n.withDefault(0)` | `Some` or `Ok`, `None` or `Err` |
+| `xs.filter(ctx, keep)` | `keep` answered `true` once, `false` once |
+
+A call of a built-in that picks a path for you counts too:
+
+- `Option` and `Result` helpers that pick by variant: `withDefault`,
+  `withDefaultWith`, `map`, `mapCtx`, `mapErr`, `mapErrCtx`, `andThen`,
+  `andThenCtx`, `filter`, `okOr`, `okOrWith`, `or`, `orElse`, `orElseCtx`,
+  `mapOr`, `fold`, `isSomeAnd`, `isOkAnd`, `toList`, `toOption` and
+  `errToOption`;
+- list built-ins that call a predicate: `filter`, `filterCtx`, `filterMap`,
+  `filterMapCtx`, `filterIndexed`, `any`, `all`, `find`, `findIndex`,
+  `findLast`, `count`, `takeWhile`, `dropWhile` and `partition`, where `Some`
+  counts as `true` and `None` as `false`;
+- `filter` on `Map`, `Set`, `OrderedMap` and `OrderedSet`.
+
+```buri
+export fn orZero(n: Option<Int>): Int {
+    // Fully covered once a test passes `.None` too.
+    n.withDefault(0)
+}
+```
+
+Its branches sit on the line of its first argument, or of its `)`. Built-ins
+that only work on data, like `trim`, `contains` or `sortBy`, add none.
 
 A branch is covered once it runs. Only your repository's own source counts: test
 sources, the standard library, the platforms, and the code a `derive` or a
