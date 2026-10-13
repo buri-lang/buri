@@ -2,6 +2,8 @@ from "core/bits" import * as bits;
 
 let PER_ROW: Int = 4;
 
+let BYTE: U8 = 3;
+
 export fn half(n: Int): Int {
     n / 2
 }
@@ -20,6 +22,18 @@ export fn rows(n: Int): Int {
 
 export fn pages<T>(items: [T]): Int {
     items.length() / (PER_ROW * 2 - 3)
+}
+
+export fn flip(n: Int): Int {
+    n / -PER_ROW
+}
+
+export fn quarter(n: U8): U8 {
+    n / (BYTE + 1)
+}
+
+export fn ratio(a: F64, b: F64): F64 {
+    a / b
 }
 
 export fn high(n: U64): U64 {

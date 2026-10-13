@@ -367,7 +367,7 @@ impl Aborts {
     }
 }
 
-/// The value of an integer expression built from literals, constants, `+`,
+/// The value of an integer expression built from literals, constants, `-x`, `+`,
 /// `-` and `*`, or `None` when it is anything else or leaves its type's range
 /// on the way, where it would wrap.
 fn constant(e: &Expr, consts: Option<&ConstMap>) -> Option<i128> {
@@ -381,15 +381,16 @@ fn constant(e: &Expr, consts: Option<&ConstMap>) -> Option<i128> {
             }
         }
         ExprKind::Const(c) => constant(consts?.get(c)?, consts),
-        ExprKind::Prim { op, prim, args } if prim.is_integer() => {
-            let [a, b] = args.as_slice() else {
-                return None;
-            };
-            let (a, b) = (constant(a, consts)?, constant(b, consts)?);
-            let v = match op {
-                PrimOp::Add => a.checked_add(b),
-                PrimOp::Sub => a.checked_sub(b),
-                PrimOp::Mul => a.checked_mul(b),
+        ExprKind::Prim { op, prim, args } => {
+            let values = args
+                .iter()
+                .map(|a| constant(a, consts))
+                .collect::<Option<Vec<_>>>()?;
+            let v = match (op, values.as_slice()) {
+                (PrimOp::Neg, [a]) => a.checked_neg(),
+                (PrimOp::Add, [a, b]) => a.checked_add(*b),
+                (PrimOp::Sub, [a, b]) => a.checked_sub(*b),
+                (PrimOp::Mul, [a, b]) => a.checked_mul(*b),
                 _ => None,
             }?;
             let bits = prim.bits();
