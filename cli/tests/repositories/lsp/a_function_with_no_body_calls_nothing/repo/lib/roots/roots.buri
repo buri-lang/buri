@@ -1,9 +1,0 @@
-from "core/math" import * as math;
-
-/// The side of a square with the given area.
-export fn side(area: Float): Float {
-    math.squareRoot(area)
-}
-
-/// A function with nothing to run.
-export fn bare(x: Float): Float;
