@@ -2619,7 +2619,10 @@ test "a broadcast actor reaches every socket in the room, with no server at all"
         (second, Message.Text("hi")),
         (second, Message.Text("bye")),
     ]);
-    let _stopped = members.stop(ctx);
+    assert.equal(members.stop(ctx), .Ok(()));
+    // A room that has stopped takes no more members and cannot stop again.
+    assert.isTrue(assert.err(members.sendMessage(ctx, .Left(second))) == .Stopped);
+    assert.equal(members.stop(ctx), .Err(.Stopped));
 }
 
 test "a socket the room closed is one a later broadcast does not reach" {
@@ -3150,11 +3153,16 @@ test "a client dialled from inside an actor step is an ordinary client" {
     // the answer `sendMessage` hands back is what the socket ended with.
     let worker = actor.start(ctx, dialler());
     assert.isTrue(assert.ok(worker.sendMessage(ctx, "ws://example/socket")));
-    let _stopped = worker.stop(ctx);
+    assert.equal(worker.stop(ctx), .Ok(()));
     assert.equal(s.sent().map(alloc(), fn(one) => one.1), [
         Message.Text("hello"),
         Message.Text("one"),
     ]);
+    // A stopped worker dials nothing more, and stops only once.
+    assert.isTrue(
+        assert.err(worker.sendMessage(ctx, "ws://example/again")) == .Stopped,
+    );
+    assert.equal(worker.stop(ctx), .Err(.Stopped));
 }
 
 test "a client dialled from inside a spawned task is an ordinary client" {

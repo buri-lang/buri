@@ -723,24 +723,22 @@ fn fixChild<K: Ordered, V, C: Allocator>(
     at: Int,
     child: Node<K, V>,
 ): Node<K, V> {
-    if (child.keys.length() >= MIN_ENTRIES) {
-        placed(ctx, n, at, child)
-    } else {
-        match ((n.children.get(at - 1), n.keys.get(at - 1))) {
-            (.Some(left), .Some(separator)) => {
-                rejoin(ctx, n, at - 1, left, separator, child)
-            },
-            // Only the first child has no sibling before it, and a branch has
-            // at least two children, so the first has one after it.
-            _ => {
-                match ((n.keys.get(at), n.children.get(at + 1))) {
-                    (.Some(separator), .Some(right)) => {
-                        rejoin(ctx, n, at, child, separator, right)
-                    },
-                    _ => placed(ctx, n, at, child),
-                }
-            },
-        }
+    // A child that is not short goes back as it is. One that is joins the
+    // sibling before it, or, as the first child, the one after it: a branch has
+    // at least two children, so a short child always has one or the other.
+    let short = child.keys.length() < MIN_ENTRIES;
+    match ((short, n.children.get(at - 1), n.keys.get(at - 1))) {
+        (true, .Some(left), .Some(separator)) => {
+            rejoin(ctx, n, at - 1, left, separator, child)
+        },
+        _ => {
+            match ((short, n.keys.get(at), n.children.get(at + 1))) {
+                (true, .Some(separator), .Some(right)) => {
+                    rejoin(ctx, n, at, child, separator, right)
+                },
+                _ => placed(ctx, n, at, child),
+            }
+        },
     }
 }
 

@@ -88,7 +88,12 @@ test "mapCtx waits for a step that waits" {
     });
     assert.equal(doubled, [2, 4, 6]);
     assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
-    let _ = heard.stop(ctx).ignore();
+    assert.equal(heard.stop(ctx), .Ok(()));
+    // Once stopped, the recorder takes no more notes and cannot be stopped again.
+    assert.equal(
+        (noted(heard.sendMessage(ctx, .Saw(4))), heard.stop(ctx)),
+        (-1, .Err(.Stopped)),
+    );
 }
 
 test "mapCtx over the empty list runs no waiting step" {

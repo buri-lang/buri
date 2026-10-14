@@ -1841,6 +1841,8 @@ test "groupBy over many numbers collects the runs of each key" {
         });
     assert.equal(wrong, list.empty<Int>());
     assert.equal(g.get(5), .Some([185, 95, 5]));
+    // No number leaves 90 or more over, so no group is keyed there.
+    assert.equal((g.get(90), g.get(-1)), (.None, .None));
 }
 
 test "a set of many strings grows one insert at a time and scans by prefix" {

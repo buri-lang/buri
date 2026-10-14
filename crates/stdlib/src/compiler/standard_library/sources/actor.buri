@@ -237,6 +237,9 @@ export enum SendError {
 /// element crosses and the runtime needs no stride, no glue and no descriptor
 /// to hold a message, queue it and give it back.
 ///
+/// A block comes back holding that one element, so this module reads it with a
+/// fold rather than a `first()` whose `.None` nothing could reach.
+///
 /// The `Int` is not decoration. A `[T]` whose element occupies **no** bytes has
 /// no block at all — `list.get` answers `.None` on a null block, at any index —
 /// so an actor whose state is `()` or whose answer is `()` would hand over a
@@ -341,10 +344,10 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
                     // Answered, even where this drive could not run: the loop
                     // that held the state stepped the message first.
                     .Some(answered) => {
-                        match (answered.first()) {
-                            .None => .Err(.Stopped),
-                            .Some(carrier) => .Ok(carrier.value),
-                        }
+                        answered.fold(
+                            fn(_none: Result<R, SendError>, carrier) => .Ok(carrier.value),
+                            .Err(.Stopped),
+                        )
                     },
                     // Unanswered after a drive that ran: a `stop` discarded it.
                     .None => {
@@ -368,10 +371,12 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
             .None => .Err(.Stopped),
             .Some(held) => {
                 let _ = discarding(ctx, self);
-                match (held.first()) {
-                    .None => .Ok(()),
-                    .Some(last) => ending(ctx, self.onStop, last.value),
-                }
+                let hook = self.onStop;
+                held.foldCtx(
+                    ctx,
+                    fn(c, _none: Result<(), Stopped>, last) => ending(c, hook, last.value),
+                    .Ok(()),
+                )
             },
         }
     }
@@ -393,24 +398,32 @@ fn draining<C: Allocator + Tasks, S, M, R>(
     match (popped(ctx, address)) {
         .None => state,
         .Some(posted) => {
-            match (posted.first()) {
-                // Unreachable: the runtime hands back the one element it was
-                // posted. Answering with the state costs nothing and keeps a
-                // toolchain bug from stopping the program.
-                .None => state,
-                .Some(carrier) => {
-                    let entry = carrier.value;
-                    let slot = Reply(entry.slot);
-                    let step = address.step;
-                    let stepped = step(ctx, state, entry.message);
-                    // `.None` where the sender gave up on the answer already,
-                    // which is what a `sendMessage` that could not drive did.
-                    let _ = filling(ctx, slot, stepped.answer);
-                    draining(ctx, address, stepped.state)
-                },
-            }
+            // The address rides in the fold's accumulator: a lambda here may
+            // not capture it.
+            let (_, next) = posted.foldCtx(
+                ctx,
+                fn(c, held, carrier) => stepping(c, held, carrier.value),
+                (address, state),
+            );
+            draining(ctx, address, next)
         },
     }
+}
+
+/// The state in `held` after its address's step, with the answer put into the
+/// slot `entry` came with.
+fn stepping<C: Allocator + Tasks, S, M, R>(
+    ctx: C,
+    held: (Address<C, S, M, R>, S),
+    entry: Posted<M>,
+): (Address<C, S, M, R>, S) {
+    let (address, state) = held;
+    let step = address.step;
+    let stepped = step(ctx, state, entry.message);
+    // `.None` where the sender gave up on the answer already, which is what a
+    // `sendMessage` that could not drive did.
+    let _ = filling(ctx, Reply(entry.slot), stepped.answer);
+    (address, stepped.state)
 }
 
 /// Takes the state, runs the mailbox down, puts the state back.
@@ -429,16 +442,28 @@ fn drive<C: Allocator + Tasks, S, M, R>(
     match (taking(ctx, address)) {
         .Err(why) => .Err(why),
         .Ok(held) => {
-            match (held.first()) {
-                .None => .Err(.Stopped),
-                .Some(state) => {
-                    let ended = draining(ctx, address, state.value);
-                    let _ = statePut(ctx, address.handle, across([carried(ended)]));
-                    .Ok(())
-                },
-            }
+            // The address rides in the accumulator, as in `draining`.
+            let unput: Result<(), SendError> = .Err(.Stopped);
+            let (_, put) = held.foldCtx(
+                ctx,
+                fn(c, before, state) => putting(c, before, state.value),
+                (address, unput),
+            );
+            put
         },
     }
+}
+
+/// Runs the mailbox down from `state` and puts what that leaves back.
+fn putting<C: Allocator + Tasks, S, M, R>(
+    ctx: C,
+    before: (Address<C, S, M, R>, Result<(), SendError>),
+    state: S,
+): (Address<C, S, M, R>, Result<(), SendError>) {
+    let (address, _unput) = before;
+    let ended = draining(ctx, address, state);
+    let _ = statePut(ctx, address.handle, across([carried(ended)]));
+    (address, .Ok(()))
 }
 
 /// Pops what is left of a closed mailbox and lets it go.

@@ -1209,6 +1209,117 @@ test "a map whose keys all share one hash still works and empties cleanly" {
     assert.equal(drained.length(), 0);
 }
 
+// --- built-in keys that share a hash --------------------------------------------
+//
+// A hash is 32 bits of FNV-1a, so distinct strings, integers, floats and tuples
+// share one too. `a`, `b` and `c` below share a hash. `other` has its own,
+// but its lowest five bits are theirs, so it lands in their slot.
+
+/// Three keys of one hash join one by one, a repeat replaces, and a key of
+/// another hash sits beside them.
+fn inserted<K: Hash + Equal, V, C: Allocator>(
+    ctx: C,
+    keys: (K, K, K, K),
+    v: V,
+): Map<K, V> {
+    let (a, b, c, other) = keys;
+    assert.equal(
+        (a.hash() == b.hash(), b.hash() == c.hash(), c.hash() == other.hash()),
+        (true, true, false),
+    );
+    let two = map.empty<K, V>().insert(ctx, a, v).insert(ctx, b, v);
+    let three = two.insert(ctx, c, v).insert(ctx, b, v);
+    let four = three.insert(ctx, other, v);
+    let apart = map.empty<K, V>().insert(ctx, other, v).insert(ctx, a, v);
+    assert.equal(
+        (two.length(), three.length(), four.length(), apart.length()),
+        (2, 3, 4, 2),
+    );
+    assert.equal(apart.insert(ctx, other, v).length(), 2);
+    four
+}
+
+/// `inserted`, and then each key found where it is and missed where it isn't.
+fn found<K: Hash + Equal, V, C: Allocator>(
+    ctx: C,
+    keys: (K, K, K, K),
+    v: V,
+): Map<K, V> {
+    let (a, b, c, other) = keys;
+    let two = map.empty<K, V>().insert(ctx, a, v).insert(ctx, b, v);
+    assert.equal(
+        (two.has(a), two.has(b), two.has(c), two.has(other)),
+        (true, true, false, false),
+    );
+    let four = inserted(ctx, keys, v);
+    assert.equal(
+        (four.has(a), four.has(b), four.has(c), four.has(other)),
+        (true, true, true, true),
+    );
+    let lone = map.empty<K, V>().insert(ctx, other, v);
+    assert.equal((lone.has(a), four.entries(ctx).length()), (false, 4));
+    four
+}
+
+/// `found`, and then the keys removed one at a time until none is left. A key
+/// that is already gone removes nothing.
+fn removed<K: Hash + Equal, V, C: Allocator>(ctx: C, keys: (K, K, K, K), v: V): () {
+    let (a, b, c, other) = keys;
+    let four = found(ctx, keys, v);
+    let shared = four.remove(ctx, a);
+    let one = shared.remove(ctx, other).remove(ctx, c);
+    assert.equal(
+        (shared.length(), shared.has(other), one.length(), one.has(b), one.has(a)),
+        (3, true, 1, true, false),
+    );
+    assert.equal(one.remove(ctx, other).length(), 1);
+    assert.isTrue(one.remove(ctx, b).isEmpty());
+    let lone = map.empty<K, V>().insert(ctx, other, v);
+    assert.isTrue(lone.remove(ctx, other).isEmpty());
+}
+
+test "strings that share a hash are kept apart" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let keys = ("costarring", "liquid", "gzwg阵", "word");
+    removed(ctx, keys, ());
+    removed(ctx, keys, 1);
+    let _ = found(ctx, keys, "v");
+    let _ = found(ctx, keys, [1]);
+    let _ = found(ctx, keys, ["v"]);
+}
+
+test "integers that share a hash are kept apart" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // A large integer mixes two 32-bit words and a small one mixes one.
+    let keys = (-1175966504, 10000000000, 2870713190975804, 24);
+    removed(ctx, keys, 1);
+    let _ = found(ctx, keys, ());
+    let _ = found(ctx, keys, [1]);
+}
+
+test "floats that share a hash are kept apart" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // A whole float hashes as its integer, and any other mixes its eight bytes.
+    let keys = (3503.5, 4252598.5, 3604364228.0, 4.0);
+    let _ = found(ctx, keys, 1);
+    // A key in a slot of its own is missed without visiting theirs.
+    assert.isFalse(found(ctx, keys, "v").has(0.25));
+    let _ = inserted(ctx, keys, ());
+}
+
+test "pairs that share a hash are kept apart" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let _ = inserted(ctx, ((0, 0), (1, 16779155), (2, 33555290), (5, 31)), ());
+}
+
 // --- a large map --------------------------------------------------------------
 //
 // The size the interface's complexity promise is about. Building ten thousand

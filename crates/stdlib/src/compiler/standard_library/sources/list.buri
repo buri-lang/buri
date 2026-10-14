@@ -825,50 +825,43 @@ impl<T> [T] {
     }
 }
 
+// The binary searches below read the middle element only while the range is
+// non-empty. An empty range is the one that ends the search, and the one place
+// `get` can answer `.None` is the empty list's own range, so the two share an arm.
+
 fn searchBy<T>(xs: [T], probe: fn(T) => Order, lo: Int, hi: Int): Result<Int, Int> {
-    if (lo >= hi) {
-        .Err(lo)
-    } else {
-        let mid = lo + (hi - lo) / 2;
-        match (xs.get(mid)) {
-            .None => .Err(lo),
-            .Some(x) => {
-                match (probe(x)) {
-                    .Equal => .Ok(mid),
-                    .Less => searchBy(xs, probe, mid + 1, hi),
-                    .Greater => searchBy(xs, probe, lo, mid),
-                }
-            },
-        }
+    let mid = lo + (hi - lo) / 2;
+    match ((lo < hi, xs.get(mid))) {
+        (true, .Some(x)) => {
+            match (probe(x)) {
+                .Equal => .Ok(mid),
+                .Less => searchBy(xs, probe, mid + 1, hi),
+                .Greater => searchBy(xs, probe, lo, mid),
+            }
+        },
+        _ => .Err(lo),
     }
 }
 
 fn pointFrom<T>(xs: [T], keep: fn(T) => Bool, lo: Int, hi: Int): Int {
-    if (lo >= hi) {
-        lo
-    } else {
-        let mid = lo + (hi - lo) / 2;
-        match (xs.get(mid)) {
-            .None => lo,
-            .Some(x) => {
-                if (keep(x)) {
-                    pointFrom(xs, keep, mid + 1, hi)
-                } else {
-                    pointFrom(xs, keep, lo, mid)
-                }
-            },
-        }
+    let mid = lo + (hi - lo) / 2;
+    match ((lo < hi, xs.get(mid))) {
+        (true, .Some(x)) => {
+            if (keep(x)) {
+                pointFrom(xs, keep, mid + 1, hi)
+            } else {
+                pointFrom(xs, keep, lo, mid)
+            }
+        },
+        _ => lo,
     }
 }
 
+/// Walks down from `at`. `get(-1)` is `.None`, which is what ends the walk.
 fn lastFrom<T>(xs: [T], keep: fn(T) => Bool, at: Int): Option<Int> {
-    if (at < 0) {
-        .None
-    } else {
-        match (xs.get(at)) {
-            .None => .None,
-            .Some(x) => if (keep(x)) { .Some(at) } else { lastFrom(xs, keep, at - 1) },
-        }
+    match (xs.get(at)) {
+        .None => .None,
+        .Some(x) => if (keep(x)) { .Some(at) } else { lastFrom(xs, keep, at - 1) },
     }
 }
 
@@ -881,20 +874,16 @@ impl<T: Ordered> [T] {
 }
 
 fn searchOrd<T: Ordered>(xs: [T], needle: T, lo: Int, hi: Int): Result<Int, Int> {
-    if (lo >= hi) {
-        .Err(lo)
-    } else {
-        let mid = lo + (hi - lo) / 2;
-        match (xs.get(mid)) {
-            .None => .Err(lo),
-            .Some(x) => {
-                match (x.compare(needle)) {
-                    .Equal => .Ok(mid),
-                    .Less => searchOrd(xs, needle, mid + 1, hi),
-                    .Greater => searchOrd(xs, needle, lo, mid),
-                }
-            },
-        }
+    let mid = lo + (hi - lo) / 2;
+    match ((lo < hi, xs.get(mid))) {
+        (true, .Some(x)) => {
+            match (x.compare(needle)) {
+                .Equal => .Ok(mid),
+                .Less => searchOrd(xs, needle, mid + 1, hi),
+                .Greater => searchOrd(xs, needle, lo, mid),
+            }
+        },
+        _ => .Err(lo),
     }
 }
 
@@ -1259,16 +1248,14 @@ impl [Float] {
     export fn median<C: Allocator>(self, ctx: C): Option<Float> {
         let sorted = self.sort(ctx);
         let n = sorted.length();
-        if (n == 0) {
-            .None
+        // An empty list is even, and its two middle values are `get(-1)` and
+        // `get(0)`: both `.None`, so it answers `.None` with no case of its own.
+        if (n % 2 == 1) {
+            sorted.get(n / 2)
         } else {
-            if (n % 2 == 1) {
-                sorted.get(n / 2)
-            } else {
-                match ((sorted.get(n / 2 - 1), sorted.get(n / 2))) {
-                    (.Some(a), .Some(b)) => .Some((a + b) / 2.0),
-                    _ => .None,
-                }
+            match ((sorted.get(n / 2 - 1), sorted.get(n / 2))) {
+                (.Some(a), .Some(b)) => .Some((a + b) / 2.0),
+                _ => .None,
             }
         }
     }
