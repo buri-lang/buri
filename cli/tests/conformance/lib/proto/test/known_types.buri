@@ -11,6 +11,8 @@ from "core/proto/any" import * as any;
 from "core/proto/any" import { Any };
 from "core/proto/duration" import * as duration;
 from "core/proto/duration" import { Duration };
+from "core/proto/empty" import * as empty;
+from "core/proto/empty" import { Empty };
 from "core/proto/struct" import * as structs;
 from "core/proto/struct" import { ListValue, NullValue, Struct, Value, Value_Kind };
 from "core/proto/timestamp" import * as timestamp;
@@ -239,6 +241,26 @@ test "an Any writes its type and its bytes only when they aren't empty" {
     assert.equal(badUrl, .Err(.BadJson { path: "$.typeUrl", wanted: "a string" }));
     let badValue = readAny(ctx, "{\"value\":1}");
     assert.equal(badValue, .Err(.BadJson { path: "$.value", wanted: "base64" }));
+}
+
+test "an Empty writes nothing, skips any field it is sent, and is only an object" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    wire(
+        ctx,
+        Empty {},
+        Empty {},
+        empty.sizeEmpty,
+        empty.encodeEmpty,
+        empty.decodeEmpty,
+        [],
+    );
+    assert.equal(
+        empty.decodeEmptyJson(ctx, assert.ok(json.parse(ctx, "{\"a\":1}"))),
+        .Ok(Empty {}),
+    );
+    refused(ctx, empty.decodeEmptyJson, "[]", "an object");
 }
 
 fn readAny<C: Allocator>(ctx: C, doc: Str): Result<Any, ProtoError> {

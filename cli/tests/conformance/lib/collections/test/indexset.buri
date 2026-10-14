@@ -15,6 +15,7 @@ from "core/tasks" import * as tasks;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator, Tasks };
 from "platform/effect/testing" import { alloc, tasks };
+from "//lib/variants" import * as variants;
 
 derive Index, Equal, Hash, Show, ToJson, FromJson for Slot;
 struct Slot(U32);
@@ -205,6 +206,15 @@ test "removeBelow drops every member below its argument" {
     assert.equal(slots(ctx, [200]).removeBelow(ctx, Slot(3)), slots(ctx, [200]));
 }
 
+test "removeBelow in an empty word equals the set built without what it dropped" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s = slots(ctx, [3, 250]).removeBelow(ctx, Slot(100));
+    assert.equal(s, slots(ctx, [250]));
+    assert.equal(s.hash(), slots(ctx, [250]).hash());
+}
+
 test "a window that moves keeps only what it covers" {
     let ctx = context {
         Allocator: alloc(),
@@ -372,6 +382,100 @@ test "firstMissingFrom answers None when every position up to the top is held" {
     let rows = indexSet.of(ctx, [Row(65534), Row(65535)]);
     assert.equal(rows.firstMissingFrom(Row(65534)), .None);
     assert.equal(rows.firstMissingFrom(Row(65533)), .Some(Row(65533)));
+    assert.equal(indexSet.of(ctx, [Row(63)]).firstMissingFrom(Row(63)), .Some(Row(64)));
+}
+
+// --- every kind of member ------------------------------------------------------
+
+/// What the `Slot` tests check, for members `a`, `b` and `c` of any kind. Each
+/// sits in its own word, with an empty word between `b` and `c`. `next` is the
+/// member after `b`.
+fn behaves<K: Index + Equal + Show, C: Allocator>(
+    ctx: C,
+    a: K,
+    b: K,
+    next: K,
+    c: K,
+): () {
+    let none = indexSet.empty<K>();
+    let one = indexSet.of(ctx, [b]);
+    let all = one.insert(ctx, c).insert(ctx, a);
+    assert.isTrue(all == indexSet.of(ctx, [a, b, c]));
+    assert.isTrue(all.insert(ctx, b) == all);
+    assert.isFalse(all == one || all == indexSet.of(ctx, [a, c]));
+    assert.isTrue(all.has(b) && !one.has(a));
+    assert.equal(all.count(), 3);
+    assert.equal(all.toList(ctx).length(), 3);
+    assert.equal(all.fold(fn(n, m) => n + 1, 0), 3);
+    assert.equal(all.first(), .Some(a));
+    assert.equal(all.last(), .Some(c));
+    assert.equal(none.first(), .None);
+    assert.equal(none.last(), .None);
+    assert.equal(none.toList(ctx).length(), 0);
+
+    assert.isTrue(one.remove(ctx, a) == one);
+    assert.isTrue(one.remove(ctx, b) == none);
+    assert.isTrue(all.remove(ctx, b) == indexSet.of(ctx, [a, c]));
+    assert.isTrue(all.remove(ctx, b).remove(ctx, b) == indexSet.of(ctx, [a, c]));
+    assert.isTrue(all.remove(ctx, a) == indexSet.of(ctx, [b, c]));
+    assert.isTrue(all.remove(ctx, c) == indexSet.of(ctx, [a, b]));
+    let pair = indexSet.of(ctx, [b, next]);
+    assert.isTrue(pair.remove(ctx, b) == indexSet.of(ctx, [next]));
+    assert.equal(one.firstMissingFrom(b), .Some(next));
+    assert.equal(pair.firstMissingFrom(a), .Some(a));
+
+    assert.isTrue(all.removeBelow(ctx, a) == all);
+    assert.isTrue(one.removeBelow(ctx, a) == one);
+    assert.isTrue(one.removeBelow(ctx, c) == none);
+    assert.isTrue(all.removeBelow(ctx, b) == indexSet.of(ctx, [b, c]));
+    assert.isTrue(pair.removeBelow(ctx, next) == indexSet.of(ctx, [next]));
+    assert.isTrue(
+        indexSet.of(ctx, [a, c]).removeBelow(ctx, b) == indexSet.of(ctx, [c]),
+    );
+
+    let low = indexSet.of(ctx, [a]);
+    let high = indexSet.of(ctx, [c]);
+    assert.isTrue(none.union(ctx, all) == all);
+    assert.isTrue(all.union(ctx, none) == all);
+    assert.isTrue(low.union(ctx, high) == indexSet.of(ctx, [a, c]));
+    assert.isTrue(high.union(ctx, low) == indexSet.of(ctx, [a, c]));
+    assert.isTrue(all.intersect(ctx, one) == one);
+    assert.isTrue(one.intersect(ctx, all) == one);
+    assert.isTrue(low.intersect(ctx, high) == none);
+    assert.isTrue(all.difference(ctx, indexSet.of(ctx, [a, c])) == one);
+    assert.isTrue(all.difference(ctx, all) == none);
+
+    assert.isTrue(none.isSubsetOf(one) && one.isSubsetOf(all));
+    assert.isFalse(low.isSubsetOf(one));
+    assert.isFalse(indexSet.of(ctx, [b, c]).isSubsetOf(one));
+    assert.isFalse(all.isSubsetOf(indexSet.of(ctx, [a, c])));
+}
+
+test "every operation, on each kind of member" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    behaves(ctx, Octet(3), Octet(100), Octet(101), Octet(250));
+    behaves(ctx, Row(3), Row(100), Row(101), Row(1000));
+    behaves(ctx, Seq(TOP - 300), Seq(TOP - 200), Seq(TOP - 199), Seq(TOP));
+    behaves(ctx, Slot(3), Slot(100), Slot(101), Slot(300));
+    let tagged: Tagged<Str> = Tagged(3);
+    behaves(ctx, tagged, Tagged(100), Tagged(101), Tagged(300));
+}
+
+test "firstMissingFrom answers None at the top of U32" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let max: U32 = 4294967295;
+    let slots = indexSet.of(ctx, [Slot(max)]);
+    assert.equal(slots.firstMissingFrom(Slot(max)), .None);
+    assert.equal(slots.firstMissingFrom(Slot(max - 1)), .Some(Slot(max - 1)));
+    let tagged: IndexSet<Tagged<Str>> = indexSet.of(ctx, [Tagged(max)]);
+    assert.equal(tagged.firstMissingFrom(Tagged(max)), .None);
+    assert.equal(tagged.firstMissingFrom(Tagged(5)), .Some(Tagged(5)));
+    let low: IndexSet<Tagged<Str>> = indexSet.of(ctx, [Tagged(63)]);
+    assert.equal(low.firstMissingFrom(Tagged(63)), .Some(Tagged(64)));
 }
 
 // --- U64 members near 2^64 --------------------------------------------------------
@@ -391,6 +495,7 @@ test "members at the top of U64" {
     assert.isFalse(top.has(Seq(TOP - 2)));
     assert.isFalse(top.has(Seq(0)));
     assert.equal(top.first(), .Some(Seq(TOP - 200)));
+    assert.isTrue(indexSet.range(ctx, Seq(TOP), Seq(TOP - 1)).isEmpty());
     assert.equal(top.last(), .Some(Seq(TOP)));
     assert.equal(top.firstMissingFrom(Seq(TOP - 1)), .None);
     assert.equal(top.firstMissingFrom(Seq(TOP - 64)), .Some(Seq(TOP - 63)));
@@ -493,6 +598,11 @@ test "toJson is the members' list, and fromJson reads it back" {
         json.encode(ctx, top),
     );
     assert.equal(again, .Ok(top));
+    let backwards: Result<IndexSet<Seq>, DecodeError> = json.decode(
+        ctx,
+        doc(ctx, "[[4096],[0],[4096],[9000],[5]]"),
+    );
+    assert.equal(backwards, .Ok(top.insert(ctx, Seq(9000)).insert(ctx, Seq(5))));
 }
 
 test "fromJson takes members in any order, and repeated" {
@@ -589,4 +699,13 @@ test "captured by a closure and answered by a task" {
     });
     assert.equal(counts, [2, 3]);
     assert.equal(tasks.scope(ctx, fn(c, here) => slots(c, [5])), slots(ctx, [5]));
+}
+
+test "a member, in an option, equals itself and not None" {
+    assert.isTrue(variants.optionsCompare(Octet(1)));
+    assert.isTrue(variants.optionsCompare(Row(1)));
+    assert.isTrue(variants.optionsCompare(Seq(1)));
+    assert.isTrue(variants.optionsCompare(Slot(1)));
+    let tagged: Tagged<Str> = Tagged(1);
+    assert.isTrue(variants.optionsCompare(tagged));
 }

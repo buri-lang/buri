@@ -1681,6 +1681,41 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// **An `Option` inside an `Option` hashes the same number on every backend.**
+/// Native hashed `.Some(.None)` as `.None`, so the two collided and the number
+/// was not JavaScript's. In order: `.None`, `.Some(.None)`, `.Some(.Some(.None))`,
+/// `.Some(.Some(1))`, and a derived struct holding `.Some(.None)`.
+#[test]
+fn nested_options_hash_alike() {
+    rows_or_skip!();
+    agree(
+        "nested option hash",
+        r#"
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+export struct Boxed { inner: Option<Option<Int>> }
+derive Hash for Boxed;
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let none: Option<Option<Int>> = .None;
+  let someNone: Option<Option<Int>> = .Some(.None);
+  let deep: Option<Option<Option<Int>>> = .Some(.Some(.None));
+  let one: Option<Option<Int>> = .Some(.Some(1));
+  let boxed = Boxed { inner: .Some(.None) };
+  let a = none.hash();
+  let b = someNone.hash();
+  let c = deep.hash();
+  let d = one.hash();
+  let e = boxed.hash();
+  let _ = io.println(host.stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
+  .Ok(())
+}
+"#,
+        "84696351 67918732 118251589 67918732 3967033079\n",
+    );
+}
+
 /// **Every bit of a wide integer reaches its hash, and every backend answers
 /// the same number** (buri-lang/buri#273). Only the low 32 bits were mixed, so
 /// `2^32` hashed as `0` and a `Map` of keys that differ only above bit 32 kept

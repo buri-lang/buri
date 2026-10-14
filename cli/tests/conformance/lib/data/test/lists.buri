@@ -11,6 +11,7 @@ from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
+from "//lib/variants" import * as variants;
 
 // --- length / isEmpty ------------------------------------------------------------
 
@@ -2869,4 +2870,10 @@ test "rangeBy with a step of zero is empty in either direction and at either bou
     assert.equal(list.rangeBy(ctx, 0, 1, -1), []);
     assert.equal(list.rangeBy(ctx, 1, 1, -1), []);
     assert.equal(list.rangeBy(ctx, 1, 0, -1), [1]);
+}
+
+test "a fold's accumulator, in a result, equals itself and not a failure" {
+    let out = Out { pieces: [1], at: 0 };
+    assert.isTrue(variants.resultsCompare(out, "no"));
+    assert.isTrue(variants.resultsCompare(Nest { out: out, n: 1 }, "no"));
 }

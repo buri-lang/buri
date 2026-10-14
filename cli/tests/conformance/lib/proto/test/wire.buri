@@ -8,6 +8,7 @@
 from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
 from "core/list" import * as list;
+from "core/proto" import { ProtoError };
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
@@ -15,6 +16,7 @@ from "//lib/proto" import {
     decodeItem, decodePage, decodeVarints, defaultItem, defaultPage, defaultVarints,
     encodeItem, encodePage, encodeVarints, Item, Page, Tag, Varints,
 };
+from "//lib/variants" import * as variants;
 
 fn raw<C: Allocator>(ctx: C, text: Str): [U8] {
     match (bytes.fromHex(ctx, text)) {
@@ -319,4 +321,11 @@ test "a packed field that ends mid-varint is truncated at the offset in its body
         decodeVarints(ctx, raw(ctx, "3a0401000000ffffffff")),
         .Err(.Truncated(0)),
     );
+}
+
+test "each message, in a decoding's result, equals itself and not a failure" {
+    let bad: ProtoError = .Truncated(1);
+    assert.isTrue(variants.resultsCompare(defaultItem(), bad));
+    assert.isTrue(variants.resultsCompare(defaultPage(), bad));
+    assert.isTrue(variants.resultsCompare(defaultVarints(), bad));
 }

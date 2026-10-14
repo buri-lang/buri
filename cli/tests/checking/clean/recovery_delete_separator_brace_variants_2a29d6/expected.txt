@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-semicolon]
+  --> main.buri:18:37
+   |
+18 |     let good: Result<T, E> = .Ok(ok)
+   |                                     ^
+   |
+   = fix: write `;` here

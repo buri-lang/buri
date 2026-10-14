@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:10:34
+   |
+10 |     let some: Option<T> = .Some(x;
+   |                                  ^
+   |
+  --> main.buri:10:32
+   |
+10 |     let some: Option<T> = .Some(x;
+   |                                ^ opened here
+   |
+   = fix: write `)` here

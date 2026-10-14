@@ -1,0 +1,12 @@
+error: this type argument list is missing its closing `>` [unclosed-delimiter]
+  --> main.buri:11:23
+   |
+11 |     let none: Option<T@ > = .None;
+   |                       ^
+   |
+  --> main.buri:11:21
+   |
+11 |     let none: Option<T@ > = .None;
+   |                     ^ opened here
+   |
+   = fix: write `>` here

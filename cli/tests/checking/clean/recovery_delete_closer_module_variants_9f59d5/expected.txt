@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:17:1
+   |
+17 | export fn resultsCompare<T: Equal, E: Equal>(ok: T, err: E): Bool {
+   | ^^^^^^
+   |
+ --> main.buri:9:48
+  |
+9 | export fn optionsCompare<T: Equal>(x: T): Bool {
+  |                                                ^ opened here
+  |
+  = fix: write `}` here

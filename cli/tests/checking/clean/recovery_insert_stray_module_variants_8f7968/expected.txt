@@ -1,0 +1,9 @@
+error: expected `(`, found `?` [unexpected-token]
+  --> main.buri:17:45
+   |
+17 | export fn resultsCompare<T: Equal, E: Equal>? (ok: T, err: E): Bool {
+   |                                             ^
+   |
+   = expected: `(`
+   = actual: `?`
+   = fix: write `(` here

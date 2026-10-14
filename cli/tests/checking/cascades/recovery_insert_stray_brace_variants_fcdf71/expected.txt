@@ -1,0 +1,16 @@
+error: there is no type `extra` [unknown-type]
+  --> main.buri:10:15
+   |
+10 |     let some: extra Option<T> = .Some(x);
+   |               ^^^^^
+   |
+   = fix: declare it, import it, or correct the spelling
+error: expected `=`, found `Option` [unexpected-token]
+  --> main.buri:10:21
+   |
+10 |     let some: extra Option<T> = .Some(x);
+   |                     ^^^^^^
+   |
+   = expected: `=`
+   = actual: `Option`
+   = fix: write `=` here
