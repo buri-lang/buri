@@ -1436,9 +1436,9 @@ fn reads_ident(e: &Expr, name: &str) -> bool {
         Expr::Object(fs) => fs.iter().any(|(_, v)| reads_ident(v, name)),
         Expr::Member { obj, .. } => reads_ident(obj, name),
         Expr::Index { obj, index } => reads_ident(obj, name) || reads_ident(index, name),
-        Expr::Call { callee, args } => {
-            reads_ident(callee, name) || args.iter().any(|a| reads_ident(a, name))
-        }
+        Expr::Call { callee, args } => std::iter::once(&**callee)
+            .chain(args)
+            .any(|a| reads_ident(a, name)),
         Expr::Unary { operand, .. } => reads_ident(operand, name),
         Expr::Binary { lhs, rhs, .. } => reads_ident(lhs, name) || reads_ident(rhs, name),
         Expr::Cond { test, cons, alt } => {

@@ -1426,11 +1426,12 @@ impl FnLower<'_> {
         };
         let mut release = Vec::new();
         for (i, a) in args.iter().enumerate() {
+            if !self.counts.counted(&a.ty) {
+                continue;
+            }
             match (owns(i), a.owned) {
-                (Ownership::Own, false) if self.counts.counted(&a.ty) => {
-                    self.push(Inst::IncRef { value: a.value });
-                }
-                (Ownership::Borrow, true) if self.counts.counted(&a.ty) => release.push(a.value),
+                (Ownership::Own, false) => self.push(Inst::IncRef { value: a.value }),
+                (Ownership::Borrow, true) => release.push(a.value),
                 _ => {}
             }
         }
