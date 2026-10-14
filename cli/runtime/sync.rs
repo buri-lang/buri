@@ -92,13 +92,13 @@ mod reported {
             HELD.fetch_sub(1, SeqCst);
             return false;
         }
-        HELD_HERE.set(HELD_HERE.get() + 1);
+        HELD_HERE.set(HELD_HERE.get().saturating_add(1));
         true
     }
 
     #[inline(never)]
     fn leave() {
-        HELD_HERE.set(HELD_HERE.get() - 1);
+        HELD_HERE.set(HELD_HERE.get().saturating_sub(1));
         HELD.fetch_sub(1, SeqCst);
     }
 
@@ -277,16 +277,67 @@ mod reported {
     }
 }
 
+/// Set as a thread is about to block on I/O that may never end, so a test
+/// knows when to exit under it.
 #[cfg(all(test, feature = "valgrind"))]
-mod tests {
+pub(crate) static BLOCKING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(test)]
+#[cfg(feature = "valgrind")]
+pub(crate) mod tests {
     use super::Mutex;
+    use std::sync::atomic::Ordering::SeqCst;
+
+    /// Whether this process is the copy [`exit_of`] started.
+    pub(crate) fn in_the_child() -> bool {
+        std::env::var_os("BURI_RT_TEST_ABORT_CHILD").is_some()
+    }
+
+    /// Waits for another thread to block on I/O, then aborts.
+    pub(crate) fn abort_once_blocked() -> ! {
+        while !super::BLOCKING.load(SeqCst) {
+            std::thread::yield_now();
+        }
+        crate::abort::die(&[b"stopped"])
+    }
+
+    /// The exit code and standard error of this test binary running the test
+    /// `name` alone as [`in_the_child`], whose input never ends and whose
+    /// output is never read. A child still running after 30 seconds hung.
+    pub(crate) fn exit_of(name: &str) -> (Option<i32>, String) {
+        use std::io::Read as _;
+        use std::process::{Command, Stdio};
+        let mut child = Command::new(std::env::current_exe().expect("this test binary"))
+            .args(["--exact", name, "--test-threads=1", "--nocapture"])
+            .env("BURI_RT_TEST_ABORT_CHILD", "1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the test binary runs");
+        let (_input, _output) = (child.stdin.take(), child.stdout.take());
+        let mut stderr = child.stderr.take().expect("a piped stderr");
+        let (done, read) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = stderr.read_to_string(&mut text);
+            let _ = done.send(text);
+        });
+        let Ok(text) = read.recv_timeout(std::time::Duration::from_secs(30)) else {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("the child never exited");
+        };
+        (child.wait().expect("the child exits").code(), text)
+    }
 
     /// **An abort waits for a lock another thread holds**, so the exit never
     /// kills a thread inside a critical section, which helgrind reports as
     /// "Exiting thread still holds 1 lock" (#311).
     #[test]
     fn an_abort_waits_for_a_lock_another_thread_holds() {
-        if std::env::var_os("BURI_RT_TEST_ABORT_CHILD").is_some() {
+        if in_the_child() {
             static HELD: Mutex<()> = Mutex::new(());
             let (ready, wait) = std::sync::mpsc::channel();
             std::thread::spawn(move || {
@@ -301,17 +352,57 @@ mod tests {
             wait.recv().unwrap();
             crate::abort::die(&[b"stopped"]);
         }
-        let name = "sync::tests::an_abort_waits_for_a_lock_another_thread_holds";
-        let out = std::process::Command::new(std::env::current_exe().expect("this test binary"))
-            .args(["--exact", name, "--test-threads=1", "--nocapture"])
-            .env("BURI_RT_TEST_ABORT_CHILD", "1")
-            .output()
-            .expect("the test binary runs");
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert_eq!(out.status.code(), Some(1), "{stderr}");
+        let (code, stderr) = exit_of("sync::tests::an_abort_waits_for_a_lock_another_thread_holds");
+        assert_eq!(code, Some(1), "{stderr}");
         assert!(
             stderr.contains("stopped\nreleased\n"),
             "the abort didn't wait for the lock:\n{stderr}"
         );
+    }
+
+    /// **An abort ends a program another thread of which waits for input**
+    /// that never comes.
+    #[test]
+    fn an_abort_ends_a_read_of_input_that_never_ends() {
+        if in_the_child() {
+            std::thread::spawn(|| {
+                let mut line = crate::value::BuriStr::empty();
+                // SAFETY: a live, aligned destination.
+                unsafe { crate::host::buri_rt_host_stdin_read_line(&raw mut line) };
+            });
+            abort_once_blocked();
+        }
+        let (code, stderr) = exit_of("sync::tests::an_abort_ends_a_read_of_input_that_never_ends");
+        assert_eq!(code, Some(1), "{stderr}");
+        assert!(stderr.contains("stopped\n"), "{stderr}");
+    }
+
+    /// **An exit ends a program another thread of which writes to output
+    /// nobody reads.** This exit skips the flush an abort does first, which
+    /// would wait its turn behind that write: the writer started after it.
+    #[test]
+    fn an_exit_ends_a_write_nobody_reads() {
+        if in_the_child() {
+            std::thread::spawn(|| {
+                let text = vec![b'x'; 1 << 20];
+                // SAFETY: a live view of `text`.
+                unsafe {
+                    crate::host::buri_rt_host_stdout_print(
+                        std::ptr::null_mut(),
+                        text.as_ptr(),
+                        text.len() as u64,
+                    )
+                };
+            });
+            while !super::BLOCKING.load(SeqCst) {
+                std::thread::yield_now();
+            }
+            eprintln!("stopped");
+            super::close();
+            std::process::exit(1);
+        }
+        let (code, stderr) = exit_of("sync::tests::an_exit_ends_a_write_nobody_reads");
+        assert_eq!(code, Some(1), "{stderr}");
+        assert!(stderr.contains("stopped\n"), "{stderr}");
     }
 }

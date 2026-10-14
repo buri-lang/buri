@@ -4010,16 +4010,15 @@ static HANDED: Mutex<Option<i64>> = Mutex::new(None);
 /// order too, so a handed block is never behind the one being entered: the
 /// blocks before it are skipped until it is reached.
 fn handed_this(index: i64) -> bool {
-    let mut handed = match HANDED.lock() {
-        Ok(g) => g,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    loop {
-        match *handed {
-            Some(at) if at >= index => break,
-            _ => *handed = Some(ask_for_a_block()),
-        }
+    // Askers queue on the input's own lock rather than on `HANDED`, which an
+    // exit would wait on across a reply that may never come.
+    let stdin = std::io::stdin();
+    let mut input = stdin.lock();
+    while !matches!(*handed(), Some(at) if at >= index) {
+        let next = ask_for_a_block(&mut input);
+        *handed() = Some(next);
     }
+    let mut handed = handed();
     if *handed == Some(index) {
         *handed = None;
         return true;
@@ -4027,10 +4026,18 @@ fn handed_this(index: i64) -> bool {
     false
 }
 
+/// Lock, recovering from poisoning, for the reason [`lock`] gives.
+fn handed() -> crate::sync::MutexGuard<'static, Option<i64>> {
+    match HANDED.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 /// Asks the runner for the next block: one line on standard output, and the
 /// block's index as one line on standard input. An empty or closed input, or
 /// anything that is not a number, means there is nothing left to run.
-fn ask_for_a_block() -> i64 {
+fn ask_for_a_block(input: &mut std::io::StdinLock<'_>) -> i64 {
     use std::io::{BufRead as _, Write as _};
     {
         let stream = std::io::stdout();
@@ -4039,7 +4046,9 @@ fn ask_for_a_block() -> i64 {
         let _ = stream.flush();
     }
     let mut line = String::new();
-    match std::io::stdin().lock().read_line(&mut line) {
+    #[cfg(all(test, feature = "valgrind"))]
+    crate::sync::BLOCKING.store(true, std::sync::atomic::Ordering::SeqCst);
+    match input.read_line(&mut line) {
         Ok(n) if n > 0 => line.trim().parse().unwrap_or(i64::MAX),
         _ => i64::MAX,
     }
@@ -5173,6 +5182,21 @@ pub unsafe extern "C" fn buri_rt_platforms_testing_state_state_put(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **An abort ends a test binary another thread of which waits for the
+    /// runner to hand it a block.**
+    #[cfg(feature = "valgrind")]
+    #[test]
+    fn an_abort_ends_a_wait_for_the_runner() {
+        use crate::sync::tests::{abort_once_blocked, exit_of, in_the_child};
+        if in_the_child() {
+            std::thread::spawn(|| handed_this(0));
+            abort_once_blocked();
+        }
+        let (code, stderr) = exit_of("testing::tests::an_abort_ends_a_wait_for_the_runner");
+        assert_eq!(code, Some(1), "{stderr}");
+        assert!(stderr.contains("stopped\n"), "{stderr}");
+    }
 
     #[test]
     fn two_read_lines_then_end_of_input() {
