@@ -237,21 +237,27 @@ fn ignore_sigpipe() {
 /// themselves.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_flush() {
-    let mut out = lock(&OUT);
-    if !out.is_empty() {
-        let stream = std::io::stdout();
-        let mut stream = stream.lock();
-        note(stream.write_all(&out).and_then(|()| stream.flush()));
-        out.clear();
-    }
-    drop(out);
+    write_out(&OUT, &mut std::io::stdout().lock());
+    write_out(&ERR, &mut std::io::stderr().lock());
+}
 
-    let mut err = lock(&ERR);
-    if !err.is_empty() {
-        let stream = std::io::stderr();
-        let mut stream = stream.lock();
-        note(stream.write_all(&err).and_then(|()| stream.flush()));
-        err.clear();
+/// Write `buffer` through to `stream`. Taking the stream's lock first keeps
+/// two flushes' bytes in order, and the buffer goes unheld across a write that
+/// may never end on a pipe nobody reads, which an exit would wait on
+/// (`sync::close`).
+fn write_out(buffer: &Mutex<Vec<u8>>, stream: &mut impl Write) {
+    let mut bytes = std::mem::take(&mut *lock(buffer));
+    if bytes.is_empty() {
+        return;
+    }
+    #[cfg(all(test, feature = "valgrind"))]
+    crate::sync::BLOCKING.store(true, std::sync::atomic::Ordering::SeqCst);
+    note(stream.write_all(&bytes).and_then(|()| stream.flush()));
+    bytes.clear();
+    // Hands the allocation back, unless a print has since made another.
+    let mut kept = lock(buffer);
+    if kept.is_empty() {
+        *kept = bytes;
     }
 }
 
@@ -428,21 +434,32 @@ pub unsafe extern "C" fn buri_rt_host_stdin_read_line(out: *mut BuriStr) -> i32 
     // [`about_to_block`]'s rule: a prompt is printed before the answer to it is
     // waited for, which is the whole of what a prompt is.
     about_to_block();
-    let mut state = lock(&STDIN_LINES);
-    let (lines, at) = state.get_or_insert_with(|| {
-        let mut raw = Vec::new();
-        let _ = std::io::stdin().lock().read_to_end(&mut raw);
-        let text = String::from_utf8_lossy(&raw);
-        let mut lines: Vec<String> = if text.is_empty() {
-            Vec::new()
-        } else {
-            text.split('\n').map(str::to_string).collect()
-        };
-        if lines.last().is_some_and(String::is_empty) {
-            lines.pop();
+    if lock(&STDIN_LINES).is_none() {
+        // Readers queue on the input's own lock rather than on `STDIN_LINES`,
+        // which an exit would wait on across a read that may never end.
+        let stdin = std::io::stdin();
+        let mut input = stdin.lock();
+        if lock(&STDIN_LINES).is_none() {
+            let mut raw = Vec::new();
+            #[cfg(all(test, feature = "valgrind"))]
+            crate::sync::BLOCKING.store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = input.read_to_end(&mut raw);
+            let text = String::from_utf8_lossy(&raw);
+            let mut lines: Vec<String> = if text.is_empty() {
+                Vec::new()
+            } else {
+                text.split('\n').map(str::to_string).collect()
+            };
+            if lines.last().is_some_and(String::is_empty) {
+                lines.pop();
+            }
+            *lock(&STDIN_LINES) = Some((lines, 0));
         }
-        (lines, 0)
-    });
+    }
+    let mut state = lock(&STDIN_LINES);
+    let Some((lines, at)) = state.as_mut() else {
+        return 0;
+    };
     let Some(line) = lines.get(*at) else { return 0 };
     *at = at.saturating_add(1);
     let value = str_of(line);
