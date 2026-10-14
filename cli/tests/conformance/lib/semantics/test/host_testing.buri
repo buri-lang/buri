@@ -22,7 +22,7 @@ from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
-from "core/net/server" import { Message, Socket };
+from "core/net/server" import { CloseReason, Message, Socket };
 from "core/net/websocket" import * as websocket;
 from "core/net/websocket" import { Client };
 from "core/path" import * as path;
@@ -2766,6 +2766,41 @@ test "connect reports the reason the program closed the socket with" {
     // The socket closed before the script was read, so `onMessage` never ran
     // and nothing was pushed: the state stays at what `onOpen` answered.
     assert.equal(s.sent(), []);
+}
+
+/// The reason `connect` reports when the program closes with `reason`.
+fn closedWith(reason: CloseReason): CloseReason {
+    let s = sockets();
+    let ctx = context {
+        Sockets: s,
+        WebSocketClient: s.dialling([.Text("one")]),
+    };
+    let ended = websocket.connect(ctx, Client {
+        url: "ws://example/socket",
+        onOpen: fn(c, socket, _response) => {
+            let _closed = socket.close(c, reason);
+            0
+        },
+        onMessage: fn(_c, _socket, seen, _message) => seen + 1,
+        onClose: fn(_c, _socket, seen, _reason) => seen,
+    });
+    match (ended) {
+        .Ok((back, _)) => back,
+        .Err(_) => .Abnormal,
+    }
+}
+
+test "every reason a program closes with is read back as the code it sends" {
+    assert.equal(closedWith(.Normal), .Normal);
+    assert.equal(closedWith(.ProtocolError), .ProtocolError);
+    assert.equal(closedWith(.Unsupported), .Unsupported);
+    assert.equal(closedWith(.Policy), .Policy);
+    assert.equal(closedWith(.TooLarge), .TooLarge);
+    assert.equal(closedWith(.InternalError), .InternalError);
+    // `.Overflow` and `.Abnormal` are how a socket ended, not words one end
+    // sends. Both go out as 1011, so the far side reads an internal error.
+    assert.equal(closedWith(.Overflow), .InternalError);
+    assert.equal(closedWith(.Abnormal), .InternalError);
 }
 
 /// A client that greets and then hangs up with `.GoingAway` every session, so a

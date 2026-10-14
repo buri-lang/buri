@@ -1,12 +1,21 @@
 // core/option and core/result — SPEC 5.7 (the prelude enums), 5.7.1
 // (`Result` is must-use), 6.8 (`?`).
 
+from "core/bigint" import * as bigint;
+from "core/bytes" import { DecodeError, Utf8Error };
+from "core/decimal" import * as decimal;
+from "core/decimal" import { Decimal };
 from "core/io" import * as io;
+from "core/json" import { Json, JsonError };
 from "core/list" import * as list;
+from "core/number" import { RangeError };
 from "core/option" import * as option;
+from "core/path" import * as path;
+from "core/path" import { Path };
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator, Stdin };
+from "core/uuid" import * as uuid;
+from "platform/effect" import { Allocator, IoError, Stdin };
 from "platform/effect/testing" import { alloc, stdin };
 
 // --- helpers ------------------------------------------------------------------
@@ -1045,4 +1054,147 @@ test "errToOption and toOption are the two halves of the same Result" {
     // Exactly one half of each is there.
     assert.isFalse(ok.toOption().isSome() == ok.errToOption().isSome());
     assert.isFalse(bad.toOption().isSome() == bad.errToOption().isSome());
+}
+
+/// `Some(value)` and `None` of one type: each equal to itself and never to the
+/// other, in either order.
+fn bothVariants<T: Equal>(value: T): () {
+    let some: Option<T> = .Some(value);
+    let none: Option<T> = .None;
+    assert.isFalse(some == none);
+    assert.isFalse(none == some);
+    assert.isTrue(none == none);
+    assert.isTrue(some == some);
+}
+
+test "a Some is never equal to a None, whatever it holds" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let i8: I8 = 1;
+    let i16: I16 = 1;
+    let i32: I32 = 1;
+    let i128: I128 = 1;
+    let u8: U8 = 1;
+    let u16: U16 = 1;
+    let u32: U32 = 1;
+    let u64: U64 = 1;
+    let u128: U128 = 1;
+    bothVariants(i8);
+    bothVariants(i16);
+    bothVariants(i32);
+    bothVariants(i128);
+    bothVariants(u8);
+    bothVariants(u16);
+    bothVariants(u32);
+    bothVariants(u64);
+    bothVariants(u128);
+    bothVariants(true);
+    bothVariants('a');
+    bothVariants("a");
+    bothVariants(1.5);
+    let ints: [Int] = [1];
+    let words: [Str] = ["a"];
+    let octets: [U8] = [1];
+    bothVariants(ints);
+    bothVariants(words);
+    bothVariants(octets);
+    let inner: Option<Int> = .Some(1);
+    bothVariants(inner);
+    bothVariants((1, 2));
+    bothVariants(("a", 1));
+    bothVariants(("a", "b"));
+    bothVariants((bigint.of(1), bigint.of(2)));
+    bothVariants(bigint.of(1));
+    bothVariants(decimal.of(15, 1));
+    bothVariants(path.of(ctx, "a/b"));
+    bothVariants(uuid.zero());
+    let doc: Json = .Num(1.0);
+    bothVariants(doc);
+    let fields: [(Str, Json)] = [("a", .Null)];
+    bothVariants(fields);
+}
+
+test "each question about an Option answers for both variants of every type" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let flag: Option<Bool> = .Some(true);
+    let doc: Option<Json> = .Some(.Null);
+    let docs: Option<[Json]> = .Some([.Null]);
+    let nested: Option<Option<Int>> = .Some(.None);
+    let file: Option<Path> = .Some(path.of(ctx, "a"));
+    let ints: Option<[Int]> = .Some([1]);
+    let words: Option<[Str]> = .Some(["a"]);
+    let octets: Option<[U8]> = .Some([1]);
+    let pair: Option<(Int, Int)> = .Some((1, 2));
+    let tagged: Option<(Int, Str)> = .Some((1, "a"));
+    let keyed: Option<(Str, Int)> = .Some(("a", 1));
+    assert.isFalse(flag.isNone());
+    assert.isFalse(doc.isNone());
+    assert.isFalse(docs.isNone());
+    assert.isFalse(nested.isNone());
+    assert.isFalse(file.isNone());
+    assert.isFalse(ints.isNone());
+    assert.isFalse(words.isNone());
+    assert.isFalse(octets.isNone());
+    assert.isFalse(pair.isNone());
+    assert.isFalse(tagged.isNone());
+    assert.isFalse(keyed.isNone());
+    let float: Option<Float> = .None;
+    let money: Option<Decimal> = .None;
+    assert.isFalse(float.isSome());
+    assert.isFalse(money.isSome());
+    // `map`, `andThen` and `or` hand a `None` straight back.
+    let count: Option<Int> = .None;
+    let text: Option<Str> = .None;
+    let letter: Option<Char> = .None;
+    let absentDoc: Option<Json> = .None;
+    assert.equal(count.map(fn(n) => n > 0), .None);
+    assert.equal(float.map(fn(x) => x > 0.0), .None);
+    assert.equal(text.andThen(fn(s) => s.toInt()), .None);
+    assert.equal(letter.andThen(fn(c) => .Some(c.utf8Length())), .None);
+    assert.equal(count.andThen(fn(_n) => .Some(())), .None);
+    assert.equal(absentDoc.andThen(fn(_d) => .Some("a")), .None);
+    assert.equal(text.or(.Some("b")), .Some("b"));
+    let unit: Option<()> = .Some(());
+    assert.equal(unit.or(.None), .Some(()));
+    let deep: Option<Option<Option<Int>>> = .None;
+    assert.equal(option.flatten(deep), .None);
+    let absentPair: Option<(Int, Int)> = .None;
+    assert.equal(option.zip(absentPair, .Some("a")), .None);
+}
+
+test "each question about a Result answers for both variants of every type" {
+    let done: Result<(), IoError> = .Ok(());
+    let failed: Result<(), IoError> = .Err(.NotFound);
+    let read: Result<Str, IoError> = .Ok("a");
+    let octets: Result<[U8], IoError> = .Ok([1]);
+    let small: Result<Int, RangeError> = .Ok(1);
+    let wide: Result<I128, RangeError> = .Ok(1);
+    let wideUnsigned: Result<U128, RangeError> = .Ok(1);
+    assert.isFalse(done.isErr());
+    assert.isFalse(read.isErr());
+    assert.isFalse(octets.isErr());
+    assert.isFalse(small.isErr());
+    assert.isFalse(wide.isErr());
+    assert.isFalse(wideUnsigned.isErr());
+    assert.equal(failed.ignore(), ());
+    // Decoded text, bytes that were not text, hex that was not hex and a
+    // document that ran out.
+    let text: Result<Str, Utf8Error> = .Ok("a");
+    let notText: Result<Str, Utf8Error> = .Err(Utf8Error(0));
+    let notHex: Result<[U8], DecodeError> = .Err(DecodeError(0));
+    assert.isFalse(text.isErr());
+    assert.isTrue(notText.errToOption().isSome());
+    assert.isTrue(notHex.errToOption().isSome());
+    let broken: Result<Json, JsonError> = .Err(.Unterminated);
+    assert.isFalse(broken.isOk());
+    assert.isTrue(broken.errToOption().isSome());
+    // `map` hands an `Err` straight back, whatever it would have made.
+    let count: Result<Int, Str> = .Err("no");
+    let body: Result<[U8], Str> = .Err("no");
+    assert.equal(count.map(fn(n) => n > 0), .Err("no"));
+    assert.equal(body.map(fn(b) => b.length()), .Err("no"));
+    assert.equal(body.map(fn(_b) => "a"), .Err("no"));
 }
