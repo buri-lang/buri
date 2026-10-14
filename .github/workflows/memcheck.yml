@@ -82,6 +82,8 @@ jobs:
           restore-keys: memcheck-buildscript-${{ matrix.arch }}-
       # The agreement rows compare each native answer with JavaScript's.
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       # `NIX_HARDENING_ENABLE=` everywhere: the C probes some rows link beside a
       # program are compiled by the shell's clang, whose fortify asks musl for
       # `__*_chk`, and a step that changed it would rebuild the runtime.
