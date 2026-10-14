@@ -1,0 +1,9 @@
+derive Equal for Stopped;
+export enum Stopped {
+    Stopped,
+}
+
+derive Equal, Ordered for Tagged;
+export enum Tagged {
+    Tagged(Int, Int),
+}

@@ -13,7 +13,7 @@
 //! - `Equal`, `Ordered` on a struct: after each field but the last, the walk
 //!   went on to the next or stopped there;
 //! - on an enum: which variant the first value is, whether the second is the
-//!   same one, and then its fields, as a struct's;
+//!   same one (if the enum has another), and then its fields, as a struct's;
 //! - `Show`, `Hash`, `ToJson` on an enum: which variant.
 //!
 //! A field of a type the user derives the same operation for is walked by that
@@ -405,10 +405,13 @@ impl Shadows<'_> {
                     let xs: Vec<LocalId> = types.iter().map(|t| body.local(*t)).collect();
                     let inner = match b {
                         Some(b) => {
-                            let other = body.decision(
-                                &format!("{}, the other", v.name),
-                                vec!["same variant".into(), "another variant".into()],
-                            );
+                            // With one variant, the second value can't be another.
+                            let other = (variants.len() > 1).then(|| {
+                                body.decision(
+                                    &format!("{}, the other", v.name),
+                                    vec!["same variant".into(), "another variant".into()],
+                                )
+                            });
                             let ys: Vec<LocalId> = types.iter().map(|t| body.local(*t)).collect();
                             let pairs: Vec<(Expr, Expr)> = xs
                                 .iter()
@@ -426,23 +429,25 @@ impl Shadows<'_> {
                                 pairs,
                                 &format!("{}.", v.name),
                             )?;
-                            let same = body.counted(&other, 0, same);
-                            let differs = body.counted(
-                                &other,
-                                1,
-                                Expr::new(ExprKind::Bool(false), self.bool_ty, span),
-                            );
-                            let arms = vec![
-                                arm(variant(con, ty, vi, &ys, &types, span), same),
-                                arm(
-                                    Pattern {
-                                        kind: PatKind::Wild,
-                                        ty,
-                                        span,
-                                    },
-                                    differs,
-                                ),
-                            ];
+                            let pattern = variant(con, ty, vi, &ys, &types, span);
+                            let arms = match other {
+                                Some(other) => vec![
+                                    arm(pattern, body.counted(&other, 0, same)),
+                                    arm(
+                                        Pattern {
+                                            kind: PatKind::Wild,
+                                            ty,
+                                            span,
+                                        },
+                                        body.counted(
+                                            &other,
+                                            1,
+                                            Expr::new(ExprKind::Bool(false), self.bool_ty, span),
+                                        ),
+                                    ),
+                                ],
+                                None => vec![arm(pattern, same)],
+                            };
                             Expr::new(
                                 ExprKind::Match {
                                     scrutinee: Box::new(local(b, ty, span)),
