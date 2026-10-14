@@ -9,6 +9,7 @@
 
 from "core/bytes" import * as bytes;
 from "core/list" import * as list;
+from "core/proto" import { ProtoError };
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
@@ -17,6 +18,7 @@ from "//lib/proto" import {
     defaultEverything, encodeEmpty, encodeEverything, Everything, Everything_Contact,
     Everything_Note, Shade,
 };
+from "//lib/variants" import * as variants;
 
 fn hex<C: Allocator>(ctx: C, v: Everything): Str {
     bytes.toHex(ctx, encodeEverything(ctx, v))
@@ -524,4 +526,10 @@ test "unknown fields are dropped rather than carried" {
         .Err(_e) => defaultEverything(),
     };
     assert.equal(bytes.toHex(ctx, encodeEverything(ctx, back)), "0a03416461");
+}
+
+test "a message, in a decoding's result or an option, equals itself and not the other variant" {
+    let bad: ProtoError = .Truncated(1);
+    assert.isTrue(variants.resultsCompare(defaultEverything(), bad));
+    assert.isTrue(variants.optionsCompare(defaultAddress()));
 }

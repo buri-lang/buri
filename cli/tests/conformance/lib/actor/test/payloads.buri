@@ -22,6 +22,7 @@ from "core/tasks" import { Scope };
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator, Stdout, Tasks };
 from "platform/effect/testing" import { alloc, stdout, tasks };
+from "//lib/variants" import * as variants;
 
 // -----------------------------------------------------------------------------
 // Nothing at all: `S` and `R` are both `()`
@@ -398,4 +399,14 @@ test "a step may spawn into a scope the message handed it" {
     assert.equal(out.captured(), "asked twice\nthe job ran\nthe job ran\n");
     assert.equal(boss.stop(ctx), .Ok(()));
     assert.equal(boss.stop(ctx), .Err(.Stopped));
+}
+
+test "each answer here, in a send's result, equals itself and not a failure" {
+    let stopped = SendError.Stopped;
+    assert.isTrue(variants.resultsCompare((), stopped));
+    assert.isTrue(variants.resultsCompare(Bagged.Kept(1), stopped));
+    assert.isTrue(variants.resultsCompare(Desked.Noted, stopped));
+    assert.isTrue(variants.resultsCompare(Filed.Was(record("first", .None)), stopped));
+    assert.isTrue(variants.resultsCompare(Said.Text("a"), stopped));
+    assert.isTrue(variants.resultsCompare(Tallied.Done, stopped));
 }

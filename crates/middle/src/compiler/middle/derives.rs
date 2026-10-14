@@ -3288,21 +3288,7 @@ impl Generator {
                 let ptr = self.fn_ref(f, vec![acc, elem_ty], acc);
                 Some(self.intrinsic("deriveArrayHash", vec![elem_ty], vec![h, x, ptr], acc))
             }
-            Desc::Option(inner) => {
-                let ty = self.ty_of(desc);
-                let inner_ty = self.ty_of(*inner);
-                let v = frame.local("v", &inner_ty);
-                let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty)])?;
-                let body = self.at_hash(*inner, h.clone(), self.local_expr(v, &inner_ty))?;
-                Some(self.match_(
-                    x,
-                    vec![
-                        self.arm(some, body),
-                        self.arm(self.wild(&ty), self.mix(h, 0)),
-                    ],
-                    acc,
-                ))
-            }
+            Desc::Option(inner) => self.hash_option(desc, *inner, h, x, 0, frame),
             Desc::Enum { variants, .. } => {
                 let ty = self.ty_of(desc);
                 let payloads = variants.iter().any(|v| !v.fields.is_empty());
@@ -3368,6 +3354,41 @@ impl Generator {
             // writes by hand, and has no `Ordered`.
             Desc::Members { .. } | Desc::Opaque(_) => None,
         }
+    }
+
+    /// An `Option` under `depth` `.Some`s. `.Some(v)` hashes as `v`, and the
+    /// `.None` at the bottom mixes how many `.Some`s are above it: JavaScript's
+    /// `$hashInto` sees `.None` as `undefined`, and a `.None` inside `.Some`s
+    /// as the marker whose `$n` counts them, less one.
+    fn hash_option(
+        &mut self,
+        desc: usize,
+        inner: usize,
+        h: Expr,
+        x: Expr,
+        depth: u128,
+        frame: &mut Frame,
+    ) -> Option<Expr> {
+        let ty = self.ty_of(desc);
+        let inner_ty = self.ty_of(inner);
+        let v = frame.local("v", &inner_ty);
+        let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty)])?;
+        let value = self.local_expr(v, &inner_ty);
+        let body = match self.descs.get(inner) {
+            Some(Desc::Option(deeper)) => {
+                let deeper = *deeper;
+                self.hash_option(inner, deeper, h.clone(), value, depth + 1, frame)?
+            }
+            _ => self.at_hash(inner, h.clone(), value)?,
+        };
+        Some(self.match_(
+            x,
+            vec![
+                self.arm(some, body),
+                self.arm(self.wild(&ty), self.mix(h, depth)),
+            ],
+            self.hash_ty(),
+        ))
     }
 
     fn hash_fields(

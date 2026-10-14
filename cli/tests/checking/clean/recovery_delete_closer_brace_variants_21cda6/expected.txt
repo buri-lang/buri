@@ -1,0 +1,12 @@
+error: this array is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:21:1
+   |
+21 | }
+   | ^
+   |
+  --> main.buri:20:61
+   |
+20 |     [good == good, bad == bad, good == bad, bad == good] == [true, true, false, false
+   |                                                             ^ opened here
+   |
+   = fix: write `]` here
