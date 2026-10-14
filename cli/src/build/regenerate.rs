@@ -11,9 +11,9 @@ use crate::build::session::Session;
 use crate::build::textproto::{Document, Field, Message, Value};
 use crate::build::workspace::{PackageId, RuleKind, TargetId};
 use crate::compiler::driver::Analysis;
-use crate::compiler::modules::ModuleData;
+use crate::compiler::modules::{ModuleData, PerModule};
 use crate::compiler::semantics::typed;
-use crate::compiler::semantics::types::{FnId, ModuleId};
+use crate::compiler::semantics::types::ModuleId;
 use crate::diagnostics::{Diagnostic, Invariant as _, Span};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -572,8 +572,8 @@ fn resolved_by_role(
 pub struct Batch {
     analysis: Analysis,
     shares: BTreeMap<TargetId, crate::compiler::driver::Share>,
-    /// By module index: the bodies declared there.
-    bodies: Vec<Vec<FnId>>,
+    /// The bodies each module declares.
+    bodies: PerModule<Vec<std::sync::Arc<typed::Body>>>,
     /// Each package's modules, in load order.
     by_package: BTreeMap<PackageId, Vec<ModuleId>>,
 }
@@ -615,12 +615,11 @@ impl Batch {
                 by_package.entry(pkg).or_default().push(m.id);
             }
         }
-        let mut bodies = vec![Vec::new(); analysis.loaded.modules.len()];
-        for (fid, _) in &analysis.checked.bodies {
+        let mut bodies = analysis.loaded.modules.per_module(Vec::new());
+        for (fid, body) in &analysis.checked.bodies {
             bodies
-                .get_mut(analysis.checked.tables.fn_info(fid).module.index())
-                .or_ice("`bodies` has one list per module, and a body's module is one of them")
-                .push(fid);
+                .get_mut(analysis.checked.tables.fn_info(fid).module)
+                .push(std::sync::Arc::clone(body));
         }
         Batch {
             analysis,
@@ -657,15 +656,14 @@ struct Seen<'a> {
     batch: &'a Batch,
     analysis: &'a Analysis,
     /// By module index; `None` where the analysis is this target's alone.
-    holds: Option<&'a [bool]>,
+    holds: Option<&'a PerModule<bool>>,
     reported: &'a [Diagnostic],
     generated_rules: &'a [TargetId],
 }
 
 impl<'a> Seen<'a> {
     fn holds(&self, module: ModuleId) -> bool {
-        self.holds
-            .is_none_or(|holds| holds.get(module.index()).copied().unwrap_or(false))
+        self.holds.is_none_or(|holds| *holds.get(module))
     }
 
     /// The modules of `own` this target's compilation holds, in load order.
@@ -685,15 +683,9 @@ impl<'a> Seen<'a> {
         &self,
         own: PackageId,
     ) -> Vec<(&'a ModuleData, &'a std::sync::Arc<typed::Body>)> {
-        let analysis = self.analysis;
         let mut out = Vec::new();
         for m in self.package_modules(own) {
-            for fid in self.batch.bodies.get(m.id.index()).into_iter().flatten() {
-                let body = analysis
-                    .checked
-                    .bodies
-                    .get(fid)
-                    .or_ice("`bodies` lists only the ids of checked bodies");
+            for body in self.batch.bodies.get(m.id) {
                 out.push((m, body));
             }
         }

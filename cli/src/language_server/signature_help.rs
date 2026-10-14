@@ -87,7 +87,7 @@ fn callee(
         .modules
         .iter()
         .find(|m| m.file == file)?;
-    let scope = analyzed.analysis.checked.scopes.get(module.id.index())?;
+    let scope = analyzed.analysis.checked.scopes.get(module.id);
     match scope.name(name) {
         Some(Sym::Fn(id)) => symbols::signature(analyzed, &Symbol::Function(*id)),
         _ => None,

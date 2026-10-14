@@ -180,9 +180,20 @@ impl<I: DenseId, T> Table<I, T> {
     }
 
     pub fn push(&mut self, row: T) -> I {
+        self.push_with(|_| row)
+    }
+
+    /// Pushes the row `make` builds from the id it will have.
+    pub fn push_with(&mut self, make: impl FnOnce(I) -> T) -> I {
         let id = mint(self.rows.len());
-        self.rows.push(row);
+        self.rows.push(make(id));
         id
+    }
+
+    /// Grows a table keyed by another table's ids to `len` rows, that table's
+    /// length, so every id it minted reads a row here too.
+    pub(crate) fn fill(&mut self, len: usize, f: impl FnMut() -> T) {
+        self.rows.resize_with(len, f);
     }
 
     #[expect(

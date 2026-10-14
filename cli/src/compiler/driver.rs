@@ -3,11 +3,11 @@
 use crate::build::actions;
 use crate::build::buildfile::Platform;
 use crate::build::workspace::{Packages, Rule, TargetId, Workspace};
-use crate::compiler::modules::{Loaded, Loader, ModuleData, Unit};
+use crate::compiler::modules::{Loaded, Loader, ModuleData, PerModule, Unit};
 use crate::compiler::semantics::resolve::{Bodies, Checked, Checker};
 use crate::compiler::semantics::types::ModuleId;
 use crate::compiler::snapshot::{self, Opening, Snapshot};
-use crate::diagnostics::{Diagnostic, Diagnostics, FileId, Invariant as _, SourceMap, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, FileId, SourceMap, Span};
 
 pub struct Analysis {
     pub loaded: Loaded,
@@ -331,8 +331,7 @@ pub struct Shared {
 
 /// What one target's own compilation would have held and reported.
 pub struct Share {
-    /// By module index.
-    pub holds: Vec<bool>,
+    pub holds: PerModule<bool>,
     /// What its own compilation reports, in the order it sorts in.
     pub reported: Vec<Diagnostic>,
     /// The rules whose generated code it loaded.
@@ -349,7 +348,7 @@ impl Share {
             .loaded
             .modules
             .iter()
-            .filter(|m| self.holds.get(m.id.index()).copied().unwrap_or(false))
+            .filter(|m| *self.holds.get(m.id))
     }
 }
 
@@ -456,9 +455,9 @@ pub fn shared(
         Checking::All => check(loading, Some(ws), map),
         Checking::Repository => check_programs(loading, Some(ws), map),
     };
-    let mut module_of: crate::hash::Map<FileId, usize> = crate::hash::Map::default();
+    let mut module_of: crate::hash::Map<FileId, ModuleId> = crate::hash::Map::default();
     for m in &analysis.loaded.modules {
-        module_of.insert(m.file, m.id.index());
+        module_of.insert(m.file, m.id);
     }
     for d in &analysis.diagnostics.items {
         if !opening.contains(&said(d))
@@ -476,7 +475,7 @@ pub fn shared(
                 opening.contains(&said(d))
                     || module_of
                         .get(&d.span.file)
-                        .is_some_and(|i| share.holds.get(*i).copied().unwrap_or(false))
+                        .is_some_and(|i| *share.holds.get(*i))
             })
             .cloned()
             .collect();
@@ -503,7 +502,7 @@ pub(crate) fn reach(
     ws: &crate::build::workspace::Workspace,
     loaded: &crate::compiler::modules::Loaded,
     target: TargetId,
-) -> Option<(Vec<bool>, Vec<TargetId>)> {
+) -> Option<(PerModule<bool>, Vec<TargetId>)> {
     use crate::compiler::modules::Role;
     let pkg = ws.package(target.package);
     // Each start, and the role the target loads it in; `None` for the standard
@@ -579,7 +578,7 @@ pub(crate) fn reach(
         }
     }
 
-    let mut holds = vec![false; loaded.modules.len()];
+    let mut holds = loaded.modules.per_module(false);
     let mut queue: Vec<ModuleId> = Vec::new();
     for (path, role) in &starts {
         let Some(id) = loaded.find(path) else {
@@ -591,9 +590,7 @@ pub(crate) fn reach(
         queue.push(id);
     }
     while let Some(id) = queue.pop() {
-        let seen = holds
-            .get_mut(id.index())
-            .or_ice("a loaded module has a slot in `holds`");
+        let seen = holds.get_mut(id);
         if std::mem::replace(seen, true) {
             continue;
         }

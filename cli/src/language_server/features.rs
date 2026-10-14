@@ -529,7 +529,7 @@ fn reached_by(
     analyzed: &Analyzed,
     module: crate::compiler::semantics::types::ModuleId,
 ) -> Option<String> {
-    let data = analyzed.analysis.loaded.modules.get(module.index())?;
+    let data = analyzed.analysis.loaded.modules.owner(module)?;
     let package = data
         .pkg
         .map(|p| analyzed.session.workspace.package(p).label());

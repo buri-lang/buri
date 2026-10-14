@@ -297,7 +297,7 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
         analysis
             .loaded
             .modules
-            .get(info.module.index())
+            .owner(info.module)
             .and_then(|m| coverage::builtin(&m.path, &info.name))
     };
     let by_slot: HashMap<usize, coverage::Builtin> = program
@@ -378,7 +378,7 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
             let module = analysis
                 .loaded
                 .modules
-                .get(info.module.index())
+                .owner(info.module)
                 .map(|m| m.path.as_str());
             let integer = info.self_ty.is_some_and(|c| {
                 Prim::all()

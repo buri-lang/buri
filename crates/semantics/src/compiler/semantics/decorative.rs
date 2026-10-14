@@ -12,8 +12,7 @@
 
 use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
-use crate::compiler::semantics::layered::Layered;
-use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, ModuleScope, Walked};
+use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, Scopes, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{Tables, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics};
@@ -32,7 +31,7 @@ const OPTION_NONE: usize = 1;
 pub fn run(
     loaded: &Loaded,
     tables: &Tables,
-    scopes: &Layered<ModuleScope>,
+    scopes: &Scopes,
     bodies: &BodyMap,
     consts: &ConstMap,
     diags: &mut Diagnostics,

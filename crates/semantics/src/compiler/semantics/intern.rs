@@ -324,7 +324,8 @@ fn intern(probe: TyKindIn<'_>) -> Ty {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compiler::semantics::types::Prim;
+    use crate::compiler::semantics::types::{Prim, Subst};
+    use crate::diagnostics::Span;
 
     #[test]
     fn one_shape_is_one_entry() {
@@ -346,7 +347,7 @@ mod tests {
 
     #[test]
     fn flags_cover_every_child() {
-        let f = Ty::func([Ty::var(TyVarId(3))], Ty::UNIT);
+        let f = Ty::func([Subst::default().fresh(Span::NONE)], Ty::UNIT);
         assert!(f.has_vars() && !f.has_params());
         let g = Ty::array(Ty::tuple([Ty::SELF]));
         assert!(g.has_params() && !g.has_vars());

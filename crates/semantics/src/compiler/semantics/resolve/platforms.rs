@@ -405,7 +405,7 @@ impl<'a> Checker<'a> {
                     let from_host = self
                         .loaded
                         .modules
-                        .get(tycon.module.index())
+                        .owner(tycon.module)
                         .is_some_and(|m| m.path == standard_library::HOST_STRUCTS_MODULE);
                     let a_struct = args.is_empty()
                         && matches!(tycon.def, TyDef::Struct { .. })
@@ -564,7 +564,7 @@ impl<'a> Checker<'a> {
                     && self
                         .loaded
                         .modules
-                        .get(self.tables.tycon(*con).module.index())
+                        .owner(self.tables.tycon(*con).module)
                         .is_some_and(|m| m.pkg == Some(pkg) && is_test_only_path(&m.path))
             });
             if !implemented {

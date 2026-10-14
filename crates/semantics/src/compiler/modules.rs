@@ -4,8 +4,9 @@
 
 use crate::build::buildfile::Platform;
 use crate::build::workspace::TargetId;
+use crate::compiler::semantics::layered::Table;
 use crate::compiler::semantics::types::ModuleId;
-use crate::diagnostics::{FileId, Invariant as _};
+use crate::diagnostics::FileId;
 use crate::hash::Map as HashMap;
 use crate::parsing::tree;
 use std::path::PathBuf;
@@ -89,8 +90,88 @@ pub struct Unit {
     pub with_tests: bool,
 }
 
+/// The modules of a compilation. Only [`Modules::push`] makes a [`ModuleId`],
+/// so every id reads a module.
+#[derive(Clone)]
+pub struct Modules(Table<ModuleId, ModuleData>);
+
+impl Default for Modules {
+    fn default() -> Self {
+        Modules(Table::new())
+    }
+}
+
+impl Modules {
+    /// Adds the module `make` builds from the id it gets.
+    pub fn push(&mut self, make: impl FnOnce(ModuleId) -> ModuleData) -> ModuleId {
+        self.0.push_with(make)
+    }
+
+    pub fn get(&self, id: ModuleId) -> &ModuleData {
+        self.0.get(id)
+    }
+
+    /// The module that declares an entry of the checker's tables, which is
+    /// none for a primitive type.
+    pub fn owner(&self, id: ModuleId) -> Option<&ModuleData> {
+        (id != ModuleId::PRIMITIVES).then(|| self.get(id))
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn iter(&self) -> <&Modules as IntoIterator>::IntoIter {
+        self.into_iter()
+    }
+
+    pub fn ids(&self) -> impl Iterator<Item = ModuleId> + use<> {
+        self.0.ids()
+    }
+
+    /// One `init` per module.
+    pub fn per_module<T: Clone>(&self, init: T) -> PerModule<T> {
+        PerModule(vec![init; self.len()])
+    }
+}
+
+/// One `T` per module of a [`Modules`], read by the ids that table minted.
+#[derive(Clone)]
+pub struct PerModule<T>(Vec<T>);
+
+impl<T> PerModule<T> {
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "`Modules::per_module` makes one entry per module, and only `Modules` mints an id"
+    )]
+    pub fn get(&self, id: ModuleId) -> &T {
+        &self.0[id.index()]
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "`Modules::per_module` makes one entry per module, and only `Modules` mints an id"
+    )]
+    pub fn get_mut(&mut self, id: ModuleId) -> &mut T {
+        &mut self.0[id.index()]
+    }
+}
+
+impl<'a> IntoIterator for &'a Modules {
+    type Item = &'a ModuleData;
+    type IntoIter =
+        std::iter::Chain<std::slice::Iter<'a, ModuleData>, std::slice::Iter<'a, ModuleData>>;
+    fn into_iter(self) -> Self::IntoIter {
+        (&self.0).into_iter()
+    }
+}
+
 pub struct Loaded {
-    pub modules: Vec<ModuleData>,
+    pub modules: Modules,
     pub by_path: HashMap<String, ModuleId>,
     /// Modules that are test sources, in declaration order.
     pub test_sources: Vec<ModuleId>,
@@ -112,9 +193,7 @@ pub struct Loaded {
 
 impl Loaded {
     pub fn module(&self, id: ModuleId) -> &ModuleData {
-        self.modules
-            .get(id.index())
-            .or_ice("a ModuleId is minted by the loader as it pushes the module onto this vector")
+        self.modules.get(id)
     }
 
     pub fn find(&self, path: &str) -> Option<ModuleId> {

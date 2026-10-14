@@ -332,7 +332,7 @@ fn module_scope<'a>(
         .modules
         .iter()
         .find(|m| m.file == file)?;
-    let scope = analyzed.analysis.checked.scopes.get(module.id.index())?;
+    let scope = analyzed.analysis.checked.scopes.get(module.id);
     Some((module, scope))
 }
 
@@ -655,7 +655,7 @@ fn head_type(
                 return None;
             };
             if let Some(id) = scope.namespaces.get(outer) {
-                let exports = &analyzed.analysis.checked.scopes.get(id.index())?.exports;
+                let exports = &analyzed.analysis.checked.scopes.get(*id).exports;
                 return match exports.get(name) {
                     Some(Sym::Ty(con)) => Some((*con, None)),
                     _ => None,
@@ -858,12 +858,7 @@ fn variants(analyzed: &Analyzed, con: TyConId) -> Vec<(String, Symbol)> {
 
 /// What a namespace import publishes.
 fn module_members(analyzed: &Analyzed, module: ModuleId) -> Vec<(String, Symbol)> {
-    let scope = analyzed
-        .analysis
-        .checked
-        .scopes
-        .get(module.index())
-        .or_ice(symbols::SCOPED);
+    let scope = analyzed.analysis.checked.scopes.get(module);
     scope
         .exports
         .iter()
@@ -1145,12 +1140,7 @@ fn exported_names(
     let Some(&id) = analyzed.analysis.loaded.by_path.get(module_path) else {
         return Value::Array(Vec::new());
     };
-    let scope = analyzed
-        .analysis
-        .checked
-        .scopes
-        .get(id.index())
-        .or_ice(symbols::SCOPED);
+    let scope = analyzed.analysis.checked.scopes.get(id);
     let mut names: Vec<&String> = scope.exports.keys().collect();
     names.sort();
     let uri = convert::uri_of(file);
@@ -1332,7 +1322,7 @@ pub fn resolve_completion(analyzed: &Analyzed, item: &Value) -> Value {
             // code is whatever that module can say unqualified, which is a
             // wider list and includes what it imported.
             Some(name) => {
-                let scope = analyzed.analysis.checked.scopes.get(id.index())?;
+                let scope = analyzed.analysis.checked.scopes.get(id);
                 let sym = scope.exports.get(name).or_else(|| scope.name(name))?;
                 symbols::symbol_of(sym)?
             }
