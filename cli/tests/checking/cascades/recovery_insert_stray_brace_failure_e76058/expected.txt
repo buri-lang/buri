@@ -1,0 +1,14 @@
+error: a statement ends with `;` [missing-semicolon]
+  --> main.buri:15:6
+   |
+15 |     }extra ;
+   |      ^
+   |
+   = fix: write `;` here
+error: there is nothing named `extra` in scope [unknown-name]
+  --> main.buri:15:6
+   |
+15 |     }extra ;
+   |      ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

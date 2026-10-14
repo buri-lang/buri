@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:66:83
+   |
+66 |     let elsewhere = assert.some(uuid.parse("550e8400-e29b-41d4-a716-446655440000");
+   |                                                                                   ^
+   |
+  --> main.buri:66:32
+   |
+66 |     let elsewhere = assert.some(uuid.parse("550e8400-e29b-41d4-a716-446655440000");
+   |                                ^ opened here
+   |
+   = fix: write `)` here

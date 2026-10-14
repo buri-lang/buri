@@ -1,0 +1,9 @@
+error: expected an identifier, found `?` [unexpected-token]
+  --> main.buri:18:34
+   |
+18 |     let other = assert.some(uuid.? parse("550E8400-E29B-41D4-A716-446655440000"));
+   |                                  ^
+   |
+   = expected: an identifier
+   = actual: `?`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
