@@ -1,0 +1,50 @@
+error: there is nothing named `extra` in scope [unknown-name]
+  --> main.buri:59:10
+   |
+59 |         (extra four.get(a), four.get(b), four.get(c), four.get(zero)),
+   |          ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a tuple element ends with `,` [missing-comma]
+  --> main.buri:59:15
+   |
+59 |         (extra four.get(a), four.get(b), four.get(c), four.get(zero)),
+   |               ^
+   |
+   = fix: write `,` here
+error: expected `(<error>, Option<Str>, Option<Str>, Option<Str>, Option<Str>)`, found `(<error>, <error>, <error>, <error>)` [type-mismatch]
+  --> main.buri:60:9
+   |
+60 |         (.Some("a"), .Some("B"), .Some("c"), .Some("nil")),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `(<error>, Option<Str>, Option<Str>, Option<Str>, Option<Str>)`
+   |
+   = expected: `(<error>, Option<Str>, Option<Str>, Option<Str>, Option<Str>)`
+   = actual: `(<error>, <error>, <error>, <error>)`
+error: `.Some` needs a known expected type [untyped-variant]
+  --> main.buri:60:10
+   |
+60 |         (.Some("a"), .Some("B"), .Some("c"), .Some("nil")),
+   |          ^^^^^
+   |
+   = fix: write `Option.Some(...)`, or annotate what this value is being used as
+error: `.Some` needs a known expected type [untyped-variant]
+  --> main.buri:60:22
+   |
+60 |         (.Some("a"), .Some("B"), .Some("c"), .Some("nil")),
+   |                      ^^^^^
+   |
+   = fix: write `Option.Some(...)`, or annotate what this value is being used as
+error: `.Some` needs a known expected type [untyped-variant]
+  --> main.buri:60:34
+   |
+60 |         (.Some("a"), .Some("B"), .Some("c"), .Some("nil")),
+   |                                  ^^^^^
+   |
+   = fix: write `Option.Some(...)`, or annotate what this value is being used as
+error: `.Some` needs a known expected type [untyped-variant]
+  --> main.buri:60:46
+   |
+60 |         (.Some("a"), .Some("B"), .Some("c"), .Some("nil")),
+   |                                              ^^^^^
+   |
+   = fix: write `Option.Some(...)`, or annotate what this value is being used as

@@ -1,0 +1,21 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:62:31
+   |
+62 |     assert.equal(log.recorded(, ["home", "about"]);
+   |                               ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+   --> main.buri:101:1
+    |
+101 | 
+    | ^
+    |
+  --> main.buri:51:60
+   |
+51 | test "what read the route re-runs when the page navigates" {
+   |                                                            ^ opened here
+   |
+   = fix: write `}` here

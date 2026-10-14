@@ -1,0 +1,21 @@
+error: expected `(Option<Str>, I64)`, found a variant `.Some` [type-mismatch]
+  --> main.buri:65:52
+   |
+65 |     assert.equal((both.get(zero), both.length()), (.Some("zero", 2));
+   |                                                    ^^^^^
+   |
+   = expected: `(Option<Str>, I64)`
+   = actual: a variant `.Some`
+   = a value written with a leading dot names a variant of the enum the position expects, and this position expects `(Option<Str>, I64)`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:65:69
+   |
+65 |     assert.equal((both.get(zero), both.length()), (.Some("zero", 2));
+   |                                                                     ^
+   |
+  --> main.buri:65:17
+   |
+65 |     assert.equal((both.get(zero), both.length()), (.Some("zero", 2));
+   |                 ^ opened here
+   |
+   = fix: write `)` here

@@ -1,0 +1,21 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:51:29
+   |
+51 |         (a.hash() == b.hash(, b.hash() == c.hash(), c.hash() == zero.hash()),
+   |                             ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:69:1
+   |
+69 | 
+   | ^
+   |
+  --> main.buri:42:51
+   |
+42 | test "identifiers that share a hash are all kept" {
+   |                                                   ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> main.buri:33:33
+   |
+33 |     assert.equal(table.get(id), ? .Some("ada"));
+   |                                 ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here

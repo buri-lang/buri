@@ -1,0 +1,22 @@
+error: there is nothing named `extra` in scope [unknown-name]
+  --> main.buri:51:44
+   |
+51 |         (a.hash() == b.hash(), b.hash() == extra c.hash(), c.hash() == zero.hash()),
+   |                                            ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a tuple element ends with `,` [missing-comma]
+  --> main.buri:51:49
+   |
+51 |         (a.hash() == b.hash(), b.hash() == extra c.hash(), c.hash() == zero.hash()),
+   |                                                 ^
+   |
+   = fix: write `,` here
+error: expected `(Bool, Bool, U64, Bool)`, found `(Bool, Bool, Bool)` [type-mismatch]
+  --> main.buri:52:9
+   |
+52 |         (true, true, false),
+   |         ^^^^^^^^^^^^^^^^^^^ the parameter type is `(Bool, Bool, U64, Bool)`
+   |
+   = expected: `(Bool, Bool, U64, Bool)`
+   = actual: `(Bool, Bool, Bool)`

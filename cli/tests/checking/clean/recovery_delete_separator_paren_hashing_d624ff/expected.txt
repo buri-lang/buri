@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+  --> main.buri:31:24
+   |
+31 |         .insert(ctx, id "ada")
+   |                        ^
+   |
+   = fix: write `,` here

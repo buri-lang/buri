@@ -1,0 +1,37 @@
+error: `equal` takes 2 arguments, but 1 was given [argument-count]
+  --> main.buri:65:5
+   |
+65 |     assert.equal((both.get(zero, both.length()), (.Some("zero"), 2));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass `equal` the following arguments: equal<T: Equal>(actual: T, expected: T)
+error: `get` takes 1 argument, but 2 were given [argument-count]
+  --> main.buri:65:19
+   |
+65 |     assert.equal((both.get(zero, both.length()), (.Some("zero"), 2));
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass `get` the following arguments: get(self, key: K)
+error: `.Some` needs a known expected type [untyped-variant]
+  --> main.buri:65:51
+   |
+65 |     assert.equal((both.get(zero, both.length()), (.Some("zero"), 2));
+   |                                                   ^^^^^
+   |
+   = fix: write `Option.Some(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:65:69
+   |
+65 |     assert.equal((both.get(zero, both.length()), (.Some("zero"), 2));
+   |                                                                     ^
+   |
+  --> main.buri:65:17
+   |
+65 |     assert.equal((both.get(zero, both.length()), (.Some("zero"), 2));
+   |                 ^ opened here
+   |
+   = fix: write `)` here

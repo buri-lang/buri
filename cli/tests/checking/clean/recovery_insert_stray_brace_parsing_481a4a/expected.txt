@@ -1,9 +1,0 @@
-error: expected `:`, found `Allocator` [unexpected-token]
-  --> main.buri:46:15
-   |
-46 |         extra Allocator: alloc(),
-   |               ^^^^^^^^^
-   |
-   = expected: `:`
-   = actual: `Allocator`
-   = fix: write `:` here

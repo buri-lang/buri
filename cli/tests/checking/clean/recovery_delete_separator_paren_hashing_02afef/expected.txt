@@ -1,0 +1,7 @@
+error: a tuple element ends with `,` [missing-comma]
+  --> main.buri:57:44
+   |
+57 |     assert.equal((two.get(c), two.get(zero) four.length()), (.None, .None, 4));
+   |                                            ^
+   |
+   = fix: write `,` here
