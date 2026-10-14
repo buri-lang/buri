@@ -210,6 +210,19 @@ fn a_test_binary_that_exits_without_asking_for_a_block_fails_its_suite() {
     });
 }
 
+/// A binary that starts and dies before it asks for a block fails the first
+/// block with how it died.
+#[test]
+fn a_test_binary_that_dies_before_asking_for_a_block_fails_the_first() {
+    let scratch = suites("runners-dies-unasked");
+    let runner = script(&scratch, "dies-unasked", "echo '{\"started\":1}'\nexit 6\n");
+    under(&scratch, &runner, |run, suite| {
+        run.exits(1)
+            .says(&format!("FAIL {suite}  test/t.buri  \"first\""))
+            .says("  the run exited 6");
+    });
+}
+
 /// Lines that aren't the protocol's, and a block reported that the binary
 /// wasn't running, are passed over.
 #[test]
