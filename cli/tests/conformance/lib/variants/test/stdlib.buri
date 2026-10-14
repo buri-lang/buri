@@ -1,0 +1,207 @@
+// The standard library's own types, inside an `Option` or a `Result`: each
+// variant equals itself and not the other, whatever the payload.
+
+from "core/actor" import { SendError, Stopped };
+from "core/bytes" import * as bytes;
+from "core/date" import * as date;
+from "core/json" import { DecodeError, Json, JsonError };
+from "core/net/server" import * as server;
+from "core/number" import { RangeError };
+from "core/proto" import { ProtoError };
+from "core/proto/any" import { Any };
+from "core/proto/duration" import { Duration };
+from "core/proto/empty" import { Empty };
+from "core/proto/field_mask" import { FieldMask };
+from "core/proto/struct" import { NullValue };
+from "core/proto/timestamp" import { Timestamp };
+from "core/proto/wrappers" import {
+    BoolValue, BytesValue, DoubleValue, FloatValue, Int32Value, Int64Value, StringValue,
+    UInt32Value, UInt64Value,
+};
+from "core/simd" import { F32x4, I32x4 };
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "platform/effect" import {
+    Allocator, IoError, Method, NetError, Protocol, Response, ServeError,
+};
+from "platform/effect/testing" import { alloc };
+from "std/codegen/proto/schema" import { Presence, RepeatedEncoding };
+from "ui/node" import { PickedFile };
+from "//lib/variants" import * as variants;
+
+test "a result of plain values equals itself and not the other variant" {
+    assert.isTrue(variants.resultsCompare((), "no"));
+    assert.isTrue(variants.resultsCompare(true, "no"));
+    assert.isTrue(variants.resultsCompare(1, 2));
+    assert.isTrue(variants.resultsCompare(1, "no"));
+    assert.isTrue(variants.resultsCompare("yes", "no"));
+    assert.isTrue(variants.resultsCompare([1, 2], "no"));
+    assert.isTrue(variants.resultsCompare(["a"], "no"));
+    let octets: [U8] = [1, 2];
+    assert.isTrue(variants.resultsCompare(octets, "no"));
+}
+
+test "a result of a failure equals itself and not the other variant" {
+    let missing: DecodeError = .Missing { path: "$.a" };
+    assert.isTrue(variants.resultsCompare((), missing));
+    assert.isTrue(variants.resultsCompare(true, missing));
+    assert.isTrue(variants.resultsCompare('c', missing));
+    assert.isTrue(variants.resultsCompare(1.5, missing));
+    assert.isTrue(variants.resultsCompare("yes", missing));
+    assert.isTrue(variants.resultsCompare((1, "a"), missing));
+    let octets: [U8] = [1, 2];
+    assert.isTrue(variants.resultsCompare(octets, missing));
+    assert.isTrue(variants.resultsCompare(octets, bytes.DecodeError(3)));
+    assert.isTrue(variants.resultsCompare((), IoError.NotFound));
+    assert.isTrue(variants.resultsCompare("yes", IoError.Other("no")));
+    assert.isTrue(variants.resultsCompare((), SendError.TimedOut));
+    assert.isTrue(variants.resultsCompare((), Stopped.Stopped));
+    assert.isTrue(
+        variants.resultsCompare(1, RangeError { value: "300", target: "U8" }),
+    );
+    assert.isTrue(variants.resultsCompare(Json.Null, JsonError.Unterminated));
+    assert.isTrue(
+        variants.resultsCompare(
+            Response { status: 200, headers: [], body: [] },
+            NetError.Refused,
+        ),
+    );
+    assert.isTrue(
+        variants.resultsCompare(PickedFile { name: "a.csv", text: "1" }, "no"),
+    );
+    let refused = ServeError { cause: .Closed, detail: "" };
+    let normal: server.CloseReason = .Normal;
+    assert.isTrue(variants.resultsCompare((normal, 1), refused));
+    assert.isTrue(variants.resultsCompare((normal, "a"), refused));
+}
+
+test "a result of a protocol buffer equals itself and not the other variant" {
+    let bad: ProtoError = .Truncated(1);
+    assert.isTrue(variants.resultsCompare(Any { typeUrl: "t", value: [1] }, bad));
+    assert.isTrue(variants.resultsCompare(BoolValue { value: true }, bad));
+    assert.isTrue(variants.resultsCompare(BytesValue { value: [1] }, bad));
+    assert.isTrue(variants.resultsCompare(DoubleValue { value: 1.5 }, bad));
+    assert.isTrue(variants.resultsCompare(Duration { seconds: 1, nanos: 0 }, bad));
+    assert.isTrue(variants.resultsCompare(Empty {}, bad));
+    assert.isTrue(variants.resultsCompare(FieldMask { paths: ["a"] }, bad));
+    assert.isTrue(variants.resultsCompare(FloatValue { value: 1.5 }, bad));
+    assert.isTrue(variants.resultsCompare(Int32Value { value: 1 }, bad));
+    assert.isTrue(variants.resultsCompare(Int64Value { value: 1 }, bad));
+    assert.isTrue(variants.resultsCompare(Json.Bool(true), bad));
+    assert.isTrue(variants.resultsCompare(NullValue.NULL_VALUE, bad));
+    assert.isTrue(variants.resultsCompare("yes", bad));
+    assert.isTrue(variants.resultsCompare(StringValue { value: "a" }, bad));
+    assert.isTrue(variants.resultsCompare(Timestamp { seconds: 1, nanos: 0 }, bad));
+    assert.isTrue(variants.resultsCompare(UInt32Value { value: 1 }, bad));
+    assert.isTrue(variants.resultsCompare(UInt64Value { value: 1 }, bad));
+}
+
+test "an option of a standard type equals itself and not the other variant" {
+    assert.isTrue(variants.optionsCompare(()));
+    assert.isTrue(variants.optionsCompare(((1, 2), "a")));
+    assert.isTrue(variants.optionsCompare(date.midnight(date.fromDays(0))));
+    assert.isTrue(variants.optionsCompare(F32x4 { x: 1.0, y: 2.0, z: 3.0, w: 4.0 }));
+    assert.isTrue(variants.optionsCompare(I32x4 { x: 1, y: 2, z: 3, w: 4 }));
+    assert.isTrue(variants.optionsCompare(Method.Get));
+    assert.isTrue(variants.optionsCompare([Protocol.Http1]));
+    assert.isTrue(variants.optionsCompare(Presence.Explicit));
+    assert.isTrue(variants.optionsCompare(RepeatedEncoding.Packed));
+    assert.isTrue(variants.optionsCompare(server.Socket(1)));
+    assert.isTrue(variants.optionsCompare(server.Tls { certificate: "c", key: "k" }));
+    let said: server.Message = .Text("hi");
+    assert.isTrue(variants.optionsCompare(said));
+}
+
+test "an option of a protocol buffer equals itself and not the other variant" {
+    assert.isTrue(variants.optionsCompare(Any { typeUrl: "t", value: [1] }));
+    assert.isTrue(variants.optionsCompare(BoolValue { value: true }));
+    assert.isTrue(variants.optionsCompare(BytesValue { value: [1] }));
+    assert.isTrue(variants.optionsCompare(DoubleValue { value: 1.5 }));
+    assert.isTrue(variants.optionsCompare(Duration { seconds: 1, nanos: 0 }));
+    assert.isTrue(variants.optionsCompare(Empty {}));
+    assert.isTrue(variants.optionsCompare(FieldMask { paths: ["a"] }));
+    assert.isTrue(variants.optionsCompare(FloatValue { value: 1.5 }));
+    assert.isTrue(variants.optionsCompare(Int32Value { value: 1 }));
+    assert.isTrue(variants.optionsCompare(Int64Value { value: 1 }));
+    assert.isTrue(variants.optionsCompare(NullValue.NULL_VALUE));
+    assert.isTrue(variants.optionsCompare(StringValue { value: "a" }));
+    assert.isTrue(variants.optionsCompare(Timestamp { seconds: 1, nanos: 0 }));
+    assert.isTrue(variants.optionsCompare(UInt32Value { value: 1 }));
+    assert.isTrue(variants.optionsCompare(UInt64Value { value: 1 }));
+}
+
+/// How `.Some(x)` shows, then how `.None` of the same type does.
+fn shown<T: Show, C: Allocator>(ctx: C, x: T): Str {
+    let some: Option<T> = .Some(x);
+    let none: Option<T> = .None;
+    str.format(ctx, "${some.show(ctx)} ${none.show(ctx)}")
+}
+
+test "an option of a protocol buffer shows its variant and its value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let each = [
+        shown(ctx, Any { typeUrl: "t", value: [1] }),
+        shown(ctx, BoolValue { value: true }),
+        shown(ctx, BytesValue { value: [1] }),
+        shown(ctx, DoubleValue { value: 1.5 }),
+        shown(ctx, Duration { seconds: 1, nanos: 0 }),
+        shown(ctx, Empty {}),
+        shown(ctx, FieldMask { paths: ["a"] }),
+        shown(ctx, FloatValue { value: 1.5 }),
+        shown(ctx, Int32Value { value: 1 }),
+        shown(ctx, Int64Value { value: 1 }),
+        shown(ctx, NullValue.NULL_VALUE),
+        shown(ctx, StringValue { value: "a" }),
+        shown(ctx, Timestamp { seconds: 1, nanos: 0 }),
+        shown(ctx, UInt32Value { value: 1 }),
+        shown(ctx, UInt64Value { value: 1 }),
+    ];
+    assert.equal(each, [
+        ".Some(Any { typeUrl: \"t\", value: [1] }) .None",
+        ".Some(BoolValue { value: true }) .None",
+        ".Some(BytesValue { value: [1] }) .None",
+        ".Some(DoubleValue { value: 1.5 }) .None",
+        ".Some(Duration { seconds: 1, nanos: 0 }) .None",
+        ".Some(Empty {}) .None",
+        ".Some(FieldMask { paths: [\"a\"] }) .None",
+        ".Some(FloatValue { value: 1.5 }) .None",
+        ".Some(Int32Value { value: 1 }) .None",
+        ".Some(Int64Value { value: 1 }) .None",
+        ".Some(.NULL_VALUE) .None",
+        ".Some(StringValue { value: \"a\" }) .None",
+        ".Some(Timestamp { seconds: 1, nanos: 0 }) .None",
+        ".Some(UInt32Value { value: 1 }) .None",
+        ".Some(UInt64Value { value: 1 }) .None",
+    ]);
+}
+
+// `.None` sorts before every `.Some`.
+test "an option hashes and orders by its variant, then its value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let int: Option<Int> = .Some(1);
+    let noInt: Option<Int> = .None;
+    assert.isTrue(int.hash() != noInt.hash());
+    let float: Option<Float> = .Some(1.5);
+    let noFloat: Option<Float> = .None;
+    assert.isTrue(float.hash() != noFloat.hash());
+    assert.equal(
+        [
+            float.compare(noFloat),
+            noFloat.compare(float),
+            float.compare(float),
+            noFloat.compare(noFloat),
+        ],
+        [.Greater, .Less, .Equal, .Equal],
+    );
+    let text: Option<Str> = .Some("a");
+    let noText: Option<Str> = .None;
+    assert.isTrue(text.hash() != noText.hash());
+    let nested: Option<Option<Int>> = .Some(.None);
+    let noNested: Option<Option<Int>> = .None;
+    assert.isTrue(nested.hash() != noNested.hash());
+    assert.equal([nested.show(ctx), noNested.show(ctx)], [".Some(.None)", ".None"]);
+}

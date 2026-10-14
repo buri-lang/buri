@@ -1,4 +1,0 @@
-// ---- section ----
-
-// What this one does.
-export fn f(): Int extra { 1 }

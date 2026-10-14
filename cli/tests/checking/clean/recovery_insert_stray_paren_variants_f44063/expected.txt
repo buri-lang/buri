@@ -1,0 +1,9 @@
+error: expected an identifier, found `,` [unexpected-token]
+  --> main.buri:17:46
+   |
+17 | export fn resultsCompare<T: Equal, E: Equal>(, ok: T, err: E): Bool {
+   |                                              ^
+   |
+   = expected: an identifier
+   = actual: `,`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -47,6 +47,7 @@ from "platform/effect/testing" import {
     sockets, stderr, stdin, stdout, syncFile, task, TaskCall, tasks, writeFile,
     writeFileBytes,
 };
+from "//lib/variants" import * as variants;
 
 // Ordinary functions over the effects, so what the doubles are asked is what a
 // program would ask them rather than what a test can reach directly.
@@ -3221,4 +3222,10 @@ test "a client dialled from inside a spawned task is an ordinary client" {
         Message.Text("hello"),
         Message.Text("one"),
     ]);
+}
+
+test "a configuration, in a result, equals itself and not a failure" {
+    assert.isTrue(
+        variants.resultsCompare(Configuration { name: "a", token: "t" }, "no"),
+    );
 }

@@ -2754,6 +2754,45 @@ test "a close code becomes the reason core/net/server names for it" {
     assert.equal(closedWith(-1), ".Overflow");
 }
 
+fn sameReason(a: server.CloseReason, b: server.CloseReason): Bool {
+    a == b
+}
+
+fn sameMessage(a: server.Message, b: server.Message): Bool {
+    a == b
+}
+
+test "a close reason equals itself and no other" {
+    assert.isTrue(sameReason(.Normal, .Normal) && !sameReason(.Normal, .GoingAway));
+    assert.isTrue(
+        sameReason(.GoingAway, .GoingAway) && !sameReason(.GoingAway, .Normal),
+    );
+    assert.isTrue(
+        sameReason(.ProtocolError, .ProtocolError)
+            && !sameReason(.ProtocolError, .Normal),
+    );
+    assert.isTrue(
+        sameReason(.Unsupported, .Unsupported) && !sameReason(.Unsupported, .Normal),
+    );
+    assert.isTrue(sameReason(.Policy, .Policy) && !sameReason(.Policy, .Normal));
+    assert.isTrue(sameReason(.TooLarge, .TooLarge) && !sameReason(.TooLarge, .Normal));
+    assert.isTrue(
+        sameReason(.InternalError, .InternalError)
+            && !sameReason(.InternalError, .Normal),
+    );
+    assert.isTrue(sameReason(.Overflow, .Overflow) && !sameReason(.Overflow, .Normal));
+    assert.isTrue(sameReason(.Abnormal, .Abnormal) && !sameReason(.Abnormal, .Normal));
+}
+
+test "a message equals one of the same kind with the same payload" {
+    assert.isTrue(sameMessage(.Text("a"), .Text("a")));
+    assert.isFalse(sameMessage(.Text("a"), .Text("b")));
+    assert.isFalse(sameMessage(.Text("a"), .Binary([1])));
+    assert.isTrue(sameMessage(.Binary([1]), .Binary([1])));
+    assert.isFalse(sameMessage(.Binary([1]), .Binary([2])));
+    assert.isFalse(sameMessage(.Binary([1]), .Text("a")));
+}
+
 test "a request that is not an upgrade reaches onRequest on a socket server" {
     // The fall-through from the *acceptor's* side: a server that has hooks, and
     // a client that did not ask for a socket. `Scripted` with a socket of
@@ -2971,6 +3010,216 @@ test "an accept that fails is the listener failing, and run answers it" {
     let failed = assert.err(servedWhile("accept"));
     assert.equal(failed.cause, .Transport);
     assert.equal(failed.detail, "accepting");
+}
+
+/// A `Listen` with one connection, which asks for a socket that says a text and
+/// a binary message and then closes. `failing` names the call that answers an
+/// error instead: `"bind"`, `"accept"`, `"request"`, `"upgrade"`, `"respond"`
+/// or `"receive"`.
+///
+/// Like `Scripted`, it reads how far the socket has got from what the hooks
+/// printed to `sink`, and the second accept is `.Closed` once anything has.
+struct Talking {
+    sink: TestStdout,
+    handlers: Int,
+    failing: Str,
+}
+
+impl Listen for Talking {
+    fn listenBind(
+        self,
+        address: Str,
+        port: Int,
+        plan: [Serve],
+        requestLimit: Int,
+        idleTimeoutMilliseconds: Int,
+    ): Result<Listener, ServeError> {
+        match (self.failing) {
+            "bind" => {
+                .Err(ServeError { cause: .PermissionDenied, detail: "no address" })
+            },
+            _ => .Ok(Listener { handle: 1, port: 8080, handlers: self.handlers }),
+        }
+    }
+
+    fn listenAccept(self, handle: Int): Result<Int, ServeError> {
+        match ((self.failing, self.sink.captured())) {
+            ("accept", _) => .Err(broken("accepting")),
+            (_, "") => .Ok(7),
+            _ => .Err(ServeError { cause: .Closed, detail: "" }),
+        }
+    }
+
+    fn listenRequest(self, connection: Int): Result<Request, ServeError> {
+        let _read = self.sink.println("read");
+        match (self.failing) {
+            "request" => .Err(broken("reading the request")),
+            _ => {
+                .Ok(Request {
+                    method: .Get,
+                    url: "/socket",
+                    headers: [],
+                    body: [],
+                    timeoutMillis: 0,
+                })
+            },
+        }
+    }
+
+    fn listenRespond(
+        self,
+        connection: Int,
+        status: Int,
+        headers: [Header],
+        body: [U8],
+    ): Result<(), ServeError> {
+        let _answered = self.sink.println("answered ${status}");
+        match (self.failing) {
+            "respond" => .Err(broken("writing the response")),
+            _ => .Ok(()),
+        }
+    }
+
+    fn listenClose(self, handle: Int): () {
+        ()
+    }
+
+    fn listenUpgrade(self, connection: Int): Result<Int, ServeError> {
+        match (self.failing) {
+            "upgrade" => {
+                .Err(ServeError { cause: .Unsupported, detail: "not an upgrade" })
+            },
+            _ => .Ok(9),
+        }
+    }
+
+    fn listenReceive(self, socket: Int): Result<Received, ServeError> {
+        let said = self.sink.captured();
+        if (said.endsWith("open\n")) {
+            .Ok(Received { frame: .Text, text: "hi", data: [], code: 0 })
+        } else if (said.endsWith("text hi\n")) {
+            .Ok(Received { frame: .Binary, text: "", data: [1, 2], code: 0 })
+        } else if (self.failing == "receive") {
+            .Err(ServeError { cause: .Closed, detail: "" })
+        } else {
+            .Ok(Received { frame: .Closed, text: "", data: [], code: 1000 })
+        }
+    }
+}
+
+/// A socket server on `Talking`, whose state starts at `start()` and takes
+/// `step` for each message: how it ended, then everything the listener and the
+/// hooks printed.
+fn talked<S>(
+    failing: Str,
+    handlers: Int,
+    path: Str,
+    start: fn() => S,
+    step: fn(S, server.Message) => S,
+    describe: fn(S) => Str,
+): Str {
+    let sink = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Listen: Talking { sink: sink, handlers: handlers, failing: failing },
+        Sockets: QuietSockets {},
+        Stdout: sink,
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    let served = server.serve(ctx, server.Server {
+        port: 0,
+        onRequest: fn(_c, _r) => Response { status: 404, headers: [], body: [] },
+        websocket: .Some(server.WebSocket {
+            path: path,
+            onOpen: fn(c, _socket, _request) => {
+                let _opened = io.println(c, "open");
+                start()
+            },
+            onMessage: fn(c, _socket, state, message) => {
+                let _heard = match (message) {
+                    .Text(text) => io.println(c, "text ${text}"),
+                    .Binary(data) => io.println(c, "binary ${data.length()}"),
+                };
+                step(state, message)
+            },
+            onClose: fn(c, _socket, state, reason) => {
+                let _closed = io.println(
+                    c,
+                    "close ${reason.show(c)} ${describe(state)}",
+                );
+                state
+            },
+        }),
+    });
+    let ended = match (served) {
+        .Ok(()) => "ok",
+        .Err(e) => server.errorText(e),
+    };
+    str.format(ctx, "${ended}\n${sink.captured()}")
+}
+
+/// Every way `talked` can go, for one kind of state.
+fn talkedEveryWay<S>(
+    start: fn() => S,
+    step: fn(S, server.Message) => S,
+    describe: fn(S) => Str,
+): [Str] {
+    [
+        talked("", 1, "/socket", start, step, describe),
+        talked("", 3, "/socket", start, step, describe),
+        talked("receive", 1, "/socket", start, step, describe),
+        talked("", 1, "/chat", start, step, describe),
+        talked("upgrade", 1, "/socket", start, step, describe),
+        talked("respond", 1, "/chat", start, step, describe),
+        talked("request", 1, "/socket", start, step, describe),
+        talked("accept", 1, "/socket", start, step, describe),
+        talked("accept", 3, "/socket", start, step, describe),
+        talked("bind", 1, "/socket", start, step, describe),
+    ]
+}
+
+/// What `talkedEveryWay` hears, with `state` as the close describes the
+/// state after both messages.
+fn heardEveryWay<C: Allocator>(ctx: C, state: Str): [Str] {
+    let spoken = "read\nopen\ntext hi\nbinary 2\n";
+    [
+        str.format(ctx, "ok\n${spoken}close .Normal ${state}\n"),
+        str.format(ctx, "ok\n${spoken}close .Normal ${state}\n"),
+        str.format(ctx, "ok\n${spoken}close .Abnormal ${state}\n"),
+        "ok\nread\nanswered 404\n",
+        "ok\nread\nanswered 404\n",
+        "ok\nread\nanswered 404\n",
+        "ok\nread\n",
+        "the transport failed\n",
+        "the transport failed\n",
+        "listening was not permitted\n",
+    ]
+}
+
+test "a socket's messages reach onMessage in order, whatever its state is" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let counted = talkedEveryWay(fn() => 0, fn(n, _message) => n + 1, fn(n) => {
+        match (n) {
+            2 => "two",
+            _ => "not two",
+        }
+    });
+    assert.equal(counted, heardEveryWay(ctx, "two"));
+    let kept = talkedEveryWay(
+        fn() => "first",
+        fn(s, message) => {
+            match (message) {
+                .Text(text) => text,
+                .Binary(_data) => s,
+            }
+        },
+        fn(s) => s,
+    );
+    assert.equal(kept, heardEveryWay(ctx, "hi"));
+    let nothing = talkedEveryWay(fn() => (), fn(u, _message) => u, fn(_u) => "()");
+    assert.equal(nothing, heardEveryWay(ctx, "()"));
 }
 
 test "a socket handle a program wrote for itself is one that has already gone" {

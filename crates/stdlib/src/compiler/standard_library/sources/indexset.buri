@@ -73,11 +73,15 @@ fn position<K: Index>(member: K): U64;
 /// for one that is checked against `position` afterwards.
 fn member<K: Index>(position: U64): K;
 
-/// The last word a `U64` position reaches.
-let LAST_WORD: Int = 288230376151711743;
-
 fn wordOf(p: U64): Int {
     bits.shiftRightU64(p, 6).wrapToI64()
+}
+
+/// The last word a `K` reaches. An unsigned type's largest number is the top
+/// bit of its word, so that word is whole.
+fn lastWord<K: Index>(): Int {
+    let largest: K = member(~0);
+    wordOf(position(largest))
 }
 
 fn bitOf(p: U64): U64 {
@@ -120,29 +124,26 @@ export fn range<K: Index, C: Allocator>(ctx: C, start: K, end: K): IndexSet<K> {
             bits.shiftLeftU64(1, top + 1) - 1
         };
         let ones: U64 = ~0;
-        let full = list.repeat(ctx, ones, hi - lo + 1);
-        let low = full.replaceAt(ctx, 0, below);
         let n = hi - lo;
-        IndexSet {
-            base: lo,
-            words: low.replaceAt(ctx, n, low.get(n).withDefault(0) & above),
-        }
+        let low = list.repeat(ctx, ones, n + 1).replaceAt(ctx, 0, below);
+        // Word `n` as `low` holds it: `below` when it is the first word too.
+        let held: U64 = if (n == 0) { below } else { ones };
+        IndexSet { base: lo, words: low.replaceAt(ctx, n, held & above) }
     }
 }
 
 /// The set holding the words `words` from word `base`, with the zero words at
 /// either end dropped.
 fn trimmed<K: Index, C: Allocator>(ctx: C, base: Int, words: [U64]): IndexSet<K> {
-    match (words.findIndex(fn(w) => w != 0)) {
-        .None => empty<K>(),
-        .Some(lo) => {
-            let hi = words.findLastIndex(fn(w) => w != 0).withDefault(lo);
+    match ((words.findIndex(fn(w) => w != 0), words.findLastIndex(fn(w) => w != 0))) {
+        (.Some(lo), .Some(hi)) => {
             if (hi - lo + 1 == words.length()) {
                 IndexSet { base, words }
             } else {
                 IndexSet { base: base + lo, words: words.slice(ctx, lo, hi + 1) }
             }
         },
+        _ => empty<K>(),
     }
 }
 
@@ -219,7 +220,7 @@ impl<K: Index> IndexSet<K> {
             let grown = self.words.concat(ctx, zeros(ctx, i - self.words.length()));
             IndexSet { base: self.base, words: grown.push(ctx, bit) }
         } else {
-            let old = self.words.get(i).withDefault(0);
+            let old = self.wordAt(at);
             if (old & bit != 0) {
                 self
             } else {
@@ -234,7 +235,7 @@ impl<K: Index> IndexSet<K> {
     export fn remove<C: Allocator>(self, ctx: C, member: K): IndexSet<K> {
         let p = position(member);
         let i = wordOf(p) - self.base;
-        let old = self.words.get(i).withDefault(0);
+        let old = self.wordAt(wordOf(p));
         let bit = bitOf(p);
         if (old & bit == 0) {
             self
@@ -260,9 +261,10 @@ impl<K: Index> IndexSet<K> {
             empty<K>()
         } else {
             let kept = if (i == 0) { self.words } else { self.words.drop(ctx, i) };
-            let first = kept.get(0).withDefault(0);
+            let first = self.wordAt(wordOf(p));
             let masked = first & bitsFrom((p & 63).wrapToI64());
-            if (masked == first) {
+            // A middle word can be empty, so the first kept one may be too.
+            if (masked != 0 && masked == first) {
                 IndexSet { base: self.base + i, words: kept }
             } else {
                 trimmed(ctx, self.base + i, kept.replaceAt(ctx, 0, masked))
@@ -292,20 +294,19 @@ impl<K: Index> IndexSet<K> {
     export fn firstMissingFrom(self, member: K): Option<K> {
         let p = position(member);
         let at = wordOf(p);
-        self.missingFrom(at, ~self.wordAt(at) & bitsFrom((p & 63).wrapToI64()))
+        let open = ~self.wordAt(at) & bitsFrom((p & 63).wrapToI64());
+        self.missingFrom(at, open, lastWord<K>())
     }
 
     /// The first missing position from word `at`, whose missing bits not yet
-    /// passed are `open`.
-    fn missingFrom(self, at: Int, open: U64): Option<K> {
+    /// passed are `open`, up to word `last`.
+    fn missingFrom(self, at: Int, open: U64, last: Int): Option<K> {
         if (open != 0) {
-            let p = positionAt(at, bits.trailingZerosU64(open));
-            let m: K = member(p);
-            if (position(m) == p) { .Some(m) } else { .None }
-        } else if (at >= LAST_WORD) {
+            .Some(member(positionAt(at, bits.trailingZerosU64(open))))
+        } else if (at >= last) {
             .None
         } else {
-            self.missingFrom(at + 1, ~self.wordAt(at + 1))
+            self.missingFrom(at + 1, ~self.wordAt(at + 1), last)
         }
     }
 
@@ -377,34 +378,37 @@ impl<K: Index> IndexSet<K> {
 
     /// Every member, in ascending order.
     export fn toList<C: Allocator>(self, ctx: C): [K] {
-        self.listFrom(ctx, 0, self.words.get(0).withDefault(0), list.empty<K>())
+        self.listFrom(ctx, -1, 0, list.empty<K>())
     }
 
+    /// Word `i` is `w`, with the members already in `acc` cleared.
     fn listFrom<C: Allocator>(self, ctx: C, i: Int, w: U64, acc: [K]): [K] {
         if (w != 0) {
             let m: K = member(positionAt(self.base + i, bits.trailingZerosU64(w)));
             self.listFrom(ctx, i, w & w - 1, acc.push(ctx, m))
-        } else if (i + 1 < self.words.length()) {
-            self.listFrom(ctx, i + 1, self.words.get(i + 1).withDefault(0), acc)
         } else {
-            acc
+            match (self.words.get(i + 1)) {
+                .Some(next) => self.listFrom(ctx, i + 1, next, acc),
+                .None => acc,
+            }
         }
     }
 
     /// `step` over every member, in ascending order. Pure, like a list's
     /// `fold`.
     export fn fold<B>(self, step: fn(B, K) => B, init: B): B {
-        self.foldFrom(step, 0, self.words.get(0).withDefault(0), init)
+        self.foldFrom(step, -1, 0, init)
     }
 
     fn foldFrom<B>(self, step: fn(B, K) => B, i: Int, w: U64, acc: B): B {
         if (w != 0) {
             let m: K = member(positionAt(self.base + i, bits.trailingZerosU64(w)));
             self.foldFrom(step, i, w & w - 1, step(acc, m))
-        } else if (i + 1 < self.words.length()) {
-            self.foldFrom(step, i + 1, self.words.get(i + 1).withDefault(0), acc)
         } else {
-            acc
+            match (self.words.get(i + 1)) {
+                .Some(next) => self.foldFrom(step, i + 1, next, acc),
+                .None => acc,
+            }
         }
     }
 }
