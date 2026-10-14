@@ -345,7 +345,9 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
                     // that held the state stepped the message first.
                     .Some(answered) => {
                         answered.fold(
-                            fn(_none: Result<R, SendError>, carrier) => .Ok(carrier.value),
+                            fn(_none: Result<R, SendError>, carrier) => {
+                                .Ok(carrier.value)
+                            },
                             .Err(.Stopped),
                         )
                     },
@@ -374,7 +376,9 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
                 let hook = self.onStop;
                 held.foldCtx(
                     ctx,
-                    fn(c, _none: Result<(), Stopped>, last) => ending(c, hook, last.value),
+                    fn(c, _none: Result<(), Stopped>, last) => {
+                        ending(c, hook, last.value)
+                    },
                     .Ok(()),
                 )
             },
