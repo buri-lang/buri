@@ -9,7 +9,12 @@
 pub(crate) use std::sync::{Condvar, Mutex, MutexGuard};
 
 #[cfg(feature = "valgrind")]
-pub(crate) use reported::{Condvar, Mutex, MutexGuard};
+pub(crate) use reported::{Condvar, Mutex, MutexGuard, close};
+
+/// Nothing to wait for: only helgrind minds a lock held at exit.
+#[cfg(not(feature = "valgrind"))]
+#[inline]
+pub(crate) fn close() {}
 
 #[cfg(feature = "valgrind")]
 mod reported {
@@ -17,6 +22,68 @@ mod reported {
     use std::ops::{Deref, DerefMut};
     use std::sync::{LockResult, PoisonError, TryLockError, TryLockResult, WaitTimeoutResult};
     use std::time::Duration;
+
+    use std::cell::Cell;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::SeqCst};
+
+    /// Whether a thread has started to exit the process.
+    static CLOSING: AtomicBool = AtomicBool::new(false);
+    /// Guards out, on every thread.
+    static HELD: AtomicUsize = AtomicUsize::new(0);
+
+    thread_local! {
+        static HELD_HERE: Cell<usize> = const { Cell::new(0) };
+        static CLOSER: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Wait for every other thread's critical sections to end, then keep any
+    /// thread holding no lock from taking one, so the exit after this kills
+    /// no thread that holds one. Helgrind reports each such thread.
+    ///
+    /// A second thread to exit leaves it to the first.
+    pub(crate) fn close() {
+        if CLOSER.get() {
+            return;
+        }
+        if CLOSING.swap(true, SeqCst) {
+            HELD.fetch_sub(HELD_HERE.get(), SeqCst);
+            HELD_HERE.set(0);
+            wait_for_the_exit();
+        }
+        CLOSER.set(true);
+        while HELD.load(SeqCst) != HELD_HERE.get() {
+            std::thread::yield_now();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn closing() -> bool {
+        CLOSING.load(SeqCst)
+    }
+
+    fn wait_for_the_exit() -> ! {
+        loop {
+            std::thread::park();
+        }
+    }
+
+    /// Counts `inner` as held. Once the process is closing, a thread that
+    /// held nothing gives it back and waits for the exit instead.
+    fn enter<G>(inner: G) -> G {
+        HELD.fetch_add(1, SeqCst);
+        if CLOSING.load(SeqCst) && !CLOSER.get() && HELD_HERE.get() == 0 {
+            HELD.fetch_sub(1, SeqCst);
+            drop(inner);
+            wait_for_the_exit();
+        }
+        HELD_HERE.set(HELD_HERE.get() + 1);
+        inner
+    }
+
+    fn leave() {
+        HELD_HERE.set(HELD_HERE.get() - 1);
+        HELD.fetch_sub(1, SeqCst);
+    }
 
     /// `std::sync::Mutex`, whose locking helgrind is told about.
     pub(crate) struct Mutex<T: ?Sized>(std::sync::Mutex<T>);
@@ -41,6 +108,7 @@ mod reported {
         pub(crate) fn lock(&self) -> LockResult<MutexGuard<'_, T>> {
             let lock = self.address();
             let taken = |inner| {
+                let inner = enter(inner);
                 if valgrind::helgrind() {
                     valgrind::acquired(lock);
                 }
@@ -58,6 +126,7 @@ mod reported {
         pub(crate) fn try_lock(&self) -> TryLockResult<MutexGuard<'_, T>> {
             let lock = self.address();
             let taken = |inner| {
+                let inner = enter(inner);
                 if valgrind::helgrind() {
                     valgrind::acquired(lock);
                 }
@@ -82,6 +151,7 @@ mod reported {
             if valgrind::helgrind() {
                 valgrind::released(self.lock);
             }
+            leave();
             match self.inner.take() {
                 Some(inner) => inner,
                 // Taken only here and in `drop`, which this skips.
@@ -116,8 +186,11 @@ mod reported {
 
     impl<T: ?Sized> Drop for MutexGuard<'_, T> {
         fn drop(&mut self) {
-            if self.inner.is_some() && valgrind::helgrind() {
-                valgrind::released(self.lock);
+            if self.inner.is_some() {
+                if valgrind::helgrind() {
+                    valgrind::released(self.lock);
+                }
+                leave();
             }
         }
     }
@@ -137,6 +210,7 @@ mod reported {
         ) -> LockResult<MutexGuard<'a, T>> {
             let lock = guard.lock;
             let back = |inner| {
+                let inner = enter(inner);
                 if valgrind::helgrind() {
                     valgrind::acquired(lock);
                 }
@@ -158,6 +232,7 @@ mod reported {
         ) -> LockResult<(MutexGuard<'a, T>, WaitTimeoutResult)> {
             let lock = guard.lock;
             let back = |(inner, result)| {
+                let inner = enter(inner);
                 if valgrind::helgrind() {
                     valgrind::acquired(lock);
                 }
@@ -182,5 +257,44 @@ mod reported {
         pub(crate) fn notify_all(&self) {
             self.0.notify_all();
         }
+    }
+}
+
+#[cfg(all(test, feature = "valgrind"))]
+mod tests {
+    use super::Mutex;
+
+    /// **An abort waits for a lock another thread holds**, so the exit never
+    /// kills a thread inside a critical section, which helgrind reports as
+    /// "Exiting thread still holds 1 lock" (#311).
+    #[test]
+    fn an_abort_waits_for_a_lock_another_thread_holds() {
+        if std::env::var_os("BURI_RT_TEST_ABORT_CHILD").is_some() {
+            static HELD: Mutex<()> = Mutex::new(());
+            let (ready, wait) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let guard = HELD.lock();
+                ready.send(()).unwrap();
+                while !super::reported::closing() {
+                    std::thread::yield_now();
+                }
+                eprintln!("released");
+                drop(guard);
+            });
+            wait.recv().unwrap();
+            crate::abort::die(&[b"stopped"]);
+        }
+        let name = "sync::tests::an_abort_waits_for_a_lock_another_thread_holds";
+        let out = std::process::Command::new(std::env::current_exe().expect("this test binary"))
+            .args(["--exact", name, "--test-threads=1", "--nocapture"])
+            .env("BURI_RT_TEST_ABORT_CHILD", "1")
+            .output()
+            .expect("the test binary runs");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(1), "{stderr}");
+        assert!(
+            stderr.contains("stopped\nreleased\n"),
+            "the abort didn't wait for the lock:\n{stderr}"
+        );
     }
 }

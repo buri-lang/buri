@@ -1587,5 +1587,6 @@ pub extern "C" fn buri_rt_host_process_exit_with(code: i64) -> ! {
     // the test-mode exit audit stays quiet (`memory.rs`'s heap-check section).
     crate::memory::quiet_heap_audit();
     buri_rt_flush();
+    crate::sync::close();
     std::process::exit(code as i32)
 }

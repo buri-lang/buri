@@ -92,6 +92,9 @@ pub(crate) fn die(parts: &[&[u8]]) -> ! {
     }
     let _ = err.write_all(b"\n");
     let _ = err.flush();
+    // Free for a thread finishing a critical section to write to.
+    drop(err);
+    crate::sync::close();
     std::process::exit(1)
 }
 
