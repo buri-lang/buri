@@ -2010,3 +2010,103 @@ test "merging many keys into few and few into many" {
     assert.equal(summed.get(200), .Some(2));
     assert.equal(summed.length(), 101);
 }
+
+// --- string keys and other value types through the branches ----------------
+
+/// `"1000"` to `"1099"`: four digits each, so text order is number order.
+fn padded<C: Allocator>(ctx: C, count: Int): [Str] {
+    list.range(ctx, 0, count).mapCtx(ctx, fn(c, i) => str.fromInt(c, 1000 + i))
+}
+
+test "a string-keyed map of a hundred answers through its branches" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let names = padded(ctx, 100);
+    let lengths = names.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Str, Int>, k) => acc.insert(c, k, k.length()),
+        orderedmap.empty<Str, Int>(),
+    );
+    assert.equal(lengths.keys(ctx), names);
+    assert.equal(lengths.values(ctx), names.map(ctx, fn(k) => k.length()));
+    assert.isTrue(lengths.has("1050"));
+    assert.isFalse(lengths.has("1050.5"));
+    let flags = names.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Str, Bool>, k) => acc.insert(c, k, true),
+        orderedmap.empty<Str, Bool>(),
+    );
+    assert.equal(flags.keys(ctx), names);
+    assert.equal(flags.values(ctx), names.map(ctx, fn(_k) => true));
+    let flipped = flags.insert(ctx, "1050", false);
+    assert.equal(flipped.length(), 100);
+    assert.equal(flipped.get("1050"), .Some(false));
+    assert.equal(flipped.get("0999"), .None);
+    let singles = names.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Str, [Str]>, k) => acc.insert(c, k, [k]),
+        orderedmap.empty<Str, [Str]>(),
+    );
+    assert.equal(singles.values(ctx), names.map(ctx, fn(k) => [k]));
+    assert.equal(singles.entries(ctx), names.map(ctx, fn(k) => (k, [k])));
+}
+
+test "string-to-string maps are equal by entries, through their branches" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let names = padded(ctx, 100);
+    let same = names.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Str, Str>, k) => acc.insert(c, k, k),
+        orderedmap.empty<Str, Str>(),
+    );
+    let fewer = names
+        .take(ctx, 99)
+        .foldCtx(
+            ctx,
+            fn(c, acc: OrderedMap<Str, Str>, k) => acc.insert(c, k, k),
+            orderedmap.empty<Str, Str>(),
+        );
+    assert.isTrue(same == same.insert(ctx, "1000", "1000"));
+    assert.isFalse(same == fewer);
+    assert.isFalse(same == same.insert(ctx, "1050", "other"));
+}
+
+test "floor after removals reaches back to the left whatever the types" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let evens = list.range(ctx, 0, 300).map(ctx, fn(i) => i * 2);
+    let gone = evens.filter(ctx, fn(k) => k % 14 == 0);
+    let byInt = gone.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Int, Str>, k) => acc.remove(c, k),
+        orderedmap.of(ctx, evens.mapCtx(ctx, fn(c, k) => (k, str.fromInt(c, k)))),
+    );
+    let byStr = gone.foldCtx(
+        ctx,
+        fn(c, acc: OrderedMap<Str, Int>, k) => acc.remove(c, str.fromInt(c, 1000 + k)),
+        orderedmap.of(
+            ctx,
+            evens.mapCtx(ctx, fn(c, k) => (str.fromInt(c, 1000 + k), k)),
+        ),
+    );
+    let probes = list.range(ctx, 0, 598);
+    let wanted = probes.map(ctx, fn(p) => floorWithoutSevens(p));
+    assert.equal(probes.map(ctx, fn(p) => byInt.floor(p).map(fn(e) => e.0)), wanted);
+    assert.equal(
+        probes.mapCtx(ctx, fn(c, p) => {
+            byStr.floor(str.fromInt(c, 1000 + p)).map(fn(e) => e.1)
+        }),
+        wanted,
+    );
+}
+
+/// The floor of `p` in the even numbers without the multiples of 14.
+fn floorWithoutSevens(p: Int): Option<Int> {
+    let even = p - p % 2;
+    let wanted = if (even % 14 == 0) { even - 2 } else { even };
+    if (wanted < 0) { .None } else { .Some(wanted) }
+}
