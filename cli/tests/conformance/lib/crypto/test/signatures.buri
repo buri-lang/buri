@@ -580,4 +580,14 @@ test "each DER item fills its parent exactly, and the integers are integers" {
         spki(hex("301a300d06092a864886f70d01010105000309003006040165020103")),
         .Err(notRsa),
     );
+    // The key wrapped in an OCTET STRING rather than a BIT STRING.
+    assert.equal(
+        spki(hex("301a300d06092a864886f70d01010105000409003006020165020103")),
+        .Err(notRsa),
+    );
+    // The key's SEQUENCE written as a SET.
+    assert.equal(
+        spki(hex("301a300d06092a864886f70d01010105000309003106020165020103")),
+        .Err(notRsa),
+    );
 }
