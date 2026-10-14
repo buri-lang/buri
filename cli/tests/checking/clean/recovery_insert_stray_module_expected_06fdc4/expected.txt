@@ -1,0 +1,9 @@
+error: expected `=`, found `Int` [unexpected-token]
+ --> main.buri:1:18
+  |
+1 | let LIMIT: extra Int = 1; // beside the binding
+  |                  ^^^
+  |
+  = expected: `=`
+  = actual: `Int`
+  = fix: write `=` here

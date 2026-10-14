@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:98:29
+   |
+98 |     let f = lazy.load(double;
+   |                             ^
+   |
+  --> main.buri:98:22
+   |
+98 |     let f = lazy.load(double;
+   |                      ^ opened here
+   |
+   = fix: write `)` here
