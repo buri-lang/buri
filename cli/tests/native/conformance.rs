@@ -729,6 +729,11 @@ const PACKAGES: &[Case] = &[
     included("secret/secret.buri"),
     // `derive Hash for Uuid;` over a `[U8]` field, a `deriveArrayHash` loop.
     included("uuid/hashing.buri"),
+    // Both variants of an `Option` and a `Result` over each held type, so the
+    // derived `Equal`, `Hash`, `Ordered` and `Show` each backend generates
+    // per instantiation answer alike on every one of them.
+    included("variants/variants.buri"),
+    included("variants/stdlib.buri"),
     included("text/bytes.buri"),
     // Hexadecimal across four modules — `character.fromDigit`, `number.toHex`,
     // `str.toRadix` and `core/bytes`' pair. Every conversion in it is exact, so
