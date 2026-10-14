@@ -137,9 +137,10 @@ pub fn run(program: &mut Program, split: bool) {
             let reached = dce::reachable(program, &[*root], dce::Chunks::Followed);
             let members = reached
                 .iter()
+                .zip(&program.funcs)
                 .enumerate()
-                .filter(|(i, seen)| **seen && in_artifact.get(*i) != Some(&true))
-                .map(|(i, _)| i)
+                .filter(|(i, (seen, _))| **seen && in_artifact.get(*i) != Some(&true))
+                .map(|(_, (_, f))| f.symbol.clone())
                 .collect();
             Chunk {
                 root: *root,
@@ -318,7 +319,10 @@ mod tests {
         run(&mut p, true);
         assert_eq!(p.chunks.len(), 1);
         assert_eq!(p.chunks[0].root, 2);
-        assert_eq!(p.chunks[0].members, vec![2, 3]);
+        assert_eq!(
+            p.chunks[0].members,
+            [p.funcs[2].symbol.clone(), p.funcs[3].symbol.clone()]
+        );
         assert_eq!(
             chunk_name(p.funcs[0].body().unwrap()).as_deref(),
             Some("lazy.chunk.0")

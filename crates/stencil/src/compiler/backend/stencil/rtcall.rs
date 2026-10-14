@@ -52,7 +52,7 @@ use super::abi::{MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
 use super::jit::{agg_of, Fn2, Jit, V};
 use super::runtime::{self, Entry, Extra, OptRepr, Ret, BURI_OK};
 use crate::compiler::backend::counts::Op;
-use crate::compiler::backend::intrinsic_keys::step_call;
+use crate::compiler::backend::intrinsic_keys::StepCall;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 use crate::compiler::semantics::types::{self as types, Ty, TyKind};
@@ -195,7 +195,7 @@ impl Jit<'_> {
             // `step_call` names, so skipping it here and appending four words
             // after the loop writes the same C signature the LLVM backend
             // writes with the `Arg::Step` in its place.
-            if extra == Extra::Step && step_call(entry.key).is_some_and(|c| c.func == i) {
+            if matches!(extra, Extra::Step(call) if call.func == i) {
                 continue;
             }
             // And a **deferred body** is not flattened either, for the same
@@ -283,8 +283,8 @@ impl Jit<'_> {
             }
         }
 
-        if extra == Extra::Step {
-            self.step_extra(prog, st, entry, dty, args, &mut ints);
+        if let Extra::Step(call) = extra {
+            self.step_extra(prog, st, call, dty, args, &mut ints);
         }
 
         if extra == Extra::Compute {
@@ -880,12 +880,11 @@ impl Jit<'_> {
         &mut self,
         prog: &ir::Program,
         st: &mut Fn2,
-        entry: &Entry,
+        call: StepCall,
         dest: ir::Type,
         args: &[(u32, ir::Type)],
         ints: &mut Vec<Src>,
     ) {
-        let call = step_call(entry.key).or_ice("a step row has a `step_call` row");
         let (fslot, fty) = *args.get(call.func).or_ice("a step row's call has its step");
         let (params, ret) = match source_ty(prog, fty).map(Ty::kind) {
             Some(TyKind::Fn(params, ret)) => Some((params, ret)),

@@ -337,13 +337,13 @@ pub struct Hosted {
 /// One lazily loaded chunk: the function `core/lazy`'s `load` was handed, and
 /// the functions only that one reaches.
 ///
-/// Both are slots in [`Program::funcs`], because that is what the artifact and
-/// the chunk are partitioned by and what `middle::dce` answers in.
+/// The root is a slot in [`Program::funcs`], because that is what `middle::dce`
+/// answers in. The members are symbols, which is what the backend moves.
 #[derive(Clone, Debug)]
 pub struct Chunk {
     pub root: usize,
     /// `root` included. Every function that leaves the artifact for this file.
-    pub members: Vec<usize>,
+    pub members: Vec<String>,
 }
 
 /// What every declared type is made of, in a form a pass holding no `Tables`
