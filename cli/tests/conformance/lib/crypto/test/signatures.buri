@@ -558,3 +558,26 @@ test "a DER length is read in one or two octets, and only where it needs them" {
         .Err(notRsa),
     );
 }
+
+test "each DER item fills its parent exactly, and the integers are integers" {
+    let notRsa = "not an RSA SubjectPublicKeyInfo";
+    // The small key above, n = 101 and e = 3, with an octet after the BIT
+    // STRING, after the key's SEQUENCE, and after the exponent.
+    assert.equal(
+        spki(hex("301b300d06092a864886f70d01010105000309003006020165020103ff")),
+        .Err(notRsa),
+    );
+    assert.equal(
+        spki(hex("301b300d06092a864886f70d0101010500030a003006020165020103ff")),
+        .Err(notRsa),
+    );
+    assert.equal(
+        spki(hex("301b300d06092a864886f70d0101010500030a003007020165020103ff")),
+        .Err(notRsa),
+    );
+    // The modulus as an OCTET STRING.
+    assert.equal(
+        spki(hex("301a300d06092a864886f70d01010105000309003006040165020103")),
+        .Err(notRsa),
+    );
+}
