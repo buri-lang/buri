@@ -3240,16 +3240,21 @@ impl Anchors {
 /// point before the first token is written after a token numbered
 /// [`u32::MAX`], which starts at 0 and is empty.
 fn anchor<'a>(text: &'a str, tokens: &TokenLocations, at: u32) -> (u32, u32, &'a str) {
-    let token = match tokens
-        .partition_point(|&(start, _)| start <= at)
-        .checked_sub(1)
-    {
-        Some(i) => u32::try_from(i).unwrap_or(u32::MAX),
-        None => u32::MAX,
+    let i = tokens.partition_point(|&(start, _)| start <= at);
+    // The token before `i`, when there is one, and the one at `i`.
+    let mut near = tokens.iter().enumerate().skip(i.saturating_sub(1));
+    let (token, from, end) = match near.next().filter(|_| i > 0) {
+        Some((before, &(start, end))) => (u32::try_from(before).unwrap_or(u32::MAX), start, end),
+        None => (u32::MAX, 0, 0),
     };
-    let (from, end, gap) =
-        locate_anchor(text, tokens, token).or_ice("a token found in a file is in it");
-    let between = gap
+    let len = u32::try_from(text.len()).unwrap_or(u32::MAX);
+    let next = match i {
+        0 => tokens.first(),
+        _ => near.next().map(|(_, token)| token),
+    }
+    .map_or(len, |&(start, _)| start);
+    let between = (next > end)
+        .then_some(end..next)
         .filter(|_| at > end)
         .and_then(|g| text.get(g.start as usize..g.end as usize));
     (token, from, between.unwrap_or(""))
