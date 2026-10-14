@@ -10,6 +10,7 @@
               signature. The one subtraction is a `saturating_sub`."
 )]
 
+use super::local_id;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::{self, Func, Program};
 use crate::compiler::middle::rc::*;
@@ -224,17 +225,14 @@ impl State {
         self.locals.retain(|(_, v)| *v != 0);
         let _ = self.diverged;
         self.temps.retain(|(_, v)| *v != 0);
-        self.locals.sort_by_key(|(l, _)| l.0);
+        self.locals.sort_by_key(|(l, _)| *l);
         self.temps.sort_by_key(|(n, _)| n.0);
     }
 }
 
 impl Balance<'_> {
     fn counted_local(&mut self, l: LocalId) -> bool {
-        let Some(local) = self.func.locals.get(l.index()) else {
-            return false;
-        };
-        let ty = local.ty;
+        let ty = self.func.locals.get(l).ty;
         matches!(self.counted.counted(&ty), Answer::Yes)
     }
 
@@ -843,13 +841,11 @@ fn a_loop_drops_what_it_does_not_carry_before_the_back_edge() {
         .sites
         .iter()
         .filter_map(|s| match s.target {
-            Target::Local(l) | Target::LocalExcept(l, _) => func.locals.get(l.index()).map(|x| {
-                format!(
-                    "{} {}",
-                    if s.op == RcOp::IncRef { "inc" } else { "dec" },
-                    x.name
-                )
-            }),
+            Target::Local(l) | Target::LocalExcept(l, _) => Some(format!(
+                "{} {}",
+                if s.op == RcOp::IncRef { "inc" } else { "dec" },
+                func.locals.get(l).name
+            )),
             Target::Node(_) => None,
         })
         .collect();
@@ -898,9 +894,7 @@ export fn main(host: NodeHost): Result<(), Str> {
         let func = program.funcs.get(i.index()).expect("a function");
         let rest = func
             .locals
-            .iter()
             .position(|l| l.name == "rest")
-            .map(|k| LocalId(k as u32))
             .unwrap_or_else(|| panic!("{name} binds a local named rest"));
         let ops: Vec<RcOp> = fp
             .sites
@@ -938,15 +932,16 @@ fn every_increment_at_a_key_runs_before_every_decrement() {
         target,
     };
     let mut sites = vec![
-        site(RcOp::DecRef, Target::Local(LocalId(65))),
+        site(RcOp::DecRef, Target::Local(local_id(65))),
         site(RcOp::IncRef, Target::Node(NodeId(148))),
-        site(RcOp::DecRef, Target::Local(LocalId(54))),
+        site(RcOp::DecRef, Target::Local(local_id(54))),
     ];
     order_sites(&mut sites);
     // What `lower` does three lines before it emits: both target kinds
     // resolve to a value, and these two resolve to the same one.
     let value = |t: Target| match t {
-        Target::Local(LocalId(65)) | Target::Node(NodeId(148)) => 104u32,
+        Target::Local(l) if l == local_id(65) => 104u32,
+        Target::Node(NodeId(148)) => 104,
         _ => 101,
     };
     let ops: Vec<(RcOp, u32)> = sites.iter().map(|s| (s.op, value(s.target))).collect();
@@ -1018,9 +1013,7 @@ export fn main(host: NodeHost): Result<(), Str> {
         let func = program.funcs.get(i.index()).expect("a function");
         let stale = func
             .locals
-            .iter()
             .position(|l| l.name == "stale")
-            .map(|k| LocalId(k as u32))
             .unwrap_or_else(|| panic!("{name} binds a local named stale"));
         let drop = fp
             .sites
@@ -1140,7 +1133,7 @@ export fn main(host: NodeHost): Result<(), Str> {
         .filter(|s| s.op == RcOp::IncRef)
         .filter_map(|s| match s.target {
             Target::Local(l) | Target::LocalExcept(l, _) => {
-                func.locals.get(l.index()).map(|x| x.name.to_string())
+                Some(func.locals.get(l).name.to_string())
             }
             Target::Node(_) => None,
         })
@@ -1205,9 +1198,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let fp = plan.func(i).expect("a plan");
     let held = func
         .locals
-        .iter()
         .position(|l| l.name == "held")
-        .map(|k| LocalId(k as u32))
         .expect("`forced` takes a parameter named held");
     let drops: Vec<(Position, NodeId)> = fp
         .sites
@@ -1333,9 +1324,7 @@ export fn main(host: NodeHost): Result<(), Str> {
         .iter()
         .filter(|s| s.op == RcOp::IncRef)
         .filter_map(|s| match s.target {
-            Target::Local(l) | Target::LocalExcept(l, _) => {
-                func.locals.get(l.index()).map(|x| x.name.as_str())
-            }
+            Target::Local(l) | Target::LocalExcept(l, _) => Some(func.locals.get(l).name.as_str()),
             Target::Node(_) => None,
         })
         .collect();
@@ -1472,11 +1461,7 @@ fn named_sites(program: &Program, i: FuncIdx, fp: &FuncPlan) -> Vec<String> {
         .iter()
         .map(|s| {
             let what = match s.target {
-                Target::Local(l) | Target::LocalExcept(l, _) => f
-                    .locals
-                    .get(l.index())
-                    .map(|x| x.name.to_string())
-                    .unwrap_or_else(|| format!("l{}", l.0)),
+                Target::Local(l) | Target::LocalExcept(l, _) => f.locals.get(l).name.to_string(),
                 Target::Node(n) => format!("n{}", n.0),
             };
             let op = if s.op == RcOp::IncRef { "inc" } else { "dec" };
@@ -1817,16 +1802,7 @@ export fn main(host: NodeHost): Result<(), Str> {
         .funcs
         .get(find(&program, "showFirst").index())
         .expect("a function");
-    let ctx_ty = f
-        .locals
-        .first()
-        .map(|l| l.ty)
-        .expect("the context parameter");
-    let opt_ty = f
-        .locals
-        .get(1)
-        .map(|l| l.ty)
-        .expect("the `Option<Str>` parameter");
+    let [ctx_ty, opt_ty] = [0, 1].map(|i| f.locals.get(local_id(i)).ty);
     assert!(
         matches!(ctx_ty.kind(), TyKind::Ctx(_)),
         "the first parameter is the context"

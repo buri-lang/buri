@@ -47,7 +47,7 @@ use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
-use crate::diagnostics::Invariant as _;
+use crate::hash::Map as HashMap;
 
 /// Lifts every lambda to a top-level function over an explicit environment.
 pub fn run(program: &mut Program) {
@@ -79,7 +79,7 @@ pub fn run(program: &mut Program) {
 
 /// What a lifted function inherits from the function it was written inside.
 struct Parent {
-    locals: Vec<typed::Local>,
+    locals: typed::Locals,
     symbol: String,
     debug_name: String,
 }
@@ -100,26 +100,48 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
     };
 
     let func = FuncIdx(base.saturating_add(lifted.len()) as u32);
-    let params = std::mem::take(params);
+    let mut params = std::mem::take(params);
     let captures = std::mem::take(captures);
-    let body = std::mem::replace(body, Box::new(Expr::new(ExprKind::Unit, Ty::UNIT, e.span)));
+    let mut body = std::mem::replace(body, Box::new(Expr::new(ExprKind::Unit, Ty::UNIT, e.span)));
 
-    let locals = &parent.locals;
-    let env = LocalId(locals.len() as u32);
-    let env_ty = Ty::tuple(
-        captures
-            .iter()
-            .filter_map(|c| locals.get(c.index()).map(|l| l.ty)),
-    );
+    let parent_locals = &parent.locals;
+    let env_ty = Ty::tuple(captures.iter().map(|c| parent_locals.get(*c).ty));
 
-    // Each capture is bound back to the id it had, out of the environment, so
-    // the body below reads what it always read.
-    let prologue: Vec<Stmt> = captures
+    // The lifted function's own table: the environment, then the locals its
+    // parameters and body name, in the order they are first named. Sized by
+    // the lambda rather than by its parent, which may hold thousands of locals
+    // and as many lambdas.
+    let mut locals = typed::Locals::new();
+    let env = locals.push(typed::Local {
+        name: Name::new("env"),
+        ty: env_ty,
+        span: e.span,
+    });
+    let mut moved: HashMap<LocalId, LocalId> = HashMap::default();
+    let mut renumber = |l: &mut LocalId| {
+        *l = *moved
+            .entry(*l)
+            .or_insert_with(|| locals.push(parent_locals.get(*l).clone()));
+    };
+    params.iter_mut().for_each(&mut renumber);
+    each_local(&mut body, &mut renumber);
+    let inner_captures: Vec<LocalId> = captures
+        .iter()
+        .map(|c| {
+            let mut c = *c;
+            renumber(&mut c);
+            c
+        })
+        .collect();
+
+    // Each capture is bound out of the environment, so the body below reads
+    // what it always read.
+    let prologue: Vec<Stmt> = inner_captures
         .iter()
         .enumerate()
-        .filter_map(|(i, c)| {
-            let ty = locals.get(c.index())?.ty;
-            Some(Stmt::Let {
+        .map(|(i, c)| {
+            let ty = locals.get(*c).ty;
+            Stmt::Let {
                 pattern: Pattern {
                     kind: PatKind::Bind {
                         local: *c,
@@ -137,7 +159,7 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
                     e.span,
                 ),
                 span: e.span,
-            })
+            }
         })
         .collect();
 
@@ -158,18 +180,6 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
     let n = lifted.len();
     let mut lifted_params = vec![env];
     lifted_params.extend(params);
-    let (mut inner, mut lifted_params) = (inner, lifted_params);
-    let locals = compact(
-        &mut inner,
-        &mut lifted_params,
-        &parent.locals,
-        env,
-        typed::Local {
-            name: Name::new("env"),
-            ty: env_ty,
-            span: e.span,
-        },
-    );
     lifted.push(Func {
         symbol: format!("{}$fn{n}", parent.symbol),
         debug_name: format!("{} lambda {n}", parent.debug_name),
@@ -190,57 +200,10 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
             func,
             env: captures
                 .iter()
-                .filter_map(|c| {
-                    let l = parent.locals.get(c.index())?;
-                    Some(Expr::new(ExprKind::Local(*c), l.ty, e.span))
-                })
+                .map(|c| Expr::new(ExprKind::Local(*c), parent_locals.get(*c).ty, e.span))
                 .collect(),
         }
     };
-}
-
-/// Renumbers a lifted body and its parameters into a table of the locals they
-/// name, in their old order, with `env` last; answers that table.
-fn compact(
-    body: &mut Expr,
-    params: &mut [LocalId],
-    parent: &[typed::Local],
-    env: LocalId,
-    env_local: typed::Local,
-) -> Vec<typed::Local> {
-    // Sized by the lambda rather than by its parent, which may hold thousands
-    // of locals and as many lambdas.
-    let mut used: Vec<u32> = Vec::new();
-    let mut mark = |l: &mut LocalId| {
-        if l.index() < parent.len() {
-            used.push(l.0);
-        }
-    };
-    params.iter_mut().for_each(&mut mark);
-    each_local(body, &mut mark);
-    used.sort_unstable();
-    used.dedup();
-    let mut locals: Vec<typed::Local> = used
-        .iter()
-        .filter_map(|l| parent.get(*l as usize).cloned())
-        .collect();
-    let new_env = LocalId(locals.len() as u32);
-    locals.push(env_local);
-    let mut renumber = |l: &mut LocalId| {
-        if *l == env {
-            *l = new_env;
-        } else {
-            // Every local but the environment was marked above.
-            *l = LocalId(
-                used.binary_search(&l.0)
-                    .ok()
-                    .or_ice("a lifted body's local was marked") as u32,
-            );
-        }
-    };
-    params.iter_mut().for_each(&mut renumber);
-    each_local(body, &mut renumber);
-    locals
 }
 
 /// Hands `f` every `LocalId` in an expression: every read, every lambda
@@ -296,10 +259,11 @@ fn pattern_locals(p: &mut Pattern, f: &mut impl FnMut(&mut LocalId)) {
 #[cfg(test)]
 mod tests {
     use super::run;
+    use crate::compiler::middle::local_id;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{Expr, ExprKind, Local};
-    use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
+    use crate::compiler::semantics::types::{FuncIdx, Ty};
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
 
@@ -320,8 +284,8 @@ mod tests {
             funcs: vec![Func {
                 symbol: "host".to_string(),
                 debug_name: "host".to_string(),
-                params: params.into_iter().map(LocalId).collect(),
-                locals,
+                params: params.into_iter().map(local_id).collect(),
+                locals: locals.into_iter().collect(),
                 kind: FuncKind::Body(body),
                 ret: Ty::UNIT,
                 desc: None,
@@ -351,9 +315,9 @@ mod tests {
     #[test]
     fn a_capturing_lambda_becomes_a_closure_over_an_environment() {
         let lambda = e(ExprKind::Lambda {
-            params: vec![LocalId(1)],
-            body: Box::new(e(ExprKind::Local(LocalId(0)))),
-            captures: vec![LocalId(0)],
+            params: vec![local_id(1)],
+            body: Box::new(e(ExprKind::Local(local_id(0)))),
+            captures: vec![local_id(0)],
         });
         let mut p = program(vec![local("n"), local("x")], vec![0], lambda);
         run(&mut p);
@@ -364,9 +328,9 @@ mod tests {
         assert_eq!(env.len(), 1);
         let lifted = &p.funcs[func.index()];
         assert_eq!(lifted.params.len(), 2);
-        // The environment parameter comes first and is a fresh local.
-        assert_eq!(lifted.params[0], LocalId(2));
-        assert_eq!(lifted.params[1], LocalId(1));
+        // The environment parameter comes first, then the lambda's own.
+        assert_eq!(lifted.locals.get(lifted.params[0]).name, "env");
+        assert_eq!(lifted.locals.get(lifted.params[1]).name, "x");
     }
 
     /// A lifted function's table holds what its body names and its
@@ -376,12 +340,12 @@ mod tests {
     #[test]
     fn a_lifted_table_holds_only_what_the_lambda_names() {
         let lambda = e(ExprKind::Lambda {
-            params: vec![LocalId(3)],
+            params: vec![local_id(3)],
             body: Box::new(e(ExprKind::Tuple(vec![
-                e(ExprKind::Local(LocalId(1))),
-                e(ExprKind::Local(LocalId(3))),
+                e(ExprKind::Local(local_id(1))),
+                e(ExprKind::Local(local_id(3))),
             ]))),
-            captures: vec![LocalId(1)],
+            captures: vec![local_id(1)],
         });
         let names = ["a", "n", "b", "x", "c"];
         let mut p = program(names.iter().map(|n| local(n)).collect(), vec![0], lambda);
@@ -389,16 +353,16 @@ mod tests {
 
         let lifted = &p.funcs[1];
         let table: Vec<&str> = lifted.locals.iter().map(|l| l.name.as_str()).collect();
-        assert_eq!(table, ["n", "x", "env"]);
-        assert_eq!(lifted.params, [LocalId(2), LocalId(1)]);
+        assert_eq!(table, ["env", "x", "n"]);
+        assert_eq!(lifted.params, [local_id(0), local_id(1)]);
         let mut read = Vec::new();
         crate::compiler::semantics::typed::walk(lifted.body().unwrap(), &mut |x| {
             if let ExprKind::Local(l) = x.kind {
-                read.push(l.0);
+                read.push(l.index());
             }
         });
         // The environment, then the capture and the parameter it binds and reads.
-        assert_eq!(read, [2, 0, 1]);
+        assert_eq!(read, [0, 2, 1]);
     }
 
     /// A lambda over nothing is a top-level function, and a null environment is
@@ -406,8 +370,8 @@ mod tests {
     #[test]
     fn a_lambda_that_captures_nothing_is_a_reference() {
         let lambda = e(ExprKind::Lambda {
-            params: vec![LocalId(0)],
-            body: Box::new(e(ExprKind::Local(LocalId(0)))),
+            params: vec![local_id(0)],
+            body: Box::new(e(ExprKind::Local(local_id(0)))),
             captures: Vec::new(),
         });
         let mut p = program(vec![local("x")], Vec::new(), lambda);
@@ -426,12 +390,12 @@ mod tests {
     #[test]
     fn a_lambda_inside_a_lambda_is_lifted_too() {
         let inner = e(ExprKind::Lambda {
-            params: vec![LocalId(2)],
-            body: Box::new(e(ExprKind::Local(LocalId(1)))),
-            captures: vec![LocalId(1)],
+            params: vec![local_id(2)],
+            body: Box::new(e(ExprKind::Local(local_id(1)))),
+            captures: vec![local_id(1)],
         });
         let outer = e(ExprKind::Lambda {
-            params: vec![LocalId(1)],
+            params: vec![local_id(1)],
             body: Box::new(inner),
             captures: Vec::new(),
         });

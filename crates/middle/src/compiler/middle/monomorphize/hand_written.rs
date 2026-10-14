@@ -241,11 +241,19 @@ impl Monomorphizer<'_> {
     /// The body is the one `middle::derives` gives the intrinsic natively, so
     /// every backend lowers it the same way. `Show` is handed a `Scope`, the
     /// allocator that charges nothing, because the report has no context.
-    pub(super) fn report_through_show(&mut self, f: &mut Func, key: &str, params: &[Ty]) -> bool {
+    pub(super) fn report_through_show(&mut self, f: &mut Func, key: &str) -> bool {
         // `report(passed, kind, actual, expected)` and `failExpected(kind, got)`.
-        let (kind_at, values, shown_key): (u32, &[u32], &str) = match key {
-            "testing_assert.report" => (1, &[2, 3], REPORT_SHOWN),
-            "testing_assert.failExpected" => (0, &[1], EXPECTED_SHOWN),
+        let (passed, kind, value, values, shown_key) = match (key, f.params.as_slice()) {
+            ("testing_assert.report", &[passed, kind, actual, expected]) => (
+                Some(passed),
+                kind,
+                actual,
+                vec![actual, expected],
+                REPORT_SHOWN,
+            ),
+            ("testing_assert.failExpected", &[kind, got]) => {
+                (None, kind, got, vec![got], EXPECTED_SHOWN)
+            }
             _ => return false,
         };
         // `core/testing`, which declares both reporters, also declares `Scope`.
@@ -254,13 +262,9 @@ impl Monomorphizer<'_> {
             .known_types
             .get("Scope")
             .or_ice("`core/testing` declares `Scope`");
-        let str_ty = *params
-            .get(kind_at as usize)
-            .or_ice("a reporter takes the kind it reports");
-        let ty = *values
-            .first()
-            .and_then(|i| params.get(*i as usize))
-            .or_ice("a reporter takes the value it reports");
+        let str_ty = f.locals.get(kind).ty;
+        // A reporter's values are of one type.
+        let ty = f.locals.get(value).ty;
         let scope_ty = Ty::con(scope, []);
         let Some(show) = self.unbounded_fn("Show", ty, Some(scope_ty)) else {
             return false;
@@ -274,14 +278,12 @@ impl Monomorphizer<'_> {
             scope_ty,
             Span::NONE,
         );
-        let mut args = vec![local(LocalId(kind_at), str_ty)];
-        args.extend(values.iter().map(|i| {
-            call(
-                show.index(),
-                vec![local(LocalId(*i), ty), ctx.clone()],
-                str_ty,
-            )
-        }));
+        let mut args = vec![local(kind, str_ty)];
+        args.extend(
+            values
+                .iter()
+                .map(|i| call(show.index(), vec![local(*i, ty), ctx.clone()], str_ty)),
+        );
         let ret = f.ret;
         let shown = Expr::new(
             ExprKind::Intrinsic {
@@ -293,10 +295,10 @@ impl Monomorphizer<'_> {
             Span::NONE,
         );
         // `report` renders only on the branch that fails.
-        let body = if kind_at == 1 {
+        let body = if let Some(passed) = passed {
             Expr::new(
                 ExprKind::If {
-                    cond: Box::new(local(LocalId(0), self.tables().prim(Prim::Bool))),
+                    cond: Box::new(local(passed, self.tables().prim(Prim::Bool))),
                     then: Box::new(Expr::new(ExprKind::Unit, ret, Span::NONE)),
                     else_: Box::new(shown),
                 },
@@ -560,7 +562,7 @@ impl Monomorphizer<'_> {
         slot: usize,
         f: &mut Func,
     ) {
-        self.locals = Vec::new();
+        self.locals = typed::Locals::new();
         let x = self.new_local("x", ty, Span::NONE);
         let d = self
             .deriving(trait_id, ctx, unbounded)
@@ -606,7 +608,7 @@ impl Monomorphizer<'_> {
         slot: usize,
         f: &mut Func,
     ) {
-        self.locals = Vec::new();
+        self.locals = typed::Locals::new();
         let list = Ty::array(elem);
         let xs = self.new_local("xs", list, Span::NONE);
         let d = self

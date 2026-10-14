@@ -385,6 +385,32 @@ impl<I: DenseId, T> Dense<I, T> {
     pub fn map<U>(&self, f: impl FnMut(&T) -> U) -> Dense<I, U> {
         self.rows.iter().map(f).collect()
     }
+
+    /// Appends another list's entries, and answers where its ids landed.
+    pub fn append(&mut self, other: &Dense<I, T>) -> Shift<I>
+    where
+        T: Clone,
+    {
+        let by = self.rows.len();
+        self.rows.extend(other.rows.iter().cloned());
+        Shift {
+            by,
+            id: std::marker::PhantomData,
+        }
+    }
+}
+
+/// Where [`Dense::append`] put the appended list's ids.
+pub struct Shift<I> {
+    by: usize,
+    id: std::marker::PhantomData<fn() -> I>,
+}
+
+impl<I: DenseId> Shift<I> {
+    /// The id the appended list's `id` has now.
+    pub fn of(&self, id: I) -> I {
+        mint(id.to_index().saturating_add(self.by))
+    }
 }
 
 impl<'a, I, T> IntoIterator for &'a Dense<I, T> {
@@ -392,6 +418,14 @@ impl<'a, I, T> IntoIterator for &'a Dense<I, T> {
     type IntoIter = std::slice::Iter<'a, T>;
     fn into_iter(self) -> Self::IntoIter {
         self.rows.iter()
+    }
+}
+
+impl<'a, I, T> IntoIterator for &'a mut Dense<I, T> {
+    type Item = &'a mut T;
+    type IntoIter = std::slice::IterMut<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.rows.iter_mut()
     }
 }
 

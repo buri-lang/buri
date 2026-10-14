@@ -871,7 +871,7 @@ struct Branches<'a> {
     options: &'a Options<'a>,
     instance: Option<&'a str>,
     traps: &'a HashMap<usize, Aborts>,
-    locals: &'a mut Vec<typed::Local>,
+    locals: &'a mut typed::Locals,
 }
 
 impl Branches<'_> {
@@ -1430,13 +1430,11 @@ impl Branches<'_> {
     }
 
     fn local(&mut self, ty: Ty, span: Span) -> LocalId {
-        let id = LocalId(self.locals.len() as u32);
         self.locals.push(typed::Local {
             name: Name::new("coverage"),
             ty,
             span,
-        });
-        id
+        })
     }
 }
 

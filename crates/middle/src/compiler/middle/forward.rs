@@ -124,8 +124,9 @@ fn is_path(e: &Expr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::forward_body;
+    use crate::compiler::middle::local_id;
     use crate::compiler::semantics::typed::{Expr, ExprKind, PatKind, Pattern, Stmt};
-    use crate::compiler::semantics::types::{LocalId, Prim, Ty};
+    use crate::compiler::semantics::types::{Prim, Ty};
     use crate::diagnostics::Span;
 
     fn e(kind: ExprKind) -> Expr {
@@ -133,7 +134,7 @@ mod tests {
     }
 
     fn local(i: u32) -> Expr {
-        e(ExprKind::Local(LocalId(i)))
+        e(ExprKind::Local(local_id(i)))
     }
 
     fn field(base: Expr, index: usize) -> Expr {
@@ -146,7 +147,7 @@ mod tests {
     fn let_(i: u32, value: Expr) -> Stmt {
         let pattern = Pattern {
             kind: PatKind::Bind {
-                local: LocalId(i),
+                local: local_id(i),
                 sub: None,
             },
             ty: Ty::ERROR,

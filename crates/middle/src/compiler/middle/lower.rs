@@ -85,6 +85,7 @@ use crate::compiler::middle::ir::{
 use crate::compiler::middle::layout;
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::typed::{
     self, Arm, ArrayRest, Expr, ExprKind, FieldPat, Magnitude, OptionOrResult, PatKind, Pattern,
     PrimOp, Stmt, TemplatePart, UnaryOp,
@@ -207,7 +208,7 @@ fn lower_one(
         params.push(Type::I32);
     }
     for p in &f.params {
-        let ty = f.locals.get(p.index()).map(|l| l.ty).unwrap_or(Ty::UNIT);
+        let ty = f.locals.get(*p).ty;
         let t = types.of(tables, &ty);
         params.push(t);
     }
@@ -234,7 +235,7 @@ fn lower_one(
                 ret,
                 code: Code::new(&sig.params),
                 cur: BlockId::ENTRY,
-                env: vec![None; f.locals.len()],
+                env: f.locals.map(|_| None),
                 loops: Vec::new(),
                 unmatched: None,
                 slices: Vec::new(),
@@ -587,7 +588,7 @@ struct FnLower<'a> {
     /// [`ExprKind::StructUpdate`].
     cycles: &'a layout::Cycles,
     types: &'a mut Types,
-    locals: &'a [typed::Local],
+    locals: &'a typed::Locals,
     ret: Ty,
     code: Code,
     cur: BlockId,
@@ -595,7 +596,7 @@ struct FnLower<'a> {
     /// parameter, a `let` or a pattern, at a point that dominates every read
     /// of it — which is what lexical scope means and is why this is a table
     /// rather than a stack of scopes.
-    env: Vec<Option<ValueId>>,
+    env: Dense<LocalId, Option<ValueId>>,
     loops: Vec<LoopFrame>,
     /// The shared block for a refutable pattern that matched nothing, built
     /// once per function and only where something needs it.
@@ -778,19 +779,16 @@ impl FnLower<'_> {
     }
 
     fn local_type(&mut self, l: LocalId) -> Type {
-        let ty = self.locals.get(l.index()).map(|x| x.ty).unwrap_or(Ty::UNIT);
+        let ty = self.locals.get(l).ty;
         self.type_of(&ty)
     }
 
     fn bind(&mut self, l: LocalId, v: ValueId) {
-        *self
-            .env
-            .get_mut(l.index())
-            .or_ice("`env` has a slot per local") = Some(v);
+        *self.env.get_mut(l) = Some(v);
     }
 
     fn read(&mut self, l: LocalId) -> ValueId {
-        match self.env.get(l.index()).copied().flatten() {
+        match *self.env.get(l) {
             Some(v) => v,
             // Not reachable from any input: every local is bound by a
             // parameter, a `let` or a pattern before the scope that reads it,
@@ -958,7 +956,7 @@ impl FnLower<'_> {
         let mut emitted: Vec<(rc::RcOp, ValueId)> = Vec::new();
         for site in sites {
             let value = match site.target {
-                rc::Target::Local(l) => self.env.get(l.index()).copied().flatten(),
+                rc::Target::Local(l) => *self.env.get(l),
                 rc::Target::Node(n) => self.node_values.get(&n).copied(),
                 rc::Target::LocalExcept(l, moved) => {
                     self.release_except(l, moved);
@@ -981,13 +979,8 @@ impl FnLower<'_> {
     /// names ([`rc::Target::LocalExcept`]), the way a functional update
     /// releases the fields it replaces.
     fn release_except(&mut self, l: LocalId, moved: u64) {
-        let agg = self
-            .env
-            .get(l.index())
-            .copied()
-            .flatten()
-            .or_ice("a local `rc` releases is bound");
-        let ty = self.locals.get(l.index()).map(|x| x.ty).unwrap_or(Ty::UNIT);
+        let agg = (*self.env.get(l)).or_ice("a local `rc` releases is bound");
+        let ty = self.locals.get(l).ty;
         let arity = ty.head().map_or(0, |c| self.tables.tycon(c).fields().len());
         for i in 0..arity {
             if i < 64 && moved & (1u64 << i) != 0 {
@@ -1839,13 +1832,7 @@ impl FnLower<'_> {
         let slots: Vec<Ty> = callee
             .params
             .iter()
-            .map(|p| {
-                callee
-                    .locals
-                    .get(p.index())
-                    .map(|l| l.ty)
-                    .unwrap_or(Ty::UNIT)
-            })
+            .map(|p| callee.locals.get(*p).ty)
             .collect();
         slots
             .iter()

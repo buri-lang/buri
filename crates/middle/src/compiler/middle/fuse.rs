@@ -380,21 +380,20 @@ impl Fuse<'_> {
                 ),
             },
         };
+        let locals: typed::Locals = params
+            .into_iter()
+            .enumerate()
+            .map(|(i, ty)| typed::Local {
+                name: Name::new(&format!("a{i}")),
+                ty,
+                span,
+            })
+            .collect();
         self.minted.push(Func {
             symbol: format!("{symbol}$fused{}", idx.index()),
             debug_name,
-            params: (0..params.len())
-                .map(|i| LocalId(u32::try_from(i).unwrap_or(u32::MAX)))
-                .collect(),
-            locals: params
-                .into_iter()
-                .enumerate()
-                .map(|(i, ty)| typed::Local {
-                    name: Name::new(&format!("a{i}")),
-                    ty,
-                    span,
-                })
-                .collect(),
+            params: locals.ids().collect(),
+            locals,
             kind: FuncKind::Intrinsic(combinator.key().to_string()),
             ret,
             desc: None,
@@ -563,10 +562,11 @@ fn readonly(e: &Expr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::run;
+    use crate::compiler::middle::local_id;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{Expr, ExprKind, Local, Stmt};
-    use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
+    use crate::compiler::semantics::types::{FuncIdx, Ty};
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
 
@@ -582,7 +582,7 @@ mod tests {
         let ty = Ty::func(params.iter().map(|_| Ty::UNIT), body.ty);
         e(
             ExprKind::Lambda {
-                params: params.into_iter().map(LocalId).collect(),
+                params: params.into_iter().map(local_id).collect(),
                 body: Box::new(body),
                 captures: Vec::new(),
             },
@@ -605,7 +605,7 @@ mod tests {
             symbol: key.to_string(),
             debug_name: key.to_string(),
             params: Vec::new(),
-            locals: Vec::new(),
+            locals: Default::default(),
             kind: FuncKind::Intrinsic(key.to_string()),
             ret: Ty::UNIT,
             desc: None,
@@ -661,9 +661,9 @@ mod tests {
         let map = call(
             1,
             vec![
-                e(ExprKind::Local(LocalId(0)), list()),
-                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
-                lambda(vec![2], e(ExprKind::Local(LocalId(2)), Ty::UNIT)),
+                e(ExprKind::Local(local_id(0)), list()),
+                e(ExprKind::Local(local_id(1)), Ty::UNIT),
+                lambda(vec![2], e(ExprKind::Local(local_id(2)), Ty::UNIT)),
             ],
             list(),
         );
@@ -671,7 +671,7 @@ mod tests {
             2,
             vec![
                 map,
-                lambda(vec![3, 4], e(ExprKind::Local(LocalId(4)), Ty::UNIT)),
+                lambda(vec![3, 4], e(ExprKind::Local(local_id(4)), Ty::UNIT)),
                 e(ExprKind::Unit, Ty::UNIT),
             ],
             Ty::UNIT,
@@ -685,14 +685,14 @@ mod tests {
         };
         assert_eq!(*func, FuncIdx(2), "the fold instance is reused");
         assert!(
-            matches!(args[0].kind, ExprKind::Local(LocalId(0))),
+            matches!(args[0].kind, ExprKind::Local(l) if l == local_id(0)),
             "over the source list"
         );
         let ExprKind::Lambda { params, body, .. } = &args[1].kind else {
             panic!("a lambda")
         };
         // The accumulator, then the *map's* parameter as the element.
-        assert_eq!(params, &[LocalId(3), LocalId(2)]);
+        assert_eq!(params, &[local_id(3), local_id(2)]);
         let ExprKind::Block { stmts, .. } = &body.kind else {
             panic!("a block")
         };
@@ -701,7 +701,7 @@ mod tests {
             panic!("a binding")
         };
         assert!(
-            matches!(value.kind, ExprKind::Local(LocalId(2))),
+            matches!(value.kind, ExprKind::Local(l) if l == local_id(2)),
             "the map's own body"
         );
     }
@@ -713,8 +713,8 @@ mod tests {
         let filter = call(
             1,
             vec![
-                e(ExprKind::Local(LocalId(0)), list()),
-                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
+                e(ExprKind::Local(local_id(0)), list()),
+                e(ExprKind::Local(local_id(1)), Ty::UNIT),
                 lambda(vec![2], e(ExprKind::Bool(true), Ty::UNIT)),
             ],
             list(),
@@ -723,7 +723,7 @@ mod tests {
             2,
             vec![
                 filter,
-                lambda(vec![3, 4], e(ExprKind::Local(LocalId(3)), Ty::UNIT)),
+                lambda(vec![3, 4], e(ExprKind::Local(local_id(3)), Ty::UNIT)),
                 e(ExprKind::Unit, Ty::UNIT),
             ],
             Ty::UNIT,
@@ -741,7 +741,7 @@ mod tests {
             panic!("a guard")
         };
         assert!(
-            matches!(else_.kind, ExprKind::Local(LocalId(3))),
+            matches!(else_.kind, ExprKind::Local(l) if l == local_id(3)),
             "a dropped element leaves the accumulator alone"
         );
     }
@@ -753,9 +753,9 @@ mod tests {
         let map = call(
             1,
             vec![
-                e(ExprKind::Local(LocalId(0)), list()),
-                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
-                lambda(vec![2], e(ExprKind::Local(LocalId(2)), Ty::UNIT)),
+                e(ExprKind::Local(local_id(0)), list()),
+                e(ExprKind::Local(local_id(1)), Ty::UNIT),
+                lambda(vec![2], e(ExprKind::Local(local_id(2)), Ty::UNIT)),
             ],
             list(),
         );
@@ -763,8 +763,8 @@ mod tests {
             2,
             vec![
                 map,
-                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
-                lambda(vec![3, 4], e(ExprKind::Local(LocalId(4)), Ty::UNIT)),
+                e(ExprKind::Local(local_id(1)), Ty::UNIT),
+                lambda(vec![3, 4], e(ExprKind::Local(local_id(4)), Ty::UNIT)),
                 e(ExprKind::Unit, Ty::UNIT),
             ],
             Ty::UNIT,
@@ -787,9 +787,9 @@ mod tests {
         let map = call(
             1,
             vec![
-                e(ExprKind::Local(LocalId(0)), list()),
-                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
-                e(ExprKind::Local(LocalId(5)), Ty::UNIT),
+                e(ExprKind::Local(local_id(0)), list()),
+                e(ExprKind::Local(local_id(1)), Ty::UNIT),
+                e(ExprKind::Local(local_id(5)), Ty::UNIT),
             ],
             list(),
         );
@@ -797,7 +797,7 @@ mod tests {
             2,
             vec![
                 map,
-                lambda(vec![3, 4], e(ExprKind::Local(LocalId(4)), Ty::UNIT)),
+                lambda(vec![3, 4], e(ExprKind::Local(local_id(4)), Ty::UNIT)),
                 e(ExprKind::Unit, Ty::UNIT),
             ],
             Ty::UNIT,
@@ -817,8 +817,8 @@ mod tests {
         let filter = call(
             1,
             vec![
-                e(ExprKind::Local(LocalId(0)), list()),
-                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
+                e(ExprKind::Local(local_id(0)), list()),
+                e(ExprKind::Local(local_id(1)), Ty::UNIT),
                 lambda(vec![2], e(ExprKind::Bool(true), Ty::UNIT)),
             ],
             list(),
@@ -834,7 +834,7 @@ mod tests {
         assert_eq!(*func, FuncIdx(before as u32), "a minted instance");
         assert_eq!(p.funcs[before].intrinsic_key(), Some("list.count"));
         assert_eq!(args.len(), 2);
-        assert!(matches!(args[0].kind, ExprKind::Local(LocalId(0))));
+        assert!(matches!(args[0].kind, ExprKind::Local(l) if l == local_id(0)));
         assert!(matches!(args[1].kind, ExprKind::Lambda { .. }));
     }
 
@@ -845,9 +845,9 @@ mod tests {
         let map = call(
             1,
             vec![
-                e(ExprKind::Local(LocalId(0)), list()),
-                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
-                lambda(vec![2], e(ExprKind::Local(LocalId(2)), Ty::UNIT)),
+                e(ExprKind::Local(local_id(0)), list()),
+                e(ExprKind::Local(local_id(1)), Ty::UNIT),
+                lambda(vec![2], e(ExprKind::Local(local_id(2)), Ty::UNIT)),
             ],
             list(),
         );
@@ -855,7 +855,7 @@ mod tests {
             2,
             vec![
                 map,
-                e(ExprKind::Local(LocalId(1)), Ty::UNIT),
+                e(ExprKind::Local(local_id(1)), Ty::UNIT),
                 lambda(vec![3], e(ExprKind::Bool(true), Ty::UNIT)),
             ],
             list(),
@@ -864,7 +864,7 @@ mod tests {
             3,
             vec![
                 filter,
-                lambda(vec![4, 5], e(ExprKind::Local(LocalId(5)), Ty::UNIT)),
+                lambda(vec![4, 5], e(ExprKind::Local(local_id(5)), Ty::UNIT)),
                 e(ExprKind::Unit, Ty::UNIT),
             ],
             Ty::UNIT,

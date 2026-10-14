@@ -350,13 +350,13 @@ struct LocalSet(Vec<u64>);
 
 impl LocalSet {
     fn contains(&self, l: LocalId) -> bool {
-        let i = l.0 as usize;
+        let i = l.index();
         self.0.get(i / 64).is_some_and(|w| (w >> (i % 64)) & 1 == 1)
     }
 
     /// Adds `l`, answering whether it was not already there.
     fn insert(&mut self, l: LocalId) -> bool {
-        let i = l.0 as usize;
+        let i = l.index();
         let word = i / 64;
         if self.0.len() <= word {
             self.0.resize(word.saturating_add(1), 0);

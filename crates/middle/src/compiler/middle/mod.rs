@@ -285,6 +285,15 @@ impl Components {
     }
 }
 
+/// The id a function's table mints for its local at `i`, for tests that write
+/// a body by hand.
+#[cfg(test)]
+pub(crate) fn local_id(i: u32) -> crate::compiler::semantics::types::LocalId {
+    use crate::compiler::semantics::layered::Dense;
+    let table: Dense<_, ()> = std::iter::repeat_n((), i as usize + 1).collect();
+    table.ids().last().expect("the table holds `i + 1` locals")
+}
+
 #[cfg(test)]
 mod tests {
     use super::strongly_connected;

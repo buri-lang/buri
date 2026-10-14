@@ -242,11 +242,7 @@ impl Gen<'_> {
                 crossed.push(Expr::Object(Vec::new()));
                 continue;
             }
-            let ty = f
-                .locals
-                .get(param.index())
-                .map(|l| l.ty)
-                .unwrap_or(Ty::ERROR);
+            let ty = f.locals.get(*param).ty;
             crossed.push(to_js(&self.crossing(&ty, false), arg.clone(), 0));
         }
         let implementation = Expr::member(Expr::call(Expr::ident(HOST_LOOKUP), Vec::new()), strukt);
@@ -264,7 +260,7 @@ impl Gen<'_> {
             .iter()
             .zip(&params)
             .map(|(p, name)| {
-                let ty = f.locals.get(p.index()).map(|l| l.ty).unwrap_or(Ty::ERROR);
+                let ty = f.locals.get(*p).ty;
                 from_js(&self.crossing(&ty, false), Expr::ident(name.clone()), 0)
             })
             .collect();
