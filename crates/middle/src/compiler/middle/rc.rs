@@ -1267,17 +1267,38 @@ fn infer_ownership(
         .map(|f| matches!(&f.kind, FuncKind::Intrinsic(k) if grows(k)))
         .collect();
     let pieces = (!opts.sharing).then_some(growers.as_slice());
+    let mut members: Vec<Member> = Vec::new();
     for scc in order.iter() {
+        // A function with no body consumes nothing and jumps nowhere, so its
+        // row is final as seeded.
+        members.clear();
+        members.extend(scc.iter().filter_map(|&index| {
+            let func = program
+                .funcs
+                .get(index)
+                .or_ice("a component's members are functions");
+            func.body().map(|body| Member { index, func, body })
+        }));
         // A non-recursive singleton reads only rows that are already final, so
         // one evaluation is its fixed point: a second pass would read the same
         // inputs and change nothing.
-        if let Some(only) = settles_once(deps, scc) {
-            promote_consuming(program, counted, only, &mut own, pieces);
+        if settles_once(deps, scc).is_some() {
+            for &m in &members {
+                promote_consuming(counted, m, &mut own, pieces);
+            }
             continue;
         }
-        converge_scc(program, counted, scc, &mut own, pieces);
+        converge_scc(counted, &members, &mut own, pieces);
     }
     own
+}
+
+/// A function of a component that has a body: all the ownership rules read.
+#[derive(Clone, Copy)]
+struct Member<'p> {
+    index: usize,
+    func: &'p Func,
+    body: &'p Expr,
 }
 
 /// The one member of a component that is not recursive, which reads only rows
@@ -1330,17 +1351,15 @@ fn ownership_dependencies(program: &Program) -> Vec<Vec<usize>> {
 /// consumes, reading the ownership rows the body's calls and jumps depend on.
 /// Returns whether it moved anything.
 fn promote_consuming(
-    program: &Program,
     counted: &mut dyn Counted,
-    i: usize,
+    Member {
+        index: i,
+        func: f,
+        body,
+    }: Member,
     own: &mut [Vec<ir::Ownership>],
     pieces: Option<&[bool]>,
 ) -> bool {
-    let f = program
-        .funcs
-        .get(i)
-        .or_ice("`i` is a function of the program");
-    let Some(body) = f.body() else { return false };
     let mut consumed: HashSet<LocalId> = HashSet::default();
     consuming_uses(body, own, counted, i, &mut consumed, pieces);
     let row = own.get(i).or_ice("`own` has a row per function");
@@ -1369,18 +1388,17 @@ fn promote_consuming(
 /// `Continue` shares its target's component (`ownership_dependencies`), so the
 /// loop-variable rule need only walk this component's own functions.
 fn converge_scc(
-    program: &Program,
     counted: &mut dyn Counted,
-    scc: &[usize],
+    scc: &[Member],
     own: &mut [Vec<ir::Ownership>],
     pieces: Option<&[bool]>,
 ) {
     loop {
         let mut changed = false;
-        for &i in scc {
-            changed |= promote_consuming(program, counted, i, own, pieces);
+        for &m in scc {
+            changed |= promote_consuming(counted, m, own, pieces);
         }
-        for (target, k) in loop_variables_taken(program, own, scc) {
+        for (target, k) in loop_variables_taken(own, scc) {
             match own.get_mut(target).and_then(|r| r.get_mut(k)) {
                 Some(o) if *o == ir::Ownership::Borrow => {
                     *o = ir::Ownership::Own;
@@ -1406,18 +1424,14 @@ fn converge_scc(
 /// puts before the back edge frees the next iteration's variable.
 /// `middle/rc.rs`'s own `a_jump_owns_what_it_did_not_pass_through` is that
 /// shape; `stepV` below was the program.
-fn loop_variables_taken(
-    program: &Program,
-    own: &[Vec<ir::Ownership>],
-    scc: &[usize],
-) -> Vec<(usize, usize)> {
+fn loop_variables_taken(own: &[Vec<ir::Ownership>], scc: &[Member]) -> Vec<(usize, usize)> {
     let mut out: Vec<(usize, usize)> = Vec::new();
-    for &i in scc {
-        let f = program
-            .funcs
-            .get(i)
-            .or_ice("a component's members are functions");
-        let Some(body) = f.body() else { continue };
+    for &Member {
+        index: i,
+        func: f,
+        body,
+    } in scc
+    {
         let row = own.get(i);
         typed::walk(body, &mut |e| {
             let ExprKind::Continue { func, args, .. } = &e.kind else {
