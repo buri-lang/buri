@@ -1224,7 +1224,10 @@ impl Listen for PoolListen {
 /// anything. What it *can* do is answer, and a `Listener` is three `Int`s: the
 /// plan's digest rides out on `port`, one digit per element in the order the
 /// elements were written, so a caller reads back both what was in the plan and
-/// what order it was in.
+/// what order it was in. The bind's other knobs ride out on `handle`: the
+/// address's length, then the request limit plus one, then the idle timeout's
+/// milliseconds plus one, three digits each, so a `Server` that set none of
+/// them binds handle `0`.
 ///
 /// This is the only thing in the corpus that can see the plan at all. The
 /// acceptor's side of it — what a certificate path does once the runtime has
@@ -1264,7 +1267,9 @@ impl Listen for PlanListen {
         idleTimeoutMilliseconds: Int,
     ): Result<Listener, ServeError> {
         .Ok(Listener {
-            handle: 1,
+            handle: (address.length() * 1000 + requestLimit + 1) * 1000
+                + idleTimeoutMilliseconds
+                + 1,
             port: plan.fold(fn(sofar, item) => sofar * 10 + planDigit(item), 0),
             handlers: 1,
         })

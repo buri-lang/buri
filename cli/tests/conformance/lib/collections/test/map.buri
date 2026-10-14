@@ -1104,6 +1104,83 @@ test "inserting an existing colliding key replaces rather than duplicating" {
     assert.equal(assert.some(m.get(Collider { id: 8 })), 2);
 }
 
+/// Ids 0 and 8 share a bucket and 1 has its own: each kind of slot answers a
+/// lookup, an insert and a removal for itself, and so does the bucket left as
+/// the whole map once the others are gone.
+fn buckets<V: Equal + Show, C: Allocator>(ctx: C, a: V, b: V, c: V, d: V): () {
+    let key = fn(id: Int) => Collider { id: id };
+    let m = map.of(ctx, [(key(0), a), (key(8), b), (key(1), c)]);
+    assert.equal(m.get(key(1)), .Some(c));
+    assert.equal(m.get(key(9)), .None);
+    assert.equal(m.get(key(3)), .None);
+    assert.equal(m.insert(ctx, key(1), d).get(key(1)), .Some(d));
+    let replaced = m.insert(ctx, key(8), d);
+    assert.equal((replaced.length(), replaced.get(key(8))), (3, .Some(d)));
+    // Without 1, the bucket is the map; a key of another hash splits it again.
+    let shared = m.remove(ctx, key(1));
+    let grown = shared.insert(ctx, key(2), d);
+    assert.equal(
+        (grown.length(), grown.get(key(2)), grown.get(key(8))),
+        (3, .Some(d), .Some(b)),
+    );
+    // Without 0 as well, one key is the map.
+    let lone = shared.remove(ctx, key(0));
+    assert.equal(lone.entries(ctx).map(ctx, fn(e) => e.0.id), [8]);
+    let joined = lone.insert(ctx, key(16), d);
+    assert.equal(
+        (joined.length(), joined.get(key(16)), joined.get(key(8))),
+        (2, .Some(d), .Some(b)),
+    );
+    let apart = lone.insert(ctx, key(3), d);
+    assert.equal(
+        (apart.length(), apart.get(key(3)), apart.get(key(8))),
+        (2, .Some(d), .Some(b)),
+    );
+    assert.isTrue(lone.remove(ctx, key(8)).isEmpty());
+    assert.isTrue(map.of(ctx, [(key(5), a)]).remove(ctx, key(5)).isEmpty());
+}
+
+test "each kind of slot answers for itself, whatever the values" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    buckets(ctx, 10, 20, 30, 40);
+    buckets(ctx, "a", "b", "c", "d");
+}
+
+test "a map of one shared hash answers lookups, replacements and removals in any order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let key = fn(id: Int) => AllOne { id: id };
+    assert.equal(map.empty<AllOne, Int>().get(key(1)), .None);
+    let one = map.empty<AllOne, Int>().insert(ctx, key(1), 1);
+    assert.equal(one.get(key(2)), .None);
+    assert.equal(one.insert(ctx, key(1), 5).length(), 1);
+    assert.equal(one.insert(ctx, key(1), 5).get(key(1)), .Some(5));
+    assert.isTrue(one.remove(ctx, key(1)).isEmpty());
+    let many = list
+        .range(ctx, 0, 6)
+        .foldCtx(
+            ctx,
+            fn(c, acc: Map<AllOne, Int>, i) => acc.insert(c, key(i), i),
+            map.empty<AllOne, Int>(),
+        );
+    assert.equal(many.get(key(9)), .None);
+    let replaced = many.insert(ctx, key(4), 40);
+    assert.equal(replaced.length(), 6);
+    assert.equal((replaced.get(key(4)), replaced.get(key(3))), (.Some(40), .Some(3)));
+    assert.equal(many.remove(ctx, key(9)).length(), 6);
+    let backwards = list
+        .range(ctx, 0, 6)
+        .foldCtx(
+            ctx,
+            fn(c, acc: Map<AllOne, Int>, i) => acc.remove(c, key(5 - i)),
+            many,
+        );
+    assert.isTrue(backwards.isEmpty());
+}
+
 test "a map whose keys all share one hash still works and empties cleanly" {
     let ctx = context {
         Allocator: alloc(),

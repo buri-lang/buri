@@ -334,12 +334,19 @@ fn served<C: Allocator + Listen + Tasks>(ctx: C): Bool {
 /// arrives here is the `Scoped<C>` this was called on — and a handler may
 /// therefore charge the scope and print on the caller's stdout, neither of
 /// which the acceptor grants. A handler that ignored its first parameter, like
-/// `served` above, would pass whatever arrived.
+/// `served` above, would pass whatever arrived. It sets every knob `served`
+/// leaves out, and leaves out the one `served` sets, which the scope forwards
+/// to the bind all the same.
 fn servedUsing<C: Allocator + Listen + Stdout + Tasks>(ctx: C): Bool {
     server
         .serve(ctx, server.Server {
             port: 8080,
-            address: .Some("127.0.0.1"),
+            protocols: .Some([.Http1]),
+            tls: .Some(server.Tls { certificate: "/leaf.pem", key: "/leaf.key" }),
+            requestLimit: .Some(1),
+            idleTimeout: .Some(time.milliseconds(250)),
+            drain: .Some(time.milliseconds(2500)),
+            socketBuffer: .Some(8),
             onRequest: fn(c, request) => {
                 let _ = io.println(c, "handled ${request.url}").ignore();
                 let _ = alloc.allocate(c, 16);
