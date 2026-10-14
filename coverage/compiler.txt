@@ -6,25 +6,25 @@ area                              branches                      lines
 cli/build                        1692/1709   99.01%       10802/11112   97.21%
 cli/documentation                  477/480   99.38%         2778/2849   97.51%
 cli/format                           94/94  100.00%           367/368   99.73%
-cli/language_server              1246/1268   98.26%         8051/8237   97.74%
+cli/language_server              1246/1268   98.26%         8047/8233   97.74%
 cli/lint                           563/570   98.77%         2975/3015   98.67%
 cli/other                          532/558   95.34%         2938/3100   94.77%
 cli/run                              58/58  100.00%           333/341   97.65%
 cli/serve+watch                      69/70   98.57%           382/401   95.26%
-cli/test                           484/508   95.28%         3420/3546   96.45%
+cli/test                           484/508   95.28%         3423/3550   96.42%
 crates/backend                       68/68  100.00%           354/401   88.28%
 crates/diagnostics                 191/194   98.45%         1574/1658   94.93%
 crates/docs                        246/246  100.00%           819/893   91.71%
 crates/hash                          18/18  100.00%           241/294   81.97%
-crates/js                        1023/1060   96.51%         5380/5625   95.64%
+crates/js                        1005/1040   96.63%         5338/5582   95.63%
 crates/llvm                        591/594   99.49%         7618/7806   97.59%
-crates/middle                    1843/1886   97.72%       14735/15174   97.11%
+crates/middle                    1843/1886   97.72%       14734/15173   97.11%
 crates/project                   1341/1358   98.75%         6238/6399   97.48%
 crates/semantics                 2196/2202   99.73%       13488/13789   97.82%
 crates/stdlib                        12/12  100.00%           125/149   83.89%
-crates/stencil                   1182/1204   98.17%         8341/8787   94.92%
+crates/stencil                   1177/1198   98.25%         8337/8783   94.92%
 crates/syntax                    1194/1196   99.83%         6542/6703   97.60%
-total                          15120/15353   98.48%      97501/100647   96.87%
+total                          15097/15327   98.50%      97453/100599   96.87%
 
 cli/src                           branches                      lines         
 build                            1692/1709   99.01%       10802/11112   97.21%
@@ -42,19 +42,19 @@ commands/mod                         20/20  100.00%           266/271   98.15%
 commands/query                       39/40   97.50%           125/127   98.43%
 commands/run                         58/58  100.00%           333/341   97.65%
 commands/serve                       34/34  100.00%           135/140   96.43%
-commands/test                      484/508   95.28%         3420/3546   96.45%
+commands/test                      484/508   95.28%         3423/3550   96.42%
 commands/version                       4/4  100.00%             20/26   76.92%
 commands/watch                       35/36   97.22%           247/261   94.64%
 compiler                           246/266   92.48%         1409/1503   93.75%
 documentation                      477/480   99.38%         2778/2849   97.51%
 hold                                   6/6  100.00%             30/36   83.33%
-language_server                  1246/1268   98.26%         8051/8237   97.74%
+language_server                  1246/1268   98.26%         8047/8233   97.74%
 main                                 11/12   91.67%             61/65   93.85%
 
 The 30 files with the most uncovered branches:
 
 uncovered          branches           file
-       27           521/548   95.07%  crates/js/src/compiler/backend/js/javascript.rs
+       27           513/540   95.00%  crates/js/src/compiler/backend/js/javascript.rs
        24           484/508   95.28%  cli/src/commands/test.rs
        12             50/62   80.65%  cli/src/compiler/driver.rs
        12           178/190   93.68%  crates/middle/src/compiler/middle/monomorphize.rs
@@ -62,13 +62,13 @@ uncovered          branches           file
         9           587/596   98.49%  crates/middle/src/compiler/middle/rc.rs
         8           342/350   97.71%  crates/stencil/src/compiler/backend/stencil/emit.rs
         7           191/198   96.46%  cli/src/compiler/modules.rs
-        7           331/338   97.93%  crates/js/src/compiler/backend/js/generate.rs
         6           158/164   96.34%  cli/src/build/link.rs
         6           528/534   98.88%  cli/src/commands/lint.rs
         6             52/58   89.66%  cli/src/language_server/code_actions.rs
         6           196/202   97.03%  crates/middle/src/compiler/middle/derives.rs
         5           264/269   98.14%  cli/src/build/actions.rs
         5           155/160   96.88%  cli/src/language_server/mod.rs
+        5           321/326   98.47%  crates/js/src/compiler/backend/js/generate.rs
         5             45/50   90.00%  crates/middle/src/compiler/middle/coverage/derived.rs
         4           104/108   96.30%  crates/middle/src/compiler/middle/monomorphize/hand_written.rs
         3             41/44   93.18%  cli/src/commands/arguments.rs
@@ -78,9 +78,9 @@ uncovered          branches           file
         3           243/246   98.78%  crates/semantics/src/compiler/semantics/inference.rs
         3           117/120   97.50%  crates/semantics/src/compiler/semantics/types.rs
         3           465/468   99.36%  crates/stencil/src/compiler/backend/stencil/jit.rs
-        3           111/114   97.37%  crates/stencil/src/compiler/backend/stencil/rtcall.rs
         2             30/32   93.75%  cli/src/build/exe_identity.rs
         2             35/37   94.59%  cli/src/build/programs.rs
         2             31/33   93.94%  cli/src/build/runtime_cross.rs
         2             82/84   97.62%  cli/src/documentation/layout.rs
         2             76/78   97.44%  cli/src/language_server/file_operations.rs
+        2             68/70   97.14%  crates/js/src/compiler/backend/js/park.rs
