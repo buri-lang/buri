@@ -54,7 +54,7 @@
 use crate::BURI_OK;
 use crate::http;
 use crate::rng;
-use crate::sync::Mutex;
+use crate::sync::{Condvar, Mutex};
 use crate::value::{BuriList, BuriStr, list_of_bytes, list_of_headers, list_of_strs, str_of};
 use std::io::{Read, Seek, Write};
 
@@ -63,8 +63,40 @@ use std::io::{Read, Seek, Write};
 /// bytes rather than strings.
 const FLUSH_AT: usize = 8 * 1024;
 
-static OUT: Mutex<Vec<u8>> = Mutex::new(Vec::new());
-static ERR: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+static OUT: Stream = Stream::new();
+static ERR: Stream = Stream::new();
+
+/// A stream's buffered bytes, and the turns its flushes write in.
+///
+/// A flush takes the bytes and a turn, then writes holding no lock: an exit
+/// waits for a thread holding one (`sync::close`), and a write to a pipe
+/// nobody reads never ends. Turns keep two flushes' bytes in order, and the
+/// lock taken after each write orders the next one's for helgrind.
+struct Stream {
+    queued: Mutex<Queued>,
+    turn: Condvar,
+}
+
+struct Queued {
+    bytes: Vec<u8>,
+    /// Turns handed out.
+    taken: u64,
+    /// Turns whose write is done.
+    written: u64,
+}
+
+impl Stream {
+    const fn new() -> Stream {
+        Stream {
+            queued: Mutex::new(Queued {
+                bytes: Vec::new(),
+                taken: 0,
+                written: 0,
+            }),
+            turn: Condvar::new(),
+        }
+    }
+}
 static ARGS: Mutex<Option<Vec<String>>> = Mutex::new(None);
 static STDIN_LINES: Mutex<Option<(Vec<String>, usize)>> = Mutex::new(None);
 
@@ -116,10 +148,10 @@ pub unsafe extern "C" fn buri_rt_argv_init(argc: i32, argv: *const *const u8) {
     no_pointer_prefetch();
     ignore_sigpipe();
     std::panic::set_hook(Box::new(|info| {
-        let mut err = lock(&ERR);
-        err.extend_from_slice(b"internal runtime error: ");
-        err.extend_from_slice(info.to_string().as_bytes());
-        err.push(b'\n');
+        let mut err = lock(&ERR.queued);
+        err.bytes.extend_from_slice(b"internal runtime error: ");
+        err.bytes.extend_from_slice(info.to_string().as_bytes());
+        err.bytes.push(b'\n');
         drop(err);
         buri_rt_flush();
     }));
@@ -237,28 +269,48 @@ fn ignore_sigpipe() {
 /// themselves.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_flush() {
-    write_out(&OUT, &mut std::io::stdout().lock());
-    write_out(&ERR, &mut std::io::stderr().lock());
+    write_out(&OUT, |bytes| {
+        let stream = std::io::stdout();
+        let mut stream = stream.lock();
+        stream.write_all(bytes).and_then(|()| stream.flush())
+    });
+    write_out(&ERR, |bytes| {
+        let stream = std::io::stderr();
+        let mut stream = stream.lock();
+        stream.write_all(bytes).and_then(|()| stream.flush())
+    });
 }
 
-/// Write `buffer` through to `stream`. Taking the stream's lock first keeps
-/// two flushes' bytes in order, and the buffer goes unheld across a write that
-/// may never end on a pipe nobody reads, which an exit would wait on
-/// (`sync::close`).
-fn write_out(buffer: &Mutex<Vec<u8>>, stream: &mut impl Write) {
-    let mut bytes = std::mem::take(&mut *lock(buffer));
-    if bytes.is_empty() {
+/// Write `stream`'s bytes through, after every flush before this one.
+fn write_out(stream: &Stream, write: impl FnOnce(&[u8]) -> std::io::Result<()>) {
+    let mut queued = lock(&stream.queued);
+    if queued.bytes.is_empty() && queued.taken == queued.written {
         return;
     }
-    #[cfg(all(test, feature = "valgrind"))]
-    crate::sync::BLOCKING.store(true, std::sync::atomic::Ordering::SeqCst);
-    note(stream.write_all(&bytes).and_then(|()| stream.flush()));
-    bytes.clear();
-    // Hands the allocation back, unless a print has since made another.
-    let mut kept = lock(buffer);
-    if kept.is_empty() {
-        *kept = bytes;
+    let mut bytes = std::mem::take(&mut queued.bytes);
+    let turn = queued.taken;
+    queued.taken = turn.wrapping_add(1);
+    while queued.written != turn {
+        queued = match stream.turn.wait(queued) {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
     }
+    drop(queued);
+    if !bytes.is_empty() {
+        #[cfg(all(test, feature = "valgrind"))]
+        crate::sync::BLOCKING.store(true, std::sync::atomic::Ordering::SeqCst);
+        note(write(&bytes));
+        bytes.clear();
+    }
+    let mut queued = lock(&stream.queued);
+    queued.written = turn.wrapping_add(1);
+    // Hands the allocation back, unless a print has since made another.
+    if queued.bytes.is_empty() {
+        queued.bytes = bytes;
+    }
+    drop(queued);
+    stream.turn.notify_all();
 }
 
 /// `main` answered `.Ok(())`, or answered nothing: the timers it left pending
@@ -329,14 +381,15 @@ fn reported() -> i32 {
     }
 }
 
-fn push(buffer: &Mutex<Vec<u8>>, bytes: &[u8], newline: bool) {
-    let mut buf = lock(buffer);
+fn push(stream: &Stream, bytes: &[u8], newline: bool) {
+    let mut queued = lock(&stream.queued);
+    let buf = &mut queued.bytes;
     buf.extend_from_slice(bytes);
     if newline {
         buf.push(b'\n');
     }
     let full = buf.len() >= FLUSH_AT;
-    drop(buf);
+    drop(queued);
     if full {
         buri_rt_flush();
     }
