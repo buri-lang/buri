@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15074 15301 98.52%
+total 15071 15297 98.52%
 area cli/build 1692 1709 99.01%
 area cli/documentation 477 480 99.38%
 area cli/format 94 94 100.00%
@@ -17,7 +17,7 @@ area crates/backend 68 68 100.00%
 area crates/diagnostics 191 194 98.45%
 area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
-area crates/js 988 1022 96.67%
+area crates/js 985 1018 96.76%
 area crates/llvm 591 594 99.49%
 area crates/middle 1840 1882 97.77%
 area crates/project 1341 1358 98.75%
@@ -121,7 +121,7 @@ area crates/syntax 1194 1196 99.83%
 8 8 crates/hash/src/build/sha256.rs
 8 8 crates/hash/src/hash.rs
 10 10 crates/js/src/compiler/backend/js/crossing.rs
-304 308 crates/js/src/compiler/backend/js/generate.rs
+301 304 crates/js/src/compiler/backend/js/generate.rs
 90 90 crates/js/src/compiler/backend/js/intrinsics.rs
 513 540 crates/js/src/compiler/backend/js/javascript.rs
 3 4 crates/js/src/compiler/backend/js/mod.rs
