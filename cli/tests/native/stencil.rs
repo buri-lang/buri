@@ -2290,6 +2290,8 @@ const CORPUS_COMPILES: &[&str] = &[
     "url/url.buri",
     "uuid/hashing.buri",
     "uuid/uuid.buri",
+    "variants/stdlib.buri",
+    "variants/variants.buri",
     "vectors/convert.buri",
     "vectors/simd.buri",
     "web/routing.buri",
