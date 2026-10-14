@@ -1653,7 +1653,7 @@ impl Unchecked {
     fn at(&self, span: Span) -> bool {
         self.ranges
             .iter()
-            .any(|r| r.file == span.file && (r.start..=r.end).contains(&span.start))
+            .any(|r| ((r.file, r.start)..=(r.file, r.end)).contains(&(span.file, span.start)))
     }
 
     /// The text of `m` the toolchain could not read: the bodies that did not
