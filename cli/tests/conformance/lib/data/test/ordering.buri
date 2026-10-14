@@ -197,6 +197,28 @@ test "compare is compareBy with the element type's own order" {
     assert.equal([[1], [2]].compare([[1], [3]]), Order.Less);
 }
 
+/// How `prefix`, `longer` and `above` compare, where `prefix` begins `longer`
+/// and `above` first differs from `longer` by an element above it.
+fn ranked<T: Ordered>(prefix: [T], longer: [T], above: [T]): [Order] {
+    [
+        prefix.compare(longer),
+        longer.compare(prefix),
+        longer.compare(longer),
+        longer.compare(above),
+    ]
+}
+
+test "compare puts a prefix first and decides at the first difference, whatever the element" {
+    let ways = [Order.Less, Order.Greater, Order.Equal, Order.Less];
+    assert.equal(ranked([false], [false, false], [false, true]), ways);
+    assert.equal(ranked(['a'], ['a', 'b'], ['a', 'c']), ways);
+    assert.equal(ranked([1.5], [1.5, 2.5], [1.5, 3.5]), ways);
+    assert.equal(ranked(["a"], ["a", "b"], ["b"]), ways);
+    let (one, two, higher): ([U8], [U8], [U8]) = ([1], [1, 2], [1, 3]);
+    assert.equal(ranked(one, two, higher), ways);
+    assert.equal(ranked([[1]], [[1], [2]], [[1], [3]]), ways);
+}
+
 // `[T]` satisfies `Ordered` structurally whenever `T` does (SPEC 5.11), so the
 // operators and `sort` answer the same order `compare` does.
 test "the structural order on [T] is the one compare answers" {

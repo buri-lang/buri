@@ -252,5 +252,12 @@ test "a spawned loop stops when the actor it asks says to" {
         ()
     });
     assert.equal(out.captured(), "frame 0\nframe 1\nframe 2\nthe loop stopped\n");
-    let _ = keeper.stop(ctx).ignore();
+    assert.equal(keeper.stop(ctx), .Ok(()));
+    // A loop started now asks a gate that is gone, and stops before its first frame.
+    frames(ctx, keeper, 3);
+    assert.equal(keeper.stop(ctx), .Err(.Stopped));
+    assert.equal(
+        out.captured(),
+        "frame 0\nframe 1\nframe 2\nthe loop stopped\nthe loop stopped\n",
+    );
 }

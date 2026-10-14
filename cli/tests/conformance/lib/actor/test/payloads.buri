@@ -15,7 +15,7 @@
 // in the corpus writes one.
 
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Address, Stepped };
+from "core/actor" import { Actor, Address, SendError, Stepped };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 from "core/tasks" import { Scope };
@@ -60,6 +60,7 @@ test "an actor whose state and answer are both unit answers every message" {
     assert.equal(quiet.stop(ctx), .Ok(()));
     assert.equal(sink.captured(), "quiet\n");
     assert.equal(quiet.sendMessage(ctx, .Ping), .Err(.Stopped));
+    assert.equal(quiet.stop(ctx), .Err(.Stopped));
 }
 
 // -----------------------------------------------------------------------------
@@ -112,6 +113,9 @@ test "a message, a state and an answer may each be a list" {
     // shape of `[T]` a program can hand over that has no block under it.
     assert.equal(held.sendMessage(ctx, .Drain), .Ok(.Held([])));
     assert.equal(held.stop(ctx), .Ok(()));
+    // Stopped is final: a second stop and a later send are both refused.
+    assert.equal(held.stop(ctx), .Err(.Stopped));
+    assert.equal(assert.err(held.sendMessage(ctx, .Drain)), SendError.Stopped);
 }
 
 enum Say {
@@ -153,6 +157,8 @@ test "text crosses the runtime whatever is in it" {
     assert.equal(told.sendMessage(ctx, .Say("")), .Ok(.Scalars(0)));
     assert.equal(told.sendMessage(ctx, .Read), .Ok(.Text("")));
     assert.equal(told.stop(ctx), .Ok(()));
+    assert.equal(told.stop(ctx), .Err(.Stopped));
+    assert.equal(assert.err(told.sendMessage(ctx, .Read)), SendError.Stopped);
 }
 
 derive Equal, Show for Label;
@@ -218,6 +224,8 @@ test "a struct inside a struct crosses whole" {
         .Ok(.Was(record("second", .Some("kept")))),
     );
     assert.equal(filed.stop(ctx), .Ok(()));
+    assert.equal(filed.stop(ctx), .Err(.Stopped));
+    assert.equal(assert.err(filed.sendMessage(ctx, .Look)), SendError.Stopped);
 }
 
 // -----------------------------------------------------------------------------
@@ -306,6 +314,12 @@ test "two actors exchange messages, and one holds the other's address" {
     assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(2)));
     assert.equal(front.stop(ctx), .Ok(()));
     assert.equal(counted.stop(ctx), .Ok(()));
+    assert.equal(
+        (front.stop(ctx), counted.stop(ctx)),
+        (.Err(.Stopped), .Err(.Stopped)),
+    );
+    assert.equal(assert.err(front.sendMessage(ctx, .Total)), SendError.Stopped);
+    assert.equal(assert.err(counted.sendMessage(ctx, .Get)), SendError.Stopped);
 }
 
 test "a step that sends to an actor that has stopped is told so" {
@@ -383,4 +397,5 @@ test "a step may spawn into a scope the message handed it" {
     // answered.
     assert.equal(out.captured(), "asked twice\nthe job ran\nthe job ran\n");
     assert.equal(boss.stop(ctx), .Ok(()));
+    assert.equal(boss.stop(ctx), .Err(.Stopped));
 }

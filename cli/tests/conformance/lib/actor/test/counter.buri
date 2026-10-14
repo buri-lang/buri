@@ -279,6 +279,8 @@ test "a step that sends to its own actor is refused, and the message still arriv
     // already running steps it — once — before it puts the state back.
     assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(1)));
     assert.equal(counted.stop(ctx), .Ok(()));
+    assert.equal(counted.stop(ctx), .Err(.Stopped));
+    assert.equal(assert.err(counted.sendMessage(ctx, .Get)), SendError.Stopped);
 }
 
 test "a step fills the mailbox to its bound, and every message still arrives" {

@@ -200,6 +200,7 @@ test "an actor started inside a scope is stopped correctly afterwards" {
     let _ = churn(ctx);
     assert.equal(out.address.stop(out.scope), .Ok(()));
     assert.equal(out.address.sendMessage(out.scope, .Put("late")), .Err(.Stopped));
+    assert.equal(out.address.stop(out.scope), .Err(.Stopped));
 }
 
 // -----------------------------------------------------------------------------

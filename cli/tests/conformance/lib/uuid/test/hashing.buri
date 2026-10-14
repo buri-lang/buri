@@ -36,3 +36,33 @@ test "an identifier is a map key" {
     assert.equal(table.get(assert.some(uuid.fromBytes(id.0))), .Some("ada"));
     assert.equal(table.length(), 2);
 }
+
+// A hash is 32 bits, so distinct identifiers can share one. These three do, and
+// the zero identifier's lowest five bits are theirs, so it lands in their slot.
+test "identifiers that share a hash are all kept" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let a = assert.some(uuid.parse("3755ae57-36e8-78a7-3f10-e0d6f23e4100"));
+    let b = assert.some(uuid.parse("19c64e1d-8b44-fee4-73df-b6e7d2bb3a15"));
+    let c = assert.some(uuid.parse("ff876eee-607e-f3c6-49a6-b585c0bbabfa"));
+    let zero = uuid.zero();
+    assert.equal(
+        (a.hash() == b.hash(), b.hash() == c.hash(), c.hash() == zero.hash()),
+        (true, true, false),
+    );
+    let two = map.empty<Uuid, Str>().insert(ctx, a, "a").insert(ctx, b, "b");
+    let three = two.insert(ctx, c, "c").insert(ctx, b, "B");
+    let four = three.insert(ctx, zero, "nil");
+    assert.equal((two.get(c), two.get(zero), four.length()), (.None, .None, 4));
+    assert.equal(
+        (four.get(a), four.get(b), four.get(c), four.get(zero)),
+        (.Some("a"), .Some("B"), .Some("c"), .Some("nil")),
+    );
+    let apart = map.empty<Uuid, Str>().insert(ctx, zero, "nil");
+    assert.equal((apart.get(a), apart.insert(ctx, a, "a").length()), (.None, 2));
+    let both = apart.insert(ctx, a, "a").insert(ctx, zero, "zero");
+    assert.equal((both.get(zero), both.length()), (.Some("zero"), 2));
+    let elsewhere = assert.some(uuid.parse("550e8400-e29b-41d4-a716-446655440000"));
+    assert.equal(four.get(elsewhere), .None);
+}
