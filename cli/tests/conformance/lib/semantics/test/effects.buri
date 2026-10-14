@@ -1998,6 +1998,82 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
         }),
     );
     assert.equal(bare.port, 0);
+    assert.equal(bare.handle, 0);
+}
+
+test "a socket server binds with every knob it set, whatever state its sockets hold" {
+    // `PlanListen` answers the address's length, the request limit and the
+    // idle timeout on `Listener.handle`, three digits each and the two limits
+    // plus one.
+    let ctx = context {
+        Allocator: alloc(),
+        Listen: PlanListen {},
+        Stdout: stdout(),
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    let named = assert.ok(
+        server.bind(ctx, server.Server {
+            port: 0,
+            address: .Some("::1"),
+            onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+            protocols: .Some([.Http2]),
+            tls: .Some(server.Tls { certificate: "/leaf.pem", key: "/leaf.key" }),
+            requestLimit: .Some(41),
+            idleTimeout: .Some(time.milliseconds(250)),
+            drain: .Some(time.milliseconds(2500)),
+            socketBuffer: .Some(8),
+            websocket: .Some(server.WebSocket {
+                path: "/socket",
+                onOpen: fn(_c, _socket, request) => request.url,
+                onMessage: fn(_c, _socket, state, _message) => state,
+                onClose: fn(_c, _socket, state, _reason) => state,
+            }),
+        }),
+    );
+    assert.equal(named.port, 24567);
+    assert.equal(named.handle, 3042251);
+    let counted = assert.ok(
+        server.bind(ctx, server.Server {
+            port: 0,
+            address: .Some("10.0.0.1"),
+            onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+            protocols: .Some([.Http1]),
+            tls: .Some(server.Tls { certificate: "/leaf.pem", key: "/leaf.key" }),
+            requestLimit: .Some(0),
+            idleTimeout: .Some(time.milliseconds(9)),
+            drain: .Some(time.milliseconds(1)),
+            socketBuffer: .Some(1),
+            websocket: .Some(server.WebSocket {
+                path: "/count",
+                onOpen: fn(_c, _socket, _request) => 0,
+                onMessage: fn(_c, _socket, state, _message) => state + 1,
+                onClose: fn(_c, _socket, state, _reason) => state,
+            }),
+        }),
+    );
+    assert.equal(counted.port, 14567);
+    assert.equal(counted.handle, 8001010);
+    // And a socket server that set nothing binds with nothing.
+    let plain = assert.ok(
+        server.bind(ctx, server.Server {
+            port: 0,
+            onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+            websocket: .Some(server.WebSocket {
+                path: "/count",
+                onOpen: fn(_c, _socket, _request) => 0,
+                onMessage: fn(_c, _socket, state, _message) => state + 1,
+                onClose: fn(_c, _socket, state, _reason) => state,
+            }),
+        }),
+    );
+    assert.equal((plain.port, plain.handle), (0, 0));
+}
+
+test "two identities are the same only with the same certificate and key" {
+    let leaf = server.Tls { certificate: "/leaf.pem", key: "/leaf.key" };
+    assert.equal(leaf, server.Tls { certificate: "/leaf.pem", key: "/leaf.key" });
+    assert.notEqual(leaf, server.Tls { certificate: "/root.pem", key: "/leaf.key" });
+    assert.notEqual(leaf, server.Tls { certificate: "/leaf.pem", key: "/root.key" });
 }
 
 test "bind answers the port the acceptor chose, and run is the rest of serve" {
