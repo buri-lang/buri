@@ -24,7 +24,7 @@ use crate::compiler::backend::js::park::{self, Parking};
 use crate::compiler::backend::Profile;
 use crate::compiler::middle::monomorphize::{self, Desc, FuncKind, Program, ProgramRoots};
 use crate::compiler::middle::rc;
-use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp};
+use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp, UnaryOp};
 use crate::compiler::semantics::types::{
     field_types, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind,
 };
@@ -1070,8 +1070,12 @@ impl<'a> Gen<'a> {
             .or_else(|| self.tables.flags_word_of(ty))
     }
 
-    pub(crate) fn prim_op_pub(&mut self, op: PrimOp, prim: Prim, args: Vec<Expr>) -> Expr {
+    pub(crate) fn prim_op_pub(&mut self, op: PrimOp, prim: Prim, args: [Expr; 2]) -> Expr {
         self.prim_op(op, prim, args)
+    }
+
+    pub(crate) fn prim_unary_pub(&mut self, op: UnaryOp, prim: Prim, arg: Expr) -> Expr {
+        self.prim_unary(op, prim, arg)
     }
 
     /// A callee that still names a declaration rather than a concrete function
@@ -1222,23 +1226,6 @@ impl<'a> Gen<'a> {
     }
 }
 
-/// What makes a primitive operation's operands there to take: the checker
-/// resolved the operator to this `PrimOp` from the operands it had.
-/// The two operands of a binary primitive operation, in source order.
-fn operands(args: &mut Vec<Expr>) -> (Expr, Expr) {
-    let b = args.pop().or_ice(BINARY_ARITY);
-    let a = args.pop().or_ice(BINARY_ARITY);
-    (a, b)
-}
-
-/// The operand of a unary primitive operation.
-fn operand(args: &mut Vec<Expr>) -> Expr {
-    args.pop().or_ice(UNARY_ARITY)
-}
-
-const BINARY_ARITY: &str = "a binary primitive operation reaches the backend with two operands";
-const UNARY_ARITY: &str = "a unary primitive operation reaches the backend with one operand";
-
 /// A call worth replacing is small; anything larger is cheaper as a call.
 /// `signum` and the checked-arithmetic expansions sit above this deliberately.
 const MAX_INLINE_INTRINSIC: usize = 8;
@@ -1248,10 +1235,10 @@ const MAX_INLINE_INTRINSIC: usize = 8;
 const MAX_SPELLED_UPDATE: usize = 8;
 
 /// Whether a divisor is written down and is not zero.
-fn nonzero_literal(e: Option<&Expr>) -> bool {
+fn nonzero_literal(e: &Expr) -> bool {
     match e {
-        Some(Expr::Num(n)) => *n != 0.0,
-        Some(Expr::BigInt(s)) => s != "0",
+        Expr::Num(n) => *n != 0.0,
+        Expr::BigInt(s) => s != "0",
         _ => false,
     }
 }
@@ -1359,35 +1346,20 @@ fn survey_args<'e>(e: &'e Expr, under_cond: bool, out: &mut Vec<(&'e str, bool)>
 /// and `x ^ x` are answers without an operation. Dropping an operand is only
 /// legal when it is pure, because the drop would take its effect with it —
 /// `x | 0` needs no such condition, since it keeps `x` and evaluates it once.
-fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
-    let narrow = |v: i128| -> Option<Expr> {
-        let bits = p.bits();
-        // The folder computes in an `i128`, so a width it cannot hold every
-        // value of stays an operation rather than becoming a wrong literal.
-        // Only integers reach here, so `bits` is at least 8.
-        if bits > 64 {
-            return None;
-        }
-        let masked = v & ((1i128 << bits) - 1);
-        let signed = if p.is_signed() && masked >= (1i128 << (bits - 1)) {
-            masked - (1i128 << bits)
-        } else {
-            masked
-        };
-        if p.is_bigint() {
-            return Some(Expr::BigInt(signed.to_string()));
-        }
-        // At most 32 bits, which a double holds exactly.
-        Some(Expr::Num(signed as f64))
-    };
-    // An integer's `number` is always whole and finite.
-    let lit = |e: &Expr| -> Option<i128> {
-        match e {
-            Expr::Num(n) => Some(*n as i128),
-            Expr::BigInt(s) => s.parse::<i128>().ok(),
-            _ => None,
-        }
-    };
+fn fold_bitwise(op: PrimOp, p: Prim, a: &Expr, b: &Expr) -> Option<Expr> {
+    if !matches!(op, PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor) {
+        return None;
+    }
+    if let (Some(x), Some(y)) = (int_literal(a), int_literal(b)) {
+        return narrow_literal(
+            p,
+            match op {
+                PrimOp::BitAnd => x & y,
+                PrimOp::BitOr => x | y,
+                _ => x ^ y,
+            },
+        );
+    }
     let zero_of_p = || {
         if p.is_bigint() {
             Expr::BigInt("0".into())
@@ -1395,26 +1367,11 @@ fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
             Expr::Num(0.0)
         }
     };
-
-    if op == PrimOp::BitNot {
-        return narrow(!lit(args.first()?)?);
-    }
-    if !matches!(op, PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor) {
-        return None;
-    }
-    let [a, b] = <&mut [Expr; 2]>::try_from(args).ok().or_ice(BINARY_ARITY);
-    if let (Some(x), Some(y)) = (lit(a), lit(b)) {
-        return narrow(match op {
-            PrimOp::BitAnd => x & y,
-            PrimOp::BitOr => x | y,
-            _ => x ^ y,
-        });
-    }
     // A zero on either side. `&` answers zero and needs the other operand
     // gone, so it has to be pure; `|` and `^` answer the other operand and
     // keep it exactly where it was.
-    for (zero, other) in [(&*a, &*b), (&*b, &*a)] {
-        if lit(zero) != Some(0) {
+    for (zero, other) in [(a, b), (b, a)] {
+        if int_literal(zero) != Some(0) {
             continue;
         }
         return match op {
@@ -1432,6 +1389,43 @@ fn fold_bitwise(op: PrimOp, p: Prim, args: &mut [Expr]) -> Option<Expr> {
         };
     }
     None
+}
+
+/// `v` narrowed to the unsigned width of `p`, which is at most 32 bits.
+fn umask(v: Expr, p: Prim) -> Expr {
+    Expr::call(Expr::ident("$umask"), vec![v, Expr::Num(p.bits() as f64)])
+}
+
+/// An integer literal's value. An integer's `number` is always whole and
+/// finite.
+fn int_literal(e: &Expr) -> Option<i128> {
+    match e {
+        Expr::Num(n) => Some(*n as i128),
+        Expr::BigInt(s) => s.parse::<i128>().ok(),
+        _ => None,
+    }
+}
+
+/// `v` as a literal of the integer `p`, wrapped to its width.
+fn narrow_literal(p: Prim, v: i128) -> Option<Expr> {
+    let bits = p.bits();
+    // The folder computes in an `i128`, so a width it cannot hold every
+    // value of stays an operation rather than becoming a wrong literal.
+    // Only integers reach here, so `bits` is at least 8.
+    if bits > 64 {
+        return None;
+    }
+    let masked = v & ((1i128 << bits) - 1);
+    let signed = if p.is_signed() && masked >= (1i128 << (bits - 1)) {
+        masked - (1i128 << bits)
+    } else {
+        masked
+    };
+    if p.is_bigint() {
+        return Some(Expr::BigInt(signed.to_string()));
+    }
+    // At most 32 bits, which a double holds exactly.
+    Some(Expr::Num(signed as f64))
 }
 
 /// Whether an expression reads `name`.
@@ -2751,8 +2745,15 @@ impl<'a> Gen<'a> {
                 Expr::index(Expr::ident(name), Expr::Num(1.0))
             }
             ExprKind::Prim { op, prim, args } => {
-                let a = self.exprs(args, out);
-                self.prim_op(*op, *prim, a)
+                let [a, b] = &**args;
+                let mut first = [self.expr(a, out)];
+                let b = self.after(&mut first, b, out);
+                let [a] = first;
+                self.prim_op(*op, *prim, [a, b])
+            }
+            ExprKind::Unary { op, prim, arg } => {
+                let a = self.expr(arg, out);
+                self.prim_unary(*op, *prim, a)
             }
             ExprKind::StructuralEq { args } => {
                 // Compiled at the type where the shape is known — which for a
@@ -2964,30 +2965,38 @@ impl<'a> Gen<'a> {
     fn exprs(&mut self, xs: &[typed::Expr], out: &mut Vec<Stmt>) -> Vec<Expr> {
         let mut vals: Vec<Expr> = Vec::new();
         for x in xs {
-            let before = out.len();
-            let v = self.expr(x, out);
-            if out.len() > before {
-                let mut at = before;
-                for prev in vals.iter_mut() {
-                    if prev.is_pure_literal() {
-                        continue;
-                    }
-                    let name = self.fresh();
-                    let init = std::mem::replace(prev, Expr::ident(name.clone()));
-                    out.insert(
-                        at,
-                        Stmt::Var {
-                            kind: VarKind::Const,
-                            name,
-                            init: Some(init),
-                        },
-                    );
-                    at += 1;
-                }
-            }
+            let v = self.after(&mut vals, x, out);
             vals.push(v);
         }
         vals
+    }
+
+    /// `x`'s value, evaluated after `vals`: when `x` needs statements first,
+    /// each value in `vals` that isn't a literal is bound to a name ahead of
+    /// them.
+    fn after(&mut self, vals: &mut [Expr], x: &typed::Expr, out: &mut Vec<Stmt>) -> Expr {
+        let before = out.len();
+        let v = self.expr(x, out);
+        if out.len() > before {
+            let mut at = before;
+            for prev in vals.iter_mut() {
+                if prev.is_pure_literal() {
+                    continue;
+                }
+                let name = self.fresh();
+                let init = std::mem::replace(prev, Expr::ident(name.clone()));
+                out.insert(
+                    at,
+                    Stmt::Var {
+                        kind: VarKind::Const,
+                        name,
+                        init: Some(init),
+                    },
+                );
+                at += 1;
+            }
+        }
+        v
     }
 
     fn symbol(&self, i: usize) -> String {
@@ -3013,13 +3022,9 @@ impl<'a> Gen<'a> {
     // Primitive operations
     // -----------------------------------------------------------------------
 
-    fn prim_op(&mut self, op: PrimOp, p: Prim, mut args: Vec<Expr>) -> Expr {
+    fn prim_op(&mut self, op: PrimOp, p: Prim, [a, b]: [Expr; 2]) -> Expr {
         let big = p.is_bigint();
         let float = p.is_float();
-        let two = |op: BinOp, args: &mut Vec<Expr>| {
-            let (a, b) = operands(args);
-            Expr::bin(op, a, b)
-        };
         // The bitwise operators, where the answer is already in hand.
         //
         // This belongs here and not in `javascript::simplify_bin`, because the
@@ -3028,17 +3033,15 @@ impl<'a> Gen<'a> {
         // the Buri type would be folding the wrong operator. Above 32 bits
         // each of these otherwise costs a call into the runtime.
         if p.is_integer() {
-            if let Some(v) = fold_bitwise(op, p, &mut args) {
+            if let Some(v) = fold_bitwise(op, p, &a, &b) {
                 return v;
             }
         }
         match op {
-            PrimOp::Not => Expr::un(UnOp::Not, operand(&mut args)),
             // A float is the one primitive `===` gets wrong, and only at
             // `NaN`. The ordering operators below keep IEEE's unordered
             // answer, which SPEC 6.2 still pins.
             PrimOp::Eq | PrimOp::Ne if float => {
-                let (a, b) = operands(&mut args);
                 let same = float_eq(a, b);
                 if op == PrimOp::Eq {
                     same
@@ -3046,8 +3049,8 @@ impl<'a> Gen<'a> {
                     Expr::un(UnOp::Not, same)
                 }
             }
-            PrimOp::Eq => two(BinOp::StrictEq, &mut args),
-            PrimOp::Ne => two(BinOp::StrictNe, &mut args),
+            PrimOp::Eq => Expr::bin(BinOp::StrictEq, a, b),
+            PrimOp::Ne => Expr::bin(BinOp::StrictNe, a, b),
             // Text is the one primitive whose *order* JavaScript's operators
             // get wrong, the way a float is the one whose equality they do.
             // A `Str`, a `Template` and a `Char` are all JavaScript strings, so
@@ -3064,7 +3067,6 @@ impl<'a> Gen<'a> {
             PrimOp::Lt | PrimOp::Le | PrimOp::Gt | PrimOp::Ge
                 if matches!(p, Prim::Str | Prim::Template | Prim::Char) =>
             {
-                let (a, b) = operands(&mut args);
                 let tag = Expr::call(Expr::ident("$str_compare"), vec![a, b]);
                 let against = match op {
                     PrimOp::Lt => BinOp::Lt,
@@ -3074,50 +3076,32 @@ impl<'a> Gen<'a> {
                 };
                 Expr::bin(against, tag, Expr::Num(1.0))
             }
-            PrimOp::Lt => two(BinOp::Lt, &mut args),
-            PrimOp::Le => two(BinOp::Le, &mut args),
-            PrimOp::Gt => two(BinOp::Gt, &mut args),
-            PrimOp::Ge => two(BinOp::Ge, &mut args),
+            PrimOp::Lt => Expr::bin(BinOp::Lt, a, b),
+            PrimOp::Le => Expr::bin(BinOp::Le, a, b),
+            PrimOp::Gt => Expr::bin(BinOp::Gt, a, b),
+            PrimOp::Ge => Expr::bin(BinOp::Ge, a, b),
             // A `BigInt` has the bitwise operators themselves, and two
-            // operands inside the type's range give a result inside it — the
-            // one exception being an unsigned complement, which is negative
-            // and needs narrowing back. JavaScript's own `&` coerces to 32-bit
-            // signed and would have discarded everything above bit 31.
-            PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor | PrimOp::BitNot if big => {
-                let v = match op {
-                    PrimOp::BitAnd => two(BinOp::BitAnd, &mut args),
-                    PrimOp::BitOr => two(BinOp::BitOr, &mut args),
-                    PrimOp::BitXor => two(BinOp::BitXor, &mut args),
-                    _ => Expr::un(UnOp::BitNot, operand(&mut args)),
-                };
-                if p.is_signed() || op != PrimOp::BitNot {
-                    v
-                } else {
-                    as_uint_n(p.bits(), v)
-                }
-            }
-            // Unsigned and narrow. The native operators are exact here, but
-            // their result is *signed* 32-bit — `0x80000000 | 0` came back
-            // negative, and `~0` on a `U8` came back as `-1` rather than
-            // `255`. Narrowing the result to the type's own width fixes the
+            // operands inside the type's range give a result inside it.
+            // JavaScript's own `&` coerces to 32-bit signed and would have
+            // discarded everything above bit 31.
+            //
+            // Unsigned and narrow, the native operators are exact, but their
+            // result is *signed* 32-bit — `0x80000000 | 0` came back negative.
+            // Narrowing the result to the type's own width fixes the
             // representation without touching the operation. The checker
             // refuses these operators on anything but an integer.
-            PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor | PrimOp::BitNot if !p.is_signed() => {
-                let v = match op {
-                    PrimOp::BitAnd => two(BinOp::BitAnd, &mut args),
-                    PrimOp::BitOr => two(BinOp::BitOr, &mut args),
-                    PrimOp::BitXor => two(BinOp::BitXor, &mut args),
-                    _ => Expr::un(UnOp::BitNot, operand(&mut args)),
+            PrimOp::BitAnd | PrimOp::BitOr | PrimOp::BitXor => {
+                let jsop = match op {
+                    PrimOp::BitAnd => BinOp::BitAnd,
+                    PrimOp::BitOr => BinOp::BitOr,
+                    _ => BinOp::BitXor,
                 };
-                Expr::call(Expr::ident("$umask"), vec![v, Expr::Num(p.bits() as f64)])
-            }
-            PrimOp::BitAnd => two(BinOp::BitAnd, &mut args),
-            PrimOp::BitOr => two(BinOp::BitOr, &mut args),
-            PrimOp::BitXor => two(BinOp::BitXor, &mut args),
-            PrimOp::BitNot => Expr::un(UnOp::BitNot, operand(&mut args)),
-            PrimOp::Neg => {
-                let v = Expr::un(UnOp::Neg, operand(&mut args));
-                self.rounded(v, p)
+                let v = Expr::bin(jsop, a, b);
+                if big || p.is_signed() {
+                    v
+                } else {
+                    umask(v, p)
+                }
             }
             PrimOp::Add | PrimOp::Sub | PrimOp::Mul => {
                 let jsop = match op {
@@ -3125,7 +3109,7 @@ impl<'a> Gen<'a> {
                     PrimOp::Sub => BinOp::Sub,
                     _ => BinOp::Mul,
                 };
-                let v = two(jsop, &mut args);
+                let v = Expr::bin(jsop, a, b);
                 // Overflow and underflow are undefined, so the operation is
                 // emitted and nothing else. Code that wants a defined answer
                 // at the boundary says so: `checkedAdd`, `wrappingAdd`,
@@ -3138,10 +3122,10 @@ impl<'a> Gen<'a> {
             // check and the call both go.
             PrimOp::Div => {
                 if float {
-                    let v = two(BinOp::Div, &mut args);
+                    let v = Expr::bin(BinOp::Div, a, b);
                     self.rounded(v, p)
-                } else if nonzero_literal(args.get(1)) {
-                    let v = two(BinOp::Div, &mut args);
+                } else if nonzero_literal(&b) {
+                    let v = Expr::bin(BinOp::Div, a, b);
                     // A `BigInt` quotient already truncates toward zero.
                     if big {
                         v
@@ -3149,22 +3133,47 @@ impl<'a> Gen<'a> {
                         Expr::call(Expr::member(Expr::ident("Math"), "trunc"), vec![v])
                     }
                 } else if big {
-                    Expr::call(Expr::ident("$divb"), args)
+                    Expr::call(Expr::ident("$divb"), vec![a, b])
                 } else {
-                    Expr::call(Expr::ident("$divi"), args)
+                    Expr::call(Expr::ident("$divi"), vec![a, b])
                 }
             }
             PrimOp::Rem => {
                 if float {
-                    let v = two(BinOp::Rem, &mut args);
+                    let v = Expr::bin(BinOp::Rem, a, b);
                     self.rounded(v, p)
-                } else if nonzero_literal(args.get(1)) {
-                    two(BinOp::Rem, &mut args)
+                } else if nonzero_literal(&b) {
+                    Expr::bin(BinOp::Rem, a, b)
                 } else if big {
-                    Expr::call(Expr::ident("$remb"), args)
+                    Expr::call(Expr::ident("$remb"), vec![a, b])
                 } else {
-                    Expr::call(Expr::ident("$remi"), args)
+                    Expr::call(Expr::ident("$remi"), vec![a, b])
                 }
+            }
+        }
+    }
+
+    /// [`Gen::prim_op`]'s one-operand operations.
+    fn prim_unary(&mut self, op: UnaryOp, p: Prim, a: Expr) -> Expr {
+        match op {
+            UnaryOp::Not => Expr::un(UnOp::Not, a),
+            // A `BigInt` complement of an unsigned value is negative and
+            // needs narrowing back, and `~0` on a `U8` comes back as `-1`
+            // rather than `255`, so an unsigned one is narrowed to its width.
+            UnaryOp::BitNot => {
+                if let Some(v) = int_literal(&a).and_then(|x| narrow_literal(p, !x)) {
+                    return v;
+                }
+                let v = Expr::un(UnOp::BitNot, a);
+                match (p.is_signed(), p.is_bigint()) {
+                    (true, _) => v,
+                    (false, true) => as_uint_n(p.bits(), v),
+                    (false, false) => umask(v, p),
+                }
+            }
+            UnaryOp::Neg => {
+                let v = Expr::un(UnOp::Neg, a);
+                self.rounded(v, p)
             }
         }
     }

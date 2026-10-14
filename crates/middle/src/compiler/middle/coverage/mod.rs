@@ -11,7 +11,7 @@ use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::resolve::ConstMap;
 use crate::compiler::semantics::typed::{
-    self, Expr, ExprKind, Magnitude, PatKind, Pattern, PrimOp, Stmt,
+    self, Expr, ExprKind, Magnitude, PatKind, Pattern, PrimOp, Stmt, UnaryOp,
 };
 use crate::compiler::semantics::types::{FnId, FuncIdx, LocalId, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant as _;
@@ -319,18 +319,20 @@ fn desugared(e: &Expr) -> bool {
 /// call `call` says can, unless a constant last operand spares it. A built
 /// body has its constants inlined, so it needs no `consts`.
 fn traps_here(e: &Expr, call: &TrapCall<'_>, consts: Option<&ConstMap>) -> bool {
-    let (how, args) = match &e.kind {
+    let (how, last) = match &e.kind {
         ExprKind::Prim {
             op: PrimOp::Div | PrimOp::Rem,
             prim,
             args,
-        } => (prim.is_integer().then_some(Aborts::Divide), args),
-        ExprKind::CallFn { args, .. } | ExprKind::CallFunc { args, .. } => (call(e), args),
+        } => {
+            let [_, divisor] = &**args;
+            (prim.is_integer().then_some(Aborts::Divide), Some(divisor))
+        }
+        ExprKind::CallFn { args, .. } | ExprKind::CallFunc { args, .. } => (call(e), args.last()),
         _ => return false,
     };
     how.is_some_and(|how| {
-        !args
-            .last()
+        !last
             .and_then(|n| constant(n, consts))
             .is_some_and(|n| how.spared_by(n))
     })
@@ -380,34 +382,41 @@ fn constant(e: &Expr, consts: Option<&ConstMap>) -> Option<i128> {
             }
         }
         ExprKind::Const(c) => constant(consts?.get(c)?, consts),
+        ExprKind::Unary {
+            op: UnaryOp::Neg,
+            prim,
+            arg,
+        } => in_range(*prim, constant(arg, consts)?.checked_neg()?),
         ExprKind::Prim { op, prim, args } => {
-            let values = args
-                .iter()
-                .map(|a| constant(a, consts))
-                .collect::<Option<Vec<_>>>()?;
-            let v = match (op, values.as_slice()) {
-                (PrimOp::Neg, [a]) => a.checked_neg(),
-                (PrimOp::Add, [a, b]) => a.checked_add(*b),
-                (PrimOp::Sub, [a, b]) => a.checked_sub(*b),
-                (PrimOp::Mul, [a, b]) => a.checked_mul(*b),
+            let [a, b] = &**args;
+            let (a, b) = (constant(a, consts)?, constant(b, consts)?);
+            let v = match op {
+                PrimOp::Add => a.checked_add(b),
+                PrimOp::Sub => a.checked_sub(b),
+                PrimOp::Mul => a.checked_mul(b),
                 _ => None,
             }?;
-            let bits = prim.bits();
-            let (low, high) = if prim.is_signed() {
-                let low = i128::MIN.wrapping_shr(128u32.saturating_sub(bits));
-                (low, !low)
-            } else {
-                (
-                    0,
-                    1i128
-                        .checked_shl(bits)
-                        .map_or(i128::MAX, |top| top.saturating_sub(1)),
-                )
-            };
-            (low..=high).contains(&v).then_some(v)
+            in_range(*prim, v)
         }
         _ => None,
     }
+}
+
+/// `v`, if it's in `prim`'s range.
+fn in_range(prim: Prim, v: i128) -> Option<i128> {
+    let bits = prim.bits();
+    let (low, high) = if prim.is_signed() {
+        let low = i128::MIN.wrapping_shr(128u32.saturating_sub(bits));
+        (low, !low)
+    } else {
+        (
+            0,
+            1i128
+                .checked_shl(bits)
+                .map_or(i128::MAX, |top| top.saturating_sub(1)),
+        )
+    };
+    (low..=high).contains(&v).then_some(v)
 }
 
 /// An MC/DC decision: `&&`, `||` and `!` over conditions, with at least two
@@ -446,13 +455,11 @@ impl Tree {
                 Box::new(Tree::build(rhs)),
                 e.span,
             ),
-            ExprKind::Prim {
-                op: PrimOp::Not,
-                args,
+            ExprKind::Unary {
+                op: UnaryOp::Not,
+                arg,
                 ..
-            } if logical(e) => Tree::Not(Box::new(
-                args.first().map_or(Tree::Condition(e.span), Tree::build),
-            )),
+            } if logical(e) => Tree::Not(Box::new(Tree::build(arg))),
             _ => Tree::Condition(e.span),
         }
     }
@@ -606,11 +613,11 @@ impl Tree {
 fn logical(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::And { .. } | ExprKind::Or { .. } => true,
-        ExprKind::Prim {
-            op: PrimOp::Not,
-            args,
+        ExprKind::Unary {
+            op: UnaryOp::Not,
+            arg,
             ..
-        } => args.first().is_some_and(logical),
+        } => logical(arg),
         _ => false,
     }
 }
@@ -744,11 +751,11 @@ fn conditions<'a>(e: &'a Expr, settled: bool, f: &mut impl FnMut(&'a Expr, bool)
             conditions(lhs, true, f);
             conditions(rhs, settled, f);
         }
-        ExprKind::Prim {
-            op: PrimOp::Not,
-            args,
+        ExprKind::Unary {
+            op: UnaryOp::Not,
+            arg,
             ..
-        } if logical(e) => args.iter().for_each(|a| conditions(a, true, f)),
+        } if logical(e) => conditions(arg, true, f),
         _ => f(e, !settled),
     }
 }
@@ -764,7 +771,7 @@ fn conditions_mut(e: &mut Expr, settled: bool, f: &mut impl FnMut(&mut Expr, boo
             conditions_mut(lhs, true, f);
             conditions_mut(rhs, settled, f);
         }
-        ExprKind::Prim { args, .. } => args.iter_mut().for_each(|a| conditions_mut(a, true, f)),
+        ExprKind::Unary { arg, .. } => conditions_mut(arg, true, f),
         _ => {}
     }
 }
@@ -961,12 +968,12 @@ impl Branches<'_> {
                     Kind::Or
                 }
             }
-            ExprKind::Prim {
-                op: PrimOp::Not,
-                args,
+            ExprKind::Unary {
+                op: UnaryOp::Not,
+                arg,
                 ..
             } => {
-                args.iter_mut().for_each(|a| self.sides(a));
+                self.sides(arg);
                 return;
             }
             _ => return,
@@ -1002,11 +1009,7 @@ impl Branches<'_> {
         let whole = std::mem::replace(e, Expr::new(ExprKind::Unit, self.options.bool_ty, span));
         let (index, trues, _) = self.path(whole, &file);
         let p = self.local(self.options.i64_ty, span);
-        let key = self.prim(
-            PrimOp::Add,
-            vec![self.int(base, span), self.get(p, span)],
-            span,
-        );
+        let key = self.prim(PrimOp::Add, [self.int(base, span), self.get(p, span)], span);
         let hit = Expr::new(
             ExprKind::Intrinsic {
                 name: HIT.to_string(),
@@ -1016,11 +1019,7 @@ impl Branches<'_> {
             Ty::UNIT,
             span,
         );
-        let outcome = self.prim(
-            PrimOp::Lt,
-            vec![self.get(p, span), self.int(trues, span)],
-            span,
-        );
+        let outcome = self.prim(PrimOp::Lt, [self.get(p, span), self.int(trues, span)], span);
         let stmts = vec![bind(p, index, span), Stmt::Expr(hit)];
         *e = Expr::new(
             ExprKind::Block {
@@ -1041,14 +1040,7 @@ impl Branches<'_> {
     )]
     fn path(&mut self, e: Expr, file: &str) -> (Expr, u64, u64) {
         let span = e.span;
-        let not_operand = match &e.kind {
-            ExprKind::Prim {
-                op: PrimOp::Not,
-                args,
-                ..
-            } if logical(&e) => !args.is_empty(),
-            _ => false,
-        };
+        let not_operand = logical(&e) && matches!(&e.kind, ExprKind::Unary { .. });
         match e.kind {
             ExprKind::And { lhs, rhs } => {
                 let (la, tl, fl) = self.path(*lhs, file);
@@ -1088,16 +1080,8 @@ impl Branches<'_> {
                 let body = self.split(a, tl, l_true, inner, span);
                 (self.with(a, la, body, span), trues, fl * fr)
             }
-            ExprKind::Prim {
-                op: PrimOp::Not,
-                args,
-                ..
-            } if not_operand => {
-                let operand = args
-                    .into_iter()
-                    .next()
-                    .unwrap_or_else(|| Expr::new(ExprKind::Unit, Ty::UNIT, span));
-                let (xa, tx, fx) = self.path(operand, file);
+            ExprKind::Unary { arg, .. } if not_operand => {
+                let (xa, tx, fx) = self.path(*arg, file);
                 let a = self.local(self.options.i64_ty, span);
                 // x true: fx + a. x false: a - tx.
                 let x_true = self.offset(a, 0, fx, span);
@@ -1142,11 +1126,7 @@ impl Branches<'_> {
 
     /// `if (a < bound) { below } else { above }`.
     fn split(&self, a: LocalId, bound: u64, below: Expr, above: Expr, span: Span) -> Expr {
-        let cond = self.prim(
-            PrimOp::Lt,
-            vec![self.get(a, span), self.int(bound, span)],
-            span,
-        );
+        let cond = self.prim(PrimOp::Lt, [self.get(a, span), self.int(bound, span)], span);
         Expr::new(
             ExprKind::If {
                 cond: Box::new(cond),
@@ -1166,9 +1146,9 @@ impl Branches<'_> {
     fn offset(&self, a: LocalId, minus: u64, plus: u64, span: Span) -> Expr {
         let mut x = self.get(a, span);
         if minus > plus {
-            x = self.prim(PrimOp::Sub, vec![x, self.int(minus - plus, span)], span);
+            x = self.prim(PrimOp::Sub, [x, self.int(minus - plus, span)], span);
         } else if plus > minus {
-            x = self.prim(PrimOp::Add, vec![x, self.int(plus - minus, span)], span);
+            x = self.prim(PrimOp::Add, [x, self.int(plus - minus, span)], span);
         }
         x
     }
@@ -1194,11 +1174,11 @@ impl Branches<'_> {
         let scaled = if scale == 1 {
             x
         } else {
-            self.prim(PrimOp::Mul, vec![x, self.int(scale, span)], span)
+            self.prim(PrimOp::Mul, [x, self.int(scale, span)], span)
         };
         self.prim(
             PrimOp::Add,
-            vec![scaled, self.offset(b, minus, plus, span)],
+            [scaled, self.offset(b, minus, plus, span)],
             span,
         )
     }
@@ -1215,7 +1195,7 @@ impl Branches<'_> {
         Expr::new(ExprKind::Local(a), self.options.i64_ty, span)
     }
 
-    fn prim(&self, op: PrimOp, args: Vec<Expr>, span: Span) -> Expr {
+    fn prim(&self, op: PrimOp, args: [Expr; 2], span: Span) -> Expr {
         let ty = if matches!(op, PrimOp::Lt) {
             self.options.bool_ty
         } else {
@@ -1225,7 +1205,7 @@ impl Branches<'_> {
             ExprKind::Prim {
                 op,
                 prim: Prim::I64,
-                args,
+                args: Box::new(args),
             },
             ty,
             span,
@@ -1251,7 +1231,8 @@ impl Branches<'_> {
         );
         let mut op = std::mem::replace(e, Expr::new(ExprKind::Unit, Ty::UNIT, span));
         let args = match &mut op.kind {
-            ExprKind::Prim { args, .. } | ExprKind::CallFunc { args, .. } => args,
+            ExprKind::Prim { args, .. } => &mut args[..],
+            ExprKind::CallFunc { args, .. } => &mut args[..],
             _ => return,
         };
         let mut stmts = Vec::with_capacity(args.len());

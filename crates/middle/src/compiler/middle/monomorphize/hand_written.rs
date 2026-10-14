@@ -1077,10 +1077,10 @@ impl Monomorphizer<'_> {
                                         ExprKind::Prim {
                                             op: typed::PrimOp::Lt,
                                             prim: Prim::I64,
-                                            args: vec![
+                                            args: Box::new([
                                                 self.int_lit(rank(i, vname)),
                                                 local(*rb, int),
-                                            ],
+                                            ]),
                                         },
                                         bool_ty,
                                         Span::NONE,

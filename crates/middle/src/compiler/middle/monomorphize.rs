@@ -1889,7 +1889,7 @@ impl Monomorphizer<'_> {
         &self,
         e: &mut typed::Expr,
         targs: &[Ty],
-    ) -> Option<(typed::PrimOp, Prim, Vec<typed::Expr>)> {
+    ) -> Option<(typed::PrimOp, Prim, [typed::Expr; 2])> {
         let ExprKind::Match { scrutinee, arms } = &mut e.kind else {
             return None;
         };
@@ -1899,8 +1899,11 @@ impl Monomorphizer<'_> {
         let [tested, rest] = arms.as_slice() else {
             return None;
         };
+        let [lhs, rhs] = args.as_mut_slice() else {
+            return None;
+        };
         let spans = [scrutinee.span, tested.span, rest.span];
-        if args.len() != 2 || spans.iter().any(|s| *s != e.span) {
+        if spans.iter().any(|s| *s != e.span) {
             return None;
         }
         // Only `order_test` builds a match whose arms all carry its own span:
@@ -1918,13 +1921,17 @@ impl Monomorphizer<'_> {
             (PatKind::Variant { variant: 2, .. }, ExprKind::Bool(false)) => typed::PrimOp::Le,
             _ => return None,
         };
-        Some((op, prim, std::mem::take(args)))
+        // The match is replaced whole, so its operands leave it.
+        let take = |x: &mut typed::Expr| {
+            std::mem::replace(x, typed::Expr::new(ExprKind::Error, Ty::ERROR, e.span))
+        };
+        Some((op, prim, [take(lhs), take(rhs)]))
     }
 
     fn rewrite(&mut self, mut e: typed::Expr, targs: &[Ty]) -> typed::Expr {
         e.ty = self.sub(&e.ty, targs);
         if let Some((op, prim, args)) = self.float_operator(&mut e, targs) {
-            let args = self.rewrite_all(args, targs);
+            let args = Box::new(args.map(|a| self.rewrite(a, targs)));
             return typed::Expr::new(ExprKind::Prim { op, prim, args }, e.ty, e.span);
         }
         e.kind = match e.kind {
@@ -2138,7 +2145,12 @@ impl Monomorphizer<'_> {
             ExprKind::Prim { op, prim, args } => ExprKind::Prim {
                 op,
                 prim,
-                args: self.rewrite_all(args, targs),
+                args: Box::new(args.map(|a| self.rewrite(a, targs))),
+            },
+            ExprKind::Unary { op, prim, arg } => ExprKind::Unary {
+                op,
+                prim,
+                arg: Box::new(self.rewrite(*arg, targs)),
             },
             // Only `coverage::derived` builds one, after this pass.
             ExprKind::StructuralEq { args } => ExprKind::StructuralEq {
@@ -2563,19 +2575,19 @@ impl Monomorphizer<'_> {
     ) -> ExprKind {
         use typed::PrimOp;
         let e = match (method, args.as_slice()) {
-            ("union", [a, b]) => word.op(PrimOp::BitOr, vec![a.clone(), b.clone()]),
-            ("intersect", [a, b]) => word.op(PrimOp::BitAnd, vec![a.clone(), b.clone()]),
-            ("symmetricDifference", [a, b]) => word.op(PrimOp::BitXor, vec![a.clone(), b.clone()]),
+            ("union", [a, b]) => word.op(PrimOp::BitOr, a.clone(), b.clone()),
+            ("intersect", [a, b]) => word.op(PrimOp::BitAnd, a.clone(), b.clone()),
+            ("symmetricDifference", [a, b]) => word.op(PrimOp::BitXor, a.clone(), b.clone()),
             ("difference" | "isSubsetOf", [a, b]) => {
-                let outside = word.op(PrimOp::BitXor, vec![b.clone(), word.lit(word.all())]);
-                let left = word.op(PrimOp::BitAnd, vec![a.clone(), outside]);
+                let outside = word.op(PrimOp::BitXor, b.clone(), word.lit(word.all()));
+                let left = word.op(PrimOp::BitAnd, a.clone(), outside);
                 if method == "difference" {
                     left
                 } else {
                     word.test(PrimOp::Eq, left, word.lit(0))
                 }
             }
-            ("complement", [a]) => word.op(PrimOp::BitXor, vec![a.clone(), word.lit(word.all())]),
+            ("complement", [a]) => word.op(PrimOp::BitXor, a.clone(), word.lit(word.all())),
             ("isEmpty", [a]) => word.test(PrimOp::Eq, a.clone(), word.lit(0)),
             ("count", [a]) => return self.flags_count(word, a.clone()),
             _ => return ExprKind::Error,
@@ -2613,7 +2625,7 @@ impl Monomorphizer<'_> {
                     ExprKind::Prim {
                         op: typed::PrimOp::Add,
                         prim: Prim::I64,
-                        args: vec![acc, b],
+                        args: Box::new([acc, b]),
                     },
                     int,
                     span,
@@ -2681,41 +2693,45 @@ impl Monomorphizer<'_> {
             );
             return ExprKind::Error;
         };
-        let prim_op = match op {
-            "Add" => typed::PrimOp::Add,
-            "Subtract" => typed::PrimOp::Sub,
-            "Multiply" => typed::PrimOp::Mul,
-            "Divide" => typed::PrimOp::Div,
-            "Remainder" => typed::PrimOp::Rem,
-            _ => typed::PrimOp::Neg,
+        let binary = match op {
+            "Add" => Some(typed::PrimOp::Add),
+            "Subtract" => Some(typed::PrimOp::Sub),
+            "Multiply" => Some(typed::PrimOp::Mul),
+            "Divide" => Some(typed::PrimOp::Div),
+            "Remainder" => Some(typed::PrimOp::Rem),
+            _ => None,
         };
-        let unwrapped: Vec<typed::Expr> = args
-            .into_iter()
-            .map(|a| {
-                typed::Expr::new(
-                    ExprKind::Field {
-                        base: Box::new(a),
-                        index: 0,
-                    },
-                    inner,
-                    span,
-                )
+        let at = |kind| typed::Expr::new(kind, inner, span);
+        let unwrapped = args.into_iter().map(|a| {
+            at(ExprKind::Field {
+                base: Box::new(a),
+                index: 0,
             })
-            .collect();
-        let computed = typed::Expr::new(
-            ExprKind::Prim {
-                op: prim_op,
-                prim,
-                args: unwrapped,
-            },
-            inner,
-            span,
-        );
-        ExprKind::StructLit {
-            con,
-            targs,
-            fields: vec![computed],
-        }
+        });
+        // A binary operator folds the receiver and the other operand into one
+        // field, and `negate` maps the receiver to it.
+        let fields = match binary {
+            Some(op) => unwrapped
+                .reduce(|a, b| {
+                    at(ExprKind::Prim {
+                        op,
+                        prim,
+                        args: Box::new([a, b]),
+                    })
+                })
+                .into_iter()
+                .collect(),
+            None => unwrapped
+                .map(|a| {
+                    at(ExprKind::Unary {
+                        op: typed::UnaryOp::Neg,
+                        prim,
+                        arg: Box::new(a),
+                    })
+                })
+                .collect(),
+        };
+        ExprKind::StructLit { con, targs, fields }
     }
 
     // -----------------------------------------------------------------------

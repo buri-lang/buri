@@ -538,8 +538,11 @@ impl Env {
                     ExprKind::Char(_) => {
                         prim_of.entry(Prim::Char).or_insert_with(|| e.ty);
                     }
-                    ExprKind::Prim { prim, args, .. } => {
-                        let a = args.first().or_ice("a primitive operation has an operand");
+                    ExprKind::Prim { prim, args: a, .. } => {
+                        let [a, _] = &**a;
+                        prim_of.entry(*prim).or_insert_with(|| a.ty);
+                    }
+                    ExprKind::Unary { prim, arg: a, .. } => {
                         prim_of.entry(*prim).or_insert_with(|| a.ty);
                     }
                     ExprKind::StructuralEq { .. } => {
@@ -1336,7 +1339,7 @@ impl Generator {
                 ExprKind::Prim {
                     op: PrimOp::Eq,
                     prim: *p,
-                    args: vec![a, b],
+                    args: Box::new([a, b]),
                 },
                 bool_ty,
                 Span::NONE,
@@ -1500,7 +1503,7 @@ impl Generator {
         let ty = self.ty_of(desc);
         let float = |v: f64| Expr::new(ExprKind::Float(v), ty, Span::NONE);
         let reciprocal = |x: Expr| {
-            let args = vec![float(1.0), x];
+            let args = Box::new([float(1.0), x]);
             Expr::new(
                 ExprKind::Prim {
                     op: PrimOp::Div,
@@ -1529,7 +1532,7 @@ impl Generator {
             ExprKind::Prim {
                 op,
                 prim: p,
-                args: vec![a, b],
+                args: Box::new([a, b]),
             },
             self.bool_ty(),
             Span::NONE,
@@ -1815,7 +1818,7 @@ impl Generator {
                 ExprKind::Prim {
                     op,
                     prim: Prim::I64,
-                    args: vec![self.local_expr(ra, &int), self.local_expr(rb, &int)],
+                    args: Box::new([self.local_expr(ra, &int), self.local_expr(rb, &int)]),
                 },
                 bool_ty,
                 Span::NONE,
@@ -2474,7 +2477,7 @@ impl Generator {
     }
 
     fn plus_one(&self, i: Expr) -> Expr {
-        let args = vec![i, self.int_lit(1)];
+        let args = Box::new([i, self.int_lit(1)]);
         let int = self.prim_ty(Prim::I64);
         Expr::new(
             ExprKind::Prim {

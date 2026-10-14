@@ -37,7 +37,7 @@
 //! unbounded one.
 
 use crate::compiler::semantics::resolve::{BodyMap, ConstMap};
-use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp, Stmt};
+use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp, Stmt, UnaryOp};
 use crate::compiler::semantics::types::{ConstId, FnId, LocalId, ParamRole, Prim, Tables};
 use crate::hash::Map as HashMap;
 
@@ -309,9 +309,11 @@ impl<'a> Folder<'a> {
             }
 
             ExprKind::Prim { op, prim, args } => {
-                let args = self.eval_all(args, env)?;
-                prim_op(*op, *prim, &args)
+                let [a, b] = &**args;
+                let (a, b) = (self.eval(a, env)?, self.eval(b, env)?);
+                prim_op(*op, *prim, &a, &b)
             }
+            ExprKind::Unary { op, prim, arg } => unary_op(*op, *prim, &self.eval(arg, env)?),
             ExprKind::Template { parts } => {
                 let mut out = String::new();
                 for part in parts {
@@ -534,15 +536,10 @@ fn matches_pattern(p: &typed::Pattern, v: &Value, env: &mut Env) -> bool {
 /// up rather than picking one of the two answers a backend might produce. That
 /// is the only way an interpreter and a target can be made to agree about an
 /// operation neither is required to define.
-fn prim_op(op: PrimOp, prim: Prim, args: &[Value]) -> Option<Value> {
+fn prim_op(op: PrimOp, prim: Prim, a: &Value, b: &Value) -> Option<Value> {
     let float = matches!(prim, Prim::F32 | Prim::F64);
-    match (op, args) {
-        (PrimOp::Not, [Value::Bool(b)]) => Some(Value::Bool(!b)),
-        (PrimOp::Neg, [a]) if float => narrow(prim, -a.as_float()?),
-        (PrimOp::Neg, [Value::Int(a)]) => a.checked_neg().map(Value::Int),
-        (PrimOp::BitNot, [Value::Int(a)]) => Some(Value::Int(!a)),
-
-        (_, [a, b]) if float => {
+    match (a, b) {
+        _ if float => {
             let (x, y) = (a.as_float()?, b.as_float()?);
             match op {
                 PrimOp::Add => narrow(prim, x + y),
@@ -553,16 +550,16 @@ fn prim_op(op: PrimOp, prim: Prim, args: &[Value]) -> Option<Value> {
                 _ => compare(op, &x, &y),
             }
         }
-        (_, [Value::Str(x), Value::Str(y)]) => match op {
+        (Value::Str(x), Value::Str(y)) => match op {
             PrimOp::Add => Some(Value::Str(format!("{x}{y}"))),
             _ => compare(op, x, y),
         },
-        (_, [Value::Bool(x), Value::Bool(y)]) => match op {
+        (Value::Bool(x), Value::Bool(y)) => match op {
             PrimOp::Eq => Some(Value::Bool(x == y)),
             PrimOp::Ne => Some(Value::Bool(x != y)),
             _ => None,
         },
-        (_, [Value::Int(x), Value::Int(y)]) => match op {
+        (Value::Int(x), Value::Int(y)) => match op {
             PrimOp::Add => x.checked_add(*y).map(Value::Int),
             PrimOp::Sub => x.checked_sub(*y).map(Value::Int),
             PrimOp::Mul => x.checked_mul(*y).map(Value::Int),
@@ -573,6 +570,17 @@ fn prim_op(op: PrimOp, prim: Prim, args: &[Value]) -> Option<Value> {
             PrimOp::BitXor => Some(Value::Int(x ^ y)),
             _ => compare(op, x, y),
         },
+        _ => None,
+    }
+}
+
+/// [`prim_op`]'s one-operand operations.
+fn unary_op(op: UnaryOp, prim: Prim, a: &Value) -> Option<Value> {
+    match (op, a) {
+        (UnaryOp::Not, Value::Bool(b)) => Some(Value::Bool(!b)),
+        (UnaryOp::Neg, a) if prim.is_float() => narrow(prim, -a.as_float()?),
+        (UnaryOp::Neg, Value::Int(a)) => a.checked_neg().map(Value::Int),
+        (UnaryOp::BitNot, Value::Int(a)) => Some(Value::Int(!a)),
         _ => None,
     }
 }

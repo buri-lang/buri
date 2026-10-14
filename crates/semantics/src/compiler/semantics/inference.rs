@@ -796,11 +796,14 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             typed::ExprKind::Tuple(args)
             | typed::ExprKind::Array(args)
-            | typed::ExprKind::Prim { args, .. }
             | typed::ExprKind::StructuralEq { args, .. } => {
                 args.iter_mut().for_each(|a| self.resolve_expr(a));
             }
+            typed::ExprKind::Prim { args, .. } => {
+                args.iter_mut().for_each(|a| self.resolve_expr(a));
+            }
             typed::ExprKind::Field { base, .. }
+            | typed::ExprKind::Unary { arg: base, .. }
             | typed::ExprKind::TupleIndex { base, .. }
             | typed::ExprKind::Try { base, .. }
             | typed::ExprKind::CtxGet { base, .. } => self.resolve_expr(base),

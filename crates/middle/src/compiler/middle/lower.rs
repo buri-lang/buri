@@ -87,7 +87,7 @@ use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{
     self, Arm, ArrayRest, Expr, ExprKind, FieldPat, Magnitude, OptionOrResult, PatKind, Pattern,
-    PrimOp, Stmt, TemplatePart,
+    PrimOp, Stmt, TemplatePart, UnaryOp,
 };
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Tables, Ty, TyConId, TyKind};
 use crate::diagnostics::Invariant as _;
@@ -1307,6 +1307,20 @@ impl FnLower<'_> {
             }
 
             ExprKind::Prim { op, prim, args } => self.prim(ty, *op, *prim, args),
+            ExprKind::Unary { op, prim, arg } => {
+                let arg = self.expr(arg);
+                let op = match op {
+                    UnaryOp::Neg => UnOp::Neg,
+                    UnaryOp::Not => UnOp::Not,
+                    UnaryOp::BitNot => UnOp::BitNot,
+                };
+                self.emit(ty, |dest| Inst::Unary {
+                    dest,
+                    op,
+                    prim: *prim,
+                    arg,
+                })
+            }
             ExprKind::StructuralEq { args } => self.structural(ty, StructuralOp::Eq, args),
             ExprKind::Template { parts } => self.template(ty, parts),
 
@@ -1517,25 +1531,8 @@ impl FnLower<'_> {
         })
     }
 
-    fn prim(&mut self, ty: Type, op: PrimOp, prim: Prim, args: &[Expr]) -> ValueId {
-        let vs = self.exprs(args);
-        let unary = match op {
-            PrimOp::Neg => Some(UnOp::Neg),
-            PrimOp::Not => Some(UnOp::Not),
-            PrimOp::BitNot => Some(UnOp::BitNot),
-            _ => None,
-        };
-        if let Some(op) = unary {
-            let arg = *vs
-                .first()
-                .or_ice("the checker gives a unary operation its operand");
-            return self.emit(ty, |dest| Inst::Unary {
-                dest,
-                op,
-                prim,
-                arg,
-            });
-        }
+    fn prim(&mut self, ty: Type, op: PrimOp, prim: Prim, [lhs, rhs]: &[Expr; 2]) -> ValueId {
+        let (lhs, rhs) = (self.expr(lhs), self.expr(rhs));
         let op = match op {
             PrimOp::Add => BinOp::Add,
             PrimOp::Sub => BinOp::Sub,
@@ -1551,14 +1548,7 @@ impl FnLower<'_> {
             PrimOp::Le => BinOp::Le,
             PrimOp::Gt => BinOp::Gt,
             PrimOp::Ge => BinOp::Ge,
-            PrimOp::Neg | PrimOp::Not | PrimOp::BitNot => BinOp::Add,
         };
-        let lhs = *vs
-            .first()
-            .or_ice("the checker gives a binary operation two operands");
-        let rhs = *vs
-            .get(1)
-            .or_ice("the checker gives a binary operation two operands");
         self.emit(ty, |dest| Inst::Binary {
             dest,
             op,

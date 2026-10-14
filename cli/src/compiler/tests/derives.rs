@@ -115,7 +115,10 @@ fn sexp(p: &Program, e: &Expr) -> String {
         ExprKind::FuncRef(f) => format!("&{}", name_of(p, *f)),
         ExprKind::Intrinsic { name, args, .. } => format!("{name}({})", list(args)),
         ExprKind::Prim { op, prim, args } => {
-            format!("{op:?}<{}>({})", prim.name(), list(args))
+            format!("{op:?}<{}>({})", prim.name(), list(&args[..]))
+        }
+        ExprKind::Unary { op, prim, arg } => {
+            format!("{op:?}<{}>({})", prim.name(), sexp(p, arg))
         }
         ExprKind::And { lhs, rhs } => format!("({} && {})", sexp(p, lhs), sexp(p, rhs)),
         ExprKind::Or { lhs, rhs } => format!("({} || {})", sexp(p, lhs), sexp(p, rhs)),
