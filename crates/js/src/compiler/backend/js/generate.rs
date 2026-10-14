@@ -1294,8 +1294,11 @@ fn survey_args<'e>(e: &'e Expr, under_cond: bool, out: &mut Vec<(&'e str, bool)>
         Expr::Binary { op, lhs, rhs } => {
             survey_args(lhs, under_cond, out);
             // The right side of `&&` and `||` is itself conditional.
-            let short = matches!(op, BinOp::And | BinOp::Or);
-            survey_args(rhs, under_cond || short, out);
+            let rhs_cond = match op {
+                BinOp::And | BinOp::Or => true,
+                _ => under_cond,
+            };
+            survey_args(rhs, rhs_cond, out);
         }
         Expr::Cond { test, cons, alt } => {
             survey_args(test, under_cond, out);
