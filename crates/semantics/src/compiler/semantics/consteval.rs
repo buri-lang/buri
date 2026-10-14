@@ -38,7 +38,9 @@
 
 use crate::compiler::semantics::resolve::{BodyMap, ConstMap};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp, Stmt, UnaryOp};
-use crate::compiler::semantics::types::{ConstId, FnId, LocalId, ParamRole, Prim, Tables};
+use crate::compiler::semantics::types::{
+    ConstId, FnId, LocalId, ParamRole, Prim, Tables, VariantId,
+};
 use crate::hash::Map as HashMap;
 
 /// A value the interpreter reached.
@@ -61,7 +63,7 @@ pub enum Value {
     Struct(Vec<Value>),
     /// An enum value: which variant, and its payload.
     Variant {
-        variant: usize,
+        variant: VariantId,
         args: Vec<Value>,
     },
 }
@@ -98,9 +100,10 @@ impl Value {
         }
     }
 
+    /// The variant's position in its declaration, and its payload.
     pub fn as_variant(&self) -> Option<(usize, &[Value])> {
         match self {
-            Value::Variant { variant, args } => Some((*variant, args)),
+            Value::Variant { variant, args } => Some((variant.index(), args)),
             _ => None,
         }
     }
@@ -235,11 +238,11 @@ impl<'a> Folder<'a> {
                 let found = usize::try_from(at).ok().and_then(|i| items.get(i).cloned());
                 Some(match found {
                     Some(v) => Value::Variant {
-                        variant: OPTION_SOME,
+                        variant: VariantId::SOME,
                         args: vec![v],
                     },
                     None => Value::Variant {
-                        variant: OPTION_NONE,
+                        variant: VariantId::NONE,
                         args: Vec::new(),
                     },
                 })
@@ -429,11 +432,6 @@ pub fn is_inlinable(tables: &Tables, id: FnId) -> bool {
         .iter()
         .any(|g| g.bounds.iter().any(|t| tables.trait_(*t).is_effect))
 }
-
-/// `Option`'s variant indices, which `core/option` fixes and the backend
-/// already depends on.
-const OPTION_SOME: usize = 0;
-const OPTION_NONE: usize = 1;
 
 impl<'f> Env<'f> {
     pub fn reading(outer: &'f dyn Fn(LocalId) -> Option<Value>) -> Env<'f> {

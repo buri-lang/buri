@@ -471,18 +471,12 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn variant_pattern(
         &mut self,
         con: TyConId,
-        index: usize,
+        index: VariantId,
         args: &[Ty],
         payload: Option<PatPayloadData>,
         span: Span,
     ) -> typed::PatKind {
-        let variant = self
-            .c
-            .tables
-            .tycon(con)
-            .variants()
-            .get(index)
-            .or_ice("the index is a position in this same variant list");
+        let variant = self.c.tables.tycon(con).variant(index);
         // A variant is exported exactly when its enum is, so this fires only
         // where a private enum reached another module through a signature.
         let owner = self.c.tables.tycon(con).module;
@@ -534,13 +528,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// mutably, and the copy was a name and a field list per pattern.
     fn field_decls(&self, of: Fields) -> &[FieldInfo] {
         match of {
-            Fields::Variant(con, index) => self
-                .c
-                .tables
-                .tycon(con)
-                .variants()
-                .get(index)
-                .map_or(&[], |v| &v.fields),
+            Fields::Variant(con, index) => &self.c.tables.tycon(con).variant(index).fields,
             Fields::Struct(con) => self.c.tables.tycon(con).fields(),
         }
     }
@@ -555,13 +543,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// What a diagnostic about the payload calls the type or the variant.
     fn fields_owner(&self, of: Fields) -> String {
         match of {
-            Fields::Variant(con, index) => self
-                .c
-                .tables
-                .tycon(con)
-                .variants()
-                .get(index)
-                .map_or_else(String::new, |v| v.name.clone()),
+            Fields::Variant(con, index) => self.c.tables.tycon(con).variant(index).name.clone(),
             Fields::Struct(con) => self.c.tables.tycon(con).name.clone(),
         }
     }
@@ -581,13 +563,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     // The grammar has `..` in a record payload and not in a
                     // tuple one, so a tuple payload is spelled out in `_`s.
                     let record = match of {
-                        Fields::Variant(con, index) => self
-                            .c
-                            .tables
-                            .tycon(con)
-                            .variants()
-                            .get(index)
-                            .is_some_and(|v| v.record),
+                        Fields::Variant(con, index) => {
+                            self.c.tables.tycon(con).variant(index).record
+                        }
                         Fields::Struct(_) => false,
                     };
                     let written = if record {
@@ -715,7 +693,7 @@ impl<'a, 'b> Infer<'a, 'b> {
 /// Whose declared fields a payload pattern is checked against.
 #[derive(Clone, Copy)]
 enum Fields {
-    Variant(TyConId, usize),
+    Variant(TyConId, VariantId),
     Struct(TyConId),
 }
 

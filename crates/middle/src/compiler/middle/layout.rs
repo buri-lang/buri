@@ -761,7 +761,7 @@ impl<'a> Layouts<'a> {
             }
         }
 
-        let variants = tables.tycon(con).variants().to_vec();
+        let variants = tables.tycon(con).variants().as_slice().to_vec();
         crate::diagnostics::invariant(
             !variants.is_empty(),
             "an enum with no variants is refused before layout",
@@ -1438,7 +1438,9 @@ mod tests {
             name: name.into(),
             module: ModuleId::PRIMITIVES,
             generics: generics(generic_names),
-            def: TyDef::Enum { variants },
+            def: TyDef::Enum {
+                variants: variants.into_iter().collect(),
+            },
             exported: true,
             span: Span::NONE,
         })
@@ -1451,7 +1453,9 @@ mod tests {
     }
 
     fn define_enum(t: &mut Tables, con: TyConId, variants: Vec<VariantInfo>) {
-        t.tycon_mut(con).def = TyDef::Enum { variants };
+        t.tycon_mut(con).def = TyDef::Enum {
+            variants: variants.into_iter().collect(),
+        };
     }
 
     /// `Option<T>`, in exactly the shape `Tables::is_option` recognises.
@@ -1477,7 +1481,7 @@ mod tests {
             name: name.into(),
             module: ModuleId::PRIMITIVES,
             generics: Vec::new(),
-            methods: Vec::new(),
+            methods: Default::default(),
             is_effect: true,
             exported: true,
             span: Span::NONE,

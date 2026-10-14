@@ -68,7 +68,7 @@
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern};
-use crate::compiler::semantics::types::{LocalId, Ty, TyConId};
+use crate::compiler::semantics::types::{LocalId, Ty, TyConId, VariantId};
 use crate::diagnostics::Invariant as _;
 use crate::hash::Map;
 
@@ -106,7 +106,7 @@ fn rewrite(locals: &mut Vec<typed::Local>, e: &mut Expr) {
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum Head<'a> {
     /// A variant of an enum, by its index and the type it belongs to.
-    Tag(TyConId, usize),
+    Tag(TyConId, VariantId),
     Int(u128, bool),
     Str(&'a str),
     Char(char),
@@ -444,7 +444,7 @@ mod tests {
     use crate::compiler::semantics::typed::{
         Arm, Expr, ExprKind, FieldPat, Local, Magnitude, PatKind, Pattern,
     };
-    use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty};
+    use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, VariantId};
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
 
@@ -461,7 +461,7 @@ mod tests {
     }
 
     /// `.V(sub)`, the one-field variant every case here is written over.
-    fn variant(v: usize, sub: PatKind) -> Pattern {
+    fn variant(v: VariantId, sub: PatKind) -> Pattern {
         pat(PatKind::Variant {
             con: Prim::U16.con(),
             variant: v,
@@ -532,14 +532,17 @@ mod tests {
     #[test]
     fn a_partition_is_left_as_it_was() {
         let mut p = matched(vec![
-            arm(variant(0, PatKind::Wild), None, 1),
-            arm(variant(1, PatKind::Wild), None, 2),
+            arm(variant(VariantId::SOME, PatKind::Wild), None, 1),
+            arm(variant(VariantId::NONE, PatKind::Wild), None, 2),
         ]);
         run(&mut p);
         assert_eq!(arms_of(&p).len(), 2);
         assert!(matches!(
             arms_of(&p)[0].pattern.kind,
-            PatKind::Variant { variant: 0, .. }
+            PatKind::Variant {
+                variant: VariantId::SOME,
+                ..
+            }
         ));
     }
 
@@ -548,16 +551,22 @@ mod tests {
     #[test]
     fn arms_on_one_constructor_are_hoisted_into_one_test() {
         let mut p = matched(vec![
-            arm(variant(0, PatKind::Int(Magnitude::new(1), false)), None, 10),
-            arm(variant(0, PatKind::Wild), None, 20),
-            arm(variant(1, PatKind::Wild), None, 30),
+            arm(
+                variant(VariantId::SOME, PatKind::Int(Magnitude::new(1), false)),
+                None,
+                10,
+            ),
+            arm(variant(VariantId::SOME, PatKind::Wild), None, 20),
+            arm(variant(VariantId::NONE, PatKind::Wild), None, 30),
         ]);
         run(&mut p);
         let arms = arms_of(&p);
         assert_eq!(arms.len(), 2);
         // The group's own arm binds the column rather than testing it.
         let PatKind::Variant {
-            variant: 0, fields, ..
+            variant: VariantId::SOME,
+            fields,
+            ..
         } = &arms[0].pattern.kind
         else {
             panic!("the group tests its constructor")
@@ -583,9 +592,13 @@ mod tests {
     #[test]
     fn a_guarded_arm_keeps_the_arm_it_falls_through_to() {
         let mut p = matched(vec![
-            arm(variant(0, PatKind::Wild), Some(e(ExprKind::Bool(true))), 10),
-            arm(variant(1, PatKind::Wild), None, 20),
-            arm(variant(0, PatKind::Wild), None, 30),
+            arm(
+                variant(VariantId::SOME, PatKind::Wild),
+                Some(e(ExprKind::Bool(true))),
+                10,
+            ),
+            arm(variant(VariantId::NONE, PatKind::Wild), None, 20),
+            arm(variant(VariantId::SOME, PatKind::Wild), None, 30),
         ]);
         run(&mut p);
         let arms = arms_of(&p);
@@ -607,8 +620,12 @@ mod tests {
     #[test]
     fn a_group_that_can_fail_is_declined() {
         let mut p = matched(vec![
-            arm(variant(0, PatKind::Int(Magnitude::new(1), false)), None, 10),
-            arm(variant(1, PatKind::Wild), None, 20),
+            arm(
+                variant(VariantId::SOME, PatKind::Int(Magnitude::new(1), false)),
+                None,
+                10,
+            ),
+            arm(variant(VariantId::NONE, PatKind::Wild), None, 20),
             arm(pat(PatKind::Wild), None, 30),
         ]);
         run(&mut p);
@@ -624,9 +641,9 @@ mod tests {
     #[test]
     fn an_irrefutable_arm_that_is_not_last_is_declined() {
         let mut p = matched(vec![
-            arm(variant(0, PatKind::Wild), None, 10),
+            arm(variant(VariantId::SOME, PatKind::Wild), None, 10),
             arm(pat(PatKind::Wild), None, 20),
-            arm(variant(1, PatKind::Wild), None, 30),
+            arm(variant(VariantId::NONE, PatKind::Wild), None, 30),
         ]);
         run(&mut p);
         assert_eq!(arms_of(&p).len(), 3);
@@ -640,13 +657,13 @@ mod tests {
         let mut p = matched(vec![
             arm(
                 pat(PatKind::Or(vec![
-                    variant(0, PatKind::Wild),
-                    variant(1, PatKind::Wild),
+                    variant(VariantId::SOME, PatKind::Wild),
+                    variant(VariantId::NONE, PatKind::Wild),
                 ])),
                 None,
                 10,
             ),
-            arm(variant(2, PatKind::Wild), None, 20),
+            arm(variant(VariantId::GREATER, PatKind::Wild), None, 20),
         ]);
         run(&mut p);
         assert!(matches!(arms_of(&p)[0].pattern.kind, PatKind::Or(_)));

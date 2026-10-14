@@ -27,7 +27,7 @@ use super::symbols::{self, Symbol};
 use crate::compiler::modules::ModuleData;
 use crate::compiler::semantics::resolve::{ModuleScope, Sym};
 use crate::compiler::semantics::typed;
-use crate::compiler::semantics::types::{self as types, ModuleId, Ty, TyConId};
+use crate::compiler::semantics::types::{self as types, ModuleId, Ty, TyConId, VariantId};
 use crate::compiler::standard_library;
 use crate::diagnostics::{Invariant as _, Span};
 use crate::json::Value;
@@ -521,7 +521,7 @@ struct Literal {
     con: TyConId,
     /// The variant of it, for the record form `Stock.OnHand { count: 1 }`. A
     /// variant has a field list of its own, and it is a different one.
-    variant: Option<usize>,
+    variant: Option<VariantId>,
     /// The field names already written, less the one the cursor is on — a
     /// half-typed `pri` is not a field this literal has given.
     given: Vec<String>,
@@ -638,7 +638,7 @@ fn head_type(
     path: &Path,
     tree: &Tree,
     head: ExprId,
-) -> Option<(TyConId, Option<usize>)> {
+) -> Option<(TyConId, Option<VariantId>)> {
     let (_, scope) = module_scope(analyzed, path)?;
     match tree.expr(head) {
         ExprView::Ident { name, .. } => match scope.name(name) {
@@ -669,9 +669,7 @@ fn head_type(
                 .checked
                 .tables
                 .tycon(*con)
-                .variants()
-                .iter()
-                .position(|v| v.name == name)?;
+                .variant_index(name)?;
             Some((*con, Some(index)))
         }
         _ => None,
@@ -722,14 +720,10 @@ fn unwritten_fields(
 fn declared_fields(
     tables: &types::Tables,
     con: TyConId,
-    variant: Option<usize>,
+    variant: Option<VariantId>,
 ) -> &[types::FieldInfo] {
     match variant {
-        Some(v) => tables
-            .tycon(con)
-            .variants()
-            .get(v)
-            .map_or(&[], |v| v.fields.as_slice()),
+        Some(v) => &tables.tycon(con).variant(v).fields,
         None => tables.tycon(con).fields(),
     }
 }
@@ -792,7 +786,7 @@ fn members_of(analyzed: &Analyzed, con: TyConId, from: Option<ModuleId>) -> Vec<
         if effectful(*trait_id) {
             continue;
         }
-        for (method, m) in tables.trait_(*trait_id).methods.iter().enumerate() {
+        for (method, m) in tables.trait_(*trait_id).methods.entries() {
             out.push((
                 m.name.clone(),
                 Symbol::TraitMethod {
@@ -850,8 +844,7 @@ fn variants(analyzed: &Analyzed, con: TyConId) -> Vec<(String, Symbol)> {
         .tables
         .tycon(con)
         .variants()
-        .iter()
-        .enumerate()
+        .entries()
         .map(|(index, v)| (v.name.clone(), Symbol::Variant { con, index }))
         .collect()
 }

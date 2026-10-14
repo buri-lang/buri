@@ -33,7 +33,7 @@
 
 use crate::compiler::semantics::inference::Infer;
 use crate::compiler::semantics::typed::{self, PatKind, Pattern};
-use crate::compiler::semantics::types::{Prim, Ty, TyConId, TyDef, TyKind};
+use crate::compiler::semantics::types::{Prim, Ty, TyConId, TyDef, TyKind, VariantId};
 use crate::diagnostics::{Diagnostic, Invariant as _, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
 
@@ -45,7 +45,7 @@ use crate::hash::{Map as HashMap, Set as HashSet};
 /// whether the column was complete.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 enum Ctor {
-    Variant(TyConId, usize),
+    Variant(TyConId, VariantId),
     /// Structs, tuples and unit: exactly one constructor.
     Single,
     Bool(bool),
@@ -82,11 +82,7 @@ impl Ctor {
     /// How many sub-patterns this constructor holds, for a given type.
     fn arity(&self, tables: &crate::compiler::semantics::types::Tables, ty: &Ty) -> usize {
         match self {
-            Ctor::Variant(con, v) => tables
-                .tycon(*con)
-                .variants()
-                .get(*v)
-                .map_or(0, |x| x.fields.len()),
+            Ctor::Variant(con, v) => tables.tycon(*con).variant(*v).fields.len(),
             Ctor::Single => match ty.kind() {
                 TyKind::Tuple(ts) => ts.len(),
                 TyKind::Con(con, _) => tables.tycon(*con).fields().len(),
@@ -112,11 +108,7 @@ impl Ctor {
                     TyKind::Con(_, a) => a,
                     _ => &[],
                 };
-                let variant = tables
-                    .tycon(*con)
-                    .variants()
-                    .get(*v)
-                    .or_ice("a variant constructor's index is one of its type's variants");
+                let variant = tables.tycon(*con).variant(*v);
                 out.extend(variant.fields.iter().map(|f| substitute(&f.ty, args, None)));
             }
             Ctor::Single => match ty.kind() {
@@ -626,11 +618,9 @@ impl<'a> Ctx<'a> {
     fn all_ctors(&self, ty: &Ty) -> Option<Vec<Ctor>> {
         match ty.kind() {
             TyKind::Con(con, _) => match &self.tables.tycon(*con).def {
-                TyDef::Enum { variants } => Some(
-                    (0..variants.len())
-                        .map(|i| Ctor::Variant(*con, i))
-                        .collect(),
-                ),
+                TyDef::Enum { variants } => {
+                    Some(variants.ids().map(|i| Ctor::Variant(*con, i)).collect())
+                }
                 TyDef::Struct { .. } => Some(vec![Ctor::Single]),
                 TyDef::Prim(Prim::Bool) => Some(vec![Ctor::Bool(false), Ctor::Bool(true)]),
                 // Integers, strings, chars and floats need a `_` arm.
@@ -954,7 +944,7 @@ fn plainly_covered(
 ) -> bool {
     #[derive(PartialEq, Eq, Hash)]
     enum Key<'a> {
-        Variant(usize),
+        Variant(VariantId),
         Bool(bool),
         Int(u128, bool),
         Float(u64),
@@ -1075,11 +1065,7 @@ fn render(tables: &crate::compiler::semantics::types::Tables, w: &Witness) -> St
         Witness::Wild => "_".into(),
         Witness::Ctor(c, ty, subs) => match c {
             Ctor::Variant(con, v) => {
-                let variant = tables
-                    .tycon(*con)
-                    .variants()
-                    .get(*v)
-                    .or_ice("a variant constructor's index is one of its type's variants");
+                let variant = tables.tycon(*con).variant(*v);
                 if subs.is_empty() {
                     format!(".{}", variant.name)
                 } else if variant.record {

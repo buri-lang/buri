@@ -269,6 +269,132 @@ impl<'a, I, T> IntoIterator for &'a Table<I, T> {
     }
 }
 
+/// A list whose ids it mints itself, so reading one is total. [`Table`]
+/// without a base: for lists that belong to one declaration or one body, such
+/// as an enum's variants or a function's locals.
+pub struct Dense<I, T> {
+    rows: Vec<T>,
+    id: std::marker::PhantomData<fn() -> I>,
+}
+
+impl<I, T> Dense<I, T> {
+    pub const fn new() -> Self {
+        Dense {
+            rows: Vec::new(),
+            id: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<I, T> Default for Dense<I, T> {
+    fn default() -> Self {
+        Dense::new()
+    }
+}
+
+impl<I, T: Clone> Clone for Dense<I, T> {
+    fn clone(&self) -> Self {
+        Dense {
+            rows: self.rows.clone(),
+            id: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<I, T: std::fmt::Debug> std::fmt::Debug for Dense<I, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.rows.fmt(f)
+    }
+}
+
+impl<I, T: PartialEq> PartialEq for Dense<I, T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.rows == other.rows
+    }
+}
+
+impl<I, T: Eq> Eq for Dense<I, T> {}
+
+impl<I, T> FromIterator<T> for Dense<I, T> {
+    fn from_iter<It: IntoIterator<Item = T>>(rows: It) -> Self {
+        Dense {
+            rows: rows.into_iter().collect(),
+            id: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<I: DenseId, T> Dense<I, T> {
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    pub fn push(&mut self, row: T) -> I {
+        let id = mint(self.rows.len());
+        self.rows.push(row);
+        id
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "only `push` and `entries` mint an id, below the length, and nothing shrinks a list"
+    )]
+    pub fn get(&self, id: I) -> &T {
+        &self.rows[id.to_index()]
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "only `push` and `entries` mint an id, below the length, and nothing shrinks a list"
+    )]
+    pub fn get_mut(&mut self, id: I) -> &mut T {
+        &mut self.rows[id.to_index()]
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
+        self.rows.iter()
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        &self.rows
+    }
+
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, T> {
+        self.rows.iter_mut()
+    }
+
+    /// Every entry with its id, in id order.
+    pub fn entries(&self) -> impl DoubleEndedIterator<Item = (I, &T)> {
+        self.rows.iter().enumerate().map(|(i, row)| (mint(i), row))
+    }
+
+    pub fn ids(&self) -> impl DoubleEndedIterator<Item = I> + use<I, T> {
+        (0..self.rows.len()).map(mint)
+    }
+
+    /// The id of the first entry `f` accepts.
+    pub fn position(&self, f: impl FnMut(&T) -> bool) -> Option<I> {
+        self.rows.iter().position(f).map(mint)
+    }
+
+    /// One `U` per entry, under the same ids.
+    pub fn map<U>(&self, f: impl FnMut(&T) -> U) -> Dense<I, U> {
+        self.rows.iter().map(f).collect()
+    }
+}
+
+impl<'a, I, T> IntoIterator for &'a Dense<I, T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.rows.iter()
+    }
+}
+
 /// A map from a dense id to a value, for tables most ids have an entry in.
 ///
 /// One slot per id instead of a hash: a lookup is an index, and walking it

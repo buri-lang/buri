@@ -26,7 +26,7 @@ use crate::compiler::semantics::typed::{
     self, Arm, Expr, ExprKind, FieldPat, Magnitude, PatKind, Pattern, PrimOp, Stmt,
 };
 use crate::compiler::semantics::types::{
-    self, FuncIdx, LocalId, Tables, Ty, TyConId, TyDef, TyKind,
+    self, FuncIdx, LocalId, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
 };
 use crate::diagnostics::Span;
 use std::collections::HashMap;
@@ -396,7 +396,7 @@ impl Shadows<'_> {
                 let names: Vec<String> = variants.iter().map(|v| v.name.clone()).collect();
                 let which = body.decision("variant", names.clone());
                 let mut arms = Vec::new();
-                for (vi, v) in variants.iter().enumerate() {
+                for (vi, v) in variants.entries() {
                     let types: Vec<Ty> = v
                         .fields
                         .iter()
@@ -478,7 +478,7 @@ impl Shadows<'_> {
                     };
                     arms.push(arm(
                         variant(con, ty, vi, &xs, &types, span),
-                        body.counted(&which, vi, inner),
+                        body.counted(&which, vi.index(), inner),
                     ));
                 }
                 let ret = if b.is_some() { self.bool_ty } else { Ty::UNIT };
@@ -601,7 +601,7 @@ impl Shadows<'_> {
                 let equal = Pattern {
                     kind: PatKind::Variant {
                         con,
-                        variant: 1,
+                        variant: VariantId::EQUAL,
                         fields: Vec::new(),
                     },
                     ty: order,
@@ -746,7 +746,7 @@ fn arm(pattern: Pattern, body: Expr) -> Arm {
 fn variant(
     con: TyConId,
     ty: Ty,
-    variant: usize,
+    variant: VariantId,
     binds: &[LocalId],
     types: &[Ty],
     span: Span,

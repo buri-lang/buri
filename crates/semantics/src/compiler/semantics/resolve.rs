@@ -20,7 +20,7 @@
 use crate::build::buildfile::Platform;
 use crate::build::workspace::{PackageId, Packages, RuleKind, TargetId};
 use crate::compiler::modules::{Loaded, Role};
-use crate::compiler::semantics::layered::{IdMap, Table};
+use crate::compiler::semantics::layered::{Dense, IdMap, Table};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
@@ -498,7 +498,7 @@ enum PendingCtxRule {
     Method(FnId),
     /// A method signature in a `trait` or `effect` body: the trait, and the
     /// method's position in its `methods`.
-    Signature(TraitId, usize),
+    Signature(TraitId, MethodId),
 }
 
 impl<'a> Checker<'a> {
@@ -931,7 +931,7 @@ impl<'a> Checker<'a> {
                     name: t.name(d.name).to_string(),
                     module,
                     generics,
-                    def: TyDef::Enum { variants: Vec::new() },
+                    def: TyDef::Enum { variants: Variants::new() },
                     exported: d.exported,
                     span: d.name.span,
                 });
@@ -984,7 +984,7 @@ impl<'a> Checker<'a> {
                     name: t.name(d.name).to_string(),
                     module,
                     generics,
-                    methods: Vec::new(),
+                    methods: Dense::new(),
                     is_effect: d.is_effect,
                     exported: d.exported,
                     span: d.name.span,
@@ -1607,9 +1607,9 @@ impl<'a> Checker<'a> {
                         // definition: an `effect` whose method takes a second
                         // context, or names one `env`, is the same mistake
                         // wherever the body ends up being written.
-                        let count = self.tables.trait_(tid).methods.len();
+                        let slots = self.tables.trait_(tid).methods.ids();
                         self.pending_ctx_rules
-                            .extend((0..count).map(|slot| PendingCtxRule::Signature(tid, slot)));
+                            .extend(slots.map(|slot| PendingCtxRule::Signature(tid, slot)));
                     }
                     tree::Item::Fn(d) => {
                         let sym = self.scope(id).own.get(t.name(d.name)).cloned().or_ice(
@@ -1724,10 +1724,7 @@ impl<'a> Checker<'a> {
                 (&info.params, &info.generics)
             }
             PendingCtxRule::Signature(trait_id, slot) => {
-                let m =
-                    self.tables.trait_(trait_id).methods.get(slot).or_ice(
-                        "a trait's slots are minted from the methods its declaration wrote",
-                    );
+                let m = self.tables.trait_(trait_id).methods.get(slot);
                 (m.params.as_slice(), m.generics.as_slice())
             }
         }
@@ -3026,13 +3023,12 @@ impl<'a> Checker<'a> {
 
         // Register the methods, checked against the trait's signatures.
         let trait_methods = self.tables.trait_(trait_id).methods.clone();
-        let mut supplied = vec![None; trait_methods.len()];
+        let mut supplied = trait_methods.map(|_| None);
         for (sub, method) in self.tree(module).list(d.methods).iter().enumerate() {
             let mname = self.name_text(module, method.name);
-            let Some((slot, (cell, declared))) = supplied
+            let Some((cell, (slot, declared))) = supplied
                 .iter_mut()
-                .zip(&trait_methods)
-                .enumerate()
+                .zip(trait_methods.entries())
                 .find(|(_, (_, m))| m.name == mname)
             else {
                 let t = self.tables.trait_(trait_id).name.clone();
@@ -4031,7 +4027,7 @@ mod tests {
                 name: name.to_string(),
                 module: ModuleId::PRIMITIVES,
                 generics: Vec::new(),
-                methods: Vec::new(),
+                methods: Dense::new(),
                 is_effect: false,
                 exported: true,
                 span: Span::NONE,

@@ -505,8 +505,7 @@ impl<'a> Checker<'a> {
     /// length no consumer expects.
     fn add_impl(&mut self, trait_name: &str, con: TyConId, methods: Vec<FnId>) {
         let trait_id = self.known_trait(trait_name);
-        let declared = self.tables.trait_(trait_id).methods.len();
-        let mut slots: Vec<Option<FnId>> = vec![None; declared];
+        let mut slots = self.tables.trait_(trait_id).methods.map(|_| None);
         for (slot, fid) in slots.iter_mut().zip(methods) {
             *slot = Some(fid);
         }

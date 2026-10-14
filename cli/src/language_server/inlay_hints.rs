@@ -259,7 +259,7 @@ fn navigation(analyzed: &Analyzed, symbol: &Symbol, parameter: Option<usize>) ->
         Symbol::TraitMethod { trait_id, method } => tables
             .trait_(*trait_id)
             .methods
-            .get(*method)?
+            .get(*method)
             .params
             .get(index)
             .map(|p| p.span),
@@ -300,17 +300,14 @@ fn parameter_hints(analyzed: &Analyzed, text: &str, root: &typed::Expr, out: &mu
                 method,
                 args,
                 ..
-            } => match tables.trait_(*trait_id).methods.get(*method) {
-                Some(declared) => (
-                    &declared.params,
-                    args,
-                    Symbol::TraitMethod {
-                        trait_id: *trait_id,
-                        method: *method,
-                    },
-                ),
-                None => return,
-            },
+            } => (
+                &tables.trait_(*trait_id).methods.get(*method).params,
+                args,
+                Symbol::TraitMethod {
+                    trait_id: *trait_id,
+                    method: *method,
+                },
+            ),
             _ => return,
         };
         for (index, (param, arg)) in params.iter().zip(args).enumerate() {

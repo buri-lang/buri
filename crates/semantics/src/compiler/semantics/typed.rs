@@ -8,7 +8,7 @@
 
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::types::{
-    CtxTypeId, FnId, FuncIdx, LocalId, Prim, TraitId, Ty, TyConId,
+    CtxTypeId, FnId, FuncIdx, LocalId, MethodId, Prim, TraitId, Ty, TyConId, VariantId,
 };
 use crate::diagnostics::Span;
 
@@ -210,7 +210,7 @@ pub enum ExprKind {
     /// Monomorphization turns each of these into a `CallFunc`.
     CallTrait {
         trait_id: TraitId,
-        method: usize,
+        method: MethodId,
         /// The type the method is being called on.
         recv: Ty,
         targs: Vec<Ty>,
@@ -232,7 +232,7 @@ pub enum ExprKind {
     EnumLit {
         con: TyConId,
         targs: Vec<Ty>,
-        variant: usize,
+        variant: VariantId,
         args: Vec<Expr>,
     },
     Tuple(Vec<Expr>),
@@ -445,7 +445,7 @@ pub enum PatKind {
     },
     Variant {
         con: TyConId,
-        variant: usize,
+        variant: VariantId,
         fields: Vec<FieldPat>,
     },
     /// `[a, b, ..rest]`. Rest patterns bind only at the end.

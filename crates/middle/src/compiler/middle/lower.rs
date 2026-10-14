@@ -1217,7 +1217,7 @@ impl FnLower<'_> {
             }
             ExprKind::EnumLit { variant, args, .. } => {
                 let fields = self.exprs(args);
-                let variant = *variant as u32;
+                let variant = variant.index() as u32;
                 self.emit(ty, |dest| Inst::MakeEnum {
                     dest,
                     variant,
@@ -1922,7 +1922,7 @@ impl FnLower<'_> {
                 PatKind::Variant {
                     variant, fields, ..
                 } if fields.iter().all(|f| f.pattern.is_irrefutable(self.tables)) => {
-                    cases.push((*variant as u32, fields, &arm.body));
+                    cases.push((variant.index() as u32, fields, &arm.body));
                 }
                 PatKind::Wild | PatKind::Bind { sub: None, .. } => default = Some(arm),
                 _ => return false,
@@ -2134,7 +2134,7 @@ impl FnLower<'_> {
                 variant,
                 fields,
             } => {
-                let variant = *variant as u32;
+                let variant = variant.index() as u32;
                 // A single-variant enum has nothing to fall through to, so
                 // there is no tag to test — only projections.
                 if self.tables.tycon(*con).variants().len() > 1 {
@@ -2295,7 +2295,7 @@ impl FnLower<'_> {
     fn variant_of(&self, ty: &Ty, name: &str, fallback: u32) -> u32 {
         ty.head()
             .and_then(|c| self.tables.tycon(c).variant_index(name))
-            .map(|i| i as u32)
+            .map(|i| i.index() as u32)
             .unwrap_or(fallback)
     }
 
@@ -2388,7 +2388,13 @@ impl FnLower<'_> {
     fn payload_type(&mut self, ty: &Ty, variant: u32, index: usize) -> Type {
         let field = ty
             .head()
-            .and_then(|c| self.tables.tycon(c).variants().get(variant as usize))
+            .and_then(|c| {
+                self.tables
+                    .tycon(c)
+                    .variants()
+                    .as_slice()
+                    .get(variant as usize)
+            })
             .and_then(|v| v.fields.get(index).map(|f| f.ty))
             .unwrap_or(Ty::UNIT);
         let field = self.substituted(ty, field);

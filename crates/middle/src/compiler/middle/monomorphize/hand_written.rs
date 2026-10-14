@@ -68,9 +68,9 @@ impl Op {
 }
 
 /// `Order`'s variants, in its declaration order.
-const LESS: usize = 0;
-const EQUAL: usize = 1;
-const GREATER: usize = 2;
+const LESS: VariantId = VariantId::declared(0);
+const EQUAL: VariantId = VariantId::declared(1);
+const GREATER: VariantId = VariantId::declared(2);
 
 /// One generated function being built.
 struct Deriving {
@@ -660,7 +660,7 @@ impl Monomorphizer<'_> {
             targs.push(ct);
         }
         let kind = if self.hand_written(d.trait_id, &ty) {
-            self.resolve_trait_call(d.trait_id, 0, ty, targs, args, Span::NONE)
+            self.resolve_trait_call(d.trait_id, MethodId::FIRST, ty, targs, args, Span::NONE)
         } else if d.unbounded && self.reaches_hand_written(d.trait_id, &ty, true) {
             let ctx = d.ctx.map(|(_, ct)| ct);
             let slot = self.request(Key::Derived {
@@ -674,7 +674,7 @@ impl Monomorphizer<'_> {
                 args,
             }
         } else {
-            self.structural_call(d.trait_id, 0, &ty, args, Span::NONE)
+            self.structural_call(d.trait_id, MethodId::FIRST, &ty, args, Span::NONE)
         };
         Expr::new(kind, d.ret, Span::NONE)
     }
@@ -703,7 +703,7 @@ impl Monomorphizer<'_> {
         )
     }
 
-    fn order_lit(&self, d: &Deriving, variant: usize) -> Expr {
+    fn order_lit(&self, d: &Deriving, variant: VariantId) -> Expr {
         let con = d.ret_con;
         Expr::new(
             ExprKind::EnumLit {
@@ -972,7 +972,7 @@ impl Monomorphizer<'_> {
             Expr::new(ExprKind::Tuple(values), ty, Span::NONE)
         };
         let ty = value.ty;
-        let kind = self.structural_call(d.trait_id, 0, &ty, vec![value], Span::NONE);
+        let kind = self.structural_call(d.trait_id, MethodId::FIRST, &ty, vec![value], Span::NONE);
         Expr::new(kind, d.ret, Span::NONE)
     }
 
@@ -999,18 +999,17 @@ impl Monomorphizer<'_> {
                         i
                     }
                 };
-                let names: Vec<(String, bool)> = variants
-                    .iter()
-                    .map(|v| (v.name.clone(), v.record))
-                    .collect();
+                let names = variants.map(|v| (v.name.clone(), v.record));
                 let rb = match (&b, d.op) {
                     (Some(b), Op::Compare) => {
                         let rb = self.new_local("rank", self.tables().prim(Prim::I64), Span::NONE);
                         let arms = names
-                            .iter()
-                            .enumerate()
+                            .entries()
                             .map(|(j, (n, _))| {
-                                arm(self.tag_pattern(con, ty, j), self.int_lit(rank(j, n)))
+                                arm(
+                                    self.tag_pattern(con, ty, j),
+                                    self.int_lit(rank(j.index(), n)),
+                                )
                             })
                             .collect();
                         let int = self.tables().prim(Prim::I64);
@@ -1019,13 +1018,14 @@ impl Monomorphizer<'_> {
                     _ => None,
                 };
                 let mut arms = Vec::new();
-                for (i, (vname, vrecord)) in names.iter().enumerate() {
+                for (id, (vname, vrecord)) in names.entries() {
+                    let i = id.index();
                     let payload = parts.get(i).map_or(&[][..], Vec::as_slice);
                     let a_binds: Vec<LocalId> = payload
                         .iter()
                         .map(|p| self.new_local("a", p.ty, Span::NONE))
                         .collect();
-                    let a_pat = self.payload_pattern(con, ty, i, payload, &a_binds);
+                    let a_pat = self.payload_pattern(con, ty, id, payload, &a_binds);
                     let a_vals: Vec<Expr> = a_binds
                         .iter()
                         .zip(payload)
@@ -1054,7 +1054,7 @@ impl Monomorphizer<'_> {
                                 .iter()
                                 .map(|p| self.new_local("b", p.ty, Span::NONE))
                                 .collect();
-                            let b_pat = self.payload_pattern(con, ty, i, payload, &b_binds);
+                            let b_pat = self.payload_pattern(con, ty, id, payload, &b_binds);
                             let b_vals: Vec<Expr> = b_binds
                                 .iter()
                                 .zip(payload)
@@ -1127,7 +1127,7 @@ impl Monomorphizer<'_> {
         }
     }
 
-    fn tag_pattern(&self, con: TyConId, ty: Ty, variant: usize) -> Pattern {
+    fn tag_pattern(&self, con: TyConId, ty: Ty, variant: VariantId) -> Pattern {
         Pattern {
             kind: PatKind::Variant {
                 con,
@@ -1143,7 +1143,7 @@ impl Monomorphizer<'_> {
         &self,
         con: TyConId,
         ty: Ty,
-        variant: usize,
+        variant: VariantId,
         payload: &[Part],
         binds: &[LocalId],
     ) -> Pattern {

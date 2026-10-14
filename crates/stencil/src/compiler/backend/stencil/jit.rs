@@ -886,6 +886,7 @@ impl<'a> Jit<'a> {
                         .tables
                         .tycon(*id)
                         .variants()
+                        .as_slice()
                         .get(v)?
                         .fields
                         .get(index)?;

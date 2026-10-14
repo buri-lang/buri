@@ -169,11 +169,12 @@ use crate::compiler::middle::lower;
 use crate::compiler::middle::monomorphize::{
     self, short_hash, Desc, DescVariant, Func, FuncKind, Program,
 };
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern, PrimOp, TemplatePart,
 };
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyConId, TyKind};
+use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyConId, TyKind, VariantId};
 use crate::diagnostics::{Invariant as _, Span};
 use crate::hash::Map as HashMap;
 
@@ -471,7 +472,7 @@ struct Env {
     result: HashMap<Op, Ty>,
     /// `Json`'s variant order, if the program described the type; otherwise the
     /// order `core/json` declares.
-    json_variants: Vec<String>,
+    json_variants: Dense<VariantId, String>,
     /// What a decoder spells, where the program calls `json.decode`.
     decoding: Option<Decoding>,
 }
@@ -521,7 +522,7 @@ impl Env {
             }
         }
         let mut result: HashMap<Op, Ty> = HashMap::default();
-        let mut json_variants: Vec<String> = Vec::new();
+        let mut json_variants: Dense<VariantId, String> = Dense::new();
         for f in &program.funcs {
             let Some(body) = f.body() else { continue };
             typed::walk(body, &mut |e| {
@@ -629,8 +630,8 @@ impl Env {
         self.result.get(&op)
     }
 
-    fn json_variant(&self, name: &str) -> Option<usize> {
-        self.json_variants.iter().position(|v| v == name)
+    fn json_variant(&self, name: &str) -> Option<VariantId> {
+        self.json_variants.position(|v| v == name)
     }
 }
 
@@ -710,7 +711,7 @@ type Binds = Vec<(usize, LocalId, Ty)>;
 /// sides: the arm's patterns, one per side, and the fields they bind.
 struct Payload {
     ty: Ty,
-    vi: usize,
+    vi: VariantId,
     sides: Vec<Expr>,
     /// Each field's descriptor and type.
     fields: Vec<(usize, Ty)>,
@@ -1190,7 +1191,7 @@ impl Generator {
     fn variant_pattern(
         &self,
         ty: &Ty,
-        variant: usize,
+        variant: VariantId,
         binds: &[(usize, LocalId, Ty)],
     ) -> Option<Pattern> {
         let con = ty.head()?;
@@ -1247,7 +1248,7 @@ impl Generator {
         )
     }
 
-    fn enum_lit(&self, ty: &Ty, variant: usize, args: Vec<Expr>) -> Option<Expr> {
+    fn enum_lit(&self, ty: &Ty, variant: VariantId, args: Vec<Expr>) -> Option<Expr> {
         let con: TyConId = ty.head()?;
         let targs = match ty.kind() {
             TyKind::Con(_, a) => a.to_vec(),
@@ -1439,7 +1440,7 @@ impl Generator {
     fn eq_enum(
         &mut self,
         desc: usize,
-        variants: &[DescVariant],
+        variants: &Dense<VariantId, DescVariant>,
         a: Expr,
         b: Expr,
         frame: &mut Frame,
@@ -1448,7 +1449,7 @@ impl Generator {
         let bool_ty = self.bool_ty();
         let mut arms: Vec<Arm> = Vec::new();
         let false_ = Expr::new(ExprKind::Bool(false), bool_ty, Span::NONE);
-        for (vi, v) in variants.iter().enumerate() {
+        for (vi, v) in variants.entries() {
             let payload = self.payload(&ty, vi, v, &[a.clone(), b.clone()], frame)?;
             let mut acc: Option<Expr> = None;
             for run in payload.runs().into_iter().rev() {
@@ -1479,7 +1480,7 @@ impl Generator {
 
     // -- ordering -----------------------------------------------------------
 
-    fn order_lit(&self, which: usize) -> Option<Expr> {
+    fn order_lit(&self, which: VariantId) -> Option<Expr> {
         let ty = self.result_ty(Op::Compare);
         self.enum_lit(&ty, which, Vec::new())
     }
@@ -1668,7 +1669,7 @@ impl Generator {
     fn compare_enum(
         &mut self,
         desc: usize,
-        variants: &[DescVariant],
+        variants: &Dense<VariantId, DescVariant>,
         a: Expr,
         b: Expr,
         frame: &mut Frame,
@@ -1680,12 +1681,12 @@ impl Generator {
         let ty = self.ty_of(desc);
         let order = self.result_ty(Op::Compare);
         let mut arms: Vec<Arm> = Vec::new();
-        for (vi, v) in variants.iter().enumerate() {
+        for (vi, v) in variants.entries() {
             let sides = [a.clone(), b.clone()];
             let (px, py, same) = self.same_variant(&ty, vi, v, &sides, frame)?;
             // A lower-numbered variant on the right means this one is greater.
             let mut inner: Vec<Arm> = Vec::new();
-            for wi in 0..variants.len() {
+            for wi in variants.ids() {
                 if wi == vi {
                     inner.push(self.arm(py.clone(), same.clone()));
                     continue;
@@ -1708,7 +1709,7 @@ impl Generator {
     fn same_variant(
         &mut self,
         ty: &Ty,
-        vi: usize,
+        vi: VariantId,
         v: &DescVariant,
         sides: &[Expr],
         frame: &mut Frame,
@@ -1750,7 +1751,7 @@ impl Generator {
     fn compare_enum_ranked(
         &mut self,
         desc: usize,
-        variants: &[DescVariant],
+        variants: &Dense<VariantId, DescVariant>,
         a: Expr,
         b: Expr,
         int: Ty,
@@ -1761,9 +1762,9 @@ impl Generator {
         let bool_ty = self.bool_ty();
         let rank = |this: &Self, x: Expr| -> Option<Expr> {
             let mut arms = Vec::with_capacity(variants.len());
-            for vi in 0..variants.len() {
+            for vi in variants.ids() {
                 let lit = Expr::new(
-                    ExprKind::Int(typed::Magnitude::new(vi as u128), false),
+                    ExprKind::Int(typed::Magnitude::new(vi.index() as u128), false),
                     int,
                     Span::NONE,
                 );
@@ -1789,7 +1790,7 @@ impl Generator {
         ];
 
         let mut arms: Vec<Arm> = Vec::new();
-        for (vi, v) in variants.iter().enumerate() {
+        for (vi, v) in variants.entries() {
             if v.fields.is_empty() {
                 continue;
             }
@@ -1855,7 +1856,7 @@ impl Generator {
     /// A variant pattern that binds nothing, for a test that only reads the
     /// tag. Fields are matched with `_`, which is what makes it legal at a
     /// variant that carries a payload.
-    fn tag_pattern(&self, ty: &Ty, variant: usize) -> Option<Pattern> {
+    fn tag_pattern(&self, ty: &Ty, variant: VariantId) -> Option<Pattern> {
         let con = ty.head()?;
         Some(Pattern {
             kind: PatKind::Variant {
@@ -1876,7 +1877,7 @@ impl Generator {
     fn payload(
         &mut self,
         ty: &Ty,
-        vi: usize,
+        vi: VariantId,
         v: &DescVariant,
         sides: &[Expr],
         frame: &mut Frame,
@@ -2102,7 +2103,7 @@ impl Generator {
             Desc::Enum { variants, .. } => {
                 let ty = self.ty_of(desc);
                 let mut arms: Vec<Arm> = Vec::new();
-                for (vi, v) in variants.iter().enumerate() {
+                for (vi, v) in variants.entries() {
                     let mut binds: Vec<(usize, LocalId, Ty)> = Vec::new();
                     for (fi, f) in v.fields.iter().enumerate() {
                         let fty = self.ty_of(f.ty);
@@ -2396,7 +2397,7 @@ impl Generator {
             Desc::Enum { variants, .. } => {
                 let ty = self.ty_of(desc);
                 let mut arms: Vec<Arm> = Vec::new();
-                for (vi, v) in variants.iter().enumerate() {
+                for (vi, v) in variants.entries() {
                     let mut binds: Vec<(usize, LocalId, Ty)> = Vec::new();
                     for (fi, f) in v.fields.iter().enumerate() {
                         let fty = self.ty_of(f.ty);
@@ -2962,7 +2963,7 @@ impl Generator {
     fn decode_enum(
         &mut self,
         ty: &Ty,
-        variants: &[DescVariant],
+        variants: &Dense<VariantId, DescVariant>,
         je: Expr,
         pe: Expr,
         frame: &mut Frame,
@@ -2980,7 +2981,7 @@ impl Generator {
         let s = frame.local("s", &str_ty);
         let se = self.local_expr(s, &str_ty);
         let mut arms = Vec::new();
-        for (vi, v) in variants.iter().enumerate() {
+        for (vi, v) in variants.entries() {
             let body = if v.fields.is_empty() {
                 self.ok(ty, self.enum_lit(ty, vi, Vec::new())?)?
             } else {
@@ -3006,7 +3007,7 @@ impl Generator {
         let name_e = self.local_expr(name, &str_ty);
         let inner_e = self.local_expr(inner, &json);
         let mut arms = Vec::new();
-        for (vi, v) in variants.iter().enumerate() {
+        for (vi, v) in variants.entries() {
             let body = if v.fields.is_empty() {
                 self.wrong(
                     ty,
@@ -3306,7 +3307,7 @@ impl Generator {
                 let ty = self.ty_of(desc);
                 let payloads = variants.iter().any(|v| !v.fields.is_empty());
                 let mut arms: Vec<Arm> = Vec::new();
-                for (vi, v) in variants.iter().enumerate() {
+                for (vi, v) in variants.entries() {
                     let payload = self.payload(&ty, vi, v, std::slice::from_ref(&x), frame)?;
                     // A payload-carrying enum is an array of tag and payload in
                     // JavaScript, so its length is mixed first and its tag
@@ -3314,9 +3315,9 @@ impl Generator {
                     let mut cur = if payloads {
                         let len = 1 + v.fields.len();
                         let with_len = self.mix(h.clone(), len as u128);
-                        self.mix(with_len, vi as u128)
+                        self.mix(with_len, vi.index() as u128)
                     } else {
-                        self.mix(h.clone(), vi as u128)
+                        self.mix(h.clone(), vi.index() as u128)
                     };
                     // Fields read where they're hashed are hashed into the
                     // accumulator a `let` holds, which `other` can then be.
@@ -3469,33 +3470,33 @@ fn one(args: &[Expr]) -> Option<Expr> {
 }
 
 /// `Option`'s variants, in declaration order (`core/option`).
-const OPTION_SOME: usize = 0;
-const OPTION_NONE: usize = 1;
+const OPTION_SOME: VariantId = VariantId::declared(0);
+const OPTION_NONE: VariantId = VariantId::declared(1);
 
 /// `Result`'s variants, in declaration order (`core/result`).
-const RESULT_OK: usize = 0;
-const RESULT_ERR: usize = 1;
+const RESULT_OK: VariantId = VariantId::declared(0);
+const RESULT_ERR: VariantId = VariantId::declared(1);
 
 /// `DecodeError`'s variants, in `core/json`'s declaration order, which
 /// `runtime.js` hard-codes too.
-const DECODE_MISSING: usize = 0;
-const DECODE_WRONG_TYPE: usize = 1;
-const DECODE_UNKNOWN_VARIANT: usize = 2;
+const DECODE_MISSING: VariantId = VariantId::declared(0);
+const DECODE_WRONG_TYPE: VariantId = VariantId::declared(1);
+const DECODE_UNKNOWN_VARIANT: VariantId = VariantId::declared(2);
 
 /// What a decoder builds from the parts it decoded.
 #[derive(Clone, Copy)]
 enum Build {
     Struct(Ty),
     Tuple(Ty),
-    Variant(Ty, usize),
+    Variant(Ty, VariantId),
     /// A `derive Flags` word, packed from its decoded `Bool`s.
     Flags(flags::Word),
 }
 
 /// `Order`'s variants, in declaration order (`core/order`).
-const ORDER_LESS: usize = 0;
-const ORDER_EQUAL: usize = 1;
-const ORDER_GREATER: usize = 2;
+const ORDER_LESS: VariantId = VariantId::declared(0);
+const ORDER_EQUAL: VariantId = VariantId::declared(1);
+const ORDER_GREATER: VariantId = VariantId::declared(2);
 
 // ---------------------------------------------------------------------------
 // Rewriting the call sites
