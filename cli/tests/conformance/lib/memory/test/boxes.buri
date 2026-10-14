@@ -4,6 +4,7 @@
 // does, and the native heap check holds every block to being freed once and
 // read only while it is alive.
 
+from "core/list" import * as list;
 from "core/orderedmap" import * as orderedmap;
 from "core/orderedmap" import { OrderedMap };
 from "core/str" import * as str;
@@ -107,4 +108,30 @@ test "a map-recursive struct updated in a loop" {
     );
     assert.equal(top.names.length(), 20);
     assert.equal(top.kids.get(1), .Some(inner));
+}
+
+/// Eighty kids over 72 keys from `start`, each naming its key plus `bump`, out
+/// of key order and eight of them repeated: a map several nodes deep.
+fn kids<C: Allocator>(ctx: C, start: Int, bump: Int): OrderedMap<Int, Tree> {
+    let entries = list
+        .range(ctx, 0, 80)
+        .mapCtx(ctx, fn(c, i) => {
+            let k = start + i * 37 % 80 % 72;
+            (k, Tree { ..bare(), names: orderedmap.of(c, [("k", k + bump)]) })
+        });
+    orderedmap.of(ctx, entries)
+}
+
+test "a map-recursive struct with kids several nodes deep" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let top = Tree { ..bare(), kids: kids(ctx, 0, 0) };
+    assert.equal(top.kids.length(), 72);
+    let rebuilt = Tree { ..bare(), kids: orderedmap.of(ctx, top.kids.entries(ctx)) };
+    assert.equal(top, rebuilt);
+    assert.notEqual(top, Tree { ..bare(), kids: kids(ctx, 1, 0) });
+    assert.notEqual(top, Tree { ..bare(), kids: kids(ctx, 0, 1) });
+    assert.notEqual(top, bare());
+    assert.equal(orderedmap.of(ctx, list.empty<(Int, Tree)>()).length(), 0);
 }
