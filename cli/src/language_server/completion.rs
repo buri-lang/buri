@@ -373,9 +373,9 @@ fn locals_at(analyzed: &Analyzed, path: &Path, cursor: u32) -> Vec<(String, Symb
         if body.expr.span.file != file || !covers(body.expr.span, cursor) {
             continue;
         }
-        for (index, local) in body.locals.iter().enumerate() {
+        for (id, local) in body.locals.entries() {
             // A parameter is in scope throughout, wherever its own span is.
-            let parameter = body.params.iter().any(|p| p.index() == index);
+            let parameter = body.params.contains(&id);
             if !parameter && local.span.start > cursor {
                 continue;
             }

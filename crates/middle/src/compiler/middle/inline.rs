@@ -21,6 +21,7 @@
 
 use crate::compiler::middle::monomorphize::{Func, Program};
 use crate::compiler::middle::strongly_connected;
+use crate::compiler::semantics::layered::Shift;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Stmt};
 use crate::compiler::semantics::types::LocalId;
 use crate::diagnostics::Invariant as _;
@@ -473,7 +474,7 @@ fn inline_expr(
     program: &Program,
     facts: &Facts,
     limit: usize,
-    locals: &mut Vec<typed::Local>,
+    locals: &mut typed::Locals,
     size: &mut usize,
     done: &mut usize,
 ) {
@@ -504,10 +505,9 @@ fn inline_expr(
     // reference to one shifted by where they landed. `LocalId` is an index
     // into that table (`typed::Body`), so nothing else can capture: no two
     // bindings can end up with the same id.
-    let offset = locals.len() as u32;
-    locals.extend(target.locals.iter().cloned());
+    let shift = locals.append(&target.locals);
     let mut body = callee_body.clone();
-    shift_expr(&mut body, offset);
+    shift_expr(&mut body, &shift);
 
     // Each argument is bound in turn, before the body runs. That is exactly
     // what a call does, so evaluation order (SPEC 8.2) is preserved without
@@ -520,7 +520,7 @@ fn inline_expr(
         .iter()
         .zip(args)
         .map(|(p, arg)| {
-            let local = LocalId(p.0 + offset);
+            let local = shift.of(*p);
             let span = arg.span;
             Stmt::Let {
                 pattern: typed::Pattern {
@@ -542,19 +542,19 @@ fn inline_expr(
     };
 }
 
-/// Every local id in an expression, moved by `offset`.
+/// Every local id in an expression, moved to where `shift` put its table.
 ///
 /// Shared with `tail_calls`, which appends a group member's locals to the
 /// merged function's table for exactly the reason the inliner appends a
 /// callee's to its caller's.
-pub(crate) fn shift_expr(e: &mut Expr, offset: u32) {
+pub(crate) fn shift_expr(e: &mut Expr, shift: &Shift<LocalId>) {
     match &mut e.kind {
-        ExprKind::Local(l) => l.0 += offset,
+        ExprKind::Local(l) => *l = shift.of(*l),
         ExprKind::Lambda {
             params, captures, ..
         } => {
-            params.iter_mut().for_each(|p| p.0 += offset);
-            captures.iter_mut().for_each(|c| c.0 += offset);
+            params.iter_mut().for_each(|p| *p = shift.of(*p));
+            captures.iter_mut().for_each(|c| *c = shift.of(*c));
         }
         _ => {}
     }
@@ -563,39 +563,39 @@ pub(crate) fn shift_expr(e: &mut Expr, offset: u32) {
         ExprKind::Block { stmts, .. } => {
             for s in stmts.iter_mut() {
                 if let Stmt::Let { pattern, .. } = s {
-                    shift_pattern(pattern, offset);
+                    shift_pattern(pattern, shift);
                 }
             }
         }
         ExprKind::Match { arms, .. } => {
             for a in arms.iter_mut() {
-                shift_pattern(&mut a.pattern, offset);
+                shift_pattern(&mut a.pattern, shift);
             }
         }
         _ => {}
     }
-    typed::children_mut(e, &mut |child| shift_expr(child, offset));
+    typed::children_mut(e, &mut |child| shift_expr(child, shift));
 }
 
-fn shift_pattern(p: &mut typed::Pattern, offset: u32) {
+fn shift_pattern(p: &mut typed::Pattern, shift: &Shift<LocalId>) {
     match &mut p.kind {
         PatKind::Bind { local, sub } => {
-            local.0 += offset;
+            *local = shift.of(*local);
             if let Some(s) = sub {
-                shift_pattern(s, offset);
+                shift_pattern(s, shift);
             }
         }
-        PatKind::Tuple(ps) => ps.iter_mut().for_each(|p| shift_pattern(p, offset)),
+        PatKind::Tuple(ps) => ps.iter_mut().for_each(|p| shift_pattern(p, shift)),
         PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => fields
             .iter_mut()
-            .for_each(|f| shift_pattern(&mut f.pattern, offset)),
+            .for_each(|f| shift_pattern(&mut f.pattern, shift)),
         PatKind::Array { elems, rest } => {
-            elems.iter_mut().for_each(|p| shift_pattern(p, offset));
+            elems.iter_mut().for_each(|p| shift_pattern(p, shift));
             if let typed::ArrayRest::Bound(l) = rest {
-                l.0 += offset;
+                *l = shift.of(*l);
             }
         }
-        PatKind::Or(alts) => alts.iter_mut().for_each(|p| shift_pattern(p, offset)),
+        PatKind::Or(alts) => alts.iter_mut().for_each(|p| shift_pattern(p, shift)),
         _ => {}
     }
 }
@@ -605,14 +605,14 @@ fn shift_pattern(p: &mut typed::Pattern, offset: u32) {
 fn mentioned(e: &Expr, out: &mut std::collections::HashSet<u32>) {
     typed::walk(e, &mut |e| {
         if let ExprKind::Local(l) = &e.kind {
-            out.insert(l.0);
+            out.insert(l.index() as u32);
         }
         if let ExprKind::Block { stmts, .. } = &e.kind {
             for s in stmts {
                 if let Stmt::Let { pattern, .. } = s {
                     let mut b = Vec::new();
                     pattern.binds(&mut b);
-                    out.extend(b.iter().map(|l| l.0));
+                    out.extend(b.iter().map(|l| l.index() as u32));
                 }
             }
         }
@@ -622,6 +622,7 @@ fn mentioned(e: &Expr, out: &mut std::collections::HashSet<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compiler::middle::local_id;
     use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::types::Ty;
     use crate::diagnostics::{FileId, Span};
@@ -640,14 +641,14 @@ mod tests {
     }
 
     fn local(i: u32) -> Expr {
-        e(ExprKind::Local(LocalId(i)))
+        e(ExprKind::Local(local_id(i)))
     }
 
     fn func(symbol: &str, params: Vec<u32>, local_count: usize, body: Option<Expr>) -> Func {
         Func {
             symbol: symbol.to_string(),
             debug_name: symbol.to_string(),
-            params: params.iter().map(|i| LocalId(*i)).collect(),
+            params: params.iter().map(|i| local_id(*i)).collect(),
             locals: (0..local_count)
                 .map(|i| typed::Local {
                     name: Name::new(&format!("l{i}")),

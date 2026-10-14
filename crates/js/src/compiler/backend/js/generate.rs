@@ -24,6 +24,7 @@ use crate::compiler::backend::js::park::{self, Parking};
 use crate::compiler::backend::Profile;
 use crate::compiler::middle::monomorphize::{self, Desc, FuncKind, Program, ProgramRoots};
 use crate::compiler::middle::rc;
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp, UnaryOp};
 use crate::compiler::semantics::types::{
     field_types, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
@@ -51,7 +52,7 @@ pub struct Output {
 /// `names` map would emit another function's variable names.
 struct FnState {
     /// The current function's local names, indexed by `LocalId`.
-    names: Vec<String>,
+    names: Dense<LocalId, String>,
     temp: usize,
     /// What a `Continue` in this function's body rebinds.
     loops: LoopSlots,
@@ -89,11 +90,10 @@ fn node_key(e: &typed::Expr) -> usize {
 
 impl FnState {
     /// The state for a function whose locals are named positionally.
-    fn for_locals(locals: &[typed::Local]) -> FnState {
+    fn for_locals(locals: &typed::Locals) -> FnState {
         let names = locals
-            .iter()
-            .enumerate()
-            .map(|(li, l)| local_name(li, &l.name))
+            .entries()
+            .map(|(li, l)| local_name(li.index(), &l.name))
             .collect();
         FnState {
             names,
@@ -214,7 +214,7 @@ impl<'a> Gen<'a> {
             program,
             tables,
             func: FnState {
-                names: Vec::new(),
+                names: Dense::new(),
                 temp: 0,
                 loops: LoopSlots::default(),
                 marks: Marks::default(),
@@ -1103,17 +1103,9 @@ impl<'a> Gen<'a> {
         format!("$t{}", self.func.temp)
     }
 
-    /// The JavaScript name of a local.
-    ///
-    /// `FnState::for_locals` names every local the checker recorded for the
-    /// function being emitted, and every `LocalId` in that function's body
-    /// indexes the same list.
+    /// The JavaScript name of a local of the function being emitted.
     fn local_name_of(&self, local: &LocalId) -> String {
-        self.func
-            .names
-            .get(local.0 as usize)
-            .or_ice("every local in a body was named from that function's own local list")
-            .clone()
+        self.func.names.get(*local).clone()
     }
 
     /// Shares a constant aggregate instead of rebuilding it.
@@ -2401,13 +2393,7 @@ impl<'a> Gen<'a> {
             ExprKind::Char(c) => Expr::Str(c.to_string()),
             ExprKind::Bool(b) => Expr::Bool(*b),
             ExprKind::Unit => Expr::Num(0.0),
-            ExprKind::Local(l) => Expr::ident(
-                self.func
-                    .names
-                    .get(l.0 as usize)
-                    .cloned()
-                    .unwrap_or_else(|| format!("v{}", l.0)),
-            ),
+            ExprKind::Local(l) => Expr::ident(self.func.names.get(*l).clone()),
             ExprKind::Const(_) => Expr::Num(0.0),
             // A callee still naming a declaration means monomorphization did
             // not run over this tree.

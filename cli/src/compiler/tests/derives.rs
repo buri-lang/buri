@@ -78,7 +78,11 @@ fn print(program: &Program, f: FuncIdx) -> String {
     let Some(body) = func.body() else {
         return format!("{} = <unbuilt>", name_of(program, f));
     };
-    let params: Vec<String> = func.params.iter().map(|p| format!("l{}", p.0)).collect();
+    let params: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| format!("l{}", p.index()))
+        .collect();
     format!(
         "{}({}) = {}",
         name_of(program, f),
@@ -103,7 +107,7 @@ fn name_of(program: &Program, f: FuncIdx) -> String {
 fn sexp(p: &Program, e: &Expr) -> String {
     let list = |xs: &[Expr]| xs.iter().map(|x| sexp(p, x)).collect::<Vec<_>>().join(", ");
     match &e.kind {
-        ExprKind::Local(l) => format!("l{}", l.0),
+        ExprKind::Local(l) => format!("l{}", l.index()),
         ExprKind::Int(v, _) => format!("{}", v.get()),
         ExprKind::Str(s) => format!("{s:?}"),
         ExprKind::Bool(b) => format!("{b}"),
@@ -189,7 +193,7 @@ fn kind_name(k: &ExprKind) -> &'static str {
 fn pat(p: &Pattern) -> String {
     match &p.kind {
         PatKind::Wild => "_".into(),
-        PatKind::Bind { local, .. } => format!("l{}", local.0),
+        PatKind::Bind { local, .. } => format!("l{}", local.index()),
         PatKind::Variant {
             variant, fields, ..
         } => {

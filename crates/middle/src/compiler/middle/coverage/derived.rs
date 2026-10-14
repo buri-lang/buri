@@ -184,7 +184,7 @@ pub fn run(
 fn precede(
     e: &mut Expr,
     made: &HashMap<(Op, Ty), Option<(FuncIdx, Ty)>>,
-    locals: &mut Vec<typed::Local>,
+    locals: &mut typed::Locals,
 ) {
     typed::children_mut(e, &mut |c| precede(c, made, locals));
     let Some((op, ty)) = call(e) else { return };
@@ -199,8 +199,7 @@ fn precede(
     let mut stmts = Vec::new();
     let mut values = Vec::new();
     for arg in args.iter_mut().take(op.values()) {
-        let id = LocalId(locals.len() as u32);
-        locals.push(typed::Local {
+        let id = locals.push(typed::Local {
             name: Name::new("coverage"),
             ty: arg.ty,
             span,
@@ -273,7 +272,7 @@ struct Shadows<'a> {
 /// One shadow's body under construction.
 struct Body {
     i64_ty: Ty,
-    locals: Vec<typed::Local>,
+    locals: typed::Locals,
     span: Span,
     file: String,
     prefix: String,
@@ -300,7 +299,7 @@ impl Shadows<'_> {
                 types::show(self.tables, None, &[], &ty)
             ),
             params: Vec::new(),
-            locals: Vec::new(),
+            locals: typed::Locals::new(),
             kind: FuncKind::Unbuilt,
             ret,
             desc: None,
@@ -325,7 +324,7 @@ impl Shadows<'_> {
                         Expr::new(ExprKind::Bool(true), f.ret, Span::NONE)
                     };
                     f.params = Vec::new();
-                    f.locals = Vec::new();
+                    f.locals = typed::Locals::new();
                     f.kind = FuncKind::Body(answer);
                 }
             }
@@ -341,7 +340,7 @@ impl Shadows<'_> {
         let prefix = format!("{} {}", op.name(), types::show(self.tables, None, &[], &ty));
         let mut body = Body {
             i64_ty: self.i64_ty,
-            locals: Vec::new(),
+            locals: typed::Locals::new(),
             span,
             file,
             prefix,
@@ -649,13 +648,11 @@ impl Shadows<'_> {
 
 impl Body {
     fn local(&mut self, ty: Ty) -> LocalId {
-        let id = LocalId(self.locals.len() as u32);
         self.locals.push(typed::Local {
             name: Name::new("coverage"),
             ty,
             span: self.span,
-        });
-        id
+        })
     }
 
     /// A new decision, named after what it decides. Answers its label.

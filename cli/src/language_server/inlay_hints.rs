@@ -106,7 +106,7 @@ pub fn hints(analyzed: &Analyzed, path: &Path, text: &str, from: u32, to: u32) -
 fn type_hints(
     tables: &Tables,
     unwritten: &BTreeSet<(u32, u32)>,
-    locals: &[typed::Local],
+    locals: &typed::Locals,
     found: &mut Vec<Hint>,
 ) {
     for local in locals {
@@ -464,7 +464,7 @@ fn bound_names(tree: &flat::Tree, pattern: PatId, out: &mut BTreeSet<(u32, u32)>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compiler::semantics::types::{LocalId, Ty};
+    use crate::compiler::semantics::types::Ty;
     use crate::diagnostics::{FileId, Span};
 
     fn parameter(name: &str) -> ParamInfo {
@@ -507,14 +507,20 @@ mod tests {
         let literal = argument("250", ExprKind::Int(typed::Magnitude::new(250), false));
         assert!(worth_naming("250", &parameter("price"), &literal));
 
-        let name = argument("each", ExprKind::Local(LocalId(0)));
+        let name = argument("each", ExprKind::Local(crate::compiler::tests::local_id(0)));
         assert!(worth_naming("each", &parameter("price"), &name));
 
-        let same = argument("count", ExprKind::Local(LocalId(0)));
+        let same = argument(
+            "count",
+            ExprKind::Local(crate::compiler::tests::local_id(0)),
+        );
         assert!(!worth_naming("count", &parameter("count"), &same));
 
         // A path already ending in the parameter's name reads as labelled too.
-        let path = argument("order.count", ExprKind::Local(LocalId(0)));
+        let path = argument(
+            "order.count",
+            ExprKind::Local(crate::compiler::tests::local_id(0)),
+        );
         assert!(!worth_naming("order.count", &parameter("count"), &path));
 
         // Anything with structure is long enough to read on its own.

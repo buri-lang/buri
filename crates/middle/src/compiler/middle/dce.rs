@@ -221,7 +221,7 @@ mod tests {
             symbol: symbol.to_string(),
             debug_name: symbol.to_string(),
             params: Vec::new(),
-            locals: Vec::new(),
+            locals: Default::default(),
             kind: match body {
                 Some(e) => FuncKind::Body(e),
                 None => FuncKind::Unbuilt,

@@ -163,7 +163,7 @@ pub type BodyMap = IdMap<FnId, std::sync::Arc<typed::Body>>;
 /// Every checked module-level `let`, by the constant's id.
 pub type ConstMap = IdMap<ConstId, typed::Expr>;
 /// The locals each checked module-level `let` binds inside its value.
-pub type ConstLocals = IdMap<ConstId, Vec<typed::Local>>;
+pub type ConstLocals = IdMap<ConstId, typed::Locals>;
 
 pub struct Checked {
     pub tables: Tables,

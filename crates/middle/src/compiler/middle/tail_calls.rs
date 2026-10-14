@@ -256,7 +256,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
         // miscompile.
         return;
     };
-    let mut locals: Vec<typed::Local> = slots
+    let mut locals: typed::Locals = slots
         .types
         .iter()
         .enumerate()
@@ -266,7 +266,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
             span,
         })
         .collect();
-    let mut params: Vec<LocalId> = (0..slots.types.len()).map(|j| LocalId(j as u32)).collect();
+    let mut params: Vec<LocalId> = locals.ids().collect();
 
     let mut entries: Vec<Expr> = Vec::new();
     for (i, f) in group.iter().enumerate() {
@@ -274,10 +274,9 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
         let body = func
             .body()
             .or_ice("a member of a tail-call group has a body");
-        let offset = locals.len() as u32;
-        locals.extend(func.locals.iter().cloned());
+        let shift = locals.append(&func.locals);
         let mut body = body.clone();
-        shift_expr(&mut body, offset);
+        shift_expr(&mut body, &shift);
         // The member's parameters *are* the shared slots, so a read of one
         // reads the slot rather than a copy of it. `order[i][j]` is the
         // parameter slot `j` holds for this member, which is the identity
@@ -288,7 +287,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
             .enumerate()
             .filter_map(|(j, k)| {
                 let p = func.params.get(*k)?;
-                Some((LocalId(p.0.checked_add(offset)?), *params.get(j)?))
+                Some((shift.of(*p), *params.get(j)?))
             })
             .collect();
         substitute_locals(&mut body, &onto);
@@ -317,9 +316,8 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
             if read.contains(&slot) {
                 continue;
             }
-            let local = locals[slot.index()].clone();
-            let bound = LocalId(locals.len() as u32);
-            locals.push(typed::Local {
+            let local = locals.get(slot).clone();
+            let bound = locals.push(typed::Local {
                 name: Name::new(&format!("{}_unread", local.name)),
                 ty: local.ty,
                 span: local.span,
@@ -402,7 +400,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
             .iter()
             .filter_map(|k| {
                 let p = func.params.get(*k)?;
-                let l = func.locals.get(p.index())?;
+                let l = func.locals.get(*p);
                 Some(Expr::new(ExprKind::Local(*p), l.ty, l.span))
             })
             .collect();
@@ -506,12 +504,8 @@ fn substitute_locals(e: &mut Expr, onto: &HashMap<LocalId, LocalId>) {
 ///
 /// A parameter no closure captures is left alone, and so is one the loop only
 /// ever rebinds to itself: neither can be stale.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "a parameter is a local of the function's own table"
-)]
 fn snapshot_captures(
-    locals: &mut Vec<typed::Local>,
+    locals: &mut typed::Locals,
     params: &mut [LocalId],
     entries: &mut [Expr],
     owned: &[usize],
@@ -540,9 +534,8 @@ fn snapshot_captures(
         if !captured.contains(&param) || !rebound.contains(&param) {
             continue;
         }
-        let local = locals[param.index()].clone();
-        let carrier = LocalId(locals.len() as u32);
-        locals.push(typed::Local {
+        let local = locals.get(param).clone();
+        let carrier = locals.push(typed::Local {
             name: Name::new(&format!("{}_loop", local.name)),
             ty: local.ty,
             span: local.span,
@@ -632,10 +625,7 @@ fn shared_slots(program: &Program, group: &[usize]) -> Option<Slots> {
         .iter()
         .map(|f| {
             let func = program.funcs.get(*f)?;
-            func.params
-                .iter()
-                .map(|p| func.locals.get(p.index()).map(|l| l.ty))
-                .collect::<Option<Vec<Ty>>>()
+            Some(func.params.iter().map(|p| func.locals.get(*p).ty).collect())
         })
         .collect::<Option<Vec<_>>>()?;
     let mut narrowest: Vec<usize> = (0..group.len()).collect();
@@ -669,6 +659,7 @@ fn shared_slots(program: &Program, group: &[usize]) -> Option<Slots> {
 #[cfg(test)]
 mod tests {
     use super::rewrite;
+    use crate::compiler::middle::local_id;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{Expr, ExprKind, Local, PatKind, Stmt};
@@ -715,10 +706,7 @@ mod tests {
 
     /// The types of a function's parameters, in order.
     fn param_tys(f: &Func) -> Vec<Ty> {
-        f.params
-            .iter()
-            .filter_map(|p| f.locals.get(p.index()).map(|l| l.ty))
-            .collect()
+        f.params.iter().map(|p| f.locals.get(*p).ty).collect()
     }
 
     /// Which local each argument of a `Continue` names, in order.
@@ -738,8 +726,8 @@ mod tests {
         Func {
             symbol: symbol.to_string(),
             debug_name: symbol.to_string(),
-            params: params.into_iter().map(LocalId).collect(),
-            locals,
+            params: params.into_iter().map(local_id).collect(),
+            locals: locals.into_iter().collect(),
             kind: FuncKind::Body(body),
             ret: Ty::UNIT,
             desc: None,
@@ -777,7 +765,7 @@ mod tests {
             "f",
             vec![0],
             vec![local("n")],
-            call(0, vec![e(ExprKind::Local(LocalId(0)))]),
+            call(0, vec![e(ExprKind::Local(local_id(0)))]),
         )]);
         rewrite(&mut p);
         let ExprKind::Loop { entries } = &p.funcs[0].body().unwrap().kind else {
@@ -841,13 +829,13 @@ mod tests {
                 "a",
                 vec![0],
                 vec![local("x")],
-                call(1, vec![e(ExprKind::Local(LocalId(0)))]),
+                call(1, vec![e(ExprKind::Local(local_id(0)))]),
             ),
             func(
                 "b",
                 vec![0],
                 vec![local("y")],
-                call(0, vec![e(ExprKind::Local(LocalId(0)))]),
+                call(0, vec![e(ExprKind::Local(local_id(0)))]),
             ),
         ]);
         rewrite(&mut p);
@@ -913,13 +901,13 @@ mod tests {
                 "narrow",
                 vec![0],
                 vec![typed("n", a_ty())],
-                call(1, vec![e(ExprKind::Unit), e(ExprKind::Local(LocalId(0)))]),
+                call(1, vec![e(ExprKind::Unit), e(ExprKind::Local(local_id(0)))]),
             ),
             func(
                 "wide",
                 vec![0, 1],
                 vec![typed("w", b_ty()), typed("v", a_ty())],
-                call(0, vec![e(ExprKind::Local(LocalId(1)))]),
+                call(0, vec![e(ExprKind::Local(local_id(1)))]),
             ),
         ]);
         rewrite(&mut p);
@@ -930,11 +918,11 @@ mod tests {
         // goes first because that is the slot's type.
         assert_eq!(
             arg_locals(p.funcs[0].body().expect("a forwarder")),
-            vec![LocalId(0)]
+            vec![local_id(0)]
         );
         assert_eq!(
             arg_locals(p.funcs[1].body().expect("a forwarder")),
-            vec![LocalId(1), LocalId(0)]
+            vec![local_id(1), local_id(0)]
         );
         // The tail call *inside* the merged function is permuted the same way:
         // `narrow` calls `wide(unit, n)`, whose `a` argument is second.
@@ -1010,13 +998,13 @@ mod tests {
                 "narrow",
                 vec![0],
                 vec![typed("n", a_ty())],
-                call(1, vec![e(ExprKind::Local(LocalId(0))), e(ExprKind::Unit)]),
+                call(1, vec![e(ExprKind::Local(local_id(0))), e(ExprKind::Unit)]),
             ),
             func(
                 "wide",
                 vec![0, 1],
                 vec![typed("v", a_ty()), typed("w", b_ty())],
-                call(0, vec![e(ExprKind::Local(LocalId(0)))]),
+                call(0, vec![e(ExprKind::Local(local_id(0)))]),
             ),
         ]);
         rewrite(&mut p);
@@ -1037,7 +1025,7 @@ mod tests {
             panic!("a binding")
         };
         assert!(
-            matches!(value.kind, ExprKind::Local(LocalId(1))),
+            matches!(value.kind, ExprKind::Local(l) if l == local_id(1)),
             "it names the second slot"
         );
         assert!(matches!(
@@ -1053,8 +1041,8 @@ mod tests {
     fn a_parameter_a_closure_captures_is_snapshotted_per_iteration() {
         let lambda = e(ExprKind::Lambda {
             params: Vec::new(),
-            body: Box::new(e(ExprKind::Local(LocalId(0)))),
-            captures: vec![LocalId(0)],
+            body: Box::new(e(ExprKind::Local(local_id(0)))),
+            captures: vec![local_id(0)],
         });
         let body = e(ExprKind::Block {
             stmts: vec![crate::compiler::semantics::typed::Stmt::Expr(lambda)],
@@ -1065,8 +1053,8 @@ mod tests {
 
         // The parameter is now a carrier, and the original id is bound from it
         // at the top of every iteration.
-        assert_eq!(p.funcs[0].params, vec![LocalId(1)]);
-        assert_eq!(p.funcs[0].locals[1].name, "n_loop");
+        assert_eq!(p.funcs[0].params, vec![local_id(1)]);
+        assert_eq!(p.funcs[0].locals.get(local_id(1)).name, "n_loop");
         let ExprKind::Loop { entries } = &p.funcs[0].body().unwrap().kind else {
             panic!("it loops");
         };
@@ -1078,12 +1066,9 @@ mod tests {
         };
         assert!(matches!(
             pattern.kind,
-            PatKind::Bind {
-                local: LocalId(0),
-                ..
-            }
+            PatKind::Bind { local, .. } if local == local_id(0)
         ));
-        assert!(matches!(value.kind, ExprKind::Local(LocalId(1))));
+        assert!(matches!(value.kind, ExprKind::Local(l) if l == local_id(1)));
     }
 
     /// A parameter the loop only ever rebinds to itself cannot be stale, so it
@@ -1092,16 +1077,16 @@ mod tests {
     fn a_parameter_that_never_changes_needs_no_snapshot() {
         let lambda = e(ExprKind::Lambda {
             params: Vec::new(),
-            body: Box::new(e(ExprKind::Local(LocalId(0)))),
-            captures: vec![LocalId(0)],
+            body: Box::new(e(ExprKind::Local(local_id(0)))),
+            captures: vec![local_id(0)],
         });
         let body = e(ExprKind::Block {
             stmts: vec![crate::compiler::semantics::typed::Stmt::Expr(lambda)],
-            tail: Some(Box::new(call(0, vec![e(ExprKind::Local(LocalId(0)))]))),
+            tail: Some(Box::new(call(0, vec![e(ExprKind::Local(local_id(0)))]))),
         });
         let mut p = program(vec![func("f", vec![0], vec![local("n")], body)]);
         rewrite(&mut p);
-        assert_eq!(p.funcs[0].params, vec![LocalId(0)]);
+        assert_eq!(p.funcs[0].params, vec![local_id(0)]);
         assert_eq!(p.funcs[0].locals.len(), 1);
     }
 }

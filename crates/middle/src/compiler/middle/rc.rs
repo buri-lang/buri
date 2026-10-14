@@ -257,6 +257,7 @@
 
 use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::{self, Func, FuncKind, Program};
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Expr, ExprKind, OptionOrResult, PatKind, Pattern, Stmt,
@@ -760,7 +761,7 @@ pub fn name_discards(program: &mut Program, counted: &mut dyn Counted) {
 }
 
 /// Every `let` in `e` and everything under it.
-fn name_in(locals: &mut Vec<typed::Local>, e: &mut Expr, counted: &mut dyn Counted) {
+fn name_in(locals: &mut typed::Locals, e: &mut Expr, counted: &mut dyn Counted) {
     if let ExprKind::Block { stmts, .. } = &mut e.kind {
         for s in stmts.iter_mut() {
             let Stmt::Let { pattern, .. } = s else {
@@ -785,7 +786,7 @@ fn binds_something(p: &typed::Pattern) -> bool {
 /// A position that binds nothing and is *not* counted holds nothing counted
 /// either — an aggregate is counted when any of its fields is — so there is
 /// nothing below it to walk to.
-fn name_skipped(locals: &mut Vec<typed::Local>, p: &mut Pattern, counted: &mut dyn Counted) {
+fn name_skipped(locals: &mut typed::Locals, p: &mut Pattern, counted: &mut dyn Counted) {
     let parts: Vec<&mut Pattern> = match &mut p.kind {
         PatKind::Tuple(ps) => ps.iter_mut().collect(),
         PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
@@ -803,9 +804,8 @@ fn name_skipped(locals: &mut Vec<typed::Local>, p: &mut Pattern, counted: &mut d
 }
 
 /// Wraps one pattern in a binding on a fresh local.
-fn name_one(locals: &mut Vec<typed::Local>, p: &mut Pattern) {
-    let local = LocalId(locals.len() as u32);
-    locals.push(typed::Local {
+fn name_one(locals: &mut typed::Locals, p: &mut Pattern) {
+    let local = locals.push(typed::Local {
         name: Name::new("discarded"),
         ty: p.ty,
         span: p.span,
@@ -923,7 +923,7 @@ fn scan_func(
                 mentions,
                 binders,
                 let_bound: bound,
-            } = BodyIndex::of(body, f.locals.len());
+            } = BodyIndex::of(body, &f.locals);
             let (child_at, child_ids) = child_index(&sizes);
             // Each row becomes the number of jumps before it.
             let mut running = 0;
@@ -1210,7 +1210,7 @@ fn infer_ownership(
             f.params
                 .iter()
                 .map(|p| {
-                    let ty = f.locals.get(p.index()).map(|l| l.ty).unwrap_or(Ty::ERROR);
+                    let ty = f.locals.get(*p).ty;
                     // A value with no count to take is `Own` by convention and
                     // costs nothing either way; saying `Borrow` would make a
                     // backend's signature depend on the classifier's uncertainty.
@@ -2228,8 +2228,8 @@ struct Scan<'a> {
     diverged: bool,
     /// Where each local is named, by pre-order id, ascending, and the `let` or
     /// `match` that binds it, each with the lambda it is inside: [`Scan::names`].
-    mentions: Vec<Vec<(u32, Option<u32>)>>,
-    binders: Vec<Option<(u32, Option<u32>)>>,
+    mentions: Dense<LocalId, Vec<(u32, Option<u32>)>>,
+    binders: Dense<LocalId, Option<(u32, Option<u32>)>>,
     /// The function's own parameter ownership, for a `Continue` that re-enters
     /// the loop it is inside: the loop's variables *are* the parameters
     /// (`typed::ExprKind::Loop`).
@@ -2274,11 +2274,7 @@ struct Scan<'a> {
 
 impl Scan<'_> {
     fn is_counted(&mut self, l: LocalId) -> bool {
-        let local = self
-            .func
-            .locals
-            .get(l.index())
-            .or_ice("a local is in its function's table");
+        let local = self.func.locals.get(l);
         let ty = local.ty;
         self.counted_ty(&ty)
     }
@@ -2358,7 +2354,7 @@ impl Scan<'_> {
     fn take_pending(&mut self) -> Vec<LocalId> {
         let floor = self.floor.min(self.pending.len());
         let mut pending = self.pending.split_off(floor);
-        pending.sort_by_key(|l| l.0);
+        pending.sort_by_key(|l| l.index());
         pending.dedup();
         pending
     }
@@ -2979,7 +2975,7 @@ impl Scan<'_> {
                 );
             }
         }
-        kept_extra.sort_by_key(|l| l.0);
+        kept_extra.sort_by_key(|l| l.index());
         kept_extra.dedup();
         for l in &left {
             if let Left::Added(added) = l {
@@ -3000,7 +2996,7 @@ impl Scan<'_> {
                         .owned_since(tick)
                         .filter(|x| !added.contains(x) && self.owned.contains(x))
                         .collect();
-                    extra.sort_by_key(|l| l.0);
+                    extra.sort_by_key(|l| l.index());
                     extra
                 }
                 _ => std::mem::take(&mut kept_extra),
@@ -3074,7 +3070,7 @@ impl Scan<'_> {
                 .filter(|l| self.owned.contains(l) && wanted(l))
                 .collect()
         };
-        extra.sort_by_key(|l| l.0);
+        extra.sort_by_key(|l| l.index());
         extra
     }
 
@@ -3089,7 +3085,7 @@ impl Scan<'_> {
         } else {
             live.iter().filter(|l| self.owned.contains(l)).collect()
         };
-        held.sort_by_key(|l| l.0);
+        held.sort_by_key(|l| l.index());
         held
     }
 
@@ -3213,7 +3209,7 @@ impl Scan<'_> {
                         Stmt::Let { pattern, value, .. } => {
                             let mut bound: Vec<LocalId> = Vec::new();
                             pattern.binds(&mut bound);
-                            bound.sort_by_key(|l| l.0);
+                            bound.sort_by_key(|l| l.index());
                             // `let _ = f(ctx);` **binds nothing**, so there is
                             // no name for the "bound and never read" drop below
                             // to hang on and the value had nobody to release
@@ -3746,7 +3742,7 @@ impl Scan<'_> {
         let owns = token.is_some();
         let mut bound: Vec<LocalId> = Vec::new();
         a.pattern.binds(&mut bound);
-        bound.sort_by_key(|l| l.0);
+        bound.sort_by_key(|l| l.index());
         // A `..rest` binding is a block this arm allocates, not a piece of
         // the scrutinee: both backends' `ArraySlice` calls the allocator,
         // copies and retains every element. So the arm owns it however the
@@ -3754,7 +3750,7 @@ impl Scan<'_> {
         let mut fresh_bound: Vec<LocalId> = Vec::new();
         a.pattern.fresh_binds(&mut fresh_bound);
         fresh_bound.retain(|b| self.is_counted(*b));
-        fresh_bound.sort_by_key(|l| l.0);
+        fresh_bound.sort_by_key(|l| l.index());
         for b in &fresh_bound {
             self.owned.insert(*b);
         }
@@ -3823,7 +3819,7 @@ impl Scan<'_> {
                     && !bound.contains(l)
                     && token != Some(*l)
             });
-            held.sort_by_key(|l| l.0);
+            held.sort_by_key(|l| l.index());
             held.dedup();
             // Two questions about the body's set, asked before the guard is
             // scanned into it.
@@ -3941,7 +3937,7 @@ impl Scan<'_> {
                 .copied()
                 .filter(|l| self.names(rid, *l))
                 .collect();
-            named.sort_by_key(|l| l.0);
+            named.sort_by_key(|l| l.index());
             named
         } else {
             self.names_in(rhs, rid)
@@ -4045,7 +4041,7 @@ impl Scan<'_> {
             names.remove(b);
         }
         let mut out: Vec<LocalId> = names.into_iter().collect();
-        out.sort_by_key(|l| l.0);
+        out.sort_by_key(|l| l.index());
         out
     }
 
@@ -4061,19 +4057,10 @@ impl Scan<'_> {
         let counts = |(p, lambda): (u32, Option<u32>)| {
             p >= start && p < end && lambda.is_none_or(|f| f < start)
         };
-        if self
-            .binders
-            .get(l.index())
-            .copied()
-            .flatten()
-            .is_some_and(counts)
-        {
+        if self.binders.get(l).is_some_and(counts) {
             return false;
         }
-        let at = self
-            .mentions
-            .get(l.index())
-            .or_ice("`mentions` has a row per local");
+        let at = self.mentions.get(l);
         let first = at.partition_point(|(p, _)| *p < start);
         at.get(first..)
             .unwrap_or_default()
@@ -4182,7 +4169,7 @@ impl Scan<'_> {
                 kept.push(l);
             }
         }
-        kept.sort_by_key(|l| l.0);
+        kept.sort_by_key(|l| l.index());
         let handed = self.handed_over(&kids, id, &modes, live, &kept);
         for l in kept.iter().chain(handed.iter().map(|(_, l)| l)) {
             self.enliven(live, *l);
@@ -4408,19 +4395,19 @@ struct BodyIndex {
     /// and every lambda's captures, at their node, and every `let` and `match`
     /// pattern's names, at the binding node, each with the innermost lambda
     /// whose body it is in. By local.
-    mentions: Vec<Vec<(u32, Option<u32>)>>,
-    binders: Vec<Option<(u32, Option<u32>)>>,
+    mentions: Dense<LocalId, Vec<(u32, Option<u32>)>>,
+    binders: Dense<LocalId, Option<(u32, Option<u32>)>>,
     /// What every `let` binds, in walk order.
     let_bound: Vec<LocalId>,
 }
 
 impl BodyIndex {
-    fn of(body: &Expr, locals: usize) -> BodyIndex {
+    fn of(body: &Expr, locals: &typed::Locals) -> BodyIndex {
         let mut ix = BodyIndex {
             sizes: Vec::new(),
             jumps_before: Vec::new(),
-            mentions: vec![Vec::new(); locals],
-            binders: vec![None; locals],
+            mentions: locals.map(|_| Vec::new()),
+            binders: locals.map(|_| None),
             let_bound: Vec::new(),
         };
         let mut continues: Vec<u32> = Vec::new();
@@ -4491,17 +4478,11 @@ impl BodyIndex {
     }
 
     fn mention(&mut self, l: LocalId, at: (u32, Option<u32>)) {
-        self.mentions
-            .get_mut(l.index())
-            .or_ice("`mentions` has a row per local")
-            .push(at);
+        self.mentions.get_mut(l).push(at);
     }
 
     fn bind(&mut self, l: LocalId, at: (u32, Option<u32>)) {
-        *self
-            .binders
-            .get_mut(l.index())
-            .or_ice("`binders` has a row per local") = Some(at);
+        *self.binders.get_mut(l) = Some(at);
     }
 }
 

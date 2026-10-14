@@ -57,7 +57,7 @@ pub struct Func {
     pub symbol: String,
     pub debug_name: String,
     pub params: Vec<LocalId>,
-    pub locals: Vec<typed::Local>,
+    pub locals: typed::Locals,
     pub kind: FuncKind,
     pub ret: Ty,
     /// A descriptor the backend passes as an extra argument. Only the test
@@ -578,7 +578,7 @@ pub struct Monomorphizer<'a> {
     /// builds needs. A `LocalId` is an index into one function's table, so an
     /// adapter's parameters have to be entries in the table of the function
     /// the adapter is written into.
-    locals: Vec<typed::Local>,
+    locals: typed::Locals,
     /// See [`Hosted::js_implemented`].
     js_implemented: std::collections::BTreeSet<String>,
     /// Each declaration's symbol before its instantiation tag, and its debug
@@ -615,7 +615,7 @@ pub fn run(
         ctx_canon: moving_contexts(canonical_contexts(&checked.tables)),
         module_paths,
         taken: HashMap::default(),
-        locals: Vec::new(),
+        locals: typed::Locals::new(),
         js_implemented: std::collections::BTreeSet::new(),
         names: HashMap::default(),
         mangled: HashMap::default(),
@@ -895,7 +895,7 @@ impl<'a> Monomorphizer<'a> {
         let span = info.span;
         // The parameters after the host are the wrapper's own: a worker's
         // `fetch(host, request)` is entered as `fetch(request)`.
-        let rest: Vec<typed::Local> = info
+        let rest: typed::Locals = info
             .params
             .iter()
             .skip(1)
@@ -906,9 +906,8 @@ impl<'a> Monomorphizer<'a> {
             })
             .collect();
         let forwarded: Vec<typed::Expr> = rest
-            .iter()
-            .enumerate()
-            .map(|(i, l)| typed::Expr::new(ExprKind::Local(LocalId(i as u32)), l.ty, span))
+            .entries()
+            .map(|(i, l)| typed::Expr::new(ExprKind::Local(i), l.ty, span))
             .collect();
         let fields: Vec<typed::Expr> = self
             .tables()
@@ -955,7 +954,7 @@ impl<'a> Monomorphizer<'a> {
             Func {
                 symbol,
                 debug_name: format!("{debug_name}, building its host"),
-                params: (0..rest.len()).map(|i| LocalId(i as u32)).collect(),
+                params: rest.ids().collect(),
                 locals: rest,
                 kind: FuncKind::Body(call),
                 ret: info.ret,
@@ -1012,7 +1011,7 @@ impl<'a> Monomorphizer<'a> {
             symbol,
             debug_name,
             params: Vec::new(),
-            locals: Vec::new(),
+            locals: typed::Locals::new(),
             kind: FuncKind::Unbuilt,
             ret: Ty::UNIT,
             desc: None,
@@ -1449,7 +1448,7 @@ impl Monomorphizer<'_> {
                 .iter()
                 .map(|p| self.sub(&p.ty, &targs))
                 .collect();
-            let locals: Vec<typed::Local> = info
+            let locals: typed::Locals = info
                 .params
                 .iter()
                 .map(|p| typed::Local {
@@ -1470,12 +1469,12 @@ impl Monomorphizer<'_> {
                 self.js_implemented.insert(key.clone());
             }
             f.kind = FuncKind::Intrinsic(key.clone());
+            f.params = locals.ids().collect();
             f.locals = locals;
-            f.params = (0..info.params.len()).map(|i| LocalId(i as u32)).collect();
             f.ret = ret;
             // Rendered through a hand-written `Show` where the value's type
             // reaches one, rather than walked by shape (#258).
-            if self.report_through_show(f, &key, &param_types) {
+            if self.report_through_show(f, &key) {
                 return;
             }
             // A cell write takes the value last.
@@ -1617,13 +1616,11 @@ impl Monomorphizer<'_> {
     /// with its table parked on `self.locals` and the table is put back
     /// afterwards, so an entry added here reaches the emitted function.
     fn new_local(&mut self, name: &str, ty: Ty, span: Span) -> LocalId {
-        let id = LocalId(self.locals.len() as u32);
         self.locals.push(typed::Local {
             name: Name::new(name),
             ty,
             span,
-        });
-        id
+        })
     }
 
     /// The arguments of a trait or effect call, with a `Self`-spelled callback
@@ -4074,7 +4071,7 @@ mod tests {
             symbol: symbol.to_string(),
             debug_name: debug_name.to_string(),
             params: Vec::new(),
-            locals: Vec::new(),
+            locals: typed::Locals::new(),
             kind,
             ret: Ty::UNIT,
             desc: None,

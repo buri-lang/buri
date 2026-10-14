@@ -25,4 +25,4 @@ pub use buri_middle::compiler::middle;
 pub use buri_semantics::compiler::{semantics, standard_library};
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

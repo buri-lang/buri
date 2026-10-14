@@ -29,11 +29,7 @@ impl<'a> Gen<'a> {
         // A cell whose type reaches a hand-written `Equal` is written with it,
         // rather than with `$eq`'s comparison by shape.
         if crate::compiler::middle::monomorphize::CELL_WRITE_KEYS.contains(&key) {
-            let value = f
-                .params
-                .get(2)
-                .and_then(|p| f.locals.get(p.index()))
-                .map(|l| l.ty);
+            let value = f.params.get(2).map(|p| f.locals.get(*p).ty);
             if let Some(eq) = value.and_then(|t| self.program.cell_equal.get(&t)) {
                 let (id, v) = (args.get(1)?.clone(), args.get(2)?.clone());
                 let eq = Expr::ident(self.program.funcs.get(eq.index())?.symbol.clone());

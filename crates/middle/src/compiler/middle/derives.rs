@@ -314,11 +314,7 @@ fn prim_to_json_body(f: &mut Func) {
         return;
     }
     let this = *f.params.first().or_ice("`toJson` takes `self`");
-    let ty = f
-        .locals
-        .get(this.index())
-        .or_ice("a parameter is a local")
-        .ty;
+    let ty = f.locals.get(this).ty;
     let x = Expr::new(ExprKind::Local(this), ty, Span::NONE);
     let name = String::from("derivePrimJson");
     let body = ExprKind::Intrinsic {
@@ -493,7 +489,7 @@ impl Decoding {
             .funcs
             .iter()
             .find(|f| f.intrinsic_key() == Some(JSON_DECODE))?;
-        let json = f.locals.get(f.params.get(1)?.index())?.ty;
+        let json = f.locals.get(*f.params.get(1)?).ty;
         let TyKind::Con(result, args) = f.ret.kind() else {
             return None;
         };
@@ -741,26 +737,24 @@ impl Payload {
 /// One generated function under construction: its locals, and the parameters
 /// among them.
 struct Frame {
-    locals: Vec<typed::Local>,
+    locals: typed::Locals,
     params: Vec<LocalId>,
 }
 
 impl Frame {
     fn new() -> Frame {
         Frame {
-            locals: Vec::new(),
+            locals: typed::Locals::new(),
             params: Vec::new(),
         }
     }
 
     fn local(&mut self, name: &str, ty: &Ty) -> LocalId {
-        let id = LocalId(u32::try_from(self.locals.len()).unwrap_or(u32::MAX));
         self.locals.push(typed::Local {
             name: Name::new(name),
             ty: *ty,
             span: Span::NONE,
-        });
-        id
+        })
     }
 
     fn param(&mut self, name: &str, ty: &Ty) -> LocalId {
@@ -895,7 +889,7 @@ impl Generator {
             symbol: name.clone(),
             debug_name,
             params: Vec::new(),
-            locals: Vec::new(),
+            locals: typed::Locals::new(),
             kind: FuncKind::Unbuilt,
             ret,
             desc: None,
@@ -3529,8 +3523,7 @@ fn rewrite(program: &mut Program, routed: &HashMap<(Op, usize), FuncIdx>, hash_t
             let path_ty = program
                 .funcs
                 .get(decoder.index())
-                .and_then(|g| g.locals.get(g.params.get(1)?.index()))
-                .map(|l| l.ty);
+                .and_then(|g| Some(g.locals.get(*g.params.get(1)?).ty));
             decoder_body(
                 &mut program.funcs[i],
                 decoder,
@@ -3552,11 +3545,7 @@ fn decoder_body(f: &mut Func, decoder: FuncIdx, path_ty: Ty) {
         .params
         .get(1)
         .or_ice("`json.decode` takes the document second");
-    let json = f
-        .locals
-        .get(value.index())
-        .or_ice("a parameter is a local")
-        .ty;
+    let json = f.locals.get(value).ty;
     let args = vec![
         Expr::new(ExprKind::Local(value), json, Span::NONE),
         Expr::new(ExprKind::Str("$".to_string()), path_ty, Span::NONE),
@@ -3585,12 +3574,7 @@ fn decoder_body(f: &mut Func, decoder: FuncIdx, path_ty: Ty) {
 /// sides of every passing assertion in a suite is the cost this shape exists to
 /// avoid.
 fn reporter_body(f: &mut Func, key: &str, show: FuncIdx) {
-    let ty_of = |f: &Func, p: usize| {
-        f.params
-            .get(p)
-            .and_then(|l| f.locals.get(l.0 as usize))
-            .map(|l| l.ty)
-    };
+    let ty_of = |f: &Func, p: usize| f.params.get(p).map(|l| f.locals.get(*l)).map(|l| l.ty);
     let local = |f: &Func, p: usize| {
         Some(Expr::new(
             ExprKind::Local(*f.params.get(p)?),

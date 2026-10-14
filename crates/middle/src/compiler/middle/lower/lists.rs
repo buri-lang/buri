@@ -207,10 +207,7 @@ impl FnLower<'_> {
     /// The intrinsic function's own body: the loop over its parameters.
     pub(super) fn list_body(mut self, key: &str, params: &[LocalId]) -> Code {
         let vals = self.code.entry().params.clone();
-        let tys: Vec<Ty> = params
-            .iter()
-            .map(|p| self.locals.get(p.index()).map(|l| l.ty).unwrap_or(Ty::UNIT))
-            .collect();
+        let tys: Vec<Ty> = params.iter().map(|p| self.locals.get(*p).ty).collect();
         let ret = self.ret;
         let v = match self.list_loop(key, &vals, &tys, None, &ret) {
             Some(v) => v,

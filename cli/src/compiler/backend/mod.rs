@@ -413,7 +413,7 @@ mod tests {
                 symbol: key.to_string(),
                 debug_name: key.to_string(),
                 params: Vec::new(),
-                locals: Vec::new(),
+                locals: Default::default(),
                 kind: FuncKind::Intrinsic(key.to_string()),
                 ret: Ty::UNIT,
                 desc: None,

@@ -54,7 +54,7 @@ id_type!(minted CtxTypeId);
 id_type!(minted TyVarId);
 id_type!(minted VariantId);
 id_type!(minted MethodId);
-id_type!(LocalId);
+id_type!(minted LocalId);
 
 // `FuncIdx` is an index into `Program::funcs`: one concrete function, after
 // monomorphization. Deliberately not `FnId`, which indexes the *declaration*

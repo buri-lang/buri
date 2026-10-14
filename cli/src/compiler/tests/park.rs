@@ -6,7 +6,7 @@ use super::rc::{compile, find};
 use crate::compiler::backend::js::park::*;
 use crate::compiler::middle::monomorphize::{self, Func, FuncKind, Program};
 use crate::compiler::semantics::typed::{Expr, ExprKind};
-use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Ty};
+use crate::compiler::semantics::types::{self, FuncIdx, Ty};
 use crate::diagnostics::Span;
 use crate::hash::Map as HashMap;
 
@@ -83,7 +83,7 @@ fn intrinsic_func(name: &str, key: &str) -> Func {
         symbol: name.to_string(),
         debug_name: name.to_string(),
         params: Vec::new(),
-        locals: Vec::new(),
+        locals: Default::default(),
         kind: FuncKind::Intrinsic(key.to_string()),
         ret: Ty::UNIT,
         desc: None,
@@ -96,7 +96,7 @@ fn body_func(name: &str, body: Expr) -> Func {
         symbol: name.to_string(),
         debug_name: name.to_string(),
         params: Vec::new(),
-        locals: Vec::new(),
+        locals: Default::default(),
         kind: FuncKind::Body(body),
         ret: Ty::UNIT,
         desc: None,
@@ -147,7 +147,7 @@ fn call_value(callee: Expr) -> Expr {
 fn lambda_of(ty: Ty, body: Expr) -> Expr {
     Expr::new(
         ExprKind::Lambda {
-            params: vec![LocalId(0)],
+            params: vec![super::local_id(0)],
             body: Box::new(body),
             captures: Vec::new(),
         },

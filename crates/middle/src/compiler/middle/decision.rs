@@ -68,7 +68,7 @@
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern};
-use crate::compiler::semantics::types::{LocalId, Ty, TyConId, VariantId};
+use crate::compiler::semantics::types::{Ty, TyConId, VariantId};
 use crate::diagnostics::Invariant as _;
 use crate::hash::Map;
 
@@ -90,7 +90,7 @@ pub fn run(program: &mut Program) {
 /// patterns first, and its arms are moved into the tree only once every group
 /// is known to succeed. Cloning every node's type and every kept arm was most
 /// of this pass's time, on a pass whose output is the size of its input.
-fn rewrite(locals: &mut Vec<typed::Local>, e: &mut Expr) {
+fn rewrite(locals: &mut typed::Locals, e: &mut Expr) {
     typed::children_mut(e, &mut |child| rewrite(locals, child));
     let Expr { kind, ty, .. } = e;
     if let ExprKind::Match { arms, .. } = kind {
@@ -160,7 +160,7 @@ enum Fate {
 
 /// The arms of one match, grouped by head — or left as they are where
 /// grouping would have to guess.
-fn group(locals: &mut Vec<typed::Local>, arms: &mut Vec<Arm>, ty: &Ty) {
+fn group(locals: &mut typed::Locals, arms: &mut Vec<Arm>, ty: &Ty) {
     if arms.len() < 2 {
         return;
     }
@@ -344,7 +344,7 @@ fn binds_any(p: &Pattern) -> bool {
 /// is what "shared tests hoisted" means here: the head is tested once, the
 /// projection happens once, and what is left is a smaller match the same rules
 /// apply to.
-fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &Ty) -> Option<Arm> {
+fn collapse(locals: &mut typed::Locals, rows: Vec<Arm>, column: usize, ty: &Ty) -> Option<Arm> {
     let first = rows.first()?;
     let (con, variant) = match &first.pattern.kind {
         PatKind::Variant { con, variant, .. } => Some((*con, *variant)),
@@ -391,8 +391,7 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
     // which is the one place a type is available without the type tables.
     let bound = &arms.first()?.pattern;
     let (bound_ty, bound_span) = (bound.ty, bound.span);
-    let held = LocalId(locals.len() as u32);
-    locals.push(typed::Local {
+    let held = locals.push(typed::Local {
         name: Name::new("col"),
         ty: bound_ty,
         span: bound_span,
@@ -439,12 +438,13 @@ fn collapse(locals: &mut Vec<typed::Local>, rows: Vec<Arm>, column: usize, ty: &
 #[cfg(test)]
 mod tests {
     use super::run;
+    use crate::compiler::middle::local_id;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{
         Arm, Expr, ExprKind, FieldPat, Local, Magnitude, PatKind, Pattern,
     };
-    use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, VariantId};
+    use crate::compiler::semantics::types::{FuncIdx, Prim, Ty, VariantId};
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
 
@@ -484,19 +484,21 @@ mod tests {
     /// One function whose whole body is the match under test.
     fn matched(arms: Vec<Arm>) -> Program {
         let body = e(ExprKind::Match {
-            scrutinee: Box::new(e(ExprKind::Local(LocalId(0)))),
+            scrutinee: Box::new(e(ExprKind::Local(local_id(0)))),
             arms,
         });
         Program {
             funcs: vec![Func {
                 symbol: "f".to_string(),
                 debug_name: "f".to_string(),
-                params: vec![LocalId(0)],
-                locals: vec![Local {
+                params: vec![local_id(0)],
+                locals: [Local {
                     name: Name::new("s"),
                     ty: Ty::UNIT,
                     span: Span::default(),
-                }],
+                }]
+                .into_iter()
+                .collect(),
                 kind: FuncKind::Body(body),
                 ret: Ty::UNIT,
                 desc: None,

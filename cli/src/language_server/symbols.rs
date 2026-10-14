@@ -33,9 +33,6 @@ use std::path::Path;
 /// for a `trait` or `effect` item, under that item's name span.
 const TRAIT: &str = "every trait is declared by an item named at its span";
 
-/// Why a local's entry is always there: the checker numbered it from its body.
-const LOCAL: &str = "a checked local is numbered from the body that binds it";
-
 /// Why a field access names a field: the checker builds one only on a resolved
 /// struct type that has the field.
 const FIELD: &str = "a checked field access is on a struct that has the field";
@@ -730,7 +727,7 @@ pub fn references(analyzed: &Analyzed, symbol: &Symbol) -> Vec<Span> {
 }
 
 /// The locals a module-level `let` binds inside its value.
-pub(super) fn const_locals(checked: &Checked, id: ConstId) -> &[typed::Local] {
+pub(super) fn const_locals(checked: &Checked, id: ConstId) -> &typed::Locals {
     checked
         .const_locals
         .get(&id)
@@ -788,7 +785,7 @@ pub(super) fn same(a: &Symbol, b: &Symbol) -> bool {
 /// finds none and it is not reported: `a + b` is not a written call of `add`.
 pub(super) fn call_names(
     analyzed: &Analyzed,
-    locals: &[typed::Local],
+    locals: &typed::Locals,
     root: &typed::Expr,
     out: &mut impl FnMut(Span, Symbol),
 ) {
@@ -814,7 +811,7 @@ pub(super) fn call_names(
 fn body_names(
     analyzed: &Analyzed,
     tables: &Tables,
-    locals: &[typed::Local],
+    locals: &typed::Locals,
     root: &typed::Expr,
     out: &mut impl FnMut(Span, Symbol),
 ) {
@@ -1504,7 +1501,7 @@ fn within(span: Span, offset: u32) -> bool {
 
 fn narrowest<'a>(
     analyzed: &Analyzed,
-    locals: &[typed::Local],
+    locals: &typed::Locals,
     root: &'a typed::Expr,
     file: FileId,
     text: &str,
@@ -1542,7 +1539,7 @@ fn narrowest<'a>(
 /// variant by number: the name the source wrote is not in it.
 fn symbol_of_expr(
     analyzed: &Analyzed,
-    locals: &[typed::Local],
+    locals: &typed::Locals,
     expr: &typed::Expr,
     word: Option<&str>,
 ) -> Option<Symbol> {
@@ -1567,13 +1564,13 @@ fn symbol_of_expr(
 /// readers take their answer from it.
 fn expression_symbols(
     tables: &Tables,
-    locals: &[typed::Local],
+    locals: &typed::Locals,
     expr: &typed::Expr,
     out: &mut impl FnMut(String, Symbol),
 ) {
     match &expr.kind {
         ExprKind::Local(id) => {
-            let l = locals.get(id.index()).or_ice(LOCAL);
+            let l = locals.get(*id);
             out(
                 l.name.to_string(),
                 Symbol::Local {

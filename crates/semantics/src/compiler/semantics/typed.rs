@@ -6,6 +6,7 @@
 //! already a primitive operation or a trait method; a `match` still has
 //! patterns but every path in one is resolved.
 
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::types::{
     CtxTypeId, FnId, FuncIdx, LocalId, MethodId, Prim, TraitId, Ty, TyConId, VariantId,
@@ -43,10 +44,13 @@ pub struct Local {
     pub span: Span,
 }
 
+/// A body's locals, which mint its `LocalId`s.
+pub type Locals = Dense<LocalId, Local>;
+
 /// The body of a function, once checked.
 #[derive(Clone, Debug)]
 pub struct Body {
-    pub locals: Vec<Local>,
+    pub locals: Locals,
     /// Locals holding the parameters, in declaration order.
     pub params: Vec<LocalId>,
     pub expr: Expr,

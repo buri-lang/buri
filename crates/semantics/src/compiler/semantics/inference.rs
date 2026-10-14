@@ -485,7 +485,7 @@ pub struct Infer<'a, 'b> {
     /// A call's arguments are calls too, so this holds one per level of
     /// nesting.
     pub(crate) ty_lists: Vec<Vec<Ty>>,
-    pub(crate) locals: Vec<typed::Local>,
+    pub(crate) locals: typed::Locals,
     pub(crate) params: Vec<LocalId>,
     pub(crate) self_con: Option<TyConId>,
     /// Locals holding an effect-carrying value, which a lambda may not
@@ -637,7 +637,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             latest,
             scope_starts,
             ty_lists,
-            locals: Vec::new(),
+            locals: typed::Locals::new(),
             params: Vec::new(),
             self_con: None,
             effect_locals: std::collections::HashSet::default(),
@@ -928,20 +928,17 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     pub(crate) fn new_local(&mut self, name: &str, ty: Ty, span: Span) -> LocalId {
-        let id = LocalId(self.locals.len() as u32);
         self.locals.push(typed::Local {
             name: Name::new(name),
             ty,
             span,
-        });
-        id
+        })
     }
 
     /// A new local, bound in the innermost scope under the name it takes.
     pub(crate) fn bind_new(&mut self, name: Name, ty: Ty, span: Span) -> LocalId {
-        let id = LocalId(self.locals.len() as u32);
+        let id = self.locals.push(typed::Local { name, ty, span });
         self.push_binding(name_hash(&name), id);
-        self.locals.push(typed::Local { name, ty, span });
         id
     }
 
@@ -991,9 +988,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     pub(crate) fn local(&self, id: LocalId) -> &typed::Local {
-        self.locals
-            .get(id.index())
-            .or_ice("every LocalId was minted by new_local on this body")
+        self.locals.get(id)
     }
 
     pub(crate) fn local_ty(&self, id: LocalId) -> Ty {
