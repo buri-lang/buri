@@ -4,6 +4,7 @@
 
 from "core/json" import * as json;
 from "core/json" import { Json };
+from "core/list" import * as list;
 from "core/orderedmap" import * as orderedmap;
 from "core/proto" import { ProtoError };
 from "core/proto/any" import * as any;
@@ -19,6 +20,7 @@ from "core/proto/wrappers" import {
     BoolValue, BytesValue, DoubleValue, FloatValue, Int32Value, Int64Value, StringValue,
     UInt32Value, UInt64Value,
 };
+from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
@@ -336,6 +338,46 @@ test "a Struct or a ListValue refuses what ends early inside what it holds" {
         fields: orderedmap.of(ctx, [("a", number(0.0 / 0.0)), ("b", number(1.0))]),
     };
     assert.isTrue(structs.encodeStructJson(ctx, bad).isErr());
+}
+
+/// Eighty fields over 72 names from `start`, each holding its number plus
+/// `bump`, out of key order and eight of them repeated: a struct whose map is
+/// several nodes deep.
+fn many<C: Allocator>(ctx: C, start: Int, bump: Int): Struct {
+    let fields = list
+        .range(ctx, 0, 80)
+        .mapCtx(ctx, fn(c, i) => {
+            let k = start + i * 37 % 80 % 72;
+            (str.fromInt(c, k), number((k + bump).toF64()))
+        });
+    Struct { fields: orderedmap.of(ctx, fields) }
+}
+
+test "a Struct of many fields reads back from the wire and from JSON" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let s = many(ctx, 0, 0);
+    assert.equal(s.fields.length(), 72);
+    assert.equal(Struct { fields: orderedmap.of(ctx, s.fields.entries(ctx)) }, s);
+    assert.equal(orderedmap.of(ctx, list.empty<(Str, Value)>()).length(), 0);
+    assert.equal(structs.decodeStruct(ctx, structs.encodeStruct(ctx, s)), .Ok(s));
+    let doc = assert.ok(structs.encodeStructJson(ctx, s));
+    assert.equal(structs.decodeStructJson(ctx, doc), .Ok(s));
+    // Inside a value, which sizes it before writing it.
+    let held = Value { kind: .Some(.StructValue(s)) };
+    assert.equal(structs.decodeValue(ctx, structs.encodeValue(ctx, held)), .Ok(held));
+    // A field that arrives again replaces the one before it.
+    let again = Struct { fields: orderedmap.of(ctx, [("7", number(-1.0))]) };
+    let both = structs
+        .encodeStruct(ctx, s)
+        .concat(ctx, structs.encodeStruct(ctx, again));
+    let changed = Struct { fields: s.fields.insert(ctx, "7", number(-1.0)) };
+    assert.equal(structs.decodeStruct(ctx, both), .Ok(changed));
+    assert.notEqual(s, changed);
+    assert.notEqual(s, many(ctx, 1, 0));
+    assert.notEqual(s, many(ctx, 0, 1));
+    assert.notEqual(s, Struct { fields: s.fields.insert(ctx, "x", number(0.0)) });
 }
 
 test "NullValue reads null or its name, and nothing else" {

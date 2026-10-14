@@ -11,6 +11,7 @@ from "core/proto/field_mask" import { FieldMask };
 from "core/proto/struct" import { ListValue, NullValue, Struct, Value, Value_Kind };
 from "core/proto/timestamp" import { Timestamp };
 from "core/proto/wrappers" import { BoolValue, Int64Value, StringValue, UInt64Value };
+from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
@@ -512,4 +513,25 @@ test "a refusal one message down names the whole path" {
         envelope(ctx, Envelope { ..defaultEnvelope(), known: .Some(defaultKnown()) }),
         .Ok("{\"known\":{}}"),
     );
+}
+
+/// A span named 100 plus each of `keys`, each its name in seconds long.
+fn spans<C: Allocator>(ctx: C, keys: [Int]): Envelope {
+    let entries = keys.mapCtx(ctx, fn(c, k) => {
+        (str.fromInt(c, 100 + k), Duration { seconds: 100 + k, nanos: 0 })
+    });
+    Envelope { ..defaultEnvelope(), spans: orderedmap.of(ctx, entries) }
+}
+
+test "a map of many durations is written in key order however it was built" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // Eighty keys out of key order, eight of them repeated, and the same 72 in order.
+    let scattered = list.range(ctx, 0, 80).map(ctx, fn(i) => i * 37 % 80 % 72);
+    let written = assert.ok(envelope(ctx, spans(ctx, scattered)));
+    assert.equal(envelope(ctx, spans(ctx, list.range(ctx, 0, 72))), .Ok(written));
+    assert.isTrue(written.startsWith("{\"spans\":{\"100\":\"100s\",\"101\":\"101s\","));
+    assert.isTrue(written.endsWith(",\"171\":\"171s\"}}"));
+    assert.equal(envelope(ctx, spans(ctx, list.empty<Int>())), .Ok("{}"));
 }

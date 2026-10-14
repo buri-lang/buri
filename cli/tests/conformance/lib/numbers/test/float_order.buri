@@ -6,10 +6,12 @@
 // of a NaN that arithmetic makes depends on the CPU. `==` and the ordering
 // operators stay as SPEC 6.2 has them.
 
+from "core/list" import * as list;
 from "core/math" import * as math;
 from "core/number" import * as number;
 from "core/order" import { Order, Ordered, Show };
 from "core/orderedmap" import * as ordmap;
+from "core/orderedmap" import { OrderedMap };
 from "core/orderedset" import * as orderedset;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
@@ -264,4 +266,57 @@ test "tuples, options and lists of floats order by compare" {
     assert.equal([1.0, -0.0].compare([1.0, 0.0]), Order.Less);
     let map = ordmap.empty().insert(ctx, (0.0, 1), "a").insert(ctx, (-0.0, 1), "b");
     assert.equal(map.size, 2);
+}
+
+// --- Past one node -------------------------------------------------------------------
+
+/// Eighty floats over the 72 from -36.0 up, out of order and eight of them
+/// repeated: enough keys to make an ordered map several nodes deep.
+fn scattered<C: Allocator>(ctx: C): [F64] {
+    list.range(ctx, 0, 80).map(ctx, fn(i) => (i * 37 % 80 % 72 - 36).toF64())
+}
+
+test "an ordered map of many float keys holds them in compare's order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = scattered(ctx);
+    let inOrder = list.range(ctx, 0, 72).map(ctx, fn(i) => (i - 36).toF64());
+    let counted = xs.foldCtx(
+        ctx,
+        fn(c, m: OrderedMap<F64, Int>, x) => m.insert(c, x, 1),
+        ordmap.empty<F64, Int>(),
+    );
+    assert.equal(counted.size, 72);
+    assert.equal(counted.insert(ctx, 0.0, 2).size, 72);
+    let named = ordmap.of(ctx, xs.map(ctx, fn(x) => (x, "x")));
+    assert.equal(named.keys(ctx), inOrder);
+    assert.equal(ordmap.of(ctx, named.entries(ctx)).keys(ctx), inOrder);
+    assert.equal(ordmap.of(ctx, list.empty<(F64, Str)>()).size, 0);
+    assert.equal(named.get(-36.0), .Some("x"));
+    assert.equal(named.get(0.5), .None);
+    assert.equal(orderedset.distinct(ctx, xs).sort(ctx), inOrder);
+}
+
+test "an ordered map of many float-keyed structs and tuples holds every one" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let xs = scattered(ctx);
+    let readings = xs.foldCtx(
+        ctx,
+        fn(c, m: OrderedMap<Reading, Str>, x) => {
+            m.insert(c, Reading { value: x, at: 1 }, "r")
+        },
+        ordmap.empty<Reading, Str>(),
+    );
+    assert.equal(readings.size, 72);
+    assert.equal(readings.insert(ctx, Reading { value: 0.0, at: 1 }, "s").size, 72);
+    let pairs = xs.foldCtx(
+        ctx,
+        fn(c, m: OrderedMap<(F64, Int), Str>, x) => m.insert(c, (x, 1), "p"),
+        ordmap.empty<(F64, Int), Str>(),
+    );
+    assert.equal(pairs.size, 72);
+    assert.equal(pairs.insert(ctx, (0.0, 1), "q").size, 72);
 }
