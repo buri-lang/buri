@@ -707,7 +707,7 @@ mod tests {
             Some(e(ExprKind::Prim {
                 op: typed::PrimOp::Add,
                 prim: crate::compiler::semantics::types::Prim::I64,
-                args: vec![local(0), local(0)],
+                args: Box::new([local(0), local(0)]),
             })),
         );
         let main = func("main", vec![0], 1, Some(call(1, vec![local(0)])));

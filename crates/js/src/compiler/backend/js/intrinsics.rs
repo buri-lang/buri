@@ -253,16 +253,20 @@ impl<'a> Gen<'a> {
                     Expr::call(Expr::ident("String"), vec![v])
                 })
             }
-            "add" | "subtract" | "multiply" | "divide" | "remainder" | "negate" => {
+            "negate" => {
+                let neg = crate::compiler::semantics::typed::UnaryOp::Neg;
+                Some(self.prim_unary_pub(neg, from, a?))
+            }
+            "add" | "subtract" | "multiply" | "divide" | "remainder" => {
                 let op = match name {
                     "add" => crate::compiler::semantics::typed::PrimOp::Add,
                     "subtract" => crate::compiler::semantics::typed::PrimOp::Sub,
                     "multiply" => crate::compiler::semantics::typed::PrimOp::Mul,
                     "divide" => crate::compiler::semantics::typed::PrimOp::Div,
-                    "remainder" => crate::compiler::semantics::typed::PrimOp::Rem,
-                    _ => crate::compiler::semantics::typed::PrimOp::Neg,
+                    _ => crate::compiler::semantics::typed::PrimOp::Rem,
                 };
-                Some(self.prim_op_pub(op, from, args.to_vec()))
+                let (x, y) = two()?;
+                Some(self.prim_op_pub(op, from, [x, y]))
             }
             // The default `+` leaves overflow undefined; these are the
             // alternatives, spelled out where they are used. The bound is the

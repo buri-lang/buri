@@ -125,9 +125,9 @@ pub enum OptionOrResult {
     Result,
 }
 
-/// Operations the backend implements directly rather than through a trait.
-/// Every one of these is defined on two operands of the *same* type: there is
-/// no implicit promotion of any kind.
+/// Binary operations the backend implements directly rather than through a
+/// trait. Every one of these is defined on two operands of the *same* type:
+/// there is no implicit promotion of any kind.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PrimOp {
     /// Overflow and underflow of an integer operation are undefined; the
@@ -139,12 +139,9 @@ pub enum PrimOp {
     Div,
     /// `%` takes the sign of the dividend.
     Rem,
-    Neg,
     BitAnd,
     BitOr,
     BitXor,
-    BitNot,
-    Not,
     /// Structural equality, compiled per type.
     Eq,
     Ne,
@@ -152,6 +149,15 @@ pub enum PrimOp {
     Le,
     Gt,
     Ge,
+}
+
+/// Unary operations the backend implements directly, on one operand of the
+/// result's own type.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum UnaryOp {
+    Neg,
+    BitNot,
+    Not,
 }
 
 /// The declaration a checked body's direct call, or function-valued
@@ -336,7 +342,13 @@ pub enum ExprKind {
     Prim {
         op: PrimOp,
         prim: Prim,
-        args: Vec<Expr>,
+        args: Box<[Expr; 2]>,
+    },
+    /// [`ExprKind::Prim`]'s one-operand operations.
+    Unary {
+        op: UnaryOp,
+        prim: Prim,
+        arg: Box<Expr>,
     },
     /// Structural equality on a compound type, compiled per type.
     StructuralEq {
@@ -557,7 +569,6 @@ pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
         | ExprKind::EnumLit { args, .. }
         | ExprKind::Tuple(args)
         | ExprKind::Array(args)
-        | ExprKind::Prim { args, .. }
         | ExprKind::StructuralEq { args, .. }
         | ExprKind::Intrinsic { args, .. }
         // `Continue`'s arguments and `Loop`'s entries are children like any
@@ -568,6 +579,7 @@ pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
         | ExprKind::Continue { args, .. }
         | ExprKind::Closure { env: args, .. }
         | ExprKind::Loop { entries: args } => args.iter().for_each(f),
+        ExprKind::Prim { args, .. } => args.iter().for_each(f),
         ExprKind::StructUpdate { base, updates, .. } => {
             f(base);
             updates.iter().for_each(|(_, e)| f(e));
@@ -575,6 +587,7 @@ pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
         ExprKind::Field { base, .. }
         | ExprKind::TupleIndex { base, .. }
         | ExprKind::CtxGet { base, .. }
+        | ExprKind::Unary { arg: base, .. }
         | ExprKind::Try { base, .. } => f(base),
         ExprKind::Index { base, index, .. } => {
             f(base);
@@ -653,7 +666,6 @@ pub fn children_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
         | ExprKind::EnumLit { args, .. }
         | ExprKind::Tuple(args)
         | ExprKind::Array(args)
-        | ExprKind::Prim { args, .. }
         | ExprKind::StructuralEq { args, .. }
         | ExprKind::Intrinsic { args, .. }
         // `Continue`'s arguments and `Loop`'s entries are children like any
@@ -664,6 +676,7 @@ pub fn children_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
         | ExprKind::Continue { args, .. }
         | ExprKind::Closure { env: args, .. }
         | ExprKind::Loop { entries: args } => args.iter_mut().for_each(f),
+        ExprKind::Prim { args, .. } => args.iter_mut().for_each(f),
         ExprKind::StructUpdate { base, updates, .. } => {
             f(base);
             updates.iter_mut().for_each(|(_, e)| f(e));
@@ -671,6 +684,7 @@ pub fn children_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
         ExprKind::Field { base, .. }
         | ExprKind::TupleIndex { base, .. }
         | ExprKind::CtxGet { base, .. }
+        | ExprKind::Unary { arg: base, .. }
         | ExprKind::Try { base, .. } => f(base),
         ExprKind::Index { base, index, .. } => {
             f(base);

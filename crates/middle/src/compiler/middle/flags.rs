@@ -54,12 +54,12 @@ impl Word {
     }
 
     /// An operation on the word, answering another word.
-    pub fn op(&self, op: PrimOp, args: Vec<Expr>) -> Expr {
+    pub fn op(&self, op: PrimOp, a: Expr, b: Expr) -> Expr {
         Expr::new(
             ExprKind::Prim {
                 op,
                 prim: self.prim,
-                args,
+                args: Box::new([a, b]),
             },
             self.ty,
             self.span,
@@ -72,7 +72,7 @@ impl Word {
             ExprKind::Prim {
                 op,
                 prim: self.prim,
-                args: vec![a, b],
+                args: Box::new([a, b]),
             },
             self.bool_ty,
             self.span,
@@ -81,7 +81,7 @@ impl Word {
 
     /// `x.f`: whether field `i`'s bit is set.
     pub fn bit(&self, x: Expr, i: usize) -> Expr {
-        let masked = self.op(PrimOp::BitAnd, vec![x, self.lit(self.mask(i))]);
+        let masked = self.op(PrimOp::BitAnd, x, self.lit(self.mask(i)));
         self.test(PrimOp::Ne, masked, self.lit(0))
     }
 
@@ -117,7 +117,7 @@ impl Word {
         }
         let mut parts = parts.into_iter();
         let first = parts.next().unwrap_or_else(|| self.lit(0));
-        parts.fold(first, |acc, p| self.op(PrimOp::BitOr, vec![acc, p]))
+        parts.fold(first, |acc, p| self.op(PrimOp::BitOr, acc, p))
     }
 
     /// A struct literal, its field values in declaration order.
@@ -129,7 +129,7 @@ impl Word {
     /// new values.
     pub fn update(&self, base: Expr, updates: Vec<(usize, Expr)>) -> Expr {
         let cleared = updates.iter().fold(0, |m, (i, _)| m | self.mask(*i));
-        let kept = self.op(PrimOp::BitAnd, vec![base, self.lit(self.all() ^ cleared)]);
+        let kept = self.op(PrimOp::BitAnd, base, self.lit(self.all() ^ cleared));
         self.join(Some(kept), updates)
     }
 }

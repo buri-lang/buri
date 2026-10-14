@@ -3031,10 +3031,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let ospan = self.tree().span(operand);
                 self.unify_at(ospan, &e.ty, &b, "`!` takes a `Bool`");
                 return typed::Expr::new(
-                    typed::ExprKind::Prim {
-                        op: typed::PrimOp::Not,
+                    typed::ExprKind::Unary {
+                        op: typed::UnaryOp::Not,
                         prim: Prim::Bool,
-                        args: vec![e],
+                        arg: Box::new(e),
                     },
                     b,
                     span,
@@ -3048,10 +3048,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             tree::UnOp::Neg => {
                 if let Some(p) = prim.filter(|p| p.is_signed() || p.is_float()) {
                     typed::Expr::new(
-                        typed::ExprKind::Prim {
-                            op: typed::PrimOp::Neg,
+                        typed::ExprKind::Unary {
+                            op: typed::UnaryOp::Neg,
                             prim: p,
-                            args: vec![e],
+                            arg: Box::new(e),
                         },
                         ty,
                         span,
@@ -3063,10 +3063,10 @@ impl<'a, 'b> Infer<'a, 'b> {
             tree::UnOp::BitNot => {
                 if let Some(p) = prim.filter(|p| p.is_integer()) {
                     typed::Expr::new(
-                        typed::ExprKind::Prim {
-                            op: typed::PrimOp::BitNot,
+                        typed::ExprKind::Unary {
+                            op: typed::UnaryOp::BitNot,
                             prim: p,
-                            args: vec![e],
+                            arg: Box::new(e),
                         },
                         ty,
                         span,
@@ -3171,7 +3171,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     typed::ExprKind::Prim {
                         op: prim_op,
                         prim: p,
-                        args: vec![l, r],
+                        args: Box::new([l, r]),
                     },
                     ty,
                     span,
@@ -3207,7 +3207,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         typed::ExprKind::Prim {
                             op: p,
                             prim: pr,
-                            args: vec![l, r],
+                            args: Box::new([l, r]),
                         },
                         bool_ty,
                         span,
@@ -3218,10 +3218,10 @@ impl<'a, 'b> Infer<'a, 'b> {
                     call
                 } else {
                     typed::Expr::new(
-                        typed::ExprKind::Prim {
-                            op: typed::PrimOp::Not,
+                        typed::ExprKind::Unary {
+                            op: typed::UnaryOp::Not,
                             prim: Prim::Bool,
-                            args: vec![call],
+                            arg: Box::new(call),
                         },
                         bool_ty,
                         span,
@@ -3240,7 +3240,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         typed::ExprKind::Prim {
                             op: p,
                             prim: pr,
-                            args: vec![l, r],
+                            args: Box::new([l, r]),
                         },
                         bool_ty,
                         span,

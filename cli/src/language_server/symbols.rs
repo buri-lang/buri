@@ -28,9 +28,6 @@ use crate::parsing::lexer::TokenKind;
 use crate::parsing::tree::{self, ImportClause, Item};
 use std::path::Path;
 
-/// Why a module's scope is always there: the checker sizes its scopes to the
-/// modules it loaded.
-
 /// Why a variant's entry is always there: the checker numbered it from its enum.
 const VARIANT: &str = "a checked variant is numbered from its own enum";
 

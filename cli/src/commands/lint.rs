@@ -4200,9 +4200,7 @@ fn prim_operation(e: &typed::Expr) -> Option<Operands<'_>> {
     let typed::ExprKind::Prim { op, prim, args } = &tail_of(e).kind else {
         return None;
     };
-    let [lhs, rhs] = args.as_slice() else {
-        return None;
-    };
+    let [lhs, rhs] = &**args;
     Some((*op, *prim, lhs, rhs))
 }
 

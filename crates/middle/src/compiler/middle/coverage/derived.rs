@@ -569,7 +569,7 @@ impl Shadows<'_> {
                 ExprKind::Prim {
                     op: PrimOp::Eq,
                     prim: *p,
-                    args: vec![x, y],
+                    args: Box::new([x, y]),
                 },
                 self.bool_ty,
                 span,
