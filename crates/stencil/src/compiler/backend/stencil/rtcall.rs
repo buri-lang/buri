@@ -916,10 +916,8 @@ impl Jit<'_> {
             .filter(|i| call.index != Some(*i))
             .collect();
         for ((off, (from, _)), i) in ctx_at.iter().copied().zip(supplied).zip(ctx_params) {
+            // A zero-width context moves nothing.
             let w = widths.get(i).copied().unwrap_or(0);
-            if w == 0 {
-                continue;
-            }
             self.mv(st.frame.size + off, from, round8(w));
         }
         let state = st.frame.size;
@@ -1083,9 +1081,7 @@ impl Jit<'_> {
             .zip(ctx_at.first().copied());
         if let Some(((from, _), off)) = kept {
             let w = widths.first().copied().unwrap_or(0);
-            if w > 0 {
-                self.mv(state + off, from, round8(w));
-            }
+            self.mv(state + off, from, round8(w));
         }
         let thunk = self.helper(super::glue::Helper::Entry {
             params: params.to_vec(),
