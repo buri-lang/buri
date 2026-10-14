@@ -182,36 +182,19 @@ fn runtime_declarations(pretty: bool) -> &'static [RuntimeDecl] {
 }
 
 fn scan_runtime_names() -> HashSet<String> {
-    let mut out = HashSet::default();
     let src = crate::compiler::backend::js::runtime_source();
-    let bytes = src.as_bytes();
-    // A byte scan: the runtime is mostly ASCII but its comments are not, so
-    // this never slices the string at a position it has not checked.
-    for i in 0..bytes.len() {
-        let rest = bytes.get(i..).or_ice("`i` is below the length");
-        for kw in [
-            b"function $".as_slice(),
-            b"const $".as_slice(),
-            b"let $".as_slice(),
-        ] {
-            if rest.starts_with(kw) {
-                // The keyword ends with the `$` that begins the name.
-                let start = i.saturating_add(kw.len()).saturating_sub(1);
-                let mut j = start;
-                while bytes
-                    .get(j)
-                    .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'$')
-                {
-                    j = j.saturating_add(1);
-                }
-                let name = src
-                    .get(start..j)
-                    .or_ice("a declaration's name is the ASCII the scan just stepped over");
-                out.insert(name.to_string());
-            }
-        }
-    }
-    out
+    // Each piece after a keyword starts with the declared name, past its `$`.
+    ["function $", "const $", "let $"]
+        .into_iter()
+        .flat_map(|kw| src.split(kw).skip(1))
+        .map(|rest| {
+            let name: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '$')
+                .collect();
+            format!("${name}")
+        })
+        .collect()
 }
 
 impl<'a> Gen<'a> {
@@ -482,12 +465,19 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     // Each function on a worker, with a generator of its own; see
     // [`Gen::function`] for what it hands back and [`Gen::adopt`] for how the
     // constants it shared join the program's.
-    let defined = defined_functions(program);
+    let defined = defined_functions(program, &sharing);
     let emitted: Vec<Emitted> = if javascript::worth_workers(defined.len()) {
-        crate::parallel::map_items_with(&defined, || g.worker(), |w, _, &(fi, f)| w.function(fi, f))
+        crate::parallel::map_items_with(
+            &defined,
+            || g.worker(),
+            |w, _, &(fi, f, plan)| w.function(fi, f, plan),
+        )
     } else {
         let mut w = g.worker();
-        defined.iter().map(|&(fi, f)| w.function(fi, f)).collect()
+        defined
+            .iter()
+            .map(|&(fi, f, plan)| w.function(fi, f, plan))
+            .collect()
     };
     for e in emitted {
         stmts.push(g.adopt(e));
@@ -513,12 +503,11 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     if let ProgramRoots::Main(entry) = &program.roots {
         let entry = entry.index();
         // `.Ok(())` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
-        let sym = program
+        let f = program
             .funcs
             .get(entry)
-            .or_ice("the entry point is one of the functions monomorphization emitted")
-            .symbol
-            .clone();
+            .or_ice("the entry point is one of the functions monomorphization emitted");
+        let sym = f.symbol.clone();
         roots.push(sym.clone());
         // **What an entry *is* is decided by its platform.** An entry with a
         // `js` file is called by that file; everything else runs itself and
@@ -527,10 +516,6 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
         if let Some(name) = &program.hosted.export {
             // A repository platform's entry with a `js` file: the file calls
             // it, so the artifact hands it over rather than starting it.
-            let f = program
-                .funcs
-                .get(entry)
-                .or_ice("the entry point is one of the functions monomorphization emitted");
             stmts.push(g.hosted_export(name, &sym, f));
             roots.push(String::from(HOSTED_PROGRAM));
             if program.hosted.ui {
@@ -585,13 +570,21 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
 /// entry. `Str`'s `compare` is one, reached directly and through `Ordered`.
 /// Each would print as a function of that name, and a module that declares one
 /// name twice is a `SyntaxError` under node. One declaration answers both.
-fn defined_functions(program: &Program) -> Vec<(usize, &monomorphize::Func)> {
+fn defined_functions<'p>(
+    program: &'p Program,
+    sharing: &'p rc::Plan,
+) -> Vec<(usize, &'p monomorphize::Func, &'p rc::FuncPlan)> {
     let mut intrinsics: HashSet<&str> = HashSet::default();
+    // `rc::analyze` plans each function in `program.funcs` order.
     program
         .funcs
         .iter()
+        .zip(&sharing.funcs)
         .enumerate()
-        .filter(|(_, f)| !matches!(f.kind, FuncKind::Intrinsic(_)) || intrinsics.insert(&f.symbol))
+        .filter(|(_, (f, _))| {
+            !matches!(f.kind, FuncKind::Intrinsic(_)) || intrinsics.insert(&f.symbol)
+        })
+        .map(|(fi, (f, plan))| (fi, f, plan))
         .collect()
 }
 
@@ -644,8 +637,8 @@ impl<'a> Gen<'a> {
         }
     }
 
-    /// Emits `f`, the function in slot `fi`.
-    fn function(&mut self, fi: usize, f: &monomorphize::Func) -> Emitted {
+    /// Emits `f`, the function in slot `fi`, whose sharing plan is `plan`.
+    fn function(&mut self, fi: usize, f: &monomorphize::Func, plan: &rc::FuncPlan) -> Emitted {
         self.consts.clear();
         self.const_index.clear();
         self.func = FnState::for_locals(&f.locals);
@@ -655,11 +648,6 @@ impl<'a> Gen<'a> {
         // the host hands back, and an `async` function returns that through
         // the promise its caller is already awaiting.
         let is_async = self.parks(fi);
-        let plan = self
-            .sharing
-            .funcs
-            .get(fi)
-            .or_ice("the sharing plan has a row per function");
         self.func.marks = self.marks_for(f, plan);
         let mut params: Vec<String> = f.params.iter().map(|p| self.local_name_of(p)).collect();
 
@@ -747,24 +735,17 @@ impl<'a> Gen<'a> {
         // The worker's name for constant `i` is `const_name(i)`. A constant
         // may hold an earlier one, so each is renamed before it is interned —
         // interning compares printed text.
-        let mut names: Vec<String> = Vec::with_capacity(consts.len());
-        let rename = |names: &[String], name: &mut String| {
-            let Some(i) = name
-                .strip_prefix("$k")
-                .and_then(|n| n.parse::<usize>().ok())
-            else {
-                return;
-            };
-            name.clone_from(
-                names
-                    .get(i)
-                    .or_ice("a constant holds only constants shared before it"),
-            );
+        let mut names: HashMap<String, String> = HashMap::default();
+        let rename = |names: &HashMap<String, String>, name: &mut String| {
+            if let Some(shared) = names.get(name.as_str()) {
+                name.clone_from(shared);
+            }
         };
         // Each passed `intern`'s test on the worker, so it is shared here too.
-        for mut c in consts {
+        for (i, mut c) in consts.into_iter().enumerate() {
             javascript::rename_idents_in_expr(&mut c, &mut |n| rename(&names, n));
-            names.push(self.share(c));
+            let shared = self.share(c);
+            names.insert(const_name(i), shared);
         }
         javascript::rename_idents(std::slice::from_mut(&mut decl), &mut |n| rename(&names, n));
         decl
@@ -806,13 +787,9 @@ fn split_chunks(
     let mut moved: Vec<(String, Vec<usize>)> = Vec::new();
     for (n, chunk) in program.chunks.iter().enumerate() {
         for member in &chunk.members {
-            let f = program
-                .funcs
-                .get(*member)
-                .or_ice("a chunk member is a function slot");
-            match moved.iter_mut().find(|(s, _)| *s == f.symbol) {
+            match moved.iter_mut().find(|(s, _)| s == member) {
                 Some((_, chunks)) => chunks.push(n),
-                None => moved.push((f.symbol.clone(), vec![n])),
+                None => moved.push((member.clone(), vec![n])),
             }
         }
     }
@@ -824,25 +801,19 @@ fn split_chunks(
             .unwrap_or_default()
     };
 
-    let mut kept: Vec<Stmt> = Vec::new();
-    let mut bodies: Vec<Vec<Stmt>> = vec![Vec::new(); program.chunks.len()];
-    for s in stmts {
-        let name = match &s {
-            Stmt::Func { name, .. } => name.clone(),
-            _ => String::new(),
-        };
-        let mine = chunk_of(&name);
-        if mine.is_empty() {
-            kept.push(s);
-            continue;
-        }
-        for n in mine {
-            let body = bodies
-                .get_mut(*n)
-                .or_ice("a chunk number counts the program's chunks");
-            body.push(s.clone());
-        }
-    }
+    let chunks_of = |s: &Stmt| match s {
+        Stmt::Func { name, .. } => chunk_of(name),
+        _ => &[],
+    };
+    let (moving, mut kept): (Vec<Stmt>, Vec<Stmt>) =
+        stmts.into_iter().partition(|s| !chunks_of(s).is_empty());
+    let bodies = (0..program.chunks.len()).map(|n| {
+        moving
+            .iter()
+            .filter(|s| chunks_of(s).contains(&n))
+            .cloned()
+            .collect::<Vec<Stmt>>()
+    });
 
     // What the artifact declares, so that a name a chunk uses can be sorted
     // into "the artifact has it" and "the chunk brought it".
@@ -1218,27 +1189,33 @@ impl<'a> Gen<'a> {
 
         // Built once against placeholders, purely to see what the expansion
         // does with each argument.
-        let probe: Vec<Expr> = (0..args.len())
-            .map(|i| Expr::ident(format!("$$arg{i}")))
-            .collect();
+        let names: Vec<String> = (0..args.len()).map(|i| format!("$$arg{i}")).collect();
+        let probe: Vec<Expr> = names.iter().map(|n| Expr::ident(n.clone())).collect();
         let shape = self.intrinsic(index, &key, &probe, callee)?;
         if js_size(&shape) > MAX_INLINE_INTRINSIC {
             return None;
         }
 
-        let mut seen = ArgUse::new(args.len());
-        survey_args(&shape, false, &mut seen);
-        let mut last = 0usize;
-        for i in seen.order.iter().copied() {
-            let arg = args.get(i).or_ice(PLACEHOLDER);
-            let facts = seen.args.get(i).or_ice(PLACEHOLDER);
+        let mut reads = Vec::new();
+        survey_args(&shape, false, &mut reads);
+        // Where the expansion reads each argument that isn't a literal: at
+        // most once, unconditionally, and after the argument before it.
+        let mut next = 0usize;
+        for (name, arg) in names.iter().zip(args) {
             if arg.is_pure_literal() {
                 continue;
             }
-            if facts.count > 1 || facts.conditional || i < last {
-                return None;
+            let at: Vec<(usize, bool)> = reads
+                .iter()
+                .enumerate()
+                .filter(|(_, (read, _))| read == name)
+                .map(|(k, &(_, conditional))| (k, conditional))
+                .collect();
+            match at.as_slice() {
+                [] => {}
+                [(k, false)] if *k >= next => next = k.saturating_add(1),
+                _ => return None,
             }
-            last = i;
         }
 
         self.intrinsic(index, &key, args, callee)
@@ -1261,8 +1238,6 @@ fn operand(args: &mut Vec<Expr>) -> Expr {
 
 const BINARY_ARITY: &str = "a binary primitive operation reaches the backend with two operands";
 const UNARY_ARITY: &str = "a unary primitive operation reaches the backend with one operand";
-const PLACEHOLDER: &str = "a `$$argN` placeholder names one of the arguments it was built for";
-const OR_ALTERNATIVES: &str = "the parser builds an or-pattern from at least two alternatives";
 
 /// A call worth replacing is small; anything larger is cheaper as a call.
 /// `signum` and the checked-arithmetic expansions sit above this deliberately.
@@ -1310,46 +1285,11 @@ fn env_name(n: usize) -> String {
 /// calls it for every chunk and a name per chunk would be a name to look up.
 const BIND: &str = "$bind";
 
-/// Where one placeholder argument ended up in an expansion.
-#[derive(Clone, Copy, Default)]
-struct ArgFacts {
-    count: usize,
-    /// Whether the argument appears only on one side of a conditional, where
-    /// it might not be evaluated.
-    conditional: bool,
-}
-
-/// Records where an expansion put each placeholder argument.
-///
-/// `counts` and `conditional` were two `Vec`s that had to be the same length,
-/// with a `#[derive(Default)]` producing an all-empty value that is invalid
-/// for any non-zero arity; `survey_args` bounds-checked one and then indexed
-/// the other. One row per argument, and one constructor that takes the arity.
-struct ArgUse {
-    args: Vec<ArgFacts>,
-    /// The order the arguments are reached in.
-    order: Vec<usize>,
-}
-
-impl ArgUse {
-    fn new(arity: usize) -> ArgUse {
-        ArgUse {
-            args: vec![ArgFacts::default(); arity],
-            order: Vec::new(),
-        }
-    }
-}
-
-/// Records where an expansion put each placeholder argument.
-fn survey_args(e: &Expr, under_cond: bool, out: &mut ArgUse) {
+/// Every name an expansion reads, in evaluation order, and whether a branch
+/// decides if the read runs.
+fn survey_args<'e>(e: &'e Expr, under_cond: bool, out: &mut Vec<(&'e str, bool)>) {
     if let Expr::Ident(name) = e {
-        if let Some(n) = name.strip_prefix("$$arg") {
-            let i = n.parse::<usize>().or_ice(PLACEHOLDER);
-            let a = out.args.get_mut(i).or_ice(PLACEHOLDER);
-            a.count = a.count.saturating_add(1);
-            a.conditional |= under_cond;
-            out.order.push(i);
-        }
+        out.push((name, under_cond));
         return;
     }
     match e {
@@ -2249,9 +2189,10 @@ impl<'a> Gen<'a> {
     /// decides which alternative matched, so they must already exist.
     fn hoist_or_declarations(&mut self, pattern: &typed::Pattern, out: &mut Vec<Stmt>) {
         match &pattern.kind {
-            PatKind::Or(alts) => {
+            // The first alternative's locals, which every alternative binds.
+            PatKind::Or(_) => {
                 let mut declared = Vec::new();
-                alts.first().or_ice(OR_ALTERNATIVES).binds(&mut declared);
+                pattern.binds(&mut declared);
                 for local in declared {
                     let name = self.local_name_of(&local);
                     out.push(Stmt::Var {
@@ -2288,9 +2229,9 @@ impl<'a> Gen<'a> {
     /// when exhaustiveness says it is.
     fn test_assigns(pattern: &typed::Pattern) -> bool {
         match &pattern.kind {
-            PatKind::Or(alts) => {
+            PatKind::Or(_) => {
                 let mut bound = Vec::new();
-                alts.first().or_ice(OR_ALTERNATIVES).binds(&mut bound);
+                pattern.binds(&mut bound);
                 !bound.is_empty()
             }
             PatKind::Bind { sub: Some(s), .. } => Self::test_assigns(s),
@@ -3643,8 +3584,8 @@ mod tests {
         Expr::ident(format!("$$arg{i}"))
     }
 
-    fn survey(e: &Expr, n: usize) -> ArgUse {
-        let mut out = ArgUse::new(n);
+    fn survey(e: &Expr) -> Vec<(&str, bool)> {
+        let mut out = Vec::new();
         survey_args(e, false, &mut out);
         out
     }
@@ -3654,13 +3595,15 @@ mod tests {
     #[test]
     fn a_plain_forwarder_uses_each_argument_once_in_order() {
         let e = Expr::call(Expr::ident("$str_split"), vec![arg(0), arg(1), arg(2)]);
-        let u = survey(&e, 3);
         assert_eq!(
-            u.args.iter().map(|a| a.count).collect::<Vec<_>>(),
-            vec![1, 1, 1]
+            survey(&e),
+            vec![
+                ("$str_split", false),
+                ("$$arg0", false),
+                ("$$arg1", false),
+                ("$$arg2", false)
+            ]
         );
-        assert!(u.args.iter().all(|a| !a.conditional));
-        assert_eq!(u.order, vec![0, 1, 2]);
     }
 
     /// `signum` names its argument three times. Pasting it at a call site
@@ -3677,24 +3620,24 @@ mod tests {
                 v,
             ),
         );
-        let u = survey(&e, 1);
-        assert!(u.args[0].count > 1);
+        let reads = survey(&e);
+        assert_eq!(reads.iter().filter(|(n, _)| *n == "$$arg0").count(), 3);
     }
 
     /// An argument under a `?:` branch might not run at all.
     #[test]
     fn an_argument_under_a_branch_is_conditional() {
         let e = Expr::cond(Expr::ident("c"), arg(0), Expr::Num(0.0));
-        assert!(survey(&e, 1).args[0].conditional);
+        assert_eq!(survey(&e), vec![("c", false), ("$$arg0", true)]);
     }
 
     /// So is the right operand of a short circuit.
     #[test]
     fn an_argument_after_a_short_circuit_is_conditional() {
         let e = Expr::bin(BinOp::And, Expr::ident("c"), arg(0));
-        assert!(survey(&e, 1).args[0].conditional);
+        assert_eq!(survey(&e), vec![("c", false), ("$$arg0", true)]);
         let e = Expr::bin(BinOp::And, arg(0), Expr::ident("c"));
-        assert!(!survey(&e, 1).args[0].conditional);
+        assert_eq!(survey(&e), vec![("$$arg0", false), ("c", true)]);
     }
 
     /// Evaluation order is specified, so an expansion that reads its second
@@ -3702,7 +3645,10 @@ mod tests {
     #[test]
     fn arguments_out_of_order_are_seen() {
         let e = Expr::call(Expr::ident("$f"), vec![arg(1), arg(0)]);
-        assert_eq!(survey(&e, 2).order, vec![1, 0]);
+        assert_eq!(
+            survey(&e),
+            vec![("$f", false), ("$$arg1", false), ("$$arg0", false)]
+        );
     }
 
     /// The `Await` suffix, in both directions.

@@ -21,7 +21,7 @@ use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{
     self, AstRef, ConstId, ContextDeclId, FnId, ModuleId, Tables, TraitId, Ty, TyConId,
 };
-use crate::diagnostics::{invariant, FileId, Invariant as _, Span};
+use crate::diagnostics::{FileId, Invariant as _, Span};
 use crate::formatting;
 use crate::parsing::flat::{self, ExprId, ExprView, Location, TypeId, TypeView};
 use crate::parsing::lexer::TokenKind;
@@ -895,11 +895,6 @@ fn after_receiver(expr: &typed::Expr) -> u32 {
 /// an operator standing for a trait method, a leading-dot variant standing for
 /// its enum — is not a reference to it, and yields nothing.
 fn name_span(analyzed: &Analyzed, span: Span, from: u32, name: &str) -> Option<Span> {
-    invariant(
-        !span.is_none(),
-        "an expression that names something is written somewhere",
-    );
-    invariant(!name.is_empty(), "a name is not empty");
     let text = &analyzed.session.map.get(span.file).text;
     let start = (from.max(span.start) as usize).min(text.len());
     let end = (span.end as usize).min(text.len());

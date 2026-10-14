@@ -343,7 +343,7 @@ pub fn numeric_key(key: &str) -> bool {
 }
 
 /// Which loop a closure-taking `list.*` key is.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Step {
     Map,
     Filter,
@@ -434,6 +434,7 @@ pub fn list_call(key: &str) -> Option<ListCall> {
 // take a closure.
 
 /// One runtime-driven closure-taking key.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct StepCall {
     /// Which loop it is, in the vocabulary [`list_call`] already has: the same
     /// operation reached a second way, so it is named the same way.

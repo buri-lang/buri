@@ -2206,10 +2206,9 @@ impl FnLower<'_> {
             // mutable slot in an IR without block arguments, and it is one
             // line of `Target` here.
             PatKind::Or(alts) => {
+                // An or-pattern binds what its first alternative does.
                 let mut binds: Vec<LocalId> = Vec::new();
-                alts.first()
-                    .or_ice("an or-pattern has alternatives")
-                    .binds(&mut binds);
+                pat.binds(&mut binds);
                 // The merge takes the first alternative's locals, so one that
                 // bound locals of its own would jump carrying a value defined
                 // in a block that does not dominate the read. The checker

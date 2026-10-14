@@ -361,8 +361,8 @@ pub enum Extra {
     /// it ([`Arg::Release`], [`Arg::Equal`]): a store the runtime keeps and
     /// later writes over.
     Owned,
-    /// [`Arg::Step`]'s four words.
-    Step,
+    /// [`Arg::Step`]'s four words, for the closure `step_call` places.
+    Step(crate::compiler::backend::intrinsic_keys::StepCall),
     /// [`Arg::Compute`]'s seven words.
     Compute,
     /// [`Arg::Walk`]'s three words.
@@ -422,8 +422,10 @@ impl Entry {
     /// What the frame-threaded backend appends after the flattened arguments.
     pub fn extra(&self) -> Extra {
         let has = |a| self.args.contains(&a);
-        if has(Step) {
-            Extra::Step
+        // A row has an `Arg::Step` exactly where `step_call` has a row
+        // (`the_step_is_the_last_argument`).
+        if let Some(call) = crate::compiler::backend::intrinsic_keys::step_call(self.key) {
+            Extra::Step(call)
         } else if has(Compute) {
             Extra::Compute
         } else if has(Walk) {

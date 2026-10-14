@@ -93,11 +93,10 @@ impl RuntimeDecl {
     pub fn new(name: String, src: String) -> RuntimeDecl {
         let mut seen: HashSet<&str> = HashSet::default();
         let mut idents = Vec::new();
-        for (start, end) in raw_ident_ranges(&src) {
-            let ident = src.get(start..end).or_ice(IDENT_RANGE);
+        for (start, ident) in raw_ident_runs(&src) {
             if seen.insert(ident) {
                 // The runtime is a few hundred kilobytes, far inside `u32`.
-                idents.push((start as u32, end as u32));
+                idents.push((start as u32, (start + ident.len()) as u32));
             }
         }
         RuntimeDecl {
@@ -1862,35 +1861,45 @@ fn equality_test(e: &Expr) -> Option<(&Expr, &Expr)> {
     Some((lhs, rhs))
 }
 
-/// What every `Some` out of [`case_labels`] holds: it answers with the labels
-/// of a test it recognised, and a test it recognised has at least one.
-const LABELS_NONEMPTY: &str = "case_labels answers `Some` only with a label in hand";
+/// The literals one arm accepts, in order: never none.
+struct Labels<'a> {
+    rest: Vec<&'a Expr>,
+    last: &'a Expr,
+}
 
-/// Why a chain of at least [`MIN_SWITCH_CASES`] arms has a discriminant: the
-/// first `case_labels` that answered set it.
-const DISC_SET: &str = "the first arm's labels name the discriminant";
+impl<'a> Labels<'a> {
+    fn iter(&self) -> impl Iterator<Item = &'a Expr> + '_ {
+        self.rest.iter().copied().chain([self.last])
+    }
+}
 
-/// The literals one arm accepts: `x === 1` gives one, `x === 1 || x === 2`
-/// gives two, all against the same discriminant.
-fn case_labels<'a>(test: &'a Expr, disc: &mut Option<&'a Expr>) -> Option<Vec<&'a Expr>> {
+/// The discriminant and literals one arm accepts: `x === 1` gives one,
+/// `x === 1 || x === 2` gives two, all against the same discriminant, which is
+/// `disc` where the arm isn't the first.
+fn case_labels<'a>(test: &'a Expr, disc: Option<&'a Expr>) -> Option<(&'a Expr, Labels<'a>)> {
     if let Expr::Binary {
         op: BinOp::Or,
         lhs,
         rhs,
     } = test
     {
-        let mut out = case_labels(lhs, disc)?;
-        out.extend(case_labels(rhs, disc)?);
-        return Some(out);
+        let (d, mut out) = case_labels(lhs, disc)?;
+        let (d, more) = case_labels(rhs, Some(d))?;
+        out.rest.push(out.last);
+        out.rest.extend(more.rest);
+        out.last = more.last;
+        return Some((d, out));
     }
     let (d, lit) = equality_test(test)?;
     match disc {
         Some(seen) if !seen.same_as(d) => None,
-        Some(_) => Some(vec![lit]),
-        None => {
-            *disc = Some(d);
-            Some(vec![lit])
-        }
+        _ => Some((
+            d,
+            Labels {
+                rest: Vec::new(),
+                last: lit,
+            },
+        )),
     }
 }
 
@@ -1902,18 +1911,20 @@ fn case_labels<'a>(test: &'a Expr, disc: &mut Option<&'a Expr>) -> Option<Vec<&'
 /// `return` form is taken, because there each case is a `return` and needs no
 /// `break`, so the switch is barely longer than the chain it replaces.
 fn cond_chain_to_switch(s: Stmt) -> Stmt {
-    let Stmt::Return(Some(top @ Expr::Cond { .. })) = &s else {
+    let Stmt::Return(Some(Expr::Cond { test, cons, alt })) = &s else {
+        return s;
+    };
+    let Some((disc, labels)) = case_labels(test, None) else {
         return s;
     };
 
-    let mut disc: Option<&Expr> = None;
-    let mut arms: Vec<(Vec<&Expr>, &Expr)> = Vec::new();
-    let mut cursor = top;
+    let mut arms: Vec<(Labels, &Expr)> = vec![(labels, cons)];
+    let mut cursor = &**alt;
     let default: &Expr = loop {
         let Expr::Cond { test, cons, alt } = cursor else {
             break cursor;
         };
-        let Some(labels) = case_labels(test, &mut disc) else {
+        let Some((_, labels)) = case_labels(test, Some(disc)) else {
             return s;
         };
         arms.push((labels, cons));
@@ -1922,19 +1933,17 @@ fn cond_chain_to_switch(s: Stmt) -> Stmt {
     if arms.len() < MIN_SWITCH_CASES {
         return s;
     }
-    let disc = disc.or_ice(DISC_SET);
     if !distinct(&arms) {
         return s;
     }
 
     let mut cases: Vec<(Option<Expr>, Vec<Stmt>)> = Vec::new();
     for (labels, value) in &arms {
-        let (last, rest) = labels.split_last().or_ice(LABELS_NONEMPTY);
-        for l in rest {
+        for l in &labels.rest {
             cases.push((Some((*l).clone()), Vec::new()));
         }
         cases.push((
-            Some((*last).clone()),
+            Some(labels.last.clone()),
             vec![Stmt::Return(Some((*value).clone()))],
         ));
     }
@@ -1950,10 +1959,10 @@ fn cond_chain_to_switch(s: Stmt) -> Stmt {
 ///
 /// One table lookup per label: a match over a few thousand variants used to
 /// compare every label against every one before it.
-fn distinct<T>(arms: &[(Vec<&Expr>, T)]) -> bool {
+fn distinct<T>(arms: &[(Labels, T)]) -> bool {
     let mut seen: HashSet<LiteralKey<'_>> = HashSet::default();
     for (labels, _) in arms {
-        for l in labels {
+        for l in labels.iter() {
             // A `NaN` label is keyed by its bits, so two of them keep the chain.
             // No pattern can be one: a float pattern is a literal.
             match LiteralKey::of(l) {
@@ -2001,34 +2010,32 @@ impl LiteralKey<'_> {
 
 /// Rewrites an `if`/`else if` chain over one discriminant into a `switch`.
 fn to_switch(s: Stmt) -> Stmt {
-    let Stmt::If { .. } = &s else {
+    let Stmt::If { cond, then, else_ } = &s else {
         return cond_chain_to_switch(s);
+    };
+    let Some((disc, labels)) = case_labels(cond, None) else {
+        return s;
     };
 
     // Walk the chain, collecting each arm's labels, and stop at whatever the
     // final `else` turns out to be.
-    let mut disc: Option<&Expr> = None;
-    let mut arms: Vec<(Vec<&Expr>, &Vec<Stmt>)> = Vec::new();
-    let mut cursor = &s;
+    let mut arms: Vec<(Labels, &Vec<Stmt>)> = vec![(labels, then)];
+    let mut cursor = else_;
     let default: &[Stmt] = loop {
-        match cursor {
-            Stmt::If { cond, then, else_ } => {
-                let Some(labels) = case_labels(cond, &mut disc) else {
+        match cursor.as_slice() {
+            [Stmt::If { cond, then, else_ }] => {
+                let Some((_, labels)) = case_labels(cond, Some(disc)) else {
                     return s;
                 };
                 arms.push((labels, then));
-                match else_.as_slice() {
-                    [next @ Stmt::If { .. }] => cursor = next,
-                    rest => break rest,
-                }
+                cursor = else_;
             }
-            _ => break &[],
+            rest => break rest,
         }
     };
     if arms.len() < MIN_SWITCH_CASES {
         return s;
     }
-    let disc = disc.or_ice(DISC_SET);
 
     if !distinct(&arms) {
         return s;
@@ -2036,13 +2043,12 @@ fn to_switch(s: Stmt) -> Stmt {
 
     let mut cases: Vec<(Option<Expr>, Vec<Stmt>)> = Vec::new();
     for (labels, body) in &arms {
-        let (last, rest) = labels.split_last().or_ice(LABELS_NONEMPTY);
         // Several literals reaching one body are several empty cases falling
         // through into it.
-        for l in rest {
+        for l in &labels.rest {
             cases.push((Some((*l).clone()), Vec::new()));
         }
-        cases.push((Some((*last).clone()), switch_body(body)));
+        cases.push((Some(labels.last.clone()), switch_body(body)));
     }
     if !default.is_empty() {
         cases.push((None, switch_body(default)));
@@ -2559,8 +2565,16 @@ fn resolve_map(map: &HashMap<String, Expr>, facts: &LocalFacts) -> HashMap<Strin
     let mut done: HashMap<String, Expr> = HashMap::default();
     let mut taken: HashSet<String> = HashSet::default();
     let mut visiting: HashSet<String> = HashSet::default();
-    for name in map.keys() {
-        resolve_one(name, map, &movable, &mut done, &mut taken, &mut visiting);
+    for (name, raw) in map {
+        resolve_one(
+            name,
+            raw,
+            map,
+            &movable,
+            &mut done,
+            &mut taken,
+            &mut visiting,
+        );
     }
     done
 }
@@ -2569,6 +2583,7 @@ fn resolve_map(map: &HashMap<String, Expr>, facts: &LocalFacts) -> HashMap<Strin
 /// movable and its one reader has already taken it.
 fn resolve_one(
     name: &str,
+    raw: &Expr,
     map: &HashMap<String, Expr>,
     movable: &HashSet<String>,
     done: &mut HashMap<String, Expr>,
@@ -2578,10 +2593,7 @@ fn resolve_one(
     if done.contains_key(name) || taken.contains(name) {
         return;
     }
-    let raw = map
-        .get(name)
-        .cloned()
-        .or_ice("every name resolved is a key of the map");
+    let raw = raw.clone();
     // A binding cannot name itself — that would not have run — but a bound is
     // cheaper than trusting it.
     if !visiting.insert(name.to_string()) {
@@ -2591,14 +2603,13 @@ fn resolve_one(
     let mut reads = HashSet::default();
     reads_of(&raw, &mut reads);
     // Sorted, so the order values are resolved in cannot depend on hash order.
-    let mut reads: Vec<String> = reads
+    let mut reads: Vec<(&String, &Expr)> = reads
         .into_iter()
-        .filter(|r| map.contains_key(*r))
-        .map(str::to_owned)
+        .filter_map(|r| map.get_key_value(r))
         .collect();
-    reads.sort();
-    for r in &reads {
-        resolve_one(r, map, movable, done, taken, visiting);
+    reads.sort_by_key(|(r, _)| *r);
+    for (r, value) in &reads {
+        resolve_one(r, value, map, movable, done, taken, visiting);
     }
     visiting.remove(name);
 
@@ -2606,9 +2617,9 @@ fn resolve_one(
     // name it was under is settled and must not be resolved a second time.
     // Everything else stays where it is and is copied, as a substitution
     // normally must.
-    for r in &reads {
-        if movable.contains(r) && done.contains_key(r) {
-            taken.insert(r.clone());
+    for (r, _) in &reads {
+        if movable.contains(*r) && done.contains_key(*r) {
+            taken.insert((*r).clone());
         }
     }
     let out = if reads.is_empty() {
@@ -2653,9 +2664,9 @@ fn merge_declarations(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
         let next = i + 1;
         let Some(
             [Stmt::Var {
-                kind: VarKind::Let,
+                kind: kind @ VarKind::Let,
                 name,
-                init: None,
+                init: init @ None,
             }, Stmt::Expr(Expr::Assign { target, value })],
         ) = body.get_mut(i..=next)
         else {
@@ -2667,16 +2678,9 @@ fn merge_declarations(body: &mut Vec<Stmt>, facts: &LocalFacts) -> bool {
             i = next;
             continue;
         }
-        let init = std::mem::replace(&mut **value, Expr::Null);
-        let joined = Stmt::Var {
-            kind: VarKind::Const,
-            name: std::mem::take(name),
-            init: Some(init),
-        };
+        *kind = VarKind::Const;
+        *init = Some(std::mem::replace(&mut **value, Expr::Null));
         body.remove(next);
-        *body
-            .get_mut(i)
-            .or_ice("the declaration at this index was matched a line above") = joined;
         changed = true;
         i = next;
     }
@@ -3676,36 +3680,24 @@ impl<'a> Visit<'a> for Idents<'_, 'a> {
 /// Verbatim source is text, not a tree, so its cross-references are found by
 /// scanning for identifier-shaped runs rather than by parsing.
 fn collect_idents_raw<'a>(src: &'a str, out: &mut HashSet<&'a str>) {
-    for (start, end) in raw_ident_ranges(src) {
-        out.insert(src.get(start..end).or_ice(IDENT_RANGE));
-    }
+    out.extend(raw_ident_runs(src).map(|(_, ident)| ident));
 }
 
-/// Why a range [`raw_ident_ranges`] answers slices its source.
-const IDENT_RANGE: &str = "an identifier run is ASCII inside the source it was found in";
-
-/// Every identifier-shaped run in `src`, as a byte range. A run of identifier
-/// bytes is ASCII throughout, so both ends are character boundaries however the
-/// rest of the source is encoded.
-fn raw_ident_ranges(src: &str) -> impl Iterator<Item = (usize, usize)> + '_ {
-    let bytes = src.as_bytes();
-    let mut i = 0;
-    std::iter::from_fn(move || {
-        while let Some(c) = bytes.get(i) {
-            if c.is_ascii_alphabetic() || *c == b'_' || *c == b'$' {
-                let start = i;
-                while bytes
-                    .get(i)
-                    .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'$')
-                {
-                    i += 1;
-                }
-                return Some((start, i));
-            }
-            i += 1;
-        }
-        None
-    })
+/// Every identifier-shaped run in `src`, with the byte offset it starts at.
+fn raw_ident_runs(src: &str) -> impl Iterator<Item = (usize, &str)> {
+    let part = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    // Each piece is a run of identifier characters and the one that ends it.
+    let mut at = 0;
+    src.split_inclusive(move |c: char| !part(c))
+        .map(move |piece| {
+            let start = at;
+            at += piece.len();
+            let word = piece.trim_end_matches(|c: char| !part(c));
+            // An identifier doesn't start with a digit, so `1em` reads as `em`.
+            let ident = word.trim_start_matches(|c: char| c.is_ascii_digit());
+            (start + word.len() - ident.len(), ident)
+        })
+        .filter(|(_, ident)| !ident.is_empty())
 }
 
 /// The identifiers every piece of verbatim source in `stmts` mentions — the
@@ -3904,7 +3896,10 @@ struct Pool {
 
 impl Pool {
     fn at(&mut self, i: usize, by_short: &HashMap<String, String>) -> String {
-        while self.names.len() <= i {
+        loop {
+            if let Some(name) = self.names.get(i) {
+                return name.clone();
+            }
             let candidate = short_name(self.next);
             self.next += 1;
             if RESERVED.contains(&candidate.as_str()) || by_short.contains_key(&candidate) {
@@ -3912,10 +3907,6 @@ impl Pool {
             }
             self.names.push(candidate);
         }
-        self.names
-            .get(i)
-            .cloned()
-            .or_ice("the walk above stops past `i`")
     }
 }
 
@@ -4170,18 +4161,13 @@ pub fn split_declarations(src: &str) -> Vec<(String, String)> {
             ] {
                 if b.get(i..).is_some_and(|rest| rest.starts_with(kw)) {
                     // The keyword ends with the `$` that begins the name.
-                    let ns = i + kw.len() - 1;
-                    let mut j = ns;
-                    while b
-                        .get(j)
-                        .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_' || *c == b'$')
-                    {
-                        j += 1;
-                    }
-                    let name = src
-                        .get(ns..j)
-                        .or_ice("a declaration's name is the ASCII the scan just stepped over");
-                    current = Some((name.to_string(), is_fn));
+                    let name: String = b
+                        .iter()
+                        .skip(i + kw.len() - 1)
+                        .take_while(|c| c.is_ascii_alphanumeric() || **c == b'_' || **c == b'$')
+                        .map(|c| char::from(*c))
+                        .collect();
+                    current = Some((name, is_fn));
                     start = i;
                     break;
                 }
