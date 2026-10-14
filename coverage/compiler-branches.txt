@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15120 15353 98.48%
+total 15097 15327 98.50%
 area cli/build 1692 1709 99.01%
 area cli/documentation 477 480 99.38%
 area cli/format 94 94 100.00%
@@ -17,13 +17,13 @@ area crates/backend 68 68 100.00%
 area crates/diagnostics 191 194 98.45%
 area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
-area crates/js 1023 1060 96.51%
+area crates/js 1005 1040 96.63%
 area crates/llvm 591 594 99.49%
 area crates/middle 1843 1886 97.72%
 area crates/project 1341 1358 98.75%
 area crates/semantics 2196 2202 99.73%
 area crates/stdlib 12 12 100.00%
-area crates/stencil 1182 1204 98.17%
+area crates/stencil 1177 1198 98.25%
 area crates/syntax 1194 1196 99.83%
 264 269 cli/src/build/actions.rs
 44 44 cli/src/build/cache.rs
@@ -121,9 +121,9 @@ area crates/syntax 1194 1196 99.83%
 8 8 crates/hash/src/build/sha256.rs
 8 8 crates/hash/src/hash.rs
 10 10 crates/js/src/compiler/backend/js/crossing.rs
-331 338 crates/js/src/compiler/backend/js/generate.rs
+321 326 crates/js/src/compiler/backend/js/generate.rs
 90 90 crates/js/src/compiler/backend/js/intrinsics.rs
-521 548 crates/js/src/compiler/backend/js/javascript.rs
+513 540 crates/js/src/compiler/backend/js/javascript.rs
 3 4 crates/js/src/compiler/backend/js/mod.rs
 68 70 crates/js/src/compiler/backend/js/park.rs
 52 52 crates/llvm/src/compiler/backend/llvm/attrs.rs
@@ -200,7 +200,7 @@ area crates/syntax 1194 1196 99.83%
 42 44 crates/stencil/src/compiler/backend/stencil/mod.rs
 42 44 crates/stencil/src/compiler/backend/stencil/object.rs
 12 12 crates/stencil/src/compiler/backend/stencil/region.rs
-111 114 crates/stencil/src/compiler/backend/stencil/rtcall.rs
+106 108 crates/stencil/src/compiler/backend/stencil/rtcall.rs
 0 0 crates/stencil/src/compiler/backend/stencil/runtime.rs
 378 380 crates/syntax/src/formatting.rs
 30 30 crates/syntax/src/layout.rs
