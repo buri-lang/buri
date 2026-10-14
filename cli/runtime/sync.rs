@@ -41,6 +41,12 @@ mod reported {
     /// no thread that holds one. Helgrind reports each such thread.
     ///
     /// A second thread to exit leaves it to the first.
+    ///
+    /// This and [`counted`] and [`leave`] are `#[inline(never)]` for
+    /// `rt::poll_in_reactor`'s reason: inlined into a caller that a task
+    /// switch moves between threads, they'd use the old thread's
+    /// thread-locals.
+    #[inline(never)]
     pub(crate) fn close() {
         if CLOSER.get() {
             return;
@@ -67,19 +73,30 @@ mod reported {
         }
     }
 
-    /// Counts `inner` as held. Once the process is closing, a thread that
+    /// `inner`, counted as held. Once the process is closing, a thread that
     /// held nothing gives it back and waits for the exit instead.
     fn enter<G>(inner: G) -> G {
-        HELD.fetch_add(1, SeqCst);
-        if CLOSING.load(SeqCst) && !CLOSER.get() && HELD_HERE.get() == 0 {
-            HELD.fetch_sub(1, SeqCst);
+        if !counted() {
             drop(inner);
             wait_for_the_exit();
         }
-        HELD_HERE.set(HELD_HERE.get() + 1);
         inner
     }
 
+    /// Counts one more guard as held, or answers false where this thread
+    /// must not take it.
+    #[inline(never)]
+    fn counted() -> bool {
+        HELD.fetch_add(1, SeqCst);
+        if CLOSING.load(SeqCst) && !CLOSER.get() && HELD_HERE.get() == 0 {
+            HELD.fetch_sub(1, SeqCst);
+            return false;
+        }
+        HELD_HERE.set(HELD_HERE.get() + 1);
+        true
+    }
+
+    #[inline(never)]
     fn leave() {
         HELD_HERE.set(HELD_HERE.get() - 1);
         HELD.fetch_sub(1, SeqCst);
