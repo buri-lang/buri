@@ -1,9 +1,0 @@
-error: expected a struct literal's type, found `{` [unexpected-token]
-  --> main.buri:69:16
-   |
-69 |     let base = { Chain v: [1], next: .Some(link(ctx, 3)) };
-   |                ^
-   |
-   = expected: a struct literal's type
-   = actual: `{`
-   = fix: write the type before the brace: `Chain {`

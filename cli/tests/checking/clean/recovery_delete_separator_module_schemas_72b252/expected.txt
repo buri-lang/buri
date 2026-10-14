@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-semicolon]
+  --> main.buri:11:43
+   |
+11 | from "std/codegen/proto" import * as proto
+   |                                           ^
+   |
+   = fix: write `;` here

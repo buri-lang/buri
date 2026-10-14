@@ -1,0 +1,9 @@
+error: expected `{`, found `?` [unexpected-token]
+  --> main.buri:35:64
+   |
+35 | test "a number needs a digit before its point or its exponent" ? {
+   |                                                                ^
+   |
+   = expected: `{`
+   = actual: `?`
+   = fix: write `{` here
