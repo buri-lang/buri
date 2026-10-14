@@ -277,41 +277,40 @@ impl<'a> Gen<'a> {
     fn marks_for(&self, f: &monomorphize::Func, plan: &rc::FuncPlan) -> Marks {
         let mut marks = Marks::default();
         let Some(body) = f.body() else { return marks };
-        // Whether each node is a local read, which is what decides between the
-        // two ways a `Target::Local` is spelled.
-        let mut nodes: Vec<(usize, bool)> = Vec::new();
-        rc::preorder(body, &mut |_, e| {
-            nodes.push((node_key(e), matches!(e.kind, ExprKind::Local(_))));
-        });
-        for site in &plan.sites {
-            if site.op != rc::RcOp::IncRef {
-                continue;
-            }
-            let &(key, is_local_read) = nodes
-                .get(site.node.index())
-                .or_ice("a site names a node of the body's preorder");
-            match site.target {
-                // A projection: the value this node produces is a second
-                // reference to something a parent still holds.
-                rc::Target::Node(_) => {
-                    let parent = plan
-                        .inherits
-                        .iter()
-                        .find(|(n, _)| *n == site.node)
-                        .map(|(_, l)| *l);
-                    marks.value.insert(key, parent);
-                }
-                // A local read that keeps the local alive past it — and, where
-                // the node is not the read itself, a lambda's capture or an
-                // arm's payload, which are marked as statements before it.
-                rc::Target::Local(_) if is_local_read => {
-                    marks.value.entry(key).or_insert(None);
-                }
-                rc::Target::Local(l) => marks.locals.entry(key).or_default().push(l),
-                // A release, never an increment.
-                rc::Target::LocalExcept(..) => {}
-            }
+        let mut increments: HashMap<rc::NodeId, Vec<&rc::Site>> = HashMap::default();
+        for site in plan.sites.iter().filter(|s| s.op == rc::RcOp::IncRef) {
+            increments.entry(site.node).or_default().push(site);
         }
+        rc::preorder(body, &mut |node, e| {
+            let Some(sites) = increments.get(&node) else {
+                return;
+            };
+            let key = node_key(e);
+            for site in sites {
+                match site.target {
+                    // A projection: the value this node produces is a second
+                    // reference to something a parent still holds.
+                    rc::Target::Node(_) => {
+                        let parent = plan
+                            .inherits
+                            .iter()
+                            .find(|(n, _)| *n == node)
+                            .map(|(_, l)| *l);
+                        marks.value.insert(key, parent);
+                    }
+                    // A local read that keeps the local alive past it — and,
+                    // where the node is not the read itself, a lambda's
+                    // capture or an arm's payload, which are marked as
+                    // statements before it.
+                    rc::Target::Local(_) if matches!(e.kind, ExprKind::Local(_)) => {
+                        marks.value.entry(key).or_insert(None);
+                    }
+                    rc::Target::Local(l) => marks.locals.entry(key).or_default().push(l),
+                    // A release, never an increment.
+                    rc::Target::LocalExcept(..) => {}
+                }
+            }
+        });
         marks
     }
 }
