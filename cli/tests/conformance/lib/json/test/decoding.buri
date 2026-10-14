@@ -15,6 +15,7 @@ from "//lib/json" import {
     Chain, chain, Colour, Everything, everything, Hollow, Meters, Pair, Point, point,
     Rose, rose, Segment, Shape, Wrapper,
 };
+from "//lib/variants" import * as variants;
 
 /// The document `text` describes, or `Json.Null` if it is not one. Every text
 /// here is a literal in this file, so `.Null` is unreachable.
@@ -464,4 +465,39 @@ test "null reads as an absent Option whatever the payload" {
     );
     assert.equal(none, .Ok(.None));
     assert.equal(some, .Ok(.Some(point(1, 2))));
+}
+
+test "each shape, in a decoding's result or an option, equals itself and not the other variant" {
+    let missing: DecodeError = .Missing { path: "$" };
+    assert.isTrue(variants.resultsCompare(chain(2), missing));
+    assert.isTrue(variants.resultsCompare(Colour.Red, missing));
+    assert.isTrue(variants.resultsCompare([Colour.Red], missing));
+    assert.isTrue(variants.resultsCompare(everything(), missing));
+    assert.isTrue(variants.resultsCompare(Hollow {}, missing));
+    assert.isTrue(variants.resultsCompare(Meters(1), missing));
+    assert.isTrue(variants.resultsCompare(Option.Some(point(1, 2)), missing));
+    assert.isTrue(variants.resultsCompare(Pair(1, "a"), missing));
+    assert.isTrue(variants.resultsCompare(point(1, 2), missing));
+    assert.isTrue(variants.resultsCompare([point(1, 2)], missing));
+    assert.isTrue(variants.resultsCompare(rose(2), missing));
+    assert.isTrue(
+        variants.resultsCompare(
+            Segment {
+                start: point(0, 0),
+                stop: point(1, 1),
+                label: "a",
+                waypoints: [],
+            },
+            missing,
+        ),
+    );
+    assert.isTrue(variants.resultsCompare(Shape.Circle(1), missing));
+    assert.isTrue(
+        variants.resultsCompare(Wrapper { value: point(1, 2), tag: "t" }, missing),
+    );
+    assert.isTrue(
+        variants.resultsCompare(Wrapper { value: [1, 2], tag: "t" }, missing),
+    );
+    assert.isTrue(variants.optionsCompare(point(1, 2)));
+    assert.isTrue(variants.optionsCompare([chain(1)]));
 }

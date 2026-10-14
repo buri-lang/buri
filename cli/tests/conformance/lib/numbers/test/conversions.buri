@@ -547,3 +547,13 @@ test "wrapping twice through a narrower type loses exactly the high bits" {
     let b: I64 = 65280;
     assert.equal(b.wrapToU8().toI64(), 0);
 }
+
+test "a Bool's eager forms answer as the operators do" {
+    let (t, f) = (true, false);
+    assert.equal([t.not(), f.not()], [false, true]);
+    assert.equal([t.and(t), t.and(f), f.and(t), f.and(f)], [true, false, false, false]);
+    assert.equal([t.or(t), t.or(f), f.or(t), f.or(f)], [true, true, true, false]);
+    assert.equal([t.xor(t), t.xor(f), f.xor(t), f.xor(f)], [false, true, true, false]);
+    assert.equal([t.toInt(), f.toInt()], [1, 0]);
+    assert.equal([t.toStr(), f.toStr()], ["true", "false"]);
+}

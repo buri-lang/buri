@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-comma]
+  --> main.buri:20:18
+   |
+20 |     [good == good bad == bad, good == bad, bad == good] == [true, true, false, false]
+   |                  ^
+   |
+   = fix: write `,` here

@@ -44,11 +44,13 @@
 
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, Stepped };
+from "core/actor" import { SendError };
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Scoped };
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator, Tasks };
 from "platform/effect/testing" import { alloc as testAlloc, tasks };
+from "//lib/variants" import * as variants;
 
 /// Bigger than one standard arena block, so a value this long is given a
 /// mapping of its own and that mapping is unmapped rather than pooled.
@@ -226,4 +228,8 @@ test "a scope answers what it asked an actor inside it" {
     });
     let _ = churn(ctx);
     assert.equal(out, .Ok(.Held(big(ctx, "a"))));
+}
+
+test "an answer here, in a send's result, equals itself and not a failure" {
+    assert.isTrue(variants.resultsCompare(Kept.Stored, SendError.Stopped));
 }

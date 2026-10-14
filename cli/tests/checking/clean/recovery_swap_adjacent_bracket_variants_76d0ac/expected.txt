@@ -1,0 +1,9 @@
+error: expected an expression, found `==` [unexpected-token]
+  --> main.buri:20:20
+   |
+20 |     [good == good, == bad bad, good == bad, bad == good] == [true, true, false, false]
+   |                    ^^
+   |
+   = expected: an expression
+   = actual: `==`
+   = fix: write a value here

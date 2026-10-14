@@ -16,6 +16,7 @@ from "//lib/proto" import {
     Address, decodeMaps, decodeMapsJson, defaultAddress, defaultMaps, encodeMaps,
     encodeMapsJson, Maps, Mood,
 };
+from "//lib/variants" import * as variants;
 
 fn hex<C: Allocator>(ctx: C, v: Maps): Str {
     bytes.toHex(ctx, encodeMaps(ctx, v))
@@ -508,4 +509,8 @@ test "a map of bool keys holds two entries at most" {
     assert.notEqual(v, tail);
     let outer = Maps { ..defaultMaps(), nested: orderedmap.of(ctx, [(1, v)]) };
     assert.equal(decodeMaps(ctx, encodeMaps(ctx, outer)), .Ok(outer));
+}
+
+test "an enum value, in an option, equals itself and not None" {
+    assert.isTrue(variants.optionsCompare(Mood.HAPPY));
 }

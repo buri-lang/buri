@@ -17,6 +17,7 @@ from "core/testing/assert" import * as assert;
 from "core/uuid" import * as uuid;
 from "platform/effect" import { Allocator, IoError, Stdin };
 from "platform/effect/testing" import { alloc, stdin };
+from "//lib/variants" import * as variants;
 
 // --- helpers ------------------------------------------------------------------
 
@@ -1197,4 +1198,10 @@ test "each question about a Result answers for both variants of every type" {
     assert.equal(count.map(fn(n) => n > 0), .Err("no"));
     assert.equal(body.map(fn(b) => b.length()), .Err("no"));
     assert.equal(body.map(fn(_b) => "a"), .Err("no"));
+}
+
+test "rows, in a result, equal themselves and not a failure" {
+    assert.isTrue(
+        variants.resultsCompare([Row191 { name: "a", value: .Number(1) }], "no"),
+    );
 }

@@ -1,0 +1,14 @@
+// `//lib/variants`, on payloads of its own.
+
+from "core/testing/assert" import * as assert;
+from "//lib/variants" import * as variants;
+
+test "an option equals itself and not the other variant" {
+    assert.isTrue(variants.optionsCompare("x"));
+    assert.isTrue(variants.optionsCompare([1, 2]));
+}
+
+test "a result equals itself and not the other variant" {
+    assert.isTrue(variants.resultsCompare(1 "no"));
+    assert.isTrue(variants.resultsCompare("yes", 2));
+}

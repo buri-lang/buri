@@ -1,0 +1,9 @@
+error: expected `=`, found `.` [unexpected-token]
+  --> main.buri:19:27
+   |
+19 |     let bad: Result<T, E> . =Err(err);
+   |                           ^
+   |
+   = expected: `=`
+   = actual: `.`
+   = fix: write `=` here
