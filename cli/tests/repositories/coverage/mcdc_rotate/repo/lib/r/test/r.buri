@@ -1,0 +1,11 @@
+from "core/testing/assert" import * as assert;
+from "//lib/r" import * as r;
+
+test "a constant rotate" {
+    assert.equal(r.spin(128), 1);
+}
+
+test "a rotate the caller picks" {
+    assert.equal(r.turn(1, 4), 16);
+    assert.equal(r.wind(2, 1), 1);
+}

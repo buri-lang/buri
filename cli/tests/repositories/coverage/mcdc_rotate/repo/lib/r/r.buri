@@ -1,0 +1,13 @@
+from "core/bits" import * as bits;
+
+export fn spin(n: U32): U32 {
+    bits.rotateRightU32(n, 7)
+}
+
+export fn turn(n: U32, by: Int): U32 {
+    bits.rotateLeftU32(n, by)
+}
+
+export fn wind(n: Int, by: Int): Int {
+    bits.rotateRight(n, by)
+}

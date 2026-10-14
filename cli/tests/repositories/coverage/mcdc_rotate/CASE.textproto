@@ -1,0 +1,33 @@
+# A `core/bits` rotate aborts on a count outside its width, as a shift does, so
+# `--coverage=mcdc` counts that abort as a decision. `spin` rotates by a
+# constant inside the width and adds none. `turn` and `wind` rotate by what
+# their caller passes, which no test makes abort, so their conditions read
+# unshown.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "--coverage=mcdc counts a rotate's abort as a shift's"
+
+run {
+  args: ["test", "//lib/r", "--coverage=mcdc"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}
+
+run {
+  args: ["test", "//lib/r", "--coverage=mcdc", "--output=js"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}

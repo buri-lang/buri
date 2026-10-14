@@ -343,8 +343,8 @@ fn traps_here(e: &Expr, call: &TrapCall<'_>, consts: Option<&ConstMap>) -> bool 
 pub enum Aborts {
     /// A division or remainder, by zero.
     Divide,
-    /// A `core/bits` shift of a value this many bits wide, by a count outside
-    /// `0..width`.
+    /// A `core/bits` shift or rotate of a value this many bits wide, by a count
+    /// outside `0..width`.
     Shift(u32),
 }
 
@@ -841,13 +841,13 @@ pub fn branches(program: &mut Program, options: &Options) -> Vec<derived::Derive
 }
 
 /// How a call to a function outside the user's source can abort, if it can: a
-/// `core/bits` shift, or an integer type's `divide` or `remainder`, which a
-/// generic `a / b` reaches at that type.
+/// `core/bits` shift or rotate, or an integer type's `divide` or `remainder`,
+/// which a generic `a / b` reaches at that type.
 pub fn aborts(f: &crate::compiler::middle::monomorphize::Func) -> Option<Aborts> {
     let FuncKind::Intrinsic(key) = &f.kind else {
         return None;
     };
-    if key.starts_with("bits.shift") {
+    if key.starts_with("bits.shift") || key.starts_with("bits.rotate") {
         Some(Aborts::shift(key))
     } else {
         divides(key).then_some(Aborts::Divide)
