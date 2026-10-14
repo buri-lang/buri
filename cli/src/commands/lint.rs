@@ -48,7 +48,7 @@
 use crate::build::session::{self, Session};
 use crate::build::workspace::{PackageId, Rule, RuleKind, TargetId};
 use crate::commands::arguments;
-use crate::compiler::modules::{ModuleData, Unit};
+use crate::compiler::modules::{ModuleData, PerModule, Unit};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::{FnId, ModuleId};
 use crate::diagnostics::{ice, invariant, Diagnostic, Diagnostics, Invariant as _, Span};
@@ -391,7 +391,7 @@ pub fn analysis_of(session: &mut Session, target: TargetId) -> crate::compiler::
 pub(crate) struct Part<'a> {
     whole: &'a crate::compiler::driver::Analysis,
     /// By module index; `None` where the analysis is this target's alone.
-    holds: Option<&'a [bool]>,
+    holds: Option<&'a PerModule<bool>>,
     reported: &'a [Diagnostic],
     generated_rules: &'a [TargetId],
     index: std::rc::Rc<Index>,
@@ -475,8 +475,7 @@ impl<'a> Part<'a> {
     }
 
     fn holds(&self, module: ModuleId) -> bool {
-        self.holds
-            .is_none_or(|holds| holds.get(module.index()).copied().unwrap_or(false))
+        self.holds.is_none_or(|holds| *holds.get(module))
     }
 
     /// The modules this target's own compilation holds, in load order.
@@ -558,7 +557,7 @@ struct Shared {
 }
 
 struct Share {
-    holds: Vec<bool>,
+    holds: PerModule<bool>,
     reported: Vec<Diagnostic>,
     generated_rules: Vec<TargetId>,
 }
@@ -2688,7 +2687,7 @@ fn check_unused_declarations(
     // written for somebody else's suite is reported as a field nothing reads.
     let testing = testing_surface(session, analysis, own);
     let published = |module: ModuleId, name: &str| -> bool {
-        let role = analysis.loaded.modules.get(module.index()).map(|m| m.role);
+        let role = analysis.loaded.modules.owner(module).map(|m| m.role);
         match role {
             Some(crate::compiler::modules::Role::TestOnly) => {
                 testing.as_ref().is_some_and(|names| names.contains(name))
@@ -4149,7 +4148,7 @@ fn declared_by(
         && analysis
             .loaded
             .modules
-            .get(con.module.index())
+            .owner(con.module)
             .is_some_and(|m| m.path == module)
 }
 

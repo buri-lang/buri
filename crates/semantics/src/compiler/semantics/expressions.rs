@@ -2357,13 +2357,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
         let tycon = self.c.tables.tycon(*con);
         // A built-in type has no module, and is no host.
-        let module = self
-            .c
-            .loaded
-            .modules
-            .get(tycon.module.index())?
-            .path
-            .as_str();
+        let module = self.c.loaded.modules.owner(tycon.module)?.path.as_str();
         let (platform, _) = stdlib::host_type_of(module).filter(|(_, h)| *h == tycon.name)?;
         let offered: Vec<(&str, &str)> = PlatformName::BUNDLED
             .iter()

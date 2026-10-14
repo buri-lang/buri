@@ -61,10 +61,7 @@
 
 use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{bound, Env, Folder, Value};
-use crate::compiler::semantics::layered::Layered;
-use crate::compiler::semantics::resolve::{
-    own_fn, own_type, BodyMap, ConstMap, ModuleScope, Walked,
-};
+use crate::compiler::semantics::resolve::{own_fn, own_type, BodyMap, ConstMap, Scopes, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind, Magnitude};
 use crate::compiler::semantics::types::{
     ConstId, FnId, FuncIdx, LocalId, ModuleId, Tables, TraitId, Ty, TyConId, TyKind,
@@ -454,7 +451,7 @@ impl Styled {
 pub fn run(
     loaded: &Loaded,
     tables: &Tables,
-    scopes: &Layered<ModuleScope>,
+    scopes: &Scopes,
     bodies: &mut BodyMap,
     consts: &mut ConstMap,
     diags: &mut Diagnostics,
@@ -574,7 +571,7 @@ pub fn graphs_drawn() -> u64 {
 /// `ui/style/classify`'s `classify` and `classifyStyle`: what a style a node is
 /// given goes through where the compiler can't say which value it is. Not
 /// there in a program none of whose own modules imports from `ui/`.
-pub fn classifiers(loaded: &Loaded, scopes: &Layered<ModuleScope>) -> Option<(FnId, FnId)> {
+pub fn classifiers(loaded: &Loaded, scopes: &Scopes) -> Option<(FnId, FnId)> {
     let module = "ui/style/classify";
     Some((
         own_fn(loaded, scopes, module, "classify")?,

@@ -30,7 +30,6 @@ use std::path::Path;
 
 /// Why a module's scope is always there: the checker sizes its scopes to the
 /// modules it loaded.
-pub(super) const SCOPED: &str = "the checker gives every loaded module a scope";
 
 /// Why a variant's entry is always there: the checker numbered it from its enum.
 const VARIANT: &str = "a checked variant is numbered from its own enum";
@@ -267,10 +266,7 @@ pub fn declaration(analyzed: &Analyzed, symbol: &Symbol) -> Span {
             .get(*index)
             .map_or(Span::NONE, |v| v.span),
         // The top of the file: a module has no name of its own to point at.
-        Symbol::Module(id) => match analyzed.analysis.loaded.modules.get(id.index()) {
-            Some(m) => Span::point(m.file, 0),
-            None => Span::NONE,
-        },
+        Symbol::Module(id) => Span::point(analyzed.analysis.loaded.module(*id).file, 0),
         Symbol::Local { span, .. } | Symbol::Generic { span, .. } => *span,
     }
 }
@@ -537,11 +533,11 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
                 ),
             }
         }
-        Symbol::Module(id) => match analyzed.analysis.loaded.modules.get(id.index()) {
+        Symbol::Module(id) => {
             // The `//!` lines, under the spelling an import would use.
-            Some(m) => (format!("from \"{}\"", m.path), m.ast.tree.docs(m.ast.docs)),
-            None => (String::new(), Vec::new()),
-        },
+            let m = analyzed.analysis.loaded.module(*id);
+            (format!("from \"{}\"", m.path), m.ast.tree.docs(m.ast.docs))
+        }
         // A type that did not resolve has nothing to show but what the source
         // wrote: `a: Nope` for a parameter or an annotated `let`, else the name.
         Symbol::Local { name, ty, span } if ty.has_error() => {
@@ -1041,12 +1037,7 @@ fn import_names(analyzed: &Analyzed, module: &ModuleData, out: &mut impl FnMut(S
         if let Some(n) = namespace {
             out(n.span, Symbol::Module(id));
         }
-        let scope = analyzed
-            .analysis
-            .checked
-            .scopes
-            .get(id.index())
-            .or_ice(SCOPED);
+        let scope = analyzed.analysis.checked.scopes.get(id);
         for spec in specs {
             let Some(symbol) = scope.exports.get(tree.name(spec.name)).and_then(symbol_of) else {
                 continue;
@@ -1111,12 +1102,7 @@ pub(super) fn qualifier_names(
     module: &ModuleData,
     out: &mut impl FnMut(Span, Symbol),
 ) {
-    let scope = analyzed
-        .analysis
-        .checked
-        .scopes
-        .get(module.id.index())
-        .or_ice(SCOPED);
+    let scope = analyzed.analysis.checked.scopes.get(module.id);
     if scope.namespaces.is_empty() {
         return;
     }
@@ -1146,7 +1132,7 @@ fn resolve_path(
     path: &[Location],
     segment: usize,
 ) -> Option<Symbol> {
-    let scope = analyzed.analysis.checked.scopes.get(module.index())?;
+    let scope = analyzed.analysis.checked.scopes.get(module);
     let at = path.get(segment)?;
     let name = tree.text(*at);
     let Some(previous) = segment.checked_sub(1) else {
@@ -1168,7 +1154,7 @@ fn resolve_path(
     };
     let head = tree.text(*path.get(previous)?);
     if let Some(id) = scope.namespaces.get(head) {
-        let inner = analyzed.analysis.checked.scopes.get(id.index())?;
+        let inner = analyzed.analysis.checked.scopes.get(*id);
         return symbol_of(inner.exports.get(name)?);
     }
     // `Color.Red` — the head names the enum and the tail one of its variants.
@@ -1772,7 +1758,7 @@ fn module_syntax(analyzed: &Analyzed, module: ModuleId) -> Option<&tree::Module>
         .analysis
         .loaded
         .modules
-        .get(module.index())
+        .owner(module)
         .map(|m| m.ast.as_ref())
 }
 

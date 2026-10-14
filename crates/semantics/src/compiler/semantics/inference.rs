@@ -363,8 +363,7 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
 
 fn check_tests(c: &mut Checker) {
     let mut cases = Vec::new();
-    for m in 0..c.loaded.modules.len() {
-        let module = ModuleId(m as u32);
+    for module in c.loaded.modules.ids() {
         if c.module(module).role != Role::TestSource {
             continue;
         }

@@ -688,10 +688,8 @@ pub fn suite_unkeyed_reads(
                 .collect()
         })
         .unwrap_or_default();
-    let reached: Vec<&crate::compiler::modules::ModuleData> = imports
-        .reached_from(loaded, target.package)
-        .filter_map(|i| loaded.modules.get(i))
-        .collect();
+    let reached: Vec<&crate::compiler::modules::ModuleData> =
+        imports.reached_from(loaded, target.package).collect();
     let files = reached
         .iter()
         .filter_map(|m| Some((m.disk.clone()?, m.pkg)));
@@ -753,11 +751,11 @@ impl Imports {
     }
 
     /// The modules `package`'s own modules reach, themselves included.
-    fn reached_from(
+    fn reached_from<'l>(
         &self,
-        loaded: &crate::compiler::modules::Loaded,
+        loaded: &'l crate::compiler::modules::Loaded,
         package: crate::build::workspace::PackageId,
-    ) -> impl Iterator<Item = usize> {
+    ) -> impl Iterator<Item = &'l crate::compiler::modules::ModuleData> {
         let mut seen = vec![false; self.edges.len()];
         let mut stack: Vec<usize> = loaded
             .modules
@@ -773,10 +771,12 @@ impl Imports {
             }
             stack.extend(self.edges.get(i).into_iter().flatten());
         }
-        seen.into_iter()
-            .enumerate()
+        loaded
+            .modules
+            .iter()
+            .zip(seen)
             .filter(|(_, s)| *s)
-            .map(|(i, _)| i)
+            .map(|(m, _)| m)
     }
 }
 

@@ -26,7 +26,7 @@ pub struct Loader<'a> {
     diags: &'a mut Diagnostics,
     /// Parses, shared with every other analysis in this process.
     cache: &'a mut crate::parsing::parser::Cache,
-    modules: Vec<ModuleData>,
+    modules: Modules,
     by_path: HashMap<String, ModuleId>,
     /// The rules whose generators this compilation has already reported on.
     generated_rules: std::collections::BTreeSet<TargetId>,
@@ -64,7 +64,7 @@ impl<'a> Loader<'a> {
             map,
             diags,
             cache,
-            modules: Vec::new(),
+            modules: Modules::default(),
             by_path: HashMap::default(),
             generated_rules: std::collections::BTreeSet::new(),
             checked_tools: std::collections::BTreeSet::new(),
@@ -213,7 +213,7 @@ impl<'a> Loader<'a> {
                 // it, when it runs the tool.
                 let root = self.load_path(&pkg.module_path("tool.buri"), Role::Source, Span::NONE);
                 let ast = root
-                    .and_then(|r| self.modules.get(r.index()))
+                    .map(|r| self.modules.get(r))
                     .map(|m| std::sync::Arc::clone(&m.ast));
                 if let Some(ast) = ast {
                     if self.checked_tools.insert(target) {
@@ -324,9 +324,7 @@ impl<'a> Loader<'a> {
         let bodyless = matches!(role, Role::Std | Role::Platform);
         let (ast, errors) = self.cache.parse(self.map.text(file), file, bodyless);
         self.diags.extend(errors.iter().cloned());
-        let id = ModuleId(self.modules.len() as u32);
-        self.by_path.insert(path.to_string(), id);
-        self.modules.push(ModuleData {
+        let id = self.modules.push(|id| ModuleData {
             id,
             path: path.to_string(),
             file,
@@ -335,6 +333,7 @@ impl<'a> Loader<'a> {
             pkg,
             disk: None,
         });
+        self.by_path.insert(path.to_string(), id);
         self.load_imports(id);
         Some(id)
     }
@@ -603,9 +602,7 @@ impl<'a> Loader<'a> {
         } else {
             Role::Std
         };
-        let id = ModuleId(self.modules.len() as u32);
-        self.by_path.insert(path.to_string(), id);
-        self.modules.push(ModuleData {
+        let id = self.modules.push(|id| ModuleData {
             id,
             path: path.to_string(),
             file,
@@ -614,6 +611,7 @@ impl<'a> Loader<'a> {
             pkg: None,
             disk: None,
         });
+        self.by_path.insert(path.to_string(), id);
         self.alias(written, id);
         self.load_imports(id);
         Some(id)
@@ -743,9 +741,7 @@ impl<'a> Loader<'a> {
         self.diags.extend(errors.iter().cloned());
 
         let pkg = self.ws.and_then(|ws| ws.owning_package(&disk));
-        let id = ModuleId(self.modules.len() as u32);
-        self.by_path.insert(path.to_string(), id);
-        self.modules.push(ModuleData {
+        let id = self.modules.push(|id| ModuleData {
             id,
             path: path.to_string(),
             file,
@@ -754,6 +750,7 @@ impl<'a> Loader<'a> {
             pkg,
             disk: Some(disk),
         });
+        self.by_path.insert(path.to_string(), id);
 
         self.load_imports(id);
         Some(id)
@@ -765,10 +762,7 @@ impl<'a> Loader<'a> {
         // The names an import binds travel with it, because one of the
         // restrictions below has to say what to re-export, and a fix that names
         // the symbol is the difference between a rule and an instruction.
-        let importer = self
-            .modules
-            .get(id.index())
-            .or_ice("a ModuleId is minted by the loader as it pushes the module onto `modules`");
+        let importer = self.modules.get(id);
         let t = &importer.ast.tree;
         let imports: Vec<(String, Span, Vec<String>)> = importer
             .ast

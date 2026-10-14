@@ -215,7 +215,7 @@ impl<'a> Checker<'a> {
     fn prim_module_of(&self, p: Prim) -> ModuleId {
         self.loaded
             .find(crate::compiler::standard_library::defining_module(p))
-            .unwrap_or(ModuleId(0))
+            .unwrap_or(ModuleId::PRIMITIVES)
     }
 
     /// Declares an intrinsic method on a primitive.

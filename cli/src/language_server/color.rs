@@ -14,7 +14,7 @@
 
 use super::convert;
 use super::state::Analyzed;
-use crate::compiler::semantics::resolve::Sym;
+use crate::compiler::semantics::resolve::own_type;
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{Tables, TyConId};
 use crate::diagnostics::Span;
@@ -139,23 +139,13 @@ pub fn presentations(analyzed: &Analyzed, path: &Path, text: &str, params: &Valu
 /// any `Color` a repository happens to define: the swatch stands for the
 /// standard library's constructors and nothing else.
 fn color_constructor(analyzed: &Analyzed) -> Option<TyConId> {
-    let index = analyzed
-        .analysis
-        .loaded
-        .modules
-        .iter()
-        .position(|m| m.path == "ui/style")?;
-    match analyzed
-        .analysis
-        .checked
-        .scopes
-        .get(index)?
-        .own
-        .get("Color")?
-    {
-        Sym::Ty(id) => Some(*id),
-        _ => None,
-    }
+    let analysis = &analyzed.analysis;
+    own_type(
+        &analysis.loaded,
+        &analysis.checked.scopes,
+        "ui/style",
+        "Color",
+    )
 }
 
 /// The colour one constructor call spells out, or nothing when it is not one of

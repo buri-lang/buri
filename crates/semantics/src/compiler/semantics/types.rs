@@ -42,14 +42,14 @@ macro_rules! id_type {
     };
 }
 
-id_type!(ModuleId);
+id_type!(minted ModuleId);
 id_type!(minted TyConId);
 id_type!(minted FnId);
 id_type!(minted TraitId);
 id_type!(minted ConstId);
 id_type!(minted ContextDeclId);
 id_type!(minted CtxTypeId);
-id_type!(TyVarId);
+id_type!(minted TyVarId);
 id_type!(LocalId);
 
 // `FuncIdx` is an index into `Program::funcs`: one concrete function, after
@@ -58,6 +58,12 @@ id_type!(LocalId);
 // backend pass could read `tables.fn_info(func)` on a monomorphized call and
 // silently name a different function.
 id_type!(FuncIdx);
+
+impl ModuleId {
+    /// The synthetic module the primitive types are declared in. No module
+    /// is loaded under it: see [`crate::compiler::modules::Modules::owner`].
+    pub const PRIMITIVES: ModuleId = ModuleId(u32::MAX);
+}
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -803,7 +809,7 @@ impl Default for Tables {
         for p in Prim::all() {
             t.add_tycon(TyCon {
                 name: p.name().to_string(),
-                module: ModuleId(u32::MAX),
+                module: ModuleId::PRIMITIVES,
                 generics: Vec::new(),
                 def: TyDef::Prim(*p),
                 exported: true,
@@ -1430,18 +1436,24 @@ impl Tables {
 /// alignment on a copy, so a reading that does not hold leaves nothing behind.
 #[derive(Default, Clone)]
 pub struct Subst {
-    slots: Vec<Option<Ty>>,
-    classes: Vec<Option<NumClass>>,
+    vars: Vec<Var>,
+    /// Where the body being checked starts in `vars`. Earlier bodies' variables
+    /// stay, so every id `mint` handed out keeps indexing its own entry.
+    start: usize,
+}
+
+#[derive(Clone)]
+struct Var {
+    ty: Option<Ty>,
+    class: Option<NumClass>,
     /// The span the variable was created at, for defaulting diagnostics.
-    spans: Vec<Span>,
+    span: Span,
 }
 
 impl Subst {
-    /// Forgets every variable, keeping the allocations for the next body.
+    /// Starts the next body. Its defaulting passes see only its own variables.
     pub fn clear(&mut self) {
-        self.slots.clear();
-        self.classes.clear();
-        self.spans.clear();
+        self.start = self.vars.len();
     }
 
     pub fn fresh(&mut self, span: Span) -> Ty {
@@ -1456,47 +1468,50 @@ impl Subst {
     }
 
     fn mint(&mut self, class: Option<NumClass>, span: Span) -> Ty {
-        let id = TyVarId(self.slots.len() as u32);
-        self.slots.push(None);
-        self.classes.push(class);
-        self.spans.push(span);
+        let id = TyVarId(self.vars.len() as u32);
+        self.vars.push(Var {
+            ty: None,
+            class,
+            span,
+        });
         Ty::var(id)
     }
 
-    /// The class slot for a variable. Every [`TyVarId`] comes from `fresh`,
-    /// which pushes one slot per table in step, so the id is always in range.
-    fn class_slot(&mut self, id: TyVarId) -> &mut Option<NumClass> {
-        self.classes
-            .get_mut(id.index())
-            .or_ice("every TyVarId was minted by Subst::fresh")
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "only `mint` makes a TyVarId, at the length it then grows past, and nothing shrinks `vars`"
+    )]
+    fn var(&self, id: TyVarId) -> &Var {
+        &self.vars[id.index()]
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "only `mint` makes a TyVarId, at the length it then grows past, and nothing shrinks `vars`"
+    )]
+    fn var_mut(&mut self, id: TyVarId) -> &mut Var {
+        &mut self.vars[id.index()]
     }
 
     pub fn class_of(&self, id: TyVarId) -> Option<NumClass> {
-        *self
-            .classes
-            .get(id.index())
-            .or_ice("every TyVarId was minted by Subst::fresh")
+        self.var(id).class
     }
 
     pub fn span_of(&self, id: TyVarId) -> Span {
-        *self
-            .spans
-            .get(id.index())
-            .or_ice("every TyVarId was minted by Subst::fresh")
+        self.var(id).span
     }
 
     pub fn get(&self, id: TyVarId) -> Option<Ty> {
-        *self
-            .slots
-            .get(id.index())
-            .or_ice("every TyVarId was minted by Subst::fresh")
+        self.var(id).ty
     }
 
     fn set(&mut self, id: TyVarId, ty: Ty) {
-        *self
-            .slots
-            .get_mut(id.index())
-            .or_ice("every TyVarId was minted by Subst::fresh") = Some(ty);
+        self.var_mut(id).ty = Some(ty);
+    }
+
+    /// This body's variables.
+    fn own_vars(&mut self) -> impl Iterator<Item = &mut Var> {
+        self.vars.iter_mut().skip(self.start)
     }
 
     /// Follows bound variables until the head is not one.
@@ -1605,7 +1620,7 @@ impl Subst {
             let resolved = self.shallow(ty);
             match resolved.kind() {
                 &TyKind::Var(other) => {
-                    let slot = self.class_slot(other);
+                    let slot = &mut self.var_mut(other).class;
                     match *slot {
                         None => *slot = Some(class),
                         Some(existing) if existing != class => return Err((Ty::var(id), *ty)),
@@ -1633,12 +1648,12 @@ impl Subst {
     /// Only if nothing constrains a literal does the default apply — `Int` for
     /// integer literals, `Float` for float literals (SPEC 5.1.1).
     pub fn default_numerics(&mut self, tables: &Tables) {
-        for (slot, class) in self.slots.iter_mut().zip(&self.classes) {
-            if slot.is_some() {
+        for var in self.own_vars() {
+            if var.ty.is_some() {
                 continue;
             }
-            if let Some(class) = class {
-                *slot = Some(match class {
+            if let Some(class) = var.class {
+                var.ty = Some(match class {
                     NumClass::Int => tables.prim(Prim::I64),
                     NumClass::Float => tables.prim(Prim::F64),
                 });
@@ -1668,9 +1683,9 @@ impl Subst {
     /// variable no constraint reached is *reported* as unresolved exactly where
     /// it was before and only *represented* differently.
     pub fn default_unconstrained(&mut self) {
-        for slot in &mut self.slots {
-            if slot.is_none() {
-                *slot = Some(Ty::UNIT);
+        for var in self.own_vars() {
+            if var.ty.is_none() {
+                var.ty = Some(Ty::UNIT);
             }
         }
     }

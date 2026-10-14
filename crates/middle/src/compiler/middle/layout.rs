@@ -1417,7 +1417,7 @@ mod tests {
     ) -> TyConId {
         t.add_tycon(TyCon {
             name: name.into(),
-            module: ModuleId(0),
+            module: ModuleId::PRIMITIVES,
             generics: generics(generic_names),
             def: TyDef::Struct {
                 fields: fields(named),
@@ -1436,7 +1436,7 @@ mod tests {
     ) -> TyConId {
         t.add_tycon(TyCon {
             name: name.into(),
-            module: ModuleId(0),
+            module: ModuleId::PRIMITIVES,
             generics: generics(generic_names),
             def: TyDef::Enum { variants },
             exported: true,
@@ -1475,7 +1475,7 @@ mod tests {
     fn add_trait(t: &mut Tables, name: &str) -> TraitId {
         t.add_trait(TraitInfo {
             name: name.into(),
-            module: ModuleId(0),
+            module: ModuleId::PRIMITIVES,
             generics: Vec::new(),
             methods: Vec::new(),
             is_effect: true,

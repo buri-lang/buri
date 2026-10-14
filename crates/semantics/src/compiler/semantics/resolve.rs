@@ -20,7 +20,7 @@
 use crate::build::buildfile::Platform;
 use crate::build::workspace::{PackageId, Packages, RuleKind, TargetId};
 use crate::compiler::modules::{Loaded, Role};
-use crate::compiler::semantics::layered::{IdMap, Layered};
+use crate::compiler::semantics::layered::{IdMap, Table};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
@@ -60,12 +60,7 @@ pub enum Sym {
 ///
 /// `None` for every compilation that did not, which is every program that is
 /// not a user interface.
-pub fn own_type(
-    loaded: &Loaded,
-    scopes: &Layered<ModuleScope>,
-    module: &str,
-    name: &str,
-) -> Option<TyConId> {
+pub fn own_type(loaded: &Loaded, scopes: &Scopes, module: &str, name: &str) -> Option<TyConId> {
     match own_sym(loaded, scopes, module, name)? {
         Sym::Ty(id) => Some(*id),
         _ => None,
@@ -74,26 +69,19 @@ pub fn own_type(
 
 /// One module's own function, by name, when this compilation loaded the
 /// module.
-pub fn own_fn(
-    loaded: &Loaded,
-    scopes: &Layered<ModuleScope>,
-    module: &str,
-    name: &str,
-) -> Option<FnId> {
+pub fn own_fn(loaded: &Loaded, scopes: &Scopes, module: &str, name: &str) -> Option<FnId> {
     match own_sym(loaded, scopes, module, name)? {
         Sym::Fn(id) => Some(*id),
         _ => None,
     }
 }
 
-fn own_sym<'s>(
-    loaded: &Loaded,
-    scopes: &'s Layered<ModuleScope>,
-    module: &str,
-    name: &str,
-) -> Option<&'s Sym> {
-    scopes.get(loaded.find(module)?.index())?.own.get(name)
+fn own_sym<'s>(loaded: &Loaded, scopes: &'s Scopes, module: &str, name: &str) -> Option<&'s Sym> {
+    scopes.get(loaded.find(module)?).own.get(name)
 }
+
+/// Every module's scope, by its id.
+pub type Scopes = Table<ModuleId, ModuleScope>;
 
 #[derive(Default, Clone)]
 pub struct ModuleScope {
@@ -179,7 +167,7 @@ pub type ConstLocals = IdMap<ConstId, Vec<typed::Local>>;
 
 pub struct Checked {
     pub tables: Tables,
-    pub scopes: Layered<ModuleScope>,
+    pub scopes: Scopes,
     pub bodies: BodyMap,
     pub consts: ConstMap,
     /// See [`ConstLocals`].
@@ -295,7 +283,7 @@ pub struct Checker<'a> {
     pub ws: Option<&'a dyn Packages>,
     pub diags: &'a mut Diagnostics,
     pub tables: Tables,
-    pub scopes: Layered<ModuleScope>,
+    pub scopes: Scopes,
     pub bodies: BodyMap,
     pub const_values: ConstMap,
     pub const_locals: ConstLocals,
@@ -314,8 +302,6 @@ pub struct Checker<'a> {
     /// Every exported free function of each entry module, by name.
     pub module_entries: HashMap<ModuleId, HashMap<String, FnId>>,
     pub tests: Vec<TestCase>,
-    /// The synthetic module the primitives are declared in.
-    pub prim_module: ModuleId,
     /// Per package, the set of names its `lib.buri` puts on the surface. A
     /// method call from outside a library resolves only to these.
     pub surfaces: HashMap<PackageId, HashSet<String>>,
@@ -412,7 +398,7 @@ pub struct Base {
     /// How many of the compilation's leading modules this covers.
     modules: usize,
     tables: Tables,
-    scopes: Layered<ModuleScope>,
+    scopes: Scopes,
     bodies: BodyMap,
     const_values: ConstMap,
     const_locals: ConstLocals,
@@ -421,7 +407,6 @@ pub struct Base {
     /// What every prelude name refers to, which is the same in every module
     /// and is found in these modules' scopes.
     prelude: std::sync::Arc<Prelude>,
-    prim_module: ModuleId,
     ctx_rebindings: Vec<Span>,
     ctx_decls_reached: HashSet<ContextDeclId>,
     /// Whether every function body of these modules was checked, or only the
@@ -522,8 +507,8 @@ impl<'a> Checker<'a> {
         ws: Option<&'a dyn Packages>,
         diags: &'a mut Diagnostics,
     ) -> Checker<'a> {
-        let mut scopes = Layered::default();
-        scopes.resize_with(loaded.modules.len(), ModuleScope::default);
+        let mut scopes = Table::new();
+        scopes.fill(loaded.modules.len(), ModuleScope::default);
         Checker {
             loaded,
             ws,
@@ -538,7 +523,6 @@ impl<'a> Checker<'a> {
             entry_points: HashSet::default(),
             module_entries: HashMap::default(),
             tests: Vec::new(),
-            prim_module: ModuleId(u32::MAX),
             surfaces: HashMap::default(),
             testing_surfaces: HashMap::default(),
             ctx_rebindings: Vec::new(),
@@ -575,7 +559,7 @@ impl<'a> Checker<'a> {
         // The base's entries are shared rather than copied: these start
         // empty, and read through to the base for every id below theirs.
         let mut scopes = base.scopes.layer();
-        scopes.resize_with(loaded.modules.len(), ModuleScope::default);
+        scopes.fill(loaded.modules.len(), ModuleScope::default);
         c.scopes = scopes;
         c.tables = base.tables.layer();
         c.bodies = base.bodies.layer();
@@ -583,7 +567,6 @@ impl<'a> Checker<'a> {
         c.const_locals = base.const_locals.layer();
         c.known_traits = base.known_traits.clone();
         c.known_types = base.known_types.clone();
-        c.prim_module = base.prim_module;
         c.ctx_rebindings = base.ctx_rebindings.clone();
         c.ctx_decls_reached = base.ctx_decls_reached.clone();
         c.base = Some(base);
@@ -651,7 +634,6 @@ impl<'a> Checker<'a> {
             prelude,
             known_traits: self.known_traits,
             known_types: self.known_types,
-            prim_module: self.prim_module,
             ctx_rebindings: self.ctx_rebindings,
             ctx_decls_reached: self.ctx_decls_reached,
         }
@@ -665,7 +647,7 @@ impl<'a> Checker<'a> {
 
     /// The modules this checker elaborates, as ids.
     fn own_modules(&self) -> impl Iterator<Item = ModuleId> {
-        (self.first_module()..self.loaded.modules.len()).map(|m| ModuleId(m as u32))
+        self.loaded.modules.ids().skip(self.first_module())
     }
 
     /// For a function the base declared, whether the base checked its body;
@@ -862,18 +844,14 @@ impl<'a> Checker<'a> {
             .or_ice("the diagnostic just pushed is the last one")
     }
 
-    /// One module's scope. `new` sizes this table to `loaded.modules`, which is
-    /// the same table every `ModuleId` indexes, so the id is always in range.
+    /// One module's scope. `new` sizes `scopes` to `loaded.modules`, the
+    /// table every `ModuleId` was minted by.
     pub fn scope(&self, module: ModuleId) -> &ModuleScope {
-        self.scopes
-            .get(module.index())
-            .or_ice("every ModuleId indexes the loaded module list")
+        self.scopes.get(module)
     }
 
     fn scope_mut(&mut self, module: ModuleId) -> &mut ModuleScope {
-        self.scopes
-            .get_mut(module.index())
-            .or_ice("every ModuleId indexes the loaded module list")
+        self.scopes.get_mut(module)
     }
 
     /// The borrow is `'a`, not `&self` — the modules live in `loaded`, which
@@ -1177,8 +1155,7 @@ impl<'a> Checker<'a> {
     fn resolve_scopes(&mut self) {
         // Everything a module declares is visible unqualified inside it,
         // before its imports add to that.
-        let first = self.first_module();
-        debug_assert_eq!(self.scopes.base_len(), first);
+        debug_assert_eq!(self.scopes.own_ids().next(), self.own_modules().next());
         // Prelude names sit under everything, so a module may shadow any of
         // them and importing one explicitly is harmless. What each one refers
         // to is the same in every module, so it is looked up once rather than
@@ -1187,8 +1164,8 @@ impl<'a> Checker<'a> {
             Some(base) => std::sync::Arc::clone(&base.prelude),
             None => self.prelude(),
         };
-        for scope in self.scopes.own_mut() {
-            scope.prelude = std::sync::Arc::clone(&prelude);
+        for id in self.scopes.own_ids() {
+            self.scopes.get_mut(id).prelude = std::sync::Arc::clone(&prelude);
         }
 
         for id in self.own_modules() {
@@ -1945,8 +1922,7 @@ impl<'a> Checker<'a> {
     /// then not build a context.
     fn check_declared_entries(&mut self) {
         let Some(ws) = self.ws else { return };
-        let entry_modules: Vec<(ModuleId, PackageId)> = (0..self.loaded.modules.len() as u32)
-            .map(ModuleId)
+        let entry_modules: Vec<(ModuleId, PackageId)> = (self.loaded.modules.ids())
             .filter(|m| self.module(*m).role == Role::Entry)
             .filter_map(|m| Some((m, self.module(m).pkg?)))
             .collect();
@@ -2212,7 +2188,7 @@ impl<'a> Checker<'a> {
         }
         let tycon = self.tables.tycon(*con);
         // A built-in type has no module, and is no host.
-        let module = self.loaded.modules.get(tycon.module.index())?.path.as_str();
+        let module = self.loaded.modules.owner(tycon.module)?.path.as_str();
         standard_library::host_type_of(module).filter(|(_, host)| *host == tycon.name)
     }
 
@@ -3608,11 +3584,7 @@ impl<'a> Checker<'a> {
     /// Whether a trait is the one declared in the standard-library module at
     /// `path`.
     fn declared_in(&self, trait_id: TraitId, path: &str) -> bool {
-        let module = self.tables.trait_(trait_id).module;
-        self.loaded
-            .modules
-            .get(module.index())
-            .is_some_and(|m| m.path == path)
+        self.module(self.tables.trait_(trait_id).module).path == path
     }
 
     /// The innermost part of a component that cannot satisfy the trait: an
@@ -3748,7 +3720,7 @@ impl<'a> Checker<'a> {
                 let info = self.tables.fn_info(f);
                 !info.generics.is_empty()
                     // A primitive's methods have no module.
-                    && self.loaded.modules.get(info.module.index()).is_some_and(|m| !matches!(m.role, Role::Std | Role::Platform))
+                    && self.loaded.modules.owner(info.module).is_some_and(|m| !matches!(m.role, Role::Std | Role::Platform))
                     && crate::compiler::semantics::inference::wanted(self, f)
             })
             .collect();
@@ -4057,7 +4029,7 @@ mod tests {
         ["Shown", "Allocs"].map(|name| {
             tables.add_trait(TraitInfo {
                 name: name.to_string(),
-                module: ModuleId(0),
+                module: ModuleId::PRIMITIVES,
                 generics: Vec::new(),
                 methods: Vec::new(),
                 is_effect: false,

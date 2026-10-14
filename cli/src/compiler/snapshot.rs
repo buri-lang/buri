@@ -16,7 +16,7 @@
 //! ask builds it, and a thread that asks meanwhile waits for that one rather
 //! than building a second.
 
-use crate::compiler::modules::{Loader, ModuleData};
+use crate::compiler::modules::{Loader, Modules};
 use crate::compiler::semantics::resolve::{Base, Bodies, Checker};
 use crate::compiler::semantics::types::ModuleId;
 use crate::diagnostics::{Diagnostics, SourceMap};
@@ -37,7 +37,7 @@ pub enum Opening {
 /// The modules of an [`Opening`], loaded and checked.
 pub struct Snapshot {
     /// The modules, in the order a compilation loads them.
-    pub modules: Vec<ModuleData>,
+    pub modules: Modules,
     /// Every spelling that reaches one of them, as `Loaded::by_path` has it.
     pub by_path: HashMap<String, ModuleId>,
     /// What loading and checking them reported, which is nothing unless the

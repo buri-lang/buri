@@ -20,8 +20,7 @@
 //! function that body calls, but never the body of a lambda.
 
 use crate::compiler::modules::Loaded;
-use crate::compiler::semantics::layered::Layered;
-use crate::compiler::semantics::resolve::{own_fn, BodyMap, ModuleScope, Walked};
+use crate::compiler::semantics::resolve::{own_fn, BodyMap, Scopes, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{FnId, Tables};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
@@ -39,7 +38,7 @@ use crate::hash::Set as HashSet;
 pub fn run(
     loaded: &Loaded,
     tables: &Tables,
-    scopes: &Layered<ModuleScope>,
+    scopes: &Scopes,
     bodies: &BodyMap,
     diags: &mut Diagnostics,
     walked: &Walked,
