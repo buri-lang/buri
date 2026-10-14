@@ -1132,7 +1132,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// the fix names that enum.
     pub(crate) fn report_untyped_variant(&mut self, variant: &str, span: Span) {
         let tables = &self.c.tables;
-        let owners: Vec<(&str, TyConId, usize)> = self
+        let owners: Vec<(&str, TyConId, VariantId)> = self
             .c
             .scope(self.module)
             .visible()
@@ -1144,11 +1144,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             .collect();
         let fix = match owners[..] {
             [(name, con, i)] => {
-                let carries = tables
-                    .tycon(con)
-                    .variants()
-                    .get(i)
-                    .is_some_and(|v| !v.fields.is_empty());
+                let carries = !tables.tycon(con).variant(i).fields.is_empty();
                 let payload = if carries { "(...)" } else { "" };
                 Some(format!("write `{name}.{variant}{payload}`, or annotate what this value is being used as"))
             }

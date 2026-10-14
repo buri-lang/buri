@@ -22,7 +22,7 @@ use crate::parsing::tree;
 /// What a callee names, when it names something statically.
 enum Static {
     Fn(FnId),
-    Variant(TyConId, usize),
+    Variant(TyConId, VariantId),
     Context(ContextDeclId),
     Const(ConstId),
     /// A tuple struct's name, which constructs one: `Meters(9.8)`.
@@ -92,7 +92,7 @@ enum MethodTarget {
     /// A concrete function: one type, one module, one lookup.
     Direct(FnId),
     /// Declared by a bound, so the receiver's type is not concrete yet.
-    Bound(TraitId, usize),
+    Bound(TraitId, MethodId),
 }
 
 impl<'a, 'b> Infer<'a, 'b> {
@@ -1642,7 +1642,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         name: &str,
         span: Span,
     ) -> Option<MethodTarget> {
-        let mut found: Option<(TraitId, usize)> = None;
+        let mut found: Option<(TraitId, MethodId)> = None;
         for b in bounds {
             if let Some(i) = self.c.tables.trait_(*b).method_index(name) {
                 // Where two bounds declare the same method name, the call is
@@ -1828,7 +1828,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// anything without the other.
     fn call_trait_method(
         &mut self,
-        bound: (TraitId, usize),
+        bound: (TraitId, MethodId),
         recv: typed::Expr,
         args: &[ExprId],
         explicit: Option<Vec<Ty>>,
@@ -1836,14 +1836,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         expected: Option<&Ty>,
     ) -> typed::Expr {
         let (tid, index) = bound;
-        let method = self
-            .c
-            .tables
-            .trait_(tid)
-            .methods
-            .get(index)
-            .or_ice("the index is a position in this same trait's method list")
-            .clone();
+        let method = self.c.tables.trait_(tid).methods.get(index).clone();
         let recv_ty = self.resolve(&recv.ty);
         // A trait method's own generics come after the trait's; the
         // *implementing* type supplies `Self`, which is the receiver everywhere
@@ -2442,23 +2435,15 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// The module, arity and one variant of an enum, for building a value of it.
     /// The variant is cloned alone: copying the `TyCon` would copy every variant
     /// of the enum and every field of each of them.
-    fn variant_to_build(&self, con: TyConId, index: usize) -> (ModuleId, usize, VariantInfo) {
+    fn variant_to_build(&self, con: TyConId, index: VariantId) -> (ModuleId, usize, VariantInfo) {
         let tycon = self.c.tables.tycon(con);
-        (
-            tycon.module,
-            tycon.arity(),
-            tycon
-                .variants()
-                .get(index)
-                .or_ice("the variant index came from this same type's variant list")
-                .clone(),
-        )
+        (tycon.module, tycon.arity(), tycon.variant(index).clone())
     }
 
     fn construct_variant(
         &mut self,
         con: TyConId,
-        index: usize,
+        index: VariantId,
         args: &[ExprId],
         span: Span,
         expected: Option<&Ty>,
@@ -2864,7 +2849,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         &mut self,
         head: ExprId,
         expected: Option<&Ty>,
-    ) -> Option<(TyConId, usize)> {
+    ) -> Option<(TyConId, VariantId)> {
         match self.tree().expr(head) {
             V::DotVariant { name, .. } => {
                 let TyKind::Con(con, _) = self.resolve(expected?).kind() else {
@@ -2884,7 +2869,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     fn build_record_variant(
         &mut self,
         con: TyConId,
-        index: usize,
+        index: VariantId,
         fields: &[InitData],
         span: Span,
         expected: Option<&Ty>,
@@ -3294,15 +3279,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         // A literal in `ty` settles later, and may settle outside the `impl`'s head.
         self.obligations.push((ty, tid, span));
-        let index = self.c.tables.trait_(tid).method_index(method).unwrap_or(0);
-        let sig = self
-            .c
-            .tables
-            .trait_(tid)
-            .methods
-            .get(index)
-            .or_ice("an operator trait is one the prelude declares, with its method")
-            .clone();
+        let info = self.c.tables.trait_(tid);
+        let index = info
+            .method_index(method)
+            .or_ice("an operator trait is one the prelude declares, with its method");
+        let sig = info.methods.get(index).clone();
         let ret = substitute(&sig.ret, &[], Some(&ty));
         let mut args = vec![lhs];
         if let Some(r) = rhs {
@@ -3331,13 +3312,12 @@ impl<'a, 'b> Infer<'a, 'b> {
         use tree::BinOp as B;
         let order = self.c.order_con.or_ice("`Order` is in the prelude");
         let bool_ty = self.prim(Prim::Bool);
-        let (target, when_match) = match op {
-            B::Lt => ("Less", true),
-            B::Ge => ("Less", false),
-            B::Gt => ("Greater", true),
-            _ => ("Greater", false),
+        let (index, when_match) = match op {
+            B::Lt => (VariantId::LESS, true),
+            B::Ge => (VariantId::LESS, false),
+            B::Gt => (VariantId::GREATER, true),
+            _ => (VariantId::GREATER, false),
         };
-        let index = self.c.tables.variant_index(order, target).unwrap_or(0);
         let order_ty = Ty::con(order, []);
         let arms = vec![
             typed::Arm {
@@ -3914,7 +3894,7 @@ fn shape_of_struct(c: &Checker, con: TyConId) -> String {
 }
 
 /// The same for one variant of an enum, whose declaration is the enum's.
-fn shape_of_variant(c: &Checker, con: TyConId, index: usize) -> String {
+fn shape_of_variant(c: &Checker, con: TyConId, index: VariantId) -> String {
     let info = c.tables.tycon(con);
     c.module(info.module)
         .ast
@@ -3924,7 +3904,7 @@ fn shape_of_variant(c: &Checker, con: TyConId, index: usize) -> String {
             tree::Item::Enum(d) if d.name.span == info.span => c
                 .tree(info.module)
                 .list(d.variants)
-                .get(index)
+                .get(index.index())
                 .map(|v| crate::formatting::variant(c.tree(info.module), v)),
             _ => None,
         })
@@ -3933,7 +3913,7 @@ fn shape_of_variant(c: &Checker, con: TyConId, index: usize) -> String {
 
 /// The same for a method reached through a bound, whose declaration is the
 /// trait's — including one nobody wrote, which `derive` supplies.
-fn signature_of_trait_method(c: &Checker, tid: TraitId, index: usize) -> String {
+fn signature_of_trait_method(c: &Checker, tid: TraitId, index: MethodId) -> String {
     let info = c.tables.trait_(tid);
     let declared = c
         .module(info.module)
@@ -3942,14 +3922,16 @@ fn signature_of_trait_method(c: &Checker, tid: TraitId, index: usize) -> String 
         .iter()
         .find_map(|item| match item {
             tree::Item::Trait(d) if d.name.span == info.span => {
-                c.tree(info.module).list(d.methods).get(index)
+                c.tree(info.module).list(d.methods).get(index.index())
             }
             _ => None,
         });
-    match (declared, info.methods.get(index)) {
-        (Some(d), _) => crate::formatting::call_signature(c.tree(info.module), d),
-        (None, Some(m)) => call_signature(&c.tables, &m.name, &m.generics, &m.params),
-        (None, None) => info.name.clone(),
+    match declared {
+        Some(d) => crate::formatting::call_signature(c.tree(info.module), d),
+        None => {
+            let m = info.methods.get(index);
+            call_signature(&c.tables, &m.name, &m.generics, &m.params)
+        }
     }
 }
 

@@ -137,9 +137,9 @@ fn sexp(p: &Program, e: &Expr) -> String {
         }
         ExprKind::EnumLit { variant, args, .. } => {
             if args.is_empty() {
-                format!(".v{variant}")
+                format!(".v{}", variant.index())
             } else {
-                format!(".v{variant}({})", list(args))
+                format!(".v{}({})", variant.index(), list(args))
             }
         }
         ExprKind::StructLit { fields, .. } => format!("{{{}}}", list(fields)),
@@ -195,9 +195,9 @@ fn pat(p: &Pattern) -> String {
         } => {
             let fs: Vec<String> = fields.iter().map(|f| pat(&f.pattern)).collect();
             if fs.is_empty() {
-                format!(".v{variant}")
+                format!(".v{}", variant.index())
             } else {
-                format!(".v{variant}({})", fs.join(", "))
+                format!(".v{}({})", variant.index(), fs.join(", "))
             }
         }
         _ => "?".into(),

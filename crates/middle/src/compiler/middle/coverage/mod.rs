@@ -13,7 +13,7 @@ use crate::compiler::semantics::resolve::ConstMap;
 use crate::compiler::semantics::typed::{
     self, Expr, ExprKind, Magnitude, PatKind, Pattern, PrimOp, Stmt, UnaryOp,
 };
-use crate::compiler::semantics::types::{FnId, FuncIdx, LocalId, Prim, Ty, TyKind};
+use crate::compiler::semantics::types::{FnId, FuncIdx, LocalId, Prim, Ty, TyKind, VariantId};
 use crate::diagnostics::Invariant as _;
 use std::collections::HashMap;
 
@@ -1371,7 +1371,7 @@ impl Branches<'_> {
                 con: ty
                     .head()
                     .or_ice("a built-in's outcome is a Bool or an enum"),
-                variant: 0,
+                variant: VariantId::FIRST,
                 fields: Vec::new(),
             }
         };

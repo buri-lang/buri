@@ -16,7 +16,7 @@ use super::convert;
 use super::state::Analyzed;
 use crate::compiler::semantics::resolve::own_type;
 use crate::compiler::semantics::typed::{self, ExprKind};
-use crate::compiler::semantics::types::{Tables, TyConId};
+use crate::compiler::semantics::types::{Tables, TyConId, VariantId};
 use crate::diagnostics::Span;
 use crate::json::Value;
 use std::path::Path;
@@ -150,8 +150,13 @@ fn color_constructor(analyzed: &Analyzed) -> Option<TyConId> {
 
 /// The colour one constructor call spells out, or nothing when it is not one of
 /// the two that carry channels or an argument is not a literal.
-fn color_of(tables: &Tables, con: TyConId, variant: usize, args: &[typed::Expr]) -> Option<Rgba> {
-    let name = tables.tycon(con).variants().get(variant)?.name.as_str();
+fn color_of(
+    tables: &Tables,
+    con: TyConId,
+    variant: VariantId,
+    args: &[typed::Expr],
+) -> Option<Rgba> {
+    let name = tables.tycon(con).variant(variant).name.as_str();
     let opaque = match name {
         "Rgb" => true,
         "Rgba" => false,

@@ -102,7 +102,7 @@ fn a_written_self_in_a_trait_signature_stays_abstract() {
         .iter()
         .find(|t| t.name == "Relay")
         .expect("the trait");
-    let m = tr.methods.first().expect("the method");
+    let m = tr.methods.as_slice().first().expect("the method");
     assert_eq!(m.params[0].ty, Ty::SELF);
     let TyKind::Fn(params, _) = m.params[1].ty.kind() else {
         panic!("a function type")

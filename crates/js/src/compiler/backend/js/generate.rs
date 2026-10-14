@@ -26,7 +26,7 @@ use crate::compiler::middle::monomorphize::{self, Desc, FuncKind, Program, Progr
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp, UnaryOp};
 use crate::compiler::semantics::types::{
-    field_types, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind,
+    field_types, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
 };
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
@@ -2003,7 +2003,7 @@ impl<'a> Gen<'a> {
                 if let Some(nested) = self.option_nesting(&pattern.ty) {
                     // `Some` is anything but absence; `None` is absence.
                     let present = Expr::bin(
-                        if *variant == 1 {
+                        if *variant == VariantId::NONE {
                             BinOp::StrictEq
                         } else {
                             BinOp::StrictNe
@@ -2011,7 +2011,7 @@ impl<'a> Gen<'a> {
                         subject.clone(),
                         Expr::Undefined,
                     );
-                    if *variant == 1 {
+                    if *variant == VariantId::NONE {
                         return Some(present);
                     }
                     let inner = self.option_value(subject.clone(), nested);
@@ -2027,7 +2027,7 @@ impl<'a> Gen<'a> {
                 } else {
                     Expr::index(subject.clone(), Expr::Num(0.0))
                 };
-                let mut cond = Expr::bin(BinOp::StrictEq, tag, Expr::Num(*variant as f64));
+                let mut cond = Expr::bin(BinOp::StrictEq, tag, Expr::Num(variant.index() as f64));
                 // A single-variant enum needs no tag test.
                 if self.tables.tycon(*con).variants().len() == 1 {
                     return self.all_tests(fields.iter().map(|f| {
@@ -2531,7 +2531,7 @@ impl<'a> Gen<'a> {
                 if let Some(nested) = self.option_nesting(&e.ty) {
                     // Variant 0 is `Some`, 1 is `None`; `Tables::is_option`
                     // checks that.
-                    if *variant == 1 {
+                    if *variant == VariantId::NONE {
                         return Expr::Undefined;
                     }
                     let arg = args.first().or_ice(
@@ -2545,9 +2545,9 @@ impl<'a> Gen<'a> {
                     };
                 }
                 if self.payloadless(*con) {
-                    Expr::Num(*variant as f64)
+                    Expr::Num(variant.index() as f64)
                 } else {
-                    let mut items = vec![Expr::Num(*variant as f64)];
+                    let mut items = vec![Expr::Num(variant.index() as f64)];
                     items.extend(self.exprs(args, out));
                     self.intern(items)
                 }

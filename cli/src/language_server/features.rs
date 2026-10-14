@@ -465,7 +465,7 @@ fn named(analyzed: &Analyzed, symbol: &symbols::Symbol) -> Option<(String, bool)
         }
         Symbol::TraitMethod { trait_id, method } => {
             let info = tables.trait_(*trait_id);
-            let m = info.methods.get(*method)?;
+            let m = info.methods.get(*method);
             (
                 info.module,
                 format!("{}.{}", info.name, m.name),
@@ -487,17 +487,12 @@ fn named(analyzed: &Analyzed, symbol: &symbols::Symbol) -> Option<(String, bool)
         } => {
             let info = tables.tycon(*con);
             let field = match variant {
-                Some(v) => info.variants().get(*v)?.fields.get(*index)?,
+                Some(v) => info.variant(*v).fields.get(*index)?,
                 None => info.fields().get(*index)?,
             };
             let declared = match variant {
                 Some(v) => {
-                    format!(
-                        "{}.{}.{}",
-                        info.name,
-                        info.variants().get(*v)?.name,
-                        field.name
-                    )
+                    format!("{}.{}.{}", info.name, info.variant(*v).name, field.name)
                 }
                 None => format!("{}.{}", info.name, field.name),
             };
@@ -505,7 +500,7 @@ fn named(analyzed: &Analyzed, symbol: &symbols::Symbol) -> Option<(String, bool)
         }
         Symbol::Variant { con, index } => {
             let info = tables.tycon(*con);
-            let variant = info.variants().get(*index)?;
+            let variant = info.variant(*index);
             (
                 info.module,
                 format!("{}.{}", info.name, variant.name),

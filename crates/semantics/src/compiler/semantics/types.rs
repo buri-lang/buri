@@ -6,7 +6,9 @@
 //! rather than a search (SPEC 5.12.1), and it is why nothing in this module
 //! needs a fixpoint (guides/compile-speed.md).
 
-use crate::compiler::semantics::layered::{DenseId, IdMap, Layered, LayeredMap, Mint, Table};
+use crate::compiler::semantics::layered::{
+    Dense, DenseId, IdMap, Layered, LayeredMap, Mint, Table,
+};
 use crate::diagnostics::{Invariant as _, Span};
 use crate::hash::Map as HashMap;
 use std::fmt::Write as _;
@@ -50,6 +52,8 @@ id_type!(minted ConstId);
 id_type!(minted ContextDeclId);
 id_type!(minted CtxTypeId);
 id_type!(minted TyVarId);
+id_type!(minted VariantId);
+id_type!(minted MethodId);
 id_type!(LocalId);
 
 // `FuncIdx` is an index into `Program::funcs`: one concrete function, after
@@ -63,6 +67,29 @@ impl ModuleId {
     /// The synthetic module the primitive types are declared in. No module
     /// is loaded under it: see [`crate::compiler::modules::Modules::owner`].
     pub const PRIMITIVES: ModuleId = ModuleId(u32::MAX);
+}
+
+/// The variants `core/option` and `core/order` declare, in their order, which
+/// the backends already depend on.
+impl MethodId {
+    /// A trait's first method, which is a derivable trait's only one.
+    pub const FIRST: MethodId = MethodId(0);
+}
+
+impl VariantId {
+    /// An enum's first variant: `Some`, `Ok`, `Less`.
+    pub const FIRST: VariantId = VariantId(0);
+    pub const SOME: VariantId = VariantId(0);
+    pub const NONE: VariantId = VariantId(1);
+    pub const LESS: VariantId = VariantId(0);
+    pub const EQUAL: VariantId = VariantId(1);
+    pub const GREATER: VariantId = VariantId(2);
+
+    /// The variant at `i` in a standard library declaration that fixes its
+    /// order, as `ui/style`'s does.
+    pub const fn declared(i: usize) -> VariantId {
+        VariantId(i as u32)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -357,9 +384,14 @@ pub enum TyDef {
         record: bool,
     },
     Enum {
-        variants: Vec<VariantInfo>,
+        variants: Variants,
     },
 }
+
+pub type Variants = Dense<VariantId, VariantInfo>;
+
+/// What a type that is not an enum has.
+static NO_VARIANTS: Variants = Dense::new();
 
 #[derive(Clone, Debug)]
 pub struct TyCon {
@@ -378,11 +410,15 @@ impl TyCon {
         self.generics.len()
     }
 
-    pub fn variants(&self) -> &[VariantInfo] {
+    pub fn variants(&self) -> &Variants {
         match &self.def {
             TyDef::Enum { variants } => variants,
-            _ => &[],
+            _ => &NO_VARIANTS,
         }
+    }
+
+    pub fn variant(&self, id: VariantId) -> &VariantInfo {
+        self.variants().get(id)
     }
 
     pub fn fields(&self) -> &[FieldInfo] {
@@ -392,8 +428,8 @@ impl TyCon {
         }
     }
 
-    pub fn variant_index(&self, name: &str) -> Option<usize> {
-        self.variants().iter().position(|v| v.name == name)
+    pub fn variant_index(&self, name: &str) -> Option<VariantId> {
+        self.variants().position(|v| v.name == name)
     }
 
     pub fn field_index(&self, name: &str) -> Option<usize> {
@@ -451,7 +487,7 @@ pub struct FnInfo {
     /// which `Self` names in the method's body as it does in its signature.
     pub head: Option<Ty>,
     /// `Some` when this function is a trait method supplied by an `impl`.
-    pub impl_of: Option<(TraitId, usize)>,
+    pub impl_of: Option<(TraitId, MethodId)>,
     /// Index of the AST item this came from, for the checker to find the body.
     pub ast: AstRef,
     /// Backed by the runtime rather than by Buri source. Only the embedded
@@ -499,7 +535,7 @@ pub struct TraitInfo {
     pub name: String,
     pub module: ModuleId,
     pub generics: Vec<GenericInfo>,
-    pub methods: Vec<TraitMethod>,
+    pub methods: Dense<MethodId, TraitMethod>,
     /// Declared with `effect`. Its implementors are effect-carrying, and so
     /// may be passed only as `self` or `ctx` (SPEC 10.1).
     pub is_effect: bool,
@@ -508,8 +544,8 @@ pub struct TraitInfo {
 }
 
 impl TraitInfo {
-    pub fn method_index(&self, name: &str) -> Option<usize> {
-        self.methods.iter().position(|m| m.name == name)
+    pub fn method_index(&self, name: &str) -> Option<MethodId> {
+        self.methods.position(|m| m.name == name)
     }
 }
 
@@ -576,7 +612,7 @@ pub enum ImplBody {
     /// Written by hand. One slot per trait method, in the trait's declaration
     /// order; `None` where the `impl` did not supply one, which is always
     /// already diagnosed.
-    Written(Vec<Option<FnId>>),
+    Written(Dense<MethodId, Option<FnId>>),
 }
 
 #[derive(Clone, Debug)]
@@ -607,13 +643,13 @@ impl ImplInfo {
     }
 
     /// The function supplying one trait method, by its slot in the trait's
-    /// declaration order. `None` for a derived impl, an out-of-range slot, or
-    /// a method the `impl` failed to supply — three cases the caller has to
-    /// handle identically anyway.
-    pub fn method(&self, slot: usize) -> Option<FnId> {
+    /// declaration order. `None` for a derived impl, or a method the `impl`
+    /// failed to supply — two cases the caller has to handle identically
+    /// anyway.
+    pub fn method(&self, slot: MethodId) -> Option<FnId> {
         match &self.body {
             ImplBody::Derived => None,
-            ImplBody::Written(ms) => ms.get(slot).copied().flatten(),
+            ImplBody::Written(ms) => *ms.get(slot),
         }
     }
 }
@@ -685,6 +721,24 @@ impl CtxType {
 // The nominal tables
 // ---------------------------------------------------------------------------
 
+/// A type's member names, for [`Tables::index_members`]. A type's members are
+/// its variants or its fields, never both.
+#[derive(Clone)]
+enum Members {
+    Variants(HashMap<String, VariantId>),
+    Fields(HashMap<String, usize>),
+}
+
+/// First wins, so that a duplicate name resolves to the same member the scan
+/// finds. `resolve` reports the duplicate separately.
+fn first_wins<'a, V>(members: impl Iterator<Item = (&'a String, V)>) -> HashMap<String, V> {
+    let mut map = HashMap::default();
+    for (name, member) in members {
+        map.entry(name.clone()).or_insert(member);
+    }
+    map
+}
+
 #[derive(Clone)]
 pub struct Tables {
     pub tycons: Table<TyConId, TyCon>,
@@ -736,7 +790,7 @@ pub struct Tables {
     /// there is one place that fills it, `index_members`, and a type whose
     /// index was never built falls back to the scan rather than answering
     /// wrongly. Sparse: only the types past the threshold have an entry.
-    member_index: IdMap<TyConId, Box<HashMap<String, usize>>>,
+    member_index: IdMap<TyConId, Box<Members>>,
     /// Per type constructor, per type parameter: whether *holding* a value of
     /// that constructor can hand you the argument at that position. See
     /// `compute_variance`.
@@ -945,47 +999,31 @@ impl Tables {
         /// A list shorter than this is quicker to walk than to hash.
         const THRESHOLD: usize = 8;
 
-        let members: Vec<&str> = match &self.tycon(id).def {
-            TyDef::Enum { variants } => variants.iter().map(|v| v.name.as_str()).collect(),
-            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.name.as_str()).collect(),
-            TyDef::Prim(_) => return,
+        let members = match &self.tycon(id).def {
+            TyDef::Enum { variants } if variants.len() >= THRESHOLD => {
+                Members::Variants(first_wins(variants.entries().map(|(i, v)| (&v.name, i))))
+            }
+            TyDef::Struct { fields, .. } if fields.len() >= THRESHOLD => Members::Fields(
+                first_wins(fields.iter().enumerate().map(|(i, f)| (&f.name, i))),
+            ),
+            _ => return,
         };
-        if members.len() < THRESHOLD {
-            return;
-        }
-        let mut map: HashMap<String, usize> = HashMap::default();
-        // First wins, so that a duplicate name resolves to the same member the
-        // scan found. `resolve` reports the duplicate separately.
-        for (i, name) in members.iter().enumerate() {
-            map.entry((*name).to_owned()).or_insert(i);
-        }
-        self.member_index.insert(id, Box::new(map));
-    }
-
-    /// The index for `id`, when there is one and it is the list the caller
-    /// means. A type's members are its variants or its fields, never both, so
-    /// asking for the other list must miss rather than find a member of this
-    /// one.
-    fn member_map(&self, id: TyConId, enums: bool) -> Option<&HashMap<String, usize>> {
-        if matches!(self.tycon(id).def, TyDef::Enum { .. }) != enums {
-            return None;
-        }
-        self.member_index.get(&id).map(Box::as_ref)
+        self.member_index.insert(id, Box::new(members));
     }
 
     /// The position of a variant in `id`'s variant list.
-    pub fn variant_index(&self, id: TyConId, name: &str) -> Option<usize> {
-        match self.member_map(id, true) {
-            Some(map) => map.get(name).copied(),
-            None => self.tycon(id).variant_index(name),
+    pub fn variant_index(&self, id: TyConId, name: &str) -> Option<VariantId> {
+        match self.member_index.get(&id).map(Box::as_ref) {
+            Some(Members::Variants(map)) => map.get(name).copied(),
+            _ => self.tycon(id).variant_index(name),
         }
     }
 
     /// The position of a field in `id`'s field list.
     pub fn field_index(&self, id: TyConId, name: &str) -> Option<usize> {
-        match self.member_map(id, false) {
-            Some(map) => map.get(name).copied(),
-            None => self.tycon(id).field_index(name),
+        match self.member_index.get(&id).map(Box::as_ref) {
+            Some(Members::Fields(map)) => map.get(name).copied(),
+            _ => self.tycon(id).field_index(name),
         }
     }
 
@@ -1731,7 +1769,7 @@ pub fn variant_types(tables: &Tables, ty: &Ty, variant: usize) -> Vec<Ty> {
         return Vec::new();
     };
     match &tables.tycon(*id).def {
-        TyDef::Enum { .. } => match tables.tycon(*id).variants().get(variant) {
+        TyDef::Enum { .. } => match tables.tycon(*id).variants().as_slice().get(variant) {
             Some(v) => v
                 .fields
                 .iter()

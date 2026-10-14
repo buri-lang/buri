@@ -23,6 +23,7 @@
 //! because two bodies under one symbol is a miscompile on every backend and
 //! nothing the author of the program could have done about it.
 
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::resolve::{Checked, TestCase};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind};
@@ -146,7 +147,7 @@ pub enum Desc {
     },
     Enum {
         name: String,
-        variants: Vec<DescVariant>,
+        variants: Dense<VariantId, DescVariant>,
     },
     /// An `IndexSet<K>`, read by every walk as the list of its members, `list`
     /// the descriptor of `[K]`. `to` is its `toList` and `from` is
@@ -1735,7 +1736,7 @@ impl Monomorphizer<'_> {
     fn rewrite_call_args(
         &mut self,
         trait_id: TraitId,
-        method: usize,
+        method: MethodId,
         recv: &Ty,
         recv_at: &Ty,
         args: Vec<typed::Expr>,
@@ -1764,8 +1765,10 @@ impl Monomorphizer<'_> {
             .trait_(trait_id)
             .methods
             .get(method)
-            .map(|m| m.params.iter().map(|p| self_positions(&p.ty)).collect())
-            .unwrap_or_default();
+            .params
+            .iter()
+            .map(|p| self_positions(&p.ty))
+            .collect();
         let adapted = |rest: &[typed::Expr]| {
             rest.iter()
                 .zip(spelled.iter().skip(1))
@@ -1915,10 +1918,34 @@ impl Monomorphizer<'_> {
             .filter(|p| p.is_float())?;
         // `Order`'s variants in declaration order: `Less`, `Equal`, `Greater`.
         let op = match (&tested.pattern.kind, &tested.body.kind) {
-            (PatKind::Variant { variant: 0, .. }, ExprKind::Bool(true)) => typed::PrimOp::Lt,
-            (PatKind::Variant { variant: 0, .. }, ExprKind::Bool(false)) => typed::PrimOp::Ge,
-            (PatKind::Variant { variant: 2, .. }, ExprKind::Bool(true)) => typed::PrimOp::Gt,
-            (PatKind::Variant { variant: 2, .. }, ExprKind::Bool(false)) => typed::PrimOp::Le,
+            (
+                PatKind::Variant {
+                    variant: VariantId::LESS,
+                    ..
+                },
+                ExprKind::Bool(true),
+            ) => typed::PrimOp::Lt,
+            (
+                PatKind::Variant {
+                    variant: VariantId::LESS,
+                    ..
+                },
+                ExprKind::Bool(false),
+            ) => typed::PrimOp::Ge,
+            (
+                PatKind::Variant {
+                    variant: VariantId::GREATER,
+                    ..
+                },
+                ExprKind::Bool(true),
+            ) => typed::PrimOp::Gt,
+            (
+                PatKind::Variant {
+                    variant: VariantId::GREATER,
+                    ..
+                },
+                ExprKind::Bool(false),
+            ) => typed::PrimOp::Le,
             _ => return None,
         };
         // The match is replaced whole, so its operands leave it.
@@ -2246,7 +2273,7 @@ impl Monomorphizer<'_> {
     fn resolve_trait_call(
         &mut self,
         trait_id: TraitId,
-        method: usize,
+        method: MethodId,
         recv: Ty,
         method_targs: Vec<Ty>,
         mut args: Vec<typed::Expr>,
@@ -2386,7 +2413,7 @@ impl Monomorphizer<'_> {
     fn structural_call(
         &mut self,
         trait_id: TraitId,
-        method: usize,
+        method: MethodId,
         recv: &Ty,
         args: Vec<typed::Expr>,
         span: Span,
@@ -2449,8 +2476,9 @@ impl Monomorphizer<'_> {
                     .trait_(trait_id)
                     .methods
                     .get(method)
-                    .map(|m| m.name.clone());
-                self.flags_method(word, method.as_deref().unwrap_or(""), all)
+                    .name
+                    .clone();
+                self.flags_method(word, &method, all)
             }
             _ => {
                 self.diags.push(
@@ -2840,7 +2868,7 @@ impl Monomorphizer<'_> {
                         Desc::Option(inner)
                     }
                     TyDef::Enum { variants } => {
-                        let vs: Vec<DescVariant> = variants
+                        let vs: Dense<VariantId, DescVariant> = variants
                             .iter()
                             .map(|v| {
                                 let fields: Vec<DescField> = v

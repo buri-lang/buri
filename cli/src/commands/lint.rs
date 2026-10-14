@@ -2744,7 +2744,7 @@ fn check_unused_declarations(
                 }
             }
             TyDef::Enum { variants } if !exempt => {
-                for (i, v) in variants.iter().enumerate() {
+                for (i, v) in variants.entries() {
                     if census.variants.contains(&(id, i)) || names.doubted.contains(v.name.as_str())
                     {
                         continue;
@@ -2897,7 +2897,10 @@ struct Census {
     /// projection to find: a `derive`, an intrinsic, a structural comparison.
     read_whole: BTreeSet<crate::compiler::semantics::types::TyConId>,
     /// `(type, variant)` built or named by a pattern.
-    variants: BTreeSet<(crate::compiler::semantics::types::TyConId, usize)>,
+    variants: BTreeSet<(
+        crate::compiler::semantics::types::TyConId,
+        crate::compiler::semantics::types::VariantId,
+    )>,
     /// The type the body being walked belongs to, whose own mentions of itself
     /// are not uses of it. See [`check_unused_declarations`].
     owner: Option<crate::compiler::semantics::types::TyConId>,
@@ -3892,11 +3895,7 @@ fn bounds_used(
             if matches!(recv.kind(), TyKind::Param(i) if *i == gi) {
                 used.insert(*trait_id);
             }
-            let m = tables
-                .trait_(*trait_id)
-                .methods
-                .get(*method)
-                .or_ice("a trait call names one of the trait's methods");
+            let m = tables.trait_(*trait_id).methods.get(*method);
             note_targs(&m.generics, targs, gi, &mut used);
         }
         // A callee that asks for a context of its own, and a callee taken as a
@@ -4177,13 +4176,15 @@ fn order_variant<'a>(
     let typed::ExprKind::EnumLit { con, variant, .. } = &written.kind else {
         return None;
     };
-    analysis
-        .checked
-        .tables
-        .tycon(*con)
-        .variants()
-        .get(*variant)
-        .map(|v| v.name.as_str())
+    Some(
+        analysis
+            .checked
+            .tables
+            .tycon(*con)
+            .variant(*variant)
+            .name
+            .as_str(),
+    )
 }
 
 /// A two-operand primitive operation: which operation, at which primitive, on

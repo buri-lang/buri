@@ -170,7 +170,7 @@ fn check(
 /// The string a decorative `source` folds to: a `Prop`'s `.Const` holding one.
 fn const_source(v: &Value) -> Option<&str> {
     match v {
-        Value::Variant { variant, args } if *variant == PROP_CONST => {
+        Value::Variant { variant, args } if variant.index() == PROP_CONST => {
             args.first().and_then(Value::as_str)
         }
         _ => None,

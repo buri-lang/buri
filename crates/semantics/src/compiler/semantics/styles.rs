@@ -64,7 +64,8 @@ use crate::compiler::semantics::consteval::{bound, Env, Folder, Value};
 use crate::compiler::semantics::resolve::{own_fn, own_type, BodyMap, ConstMap, Scopes, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind, Magnitude};
 use crate::compiler::semantics::types::{
-    ConstId, FnId, FuncIdx, LocalId, ModuleId, Tables, TraitId, Ty, TyConId, TyKind,
+    ConstId, FnId, FuncIdx, LocalId, MethodId, ModuleId, Tables, TraitId, Ty, TyConId, TyKind,
+    VariantId,
 };
 use crate::diagnostics::{invariant, Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
@@ -1143,12 +1144,12 @@ impl<'a> Extractor<'a> {
     fn composition(
         &mut self,
         span: Span,
-        variant: &mut usize,
+        variant: &mut VariantId,
         args: &mut Vec<typed::Expr>,
         s: Sink,
         cond: Cond,
     ) -> Composed {
-        match *variant {
+        match variant.index() {
             STYLE_GROUP => {
                 let Some(list) = args.first_mut() else {
                     return Composed::Done;
@@ -1174,7 +1175,7 @@ impl<'a> Extractor<'a> {
                     );
                     return Composed::Done;
                 };
-                let inner = if *variant == STYLE_ON {
+                let inner = if variant.index() == STYLE_ON {
                     Cond {
                         state: Some(chosen),
                         screen: cond.screen,
@@ -1189,7 +1190,7 @@ impl<'a> Extractor<'a> {
                     self.style_list(list, s, inner);
                 }
                 if self.extracts_at(s) {
-                    *variant = STYLE_GROUP;
+                    *variant = VariantId::declared(STYLE_GROUP);
                     args.remove(0);
                 }
                 Composed::Done
@@ -1275,7 +1276,7 @@ impl<'a> Extractor<'a> {
             ExprKind::EnumLit {
                 con: self.style_con,
                 targs: Vec::new(),
-                variant: STYLE_EXTRACTED,
+                variant: VariantId::declared(STYLE_EXTRACTED),
                 args: vec![classes],
             },
             Ty::con(self.style_con, []),
@@ -1537,7 +1538,7 @@ enum Demand {
     Ret(FnId),
     Const(ConstId),
     /// A trait method's result, whichever `impl` answers it.
-    Method(TraitId, usize),
+    Method(TraitId, MethodId),
     /// A style a node is given whose value goes through `classify`.
     Leaf(usize),
 }
@@ -3556,11 +3557,11 @@ pub fn survey(
             con, variant, args, ..
         } => {
             if Some(*con) == ui.style {
-                collect(*variant, args, out);
+                collect(variant.index(), args, out);
             }
             if let Some(node_con) = ui.node {
-                out.icons |= *con == node_con && *variant == NODE_ICON;
-                reset_in(*con, *variant, node_con, ui.role, &mut out.reset);
+                out.icons |= *con == node_con && variant.index() == NODE_ICON;
+                reset_in(*con, variant.index(), node_con, ui.role, &mut out.reset);
             }
         }
         ExprKind::StructLit { con, .. } if Some(*con) == ui.theme => out.themes = true,
