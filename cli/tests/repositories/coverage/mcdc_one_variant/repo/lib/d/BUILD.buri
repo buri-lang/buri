@@ -1,0 +1,7 @@
+library {
+    sources: ["d.buri"]
+
+    test {
+        sources: ["test/d.buri"]
+    }
+}

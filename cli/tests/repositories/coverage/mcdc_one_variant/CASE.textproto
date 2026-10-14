@@ -1,0 +1,32 @@
+# An enum with one variant: once the first value is that variant, so is the
+# second, so a derived `Equal` or `Ordered` counts no "another variant" branch.
+# Comparing two `Stopped`s, and `Tagged`s with equal and unequal payloads,
+# shows every condition there is.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "--coverage=mcdc counts no other-variant branch for a derive on a one-variant enum"
+
+run {
+  args: ["test", "//lib/d", "--coverage=mcdc"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}
+
+run {
+  args: ["test", "//lib/d", "--coverage=mcdc", "--output=js"]
+  exit: 0
+  golden: "mcdc.txt"
+  stream: OUT
+}
+
+file {
+  path: ".buri/coverage/lcov.info"
+  golden: "mcdc.info"
+}
