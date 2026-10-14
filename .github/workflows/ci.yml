@@ -95,6 +95,8 @@ jobs:
           # Two architectures must not share a key: the artifacts are the host's.
           shared-key: ${{ matrix.os }}-${{ matrix.arch }}
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       # A macOS host cross-builds the Linux output in the output-selection and
       # cross tests (#194), which needs the Linux target's standard library.
       - if: runner.os == 'macOS'
@@ -389,6 +391,8 @@ jobs:
           restore-keys: llvm-conformance-buildscript-${{ matrix.arch }}-
       # The `.proto` generator runs under a JavaScript runtime.
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       # `NIX_HARDENING_ENABLE=` for memcheck.yml's reason: the shell's clang
       # would ask musl for fortify's `__*_chk`.
       - run: nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm --test native -- conformance::the_native_set_passes
@@ -431,6 +435,8 @@ jobs:
         with:
           shared-key: ubuntu-2404-x86_64-release
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       - run: |
           set -euo pipefail
           sudo apt-get update
@@ -479,6 +485,8 @@ jobs:
           shared-key: ubuntu-2404-arm-release
       # The repository budget's suites run on JavaScript.
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       # One thread: two measured sessions on one runner would be timing each
       # other's contention. `--nocapture` because every test prints its timings
       # on a pass, and this log is where the next recalibration reads them.
@@ -606,6 +614,8 @@ jobs:
         with:
           determinate: false
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       # The test job's tools, which the suite checks are on PATH.
       - if: runner.os == 'Linux'
         run: |
@@ -813,6 +823,8 @@ jobs:
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       - run: cargo test -p buri --test vectors -- proto::the_conformance_runner_passes --nocapture
         env:
           CONFORMANCE_TEST_RUNNER: ${{ github.workspace }}/runner/bin/conformance_test_runner
@@ -837,6 +849,8 @@ jobs:
         with:
           shared-key: ubuntu-2404-x86_64-stdlib-coverage
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       - run: |
           set -euo pipefail
           sudo apt-get update

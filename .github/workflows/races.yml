@@ -75,6 +75,8 @@ jobs:
           key: memcheck-buildscript-x86_64-${{ hashFiles('flake.lock', 'cli/build.rs', 'cli/runtime/**', 'crates/hash/src/build/sha256.rs', 'crates/stencil/build.rs', 'crates/stencil/src/compiler/backend/stencil/*.rs') }}
           restore-keys: memcheck-buildscript-x86_64-
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
       # `NIX_HARDENING_ENABLE=` for memcheck.yml's reason.
       - name: Build
         run: |
