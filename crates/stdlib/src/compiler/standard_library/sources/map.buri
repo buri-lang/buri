@@ -54,13 +54,14 @@ from "platform/effect" import { Allocator };
 // So a node costs one array element per child rather than thirty-two.
 //
 // `Entry(hash, key, value)` is a slot that holds a single pair; the hash is
-// kept so a colliding insert need not recompute it. `Collision(hash, pairs)`
-// holds the pairs whose keys share a full 64-bit `hash` — the only way two
-// distinct keys can land in the same slot at every level — as a short
-// association list.
+// kept so a colliding insert need not recompute it. `Collision(hash, keys,
+// values)` holds the pairs whose keys share a full 64-bit `hash` — the only way
+// two distinct keys can land in the same slot at every level — as two short
+// lists, `values[i]` stored under `keys[i]`. A removal can leave it holding one
+// pair, or none, which is `.None`.
 enum Node<K, V> {
     Entry(U64, K, V),
-    Collision(U64, [(K, V)]),
+    Collision(U64, [K], [V]),
     Branch(U64, [Node<K, V>]),
 }
 
@@ -127,70 +128,16 @@ fn removeAt<T, C: Allocator>(ctx: C, xs: [T], at: Int): [T];
 // -----------------------------------------------------------------------------
 // Collision lists
 //
-// A `Collision` holds a handful of pairs sharing one hash. Each helper is
-// recursive rather than a capturing lambda, for the splicing note's reason.
+// A `Collision` holds its keys and values as two lists, a pair at the same
+// index in each, so finding a key asks about keys alone.
 // -----------------------------------------------------------------------------
 
-/// The value stored under `key` in an association list, if any.
-fn findInList<K: Equal, V>(es: [(K, V)], key: K, at: Int): Option<V> {
-    match (es.get(at)) {
-        .None => .None,
-        .Some(e) => {
-            let (k, v) = e;
-            if (k == key) { .Some(v) } else { findInList(es, key, at + 1) }
-        },
-    }
-}
-
-/// Whether `key` is in the association list.
-fn listHasKey<K: Equal, V>(es: [(K, V)], key: K, at: Int): Bool {
-    match (es.get(at)) {
-        .None => false,
-        .Some(e) => {
-            let (k, _v) = e;
-            if (k == key) { true } else { listHasKey(es, key, at + 1) }
-        },
-    }
-}
-
-/// The list with `key`'s value replaced. `key` is assumed present.
-fn replaceInList<K: Equal, V, C: Allocator>(
-    ctx: C,
-    es: [(K, V)],
-    key: K,
-    value: V,
-    at: Int,
-): [(K, V)] {
-    match (es.get(at)) {
-        .None => es,
-        .Some(e) => {
-            let (k, _v) = e;
-            if (k == key) {
-                replaceAt(ctx, es, at, (key, value))
-            } else {
-                replaceInList(ctx, es, key, value, at + 1)
-            }
-        },
-    }
-}
-
-/// The list without `key`.
-fn removeFromList<K: Equal, V, C: Allocator>(
-    ctx: C,
-    es: [(K, V)],
-    key: K,
-    at: Int,
-): [(K, V)] {
-    match (es.get(at)) {
-        .None => es,
-        .Some(e) => {
-            let (k, _v) = e;
-            if (k == key) {
-                removeAt(ctx, es, at)
-            } else {
-                removeFromList(ctx, es, key, at + 1)
-            }
-        },
+/// Where `key` is in `ks` from `at` on, or `ks.length()` when it isn't there.
+/// Recursive rather than a capturing lambda, for the splicing note's reason.
+fn positionOf<K: Equal>(ks: [K], key: K, at: Int): Int {
+    match (ks.get(at)) {
+        .None => at,
+        .Some(k) => if (k == key) { at } else { positionOf(ks, key, at + 1) },
     }
 }
 
@@ -231,7 +178,7 @@ fn compact<K, V>(bitmap: U64, children: [Node<K, V>]): Option<Node<K, V>> {
 fn find<K: Equal, V>(n: Node<K, V>, hash: U64, key: K, depth: Int): Option<V> {
     match (n) {
         .Entry(_h, k, v) => if (k == key) { .Some(v) } else { .None },
-        .Collision(_h, es) => findInList(es, key, 0),
+        .Collision(_h, ks, vs) => vs.get(positionOf(ks, key, 0)),
         .Branch(bitmap, children) => {
             let bit = bitOf(chunkAt(hash, depth));
             let found = if (hasSlot(bitmap, bit)) {
@@ -296,7 +243,7 @@ fn insertNode<K: Equal, V, C: Allocator>(
                 (.Entry(hash, key, value), false)
             } else if (h == hash) {
                 // Two distinct keys, one hash: the only true collision.
-                (.Collision(hash, [(k, v), (key, value)]), true)
+                (.Collision(hash, [k, key], [v, value]), true)
             } else {
                 // Different hashes: push the sitting entry into a branch that
                 // separates the two, and let the branch case place the newcomer.
@@ -310,17 +257,25 @@ fn insertNode<K: Equal, V, C: Allocator>(
                 )
             }
         },
-        .Collision(h, es) => {
+        .Collision(h, ks, vs) => {
             if (h == hash) {
-                if (listHasKey(es, key, 0)) {
-                    (.Collision(h, replaceInList(ctx, es, key, value, 0)), false)
+                let at = positionOf(ks, key, 0);
+                if (at < ks.length()) {
+                    (
+                        .Collision(
+                            h,
+                            replaceAt(ctx, ks, at, key),
+                            replaceAt(ctx, vs, at, value),
+                        ),
+                        false,
+                    )
                 } else {
-                    (.Collision(h, es.push(ctx, (key, value))), true)
+                    (.Collision(h, ks.push(ctx, key), vs.push(ctx, value)), true)
                 }
             } else {
                 insertNode(
                     ctx,
-                    branchWith(h, .Collision(h, es), depth),
+                    branchWith(h, .Collision(h, ks, vs), depth),
                     hash,
                     key,
                     value,
@@ -345,21 +300,13 @@ fn removeNode<K: Equal, V, C: Allocator>(
     match (n) {
         // The key is here, so this is its entry.
         .Entry(_h, _k, _v) => .None,
-        .Collision(h, es) => {
-            let rest = removeFromList(ctx, es, key, 0);
-            match (rest.get(1)) {
-                // A collision is never left holding one pair: it goes back to
-                // being the entry it was before the other key arrived.
-                .None => {
-                    match (rest.get(0)) {
-                        .None => .None,
-                        .Some(e) => {
-                            let (k, v) = e;
-                            .Some(.Entry(h, k, v))
-                        },
-                    }
-                },
-                .Some(_second) => .Some(.Collision(h, rest)),
+        .Collision(h, ks, vs) => {
+            let at = positionOf(ks, key, 0);
+            let rest = removeAt(ctx, ks, at);
+            if (rest.length() == 0) {
+                .None
+            } else {
+                .Some(.Collision(h, rest, removeAt(ctx, vs, at)))
             }
         },
         .Branch(bitmap, children) => {
@@ -393,7 +340,7 @@ fn removeNode<K: Equal, V, C: Allocator>(
 fn walk<K, V, C: Allocator>(ctx: C, n: Node<K, V>, acc: [(K, V)]): [(K, V)] {
     match (n) {
         .Entry(_h, k, v) => acc.push(ctx, (k, v)),
-        .Collision(_h, es) => acc.concat(ctx, es),
+        .Collision(_h, ks, vs) => acc.concat(ctx, ks.zip(ctx, vs)),
         .Branch(_bitmap, children) => walkChildren(ctx, children, 0, acc),
     }
 }
