@@ -55,7 +55,6 @@ use std::hash::{BuildHasherDefault, Hash, Hasher};
 use std::sync::{Mutex, PoisonError};
 
 use crate::compiler::semantics::types::{CtxTypeId, TyConId, TyVarId};
-use crate::diagnostics::Invariant as _;
 use crate::hash::{FxHasher, Map};
 
 /// The structure of a type, with every child already interned.
@@ -246,10 +245,8 @@ fn with_slice<R>(items: impl IntoIterator<Item = Ty>, f: impl FnOnce(&[Ty]) -> R
     }
 }
 
-/// How many ways the table is split, as a power of two: a shard is picked by
-/// the top bits of the hash.
-const SHARD_BITS: u32 = 6;
-const SHARDS: usize = 1 << SHARD_BITS;
+/// How many ways the table is split: a shard is picked by the hash's top byte.
+const SHARDS: usize = 1 << u8::BITS;
 
 /// One shard: structural hash -> the entries with that hash.
 type Shard = Map<u64, Vec<Ty>>;
@@ -294,10 +291,9 @@ fn intern(probe: TyKindIn<'_>) -> Ty {
         _ => {}
     }
     let hash = structural_hash(&probe);
-    let shard = (hash >> (u64::BITS - SHARD_BITS)) as usize;
-    let shard = TABLE
-        .get(shard)
-        .or_ice("the top `SHARD_BITS` bits of a hash index `SHARDS`");
+    let [top, ..] = hash.to_be_bytes();
+    #[expect(clippy::indexing_slicing, reason = "a `u8` is below `SHARDS`")]
+    let shard = &TABLE[usize::from(top)];
     let mut shard = shard.lock().unwrap_or_else(PoisonError::into_inner);
     let bucket = shard.entry(hash).or_default();
     if let Some(found) = bucket.iter().find(|t| t.0.kind == probe) {

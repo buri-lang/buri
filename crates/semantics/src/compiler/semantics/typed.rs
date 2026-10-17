@@ -657,7 +657,7 @@ pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
 /// one: Rust has no way to be generic over the mutability of a reference, and
 /// the alternative — a pass reading the tree and then writing it — is two
 /// walks where one will do.
-pub fn children_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
+pub fn children_mut<'a>(e: &'a mut Expr, f: &mut impl FnMut(&'a mut Expr)) {
     match &mut e.kind {
         ExprKind::CallValue { callee, args } => {
             f(callee);
@@ -712,11 +712,11 @@ pub fn children_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
         }
         ExprKind::Match { scrutinee, arms } => {
             f(scrutinee);
-            for a in arms {
-                if let Some(g) = &mut a.guard {
+            for Arm { guard, body, .. } in arms {
+                if let Some(g) = guard {
                     f(g);
                 }
-                f(&mut a.body);
+                f(body);
             }
         }
         ExprKind::Lambda { body, .. } => f(body),

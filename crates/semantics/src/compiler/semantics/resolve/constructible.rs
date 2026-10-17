@@ -29,7 +29,7 @@ pub(super) fn unconstructible(
     let none: Vec<TyConId> = decls
         .iter()
         .copied()
-        .filter(|&c| !Search::new(tables, refused.clone()).declared(c))
+        .filter(|&c| Search::new(tables, refused.clone()).declared(c).is_err())
         .collect();
     let mut out = Vec::new();
     for &c in &none {
@@ -41,9 +41,8 @@ pub(super) fn unconstructible(
                 .copied()
                 .filter(|&o| !(reaches(tables, &none, c, o) && reaches(tables, &none, o, c))),
         );
-        let mut search = Search::new(tables, assumed);
-        if !search.declared(c) {
-            out.push((c, search.why(c)));
+        if let Err(why) = Search::new(tables, assumed).declared(c) {
+            out.push((c, why));
         }
     }
     (none, out)
@@ -88,7 +87,7 @@ fn mentioned(ty: &Ty, out: &mut Vec<TyConId>) {
 }
 
 /// A search for one value, over a constructor and which of its arguments have
-/// values. That pair is finite, so a constructor that grows its own argument,
+/// none. That pair is finite, so a constructor that grows its own argument,
 /// `Grow<Option<T>>` inside `Grow<T>`, still ends.
 struct Search<'a> {
     tables: &'a Tables,
@@ -96,7 +95,7 @@ struct Search<'a> {
     assumed: HashSet<TyConId>,
     /// The pairs being searched. Meeting one again finds nothing: a value
     /// built from itself is no value.
-    open: Vec<(TyConId, Vec<bool>)>,
+    open: Vec<(TyConId, Vec<u32>)>,
 }
 
 impl<'a> Search<'a> {
@@ -108,61 +107,63 @@ impl<'a> Search<'a> {
         }
     }
 
-    /// Whether a declaration has a value when each of its parameters does.
-    fn declared(&mut self, c: TyConId) -> bool {
-        self.has(c, vec![true; self.tables.tycon(c).arity()])
-    }
-
-    fn has(&mut self, c: TyConId, given: Vec<bool>) -> bool {
+    /// Whether a declaration has a value when each of its parameters does,
+    /// and if not, why.
+    fn declared(&mut self, c: TyConId) -> Result<(), Why> {
         if self.assumed.contains(&c) {
-            return true;
+            return Ok(());
         }
-        let key = (c, given.clone());
-        if self.open.contains(&key) {
-            return false;
-        }
-        self.open.push(key);
-        let tables = self.tables;
-        let found = match &tables.tycon(c).def {
-            TyDef::Prim(_) => true,
-            TyDef::Struct { fields, .. } => fields.iter().all(|f| self.ty(&f.ty, &given)),
-            TyDef::Enum { variants } => variants
-                .iter()
-                .any(|v| v.fields.iter().all(|f| self.ty(&f.ty, &given))),
-        };
+        self.open.push((c, Vec::new()));
+        let found = self.values(c, &[]);
         self.open.pop();
         found
     }
 
-    fn ty(&mut self, ty: &Ty, given: &[bool]) -> bool {
-        match ty.kind() {
-            TyKind::Param(i) => *given
-                .get(*i as usize)
-                .or_ice("a type parameter outside its declaration's arguments"),
-            TyKind::Con(c, args) => {
-                let args = args.iter().map(|a| self.ty(a, given)).collect();
-                self.has(*c, args)
-            }
-            TyKind::Tuple(es) => es.iter().all(|e| self.ty(e, given)),
-            _ => true,
+    /// Whether `c` has a value when the parameters in `lacking` have none.
+    fn has(&mut self, c: TyConId, lacking: Vec<u32>) -> bool {
+        if self.assumed.contains(&c) {
+            return true;
+        }
+        if self.open.iter().any(|(o, l)| (o, l) == (&c, &lacking)) {
+            return false;
+        }
+        self.open.push((c, lacking.clone()));
+        let found = self.values(c, &lacking).is_ok();
+        self.open.pop();
+        found
+    }
+
+    /// Whether some value of `c` needs none of `lacking`, and if not, why: for
+    /// a struct, the first field that can't be built.
+    fn values(&mut self, c: TyConId, lacking: &[u32]) -> Result<(), Why> {
+        let tables = self.tables;
+        match &tables.tycon(c).def {
+            TyDef::Prim(_) => Ok(()),
+            TyDef::Struct { fields, .. } => fields
+                .iter()
+                .find(|f| !self.ty(&f.ty, lacking))
+                .map_or(Ok(()), |f| Err(Why::Field(f.name.clone()))),
+            TyDef::Enum { variants } => variants
+                .iter()
+                .any(|v| v.fields.iter().all(|f| self.ty(&f.ty, lacking)))
+                .then_some(())
+                .ok_or(Why::Variants),
         }
     }
 
-    /// Why `c` can never be built: for a struct, the first field that can't be.
-    fn why(&mut self, c: TyConId) -> Why {
-        let tables = self.tables;
-        let con = tables.tycon(c);
-        let given = vec![true; con.arity()];
-        match &con.def {
-            TyDef::Struct { fields, .. } => Why::Field(
-                fields
-                    .iter()
-                    .find(|f| !self.ty(&f.ty, &given))
-                    .or_ice("a struct that can never be built has a field that can't be")
-                    .name
-                    .clone(),
-            ),
-            _ => Why::Variants,
+    fn ty(&mut self, ty: &Ty, lacking: &[u32]) -> bool {
+        match ty.kind() {
+            TyKind::Param(i) => !lacking.contains(i),
+            TyKind::Con(c, args) => {
+                let lacking = (0u32..)
+                    .zip(args.iter())
+                    .filter(|(_, a)| !self.ty(a, lacking))
+                    .map(|(j, _)| j)
+                    .collect();
+                self.has(*c, lacking)
+            }
+            TyKind::Tuple(es) => es.iter().all(|e| self.ty(e, lacking)),
+            _ => true,
         }
     }
 }

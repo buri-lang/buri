@@ -1,0 +1,16 @@
+// EXPECT: `make` takes no `self`, so it is not called on a value
+trait Make {
+  fn make(): Int;
+}
+
+struct Box(Int);
+
+impl Make for Box {
+  fn make(): Int {
+    1
+  }
+}
+
+fn go(b: Box): Int {
+  b.make()
+}

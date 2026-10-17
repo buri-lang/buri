@@ -586,6 +586,10 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("match-not-exhaustive", "A `match` covers every case"),
     e!("method-not-value", "A method is not a value"),
     e!(
+        "method-without-self",
+        "A method called on a value takes `self`"
+    ),
+    e!(
         "method-outside-impl",
         "A method is declared inside an `impl`"
     ),

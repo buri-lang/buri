@@ -100,12 +100,9 @@ fn check_bodies_the_extractor_folds(c: &mut Checker) {
         if !crate::compiler::semantics::consteval::is_inlinable(&c.tables, id) {
             continue;
         }
-        check_fn(c, id);
-        let body = c
-            .bodies
-            .get(&id)
-            .or_ice("a function with a body was just checked");
-        callees_of(&body.expr, &mut queue);
+        if let Some(body) = check_fn(c, id) {
+            callees_of(&body.expr, &mut queue);
+        }
     }
     std::mem::swap(c.diags, &mut aside);
 }
@@ -143,12 +140,11 @@ fn body_ast<'a>(c: &Checker<'a>, r: AstRef) -> Option<&'a tree::FnDecl> {
     }
 }
 
-fn check_fn(c: &mut Checker, fid: FnId) {
+/// Checks a function's body, and answers it: `None` for one without.
+fn check_fn(c: &mut Checker, fid: FnId) -> Option<std::sync::Arc<typed::Body>> {
     let info = c.tables.fn_info(fid);
-    let Some(decl) = body_ast(c, info.ast) else {
-        return;
-    };
-    let Some(body) = decl.body else { return };
+    let decl = body_ast(c, info.ast)?;
+    let body = decl.body?;
 
     // A method supplied to an `effect` impl is where that effect's operation is
     // implemented, so it is the one body outside the standard library that may
@@ -168,15 +164,13 @@ fn check_fn(c: &mut Checker, fid: FnId) {
             == Some(&fid);
     // The parts the body is checked against, copied once: the checker is
     // borrowed mutably from here on, and the declaration lives in its tables.
-    // The parameters are read one at a time below instead, so that each name
-    // is copied once, into its local.
-    let (module, self_ty, generics, expected, arity) = (
-        info.module,
-        info.self_ty,
-        info.generics.clone(),
-        info.ret,
-        info.params.len(),
-    );
+    let (module, self_ty, generics, expected) =
+        (info.module, info.self_ty, info.generics.clone(), info.ret);
+    let params: Vec<(Name, Ty, Span, ParamRole)> = info
+        .params
+        .iter()
+        .map(|p| (Name::new(&p.name), p.ty, p.span, p.role))
+        .collect();
     // `Self` in a method's body names its `impl`'s head, as in its signature.
     c.self_scope = info.head;
 
@@ -184,17 +178,9 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     inf.self_con = self_ty;
     inf.in_effect_impl = in_effect_impl;
     inf.in_main = in_main;
-    inf.push_scope();
-    inf.params.reserve_exact(arity);
-    for i in 0..arity {
-        let p = inf
-            .c
-            .tables
-            .fn_info(fid)
-            .params
-            .get(i)
-            .or_ice("the arity is the parameter count");
-        let (name, ty, span, role) = (Name::new(&p.name), p.ty, p.span, p.role);
+    let _body = inf.push_scope();
+    inf.params.reserve_exact(params.len());
+    for (name, ty, span, role) in params {
         let local = inf.bind_new(name, ty, span);
         inf.params.push(local);
         // The capture rule is scoped to *effect-carrying* values (SPEC 10.6,
@@ -212,19 +198,19 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     let body_span = inf.t.block_span(body);
     let expr = inf.check_block(body, Some(&expected));
     inf.unify_at(body_span, &expr.ty, &expected, "the declared return type");
-    let hir_body = inf.finish(expr);
-    c.bodies.insert(fid, std::sync::Arc::new(hir_body));
+    let hir_body = std::sync::Arc::new(inf.finish(expr));
+    c.bodies.insert(fid, std::sync::Arc::clone(&hir_body));
+    Some(hir_body)
 }
 
 fn check_const(c: &mut Checker, cid: ConstId) {
     let info = c.tables.const_(cid).clone();
-    let (module, index) = info.ast.item().or_ice("a constant is a module-level `let`");
-    let decl = match c.module(module).ast.items.get(index as usize) {
+    let decl = match c.module(info.module).ast.items.get(info.item as usize) {
         Some(tree::Item::Let(decl)) => decl,
         _ => crate::ice!("a constant's item is its `let`"),
     };
     let mut inf = Infer::new(c, info.module, Default::default(), info.ty);
-    inf.push_scope();
+    let _body = inf.push_scope();
     let ty = info.ty;
     let value_span = inf.t.span(decl.value);
     let value = inf.check_expr(decl.value, Some(&ty));
@@ -327,17 +313,13 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
         return;
     }
     let info = c.tables.ctx_decl(id).clone();
-    let (decl_module, decl_index) = info
-        .ast
-        .item()
-        .or_ice("a named context is a module-level item");
-    let decl = match c.module(decl_module).ast.items.get(decl_index as usize) {
+    let decl = match c.module(info.module).ast.items.get(info.item as usize) {
         Some(tree::Item::Context(decl)) => decl,
         _ => crate::ice!("a named context's item is its declaration"),
     };
     let mut inf = Infer::new(c, info.module, Default::default(), Ty::UNIT);
     inf.in_main = true;
-    inf.push_scope();
+    let _body = inf.push_scope();
     let (expr, ty) = inf.check_context_body(decl.body, decl.span);
     let body = inf.finish(expr);
     // A named context is constructed by calling it, and each call builds a
@@ -395,7 +377,7 @@ fn check_tests(c: &mut Checker) {
             if c.wants_file(c.module(module).file) {
                 let mut inf = Infer::new(c, module, Default::default(), Ty::UNIT);
                 inf.in_main = true;
-                inf.push_scope();
+                let _body = inf.push_scope();
                 let expr = inf.check_block(t.body, None);
                 let body = inf.finish(expr);
                 c.bodies.insert(fid, std::sync::Arc::new(body));
@@ -422,26 +404,16 @@ pub(crate) struct LitCheck<'b> {
     pub(crate) span: Span,
 }
 
-/// The state of the or-pattern currently being checked.
-///
-/// `current` and `first` were two `Option<HashMap<..>>` fields side by side.
-/// Only one of them was saved and restored around a nested or-pattern, so an
-/// or-pattern inside an alternative of an outer one cleared the outer's
-/// first-alternative bindings on the way out — and the outer's remaining
-/// alternatives then declared fresh locals for names the first had already
-/// bound. As one value there is one thing to enter and one thing to leave, and
-/// `(no scope, but a first alternative)` is unrepresentable.
+/// The state of the or-pattern alternative being checked.
 #[derive(Default)]
 pub(crate) struct OrScope {
-    /// Bindings made by the alternative being checked right now.
+    /// Bindings made by the alternative being checked right now. It starts out
+    /// holding the first alternative's, so a name bound by both is one local.
     pub(crate) current: HashMap<String, LocalId>,
-    /// Bindings made by the first alternative, which the rest reuse so that a
-    /// name bound by both is one local.
-    pub(crate) first: Option<HashMap<String, LocalId>>,
-    /// The names the alternative being checked right now binds itself.
-    /// `current` starts each alternative holding the first one's, so it can't
-    /// say which names this one left out.
-    pub(crate) named: Vec<String>,
+    /// The names the alternative being checked right now binds itself, with
+    /// their locals. `current` starts each alternative holding the first
+    /// one's, so it can't say which names this one left out.
+    pub(crate) named: Vec<(String, LocalId)>,
 }
 
 pub struct Infer<'a, 'b> {
@@ -479,8 +451,6 @@ pub struct Infer<'a, 'b> {
     shadows: Vec<u32>,
     /// The innermost indexed entry of `scopes` for each name hash.
     latest: crate::hash::Map<u64, u32>,
-    /// Where each open scope starts in `scopes`.
-    pub(crate) scope_starts: Vec<usize>,
     /// Emptied type lists, for a call being checked to borrow and give back.
     /// A call's arguments are calls too, so this holds one per level of
     /// nesting.
@@ -552,7 +522,6 @@ pub(crate) struct Scratch<'b> {
     scopes: Vec<(u64, LocalId)>,
     shadows: Vec<u32>,
     latest: crate::hash::Map<u64, u32>,
-    scope_starts: Vec<usize>,
     ty_lists: Vec<Vec<Ty>>,
     obligations: Vec<(Ty, TraitId, Span)>,
     lit_checks: Vec<LitCheck<'b>>,
@@ -569,8 +538,6 @@ impl Drop for Infer<'_, '_> {
         shadows.clear();
         let mut latest = std::mem::take(&mut self.latest);
         latest.clear();
-        let mut scope_starts = std::mem::take(&mut self.scope_starts);
-        scope_starts.clear();
         let ty_lists = std::mem::take(&mut self.ty_lists);
         let mut obligations = std::mem::take(&mut self.obligations);
         obligations.clear();
@@ -583,7 +550,6 @@ impl Drop for Infer<'_, '_> {
             scopes,
             shadows,
             latest,
-            scope_starts,
             ty_lists,
             obligations,
             lit_checks,
@@ -591,6 +557,9 @@ impl Drop for Infer<'_, '_> {
         };
     }
 }
+
+/// An open scope: where its bindings start in [`Infer::scopes`].
+pub(crate) struct Scope(usize);
 
 /// No earlier binding shares the name's hash.
 const NO_SHADOW: u32 = u32::MAX;
@@ -619,7 +588,6 @@ impl<'a, 'b> Infer<'a, 'b> {
             scopes,
             shadows,
             latest,
-            scope_starts,
             ty_lists,
             obligations,
             lit_checks,
@@ -635,7 +603,6 @@ impl<'a, 'b> Infer<'a, 'b> {
             scopes,
             shadows,
             latest,
-            scope_starts,
             ty_lists,
             locals: typed::Locals::new(),
             params: Vec::new(),
@@ -881,22 +848,17 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     // -- scopes -------------------------------------------------------------
 
-    pub(crate) fn push_scope(&mut self) {
-        self.scope_starts.push(self.scopes.len());
+    /// Opens a scope, which [`Infer::pop_scope`] closes.
+    pub(crate) fn push_scope(&mut self) -> Scope {
+        Scope(self.scopes.len())
     }
 
-    pub(crate) fn pop_scope(&mut self) {
-        let start = self
-            .scope_starts
-            .pop()
-            .or_ice("a scope is popped after it was pushed");
-        while self.shadows.len() > start {
-            let at = self.shadows.len().saturating_sub(1);
-            let prev = self
-                .shadows
-                .pop()
-                .or_ice("the loop runs while there is a shadow");
-            let &(hash, _) = self.scopes.get(at).or_ice("every shadow is a binding's");
+    /// Unbinds everything bound since `scope` was opened.
+    pub(crate) fn pop_scope(&mut self, scope: Scope) {
+        let Scope(start) = scope;
+        let undone = self.shadows.split_off(start.min(self.shadows.len()));
+        // Innermost first, so each name ends at the binding before the scope.
+        for (prev, &(hash, _)) in undone.into_iter().zip(self.scopes.iter().skip(start)).rev() {
             if prev == NO_SHADOW {
                 self.latest.remove(&hash);
             } else {
@@ -917,11 +879,8 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// Indexes every binding not yet indexed.
     #[inline(never)]
     fn index_bindings(&mut self) {
-        for at in self.shadows.len()..self.scopes.len() {
-            let &(h, _) = self
-                .scopes
-                .get(at)
-                .or_ice("the range is the unindexed bindings");
+        let from = self.shadows.len();
+        for (at, &(h, _)) in self.scopes.iter().enumerate().skip(from) {
             let prev = self.latest.insert(h, at as u32).unwrap_or(NO_SHADOW);
             self.shadows.push(prev);
         }
@@ -945,10 +904,6 @@ impl<'a, 'b> Infer<'a, 'b> {
     pub(crate) fn bind(&mut self, name: &str, local: LocalId) {
         // Shadowing is permitted, both in nested scopes and within a block:
         // the innermost binding is the last one, and a lookup finds it first.
-        debug_assert!(
-            !self.scope_starts.is_empty(),
-            "a body is checked inside a scope pushed by `push_scope`"
-        );
         debug_assert_eq!(
             self.local(local).name,
             name,
@@ -1206,12 +1161,15 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// A diagnostic whose wording lives on its page. What follows is
     /// `.bind(…)` for each `{placeholder}` the page names.
     pub(crate) fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
-        self.c.diags.items.push(Diagnostic::templated(code, span));
-        self.c
-            .diags
-            .items
-            .last_mut()
-            .or_ice("the diagnostic just pushed is the last one")
+        let items = &mut self.c.diags.items;
+        let at = items.len();
+        items.push(Diagnostic::templated(code, span));
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "the diagnostic was just pushed there"
+        )]
+        let d = &mut items[at];
+        d
     }
 
     pub(crate) fn error_expr(&self, span: Span) -> typed::Expr {

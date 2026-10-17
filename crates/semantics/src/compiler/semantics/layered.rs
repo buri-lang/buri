@@ -15,7 +15,6 @@
 //! base type. [`LayeredMap`] is a hash map whose base entries are read
 //! through.
 
-use crate::diagnostics::Invariant as _;
 use crate::hash::Map as HashMap;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -545,9 +544,12 @@ impl<I: DenseId, T> IdMap<I, T> {
         if self.own.len() <= own {
             self.own.resize_with(own.saturating_add(1), || None);
         }
-        self.own
-            .get_mut(own)
-            .or_ice("the slots were just grown past this one")
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "the slots were just grown past this one"
+        )]
+        let slot = &mut self.own[own];
+        slot
     }
 
     /// The entries this map holds itself rather than reads from its base:

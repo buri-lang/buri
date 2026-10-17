@@ -161,11 +161,13 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // restores everything the outer one had. It starts from the
                 // outer alternative's bindings, so a name both bind is one
                 // local.
-                let enclosing = self.or_scope.as_ref().map(|s| s.current.clone());
-                let saved = self.or_scope.replace(OrScope {
-                    first: enclosing,
-                    ..OrScope::default()
-                });
+                let saved = self.or_scope.take();
+                // What each alternative starts from: the outer alternative's
+                // bindings, then the first alternative's.
+                let mut first = saved
+                    .as_ref()
+                    .map(|s| s.current.clone())
+                    .unwrap_or_default();
                 let mut names: Option<Vec<String>> = None;
                 // Every name some alternative binds, for the enclosing
                 // or-pattern: one mistake in here isn't another out there.
@@ -173,41 +175,33 @@ impl<'a, 'b> Infer<'a, 'b> {
                 for alt in alts {
                     // Each alternative starts from the same set, so a name
                     // bound by the first is reused rather than redeclared.
-                    let scope = self
-                        .or_scope
-                        .as_mut()
-                        .or_ice("an or-pattern's scope is open");
-                    scope.current = scope.first.clone().unwrap_or_default();
-                    scope.named.clear();
+                    self.or_scope = Some(OrScope {
+                        current: first.clone(),
+                        named: Vec::new(),
+                    });
                     let checked = self.check_pattern(*alt, &ty);
-                    let (bound, mut these) = self
-                        .or_scope
-                        .as_ref()
-                        .map(|s| (s.current.clone(), s.named.clone()))
-                        .unwrap_or_default();
-                    these.sort();
-                    these.dedup();
-                    for name in &these {
-                        let local = *bound
-                            .get(name)
-                            .or_ice("a name the alternative binds is among its bindings");
+                    let OrScope {
+                        current: bound,
+                        named: mut bindings,
+                    } = self.or_scope.take().unwrap_or_default();
+                    bindings.sort_by(|a, b| a.0.cmp(&b.0));
+                    bindings.dedup_by(|a, b| a.0 == b.0);
+                    for (name, local) in &bindings {
                         if !joined.iter().any(|(n, _)| n == name) {
-                            joined.push((name.clone(), local));
+                            joined.push((name.clone(), *local));
                         }
                     }
+                    let these: Vec<String> = bindings.into_iter().map(|(n, _)| n).collect();
                     match &names {
                         None => {
                             names = Some(these);
-                            self.or_scope
-                                .as_mut()
-                                .or_ice("an or-pattern's scope is open")
-                                .first = Some(bound);
+                            first = bound;
                         }
-                        Some(first) if first != &these => {
+                        Some(want) if want != &these => {
                             let missing: Vec<&String> =
-                                first.iter().filter(|n| !these.contains(n)).collect();
+                                want.iter().filter(|n| !these.contains(n)).collect();
                             let extra: Vec<&String> =
-                                these.iter().filter(|n| !first.contains(*n)).collect();
+                                these.iter().filter(|n| !want.contains(*n)).collect();
                             let mut note = String::new();
                             if !missing.is_empty() {
                                 let missing: Vec<String> =
@@ -241,7 +235,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 // alternative binds.
                 for (name, local) in joined {
                     self.record_or_binding(&name, local);
-                    self.name_or_binding(&name);
+                    self.name_or_binding(&name, local);
                 }
                 typed::PatKind::Or(out)
             }
@@ -271,9 +265,9 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
     }
 
-    fn name_or_binding(&mut self, name: &str) {
+    fn name_or_binding(&mut self, name: &str, local: LocalId) {
         if let Some(scope) = self.or_scope.as_mut() {
-            scope.named.push(name.to_string());
+            scope.named.push((name.to_string(), local));
         }
     }
 
@@ -287,8 +281,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// shorthand, an array rest — because a form that mints its own local
     /// silently miscompiles rather than failing to compile.
     fn shared_local(&mut self, name: &str, ty: &Ty, span: Span) -> LocalId {
-        self.name_or_binding(name);
-        match self.or_alternative_local(name) {
+        let local = match self.or_alternative_local(name) {
             Some(existing) => {
                 let existing_ty = self.local_ty(existing);
                 self.unify_at(span, ty, &existing_ty, "the other alternative");
@@ -299,7 +292,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.record_or_binding(name, local);
                 local
             }
-        }
+        };
+        self.name_or_binding(name, local);
+        local
     }
 
     fn check_path_pattern(
