@@ -77,10 +77,9 @@
 
 use super::abi::StencilTarget;
 use super::object::RelKind;
-use super::region::Target;
+use super::region::{overwrite, Target};
 use super::runtime;
 use crate::compiler::backend::task_thread;
-use crate::diagnostics::Invariant;
 
 /// The symbol the program's Buri stack is emitted under.
 ///
@@ -460,10 +459,7 @@ impl Asm {
     }
 
     fn set_word(&mut self, at: u64, w: u32) {
-        let o = at as usize;
-        let slot = self.bytes.get_mut(o..o.saturating_add(4));
-        slot.or_ice("a branch patches a word already emitted")
-            .copy_from_slice(&w.to_le_bytes());
+        overwrite(&mut self.bytes, at, &w.to_le_bytes());
     }
 
     pub fn finish(self) -> (Vec<u8>, Vec<(u64, RelKind, Target)>) {
@@ -508,23 +504,28 @@ pub struct X86 {
     relocs: Vec<ShimReloc>,
 }
 
+/// One of the first eight integer registers, by its three-bit encoding.
+///
+/// The only registers a shim names, so no instruction here needs `REX.R` or
+/// `REX.B`: the one prefix any of them takes is [`REX_W`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Gpr(u8);
+
 /// The integer registers either shim names, in encoding order.
-pub const RAX: u32 = 0;
-pub const RCX: u32 = 1;
-pub const RDX: u32 = 2;
-pub const RSP: u32 = 4;
-pub const RSI: u32 = 6;
-pub const RDI: u32 = 7;
+pub const RAX: Gpr = Gpr(0);
+pub const RCX: Gpr = Gpr(1);
+pub const RDX: Gpr = Gpr(2);
+pub const RSP: Gpr = Gpr(4);
+pub const RSI: Gpr = Gpr(6);
+pub const RDI: Gpr = Gpr(7);
 
-/// A `REX` prefix. `W` is the 64-bit operand size, `r` extends the `ModRM.reg`
-/// field and `b` extends `ModRM.rm`; no instruction here has an index register.
-fn rex(w: bool, r: u32, b: u32) -> u8 {
-    0x40 | (u8::from(w) << 3) | (((r >> 3) & 1) as u8) << 2 | (((b >> 3) & 1) as u8)
-}
+/// The `REX` prefix with only `W`, the 64-bit operand size.
+const REX_W: u8 = 0x48;
 
-/// A register-direct `ModRM`: `mod = 11`.
-fn modrm_rr(reg: u32, rm: u32) -> u8 {
-    0xc0 | (((reg & 7) as u8) << 3) | ((rm & 7) as u8)
+/// A register-direct `ModRM`: `mod = 11`. `reg` is a register or an opcode's
+/// `/digit`, which is below eight either way.
+fn modrm_rr(reg: u8, rm: Gpr) -> u8 {
+    0xc0 | (reg << 3) | rm.0
 }
 
 impl Default for X86 {
@@ -571,75 +572,73 @@ impl X86 {
     ///
     /// Five bytes for anything below `2^32`, because a write to a 32-bit
     /// register zero-extends into the whole of the 64-bit one; ten for the one
-    /// wider value either shim forms, which is the `Str` length mask. Every
-    /// shim names one of the first eight registers, so there is no `REX.B`.
-    pub fn mov_imm(&mut self, rd: u32, value: u64) {
-        crate::diagnostics::invariant(rd < 8, "x86-64 shims move literals into rax..rdi");
+    /// wider value either shim forms, which is the `Str` length mask.
+    pub fn mov_imm(&mut self, rd: Gpr, value: u64) {
         if value < (1u64 << 32) {
-            self.put(&[0xb8 + (rd & 7) as u8]);
+            self.put(&[0xb8 + rd.0]);
             self.put(&(value as u32).to_le_bytes());
             return;
         }
-        self.put(&[rex(true, 0, rd), 0xb8 + (rd & 7) as u8]);
+        self.put(&[REX_W, 0xb8 + rd.0]);
         self.put(&value.to_le_bytes());
     }
 
     /// `mov rd, rs`.
-    pub fn mov_reg(&mut self, rd: u32, rs: u32) {
-        self.put(&[rex(true, rs, rd), 0x89, modrm_rr(rs, rd)]);
+    pub fn mov_reg(&mut self, rd: Gpr, rs: Gpr) {
+        self.put(&[REX_W, 0x89, modrm_rr(rs.0, rd)]);
     }
 
     /// `and rd, rs`. The register form, because the one mask this file applies
     /// is 64 bits wide and no x86-64 ALU immediate is.
-    pub fn and_reg(&mut self, rd: u32, rs: u32) {
-        self.put(&[rex(true, rs, rd), 0x21, modrm_rr(rs, rd)]);
+    pub fn and_reg(&mut self, rd: Gpr, rs: Gpr) {
+        self.put(&[REX_W, 0x21, modrm_rr(rs.0, rd)]);
     }
 
     /// `add rd, #imm32` and `sub rd, #imm32`, both in the `81 /digit` form so
     /// that one encoding serves every immediate a shim forms.
-    pub fn add_imm(&mut self, rd: u32, imm: u32) {
+    pub fn add_imm(&mut self, rd: Gpr, imm: u32) {
         self.alu_imm(0, rd, imm);
     }
 
-    pub fn sub_imm(&mut self, rd: u32, imm: u32) {
+    pub fn sub_imm(&mut self, rd: Gpr, imm: u32) {
         self.alu_imm(5, rd, imm);
     }
 
-    fn alu_imm(&mut self, digit: u32, rd: u32, imm: u32) {
-        self.put(&[rex(true, digit, rd), 0x81, modrm_rr(digit, rd)]);
+    fn alu_imm(&mut self, digit: u8, rd: Gpr, imm: u32) {
+        self.put(&[REX_W, 0x81, modrm_rr(digit, rd)]);
         self.put(&imm.to_le_bytes());
     }
 
     /// `mov rt, [rn + off]`, and below it the three narrower loads. Every one
     /// of the four leaves the whole of `rt` defined: a 32-bit destination
     /// zero-extends, and `movzx` is zero-extending by name.
-    pub fn ldr(&mut self, rt: u32, rn: u32, off: u32) {
+    pub fn ldr(&mut self, rt: Gpr, rn: Gpr, off: u32) {
         self.load(&[0x8b], true, rt, rn, off);
     }
 
-    pub fn ldr_w(&mut self, rt: u32, rn: u32, off: u32) {
+    pub fn ldr_w(&mut self, rt: Gpr, rn: Gpr, off: u32) {
         self.load(&[0x8b], false, rt, rn, off);
     }
 
-    pub fn ldrh(&mut self, rt: u32, rn: u32, off: u32) {
+    pub fn ldrh(&mut self, rt: Gpr, rn: Gpr, off: u32) {
         self.load(&[0x0f, 0xb7], false, rt, rn, off);
     }
 
-    pub fn ldrb(&mut self, rt: u32, rn: u32, off: u32) {
+    pub fn ldrb(&mut self, rt: Gpr, rn: Gpr, off: u32) {
         self.load(&[0x0f, 0xb6], false, rt, rn, off);
     }
 
     /// `mov [rn + off], rs`.
-    pub fn str_off(&mut self, rs: u32, rn: u32, off: u32) {
+    pub fn str_off(&mut self, rs: Gpr, rn: Gpr, off: u32) {
         self.mem(&[0x89], true, rs, rn, off);
     }
 
     /// `lea rd, [rn + off]`.
-    pub fn lea(&mut self, rd: u32, rn: u32, off: u32) {
+    pub fn lea(&mut self, rd: Gpr, rn: Gpr, off: u32) {
         self.mem(&[0x8d], true, rd, rn, off);
     }
 
-    fn load(&mut self, op: &[u8], wide: bool, rt: u32, rn: u32, off: u32) {
+    fn load(&mut self, op: &[u8], wide: bool, rt: Gpr, rn: Gpr, off: u32) {
         self.mem(op, wide, rt, rn, off);
     }
 
@@ -651,17 +650,16 @@ impl X86 {
     /// offset is not bounded by a signed byte and an encoder that sometimes
     /// emits a `disp8` is one whose instruction lengths a reader has to
     /// compute rather than read.
-    fn mem(&mut self, op: &[u8], wide: bool, reg: u32, base: u32, off: u32) {
-        let r = rex(wide, reg, base);
-        if r != 0x40 {
-            self.put(&[r]);
+    fn mem(&mut self, op: &[u8], wide: bool, reg: Gpr, base: Gpr, off: u32) {
+        if wide {
+            self.put(&[REX_W]);
         }
         self.put(op);
-        self.put(&[0x80 | (((reg & 7) as u8) << 3) | ((base & 7) as u8)]);
+        self.put(&[0x80 | (reg.0 << 3) | base.0]);
         // `rm = 100` is not a register: it says a `SIB` byte follows. `rsp`
-        // and `r12` encode as 100, so both need one, and `0x24` is the byte
-        // that means "this base, no index".
-        if base & 7 == 4 {
+        // encodes as 100, so it needs one, and `0x24` is the byte that means
+        // "this base, no index".
+        if base == RSP {
             self.put(&[0x24]);
         }
         self.put(&off.to_le_bytes());
@@ -670,28 +668,27 @@ impl X86 {
     /// `test wt, wt` then `jz <later>` — the 32-bit form, for a value whose
     /// upper half is not known to be zero, which is what a C function
     /// returning `int` leaves in `rax`.
-    pub fn cbz(&mut self, rt: u32) -> Patch32 {
+    pub fn cbz(&mut self, rt: Gpr) -> Patch32 {
         self.test(false, rt);
         self.jcc(0x84)
     }
 
     /// `test rt, rt` then `jz`/`jnz`, for a pointer or a zero-extending load.
-    pub fn cbz_x(&mut self, rt: u32) -> Patch32 {
+    pub fn cbz_x(&mut self, rt: Gpr) -> Patch32 {
         self.test(true, rt);
         self.jcc(0x84)
     }
 
-    pub fn cbnz_x(&mut self, rt: u32) -> Patch32 {
+    pub fn cbnz_x(&mut self, rt: Gpr) -> Patch32 {
         self.test(true, rt);
         self.jcc(0x85)
     }
 
-    fn test(&mut self, wide: bool, rt: u32) {
-        let r = rex(wide, rt, rt);
-        if r != 0x40 {
-            self.put(&[r]);
+    fn test(&mut self, wide: bool, rt: Gpr) {
+        if wide {
+            self.put(&[REX_W]);
         }
-        self.put(&[0x85, modrm_rr(rt, rt)]);
+        self.put(&[0x85, modrm_rr(rt.0, rt)]);
     }
 
     /// A `jcc rel32`, whose field is filled in by [`X86::here`]. Always the
@@ -709,10 +706,7 @@ impl X86 {
         // Measured from the end of the instruction, which is the four bytes
         // of the field itself.
         let delta = self.at() as i64 - (p.at as i64 + 4);
-        let o = p.at as usize;
-        let slot = self.bytes.get_mut(o..o.saturating_add(4));
-        slot.or_ice("a branch patches a field already emitted")
-            .copy_from_slice(&(delta as i32).to_le_bytes());
+        overwrite(&mut self.bytes, p.at, &(delta as i32).to_le_bytes());
     }
 
     /// `call name`, with the displacement left to the linker.
@@ -723,8 +717,8 @@ impl X86 {
 
     /// `lea rd, [rip + name]` — the address of a symbol in one instruction and
     /// one relocation, where A64 needs an `adrp`/`add` pair and two.
-    pub fn lea_symbol(&mut self, rd: u32, name: &str) {
-        self.put(&[rex(true, rd, 0), 0x8d, (((rd & 7) as u8) << 3) | 0x05]);
+    pub fn lea_symbol(&mut self, rd: Gpr, name: &str) {
+        self.put(&[REX_W, 0x8d, (rd.0 << 3) | 0x05]);
         self.pcrel(RelKind::Pc32, name);
     }
 
@@ -747,10 +741,9 @@ impl X86 {
     }
 
     /// `jmp rn` — an indirect tail call, which pushes nothing. Only the
-    /// shims' `rsi` is ever the target, so there is no `REX.B`.
-    pub fn jmp_reg(&mut self, rn: u32) {
-        crate::diagnostics::invariant(rn < 8, "x86-64 shims jump through rax..rdi");
-        self.put(&[0xff, 0xe0 | ((rn & 7) as u8)]);
+    /// shims' `rsi` is ever the target.
+    pub fn jmp_reg(&mut self, rn: Gpr) {
+        self.put(&[0xff, 0xe0 | rn.0]);
     }
 
     pub fn finish(self) -> (Vec<u8>, Vec<ShimReloc>) {
@@ -1100,7 +1093,7 @@ fn program_entry_x86_64(callee: &str, r: MainResult, marking: Marking) -> X86 {
 
 /// [`load_tag`] for the other machine. Every width zero-extends into the whole
 /// of `rt`, so the one 64-bit `test` after it decides all four.
-fn load_tag_x86_64(a: &mut X86, rt: u32, rn: u32, off: u32, width: u32) {
+fn load_tag_x86_64(a: &mut X86, rt: Gpr, rn: Gpr, off: u32, width: u32) {
     match width {
         1 => a.ldrb(rt, rn, off),
         2 => a.ldrh(rt, rn, off),
@@ -1259,7 +1252,7 @@ fn arg_reg_a64(pos: usize) -> u32 {
 ///
 /// The first three are all this ABI has words for; a fourth would be `rcx`,
 /// which `X86` has no name for yet and which a widening would have to add.
-fn arg_reg_sysv(pos: usize) -> u32 {
+fn arg_reg_sysv(pos: usize) -> Gpr {
     match pos {
         0 => RDI,
         1 => RSI,

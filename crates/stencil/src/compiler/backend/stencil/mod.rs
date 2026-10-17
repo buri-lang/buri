@@ -1392,6 +1392,62 @@ mod tests {
         }
     }
 
+    /// `jit::Key` cuts a spelling at `KEY_INLINE` bytes. That is only a miss
+    /// while every name is shorter, so a cut key names nothing.
+    #[test]
+    fn every_shipped_name_is_shorter_than_a_key() {
+        for t in abi::StencilTarget::ALL {
+            let Ok(lib) = load(t) else { continue };
+            for s in lib.iter() {
+                assert!(s.name.len() < jit::KEY_INLINE, "{}: {}", t.slug(), s.name);
+            }
+        }
+    }
+
+    /// The emitter writes every patch over bytes it has just copied, without
+    /// a check: each site a hole names has its whole field inside the stencil.
+    /// The elided tail branch is inside it too, and an x86-64 literal rewrite
+    /// has its whole seven-byte instruction there.
+    #[test]
+    fn the_shipped_patch_sites_are_inside_their_stencils() {
+        for t in abi::StencilTarget::ALL {
+            let Ok(lib) = load(t) else { continue };
+            for s in lib.iter() {
+                let len = s.code.len() as u64;
+                let inside = |off: u32| u64::from(off) + 4 <= len;
+                for h in &s.holes {
+                    let fields = h
+                        .branches
+                        .iter()
+                        .chain(&h.conds)
+                        .chain(h.lo12.iter().map(|(o, _)| o))
+                        .chain(h.pairs.iter().flat_map(|(a, b)| [a, b]));
+                    for off in fields {
+                        // An x86-64 pair's first offset is an instruction's
+                        // end, which may be the stencil's.
+                        let x86_end = !t.is_arm64() && h.pairs.iter().any(|(e, _)| e == off);
+                        assert!(
+                            inside(*off) || (x86_end && u64::from(*off) <= len),
+                            "{}: {} {} at {off}",
+                            t.slug(),
+                            s.name,
+                            h.name
+                        );
+                    }
+                    if !t.is_arm64() && h.kind == library::HoleKind::Imm32 {
+                        for (end, field) in &h.pairs {
+                            assert!(*end == field + 4 && *end >= 7, "{}: {}", t.slug(), s.name);
+                        }
+                    }
+                }
+                if s.tail.is_some() {
+                    let tail = if t.is_arm64() { 4 } else { 5 };
+                    assert!(len >= tail, "{}: {}", t.slug(), s.name);
+                }
+            }
+        }
+    }
+
     /// A host with a library must have one that decodes; a host without must
     /// say so rather than fail to build.
     #[test]
