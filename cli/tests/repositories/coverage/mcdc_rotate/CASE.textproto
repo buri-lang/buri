@@ -2,7 +2,8 @@
 # `--coverage=mcdc` counts that abort as a decision. `spin` rotates by a
 # constant inside the width and adds none. `turn` and `wind` rotate by what
 # their caller passes, which no test makes abort, so their conditions read
-# unshown.
+# unshown. `idle` rotates the same way and no test calls it, so its condition
+# is counted all the same.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 

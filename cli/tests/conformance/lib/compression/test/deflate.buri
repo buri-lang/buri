@@ -428,6 +428,26 @@ test "a stored block whose complement does not complement" {
     assert.equal(assert.err(unpacked([1, 3, 0, 0, 0, 97, 98, 99])), DecodeError(5));
 }
 
+test "a stored block cut off in its length" {
+    assert.equal(assert.err(unpacked([1])), DecodeError(1));
+}
+
+test "a stored block whose bytes run out" {
+    assert.equal(assert.err(unpacked([1, 5, 0, 250, 255, 65])), DecodeError(6));
+}
+
+test "a dynamic block cut off in its header" {
+    assert.equal(assert.err(unpacked([5])), DecodeError(1));
+}
+
+test "a fixed block with a literal past the alphabet" {
+    assert.equal(assert.err(unpacked([27, 3])), DecodeError(1));
+}
+
+test "a dynamic block that repeats a length before there is one" {
+    assert.equal(assert.err(unpacked([5, 0, 2, 36])), DecodeError(4));
+}
+
 test "a match that copies from before the start" {
     // One literal, then a length of 3 at a distance of 5, with one byte written.
     assert.equal(assert.err(unpacked([75, 4, 18, 0])), DecodeError(3));

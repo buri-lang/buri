@@ -8,6 +8,7 @@
 from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
 from "core/list" import * as list;
+from "core/proto" import * as proto;
 from "core/proto" import { ProtoError };
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
@@ -328,4 +329,75 @@ test "each message, in a decoding's result, equals itself and not a failure" {
     assert.isTrue(variants.resultsCompare(defaultItem(), bad));
     assert.isTrue(variants.resultsCompare(defaultPage(), bad));
     assert.isTrue(variants.resultsCompare(defaultVarints(), bad));
+}
+
+test "a varint's size grows by one byte every seven bits" {
+    let edges = [0, 127, 128, 16383, 16384, 2097151, 2097152, 268435455, 268435456];
+    assert.equal(edges.map(alloc(), proto.varintSize), [1, 1, 2, 2, 3, 3, 4, 4, 5]);
+    let wide = [
+        34359738367,
+        34359738368,
+        4398046511103,
+        4398046511104,
+        562949953421311,
+        562949953421312,
+        72057594037927935,
+        72057594037927936,
+        -1,
+    ];
+    assert.equal(wide.map(alloc(), proto.varintSize), [5, 6, 6, 7, 7, 8, 8, 9, 10]);
+}
+
+test "a decoding error equals only its own kind, and shows what it carries" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let each: [ProtoError] = [
+        .Truncated(1),
+        .BadWireType { field: 1, wire: 3 },
+        .BadFieldNumber(0),
+        .BadUtf8(2),
+        .BadJson { path: "$", wanted: "an object" },
+        .Unwritable { path: "$.d", reason: "too long" },
+    ];
+    let others: [ProtoError] = [
+        .BadUtf8(1),
+        .Truncated(1),
+        .Truncated(0),
+        .Truncated(2),
+        .Truncated(0),
+        .Truncated(0),
+    ];
+    assert.equal(each.zip(ctx, others).map(ctx, fn(p) => p.0 == p.1), [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+    ]);
+    let near: [ProtoError] = [
+        .Truncated(1),
+        .BadWireType { field: 2, wire: 3 },
+        .BadFieldNumber(0),
+        .BadUtf8(2),
+        .BadJson { path: "$.a", wanted: "an object" },
+        .Unwritable { path: "$.e", reason: "too long" },
+    ];
+    assert.equal(each.zip(ctx, near).map(ctx, fn(p) => p.0 == p.1), [
+        true,
+        false,
+        true,
+        true,
+        false,
+        false,
+    ]);
+    assert.equal(each.mapCtx(ctx, fn(c, e) => e.show(c)), [
+        ".Truncated(1)",
+        ".BadWireType { field: 1, wire: 3 }",
+        ".BadFieldNumber(0)",
+        ".BadUtf8(2)",
+        ".BadJson { path: \"$\", wanted: \"an object\" }",
+        ".Unwritable { path: \"$.d\", reason: \"too long\" }",
+    ]);
 }

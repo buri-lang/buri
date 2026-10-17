@@ -367,7 +367,7 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
                 });
             }
         };
-    // As `coverage::aborts` judges a built call: a `core/bits` shift, or an
+    // As `coverage::aborts` judges a built call: a `core/bits` shift or rotate, or an
     // integer type's `divide` or `remainder`.
     let checked_traps = |e: &typed::Expr| match &e.kind {
         typed::ExprKind::CallFn {
@@ -387,7 +387,9 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
             });
             if !info.intrinsic {
                 None
-            } else if module == Some("core/bits") && info.name.starts_with("shift") {
+            } else if module == Some("core/bits")
+                && (info.name.starts_with("shift") || info.name.starts_with("rotate"))
+            {
                 Some(coverage::Aborts::shift(&info.name))
             } else {
                 (integer && matches!(info.name.as_str(), "divide" | "remainder"))
@@ -416,11 +418,9 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
     }
     if mcdc {
         let mono_traps = |e: &typed::Expr| match &e.kind {
-            typed::ExprKind::CallFunc { func: f, .. } => program
-                .funcs
-                .get(f.0 as usize)
-                .filter(|f| name_of(f.span).is_none())
-                .and_then(coverage::aborts),
+            typed::ExprKind::CallFunc { func: f, .. } => {
+                program.funcs.get(f.0 as usize).and_then(coverage::aborts)
+            }
             _ => None,
         };
         for &slot in built.values().flatten() {

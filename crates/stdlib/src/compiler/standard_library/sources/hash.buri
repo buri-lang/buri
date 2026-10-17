@@ -192,7 +192,7 @@ export fn siphash24(key0: U64, key1: U64, b: [U8]): U64 {
     let compressed = sipWords(start, b, 0, whole);
     // The last word is the remaining octets with the input length in its top
     // octet, so that two inputs differing only in trailing zeros differ here.
-    let last = sipTail(b, whole, whole, n, 0)
+    let last = sipTail(b, whole, n - 1, 0)
         | bits.shiftLeftU64((n % 256).wrapToU64(), 56);
     let absorbed = sipAbsorb(compressed, last);
     let finalised = sipRounds(State { ..absorbed, v2: absorbed.v2 ^ 0xff }, 4);
@@ -201,26 +201,20 @@ export fn siphash24(key0: U64, key1: U64, b: [U8]): U64 {
 
 /// Every whole eight-octet word, little-endian, absorbed in order.
 fn sipWords(s: State, b: [U8], i: Int, end: Int): State {
-    if (i >= end) {
-        s
-    } else {
-        sipWords(
-            sipAbsorb(s, bytes.toU64LittleEndian(b, i).withDefault(0)),
-            b,
-            i + 8,
-            end,
-        )
+    match ((i < end, bytes.toU64LittleEndian(b, i))) {
+        (true, .Some(w)) => sipWords(sipAbsorb(s, w), b, i + 8, end),
+        _ => s,
     }
 }
 
-/// The octets after the last whole word, packed low end first. At most seven of
-/// them, so the largest shift here is 48.
-fn sipTail(b: [U8], base: Int, i: Int, n: Int, acc: U64): U64 {
-    if (i >= n) {
-        acc
-    } else {
-        let octet = b.get(i).withDefault(0).toU64();
-        sipTail(b, base, i + 1, n, acc | bits.shiftLeftU64(octet, (i - base) * 8))
+/// The octets from `base` to `i` after the last whole word, packed low end
+/// first: read from the last one back, each shifting the ones after it up.
+fn sipTail(b: [U8], base: Int, i: Int, acc: U64): U64 {
+    match ((i >= base, b.get(i))) {
+        (true, .Some(octet)) => {
+            sipTail(b, base, i - 1, bits.shiftLeftU64(acc, 8) | octet.toU64())
+        },
+        _ => acc,
     }
 }
 
@@ -237,19 +231,13 @@ fn sipRounds(s: State, left: Int): State {
 /// The round function, exactly as the paper writes it, one `let` per line.
 fn sipRound(s: State): State {
     let a0 = s.v0.wrappingAdd(s.v1);
-    let a1 = rotl64(s.v1, 13) ^ a0;
-    let b0 = rotl64(a0, 32);
+    let a1 = bits.rotateLeftU64(s.v1, 13) ^ a0;
+    let b0 = bits.rotateLeftU64(a0, 32);
     let a2 = s.v2.wrappingAdd(s.v3);
-    let a3 = rotl64(s.v3, 16) ^ a2;
+    let a3 = bits.rotateLeftU64(s.v3, 16) ^ a2;
     let c0 = b0.wrappingAdd(a3);
-    let b3 = rotl64(a3, 21) ^ c0;
+    let b3 = bits.rotateLeftU64(a3, 21) ^ c0;
     let b2 = a2.wrappingAdd(a1);
-    let b1 = rotl64(a1, 17) ^ b2;
-    State { v0: c0, v1: b1, v2: rotl64(b2, 32), v3: b3 }
-}
-
-/// A left rotation. Every count SipHash uses is between 1 and 63, so neither
-/// shift is by the width, which `core/bits` aborts on.
-fn rotl64(x: U64, n: Int): U64 {
-    bits.shiftLeftU64(x, n) | bits.shiftRightU64(x, 64 - n)
+    let b1 = bits.rotateLeftU64(a1, 17) ^ b2;
+    State { v0: c0, v1: b1, v2: bits.rotateLeftU64(b2, 32), v3: b3 }
 }

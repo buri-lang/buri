@@ -1,0 +1,65 @@
+// A well-known type's JSON is not an object, so its module carries codecs of
+// its own: the generator writes them for each of protobuf's own schemas, and
+// for a schema that declares one of those types itself.
+
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+from "std/codegen/proto/wellknown" import * as wellknown;
+from "//lib/proto_gen" import { HEAD, lines };
+
+test "each of protobuf's own schemas gets the JSON codecs of its kind" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let encoders = wellknown
+        .FILES
+        .mapCtx(ctx, fn(c, f => {
+            lines(c, f.2).filter(c, fn(l) => {
+                l.startsWith("export fn encode") && l.contains("Json")
+            })
+        });
+    assert.equal(encoders.map(ctx, fn(e) => e.length()), [1, 1, 1, 1, 4, 1, 9]);
+    let all = encoders.flatten(ctx);
+    assert.contains(
+        all,
+        "export fn encodeDurationJson<C: Allocator>(ctx: C, value: Duration): Result<Json, ProtoError> {",
+    );
+    assert.contains(all, "export fn encodeNullValueJson(value: NullValue): Json {");
+    assert.contains(
+        all,
+        "export fn encodeBytesValueJson<C: Allocator>(ctx: C, value: BytesValue): Result<Json, ProtoError> {",
+    );
+}
+
+test "a schema that declares a well-known type with presence reads absence as zero" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let out = lines(
+        ctx,
+        [
+            HEAD,
+            "package google.protobuf;\n",
+            "message Duration { int64 seconds = 1; int32 nanos = 2; }\n",
+            "message Int32Value { int32 value = 1; }\n",
+            "message Empty {}\n",
+        ].join(ctx, ""),
+    );
+    assert.contains(
+        out,
+        "    proto.jsonDuration(ctx, value.seconds.withDefault(0), value.nanos.withDefault(0))",
+    );
+    assert.contains(
+        out,
+        "    .Ok(Duration { seconds: .Some(seconds), nanos: .Some(nanos) })",
+    );
+    assert.contains(
+        out,
+        "    .Ok(Int32Value { value: .Some(proto.asInt(doc, path, -2147483648, 2147483647)?) })",
+    );
+    assert.contains(
+        out,
+        "export fn encodeEmptyJson<C: Allocator>(ctx: C, value: Empty): Result<Json, ProtoError> {",
+    );
+}
