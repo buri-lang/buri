@@ -57,6 +57,7 @@
 //! Design: `design/native/CODEGEN-LLVM.md`, `BUILD-AND-WATCH.md` §2, §2.1.
 
 pub mod attrs;
+mod build;
 pub mod emit;
 pub mod repr;
 pub mod target;
@@ -596,9 +597,11 @@ fn emit_unit(
         // SAFETY: `ctx` is a live context that nothing has built in yet.
         unsafe { inkwell::llvm_sys::core::LLVMContextSetDiscardValueNames(ctx.raw(), 1) };
     }
+    let builder = ctx.create_builder();
     let module_name = format!("{}{unit_name}", opts.unit_prefix);
     let mut emitter = emit::Unit::new(
         &ctx,
+        &builder,
         program,
         shared.tables,
         &module_name,
