@@ -94,15 +94,15 @@ fn check_bodies_the_extractor_folds(c: &mut Checker) {
     std::mem::swap(c.diags, &mut aside);
     let mut seen: std::collections::HashSet<FnId> = std::collections::HashSet::new();
     while let Some(id) = queue.pop() {
-        if !seen.insert(id) || c.bodies.contains_key(&id) {
+        // One already seen or checked is not followed again, nor is one a
+        // fold can't inline, nor one with no body to follow.
+        let fresh = seen.insert(id)
+            && !c.bodies.contains_key(&id)
+            && crate::compiler::semantics::consteval::is_inlinable(&c.tables, id);
+        let Some(body) = fresh.then(|| check_fn(c, id)).flatten() else {
             continue;
-        }
-        if !crate::compiler::semantics::consteval::is_inlinable(&c.tables, id) {
-            continue;
-        }
-        if let Some(body) = check_fn(c, id) {
-            callees_of(&body.expr, &mut queue);
-        }
+        };
+        callees_of(&body.expr, &mut queue);
     }
     std::mem::swap(c.diags, &mut aside);
 }

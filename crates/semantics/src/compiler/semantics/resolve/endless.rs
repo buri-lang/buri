@@ -659,10 +659,10 @@ where
             order.iter().enumerate().map(|(i, &n)| (n, i)).collect();
         let at = |u: &Node<K>| reached_at.get(u).copied().unwrap_or(usize::MAX);
         let (first, rest) = growing;
-        let (u, to, step) = rest.iter().fold(
-            *first,
-            |best, &e| if at(&e.0) < at(&best.0) { e } else { best },
-        );
+        // `min_by_key` keeps the first of two that tie.
+        let (u, to, step) = rest.iter().fold(*first, |best, &e| {
+            std::cmp::min_by_key(best, e, |g| at(&g.0))
+        });
         let mut steps = Vec::new();
         let mut at = u;
         while let Some(&Some((prev, step))) = reached.get(&at) {
