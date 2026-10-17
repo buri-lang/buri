@@ -747,10 +747,11 @@ impl<'a> Ctx<'a> {
             Pat::Ctor(c, subs) => {
                 let arity = c.arity(self.tables, head_ty);
                 let specialized = self.specialize(matrix, c, arity);
-                let mut next: Row<'p> = subs.iter().collect();
-                if next.len() < arity {
-                    next.resize(arity, &WILD);
-                }
+                let mut next: Row<'p> = subs
+                    .iter()
+                    .chain(std::iter::repeat(&WILD))
+                    .take(arity)
+                    .collect();
                 next.extend_from_slice(tail);
                 let next_types = self.column_types(c, head_ty, rest_types);
                 self.useful(&specialized, &next, &next_types)

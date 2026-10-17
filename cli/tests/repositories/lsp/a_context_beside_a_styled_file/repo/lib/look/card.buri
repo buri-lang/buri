@@ -1,0 +1,12 @@
+//! How a card is drawn.
+
+from "ui/style" import { Color };
+from "//lib/look/quiet.buri" import { Quiet };
+
+/// The colour of a card's edge.
+export let edge: Color = Color.Rgb(16, 32, 48);
+
+/// A card's context, built from the other file's declaration.
+export fn quiet(): Quiet {
+    Quiet()
+}

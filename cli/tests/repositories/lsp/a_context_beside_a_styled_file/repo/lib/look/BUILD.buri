@@ -1,0 +1,4 @@
+library {
+    sources: ["card.buri", "quiet.buri"]
+    visibility: ["//visibility:public"]
+}

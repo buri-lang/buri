@@ -1,0 +1,10 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# A hover builds an analysis of `card.buri` alone. `Quiet` is declared in the
+# other file, and the hover names it with the `///` above its declaration.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/look/card.buri"}, "position": {"line": 10, "character": 6}}}
+# The same analysis gives the swatch for the colour `card.buri` writes.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/documentColor", "params": {"textDocument": {"uri": "file://<scratch>/lib/look/card.buri"}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": null}
+{"jsonrpc": "2.0", "method": "exit", "params": null}

@@ -1,0 +1,5 @@
+//! A context that grants nothing.
+
+/// What a card may do while it is drawn: nothing.
+export context Quiet {
+}
