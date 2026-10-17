@@ -47,7 +47,6 @@
               is already in memory"
 )]
 
-use crate::diagnostics::Invariant;
 use crate::hash::Map as HashMap;
 
 use super::object::RelKind;
@@ -121,6 +120,20 @@ pub struct Region {
     pub relocs: Vec<Reloc>,
     /// Relocations against the constant pool.
     pool_relocs: Vec<Reloc>,
+}
+
+/// Writes `new` over the bytes at `at`: a patch to an instruction already
+/// emitted.
+///
+/// Every place a patch names is inside what has been emitted. A shim's patch
+/// is one its assembler minted over bytes it had just pushed, and nothing
+/// shrinks a buffer. A stencil's patch is a hole site inside the stencil's
+/// code, which `the_shipped_patch_sites_are_inside_their_stencils` checks for
+/// every library this toolchain bakes.
+pub fn overwrite(bytes: &mut [u8], at: u64, new: &[u8]) {
+    for (old, b) in bytes.iter_mut().skip(at as usize).zip(new) {
+        *old = *b;
+    }
 }
 
 /// A pool handle is not an address, and the emitter passes both around as
@@ -290,10 +303,7 @@ impl Region {
     }
 
     pub fn set_bytes(&mut self, addr: u64, b: &[u8]) {
-        let o = addr as usize;
-        let slot = self.bytes.get_mut(o..o.saturating_add(b.len()));
-        slot.or_ice("a patch rewrites bytes already emitted")
-            .copy_from_slice(b);
+        overwrite(&mut self.bytes, addr, b);
     }
 
     pub fn word_at(&self, addr: u64) -> u32 {
@@ -311,10 +321,7 @@ impl Region {
     }
 
     pub fn set_word(&mut self, addr: u64, w: u32) {
-        let o = addr as usize;
-        let slot = self.bytes.get_mut(o..o.saturating_add(4));
-        slot.or_ice("a patch rewrites a word already emitted")
-            .copy_from_slice(&w.to_le_bytes());
+        overwrite(&mut self.bytes, addr, &w.to_le_bytes());
     }
 
     /// The two sections and the relocations each still needs.

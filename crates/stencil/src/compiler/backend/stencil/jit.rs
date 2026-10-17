@@ -99,14 +99,17 @@ impl V {
 /// A stencil key, built without allocating ([`key!`]).
 ///
 /// The library's longest name is 31 bytes, its fold and swap suffixes
-/// included, so every key fits inline.
+/// included, so every key fits inline. A longer spelling keeps its first
+/// [`KEY_INLINE`] bytes, which is longer than any name
+/// (`every_shipped_name_is_shorter_than_a_key`), so it names no stencil and
+/// the lookup misses as it would have.
 #[derive(Clone, Default)]
 pub struct Key {
     len: usize,
     inline: [u8; KEY_INLINE],
 }
 
-const KEY_INLINE: usize = 32;
+pub(super) const KEY_INLINE: usize = 32;
 
 impl Key {
     pub fn as_str(&self) -> &str {
@@ -197,13 +200,10 @@ impl KeyPart for u8 {
 
 impl std::fmt::Write for Key {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
-        let end = self.len + s.len();
-        let dst = self
-            .inline
-            .get_mut(self.len..end)
-            .or_ice("a stencil key fits `KEY_INLINE` bytes");
-        dst.copy_from_slice(s.as_bytes());
-        self.len = end;
+        for (dst, b) in self.inline.iter_mut().skip(self.len).zip(s.as_bytes()) {
+            *dst = *b;
+        }
+        self.len = (self.len + s.len()).min(KEY_INLINE);
         Ok(())
     }
 }
@@ -1527,13 +1527,10 @@ impl<'a> Jit<'a> {
                 .any(|(n, v)| matches!(v, V::Fall) && same_name(n, name))
             {
                 elide = true;
-                len -= tail_bytes;
+                len = len.saturating_sub(tail_bytes);
             }
         }
-        let bytes = s
-            .code
-            .get(..len)
-            .or_ice("a stencil is longer than the tail branch it names");
+        let (bytes, _) = s.code.split_at(len);
         let at = self.region.put(bytes);
         let end = at + len as u64;
         // The read-only bytes clang spilled, which are not holes and take no
@@ -1801,9 +1798,10 @@ impl<'a> Jit<'a> {
     /// reference, which is the property the rewrite exists for.
     fn patch_pc32_imm(&mut self, field: u64, insn_end: u64, v: u32) {
         debug_assert_eq!(insn_end, field + 4);
-        let start = field
-            .checked_sub(3)
-            .or_ice("a pc-relative field has an instruction in front");
+        // Seven bytes end at `insn_end`, and every such hole of a shipped
+        // library has them inside its stencil
+        // (`the_shipped_patch_sites_are_inside_their_stencils`).
+        let start = insn_end.saturating_sub(7);
         // `ModRM.reg` and `REX.R` are where the destination register is, in
         // both the `lea` and the `mov` this rewrites.
         let rex = self.region.byte_at(start, 0);
@@ -2254,8 +2252,7 @@ impl<'a> Jit<'a> {
                 // A field already aliased is a length, which no load below
                 // defines, or a field of an earlier aggregate, which is a
                 // second use.
-                for (fi, f) in fields.iter().enumerate() {
-                    let off = *offs.get(fi).or_ice("a constructor has a field per offset");
+                for (fi, (f, off)) in fields.iter().zip(offs).enumerate() {
                     let w = self.width(prog, code.ty_of(*f));
                     if w == 0
                         || !w.is_multiple_of(8)
@@ -2815,18 +2812,20 @@ impl<'a> Jit<'a> {
                 // counted from: the conversion is a copy of the same word.
                 let mut alias = None;
                 if dr.count == 1 {
-                    let r = dr.first;
-                    if let Some(ir::Inst::Unary {
-                        op: ir::UnOp::FromBool,
-                        dest: z,
-                        ..
-                    }) = b.insts.get(r)
-                    {
-                        // Read once, by the instruction after it (`ir::UnOp::FromBool`),
-                        // so it is a class of its own and nothing pinned it.
-                        let zr = read_at(*z).or_ice("a counted `Bool` is read in its block");
-                        end = end.max(zr.last);
-                        alias = Some(*z);
+                    // Read once, by the instruction after it
+                    // (`ir::UnOp::FromBool`), so it is a class of its own and
+                    // nothing pinned it.
+                    let counted = match b.insts.get(dr.first) {
+                        Some(ir::Inst::Unary {
+                            op: ir::UnOp::FromBool,
+                            dest: z,
+                            ..
+                        }) => read_at(*z).map(|zr| (*z, zr.last)),
+                        _ => None,
+                    };
+                    if let Some((z, z_last)) = counted {
+                        end = end.max(z_last);
+                        alias = Some(z);
                     }
                 }
                 if !pure(j + 1, (end + 1).min(last)) {
@@ -3323,10 +3322,7 @@ impl<'a> Jit<'a> {
                 // first use is past `k`, and `barrier` runs from the block's
                 // first instruction to one past its last.
                 let at = u.first;
-                let span = barrier
-                    .get(k..=at.min(n))
-                    .or_ice("a use follows its definition");
-                if span.iter().any(|b| *b) {
+                if barrier.iter().take(at.min(n) + 1).skip(k).any(|b| *b) {
                     continue;
                 }
                 // The consumer has to be able to read a register operand.
@@ -3481,15 +3477,14 @@ impl<'a> Jit<'a> {
         // `middle::lower` reads a `match`'s tag last thing before the switch,
         // and only the switch reads it. A merged tail-call group's dispatch
         // switch is the other kind, and it has a block with no instructions.
+        // A switch with no tag load in front reads its discriminant's slot.
         if let ir::Term::Switch { .. } = &block.term {
             let k = n - 1;
-            let agg = match block.insts.get(k) {
+            p.tagsw = match block.insts.get(k) {
                 Some(ir::Inst::GetTag { agg, .. }) => Some(*agg),
                 _ => None,
-            }
-            .or_ice("a switch with instructions before it reads the tag loaded last");
-            put(&mut p.skip, k, true);
-            p.tagsw = Some(agg);
+            };
+            *ent_mut(&mut p.skip, k) |= p.tagsw.is_some();
         }
         p
     }
@@ -3605,7 +3600,8 @@ struct Dominance {
     post: Vec<usize>,
     seen: Vec<bool>,
     idom: Vec<usize>,
-    stack: Vec<(usize, usize)>,
+    /// A node, the next child to visit, and the clock when it was entered.
+    stack: Vec<(usize, usize, u32)>,
 }
 
 impl Dominance {
@@ -3638,14 +3634,14 @@ impl Dominance {
         seen.resize(nb + 1, false);
         put(seen, root, true);
         stack.clear();
-        stack.push((root, 0));
-        while let Some((x, k)) = stack.pop() {
+        stack.push((root, 0, 0));
+        while let Some((x, k, _)) = stack.pop() {
             match succ.of(x).get(k).map(|y| *y as usize) {
                 Some(y) => {
-                    stack.push((x, k + 1));
+                    stack.push((x, k + 1, 0));
                     if !ent(seen, y, true) {
                         put(seen, y, true);
-                        stack.push((y, 0));
+                        stack.push((y, 0, 0));
                     }
                 }
                 None => {
@@ -3703,23 +3699,18 @@ impl Dominance {
         range.resize(nb + 1, None);
         let mut clock = 0u32;
         stack.clear();
-        stack.push((root, 0));
-        while let Some((x, k)) = stack.pop() {
+        stack.push((root, 0, 0));
+        while let Some((x, k, mut entered)) = stack.pop() {
             if k == 0 {
-                put(range, x, Some((clock, clock)));
+                entered = clock;
                 clock += 1;
             }
             match children.of(x).get(k).map(|y| *y as usize) {
                 Some(y) => {
-                    stack.push((x, k + 1));
-                    stack.push((y, 0));
+                    stack.push((x, k + 1, entered));
+                    stack.push((y, 0, 0));
                 }
-                None => {
-                    let span = ent_mut(range, x)
-                        .as_mut()
-                        .or_ice("a visited block has a span");
-                    span.1 = clock;
-                }
+                None => put(range, x, Some((entered, clock))),
             }
         }
         range.truncate(nb);
