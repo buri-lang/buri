@@ -124,9 +124,10 @@ impl<T, E: std::fmt::Display> Invariant<T> for Result<T, E> {
 /// A repository bug, reported where a test will see it and nowhere else.
 ///
 /// The templates in the documentation pages are written by hand, and a code
-/// with no page is a mistake in *this* repository. In a debug build, which is
-/// every test run, it is a panic naming the code. In a release build it is not
-/// worth taking a user's build down for: the code prints as the message.
+/// with no page, or a page whose placeholders its emission site doesn't bind,
+/// is a mistake in *this* repository. In a debug build, which is every test
+/// run, it is a panic naming the code. In a release build it is not worth
+/// taking a user's build down for: the template prints as written.
 #[allow(
     clippy::panic,
     reason = "a documentation page that does not match its emission site is a bug in this \
@@ -457,11 +458,10 @@ impl Diagnostic {
     ///
     /// A code with no page, an unbound placeholder, and a binding no template
     /// uses are each a bug in this repository rather than in the code being
-    /// compiled, so each stops a debug build — which is every test run: the
-    /// first with a panic, the other two with the internal-error report. A
-    /// release build prints the template as written instead. A user meeting a
-    /// `{function}` has a bug report; a user meeting a crash has lost their
-    /// build.
+    /// compiled, so each stops a debug build — which is every test run — with
+    /// a panic that names the code. A release build prints the template as
+    /// written instead. A user meeting a `{function}` has a bug report; a user
+    /// meeting a crash has lost their build.
     pub fn templated(code: &str, span: Span) -> Diagnostic {
         let mut d = Diagnostic::error(span, code.to_string());
         d.code = Some(code.to_string());
@@ -545,27 +545,24 @@ impl Diagnostic {
             let code = &t.page.code;
             let unbound = holes
                 .iter()
-                .find(|h| !t.bindings.iter().any(|(n, _)| n == *h));
-            unbound
-                .map_or(Ok(()), |hole| {
-                    Err(format!(
+                .find(|h| !t.bindings.iter().any(|(n, _)| n == *h))
+                .map(|hole| {
+                    format!(
                         "`{code}` prints `{{{hole}}}`, and nothing bound it: add \
                          `.bind(\"{hole}\", …)` at the emission site"
-                    ))
-                })
-                .or_ice("a documentation page's template");
+                    )
+                });
             let unused = t
                 .bindings
                 .iter()
-                .find(|(name, _)| !holes.iter().any(|h| h == name));
-            unused
-                .map_or(Ok(()), |(name, _)| {
-                    Err(format!(
+                .find(|(name, _)| !holes.iter().any(|h| h == name))
+                .map(|(name, _)| {
+                    format!(
                         "`{code}` binds `{name}`, and no template of its page uses it: either the \
                          page has a typo or the binding is left over"
-                    ))
-                })
-                .or_ice("a documentation page's template");
+                    )
+                });
+            unbound.or(unused).iter().for_each(|what| debug_panic(what));
         }
     }
 
@@ -620,7 +617,6 @@ impl Diagnostic {
     }
 
     pub fn secondary_span(&mut self, span: Span, label: impl Into<String>) -> &mut Diagnostic {
-        invariant(!span.is_none(), "a secondary span points into a file");
         self.secondary_spans.push(SecondarySpan {
             span,
             label: label.into(),
@@ -745,6 +741,12 @@ impl SourceFile {
 
     /// 1-based line and column (column counted in characters, not bytes).
     pub fn line_col(&self, offset: u32) -> (usize, usize) {
+        let at = self.place(offset);
+        (at.line, at.col)
+    }
+
+    /// Where `offset` falls: its line, its column, and where that line starts.
+    fn place(&self, offset: u32) -> Place {
         let offset = self.floor_boundary(offset as usize);
         // `line_starts` opens with 0 and `offset` is not negative, so the
         // insertion point is never 0 and the subtraction never wraps; it
@@ -758,32 +760,36 @@ impl SourceFile {
             .text
             .get(start..offset)
             .map_or(0, |s| s.chars().count());
-        (line.saturating_add(1), col.saturating_add(1))
+        Place {
+            line: line.saturating_add(1),
+            col: col.saturating_add(1),
+            start,
+        }
     }
 
-    /// The text of a 1-based line [`SourceFile::line_col`] answered.
-    fn line_text(&self, line: usize) -> &str {
-        let start = line
-            .checked_sub(1)
-            .and_then(|i| self.line_starts().get(i))
-            .or_ice("`line_col` answers a line this file has");
+    /// The text of the line a [`Place`] is on, without its line break.
+    fn line_text(&self, at: &Place) -> &str {
+        // The next line's start, which is the 0-based index one past this
+        // line's; the last line runs to the end of the file.
         let end = self
             .line_starts()
-            .get(line)
+            .get(at.line)
             .map_or(self.text.len(), |&e| e as usize);
         self.text
-            .get(*start as usize..end)
+            .get(at.start..end)
             .unwrap_or("")
             .trim_end_matches(['\n', '\r'])
     }
+}
 
-    /// The byte offset a 1-based line begins at, 0 for a line this file has
-    /// not got.
-    pub fn line_start(&self, line: usize) -> usize {
-        line.checked_sub(1)
-            .and_then(|i| self.line_starts().get(i))
-            .map_or(0, |&s| s as usize)
-    }
+/// A position in a [`SourceFile`], as [`SourceFile::place`] finds it.
+struct Place {
+    /// 1-based.
+    line: usize,
+    /// 1-based, in characters.
+    col: usize,
+    /// The byte offset the line begins at.
+    start: usize,
 }
 
 /// The most source one file may hold.
@@ -1189,13 +1195,14 @@ impl SourceMap {
             return "null".into();
         }
         let f = self.get(span.file);
-        let (line, column) = f.line_col(span.start);
+        let at = f.place(span.start);
+        let (line, column) = (at.line, at.col);
         let (end_line, end_column) = f.line_col(span.end);
         let mut out = String::from("{");
         let _ = write!(out, "\"file\":{}", json_str(&f.name));
         let _ = write!(out, ",\"line\":{line},\"column\":{column}");
         let _ = write!(out, ",\"endLine\":{end_line},\"endColumn\":{end_column}");
-        let _ = write!(out, ",\"text\":{}", json_str(f.line_text(line)));
+        let _ = write!(out, ",\"text\":{}", json_str(f.line_text(&at)));
         if let Some(l) = label {
             let _ = write!(out, ",\"label\":{}", json_str(l));
         }
@@ -1231,7 +1238,8 @@ impl SourceMap {
         c_reset: &str,
     ) {
         let f = self.get(span.file);
-        let (line, col) = f.line_col(span.start);
+        let at = f.place(span.start);
+        let (line, col) = (at.line, at.col);
         let (end_line, end_col) = f.line_col(span.end);
         let gw = line.to_string().len().max(1).saturating_add(1);
         let inner = gw.saturating_sub(1);
@@ -1249,7 +1257,7 @@ impl SourceMap {
 
         // Carets under the span. A span crossing a line break is underlined to
         // the end of its first line, which is what the reader needs to see.
-        let full = f.line_text(line);
+        let full = f.line_text(&at);
         let span_chars = if end_line == line {
             (end_col.saturating_sub(col)).max(1)
         } else {
@@ -1263,7 +1271,7 @@ impl SourceMap {
             col: shown_col,
             cut_left,
             cut_right,
-        } = window(full, f.line_start(line), span.start as usize);
+        } = window(full, at.start, span.start as usize);
         let span_chars = span_chars.min(
             text.chars()
                 .count()
@@ -1939,7 +1947,10 @@ mod tests {
         assert_eq!(map.text(FileId(3)), "");
         assert_eq!(map.text(FileId::NONE), "");
         assert_eq!(map.name(FileId::NONE), "<none>");
-        assert_eq!(map.get(FileId(9)).line_text(1), "");
+        assert_eq!(
+            map.get(FileId(9)).line_text(&map.get(FileId(9)).place(500)),
+            ""
+        );
         assert_eq!(map.get(FileId(9)).line_col(500), (1, 1));
     }
 }

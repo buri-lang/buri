@@ -13,9 +13,8 @@ mod suite;
 
 pub use syntax::Dialect;
 
-use crate::diagnostics::Invariant;
 use crate::languages::Finding;
-use schema::{has_scheme, is_2020_12, local_path, Registry, SchemaFile};
+use schema::{has_scheme, is_2020_12, local_path, Registry, SchemaFile, SchemaSet};
 use std::collections::BTreeMap;
 use syntax::{Document, Node};
 
@@ -177,53 +176,44 @@ pub fn check(
         Ok(doc) => doc,
         Err(finding) => return vec![finding],
     };
-    let mut findings = Vec::new();
-    let mut schemas: Vec<SchemaFile> = Vec::new();
-    let (target, instance) = match named(path, &doc, contract) {
+    // The schema the check is about, and the value checked against it.
+    let (main, instance) = match named(path, &doc, contract) {
         Named::Refused(finding) => return vec![finding],
-        Named::Schema => {
-            schemas.push(SchemaFile {
+        Named::Schema => (
+            Ok(SchemaFile {
                 path: path.to_string(),
                 root: doc.root.clone(),
-            });
-            (None, None)
-        }
+            }),
+            None,
+        ),
         Named::File(schema, value) => {
-            if !files.contains_key(&schema) {
+            let Some(text) = files.get(&schema) else {
                 return vec![Finding::new(
                     "unknown-schema",
                     path,
                     value.span,
                     vec![("path", schema)],
                 )];
-            }
-            (Some(schema), Some(&doc.root))
+            };
+            let main = read(&schema, text, dialect_of(&schema)).map(|parsed| SchemaFile {
+                path: schema.clone(),
+                root: parsed.root,
+            });
+            (main, Some(&doc.root))
         }
     };
-    for (file, text) in files {
-        match read(file, text, dialect_of(file)) {
-            Ok(parsed) => schemas.push(SchemaFile {
-                path: file.clone(),
-                root: parsed.root,
-            }),
-            Err(finding) => findings.push(finding),
-        }
-    }
-    if !findings.is_empty() {
-        return findings;
-    }
-    let registry = Registry::new(&schemas);
+    let set = match schema_set_of(main, files, dialect_of) {
+        Ok(set) => set,
+        Err(findings) => return findings,
+    };
+    let registry = Registry::new(&set);
     if !registry.problems().is_empty() {
         return registry.problems().to_vec();
     }
-    let (Some(target), Some(instance)) = (target, instance) else {
+    let Some(instance) = instance else {
         return Vec::new();
     };
-    let index = schemas
-        .iter()
-        .position(|s| s.path == target)
-        .or_ice("the named schema was read with the rest");
-    schema::validate(&registry, index, instance)
+    schema::validate(&registry, instance)
         .into_iter()
         .map(|v| {
             Finding::new(
@@ -238,6 +228,38 @@ pub fn check(
             )
         })
         .collect()
+}
+
+/// `main` and every other file in `files`, parsed, or why one of them does not
+/// parse: every such finding, in path order.
+fn schema_set_of(
+    main: Result<SchemaFile, Finding>,
+    files: &BTreeMap<String, String>,
+    dialect_of: &dyn Fn(&str) -> Dialect,
+) -> Result<SchemaSet, Vec<Finding>> {
+    let main_path = match &main {
+        Ok(file) => file.path.clone(),
+        Err(finding) => finding.file.clone(),
+    };
+    let (main, mut findings) = match main {
+        Ok(file) => (Some(file), Vec::new()),
+        Err(finding) => (None, vec![finding]),
+    };
+    let mut rest = Vec::new();
+    for (file, text) in files.iter().filter(|(file, _)| **file != main_path) {
+        match read(file, text, dialect_of(file)) {
+            Ok(parsed) => rest.push(SchemaFile {
+                path: file.clone(),
+                root: parsed.root,
+            }),
+            Err(finding) => findings.push(finding),
+        }
+    }
+    findings.sort_by(|a, b| a.file.cmp(&b.file));
+    match (main, findings.is_empty()) {
+        (Some(main), true) => Ok(SchemaSet { main, rest }),
+        _ => Err(findings),
+    }
 }
 
 /// Every file a schema reaches through `$ref`, itself included: what
@@ -260,7 +282,7 @@ fn schema_set(
     path: &str,
     files: &BTreeMap<String, String>,
     dialect_of: &dyn Fn(&str) -> Dialect,
-) -> Result<Vec<SchemaFile>, Vec<Finding>> {
+) -> Result<SchemaSet, Vec<Finding>> {
     let Some(text) = files.get(path) else {
         return Err(vec![Finding::new(
             "unknown-schema",
@@ -273,15 +295,11 @@ fn schema_set(
     if !found.is_empty() {
         return Err(found);
     }
-    let mut out = Vec::new();
-    for (file, text) in files {
-        let doc = read(file, text, dialect_of(file)).map_err(|f| vec![f])?;
-        out.push(SchemaFile {
-            path: file.clone(),
-            root: doc.root,
-        });
-    }
-    Ok(out)
+    let main = read(path, text, dialect_of(path)).map(|doc| SchemaFile {
+        path: path.to_string(),
+        root: doc.root,
+    });
+    schema_set_of(main, files, dialect_of)
 }
 
 /// The `json` tool's `generate` on one input: a schema gives its types, and a data
@@ -299,14 +317,11 @@ pub fn generate(
         Named::Schema => {
             let mut all = files.clone();
             all.insert(path.to_string(), text.to_string());
-            types::schema_module(&schema_set(path, &all, dialect_of)?, path)
+            types::schema_module(&schema_set(path, &all, dialect_of)?)
         }
-        Named::File(schema, _) => types::data_module(
-            &schema_set(&schema, files, dialect_of)?,
-            &schema,
-            path,
-            &doc.root,
-        ),
+        Named::File(schema, _) => {
+            types::data_module(&schema_set(&schema, files, dialect_of)?, path, &doc.root)
+        }
     }
 }
 
@@ -317,7 +332,7 @@ pub fn contract(
     dialect_of: &dyn Fn(&str) -> Dialect,
     files: &BTreeMap<String, String>,
 ) -> Result<types::Module, Vec<Finding>> {
-    types::contract_module(&schema_set(path, files, dialect_of)?, path)
+    types::contract_module(&schema_set(path, files, dialect_of)?)
 }
 
 /// A file's value as strict JSON, for a tool that takes it typed. `None` when

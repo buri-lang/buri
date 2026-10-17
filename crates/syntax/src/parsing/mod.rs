@@ -9,3 +9,19 @@ pub mod flat;
 pub mod lexer;
 pub mod parser;
 pub mod tree;
+
+/// Appends `d` to `errors` and lends it back, so a caller can add what varies.
+///
+/// `Vec::push_mut`, which is newer than this crate's `rust-version`.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the index is the slot the push just filled"
+)]
+fn pushed(
+    errors: &mut Vec<crate::diagnostics::Diagnostic>,
+    d: crate::diagnostics::Diagnostic,
+) -> &mut crate::diagnostics::Diagnostic {
+    let at = errors.len();
+    errors.push(d);
+    &mut errors[at]
+}

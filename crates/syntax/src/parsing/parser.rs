@@ -19,7 +19,7 @@
 //! * `pattern_primary` decides binding-versus-variant on the token *after* an
 //!   identifier, never on what the identifier means (design/grammar-rationale.md 12.7).
 
-use crate::diagnostics::{invariant, Diagnostic, FileId, Invariant, Span};
+use crate::diagnostics::{invariant, Diagnostic, FileId, Span};
 use crate::parsing::flat::{
     ArmData, BlockData, BlockId, CtxBindData, CtxBodyData, CtxBodyId, Docs, ExprId, FieldPatData,
     InitData, Kind, LambdaParamData, List, Location, PartData, PatId, PatPayloadData, PatternKind,
@@ -803,13 +803,11 @@ impl<'a> Parser<'a> {
     /// and two `Vec`s and every caller wants the span: returning the token
     /// deep-copied a hundred and twenty-eight bytes, and allocated, for every
     /// token the parser read.
+    ///
+    /// The cursor stays on the end of the file: past it is more of it.
     fn bump(&mut self) -> Span {
         let span = self.span();
-        invariant(
-            self.pos < self.last,
-            "nothing reads past the end of the file",
-        );
-        self.pos = self.pos.saturating_add(1);
+        self.pos = self.pos.saturating_add(1).min(self.last);
         self.before = self.here;
         (self.cur, self.here) = self.tokens.record(self.pos);
         span
@@ -913,8 +911,7 @@ impl<'a> Parser<'a> {
     }
 
     fn keep(&mut self, d: Diagnostic) -> &mut Diagnostic {
-        self.errors.push(d);
-        self.errors.last_mut().or_ice("an error was just pushed")
+        super::pushed(&mut self.errors, d)
     }
 
     /// A syntax error is always a mismatch: the grammar admits one thing here
@@ -2045,7 +2042,7 @@ impl<'a> Parser<'a> {
             // `self` writes no type: the `impl` head, or the trait's
             // implementing type, is the one it could have.
             let (ty, span) = if kind == ParamKind::SelfParam {
-                (NONE, start.to(self.self_annotation()))
+                (NONE, start.to(self.self_annotation()?))
             } else {
                 self.expect(Punctuation::Colon)?;
                 let ty = self.ty()?;
@@ -2068,10 +2065,10 @@ impl<'a> Parser<'a> {
     /// The old `self: Type` form. It is read and discarded, so that one error
     /// names the whole mistake and the rest of the signature is read for what
     /// it says. Returns the span the parameter ends at.
-    fn self_annotation(&mut self) -> Span {
+    fn self_annotation(&mut self) -> PResult<Span> {
         let keyword = self.prev_span();
         if !self.is(Punctuation::Colon) {
-            return keyword;
+            return Ok(keyword);
         }
         // Read on trial first. `fn area(self: Int;` is a signature whose `)`
         // is missing, and its `: Int` is the *return* type — so committing to
@@ -2091,19 +2088,16 @@ impl<'a> Parser<'a> {
         self.restore(save);
         self.seek(pos);
         if !annotated {
-            return keyword;
+            return Ok(keyword);
         }
         let colon = self.bump();
         // The trial read this type with every closer required, and the real
         // reading only repairs more, so it reads it too.
-        let ty = self
-            .ty()
-            .ok()
-            .or_ice("the trial read this annotation as a type");
+        let ty = self.ty()?;
         let end = self.tree.type_span(ty);
         self.templated("typed-self", colon.to(end))
             .edit(keyword.to(end), "self");
-        end
+        Ok(end)
     }
 
     /// The old per-variant `export`. The edit reaches from the keyword to the

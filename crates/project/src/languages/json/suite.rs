@@ -13,7 +13,7 @@
 //! A group this toolchain refuses by design is in [`REFUSED`], and must be
 //! refused with the finding named there. Nothing else is left out.
 
-use super::schema::{self, is_2020_12, Registry, SchemaFile};
+use super::schema::{self, is_2020_12, Registry, SchemaFile, SchemaSet};
 use super::syntax::{self, Dialect, Node};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -202,21 +202,26 @@ fn json_schema_test_suite_draft_2020_12() {
             let Some(root) = group.get("schema").cloned() else {
                 continue;
             };
-            let mut files = vec![SchemaFile {
-                path: "schema.json".to_string(),
-                root,
-            }];
-            files.extend(remotes.iter().map(|r| SchemaFile {
-                path: r.path.clone(),
-                root: r.root.clone(),
-            }));
+            let set = SchemaSet {
+                main: SchemaFile {
+                    path: "schema.json".to_string(),
+                    root,
+                },
+                rest: remotes
+                    .iter()
+                    .map(|r| SchemaFile {
+                        path: r.path.clone(),
+                        root: r.root.clone(),
+                    })
+                    .collect(),
+            };
             let mut problems: Vec<(String, String)> = Vec::new();
-            if let Some(own) = files[0].root.get("$schema") {
+            if let Some(own) = set.main.root.get("$schema") {
                 if !own.as_str().is_some_and(is_2020_12) {
                     problems.push(("json-schema-draft-unsupported".to_string(), String::new()));
                 }
             }
-            let registry = Registry::new(&files);
+            let registry = Registry::new(&set);
             problems.extend(registry.problems().iter().map(|f| {
                 let problem = f
                     .binds
@@ -256,7 +261,7 @@ fn json_schema_test_suite_draft_2020_12() {
                 let Some(data) = case.get("data") else {
                     continue;
                 };
-                let violations = schema::validate(&registry, 0, data);
+                let violations = schema::validate(&registry, data);
                 if violations.is_empty() == expected {
                     t.passed += 1;
                 } else {
