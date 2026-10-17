@@ -21,9 +21,9 @@
 //! it always agree.
 //!
 //! macOS arm64 only: the objects are what `stencil/object.rs` writes, four
-//! relocation kinds with page references only into the image itself, so
-//! anything else is a toolchain bug. A branch or page reference too far to
-//! patch is an `Err`, and the suite links a runner as before.
+//! relocation kinds with page references only into the image itself. They can
+//! come off disk damaged, so anything else, and a branch or page reference too
+//! far to patch, is an `Err`, and the suite links a runner as before.
 
 #![allow(
     clippy::arithmetic_side_effects,
@@ -34,7 +34,6 @@
               follows catches the result"
 )]
 
-use crate::diagnostics::{ice, invariant};
 use crate::hash::Map as HashMap;
 
 pub const MAGIC: &[u8; 8] = b"BURIIMG\0";
@@ -312,17 +311,19 @@ struct Import {
 /// The image `objects` link into, against the symbols of the host whose key
 /// is `host_key`.
 pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec<u8>, String> {
-    invariant(host_key.len() == HEAD - 16, "a test host's key is a digest");
+    let host_key: &[u8; HEAD - 16] = host_key
+        .as_bytes()
+        .try_into()
+        .map_err(|_| "a test host's key isn't a digest")?;
     let mut files: Vec<MachO<'_>> = objects
         .iter()
         .map(|bytes| MachO::parse(bytes))
         .collect::<Result<_, _>>()?;
-    invariant(
-        files
-            .iter()
-            .all(|f| (f.filetype == MH_OBJECT) & f.sections.iter().all(|s| s.area != Area::Other)),
-        "a test suite's objects are objects in the segments stencil writes",
-    );
+    files
+        .iter()
+        .all(|f| (f.filetype == MH_OBJECT) & f.sections.iter().all(|s| s.area != Area::Other))
+        .then_some(())
+        .ok_or("an object isn't one stencil writes")?;
 
     // Who defines each global: its one strong definition, else the first of
     // its weak ones, as `ld` keeps it.
@@ -334,10 +335,9 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
             };
             for (i, sym) in file.symbols.iter().enumerate().filter(defined) {
                 let first = *globals.entry(sym.name).or_insert((o, i));
-                invariant(
-                    weak | (first == (o, i)),
-                    "a global has one strong definition",
-                );
+                (weak | (first == (o, i)))
+                    .then_some(())
+                    .ok_or_else(|| format!("{} is defined twice", sym.name))?;
             }
         }
     }
@@ -448,18 +448,16 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
                     continue;
                 }
                 let a = std::mem::take(&mut addend);
-                invariant(
-                    r.external,
-                    "stencil relocates against symbols, never sections",
-                );
+                r.external
+                    .then_some(())
+                    .ok_or("a relocation is against a section")?;
                 let place = s.placed + u64::from(r.address);
                 let target = resolve(o, r.symbol)?;
                 match (r.kind, target) {
                     (ARM64_RELOC_UNSIGNED, _) => {
-                        invariant(
-                            r.length == 3,
-                            "stencil's absolute relocations are eight bytes",
-                        );
+                        (r.length == 3)
+                            .then_some(())
+                            .ok_or("an absolute relocation isn't eight bytes")?;
                         let implicit = u64::from_le_bytes(word8(&bytes, place)?).cast_signed();
                         image_slice(&mut bytes, place, 8)?.fill(0);
                         match target {
@@ -477,7 +475,7 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
                             .ok_or("a branch inside the image is out of reach")?;
                         let words = words.cast_unsigned();
                         patch(&mut bytes, place, |insn| {
-                            (insn & 0xfc00_0000) | (words as u32 & 0x03ff_ffff)
+                            Ok((insn & 0xfc00_0000) | (words as u32 & 0x03ff_ffff))
                         })?;
                     }
                     (ARM64_RELOC_BRANCH26, Resolved::Import(i)) => {
@@ -493,16 +491,18 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
                             .ok_or("a page reference inside the image is out of reach")?;
                         let p = pages.cast_unsigned() as u32;
                         patch(&mut bytes, place, |insn| {
-                            (insn & 0x9f00_001f) | ((p & 3) << 29) | (((p >> 2) & 0x7_ffff) << 5)
+                            Ok((insn & 0x9f00_001f)
+                                | ((p & 3) << 29)
+                                | (((p >> 2) & 0x7_ffff) << 5))
                         })?;
                     }
                     (ARM64_RELOC_PAGEOFF12, Resolved::Image(t)) => {
                         let low = (t.wrapping_add_signed(a) & 0xfff) as u32;
                         patch(&mut bytes, place, |insn| pageoff12(insn, low))?;
                     }
-                    (kind, _) => ice(&format!(
-                        "stencil wrote a relocation of type {kind} against {target:?}"
-                    )),
+                    (kind, _) => {
+                        return Err(format!("a relocation of type {kind} against {target:?}"))
+                    }
                 }
             }
         }
@@ -518,7 +518,7 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&VERSION.to_le_bytes());
     out.extend_from_slice(&0u32.to_le_bytes());
-    out.extend_from_slice(host_key.as_bytes());
+    out.extend_from_slice(host_key);
     for v in [text, const_at, consts, data_at, data, total, entry, stubs] {
         out.extend_from_slice(&v.to_le_bytes());
     }
@@ -554,10 +554,9 @@ pub fn link(objects: &[&[u8]], host: &HostSymbols, host_key: &str) -> Result<Vec
 fn place(files: &mut [MachO<'_>], area: Area, cursor: &mut u64) -> Result<(), String> {
     for file in files {
         for s in file.sections.iter_mut().filter(|s| s.area == area) {
-            invariant(
-                s.align <= 15,
-                "stencil's sections ask for at most a page's alignment",
-            );
+            (s.align <= 15)
+                .then_some(())
+                .ok_or("a section asks for more than a page's alignment")?;
             *cursor = cursor.next_multiple_of(1 << s.align);
             s.placed = *cursor;
             *cursor += s.size;
@@ -585,29 +584,31 @@ fn word8(bytes: &[u8], at: u64) -> Result<[u8; 8], String> {
 }
 
 /// Rewrites the instruction at `at` with `f` of what it was.
-fn patch(bytes: &mut [u8], at: u64, f: impl FnOnce(u32) -> u32) -> Result<(), String> {
+fn patch(
+    bytes: &mut [u8],
+    at: u64,
+    f: impl FnOnce(u32) -> Result<u32, String>,
+) -> Result<(), String> {
     let field = image_slice(bytes, at, 4)?;
     let mut w = [0u8; 4];
     w.copy_from_slice(field);
-    field.copy_from_slice(&f(u32::from_le_bytes(w)).to_le_bytes());
+    field.copy_from_slice(&f(u32::from_le_bytes(w))?.to_le_bytes());
     Ok(())
 }
 
 /// An `add` or a general register load or store's twelve-bit offset, scaled
 /// by its access size. Stencil writes no other instruction here and offsets
 /// only to what its access size aligns.
-fn pageoff12(insn: u32, low: u32) -> u32 {
+fn pageoff12(insn: u32, low: u32) -> Result<u32, String> {
     let load = insn & 0x3b00_0000 == 0x3900_0000;
-    invariant(
-        !load | (insn & 0x0400_0000 == 0),
-        "stencil's page offsets load general registers",
-    );
     let scale = u32::from(load) * (insn >> 30);
-    invariant(
-        low.is_multiple_of(1 << scale),
-        "stencil's page offsets are aligned to their access",
-    );
-    (insn & !(0xfff << 10)) | ((low >> scale) << 10)
+    (!load | (insn & 0x0400_0000 == 0))
+        .then_some(())
+        .ok_or("a page offset loads a vector register")?;
+    low.is_multiple_of(1 << scale)
+        .then_some(())
+        .ok_or("a page offset isn't aligned to its access")?;
+    Ok((insn & !(0xfff << 10)) | ((low >> scale) << 10))
 }
 
 /// One relocation record.
@@ -642,9 +643,15 @@ mod tests {
     #[test]
     fn a_page_offset_is_scaled_by_its_access() {
         // `add x0, x0, #0` takes the offset as it is.
-        assert_eq!(pageoff12(0x9100_0000, 0x123), 0x9100_0000 | (0x123 << 10));
+        assert_eq!(
+            pageoff12(0x9100_0000, 0x123),
+            Ok(0x9100_0000 | (0x123 << 10))
+        );
         // `ldr x0, [x0]` takes it in eight-byte steps.
-        assert_eq!(pageoff12(0xf940_0000, 0x128), 0xf940_0000 | (0x25 << 10));
+        assert_eq!(
+            pageoff12(0xf940_0000, 0x128),
+            Ok(0xf940_0000 | (0x25 << 10))
+        );
     }
 
     #[test]

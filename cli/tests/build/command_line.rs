@@ -117,7 +117,7 @@ fn version_checks_the_bundled_standard_library_on_request() {
         .run(&["version", "--self-check"])
         .ok()
         .says("standard library: ")
-        .says(" modules, checked");
+        .says(" modules checked, 0 problems");
 }
 
 /// Each query form refuses a label that names no target the same way, and a
