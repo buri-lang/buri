@@ -24,6 +24,7 @@ use std::ptr;
 
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
+use inkwell::context::Context;
 use inkwell::llvm_sys::core as llvm;
 use inkwell::llvm_sys::prelude::{LLVMBuilderRef, LLVMValueRef};
 use inkwell::types::{AsTypeRef, BasicType, FunctionType, IntType};
@@ -680,6 +681,14 @@ impl<'ctx> At<'ctx> {
         // SAFETY: the callee answers a first-class value, so the call is one.
         unsafe { BasicValueEnum::new(call.as_value_ref()) }
     }
+}
+
+/// Whether `ctx` keeps the names of the values built in it. Set before
+/// anything is built: [`For::Linker`](super::For) drops them, as `clang` does
+/// outside a debug build.
+pub fn keep_names(ctx: &Context, keep: bool) {
+    // SAFETY: `ctx` is a live context.
+    unsafe { llvm::LLVMContextSetDiscardValueNames(ctx.raw(), i32::from(!keep)) };
 }
 
 /// Attaches metadata `node` of kind `kind` to `inst`.

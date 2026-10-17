@@ -593,10 +593,7 @@ fn emit_unit(
     // `x`". The debug backend's loop is over the same list for the same
     // reason.
     let ctx = Context::create();
-    if linker {
-        // SAFETY: `ctx` is a live context that nothing has built in yet.
-        unsafe { inkwell::llvm_sys::core::LLVMContextSetDiscardValueNames(ctx.raw(), 1) };
-    }
+    build::keep_names(&ctx, !linker);
     let builder = ctx.create_builder();
     let module_name = format!("{}{unit_name}", opts.unit_prefix);
     let mut emitter = emit::Unit::new(
