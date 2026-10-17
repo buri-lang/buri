@@ -72,9 +72,7 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// functions print by symbol so that a golden does not move when an
 /// unrelated function is added to the program.
 fn print(program: &Program, f: FuncIdx) -> String {
-    let Some(func) = program.funcs.get(f.index()) else {
-        return "<missing>".into();
-    };
+    let func = program.funcs.get(f);
     let Some(body) = func.body() else {
         return format!("{} = <unbuilt>", name_of(program, f));
     };
@@ -92,15 +90,16 @@ fn print(program: &Program, f: FuncIdx) -> String {
 }
 
 fn name_of(program: &Program, f: FuncIdx) -> String {
-    match program.funcs.get(f.index()) {
-        // The trailing `$<descriptor>` is an interning detail, and a golden
-        // that carried it would move whenever an unrelated type was
-        // described first.
-        Some(func) if func.symbol.starts_with("$derive$") => match func.symbol.rfind('$') {
-            Some(cut) => func.symbol.get(..cut).unwrap_or(&func.symbol).to_string(),
-            None => func.symbol.clone(),
-        },
-        _ => format!("f{}", f.0),
+    let func = program.funcs.get(f);
+    // The trailing `$<descriptor>` is an interning detail, and a golden
+    // that carried it would move whenever an unrelated type was
+    // described first.
+    if !func.symbol.starts_with("$derive$") {
+        return format!("f{}", f.index());
+    }
+    match func.symbol.rfind('$') {
+        Some(cut) => func.symbol.get(..cut).unwrap_or(&func.symbol).to_string(),
+        None => func.symbol.clone(),
     }
 }
 
@@ -271,10 +270,7 @@ fn every_derive_call_site_becomes_a_direct_call() {
         .sum();
     assert!(direct >= 4, "four operations at least: {direct}");
     for i in &out.instances {
-        let f = program
-            .funcs
-            .get(i.func.index())
-            .expect("a generated function");
+        let f = program.funcs.get(i.func);
         assert!(f.body().is_some(), "{} has no body", f.symbol);
     }
 }
@@ -500,11 +496,11 @@ export fn main(host: NodeHost): Result<(), Str> {
         eq.len() >= 2,
         "both types' equality is a direct call: {eq:?}"
     );
-    eq.sort_by_key(|f| f.0);
+    eq.sort_by_key(|f| f.index());
     eq.dedup();
     assert_eq!(eq.len(), 1, "and one function answers both: {eq:?}");
     let mut show = calls(&program, &out, Op::Show);
-    show.sort_by_key(|f| f.0);
+    show.sort_by_key(|f| f.index());
     show.dedup();
     assert_eq!(
         show.len(),

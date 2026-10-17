@@ -133,7 +133,7 @@ pub fn native(program: &mut Program) -> rc::Plan {
     derives::run(program);
     // `derives` is the one pass past monomorphization that mints symbols, so
     // the one-symbol claim is asked again now that every minter has run.
-    monomorphize::assert_one_symbol_per_function(&program.funcs, "`derives::run`");
+    monomorphize::assert_one_symbol_per_function(program.funcs.as_slice(), "`derives::run`");
     // After `derives` so that a generated body's own combinator chains fuse,
     // and before `closures` because fusion composes the *lambdas* and
     // `closures` is what turns a lambda into a lifted function.
@@ -292,6 +292,18 @@ pub(crate) fn local_id(i: u32) -> crate::compiler::semantics::types::LocalId {
     use crate::compiler::semantics::layered::Dense;
     let table: Dense<_, ()> = std::iter::repeat_n((), i as usize + 1).collect();
     table.ids().last().expect("the table holds `i + 1` locals")
+}
+
+/// The id a program's table mints for its function at `i`, for tests that
+/// write a program by hand.
+#[cfg(test)]
+pub(crate) fn func_id(i: u32) -> crate::compiler::semantics::types::FuncIdx {
+    use crate::compiler::semantics::layered::Dense;
+    let table: Dense<_, ()> = std::iter::repeat_n((), i as usize + 1).collect();
+    table
+        .ids()
+        .last()
+        .expect("the table holds `i + 1` functions")
 }
 
 #[cfg(test)]

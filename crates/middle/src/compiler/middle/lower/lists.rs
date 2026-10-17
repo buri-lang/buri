@@ -1381,11 +1381,7 @@ impl FnLower<'_> {
     fn callee(&mut self, f: ValueId, step: Option<FuncIdx>, want: usize) -> Via {
         let thunk = Via::Thunk(f);
         let Some(func) = step else { return thunk };
-        let g = self
-            .program
-            .funcs
-            .get(func.index())
-            .or_ice("a step is a function of the program");
+        let g = self.program.funcs.get(func);
         // An intrinsic has no body to call. A step named by reference is never
         // a merged tail-call group, which only its members' forwarders call.
         if !matches!(g.kind, FuncKind::Body(_)) {

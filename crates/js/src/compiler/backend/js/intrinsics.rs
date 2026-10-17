@@ -10,7 +10,7 @@ use crate::compiler::backend::js::generate::{as_int_n, as_uint_n, Gen};
 use crate::compiler::backend::js::javascript::{BinOp, Expr};
 use crate::compiler::middle::monomorphize::Func;
 use crate::compiler::semantics::builtins::conversion_is_exact;
-use crate::compiler::semantics::types::Prim;
+use crate::compiler::semantics::types::{FuncIdx, Prim};
 
 impl<'a> Gen<'a> {
     /// The body of one intrinsic instantiation.
@@ -21,7 +21,7 @@ impl<'a> Gen<'a> {
     /// inlined intrinsic is emitted from its caller's body.
     pub(crate) fn intrinsic(
         &mut self,
-        slot: usize,
+        slot: FuncIdx,
         key: &str,
         args: &[Expr],
         f: &Func,
@@ -32,7 +32,7 @@ impl<'a> Gen<'a> {
             let value = f.params.get(2).map(|p| f.locals.get(*p).ty);
             if let Some(eq) = value.and_then(|t| self.program.cell_equal.get(&t)) {
                 let (id, v) = (args.get(1)?.clone(), args.get(2)?.clone());
-                let eq = Expr::ident(self.program.funcs.get(eq.index())?.symbol.clone());
+                let eq = Expr::ident(self.program.funcs.get(*eq).symbol.clone());
                 return Some(Expr::call(Expr::ident("$ui_write"), vec![id, v, eq]));
             }
         }

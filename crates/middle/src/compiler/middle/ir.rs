@@ -1169,7 +1169,7 @@ pub struct Unit {
     /// That equivalence is load-bearing: both native backends derive a
     /// `codegen` cache key by concatenating the rendered text of a unit's
     /// functions, and a different order is a different key.
-    pub funcs: Vec<usize>,
+    pub funcs: Vec<FuncIdx>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1623,7 +1623,7 @@ impl Program {
             Some(f) => out.push_str(&f.symbol),
             None => {
                 out.push('f');
-                num(out, u64::from(func.0));
+                num(out, func.index() as u64);
             }
         }
     }
@@ -2015,7 +2015,7 @@ mod tests {
             }],
             units: vec![Unit {
                 name: "m".into(),
-                funcs: vec![0],
+                funcs: vec![crate::compiler::middle::func_id(0)],
             }],
             types: TypeList::default(),
             crosses_tasks: false,

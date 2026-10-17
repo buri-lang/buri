@@ -284,8 +284,9 @@ pub struct Derives {
 /// Adds one derived function per shape per structural operation the program
 /// reaches, and rewrites every derive call site to a direct call.
 pub fn run(program: &mut Program) -> Derives {
-    let mut g = Generator::new(program);
-    let wanted = collect(program, &mut g.out);
+    let mut out = Derives::default();
+    let wanted = collect(program, &mut out);
+    let mut g = Generator::new(program, out);
     for (op, desc) in wanted {
         g.request(op, desc);
     }
@@ -294,7 +295,7 @@ pub fn run(program: &mut Program) -> Derives {
     }
     g.drain();
     let built = g.finish();
-    program.funcs.extend(built.funcs);
+    program.funcs = built.funcs;
     route_cells(program, &built.routed);
     rewrite(program, &built.routed, &built.hash_ty);
     for f in &mut program.funcs {
@@ -368,7 +369,7 @@ fn types_of(program: &Program) -> HashMap<usize, Ty> {
 
 /// What generation produced, before it is spliced into the program.
 struct Built {
-    funcs: Vec<Func>,
+    funcs: Dense<FuncIdx, Func>,
     routed: HashMap<(Op, usize), FuncIdx>,
     /// The type `Hash` accumulates in, needed for the seed at a call site.
     hash_ty: Ty,
@@ -772,9 +773,10 @@ struct Generator {
     modules: Vec<Option<String>>,
     env: Env,
     ok: Vec<bool>,
-    /// Where the generated functions start in `Program::funcs`.
+    /// Where the generated functions start in `funcs`.
     base: usize,
-    funcs: Vec<Func>,
+    /// The program's functions, taken out of it while the pass adds to them.
+    funcs: Dense<FuncIdx, Func>,
     /// Shape key to the function that implements it.
     shared: HashMap<String, FuncIdx>,
     /// Symbol to the shape it was minted for, so that two shapes whose hashes
@@ -806,7 +808,7 @@ enum Helper {
 }
 
 impl Generator {
-    fn new(program: &Program) -> Generator {
+    fn new(program: &mut Program, out: Derives) -> Generator {
         let env = Env::discover(program);
         let ok = support(program, &env);
         Generator {
@@ -815,7 +817,7 @@ impl Generator {
             env,
             ok,
             base: program.funcs.len(),
-            funcs: Vec::new(),
+            funcs: std::mem::take(&mut program.funcs),
             shared: HashMap::default(),
             taken: HashMap::default(),
             routed: HashMap::default(),
@@ -823,7 +825,7 @@ impl Generator {
             joiners: HashMap::default(),
             helpers: HashMap::default(),
             runtime: HashMap::default(),
-            out: Derives::default(),
+            out,
         }
     }
 
@@ -832,13 +834,12 @@ impl Generator {
     /// should have ruled all of these out already; this is what makes "should"
     /// unnecessary to trust.
     fn finish(mut self) -> Built {
-        let base = self.base;
         let unbuilt: Vec<FuncIdx> = self
             .funcs
-            .iter()
-            .enumerate()
+            .entries()
+            .skip(self.base)
             .filter(|(_, f)| matches!(f.kind, FuncKind::Unbuilt))
-            .filter_map(|(i, _)| u32::try_from(base + i).ok().map(FuncIdx))
+            .map(|(i, _)| i)
             .collect();
         self.routed.retain(|_, f| !unbuilt.contains(f));
         self.out.instances.retain(|i| !unbuilt.contains(&i.func));
@@ -874,7 +875,6 @@ impl Generator {
         }
         // The slot is reserved *before* the body is built, so a recursive type
         // finds itself rather than recursing forever.
-        let idx = FuncIdx(u32::try_from(self.base + self.funcs.len()).unwrap_or(u32::MAX));
         let name = self.symbol(op, desc, &shape);
         // Qualified with the module that declares the type, so that
         // `lower::unit_name` puts the function in that module's codegen unit.
@@ -885,7 +885,7 @@ impl Generator {
             Some(module) => format!("{module}:{name}"),
             None => name.clone(),
         };
-        self.funcs.push(Func {
+        let idx = self.funcs.push(Func {
             symbol: name.clone(),
             debug_name,
             params: Vec::new(),
@@ -962,10 +962,7 @@ impl Generator {
         while let Some((op, desc, idx)) = self.queue.pop() {
             let built = self.body(op, desc);
             let Some((frame, expr)) = built else { continue };
-            let slot = self
-                .funcs
-                .get_mut(idx.index() - self.base)
-                .or_ice("a queued instance was minted here");
+            let slot = self.funcs.get_mut(idx);
             slot.params = frame.params;
             slot.locals = frame.locals;
             slot.kind = FuncKind::Body(expr);
@@ -2198,7 +2195,6 @@ impl Generator {
         }
         // A program that shows a value has `Str`, the type `show` answers.
         let str_ty = self.str_ty();
-        let idx = FuncIdx(u32::try_from(self.base + self.funcs.len()).unwrap_or(u32::MAX));
         let mut frame = Frame::new();
         let mut parts = Vec::with_capacity(n);
         for i in 0..n {
@@ -2206,7 +2202,7 @@ impl Generator {
             parts.push(TemplatePart::Hole(self.local_expr(p, &str_ty)));
         }
         let body = Expr::new(ExprKind::Template { parts }, str_ty, Span::NONE);
-        self.funcs.push(Func {
+        let idx = self.funcs.push(Func {
             symbol: format!("derive$join${n}"),
             debug_name: format!("derive$join${n}"),
             params: frame.params,
@@ -3191,13 +3187,12 @@ impl Generator {
         for (i, t) in slot.1.iter().enumerate() {
             frame.param(&format!("p{i}"), t);
         }
-        let idx = FuncIdx(u32::try_from(self.base + self.funcs.len()).unwrap_or(u32::MAX));
         let symbol = format!(
             "$derive$rt${}${}",
             key.replace('.', "$"),
             self.runtime.len()
         );
-        self.funcs.push(Func {
+        let idx = self.funcs.push(Func {
             symbol: symbol.clone(),
             debug_name: symbol,
             params: frame.params,
@@ -3214,7 +3209,6 @@ impl Generator {
     /// Adds a finished function. Unqualified, so it lands in the root codegen
     /// unit with the joiners.
     fn mint(&mut self, name: &str, frame: Frame, body: Expr, ret: Ty) -> FuncIdx {
-        let idx = FuncIdx(u32::try_from(self.base + self.funcs.len()).unwrap_or(u32::MAX));
         self.funcs.push(Func {
             symbol: name.to_string(),
             debug_name: name.to_string(),
@@ -3224,8 +3218,7 @@ impl Generator {
             ret,
             desc: None,
             span: Span::NONE,
-        });
-        idx
+        })
     }
 
     // -- hashing ------------------------------------------------------------
@@ -3519,10 +3512,6 @@ const ORDER_GREATER: VariantId = VariantId::declared(2);
 
 /// Replaces every structural intrinsic that has a generated function with a
 /// direct call to it.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "`i` ranges over the program's functions"
-)]
 fn rewrite(program: &mut Program, routed: &HashMap<(Op, usize), FuncIdx>, hash_ty: &Ty) {
     let index = program.desc_index.clone();
     for f in &mut program.funcs {
@@ -3531,8 +3520,8 @@ fn rewrite(program: &mut Program, routed: &HashMap<(Op, usize), FuncIdx>, hash_t
     }
     // The descriptors a rewritten program still needs: exactly the ones an
     // intrinsic *function* was handed, since no expression reads one any more.
-    for i in 0..program.funcs.len() {
-        let f = &program.funcs[i];
+    for i in program.funcs.ids() {
+        let f = program.funcs.get(i);
         let (Some(key), Some(d)) = (f.intrinsic_key().map(str::to_owned), f.desc) else {
             continue;
         };
@@ -3541,12 +3530,10 @@ fn rewrite(program: &mut Program, routed: &HashMap<(Op, usize), FuncIdx>, hash_t
                 continue;
             };
             // The decoder's second parameter is the path, which is a `Str`.
-            let path_ty = program
-                .funcs
-                .get(decoder.index())
-                .and_then(|g| Some(g.locals.get(*g.params.get(1)?).ty));
+            let g = program.funcs.get(decoder);
+            let path_ty = g.params.get(1).map(|p| g.locals.get(*p).ty);
             decoder_body(
-                &mut program.funcs[i],
+                program.funcs.get_mut(i),
                 decoder,
                 path_ty.or_ice("a decoder takes the path second"),
             );
@@ -3555,7 +3542,7 @@ fn rewrite(program: &mut Program, routed: &HashMap<(Op, usize), FuncIdx>, hash_t
         let Some(show) = routed.get(&(Op::Show, d)).copied() else {
             continue;
         };
-        reporter_body(&mut program.funcs[i], &key, show);
+        reporter_body(program.funcs.get_mut(i), &key, show);
     }
 }
 

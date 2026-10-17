@@ -783,7 +783,7 @@ pub struct Options<'a> {
     /// The user file a span is in, or `None` outside the user's source.
     pub file_of: &'a dyn Fn(Span) -> Option<String>,
     /// `Some` under MC/DC: each generic instantiation's name, by slot.
-    pub mcdc: Option<&'a HashMap<usize, String>>,
+    pub mcdc: Option<&'a HashMap<FuncIdx, String>>,
     /// Under MC/DC, for the `derive`s in the user's source.
     pub tables: Option<&'a crate::compiler::semantics::types::Tables>,
     pub builtins: Builtins<'a>,
@@ -802,16 +802,15 @@ pub struct Options<'a> {
 /// from the paths that ran. The right sides keep their probes, so an abort
 /// that cuts a path short still counts the sides it reached.
 pub fn branches(program: &mut Program, options: &Options) -> Vec<derived::Derived> {
-    let traps: HashMap<usize, Aborts> = match options.mcdc {
+    let traps: HashMap<FuncIdx, Aborts> = match options.mcdc {
         Some(_) => program
             .funcs
-            .iter()
-            .enumerate()
+            .entries()
             .filter_map(|(i, f)| Some((i, aborts(f)?)))
             .collect(),
         None => HashMap::default(),
     };
-    for (slot, f) in program.funcs.iter_mut().enumerate() {
+    for (slot, f) in program.funcs.entries_mut() {
         if let FuncKind::Body(body) = &mut f.kind {
             let instance = options
                 .mcdc
@@ -869,7 +868,7 @@ fn divides(key: &str) -> bool {
 struct Branches<'a> {
     options: &'a Options<'a>,
     instance: Option<&'a str>,
-    traps: &'a HashMap<usize, Aborts>,
+    traps: &'a HashMap<FuncIdx, Aborts>,
     locals: &'a mut typed::Locals,
 }
 
@@ -1213,7 +1212,7 @@ impl Branches<'_> {
 
     fn calls_trap(&self, call: &Expr) -> Option<Aborts> {
         match &call.kind {
-            ExprKind::CallFunc { func: f, .. } => self.traps.get(&(f.0 as usize)).copied(),
+            ExprKind::CallFunc { func: f, .. } => self.traps.get(f).copied(),
             _ => None,
         }
     }

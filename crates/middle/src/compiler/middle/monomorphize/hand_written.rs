@@ -136,15 +136,8 @@ fn match_(scrutinee: Expr, arms: Vec<typed::Arm>, ty: Ty) -> Expr {
     )
 }
 
-fn call(slot: usize, args: Vec<Expr>, ret: Ty) -> Expr {
-    Expr::new(
-        ExprKind::CallFunc {
-            func: FuncIdx(slot as u32),
-            args,
-        },
-        ret,
-        Span::NONE,
-    )
+fn call(slot: FuncIdx, args: Vec<Expr>, ret: Ty) -> Expr {
+    Expr::new(ExprKind::CallFunc { func: slot, args }, ret, Span::NONE)
 }
 
 fn project(base: Expr, index: usize, tuple: bool, ty: Ty) -> Expr {
@@ -196,7 +189,7 @@ impl Monomorphizer<'_> {
             unbounded: false,
         });
         Some(ExprKind::CallFunc {
-            func: FuncIdx(slot as u32),
+            func: slot,
             args: args.to_vec(),
         })
     }
@@ -231,7 +224,7 @@ impl Monomorphizer<'_> {
             ctx,
             unbounded: true,
         });
-        Some(FuncIdx(slot as u32))
+        Some(slot)
     }
 
     /// Gives `testing_assert.report` or `failExpected` at `slot` a body that
@@ -282,7 +275,7 @@ impl Monomorphizer<'_> {
         args.extend(
             values
                 .iter()
-                .map(|i| call(show.index(), vec![local(*i, ty), ctx.clone()], str_ty)),
+                .map(|i| call(show, vec![local(*i, ty), ctx.clone()], str_ty)),
         );
         let ret = f.ret;
         let shown = Expr::new(
@@ -559,7 +552,7 @@ impl Monomorphizer<'_> {
         ty: Ty,
         ctx: Option<Ty>,
         unbounded: bool,
-        slot: usize,
+        slot: FuncIdx,
         f: &mut Func,
     ) {
         self.locals = typed::Locals::new();
@@ -605,7 +598,7 @@ impl Monomorphizer<'_> {
         elem: Ty,
         ctx: Option<Ty>,
         unbounded: bool,
-        slot: usize,
+        slot: FuncIdx,
         f: &mut Func,
     ) {
         self.locals = typed::Locals::new();
@@ -671,10 +664,7 @@ impl Monomorphizer<'_> {
                 ctx,
                 unbounded: true,
             });
-            ExprKind::CallFunc {
-                func: FuncIdx(slot as u32),
-                args,
-            }
+            ExprKind::CallFunc { func: slot, args }
         } else {
             self.structural_call(d.trait_id, MethodId::FIRST, &ty, args, Span::NONE)
         };
@@ -730,7 +720,7 @@ impl Monomorphizer<'_> {
 
     /// `[]` and `[h, ..t]`: `Equal` and `Ordered` recurse on the tails here,
     /// and `Show` and `Hash` hand the tail to `DerivedItems`.
-    fn list(&mut self, d: &Deriving, elem: Ty, a: Expr, b: Option<Expr>, slot: usize) -> Expr {
+    fn list(&mut self, d: &Deriving, elem: Ty, a: Expr, b: Option<Expr>, slot: FuncIdx) -> Expr {
         let list = Ty::array(elem);
         let empty = || array_pattern(list, Vec::new(), ArrayRest::None);
         let ret = d.ret;

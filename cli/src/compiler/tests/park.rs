@@ -6,7 +6,7 @@ use super::rc::{compile, find};
 use crate::compiler::backend::js::park::*;
 use crate::compiler::middle::monomorphize::{self, Func, FuncKind, Program};
 use crate::compiler::semantics::typed::{Expr, ExprKind};
-use crate::compiler::semantics::types::{self, FuncIdx, Ty};
+use crate::compiler::semantics::types::{self, Ty};
 use crate::diagnostics::Span;
 use crate::hash::Map as HashMap;
 
@@ -75,7 +75,7 @@ const GOLDEN_NAMES: [&str; GOLDEN_PARKING] = [
 // callee of every `CallFunc` already a `FuncIdx`.
 
 fn parked(program: &Program) -> Vec<bool> {
-    parkability(program).parks
+    parkability(program).parks.iter().copied().collect()
 }
 
 fn intrinsic_func(name: &str, key: &str) -> Func {
@@ -107,7 +107,7 @@ fn body_func(name: &str, body: Expr) -> Func {
 fn call_to(to: u32) -> Expr {
     Expr::new(
         ExprKind::CallFunc {
-            func: FuncIdx(to),
+            func: super::func_id(to),
             args: Vec::new(),
         },
         Ty::UNIT,
@@ -124,7 +124,7 @@ fn fn_ty(params: Vec<Ty>, ret: Ty) -> Ty {
 fn call_to_ty(to: u32, ty: Ty) -> Expr {
     Expr::new(
         ExprKind::CallFunc {
-            func: FuncIdx(to),
+            func: super::func_id(to),
             args: Vec::new(),
         },
         ty,
@@ -167,8 +167,8 @@ fn calls(to: &[u32]) -> Expr {
 
 fn hand_built(funcs: Vec<Func>) -> Program {
     Program {
-        funcs,
-        roots: monomorphize::ProgramRoots::Main(FuncIdx(0)),
+        funcs: funcs.into_iter().collect(),
+        roots: monomorphize::ProgramRoots::Main(super::func_id(0)),
         descriptors: Vec::new(),
         desc_modules: Vec::new(),
         desc_index: HashMap::default(),
@@ -358,7 +358,7 @@ fn a_call_through_a_function_value_is_answered_by_what_it_can_reach() {
 fn a_map_shaped_wrapper_cannot_park_and_a_map_ctx_shaped_one_may() {
     let program = compile(PRECISION);
     let parking = parkability(&program);
-    let park = |name: &str| parking.parks(find(&program, name).index());
+    let park = |name: &str| parking.parks(find(&program, name));
     assert!(
         !park("applyN"),
         "a callback that takes no context cannot reach anything that waits"
@@ -474,11 +474,11 @@ export fn main(host: NodeHost): Result<(), Str> {
     let program = compile(src);
     let parking = parkability(&program);
     assert!(
-        !parking.parks(find(&program, "double").index()),
+        !parking.parks(find(&program, "double")),
         "multiplication waits on nothing"
     );
     assert!(
-        parking.parks(find(&program, "load").index()),
+        parking.parks(find(&program, "load")),
         "and a read of the host filesystem does"
     );
 }

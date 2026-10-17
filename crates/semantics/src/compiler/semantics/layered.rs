@@ -376,6 +376,14 @@ impl<I: DenseId, T> Dense<I, T> {
         (0..self.rows.len()).map(mint)
     }
 
+    /// Every entry with its id, in id order, to change in place.
+    pub fn entries_mut(&mut self) -> impl DoubleEndedIterator<Item = (I, &mut T)> {
+        self.rows
+            .iter_mut()
+            .enumerate()
+            .map(|(i, row)| (mint(i), row))
+    }
+
     /// The id of the first entry `f` accepts.
     pub fn position(&self, f: impl FnMut(&T) -> bool) -> Option<I> {
         self.rows.iter().position(f).map(mint)

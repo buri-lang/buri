@@ -38,6 +38,8 @@ use crate::commands::watch;
 use crate::compiler::backend::js::javascript;
 use crate::compiler::middle::monomorphize;
 use crate::compiler::modules::Unit;
+use crate::compiler::semantics::layered::Dense;
+use crate::compiler::semantics::types::FuncIdx;
 use crate::diagnostics::{invariant, Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::json::Value;
 use std::io::Write;
@@ -5494,7 +5496,7 @@ fn selected_of(program: &monomorphize::Program, info: &BatchInfo) -> Vec<Selecte
             owner: info.owner_of(&test.module),
             name: test.name.clone(),
             module: test.module.clone(),
-            func: test.func.index(),
+            func: test.func,
         })
         .collect()
 }
@@ -5516,7 +5518,7 @@ struct Selected {
     owner: usize,
     name: String,
     module: String,
-    func: usize,
+    func: FuncIdx,
 }
 
 /// Some of a batch's members, which share one binary.
@@ -5530,7 +5532,7 @@ struct Group {
     /// The members whose tests take a snapshot.
     painters: Vec<usize>,
     /// The functions the members' tests reach.
-    reaches: crate::hash::Set<usize>,
+    reaches: crate::hash::Set<FuncIdx>,
 }
 
 /// The most code one batched test binary may hold, in bytes, by default.
@@ -5601,28 +5603,29 @@ fn groups_of(
     selected: &[Selected],
     limit: u64,
 ) -> Vec<Group> {
-    let funcs = program.funcs.len();
-    let callees: Vec<Vec<usize>> =
-        crate::parallel::map(funcs, |f| crate::compiler::middle::dce::callees(program, f));
-    let bytes: Vec<u64> = program.funcs.iter().map(estimated_bytes).collect();
+    let ids: Vec<FuncIdx> = program.funcs.ids().collect();
+    let callees: Dense<FuncIdx, Vec<FuncIdx>> = crate::parallel::map_items(&ids, |_, &f| {
+        crate::compiler::middle::dce::callees(program, f)
+    })
+    .into_iter()
+    .collect();
+    let bytes: Dense<FuncIdx, u64> = program.funcs.map(estimated_bytes);
 
     // What each member reaches from its own test blocks.
-    let reach = |member: usize| -> Vec<usize> {
-        let mut seen = vec![false; funcs];
-        let mut work: Vec<usize> = selected
+    let reach = |member: usize| -> Vec<FuncIdx> {
+        let mut seen = program.funcs.map(|_| false);
+        let mut work: Vec<FuncIdx> = selected
             .iter()
             .filter(|s| s.owner == member)
             .map(|s| s.func)
             .collect();
         let mut out = Vec::new();
         while let Some(f) = work.pop() {
-            match (seen.get_mut(f), callees.get(f)) {
-                (Some(s), Some(next)) if !*s => {
-                    *s = true;
-                    out.push(f);
-                    work.extend(next.iter().copied());
-                }
-                _ => {}
+            let s = seen.get_mut(f);
+            if !*s {
+                *s = true;
+                out.push(f);
+                work.extend(callees.get(f).iter().copied());
             }
         }
         out
@@ -5633,13 +5636,13 @@ fn groups_of(
         let reached = reach(member);
         let paints = reached
             .iter()
-            .any(|&f| program.funcs.get(f).and_then(|f| f.intrinsic_key()) == Some(PAINT_KEY));
+            .any(|&f| program.funcs.get(f).intrinsic_key() == Some(PAINT_KEY));
         let dir = paints.then(|| dir.clone());
-        let added = |held: &crate::hash::Set<usize>| -> u64 {
+        let added = |held: &crate::hash::Set<FuncIdx>| -> u64 {
             reached
                 .iter()
                 .filter(|&&f| !held.contains(&f))
-                .map(|&f| bytes.get(f).copied().unwrap_or(0))
+                .map(|&f| *bytes.get(f))
                 .fold(0u64, u64::saturating_add)
         };
         let fits = groups.iter_mut().find(|(group, size)| {

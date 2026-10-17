@@ -139,11 +139,7 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // another function knows whether to pass a dispatch index. Computed for
     // the whole program first because a forwarder is lowered before the merged
     // function it names.
-    let entries: Vec<usize> = program
-        .funcs
-        .iter()
-        .map(|f| loop_entries(f.body()))
-        .collect();
+    let entries: Dense<FuncIdx, usize> = program.funcs.map(|f| loop_entries(f.body()));
     let counts = lists::Counts::new(program);
     let cycles = layout::Cycles::new(tables);
 
@@ -151,7 +147,8 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // own — the one piece of cross-function state — and its `TypeId`s are made
     // whole-program below. `parallel::map` returns the results in index order,
     // so `funcs` is the same vector the serial loop built.
-    let lowered: Vec<(Func, TypeList)> = crate::parallel::map_items(&program.funcs, |i, f| {
+    let funcs: Vec<_> = program.funcs.entries().collect();
+    let lowered: Vec<(Func, TypeList)> = crate::parallel::map_items(&funcs, |_, &(i, f)| {
         let mut types = Types::default();
         let func = lower_one(
             program, tables, plan, &counts, &cycles, &entries, &units, &mut types, i, f,
@@ -196,13 +193,13 @@ fn lower_one(
     plan: &rc::Plan,
     counts: &lists::Counts<'_>,
     cycles: &layout::Cycles,
-    entries: &[usize],
+    entries: &Dense<FuncIdx, usize>,
     units: &Units,
     types: &mut Types,
-    i: usize,
+    i: FuncIdx,
     f: &crate::compiler::middle::monomorphize::Func,
 ) -> Func {
-    let dispatch = entries.get(i).copied().unwrap_or(0) > 1;
+    let dispatch = *entries.get(i) > 1;
     let mut params = Vec::new();
     if dispatch {
         params.push(Type::I32);
@@ -218,7 +215,7 @@ fn lower_one(
         ret: types.of(tables, &ret),
     };
 
-    let fplan = plan.func(FuncIdx(i as u32));
+    let fplan = plan.func(i);
     let body = match &f.kind {
         FuncKind::Intrinsic(key) if !lists::handles(key) => {
             Body::Runtime(bounded_key(tables, key, &ret))
@@ -329,9 +326,9 @@ fn loop_entries(body: Option<&Expr>) -> usize {
 #[derive(Default)]
 struct Units {
     /// Each unit by name: its number, by first appearance, and its functions.
-    by_name: HashMap<String, (u32, Vec<usize>)>,
-    /// Each function's unit, by function index.
-    by_func: Vec<u32>,
+    by_name: HashMap<String, (u32, Vec<FuncIdx>)>,
+    /// Each function's unit.
+    by_func: Dense<FuncIdx, u32>,
 }
 
 impl Units {
@@ -342,8 +339,7 @@ impl Units {
         let mut units = Units::default();
         let by_func = program
             .funcs
-            .iter()
-            .enumerate()
+            .entries()
             .map(|(i, f)| units.add(i, &f.debug_name))
             .collect();
         units.by_func = by_func;
@@ -352,7 +348,7 @@ impl Units {
 
     /// Puts function `func` in the unit its debug name names, and answers
     /// that unit's number.
-    fn add(&mut self, func: usize, debug_name: &str) -> u32 {
+    fn add(&mut self, func: FuncIdx, debug_name: &str) -> u32 {
         let next = self.by_name.len() as u32;
         let (i, funcs) = self
             .by_name
@@ -362,8 +358,8 @@ impl Units {
         *i
     }
 
-    fn of(&self, func: usize) -> u32 {
-        self.by_func.get(func).copied().unwrap_or(0)
+    fn of(&self, func: FuncIdx) -> u32 {
+        *self.by_func.get(func)
     }
 
     /// The units, by number.
@@ -1104,9 +1100,7 @@ impl FnLower<'_> {
                 env: None,
             }),
             ExprKind::CallFunc { func, args } => {
-                if let Some(FuncKind::Intrinsic(key)) =
-                    self.program.funcs.get(func.index()).map(|g| &g.kind)
-                {
+                if let FuncKind::Intrinsic(key) = &self.program.funcs.get(*func).kind {
                     if lists::handles(key) {
                         return self.list_call(key, args, &e.ty);
                     }
@@ -1824,11 +1818,7 @@ impl FnLower<'_> {
     /// The same, for a call into another function's loop, where the slots are
     /// that function's parameters rather than a block's.
     fn pad_to(&mut self, args: &[ValueId], func: FuncIdx) -> Vec<ValueId> {
-        let callee = self
-            .program
-            .funcs
-            .get(func.index())
-            .or_ice("a merged group is a function of the program");
+        let callee = self.program.funcs.get(func);
         let slots: Vec<Ty> = callee
             .params
             .iter()

@@ -40,6 +40,7 @@ use crate::compiler::backend::intrinsic_keys;
 use crate::compiler::middle::dce;
 use crate::compiler::middle::monomorphize::{Chunk, Program, ProgramRoots};
 use crate::compiler::semantics::typed::{self, Expr, ExprKind};
+use crate::compiler::semantics::types::FuncIdx;
 
 /// Splits, or takes `load` back out.
 ///
@@ -54,7 +55,7 @@ pub fn run(program: &mut Program, split: bool) {
         return;
     }
     if !split || !matches!(program.roots, ProgramRoots::Main(_)) {
-        for f in 0..program.funcs.len() {
+        for f in program.funcs.ids() {
             with_body(program, f, &mut |e| unwrap_load(e, &loads));
         }
         // The declaration is now called by nothing, and an unreached intrinsic
@@ -65,10 +66,10 @@ pub fn run(program: &mut Program, split: bool) {
 
     // Numbered by the order the roots appear in, so two builds of one tree
     // write the same chunk to the same file.
-    let mut roots: Vec<usize> = Vec::new();
-    for f in 0..program.funcs.len() {
-        let mut found: Vec<usize> = Vec::new();
-        if let Some(body) = program.funcs.get(f).and_then(|f| f.body()) {
+    let mut roots: Vec<FuncIdx> = Vec::new();
+    for f in &program.funcs {
+        let mut found: Vec<FuncIdx> = Vec::new();
+        if let Some(body) = f.body() {
             typed::walk(body, &mut |e| {
                 if let Some(root) = load_target(e, &loads) {
                     found.push(root);
@@ -86,14 +87,14 @@ pub fn run(program: &mut Program, split: bool) {
     // the walk below can tell them apart. The final numbers are dense and are
     // assigned once the artifact's own reachability has said which roots there
     // is anything to move.
-    for f in 0..program.funcs.len() {
+    for f in program.funcs.ids() {
         with_body(program, f, &mut |e| {
             let Some(root) = load_target(e, &loads) else {
                 return;
             };
             let arg = take_arg(e);
             e.kind = ExprKind::Intrinsic {
-                name: intrinsic_keys::lazy_chunk_key(root),
+                name: intrinsic_keys::lazy_chunk_key(root.index()),
                 targs: Vec::new(),
                 args: vec![arg],
             };
@@ -101,12 +102,12 @@ pub fn run(program: &mut Program, split: bool) {
     }
 
     let in_artifact = dce::reachable(program, &dce::program_roots(program), dce::Chunks::Deferred);
-    let split_roots: Vec<usize> = roots
+    let split_roots: Vec<FuncIdx> = roots
         .into_iter()
-        .filter(|r| in_artifact.get(*r) != Some(&true))
+        .filter(|r| !*in_artifact.get(*r))
         .collect();
 
-    for f in 0..program.funcs.len() {
+    for f in program.funcs.ids() {
         with_body(program, f, &mut |e| {
             let ExprKind::Intrinsic { name, .. } = &mut e.kind else {
                 return;
@@ -114,7 +115,7 @@ pub fn run(program: &mut Program, split: bool) {
             let Some(root) = intrinsic_keys::lazy_chunk_of(name) else {
                 return;
             };
-            match split_roots.iter().position(|r| *r == root) {
+            match split_roots.iter().position(|r| r.index() == root) {
                 Some(n) => *name = intrinsic_keys::lazy_chunk_key(n),
                 // Nothing to move: the artifact reaches this function anyway.
                 None => {
@@ -137,10 +138,10 @@ pub fn run(program: &mut Program, split: bool) {
             let reached = dce::reachable(program, &[*root], dce::Chunks::Followed);
             let members = reached
                 .iter()
+                .zip(&in_artifact)
                 .zip(&program.funcs)
-                .enumerate()
-                .filter(|(i, (seen, _))| **seen && in_artifact.get(*i) != Some(&true))
-                .map(|(_, (_, f))| f.symbol.clone())
+                .filter(|((seen, artifact), _)| **seen && !**artifact)
+                .map(|(_, f)| f.symbol.clone())
                 .collect();
             Chunk {
                 root: *root,
@@ -154,11 +155,10 @@ pub fn run(program: &mut Program, split: bool) {
 ///
 /// A list rather than one index: `load` is generic, so a program that loads two
 /// differently typed functions monomorphizes two of it.
-fn load_slots(program: &Program) -> Vec<usize> {
+fn load_slots(program: &Program) -> Vec<FuncIdx> {
     program
         .funcs
-        .iter()
-        .enumerate()
+        .entries()
         .filter(|(_, f)| f.intrinsic_key() == Some(intrinsic_keys::LAZY_LOAD))
         .map(|(i, _)| i)
         .collect()
@@ -170,26 +170,25 @@ fn load_slots(program: &Program) -> Vec<usize> {
 /// could not resolve to a function — which the front end's
 /// `load-not-function` has already refused, and which is answered here by
 /// splitting nothing rather than by an assertion.
-fn load_target(e: &Expr, loads: &[usize]) -> Option<usize> {
+fn load_target(e: &Expr, loads: &[FuncIdx]) -> Option<FuncIdx> {
     let ExprKind::CallFunc { func, args } = &e.kind else {
         return None;
     };
-    let called = func.index();
-    if !loads.contains(&called) {
+    if !loads.contains(func) {
         return None;
     }
     match args.first().map(|a| &a.kind) {
-        Some(ExprKind::FuncRef(i)) => Some(i.index()),
+        Some(ExprKind::FuncRef(i)) => Some(*i),
         _ => None,
     }
 }
 
 /// Replaces a `load` call with its own argument.
-fn unwrap_load(e: &mut Expr, loads: &[usize]) {
+fn unwrap_load(e: &mut Expr, loads: &[FuncIdx]) {
     let ExprKind::CallFunc { func, .. } = &e.kind else {
         return;
     };
-    if !loads.contains(&func.index()) {
+    if !loads.contains(func) {
         return;
     }
     let arg = take_arg(e);
@@ -217,12 +216,8 @@ fn take_arg(e: &mut Expr) -> Expr {
 /// Bottom-up, because a `load` whose argument is itself rewritten must see the
 /// rewritten one — and because replacing a node in place while standing on its
 /// parent is what `children_mut` is for.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "every caller ranges `f` over the program's functions"
-)]
-fn with_body(program: &mut Program, f: usize, rewrite: &mut impl FnMut(&mut Expr)) {
-    let Some(body) = program.funcs[f].body_mut() else {
+fn with_body(program: &mut Program, f: FuncIdx, rewrite: &mut impl FnMut(&mut Expr)) {
+    let Some(body) = program.funcs.get_mut(f).body_mut() else {
         return;
     };
     walk_mut(body, rewrite);
@@ -236,8 +231,9 @@ fn walk_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compiler::middle::func_id;
     use crate::compiler::middle::monomorphize::{Func, FuncKind};
-    use crate::compiler::semantics::types::{FuncIdx, Ty};
+    use crate::compiler::semantics::types::Ty;
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
 
@@ -261,7 +257,7 @@ mod tests {
     fn call(to: u32, args: Vec<Expr>) -> Expr {
         Expr::new(
             ExprKind::CallFunc {
-                func: FuncIdx(to),
+                func: func_id(to),
                 args,
             },
             Ty::UNIT,
@@ -270,14 +266,14 @@ mod tests {
     }
 
     fn fn_ref(to: u32) -> Expr {
-        Expr::new(ExprKind::FuncRef(FuncIdx(to)), Ty::UNIT, Span::default())
+        Expr::new(ExprKind::FuncRef(func_id(to)), Ty::UNIT, Span::default())
     }
 
     /// slot 0 `main`, slot 1 `lazy.load`, slot 2 the loaded function, slot 3
     /// what only it reaches, slot 4 what everybody reaches.
     fn program(main: Expr) -> Program {
         Program {
-            funcs: vec![
+            funcs: [
                 func("main", FuncKind::Body(main)),
                 func(
                     "load",
@@ -286,8 +282,10 @@ mod tests {
                 func("page", FuncKind::Body(call(3, Vec::new()))),
                 func("only_the_page", FuncKind::Body(unit())),
                 func("shared", FuncKind::Body(unit())),
-            ],
-            roots: ProgramRoots::Main(FuncIdx(0)),
+            ]
+            .into_iter()
+            .collect(),
+            roots: ProgramRoots::Main(func_id(0)),
             descriptors: Vec::new(),
             desc_modules: Vec::new(),
             desc_index: HashMap::default(),
@@ -318,13 +316,16 @@ mod tests {
         let mut p = program(call(1, vec![fn_ref(2)]));
         run(&mut p, true);
         assert_eq!(p.chunks.len(), 1);
-        assert_eq!(p.chunks[0].root, 2);
+        assert_eq!(p.chunks[0].root, func_id(2));
         assert_eq!(
             p.chunks[0].members,
-            [p.funcs[2].symbol.clone(), p.funcs[3].symbol.clone()]
+            [
+                p.funcs.as_slice()[2].symbol.clone(),
+                p.funcs.as_slice()[3].symbol.clone()
+            ]
         );
         assert_eq!(
-            chunk_name(p.funcs[0].body().unwrap()).as_deref(),
+            chunk_name(p.funcs.as_slice()[0].body().unwrap()).as_deref(),
             Some("lazy.chunk.0")
         );
     }
@@ -345,7 +346,7 @@ mod tests {
         run(&mut p, true);
         assert!(p.chunks.is_empty());
         assert!(
-            p.funcs[2].body().is_some(),
+            p.funcs.as_slice()[2].body().is_some(),
             "and the function is still in the artifact"
         );
     }
@@ -357,15 +358,18 @@ mod tests {
         run(&mut p, false);
         assert!(p.chunks.is_empty());
         assert!(
-            matches!(p.funcs[0].body().unwrap().kind, ExprKind::FuncRef(_)),
+            matches!(
+                p.funcs.as_slice()[0].body().unwrap().kind,
+                ExprKind::FuncRef(_)
+            ),
             "the call is replaced by what it was handed"
         );
         assert!(
-            p.funcs[1].body().is_none(),
+            p.funcs.as_slice()[1].body().is_none(),
             "and nothing asks for the intrinsic any more"
         );
         assert!(
-            p.funcs[2].body().is_some(),
+            p.funcs.as_slice()[2].body().is_some(),
             "while what it named is still reached"
         );
     }

@@ -2150,12 +2150,12 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
             let members = unit.map_or(&[][..], |unit| unit.funcs.as_slice());
             for (at, func) in members
                 .iter()
-                .filter_map(|&at| Some((at, program.funcs.get(at)?)))
+                .filter_map(|&at| Some((at, program.funcs.get(at.index())?)))
             {
                 program.render_func_into(func, &mut text);
                 // The LLVM backend drops a function no other unit names
                 // (`backend::linkage`), so who names it is part of the object.
-                if elsewhere.get(at).copied().unwrap_or(false) {
+                if elsewhere.get(at.index()).copied().unwrap_or(false) {
                     text.push_str("named elsewhere\n");
                 }
                 collect_types(func, &mut types);

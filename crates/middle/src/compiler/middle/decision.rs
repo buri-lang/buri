@@ -438,13 +438,14 @@ fn collapse(locals: &mut typed::Locals, rows: Vec<Arm>, column: usize, ty: &Ty) 
 #[cfg(test)]
 mod tests {
     use super::run;
+    use crate::compiler::middle::func_id;
     use crate::compiler::middle::local_id;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{
         Arm, Expr, ExprKind, FieldPat, Local, Magnitude, PatKind, Pattern,
     };
-    use crate::compiler::semantics::types::{FuncIdx, Prim, Ty, VariantId};
+    use crate::compiler::semantics::types::{Prim, Ty, VariantId};
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
 
@@ -488,7 +489,7 @@ mod tests {
             arms,
         });
         Program {
-            funcs: vec![Func {
+            funcs: [Func {
                 symbol: "f".to_string(),
                 debug_name: "f".to_string(),
                 params: vec![local_id(0)],
@@ -503,8 +504,10 @@ mod tests {
                 ret: Ty::UNIT,
                 desc: None,
                 span: Span::default(),
-            }],
-            roots: ProgramRoots::Main(FuncIdx(0)),
+            }]
+            .into_iter()
+            .collect(),
+            roots: ProgramRoots::Main(func_id(0)),
             descriptors: Vec::new(),
             desc_modules: Vec::new(),
             desc_index: HashMap::default(),
@@ -524,7 +527,7 @@ mod tests {
     }
 
     fn arms_of(p: &Program) -> &[Arm] {
-        match &p.funcs[0].body().unwrap().kind {
+        match &p.funcs.as_slice()[0].body().unwrap().kind {
             ExprKind::Match { arms, .. } => arms,
             _ => panic!("the body is the match"),
         }
@@ -586,7 +589,7 @@ mod tests {
         assert!(matches!(inner[0].body.kind, ExprKind::Int(m, false) if m.get() == 10));
         assert!(matches!(inner[1].body.kind, ExprKind::Int(m, false) if m.get() == 20));
         // A fresh local holds the column.
-        assert_eq!(p.funcs[0].locals.len(), 2);
+        assert_eq!(p.funcs.as_slice()[0].locals.len(), 2);
     }
 
     /// A guarded arm may fail into a later arm, and grouping must keep it able

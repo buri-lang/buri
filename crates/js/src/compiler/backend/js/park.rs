@@ -11,9 +11,9 @@
 
 use crate::compiler::backend::intrinsic_keys;
 use crate::compiler::middle::monomorphize::{self, FuncKind, Program};
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, Stmt};
-use crate::compiler::semantics::types::{LocalId, Ty, TyKind};
-use crate::diagnostics::Invariant as _;
+use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty, TyKind};
 use crate::hash::Set as HashSet;
 
 /// Whether an intrinsic key names a host operation that **blocks**: the call
@@ -193,11 +193,11 @@ pub fn suspends(key: &str) -> bool {
 #[derive(Clone, Debug, Default)]
 pub struct Parking {
     /// One row per [`Program::funcs`] slot: whether it can park.
-    pub parks: Vec<bool>,
+    pub parks: Dense<FuncIdx, bool>,
     /// Per slot, the locals whose function value may park.
-    parking: Vec<LocalSet>,
+    parking: Dense<FuncIdx, LocalSet>,
     /// Per slot, the locals whose function value this pass followed.
-    resolved: Vec<LocalSet>,
+    resolved: Dense<FuncIdx, LocalSet>,
     /// The types of the parking function values this program builds.
     pub parking_types: HashSet<Ty>,
     /// Whether the program builds one at all — the answer where there is not
@@ -212,11 +212,8 @@ pub struct Parking {
 impl Parking {
     /// Whether the function in this slot, or anything it calls, can reach a
     /// host operation that blocks.
-    ///
-    /// A slot this pass has no row for answers `true`, which is the direction
-    /// that over-approximates.
-    pub fn parks(&self, index: usize) -> bool {
-        self.parks.get(index).copied().unwrap_or(true)
+    pub fn parks(&self, index: FuncIdx) -> bool {
+        *self.parks.get(index)
     }
 
     /// Whether a call **through** the function value this expression produces
@@ -224,7 +221,7 @@ impl Parking {
     ///
     /// `fi` is the slot whose body the expression is written in, because a
     /// local means nothing without one.
-    pub fn value_parks(&self, fi: usize, e: &Expr) -> bool {
+    pub fn value_parks(&self, fi: FuncIdx, e: &Expr) -> bool {
         // Rule 1: the type. Asked first because it holds whatever else the
         // program contains, and because it is the common case — a comparator,
         // a predicate, a `fn(A) => B` — answered without looking anything up.
@@ -232,13 +229,13 @@ impl Parking {
             return false;
         }
         match &e.kind {
-            ExprKind::FuncRef(c) => self.parks(c.index()),
-            ExprKind::Closure { func, .. } => self.parks(func.index()),
+            ExprKind::FuncRef(c) => self.parks(*c),
+            ExprKind::Closure { func, .. } => self.parks(*func),
             ExprKind::Lambda { body, .. } => self.body_parks(fi, body),
             ExprKind::Local(l) => {
-                if self.parking.get(fi).is_some_and(|s| s.contains(*l)) {
+                if self.parking.get(fi).contains(*l) {
                     true
-                } else if self.resolved.get(fi).is_some_and(|s| s.contains(*l)) {
+                } else if self.resolved.get(fi).contains(*l) {
                     false
                 } else {
                     self.unfollowed(&e.ty)
@@ -270,12 +267,12 @@ impl Parking {
     /// that parks parks too — which it must, on the backend that prints
     /// `async`, because the `await` inside the arrow is inside this function's
     /// own text.
-    fn body_parks(&self, fi: usize, body: &Expr) -> bool {
+    fn body_parks(&self, fi: FuncIdx, body: &Expr) -> bool {
         let mut k = false;
         typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::CallFunc { func, .. } => k = k || self.parks(func.index()),
+            ExprKind::CallFunc { func, .. } => k = k || self.parks(*func),
             // A jump into another function's loop is a call.
-            ExprKind::Continue { func: Some(c), .. } => k = k || self.parks(c.index()),
+            ExprKind::Continue { func: Some(c), .. } => k = k || self.parks(*c),
             ExprKind::CallValue { callee, .. } => k = k || self.value_parks(fi, callee),
             ExprKind::CallTrait { .. } => k = true,
             // A host call spelled as an inline node rather than reached
@@ -325,8 +322,8 @@ fn fn_lets(body: &Expr) -> Vec<(LocalId, &Expr)> {
 /// One of these can be called from a position no `CallFunc` names, so nothing can
 /// be proved about what its parameters hold. Every other slot receives
 /// arguments only where this pass can see them.
-fn address_taken(program: &Program) -> Vec<bool> {
-    let mut out = vec![false; program.funcs.len()];
+fn address_taken(program: &Program) -> Dense<FuncIdx, bool> {
+    let mut out = program.funcs.map(|_| false);
     for f in &program.funcs {
         let Some(body) = f.body() else { continue };
         typed::walk(body, &mut |e| {
@@ -335,8 +332,8 @@ fn address_taken(program: &Program) -> Vec<bool> {
                 ExprKind::Closure { func, .. } => Some(*func),
                 _ => None,
             };
-            if let Some(slot) = taken.and_then(|i| out.get_mut(i.index())) {
-                *slot = true;
+            if let Some(i) = taken {
+                *out.get_mut(i) = true;
             }
         });
     }
@@ -374,24 +371,19 @@ impl LocalSet {
 
 /// [`Parking`], computed.
 pub fn parkability(program: &Program) -> Parking {
-    let n = program.funcs.len();
     let mut w = Parking {
         // An unbuilt body is lowered to an abort, which is the one thing that
         // certainly does not wait, so only a suspending intrinsic seeds `true`.
-        parks: program
-            .funcs
-            .iter()
-            .map(|f| match &f.kind {
-                // A method a platform's `js` file implements may suspend, and
-                // nothing in the file says whether it does: always awaited.
-                FuncKind::Intrinsic(key) => {
-                    suspends(key) || program.hosted.js_implemented.contains(key)
-                }
-                FuncKind::Unbuilt | FuncKind::Body(_) => false,
-            })
-            .collect(),
-        parking: vec![LocalSet::default(); n],
-        resolved: vec![LocalSet::default(); n],
+        parks: program.funcs.map(|f| match &f.kind {
+            // A method a platform's `js` file implements may suspend, and
+            // nothing in the file says whether it does: always awaited.
+            FuncKind::Intrinsic(key) => {
+                suspends(key) || program.hosted.js_implemented.contains(key)
+            }
+            FuncKind::Unbuilt | FuncKind::Body(_) => false,
+        }),
+        parking: program.funcs.map(|_| LocalSet::default()),
+        resolved: program.funcs.map(|_| LocalSet::default()),
         parking_types: HashSet::default(),
         any_parking_value: false,
         effects: program.shapes.effects.clone(),
@@ -399,18 +391,24 @@ pub fn parkability(program: &Program) -> Parking {
 
     // What can be followed, decided once: the tree does not move.
     let addressed = address_taken(program);
-    let lets: Vec<Vec<(LocalId, &Expr)>> = program
+    let lets: Dense<FuncIdx, Vec<(LocalId, &Expr)>> = program
         .funcs
         .iter()
         .map(|f| f.body().map(fn_lets).unwrap_or_default())
         .collect();
-    for (i, (f, slot)) in program.funcs.iter().zip(w.resolved.iter_mut()).enumerate() {
-        if !addressed.get(i).copied().unwrap_or(true) {
+    for (((f, slot), addressed), lets) in program
+        .funcs
+        .iter()
+        .zip(w.resolved.iter_mut())
+        .zip(&addressed)
+        .zip(&lets)
+    {
+        if !*addressed {
             for p in &f.params {
                 slot.insert(*p);
             }
         }
-        for (local, _) in lets.get(i).into_iter().flatten() {
+        for (local, _) in lets {
             slot.insert(*local);
         }
     }
@@ -418,17 +416,17 @@ pub fn parkability(program: &Program) -> Parking {
     // Arguments, into the parameters they are bound to, and every node that
     // *is* a function value — an `FuncRef`, a `Closure` or a `Lambda` — with the
     // slot it is written in. Both are read every round and neither moves.
-    let mut edges: Vec<(usize, usize, &Vec<Expr>)> = Vec::new();
-    let mut values: Vec<(usize, &Expr)> = Vec::new();
-    for (i, f) in program.funcs.iter().enumerate() {
+    let mut edges: Vec<(FuncIdx, FuncIdx, &Vec<Expr>)> = Vec::new();
+    let mut values: Vec<(FuncIdx, &Expr)> = Vec::new();
+    for (i, f) in program.funcs.entries() {
         let Some(body) = f.body() else { continue };
         typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::CallFunc { func, args } => edges.push((func.index(), i, args)),
+            ExprKind::CallFunc { func, args } => edges.push((*func, i, args)),
             // A `Continue` rebinds the parameters of the function it enters, in
             // order — the dispatch index the backend prepends is not one of
             // them.
             ExprKind::Continue { func, args, .. } => {
-                edges.push((func.map_or(i, |c| c.index()), i, args));
+                edges.push((func.unwrap_or(i), i, args));
             }
             ExprKind::FuncRef(_) | ExprKind::Closure { .. } | ExprKind::Lambda { .. } => {
                 values.push((i, e));
@@ -444,28 +442,25 @@ pub fn parkability(program: &Program) -> Parking {
         changed = false;
 
         for &(target, from, args) in &edges {
-            let tf = program
-                .funcs
-                .get(target)
-                .or_ice("an edge's target is a function slot");
+            let tf = program.funcs.get(target);
             // A call passes one argument per parameter, and so does a jump.
             for (a, &p) in args.iter().zip(&tf.params) {
                 if !is_fn_ty(&a.ty) || !w.value_parks(from, a) {
                     continue;
                 }
-                if w.parking.get_mut(target).is_some_and(|s| s.insert(p)) {
+                if w.parking.get_mut(target).insert(p) {
                     changed = true;
                 }
             }
         }
 
         // The `let`s that hold one.
-        for (i, binds) in lets.iter().enumerate() {
+        for (i, binds) in lets.entries() {
             for (local, value) in binds {
                 if !w.value_parks(i, value) {
                     continue;
                 }
-                if w.parking.get_mut(i).is_some_and(|s| s.insert(*local)) {
+                if w.parking.get_mut(i).insert(*local) {
                     changed = true;
                 }
             }
@@ -477,8 +472,8 @@ pub fn parkability(program: &Program) -> Parking {
         let mut found: Vec<&Ty> = Vec::new();
         for &(i, e) in &values {
             let parks = match &e.kind {
-                ExprKind::FuncRef(c) => w.parks(c.index()),
-                ExprKind::Closure { func, .. } => w.parks(func.index()),
+                ExprKind::FuncRef(c) => w.parks(*c),
+                ExprKind::Closure { func, .. } => w.parks(*func),
                 ExprKind::Lambda { body, .. } => w.body_parks(i, body),
                 _ => false,
             };
@@ -499,8 +494,8 @@ pub fn parkability(program: &Program) -> Parking {
         // And the column itself. A function that *is* a suspending intrinsic
         // has no body and is never reached here; one with a body starts at
         // `false` and only ever climbs, so the seed is not lost.
-        for (i, f) in program.funcs.iter().enumerate() {
-            if w.parks.get(i).copied() == Some(true) {
+        for (i, f) in program.funcs.entries() {
+            if *w.parks.get(i) {
                 continue;
             }
             // A combinator that **runs a step it was handed the context for**
@@ -518,17 +513,13 @@ pub fn parkability(program: &Program) -> Parking {
             let parks = match &f.kind {
                 FuncKind::Intrinsic(key) => {
                     intrinsic_keys::ctx_step_key(key)
-                        && f.params
-                            .iter()
-                            .any(|p| w.parking.get(i).is_some_and(|s| s.contains(*p)))
+                        && f.params.iter().any(|p| w.parking.get(i).contains(*p))
                 }
                 FuncKind::Body(body) => w.body_parks(i, body),
                 FuncKind::Unbuilt => false,
             };
             if parks {
-                *w.parks
-                    .get_mut(i)
-                    .or_ice("the column has a row per function") = true;
+                *w.parks.get_mut(i) = true;
                 changed = true;
             }
         }
