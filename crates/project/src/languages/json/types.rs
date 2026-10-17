@@ -23,7 +23,7 @@
 //! (`json-untyped-keyword`).
 
 use super::number::Number;
-use super::schema::{Registry, SchemaFile};
+use super::schema::{Registry, SchemaSet};
 use super::syntax::{Node, Range, Value};
 use crate::diagnostics::Invariant;
 use crate::languages::Finding;
@@ -799,16 +799,10 @@ fn generator<'a, 'r>(reg: &'a Registry<'r>) -> Gen<'a, 'r> {
     }
 }
 
-/// The root type of the schema file at `path`, declared.
-fn root<'r>(gen: &mut Gen<'_, 'r>, files: &'r [SchemaFile], path: &str) -> String {
-    let file = files
-        .iter()
-        .find(|f| f.path == path)
-        .or_ice("a schema's own file is in the set it was read with");
-    let resource = gen
-        .reg
-        .resource_of_file(path)
-        .or_ice("every file in the set is a resource of its registry");
+/// The root type of the registry's main file, declared.
+fn root(gen: &mut Gen<'_, '_>) -> String {
+    let (resource, file) = gen.reg.main();
+    let path = file.path.as_str();
     let hint = file
         .root
         .get("title")
@@ -836,12 +830,13 @@ fn header(w: &mut Writer, from: &str) {
     w.line("");
 }
 
-/// The types the schema at `path` describes. `files` is it and every file
+/// The types the main schema of `set` describes. `set` is it and every file
 /// it reaches, already a registry without problems.
-pub fn schema_module(files: &[SchemaFile], path: &str) -> Result<Module, Vec<Finding>> {
-    let reg = Registry::new(files);
+pub fn schema_module(set: &SchemaSet) -> Result<Module, Vec<Finding>> {
+    let path = set.main.path.as_str();
+    let reg = Registry::new(set);
     let mut gen = generator(&reg);
-    let root = root(&mut gen, files, path);
+    let root = root(&mut gen);
     if !gen.refused.is_empty() {
         return Err(gen.refused);
     }
@@ -857,15 +852,10 @@ pub fn schema_module(files: &[SchemaFile], path: &str) -> Result<Module, Vec<Fin
 
 /// The types of the data file's schema, and the file's contents as
 /// `export let <file>: <Root>`.
-pub fn data_module(
-    files: &[SchemaFile],
-    schema: &str,
-    path: &str,
-    data: &Node,
-) -> Result<Module, Vec<Finding>> {
-    let reg = Registry::new(files);
+pub fn data_module(set: &SchemaSet, path: &str, data: &Node) -> Result<Module, Vec<Finding>> {
+    let reg = Registry::new(set);
     let mut gen = generator(&reg);
-    let root = root(&mut gen, files, schema);
+    let root = root(&mut gen);
     if !gen.refused.is_empty() {
         return Err(gen.refused);
     }
@@ -892,10 +882,11 @@ pub fn data_module(
 }
 
 /// The types, and `decode`, which reads what [`strict`] writes as the root.
-pub fn contract_module(files: &[SchemaFile], path: &str) -> Result<Module, Vec<Finding>> {
-    let reg = Registry::new(files);
+pub fn contract_module(set: &SchemaSet) -> Result<Module, Vec<Finding>> {
+    let path = set.main.path.as_str();
+    let reg = Registry::new(set);
     let mut gen = generator(&reg);
-    let root = root(&mut gen, files, path);
+    let root = root(&mut gen);
     if !gen.refused.is_empty() {
         return Err(gen.refused);
     }
@@ -1317,16 +1308,17 @@ fn write_strict(node: &Node, out: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::languages::json::schema::SchemaFile;
     use crate::languages::json::syntax::{parse, Dialect};
 
-    fn files(texts: &[(&str, &str)]) -> Vec<SchemaFile> {
-        texts
-            .iter()
-            .map(|(p, t)| SchemaFile {
-                path: p.to_string(),
-                root: parse(t, Dialect::Json5).expect("parses").root,
-            })
-            .collect()
+    fn schema(path: &str, text: &str) -> SchemaSet {
+        SchemaSet {
+            main: SchemaFile {
+                path: path.to_string(),
+                root: parse(text, Dialect::Json5).expect("parses").root,
+            },
+            rest: Vec::new(),
+        }
     }
 
     #[test]
@@ -1369,8 +1361,8 @@ mod tests {
 
     #[test]
     fn a_schema_with_no_type_is_refused_where_it_says_so() {
-        let fs = files(&[("s.json", r#"{ "if": {}, "then": {} }"#)]);
-        let Err(refused) = schema_module(&fs, "s.json") else {
+        let set = schema("s.json", r#"{ "if": {}, "then": {} }"#);
+        let Err(refused) = schema_module(&set) else {
             panic!("refused")
         };
         assert_eq!(refused.len(), 1);

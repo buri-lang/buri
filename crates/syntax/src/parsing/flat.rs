@@ -47,7 +47,7 @@
 
 use std::sync::Arc;
 
-use crate::diagnostics::{FileId, Invariant as _, Span};
+use crate::diagnostics::{FileId, Span};
 use crate::parsing::tree::{
     BinOp, FieldDecl, FnDecl, GenericParam, ImportSpec, Param, TupleField, UnOp, Variant,
 };
@@ -412,6 +412,26 @@ pub struct PNode {
     pub payload: [u32; 4],
 }
 
+/// What an id a tree never minted reads as, in each arena: a `()`, a `_` and
+/// a `()` type, each with no children and no span. One rule, read by the
+/// views and by [`Tree::kind`] and [`Tree::pkind`] alike, so that every
+/// accessor of a tree is total and agrees with every other.
+const MISSING_NODE: Node = Node {
+    kind: Kind::Unit,
+    subtree: 1,
+    payload: [0; 4],
+};
+const MISSING_PNODE: PNode = PNode {
+    kind: PatternKind::Wild,
+    subtree: 1,
+    payload: [0; 4],
+};
+const MISSING_TYPE: TypeData = TypeData {
+    kind: TypeKind::Unit,
+    payload: [0; 4],
+    span: Location { start: 0, end: 0 },
+};
+
 const _: () = assert!(std::mem::size_of::<Node>() == 24);
 const _: () = assert!(std::mem::size_of::<PNode>() == 24);
 const _: () = assert!(std::mem::size_of::<TypeData>() == 28);
@@ -761,13 +781,23 @@ impl Tree {
     }
 
     pub fn kind(&self, id: ExprId) -> Kind {
-        self.nodes.get(id.index()).map_or(Kind::Unit, |n| n.kind)
+        self.node(id).kind
     }
 
     pub fn pkind(&self, id: PatId) -> PatternKind {
-        self.pnodes
-            .get(id.index())
-            .map_or(PatternKind::Wild, |n| n.kind)
+        self.pnode(id).kind
+    }
+
+    fn node(&self, id: ExprId) -> &Node {
+        self.nodes.get(id.index()).unwrap_or(&MISSING_NODE)
+    }
+
+    fn pnode(&self, id: PatId) -> &PNode {
+        self.pnodes.get(id.index()).unwrap_or(&MISSING_PNODE)
+    }
+
+    fn type_data(&self, id: TypeId) -> &TypeData {
+        self.types.get(id.index()).unwrap_or(&MISSING_TYPE)
     }
 
     /// The optional-id decoding, in one place.
@@ -797,10 +827,7 @@ impl Tree {
 
     /// The one place a type payload is decoded.
     pub fn ty(&self, id: TypeId) -> TypeView<'_> {
-        let n = self
-            .types
-            .get(id.index())
-            .or_ice("a type id is one this tree minted");
+        let n = self.type_data(id);
         let span = self.span_of(n.span);
         let p = n.payload;
         match n.kind {
@@ -828,12 +855,7 @@ impl Tree {
     }
 
     pub fn type_span(&self, id: TypeId) -> Span {
-        self.span_of(
-            self.types
-                .get(id.index())
-                .map(|t| t.span)
-                .unwrap_or_default(),
-        )
+        self.span_of(self.type_data(id).span)
     }
 
     /// The trailing segment of a named type's path — the name itself.
@@ -1031,10 +1053,7 @@ impl Tree {
     /// wrong line in a single exhaustive `match` rather than a class of
     /// mistake spread across the parser.
     pub fn expr(&self, id: ExprId) -> ExprView<'_> {
-        let n = self
-            .nodes
-            .get(id.index())
-            .or_ice("an expression id is one this tree minted");
+        let n = self.node(id);
         let span = self.span(id);
         let p = n.payload;
         if let Some(op) = n.kind.binop() {
@@ -1215,10 +1234,7 @@ impl Tree {
     }
 
     pub fn pat(&self, id: PatId) -> PatView<'_> {
-        let n = self
-            .pnodes
-            .get(id.index())
-            .or_ice("a pattern id is one this tree minted");
+        let n = self.pnode(id);
         let span = self.pspan(id);
         let p = n.payload;
         match n.kind {
@@ -1313,7 +1329,7 @@ impl Tree {
     /// it is about to append the same start its base had, which is what makes
     /// `x.f().g()` one subtree rather than three overlapping ones.
     pub fn subtree_start(&self, id: ExprId) -> u32 {
-        let s = self.nodes.get(id.index()).map_or(1, |n| n.subtree);
+        let s = self.node(id).subtree;
         id.0.saturating_add(1).saturating_sub(s)
     }
 

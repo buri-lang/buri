@@ -22,7 +22,6 @@
 
 use super::regex::{Regex, TooCostly};
 use super::syntax::{Member, Node, Range, Value};
-use crate::diagnostics::Invariant;
 use crate::languages::Finding;
 use std::collections::{BTreeSet, HashMap};
 
@@ -159,6 +158,13 @@ pub struct SchemaFile {
     pub root: Node,
 }
 
+/// The schema files one check reads: the one it is about, and every other
+/// file in play.
+pub struct SchemaSet {
+    pub main: SchemaFile,
+    pub rest: Vec<SchemaFile>,
+}
+
 /// The references a schema file makes to other files: `(span, repository path)`.
 pub fn file_references(file: &SchemaFile) -> Vec<(Range, Option<String>)> {
     let mut out = Vec::new();
@@ -200,14 +206,20 @@ struct Resource<'r> {
     /// The absolute `$id` of the resource, which relative references resolve
     /// against before they resolve against the file.
     id: Option<String>,
-    anchors: HashMap<String, &'r Node>,
-    dynamic_anchors: HashMap<String, &'r Node>,
 }
+
+/// The resource the main file's root is: [`Registry::new`] adds it first.
+const MAIN: usize = 0;
 
 /// Every schema file in play, read and cross-referenced.
 pub struct Registry<'r> {
-    files: &'r [SchemaFile],
+    /// The main file first, so its root is resource [`MAIN`].
+    files: Vec<&'r SchemaFile>,
+    main: &'r SchemaFile,
     resources: Vec<Resource<'r>>,
+    /// Each resource's `$anchor`s and `$dynamicAnchor`s, by resource and name.
+    anchors: HashMap<(usize, String), &'r Node>,
+    dynamic_anchors: HashMap<(usize, String), &'r Node>,
     by_id: HashMap<String, usize>,
     by_file: HashMap<String, usize>,
     /// Which resource a node is the root of.
@@ -288,10 +300,14 @@ fn is_finite_number(n: &Node) -> bool {
 impl<'r> Registry<'r> {
     /// Reads every file as a schema. What is wrong with one is in
     /// [`Registry::problems`].
-    pub fn new(files: &'r [SchemaFile]) -> Registry<'r> {
+    pub fn new(set: &'r SchemaSet) -> Registry<'r> {
+        let files: Vec<&SchemaFile> = std::iter::once(&set.main).chain(&set.rest).collect();
         let mut reg = Registry {
-            files,
+            files: files.clone(),
+            main: &set.main,
             resources: Vec::new(),
+            anchors: HashMap::new(),
+            dynamic_anchors: HashMap::new(),
             by_id: HashMap::new(),
             by_file: HashMap::new(),
             root_of: HashMap::new(),
@@ -300,7 +316,7 @@ impl<'r> Registry<'r> {
             problems: Vec::new(),
         };
         let mut refs = Vec::new();
-        for (i, file) in files.iter().enumerate() {
+        for (i, file) in files.into_iter().enumerate() {
             let id = file
                 .root
                 .get("$id")
@@ -337,9 +353,9 @@ impl<'r> Registry<'r> {
         &self.problems
     }
 
-    /// The resource a file's root is, by repository path.
-    pub fn resource_of_file(&self, path: &str) -> Option<usize> {
-        self.by_file.get(path).copied()
+    /// The main file, and the resource its root is.
+    pub fn main(&self) -> (usize, &'r SchemaFile) {
+        (MAIN, self.main)
     }
 
     /// The resource `node` is in, given the one its parent is in.
@@ -368,13 +384,7 @@ impl<'r> Registry<'r> {
         if let Some(id) = &id {
             self.by_id.insert(id.clone(), index);
         }
-        self.resources.push(Resource {
-            file,
-            root,
-            id,
-            anchors: HashMap::new(),
-            dynamic_anchors: HashMap::new(),
-        });
+        self.resources.push(Resource { file, root, id });
         self.root_of.insert(root as *const Node, index);
         index
     }
@@ -520,16 +530,12 @@ impl<'r> Registry<'r> {
             else {
                 continue;
             };
-            let r = self
-                .resources
-                .get_mut(resource)
-                .or_ice("a walk is always inside a resource it added");
             let map = if key == "$anchor" {
-                &mut r.anchors
+                &mut self.anchors
             } else {
-                &mut r.dynamic_anchors
+                &mut self.dynamic_anchors
             };
-            map.insert(name.to_string(), node);
+            map.insert((resource, name.to_string()), node);
         }
         for m in members {
             self.keyword(m, file, &pointer, resource, refs);
@@ -751,10 +757,11 @@ impl<'r> Registry<'r> {
             let owner = self.root_of.get(&ptr).copied().or(inside).unwrap_or(target);
             return Ok((owner, node));
         }
-        let node = r
+        let key = (target, fragment);
+        let node = self
             .anchors
-            .get(&fragment)
-            .or_else(|| r.dynamic_anchors.get(&fragment))
+            .get(&key)
+            .or_else(|| self.dynamic_anchors.get(&key))
             .ok_or(Unresolved::NoTarget)?;
         Ok((target, node))
     }
@@ -865,14 +872,10 @@ struct Checker<'a, 'r> {
     depth: usize,
 }
 
-/// Checks `instance` against the root of the schema file `schema`.
-pub fn validate(reg: &Registry, schema: usize, instance: &Node) -> Vec<Violation> {
-    let root = reg
-        .files
-        .get(schema)
-        .map(|f| &f.root)
-        .or_ice("the schema is one of the registry's files");
-    let resource = reg.by_file.get(&reg.path_of(schema)).copied().unwrap_or(0);
+/// Checks `instance` against the root of the registry's main file.
+pub fn validate(reg: &Registry, instance: &Node) -> Vec<Violation> {
+    let (resource, main) = reg.main();
+    let root = &main.root;
     let mut c = Checker {
         reg,
         dynamic: Vec::new(),
@@ -1717,21 +1720,16 @@ impl<'a, 'r> Checker<'a, 'r> {
         let Some(name) = reference.split_once('#').map(|(_, f)| f) else {
             return Ok((r, target));
         };
-        let dynamic = self.reg.resources.get(r).is_some_and(|res| {
-            res.dynamic_anchors
-                .get(name)
-                .is_some_and(|n| std::ptr::eq(*n, target))
-        });
+        let dynamic = self
+            .reg
+            .dynamic_anchors
+            .get(&(r, name.to_string()))
+            .is_some_and(|n| std::ptr::eq(*n, target));
         if !dynamic {
             return Ok((r, target));
         }
         for scope in &self.dynamic {
-            if let Some(n) = self
-                .reg
-                .resources
-                .get(*scope)
-                .and_then(|res| res.dynamic_anchors.get(name))
-            {
+            if let Some(n) = self.reg.dynamic_anchors.get(&(*scope, name.to_string())) {
                 return Ok((*scope, n));
             }
         }

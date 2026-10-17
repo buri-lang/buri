@@ -11,7 +11,7 @@
 //!   so a `}` closing a block inside a hole is told apart from the `}` that
 //!   resumes template text by which of the two is on top.
 
-use crate::diagnostics::{Diagnostic, FileId, Invariant as _, Span};
+use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{Docs, Location};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -819,11 +819,9 @@ impl<'a> Tokens<'a> {
     }
 
     fn pay(&self, i: usize) -> usize {
-        let [a, b, c] = self
-            .records
-            .get(i)
-            .or_ice("a literal is read at a token the lexer wrote")
-            .pay;
+        // Past the end is `Eof`, as [`Tokens::kind`] reads it, and an `Eof`
+        // carries no payload.
+        let [a, b, c] = self.records.get(i).map_or([0; 3], |r| r.pay);
         let word = u32::from_le_bytes([a, b, c, 0]);
         if word != WIDE {
             return word as usize;
@@ -1081,10 +1079,7 @@ impl<'a> Lexer<'a> {
     /// `.bind(…)` for each `{placeholder}` the page names.
     /// Hands the diagnostic back so a caller can add what varies.
     fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
-        self.errors.push(Diagnostic::templated(code, span));
-        self.errors
-            .last_mut()
-            .or_ice("the diagnostic just pushed is still there")
+        super::pushed(&mut self.errors, Diagnostic::templated(code, span))
     }
 
     /// Append one token, from `start` to the cursor.
