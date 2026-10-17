@@ -790,7 +790,10 @@ impl Jit<'_> {
     /// is `==` and `==` is a language question rather than a layout one.
     fn value_equal(&mut self, prog: &ir::Program, ty: Ty) -> Option<String> {
         let func = prog.cell_equal.get(&ty).copied()?;
-        Some(self.helper(super::glue::Helper::Equal { ty, func: func.0 }))
+        Some(self.helper(super::glue::Helper::Equal {
+            ty,
+            func: func.index() as u32,
+        }))
     }
 
     /// One argument into its place in the scratch area.

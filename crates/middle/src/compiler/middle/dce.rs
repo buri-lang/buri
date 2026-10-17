@@ -33,7 +33,9 @@
 //! Design: `design/native/ARCHITECTURE.md` §2.2.
 
 use crate::compiler::middle::monomorphize::{Desc, FuncKind, Program, ProgramRoots};
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::typed::{self, ExprKind};
+use crate::compiler::semantics::types::FuncIdx;
 
 /// Which edges a walk takes at a chunk node.
 ///
@@ -70,7 +72,7 @@ pub enum Chunks {
 pub fn run(program: &mut Program) {
     let reached = reachable(program, &program_roots(program), Chunks::Followed);
     for (func, seen) in program.funcs.iter_mut().zip(&reached) {
-        if !seen {
+        if !*seen {
             func.kind = FuncKind::Unbuilt;
         }
     }
@@ -83,7 +85,7 @@ pub fn run(program: &mut Program) {
 /// unique in the program — the sole way this pass can leave two bodies under
 /// one name (see [`run`]). The rename is by slot index, so it is deterministic
 /// and cannot collide with a second rename or with any live symbol.
-fn disambiguate_unreached_symbols(program: &mut Program, reached: &[bool]) {
+fn disambiguate_unreached_symbols(program: &mut Program, reached: &Dense<FuncIdx, bool>) {
     // The symbols worn by two functions or more — the only ones a rename has to
     // reach. A second sighting of a symbol records it, so no count and no
     // arithmetic: `insert` returning `false` is the collision.
@@ -98,27 +100,27 @@ fn disambiguate_unreached_symbols(program: &mut Program, reached: &[bool]) {
     if shared.is_empty() {
         return;
     }
-    for (i, f) in program.funcs.iter_mut().enumerate() {
-        if reached.get(i).copied() == Some(false) && shared.contains(&f.symbol) {
-            f.symbol = format!("{}$unreached${i}", f.symbol);
+    for ((i, f), seen) in program.funcs.entries_mut().zip(reached) {
+        if !*seen && shared.contains(&f.symbol) {
+            f.symbol = format!("{}$unreached${}", f.symbol, i.index());
         }
     }
 }
 
 /// The slots this program starts at: its entry, or every one of its tests.
-pub fn program_roots(program: &Program) -> Vec<usize> {
-    let mut roots: Vec<usize> = match &program.roots {
-        ProgramRoots::Main(entry) => vec![entry.index()],
-        ProgramRoots::Tests(tests) => tests.iter().map(|t| t.func.index()).collect(),
+pub fn program_roots(program: &Program) -> Vec<FuncIdx> {
+    let mut roots: Vec<FuncIdx> = match &program.roots {
+        ProgramRoots::Main(entry) => vec![*entry],
+        ProgramRoots::Tests(tests) => tests.iter().map(|t| t.func).collect(),
     };
     // A reactive cell's comparison is named by no call: a write is handed it.
-    let mut cells: Vec<usize> = program.cell_equal.values().map(|f| f.index()).collect();
+    let mut cells: Vec<FuncIdx> = program.cell_equal.values().copied().collect();
     cells.sort_unstable();
     roots.extend(cells);
     // Nor is an `IndexSet`'s pair: a walk over its descriptor calls them.
     for d in &program.descriptors {
         if let Desc::Members { to, from, .. } = d {
-            roots.extend([to.index(), from.index()]);
+            roots.extend([*to, *from]);
         }
     }
     roots
@@ -130,26 +132,23 @@ pub fn program_roots(program: &Program) -> Vec<usize> {
 /// function rather than two, because a chunk holding a function the artifact
 /// also holds, or missing one it needs, is the same defect as a dropped live
 /// function — and it would be found by a different piece of code.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "a root and every callee are functions of the program"
-)]
-pub fn reachable(program: &Program, roots: &[usize], chunks: Chunks) -> Vec<bool> {
-    let mut reached = vec![false; program.funcs.len()];
-    let mut work: Vec<usize> = roots.to_vec();
+pub fn reachable(program: &Program, roots: &[FuncIdx], chunks: Chunks) -> Dense<FuncIdx, bool> {
+    let mut reached = program.funcs.map(|_| false);
+    let mut work: Vec<FuncIdx> = roots.to_vec();
     for f in &work {
-        reached[*f] = true;
+        *reached.get_mut(*f) = true;
     }
 
     while let Some(f) = work.pop() {
-        let Some(body) = program.funcs[f].body() else {
+        let Some(body) = program.funcs.get(f).body() else {
             continue;
         };
         let mut callees = Vec::new();
         references(body, chunks, &mut callees);
         for c in callees {
-            if !reached[c] {
-                reached[c] = true;
+            let seen = reached.get_mut(c);
+            if !*seen {
+                *seen = true;
                 work.push(c);
             }
         }
@@ -163,9 +162,9 @@ pub fn reachable(program: &Program, roots: &[usize], chunks: Chunks) -> Vec<bool
 /// For a caller that walks the same graph from many sets of roots, such as
 /// `buri test` dividing a batch of suites between binaries. Asking
 /// [`reachable`] once per set would walk every shared body once per set.
-pub fn callees(program: &Program, func: usize) -> Vec<usize> {
+pub fn callees(program: &Program, func: FuncIdx) -> Vec<FuncIdx> {
     let mut out = Vec::new();
-    if let Some(body) = program.funcs.get(func).and_then(|f| f.body()) {
+    if let Some(body) = program.funcs.get(func).body() {
         references(body, Chunks::Followed, &mut out);
     }
     out
@@ -180,7 +179,7 @@ pub fn callees(program: &Program, func: usize) -> Vec<usize> {
 /// names the function a merged tail-recursive group became, which cannot be
 /// dead while a member is live — but this pass runs before that rewrite and
 /// after it in a second run, and it costs one arm to be right in both.
-fn references(e: &typed::Expr, chunks: Chunks, out: &mut Vec<usize>) {
+fn references(e: &typed::Expr, chunks: Chunks, out: &mut Vec<FuncIdx>) {
     // A chunk node under `Deferred` is a leaf: its one child is the reference
     // to the function the chunk holds, and following it is exactly what this
     // walk is being asked not to do.
@@ -189,9 +188,9 @@ fn references(e: &typed::Expr, chunks: Chunks, out: &mut Vec<usize>) {
     }
     match &e.kind {
         ExprKind::CallFunc { func, .. } | ExprKind::FuncRef(func) => {
-            out.push(func.index());
+            out.push(*func);
         }
-        ExprKind::Continue { func: Some(f), .. } => out.push(f.index()),
+        ExprKind::Continue { func: Some(f), .. } => out.push(*f),
         _ => {}
     }
     typed::children(e, &mut |c| references(c, chunks, out));
@@ -210,9 +209,10 @@ fn is_chunk(e: &typed::Expr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::run;
+    use crate::compiler::middle::func_id;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::typed::{Expr, ExprKind};
-    use crate::compiler::semantics::types::{FuncIdx, Ty};
+    use crate::compiler::semantics::types::Ty;
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
 
@@ -241,7 +241,7 @@ mod tests {
     fn call(to: u32) -> Expr {
         Expr::new(
             ExprKind::CallFunc {
-                func: FuncIdx(to),
+                func: func_id(to),
                 args: Vec::new(),
             },
             Ty::UNIT,
@@ -251,8 +251,8 @@ mod tests {
 
     fn program(funcs: Vec<Func>) -> Program {
         Program {
-            funcs,
-            roots: ProgramRoots::Main(FuncIdx(0)),
+            funcs: funcs.into_iter().collect(),
+            roots: ProgramRoots::Main(func_id(0)),
             descriptors: Vec::new(),
             desc_modules: Vec::new(),
             desc_index: HashMap::default(),
@@ -285,9 +285,9 @@ mod tests {
             ),
         ]);
         run(&mut p);
-        assert!(p.funcs[0].body().is_some());
-        assert!(p.funcs[1].body().is_some());
-        assert!(p.funcs[2].body().is_none());
+        assert!(p.funcs.as_slice()[0].body().is_some());
+        assert!(p.funcs.as_slice()[1].body().is_some());
+        assert!(p.funcs.as_slice()[2].body().is_none());
     }
 
     /// Indices are what every other pass holds, so nothing may move.
@@ -306,8 +306,8 @@ mod tests {
         ]);
         run(&mut p);
         assert_eq!(p.funcs.len(), 3);
-        assert_eq!(p.funcs[2].symbol, "live");
-        assert!(p.funcs[2].body().is_some());
+        assert_eq!(p.funcs.as_slice()[2].symbol, "live");
+        assert!(p.funcs.as_slice()[2].body().is_some());
     }
 
     /// A cycle nothing enters is still dead, which a plain "is it called
@@ -323,15 +323,15 @@ mod tests {
             func("b", Some(call(1))),
         ]);
         run(&mut p);
-        assert!(p.funcs[1].body().is_none());
-        assert!(p.funcs[2].body().is_none());
+        assert!(p.funcs.as_slice()[1].body().is_none());
+        assert!(p.funcs.as_slice()[2].body().is_none());
     }
 
     /// A function used as a value is reached, and a pass that only counted
     /// calls would drop it and leave a name with nothing behind it.
     #[test]
     fn a_function_referenced_as_a_value_is_reached() {
-        let body = Expr::new(ExprKind::FuncRef(FuncIdx(1)), Ty::UNIT, Span::default());
+        let body = Expr::new(ExprKind::FuncRef(func_id(1)), Ty::UNIT, Span::default());
         let mut p = program(vec![
             func("main", Some(body)),
             func(
@@ -340,7 +340,7 @@ mod tests {
             ),
         ]);
         run(&mut p);
-        assert!(p.funcs[1].body().is_some());
+        assert!(p.funcs.as_slice()[1].body().is_some());
     }
 
     /// Two dropped copies of one intrinsic do not leave two bodies under one
@@ -367,14 +367,15 @@ mod tests {
         run(&mut p);
         // Both were dropped, and the shared symbol is no longer worn by two
         // bodies — the invariant `monomorphize::one_symbol_per_function` states.
-        assert!(p.funcs[1].body().is_none());
-        assert!(p.funcs[2].body().is_none());
+        assert!(p.funcs.as_slice()[1].body().is_none());
+        assert!(p.funcs.as_slice()[2].body().is_none());
         assert_ne!(
-            p.funcs[1].symbol, p.funcs[2].symbol,
+            p.funcs.as_slice()[1].symbol,
+            p.funcs.as_slice()[2].symbol,
             "two dropped copies of one intrinsic kept one symbol between two bodies"
         );
         crate::compiler::middle::monomorphize::assert_one_symbol_per_function(
-            &p.funcs,
+            p.funcs.as_slice(),
             "`dce::run`",
         );
     }
@@ -394,7 +395,7 @@ mod tests {
             intrinsic("core_lazy$load", "lazy.load"),
         ]);
         run(&mut p);
-        assert!(p.funcs[1].body().is_none());
-        assert_eq!(p.funcs[1].symbol, "core_lazy$load");
+        assert!(p.funcs.as_slice()[1].body().is_none());
+        assert_eq!(p.funcs.as_slice()[1].symbol, "core_lazy$load");
     }
 }

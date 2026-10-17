@@ -347,7 +347,9 @@ impl<'a> Jit<'a> {
                 lhs,
                 rhs,
             } => self.binary(st, *dest, *op, *prim, *lhs, *rhs),
-            Inst::Call { dest, func, args } => self.call(prog, code, st, *dest, func.0, args),
+            Inst::Call { dest, func, args } => {
+                self.call(prog, code, st, *dest, func.index() as u32, args)
+            }
             Inst::CallIndirect { dest, callee, args } => {
                 self.call_indirect(prog, code, st, *dest, *callee, args)
             }
@@ -441,7 +443,7 @@ impl<'a> Jit<'a> {
                 }
                 .or_ice("a closure's IR type is a function's (middle/ir.rs)");
                 let thunk = self.helper(super::glue::Helper::Thunk {
-                    func: func.0,
+                    func: func.index() as u32,
                     args: args as u32,
                     boxed: env.is_some(),
                 });

@@ -44,6 +44,7 @@
 //! Design: `design/native/ARCHITECTURE.md` §2.2, §2.3, `VALUE-MODEL.md` §7.
 
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
@@ -55,26 +56,20 @@ pub fn run(program: &mut Program) {
     // already converted, because a lambda nested inside another is lifted
     // while it is still part of the outer lambda's body.
     let base = program.funcs.len();
-    let mut lifted = Vec::new();
-    for func in &mut program.funcs {
-        let Func {
-            kind: FuncKind::Body(body),
-            locals,
-            symbol,
-            debug_name,
-            ..
-        } = func
-        else {
+    for i in program.funcs.ids() {
+        let func = program.funcs.get_mut(i);
+        let Some(mut body) = func.take_body() else {
             continue;
         };
         let parent = Parent {
-            locals: locals.clone(),
-            symbol: symbol.clone(),
-            debug_name: debug_name.clone(),
+            locals: func.locals.clone(),
+            symbol: func.symbol.clone(),
+            debug_name: func.debug_name.clone(),
+            base,
         };
-        convert(body, &parent, base, &mut lifted);
+        convert(&mut body, &parent, &mut program.funcs);
+        program.funcs.get_mut(i).set_body(body);
     }
-    program.funcs.extend(lifted);
 }
 
 /// What a lifted function inherits from the function it was written inside.
@@ -82,14 +77,16 @@ struct Parent {
     locals: typed::Locals,
     symbol: String,
     debug_name: String,
+    /// Where the lifted functions start in the program's table.
+    base: usize,
 }
 
 /// Depth first, so a lambda inside a lambda is converted while it is still in
 /// the outer one's body — which is what makes one pass enough, and what makes
 /// the inner one's captures resolvable: a nested lambda's parameters are
 /// locals of the same table as everything else it mentions.
-fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
-    typed::children_mut(e, &mut |child| convert(child, parent, base, lifted));
+fn convert(e: &mut Expr, parent: &Parent, funcs: &mut Dense<FuncIdx, Func>) {
+    typed::children_mut(e, &mut |child| convert(child, parent, funcs));
     let ExprKind::Lambda {
         params,
         body,
@@ -99,7 +96,6 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
         return;
     };
 
-    let func = FuncIdx(base.saturating_add(lifted.len()) as u32);
     let mut params = std::mem::take(params);
     let captures = std::mem::take(captures);
     let mut body = std::mem::replace(body, Box::new(Expr::new(ExprKind::Unit, Ty::UNIT, e.span)));
@@ -177,10 +173,10 @@ fn convert(e: &mut Expr, parent: &Parent, base: usize, lifted: &mut Vec<Func>) {
         )
     };
 
-    let n = lifted.len();
+    let n = funcs.len().saturating_sub(parent.base);
     let mut lifted_params = vec![env];
     lifted_params.extend(params);
-    lifted.push(Func {
+    let func = funcs.push(Func {
         symbol: format!("{}$fn{n}", parent.symbol),
         debug_name: format!("{} lambda {n}", parent.debug_name),
         params: lifted_params,
@@ -259,11 +255,12 @@ fn pattern_locals(p: &mut Pattern, f: &mut impl FnMut(&mut LocalId)) {
 #[cfg(test)]
 mod tests {
     use super::run;
+    use crate::compiler::middle::func_id;
     use crate::compiler::middle::local_id;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{Expr, ExprKind, Local};
-    use crate::compiler::semantics::types::{FuncIdx, Ty};
+    use crate::compiler::semantics::types::Ty;
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
 
@@ -281,7 +278,7 @@ mod tests {
 
     fn program(locals: Vec<Local>, params: Vec<u32>, body: Expr) -> Program {
         Program {
-            funcs: vec![Func {
+            funcs: [Func {
                 symbol: "host".to_string(),
                 debug_name: "host".to_string(),
                 params: params.into_iter().map(local_id).collect(),
@@ -290,8 +287,10 @@ mod tests {
                 ret: Ty::UNIT,
                 desc: None,
                 span: Span::default(),
-            }],
-            roots: ProgramRoots::Main(FuncIdx(0)),
+            }]
+            .into_iter()
+            .collect(),
+            roots: ProgramRoots::Main(func_id(0)),
             descriptors: Vec::new(),
             desc_modules: Vec::new(),
             desc_index: HashMap::default(),
@@ -322,11 +321,11 @@ mod tests {
         let mut p = program(vec![local("n"), local("x")], vec![0], lambda);
         run(&mut p);
 
-        let ExprKind::Closure { func, env } = &p.funcs[0].body().unwrap().kind else {
+        let ExprKind::Closure { func, env } = &p.funcs.as_slice()[0].body().unwrap().kind else {
             panic!("a capturing lambda is a closure");
         };
         assert_eq!(env.len(), 1);
-        let lifted = &p.funcs[func.index()];
+        let lifted = &p.funcs.as_slice()[func.index()];
         assert_eq!(lifted.params.len(), 2);
         // The environment parameter comes first, then the lambda's own.
         assert_eq!(lifted.locals.get(lifted.params[0]).name, "env");
@@ -351,7 +350,7 @@ mod tests {
         let mut p = program(names.iter().map(|n| local(n)).collect(), vec![0], lambda);
         run(&mut p);
 
-        let lifted = &p.funcs[1];
+        let lifted = &p.funcs.as_slice()[1];
         let table: Vec<&str> = lifted.locals.iter().map(|l| l.name.as_str()).collect();
         assert_eq!(table, ["env", "x", "n"]);
         assert_eq!(lifted.params, [local_id(0), local_id(1)]);
@@ -377,11 +376,11 @@ mod tests {
         let mut p = program(vec![local("x")], Vec::new(), lambda);
         run(&mut p);
         assert!(matches!(
-            p.funcs[0].body().unwrap().kind,
+            p.funcs.as_slice()[0].body().unwrap().kind,
             ExprKind::FuncRef(_)
         ));
         assert_eq!(p.funcs.len(), 2);
-        assert!(p.funcs[1].body().is_some());
+        assert!(p.funcs.as_slice()[1].body().is_some());
     }
 
     /// One pass, however deep: the inner lambda is lifted while it is still

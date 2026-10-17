@@ -64,52 +64,34 @@
 use crate::compiler::middle::inline::shift_expr;
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::middle::strongly_connected;
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, Stmt};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
-use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
 
-/// How one function is emitted.
+/// How the program's tail calls are eliminated.
 ///
-/// One value per function replaces a `HashSet` of self-loopers and a
-/// `HashMap` of group members that had to be disjoint: a function in both got
-/// a loop *and* a dispatch arm, and which one won depended on the order the
-/// backend happened to test them in.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Strategy {
-    /// Emitted as an ordinary function.
-    Plain,
-    /// Tail-calls itself and nothing else in a cycle: emitted as a loop.
-    SelfLoop,
-    /// One of a mutually tail-recursive group, merged into one function with a
-    /// dispatch switch.
-    Member { group: usize, index: usize },
-}
-
+/// A function is a self-loop or a member of one group, never both: both come
+/// out of one SCC result, a self-loop from a singleton and a group from a
+/// larger component.
 struct Plan {
-    /// Indexed by function. `strategy[f]` and `groups[g][i]` are built from
-    /// one SCC result and agree by construction: `Member { group, index }`
-    /// always satisfies `groups[group][index] == f`.
-    strategy: Vec<Strategy>,
+    /// Whether each function tail-calls itself and nothing else in a cycle,
+    /// and so is emitted as a loop.
+    self_loop: Dense<FuncIdx, bool>,
     /// Mutually tail-recursive groups, each merged into one function.
-    pub groups: Vec<Vec<usize>>,
+    groups: Vec<Vec<Member>>,
 }
 
-impl Plan {
-    pub fn strategy(&self, f: usize) -> Strategy {
-        self.strategy.get(f).copied().unwrap_or(Strategy::Plain)
-    }
-
-    fn is_self_loop(&self, f: usize) -> bool {
-        self.strategy(f) == Strategy::SelfLoop
-    }
+/// One function of a mutually tail-recursive group, with a copy of its body.
+struct Member {
+    func: FuncIdx,
+    body: Expr,
 }
-
 /// Collects the functions called in tail position.
-fn tail_callees(e: &Expr, out: &mut Vec<usize>) {
+fn tail_callees(e: &Expr, out: &mut Vec<FuncIdx>) {
     match &e.kind {
-        ExprKind::CallFunc { func, .. } => out.push(func.index()),
+        ExprKind::CallFunc { func, .. } => out.push(*func),
         ExprKind::Block { tail: Some(t), .. } => tail_callees(t, out),
         ExprKind::If { then, else_, .. } => {
             tail_callees(then, out);
@@ -135,39 +117,55 @@ fn tail_callees(e: &Expr, out: &mut Vec<usize>) {
 
 /// Whether a call sits in tail position within this expression tree — used to
 /// decide, at each node, whether to recurse with the tail flag still set.
+///
+/// The graph is over the functions with a body. One without tail-calls
+/// nothing, so it is in no cycle.
 #[expect(
     clippy::indexing_slicing,
-    reason = "a component's members are functions of the program, with one edge list and one strategy each"
+    reason = "a component's members are nodes of the graph, with one edge list and one function each"
 )]
 fn analyze(program: &Program) -> Plan {
-    let n = program.funcs.len();
-    let mut edges: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for (f, es) in program.funcs.iter().zip(edges.iter_mut()) {
-        if let Some(body) = f.body() {
-            tail_callees(body, es);
+    let defined: Vec<(FuncIdx, &Expr)> = program
+        .funcs
+        .entries()
+        .filter_map(|(f, func)| Some((f, func.body()?)))
+        .collect();
+    let mut node: Dense<FuncIdx, Option<usize>> = program.funcs.map(|_| None);
+    for (n, (f, _)) in defined.iter().enumerate() {
+        *node.get_mut(*f) = Some(n);
+    }
+    let edges: Vec<Vec<usize>> = defined
+        .iter()
+        .map(|(_, body)| {
+            let mut callees = Vec::new();
+            tail_callees(body, &mut callees);
+            let mut es: Vec<usize> = callees.into_iter().filter_map(|c| *node.get(c)).collect();
             es.sort();
             es.dedup();
-        }
-    }
+            es
+        })
+        .collect();
 
-    let sccs = strongly_connected(&edges);
     let mut plan = Plan {
-        strategy: vec![Strategy::Plain; n],
+        self_loop: program.funcs.map(|_| false),
         groups: Vec::new(),
     };
-    for scc in sccs.iter() {
-        if let [f] = *scc {
-            if edges[f].contains(&f) {
-                plan.strategy[f] = Strategy::SelfLoop;
+    for scc in strongly_connected(&edges).iter() {
+        if let [n] = *scc {
+            if edges[n].contains(&n) {
+                *plan.self_loop.get_mut(defined[n].0) = true;
             }
             continue;
         }
         // A statically known group of functions that tail-call each other.
-        let group = plan.groups.len();
-        for (i, f) in scc.iter().enumerate() {
-            plan.strategy[*f] = Strategy::Member { group, index: i };
-        }
-        plan.groups.push(scc.to_vec());
+        let group = scc
+            .iter()
+            .map(|n| Member {
+                func: defined[*n].0,
+                body: defined[*n].1.clone(),
+            })
+            .collect();
+        plan.groups.push(group);
     }
     plan
 }
@@ -183,40 +181,41 @@ fn analyze(program: &Program) -> Plan {
 /// Idempotent by construction rather than by a guard: a second run finds no
 /// tail *call* left to rewrite, because [`tail_callees`] counts `CallFunc` and
 /// the first run replaced each one.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "`f` ranges over the program's functions"
-)]
 pub fn rewrite(program: &mut Program) {
     let plan = analyze(program);
+
+    for ((f, func), self_loop) in program.funcs.entries_mut().zip(plan.self_loop.iter()) {
+        let Func {
+            params,
+            locals,
+            kind: FuncKind::Body(body),
+            ret,
+            span,
+            ..
+        } = func
+        else {
+            continue;
+        };
+        if !*self_loop {
+            continue;
+        }
+        // A self-loop's slots *are* its parameters, in order.
+        let identity: Vec<usize> = (0..params.len()).collect();
+        rewrite_tails(body, &|callee| (callee == f).then_some((0, &identity[..])));
+        let mut entries = vec![std::mem::replace(
+            body,
+            Expr::new(ExprKind::Unit, Ty::UNIT, *span),
+        )];
+        let owned = [params.len()];
+        snapshot_captures(locals, params, &mut entries, &owned);
+        *body = Expr::new(ExprKind::Loop { entries }, *ret, *span);
+    }
 
     // The merged functions are appended, so every index the plan holds — and
     // every index anywhere else in the program — still names what it named.
     // `dce` and `inline` both depend on that, and both say so.
-    let groups = plan.groups.clone();
-    for (group_index, group) in groups.iter().enumerate() {
+    for (group_index, group) in plan.groups.into_iter().enumerate() {
         merge_group(program, group_index, group);
-    }
-
-    for f in 0..program.funcs.len() {
-        if !plan.is_self_loop(f) {
-            continue;
-        }
-        let func = &mut program.funcs[f];
-        let mut body = func
-            .take_body()
-            .or_ice("a function that tail-calls itself has a body");
-        // A self-loop's slots *are* its parameters, in order.
-        let identity: Vec<usize> = (0..func.params.len()).collect();
-        rewrite_tails(&mut body, &|callee| {
-            (callee == f).then_some((0, &identity[..]))
-        });
-        let mut entries = vec![body];
-        let owned = [func.params.len()];
-        snapshot_captures(&mut func.locals, &mut func.params, &mut entries, &owned);
-        let ty = func.ret;
-        let span = func.span;
-        func.set_body(Expr::new(ExprKind::Loop { entries }, ty, span));
     }
 }
 
@@ -232,8 +231,9 @@ pub fn rewrite(program: &mut Program) {
     reason = "a group is two or more functions of the program; `order` has a row per member, \
               and a member's own slots, which come first in the merged table, number no more than the group's"
 )]
-fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
-    let first = &program.funcs[group[0]];
+fn merge_group(program: &mut Program, group_index: usize, group: Vec<Member>) {
+    let funcs: Vec<FuncIdx> = group.iter().map(|m| m.func).collect();
+    let first = program.funcs.get(funcs[0]);
     let ret = first.ret;
     let span = first.span;
 
@@ -248,7 +248,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
     // pointer against 255 and released it as two different types. The IR
     // verifier says so now; before it existed the program simply corrupted the
     // heap.
-    let Some(slots) = shared_slots(program, group) else {
+    let Some(slots) = shared_slots(program, &funcs) else {
         // No consistent assignment exists — two members disagree about what
         // the group's parameters *are*, not merely about their order. Leaving
         // the group unmerged costs it mutual tail-call elimination and keeps
@@ -269,13 +269,9 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
     let mut params: Vec<LocalId> = locals.ids().collect();
 
     let mut entries: Vec<Expr> = Vec::new();
-    for (i, f) in group.iter().enumerate() {
-        let func = &program.funcs[*f];
-        let body = func
-            .body()
-            .or_ice("a member of a tail-call group has a body");
+    for (i, Member { func: f, mut body }) in group.into_iter().enumerate() {
+        let func = program.funcs.get(f);
         let shift = locals.append(&func.locals);
-        let mut body = body.clone();
         shift_expr(&mut body, &shift);
         // The member's parameters *are* the shared slots, so a read of one
         // reads the slot rather than a copy of it. `order[i][j]` is the
@@ -293,7 +289,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
         substitute_locals(&mut body, &onto);
         let order = &slots.order;
         rewrite_tails(&mut body, &|callee| {
-            let entry = group.iter().position(|m| *m == callee)?;
+            let entry = funcs.iter().position(|m| *m == callee)?;
             Some((entry, order.get(entry)?.as_slice()))
         });
         // A slot this member owns and its body never reads still arrives
@@ -369,13 +365,11 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
     // read before `entries` moves into the merged function below.
     let ret_ty = entries.first().map_or_else(|| ret, |e| e.ty);
 
-    let merged = FuncIdx(program.funcs.len() as u32);
-    let members: Vec<&str> = group
+    let members: Vec<&str> = funcs
         .iter()
-        .filter_map(|f| program.funcs.get(*f))
-        .map(|f| f.debug_name.as_str())
+        .map(|f| program.funcs.get(*f).debug_name.as_str())
         .collect();
-    program.funcs.push(Func {
+    let merged = program.funcs.push(Func {
         symbol: format!("$tc{group_index}"),
         debug_name: format!("tail group {}", members.join(", ")),
         params,
@@ -389,8 +383,8 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
     // Each member keeps its name and its arity and forwards into the merged
     // function at its own entry, so a reference to it from outside the group —
     // a call that was not in tail position, or an `FuncRef` — still works.
-    for (i, f) in group.iter().enumerate() {
-        let func = &mut program.funcs[*f];
+    for (i, f) in funcs.iter().enumerate() {
+        let func = program.funcs.get_mut(*f);
         // In *slot* order rather than the member's own: `lower::continue_`
         // hands argument `j` to slot `j` and pads what is missing, which is
         // what makes a member's slots a prefix a requirement of
@@ -425,10 +419,10 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
 /// function loops and the rewrite that makes it loop cannot disagree about
 /// what tail position is, because disagreeing means one of these two matches
 /// has an arm the other does not.
-fn rewrite_tails<'a>(e: &mut Expr, jump: &impl Fn(usize) -> Option<(usize, &'a [usize])>) {
+fn rewrite_tails<'a>(e: &mut Expr, jump: &impl Fn(FuncIdx) -> Option<(usize, &'a [usize])>) {
     match &mut e.kind {
         ExprKind::CallFunc { func, args } => {
-            let Some((entry, order)) = jump(func.index()) else {
+            let Some((entry, order)) = jump(*func) else {
                 return;
             };
             let mut args = std::mem::take(args);
@@ -620,14 +614,14 @@ struct Slots {
     clippy::indexing_slicing,
     reason = "`k` is a position in `mine`, and `i` one in `group`"
 )]
-fn shared_slots(program: &Program, group: &[usize]) -> Option<Slots> {
+fn shared_slots(program: &Program, group: &[FuncIdx]) -> Option<Slots> {
     let params: Vec<Vec<Ty>> = group
         .iter()
         .map(|f| {
-            let func = program.funcs.get(*f)?;
-            Some(func.params.iter().map(|p| func.locals.get(*p).ty).collect())
+            let func = program.funcs.get(*f);
+            func.params.iter().map(|p| func.locals.get(*p).ty).collect()
         })
-        .collect::<Option<Vec<_>>>()?;
+        .collect();
     let mut narrowest: Vec<usize> = (0..group.len()).collect();
     narrowest.sort_by_key(|i| params.get(*i).map_or(0, Vec::len));
 
@@ -659,11 +653,12 @@ fn shared_slots(program: &Program, group: &[usize]) -> Option<Slots> {
 #[cfg(test)]
 mod tests {
     use super::rewrite;
+    use crate::compiler::middle::func_id;
     use crate::compiler::middle::local_id;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{Expr, ExprKind, Local, PatKind, Stmt};
-    use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
+    use crate::compiler::semantics::types::{LocalId, Ty};
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
 
@@ -673,7 +668,7 @@ mod tests {
 
     fn call(to: u32, args: Vec<Expr>) -> Expr {
         e(ExprKind::CallFunc {
-            func: FuncIdx(to),
+            func: func_id(to),
             args,
         })
     }
@@ -737,8 +732,8 @@ mod tests {
 
     fn program(funcs: Vec<Func>) -> Program {
         Program {
-            funcs,
-            roots: ProgramRoots::Main(FuncIdx(0)),
+            funcs: funcs.into_iter().collect(),
+            roots: ProgramRoots::Main(func_id(0)),
             descriptors: Vec::new(),
             desc_modules: Vec::new(),
             desc_index: HashMap::default(),
@@ -768,7 +763,7 @@ mod tests {
             call(0, vec![e(ExprKind::Local(local_id(0)))]),
         )]);
         rewrite(&mut p);
-        let ExprKind::Loop { entries } = &p.funcs[0].body().unwrap().kind else {
+        let ExprKind::Loop { entries } = &p.funcs.as_slice()[0].body().unwrap().kind else {
             panic!("a self tail call is a loop");
         };
         assert_eq!(entries.len(), 1);
@@ -794,7 +789,7 @@ mod tests {
         });
         let mut p = program(vec![func("f", Vec::new(), Vec::new(), body)]);
         rewrite(&mut p);
-        let ExprKind::Loop { entries } = &p.funcs[0].body().unwrap().kind else {
+        let ExprKind::Loop { entries } = &p.funcs.as_slice()[0].body().unwrap().kind else {
             panic!("a tail call under `||` still loops");
         };
         let ExprKind::Or { rhs, .. } = &entries[0].kind else {
@@ -815,7 +810,7 @@ mod tests {
         )]);
         rewrite(&mut p);
         assert!(matches!(
-            p.funcs[0].body().unwrap().kind,
+            p.funcs.as_slice()[0].body().unwrap().kind,
             ExprKind::Tuple(_)
         ));
     }
@@ -840,7 +835,7 @@ mod tests {
         ]);
         rewrite(&mut p);
         assert_eq!(p.funcs.len(), 3);
-        let ExprKind::Loop { entries } = &p.funcs[2].body().unwrap().kind else {
+        let ExprKind::Loop { entries } = &p.funcs.as_slice()[2].body().unwrap().kind else {
             panic!("the merged function loops");
         };
         assert_eq!(entries.len(), 2);
@@ -862,22 +857,22 @@ mod tests {
             }
         ));
         // The members keep their symbols and forward at their own entry.
-        assert_eq!(p.funcs[0].symbol, "a");
+        assert_eq!(p.funcs.as_slice()[0].symbol, "a");
         assert!(matches!(
-            p.funcs[0].body().unwrap().kind,
+            p.funcs.as_slice()[0].body().unwrap().kind,
             ExprKind::Continue {
-                func: Some(FuncIdx(2)),
+                func: Some(f),
                 entry: 0,
                 ..
-            }
+            } if f == func_id(2)
         ));
         assert!(matches!(
-            p.funcs[1].body().unwrap().kind,
+            p.funcs.as_slice()[1].body().unwrap().kind,
             ExprKind::Continue {
-                func: Some(FuncIdx(2)),
+                func: Some(f),
                 entry: 1,
                 ..
-            }
+            } if f == func_id(2)
         ));
     }
 
@@ -913,20 +908,20 @@ mod tests {
         rewrite(&mut p);
         assert_eq!(p.funcs.len(), 3, "the group merged");
         // Narrowest first: `narrow`'s `a`, then the `b` only `wide` has.
-        assert_eq!(param_tys(&p.funcs[2]), vec![a_ty(), b_ty()]);
+        assert_eq!(param_tys(&p.funcs.as_slice()[2]), vec![a_ty(), b_ty()]);
         // `narrow` fills the one slot it owns; `wide` fills both, and its `a`
         // goes first because that is the slot's type.
         assert_eq!(
-            arg_locals(p.funcs[0].body().expect("a forwarder")),
+            arg_locals(p.funcs.as_slice()[0].body().expect("a forwarder")),
             vec![local_id(0)]
         );
         assert_eq!(
-            arg_locals(p.funcs[1].body().expect("a forwarder")),
+            arg_locals(p.funcs.as_slice()[1].body().expect("a forwarder")),
             vec![local_id(1), local_id(0)]
         );
         // The tail call *inside* the merged function is permuted the same way:
         // `narrow` calls `wide(unit, n)`, whose `a` argument is second.
-        let ExprKind::Loop { entries } = &p.funcs[2].body().expect("a body").kind else {
+        let ExprKind::Loop { entries } = &p.funcs.as_slice()[2].body().expect("a body").kind else {
             panic!("the merged function loops")
         };
         let ExprKind::Continue { args, entry, .. } = &entries[0].kind else {
@@ -970,11 +965,11 @@ mod tests {
         rewrite(&mut p);
         assert_eq!(p.funcs.len(), 2, "nothing was merged");
         assert!(matches!(
-            p.funcs[0].body().expect("a body").kind,
+            p.funcs.as_slice()[0].body().expect("a body").kind,
             ExprKind::CallFunc { .. }
         ));
         assert!(matches!(
-            p.funcs[1].body().expect("a body").kind,
+            p.funcs.as_slice()[1].body().expect("a body").kind,
             ExprKind::CallFunc { .. }
         ));
     }
@@ -1008,7 +1003,7 @@ mod tests {
             ),
         ]);
         rewrite(&mut p);
-        let ExprKind::Loop { entries } = &p.funcs[2].body().expect("a body").kind else {
+        let ExprKind::Loop { entries } = &p.funcs.as_slice()[2].body().expect("a body").kind else {
             panic!("the merged function loops")
         };
         // Entry 0 is `narrow`, which owns one slot and reads it.
@@ -1053,9 +1048,9 @@ mod tests {
 
         // The parameter is now a carrier, and the original id is bound from it
         // at the top of every iteration.
-        assert_eq!(p.funcs[0].params, vec![local_id(1)]);
-        assert_eq!(p.funcs[0].locals.get(local_id(1)).name, "n_loop");
-        let ExprKind::Loop { entries } = &p.funcs[0].body().unwrap().kind else {
+        assert_eq!(p.funcs.as_slice()[0].params, vec![local_id(1)]);
+        assert_eq!(p.funcs.as_slice()[0].locals.get(local_id(1)).name, "n_loop");
+        let ExprKind::Loop { entries } = &p.funcs.as_slice()[0].body().unwrap().kind else {
             panic!("it loops");
         };
         let ExprKind::Block { stmts, .. } = &entries[0].kind else {
@@ -1086,7 +1081,7 @@ mod tests {
         });
         let mut p = program(vec![func("f", vec![0], vec![local("n")], body)]);
         rewrite(&mut p);
-        assert_eq!(p.funcs[0].params, vec![local_id(0)]);
-        assert_eq!(p.funcs[0].locals.len(), 1);
+        assert_eq!(p.funcs.as_slice()[0].params, vec![local_id(0)]);
+        assert_eq!(p.funcs.as_slice()[0].locals.len(), 1);
     }
 }

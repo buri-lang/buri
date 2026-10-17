@@ -61,7 +61,7 @@ id_type!(minted LocalId);
 // table. The two are different spaces, and while both were spelled `FnId` a
 // backend pass could read `tables.fn_info(func)` on a monomorphized call and
 // silently name a different function.
-id_type!(FuncIdx);
+id_type!(minted FuncIdx);
 
 impl ModuleId {
     /// The synthetic module the primitive types are declared in. No module

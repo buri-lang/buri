@@ -9,6 +9,16 @@ pub(crate) fn local_id(i: u32) -> crate::compiler::semantics::types::LocalId {
     table.ids().last().expect("the table holds `i + 1` locals")
 }
 
+/// The id a program's table mints for its function at `i`.
+pub(crate) fn func_id(i: u32) -> crate::compiler::semantics::types::FuncIdx {
+    use crate::compiler::semantics::layered::Dense;
+    let table: Dense<_, ()> = std::iter::repeat_n((), i as usize + 1).collect();
+    table
+        .ids()
+        .last()
+        .expect("the table holds `i + 1` functions")
+}
+
 mod derives;
 mod exhaustiveness;
 mod expressions;

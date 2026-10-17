@@ -21,6 +21,7 @@
 //! the derived code compares it and not walked.
 
 use crate::compiler::middle::monomorphize::{Desc, Func, FuncKind, Program};
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Arm, Expr, ExprKind, FieldPat, Magnitude, PatKind, Pattern, PrimOp, Stmt,
@@ -163,15 +164,14 @@ pub fn run(
         base: original,
         made: HashMap::new(),
         queue: Vec::new(),
-        funcs: Vec::new(),
+        funcs: &mut program.funcs,
         out: Vec::new(),
     };
     for (op, ty) in &wanted {
         s.request(*op, *ty);
     }
     s.drain();
-    let (made, funcs, out) = (s.made, s.funcs, s.out);
-    program.funcs.extend(funcs);
+    let (made, out) = (s.made, s.out);
     for f in program.funcs.iter_mut().take(original) {
         if let FuncKind::Body(body) = &mut f.kind {
             precede(body, &made, &mut f.locals);
@@ -264,8 +264,8 @@ struct Shadows<'a> {
     base: usize,
     /// Each shadow and what it answers, or `None` for one that can't be built.
     made: HashMap<(Op, Ty), Option<(FuncIdx, Ty)>>,
-    queue: Vec<(Op, Ty, usize)>,
-    funcs: Vec<Func>,
+    queue: Vec<(Op, Ty, FuncIdx)>,
+    funcs: &'a mut Dense<FuncIdx, Func>,
     out: Vec<Derived>,
 }
 
@@ -289,9 +289,8 @@ impl Shadows<'_> {
             Op::Equal | Op::Ordered => self.bool_ty,
             Op::Show | Op::Hash | Op::ToJson => Ty::UNIT,
         };
-        let slot = self.funcs.len();
-        let idx = FuncIdx(self.base.saturating_add(slot) as u32);
-        self.funcs.push(Func {
+        let slot = self.funcs.len().saturating_sub(self.base);
+        let idx = self.funcs.push(Func {
             symbol: format!("coverage$derived${slot}"),
             debug_name: format!(
                 "coverage: {} at {}",
@@ -306,7 +305,7 @@ impl Shadows<'_> {
             span: Span::NONE,
         });
         self.made.insert((op, ty), Some((idx, ret)));
-        self.queue.push((op, ty, slot));
+        self.queue.push((op, ty, idx));
         Some((idx, ret))
     }
 
@@ -316,24 +315,23 @@ impl Shadows<'_> {
                 // A shadow that can't be built is never called; it stays a
                 // function that does nothing, and nobody counts its decisions.
                 self.made.insert((op, ty), None);
-                if let Some(f) = self.funcs.get_mut(slot) {
-                    let unit = Expr::new(ExprKind::Unit, Ty::UNIT, Span::NONE);
-                    let answer = if f.ret == Ty::UNIT {
-                        unit
-                    } else {
-                        Expr::new(ExprKind::Bool(true), f.ret, Span::NONE)
-                    };
-                    f.params = Vec::new();
-                    f.locals = typed::Locals::new();
-                    f.kind = FuncKind::Body(answer);
-                }
+                let f = self.funcs.get_mut(slot);
+                let unit = Expr::new(ExprKind::Unit, Ty::UNIT, Span::NONE);
+                let answer = if f.ret == Ty::UNIT {
+                    unit
+                } else {
+                    Expr::new(ExprKind::Bool(true), f.ret, Span::NONE)
+                };
+                f.params = Vec::new();
+                f.locals = typed::Locals::new();
+                f.kind = FuncKind::Body(answer);
             }
         }
         // A shadow that calls one that couldn't be built would count only half
         // a walk; there's none, because a failure fails its caller too.
     }
 
-    fn build(&mut self, op: Op, ty: Ty, slot: usize) -> Option<()> {
+    fn build(&mut self, op: Op, ty: Ty, slot: FuncIdx) -> Option<()> {
         let con = ty.head()?;
         let span = *self.derives.get(&(con, op))?;
         let file = (self.file_of)(span)?;
@@ -496,7 +494,7 @@ impl Shadows<'_> {
             Some(b) => vec![a, b],
             None => vec![a],
         };
-        let f = self.funcs.get_mut(slot)?;
+        let f = self.funcs.get_mut(slot);
         f.params = params;
         f.locals = body.locals;
         f.kind = FuncKind::Body(expr);

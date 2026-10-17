@@ -5002,7 +5002,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// A closure's `code` pointer: the thunk over `func`.
     fn thunk(&mut self, func: FuncIdx, env: bool) -> FunctionValue<'ctx> {
-        let key = (func.0, env);
+        let key = (func.index() as u32, env);
         if let Some(f) = self.thunks.get(&key) {
             return *f;
         }
@@ -10096,6 +10096,10 @@ mod cycles {
     /// [`reaches_a_cycle`] reads calls and nothing else, so this is the whole
     /// of what it needs.
     fn call_graph(edges: &[&[usize]]) -> ir::Program {
+        let ids: Vec<FuncIdx> = std::iter::repeat_n((), edges.len())
+            .collect::<crate::compiler::semantics::layered::Dense<FuncIdx, ()>>()
+            .ids()
+            .collect();
         let funcs = edges
             .iter()
             .enumerate()
@@ -10107,7 +10111,7 @@ mod cycles {
                     .iter()
                     .map(|c| ir::Inst::Call {
                         dest: unit,
-                        func: FuncIdx(*c as u32),
+                        func: ids[*c],
                         args: Vec::new(),
                     })
                     .collect();
@@ -10134,7 +10138,7 @@ mod cycles {
             funcs,
             units: vec![ir::Unit {
                 name: "main".into(),
-                funcs: (0..edges.len()).collect(),
+                funcs: ids.clone(),
             }],
             types: ir::TypeList::default(),
             crosses_tasks: false,

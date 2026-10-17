@@ -419,10 +419,11 @@ mod tests {
                 desc: None,
                 span: Span::default(),
             })
-            .collect();
+            .collect::<crate::compiler::semantics::layered::Dense<_, _>>();
+        let first = funcs.ids().next().expect("the program holds a key");
         Program {
             funcs,
-            roots: ProgramRoots::Main(crate::compiler::semantics::types::FuncIdx(0)),
+            roots: ProgramRoots::Main(first),
             descriptors: Vec::new(),
             desc_modules: Vec::new(),
             desc_index: Default::default(),

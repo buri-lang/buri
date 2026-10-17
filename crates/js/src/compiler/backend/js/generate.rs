@@ -27,7 +27,7 @@ use crate::compiler::middle::rc;
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp, UnaryOp};
 use crate::compiler::semantics::types::{
-    field_types, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
+    field_types, FuncIdx, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
 };
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
@@ -143,8 +143,8 @@ pub struct Gen<'a> {
     parking: Option<&'a Parking>,
     /// The `Program::funcs` slot whose body is being emitted, because
     /// [`Parking::value_parks`] reads a local and a local means nothing
-    /// without one.
-    slot: usize,
+    /// without one. `None` until [`Gen::function`] starts one.
+    slot: Option<FuncIdx>,
 }
 
 /// The runtime's exports, so a missing one is a build error rather than a
@@ -227,7 +227,7 @@ impl<'a> Gen<'a> {
             in_context: false,
             sharing,
             parking: None,
-            slot: 0,
+            slot: None,
         }
     }
 
@@ -246,7 +246,7 @@ impl<'a> Gen<'a> {
     /// A `Gen` with no column answers `false`, which is what one that is
     /// only being asked which intrinsics exist wants: nothing is emitted, so
     /// nothing is awaited.
-    pub(crate) fn parks(&self, index: usize) -> bool {
+    pub(crate) fn parks(&self, index: FuncIdx) -> bool {
         self.parking.as_ref().is_some_and(|p| p.parks(index))
     }
 
@@ -256,8 +256,8 @@ impl<'a> Gen<'a> {
     /// it under, and the reason [`Parking`] tracks function values at all.
     fn value_parks(&self, callee: &typed::Expr) -> bool {
         self.parking
-            .as_ref()
-            .is_some_and(|p| p.value_parks(self.slot, callee))
+            .zip(self.slot)
+            .is_some_and(|(p, slot)| p.value_parks(slot, callee))
     }
 
     /// The marks for one body, from the plan's node numbers and one pre-order
@@ -325,7 +325,7 @@ pub fn unimplemented_intrinsics(program: &Program, tables: &Tables) -> Vec<Strin
     let no_sharing = rc::Plan::default();
     let mut g = Gen::over(program, tables, Profile::Debug, &no_sharing);
     let mut out = Vec::new();
-    for (i, f) in program.funcs.iter().enumerate() {
+    for (i, f) in program.funcs.entries() {
         let FuncKind::Intrinsic(key) = &f.kind else {
             continue;
         };
@@ -500,12 +500,9 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
 
     let mut roots = Vec::new();
     if let ProgramRoots::Main(entry) = &program.roots {
-        let entry = entry.index();
+        let entry = *entry;
         // `.Ok(())` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
-        let f = program
-            .funcs
-            .get(entry)
-            .or_ice("the entry point is one of the functions monomorphization emitted");
+        let f = program.funcs.get(entry);
         let sym = f.symbol.clone();
         roots.push(sym.clone());
         // **What an entry *is* is decided by its platform.** An entry with a
@@ -572,18 +569,17 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
 fn defined_functions<'p>(
     program: &'p Program,
     sharing: &'p rc::Plan,
-) -> Vec<(usize, &'p monomorphize::Func, &'p rc::FuncPlan)> {
+) -> Vec<(FuncIdx, &'p monomorphize::Func, &'p rc::FuncPlan)> {
     let mut intrinsics: HashSet<&str> = HashSet::default();
     // `rc::analyze` plans each function in `program.funcs` order.
     program
         .funcs
-        .iter()
+        .entries()
         .zip(&sharing.funcs)
-        .enumerate()
-        .filter(|(_, (f, _))| {
+        .filter(|((_, f), _)| {
             !matches!(f.kind, FuncKind::Intrinsic(_)) || intrinsics.insert(&f.symbol)
         })
-        .map(|(fi, (f, plan))| (fi, f, plan))
+        .map(|((fi, f), plan)| (fi, f, plan))
         .collect()
 }
 
@@ -637,11 +633,11 @@ impl<'a> Gen<'a> {
     }
 
     /// Emits `f`, the function in slot `fi`, whose sharing plan is `plan`.
-    fn function(&mut self, fi: usize, f: &monomorphize::Func, plan: &rc::FuncPlan) -> Emitted {
+    fn function(&mut self, fi: FuncIdx, f: &monomorphize::Func, plan: &rc::FuncPlan) -> Emitted {
         self.consts.clear();
         self.const_index.clear();
         self.func = FnState::for_locals(&f.locals);
-        self.slot = fi;
+        self.slot = Some(fi);
         // `async` iff this instantiation waits. A suspending intrinsic's own
         // wrapper is included: no `await` lands in it, but it returns what
         // the host hands back, and an `async` function returns that through
@@ -849,12 +845,7 @@ fn split_chunks(
             .collect();
         borrowed.sort();
 
-        let entry = program
-            .funcs
-            .get(chunk.root)
-            .or_ice("a chunk's root is one of the functions monomorphization emitted")
-            .symbol
-            .clone();
+        let entry = program.funcs.get(chunk.root).symbol.clone();
         // The artifact's side: one hoisted function per chunk, so that the
         // epilogue can reach it whatever order the declarations came out in.
         envs.push(Stmt::Func {
@@ -1164,14 +1155,11 @@ impl<'a> Gen<'a> {
     ///
     /// A literal argument is exempt from all three: duplicating, skipping or
     /// reordering one is unobservable.
-    fn inline_intrinsic(&mut self, index: usize, args: &[Expr]) -> Option<Expr> {
+    fn inline_intrinsic(&mut self, index: FuncIdx, args: &[Expr]) -> Option<Expr> {
         // Copied out of `self` so the callee's borrow does not outlive the
         // `&mut self` the expansion needs.
         let program = self.program;
-        let callee = program
-            .funcs
-            .get(index)
-            .or_ice("a call's callee index was minted by monomorphization's own function table");
+        let callee = program.funcs.get(index);
         if callee.body().is_some() {
             return None;
         }
@@ -2398,15 +2386,15 @@ impl<'a> Gen<'a> {
             // A callee still naming a declaration means monomorphization did
             // not run over this tree.
             ExprKind::CallFn { .. } | ExprKind::FnRef(_) => self.abort_unmonomorphized(),
-            ExprKind::FuncRef(f) => Expr::ident(self.symbol(f.index())),
+            ExprKind::FuncRef(f) => Expr::ident(self.symbol(*f)),
             ExprKind::CallFunc { func: idx, args } => {
                 let args = self.exprs(args, out);
-                let parks = self.parks(idx.index());
-                let call = match self.inline_intrinsic(idx.index(), &args) {
+                let parks = self.parks(*idx);
+                let call = match self.inline_intrinsic(*idx, &args) {
                     // An inlined intrinsic is the same callee spelled at the
                     // call site, so it is awaited on the same answer.
                     Some(x) => x,
-                    None => Expr::call(Expr::ident(self.symbol(idx.index())), args),
+                    None => Expr::call(Expr::ident(self.symbol(*idx)), args),
                 };
                 if parks {
                     Expr::awaited(call)
@@ -2642,8 +2630,8 @@ impl<'a> Gen<'a> {
                 let args = std::iter::once(Expr::Num(*entry as f64))
                     .chain(self.exprs(args, out))
                     .collect();
-                let call = Expr::call(Expr::ident(self.symbol(target.index())), args);
-                if self.parks(target.index()) {
+                let call = Expr::call(Expr::ident(self.symbol(*target)), args);
+                if self.parks(*target) {
                     Expr::awaited(call)
                 } else {
                     call
@@ -2821,12 +2809,7 @@ impl<'a> Gen<'a> {
                 let n = crate::compiler::backend::intrinsic_keys::lazy_chunk_of(name)
                     .unwrap_or_default();
                 let symbol = match args.first().map(|a| &a.kind) {
-                    Some(ExprKind::FuncRef(c)) => self
-                        .program
-                        .funcs
-                        .get(c.index())
-                        .map(|f| f.symbol.clone())
-                        .unwrap_or_default(),
+                    Some(ExprKind::FuncRef(c)) => self.program.funcs.get(*c).symbol.clone(),
                     _ => String::new(),
                 };
                 Expr::member(
@@ -2987,12 +2970,8 @@ impl<'a> Gen<'a> {
         v
     }
 
-    fn symbol(&self, i: usize) -> String {
-        self.program
-            .funcs
-            .get(i)
-            .map(|f| f.symbol.clone())
-            .unwrap_or_else(|| format!("$missing{i}"))
+    fn symbol(&self, i: FuncIdx) -> String {
+        self.program.funcs.get(i).symbol.clone()
     }
 
     /// A literal is written in the representation its type has: `5` at `I32`
@@ -3266,8 +3245,8 @@ impl<'a> Gen<'a> {
             Desc::Members { list, to, from } => vec![
                 Expr::Num(9.0),
                 Expr::ident(descriptor_name(*list)),
-                Expr::ident(self.symbol(to.index())),
-                Expr::ident(self.symbol(from.index())),
+                Expr::ident(self.symbol(*to)),
+                Expr::ident(self.symbol(*from)),
             ],
             // [8, struct, masks, $unflag, $flag]: a `derive Flags` word, read
             // as the struct of `Bool`s it stands for, with the bit each field
@@ -3488,7 +3467,7 @@ impl<'a> Gen<'a> {
                 Expr::Array(vec![
                     Expr::Str(t.name.clone()),
                     Expr::Str(t.module.clone()),
-                    Expr::ident(self.symbol(t.func.index())),
+                    Expr::ident(self.symbol(t.func)),
                 ])
             })
             .collect();

@@ -868,7 +868,7 @@ pub fn analyze<C: Counted + Clone + Sync>(
     // plans in index order, so the vector is the same as the serial one.
     let base: &C = counted;
     let funcs: Vec<FuncPlan> = crate::parallel::map_items_with(
-        &program.funcs,
+        program.funcs.as_slice(),
         || base.clone(),
         |worker, i, f| scan_func(worker, &ownership, &purity, &can_abort, opts, i, f),
     );
@@ -1275,6 +1275,7 @@ fn infer_ownership(
         members.extend(scc.iter().filter_map(|&index| {
             let func = program
                 .funcs
+                .as_slice()
                 .get(index)
                 .or_ice("a component's members are functions");
             func.body().map(|body| Member { index, func, body })
@@ -1906,7 +1907,7 @@ fn effects_once(
     purity: &mut [ir::Purity],
     aborts: &mut [bool],
 ) -> bool {
-    let Some(body) = program.funcs.get(i).and_then(|f| f.body()) else {
+    let Some(body) = program.funcs.as_slice().get(i).and_then(|f| f.body()) else {
         return false;
     };
     let mut p = ir::Purity::Pure;

@@ -64,8 +64,18 @@ mod tests {
     use crate::compiler::middle::ir::{
         BlockId, Code, Facts, Func, Purity, Signature, Term, Type, TypeList, Unit,
     };
+    use crate::compiler::semantics::layered::Dense;
     use crate::compiler::semantics::types::FuncIdx;
     use crate::diagnostics::Span;
+
+    /// The id the table mints for its function at `i`.
+    fn id(i: u32) -> FuncIdx {
+        let table: Dense<FuncIdx, ()> = std::iter::repeat_n((), i as usize + 1).collect();
+        table
+            .ids()
+            .last()
+            .expect("the table holds `i + 1` functions")
+    }
 
     /// A function in `unit` that calls each of `calls`.
     fn func(unit: u32, calls: &[u32]) -> Func {
@@ -75,7 +85,7 @@ mod tests {
             let dest = code.value(Type::I64);
             code.get_mut(entry).insts.push(Inst::Call {
                 dest,
-                func: FuncIdx(*c),
+                func: id(*c),
                 args: Vec::new(),
             });
         }

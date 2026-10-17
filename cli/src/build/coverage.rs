@@ -10,7 +10,7 @@ use crate::compiler::driver::Analysis;
 use crate::compiler::middle::{coverage, monomorphize};
 use crate::compiler::modules::Role;
 use crate::compiler::semantics::typed;
-use crate::compiler::semantics::types::{self, FnId, Prim};
+use crate::compiler::semantics::types::{self, FnId, FuncIdx, Prim};
 use crate::diagnostics::{FileId, Invariant as _, SourceMap, Span};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -268,8 +268,9 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
     // Under MC/DC, each instantiation of a generic function is its own, and a
     // function that was built reads its decisions off the code the probes go
     // in: a `==` that's a call when checked can be none once built.
-    let mut instances: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
-    let mut built: HashMap<FnId, Vec<usize>> = HashMap::new();
+    let mut instances: std::collections::HashMap<FuncIdx, String> =
+        std::collections::HashMap::new();
+    let mut built: HashMap<FnId, Vec<FuncIdx>> = HashMap::new();
     if mcdc {
         for (&slot, (id, targs)) in &program.instances {
             let info = tables.fn_info(*id);
@@ -300,14 +301,14 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
             .owner(info.module)
             .and_then(|m| coverage::builtin(&m.path, &info.name))
     };
-    let by_slot: HashMap<usize, coverage::Builtin> = program
+    let by_slot: HashMap<FuncIdx, coverage::Builtin> = program
         .instances
         .iter()
         .filter_map(|(&slot, (id, _))| builtin_of(*id).map(|how| (slot, how)))
         .collect();
     let builtins = |called: coverage::Called| match called {
         coverage::Called::Decl(id) => builtin_of(id),
-        coverage::Called::Func(f) => by_slot.get(&(f.0 as usize)).copied(),
+        coverage::Called::Func(f) => by_slot.get(&f).copied(),
     };
     let mut note =
         |body: &typed::Expr, instance: Instance, traps: Option<&coverage::TrapCall<'_>>| {
@@ -418,13 +419,11 @@ pub fn instrument(analysis: &Analysis, map: &SourceMap, program: &mut monomorphi
     }
     if mcdc {
         let mono_traps = |e: &typed::Expr| match &e.kind {
-            typed::ExprKind::CallFunc { func: f, .. } => {
-                program.funcs.get(f.0 as usize).and_then(coverage::aborts)
-            }
+            typed::ExprKind::CallFunc { func: f, .. } => coverage::aborts(program.funcs.get(*f)),
             _ => None,
         };
         for &slot in built.values().flatten() {
-            if let Some(body) = program.funcs.get(slot).and_then(|f| f.body()) {
+            if let Some(body) = program.funcs.get(slot).body() {
                 note(body, instances.get(&slot).cloned(), Some(&mono_traps));
             }
         }

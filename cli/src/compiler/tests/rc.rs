@@ -59,12 +59,10 @@ pub(crate) fn compile(src: &str) -> Program {
 }
 
 pub(crate) fn find(program: &Program, name: &str) -> FuncIdx {
-    let i = program
+    program
         .funcs
-        .iter()
         .position(|f| f.debug_name.ends_with(name))
-        .unwrap_or_else(|| panic!("no function named {name}"));
-    FuncIdx(i as u32)
+        .unwrap_or_else(|| panic!("no function named {name}"))
 }
 
 // -- the escape question ------------------------------------------------
@@ -705,7 +703,7 @@ export fn main(host: NodeHost): Result<(), Str> {
 
 fn loop_body(program: &Program, name: &str) -> FuncIdx {
     let f = find(program, name);
-    let body = program.funcs.get(f.index()).and_then(|x| x.body());
+    let body = program.funcs.get(f).body();
     assert!(
         matches!(body.map(|b| &b.kind), Some(ExprKind::Loop { .. })),
         "{name} was expected to be a loop after `tail_calls`"
@@ -792,7 +790,7 @@ fn a_jump_owns_what_it_did_not_pass_through() {
     assert_eq!(fp.params.get(1).copied(), Some(ir::Ownership::Own));
     assert_eq!(fp.params.get(2).copied(), Some(ir::Ownership::Own));
     // Nothing the jump carries is dropped before the jump.
-    let f = program.funcs.get(i.index()).expect("a function");
+    let f = program.funcs.get(i);
     let body = f.body().expect("a body");
     let mut sizes: Vec<u32> = Vec::new();
     subtree_sizes(body, &mut sizes);
@@ -836,7 +834,7 @@ fn a_loop_drops_what_it_does_not_carry_before_the_back_edge() {
     );
     // `row` is built each iteration and only its `name` is carried on, so
     // the row itself dies inside the loop.
-    let func = program.funcs.get(f.index()).expect("a function");
+    let func = program.funcs.get(f);
     let named: Vec<String> = fp
         .sites
         .iter()
@@ -891,7 +889,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     for name in ["tell", "take"] {
         let i = find(&program, name);
         let fp = plan.func(i).expect("a plan");
-        let func = program.funcs.get(i.index()).expect("a function");
+        let func = program.funcs.get(i);
         let rest = func
             .locals
             .position(|l| l.name == "rest")
@@ -1010,7 +1008,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     for name in ["projected", "aliased"] {
         let i = find(&program, name);
         let fp = plan.func(i).expect("a plan");
-        let func = program.funcs.get(i.index()).expect("a function");
+        let func = program.funcs.get(i);
         let stale = func
             .locals
             .position(|l| l.name == "stale")
@@ -1123,7 +1121,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
     let f = loop_body(&program, "tag");
-    let func = program.funcs.get(f.index()).expect("a function");
+    let func = program.funcs.get(f);
     let fp = plan.func(f).expect("a plan");
     // The environment captures `prefix`, which the next iteration also
     // needs, so the capture increments rather than transfers.
@@ -1192,7 +1190,7 @@ export fn main(host: NodeHost): Result<(), Str> {
 "#;
     let program = compile_native(src);
     let i = loop_body(&program, "forced");
-    let func = program.funcs.get(i.index()).expect("a function");
+    let func = program.funcs.get(i);
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
     let fp = plan.func(i).expect("a plan");
@@ -1315,7 +1313,7 @@ export fn main(host: NodeHost): Result<(), Str> {
 "#,
     );
     let idx = find(&program, "main");
-    let func = program.funcs.get(idx.index()).expect("a function");
+    let func = program.funcs.get(idx);
     let plan = sharing(&program);
     let marked: Vec<&str> = plan
         .func(idx)
@@ -1456,7 +1454,7 @@ export fn main(host: NodeHost): Result<(), Str> {
 /// One plan's sites as `"<op> <what> <before|after> n<node>"`, in plan
 /// order — a form an expectation can be written in.
 fn named_sites(program: &Program, i: FuncIdx, fp: &FuncPlan) -> Vec<String> {
-    let f = program.funcs.get(i.index()).expect("a function");
+    let f = program.funcs.get(i);
     fp.sites
         .iter()
         .map(|s| {
@@ -1798,10 +1796,7 @@ export fn main(host: NodeHost): Result<(), Str> {
 "#;
     let program = compile(SRC);
     let mut counted = Syntactic::new(&program);
-    let f = program
-        .funcs
-        .get(find(&program, "showFirst").index())
-        .expect("a function");
+    let f = program.funcs.get(find(&program, "showFirst"));
     let [ctx_ty, opt_ty] = [0, 1].map(|i| f.locals.get(local_id(i)).ty);
     assert!(
         matches!(ctx_ty.kind(), TyKind::Ctx(_)),

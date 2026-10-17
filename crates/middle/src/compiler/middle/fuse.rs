@@ -77,6 +77,7 @@
 //!   second changes length.
 
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty, TyKind};
@@ -85,31 +86,17 @@ use crate::diagnostics::Span;
 
 /// Fuses every combinator chain in the program.
 pub fn run(program: &mut Program) {
-    let keys: Vec<Option<String>> = program
-        .funcs
-        .iter()
-        .map(|f| f.intrinsic_key().map(str::to_string))
-        .collect();
-    let names: Vec<(String, String, Span)> = program
-        .funcs
-        .iter()
-        .map(|f| (f.symbol.clone(), f.debug_name.clone(), f.span))
-        .collect();
-    let base = program.funcs.len();
-    let mut minted: Vec<Func> = Vec::new();
-    for func in &mut program.funcs {
-        let Some(body) = func.body_mut() else {
+    for i in program.funcs.ids() {
+        // Out of the table while it is fused, so the walk can mint into it.
+        let Some(mut body) = program.funcs.get_mut(i).take_body() else {
             continue;
         };
         Fuse {
-            keys: &keys,
-            names: &names,
-            base,
-            minted: &mut minted,
+            funcs: &mut program.funcs,
         }
-        .expr(body);
+        .expr(&mut body);
+        program.funcs.get_mut(i).set_body(body);
     }
-    program.funcs.extend(minted);
 }
 
 /// Which `core/list` combinator a call is.
@@ -170,10 +157,7 @@ impl Combinator {
 }
 
 struct Fuse<'a> {
-    keys: &'a [Option<String>],
-    names: &'a [(String, String, Span)],
-    base: usize,
-    minted: &'a mut Vec<Func>,
+    funcs: &'a mut Dense<FuncIdx, Func>,
 }
 
 impl Fuse<'_> {
@@ -189,16 +173,9 @@ impl Fuse<'_> {
             return None;
         };
         let idx = *func;
-        // A minted instance is not in `keys`, and a chain fuses one stage at a
-        // time — so the instance this pass wrote a moment ago is exactly the
-        // one the next stage has to recognise.
-        let key = match self.keys.get(idx.index()) {
-            Some(k) => k.as_deref()?,
-            None => self
-                .minted
-                .get(idx.index().checked_sub(self.base)?)?
-                .intrinsic_key()?,
-        };
+        // A chain fuses one stage at a time, so the instance this pass minted a
+        // moment ago is exactly the one the next stage has to recognise.
+        let key = self.funcs.get(idx).intrinsic_key()?;
         Some((key, idx, args))
     }
 
@@ -367,19 +344,10 @@ impl Fuse<'_> {
     /// of the arguments at the call site, which is why the instance never needs
     /// to have existed before.
     fn mint(&mut self, combinator: Combinator, from: FuncIdx, params: Vec<Ty>, ret: Ty) -> FuncIdx {
-        let idx =
-            FuncIdx(u32::try_from(self.base.saturating_add(self.minted.len())).unwrap_or(u32::MAX));
-        let (symbol, debug_name, span) = match self.names.get(from.index()) {
-            Some(n) => n.clone(),
-            None => match self.minted.get(from.index().saturating_sub(self.base)) {
-                Some(f) => (f.symbol.clone(), f.debug_name.clone(), f.span),
-                None => (
-                    combinator.key().into(),
-                    combinator.key().into(),
-                    Span::default(),
-                ),
-            },
-        };
+        let f = self.funcs.get(from);
+        let (symbol, debug_name, span) = (f.symbol.clone(), f.debug_name.clone(), f.span);
+        // The id the push below mints.
+        let n = self.funcs.len();
         let locals: typed::Locals = params
             .into_iter()
             .enumerate()
@@ -389,8 +357,8 @@ impl Fuse<'_> {
                 span,
             })
             .collect();
-        self.minted.push(Func {
-            symbol: format!("{symbol}$fused{}", idx.index()),
+        self.funcs.push(Func {
+            symbol: format!("{symbol}$fused{n}"),
             debug_name,
             params: locals.ids().collect(),
             locals,
@@ -398,8 +366,7 @@ impl Fuse<'_> {
             ret,
             desc: None,
             span,
-        });
-        idx
+        })
     }
 }
 
@@ -562,11 +529,12 @@ fn readonly(e: &Expr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::run;
+    use crate::compiler::middle::func_id;
     use crate::compiler::middle::local_id;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{Expr, ExprKind, Local, Stmt};
-    use crate::compiler::semantics::types::{FuncIdx, Ty};
+    use crate::compiler::semantics::types::Ty;
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
 
@@ -593,7 +561,7 @@ mod tests {
     fn call(f: u32, args: Vec<Expr>, ty: Ty) -> Expr {
         e(
             ExprKind::CallFunc {
-                func: FuncIdx(f),
+                func: func_id(f),
                 args,
             },
             ty,
@@ -633,8 +601,8 @@ mod tests {
         }];
         funcs.extend(keys.iter().map(|k| intrinsic(k)));
         Program {
-            funcs,
-            roots: ProgramRoots::Main(FuncIdx(0)),
+            funcs: funcs.into_iter().collect(),
+            roots: ProgramRoots::Main(func_id(0)),
             descriptors: Vec::new(),
             desc_modules: Vec::new(),
             desc_index: HashMap::default(),
@@ -679,11 +647,11 @@ mod tests {
         let mut p = program(&["list.map", "list.fold"], fold);
         run(&mut p);
 
-        let body = p.funcs[0].body().unwrap();
+        let body = p.funcs.as_slice()[0].body().unwrap();
         let ExprKind::CallFunc { func, args } = &body.kind else {
             panic!("still a call")
         };
-        assert_eq!(*func, FuncIdx(2), "the fold instance is reused");
+        assert_eq!(*func, func_id(2), "the fold instance is reused");
         assert!(
             matches!(args[0].kind, ExprKind::Local(l) if l == local_id(0)),
             "over the source list"
@@ -731,7 +699,7 @@ mod tests {
         let mut p = program(&["list.filter", "list.fold"], fold);
         run(&mut p);
 
-        let ExprKind::CallFunc { args, .. } = &p.funcs[0].body().unwrap().kind else {
+        let ExprKind::CallFunc { args, .. } = &p.funcs.as_slice()[0].body().unwrap().kind else {
             panic!("still a call")
         };
         let ExprKind::Lambda { body, .. } = &args[1].kind else {
@@ -771,7 +739,7 @@ mod tests {
         );
         let mut p = program(&["list.mapCtx", "list.foldCtx"], fold);
         run(&mut p);
-        let ExprKind::CallFunc { args, .. } = &p.funcs[0].body().unwrap().kind else {
+        let ExprKind::CallFunc { args, .. } = &p.funcs.as_slice()[0].body().unwrap().kind else {
             panic!("still a call")
         };
         assert!(
@@ -804,7 +772,7 @@ mod tests {
         );
         let mut p = program(&["list.map", "list.fold"], fold);
         run(&mut p);
-        let ExprKind::CallFunc { args, .. } = &p.funcs[0].body().unwrap().kind else {
+        let ExprKind::CallFunc { args, .. } = &p.funcs.as_slice()[0].body().unwrap().kind else {
             panic!("still a call")
         };
         assert!(matches!(args[0].kind, ExprKind::CallFunc { .. }));
@@ -828,11 +796,14 @@ mod tests {
         let before = p.funcs.len();
         run(&mut p);
 
-        let ExprKind::CallFunc { func, args } = &p.funcs[0].body().unwrap().kind else {
+        let ExprKind::CallFunc { func, args } = &p.funcs.as_slice()[0].body().unwrap().kind else {
             panic!("still a call")
         };
-        assert_eq!(*func, FuncIdx(before as u32), "a minted instance");
-        assert_eq!(p.funcs[before].intrinsic_key(), Some("list.count"));
+        assert_eq!(*func, func_id(before as u32), "a minted instance");
+        assert_eq!(
+            p.funcs.as_slice()[before].intrinsic_key(),
+            Some("list.count")
+        );
         assert_eq!(args.len(), 2);
         assert!(matches!(args[0].kind, ExprKind::Local(l) if l == local_id(0)));
         assert!(matches!(args[1].kind, ExprKind::Lambda { .. }));
@@ -873,7 +844,7 @@ mod tests {
         run(&mut p);
 
         let mut calls = 0;
-        crate::compiler::semantics::typed::walk(p.funcs[0].body().unwrap(), &mut |x| {
+        crate::compiler::semantics::typed::walk(p.funcs.as_slice()[0].body().unwrap(), &mut |x| {
             if matches!(x.kind, ExprKind::CallFunc { .. }) {
                 calls += 1;
             }

@@ -67,6 +67,22 @@ pub struct Func {
     pub span: Span,
 }
 
+/// A function with no name and no body yet.
+impl Default for Func {
+    fn default() -> Func {
+        Func {
+            symbol: String::new(),
+            debug_name: String::new(),
+            params: Vec::new(),
+            locals: typed::Locals::new(),
+            kind: FuncKind::Unbuilt,
+            ret: Ty::UNIT,
+            desc: None,
+            span: Span::default(),
+        }
+    }
+}
+
 impl Func {
     pub fn body(&self) -> Option<&typed::Expr> {
         match &self.kind {
@@ -211,7 +227,7 @@ impl ProgramRoots {
 }
 
 pub struct Program {
-    pub funcs: Vec<Func>,
+    pub funcs: Dense<FuncIdx, Func>,
     pub roots: ProgramRoots,
     pub descriptors: Vec<Desc>,
     /// The path of the module that declares each descriptor's type, at the
@@ -307,7 +323,7 @@ pub struct Program {
     /// in [`Program::funcs`], with none for a function that isn't generic. Only
     /// `buri test --coverage=mcdc` reads it, to name the instantiation a branch
     /// ran in and to read decisions off the code the probes go in.
-    pub instances: HashMap<usize, (FnId, Vec<Ty>)>,
+    pub instances: HashMap<FuncIdx, (FnId, Vec<Ty>)>,
 }
 
 /// A program built for a repository platform, as far as its `js` file is
@@ -342,7 +358,7 @@ pub struct Hosted {
 /// answers in. The members are symbols, which is what the backend moves.
 #[derive(Clone, Debug)]
 pub struct Chunk {
-    pub root: usize,
+    pub root: FuncIdx,
     /// `root` included. Every function that leaves the artifact for this file.
     pub members: Vec<String>,
 }
@@ -545,14 +561,12 @@ enum Key {
 pub struct Monomorphizer<'a> {
     checked: &'a Checked,
     diags: &'a mut Diagnostics,
-    /// The functions built so far, by slot. Each is built once, off `queue`,
-    /// and every slot `enqueue` mints reaches it.
-    funcs: std::collections::BTreeMap<usize, Func>,
-    /// How many function slots there are.
-    slots: usize,
-    index: HashMap<Key, usize>,
-    /// A requested function: its key, its slot, and its symbol and name.
-    queue: Vec<(Key, usize, Func)>,
+    /// Every function requested so far. `enqueue` pushes a head, named and
+    /// unbuilt, and each is built once, off `queue`.
+    funcs: Dense<FuncIdx, Func>,
+    index: HashMap<Key, FuncIdx>,
+    /// A requested function still to build: its key and its slot.
+    queue: Vec<(Key, FuncIdx)>,
     /// The descriptors made so far, by slot: each slot is reserved before
     /// its type's parts are described, so a recursive type terminates.
     descriptors: std::collections::BTreeMap<usize, Desc>,
@@ -604,8 +618,7 @@ pub fn run(
     let mut m = Monomorphizer {
         checked,
         diags,
-        funcs: std::collections::BTreeMap::new(),
-        slots: 0,
+        funcs: Dense::new(),
         index: HashMap::default(),
         queue: Vec::new(),
         descriptors: std::collections::BTreeMap::new(),
@@ -624,7 +637,7 @@ pub fn run(
     };
 
     let program_roots = match roots {
-        Roots::Main(f) => ProgramRoots::Main(FuncIdx(m.entry(f) as u32)),
+        Roots::Main(f) => ProgramRoots::Main(m.entry(f)),
         Roots::Tests | Roots::TestsIn(_) => {
             let mut tests = Vec::new();
             for (i, case) in m.checked.tests.iter().enumerate() {
@@ -638,10 +651,10 @@ pub fn run(
                         continue;
                     }
                 }
-                let idx = m.request(Key::Test(i, Box::new(case.clone())));
+                let func = m.request(Key::Test(i, Box::new(case.clone())));
                 tests.push(TestEntry {
                     name: case.name.clone(),
-                    func: FuncIdx(idx as u32),
+                    func,
                     module,
                     span: case.span,
                 });
@@ -652,11 +665,13 @@ pub fn run(
 
     // Instantiation order follows the worklist, which follows source order, so
     // two builds of the same commit produce identical output.
-    while let Some((key, slot, mut func)) = m.queue.pop() {
+    while let Some((key, slot)) = m.queue.pop() {
+        // Out of the table while it is built, because building requests more.
+        let mut func = std::mem::take(m.funcs.get_mut(slot));
         m.build(key, slot, &mut func);
-        m.funcs.insert(slot, func);
+        *m.funcs.get_mut(slot) = func;
     }
-    let mut funcs: Vec<Func> = std::mem::take(&mut m.funcs).into_values().collect();
+    let mut funcs = std::mem::take(&mut m.funcs);
 
     let shapes = Shapes {
         option: checked.known_types.get("Option").copied(),
@@ -687,7 +702,7 @@ pub fn run(
         let style_module = checked
             .classify_fns
             .map(|(classify, _)| checked.tables.fn_info(classify).module);
-        let mut skipped: crate::hash::Set<usize> = crate::hash::Set::default();
+        let mut skipped: crate::hash::Set<FuncIdx> = crate::hash::Set::default();
         let mut classifiers = Vec::new();
         for (key, slot) in &m.index {
             if let Key::Fn(f, _) = key {
@@ -699,7 +714,7 @@ pub fn run(
                     .classify_fns
                     .is_some_and(|(a, b)| *f == a || *f == b)
                 {
-                    classifiers.push(FuncIdx(*slot as u32));
+                    classifiers.push(*slot);
                 }
             }
         }
@@ -709,7 +724,7 @@ pub fn run(
             Roots::Main(_) => classifiers,
             Roots::Tests | Roots::TestsIn(_) => Vec::new(),
         };
-        for (slot, f) in funcs.iter_mut().enumerate() {
+        for (slot, f) in funcs.entries_mut() {
             if let (FuncKind::Body(body), false) = (&mut f.kind, skipped.contains(&slot)) {
                 crate::compiler::semantics::styles::survey(
                     body,
@@ -731,7 +746,7 @@ pub fn run(
     // the compiler. A clean program's symbols are a claim this pass makes, and
     // this is where it is checked.
     if !m.diags.has_errors() {
-        let clash = one_symbol_per_function(&funcs);
+        let clash = one_symbol_per_function(funcs.as_slice());
         invariant_with(clash.is_none(), || {
             clash.map_or_else(String::new, |clash| {
                 format!(
@@ -880,7 +895,7 @@ impl<'a> Monomorphizer<'a> {
     ///
     /// An entry with no host parameter is the root itself, as every entry was
     /// before hosts.
-    fn entry(&mut self, f: FnId) -> usize {
+    fn entry(&mut self, f: FnId) -> FuncIdx {
         let key = Key::Fn(f, Vec::new());
         let Some(host) = self.host_parameter(f) else {
             return self.request(key);
@@ -940,29 +955,17 @@ impl<'a> Monomorphizer<'a> {
         );
         let mut args = vec![value];
         args.extend(forwarded);
-        let call = typed::Expr::new(
-            ExprKind::CallFunc {
-                func: FuncIdx(inner as u32),
-                args,
-            },
-            info.ret,
+        let call = typed::Expr::new(ExprKind::CallFunc { func: inner, args }, info.ret, span);
+        self.funcs.push(Func {
+            symbol,
+            debug_name: format!("{debug_name}, building its host"),
+            params: rest.ids().collect(),
+            locals: rest,
+            kind: FuncKind::Body(call),
+            ret: info.ret,
+            desc: None,
             span,
-        );
-        let slot = self.mint();
-        self.funcs.insert(
-            slot,
-            Func {
-                symbol,
-                debug_name: format!("{debug_name}, building its host"),
-                params: rest.ids().collect(),
-                locals: rest,
-                kind: FuncKind::Body(call),
-                ret: info.ret,
-                desc: None,
-                span,
-            },
-        );
-        slot
+        })
     }
 
     /// The host type an entry takes, when it takes one: its first parameter is
@@ -996,7 +999,7 @@ impl<'a> Monomorphizer<'a> {
         production.then_some(*con)
     }
 
-    fn request(&mut self, key: Key) -> usize {
+    fn request(&mut self, key: Key) -> FuncIdx {
         if let Some(i) = self.index.get(&key) {
             return *i;
         }
@@ -1019,18 +1022,11 @@ impl<'a> Monomorphizer<'a> {
         }
     }
 
-    /// A new function slot.
-    fn mint(&mut self) -> usize {
-        let slot = self.slots;
-        self.slots = slot.saturating_add(1);
-        slot
-    }
-
-    /// Mints `key`'s slot and queues it to be built.
-    fn enqueue(&mut self, key: Key, head: Func) -> usize {
-        let slot = self.mint();
+    /// Puts `key`'s head in the table and queues it to be built.
+    fn enqueue(&mut self, key: Key, head: Func) -> FuncIdx {
+        let slot = self.funcs.push(head);
         self.index.insert(key.clone(), slot);
-        self.queue.push((key, slot, head));
+        self.queue.push((key, slot));
         slot
     }
 
@@ -1276,7 +1272,7 @@ fn instantiation_symbol_hashed(taken: &mut HashMap<String, u64>, base: &str, has
 }
 
 impl Monomorphizer<'_> {
-    fn build(&mut self, key: Key, slot: usize, f: &mut Func) {
+    fn build(&mut self, key: Key, slot: FuncIdx, f: &mut Func) {
         match key {
             Key::Fn(id, targs) => self.build_fn(id, targs, f),
             Key::CtxCtor(c) => {
@@ -1352,7 +1348,7 @@ impl Monomorphizer<'_> {
     /// A block that aborts never reaches the hook, which is the order a reader
     /// wants: the failed assertion is the failure, and an unused plan is a
     /// consequence of stopping early rather than a second complaint.
-    fn leaving(&self, index: usize, slot: usize, body: typed::Expr) -> typed::Expr {
+    fn leaving(&self, index: usize, slot: FuncIdx, body: typed::Expr) -> typed::Expr {
         let span = body.span;
         let leave = self.hook("test.leave", index, Ty::UNIT, span);
         // And then: is there another order to try? `TestTasks.everyOrder` runs
@@ -1376,7 +1372,7 @@ impl Monomorphizer<'_> {
         // that kept it goes round again.
         let again = typed::Expr::new(
             ExprKind::CallFunc {
-                func: FuncIdx(slot as u32),
+                func: slot,
                 args: Vec::new(),
             },
             Ty::UNIT,
@@ -1978,10 +1974,7 @@ impl Monomorphizer<'_> {
                 }
                 let args = self.rewrite_all(args, targs);
                 let slot = self.request(Key::Fn(id, resolved));
-                ExprKind::CallFunc {
-                    func: FuncIdx(slot as u32),
-                    args,
-                }
+                ExprKind::CallFunc { func: slot, args }
             }
             ExprKind::CallTrait {
                 trait_id,
@@ -2009,12 +2002,12 @@ impl Monomorphizer<'_> {
             ExprKind::FnRef(typed::Callee { id, targs: ft }) => {
                 let resolved: Vec<Ty> = ft.iter().map(|t| self.sub(t, targs)).collect();
                 let slot = self.request(Key::Fn(id, resolved));
-                ExprKind::FuncRef(FuncIdx(slot as u32))
+                ExprKind::FuncRef(slot)
             }
             ExprKind::CtxCall { decl } => {
                 let slot = self.request(Key::CtxCtor(decl));
                 ExprKind::CallFunc {
-                    func: FuncIdx(slot as u32),
+                    func: slot,
                     args: Vec::new(),
                 }
             }
@@ -2361,10 +2354,7 @@ impl Monomorphizer<'_> {
             };
 
         let slot = self.request(Key::Fn(fid, instance_targs));
-        ExprKind::CallFunc {
-            func: FuncIdx(slot as u32),
-            args,
-        }
+        ExprKind::CallFunc { func: slot, args }
     }
 
     /// One template hole, rendered where the type is not one a backend renders
@@ -2792,8 +2782,8 @@ impl Monomorphizer<'_> {
         let from = self.request(Key::Fn(of, vec![k, Ty::UNIT]));
         Desc::Members {
             list,
-            to: FuncIdx(to as u32),
-            from: FuncIdx(from as u32),
+            to,
+            from,
         }
     }
 

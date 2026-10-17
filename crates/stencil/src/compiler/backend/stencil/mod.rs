@@ -449,7 +449,12 @@ impl Backend for Stencil {
                 Root::Tests(tests.iter().map(|t| t.func.index()).collect())
             }
         };
-        let members: Vec<&[usize]> = lowered.units.iter().map(|u| u.funcs.as_slice()).collect();
+        let member_slots: Vec<Vec<usize>> = lowered
+            .units
+            .iter()
+            .map(|u| u.funcs.iter().map(|f| f.index()).collect())
+            .collect();
+        let members: Vec<&[usize]> = member_slots.iter().map(Vec::as_slice).collect();
 
         // Whole-program, and therefore computed here rather than inside the
         // loop. A frame-threaded call site needs its *callee's* frame layout,

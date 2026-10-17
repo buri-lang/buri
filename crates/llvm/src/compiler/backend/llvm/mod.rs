@@ -567,12 +567,17 @@ fn emit_unit(
     // This unit's functions, ascending — the same list, in the same order,
     // that a filter over the whole program yielded. An object leaves out the
     // ones nothing names (`For`).
-    let members: Vec<usize> = this
+    let members: Vec<FuncIdx> = this
         .funcs
         .iter()
         .copied()
-        .filter(|i| program.funcs.get(*i).is_some_and(|f| f.code().is_some()))
-        .filter(|i| !linker || shared.named.get(*i).copied().unwrap_or(true))
+        .filter(|i| {
+            program
+                .funcs
+                .get(i.index())
+                .is_some_and(|f| f.code().is_some())
+        })
+        .filter(|i| !linker || shared.named.get(i.index()).copied().unwrap_or(true))
         .collect();
     // The entry point goes in the unit that owns `main`, so a program is
     // one `_start`-adjacent symbol and the other units are libraries. A test
@@ -607,7 +612,7 @@ fn emit_unit(
         .set_triple(&inkwell::targets::TargetTriple::create(&shared.triple));
     emitter.module.set_data_layout(&worker.data_layout);
     for member in &members {
-        emitter.define(FuncIdx(*member as u32));
+        emitter.define(*member);
     }
     if owns_entry {
         match root {
@@ -635,6 +640,7 @@ fn emit_unit(
     emitter.finish();
     optimize(&emitter.module, &worker.machine, opts.profile);
     if linker {
+        let members: Vec<usize> = members.iter().map(|f| f.index()).collect();
         emitter.prune(&members, &shared.kept);
     }
     let bytes = match render(&emitter.module, &worker.machine) {
