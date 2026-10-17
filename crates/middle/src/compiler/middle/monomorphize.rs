@@ -2780,11 +2780,7 @@ impl Monomorphizer<'_> {
             .or_ice("`core/indexset` declares `of`");
         let to = self.request(Key::Fn(to_list, vec![k, Ty::UNIT]));
         let from = self.request(Key::Fn(of, vec![k, Ty::UNIT]));
-        Desc::Members {
-            list,
-            to,
-            from,
-        }
+        Desc::Members { list, to, from }
     }
 
     /// Interns a runtime type descriptor. Field names and variant names are
