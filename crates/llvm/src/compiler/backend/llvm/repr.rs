@@ -53,8 +53,9 @@
 
 use inkwell::context::Context;
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::{ArrayValue, BasicValue, BasicValueEnum, IntValue, PointerValue};
+use inkwell::values::{ArrayValue, BasicValueEnum, IntValue};
 
+use super::build::At;
 use crate::compiler::backend::counts::{Counted, Counts, Site};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{
@@ -730,37 +731,10 @@ pub fn access_align(container_align: u32, slot: Slot) -> u32 {
     slot.ty.align().min(container_align).min(from_offset).max(1)
 }
 
-/// A `getelementptr inbounds i8, ptr %base, i64 offset`.
-///
-/// `inbounds` without exception, per CODEGEN-LLVM.md §3.4: every projection in
-/// this language is a field of a known layout or an index a bounds check has
-/// already turned into an `Option`, so the premise is enforced by the type
-/// system rather than assumed away.
-pub fn byte_offset<'ctx>(
-    ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
-    base: PointerValue<'ctx>,
-    offset: i64,
-    name: &str,
-) -> PointerValue<'ctx> {
-    if offset == 0 {
-        return base;
-    }
-    let index = ctx.i64_type().const_int(offset as u64, true);
-    // SAFETY: `build_in_bounds_gep` is `unsafe` in inkwell because it cannot
-    // check the index against the pointee type. The offset here comes from the
-    // layout table for the very type this pointer points at.
-    unsafe {
-        builder
-            .build_in_bounds_gep(ctx.i8_type(), base, &[index], name)
-            .unwrap_or(base)
-    }
-}
-
 /// Assembles a register value from its slot values.
 pub fn assemble<'ctx>(
     ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
+    b: At<'ctx>,
     slots: &[Slot],
     values: &[BasicValueEnum<'ctx>],
 ) -> BasicValueEnum<'ctx> {
@@ -773,10 +747,7 @@ pub fn assemble<'ctx>(
                 _ => crate::diagnostics::ice("two slots or more are a struct"),
             };
             for (i, v) in vals.iter().enumerate() {
-                acc = builder
-                    .build_insert_value(acc, *v, i as u32, "agg")
-                    .or_ice("the pieces fit their slots")
-                    .into_struct_value();
+                acc = b.insert_field(acc, *v, i as u32, "agg");
             }
             acc.into()
         }
@@ -785,11 +756,11 @@ pub fn assemble<'ctx>(
 
 /// Takes a register value apart into its slot values.
 pub fn disassemble<'ctx>(
-    builder: &inkwell::builder::Builder<'ctx>,
+    b: At<'ctx>,
     slots: &[Slot],
     value: BasicValueEnum<'ctx>,
 ) -> Vec<BasicValueEnum<'ctx>> {
-    disassemble_range(builder, slots, value, 0..slots.len())
+    disassemble_range(b, slots, value, 0..slots.len())
 }
 
 /// The slot values at `range` of a register value, and no others.
@@ -799,7 +770,7 @@ pub fn disassemble<'ctx>(
 /// derived `Equal` on a 200-field struct read 400 fields of 600 slots each,
 /// 240k instructions of which all but three per read were dead.
 pub fn disassemble_range<'ctx>(
-    builder: &inkwell::builder::Builder<'ctx>,
+    b: At<'ctx>,
     slots: &[Slot],
     value: BasicValueEnum<'ctx>,
     range: std::ops::Range<usize>,
@@ -810,9 +781,7 @@ pub fn disassemble_range<'ctx>(
         1 => range.map(|_| value).collect(),
         _ => range
             .map(|i| match value {
-                BasicValueEnum::StructValue(s) => builder
-                    .build_extract_value(s, i as u32, "slot")
-                    .unwrap_or(value),
+                BasicValueEnum::StructValue(s) => b.extract(s, i as u32, "slot"),
                 other => other,
             })
             .collect(),
@@ -822,64 +791,30 @@ pub fn disassemble_range<'ctx>(
 /// A slot's value as an integer of its own width, for packing into a blob.
 pub fn slot_to_bits<'ctx>(
     ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
+    b: At<'ctx>,
     slot: Slot,
     value: BasicValueEnum<'ctx>,
 ) -> IntValue<'ctx> {
-    let bits = slot.ty.size().saturating_mul(8);
     let int = int_type(ctx, slot.ty.size());
     match value {
-        BasicValueEnum::PointerValue(p) => builder
-            .build_ptr_to_int(p, ctx.i64_type(), "p2i")
-            .unwrap_or_else(|_| int.const_zero()),
-        BasicValueEnum::FloatValue(f) => {
-            let as_int = builder
-                .build_bit_cast(f, int, "f2i")
-                .unwrap_or_else(|_| int.const_zero().into());
-            as_int.try_into().unwrap_or_else(|_| int.const_zero())
-        }
-        BasicValueEnum::IntValue(i) => {
-            if i.get_type().get_bit_width() == bits {
-                i
-            } else {
-                builder
-                    .build_int_z_extend_or_bit_cast(i, int, "widen")
-                    .unwrap_or_else(|_| int.const_zero())
-            }
-        }
-        other => {
-            let _ = other;
-            int.const_zero()
-        }
+        BasicValueEnum::PointerValue(p) => b.ptr_to_int(p, ctx.i64_type(), "p2i"),
+        BasicValueEnum::FloatValue(f) => b.bitcast(f, int, "f2i").into_int_value(),
+        BasicValueEnum::IntValue(i) => b.zext(i, int, "widen"),
+        _ => int.const_zero(),
     }
 }
 
 /// The inverse of [`slot_to_bits`].
 pub fn slot_from_bits<'ctx>(
     ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
+    b: At<'ctx>,
     slot: Slot,
     bits: IntValue<'ctx>,
 ) -> BasicValueEnum<'ctx> {
-    let want = slot_type(ctx, slot.ty);
-    match want {
-        BasicTypeEnum::PointerType(p) => builder
-            .build_int_to_ptr(bits, p, "i2p")
-            .map(|v| v.as_basic_value_enum())
-            .unwrap_or_else(|_| p.const_null().into()),
-        BasicTypeEnum::FloatType(f) => builder
-            .build_bit_cast(bits, f, "i2f")
-            .unwrap_or_else(|_| f.const_zero().into()),
-        BasicTypeEnum::IntType(i) => {
-            if bits.get_type().get_bit_width() == i.get_bit_width() {
-                bits.into()
-            } else {
-                builder
-                    .build_int_truncate_or_bit_cast(bits, i, "narrow")
-                    .map(|v| v.as_basic_value_enum())
-                    .unwrap_or_else(|_| i.const_zero().into())
-            }
-        }
+    match slot_type(ctx, slot.ty) {
+        BasicTypeEnum::PointerType(p) => b.int_to_ptr(bits, p, "i2p").into(),
+        BasicTypeEnum::FloatType(f) => b.bitcast(bits, f, "i2f"),
+        BasicTypeEnum::IntType(i) => b.trunc(bits, i, "narrow").into(),
         other => other.const_zero(),
     }
 }
@@ -897,7 +832,7 @@ pub fn slot_from_bits<'ctx>(
 /// bytes there are still zero.
 pub fn put_in_blob<'ctx>(
     ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
+    b: At<'ctx>,
     blob: ArrayValue<'ctx>,
     at: u32,
     slot: Slot,
@@ -905,8 +840,8 @@ pub fn put_in_blob<'ctx>(
 ) -> ArrayValue<'ctx> {
     let each = element_bytes(blob);
     let mut blob = blob;
-    for (offset, piece) in pieces_of(ctx, builder, slot, value, each) {
-        blob = put_piece(ctx, builder, blob, each, at.saturating_add(offset), piece);
+    for (offset, piece) in pieces_of(ctx, b, slot, value, each) {
+        blob = put_piece(ctx, b, blob, each, at.saturating_add(offset), piece);
     }
     blob
 }
@@ -914,7 +849,7 @@ pub fn put_in_blob<'ctx>(
 /// The value held as `want` at byte `at` of a wide payload area.
 pub fn take_from_blob<'ctx>(
     ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
+    b: At<'ctx>,
     blob: ArrayValue<'ctx>,
     at: u32,
     want: Slot,
@@ -926,14 +861,14 @@ pub fn take_from_blob<'ctx>(
             let mut out = array.const_zero();
             for k in 0..array.len() {
                 let start = at.saturating_add(k.saturating_mul(inner));
-                let element = take_int(ctx, builder, blob, each, start, inner);
-                out = insert(builder, out, element.into(), k);
+                let element = take_int(ctx, b, blob, each, start, inner);
+                out = b.insert_element(out, element, k, "blob");
             }
             out.into()
         }
         _ => {
-            let bits = take_int(ctx, builder, blob, each, at, want.ty.size());
-            slot_from_bits(ctx, builder, want, bits)
+            let bits = take_int(ctx, b, blob, each, at, want.ty.size());
+            slot_from_bits(ctx, b, want, bits)
         }
     }
 }
@@ -949,7 +884,7 @@ fn element_bytes(blob: ArrayValue<'_>) -> u32 {
 /// `value` as integers of at most `each` bytes, with their byte offsets in it.
 fn pieces_of<'ctx>(
     ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
+    b: At<'ctx>,
     slot: Slot,
     value: BasicValueEnum<'ctx>,
     each: u32,
@@ -959,20 +894,17 @@ fn pieces_of<'ctx>(
             let inner = element_bytes(array);
             let mut out = Vec::new();
             for k in 0..array.get_type().len() {
-                let element = builder
-                    .build_extract_value(array, k, "blob.e")
-                    .or_ice("a blob's elements are in range")
-                    .into_int_value();
+                let element = b.extract(array, k, "blob.e").into_int_value();
                 let base = k.saturating_mul(inner);
-                for (offset, piece) in split(ctx, builder, element, inner, each) {
+                for (offset, piece) in split(ctx, b, element, inner, each) {
                     out.push((base.saturating_add(offset), piece));
                 }
             }
             out
         }
         other => {
-            let bits = slot_to_bits(ctx, builder, slot, other);
-            split(ctx, builder, bits, slot.ty.size(), each)
+            let bits = slot_to_bits(ctx, b, slot, other);
+            split(ctx, b, bits, slot.ty.size(), each)
         }
     }
 }
@@ -980,7 +912,7 @@ fn pieces_of<'ctx>(
 /// An integer of `bytes` bytes as pieces of at most `each` bytes.
 fn split<'ctx>(
     ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
+    b: At<'ctx>,
     bits: IntValue<'ctx>,
     bytes: u32,
     each: u32,
@@ -991,12 +923,9 @@ fn split<'ctx>(
     (0..bytes)
         .step_by(each as usize)
         .map(|offset| {
-            let moved = shift_right(builder, bits, offset);
+            let moved = shift_right(b, bits, offset);
             let narrow = int_type(ctx, each.min(bytes.saturating_sub(offset)));
-            let piece = builder
-                .build_int_truncate_or_bit_cast(moved, narrow, "blob.cut")
-                .unwrap_or_else(|_| narrow.const_zero());
-            (offset, piece)
+            (offset, b.trunc(moved, narrow, "blob.cut"))
         })
         .collect()
 }
@@ -1005,7 +934,7 @@ fn split<'ctx>(
 /// `at`. A piece that fills an element whole replaces it.
 fn put_piece<'ctx>(
     ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
+    b: At<'ctx>,
     blob: ArrayValue<'ctx>,
     each: u32,
     at: u32,
@@ -1015,17 +944,14 @@ fn put_piece<'ctx>(
     let within = at.checked_rem(each).unwrap_or(0);
     let bytes = piece.get_type().get_bit_width().checked_div(8).unwrap_or(0);
     if within == 0 && bytes == each {
-        return insert(builder, blob, piece.into(), index);
+        return b.insert_element(blob, piece, index, "blob");
     }
-    let element = int_type(ctx, each);
-    let wide = builder
-        .build_int_z_extend_or_bit_cast(piece, element, "blob.w")
-        .unwrap_or_else(|_| element.const_zero());
-    let low = shift_left(builder, wide, within);
-    let mut blob = or_into(builder, blob, index, low);
+    let wide = b.zext(piece, int_type(ctx, each), "blob.w");
+    let low = shift_left(b, wide, within);
+    let mut blob = or_into(b, blob, index, low);
     if within.saturating_add(bytes) > each {
-        let high = shift_right(builder, wide, each.saturating_sub(within));
-        blob = or_into(builder, blob, index.saturating_add(1), high);
+        let high = shift_right(b, wide, each.saturating_sub(within));
+        blob = or_into(b, blob, index.saturating_add(1), high);
     }
     blob
 }
@@ -1033,31 +959,29 @@ fn put_piece<'ctx>(
 /// The `bytes` bytes at byte `at`, as one integer.
 fn take_int<'ctx>(
     ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
+    b: At<'ctx>,
     blob: ArrayValue<'ctx>,
     each: u32,
     at: u32,
     bytes: u32,
 ) -> IntValue<'ctx> {
     if bytes <= each {
-        return take_piece(ctx, builder, blob, each, at, bytes);
+        return take_piece(ctx, b, blob, each, at, bytes);
     }
     let whole = int_type(ctx, bytes);
     let mut acc = whole.const_zero();
     for offset in (0..bytes).step_by(each as usize) {
         let piece = take_piece(
             ctx,
-            builder,
+            b,
             blob,
             each,
             at.saturating_add(offset),
             each.min(bytes.saturating_sub(offset)),
         );
-        let wide = builder
-            .build_int_z_extend_or_bit_cast(piece, whole, "blob.w")
-            .unwrap_or_else(|_| whole.const_zero());
-        let placed = shift_left(builder, wide, offset);
-        acc = builder.build_or(acc, placed, "blob.or").unwrap_or(acc);
+        let wide = b.zext(piece, whole, "blob.w");
+        let placed = shift_left(b, wide, offset);
+        acc = b.or(acc, placed, "blob.or");
     }
     acc
 }
@@ -1066,7 +990,7 @@ fn take_int<'ctx>(
 /// element, or from the two it straddles.
 fn take_piece<'ctx>(
     ctx: &'ctx Context,
-    builder: &inkwell::builder::Builder<'ctx>,
+    b: At<'ctx>,
     blob: ArrayValue<'ctx>,
     each: u32,
     at: u32,
@@ -1074,91 +998,51 @@ fn take_piece<'ctx>(
 ) -> IntValue<'ctx> {
     let index = at.checked_div(each).unwrap_or(0);
     let within = at.checked_rem(each).unwrap_or(0);
-    let element = int_type(ctx, each);
-    let first = extract(builder, blob, index, element);
+    let first = b.extract(blob, index, "blob.e").into_int_value();
     if within == 0 && bytes == each {
         return first;
     }
-    let mut bits = shift_right(builder, first, within);
+    let mut bits = shift_right(b, first, within);
     if within.saturating_add(bytes) > each {
-        let next = extract(builder, blob, index.saturating_add(1), element);
-        let high = shift_left(builder, next, each.saturating_sub(within));
-        bits = builder.build_or(bits, high, "blob.or").unwrap_or(bits);
+        let next = b
+            .extract(blob, index.saturating_add(1), "blob.e")
+            .into_int_value();
+        let high = shift_left(b, next, each.saturating_sub(within));
+        bits = b.or(bits, high, "blob.or");
     }
-    let narrow = int_type(ctx, bytes);
-    builder
-        .build_int_truncate_or_bit_cast(bits, narrow, "blob.cut")
-        .unwrap_or(bits)
+    b.trunc(bits, int_type(ctx, bytes), "blob.cut")
 }
 
 /// `bits << bytes * 8`, or `bits` itself for no shift.
-fn shift_left<'ctx>(
-    builder: &inkwell::builder::Builder<'ctx>,
-    bits: IntValue<'ctx>,
-    bytes: u32,
-) -> IntValue<'ctx> {
+fn shift_left<'ctx>(b: At<'ctx>, bits: IntValue<'ctx>, bytes: u32) -> IntValue<'ctx> {
     if bytes == 0 {
         return bits;
     }
     let by = bits
         .get_type()
         .const_int(u64::from(bytes).saturating_mul(8), false);
-    builder
-        .build_left_shift(bits, by, "blob.shl")
-        .unwrap_or(bits)
+    b.shl(bits, by, "blob.shl")
 }
 
 /// `bits >> bytes * 8`, logical, or `bits` itself for no shift.
-fn shift_right<'ctx>(
-    builder: &inkwell::builder::Builder<'ctx>,
-    bits: IntValue<'ctx>,
-    bytes: u32,
-) -> IntValue<'ctx> {
+fn shift_right<'ctx>(b: At<'ctx>, bits: IntValue<'ctx>, bytes: u32) -> IntValue<'ctx> {
     if bytes == 0 {
         return bits;
     }
     let by = bits
         .get_type()
         .const_int(u64::from(bytes).saturating_mul(8), false);
-    builder
-        .build_right_shift(bits, by, false, "blob.shr")
-        .unwrap_or(bits)
-}
-
-/// Element `index` of a wide payload area.
-fn extract<'ctx>(
-    builder: &inkwell::builder::Builder<'ctx>,
-    blob: ArrayValue<'ctx>,
-    index: u32,
-    element: inkwell::types::IntType<'ctx>,
-) -> IntValue<'ctx> {
-    match builder.build_extract_value(blob, index, "blob.e") {
-        Ok(BasicValueEnum::IntValue(i)) => i,
-        _ => element.const_zero(),
-    }
-}
-
-/// The area with element `index` replaced by `value`.
-fn insert<'ctx>(
-    builder: &inkwell::builder::Builder<'ctx>,
-    blob: ArrayValue<'ctx>,
-    value: BasicValueEnum<'ctx>,
-    index: u32,
-) -> ArrayValue<'ctx> {
-    builder
-        .build_insert_value(blob, value, index, "blob")
-        .map(|v| v.into_array_value())
-        .unwrap_or(blob)
+    b.lshr(bits, by, "blob.shr")
 }
 
 /// The area with `bits` ored into element `index`.
 fn or_into<'ctx>(
-    builder: &inkwell::builder::Builder<'ctx>,
+    b: At<'ctx>,
     blob: ArrayValue<'ctx>,
     index: u32,
     bits: IntValue<'ctx>,
 ) -> ArrayValue<'ctx> {
-    let current = extract(builder, blob, index, bits.get_type());
-    let merged = builder.build_or(current, bits, "blob.or").unwrap_or(bits);
-    insert(builder, blob, merged.into(), index)
+    let current = b.extract(blob, index, "blob.e").into_int_value();
+    let merged = b.or(current, bits, "blob.or");
+    b.insert_element(blob, merged, index, "blob")
 }

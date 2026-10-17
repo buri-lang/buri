@@ -5,16 +5,15 @@
 //! alignment is not a power of two. Here both are types instead of checks:
 //!
 //!  * an [`At`] is the builder after it has been positioned, and the only way
-//!    to get one is to position it ([`At::end_of`]) or to find it positioned
-//!    ([`At::already`]). Nothing here clears the position, so every `At`
-//!    stays good;
+//!    to get one is to position it ([`At::end_of`]). Nothing here clears the
+//!    position, so every `At` stays good;
 //!  * an [`Align`] is a power of two by construction.
 //!
 //! So each method answers the value it built, and there is no error to drop
 //! or to turn into an internal error.
 //!
-//! Every `unsafe` block in the emitter's instruction building is in this file.
-//! Each one hands LLVM operands that inkwell already typed, and wraps what
+//! Every `unsafe` block in the LLVM emitter is in this file. Each one hands
+//! LLVM operands that inkwell already typed, and wraps what
 //! LLVM answered in the inkwell type of that instruction's result. A name is
 //! set after the instruction is built ([`named`]), which is what LLVM's own
 //! builder does with the name it is handed.
@@ -26,12 +25,13 @@ use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::llvm_sys::core as llvm;
-use inkwell::llvm_sys::prelude::{LLVMBuilderRef, LLVMValueRef};
-use inkwell::types::{AsTypeRef, BasicType, FunctionType, IntType};
+use inkwell::llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
+use inkwell::llvm_sys::LLVMOpcode;
+use inkwell::types::{AsTypeRef, BasicType, FloatType, FunctionType, IntType, PointerType};
 use inkwell::values::{
-    AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum, CallSiteValue, FloatValue,
-    FunctionValue, InstructionOpcode, InstructionValue, IntValue, MetadataValue, PhiValue,
-    PointerValue,
+    AggregateValue, ArrayValue, AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum,
+    CallSiteValue, FloatValue, FunctionValue, InstructionOpcode, InstructionValue, IntValue,
+    MetadataValue, PhiValue, PointerValue, StructValue,
 };
 use inkwell::{AtomicOrdering, FloatPredicate, IntPredicate};
 
@@ -62,12 +62,17 @@ pub struct At<'ctx> {
     b: &'ctx Builder<'ctx>,
 }
 
-/// Sets `name` on `v` and answers `v`. LLVM drops a name on a constant, as
-/// its builder does when it folds an instruction away.
+/// Sets `name` on `v` and answers `v`, unless LLVM folded the instruction to
+/// a constant: its own builder names only what it inserts, and a constant
+/// can be a function whose name is its symbol.
 fn named(v: LLVMValueRef, name: &str) -> LLVMValueRef {
     // SAFETY: `v` is a value LLVM just answered, and the name is read for
     // `name.len()` bytes with no terminator.
-    unsafe { llvm::LLVMSetValueName2(v, name.as_ptr().cast::<c_char>(), name.len()) };
+    unsafe {
+        if llvm::LLVMIsAConstant(v).is_null() {
+            llvm::LLVMSetValueName2(v, name.as_ptr().cast::<c_char>(), name.len());
+        }
+    }
     v
 }
 
@@ -96,11 +101,6 @@ impl<'ctx> At<'ctx> {
     pub fn end_of(b: &'ctx Builder<'ctx>, block: BasicBlock<'ctx>) -> At<'ctx> {
         b.position_at_end(block);
         At { b }
-    }
-
-    /// `b` where it already is, or `None` if nothing has positioned it.
-    pub fn already(b: &'ctx Builder<'ctx>) -> Option<At<'ctx>> {
-        b.get_insert_block().map(|_| At { b })
     }
 
     fn raw(self) -> LLVMBuilderRef {
@@ -222,6 +222,15 @@ impl<'ctx> At<'ctx> {
         )
     }
 
+    /// An arithmetic (sign-filling) right shift.
+    pub fn ashr(self, l: IntValue<'ctx>, r: IntValue<'ctx>, name: &str) -> IntValue<'ctx> {
+        // SAFETY: as `add`.
+        int(
+            unsafe { llvm::LLVMBuildAShr(self.raw(), l.as_value_ref(), r.as_value_ref(), NONE) },
+            name,
+        )
+    }
+
     pub fn sdiv(self, l: IntValue<'ctx>, r: IntValue<'ctx>, name: &str) -> IntValue<'ctx> {
         // SAFETY: as `add`.
         int(
@@ -285,50 +294,148 @@ impl<'ctx> At<'ctx> {
         )
     }
 
+    /// A cast of `v` to `to`, or `v` itself where it already is one, as
+    /// LLVM's own builder answers: then nothing is built and nothing renamed.
+    fn cast(self, op: LLVMOpcode, v: LLVMValueRef, to: LLVMTypeRef, name: &str) -> LLVMValueRef {
+        // SAFETY: `v` is a value and `to` a type, and each caller pairs them
+        // as `op` requires.
+        unsafe {
+            if llvm::LLVMTypeOf(v) == to {
+                return v;
+            }
+            named(llvm::LLVMBuildCast(self.raw(), op, v, to, NONE), name)
+        }
+    }
+
+    /// A zero extension, or nothing where `v` is already `to`.
     pub fn zext(self, v: IntValue<'ctx>, to: IntType<'ctx>, name: &str) -> IntValue<'ctx> {
-        // SAFETY: `v` is an integer no wider than `to`.
-        int(
-            unsafe { llvm::LLVMBuildZExt(self.raw(), v.as_value_ref(), to.as_type_ref(), NONE) },
+        let v = self.cast(
+            LLVMOpcode::LLVMZExt,
+            v.as_value_ref(),
+            to.as_type_ref(),
             name,
-        )
+        );
+        // SAFETY: an integer cast to an integer type.
+        unsafe { IntValue::new(v) }
     }
 
-    /// A `zext`, or nothing where `v` is already `to`.
-    pub fn zext_or_bitcast(
-        self,
-        v: IntValue<'ctx>,
-        to: IntType<'ctx>,
-        name: &str,
-    ) -> IntValue<'ctx> {
-        let (v, to) = (v.as_value_ref(), to.as_type_ref());
+    /// A sign extension, or nothing where `v` is already `to`.
+    pub fn sext(self, v: IntValue<'ctx>, to: IntType<'ctx>, name: &str) -> IntValue<'ctx> {
+        let v = self.cast(
+            LLVMOpcode::LLVMSExt,
+            v.as_value_ref(),
+            to.as_type_ref(),
+            name,
+        );
         // SAFETY: as `zext`.
-        int(
-            unsafe { llvm::LLVMBuildZExtOrBitCast(self.raw(), v, to, NONE) },
-            name,
-        )
+        unsafe { IntValue::new(v) }
     }
 
+    /// A truncation, or nothing where `v` is already `to`.
     pub fn trunc(self, v: IntValue<'ctx>, to: IntType<'ctx>, name: &str) -> IntValue<'ctx> {
-        // SAFETY: `v` is an integer no narrower than `to`.
-        int(
-            unsafe { llvm::LLVMBuildTrunc(self.raw(), v.as_value_ref(), to.as_type_ref(), NONE) },
+        let v = self.cast(
+            LLVMOpcode::LLVMTrunc,
+            v.as_value_ref(),
+            to.as_type_ref(),
             name,
-        )
+        );
+        // SAFETY: as `zext`.
+        unsafe { IntValue::new(v) }
     }
 
-    /// A `trunc`, or nothing where `v` is already `to`.
-    pub fn trunc_or_bitcast(
+    pub fn ptr_to_int(
         self,
-        v: IntValue<'ctx>,
+        p: PointerValue<'ctx>,
         to: IntType<'ctx>,
         name: &str,
     ) -> IntValue<'ctx> {
-        let (v, to) = (v.as_value_ref(), to.as_type_ref());
-        // SAFETY: as `trunc`.
-        int(
-            unsafe { llvm::LLVMBuildTruncOrBitCast(self.raw(), v, to, NONE) },
+        let v = self.cast(
+            LLVMOpcode::LLVMPtrToInt,
+            p.as_value_ref(),
+            to.as_type_ref(),
             name,
-        )
+        );
+        // SAFETY: a pointer cast to an integer type.
+        unsafe { IntValue::new(v) }
+    }
+
+    pub fn int_to_ptr(
+        self,
+        v: IntValue<'ctx>,
+        to: PointerType<'ctx>,
+        name: &str,
+    ) -> PointerValue<'ctx> {
+        let v = self.cast(
+            LLVMOpcode::LLVMIntToPtr,
+            v.as_value_ref(),
+            to.as_type_ref(),
+            name,
+        );
+        // SAFETY: an integer cast to a pointer type.
+        unsafe { PointerValue::new(v) }
+    }
+
+    /// The same bits as another type of the same width.
+    pub fn bitcast(
+        self,
+        v: impl BasicValue<'ctx>,
+        to: impl BasicType<'ctx>,
+        name: &str,
+    ) -> BasicValueEnum<'ctx> {
+        let v = self.cast(
+            LLVMOpcode::LLVMBitCast,
+            v.as_value_ref(),
+            to.as_type_ref(),
+            name,
+        );
+        // SAFETY: a first-class value cast to a first-class type.
+        unsafe { BasicValueEnum::new(v) }
+    }
+
+    pub fn fpext(self, v: FloatValue<'ctx>, to: FloatType<'ctx>, name: &str) -> FloatValue<'ctx> {
+        let v = self.cast(
+            LLVMOpcode::LLVMFPExt,
+            v.as_value_ref(),
+            to.as_type_ref(),
+            name,
+        );
+        // SAFETY: a float cast to a float type.
+        unsafe { FloatValue::new(v) }
+    }
+
+    pub fn fptrunc(self, v: FloatValue<'ctx>, to: FloatType<'ctx>, name: &str) -> FloatValue<'ctx> {
+        let v = self.cast(
+            LLVMOpcode::LLVMFPTrunc,
+            v.as_value_ref(),
+            to.as_type_ref(),
+            name,
+        );
+        // SAFETY: as `fpext`.
+        unsafe { FloatValue::new(v) }
+    }
+
+    /// An integer as the float nearest it, read as signed.
+    pub fn sitofp(self, v: IntValue<'ctx>, to: FloatType<'ctx>, name: &str) -> FloatValue<'ctx> {
+        let v = self.cast(
+            LLVMOpcode::LLVMSIToFP,
+            v.as_value_ref(),
+            to.as_type_ref(),
+            name,
+        );
+        // SAFETY: an integer cast to a float type.
+        unsafe { FloatValue::new(v) }
+    }
+
+    /// An integer as the float nearest it, read as unsigned.
+    pub fn uitofp(self, v: IntValue<'ctx>, to: FloatType<'ctx>, name: &str) -> FloatValue<'ctx> {
+        let v = self.cast(
+            LLVMOpcode::LLVMUIToFP,
+            v.as_value_ref(),
+            to.as_type_ref(),
+            name,
+        );
+        // SAFETY: as `sitofp`.
+        unsafe { FloatValue::new(v) }
     }
 
     // -- floats ---------------------------------------------------------------
@@ -439,7 +546,130 @@ impl<'ctx> At<'ctx> {
         }
     }
 
+    /// Field `index` of a struct or element `index` of an array.
+    pub fn extract(
+        self,
+        agg: impl AggregateValue<'ctx>,
+        index: u32,
+        name: &str,
+    ) -> BasicValueEnum<'ctx> {
+        // SAFETY: `index` is inside the aggregate's type, which the slot
+        // table it was built from says.
+        unsafe {
+            BasicValueEnum::new(named(
+                llvm::LLVMBuildExtractValue(self.raw(), agg.as_value_ref(), index, NONE),
+                name,
+            ))
+        }
+    }
+
+    /// `agg` with field `index` replaced by `v`.
+    pub fn insert_field(
+        self,
+        agg: StructValue<'ctx>,
+        v: impl BasicValue<'ctx>,
+        index: u32,
+        name: &str,
+    ) -> StructValue<'ctx> {
+        let (a, v) = (agg.as_value_ref(), v.as_value_ref());
+        // SAFETY: as `extract`, and `v` is of that field's type.
+        unsafe {
+            StructValue::new(named(
+                llvm::LLVMBuildInsertValue(self.raw(), a, v, index, NONE),
+                name,
+            ))
+        }
+    }
+
+    /// `agg` with element `index` replaced by `v`.
+    pub fn insert_element(
+        self,
+        agg: ArrayValue<'ctx>,
+        v: impl BasicValue<'ctx>,
+        index: u32,
+        name: &str,
+    ) -> ArrayValue<'ctx> {
+        let (a, v) = (agg.as_value_ref(), v.as_value_ref());
+        // SAFETY: as `insert_field`.
+        unsafe {
+            ArrayValue::new(named(
+                llvm::LLVMBuildInsertValue(self.raw(), a, v, index, NONE),
+                name,
+            ))
+        }
+    }
+
     // -- memory ---------------------------------------------------------------
+
+    /// `base + bytes`, a `getelementptr inbounds i8`.
+    ///
+    /// `inbounds` without exception, per CODEGEN-LLVM.md §3.4: every
+    /// projection in this language is a field of a known layout or an index a
+    /// bounds check has already turned into an `Option`, so the premise is
+    /// enforced by the type system rather than assumed away.
+    pub fn offset(
+        self,
+        base: PointerValue<'ctx>,
+        bytes: IntValue<'ctx>,
+        name: &str,
+    ) -> PointerValue<'ctx> {
+        let i8t = base.get_type().get_context().i8_type();
+        let mut index = [bytes.as_value_ref()];
+        // SAFETY: an `i8` element type takes any integer index; whether the
+        // address is in bounds is the claim above, which LLVM does not check.
+        unsafe {
+            PointerValue::new(named(
+                llvm::LLVMBuildInBoundsGEP2(
+                    self.raw(),
+                    i8t.as_type_ref(),
+                    base.as_value_ref(),
+                    index.as_mut_ptr(),
+                    1,
+                    NONE,
+                ),
+                name,
+            ))
+        }
+    }
+
+    /// [`At::offset`] by a constant, and `base` itself for none.
+    pub fn byte_offset(
+        self,
+        base: PointerValue<'ctx>,
+        bytes: i64,
+        name: &str,
+    ) -> PointerValue<'ctx> {
+        if bytes == 0 {
+            return base;
+        }
+        let i64t = base.get_type().get_context().i64_type();
+        self.offset(base, i64t.const_int(bytes as u64, true), name)
+    }
+
+    /// `bytes` bytes on the stack, at the top of the entry block of the
+    /// function the builder is in, leaving the builder at the end of the
+    /// block it was in.
+    ///
+    /// The entry block, because `alloca` in LLVM is not scoped to a block: a
+    /// buffer emitted inside a loop body would grow the frame once per
+    /// iteration.
+    pub fn entry_buffer(self, bytes: u32, align: Align) -> PointerValue<'ctx> {
+        let here = self.block();
+        // SAFETY: a positioned builder's block is in a function, and a
+        // function with a block has an entry block.
+        let entry = unsafe {
+            let f = llvm::LLVMGetBasicBlockParent(here.as_mut_ptr());
+            BasicBlock::new(llvm::LLVMGetEntryBasicBlock(f)).unwrap_unchecked()
+        };
+        self.top_of(entry);
+        let ctx = entry.get_context();
+        // A zero-byte buffer is legal and useless; one byte keeps the pointer
+        // distinct from every other object, which is what the C side assumes.
+        let count = ctx.i64_type().const_int(u64::from(bytes.max(1)), false);
+        let buf = self.array_alloca(ctx.i8_type(), count, align, "out");
+        self.to_end(here);
+        buf
+    }
 
     pub fn load(
         self,
@@ -487,6 +717,22 @@ impl<'ctx> At<'ctx> {
             let v = llvm::LLVMBuildLoad2(self.raw(), ty.as_type_ref(), p.as_value_ref(), NONE);
             llvm::LLVMSetAlignment(v, align.bytes());
             int(v, name)
+        }
+    }
+
+    /// [`At::load`] of a pointer.
+    pub fn load_ptr(
+        self,
+        ty: PointerType<'ctx>,
+        p: PointerValue<'ctx>,
+        align: Align,
+        name: &str,
+    ) -> PointerValue<'ctx> {
+        // SAFETY: as `load`.
+        unsafe {
+            let v = llvm::LLVMBuildLoad2(self.raw(), ty.as_type_ref(), p.as_value_ref(), NONE);
+            llvm::LLVMSetAlignment(v, align.bytes());
+            PointerValue::new(named(v, name))
         }
     }
 
@@ -689,6 +935,25 @@ impl<'ctx> At<'ctx> {
 pub fn keep_names(ctx: &Context, keep: bool) {
     // SAFETY: `ctx` is a live context.
     unsafe { llvm::LLVMContextSetDiscardValueNames(ctx.raw(), i32::from(!keep)) };
+}
+
+/// Deletes `f` from its module if nothing in the module uses it, and answers
+/// whether it did.
+///
+/// The caller must not hold `f` anywhere it will read it again: deleting it
+/// leaves every copy of it dangling. `Unit::prune` clears its own table first.
+pub fn delete_if_unused(f: FunctionValue<'_>) -> bool {
+    let unused = f
+        .as_global_value()
+        .as_pointer_value()
+        .get_first_use()
+        .is_none();
+    if unused {
+        // SAFETY: nothing in the module uses `f`, and the caller holds no
+        // copy of it.
+        unsafe { f.delete() };
+    }
+    unused
 }
 
 /// Attaches metadata `node` of kind `kind` to `inst`.
