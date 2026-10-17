@@ -75,18 +75,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: blacksmith-12vcpu-macos-latest, arch: arm64 }
-          - { os: blacksmith-4vcpu-ubuntu-2404, arch: x86_64 }
-          # Eight cores, not four: this leg's cores are 2.6x slower than the
-          # x86_64 runner's (measured on run 34121595426, uniformly across every
-          # binary), and the suite is started 2x nproc wide, so the leg's wall
-          # clock is the four-core queue. Measured at four: 23 minutes; the
-          # other two legs finish in six and eleven.
-          - { os: blacksmith-8vcpu-ubuntu-2404-arm, arch: arm64 }
+          - { os: macos-latest, arch: arm64 }
+          - { os: ubuntu-24.04, arch: x86_64 }
+          # GitHub's free runners: four cores on Linux, three on macOS. The arm64
+          # leg was measured at 23 minutes on four cores (run 34121595426).
+          - { os: ubuntu-24.04-arm, arch: arm64 }
     runs-on: ${{ matrix.os }}
     env:
       CC: clang
-    timeout-minutes: 40
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
@@ -192,7 +189,7 @@ jobs:
       # libtest writes "has been running for over 60 seconds" into the hung
       # unit's log, which names the test.
       - name: The suite, with its binaries overlapped
-        timeout-minutes: 25
+        timeout-minutes: 60
         run: |
           set -euo pipefail
           mkdir -p target/units
@@ -222,9 +219,9 @@ jobs:
       # already (`harness::HEAP_CHECK`); these call the runtime themselves, so
       # nothing checked them until the variable was set here. The binaries are
       # the ones the step above built, and the run takes about 30 s, so a hang
-      # here is stopped at 10 minutes rather than at the job's 40.
+      # here is stopped at 20 minutes rather than at the job's 90.
       - name: The runtime, under the heap check
-        timeout-minutes: 10
+        timeout-minutes: 20
         env:
           BURI_RT_HEAP_CHECK: "1"
         run: |
@@ -268,8 +265,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: blacksmith-4vcpu-ubuntu-2404, arch: x86_64 }
-          - { os: blacksmith-4vcpu-ubuntu-2404-arm, arch: arm64 }
+          - { os: ubuntu-24.04, arch: x86_64 }
+          - { os: ubuntu-24.04-arm, arch: arm64 }
     runs-on: ${{ matrix.os }}
     env:
       CC: clang
@@ -302,8 +299,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: blacksmith-4vcpu-ubuntu-2404, arch: x86_64 }
-          - { os: blacksmith-4vcpu-ubuntu-2404-arm, arch: arm64 }
+          - { os: ubuntu-24.04, arch: x86_64 }
+          - { os: ubuntu-24.04-arm, arch: arm64 }
     runs-on: ${{ matrix.os }}
     env:
       CC: clang
@@ -329,8 +326,8 @@ jobs:
   # rustc, clang, glibc and valgrind.
   goals-counted:
     name: throughput goals, counted (arm64)
-    runs-on: blacksmith-8vcpu-ubuntu-2404-arm
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v23
@@ -367,10 +364,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: blacksmith-8vcpu-ubuntu-2404, arch: x86_64 }
-          - { os: blacksmith-8vcpu-ubuntu-2404-arm, arch: arm64 }
+          - { os: ubuntu-24.04, arch: x86_64 }
+          - { os: ubuntu-24.04-arm, arch: arm64 }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 80
     env:
       BURI_CONFORMANCE_BUILD: llvm-release
     steps:
@@ -402,8 +399,8 @@ jobs:
   # 1.2x headroom and noise could fail it; check and dev compile have over 3x.
   goals-timed:
     name: throughput goals, timed (macOS)
-    runs-on: blacksmith-12vcpu-macos-latest
-    timeout-minutes: 30
+    runs-on: macos-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
@@ -423,7 +420,7 @@ jobs:
   # both backends built.
   release:
     name: release build (x86_64, advisory)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     env:
       CC: clang
     timeout-minutes: 45
@@ -473,7 +470,7 @@ jobs:
   # drives `buri lsp` over a pipe and tests JavaScript suites, and links nothing.
   language-server-budget:
     name: language server budget (arm64)
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: ubuntu-24.04-arm
     env:
       BURI_PERF: 1
     timeout-minutes: 30
@@ -503,8 +500,8 @@ jobs:
   # CPU, so a count doesn't depend on which machine ran it.
   instructions:
     name: instruction counts (x86_64)
-    runs-on: blacksmith-8vcpu-ubuntu-2404
-    timeout-minutes: 40
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v23
@@ -541,20 +538,22 @@ jobs:
   # `buri` on x86_64 Linux is one more platform, so a branch on
   # `cfg!(debug_assertions)` counts both ways.
   # `coverage-build` builds each platform's instrumented `buri` and tests once,
-  # so every shard of it runs the same `buri`; each shard runs a quarter of the
-  # tests; `coverage` merges every shard and gates.
+  # so every shard of it runs the same `buri`. On Linux each shard runs a
+  # quarter of the tests; macOS runs them all in one job, `coverage-macos`,
+  # because a free account runs at most five macOS jobs at once. `coverage`
+  # merges every shard and gates.
   coverage-build:
     name: coverage build (${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { platform: x86_64-linux, os: blacksmith-8vcpu-ubuntu-2404 }
-          - { platform: arm64-linux, os: blacksmith-16vcpu-ubuntu-2404-arm, cc: CC=/usr/bin/clang }
-          - { platform: arm64-macos, os: blacksmith-12vcpu-macos-latest }
-          - { platform: x86_64-linux-release, os: blacksmith-16vcpu-ubuntu-2404, release: --release }
+          - { platform: x86_64-linux, os: ubuntu-24.04 }
+          - { platform: arm64-linux, os: ubuntu-24.04-arm, cc: CC=/usr/bin/clang }
+          - { platform: arm64-macos, os: macos-latest }
+          - { platform: x86_64-linux-release, os: ubuntu-24.04, release: --release }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v23
@@ -597,17 +596,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [x86_64-linux, arm64-linux, arm64-macos, x86_64-linux-release]
+        platform: [x86_64-linux, arm64-linux, x86_64-linux-release]
         shard: [1, 2, 3, 4]
         include:
-          - { platform: x86_64-linux, os: blacksmith-8vcpu-ubuntu-2404, threads: 16 }
-          - { platform: x86_64-linux-release, os: blacksmith-8vcpu-ubuntu-2404, threads: 16, release: --release }
-          - { platform: arm64-linux, os: blacksmith-16vcpu-ubuntu-2404-arm, threads: 32, cc: CC=/usr/bin/clang }
-          - { platform: arm64-macos, os: blacksmith-12vcpu-macos-latest, threads: 24 }
+          - { platform: x86_64-linux, os: ubuntu-24.04 }
+          - { platform: x86_64-linux-release, os: ubuntu-24.04, release: --release }
+          - { platform: arm64-linux, os: ubuntu-24.04-arm, cc: CC=/usr/bin/clang }
     runs-on: ${{ matrix.os }}
+    # Twice the runner's four cores.
     env:
-      NEXTEST_TEST_THREADS: ${{ matrix.threads }}
-    timeout-minutes: 40
+      NEXTEST_TEST_THREADS: 8
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v23
@@ -617,8 +616,7 @@ jobs:
         with:
           bun-version-file: .bun-version
       # The test job's tools, which the suite checks are on PATH.
-      - if: runner.os == 'Linux'
-        run: |
+      - run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -636,10 +634,39 @@ jobs:
           path: target/coverage/shard
           retention-days: 7
 
+  # Every test in one shard, `1/1`, which measures what four quarters did: the
+  # merge adds a platform's shards, and one shard's profile is that same sum.
+  coverage-macos:
+    name: coverage shard (arm64-macos)
+    needs: coverage-build
+    runs-on: macos-latest
+    # Twice the runner's three cores.
+    env:
+      NEXTEST_TEST_THREADS: 6
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          determinate: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/download-artifact@v8
+        with:
+          name: coverage-build-arm64-macos
+          path: target/coverage/build
+      - run: nix develop .#coverage -c cargo run -p buri-compiler-coverage -- --shard=1/1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-shard-arm64-macos-1
+          path: target/coverage/shard
+          retention-days: 7
+
   coverage:
     name: coverage
-    needs: coverage-shard
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [coverage-shard, coverage-macos]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # The ratchet's push to main. No other job writes.
     permissions:
@@ -708,7 +735,7 @@ jobs:
   # about, and this runner is deliberately the one with no clang and no musl.
   minimal:
     timeout-minutes: 30
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
@@ -719,7 +746,7 @@ jobs:
   # sorryAx, and no proof may contain `sorry`/`admit`.
   lean:
     timeout-minutes: 30
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Install elan
@@ -745,7 +772,7 @@ jobs:
   # one script this workflow still calls.
   tree-sitter:
     timeout-minutes: 30
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
@@ -774,7 +801,7 @@ jobs:
   # default and fetch a tarball that does not exist yet).
   nix:
     timeout-minutes: 30
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       # `determinate: false` keeps upstream Nix, which v21 stopped defaulting to.
@@ -813,7 +840,7 @@ jobs:
   proto-conformance:
     name: protobuf conformance
     timeout-minutes: 30
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@v23
@@ -835,10 +862,10 @@ jobs:
   # Linux, the baseline's host. The backends must also count alike.
   stdlib-coverage:
     name: stdlib coverage
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     env:
       CC: clang
-    timeout-minutes: 45
+    timeout-minutes: 90
     # The ratchet's push to main. No other job writes.
     permissions:
       contents: write
