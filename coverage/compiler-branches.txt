@@ -3,8 +3,8 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15066 15291 98.53%
-area cli/build 1692 1709 99.01%
+total 15069 15291 98.55%
+area cli/build 1694 1711 99.01%
 area cli/documentation 477 480 99.38%
 area cli/format 94 94 100.00%
 area cli/language_server 1246 1268 98.26%
@@ -18,8 +18,8 @@ area crates/diagnostics 191 194 98.45%
 area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 985 1018 96.76%
-area crates/llvm 591 594 99.49%
-area crates/middle 1835 1876 97.81%
+area crates/llvm 586 588 99.66%
+area crates/middle 1841 1880 97.93%
 area crates/project 1341 1358 98.75%
 area crates/semantics 2196 2202 99.73%
 area crates/stdlib 12 12 100.00%
@@ -28,7 +28,7 @@ area crates/syntax 1194 1196 99.83%
 264 269 cli/src/build/actions.rs
 44 44 cli/src/build/cache.rs
 14 14 cli/src/build/counted.rs
-92 92 cli/src/build/coverage.rs
+94 94 cli/src/build/coverage.rs
 30 32 cli/src/build/exe_identity.rs
 164 164 cli/src/build/generators.rs
 230 230 cli/src/build/hosted.rs
@@ -127,14 +127,15 @@ area crates/syntax 1194 1196 99.83%
 3 4 crates/js/src/compiler/backend/js/mod.rs
 68 70 crates/js/src/compiler/backend/js/park.rs
 52 52 crates/llvm/src/compiler/backend/llvm/attrs.rs
-480 480 crates/llvm/src/compiler/backend/llvm/emit.rs
-9 12 crates/llvm/src/compiler/backend/llvm/mod.rs
+2 2 crates/llvm/src/compiler/backend/llvm/build.rs
+474 474 crates/llvm/src/compiler/backend/llvm/emit.rs
+8 10 crates/llvm/src/compiler/backend/llvm/mod.rs
 50 50 crates/llvm/src/compiler/backend/llvm/repr.rs
 0 0 crates/llvm/src/compiler/backend/llvm/target.rs
 29 32 crates/middle/src/compiler/backend/intrinsic_keys.rs
 30 30 crates/middle/src/compiler/middle/chunks.rs
 14 14 crates/middle/src/compiler/middle/closures.rs
-45 50 crates/middle/src/compiler/middle/coverage/derived.rs
+45 48 crates/middle/src/compiler/middle/coverage/derived.rs
 138 138 crates/middle/src/compiler/middle/coverage/mod.rs
 23 24 crates/middle/src/compiler/middle/dce.rs
 36 36 crates/middle/src/compiler/middle/decision.rs
@@ -142,7 +143,7 @@ area crates/syntax 1194 1196 99.83%
 6 6 crates/middle/src/compiler/middle/flags.rs
 18 18 crates/middle/src/compiler/middle/forward.rs
 28 28 crates/middle/src/compiler/middle/fuse.rs
-62 62 crates/middle/src/compiler/middle/inline.rs
+68 68 crates/middle/src/compiler/middle/inline.rs
 66 66 crates/middle/src/compiler/middle/ir.rs
 49 50 crates/middle/src/compiler/middle/layout.rs
 133 134 crates/middle/src/compiler/middle/lower.rs
