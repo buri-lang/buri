@@ -9,7 +9,7 @@
 use crate::compiler::semantics::layered::{
     Dense, DenseId, IdMap, Layered, LayeredMap, Mint, Table,
 };
-use crate::diagnostics::{Invariant as _, Span};
+use crate::diagnostics::Span;
 use crate::hash::Map as HashMap;
 use std::fmt::Write as _;
 
@@ -670,7 +670,8 @@ pub struct ContextDeclInfo {
     /// makes the two agree by construction.
     pub checked: Option<CheckedContext>,
     pub span: Span,
-    pub ast: AstRef,
+    /// The declaration's index among `module`'s items.
+    pub item: u32,
 }
 
 /// A `context` declaration once checked.
@@ -692,7 +693,8 @@ pub struct ConstInfo {
     pub ty: Ty,
     pub exported: bool,
     pub span: Span,
-    pub ast: AstRef,
+    /// The `let`'s index among `module`'s items.
+    pub item: u32,
 }
 
 /// The generated type of a context value: exactly the effects bound, and
@@ -1194,52 +1196,35 @@ impl Tables {
             .skip(settled)
             .map(|c| vec![false; c.generics.len()])
             .collect();
-        // Only a generic constructor has a row that can change, and a program
-        // declares far more `Int`s than `Option`s. Listing them once keeps the
-        // fixpoint off the primitives entirely rather than walking every empty
-        // field list once per pass.
-        let generic: Vec<(usize, &TyCon)> = self
-            .tycons
-            .iter()
-            .enumerate()
-            .skip(settled)
-            .filter(|(_, c)| !c.generics.is_empty())
-            .collect();
         loop {
-            let mut changed = false;
-            for &(index, con) in &generic {
-                let arity = con.generics.len();
-                // A struct has fields and no variants; an enum the reverse.
-                // Both accessors answer `&[]` for the other shape, so this is
-                // every type a value of `con` can hold.
-                let stored = con
-                    .fields()
-                    .iter()
-                    .chain(con.variants().iter().flat_map(|v| v.fields.iter()));
-                for field in stored {
-                    for i in 0..arity {
-                        let rows = Rows {
-                            settled: &self.variance,
-                            from: settled,
-                            table: &table,
-                        };
-                        if rows.provides(index, i) || !rows.occurs_provided(&field.ty, i) {
-                            continue;
-                        }
-                        *index
-                            .checked_sub(settled)
-                            .and_then(|own| table.get_mut(own))
-                            .and_then(|row| row.get_mut(i))
-                            .or_ice(
-                                "an own generic constructor has a row with a bit per parameter",
-                            ) = true;
-                        changed = true;
-                    }
-                }
-            }
-            if !changed {
+            let rows = Rows {
+                settled: &self.variance,
+                from: settled,
+                table: &table,
+            };
+            let next: Vec<Vec<bool>> = table
+                .iter()
+                .zip(self.tycons.iter().skip(settled))
+                .map(|(row, con)| {
+                    // A struct has fields and no variants; an enum the reverse.
+                    // Both accessors answer `&[]` for the other shape, so this
+                    // is every type a value of `con` can hold.
+                    let stored = con
+                        .fields()
+                        .iter()
+                        .chain(con.variants().iter().flat_map(|v| v.fields.iter()));
+                    (0..)
+                        .zip(row)
+                        .map(|(i, &bit)| {
+                            bit || stored.clone().any(|f| rows.occurs_provided(&f.ty, i))
+                        })
+                        .collect()
+                })
+                .collect();
+            if next == table {
                 break;
             }
+            table = next;
         }
         self.variance.set_own(table);
     }

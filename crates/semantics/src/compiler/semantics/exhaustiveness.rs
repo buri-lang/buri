@@ -212,11 +212,6 @@ impl<'p> Rows<'p> {
         self.push_with(|cells| cells.extend_from_slice(row));
     }
 
-    fn truncate(&mut self, len: usize) {
-        self.len = self.len.min(len);
-        self.cells.truncate(self.len.saturating_mul(self.width));
-    }
-
     /// The first `k` rows, as rows of their own.
     fn prefix(&self, k: usize) -> Rows<'p> {
         let len = k.min(self.len);
@@ -255,15 +250,8 @@ fn lower(p: &Pattern) -> Pat {
                 .map(|f| f.index.saturating_add(1))
                 .max()
                 .unwrap_or(0);
-            let total = n.max(fields.len());
-            let mut subs = vec![Pat::Wild; total];
-            for f in fields {
-                *subs
-                    .get_mut(f.index)
-                    .or_ice("`total` is past every field's index") = lower(&f.pattern);
-            }
             let _ = con;
-            Pat::Ctor(Ctor::Single, subs)
+            Pat::Ctor(Ctor::Single, by_index(fields, n.max(fields.len())))
         }
         PatKind::Variant {
             con,
@@ -275,13 +263,7 @@ fn lower(p: &Pattern) -> Pat {
                 .map(|f| f.index.saturating_add(1))
                 .max()
                 .unwrap_or(0);
-            let mut subs = vec![Pat::Wild; total];
-            for f in fields {
-                *subs
-                    .get_mut(f.index)
-                    .or_ice("`total` is past every field's index") = lower(&f.pattern);
-            }
-            Pat::Ctor(Ctor::Variant(*con, *variant), subs)
+            Pat::Ctor(Ctor::Variant(*con, *variant), by_index(fields, total))
         }
         PatKind::Array { elems, rest } => {
             let subs: Vec<Pat> = elems.iter().map(lower).collect();
@@ -294,6 +276,19 @@ fn lower(p: &Pattern) -> Pat {
         }
         PatKind::Or(alts) => Pat::Or(alts.iter().map(lower).collect()),
     }
+}
+
+/// The first `total` fields in declaration order, each the pattern written
+/// for it — the last one, where a field is written twice — or a wildcard.
+fn by_index(fields: &[typed::FieldPat], total: usize) -> Vec<Pat> {
+    (0..total)
+        .map(|i| {
+            fields
+                .iter()
+                .rfind(|f| f.index == i)
+                .map_or(Pat::Wild, |f| lower(&f.pattern))
+        })
+        .collect()
 }
 
 /// The longest array length any pattern in the match distinguishes, plus one.
@@ -343,26 +338,15 @@ fn expand_lengths(p: Pat, limit: usize) -> Pat {
     }
 }
 
-/// Expands or-patterns so each row holds no alternation *at the top of a
-/// column*. An alternation nested inside a constructor stays where it is; it
-/// surfaces later, when `specialize` peels that constructor off, and the matrix
-/// operations below distribute over it there.
-fn expand(row: Vec<Pat>) -> Vec<Vec<Pat>> {
-    let Some((pos, alts)) = row.iter().enumerate().find_map(|(i, p)| match p {
-        Pat::Or(alts) => Some((i, alts.clone())),
-        _ => None,
-    }) else {
-        return vec![row];
-    };
-    let mut out = Vec::new();
-    for alt in alts {
-        let mut next = row.clone();
-        *next
-            .get_mut(pos)
-            .or_ice("`pos` is where the alternation was found") = alt;
-        out.extend(expand(next));
+/// The alternatives of a pattern with every alternation at its top flattened,
+/// into `out`. An alternation nested inside a constructor stays where it is;
+/// it surfaces later, when `specialize` peels that constructor off, and the
+/// matrix operations below distribute over it there.
+fn expand(p: Pat, out: &mut Vec<Pat>) {
+    match p {
+        Pat::Or(alts) => alts.into_iter().for_each(|a| expand(a, out)),
+        p => out.push(p),
     }
-    out
 }
 
 /// One row per alternative of an or-pattern that sits at the head of a column,
@@ -419,7 +403,7 @@ const INDEX_THRESHOLD: usize = 16;
 #[derive(Default)]
 struct Matrix<'p> {
     rows: Rows<'p>,
-    index: Option<Index>,
+    index: Option<Index<'p>>,
     /// Each constructor's specialization so far, and how many rows it has
     /// seen, for the matrix the reachability loop grows. That loop asks the
     /// same question with one more row each time, so a column every row
@@ -428,62 +412,71 @@ struct Matrix<'p> {
 }
 
 #[derive(Default)]
-struct Index {
-    /// Rows headed by each constructor, ascending.
-    by_ctor: HashMap<Ctor, Vec<usize>>,
-    /// Rows headed by a wildcard or an or-pattern, ascending. Every
-    /// specialization visits these, and they are the whole default matrix.
-    open: Vec<usize>,
+struct Index<'p> {
+    /// Rows headed by each constructor.
+    by_ctor: HashMap<Ctor, Bucket<'p>>,
+    /// Rows headed by a wildcard or an or-pattern. Every specialization
+    /// visits these, and they are the whole default matrix.
+    open: Bucket<'p>,
     /// Every constructor any row's head can start with.
     heads: HashSet<Ctor>,
 }
 
-impl Index {
-    /// The rows from `from` on that `specialize` must visit for `ctor`,
-    /// ascending. Two sorted lists merged rather than concatenated and sorted,
-    /// so this allocates nothing.
-    fn rows_for_from<'i>(&'i self, ctor: &Ctor, from: usize) -> Merge<'i> {
-        let a = self.by_ctor.get(ctor).map_or(&[][..], Vec::as_slice);
-        let b = self.open.as_slice();
-        Merge {
-            a: a.get(a.partition_point(|&r| r < from)..)
-                .unwrap_or_default(),
-            b: b.get(b.partition_point(|&r| r < from)..)
-                .unwrap_or_default(),
-        }
+/// Some of a matrix's rows, copied, each with its number there, ascending.
+#[derive(Default)]
+struct Bucket<'p> {
+    numbers: Vec<usize>,
+    rows: Rows<'p>,
+}
+
+impl<'p> Bucket<'p> {
+    /// The rows numbered `from` on.
+    fn from(&self, from: usize) -> impl Iterator<Item = (usize, &[&'p Pat])> {
+        let skip = self.numbers.partition_point(|&r| r < from);
+        self.numbers
+            .iter()
+            .copied()
+            .zip(self.rows.iter())
+            .skip(skip)
     }
 }
 
-/// The ascending merge of two ascending row lists.
-struct Merge<'i> {
-    a: &'i [usize],
-    b: &'i [usize],
-}
+impl<'p> Index<'p> {
+    /// Files row `at` under its head.
+    fn add(&mut self, at: usize, row: &[&'p Pat]) {
+        let Some(&head) = row.first() else { return };
+        let bucket = match head {
+            Pat::Wild | Pat::Or(_) => &mut self.open,
+            Pat::Ctor(c, _) => self.by_ctor.entry(c.clone()).or_default(),
+        };
+        bucket.numbers.push(at);
+        bucket.rows.push(row);
+        collect_head_ctors(head, &mut self.heads);
+    }
 
-impl Iterator for Merge<'_> {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<usize> {
-        match (self.a.split_first(), self.b.split_first()) {
-            (Some((&x, rest_a)), Some((&y, rest_b))) => {
-                if x <= y {
-                    self.a = rest_a;
-                    Some(x)
-                } else {
-                    self.b = rest_b;
-                    Some(y)
-                }
-            }
-            (Some((&x, rest_a)), None) => {
-                self.a = rest_a;
-                Some(x)
-            }
-            (None, Some((&y, rest_b))) => {
-                self.b = rest_b;
-                Some(y)
-            }
-            (None, None) => None,
-        }
+    /// The rows from `from` on that `specialize` must visit for `ctor`,
+    /// ascending. Two sorted lists merged rather than concatenated and sorted,
+    /// so this allocates nothing.
+    fn rows_for_from<'i>(
+        &'i self,
+        ctor: &Ctor,
+        from: usize,
+    ) -> impl Iterator<Item = &'i [&'p Pat]> {
+        let mut a = self
+            .by_ctor
+            .get(ctor)
+            .into_iter()
+            .flat_map(move |b| b.from(from))
+            .peekable();
+        let mut b = self.open.from(from).peekable();
+        std::iter::from_fn(move || {
+            let first = match (a.peek(), b.peek()) {
+                (Some(x), Some(y)) => x.0 <= y.0,
+                (x, _) => x.is_some(),
+            };
+            let next = if first { a.next() } else { b.next() };
+            next.map(|(_, row)| row)
+        })
     }
 }
 
@@ -510,55 +503,19 @@ impl<'p> Matrix<'p> {
     fn push(&mut self, row: &[&'p Pat]) {
         let at = self.rows.len();
         self.rows.push(row);
-        if self.index.is_some() {
-            self.index_row(at);
+        if let Some(ix) = self.index.as_mut() {
+            ix.add(at, row);
         } else if self.rows.len() >= INDEX_THRESHOLD {
             self.build_index();
         }
     }
 
-    /// Drops every row from `len` on.
-    ///
-    /// A guarded arm covers nothing, so its rows come out again once its own
-    /// alternatives have been asked about each other. Rebuilding the index is
-    /// the whole cost, and only a guarded arm with an alternation pays it.
-    ///
-    /// Only the reachability loop's matrix is truncated, and always below its
-    /// length: a guarded arm with an alternation pushed a row for each.
-    fn truncate(&mut self, len: usize) {
-        self.rows.truncate(len);
-        if self.index.is_some() {
-            self.build_index();
-        }
-        self.memo
-            .as_ref()
-            .or_ice("the reachability loop's matrix memoizes")
-            .borrow_mut()
-            .clear();
-    }
-
     fn build_index(&mut self) {
-        self.index = Some(Index::default());
-        for at in 0..self.rows.len() {
-            self.index_row(at);
+        let mut ix = Index::default();
+        for (at, row) in self.rows.iter().enumerate() {
+            ix.add(at, row);
         }
-    }
-
-    fn index_row(&mut self, at: usize) {
-        let row = self
-            .rows
-            .get(at)
-            .or_ice("a row is indexed as it is pushed, so `at` is in range");
-        let Some(&head) = row.first() else { return };
-        let ix = self
-            .index
-            .as_mut()
-            .or_ice("a row is indexed only once the index exists");
-        match head {
-            Pat::Wild | Pat::Or(_) => ix.open.push(at),
-            Pat::Ctor(c, _) => ix.by_ctor.entry(c.clone()).or_default().push(at),
-        }
-        collect_head_ctors(head, &mut ix.heads);
+        self.index = Some(ix);
     }
 
     /// Whether the first column mentions `c`. Below the index threshold a scan
@@ -681,11 +638,7 @@ impl<'a> Ctx<'a> {
     ) {
         match matrix.index.as_ref() {
             Some(ix) => {
-                for at in ix.rows_for_from(ctor, from) {
-                    let row = matrix
-                        .rows
-                        .get(at)
-                        .or_ice("the index holds the matrix's own rows");
+                for row in ix.rows_for_from(ctor, from) {
                     self.specialize_row(row, ctor, arity, out);
                 }
             }
@@ -732,11 +685,7 @@ impl<'a> Ctx<'a> {
         let mut out = Rows::default();
         match matrix.index.as_ref() {
             Some(ix) => {
-                for &at in &ix.open {
-                    let row = matrix
-                        .rows
-                        .get(at)
-                        .or_ice("the index holds the matrix's own rows");
+                for row in ix.open.rows.iter() {
                     self.default_row(row, &mut out);
                 }
             }
@@ -877,31 +826,60 @@ impl<'a> Ctx<'a> {
         out
     }
 
-    /// Which row of `rows` first made `alt` useless — the last row of the
-    /// shortest prefix that already covers it.
+    /// Which row of `covering` first made `alt` useless — the last row of the
+    /// shortest prefix that already covers it — with the span of the
+    /// alternative that put it there. `None` while `alt` is still useful.
     ///
     /// Coverage only grows as rows are added, so "is this still useful against
     /// the first *k* rows" is monotone in `k` and the boundary is found by
     /// bisection: `log₂(k)` usefulness runs rather than `k`. It is on the
     /// error path either way, and it is what lets the diagnostic point at the
     /// pattern that subsumes this one instead of waving at everything above.
-    fn covered_by(&self, rows: &Rows<'_>, upto: usize, alt: &Rows<'_>, types: &[Ty]) -> usize {
+    fn covered_by<'p>(
+        &self,
+        covering: &Covering<'p>,
+        alt: &Rows<'p>,
+        types: &[Ty],
+    ) -> Option<(usize, Span)> {
+        // Nothing above it, so nothing covers it.
+        let (&last, earlier) = covering.origin.split_last()?;
+        if alt
+            .iter()
+            .any(|r| self.useful(&covering.matrix, r, types).is_some())
+        {
+            return None;
+        }
         let live = |k: usize| {
-            let prefix = Matrix::new(rows.prefix(k));
+            let prefix = Matrix::new(covering.matrix.rows.prefix(k));
             alt.iter().any(|r| self.useful(&prefix, r, types).is_some())
         };
-        let (mut lo, mut hi) = (0usize, upto);
-        while lo < hi {
-            let mid = lo.saturating_add(hi.saturating_sub(lo) / 2);
-            if live(mid) {
-                lo = mid.saturating_add(1);
-            } else {
-                hi = mid;
-            }
+        // Every row but the last, which covers it if none of these does.
+        let earlier: Vec<(usize, Span)> = earlier.iter().copied().enumerate().collect();
+        let p = earlier.partition_point(|&(row, _)| live(row.saturating_add(1)));
+        Some(earlier.get(p).copied().unwrap_or((earlier.len(), last)))
+    }
+}
+
+/// The rows the reachability loop has seen, each with the span of the
+/// alternative that put it there, so that a dead alternative can be shown the
+/// pattern that subsumes it rather than told to go and find it.
+struct Covering<'p> {
+    matrix: Matrix<'p>,
+    origin: Vec<Span>,
+}
+
+impl<'p> Covering<'p> {
+    fn push(&mut self, row: &[&'p Pat], at: Span) {
+        self.matrix.push(row);
+        self.origin.push(at);
+    }
+
+    /// The same rows, for an arm whose own rows must not outlast it.
+    fn copy(&self) -> Covering<'p> {
+        Covering {
+            matrix: Matrix::new(self.matrix.rows.clone()),
+            origin: self.origin.clone(),
         }
-        // Every type has a value, so no pattern is useless against no rows.
-        lo.checked_sub(1)
-            .or_ice("a dead pattern is covered by some row before it")
     }
 }
 
@@ -1144,11 +1122,15 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         .saturating_add(1);
     // Each alternative's rows, built once up front: the matrices below borrow
     // their patterns from here.
-    let alternatives: Vec<Vec<(Span, Vec<Vec<Pat>>)>> = alternatives
+    let alternatives: Vec<Vec<(Span, Vec<Pat>)>> = alternatives
         .into_iter()
         .map(|alts| {
             alts.into_iter()
-                .map(|(at, low)| (at, expand(vec![expand_lengths(low, limit)])))
+                .map(|(at, low)| {
+                    let mut rows = Vec::new();
+                    expand(expand_lengths(low, limit), &mut rows);
+                    (at, rows)
+                })
                 .collect()
         })
         .collect();
@@ -1163,45 +1145,39 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
     // Arms are tried in order and the first matching arm wins, so an arm is
     // unreachable when the arms before it already cover it. A guarded arm
     // covers nothing, because its guard may fail.
-    //
-    // `origin` runs alongside the matrix's rows: which alternative put each one
-    // there, so that a dead alternative can be shown the pattern that subsumes
-    // it rather than told to go and find it.
-    let mut covering = Matrix {
-        memo: Some(Default::default()),
-        ..Matrix::default()
+    let mut covering = Covering {
+        matrix: Matrix {
+            memo: Some(Default::default()),
+            ..Matrix::default()
+        },
+        origin: Vec::new(),
     };
-    let mut origin: Vec<Span> = Vec::new();
     let mut reported = Vec::new();
     for (arm, alts) in arms.iter().zip(&alternatives) {
-        let base = covering.rows.len();
+        let base = covering.origin.len();
         let mut alive = false;
-        let mut dead: Vec<(Span, Rows<'_>, usize)> = Vec::new();
-        // A guarded arm covers nothing below it, so its rows come back out at
-        // the end — they go in first only because they do cover this arm's own
-        // later alternatives. An arm with one alternative has no later one, so
-        // it neither adds nor removes anything and the index is left alone.
+        let mut dead: Vec<(Span, (usize, Span))> = Vec::new();
+        // A guarded arm covers nothing below it, so its rows go into a copy
+        // that ends with the arm — they go in at all only because they do
+        // cover this arm's own later alternatives. An arm with one
+        // alternative has no later one, so it adds nothing and is not copied.
         let hold = arm.guard.is_none() || alts.len() > 1;
+        let mut held = (arm.guard.is_some() && hold).then(|| covering.copy());
         for (at, owned) in alts {
-            let before = covering.rows.len();
+            let cover = held.as_mut().unwrap_or(&mut covering);
             let mut rows = Rows::default();
             for r in owned {
-                rows.push_with(|cells| cells.extend(r.iter()));
+                rows.push(&[r]);
             }
-            if rows
-                .iter()
-                .any(|r| ctx.useful(&covering, r, &types).is_some())
-            {
-                alive = true;
-            } else {
-                dead.push((*at, rows.clone(), before));
+            match ctx.covered_by(cover, &rows, &types) {
+                None => alive = true,
+                Some(culprit) => dead.push((*at, culprit)),
             }
             // Even a dead alternative goes in — it adds no coverage, and
             // leaving it out would make the next one's "before" a lie.
             if hold {
                 for r in rows.iter() {
-                    covering.push(r);
-                    origin.push(*at);
+                    cover.push(r, *at);
                 }
             }
         }
@@ -1209,44 +1185,32 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         // one looks dead, because a pattern the checker could not build
         // covers everything after it. So reachability is asked only of a
         // `match` the checker understood.
+        // Every alternative dead is the arm dead, reported once for the arm,
+        // at the latest row it needed.
+        let latest = dead
+            .iter()
+            .map(|&(_, culprit)| culprit)
+            .max_by_key(|&(row, _)| row);
         if recovered {
             // Nothing to report: see above.
-        } else if !alive {
-            // Every alternative dead is the arm dead, reported once for the
-            // arm, at the latest row it needed.
-            let culprit = dead
-                .iter()
-                .map(|(_, rows, before)| ctx.covered_by(&covering.rows, *before, rows, &types))
-                .max()
-                .or_ice("a dead arm has a dead alternative");
-            let span = origin
-                .get(culprit)
-                .or_ice("every covering row has an origin");
+        } else if let (false, Some((_, span))) = (alive, latest) {
             reported.push(
                 Diagnostic::templated("unreachable-arm", arm.span)
-                    .with_secondary_span(*span, "already covered here"),
+                    .with_secondary_span(span, "already covered here"),
             );
         } else {
-            for (at, rows, before) in dead {
-                let culprit = ctx.covered_by(&covering.rows, before, &rows, &types);
+            for (at, (culprit, span)) in dead {
                 let why = if culprit >= base {
                     "an earlier alternative of this arm already covers everything it matches"
                 } else {
                     "an arm above already covers everything it matches"
                 };
-                let span = origin
-                    .get(culprit)
-                    .or_ice("every covering row has an origin");
                 reported.push(
                     Diagnostic::templated("unreachable-alternative", at)
                         .with_bind("why", why)
-                        .with_secondary_span(*span, "already covered here"),
+                        .with_secondary_span(span, "already covered here"),
                 );
             }
-        }
-        if arm.guard.is_some() && hold {
-            covering.truncate(base);
-            origin.truncate(base);
         }
     }
     for d in reported {
@@ -1259,7 +1223,7 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         limit,
         witnesses: true,
     };
-    if let Some(witness) = ctx.useful(&covering, &[&WILD], &types) {
+    if let Some(witness) = ctx.useful(&covering.matrix, &[&WILD], &types) {
         if witness.iter().any(|w| holds_error(&inf.c.tables, w)) {
             return;
         }

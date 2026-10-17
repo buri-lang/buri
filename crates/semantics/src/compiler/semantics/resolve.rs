@@ -1028,7 +1028,7 @@ impl<'a> Checker<'a> {
                     ty: Ty::ERROR,
                     exported: d.exported,
                     span: d.name.span,
-                    ast: ast_ref,
+                    item: index,
                 });
                 self.declare(module, d.name, Sym::Const(id), d.exported);
             }
@@ -1048,7 +1048,7 @@ impl<'a> Checker<'a> {
                     exported: d.exported,
                     checked: None,
                     span: d.name.span,
-                    ast: ast_ref,
+                    item: index,
                 });
                 self.declare(module, d.name, Sym::Context(id), d.exported);
             }

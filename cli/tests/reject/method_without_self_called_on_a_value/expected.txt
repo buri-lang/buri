@@ -1,0 +1,12 @@
+error: `make` takes no `self`, so it is not called on a value [method-without-self]
+  --> cmd/method_without_self_called_on_a_value/main.buri:15:3
+   |
+15 |   b.make()
+   |   ^^^^^^^^
+   |
+   = fix: give `make` a `self` parameter, or call it without a receiver
+
+     x.f() hands x to f as self, so f needs a self parameter to take it. A trait
+     function with no self, such as Bounded's maxValue, is called without a
+     receiver: number.maxValue<U8>().
+

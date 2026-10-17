@@ -458,10 +458,11 @@ pub fn run(
     diags: &mut Diagnostics,
     walked: &Walked,
 ) -> (Styled, Option<TyConId>) {
-    // `ui/style` declares both, so a program has both or neither.
-    let (Some(style_con), Some(classes_con)) = (
+    // `ui/style` declares all three, so a program has all or none.
+    let (Some(style_con), Some(classes_con), Some(extracted)) = (
         own_type(loaded, scopes, "ui/style", "Style"),
         own_type(loaded, scopes, "ui/style", "Classes"),
+        own_fn(loaded, scopes, "ui/style", "extracted"),
     ) else {
         return (Styled::default(), None);
     };
@@ -472,8 +473,6 @@ pub fn run(
     let Some((classify, classify_style)) = classifiers(loaded, scopes) else {
         return (Styled::default(), Some(style_con));
     };
-    let extracted =
-        own_fn(loaded, scopes, "ui/style", "extracted").or_ice("`ui/style` declares `extracted`");
 
     // The interpreter reads bodies and constants as they were *before* this
     // pass rewrote any of them: folding a call into an already-extracted style
@@ -742,12 +741,13 @@ impl<'a> Extractor<'a> {
         }
         let carries = carries(e);
         let all = self.mode == Mode::Checking;
-        let mut positions = self.flow.positions(e).into_iter();
-        typed::children_mut(e, &mut |child| {
-            let pos = positions.next().or_ice("`positions` names every child");
-            let to = self.flow.sink(self.owner, &pos, sink, carries, all);
+        let positions = self.flow.positions(e);
+        let mut children = Vec::new();
+        typed::children_mut(e, &mut |child| children.push(child));
+        for (child, pos) in children.into_iter().zip(&positions) {
+            let to = self.flow.sink(self.owner, pos, sink, carries, all);
             self.visit(child, to, cond);
-        });
+        }
     }
 
     /// Marks `s` as reachable by a value this run doesn't see, where `e` is a
@@ -930,11 +930,11 @@ impl<'a> Extractor<'a> {
         let classes: Vec<String> = atoms.iter().map(|a| a.class.clone()).collect();
         // A constant is inlined where it's read, with the spans it was
         // written with, so that is where `survey` meets it.
-        if let ExprKind::Const(c) = e.kind {
-            let init = self
-                .original_consts
-                .get(&c)
-                .or_ice("a constant that folded has a value");
+        let init = match e.kind {
+            ExprKind::Const(c) => self.original_consts.get(&c),
+            _ => None,
+        };
+        if let Some(init) = init {
             self.sources.insert(init.span, classes.clone());
         }
         self.sources.insert(e.span, classes);
@@ -1022,13 +1022,17 @@ impl<'a> Extractor<'a> {
         found: &mut dyn Iterator<Item = (Vec<(String, String)>, bool)>,
     ) {
         typed::children_mut(e, &mut |child| self.fill_in(child, found));
-        let span = e.span;
+        let (span, ty) = (e.span, e.ty);
         let ExprKind::CallFn { func, args } = &mut e.kind else {
             return;
         };
-        if ![self.classify, self.classify_style].contains(&func.id) {
+        // Both take the style, the names, strictness and `make`.
+        let (true, [value, names, strictness, _]) = (
+            [self.classify, self.classify_style].contains(&func.id),
+            args.as_mut_slice(),
+        ) else {
             return;
-        }
+        };
         let (known, strict) = found
             .next()
             .or_ice("every `classify` this pass wrote is one leaf");
@@ -1036,18 +1040,12 @@ impl<'a> Extractor<'a> {
             // Nothing the compiler saw can get here, so there is nothing to
             // look up: the value is the one the runtime writes inline.
             (true, false) => {
-                *e = std::mem::take(args)
-                    .into_iter()
-                    .next()
-                    .or_ice("`classify` is given the style first");
+                let value = std::mem::replace(value, typed::Expr::new(ExprKind::Error, ty, span));
+                *e = value;
             }
             _ => {
-                *args
-                    .get_mut(1)
-                    .or_ice("`classify` is given the names second") = self.known(known, span);
-                *args
-                    .get_mut(2)
-                    .or_ice("`classify` is given strictness third") = self.boolean(strict, span);
+                *names = self.known(known, span);
+                *strictness = self.boolean(strict, span);
             }
         }
     }
@@ -1417,9 +1415,12 @@ fn property(
         out.push(atom(variant, PIN_FLOW, cond, flow, "out")?);
     }
     let sub = sub_key(variant, args);
-    let declared = declaration(variant, args, digest)?;
-    let (_, name, _) = declaration(variant, args, preimage)
-        .or_ice("a value that declares under one digest declares under any");
+    let (Some(declared), Some((_, name, _))) = (
+        declaration(variant, args, digest),
+        declaration(variant, args, preimage),
+    ) else {
+        return None;
+    };
     out.push(atom(variant, sub, cond, declared, &name)?);
     Some(())
 }
@@ -1907,9 +1908,11 @@ impl<'a> Flow<'a> {
                 out.add(d, read, stopped);
             }
         }
-        let mut positions = self.positions(e).into_iter();
-        typed::children(e, &mut |child| {
-            let child_ctx = match positions.next().or_ice("`positions` names every child") {
+        let positions = self.positions(e);
+        let mut children = Vec::new();
+        typed::children(e, &mut |child| children.push(child));
+        for (child, pos) in children.into_iter().zip(positions) {
+            let child_ctx = match pos {
                 Pos::Same => ctx,
                 Pos::At(d) => d,
                 // Any one of them demanded demands the first, which stands for
@@ -1924,7 +1927,7 @@ impl<'a> Flow<'a> {
                 }),
             };
             self.edges(owner, child, child_ctx, stopped, out);
-        });
+        }
     }
 
     /// Whether a child at `pos` reaches a node, given whether its parent's
@@ -3565,11 +3568,11 @@ pub fn survey(
             }
         }
         ExprKind::StructLit { con, .. } if Some(*con) == ui.theme => out.themes = true,
-        ExprKind::CallFunc { func: f, args } if unchecked.contains(f) => {
-            let strict = args
-                .get_mut(2)
-                .or_ice("`classify` is given strictness third");
-            strict.kind = ExprKind::Bool(false);
+        ExprKind::CallFunc { func: f, args } => {
+            // `classify` takes the style, the names, strictness and `make`.
+            if let (true, [_, _, strict, _]) = (unchecked.contains(f), args.as_mut_slice()) {
+                strict.kind = ExprKind::Bool(false);
+            }
         }
         _ => {}
     }

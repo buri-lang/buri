@@ -77,10 +77,17 @@ impl<K: Copy> Step<'_, K> {
                 targs,
                 ..
             } => {
-                let mut bound = vec![Ty::ERROR; arity];
-                bind(head, substitute(&recv, args, None), &mut bound);
-                bound.extend(targs.iter().map(|a| substitute(a, args, None)));
-                bound
+                let mut found = Vec::new();
+                bind(head, substitute(&recv, args, None), &mut found);
+                (0..arity)
+                    .map(|i| {
+                        found
+                            .iter()
+                            .rfind(|&&(j, _)| j == i)
+                            .map_or(Ty::ERROR, |&(_, t)| t)
+                    })
+                    .chain(targs.iter().map(|a| substitute(a, args, None)))
+                    .collect()
             }
         }
     }
@@ -316,12 +323,10 @@ pub(super) fn instantiations(
 }
 
 /// Binds the parameters of an `impl`'s `head` to the parts of `ty`, which it
-/// covers.
-fn bind(head: Ty, ty: Ty, bound: &mut [Ty]) {
+/// covers: each parameter's index, with its part.
+fn bind(head: Ty, ty: Ty, bound: &mut Vec<(usize, Ty)>) {
     if let TyKind::Param(i) = head.kind() {
-        *bound
-            .get_mut(*i as usize)
-            .or_ice("an `impl`'s head is written in its own parameters") = ty;
+        bound.push((*i as usize, ty));
         return;
     }
     for (h, t) in side_by_side(head, ty) {
@@ -428,9 +433,9 @@ where
             .iter()
             .flat_map(|&(k, n)| (0..n).map(move |i| (k, i))),
     );
-    let mut component: HashMap<Node<K>, usize> = HashMap::default();
-    for (id, (these, _)) in components.iter().enumerate() {
-        component.extend(these.iter().map(|&n| (n, id)));
+    let mut component: HashMap<Node<K>, (usize, &Component<'a, K>)> = HashMap::default();
+    for (id, c) in components.iter().enumerate() {
+        component.extend(c.members.iter().map(|&n| (n, (id, c))));
     }
     let order: HashMap<K, usize> = owners
         .iter()
@@ -445,16 +450,15 @@ where
             continue;
         }
         let found = (0..arity).map(|i| (k, i)).find_map(|start| {
-            let &id = component.get(&start)?;
-            let (these, shrinks) = components.get(id).or_ice("numbered above");
-            if !shrinks {
-                return Some((k, graph.growing_cycle(start)));
+            let &(id, c) = component.get(&start)?;
+            if !c.shrinks {
+                return Some((k, graph.growing_cycle(start, &c.growing)));
             }
             // A component that shrinks somewhere is searched whole, once.
             if !walked.insert(id) {
                 return None;
             }
-            graph.endless_walk(these, &order, k)
+            graph.endless_walk(&c.members, &order, k)
         });
         let Some((from, steps)) = found else { continue };
         covered.extend(steps.iter().map(Step::target));
@@ -466,6 +470,32 @@ where
         });
     }
     out
+}
+
+/// An edge that grows, inside its component: where it leaves, where it lands
+/// and the step it is.
+type Growing<'a, K> = (Node<K>, Node<K>, Step<'a, K>);
+
+/// A strongly connected component holding an edge that grows.
+struct Component<'a, K> {
+    members: HashSet<Node<K>>,
+    /// Whether it holds an edge that shrinks too, when growing somewhere
+    /// doesn't settle it.
+    shrinks: bool,
+    /// Its edges that grow, in the order its members were taken off the
+    /// stack and each one's edges were declared: the first, and the rest.
+    growing: (Growing<'a, K>, Vec<Growing<'a, K>>),
+}
+
+/// Where Tarjan's algorithm is in one node: the nodes its edges reach and
+/// how many of them it has been to, its index and lowest index reached, and
+/// how deep the stack was when it went on.
+struct Frame<K> {
+    next: Vec<Node<K>>,
+    k: usize,
+    index: usize,
+    low: usize,
+    depth: usize,
 }
 
 struct Graph<'a, K, F> {
@@ -492,14 +522,12 @@ where
     /// The nodes reached from `starts` that lie on a cycle through an edge
     /// that grows: the strongly connected components holding such an edge
     /// (Tarjan's algorithm, without recursion, so a long chain of calls can't
-    /// overflow the stack). Each comes with whether it holds an edge that
-    /// shrinks too, when growing somewhere doesn't settle it.
+    /// overflow the stack).
     fn growing_components(
         &mut self,
         starts: impl Iterator<Item = Node<K>>,
-    ) -> Vec<(HashSet<Node<K>>, bool)> {
+    ) -> Vec<Component<'a, K>> {
         let mut index: HashMap<Node<K>, usize> = HashMap::default();
-        let mut low: HashMap<Node<K>, usize> = HashMap::default();
         let mut component: HashMap<Node<K>, usize> = HashMap::default();
         let mut members: Vec<Vec<Node<K>>> = Vec::new();
         let mut stack: Vec<Node<K>> = Vec::new();
@@ -507,46 +535,48 @@ where
             if index.contains_key(&s) {
                 continue;
             }
-            let mut frames: Vec<(Node<K>, Vec<Node<K>>, usize)> = Vec::new();
+            let mut frames: Vec<Frame<K>> = Vec::new();
             macro_rules! enter {
                 ($n:expr) => {{
                     let n = $n;
                     let at = index.len();
                     index.insert(n, at);
-                    low.insert(n, at);
+                    frames.push(Frame {
+                        next: self.out_of(n).map(|e| e.to).collect(),
+                        k: 0,
+                        index: at,
+                        low: at,
+                        depth: stack.len(),
+                    });
                     stack.push(n);
-                    let next = self.out_of(n).map(|e| e.to).collect();
-                    frames.push((n, next, 0));
                 }};
             }
             enter!(s);
-            while let Some((u, next, k)) = frames.last_mut() {
-                let u = *u;
-                if let Some(&w) = next.get(*k) {
-                    *k = k.saturating_add(1);
+            while let Some(frame) = frames.last_mut() {
+                if let Some(&w) = frame.next.get(frame.k) {
+                    frame.k = frame.k.saturating_add(1);
                     match index.get(&w) {
                         None => enter!(w),
                         Some(&iw) if !component.contains_key(&w) => {
-                            let lu = low.get_mut(&u).or_ice("entered");
-                            *lu = (*lu).min(iw);
+                            frame.low = frame.low.min(iw);
                         }
                         Some(_) => {}
                     }
                     continue;
                 }
+                let Frame {
+                    index: at,
+                    low,
+                    depth,
+                    ..
+                } = *frame;
                 frames.pop();
-                let lu = *low.get(&u).or_ice("entered");
-                if let Some((parent, ..)) = frames.last() {
-                    let lp = low.get_mut(parent).or_ice("entered");
-                    *lp = (*lp).min(lu);
+                if let Some(parent) = frames.last_mut() {
+                    parent.low = parent.low.min(low);
                 }
-                if Some(&lu) == index.get(&u) {
+                if low == at {
                     let id = members.len();
-                    let at = stack
-                        .iter()
-                        .rposition(|n| *n == u)
-                        .or_ice("`u` is on the stack");
-                    let these = stack.split_off(at);
+                    let these = stack.split_off(depth);
                     for &n in &these {
                         component.insert(n, id);
                     }
@@ -556,24 +586,36 @@ where
         }
         let mut out = Vec::new();
         for these in members {
-            let (mut grows, mut shrinks) = (false, false);
+            let mut shrinks = false;
+            let mut growing = Vec::new();
             for &u in &these {
                 let here = component.get(&u);
                 for e in self.out_of(u).filter(|e| component.get(&e.to) == here) {
-                    grows |= !e.grow.is_empty();
+                    if !e.grow.is_empty() {
+                        growing.push((u, e.to, e.step));
+                    }
                     shrinks |= !e.shrink.is_empty();
                 }
             }
-            if grows {
-                out.push((these.into_iter().collect(), shrinks));
+            if let Some((&first, rest)) = growing.split_first() {
+                out.push(Component {
+                    members: these.into_iter().collect(),
+                    shrinks,
+                    growing: (first, rest.to_vec()),
+                });
             }
         }
         out
     }
 
     /// The steps of a cycle from `start`, a node in a growing cycle whose
-    /// edges never shrink, back to it through an edge that grows.
-    fn growing_cycle(&mut self, start: Node<K>) -> Vec<Step<'a, K>> {
+    /// edges never shrink, back to it through an edge that grows: of the
+    /// component's `growing` edges, the one leaving nearest `start`.
+    fn growing_cycle(
+        &mut self,
+        start: Node<K>,
+        growing: &(Growing<'a, K>, Vec<Growing<'a, K>>),
+    ) -> Vec<Step<'a, K>> {
         // Forward from `start`, remembering how each node was reached.
         let mut reached: Via<'a, K> = HashMap::default();
         reached.insert(start, None);
@@ -611,12 +653,16 @@ where
                 }
             }
         }
-        let found = order.iter().find_map(|&u| {
-            self.out_of(u)
-                .find(|e| !e.grow.is_empty() && back.contains_key(&e.to))
-                .map(|e| (u, e.to, e.step))
-        });
-        let (u, to, step) = found.or_ice("a node in a growing cycle has one");
+        // Every node of the component is reached from `start` and leads back
+        // to it, so each growing edge closes a cycle; the first reached wins.
+        let reached_at: HashMap<Node<K>, usize> =
+            order.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+        let at = |u: &Node<K>| reached_at.get(u).copied().unwrap_or(usize::MAX);
+        let (first, rest) = growing;
+        let (u, to, step) = rest.iter().fold(
+            *first,
+            |best, &e| if at(&e.0) < at(&best.0) { e } else { best },
+        );
         let mut steps = Vec::new();
         let mut at = u;
         while let Some(&Some((prev, step))) = reached.get(&at) {

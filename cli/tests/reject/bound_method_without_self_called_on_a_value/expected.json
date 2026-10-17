@@ -1,0 +1,1 @@
+{"severity":"error","message":"`make` takes no `self`, so it is not called on a value","code":"method-without-self","location":{"file":"cmd/bound_method_without_self_called_on_a_value/main.buri","line":7,"column":3,"endLine":7,"endColumn":11,"text":"  t.make()"},"fix":"give `make` a `self` parameter, or call it without a receiver","notes":[],"related":[]}

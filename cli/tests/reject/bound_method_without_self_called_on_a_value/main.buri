@@ -1,0 +1,8 @@
+// EXPECT: `make` takes no `self`, so it is not called on a value
+trait Make {
+  fn make(): Int;
+}
+
+fn go<T: Make>(t: T): Int {
+  t.make()
+}

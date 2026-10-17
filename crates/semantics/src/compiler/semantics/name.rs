@@ -16,7 +16,6 @@
 use std::hash::{BuildHasher, BuildHasherDefault};
 use std::sync::{Mutex, PoisonError};
 
-use crate::diagnostics::Invariant as _;
 use crate::hash::{FxHasher, Set};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -25,10 +24,9 @@ pub struct Name(&'static str);
 impl Name {
     pub fn new(text: &str) -> Name {
         let hash = BuildHasherDefault::<FxHasher>::new().hash_one(text);
-        let shard = (hash >> (u64::BITS - SHARD_BITS)) as usize;
-        let shard = TABLE
-            .get(shard)
-            .or_ice("the top `SHARD_BITS` bits of a hash index `SHARDS`");
+        let [top, ..] = hash.to_be_bytes();
+        #[expect(clippy::indexing_slicing, reason = "a `u8` is below `SHARDS`")]
+        let shard = &TABLE[usize::from(top)];
         let mut shard = shard.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(found) = shard.get(text) {
             return Name(found);
@@ -75,8 +73,8 @@ impl std::fmt::Display for Name {
     }
 }
 
-const SHARD_BITS: u32 = 6;
-const SHARDS: usize = 1 << SHARD_BITS;
+/// A shard is picked by the hash's top byte.
+const SHARDS: usize = 1 << u8::BITS;
 
 static TABLE: [Mutex<Set<&'static str>>; SHARDS] =
     [const { Mutex::new(Set::with_hasher(BuildHasherDefault::new())) }; SHARDS];

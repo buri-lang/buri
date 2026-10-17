@@ -460,7 +460,11 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
         }
         Symbol::Const(id) => {
             let info = tables.const_(*id);
-            match item_syntax(analyzed, info.ast) {
+            let ast = types::AstRef::Item {
+                module: info.module,
+                item: info.item,
+            };
+            match item_syntax(analyzed, ast) {
                 Some((t, Item::Let(d))) => (
                     format!("let {}: {}", t.name(d.name), formatting::type_text(t, d.ty)),
                     t.docs(d.docs),
@@ -477,7 +481,11 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
         }
         Symbol::Context(id) => {
             let info = tables.ctx_decl(*id);
-            match item_syntax(analyzed, info.ast) {
+            let ast = types::AstRef::Item {
+                module: info.module,
+                item: info.item,
+            };
+            match item_syntax(analyzed, ast) {
                 Some((t, Item::Context(d))) => {
                     (format!("context {}", t.name(d.name)), t.docs(d.docs))
                 }
