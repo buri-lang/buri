@@ -332,6 +332,7 @@ const PACKAGES: &[Case] = &[
     included("proto_gen/mapping.buri"),
     included("proto_gen/origins.buri"),
     included("proto_gen/scalars.buri"),
+    included("proto_gen/wellknown.buri"),
     //
     // Five files, and between them they are `core/bits` entire,
     // `Checked`/`Wrapping`/`Saturating`/`Bounded` at every width including

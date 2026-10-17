@@ -1,1 +1,1 @@
-from "//lib/r/r.buri" export { spin, turn, wind };
+from "//lib/r/r.buri" export { idle, spin, turn, wind };

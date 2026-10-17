@@ -807,7 +807,6 @@ pub fn branches(program: &mut Program, options: &Options) -> Vec<derived::Derive
             .funcs
             .iter()
             .enumerate()
-            .filter(|(_, f)| (options.file_of)(f.span).is_none())
             .filter_map(|(i, f)| Some((i, aborts(f)?)))
             .collect(),
         None => HashMap::default(),
@@ -840,7 +839,7 @@ pub fn branches(program: &mut Program, options: &Options) -> Vec<derived::Derive
     }
 }
 
-/// How a call to a function outside the user's source can abort, if it can: a
+/// How a call to an intrinsic can abort, if it can: a
 /// `core/bits` shift or rotate, or an integer type's `divide` or `remainder`,
 /// which a generic `a / b` reaches at that type.
 pub fn aborts(f: &crate::compiler::middle::monomorphize::Func) -> Option<Aborts> {

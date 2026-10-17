@@ -317,6 +317,27 @@ fn coverage_counts_the_standard_library_only_when_asked() {
     assert!(lcov.contains("SF:core/order\n"), "{lcov}");
 }
 
+/// Counting the standard library too leaves the repository's own records as
+/// they were: a shift or rotate by a count the caller picks is still a
+/// condition, though `core/bits` is now counted source.
+#[test]
+fn coverage_counts_its_own_shifts_alike_with_the_standard_library() {
+    let scratch = Scratch::copy_of(
+        "coverage-std-shifts",
+        &tests_dir().join("repositories/coverage/mcdc_rotate/repo"),
+    );
+    let args = ["test", "//lib/r", "--coverage=mcdc"];
+    let own = |env: &[(&str, &str)]| {
+        let ran = scratch.run_with_env(&args, env);
+        assert_eq!(ran.code, 0, "{}", indent(&ran.all()));
+        let lcov = std::fs::read_to_string(scratch.path(".buri/coverage/lcov.info")).unwrap();
+        let start = lcov.find("SF:lib/r/r.buri\n").expect("a record for lib/r");
+        let rest = &lcov[start..];
+        rest[..rest.find("end_of_record").unwrap()].to_string()
+    };
+    assert_eq!(own(&[("BURI_COVERAGE_STD", "1")]), own(&[]));
+}
+
 /// A report that can't be written says why, after the verdicts it leaves as
 /// they were.
 #[test]

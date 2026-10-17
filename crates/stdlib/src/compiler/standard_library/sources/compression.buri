@@ -708,22 +708,19 @@ fn failed(c: Cursor): Cursor {
     if (c.error >= 0) { c } else { Cursor { ..c, error: c.at } }
 }
 
-/// One bit, low bit of the byte first.
+/// One bit, low bit of the byte first. Both callers stop at a cursor that has
+/// failed, so `c` never has.
 fn takeBit(data: [U8], c: Cursor): (Int, Cursor) {
-    if (c.error >= 0) {
-        (0, c)
-    } else {
-        match (data.get(c.at)) {
-            .None => (0, failed(c)),
-            .Some(byte) => {
-                let value = bits.shiftRight(byte.toI64(), c.bit) & 1;
-                if (c.bit == 7) {
-                    (value, Cursor { ..c, at: c.at + 1, bit: 0 })
-                } else {
-                    (value, Cursor { ..c, bit: c.bit + 1 })
-                }
-            },
-        }
+    match (data.get(c.at)) {
+        .None => (0, failed(c)),
+        .Some(byte) => {
+            let value = bits.shiftRight(byte.toI64(), c.bit) & 1;
+            if (c.bit == 7) {
+                (value, Cursor { ..c, at: c.at + 1, bit: 0 })
+            } else {
+                (value, Cursor { ..c, bit: c.bit + 1 })
+            }
+        },
     }
 }
 
@@ -1013,7 +1010,8 @@ fn runLengths<C: Allocator>(
                 want,
                 acc.concat(ctx, list.repeat(ctx, 0, more.0 + 3)),
             )
-        } else if (symbol.0 == 18) {
+        } else {
+            // 18: the code-length alphabet has nineteen symbols, 0 to 18.
             let more = takeBits(data, symbol.1, 7);
             runLengths(
                 ctx,
@@ -1023,8 +1021,6 @@ fn runLengths<C: Allocator>(
                 want,
                 acc.concat(ctx, list.repeat(ctx, 0, more.0 + 11)),
             )
-        } else {
-            (acc, failed(symbol.1))
         }
     }
 }

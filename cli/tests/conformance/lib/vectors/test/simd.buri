@@ -427,3 +427,80 @@ test "loadI32x4 refuses a negative index too" {
     let one = [1.0];
     assert.equal(simd.loadF32x4(one, 0), .None);
 }
+
+// --- Each lane on its own -------------------------------------------------------------
+//
+// A lane-wise operation decides each lane by itself, so a pair whose lanes
+// answer opposite ways in turn, and then the other way round, reaches every
+// answer in every lane.
+
+test "each float lane is compared, picked and masked by itself" {
+    let a = simd.f32x4(1.0, 5.0, 1.0, 5.0);
+    let b = simd.f32x4(5.0, 1.0, 5.0, 1.0);
+    assert.equal(a.min(b), simd.splatFloat(1.0));
+    assert.equal(b.min(a), simd.splatFloat(1.0));
+    assert.equal(a.max(b), simd.splatFloat(5.0));
+    assert.equal(b.max(a), simd.splatFloat(5.0));
+    assert.equal(a.lessThan(b), simd.i32x4(1, 0, 1, 0));
+    assert.equal(b.lessThan(a), simd.i32x4(0, 1, 0, 1));
+    assert.equal(a.equalTo(simd.f32x4(1.0, 0.0, 1.0, 0.0)), simd.i32x4(1, 0, 1, 0));
+    assert.equal(a.equalTo(simd.f32x4(0.0, 5.0, 0.0, 5.0)), simd.i32x4(0, 1, 0, 1));
+    assert.equal(simd.selectFloat(simd.i32x4(1, 0, 1, 0), a, b), simd.splatFloat(1.0));
+    assert.equal(simd.selectFloat(simd.i32x4(0, 1, 0, 1), a, b), simd.splatFloat(5.0));
+}
+
+test "each integer lane is compared, picked and masked by itself" {
+    let a = simd.i32x4(1, 5, 1, 5);
+    let b = simd.i32x4(5, 1, 5, 1);
+    assert.equal(a.min(b), simd.splatInt(1));
+    assert.equal(b.min(a), simd.splatInt(1));
+    assert.equal(a.max(b), simd.splatInt(5));
+    assert.equal(b.max(a), simd.splatInt(5));
+    assert.equal(a.lessThan(b), simd.i32x4(1, 0, 1, 0));
+    assert.equal(b.lessThan(a), simd.i32x4(0, 1, 0, 1));
+    assert.equal(a.equalTo(simd.i32x4(1, 0, 1, 0)), simd.i32x4(1, 0, 1, 0));
+    assert.equal(a.equalTo(simd.i32x4(0, 5, 0, 5)), simd.i32x4(0, 1, 0, 1));
+    assert.equal(simd.i32x4(0, 7, 0, 7).not(), simd.i32x4(1, 0, 1, 0));
+    assert.equal(simd.i32x4(7, 0, 7, 0).not(), simd.i32x4(0, 1, 0, 1));
+    assert.equal(simd.selectInt(simd.i32x4(1, 0, 1, 0), a, b), simd.splatInt(1));
+    assert.equal(simd.selectInt(simd.i32x4(0, 1, 0, 1), a, b), simd.splatInt(5));
+}
+
+test "an integer vector reads and replaces each of its lanes" {
+    let v = simd.i32x4(1, 2, 3, 4);
+    assert.equal([v.lane(0), v.lane(1), v.lane(2), v.lane(3), v.lane(4)], [
+        1,
+        2,
+        3,
+        4,
+        1,
+    ]);
+    assert.equal(v.withLane(0, 9), simd.i32x4(9, 2, 3, 4));
+    assert.equal(v.withLane(1, 9), simd.i32x4(1, 9, 3, 4));
+    assert.equal(v.withLane(2, 9), simd.i32x4(1, 2, 9, 4));
+    let f = simd.f32x4(1.0, 2.0, 3.0, 4.0);
+    assert.equal(f.withLane(1, 9.0), simd.f32x4(1.0, 9.0, 3.0, 4.0));
+    assert.equal(f.withLane(3, 9.0), simd.f32x4(1.0, 2.0, 3.0, 9.0));
+}
+
+test "two vectors differ by any one lane" {
+    let f = simd.f32x4(1.0, 2.0, 3.0, 4.0);
+    assert.notEqual(f, f.withLane(0, 0.0));
+    assert.notEqual(f, f.withLane(1, 0.0));
+    assert.notEqual(f, f.withLane(2, 0.0));
+    assert.notEqual(f, f.withLane(3, 0.0));
+    let i = simd.i32x4(1, 2, 3, 4);
+    assert.notEqual(i, i.withLane(0, 0));
+    assert.notEqual(i, i.withLane(1, 0));
+    assert.notEqual(i, i.withLane(2, 0));
+    assert.notEqual(i, i.withLane(3, 0));
+}
+
+test "a load stops at whichever of the four is missing" {
+    assert.none(simd.loadI32x4([1], 0));
+    assert.none(simd.loadI32x4([1, 2], 0));
+    assert.none(simd.loadI32x4([1, 2, 3], 0));
+    assert.none(simd.loadF32x4([1.0], 0));
+    assert.none(simd.loadF32x4([1.0, 2.0], 0));
+    assert.none(simd.loadF32x4([1.0, 2.0, 3.0], 0));
+}

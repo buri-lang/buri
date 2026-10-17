@@ -11,3 +11,7 @@ export fn turn(n: U32, by: Int): U32 {
 export fn wind(n: Int, by: Int): Int {
     bits.rotateRight(n, by)
 }
+
+export fn idle(n: Int, by: Int): Int {
+    bits.rotateLeft(n, by)
+}

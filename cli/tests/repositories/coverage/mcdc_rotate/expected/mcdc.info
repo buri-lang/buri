@@ -4,13 +4,17 @@ BRDA:8,0,0,1
 BRDA:8,0,1,0
 BRDA:12,0,0,1
 BRDA:12,0,1,0
-BRF:4
+BRDA:16,0,0,-
+BRDA:16,0,1,-
+BRF:6
 BRH:2
 MCDC:8,1,t,0,0,'bits.rotateLeftU32(n, by)' in 'bits.rotateLeftU32(n, by)'
 MCDC:8,1,f,0,0,'bits.rotateLeftU32(n, by)' in 'bits.rotateLeftU32(n, by)'
 MCDC:12,1,t,0,0,'bits.rotateRight(n, by)' in 'bits.rotateRight(n, by)'
 MCDC:12,1,f,0,0,'bits.rotateRight(n, by)' in 'bits.rotateRight(n, by)'
-MCF:4
+MCDC:16,1,t,0,0,'bits.rotateLeft(n, by)' in 'bits.rotateLeft(n, by)'
+MCDC:16,1,f,0,0,'bits.rotateLeft(n, by)' in 'bits.rotateLeft(n, by)'
+MCF:6
 MCH:0
 DA:3,1
 DA:4,1
@@ -18,6 +22,8 @@ DA:7,1
 DA:8,1
 DA:11,1
 DA:12,1
-LF:6
+DA:15,0
+DA:16,0
+LF:8
 LH:6
 end_of_record
