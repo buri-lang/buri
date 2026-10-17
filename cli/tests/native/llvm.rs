@@ -356,13 +356,39 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
 
 /// [`build_tests`], with the source standing at module path `file`.
 fn build_tests_as(name: &str, file: &str, source: &str) -> PathBuf {
-    build_tests_at(name, file, source, Profile::Release)
+    build_tests_at(name, file, None, source, Profile::Release)
 }
 
-/// [`build_tests_as`], at a chosen pipeline.
-fn build_tests_at(name: &str, file: &str, source: &str, profile: Profile) -> PathBuf {
+/// [`build_tests_as`], at a chosen pipeline, and — where `package` names one —
+/// as a test source of that package of the conformance repository, so that an
+/// `import "//lib/<package>"` in it resolves as it does under `buri test`.
+fn build_tests_at(
+    name: &str,
+    file: &str,
+    package: Option<&str>,
+    source: &str,
+    profile: Profile,
+) -> PathBuf {
     let mut map = SourceMap::new();
-    let analysis = driver::analyze_snippet(&mut map, file, source, Role::TestSource);
+    let analysis = match package {
+        None => driver::analyze_snippet(&mut map, file, source, Role::TestSource),
+        Some(package) => {
+            let repository =
+                crate::shared::conformance_repository().expect("the conformance repository opens");
+            let id = repository.package_by_path(package);
+            assert!(id.is_some(), "the conformance repository has no {package}");
+            driver::analyze_snippet_on(
+                Some(repository),
+                id,
+                &mut map,
+                &mut buri::parsing::parser::Cache::new(),
+                file,
+                source,
+                Role::TestSource,
+                None,
+            )
+        }
+    };
     assert!(
         !analysis.diagnostics.has_errors(),
         "{}",
@@ -950,7 +976,7 @@ fn the_float_order_holds_at_both_profiles() {
     let declared = source.matches("\ntest \"").count();
     for profile in [Profile::Release, Profile::Debug] {
         let name = format!("float-order-{}", profile.name());
-        let binary = build_tests_at(&name, "main.buri", &source, profile);
+        let binary = build_tests_at(&name, "main.buri", Some("lib/numbers"), &source, profile);
         let mut cmd = Command::new(&binary);
         cmd.env("BURI_TEST_FROM", "0");
         let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
@@ -994,7 +1020,13 @@ fn collections_file_holds_at_both_profiles(file: &str) {
     let declared = source.matches("\ntest \"").count();
     for profile in [Profile::Release, Profile::Debug] {
         let name = format!("{file}-{}", profile.name());
-        let binary = build_tests_at(&name, "main.buri", &source, profile);
+        let binary = build_tests_at(
+            &name,
+            "main.buri",
+            Some("lib/collections"),
+            &source,
+            profile,
+        );
         let mut cmd = Command::new(&binary);
         cmd.env("BURI_TEST_FROM", "0");
         let ran = crate::shared::ran_command(crate::shared::heap_checked(&mut cmd));
