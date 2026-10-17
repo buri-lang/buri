@@ -26,7 +26,6 @@ use super::state::{State, Work};
 use super::Published;
 use crate::build::sources::Overlay;
 use crate::build::workspace::TargetId;
-use crate::diagnostics::Invariant as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -285,13 +284,12 @@ impl Sweeps {
     pub fn settle(&mut self, buffers: &Overlay) {
         while self.busy() {
             self.release();
-            // The worker only goes away by panicking, which in a release build
-            // has already ended the process.
-            let swept = self
-                .done
-                .recv()
-                .or_ice("the sweep worker answers every job it is sent");
-            self.arrived(swept, buffers);
+            match self.done.recv() {
+                Ok(swept) => self.arrived(swept, buffers),
+                // The worker panicked, which printed why and, in a release
+                // build, ended the process. Nothing is running any more.
+                Err(_) => self.running = None,
+            }
         }
     }
 

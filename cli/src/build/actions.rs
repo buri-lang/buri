@@ -3298,9 +3298,14 @@ pub fn link_test_binary(
         tables,
         diagnostics,
     )?;
+    // Why the host couldn't load these objects, for a runner that can't link
+    // them either: the objects themselves, maybe damaged in the cache.
+    let mut refused = None;
     if super::test_host::wanted(target_of(output), profile_of(flags)) {
         let loaded = super::test_host::get(&linker).and_then(|host| {
-            image_cached(root, label, output, flags, &host, &objects).map(|got| (host, got))
+            image_cached(root, label, output, flags, &host, &objects)
+                .map(|got| (host, got))
+                .inspect_err(|why| refused = Some(why.clone()))
         });
         match loaded {
             Ok((host, (key, image))) => {
@@ -3332,7 +3337,16 @@ pub fn link_test_binary(
             super::programs::settle(binary.path());
             Ok((binary, key))
         }
-        Err(errors) => {
+        Err(mut errors) => {
+            // A `for`, so a runner the host never refused isn't a branch.
+            for why in refused.iter() {
+                for d in &mut errors.items {
+                    d.note(format!(
+                        "the test host couldn't load these objects either ({why}), so the \
+                         cache may hold a damaged one: `buri clean` empties it"
+                    ));
+                }
+            }
             diagnostics.extend(errors.items);
             Err(std::mem::take(diagnostics))
         }

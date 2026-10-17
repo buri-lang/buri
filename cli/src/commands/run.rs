@@ -170,11 +170,13 @@ pub fn command_run(args: &arguments::Args) -> i32 {
     };
     command.args(&args.passthrough);
     match stopping::start(&mut command) {
-        Ok(mut child) => {
-            let st = stopping::wait(&mut child)
-                .or_ice("a program this process started can be waited for");
-            stopping::status(&st)
-        }
+        Ok(mut child) => match stopping::wait(&mut child) {
+            Ok(stopped) => stopping::status(&stopped),
+            Err(e) => {
+                eprintln!("error: cannot wait for the artifact to end: {e}");
+                1
+            }
+        },
         Err(e) => {
             eprintln!("error: cannot execute the artifact: {e}");
             if !native {
@@ -487,7 +489,6 @@ fn starts_itself(output: &crate::build::buildfile::Output) -> bool {
 /// beats the child is kept in [`stopping::STATE`] and sent on the moment there
 /// is a child to send it to.
 mod stopping {
-    use crate::diagnostics::Invariant as _;
     use std::process::{Child, Command, ExitStatus};
     use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
@@ -713,13 +714,10 @@ mod stopping {
         #[cfg(feature = "test-hooks")]
         SPAWNING.raised();
         let child = crate::build::spawn::start(command)?;
-        // Zero is not a pid this can publish: `kill(0, …)` is every process in
-        // this group, which is the one thing a command that forwards a signal
-        // to one child must never do.
-        let pid = i32::try_from(child.id())
-            .ok()
-            .filter(|&pid| pid > 0)
-            .or_ice("a child's pid is a positive i32");
+        // Never zero, since `fork` answers that only to the child: `kill(0, …)`
+        // is every process in this group, which is the one thing a command
+        // that forwards a signal to one child must never do.
+        let pid = child.id().cast_signed();
         hand_over(pid);
         #[cfg(feature = "test-hooks")]
         STARTED.raised();

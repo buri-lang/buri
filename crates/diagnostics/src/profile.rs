@@ -404,7 +404,6 @@ struct Process {
 
 #[cfg(target_os = "macos")]
 mod os {
-    use crate::diagnostics::Invariant;
     use std::ffi::{c_char, c_void};
     use std::sync::OnceLock;
 
@@ -456,15 +455,14 @@ mod os {
         unsafe { clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) }
     }
 
-    /// `rusage_info_v4` for `pid`, and a converter from its ticks to nanoseconds.
-    fn rusage(pid: i32) -> ([u64; 37], impl Fn(u64) -> u64) {
+    /// `rusage_info_v4` for `pid`, and a converter from its ticks to
+    /// nanoseconds. `None` where the kernel won't say.
+    fn rusage(pid: i32) -> Option<([u64; 37], impl Fn(u64) -> u64)> {
         const RUSAGE_INFO_V4: i32 = 4;
         let mut info = [0u64; 37];
         // SAFETY: `rusage_info_v4` is 37 `u64`s (a 16-byte UUID, then 35 counters).
         let status = unsafe { proc_pid_rusage(pid, RUSAGE_INFO_V4, info.as_mut_ptr()) };
-        (status == 0)
-            .then_some(())
-            .or_ice("a process reads its own usage and its unreaped child's");
+        (status == 0).then_some(())?;
         let mut base = [0u32; 2];
         // SAFETY: fills a `{ numer, denom }` pair.
         unsafe { mach_timebase_info(&mut base) };
@@ -472,11 +470,12 @@ mod os {
         let ns = move |ticks: u64| {
             (u128::from(ticks) * u128::from(numer) / u128::from(denom.max(1))) as u64
         };
-        (info, ns)
+        Some((info, ns))
     }
 
     /// Waits for child `pid` to exit without reaping it, then reads its
-    /// instructions and CPU nanoseconds.
+    /// instructions and CPU nanoseconds. Best effort: `None` where the wait
+    /// or the read fails.
     pub fn exited_child(pid: u32) -> Option<(u64, u64)> {
         const P_PID: i32 = 1;
         const WEXITED: i32 = 4;
@@ -484,16 +483,15 @@ mod os {
         let mut info = [0u64; 16];
         // SAFETY: `info` is larger than the 104-byte `siginfo_t`.
         let status = unsafe { waitid(P_PID, pid, &mut info, WEXITED | WNOWAIT) };
-        // The caller has not reaped `pid`, and `signal` restarts an interrupted wait.
-        crate::diagnostics::invariant(status == 0, "`reaped` waits on a child nobody has reaped");
-        let (info, ns) = rusage(i32::try_from(pid).ok()?);
+        (status == 0).then_some(())?;
+        let (info, ns) = rusage(i32::try_from(pid).ok()?)?;
         let at = |i: usize| info.get(i).copied().unwrap_or(0);
         Some((at(31), ns(at(2) + at(3))))
     }
 
     pub(super) fn process() -> Option<super::Process> {
         // SAFETY: no arguments, no memory.
-        let (info, ns) = rusage(unsafe { getpid() });
+        let (info, ns) = rusage(unsafe { getpid() })?;
         let at = |i: usize| info.get(i).copied().unwrap_or(0);
         Some(super::Process {
             instructions: at(31),

@@ -3,7 +3,11 @@
 //! Prints the toolchain's version, and under `--verbose` the identity of the
 //! executable printing it — which build of that version this is, for a bug
 //! report that has to name one.
-#![allow(clippy::print_stdout, reason = "the version is this command's output")]
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "the version and the check are this command's output"
+)]
 
 use crate::build::cache::running_exe_identity;
 use crate::commands::arguments;
@@ -27,17 +31,16 @@ pub fn command_version(args: &arguments::Args) -> i32 {
     if args.flags.self_check {
         let mut map = crate::diagnostics::SourceMap::new();
         let analysis = crate::compiler::driver::analyze_stdlib(&mut map);
-        crate::diagnostics::invariant_with(analysis.diagnostics.items.is_empty(), || {
-            let mut said = String::from("the bundled standard library does not check\n");
-            for d in &analysis.diagnostics.items {
-                said.push_str(&map.render(d, false));
-            }
-            said
-        });
+        let problems = &analysis.diagnostics.items;
+        for d in problems {
+            eprint!("{}", map.render(d, false));
+        }
         println!(
-            "standard library: {} modules, checked",
-            analysis.loaded.modules.len()
+            "standard library: {} modules checked, {} problems",
+            analysis.loaded.modules.len(),
+            problems.len()
         );
+        return i32::from(!problems.is_empty());
     }
     0
 }

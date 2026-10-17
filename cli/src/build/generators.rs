@@ -594,8 +594,7 @@ fn ask_kept(artifact: &std::path::Path, request: &str) -> Option<String> {
                     .stderr(Stdio::null()),
             )
             .ok()?;
-            let stdin = child.stdin.take().or_ice("a kept tool's input is piped");
-            let stdout = child.stdout.take().or_ice("a kept tool's output is piped");
+            let (stdin, stdout) = child.stdin.take().zip(child.stdout.take())?;
             KeptProcess {
                 artifact: artifact.to_path_buf(),
                 child,
@@ -668,13 +667,16 @@ fn run_once(artifact: &std::path::Path, request: &str) -> Result<String, String>
         })
     };
     let reading_out = drain(Box::new(
-        child.stdout.take().or_ice("a tool's output is piped"),
+        child
+            .stdout
+            .take()
+            .ok_or("the tool has no standard output")?,
     ));
     let reading_err = drain(Box::new(
         child
             .stderr
             .take()
-            .or_ice("a tool's standard error is piped"),
+            .ok_or("the tool has no standard error")?,
     ));
     // **Waited for, not timed.** This used to poll under a sixty-second
     // deadline and kill the tool at it, and that number could only ever measure
@@ -729,11 +731,13 @@ pub(crate) fn how_it_ended(status: &std::process::ExitStatus) -> String {
     if let Some(code) = status.code() {
         return format!("exited with {code}");
     }
-    let signal = std::os::unix::process::ExitStatusExt::signal(status)
-        .or_ice("a waited-for process with no exit code was ended by a signal");
-    match signal_name(signal) {
-        Some(name) => format!("was killed by {name} (signal {signal})"),
-        None => format!("was killed by signal {signal}"),
+    match std::os::unix::process::ExitStatusExt::signal(status) {
+        Some(signal) => match signal_name(signal) {
+            Some(name) => format!("was killed by {name} (signal {signal})"),
+            None => format!("was killed by signal {signal}"),
+        },
+        // Stopped or continued, which a plain wait never answers.
+        None => format!("ended as {status}"),
     }
 }
 

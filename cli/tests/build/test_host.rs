@@ -208,6 +208,41 @@ fn an_image_the_test_host_cannot_load_is_reported_once() {
     assert_eq!(run.tests_passed(), 0, "{}", indent(&run.all()));
 }
 
+/// A damaged object the cache hands out, with no tag to show the damage, as a
+/// filesystem without extended attributes leaves every entry: the host can't
+/// load it, the runner can't link it, and the error says where to look.
+#[test]
+fn a_damaged_object_in_the_cache_is_a_link_error() {
+    let scratch = suite("test-host-damaged-object");
+    passes(&scratch, &[], &[]);
+    let mut spoiled = 0;
+    for entry in walk(&scratch.path(".buri/cache")) {
+        let mut bytes = std::fs::read(&entry).unwrap();
+        if bytes.starts_with(b"BURIIMG\0") {
+            std::fs::remove_file(&entry).unwrap();
+        } else if bytes.starts_with(&0xfeed_facf_u32.to_le_bytes()) && bytes[12] == 1 {
+            // An executable's file type, in an object.
+            bytes[12] = 2;
+            std::fs::remove_file(&entry).unwrap();
+            std::fs::write(&entry, &bytes).unwrap();
+            spoiled += 1;
+        }
+    }
+    assert!(spoiled > 0, "the cache held no objects");
+    scratch.write("lib/a/test/__snapshots__/unused.png", "not a picture\n");
+    scratch
+        .run(&["test", "//lib/a"])
+        .exits(1)
+        .says("error: the link failed")
+        .says(
+            "the test host couldn't load these objects either (an object isn't one stencil \
+             writes), so the cache may hold a damaged one: `buri clean` empties it",
+        )
+        .silent_about("internal compiler error");
+    scratch.run(&["clean"]).ok();
+    passes(&scratch, &[], &[]);
+}
+
 /// Every file under `dir`.
 fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
