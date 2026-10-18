@@ -172,8 +172,6 @@ type Row<'p> = Vec<&'p Pat>;
 struct Rows<'p> {
     heads: Vec<&'p Pat>,
     tails: Vec<&'p Pat>,
-    /// How many patterns follow each head.
-    tail_width: usize,
     /// How many rows have no head.
     bare: usize,
 }
@@ -187,23 +185,26 @@ impl<'p> Rows<'p> {
         self.len() == 0
     }
 
+    /// How many patterns follow each head: every row is as wide as the next.
+    fn tail_width(&self) -> usize {
+        self.tails.len().checked_div(self.heads.len()).unwrap_or(0)
+    }
+
     /// Each row with a head, as its head and the patterns after it.
     fn iter(&self) -> impl Iterator<Item = (&'p Pat, &[&'p Pat])> {
         // With nothing after the heads, `tails` is empty and every row's tail
         // is the empty slice the chain supplies.
         let tails = self
             .tails
-            .chunks(self.tail_width.max(1))
+            .chunks(self.tail_width().max(1))
             .chain(std::iter::repeat(&[][..]));
         self.heads.iter().copied().zip(tails)
     }
 
     /// Appends the row `head` starts and `tail` finishes.
     fn push(&mut self, head: &'p Pat, tail: impl IntoIterator<Item = &'p Pat>) {
-        let before = self.tails.len();
         self.heads.push(head);
         self.tails.extend(tail);
-        self.tail_width = self.tails.len().saturating_sub(before);
     }
 
     /// Appends the row of `cells`, which has no head when the matrix has no
@@ -223,10 +224,9 @@ impl<'p> Rows<'p> {
             tails: self
                 .tails
                 .iter()
-                .take(k.saturating_mul(self.tail_width))
+                .take(k.saturating_mul(self.tail_width()))
                 .copied()
                 .collect(),
-            tail_width: self.tail_width,
             bare: k.min(self.bare),
         }
     }
@@ -407,8 +407,12 @@ struct Matrix<'p> {
     /// seen, for the matrix the reachability loop grows. That loop asks the
     /// same question with one more row each time, so a column every row
     /// shares, a tuple's, was `n²` rows copied over `n` arms.
-    memo: Option<std::cell::RefCell<HashMap<Ctor, (usize, Matrix<'p>)>>>,
+    /// Boxed because only that one matrix has it.
+    memo: Option<Box<Memo<'p>>>,
 }
+
+/// [`Matrix::memo`]: each constructor's rows seen and specialization.
+type Memo<'p> = std::cell::RefCell<HashMap<Ctor, (usize, Matrix<'p>)>>;
 
 #[derive(Default)]
 struct Index<'p> {
