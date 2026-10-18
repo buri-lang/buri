@@ -55,7 +55,7 @@
 //! (`runtime_native::symbol_for`) only names the symbol of a key the table
 //! has ([`Entry::symbol`]).
 
-use crate::compiler::backend::intrinsic_keys::Tasks;
+use crate::compiler::backend::intrinsic_keys::{ComputeRow, Handoff, PressRow, Tasks, WalkRow};
 use crate::compiler::middle::ir;
 use Arg::{
     Bytes, Compute, Dropped, Elems, Equal, List, Press, Release, Retain, Scalar, Spilled, Step,
@@ -363,12 +363,6 @@ pub enum Extra {
     /// it ([`Arg::Release`], [`Arg::Equal`]): a store the runtime keeps and
     /// later writes over.
     Owned,
-    /// [`Arg::Compute`]'s seven words.
-    Compute,
-    /// [`Arg::Walk`]'s three words.
-    Walk,
-    /// [`Arg::Press`]'s five words.
-    Press,
 }
 
 /// One runtime entry both backends can emit a call to.
@@ -422,15 +416,10 @@ impl Entry {
     /// What the frame-threaded backend appends after the flattened arguments.
     pub fn extra(&self) -> Extra {
         let has = |a| self.args.contains(&a);
-        // A row with an `Arg::Step` is reached through an `ir::Parallel`, which
-        // names its step, and never through here.
-        if has(Compute) {
-            Extra::Compute
-        } else if has(Walk) {
-            Extra::Walk
-        } else if has(Press) {
-            Extra::Press
-        } else if has(Release) {
+        // A row with an `Arg::Step`, `Arg::Compute`, `Arg::Walk` or `Arg::Press`
+        // is reached through an `ir::Parallel` or an `ir::Handover`, which names
+        // its closure, and never through here.
+        if has(Release) {
             Extra::Owned
         } else if has(Stride) {
             Extra::Element
@@ -486,6 +475,63 @@ pub fn parallel(tasks: Tasks) -> &'static Entry {
     match tasks {
         Tasks::Host => &HOST_PARALLEL,
         Tasks::Testing => &TEST_PARALLEL,
+    }
+}
+
+// The rows that take a closure the runtime calls on its own. `ENTRIES` lists
+// each where it is argued, and an `ir::Handover` reaches it by its row.
+const HEADLESS_MEMO: Entry = e(
+    "host_testing.Headless.memo",
+    &[Scalar, Compute],
+    Ret::Scalar,
+);
+const HEADLESS_WATCH: Entry = e("host_testing.Headless.watch", &[Scalar, Compute], Ret::Void);
+const REACTIVE: Entry = e("ui_node.reactive", &[Compute], Ret::Void);
+const MOUNT: Entry = e("host_testing.mount", &[Dropped, Spilled, Walk], Ret::Scalar);
+const REBUILD_REGION: Entry = e(
+    "ui_node.rebuildRegion",
+    &[Scalar, Scalar, Spilled, Walk],
+    Ret::Void,
+);
+const RECONCILE: Entry = e(
+    "ui_node.reconcile",
+    &[Scalar, Scalar, List, Walk],
+    Ret::Void,
+);
+const TIMER_START: Entry = e("tasks.timerStart", &[Dropped, Scalar, Press], Ret::Scalar);
+const HEADLESS_TIMER_START: Entry = e(
+    "host_testing.headlessTimerStart",
+    &[Dropped, Scalar, Press],
+    Ret::Scalar,
+);
+const REGISTER_PRESS: Entry = e("ui_node.registerPress", &[Scalar, Press], Ret::Void);
+const REGISTER_OUTSIDE: Entry = e("ui_node.registerOutside", &[Scalar, Press], Ret::Void);
+const REGISTER_FOLLOW: Entry = e("ui_node.registerFollow", &[Scalar, Str, Press], Ret::Void);
+const REGISTER_KEY: Entry = e("ui_node.registerKey", &[Scalar, Press], Ret::Void);
+const REGISTER_PICK: Entry = e("ui_node.registerPick", &[Scalar, Press], Ret::Void);
+const REGISTER_POINTER: Entry = e(
+    "ui_node.registerPointer",
+    &[Scalar, Scalar, Press],
+    Ret::Void,
+);
+
+/// The row an `ir::Handover` on `row` calls.
+pub fn handoff(row: Handoff) -> &'static Entry {
+    match row {
+        Handoff::Compute(ComputeRow::HeadlessMemo) => &HEADLESS_MEMO,
+        Handoff::Compute(ComputeRow::HeadlessWatch) => &HEADLESS_WATCH,
+        Handoff::Compute(ComputeRow::Reactive) => &REACTIVE,
+        Handoff::Walk(WalkRow::Mount) => &MOUNT,
+        Handoff::Walk(WalkRow::RebuildRegion) => &REBUILD_REGION,
+        Handoff::Walk(WalkRow::Reconcile) => &RECONCILE,
+        Handoff::Press(PressRow::TimerStart) => &TIMER_START,
+        Handoff::Press(PressRow::HeadlessTimerStart) => &HEADLESS_TIMER_START,
+        Handoff::Press(PressRow::Press) => &REGISTER_PRESS,
+        Handoff::Press(PressRow::Outside) => &REGISTER_OUTSIDE,
+        Handoff::Press(PressRow::Follow) => &REGISTER_FOLLOW,
+        Handoff::Press(PressRow::Key) => &REGISTER_KEY,
+        Handoff::Press(PressRow::Pick) => &REGISTER_PICK,
+        Handoff::Press(PressRow::Pointer) => &REGISTER_POINTER,
     }
 }
 
@@ -1237,12 +1283,12 @@ pub const ENTRIES: &[Entry] = &[
     e("tasks.scopeSpare", &[Dropped, Scalar], Ret::Scalar),
     e("tasks.scopeRan", &[Dropped, Scalar], Ret::Scalar),
     // `core/tasks`'s timers. Unlike a spawned task, a timer's body is the
-    // runtime's to call, so it crosses as a kept handler ([`Extra::Press`]):
+    // runtime's to call, so it crosses as a kept handler ([`Arg::Press`]):
     // `fn(C, Int) => ()`, with the context written into the record beside the
     // closure and the timer's handle as the element. The runtime fires it
     // where the program waits and, once `main` has returned, until none is
     // pending (`cli/runtime/rt.rs`'s timers).
-    e("tasks.timerStart", &[Dropped, Scalar, Press], Ret::Scalar),
+    TIMER_START,
     e("tasks.timerStop", &[Dropped, Scalar], Ret::Void),
     // -- platform/effect/testing's stateful half -----------------------------------
     //
@@ -1612,7 +1658,7 @@ pub const ENTRIES: &[Entry] = &[
     // outside every computation, and the recorder that says when a computation
     // ran.
     //
-    // `Ui.memo` and `Ui.watch` are what [`Extra::Compute`] was added for: both
+    // `Ui.memo` and `Ui.watch` are what [`Arg::Compute`] was added for: both
     // take a Buri closure the runtime keeps and calls later, which is
     // [`Arg::Step`]'s thunk with a lifetime problem to answer. A snapshot
     // still reaches neither — `ui/node`'s `describe` reads props under
@@ -1698,21 +1744,13 @@ pub const ENTRIES: &[Entry] = &[
         &[Scalar, Scalar, Spilled, Stride, Retain, Release, Equal],
         Ret::Void,
     )),
-    e(
-        "host_testing.Headless.memo",
-        &[Scalar, Compute],
-        Ret::Scalar,
-    ),
-    e("host_testing.Headless.watch", &[Scalar, Compute], Ret::Void),
+    HEADLESS_MEMO,
+    HEADLESS_WATCH,
     // The virtual clock `after` schedules on under `headless()` (#256).
     // `headlessTimerStart` is `tasks.timerStart`'s shape: a kept handler with
     // the double written into the record beside it and the handle as the
     // element. `elapse` fires what came due, each on the graph's own turn.
-    e(
-        "host_testing.headlessTimerStart",
-        &[Dropped, Scalar, Press],
-        Ret::Scalar,
-    ),
+    HEADLESS_TIMER_START,
     e(
         "host_testing.Headless.unschedule",
         &[Scalar, Scalar],
@@ -1770,11 +1808,11 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `mount` drops its context, passes `root` by address — a pointer to the
     // one `Node` the walk destructures and this side never reads — and takes
-    // the walk as its last argument ([`Extra::Walk`]). `renderInto` never
+    // the walk as its last argument ([`Arg::Walk`]). `renderInto` never
     // crosses whole: only its `{ code, env }` does, inside the record, and the
     // dropped context beside it, which the document keeps for the walks and
     // handlers it drives later.
-    e("host_testing.mount", &[Dropped, Spilled, Walk], Ret::Scalar),
+    MOUNT,
     // The builders the walk emits to. `emitElement` takes the element name and
     // its scene declarations, both `Str`; `emitText` a run; `exitElement`
     // closes the open element. The builder handle is a `Builder`, one word.
@@ -1787,10 +1825,10 @@ pub const ENTRIES: &[Entry] = &[
     // `$tree_bind`. `enterDynamic` opens a region and answers its handle, and
     // `rebuildRegion` clears it and re-walks a subtree into the gap — the native
     // `$tree_dynamic`. Its last argument is the walk `renderInto`, an
-    // [`Extra::Walk`] like `mount`'s, so the runtime supplies and drops the
+    // [`Arg::Walk`] like `mount`'s, so the runtime supplies and drops the
     // context the watcher could not capture, with the node at index 2 by
     // address. `reactive` is the renderer's own `watch`: the same deferred body
-    // [`Extra::Compute`] carries for `Ui.watch`, registered with no `Ui` in hand
+    // [`Arg::Compute`] carries for `Ui.watch`, registered with no `Ui` in hand
     // because the runtime owns the graph.
     e("ui_node.openText", &[Scalar], Ret::Scalar),
     e("ui_node.patchText", &[Scalar, Scalar, Str], Ret::Void),
@@ -1799,43 +1837,35 @@ pub const ENTRIES: &[Entry] = &[
     // the element kept — together a `$tree_styles` bind for the scene.
     e("ui_node.openElement", &[Scalar, Str, Str], Ret::Scalar),
     e("ui_node.patchBody", &[Scalar, Scalar, Str], Ret::Void),
-    e("ui_node.reactive", &[Compute], Ret::Void),
+    REACTIVE,
     e("ui_node.enterDynamic", &[Scalar], Ret::Scalar),
     // `beginRegion` clears a region and points the builder at its gap and
     // `endRegion` restores it — `rebuildRegion` split open, for a reactive
     // widget that emits inline under its own watcher rather than walking a node.
     e("ui_node.beginRegion", &[Scalar, Scalar], Ret::Void),
     e("ui_node.endRegion", &[Scalar], Ret::Void),
-    e(
-        "ui_node.rebuildRegion",
-        &[Scalar, Scalar, Spilled, Walk],
-        Ret::Void,
-    ),
+    REBUILD_REGION,
     // The keyed list (#53 phase 4). `enterEach` opens the two markers and the
     // row owner; `reconcile` is driven from the list's watcher with the keys the
-    // watcher computed and the row body last, an [`Extra::Walk`] like a region
+    // watcher computed and the row body last, an [`Arg::Walk`] like a region
     // rebuild's — but with nothing spilled, because the body builds its own node
     // from `rowAt` rather than being handed one.
     e("ui_node.enterEach", &[Scalar], Ret::Scalar),
-    e(
-        "ui_node.reconcile",
-        &[Scalar, Scalar, List, Walk],
-        Ret::Void,
-    ),
+    RECONCILE,
     // The event arms (#53 phase 4). `registerPress` keeps a button's or a form's
-    // `fn(C, Event) => ()` on the open element — an [`Extra::Press`], the kept
+    // `fn(C, Event) => ()` on the open element — an [`Arg::Press`], the kept
     // two-parameter handler; `registerValue` stores a field's or a toggle's bound
     // signal so `fill`/`flip` can write it; `markSubmit` flags the button whose
     // press submits its form.
-    e("ui_node.registerPress", &[Scalar, Press], Ret::Void),
+    REGISTER_PRESS,
     // `registerOutside` keeps an `onPressOutside`'s handler on the document
     // paired with the open element — an `ep` like `registerPress`, kept in the
     // graph so the subtree's disposal takes the listener.
-    e("ui_node.registerOutside", &[Scalar, Press], Ret::Void),
+    REGISTER_OUTSIDE,
     // `registerFollow` keeps a route link's plain-click handler and its
     // destination on the anchor, so `follow` fires it; a kept two-parameter
     // handler like `registerPress`, with the destination string ahead of it.
-    e("ui_node.registerFollow", &[Scalar, Str, Press], Ret::Void),
+    REGISTER_FOLLOW,
     e("ui_node.registerValue", &[Scalar, Scalar], Ret::Void),
     // `registerSelection` stores a field's caret/selection signal so `select`
     // can write it an `(anchor, focus)` pair — a plain handle like `registerValue`.
@@ -1856,7 +1886,7 @@ pub const ENTRIES: &[Entry] = &[
     // `keyPressed` and says it claimed it with `claimKey`.
     e("ui_node.openTip", &[Scalar], Ret::Scalar),
     e("ui_node.describeTip", &[Scalar, Scalar, Str], Ret::Void),
-    e("ui_node.registerKey", &[Scalar, Press], Ret::Void),
+    REGISTER_KEY,
     e("ui_node.keyPressed", &[Scalar], Ret::Out),
     e("ui_node.claimKey", &[Scalar], Ret::Void),
     // The focus. `focusKey` mints the focus an element stands for, once, and
@@ -1882,7 +1912,7 @@ pub const ENTRIES: &[Entry] = &[
     // own, an `ep` like `registerPress`, so `press` never fires it; the three
     // `offered` readers answer the file `pickFile` left on the document, and
     // `offerFile`/`deliverFile` are `pickFile`'s two halves.
-    e("ui_node.registerPick", &[Scalar, Press], Ret::Void),
+    REGISTER_PICK,
     e("ui_node.offeredName", &[Scalar], Ret::Out),
     e("ui_node.offeredType", &[Scalar], Ret::Out),
     e("ui_node.offeredBytes", &[Scalar], Ret::Out),
@@ -1939,11 +1969,7 @@ pub const ENTRIES: &[Entry] = &[
     // pointer handlers under its phase, an `ep` like `registerPress`; the four
     // readers answer the `PointerAt` the dispatch in flight set, and
     // `pointerDown`/`pointerMove`/`pointerUp` are that dispatch.
-    e(
-        "ui_node.registerPointer",
-        &[Scalar, Scalar, Press],
-        Ret::Void,
-    ),
+    REGISTER_POINTER,
     e("ui_node.pointerX", &[Scalar], Ret::Scalar),
     e("ui_node.pointerY", &[Scalar], Ret::Scalar),
     e("ui_node.pointerOverRow", &[Scalar], Ret::Scalar),
@@ -2426,6 +2452,21 @@ mod tests {
                     e.key
                 );
             }
+            // A body, a walk or a handler is exactly a [`Handoff`] row of that
+            // shape, which [`handoff`] answers by its key.
+            let kept = Handoff::of(e.key).map(|h| {
+                assert_eq!(handoff(h).key, e.key);
+                match h {
+                    Handoff::Compute(_) => Compute,
+                    Handoff::Walk(_) => Walk,
+                    Handoff::Press(_) => Press,
+                }
+            });
+            let shape = buri
+                .last()
+                .copied()
+                .filter(|a| matches!(a, Compute | Walk | Press));
+            assert_eq!(kept, shape, "{}", e.key);
         }
         // Two steps, the graph's two deferred bodies and the renderer's
         // `reactive`, three walks, six kept handlers and the two timers.

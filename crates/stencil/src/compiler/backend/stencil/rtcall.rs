@@ -49,7 +49,7 @@
 // the stencil library holds, read from `abi.rs` — the one file the library
 // builder and this emitter both compile — rather than written down twice.
 use super::abi::{Jump, Lit, Word, MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
-use super::jit::{agg_of, enum_ty, fn_ty, Bind, Fn2, Jit, V};
+use super::jit::{agg_of, enum_ty, Bind, Fn2, Jit, V};
 use super::runtime::{self, Entry, Extra, OptRepr, Ret, BURI_OK};
 use crate::compiler::backend::counts::Op;
 use crate::compiler::middle::ir;
@@ -125,7 +125,8 @@ const STR_LEN: u32 = 16;
 
 impl Jit<'_> {
     /// Emits a call to `entry`, with `tail` after the words its arguments
-    /// make: a step's four ([`Self::step_words`]), or nothing.
+    /// make: a step's four ([`Self::step_words`]), a closure's
+    /// ([`Self::handover_words`]), or nothing.
     pub(crate) fn rt_call(
         &mut self,
         prog: &ir::Program,
@@ -178,25 +179,6 @@ impl Jit<'_> {
             );
             if by_ref == Some(i) {
                 ints.push(Src::Addr(slot));
-                continue;
-            }
-            // And a **deferred body** is not flattened either, for the same
-            // reason and at a fixed position: it is the last argument of every
-            // [`Extra::Compute`] row (`runtime_table.rs`'s
-            // `a_closure_is_the_last_argument`).
-            if extra == Extra::Compute && i + 1 == args.len() {
-                continue;
-            }
-            // A **walk** is the same, at the same position: the last argument
-            // of an [`Extra::Walk`] row is the `renderInto` closure, and it
-            // crosses inside the record below rather than flattened.
-            if extra == Extra::Walk && i + 1 == args.len() {
-                continue;
-            }
-            // A **kept handler** is the same once more: the last argument of an
-            // [`Extra::Press`] row is the `onPress`/`onSubmit` closure, kept on
-            // an element rather than flattened.
-            if extra == Extra::Press && i + 1 == args.len() {
                 continue;
             }
             // An integer leaf is a whole word (`leaves`).
@@ -266,18 +248,6 @@ impl Jit<'_> {
         }
 
         ints.extend(tail);
-
-        if extra == Extra::Compute {
-            self.compute_extra(prog, st, args, &mut ints);
-        }
-
-        if extra == Extra::Walk {
-            self.walk_extra(prog, st, entry, args, &mut ints);
-        }
-
-        if extra == Extra::Press {
-            self.press_extra(prog, st, entry, args, &mut ints);
-        }
 
         // The call reads the frame words it is handed when it runs, and the
         // destination is zeroed before that. A value that dies at this call can
@@ -940,8 +910,24 @@ impl Jit<'_> {
         }
     }
 
-    /// [`Extra::Compute`]'s seven words: a body the runtime keeps and calls
-    /// later.
+    /// The words a [`ir::Handover`]'s closure crosses as, after its row's
+    /// own: a body's seven, a walk's three or seven, or a handler's five.
+    pub(crate) fn handover_words(
+        &mut self,
+        st: &mut Fn2,
+        entry: &Entry,
+        h: &ir::Handover,
+        args: &[(u32, ir::Type)],
+    ) -> Vec<Src> {
+        match h.kept {
+            ir::Kept::Compute(_, params) => self.compute_words(st, h, params),
+            ir::Kept::Walk(_, params) => self.walk_words(st, entry, h, args, params),
+            ir::Kept::Press(_, params) => self.press_words(st, entry, h, args, params),
+        }
+    }
+
+    /// [`Arg::Compute`](super::runtime::Arg::Compute)'s seven words: a body
+    /// the runtime keeps and calls later.
     ///
     /// It is [`Self::step_extra`] with the lifetime turned around. The record
     /// is built in the same place and holds the same first two words, and the
@@ -953,15 +939,10 @@ impl Jit<'_> {
     /// closure for the life of the program, so the count on the closure's
     /// environment is taken **here**, at the call site, exactly as
     /// `emit::json_prim` takes one on a `Str` an intrinsic put in an enum.
-    fn compute_extra(
-        &mut self,
-        prog: &ir::Program,
-        st: &mut Fn2,
-        args: &[(u32, ir::Type)],
-        ints: &mut Vec<Src>,
-    ) {
-        let (fslot, ty, params, ret) = last_closure(prog, args);
-        let widths: Vec<u32> = params.iter().map(|t| self.layouts_of(*t).size).collect();
+    fn compute_words(&mut self, st: &mut Fn2, h: &ir::Handover, params: [Ty; 1]) -> Vec<Src> {
+        let (fslot, ty, ret) = (st.at(h.closure), h.ty, h.ret);
+        let mut ints = Vec::new();
+        let widths = params.map(|t| self.layouts_of(t).size);
         let (_, bytes) = super::glue::state_shape(&widths, None);
         let state = st.frame.size;
         self.mv(state, fslot, 16);
@@ -994,12 +975,14 @@ impl Jit<'_> {
             Some(name) => ints.push(Src::Sym(name)),
             None => ints.push(Src::Imm(0)),
         }
+        ints
     }
 
-    /// [`Extra::Walk`]'s three words: a `fn(Builder, Node) => ()` the runtime
-    /// invokes once, to walk a tree into the document.
+    /// [`Arg::Walk`](super::runtime::Arg::Walk)'s three words: a
+    /// `fn(Builder, Node) => ()` the runtime invokes once, to walk a tree into
+    /// the document.
     ///
-    /// [`Self::compute_extra`] with the keeping taken out. The record holds the
+    /// [`Self::compute_words`] with the keeping taken out. The record holds the
     /// closure's two words and the frame past them, exactly as a body's does,
     /// and the thunk is the same [`super::glue::Helper::Entry`] — but the walk
     /// takes **two** parameters, the builder handle and the node, and the
@@ -1010,16 +993,17 @@ impl Jit<'_> {
     /// use, the way a step's is. A row that drops a context, `mount`, adds four
     /// words after the three: where the context is in the record, its width, and
     /// its retain and release glue ([`Arg::Walk`](super::runtime::Arg::Walk)).
-    fn walk_extra(
+    fn walk_words(
         &mut self,
-        prog: &ir::Program,
         st: &mut Fn2,
         entry: &Entry,
+        h: &ir::Handover,
         args: &[(u32, ir::Type)],
-        ints: &mut Vec<Src>,
-    ) {
-        let (fslot, _, params, ret) = last_closure(prog, args);
-        let widths: Vec<u32> = params.iter().map(|t| self.layouts_of(*t).size).collect();
+        params: [Ty; 3],
+    ) -> Vec<Src> {
+        let (fslot, ret) = (st.at(h.closure), h.ret);
+        let mut ints = Vec::new();
+        let widths = params.map(|t| self.layouts_of(t).size);
         let (ctx_at, _bytes) = super::glue::state_shape(&widths, Some(1));
         let state = st.frame.size;
         self.mv(state, fslot, 16);
@@ -1035,9 +1019,10 @@ impl Jit<'_> {
         let kept = dropped
             .and_then(|i| args.get(i).copied())
             .zip(ctx_at.first().copied());
+        let [cty, _, _] = params;
+        let [cwidth, _, _] = widths;
         if let Some(((from, _), off)) = kept {
-            let w = widths.first().copied().unwrap_or(0);
-            self.mv(state + off, from, round8(w));
+            self.mv(state + off, from, round8(cwidth));
         }
         let thunk = self.helper(super::glue::Helper::Entry {
             params: params.to_vec(),
@@ -1052,9 +1037,9 @@ impl Jit<'_> {
         ints.push(Src::Imm(u64::from(super::glue::E_FRAME)));
         // And where it is, how wide, and the glue that takes and gives back its
         // count.
-        if let (Some((_, off)), Some(cty)) = (kept, params.first().copied()) {
+        if let Some((_, off)) = kept {
             ints.push(Src::Imm(u64::from(off)));
-            ints.push(Src::Imm(u64::from(widths.first().copied().unwrap_or(0))));
+            ints.push(Src::Imm(u64::from(cwidth)));
             for glue in [self.element_glue(cty), self.value_release(cty)] {
                 match glue {
                     Some(name) => ints.push(Src::Sym(name)),
@@ -1062,27 +1047,29 @@ impl Jit<'_> {
                 }
             }
         }
+        ints
     }
 
-    /// [`Extra::Press`]'s five words: a `fn(C, Event) => ()` the runtime keeps
-    /// on an element and fires later.
+    /// [`Arg::Press`](super::runtime::Arg::Press)'s five words: a
+    /// `fn(C, Event) => ()` the runtime keeps on an element and fires later.
     ///
-    /// [`Self::compute_extra`] for a handler rather than a body: the record and
+    /// [`Self::compute_words`] for a handler rather than a body: the record and
     /// its retain are the same — the graph keeps the closure, so its environment
     /// is retained here and given back at exit through the record's own walk —
     /// but a handler answers `()`, so there is no stride and no release for a
     /// value, and its two parameters (the dropped context and the event) mean
     /// the thunk carries `index = None` with the event the element.
-    fn press_extra(
+    fn press_words(
         &mut self,
-        prog: &ir::Program,
         st: &mut Fn2,
         entry: &Entry,
+        h: &ir::Handover,
         args: &[(u32, ir::Type)],
-        ints: &mut Vec<Src>,
-    ) {
-        let (fslot, ty, params, ret) = last_closure(prog, args);
-        let widths: Vec<u32> = params.iter().map(|t| self.layouts_of(*t).size).collect();
+        params: [Ty; 2],
+    ) -> Vec<Src> {
+        let (fslot, ty, ret) = (st.at(h.closure), h.ty, h.ret);
+        let mut ints = Vec::new();
+        let widths = params.map(|t| self.layouts_of(t).size);
         let (ctx_at, bytes) = super::glue::state_shape(&widths, None);
         // The context, where the row drops one (`core/tasks`'s timers): it goes
         // into the record beside the closure, as a step's does, so the handler
@@ -1097,14 +1084,11 @@ impl Jit<'_> {
         // the runtime lets the handler go, and lends it to the handler each
         // time it fires, as a step's record does.
         let mut kept = None;
+        let [cty, _] = params;
         if let (Some(i), Some(off)) = (dropped, ctx_at.first().copied()) {
-            let w = widths.first().copied().unwrap_or(0);
+            let [w, _] = widths;
             if let Some((from, _)) = args.get(i).copied().filter(|_| w > 0) {
                 self.mv(st.frame.size + off, from, round8(w));
-                let cty = params
-                    .first()
-                    .copied()
-                    .or_ice("a handler takes its context first");
                 if self.rc_counted(&cty) {
                     self.walk_rc(st, &cty, st.frame.size + off, Op::Retain, 0);
                     kept = Some((cty, off));
@@ -1114,7 +1098,7 @@ impl Jit<'_> {
         let state = st.frame.size;
         self.mv(state, fslot, 16);
         // The graph keeps the closure, so the graph owes it a reference — taken
-        // here, at the handler's last use, exactly as `compute_extra` takes one.
+        // here, at the handler's last use, exactly as `compute_words` takes one.
         self.walk_rc(st, &ty, state, Op::Retain, 0);
         let thunk = self.helper(super::glue::Helper::Entry {
             params: params.to_vec(),
@@ -1137,6 +1121,7 @@ impl Jit<'_> {
             Some(name) => ints.push(Src::Sym(name)),
             None => ints.push(Src::Imm(0)),
         }
+        ints
     }
 
     /// The element type of the `[T]` an `Extra::Element` row operates on: the
@@ -1316,15 +1301,6 @@ pub(crate) fn source_ty(prog: &ir::Program, t: ir::Type) -> Option<Ty> {
         ir::Type::Agg(id) => Some(prog.type_info(id.id()).ty),
         _ => None,
     }
-}
-
-/// The closure an `Extra` row takes as its last argument: where it is, its
-/// type, and that type's parameters and result.
-fn last_closure(prog: &ir::Program, args: &[(u32, ir::Type)]) -> (u32, Ty, &'static [Ty], Ty) {
-    let (fslot, fty) = *args.last().or_ice("an `Extra` row takes its closure last");
-    let f = fn_ty(fty);
-    let ir::FnSig { params, ret } = prog.types.sig(f);
-    (fslot, prog.type_info(f.id()).ty, params, *ret)
 }
 
 /// `core/order`'s three variants, in declaration order, which is what

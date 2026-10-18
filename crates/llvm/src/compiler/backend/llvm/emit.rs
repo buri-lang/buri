@@ -1017,6 +1017,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.call_intrinsic(state, code, *dest, route, args)
             }
             ir::Inst::Parallel(p) => self.parallel(state, code, p),
+            ir::Inst::Handover(h) => self.handover(state, code, h),
             ir::Inst::ShowPrim { dest, prim, value } => {
                 self.show_prim(state, *dest, *prim, *value, false)
             }
@@ -2560,6 +2561,198 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.call_entry(state, code, p.dest, entry, argv);
     }
 
+    /// A row that hands the runtime a closure: the row's arguments, then the
+    /// closure's words. `{ code, env }` does not cross: it goes into a record
+    /// the entry thunk reads, as a step's does.
+    fn handover(&mut self, state: &mut Function<'ctx>, code: &ir::Code, h: &ir::Handover) {
+        let entry = runtime::handoff(h.kept.row());
+        // None of these rows carries a stride of its own.
+        let mut argv = self.entry_args(state, code, entry, &h.args, (0, None));
+        let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(h.closure));
+        let value = self.get(state, h.closure);
+        let pieces = self.pieces(state.b, &slots, value);
+        let closure = (slots.as_slice(), pieces.as_slice());
+        match h.kept {
+            ir::Kept::Compute(_, ps) => self.compute_words(state, h, &ps, closure, &mut argv),
+            ir::Kept::Walk(_, ps) => self.walk_words(state, code, entry, h, ps, closure, &mut argv),
+            ir::Kept::Press(_, ps) => {
+                self.press_words(state, code, entry, h, ps, closure, &mut argv)
+            }
+        }
+        self.call_entry(state, code, h.dest, entry, argv);
+    }
+
+    /// A deferred body's seven words. The record is built the way a step's is
+    /// and holds the same two, and then the runtime **copies** it: this
+    /// `alloca` is gone by the time a memo first runs. The count on the
+    /// closure's environment is taken here, at the call site, because the
+    /// graph keeps the closure for the life of the program and `middle::rc`
+    /// releases the argument at this call.
+    fn compute_words(
+        &mut self,
+        state: &mut Function<'ctx>,
+        h: &ir::Handover,
+        ps: &[Ty; 1],
+        (slots, pieces): (&[Slot], &[BasicValueEnum<'ctx>]),
+        argv: &mut Vec<BasicMetadataValueEnum<'ctx>>,
+    ) {
+        let r = &h.ret;
+        let bytes = self.step_state_bytes(ps, None);
+        let record = self.scratch(state, bytes, 8);
+        self.store_slots(state.b, record, slots, 8, pieces);
+        let glue = self.closure_glue(Op::Retain, &h.ty);
+        state.b.call(glue, &[record.into()]);
+        let thunk = self.entry_thunk(ps, r, None, false);
+        let stride = self.reprs.stride_of(r);
+        let release = self
+            .glue(Op::Release, r)
+            .map(function_pointer)
+            .unwrap_or_else(|| self.ptr_ty().const_null());
+        let word = self.ctx.i64_type();
+        argv.push(function_pointer(thunk).into());
+        argv.push(record.into());
+        argv.push(word.const_int(u64::from(bytes), false).into());
+        // No frame word: this backend's thunk works on the machine stack, so
+        // there is nothing for the runtime to fill in.
+        argv.push(word.const_all_ones().into());
+        argv.push(word.const_int(u64::from(stride), false).into());
+        argv.push(release.into());
+        // And the record's own walk, which is the closure's: what gives back
+        // the reference taken above, at exit, when the graph lets the body go.
+        let give_back = self.closure_glue(Op::Release, &h.ty);
+        argv.push(function_pointer(give_back).into());
+    }
+
+    /// A walk's three words, and four more where the row drops a context. A
+    /// walk takes a context, a builder and a node.
+    #[allow(clippy::too_many_arguments, reason = "one call site, in `handover`")]
+    fn walk_words(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        entry: &runtime::Entry,
+        h: &ir::Handover,
+        ps: [Ty; 3],
+        (slots, pieces): (&[Slot], &[BasicValueEnum<'ctx>]),
+        argv: &mut Vec<BasicMetadataValueEnum<'ctx>>,
+    ) {
+        let (args, r) = (&h.args, &h.ret);
+        let [cty, _, _] = ps;
+        // The context is dropped, the builder handle is the index the runtime
+        // supplies, and the node is the element, so `index = Some(1)`.
+        let bytes = self.step_state_bytes(&ps, Some(1));
+        let record = self.scratch(state, bytes, 8);
+        self.store_slots(state.b, record, slots, 8, pieces);
+        // The runtime writes the document's context into the record before it
+        // drives the walk. Until then the slot is zeroed, a context holding no
+        // count, so it is never whatever the stack held (buri-lang/buri#241).
+        self.clear_ctx(state.b, record, bytes);
+        // A row that drops a context (`mount`) hands it to the document, inside
+        // the record: the runtime keeps a copy with a count of its own and
+        // supplies it to every walk and handler the document drives later.
+        let dropped = (0..args.len()).find(|i| entry.dropped(*i));
+        let kept = dropped
+            .and_then(|i| args.get(i).copied())
+            .zip(self.step_ctx_offsets(&ps, Some(1)).first().copied());
+        if let Some((arg, at)) = kept {
+            self.store_ctx(state, code, arg, record, at);
+        }
+        // No retain: the walk is invoked once, during this call, and released
+        // by `middle::rc` at its last use here — the runtime keeps nothing of
+        // it.
+        let thunk = self.entry_thunk(&ps, r, Some(1), false);
+        let word = self.ctx.i64_type();
+        argv.push(function_pointer(thunk).into());
+        argv.push(record.into());
+        // No frame word: this backend's thunk works on the machine stack, so
+        // there is nothing for the runtime to fill in.
+        argv.push(word.const_all_ones().into());
+        // And where the kept context is, how wide, and the glue that takes and
+        // gives back its count.
+        if let Some((_, at)) = kept {
+            let width = self.reprs.of_ty(&cty).layout.size;
+            argv.push(word.const_int(u64::from(at), false).into());
+            argv.push(word.const_int(u64::from(width), false).into());
+            for op in [Op::Retain, Op::Release] {
+                let glue = self
+                    .glue(op, &cty)
+                    .map(function_pointer)
+                    .unwrap_or_else(|| self.ptr_ty().const_null());
+                argv.push(glue.into());
+            }
+        }
+    }
+
+    /// A kept handler's five words. A handler takes a context and an event.
+    #[allow(clippy::too_many_arguments, reason = "one call site, in `handover`")]
+    fn press_words(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        entry: &runtime::Entry,
+        h: &ir::Handover,
+        ps: [Ty; 2],
+        (slots, pieces): (&[Slot], &[BasicValueEnum<'ctx>]),
+        argv: &mut Vec<BasicMetadataValueEnum<'ctx>>,
+    ) {
+        let (args, r) = (&h.args, &h.ret);
+        // The context is dropped and the event is the element, so there is no
+        // index the runtime supplies: `index = None`.
+        let bytes = self.step_state_bytes(&ps, None);
+        let record = self.scratch(state, bytes, 8);
+        self.store_slots(state.b, record, slots, 8, pieces);
+        // The context, where the row drops one (`core/tasks`'s timers): into
+        // the record beside the closure, as a step's, so the handler is handed
+        // it when it fires. A row that drops none (`ui/node`'s handlers) gets
+        // its document's context from the runtime when it fires, so the slot
+        // is zeroed until then, as a walk's is.
+        // The context, with where it sits in the record.
+        let first_ctx = self
+            .step_layout(&ps, None)
+            .0
+            .into_iter()
+            .find_map(|p| match p {
+                StepParam::Ctx(t, at) => Some((t, at)),
+                StepParam::Index | StepParam::Element(_) => None,
+            });
+        let dropped = (0..args.len()).find(|i| entry.dropped(*i));
+        if dropped.is_none() {
+            self.clear_ctx(state.b, record, bytes);
+        }
+        let ctx_arg = dropped.and_then(|i| args.get(i).copied());
+        // A context that owns a count: the record keeps one of its own until
+        // the runtime lets the handler go, and lends it to the handler each
+        // time it fires, as a step's record does.
+        let mut kept = None;
+        if let (Some(arg), Some((cty, at))) = (ctx_arg, first_ctx) {
+            self.store_ctx(state, code, arg, record, at);
+            if let Some(retain) = self.glue(Op::Retain, cty) {
+                let p = state.b.byte_offset(record, i64::from(at), "ctx.kept");
+                state.b.call(retain, &[p.into()]);
+                kept = self.glue(Op::Release, cty).map(|g| (g, at));
+            }
+        }
+        // The runtime keeps the handler, so the graph owes its environment a
+        // reference — taken here, given back at exit.
+        let glue = self.closure_glue(Op::Retain, &h.ty);
+        state.b.call(glue, &[record.into()]);
+        let thunk = self.entry_thunk(&ps, r, None, kept.is_some());
+        let word = self.ctx.i64_type();
+        argv.push(function_pointer(thunk).into());
+        argv.push(record.into());
+        argv.push(word.const_int(u64::from(bytes), false).into());
+        // No frame word: this backend's thunk works on the machine stack.
+        argv.push(word.const_all_ones().into());
+        // The record's own walk: what gives back the references taken above,
+        // at exit, when the graph lets the handler go.
+        let give_back = self.closure_glue(Op::Release, &h.ty);
+        let give_back = match kept {
+            Some((ctx, at)) => self.kept_glue(give_back, ctx, at),
+            None => give_back,
+        };
+        argv.push(function_pointer(give_back).into());
+    }
+
     /// `T`, for an entry whose C signature carries a stride and a retain
     /// (`cli/runtime/lib.rs` §2 rule 4).
     ///
@@ -2715,156 +2908,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // flatten it into. The copy is at `T`'s *memory* layout, which
                 // is what `stride` describes and what the runtime's
                 // `copy_nonoverlapping` reads.
-                // The deferred body's six words. The record is built the way
-                // a step's is and holds the same two, and then the runtime
-                // **copies** it: this `alloca` is gone by the time a memo
-                // first runs. The count on the closure's environment is taken
-                // here, at the call site, because the graph keeps the closure
-                // for the life of the program and `middle::rc` releases the
-                // argument at this call.
-                runtime::Arg::Compute => {
-                    // A body takes its context.
-                    let body = fn_ty(ir_ty);
-                    let ir::FnSig { params: ps, ret: r } = self.program.types.sig(body);
-                    let bytes = self.step_state_bytes(ps, None);
-                    let record = self.scratch(state, bytes, 8);
-                    self.store_slots(state.b, record, &slots, 8, &pieces);
-                    let glue = self.closure_glue(Op::Retain, body);
-                    state.b.call(glue, &[record.into()]);
-                    let thunk = self.entry_thunk(ps, r, None, false);
-                    let stride = self.reprs.stride_of(r);
-                    let release = self
-                        .glue(Op::Release, r)
-                        .map(function_pointer)
-                        .unwrap_or_else(|| self.ptr_ty().const_null());
-                    let word = self.ctx.i64_type();
-                    argv.push(function_pointer(thunk).into());
-                    argv.push(record.into());
-                    argv.push(word.const_int(u64::from(bytes), false).into());
-                    // No frame word: this backend's thunk works on the machine
-                    // stack, so there is nothing for the runtime to fill in.
-                    argv.push(word.const_all_ones().into());
-                    argv.push(word.const_int(u64::from(stride), false).into());
-                    argv.push(release.into());
-                    // And the record's own walk, which is the closure's: what
-                    // gives back the reference taken above, at exit, when the
-                    // graph lets the body go.
-                    let give_back = self.closure_glue(Op::Release, body);
-                    argv.push(function_pointer(give_back).into());
-                }
-                runtime::Arg::Walk => {
-                    // A walk takes a context, a builder and a node.
-                    let ir::FnSig { params: ps, ret: r } = self.program.types.sig(fn_ty(ir_ty));
-                    // The context is dropped, the builder handle is the index the
-                    // runtime supplies, and the node is the element, so
-                    // `index = Some(1)`.
-                    let bytes = self.step_state_bytes(ps, Some(1));
-                    let record = self.scratch(state, bytes, 8);
-                    self.store_slots(state.b, record, &slots, 8, &pieces);
-                    // The runtime writes the document's context into the record
-                    // before it drives the walk. Until then the slot is zeroed,
-                    // a context holding no count, so it is never whatever the
-                    // stack held (buri-lang/buri#241).
-                    self.clear_ctx(state.b, record, bytes);
-                    // A row that drops a context (`mount`) hands it to the
-                    // document, inside the record: the runtime keeps a copy with
-                    // a count of its own and supplies it to every walk and
-                    // handler the document drives later.
-                    let dropped = (0..args.len()).find(|i| entry.dropped(*i));
-                    let kept = dropped
-                        .and_then(|i| args.get(i).copied())
-                        .zip(self.step_ctx_offsets(ps, Some(1)).first().copied());
-                    if let Some((arg, at)) = kept {
-                        self.store_ctx(state, code, arg, record, at);
-                    }
-                    // No retain: the walk is invoked once, during this call, and
-                    // released by `middle::rc` at its last use here — the
-                    // runtime keeps nothing of it.
-                    let thunk = self.entry_thunk(ps, r, Some(1), false);
-                    let word = self.ctx.i64_type();
-                    argv.push(function_pointer(thunk).into());
-                    argv.push(record.into());
-                    // No frame word: this backend's thunk works on the machine
-                    // stack, so there is nothing for the runtime to fill in.
-                    argv.push(word.const_all_ones().into());
-                    // And where the kept context is, how wide, and the glue
-                    // that takes and gives back its count.
-                    if let (Some((_, at)), Some(cty)) = (kept, ps.first()) {
-                        let width = self.reprs.of_ty(cty).layout.size;
-                        argv.push(word.const_int(u64::from(at), false).into());
-                        argv.push(word.const_int(u64::from(width), false).into());
-                        for op in [Op::Retain, Op::Release] {
-                            let glue = self
-                                .glue(op, cty)
-                                .map(function_pointer)
-                                .unwrap_or_else(|| self.ptr_ty().const_null());
-                            argv.push(glue.into());
-                        }
-                    }
-                }
-                runtime::Arg::Press => {
-                    // A handler takes a context and an event.
-                    let body = fn_ty(ir_ty);
-                    let ir::FnSig { params: ps, ret: r } = self.program.types.sig(body);
-                    // The context is dropped and the event is the element, so
-                    // there is no index the runtime supplies: `index = None`.
-                    let bytes = self.step_state_bytes(ps, None);
-                    let record = self.scratch(state, bytes, 8);
-                    self.store_slots(state.b, record, &slots, 8, &pieces);
-                    // The context, where the row drops one (`core/tasks`'s
-                    // timers): into the record beside the closure, as a step's,
-                    // so the handler is handed it when it fires. A row that
-                    // drops none (`ui/node`'s handlers) gets its document's
-                    // context from the runtime when it fires, so the slot is
-                    // zeroed until then, as a walk's is.
-                    // The context, with where it sits in the record.
-                    let first_ctx =
-                        self.step_layout(ps, None)
-                            .0
-                            .into_iter()
-                            .find_map(|p| match p {
-                                StepParam::Ctx(t, at) => Some((t, at)),
-                                StepParam::Index | StepParam::Element(_) => None,
-                            });
-                    let dropped = (0..args.len()).find(|i| entry.dropped(*i));
-                    if dropped.is_none() {
-                        self.clear_ctx(state.b, record, bytes);
-                    }
-                    let ctx_arg = dropped.and_then(|i| args.get(i).copied());
-                    // A context that owns a count: the record keeps one of its
-                    // own until the runtime lets the handler go, and lends it
-                    // to the handler each time it fires, as a step's record
-                    // does.
-                    let mut kept = None;
-                    if let (Some(arg), Some((cty, at))) = (ctx_arg, first_ctx) {
-                        self.store_ctx(state, code, arg, record, at);
-                        if let Some(retain) = self.glue(Op::Retain, cty) {
-                            let p = state.b.byte_offset(record, i64::from(at), "ctx.kept");
-                            state.b.call(retain, &[p.into()]);
-                            kept = self.glue(Op::Release, cty).map(|g| (g, at));
-                        }
-                    }
-                    // The runtime keeps the handler, so the graph owes its
-                    // environment a reference — taken here, given back at exit.
-                    let glue = self.closure_glue(Op::Retain, body);
-                    state.b.call(glue, &[record.into()]);
-                    let thunk = self.entry_thunk(ps, r, None, kept.is_some());
-                    let word = self.ctx.i64_type();
-                    argv.push(function_pointer(thunk).into());
-                    argv.push(record.into());
-                    argv.push(word.const_int(u64::from(bytes), false).into());
-                    // No frame word: this backend's thunk works on the machine
-                    // stack.
-                    argv.push(word.const_all_ones().into());
-                    // The record's own walk: what gives back the references taken
-                    // above, at exit, when the graph lets the handler go.
-                    let give_back = self.closure_glue(Op::Release, body);
-                    let give_back = match kept {
-                        Some((ctx, at)) => self.kept_glue(give_back, ctx, at),
-                        None => give_back,
-                    };
-                    argv.push(function_pointer(give_back).into());
-                }
                 runtime::Arg::Spilled => {
                     // The buffer is sized from the value actually being
                     // spilled, not from `element`. A `[T]` operation's spilled
@@ -3963,14 +4006,6 @@ fn agg(ty: ir::Type) -> ir::TypeId {
     }
 }
 
-/// The function type a value's type names: a step, a body, a handler.
-fn fn_ty(ty: ir::Type) -> ir::FnTy {
-    match ty {
-        ir::Type::Agg(ir::Agg::Fn(f)) => f,
-        _ => crate::diagnostics::ice("the checker types this argument as a function"),
-    }
-}
-
 /// The enum a value's type names.
 fn enum_ty(ty: ir::Type) -> ir::EnumTy {
     match ty {
@@ -4211,9 +4246,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     /// A closure's glue: a closure always holds a count, its environment.
-    fn closure_glue(&mut self, op: Op, f: ir::FnTy) -> FunctionValue<'ctx> {
-        let ty = self.program.type_info(f.id()).ty;
-        self.made_glue(op, false, &ty)
+    fn closure_glue(&mut self, op: Op, ty: &Ty) -> FunctionValue<'ctx> {
+        self.made_glue(op, false, ty)
     }
 
     /// [`Job::Kept`]: the `void(record)` release of a kept handler whose
@@ -8805,6 +8839,7 @@ fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> ir::PerValue<bool> {
                         set(&mut based, *dest, false, &mut changed);
                     }
                     ir::Inst::Parallel(p) => set(&mut based, p.dest, false, &mut changed),
+                    ir::Inst::Handover(h) => set(&mut based, h.dest, false, &mut changed),
                     // Everything else either produces a scalar — which is
                     // never counted, so its verdict is read by nobody — or
                     // assembles registers out of values already classified
@@ -9013,7 +9048,8 @@ fn local(code: &ir::Code, boxes: &Boxes<'_>) -> Observed {
                 // parameter, and `readonly` reads `writes_args` alone.
                 ir::Inst::CallIntrinsic { .. }
                 | ir::Inst::CallIndirect { .. }
-                | ir::Inst::Parallel(_) => {
+                | ir::Inst::Parallel(_)
+                | ir::Inst::Handover(_) => {
                     o.join(Observed::opaque());
                 }
                 // Both are runtime calls once emitted — `Unit::string_binary`

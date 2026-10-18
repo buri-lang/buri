@@ -3710,6 +3710,7 @@ fn is_barrier(i: &ir::Inst) -> bool {
         }
         ir::Inst::Call { .. }
         | ir::Inst::Parallel(_)
+        | ir::Inst::Handover(_)
         | ir::Inst::CallIndirect { .. }
         | ir::Inst::ShowPrim { .. }
         | ir::Inst::Abort { .. }

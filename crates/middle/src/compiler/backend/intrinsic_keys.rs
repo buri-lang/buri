@@ -490,6 +490,95 @@ impl Tasks {
     }
 }
 
+/// A runtime row that takes a closure the runtime calls on its own, as its
+/// last argument. `middle::lower` writes each call as an
+/// [`crate::compiler::middle::ir::Handover`], which names the closure and
+/// gives its signature in the row's shape, so a backend reaches the closure
+/// and its parameters without counting arguments.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Handoff {
+    /// A deferred body, `fn(Scope) => T`.
+    Compute(ComputeRow),
+    /// A walk, `fn(C, Builder, Node<C>) => ()`.
+    Walk(WalkRow),
+    /// A kept handler, `fn(C, E) => ()`.
+    Press(PressRow),
+}
+
+/// The rows whose closure is a deferred body the runtime keeps and runs later.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ComputeRow {
+    HeadlessMemo,
+    HeadlessWatch,
+    Reactive,
+}
+
+/// The rows whose closure is a walk the runtime runs once, during the call.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WalkRow {
+    Mount,
+    RebuildRegion,
+    Reconcile,
+}
+
+/// The rows whose closure is a handler the runtime keeps and fires later.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PressRow {
+    TimerStart,
+    HeadlessTimerStart,
+    Press,
+    Outside,
+    Follow,
+    Key,
+    Pick,
+    Pointer,
+}
+
+impl Handoff {
+    /// Every row, for a reader that enumerates them.
+    pub const ALL: [Handoff; 14] = [
+        Handoff::Compute(ComputeRow::HeadlessMemo),
+        Handoff::Compute(ComputeRow::HeadlessWatch),
+        Handoff::Compute(ComputeRow::Reactive),
+        Handoff::Walk(WalkRow::Mount),
+        Handoff::Walk(WalkRow::RebuildRegion),
+        Handoff::Walk(WalkRow::Reconcile),
+        Handoff::Press(PressRow::TimerStart),
+        Handoff::Press(PressRow::HeadlessTimerStart),
+        Handoff::Press(PressRow::Press),
+        Handoff::Press(PressRow::Outside),
+        Handoff::Press(PressRow::Follow),
+        Handoff::Press(PressRow::Key),
+        Handoff::Press(PressRow::Pick),
+        Handoff::Press(PressRow::Pointer),
+    ];
+
+    /// The row `key` names, where it is one.
+    pub fn of(key: &str) -> Option<Handoff> {
+        Handoff::ALL.into_iter().find(|h| h.key() == key)
+    }
+
+    /// The intrinsic key.
+    pub fn key(self) -> &'static str {
+        match self {
+            Handoff::Compute(ComputeRow::HeadlessMemo) => "host_testing.Headless.memo",
+            Handoff::Compute(ComputeRow::HeadlessWatch) => "host_testing.Headless.watch",
+            Handoff::Compute(ComputeRow::Reactive) => "ui_node.reactive",
+            Handoff::Walk(WalkRow::Mount) => "host_testing.mount",
+            Handoff::Walk(WalkRow::RebuildRegion) => "ui_node.rebuildRegion",
+            Handoff::Walk(WalkRow::Reconcile) => "ui_node.reconcile",
+            Handoff::Press(PressRow::TimerStart) => "tasks.timerStart",
+            Handoff::Press(PressRow::HeadlessTimerStart) => "host_testing.headlessTimerStart",
+            Handoff::Press(PressRow::Press) => "ui_node.registerPress",
+            Handoff::Press(PressRow::Outside) => "ui_node.registerOutside",
+            Handoff::Press(PressRow::Follow) => "ui_node.registerFollow",
+            Handoff::Press(PressRow::Key) => "ui_node.registerKey",
+            Handoff::Press(PressRow::Pick) => "ui_node.registerPick",
+            Handoff::Press(PressRow::Pointer) => "ui_node.registerPointer",
+        }
+    }
+}
+
 /// Whether this key **hands its step the caller's context**, and so waits
 /// exactly when the step waits.
 ///
@@ -583,6 +672,17 @@ mod tests {
             "host.HostTasks.parallelly",
         ] {
             assert_eq!(Tasks::of(key), None, "{key}");
+        }
+    }
+
+    /// Each closure row's key names it, and a scheduler's names none.
+    #[test]
+    fn a_closure_row_is_named_by_its_key() {
+        for row in Handoff::ALL {
+            assert_eq!(Handoff::of(row.key()), Some(row), "{row:?}");
+        }
+        for tasks in Tasks::ALL {
+            assert_eq!(Handoff::of(tasks.key()), None, "{tasks:?}");
         }
     }
 

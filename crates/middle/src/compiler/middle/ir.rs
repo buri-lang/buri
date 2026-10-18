@@ -69,7 +69,7 @@
 
 use std::fmt::{self, Write as _};
 
-use crate::compiler::backend::intrinsic_keys::Tasks;
+use crate::compiler::backend::intrinsic_keys::{ComputeRow, Handoff, PressRow, Tasks, WalkRow};
 use crate::compiler::middle::layout::EnumHead;
 use crate::compiler::semantics::layered::{Dense, DenseId, Mint};
 use crate::compiler::semantics::typed::Magnitude;
@@ -681,6 +681,9 @@ pub enum Inst {
     /// `Tasks.parallel`: every element of a list through a step, on a
     /// scheduler the runtime drives. Boxed for the 40 bytes.
     Parallel(Box<Parallel>),
+    /// A runtime row that takes a closure the runtime calls on its own.
+    /// Boxed for the 40 bytes.
+    Handover(Box<Handover>),
     /// A template hole's primitive as a `Str`, the way `runtime.js`'s `$str`
     /// renders it: a `Char` as its own bytes, a number as `show` does.
     ShowPrim {
@@ -737,6 +740,57 @@ pub struct Parallel {
     pub ret: Ty,
 }
 
+/// One [`Inst::Handover`]: a runtime row's arguments, then the closure the
+/// runtime keeps or runs.
+///
+/// The closure is named, and its signature is the semantic one the checker gave
+/// it, in the shape its row takes, so a backend reaches the closure and its
+/// parameters without counting arguments. It reads its operands as a call to a
+/// runtime function does: none of them is consumed.
+#[derive(Clone, Debug)]
+pub struct Handover {
+    pub dest: ValueId,
+    /// The row's arguments before the closure, in order.
+    pub args: Box<[ValueId]>,
+    /// The closure.
+    pub closure: ValueId,
+    /// The closure's type.
+    pub ty: Ty,
+    /// The closure's answer.
+    pub ret: Ty,
+    /// The row, with the closure's parameters.
+    pub kept: Kept,
+}
+
+/// A [`Handover`]'s row, with its closure's parameters in that row's shape.
+#[derive(Clone, Copy, Debug)]
+pub enum Kept {
+    /// A deferred body's `Scope`.
+    Compute(ComputeRow, [Ty; 1]),
+    /// A walk's context, builder and node.
+    Walk(WalkRow, [Ty; 3]),
+    /// A handler's context and event.
+    Press(PressRow, [Ty; 2]),
+}
+
+impl Kept {
+    /// The row.
+    pub fn row(self) -> Handoff {
+        match self {
+            Kept::Compute(r, _) => Handoff::Compute(r),
+            Kept::Walk(r, _) => Handoff::Walk(r),
+            Kept::Press(r, _) => Handoff::Press(r),
+        }
+    }
+}
+
+impl Handover {
+    /// The row's arguments, then the closure.
+    pub fn operands(&self) -> impl Iterator<Item = ValueId> + '_ {
+        self.args.iter().copied().chain([self.closure])
+    }
+}
+
 impl Inst {
     /// The values this instruction defines.
     pub fn results(&self) -> &[ValueId] {
@@ -761,6 +815,7 @@ impl Inst {
             | Inst::CallIndirect { dest, .. }
             | Inst::CallIntrinsic { dest, .. } => std::slice::from_ref(dest),
             Inst::Parallel(p) => std::slice::from_ref(&p.dest),
+            Inst::Handover(h) => std::slice::from_ref(&h.dest),
             Inst::IncRef { .. }
             | Inst::DecRef { .. }
             | Inst::Abort { .. }
@@ -813,6 +868,7 @@ impl Inst {
             Inst::Call { args, .. } => out.extend_from_slice(args),
             Inst::CallIntrinsic { args, .. } => out.extend_from_slice(args),
             Inst::Parallel(p) => out.extend_from_slice(&[p.sched, p.ctx, p.items, p.step]),
+            Inst::Handover(h) => out.extend(h.operands()),
             Inst::CallIndirect { callee, args, .. } => {
                 out.push(*callee);
                 out.extend_from_slice(args);
@@ -2029,6 +2085,11 @@ impl Program {
                 dest(out, &p.dest);
                 let _ = write!(out, "parallel {:?}", p.tasks.key());
                 wrapped(out, &[p.sched, p.ctx, p.items, p.step]);
+            }
+            Inst::Handover(h) => {
+                dest(out, &h.dest);
+                let _ = write!(out, "handover {:?}", h.kept.row().key());
+                wrapped(out, &h.operands().collect::<Vec<_>>());
             }
             Inst::ShowPrim {
                 dest: d,

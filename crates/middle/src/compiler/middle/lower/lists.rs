@@ -53,17 +53,18 @@
 use std::sync::{Mutex, OnceLock};
 
 use super::FnLower;
-use crate::compiler::backend::intrinsic_keys::{self, Step, Tasks};
+use crate::compiler::backend::intrinsic_keys::{self, Handoff, Step, Tasks};
 use crate::compiler::middle::ir::{
-    BinOp, BlockId, Code, Const, Inst, Ownership, Parallel, Target, Term, Type, UnOp, ValueId,
+    BinOp, BlockId, Code, Const, Handover, Inst, Kept, Ownership, Parallel, Target, Term, Type,
+    UnOp, ValueId,
 };
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{Expr, ExprKind};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyKind};
 
-/// Whether `key` is lowered here: as a loop, or as the [`Inst::Parallel`] a
-/// runtime-driven key is.
+/// Whether `key` is lowered here: as a loop, or as the [`Inst::Parallel`] or
+/// [`Inst::Handover`] a runtime-driven key is.
 pub(super) fn handles(key: &str) -> bool {
     matches!(
         key,
@@ -77,6 +78,7 @@ pub(super) fn handles(key: &str) -> bool {
     ) || derive_map(key).is_some()
         || intrinsic_keys::list_call(key).is_some()
         || Tasks::of(key).is_some()
+        || Handoff::of(key).is_some()
 }
 
 /// `deriveArrayJson(xs, step)`, which is a `map` with no context: each element
@@ -252,6 +254,35 @@ impl FnLower<'_> {
         }
     }
 
+    /// A row that hands the runtime a closure, its last operand, in the shape
+    /// the row takes.
+    fn handover(
+        &mut self,
+        row: Handoff,
+        vals: &[ValueId],
+        tys: &[Ty],
+        ret: &Ty,
+    ) -> Option<ValueId> {
+        let ((&closure, args), &ty) = (vals.split_last()?, tys.last()?);
+        let (kept, ret_ty) = match (row, ty.kind()) {
+            (Handoff::Compute(r), TyKind::Fn([s], b)) => (Kept::Compute(r, [*s]), *b),
+            (Handoff::Walk(r), TyKind::Fn([c, w, n], b)) => (Kept::Walk(r, [*c, *w, *n]), *b),
+            (Handoff::Press(r), TyKind::Fn([c, e], b)) => (Kept::Press(r, [*c, *e]), *b),
+            _ => return None,
+        };
+        let t = self.type_of(ret);
+        Some(self.emit(t, |dest| {
+            Inst::Handover(Box::new(Handover {
+                dest,
+                args: args.into(),
+                closure,
+                ty,
+                ret: ret_ty,
+                kept,
+            }))
+        }))
+    }
+
     /// `key`'s loop over these operands, answering the result. `tys` are the
     /// operands' source types and `step` is the function the closure operand
     /// names where the call site shows one.
@@ -276,6 +307,9 @@ impl FnLower<'_> {
         }
         if let Some(tasks) = Tasks::of(key) {
             return self.parallel(tasks, vals, tys, ret);
+        }
+        if let Some(row) = Handoff::of(key) {
+            return self.handover(row, vals, tys, ret);
         }
         let call = derive_map(key).or_else(|| intrinsic_keys::list_call(key))?;
         let xs = *vals.first()?;
