@@ -510,7 +510,7 @@ test "a token a parameter hands a node is its class" {
 }
 
 /// The classes a box shows while `state` holds, as `describe` draws it.
-fn under<C: Allocator + Ui>(ctx: C, node: Node<C>, state: State): Str {
+fn under<C: Allocator>(ctx: C, node: Node<C>, state: State): Str {
     ui.describe(ctx, node, state).replace(ctx, "buri-scene 1\nviewport 800 fit\n", "")
 }
 
