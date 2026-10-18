@@ -270,6 +270,11 @@ const UNFORMATTED_BY_DESIGN: &[(&str, &str)] = &[
         "a `//!` below a declaration, which `build::repositories::syntax` asks `buri format` about",
     ),
     (
+        "cli/tests/repositories/syntax/a_module_doc_below_a_stray_brace_is_left_as_written/repo/lib/notes",
+        "a `//!` below a stray `}`, a comment the layout would drop, which \
+         `build::repositories::syntax` asks `buri format` about",
+    ),
+    (
         "cli/tests/repositories/syntax/an_open_comment_is_left_as_written/repo/lib/notes",
         "a file that is one block comment never closed, which `build::repositories::syntax` \
          asks `buri format` about",
