@@ -356,7 +356,10 @@ impl<'a> Jit<'a> {
             Inst::MakeStruct { dest, fields } => {
                 let d = st.at(*dest);
                 let (l, owner) = match code.ty_of(*dest) {
-                    ir::Type::Agg(id) => (self.layout_id_shared(prog, id), &prog.type_info(id).ty),
+                    ir::Type::Agg(id) => (
+                        self.layout_id_shared(prog, id.id()),
+                        &prog.type_info(id.id()).ty,
+                    ),
                     _ => crate::diagnostics::ice("stencil: MakeStruct of a non-aggregate"),
                 };
                 let ftys = field_types(self.tables, owner);
@@ -375,7 +378,10 @@ impl<'a> Jit<'a> {
             }
             Inst::GetField { dest, agg, index } => {
                 let (l, owner) = match code.ty_of(*agg) {
-                    ir::Type::Agg(id) => (self.layout_id_shared(prog, id), &prog.type_info(id).ty),
+                    ir::Type::Agg(id) => (
+                        self.layout_id_shared(prog, id.id()),
+                        &prog.type_info(id.id()).ty,
+                    ),
                     _ => crate::diagnostics::ice("stencil: GetField of a non-aggregate"),
                 };
                 let w = self.width_of(prog, code.ty_of(*dest));
@@ -400,7 +406,10 @@ impl<'a> Jit<'a> {
                 index,
             } => {
                 let (l, owner) = match code.ty_of(*agg) {
-                    ir::Type::Agg(id) => (self.layout_id_shared(prog, id), &prog.type_info(id).ty),
+                    ir::Type::Agg(id) => (
+                        self.layout_id_shared(prog, id.id()),
+                        &prog.type_info(id.id()).ty,
+                    ),
                     _ => crate::diagnostics::ice("stencil: GetPayload of a non-aggregate"),
                 };
                 let w = self.width_of(prog, code.ty_of(*dest));
@@ -432,7 +441,7 @@ impl<'a> Jit<'a> {
                 // capture-free lambda still has a leading parameter, of the
                 // unit type, and a plain `FuncRef` has none at all.
                 let args = match code.ty_of(*dest) {
-                    ir::Type::Agg(id) => match prog.type_info(id).ty.kind() {
+                    ir::Type::Agg(id) => match prog.type_info(id.id()).ty.kind() {
                         TyKind::Fn(ps, _) => Some(ps.len()),
                         _ => None,
                     },
@@ -668,7 +677,10 @@ impl<'a> Jit<'a> {
         fields: &[ir::ValueId],
     ) {
         let (l, owner) = match code.ty_of(dest) {
-            ir::Type::Agg(id) => (self.layout_id_shared(prog, id), &prog.type_info(id).ty),
+            ir::Type::Agg(id) => (
+                self.layout_id_shared(prog, id.id()),
+                &prog.type_info(id.id()).ty,
+            ),
             _ => crate::diagnostics::ice("stencil: MakeEnum of a non-aggregate"),
         };
         let ftys = variant_types(self.tables, owner, variant as usize);
@@ -893,9 +905,10 @@ impl<'a> Jit<'a> {
         op: Op,
     ) {
         // A scalar has no counts.
-        let ir::Type::Agg(id) = code.ty_of(value) else {
+        let ir::Type::Agg(agg) = code.ty_of(value) else {
             return;
         };
+        let id = agg.id();
         // Borrowed, not cloned: a `Ty` is a tree and this is asked once per
         // reference operation in the program, which is the most common
         // instruction `middle::rc` emits.
@@ -3376,7 +3389,7 @@ impl Jit<'_> {
     /// not an enum", which is what the caller declines on either way.
     fn ret_tag(&mut self, prog: &ir::Program, fi: FuncIdx) -> Option<u32> {
         match prog.funcs.get(fi).sig.ret {
-            ir::Type::Agg(id) => self.tag_width(prog, id),
+            ir::Type::Agg(id) => self.tag_width(prog, id.id()),
             _ => None,
         }
     }

@@ -491,13 +491,14 @@ impl Decoding {
             .iter()
             .find(|f| f.intrinsic_key() == Some(JSON_DECODE))?;
         let json = f.locals.get(*f.params.get(1)?).ty;
-        let TyKind::Con(result, args) = f.ret.kind() else {
-            return None;
-        };
+        let (result, args) = match f.ret.kind() {
+            TyKind::Con(result, args) => Some((*result, args)),
+            _ => None,
+        }?;
         let error = *args.get(1)?;
         Some(Decoding {
             json,
-            result: *result,
+            result,
             error,
             option: program.shapes.option?,
         })

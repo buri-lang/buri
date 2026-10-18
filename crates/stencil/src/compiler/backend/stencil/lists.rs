@@ -31,7 +31,7 @@ impl Jit<'_> {
 /// The element type of an array instruction's `[T]` operand.
 pub(crate) fn element_of(prog: &ir::Program, t: ir::Type) -> Ty {
     let elem = match t {
-        ir::Type::Agg(id) => match prog.type_info(id).ty.kind() {
+        ir::Type::Agg(id) => match prog.type_info(id.id()).ty.kind() {
             TyKind::Array(elem) => Some(*elem),
             _ => None,
         },

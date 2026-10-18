@@ -2621,7 +2621,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Type::I32 | ir::Type::F32 => (4, None),
             ir::Type::I64 | ir::Type::Ptr | ir::Type::F64 => (8, None),
             ir::Type::I128 => (16, None),
-            ir::Type::Agg(id) => {
+            ir::Type::Agg(agg) => {
+                let id = agg.id();
                 let ty = self.program.type_info(id).ty;
                 (self.reprs.of_ty(&ty).layout.stride, Some(ty))
             }
@@ -3003,7 +3004,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let cpieces = self.pieces(b, &cslots, value);
         // A context of no bytes is no aggregate.
         let align = match cty {
-            ir::Type::Agg(id) => self.reprs.of(self.program, id).layout.align,
+            ir::Type::Agg(id) => self.reprs.of(self.program, id.id()).layout.align,
             _ => 8,
         };
         let into = b.byte_offset(record, i64::from(at), "ctx.p");
@@ -4079,7 +4080,7 @@ fn function_pointer<'ctx>(f: FunctionValue<'ctx>) -> PointerValue<'ctx> {
 /// The aggregate a value's type names.
 fn agg(ty: ir::Type) -> ir::TypeId {
     match ty {
-        ir::Type::Agg(id) => id,
+        ir::Type::Agg(id) => id.id(),
         _ => crate::diagnostics::ice("the verified IR types this value as an aggregate"),
     }
 }
@@ -5526,7 +5527,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// is — which is exact, because a scalar's size is its alignment.
     fn dest_shape(&mut self, code: &ir::Code, dest: ir::ValueId) -> (Vec<Slot>, u32, u32) {
         match code.ty_of(dest) {
-            ir::Type::Agg(id) => {
+            ir::Type::Agg(agg) => {
+                let id = agg.id();
                 let r = self.reprs.of(self.program, id);
                 (r.slots.clone(), r.layout.size, r.layout.align)
             }
@@ -5553,7 +5555,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// a read past its end.
     fn spill_shape(&mut self, ty: ir::Type) -> (u32, u32) {
         match ty {
-            ir::Type::Agg(id) => {
+            ir::Type::Agg(agg) => {
+                let id = agg.id();
                 let r = self.reprs.of(self.program, id);
                 (r.layout.size, r.layout.align)
             }
@@ -6050,7 +6053,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// apart, which is why a `derivePrim*` key names its primitive.
     fn type_of(&self, ty: ir::Type) -> Option<Ty> {
         match ty {
-            ir::Type::Agg(id) => Some(self.program.type_info(id).ty),
+            ir::Type::Agg(id) => Some(self.program.type_info(id.id()).ty),
             _ => None,
         }
     }
@@ -8595,7 +8598,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// the widest a scalar slot in a return position is.
     fn ret_align(&mut self, sig: &ir::Signature) -> u32 {
         match sig.ret {
-            ir::Type::Agg(id) => self.reprs.of(self.program, id).layout.align,
+            ir::Type::Agg(id) => self.reprs.of(self.program, id.id()).layout.align,
             _ => 8,
         }
     }

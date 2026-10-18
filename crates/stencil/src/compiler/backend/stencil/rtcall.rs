@@ -101,7 +101,8 @@ fn round8(n: u32) -> u32 {
 /// The element type of a value whose IR type is a `[T]`, and `None` for
 /// anything else.
 fn array_elem(prog: &ir::Program, t: ir::Type) -> Option<Ty> {
-    let ir::Type::Agg(id) = t else { return None };
+    let ir::Type::Agg(agg) = t else { return None };
+    let id = agg.id();
     match prog.type_info(id).ty.kind() {
         TyKind::Array(e) => Some(*e),
         _ => None,
@@ -449,7 +450,8 @@ impl Jit<'_> {
         // own offset and width; one whose destination is a scalar already
         // occupies the whole slot, which is what the `w` shape wrote.
         let narrow = match (entry.ret, dty) {
-            (Ret::Int(32), ir::Type::Agg(id)) => {
+            (Ret::Int(32), ir::Type::Agg(agg)) => {
+                let id = agg.id();
                 let l = self.layout_id_shared(prog, id);
                 match &l.repr {
                     Repr::Enum {
@@ -1195,7 +1197,8 @@ impl Jit<'_> {
         args: &[(u32, ir::Type)],
     ) -> Option<Ty> {
         let of = |t: ir::Type| -> Option<Ty> {
-            let ir::Type::Agg(id) = t else { return None };
+            let ir::Type::Agg(agg) = t else { return None };
+            let id = agg.id();
             match prog.type_info(id).ty.kind() {
                 TyKind::Array(e) => Some(*e),
                 _ => None,
@@ -1224,7 +1227,8 @@ impl Jit<'_> {
     /// holds no counted pointer, so the glue is null.
     fn bare_carrier(&mut self, prog: &ir::Program, t: ir::Type) -> (u64, Option<Ty>) {
         match t {
-            ir::Type::Agg(id) => {
+            ir::Type::Agg(agg) => {
+                let id = agg.id();
                 let ty = prog.type_info(id).ty;
                 let stride = u64::from(self.layouts_of(ty).stride.max(1));
                 (stride, Some(ty))
@@ -1281,7 +1285,8 @@ impl Jit<'_> {
                     float: false,
                 },
             ],
-            ir::Type::Agg(id) => {
+            ir::Type::Agg(agg) => {
+                let id = agg.id();
                 let size = self.layout_id_shared(prog, id).size;
                 crate::diagnostics::invariant_with(size.is_multiple_of(8), || {
                     format!("stencil: an aggregate of {size} bytes at a runtime boundary")
@@ -1354,7 +1359,7 @@ fn int_bits(prim: crate::compiler::semantics::types::Prim) -> Option<u32> {
 
 pub(crate) fn source_ty(prog: &ir::Program, t: ir::Type) -> Option<Ty> {
     match t {
-        ir::Type::Agg(id) => Some(prog.type_info(id).ty),
+        ir::Type::Agg(id) => Some(prog.type_info(id.id()).ty),
         _ => None,
     }
 }

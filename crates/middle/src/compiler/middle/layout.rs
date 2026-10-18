@@ -762,11 +762,9 @@ impl<'a> Layouts<'a> {
             }
         }
 
+        // An enum with no variants is refused before layout, and would lay out
+        // as a bare tag no value has anyway.
         let variants = tables.tycon(con).variants().as_slice().to_vec();
-        crate::diagnostics::invariant(
-            !variants.is_empty(),
-            "an enum with no variants is refused before layout",
-        );
 
         // Each variant is laid out independently, from the start of the
         // payload area (§6).

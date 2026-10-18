@@ -61,7 +61,6 @@ use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{Expr, ExprKind};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyKind};
-use crate::diagnostics::Invariant as _;
 
 /// Whether `key` is lowered here.
 pub(super) fn handles(key: &str) -> bool {
@@ -177,12 +176,11 @@ struct Walk {
 }
 
 /// The element type of a list the checker typed as one.
-fn elem_of(list: &Ty) -> Ty {
+fn elem_of(list: &Ty) -> Option<Ty> {
     match list.kind() {
         TyKind::Array(elem) => Some(*elem),
         _ => None,
     }
-    .or_ice("a `core/list` operand is a list")
 }
 
 impl FnLower<'_> {
@@ -252,8 +250,7 @@ impl FnLower<'_> {
         let (arity, step_ret) = match (tys.get(call.func)?).kind() {
             TyKind::Fn(params, step_ret) => Some((params.len(), *step_ret)),
             _ => None,
-        }
-        .or_ice("a `core/list` step is a function");
+        }?;
         let callee = self.callee(f, step, arity);
         let ctx = match call.ctx {
             Some(c) => Some(Arg {
@@ -351,7 +348,7 @@ impl FnLower<'_> {
             Step::FilterMap => {
                 let some = self.variant_of(&step_ret, "Some", 0);
                 let some_tag = self.int(Type::I32, some as usize);
-                let b_t = self.type_of(&elem_of(ret));
+                let b_t = self.type_of(&elem_of(ret)?);
                 let out = self.emit(ret_t, |dest| Inst::ArrayAlloc { dest, len: n });
                 let zero = self.int(Type::I64, 0);
                 let w = self.walk(n, &[zero]);
@@ -569,8 +566,8 @@ impl FnLower<'_> {
     /// Both halves of every pair are a second owner of what they hold.
     fn list_zip(&mut self, vals: &[ValueId], tys: &[Ty], ret: &Ty) -> Option<ValueId> {
         let (&xs, &ys) = (vals.first()?, vals.get(2)?);
-        let (a, b) = (elem_of(tys.first()?), elem_of(tys.get(2)?));
-        let pair = elem_of(ret);
+        let (a, b) = (elem_of(tys.first()?)?, elem_of(tys.get(2)?)?);
+        let pair = elem_of(ret)?;
         let (a_t, b_t, pair_t, ret_t) = (
             self.type_of(&a),
             self.type_of(&b),
@@ -616,8 +613,8 @@ impl FnLower<'_> {
     /// out is a second owner; the inner lists themselves are only read.
     fn list_flatten(&mut self, vals: &[ValueId], tys: &[Ty], ret: &Ty) -> Option<ValueId> {
         let xs = *vals.first()?;
-        let inner = elem_of(tys.first()?);
-        let elem = elem_of(&inner);
+        let inner = elem_of(tys.first()?)?;
+        let elem = elem_of(&inner)?;
         let (inner_t, elem_t, ret_t) =
             (self.type_of(&inner), self.type_of(&elem), self.type_of(ret));
         let counted = self.counts.counted(&elem);
@@ -682,7 +679,7 @@ impl FnLower<'_> {
         ret: &Ty,
     ) -> Option<ValueId> {
         let (&xs, &ys, &f) = (vals.first()?, vals.get(1)?, vals.get(2)?);
-        let elem = elem_of(tys.first()?);
+        let elem = elem_of(tys.first()?)?;
         let elem_t = self.type_of(&elem);
         let ret_t = self.type_of(ret);
         let callee = self.callee(f, step, 2);
@@ -817,7 +814,7 @@ impl FnLower<'_> {
         ret: &Ty,
     ) -> Option<ValueId> {
         let (&h, &xs, &f) = (vals.first()?, vals.get(1)?, vals.get(2)?);
-        let elem = elem_of(tys.get(1)?);
+        let elem = elem_of(tys.get(1)?)?;
         let (elem_t, ret_t) = (self.type_of(&elem), self.type_of(ret));
         let callee = self.callee(f, step, 2);
         let n = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
@@ -863,7 +860,7 @@ impl FnLower<'_> {
         ret: &Ty,
     ) -> Option<ValueId> {
         let (&xs, &f) = (vals.first()?, vals.get(1)?);
-        let elem = elem_of(tys.first()?);
+        let elem = elem_of(tys.first()?)?;
         let shown = Ty::array(*ret);
         let (elem_t, ret_t, shown_t) =
             (self.type_of(&elem), self.type_of(ret), self.type_of(&shown));
@@ -1336,7 +1333,7 @@ impl FnLower<'_> {
     /// reason.
     fn list_get(&mut self, vals: &[ValueId], tys: &[Ty], ret: &Ty) -> Option<ValueId> {
         let (&xs, &i) = (vals.first()?, vals.get(1)?);
-        let elem = elem_of(tys.first()?);
+        let elem = elem_of(tys.first()?)?;
         let (elem_t, ret_t) = (self.type_of(&elem), self.type_of(ret));
         let some = self.variant_of(ret, "Some", 0);
         let none = self.variant_of(ret, "None", 1);

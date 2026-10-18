@@ -557,7 +557,7 @@ fn ent<T: Copy>(t: &[T], i: usize, d: T) -> T {
 /// function's signature makes it one (`middle/ir.rs`).
 pub(crate) fn agg_of(t: ir::Type) -> ir::TypeId {
     match t {
-        ir::Type::Agg(id) => Some(id),
+        ir::Type::Agg(id) => Some(id.id()),
         _ => None,
     }
     .or_ice("the IR gives this value an aggregate type")
@@ -923,7 +923,7 @@ impl<'a> Jit<'a> {
             ir::Type::I64 | ir::Type::F64 | ir::Type::Ptr => 8,
             ir::Type::I128 => 16,
             ir::Type::Unit => 0,
-            ir::Type::Agg(id) => self.layout_of(prog, id).size,
+            ir::Type::Agg(id) => self.layout_of(prog, id.id()).size,
         }
     }
 
@@ -973,11 +973,11 @@ pub(crate) fn frame_sigs(
             ir::Type::I64 | ir::Type::F64 | ir::Type::Ptr => 8,
             ir::Type::I128 => 16,
             ir::Type::Unit => 0,
-            ir::Type::Agg(id) => match sizes.get(id.index()) {
+            ir::Type::Agg(agg) => match sizes.get(agg.id().index()) {
                 Some(&w) if w != u32::MAX => w,
                 _ => {
-                    let w = layouts.shared(&prog.type_info(id).ty).size;
-                    put(&mut sizes, id.index(), w);
+                    let w = layouts.shared(&prog.type_info(agg.id()).ty).size;
+                    put(&mut sizes, agg.id().index(), w);
                     w
                 }
             },
