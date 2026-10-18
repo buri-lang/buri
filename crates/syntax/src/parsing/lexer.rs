@@ -191,33 +191,41 @@ const fn word_key(word: &[u8]) -> u64 {
 /// [`WORD_TABLE`] refuses to build, at compile time, if a new word collides,
 /// and then a new multiplier is needed.
 const WORD_HASH: u64 = 0xbe48_0000_9c55_0000;
-const WORD_SLOTS: usize = 128;
+const WORD_BITS: u32 = 7;
+const WORD_SLOTS: usize = 1usize.wrapping_shl(WORD_BITS);
 
+/// The top [`WORD_BITS`] bits of the hash, so always a slot of the table.
 const fn word_slot(key: u64) -> usize {
-    key.wrapping_mul(WORD_HASH).wrapping_shr(57) as usize
+    key.wrapping_mul(WORD_HASH)
+        .wrapping_shr(u64::BITS.wrapping_sub(WORD_BITS)) as usize
 }
 
 /// [`WORDS`], addressed by [`word_slot`]. A slot holds its word's key, so a
 /// lookup is one multiply, one load and one comparison, against what used to
 /// be a `match` on a `&str` that rustc lowered to calls to `memcmp`.
+///
+/// Each slot is filled with the word whose hash names it. [`word_slot`] names
+/// only slots the table has, so every word is in it.
 const WORD_TABLE: [(u64, Option<Word>); WORD_SLOTS] = {
     let mut table = [(0u64, None); WORD_SLOTS];
-    let mut rest = WORDS;
-    while let [(word, kind), tail @ ..] = rest {
-        assert!(word.len() <= 8, "a word longer than a key holds");
-        let key = word_key(word);
-        let slot = word_slot(key);
-        match table.split_at_mut_checked(slot) {
-            Some((_, [entry, ..])) => {
+    let mut slot = 0usize;
+    let mut slots = table.as_mut_slice();
+    while let [entry, tail @ ..] = slots {
+        let mut rest = WORDS;
+        while let [(word, kind), more @ ..] = rest {
+            assert!(word.len() <= 8, "a word longer than a key holds");
+            let key = word_key(word);
+            if word_slot(key) == slot {
                 assert!(
                     entry.1.is_none(),
                     "two words share a slot: find a new WORD_HASH"
                 );
                 *entry = (key, Some(*kind));
             }
-            _ => panic!("a slot past the table"),
+            rest = more;
         }
-        rest = tail;
+        slot = slot.wrapping_add(1);
+        slots = tail;
     }
     table
 };
