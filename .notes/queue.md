@@ -41,3 +41,4 @@ Ordered by the standing priority: bugs and planned issues, then Valgrind, then c
 - **Root library testing label `///testing`:** user said leave it for now.
 - **Coverage, weakest areas:** cli/documentation 62.9%, cli/serve+watch 60.7%, cli/run 72.7%, crates/docs 79.9%, cli/lint 83.2%, cli/other 86.1%. Also syntax (25 gaps), stencil phase 7, and language_server phase 3.
 - Typed IR instruction for `parallel` (multi-phase, crosses middle/llvm/js/stencil): removes rtcall.rs step and last_closure guards and glue.rs element guards — see phase 42 notes.
+- Stdlib MC/DC: a test hook that makes `scopeBeside` true under `TestTasks` (touches crates/js) to show core/tasks' 33 remaining conditions — after typed-parallel phase 46 lands.
