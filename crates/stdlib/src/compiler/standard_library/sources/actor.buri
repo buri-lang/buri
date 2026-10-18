@@ -351,13 +351,7 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
                             .Err(.Stopped),
                         )
                     },
-                    // Unanswered after a drive that ran: a `stop` discarded it.
-                    .None => {
-                        match (driven) {
-                            .Ok(()) => .Err(.Stopped),
-                            .Err(why) => .Err(why),
-                        }
-                    },
+                    .None => .Err(unanswered(driven)),
                 }
             },
         }
@@ -383,6 +377,18 @@ impl<C: Allocator + Tasks, S, M, R> Address<C, S, M, R> {
                 )
             },
         }
+    }
+}
+
+/// Why a posted message came back unanswered: what kept its drive from
+/// running, or `.Stopped` where the drive ran and a `stop` discarded it.
+///
+/// Its own function rather than a match in `sendMessage`, because nothing in
+/// it depends on the actor's types: one copy serves every actor.
+fn unanswered(driven: Result<(), SendError>): SendError {
+    match (driven) {
+        .Ok(()) => .Stopped,
+        .Err(why) => why,
     }
 }
 
