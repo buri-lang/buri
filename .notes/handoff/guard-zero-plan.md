@@ -119,6 +119,146 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 47: cli, project, diagnostics, docs
+
+Commits on staging:
+
+- `0da8bcc87` json: a `$ref` generates from what the check resolved, and a type names its declaration by place
+- `3f6a7fd85` lint: an unused context bound is found at the spans the checker recorded
+- `f3791281f` build: an output that isn't piped reads as empty, as wait_with_output has it
+
+## Guards (non-test code)
+
+Counted with the phase 45 rule, plus `.expect(`, `panic!` and `unreachable!`, up to each file's first `#[cfg(test)]`. Total: 28 → 17.
+
+| File | Before | After |
+|---|---|---|
+| `crates/project/.../json/types.rs` | 3 | 1 |
+| `cli/src/commands/lint.rs` | 2 | 0 |
+| `cli/src/build/spawn.rs` | 2 | 0 |
+| `cli/src/build/link.rs` | 2 | 0 |
+| `cli/src/build/programs.rs` | 1 | 0 |
+| `cli/src/build/mod.rs` | 1 | 0 |
+| `cli/src/build/cache.rs` | 1 | 0 |
+| `crates/diagnostics/src/diagnostics.rs` | 11 | 11 (definitions) |
+| `crates/project/.../json/suite.rs` | 4 | 4 (test-only module) |
+| `cli/src/main.rs` | 1 | 1 (test hook) |
+
+`crates/docs` has none.
+
+## How
+
+- **`$ref` targets.** `Registry::new` keeps each reference's resolution in `targets`, keyed by the string node that writes it. `Registry::reference(schema)` returns a `Reference { written, resource, target }`. The generator's `ty` and `tagged` read it, so they no longer resolve again. `Registry::target` is gone.
+- **Declaration ids.** `Decls` reserves a declaration when its name is taken and hands back a `Named { id, name }`. `Ty::Named` and a variant's payload carry that value, so `named` reads the declaration by id. `order` keeps the root's alias first. Reservation order is the old insert order.
+- **Lint bound spans.** `typed::Body::bounds_written` holds the span of each bound the declaration's own type parameters were written with. `check_fn` fills it from the declaration it already has. `bound_spans` and its two `ice` arms are gone.
+- **Pipes.** `spawn::finish` reads an output that isn't piped as empty, as `wait_with_output` does. The musl probe writes to stdin only if it has one.
+- **Best effort.** `create_parent`, `programs::settle_in` and `tag::set` skip a path with no parent or with a NUL.
+- **Symbol prefix.** `mentions_runtime` compares with `PREFIX.first()`, so the const `expect` is gone.
+
+## Left, and why
+
+- **`types.rs` `Shape::Tagged` variant lookup:** this finds the variant by the data's tag value. A total version needs the validator to return a typed instance tree that records which `oneOf` branch each value matched. Generation would then walk that tree, not raw nodes. A pointer-keyed map would still be a lookup with an `Option`. A data file whose tag matches no branch is refused by its check (`json-schema-violation`) before generation, so the guard can't be reached.
+- **`diagnostics.rs` (11):** the `ice`, `invariant`, `invariant_with` and `or_ice` definitions, their doc comments, and the debug-only `debug_panic`. These are the floor.
+- **`main.rs` test hook:** an internal error on purpose.
+
+## Checks
+
+- `cargo fmt --all --check`: clean.
+- CI's two clippy commands: the same warnings as base, none in touched files.
+- Full suite with `--features buri/backend-llvm`: passes, 6 min 27 s.
+- Output check: `json_generate`, `json_generate_edges` and `contract_generate` (build, run and lint), plus `cli/tests/example` lint, give byte-identical logs on base and branch. Cache contents are identical too, apart from `cache/.toolchain`.
+
+## Coverage
+
+Local base → new, with the CI baseline. Branch counts are the same as base in every area.
+
+| Area | Branches | Lines |
+|---|---|---|
+| cli/build | 1625/1683 → 1625/1683 (CI 1677/1685) | 10439/11005 → 10437/11003 (CI 10741/11025) |
+| cli/lint | 560/566 → 560/566 (CI 560/566) | 2943/2982 → 2925/2962 |
+| crates/project | 1345/1360 → 1345/1360 (CI 1346/1360) | 6290/6454 → 6317/6481 |
+| crates/semantics | 2154/2154 → 2154/2154 (CI 2158/2158) | 13365/13667 → 13378/13680 |
+
+The cli/build line fraction drops by about 0.001 points: two covered lines of `expect` plumbing are gone. The gate counts branches only, so this doesn't fail it.
+
+# Guard phase 46: typed `parallel`
+
+## What changed
+
+- `ir::Inst::Parallel(Box<Parallel>)` names the scheduler (`Tasks::Host` or `Tasks::Testing`), the context, the list and the step, plus the step's semantic signature `[C, Int, A] => B`.
+- `lower/lists.rs` writes it at each call site and as the body of the two `parallel` functions.
+- `intrinsic_keys`: the `Tasks` enum replaces `StepCall`, `step_call`, `step_key` and `STEP_KEYS`.
+- `runtime_table`:
+  - `parallel(tasks)` returns the row directly.
+  - `Extra::Step` is gone.
+  - `shares_counts` finds a host `Parallel` in function code.
+- Stencil:
+  - `rt_call` takes a `tail` of words.
+  - `step_words` builds the four step words from the instruction.
+  - `glue::entry_thunk` walks the parameters once, so the last one is the element by construction.
+- LLVM:
+  - `Unit::parallel` emits the call.
+  - The `Arg::Step` arm, `answer_element` and `Elements` are gone. `entry_args` takes a `(stride, glue_ty)` pair, which `generic_element` or `bare_carrier` always answers.
+  - The Press arm reads its context type from `step_layout`.
+
+## Guards (non-test)
+
+| File | Before | After |
+| --- | --- | --- |
+| stencil `rtcall.rs` | 16 | 13 |
+| stencil `glue.rs` | 3 | 1 |
+| llvm `emit.rs` | 33 | 29 |
+
+Total: 9 fewer. No other file changed its count.
+
+## Left
+
+- `rtcall::last_closure` and the press-context guard. They serve the Compute, Walk and Press rows, which each need a typed instruction. See `.notes/handoff/typed-parallel.md`.
+- The LLVM type-kind helpers, which need kind-typed ids.
+
+## Output check
+
+Base `9424ccea0` against new, both built with `--features backend-llvm`. The corpora are programs, tested, example, conformance, and conformance with `backends: [JS]` removed, each in debug and release.
+
+- Every native object and binary is byte-identical.
+- JS differs only in `$t.seed`.
+- Link manifests differ only in cache keys, which hash the compiler.
+- Conformance tool file names differ.
+- Logs are the same once timings and paths are normalised.
+
+## Coverage blocks landing
+
+The gate compares exact fractions, and this change deletes covered code in areas that have uncovered code, so their fractions fall. Local runs are macOS only; the CI estimate is the CI baseline plus the local change.
+
+Branches:
+
+| Area | Local base | Local new | CI baseline | CI estimate |
+| --- | --- | --- | --- | --- |
+| middle | 1832/1868 | 1836/1872 | 1832/1868 (98.07%) | 1836/1872 (98.08%), passes |
+| stencil | 1060/1103 | 1058/1101 | 1090/1102 (98.91%) | 1088/1100 (98.909%), fails |
+| llvm | 553/554 | 547/548 | 554/554 | 548/548, passes |
+| backend | 68/68 | 70/70 | 68/68 | 70/70, passes |
+| js | 985/1018 | 985/1018 | 985/1018 | unchanged |
+
+Lines:
+
+| Area | Local base | Local new | CI baseline | CI estimate |
+| --- | --- | --- | --- | --- |
+| stencil | 7990/8645 | 7969/8624 | 8183/8648 (94.62%) | 8162/8627 (94.61%), fails |
+| llvm | 7386/7565 | 7344/7524 | 7483/7670 (97.56%) | 7441/7629 (97.54%), fails |
+| backend | 374/409 | 385/420 | 375/409 | 386/420, passes |
+| middle | 14568/14976 | about +24/+23 | 14568/14976 | passes |
+
+The middle numbers count the `lists.rs` fix, which turns two let-else statements into one `match`. Its own coverage run wasn't repeated; match arms aren't counted, so the arithmetic is exact.
+
+To land, stencil needs one more covered branch and about 10 more covered lines, and llvm about 20 more covered lines. Removing code can't do that, because every remaining uncovered stencil branch is a real case:
+
+- `emit.rs` `ArrayGet`: the destination shares the array's pointer slot. A loop such as `s = s.items[0]`, where `items` is a list of the record `s`'s own type, should reach it, because the element coalesces into the parameter's slot and the field lives inside it.
+- `rtcall.rs` `fits` and `glue.rs` `load_through`: an offset that isn't aligned to its width.
+- `object.rs`: an addend outside 24 bits.
+
+E2E tests live in `cli/tests`, which another agent owns in this phase. So the change waits on the branch for an e2e test that covers such cases, from whoever owns `cli`.
+
 # Guard phase 45: integer literals in inference, js statement queue
 
 Commits on staging (d8e849570):
