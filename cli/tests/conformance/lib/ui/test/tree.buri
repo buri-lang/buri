@@ -3513,6 +3513,30 @@ test "a file picker's blank accept entry lets no file through, not even an untyp
     assert.equal(picked.get(ctx), .Ok(PickedFile { name: "sales.csv", text: "a" }));
 }
 
+test "a file picker's starred accept entry with no slash is no type family" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let picked = unpicked(ctx);
+    let page = render(
+        ctx,
+        ui.filePicker({
+            label: .Const("Import"),
+            accept: .Some(["text*"]),
+            maxBytes: 100,
+            onPick: fn(c, file) => picked.set(c, file),
+            styles: [],
+        }),
+    );
+    let _ = page.pickFile("Import", "notes.txt", "text/plain", bytes.toUtf8(ctx, "hi"));
+    assert.equal(
+        picked.get(ctx),
+        .Err("notes.txt is not one of the accepted types: text*"),
+    );
+}
+
 test "a file picker's accept takes a type family, and no accept takes any file" {
     let ctx = context {
         Allocator: alloc(),
@@ -6320,6 +6344,38 @@ test "roving focus: a listbox of stacks moves the same way" {
     assert.equal(page.focused(), "Done");
     let _ = page.shiftTab();
     assert.equal(page.focused(), "Pears");
+}
+
+test "a box put in the focus order without hasFocus is a stop Tab reaches" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.button({
+                    label: .Const("First"),
+                    styles: [],
+                    onPress: .Some(fn(_c) => ()),
+                }),
+                ui.stack({
+                    styles: [],
+                    children: [ui.text({ content: .Const("Note") })],
+                    isInFocusOrder: .Some(.Const(true)),
+                }),
+            ],
+        }),
+    );
+    let _ = page.tab();
+    assert.equal(page.focused(), "First");
+    let _ = page.tab();
+    assert.equal(page.focused(), "Note");
+    // The order wraps round past the box.
+    let _ = page.tab();
+    assert.equal(page.focused(), "First");
 }
 
 test "out of the focus order, Tab skips an element and hasFocus still focuses it" {
