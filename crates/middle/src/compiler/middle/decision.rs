@@ -123,7 +123,10 @@ fn head(p: &Pattern) -> Option<Head<'_>> {
         // arm. Rare enough to be worth a chain rather than a special case.
         PatKind::Bind { sub: None, .. } => Some(Head::Any),
         PatKind::Variant { con, variant, .. } => Some(Head::Tag(*con, *variant)),
-        PatKind::Int(v, neg) => Some(Head::Int(v.get(), *neg)),
+        PatKind::Number {
+            value: typed::NumberLit::Int(v, neg),
+            ..
+        } => Some(Head::Int(v.get(), *neg)),
         PatKind::Str(s) => Some(Head::Str(s)),
         PatKind::Char(c) => Some(Head::Char(*c)),
         PatKind::Bool(b) => Some(Head::Bool(*b)),
@@ -455,7 +458,7 @@ mod tests {
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
     use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{
-        Arm, Expr, ExprKind, FieldPat, Local, Magnitude, PatKind, Pattern,
+        Arm, Expr, ExprKind, FieldPat, Local, Magnitude, NumberLit, PatKind, Pattern,
     };
     use crate::compiler::semantics::types::{Prim, Ty, VariantId};
     use crate::diagnostics::Span;
@@ -463,6 +466,14 @@ mod tests {
 
     fn e(kind: ExprKind) -> Expr {
         Expr::new(kind, Ty::UNIT, Span::default())
+    }
+
+    /// The literal pattern `n`, as `monomorphize` leaves it at `I64`.
+    fn int(n: u128) -> PatKind {
+        PatKind::Number {
+            prim: Prim::I64,
+            value: NumberLit::Int(Magnitude::new(n), false),
+        }
     }
 
     fn pat(kind: PatKind) -> Pattern {
@@ -568,11 +579,7 @@ mod tests {
     #[test]
     fn arms_on_one_constructor_are_hoisted_into_one_test() {
         let mut p = matched(vec![
-            arm(
-                variant(VariantId::SOME, PatKind::Int(Magnitude::new(1), false)),
-                None,
-                10,
-            ),
+            arm(variant(VariantId::SOME, int(1)), None, 10),
             arm(variant(VariantId::SOME, PatKind::Wild), None, 20),
             arm(variant(VariantId::NONE, PatKind::Wild), None, 30),
         ]);
@@ -597,7 +604,13 @@ mod tests {
             panic!("the column is a match")
         };
         assert_eq!(inner.len(), 2);
-        assert!(matches!(inner[0].pattern.kind, PatKind::Int(m, false) if m.get() == 1));
+        assert!(matches!(
+            inner[0].pattern.kind,
+            PatKind::Number {
+                value: NumberLit::Int(m, false),
+                ..
+            } if m.get() == 1
+        ));
         assert!(matches!(inner[0].body.kind, ExprKind::Int(m, false) if m.get() == 10));
         assert!(matches!(inner[1].body.kind, ExprKind::Int(m, false) if m.get() == 20));
         // A fresh local holds the column.
@@ -637,11 +650,7 @@ mod tests {
     #[test]
     fn a_group_that_can_fail_is_declined() {
         let mut p = matched(vec![
-            arm(
-                variant(VariantId::SOME, PatKind::Int(Magnitude::new(1), false)),
-                None,
-                10,
-            ),
+            arm(variant(VariantId::SOME, int(1)), None, 10),
             arm(variant(VariantId::NONE, PatKind::Wild), None, 20),
             arm(pat(PatKind::Wild), None, 30),
         ]);
@@ -690,8 +699,8 @@ mod tests {
     #[test]
     fn literal_arms_keep_their_default() {
         let mut p = matched(vec![
-            arm(pat(PatKind::Int(Magnitude::new(0), false)), None, 10),
-            arm(pat(PatKind::Int(Magnitude::new(1), false)), None, 20),
+            arm(pat(int(0)), None, 10),
+            arm(pat(int(1)), None, 20),
             arm(pat(PatKind::Wild), None, 30),
         ]);
         run(&mut p);

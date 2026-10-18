@@ -1,0 +1,23 @@
+from "core/testing/assert" import * as assert;
+
+fn swapUntil(n: Int, stop: Int, a: Int, b: Int): Int {
+    if (n == stop) { a * 10 + b } else { swapUntil(n + 1, stop, b, a) }
+}
+
+fn sumUntil(n: Int, stop: Int, acc: Int): Int {
+    let done = n == stop;
+    if (done) { if (done) { acc } else { -1 } } else { sumUntil(n + 1, stop, acc + n) }
+}
+
+test "a loop whose way back swaps two values" {
+    assert.equal(swapUntil(0, 0, 1, 2), 12);
+    assert.equal(swapUntil(0, 1, 1, 2), 21);
+    assert.equal(swapUntil(0, 5, 1, 2), 21);
+    assert.equal(swapUntil(0, 6, 1, 2), 12);
+}
+
+test "a loop whose test is read twice" {
+    assert.equal(sumUntil(0, 0, 0), 0);
+    assert.equal(sumUntil(0, 5, 0), 10);
+    assert.equal(sumUntil(3, 6, 100), 112);
+}

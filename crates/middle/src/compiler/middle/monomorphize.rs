@@ -2249,9 +2249,23 @@ impl Monomorphizer<'_> {
                     .map(|x| self.rewrite_pattern(x, targs))
                     .collect(),
             ),
+            PatKind::Int(v, negative) => self.number(&p.ty, typed::NumberLit::Int(v, negative)),
+            PatKind::Float(v) => self.number(&p.ty, typed::NumberLit::Float(v)),
             other => other,
         };
         p
+    }
+
+    /// A number literal pattern at `ty`, with the primitive it compares at.
+    ///
+    /// A literal pattern unifies with a numeric primitive or with a type
+    /// parameter that `targs` has just made one, so a `ty` that is neither is
+    /// an error type, whose diagnostic was already reported: poison.
+    fn number(&self, ty: &Ty, value: typed::NumberLit) -> PatKind {
+        match self.tables().as_prim(ty) {
+            Some(prim) => PatKind::Number { prim, value },
+            None => PatKind::Error,
+        }
     }
 
     /// Turns a trait or effect call into a direct one. This is where the
