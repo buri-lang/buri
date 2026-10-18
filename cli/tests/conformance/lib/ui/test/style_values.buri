@@ -11,7 +11,7 @@ from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };
 from "ui/style" import * as style;
-from "ui/style" import { Shadow, Style };
+from "ui/style" import { Shadow, State, Style };
 
 /// The variant a style is, as the source spells it: a show of its own.
 fn kind(s: Style): Str {
@@ -507,6 +507,189 @@ test "a token a parameter hands a node is its class" {
     ).markup();
     assert.isTrue(odd.startsWith("e 0 class:bg-t_"));
     assert.isTrue(stylesheet().contains("{background-color:var(--card-lib-surface)}"));
+}
+
+/// The classes a box shows while `state` holds, as `describe` draws it.
+fn under<C: Allocator + Ui>(ctx: C, node: Node<C>, state: State): Str {
+    ui.describe(ctx, node, state).replace(ctx, "buri-scene 1\nviewport 800 fit\n", "")
+}
+
+test "every state and screen a parameter hands a node scopes its classes" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    assert.equal(
+        under(ctx, boxed(.On(.Focus, [.Width(.Px(31))])), .Focus),
+        "e 0 class:focus_w-31",
+    );
+    assert.equal(
+        under(ctx, boxed(.On(.FocusWithin, [.Width(.Px(32))])), .FocusWithin),
+        "e 0 class:focuswithin_w-32",
+    );
+    assert.equal(
+        under(ctx, boxed(.On(.Active, [.Width(.Px(33))])), .Active),
+        "e 0 class:active_w-33",
+    );
+    assert.equal(
+        under(ctx, boxed(.On(.Disabled, [.Width(.Px(34))])), .Disabled),
+        "e 0 class:disabled_w-34",
+    );
+    assert.equal(
+        under(ctx, boxed(.On(.Checked, [.Width(.Px(35))])), .Checked),
+        "e 0 class:checked_w-35",
+    );
+    assert.equal(
+        under(ctx, boxed(.On(.Invalid, [.Width(.Px(36))])), .Invalid),
+        "e 0 class:invalid_w-36",
+    );
+    assert.equal(
+        render(ctx, boxed(.At(.Small, [.Width(.Px(37))]))).markup(),
+        "e 0 class:sm_w-37",
+    );
+    assert.equal(
+        render(ctx, boxed(.At(.Large, [.Width(.Px(38))]))).markup(),
+        "e 0 class:lg_w-38",
+    );
+    assert.equal(
+        render(ctx, boxed(.At(.ExtraLarge, [.Width(.Px(39))]))).markup(),
+        "e 0 class:xl_w-39",
+    );
+    assert.equal(
+        render(ctx, boxed(.Group([.Width(.Px(40))]))).markup(),
+        "e 0 class:w-40",
+    );
+    assert.equal(render(ctx, boxed(.VisuallyHidden)).markup(), "e 0 class:vh-on");
+    let sheet = stylesheet();
+    assert.isTrue(sheet.contains(".focus_w-31:focus-visible{width:31px}"));
+    assert.isTrue(sheet.contains(".invalid_w-36[aria-invalid=true]{width:36px}"));
+}
+
+test "an alignment a parameter hands a node is its class" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    assert.equal(
+        render(ctx, boxed(.AlignMain(.SpaceBetween))).markup(),
+        "e 0 class:am-between",
+    );
+    assert.equal(
+        render(ctx, boxed(.AlignMain(.SpaceAround))).markup(),
+        "e 0 class:am-around",
+    );
+    assert.equal(
+        render(ctx, boxed(.AlignMain(.SpaceEvenly))).markup(),
+        "e 0 class:am-evenly",
+    );
+    assert.equal(
+        render(ctx, boxed(.AlignCross(.Start))).markup(),
+        "e 0 class:ac-start",
+    );
+    assert.equal(
+        render(ctx, boxed(.AlignCross(.Center))).markup(),
+        "e 0 class:ac-center",
+    );
+    assert.equal(render(ctx, boxed(.AlignSelf(.End))).markup(), "e 0 class:as-end");
+}
+
+test "a shadow a parameter hands a node keeps its lengths and colour" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let token = render(
+        ctx,
+        boxed(
+            .Shadow(Shadow {
+                x: .Em(1.5),
+                y: .Percent(2.0),
+                blur: .Auto,
+                spread: .Full,
+                color: style.token("kit", "ink"),
+            }),
+        ),
+    ).markup();
+    let inherited = render(
+        ctx,
+        boxed(
+            .Shadow(Shadow {
+                x: .Px(0),
+                y: .Px(2),
+                blur: .Px(3),
+                spread: .Px(0),
+                color: .Inherit,
+            }),
+        ),
+    ).markup();
+    let faded = render(
+        ctx,
+        boxed(
+            .Shadow(Shadow {
+                x: .Px(0),
+                y: .Px(3),
+                blur: .Px(4),
+                spread: .Px(0),
+                color: style.token("kit", "ink").alpha(0.5),
+            }),
+        ),
+    ).markup();
+    let sheet = stylesheet();
+    assert.isTrue(token.startsWith("e 0 class:sh-"));
+    assert.isTrue(sheet.contains("{box-shadow:1.5em 2% auto 100% var(--kit-ink)}"));
+    assert.isTrue(inherited.startsWith("e 0 class:sh-"));
+    assert.isTrue(sheet.contains("{box-shadow:0px 2px 3px 0px inherit}"));
+    assert.isTrue(faded.startsWith("e 0 class:sh-"));
+    assert.isTrue(
+        sheet.contains(
+            "{box-shadow:0px 3px 4px 0px color-mix(in srgb,var(--kit-ink) 50%,transparent)}",
+        ),
+    );
+}
+
+test "a parameter's style that is not settled keeps the classes around it" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let wide = signal(ctx, false);
+    let grouped = render(
+        ctx,
+        boxed(
+            .Group([
+                .When(.Cell(wide), [.Width(.Px(41))], [.Width(.Px(42))]),
+                .Height(.Px(43)),
+            ]),
+        ),
+    );
+    assert.equal(grouped.markup(), "e 0 class:w-42 h-43");
+    let hovered = render(
+        ctx,
+        boxed(.On(.Hover, [.When(.Cell(wide), [.Width(.Px(44))], [.Width(.Px(45))])])),
+    );
+    assert.equal(hovered.markup(), "e 0 class:hover_w-45");
+    let medium = render(
+        ctx,
+        boxed(.At(.Medium, [.When(.Cell(wide), [.Width(.Px(46))], [.Width(.Px(47))])])),
+    );
+    assert.equal(medium.markup(), "e 0 class:md_w-47");
+    let _ = wide.set(ctx, true);
+    assert.equal(grouped.markup(), "e 0 class:w-41 h-43");
+    assert.equal(hovered.markup(), "e 0 class:hover_w-44");
+    assert.equal(medium.markup(), "e 0 class:md_w-46");
+}
+
+test "a colour channel out of range a parameter hands a node is written inline" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(ctx, boxed(.Background(.Rgb(300, 0, 0)))).markup();
+    assert.isTrue(page.contains("300"));
+}
+
+test "a token with an empty name a parameter hands a node is digested" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let page = render(ctx, boxed(.Background(style.token("", "ink")))).markup();
+    assert.isTrue(page.startsWith("e 0 class:bg-t_"));
 }
 
 test "a style a branch hands a node is its class" {
