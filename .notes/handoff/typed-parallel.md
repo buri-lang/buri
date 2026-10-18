@@ -25,6 +25,7 @@ pub struct Parallel {
 - Stencil: `rt_call` takes a `tail` of extra words. `step_words` builds a step's four words from the instruction.
 - LLVM: `Unit::parallel` emits the call. `Elements` became a `(stride, glue_ty)` pair, which `generic_element` or `bare_carrier` always answers.
 - `glue::entry_thunk` walks the parameters once and treats the last one as the element.
+- `rtcall.rs` `fits` checks only reach. `Jit::emit` checks a folded hole's scale itself.
 
 ## Next
 
@@ -32,24 +33,12 @@ pub struct Parallel {
 - **LLVM type-kind helpers** (`agg`, `fn_ty`, `enum_ty`, `list_ty`, `int`, `float`, `ptr`). They need kind-typed ids on the instructions that read them, so they're a larger item than this one.
 - JS needs nothing. It reads the monomorphized program, and `ctx_step_key` answers from `Tasks::of`.
 
-## Not landed yet
+## Coverage
 
-Branch `worktree-agent-ad44371508c890bec` isn't on `staging`. Deleting covered code drops these fractions just below the CI baseline:
+Only branch fractions are gated. Deleting a covered branch lowers its area's fraction, so before each step, check every area against `coverage/compiler-branches.txt`.
 
-| Area | Measure | CI baseline | Estimate after this change |
-| --- | --- | --- | --- |
-| stencil | branches | 1090/1102 | 1088/1100 |
-| stencil | lines | 8183/8648 | 8162/8627 |
-| llvm | lines | 7483/7670 | 7441/7629 |
+No user program reaches these uncovered stencil branches:
 
-To land it, first add e2e tests in `cli/tests` that cover:
-
-- one uncovered stencil branch;
-- about 10 more stencil lines;
-- about 20 more llvm lines.
-
-Then rebase onto `staging` and rerun coverage.
-
-A candidate for the stencil branch is `emit.rs` `ArrayGet`, where the destination shares the array's pointer slot. A loop such as `s = s.items[0]` should reach it, where `items` is a list of `s`'s own record type.
-
-Removing a covered branch lowers an area's fraction, so check `crates/stencil` and the line fractions before landing the next steps as well.
+- `emit.rs` `ArrayGet` with the destination in the array's pointer slot;
+- `glue.rs` `load_through` at an unaligned offset;
+- `object.rs` with an addend wider than 24 bits.
