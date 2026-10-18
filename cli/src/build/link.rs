@@ -170,7 +170,7 @@ use crate::build::runtime_cross::{self, Cross};
 use crate::build::spawn;
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::{Emitted, LinkOptions, Target};
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -1486,14 +1486,14 @@ impl CDriver {
         &self.driver
     }
 
-    /// The object's filename for one unit, rejecting anything that is not one.
+    /// Where one unit's object is written: in the link directory, under its
+    /// name with every separator made a `_`.
     ///
     /// `Emitted::name` is documented as "stable, deterministic, and a
-    /// filename", and this is where that is enforced rather than trusted: a
-    /// name carrying a separator would write outside the link directory.
-    fn object_path(&self, name: &str) -> Option<PathBuf> {
-        let file = Path::new(name).file_name()?;
-        (file == Path::new(name).as_os_str()).then(|| self.dir.join(file))
+    /// filename". It is not trusted to be one: a separator would write outside
+    /// the link directory.
+    fn object_path(&self, name: &str) -> PathBuf {
+        self.dir.join(name.replace(std::path::is_separator, "_"))
     }
 
     /// The flags that are the platform's, in the order the design states them.
@@ -1850,39 +1850,35 @@ impl CDriver {
             reason = "every error ends up in `diagnostics` as a `Diagnostic`, and boxing it would \
                       only be unboxed again below"
         )]
-        let staged: Vec<Result<PathBuf, Diagnostic>> = crate::parallel::map(units.len(), |i| {
-            #[expect(
-                clippy::expect_used,
-                reason = "`parallel::map` hands out indices below the length it was given"
-            )]
-            let unit = units.get(i).expect("each index is a unit's");
-            let path = self
-                .object_path(&unit.name)
-                .or_ice("a backend names each unit as a filename");
-            // The cache's own file, where it holds these bytes: the linker
-            // reads it where it is, so a link directory costs the disk nothing
-            // the cache has not already paid for, and a cold link makes no
-            // hard link per object (about 0.3 ms each on APFS). The length is
-            // checked because the entry is named by the unit's key, and the
-            // bytes in hand are what this link is of.
-            let entry = self
-                .store
-                .as_ref()
-                .zip(unit.key.as_ref())
-                .and_then(|(cache, key)| cache.entry(key))
-                .filter(|e| std::fs::metadata(e).is_ok_and(|m| m.len() == unit.bytes.len() as u64));
-            if let Some(entry) = entry {
-                return Ok(entry);
-            }
-            // A unit this build emitted, or a link with no cache.
-            if let Err(e) = replace_with(&path, &unit.bytes) {
-                return Err(Diagnostic::error(
-                    Span::NONE,
-                    format!("cannot write {}: {e}", path.display()),
-                ));
-            }
-            Ok(path)
-        });
+        let staged: Vec<Result<PathBuf, Diagnostic>> =
+            crate::parallel::map_items(units, |_, unit| {
+                let path = self.object_path(&unit.name);
+                // The cache's own file, where it holds these bytes: the linker
+                // reads it where it is, so a link directory costs the disk nothing
+                // the cache has not already paid for, and a cold link makes no
+                // hard link per object (about 0.3 ms each on APFS). The length is
+                // checked because the entry is named by the unit's key, and the
+                // bytes in hand are what this link is of.
+                let entry = self
+                    .store
+                    .as_ref()
+                    .zip(unit.key.as_ref())
+                    .and_then(|(cache, key)| cache.entry(key))
+                    .filter(|e| {
+                        std::fs::metadata(e).is_ok_and(|m| m.len() == unit.bytes.len() as u64)
+                    });
+                if let Some(entry) = entry {
+                    return Ok(entry);
+                }
+                // A unit this build emitted, or a link with no cache.
+                if let Err(e) = replace_with(&path, &unit.bytes) {
+                    return Err(Diagnostic::error(
+                        Span::NONE,
+                        format!("cannot write {}: {e}", path.display()),
+                    ));
+                }
+                Ok(path)
+            });
         let mut objects: Vec<PathBuf> = Vec::with_capacity(units.len());
         for one in staged {
             match one {
@@ -2942,7 +2938,7 @@ mod tests {
     /// directory, and the name comes from a backend rather than from a
     /// constant.
     #[test]
-    fn a_unit_name_that_is_a_path_is_refused() {
+    fn a_unit_name_that_is_a_path_stays_in_the_link_directory() {
         let Ok(cc) = select(Target {
             platform: host_platform().unwrap_or(Platform::Linux),
             arch: None,
@@ -2952,10 +2948,10 @@ mod tests {
             // nothing this test could be about.
             return;
         };
-        assert!(cc.object_path("main.o").is_some());
-        assert!(cc.object_path("../escape.o").is_none());
-        assert!(cc.object_path("a/b.o").is_none());
-        assert!(cc.object_path("").is_none());
+        let dir = Path::new("/tmp/buri-link-test");
+        assert_eq!(cc.object_path("main.o"), dir.join("main.o"));
+        assert_eq!(cc.object_path("../escape.o"), dir.join(".._escape.o"));
+        assert_eq!(cc.object_path("a/b.o"), dir.join("a_b.o"));
     }
 
     /// Two selections in one process ask the linker its version once, and get
