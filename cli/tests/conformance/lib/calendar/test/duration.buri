@@ -368,6 +368,8 @@ test "a run of readings off one clock never goes backwards" {
             time.monotonic(c)
         });
     assert.isTrue(readings.isSortedBy(fn(a, b) => a.compare(b)));
+    // A millisecond's sleep sits between some pairs, so backwards they are not.
+    assert.isFalse(readings.reverse(ctx).isSortedBy(fn(a, b) => a.compare(b)));
     // The double moves by exactly what it was told to, so the whole run is
     // checkable rather than merely ordered.
     assert.equal(assert.some(readings.first()), Monotonic(0));

@@ -229,6 +229,7 @@ test "the structural order on [T] is the one compare answers" {
     assert.isTrue([1] < [1, 0]);
     assert.equal([[3], [1, 2]].sort(ctx), [[1, 2], [3]]);
     assert.equal(assert.some([[3], [1, 2]].maximum()), [3]);
+    assert.equal(assert.some([[1, 2], [3]].maximum()), [3]);
     assert.equal(
         [[3], [1, 2]].sort(ctx),
         [[1, 2], [3]].sortBy(ctx, fn(a, b) => a.compare(b)),

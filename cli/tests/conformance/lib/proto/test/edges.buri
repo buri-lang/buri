@@ -169,6 +169,22 @@ test "a Duration, a Timestamp, an Any and a FieldMask skip what is not theirs" {
     );
 }
 
+test "a FieldMask that stops short is truncated wherever it stops" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // In a tag, in a path's length-prefixed text, and in a field it skips.
+    assert.equal(field_mask.decodeFieldMask(ctx, raw(ctx, "80")), .Err(.Truncated(0)));
+    assert.equal(
+        field_mask.decodeFieldMask(ctx, raw(ctx, "0a05")),
+        .Err(.Truncated(1)),
+    );
+    assert.equal(
+        field_mask.decodeFieldMask(ctx, raw(ctx, "0880")),
+        .Err(.Truncated(1)),
+    );
+}
+
 test "a Value, a Struct and a ListValue skip what is not theirs" {
     let ctx = context {
         Allocator: alloc(),

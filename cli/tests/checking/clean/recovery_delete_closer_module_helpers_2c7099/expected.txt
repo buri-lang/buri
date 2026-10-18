@@ -1,0 +1,12 @@
+error: this import list is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:10:41
+   |
+10 | from "core/codegen" import { Diagnostic ;
+   |                                         ^
+   |
+  --> main.buri:10:28
+   |
+10 | from "core/codegen" import { Diagnostic ;
+   |                            ^ opened here
+   |
+   = fix: write `}` here

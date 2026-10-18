@@ -91,6 +91,7 @@ test "pop of an empty queue is None" {
     };
     assert.isTrue(queue.empty<Int>().pop(ctx).isNone());
     assert.isTrue(queue.empty<Int>().popBack(ctx).isNone());
+    assert.isFalse(queue.of([1]).pop(ctx).isNone());
 }
 
 // The case the two-list representation exists for: everything is pushed to the
@@ -177,6 +178,24 @@ test "a queue of one is both ends at once" {
     let (v, rest) = assert.some(q.pop(ctx));
     assert.equal(v, "only");
     assert.isTrue(rest.isEmpty());
+}
+
+// Everything pushed to the front, so each read finds the front first and the
+// back only once the front is spent.
+test "a queue built at the front answers from the front" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let ints = queue.empty<Int>().push(ctx, 2).pushFront(ctx, 1);
+    assert.equal(assert.some(ints.peek()), 1);
+    let words = queue.empty<Str>().pushFront(ctx, "b").pushFront(ctx, "a");
+    assert.equal(assert.some(words.peek()), "a");
+    assert.equal(assert.some(words.peekBack()), "b");
+    let (first, rest) = assert.some(words.pop(ctx));
+    assert.equal(first, "a");
+    let (second, spent) = assert.some(rest.pop(ctx));
+    assert.equal(second, "b");
+    assert.none(spent.pop(ctx));
 }
 
 test "toList of an empty queue is empty" {

@@ -33,6 +33,8 @@ test "each iteration's closure captures that iteration's parameter" {
     assert.equal(fs.get(1).map(fn(f) => f(100)).withDefault(-1), 101);
     assert.equal(fs.get(2).map(fn(f) => f(100)).withDefault(-1), 102);
     assert.equal(fs.get(3).map(fn(f) => f(100)).withDefault(-1), 103);
+    // And there is no fifth.
+    assert.equal(fs.get(4).map(fn(f) => f(100)).withDefault(-1), -1);
 }
 
 test "the same holds across a merged mutually recursive loop" {

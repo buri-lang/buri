@@ -104,20 +104,35 @@ fn meld<T: Ordered, C: Allocator>(ctx: C, a: Tree<T>, b: Tree<T>): Tree<T> {
 ///
 /// The two passes are what the O(log n) amortized bound rests on: melding
 /// left to right in one pass leaves a spine as long as the child list, and the
-/// next `pop` walks all of it. Both passes are folds rather than recursion,
-/// because a root that has just taken n pushes has n children and a recursion
-/// per pair would be n/2 frames deep.
+/// next `pop` walks all of it. Both passes are loops rather than recursion that
+/// waits for its answer, because a root that has just taken n pushes has n
+/// children and a frame per pair would be n/2 frames deep.
 fn mergePairs<T: Ordered, C: Allocator>(ctx: C, children: [Tree<T>]): Tree<T> {
-    let paired = list
-        .range(ctx, 0, (children.length() + 1) / 2)
-        .mapCtx(ctx, fn(c, i) => {
-            let first = children.get(i * 2).withDefault(.Empty);
-            let second = children.get(i * 2 + 1).withDefault(.Empty);
-            meld(c, first, second)
-        });
-    paired
-        .reverse(ctx)
-        .foldCtx(ctx, fn(c, acc: Tree<T>, one) => meld(c, one, acc), .Empty)
+    pairUp(ctx, children, 0, list.empty<Tree<T>>())
+}
+
+/// The first pass, from `at` on, then the second. An odd child out is where the
+/// right-to-left pass starts.
+fn pairUp<T: Ordered, C: Allocator>(
+    ctx: C,
+    children: [Tree<T>],
+    at: Int,
+    paired: [Tree<T>],
+): Tree<T> {
+    match ((children.get(at), children.get(at + 1))) {
+        (.Some(first), .Some(second)) => {
+            pairUp(ctx, children, at + 2, paired.push(ctx, meld(ctx, first, second)))
+        },
+        (odd, _) => {
+            paired
+                .reverse(ctx)
+                .foldCtx(
+                    ctx,
+                    fn(c, acc: Tree<T>, one) => meld(c, one, acc),
+                    odd.withDefault(.Empty),
+                )
+        },
+    }
 }
 
 /// Pops until there is nothing left, in a tail call rather than a `map` over

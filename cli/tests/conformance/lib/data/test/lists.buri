@@ -1442,6 +1442,11 @@ test "mapResultCtx answers the first Err" {
         Allocator: alloc(),
     };
     assert.equal(assert.err([1, 20, 30].mapResultCtx(ctx, twice)), 20);
+    // A step that keeps its element's type answers its own first Err the same way.
+    let checked: Result<[Int], Str> = [1, -2, -3].mapResultCtx(ctx, fn(c, x) => {
+        if (x < 0) { .Err(str.fromInt(c, x)) } else { .Ok(x) }
+    });
+    assert.equal(assert.err(checked), "-2");
 }
 
 test "mapOptionCtx maps with the context, and is None at the first miss" {
@@ -1450,6 +1455,9 @@ test "mapOptionCtx maps with the context, and is None at the first miss" {
     };
     assert.equal(assert.some([2, 4].mapOptionCtx(ctx, twiceIfEven)), [[2, 2], [4, 4]]);
     assert.none([2, 3].mapOptionCtx(ctx, twiceIfEven));
+    assert.none(
+        [1, 2].mapOptionCtx(ctx, fn(_c, x) => if (x > 1) { .None } else { .Some(x) }),
+    );
     assert.equal(
         assert.some(list.empty<Int>().mapOptionCtx(ctx, twiceIfEven)),
         list.empty<[Int]>(),
@@ -1545,6 +1553,8 @@ test "generate of zero or fewer is empty" {
 test "isSortedBy is true when no neighbouring pair is out of order" {
     assert.isTrue([1, 2, 2, 3].isSortedBy(order.int));
     assert.isFalse([1, 3, 2].isSortedBy(order.int));
+    assert.isTrue(["apple", "fig", "pear"].isSortedBy(fn(a, b) => a.compare(b)));
+    assert.isFalse(["pear", "apple"].isSortedBy(fn(a, b) => a.compare(b)));
 }
 
 test "a list of fewer than two elements is sorted" {

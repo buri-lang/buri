@@ -489,4 +489,5 @@ test "a generic function over a list of a generic type" {
         assert.some(largest([Boxed(1), Boxed(3), Boxed(2)]).map(fn(b) => b.0)),
         3,
     );
+    assert.none(largest(list.empty<Boxed<Int>>()).map(fn(b) => b.0));
 }
