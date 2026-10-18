@@ -459,10 +459,10 @@ impl Path {
                 } else {
                     str.format(ctx, "${bare}.${extension}")
                 };
-                match (self.parent()) {
-                    .None => .Some(of(ctx, renamed)),
-                    .Some(directory) => .Some(directory.join(ctx, renamed)),
-                }
+                // Everything before the name, its separator included: `""`
+                // for a bare name and `"/"` for one at the root.
+                let directory = self.0.slice(0, self.0.length() - name.length());
+                .Some(of(ctx, str.format(ctx, "${directory}${renamed}")))
             },
         }
     }

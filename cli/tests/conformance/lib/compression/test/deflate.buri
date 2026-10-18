@@ -709,6 +709,16 @@ test "a stored block holding nothing at all" {
     assert.equal(assert.ok(unpacked([1, 0, 0, 255, 255])), list.empty<U8>());
 }
 
+test "a stored block whose header ends on a byte boundary skips nothing" {
+    // A fixed block of three nine-bit literals ends five bits into a byte, so
+    // the stored block's three header bits finish it and its length starts at
+    // the next byte with no padding between.
+    assert.equal(
+        assert.ok(unpacked([58, 113, 242, 20, 32, 3, 0, 252, 255, 97, 98, 99])),
+        [200, 201, 202, 97, 98, 99],
+    );
+}
+
 // --- What `inflate` refuses, in the dynamic header ------------------------------------
 
 test "a code-length alphabet that claims more codes than there is room for" {
@@ -797,6 +807,15 @@ test "a dynamic block that stops inside its code-length code" {
 test "a dynamic block that stops inside a repeat's extra bits" {
     // The code-length code has 18 and 0; the stream ends seven bits into an 18.
     assert.equal(assert.err(unpacked([5, 0, 128, 36])), DecodeError(4));
+}
+
+test "a dynamic block whose lengths use a code the code-length code lacks" {
+    // The code-length code gives one symbol, 0, the code `0`. The lengths
+    // start with `1` bits, and no code of up to fifteen bits starts that way.
+    assert.equal(
+        assert.err(unpacked([5, 0, 0, 228, 255, 255, 255, 255, 31])),
+        DecodeError(5),
+    );
 }
 
 test "a dynamic block whose literal code claims more codes than there is room for" {

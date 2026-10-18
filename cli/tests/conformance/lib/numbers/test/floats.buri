@@ -561,6 +561,7 @@ test "acosh is NaN below one and zero at it" {
     assert.equal(math.acosh(1.0), 0.0);
     near(math.acosh(2.0), 1.3169578969248166);
     near(math.acosh(1.5), 0.9624236501192069);
+    near(math.acosh(3.0), 1.762747174039086);
     near(math.acosh(1.0e12), 28.32416829648849);
     assert.isTrue(math.isNan(math.acosh(0.5)));
     assert.isTrue(math.isNan(math.acosh(-1.0)));

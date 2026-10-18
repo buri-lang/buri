@@ -7306,6 +7306,27 @@ test "a derived list re-filters and re-renders when its signal is written" {
     assert.equal(page.identity("li", 0), two);
 }
 
+test "a list of numbers held as it is or in a signal renders a row for each" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let xs = signal(ctx, [5, 6]);
+    let page = render(
+        ctx,
+        ui.stack({
+            styles: [],
+            children: [
+                ui.each(.Const([3, 4]), fn(x) => "${x}", numberRow),
+                ui.each(.Cell(xs), fn(x) => "${x}", numberRow),
+            ],
+            role: .Some(.List),
+        }),
+    );
+    assert.equal(page.text(), "3 4 5 6");
+    let _ = xs.set(ctx, [7]);
+    assert.equal(page.text(), "3 4 7");
+}
+
 /// A gate whose row builder normalises what was typed and writes the correction
 /// back into the very signal its key list reads — the shape buri#170 is about.
 /// The row renders the text it was built with, so the tree shows what the each

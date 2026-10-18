@@ -2977,6 +2977,16 @@ test "a socket's last state leaves through connect, so the next dial resumes" {
     ]);
 }
 
+test "a binary frame carries no token, so the resumed state skips it" {
+    let s = sockets();
+    let ctx = context {
+        Allocator: alloc(),
+        Sockets: s,
+        WebSocketClient: s.dialling([.Binary([1, 2]), .Text("token-7")]),
+    };
+    assert.equal(resumed(ctx, "start", 1), "start|token-7");
+}
+
 test "connect answers what onClose answered, not the state it was handed" {
     let s = sockets();
     let ctx = context {

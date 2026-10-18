@@ -66,6 +66,8 @@ test "a request for nothing is still a request" {
     let _ = alloc.allocate(ctx, 0);
     assert.equal(gp.stats().allocations, 1);
     assert.equal(gp.stats().bytes, 0);
+    // So its stats aren't those of an allocator never asked.
+    assert.notEqual(gp.stats(), alloc.generalPurpose().stats());
 }
 
 test "a fresh allocator starts at zero" {
