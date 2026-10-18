@@ -52,7 +52,7 @@
 //! disagreements; it is a change to this file and to nothing else.
 
 use inkwell::context::Context;
-use inkwell::types::BasicTypeEnum;
+use inkwell::types::{BasicTypeEnum, StructType};
 use inkwell::values::{ArrayValue, BasicValueEnum, IntValue};
 
 use super::build::At;
@@ -536,11 +536,15 @@ pub fn register_type<'ctx>(ctx: &'ctx Context, slots: &[Slot]) -> BasicTypeEnum<
     match slots {
         [] => ctx.struct_type(&[], false).into(),
         [one] => slot_type(ctx, one.ty),
-        many => {
-            let tys: Vec<BasicTypeEnum<'ctx>> = many.iter().map(|s| slot_type(ctx, s.ty)).collect();
-            ctx.struct_type(&tys, false).into()
-        }
+        many => struct_of(ctx, many).into(),
     }
+}
+
+/// The literal struct of `slots`, one field per slot: the register form of
+/// two slots or more.
+fn struct_of<'ctx>(ctx: &'ctx Context, slots: &[Slot]) -> StructType<'ctx> {
+    let tys: Vec<BasicTypeEnum<'ctx>> = slots.iter().map(|s| slot_type(ctx, s.ty)).collect();
+    ctx.struct_type(&tys, false)
 }
 
 /// The register form of an [`ir::Type`].
@@ -732,10 +736,7 @@ pub fn assemble<'ctx>(
         ([], _) => ctx.struct_type(&[], false).const_zero().into(),
         ([_], [one]) => *one,
         (many, vals) => {
-            let mut acc = match register_type(ctx, many) {
-                BasicTypeEnum::StructType(s) => s.get_poison(),
-                _ => crate::diagnostics::ice("two slots or more are a struct"),
-            };
+            let mut acc = struct_of(ctx, many).get_poison();
             for (i, v) in vals.iter().enumerate() {
                 acc = b.insert_field(acc, *v, i as u32, "agg");
             }

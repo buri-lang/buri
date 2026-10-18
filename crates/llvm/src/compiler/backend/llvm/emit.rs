@@ -90,12 +90,12 @@ use crate::compiler::middle::layout::{
 };
 use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::semantics::builtins::conversion_is_exact;
-use crate::compiler::semantics::layered::Dense;
+use crate::compiler::semantics::layered::{Dense, DenseId, Mint};
 use crate::compiler::semantics::types::{
     self as types, FuncIdx, IntPrim, Prim, Tables, Ty, TyKind,
 };
 use crate::diagnostics::Invariant;
-use crate::hash::Map;
+use crate::hash::{Map, Set};
 
 use super::attrs::{self, Observed};
 use super::build::{self, Align, At};
@@ -3191,7 +3191,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         insts: &[ir::Inst],
         projections: &Map<usize, (ir::ValueId, Option<u32>, u32)>,
     ) -> Vec<bool> {
-        let mut out = vec![false; insts.len()];
+        let mut cancelled: Set<usize> = Set::default();
         for (i, inst) in insts.iter().enumerate() {
             let ir::Inst::IncRef { value: x } = inst else {
                 continue;
@@ -3213,12 +3213,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // one, which is not a `decref`.
             let j = after.saturating_add(k);
             if *x == w || self.holds_only(code, *x, w, projections) {
-                for at in [i, j] {
-                    *out.get_mut(at).or_ice("both are instructions of the block") = true;
-                }
+                cancelled.extend([i, j]);
             }
         }
-        out
+        (0..insts.len()).map(|at| cancelled.contains(&at)).collect()
     }
 
     /// Whether `x` is a field of `w` that holds every count `w` holds.
@@ -3899,6 +3897,17 @@ struct Wide<'o, 'ctx> {
     y: IntValue<'ctx>,
 }
 
+/// How one of a step's parameters reaches its entry thunk
+/// ([`Unit::step_layout`]).
+enum StepParam<'t> {
+    /// A context, read out of the state record at this offset.
+    Ctx(&'t Ty, u32),
+    /// The runtime's loop counter, in its own C argument.
+    Index,
+    /// The element, the last parameter, through `arg`.
+    Element(&'t Ty),
+}
+
 /// A helper whose declaration exists and whose body does not yet.
 enum Job<'ctx> {
     /// A closure's `code`: converts an environment *pointer* into the
@@ -3929,7 +3938,7 @@ enum Job<'ctx> {
     /// `lent` is whether the record only lends its contexts, so that the thunk
     /// takes a count on each one per call.
     Entry {
-        value: FunctionValue<'ctx>,
+        value: build::Declared<'ctx, 4>,
         params: Vec<Ty>,
         ret: Ty,
         index: Option<usize>,
@@ -3956,7 +3965,7 @@ enum Job<'ctx> {
     /// runtime acquired and this backend ignores it, exactly as its
     /// `Arg::Compute` passes `frame_at` as `-1`.
     Equal {
-        value: FunctionValue<'ctx>,
+        value: build::Declared<'ctx, 4>,
         func: FuncIdx,
         ty: Ty,
     },
@@ -4341,19 +4350,23 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return Some(*f);
         }
         let p = self.ptr_ty();
-        let fty = self
-            .ctx
-            .void_type()
-            .fn_type(&[p.into(), p.into(), p.into(), p.into()], false);
+        let void = self.ctx.void_type();
         let name = format!("buri.equal.{}", self.helpers);
         self.helpers = self.helpers.saturating_add(1);
-        let f = self.module.add_function(&name, fty, Some(Linkage::Private));
+        let thunk = build::Declared::add(
+            &self.module,
+            &name,
+            [p.into(), p.into(), p.into(), p.into()],
+            |ps| void.fn_type(ps, false),
+            Linkage::Private,
+        );
+        let f = thunk.value();
         // `ccc`: the runtime holds this as a plain C function pointer, exactly
         // as it holds the retain and the release beside it.
         attrs::set_convention(f, attrs::C);
         self.equals.insert(*ty, f);
         self.pending.push(Job::Equal {
-            value: f,
+            value: thunk,
             func,
             ty: *ty,
         });
@@ -4371,15 +4384,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// Where the generated function owns a parameter, the count is taken here,
     /// which is [`Unit::build_thunk`]'s reconciliation at a call with one
     /// caller.
-    fn build_equal(&mut self, state: &mut Function<'ctx>, func: FuncIdx, ty: &Ty) {
+    fn build_equal(
+        &mut self,
+        state: &mut Function<'ctx>,
+        [_, left, right, out]: [BasicValueEnum<'ctx>; 4],
+        func: FuncIdx,
+        ty: &Ty,
+    ) {
         let b = state.b;
-        let param = |at| {
-            ptr(state
-                .value
-                .get_nth_param(at)
-                .or_ice("an equality thunk takes 3 pointers"))
-        };
-        let (left, right, out) = (param(1), param(2), param(3));
+        let (left, right, out) = (ptr(left), ptr(right), ptr(out));
         let callee = self.declare(func);
         let own = self.func(func).facts.params.clone();
         let r = self.reprs.of_ty(ty);
@@ -4450,20 +4463,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
         let p = self.ptr_ty();
         let word = self.ctx.i64_type();
-        let ty = self
-            .ctx
-            .void_type()
-            .fn_type(&[p.into(), word.into(), p.into(), p.into()], false);
+        let void = self.ctx.void_type();
         let name = format!("buri.entry.{}", self.helpers);
         self.helpers = self.helpers.saturating_add(1);
-        let f = self.module.add_function(&name, ty, Some(Linkage::Private));
+        let thunk = build::Declared::add(
+            &self.module,
+            &name,
+            [p.into(), word.into(), p.into(), p.into()],
+            |ps| void.fn_type(ps, false),
+            Linkage::Private,
+        );
+        let f = thunk.value();
         // `ccc`: the runtime holds this as a plain C function pointer. It is
         // the *only* thing in a Buri artifact the runtime calls into, and it is
         // one convention for the same reason the glue above is.
         attrs::set_convention(f, attrs::C);
         self.entries.insert(key, f);
         self.pending.push(Job::Entry {
-            value: f,
+            value: thunk,
             params: params.to_vec(),
             ret: *ret,
             index,
@@ -4501,6 +4518,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn build_entry(
         &mut self,
         state: &mut Function<'ctx>,
+        [record, counter, arg, out]: [BasicValueEnum<'ctx>; 4],
         params: &[Ty],
         ret: &Ty,
         index: Option<usize>,
@@ -4508,14 +4526,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) {
         let b = state.b;
         let ptr_t = self.ptr_ty();
-        // `(record, counter, arg, out)`.
-        let param = |at| {
-            state
-                .value
-                .get_nth_param(at)
-                .or_ice("an entry thunk takes four words")
-        };
-        let (record, counter, arg, out) = (ptr(param(0)), param(1), ptr(param(2)), ptr(param(3)));
+        let (record, arg, out) = (ptr(record), ptr(arg), ptr(out));
         // `{ code, env }`, which is the closure's own two words in the order
         // `middle::layout` gives them (`CLOSURE_CODE`, `CLOSURE_ENV`).
         let code = b.load_ptr(ptr_t, record, Align::of(8), "step.code");
@@ -4531,35 +4542,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let fty = self.machine_type(&sig, 1);
 
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = vec![env.into()];
-        let ctx_at = self.step_ctx_offsets(params, index);
-        // `ctx_at` is parallel to the parameters that are in the record, which
-        // is every one but the element and the index; the walk pairs them up
-        // rather than assuming the two lists line up position for position.
-        let record_params: Vec<usize> = (0..params.len().saturating_sub(1))
-            .filter(|i| index != Some(*i))
-            .collect();
-        let mut from_record = record_params.into_iter().zip(ctx_at);
-        for (i, t) in params
-            .iter()
-            .enumerate()
-            .take(params.len().saturating_sub(1))
-        {
-            if index == Some(i) {
+        let (travels, _) = self.step_layout(params, index);
+        for param in travels {
+            match param {
                 // The counter, at its declared width. `Int` is `i64` and the
                 // C argument already is one, so this is a move.
-                argv.push(counter.into());
-                continue;
+                StepParam::Index => argv.push(counter.into()),
+                StepParam::Ctx(t, off) => {
+                    if self.reprs.of_ty(t).slots.is_empty() {
+                        continue;
+                    }
+                    let at = b.byte_offset(record, i64::from(off), "step.ctx");
+                    self.load_argument(state, t, at, lent, &mut argv);
+                }
+                // Copied out of the runtime's element: the step owns its
+                // argument.
+                StepParam::Element(t) => self.load_argument(state, t, arg, true, &mut argv),
             }
-            let (_, off) = from_record.next().or_ice("every context has its offset");
-            if self.reprs.of_ty(t).slots.is_empty() {
-                continue;
-            }
-            let at = b.byte_offset(record, i64::from(off), "step.ctx");
-            self.load_argument(state, t, at, lent, &mut argv);
         }
-        let elem = params.last().or_ice("a step takes its element last");
-        // Copied out of the runtime's element: the step owns its argument.
-        self.load_argument(state, elem, arg, true, &mut argv);
         let answer = self.machine_call(b, Callee::Indirect(fty, code), &sig, &ret_slots, argv);
         state.observed.opaque = true;
         if let Some(answer) = answer {
@@ -4618,21 +4618,37 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// `index`, where there is one, travels in its own C argument. Neither is
     /// in the record, so neither takes room in the answer.
     fn step_ctx_offsets(&mut self, params: &[Ty], index: Option<usize>) -> Vec<u32> {
+        let (travels, _) = self.step_layout(params, index);
+        travels
+            .into_iter()
+            .filter_map(|param| match param {
+                StepParam::Ctx(_, at) => Some(at),
+                StepParam::Index | StepParam::Element(_) => None,
+            })
+            .collect()
+    }
+
+    /// How each of a step's parameters reaches the entry thunk, in order, and
+    /// the size of the state record: [`Unit::step_ctx_offsets`]'s one answer.
+    fn step_layout<'t>(
+        &mut self,
+        params: &'t [Ty],
+        index: Option<usize>,
+    ) -> (Vec<StepParam<'t>>, u32) {
         let mut at = STEP_CTX;
-        let mut out = Vec::new();
-        for (i, t) in params
-            .iter()
-            .enumerate()
-            .take(params.len().saturating_sub(1))
-        {
-            if index == Some(i) {
-                continue;
+        let mut out = Vec::with_capacity(params.len());
+        for (i, t) in params.iter().enumerate() {
+            if i.saturating_add(1) == params.len() {
+                out.push(StepParam::Element(t));
+            } else if index == Some(i) {
+                out.push(StepParam::Index);
+            } else {
+                out.push(StepParam::Ctx(t, at));
+                let size = self.reprs.of_ty(t).layout.size;
+                at = at.saturating_add(size.next_multiple_of(8));
             }
-            out.push(at);
-            let size = self.reprs.of_ty(t).layout.size;
-            at = at.saturating_add(size.next_multiple_of(8));
         }
-        out
+        (out, at)
     }
 
     /// Zeroes the contexts of a `bytes`-long state record, for a row whose
@@ -4651,19 +4667,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// The size of a step's state record: `{ code, env, ctx... }`.
     fn step_state_bytes(&mut self, params: &[Ty], index: Option<usize>) -> u32 {
-        let mut at = STEP_CTX;
-        for (i, t) in params
-            .iter()
-            .enumerate()
-            .take(params.len().saturating_sub(1))
-        {
-            if index == Some(i) {
-                continue;
-            }
-            let size = self.reprs.of_ty(t).layout.size;
-            at = at.saturating_add(size.next_multiple_of(8));
-        }
-        at
+        self.step_layout(params, index).1
     }
 
     /// The glue every closure environment shares: the block's first word (the
@@ -4741,9 +4745,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             Job::Thunk { value, .. }
             | Job::Glue { value, .. }
             | Job::Env { value, .. }
-            | Job::Entry { value, .. }
-            | Job::Kept { value, .. }
-            | Job::Equal { value, .. } => *value,
+            | Job::Kept { value, .. } => *value,
+            Job::Entry { value, .. } | Job::Equal { value, .. } => value.value(),
         };
         let entry = self.ctx.append_basic_block(value, "entry");
         let b = At::end_of(self.builder, entry);
@@ -4770,17 +4773,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 return;
             }
             Job::Entry {
+                value,
                 params,
                 ret,
                 index,
                 lent,
-                ..
             } => {
-                self.build_entry(&mut state, &params, &ret, index, lent);
+                self.build_entry(&mut state, value.params(), &params, &ret, index, lent);
                 return;
             }
-            Job::Equal { func, ty, .. } => {
-                self.build_equal(&mut state, func, &ty);
+            Job::Equal { value, func, ty } => {
+                self.build_equal(&mut state, value.params(), func, &ty);
                 return;
             }
             Job::Glue {
@@ -4856,12 +4859,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if let Some(out) = out {
             argv.push(out.into());
         }
-        if env {
-            // The environment record, an aggregate.
-            let first = *full
-                .params
-                .first()
-                .or_ice("a closure's callee takes its environment");
+        // The environment record, an aggregate: the callee's first parameter.
+        if let Some(&first) = full.params.first().filter(|_| env) {
             let slots = repr::ir_slots(&mut self.reprs, self.program, first);
             let align = self.reprs.of(self.program, agg(first)).layout.align;
             let record = b.byte_offset(env_ptr, i64::from(ENV_FIELDS), "env.rec");
@@ -5161,10 +5160,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         slot: Slot,
         align: u32,
     ) -> BasicValueEnum<'ctx> {
-        let [piece] = <[_; 1]>::try_from(self.load_slots(b, p, &[slot], align))
-            .ok()
-            .or_ice("one slot loads one piece");
-        piece
+        let at = b.byte_offset(p, i64::from(slot.offset), "out.p");
+        let ty = repr::slot_type(self.ctx, slot.ty);
+        b.load(ty, at, Align::of(repr::access_align(align, slot)), "out.v")
     }
 
     /// A value's slot values, from either form. `repr::disassemble` for one in
@@ -5429,14 +5427,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         slots: &[Slot],
         align: u32,
     ) -> Vec<BasicValueEnum<'ctx>> {
-        let mut out = Vec::with_capacity(slots.len());
-        for slot in slots {
-            let p = b.byte_offset(buf, i64::from(slot.offset), "out.p");
-            let ty = repr::slot_type(self.ctx, slot.ty);
-            let at = Align::of(repr::access_align(align, *slot));
-            out.push(b.load(ty, p, at, "out.v"));
-        }
-        out
+        slots
+            .iter()
+            .map(|slot| self.load_one(b, buf, *slot, align))
+            .collect()
     }
 
     /// The inverse of [`Unit::load_slots`], for spilling a generic argument.
@@ -8404,11 +8398,19 @@ pub(super) fn open_coded_key(key: &str) -> bool {
 // The emitted entry point
 // ---------------------------------------------------------------------------
 
-/// The thread entry signature as an LLVM function type: `void(ptr, ptr)`, the
-/// caller's record and where to put the answer (`backend/task_thread.rs`).
-fn thread_fn_type(ctx: &Context) -> FunctionType<'_> {
+/// The thread entry's parameters: the caller's record and where to put the
+/// answer (`backend/task_thread.rs`).
+fn thread_params(ctx: &Context) -> [BasicMetadataTypeEnum<'_>; 2] {
     let ptr = ctx.ptr_type(inkwell::AddressSpace::default());
-    ctx.void_type().fn_type(&[ptr.into(), ptr.into()], false)
+    [ptr.into(), ptr.into()]
+}
+
+/// The thread entry signature as an LLVM function type: `void(ptr, ptr)`.
+fn thread_fn_type<'ctx>(
+    ctx: &'ctx Context,
+    params: &[BasicMetadataTypeEnum<'ctx>],
+) -> FunctionType<'ctx> {
+    ctx.void_type().fn_type(params, false)
 }
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
@@ -8502,9 +8504,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ret: func.sig.ret,
         };
         let callee = self.declare(root);
-        let door =
-            self.module
-                .add_function(symbol, thread_fn_type(self.ctx), Some(Linkage::External));
+        let ctx = self.ctx;
+        let door = build::Declared::add(
+            &self.module,
+            symbol,
+            thread_params(ctx),
+            |ps| thread_fn_type(ctx, ps),
+            Linkage::External,
+        );
+        let out = door.params()[task_thread::OUT];
+        let door = door.value();
         self.platform_abi(door);
         let block = self.ctx.append_basic_block(door, "entry");
         let b = At::end_of(self.builder, block);
@@ -8517,9 +8526,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // returns it in — the same `store_value` the step entry thunk writes
         // its answer with, because it is the same question.
         if let Some(answer) = answer {
-            let out = door
-                .get_nth_param(task_thread::OUT as u32)
-                .or_ice("a door takes `out`");
             let align = self.ret_align(&sig);
             self.store_value(b, ptr(out), &rets, align, answer);
         }
@@ -8542,15 +8548,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let func = self.func(main);
         let callee = self.declare(main);
         let i32t = self.ctx.i32_type();
-        let ty = i32t.fn_type(&[i32t.into(), self.ptr_ty().into()], false);
-        let shim = self
-            .module
-            .add_function("main", ty, Some(Linkage::External));
-        attrs::set_convention(shim, attrs::C);
-        let block = self.ctx.append_basic_block(shim, "entry");
-        let b = At::end_of(self.builder, block);
-
-        self.argv_init(b, shim);
+        let (shim, b) = self.main_shim();
         self.declare_values_may_cross_tasks(b);
         self.declare_frames_are_per_thread(b);
 
@@ -8641,6 +8639,27 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         b.ret(i32t.const_zero());
     }
 
+    /// `main(argc, argv)`, which hands the process's arguments to the runtime.
+    /// Answers it, and the builder in its entry block after that call.
+    fn main_shim(&mut self) -> (FunctionValue<'ctx>, At<'ctx>) {
+        let i32t = self.ctx.i32_type();
+        let params = [i32t.into(), self.ptr_ty().into()];
+        let shim = build::Declared::add(
+            &self.module,
+            "main",
+            params,
+            |ps| i32t.fn_type(ps, false),
+            Linkage::External,
+        );
+        attrs::set_convention(shim.value(), attrs::C);
+        let block = self.ctx.append_basic_block(shim.value(), "entry");
+        let b = At::end_of(self.builder, block);
+        let argv_init = self.declare_rt(runtime::ARGV_INIT, &params, None);
+        let [argc, argv] = shim.params();
+        self.call_c(b, argv_init, &[argc.into(), argv.into()]);
+        (shim.value(), b)
+    }
+
     /// The `main` of a **test binary**: every `test` block, in order.
     ///
     /// `stencil/asm.rs::test_entry` is the same statements for the same
@@ -8654,30 +8673,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// A `test` body answers `()`, so there is nothing to inspect between calls;
     /// `cli/runtime/testing.rs` states the protocol and
     /// `commands/test.rs::run_native` drives it.
-    /// Hands the process's arguments to the runtime, from `main`'s shim.
-    fn argv_init(&mut self, b: At<'ctx>, shim: FunctionValue<'ctx>) {
-        let i32t = self.ctx.i32_type();
-        let argv_init = self.declare_rt(
-            runtime::ARGV_INIT,
-            &[i32t.into(), self.ptr_ty().into()],
-            None,
-        );
-        let argc = shim.get_nth_param(0).or_ice("`main` takes `argc`");
-        let argv = shim.get_nth_param(1).or_ice("`main` takes `argv`");
-        self.call_c(b, argv_init, &[argc.into(), argv.into()]);
-    }
-
     pub fn test_entry_point(&mut self, tests: &[FuncIdx]) {
         let i32t = self.ctx.i32_type();
-        let ty = i32t.fn_type(&[i32t.into(), self.ptr_ty().into()], false);
-        let shim = self
-            .module
-            .add_function("main", ty, Some(Linkage::External));
-        attrs::set_convention(shim, attrs::C);
-        let block = self.ctx.append_basic_block(shim, "entry");
-        let b = At::end_of(self.builder, block);
-
-        self.argv_init(b, shim);
+        let (shim, b) = self.main_shim();
         self.declare_values_may_cross_tasks(b);
         self.declare_frames_are_per_thread(b);
         let word = self.ctx.i64_type();
@@ -8817,27 +8815,32 @@ fn key(o: Observed) -> (bool, bool, bool, bool, bool, bool, bool) {
 /// successor this graph has no node for is dropped, and both callers say why
 /// that is their conservative direction.
 fn reaches_a_cycle_in(successors: &[Vec<usize>]) -> Vec<bool> {
-    let n = successors.len();
-    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
-    // How many of each node's successors are still unpeeled. A node is peeled
-    // once this is zero, and a node on or before a cycle never gets there.
-    let mut remaining: Vec<usize> = Vec::with_capacity(n);
-    for (i, succ) in successors.iter().enumerate() {
-        let mut mine: Vec<usize> = succ.iter().copied().filter(|s| *s < n).collect();
+    // The graph's own ids, so that every table below is read by one it minted.
+    let nodes: Dense<Node, &Vec<usize>> = successors.iter().collect();
+    let ids: Vec<Node> = nodes.ids().collect();
+    let succs: Dense<Node, Vec<Node>> = nodes.map(|succ| {
+        let mut mine: Vec<Node> = succ.iter().filter_map(|s| ids.get(*s).copied()).collect();
         mine.sort_unstable();
         mine.dedup();
-        for s in &mine {
-            preds
-                .get_mut(*s)
-                .or_ice("a successor below `n` is a node")
-                .push(i);
+        mine
+    });
+    let mut preds: Dense<Node, Vec<Node>> = nodes.map(|_| Vec::new());
+    for (i, mine) in succs.entries() {
+        for s in mine {
+            preds.get_mut(*s).push(i);
         }
-        remaining.push(mine.len());
     }
-    let mut work: Vec<usize> = (0..n).filter(|i| remaining.get(*i) == Some(&0)).collect();
+    // How many of each node's successors are still unpeeled. A node is peeled
+    // once this is zero, and a node on or before a cycle never gets there.
+    let mut remaining: Dense<Node, usize> = succs.map(Vec::len);
+    let mut work: Vec<Node> = remaining
+        .entries()
+        .filter(|(_, left)| **left == 0)
+        .map(|(i, _)| i)
+        .collect();
     while let Some(i) = work.pop() {
-        for &p in preds.get(i).or_ice("every node has its predecessors") {
-            let left = remaining.get_mut(p).or_ice("a predecessor is a node");
+        for &p in preds.get(i) {
+            let left = remaining.get_mut(p);
             *left = left.saturating_sub(1);
             if *left == 0 {
                 work.push(p);
@@ -8845,6 +8848,20 @@ fn reaches_a_cycle_in(successors: &[Vec<usize>]) -> Vec<bool> {
         }
     }
     remaining.iter().map(|left| *left > 0).collect()
+}
+
+/// A node of the graph [`reaches_a_cycle_in`] peels. Only its tables mint one.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Node(usize);
+
+impl DenseId for Node {
+    fn from_index(i: usize, _: Mint) -> Self {
+        Node(i)
+    }
+
+    fn to_index(self) -> usize {
+        self.0
+    }
 }
 
 /// Which functions can reach a cycle in the **call graph** — the seed of
@@ -9314,7 +9331,9 @@ mod tests {
     #[test]
     fn the_thread_door_is_two_pointers_and_no_answer() {
         let ctx = Context::create();
-        let printed = thread_fn_type(&ctx).print_to_string().to_string();
+        let printed = thread_fn_type(&ctx, &thread_params(&ctx))
+            .print_to_string()
+            .to_string();
         assert_eq!(
             printed.split_whitespace().collect::<String>(),
             "void(ptr,ptr)"
