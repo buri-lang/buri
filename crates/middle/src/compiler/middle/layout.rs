@@ -265,6 +265,28 @@ pub enum EnumRepr {
     Tagged { tag: Scalar, payload: u32 },
 }
 
+/// An enum type, by its constructor and the arguments it is applied to: what
+/// [`Layouts::of_enum`] lays out. `ir::TypeList` reads one off the source type
+/// when it interns an enum.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct EnumHead {
+    pub ty: Ty,
+    pub con: TyConId,
+    pub args: &'static [Ty],
+}
+
+/// An enum's layout: its [`Layout`]'s numbers, and the discriminant and
+/// variant offsets only an enum has.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct EnumLayout {
+    pub size: u32,
+    pub align: u32,
+    pub stride: u32,
+    pub repr: EnumRepr,
+    /// Each variant's field offsets, absolute, as in [`Repr::Enum`].
+    pub variants: Vec<Vec<u32>>,
+}
+
 /// What shape a [`Layout`]'s numbers describe.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Repr {
@@ -502,6 +524,8 @@ pub struct Layouts<'a> {
     open: Set<Ty>,
     /// See [`Layouts::glue_key`].
     glue_keys: Map<Ty, GlueKey>,
+    /// See [`Layouts::of_enum`].
+    enums: Map<Ty, Rc<EnumLayout>>,
 }
 
 /// A memoised glue key.
@@ -526,7 +550,24 @@ impl<'a> Layouts<'a> {
             cycles,
             open: Set::default(),
             glue_keys: Map::default(),
+            enums: Map::default(),
         }
+    }
+
+    /// The layout of an enum, with its discriminant and variants, read without
+    /// asking whether it is one. Memoised, and shared as [`Layouts::shared`]
+    /// is.
+    pub fn of_enum(&mut self, e: &EnumHead) -> Rc<EnumLayout> {
+        self.enum_layout(&e.ty, e.con, e.args)
+    }
+
+    fn enum_layout(&mut self, ty: &Ty, con: TyConId, args: &[Ty]) -> Rc<EnumLayout> {
+        if let Some(layout) = self.enums.get(ty) {
+            return Rc::clone(layout);
+        }
+        let layout = Rc::new(self.build_enum(ty, con, args));
+        self.enums.insert(*ty, Rc::clone(&layout));
+        layout
     }
 
     /// The layout of a type. Memoised; infallible.
@@ -683,7 +724,19 @@ impl<'a> Layouts<'a> {
                         repr,
                     }
                 }
-                TyDef::Enum { .. } => self.build_enum(ty, *id, args),
+                TyDef::Enum { .. } => {
+                    let e = self.enum_layout(ty, *id, args);
+                    Layout {
+                        size: e.size,
+                        align: e.align,
+                        stride: e.stride,
+                        fields: Vec::new(),
+                        repr: Repr::Enum {
+                            repr: e.repr.clone(),
+                            variants: e.variants.clone(),
+                        },
+                    }
+                }
             },
             // `Self` is not a type a monomorphized program contains: a trait's
             // signature is abstract, and an `impl`'s is elaborated against the
@@ -732,7 +785,7 @@ impl<'a> Layouts<'a> {
         (align_up(end, align), align, offsets)
     }
 
-    fn build_enum(&mut self, ty: &Ty, con: TyConId, args: &[Ty]) -> Layout {
+    fn build_enum(&mut self, ty: &Ty, con: TyConId, args: &[Ty]) -> EnumLayout {
         let tables = self.tables;
 
         // The `Option<T>` niche first, because it is the case with no tag.
@@ -746,17 +799,14 @@ impl<'a> Layouts<'a> {
                 let payload = *payload;
                 if let Some(null_at) = self.niche(&payload) {
                     let inner = self.compute(&payload);
-                    return Layout {
+                    return EnumLayout {
                         size: inner.size,
                         align: inner.align,
                         stride: inner.stride,
-                        fields: Vec::new(),
-                        repr: Repr::Enum {
-                            repr: EnumRepr::Niche { null_at },
-                            // `.Some`'s payload is the whole value; `.None`
-                            // has none.
-                            variants: vec![vec![0], Vec::new()],
-                        },
+                        repr: EnumRepr::Niche { null_at },
+                        // `.Some`'s payload is the whole value; `.None` has
+                        // none.
+                        variants: vec![vec![0], Vec::new()],
                     };
                 }
             }
@@ -793,15 +843,12 @@ impl<'a> Layouts<'a> {
         // arity even where every offset is 0.
         let tag = tag_scalar(variants.len());
         if payload_size == 0 {
-            return Layout {
+            return EnumLayout {
                 size: tag.size(),
                 align: tag.align(),
                 stride: tag.size(),
-                fields: Vec::new(),
-                repr: Repr::Enum {
-                    repr: EnumRepr::Bare { tag },
-                    variants: relative,
-                },
+                repr: EnumRepr::Bare { tag },
+                variants: relative,
             };
         }
 
@@ -817,15 +864,12 @@ impl<'a> Layouts<'a> {
                     .collect()
             })
             .collect();
-        Layout {
+        EnumLayout {
             size,
             align,
             stride: size,
-            fields: Vec::new(),
-            repr: Repr::Enum {
-                repr: EnumRepr::Tagged { tag, payload },
-                variants: absolute,
-            },
+            repr: EnumRepr::Tagged { tag, payload },
+            variants: absolute,
         }
     }
 

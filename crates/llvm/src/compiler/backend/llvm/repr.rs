@@ -59,7 +59,7 @@ use super::build::At;
 use crate::compiler::backend::counts::{Counted, Counts, Site};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{
-    self, Cycles, EnumRepr, Layout, Layouts, Repr as LayoutRepr, Scalar,
+    self, Cycles, EnumLayout, EnumRepr, Layout, Layouts, Repr as LayoutRepr, Scalar,
 };
 use crate::compiler::semantics::types::{Tables, Ty, TyKind};
 use crate::diagnostics::Invariant;
@@ -120,14 +120,6 @@ pub struct Repr {
 }
 
 impl Repr {
-    /// The enum discriminant encoding, where this is an enum.
-    pub fn enum_repr(&self) -> Option<&EnumRepr> {
-        match &self.layout.repr {
-            LayoutRepr::Enum { repr, .. } => Some(repr),
-            _ => None,
-        }
-    }
-
     pub fn field_range(&self, index: usize) -> (usize, usize) {
         self.fields.get(index).copied().unwrap_or((0, 0))
     }
@@ -208,6 +200,11 @@ impl<'a> Reprs<'a> {
             self.memo.insert(id.index(), repr);
         }
         self.memo.get(&id.index()).unwrap_or(&self.empty)
+    }
+
+    /// An interned enum's layout: its discriminant encoding and its variants.
+    pub fn of_enum(&mut self, program: &ir::Program, e: ir::EnumTy) -> std::rc::Rc<EnumLayout> {
+        self.layouts.of_enum(&program.types.enum_head(e))
     }
 
     /// The flattening of a type that is not interned in the IR — an enum's
@@ -441,14 +438,6 @@ impl<'a> Reprs<'a> {
     fn option_payload(&self, ty: &Ty) -> Option<Ty> {
         match ty.kind() {
             TyKind::Con(_, args) => args.first().cloned(),
-            _ => None,
-        }
-    }
-
-    /// The element type of a `[T]`.
-    pub fn element(&self, ty: &Ty) -> Option<Ty> {
-        match ty.kind() {
-            TyKind::Array(t) => Some(*t),
             _ => None,
         }
     }

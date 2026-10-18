@@ -17,7 +17,7 @@
 //! into literals, because a store here is a stencil and a stencil takes
 //! literals.
 
-use crate::compiler::middle::layout::{EnumRepr, Layout};
+use crate::compiler::middle::layout::{EnumLayout, EnumRepr};
 
 /// The table, the shapes it is written in, and the symbols called without a
 /// key.
@@ -72,8 +72,8 @@ impl OptRepr {
     /// Reads the four facts off a destination's layout, which is an enum's, or
     /// answers `None` when it has no empty variant — which is what an `Option`
     /// is, structurally, and the only thing this may be asked about.
-    pub fn of(l: &Layout) -> Option<OptRepr> {
-        let (repr, variants) = super::jit::enum_of(l);
+    pub fn of(l: &EnumLayout) -> Option<OptRepr> {
+        let (repr, variants) = (&l.repr, &l.variants);
         // `Option` declares `Some` first, so `Some` is variant 0 — but read it
         // off the layout rather than assuming: the empty variant is the one
         // with no fields.
