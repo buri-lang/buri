@@ -19,7 +19,7 @@
 //! * `pattern_primary` decides binding-versus-variant on the token *after* an
 //!   identifier, never on what the identifier means (design/grammar-rationale.md 12.7).
 
-use crate::diagnostics::{invariant, Diagnostic, FileId, Span};
+use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{
     ArmData, BlockData, BlockId, CtxBindData, CtxBodyData, CtxBodyId, Docs, ExprId, FieldPatData,
     InitData, Kind, LambdaParamData, List, Location, PartData, PatId, PatPayloadData, PatternKind,
@@ -492,6 +492,47 @@ fn starts_postfix(t: TokenKind) -> bool {
 struct Bail;
 type PResult<T> = Result<T, Bail>;
 
+/// Proof that the parser moved past a token.
+///
+/// Only [`Parser::take`] makes one, and the parser takes a token only once it
+/// knows what kind of token it is, so never the end of the file, which is the
+/// one token the cursor stays on. A trial that reads ahead and goes back never
+/// goes back past a token it was handed one for.
+///
+/// The loops over declarations, statements and match arms read one of these
+/// for every turn they take, so none of them can turn without reading.
+#[must_use]
+struct Consumed(());
+
+/// A production's result, with the proof that it read a token.
+type Read<T> = (T, Consumed);
+
+/// Where the recovery from a match arm stopped.
+enum ArmEnd {
+    /// At the comma before the next arm.
+    Comma,
+    /// At the `}` that closes the arms, or at the end of the file.
+    Close,
+}
+
+/// What reading one declaration came to.
+enum Declared {
+    /// The declaration, or the mistake in it, after reading a token at least.
+    Read(PResult<Item>, Consumed),
+    /// A token no declaration starts with: reported, and not read.
+    Stray,
+}
+
+impl Declared {
+    /// A declaration that went wrong, after reading `read` if anything.
+    fn failed(read: Option<Consumed>) -> Declared {
+        match read {
+            Some(read) => Declared::Read(Err(Bail), read),
+            None => Declared::Stray,
+        }
+    }
+}
+
 /// Where a child list is accumulated before it is copied into the tree.
 ///
 /// A variadic list — a call's arguments, a block's statements, a match's arms
@@ -806,11 +847,17 @@ impl<'a> Parser<'a> {
     ///
     /// The cursor stays on the end of the file: past it is more of it.
     fn bump(&mut self) -> Span {
+        self.take().0
+    }
+
+    /// [`Parser::bump`], with the proof that the cursor moved.
+    #[inline(always)]
+    fn take(&mut self) -> (Span, Consumed) {
         let span = self.span();
         self.pos = self.pos.saturating_add(1).min(self.last);
         self.before = self.here;
         (self.cur, self.here) = self.tokens.record(self.pos);
-        span
+        (span, Consumed(()))
     }
 
     /// Put the cursor back where a trial parse began.
@@ -886,11 +933,15 @@ impl<'a> Parser<'a> {
     }
 
     fn eat_keyword(&mut self, k: Keyword) -> bool {
+        self.take_keyword(k).is_some()
+    }
+
+    /// [`Parser::eat_keyword`], with the proof that it read the keyword.
+    fn take_keyword(&mut self, k: Keyword) -> Option<Consumed> {
         if self.is_keyword(k) {
-            self.bump();
-            true
+            Some(self.take().1)
         } else {
-            false
+            None
         }
     }
 
@@ -955,31 +1006,42 @@ impl<'a> Parser<'a> {
 
     #[inline]
     fn expect(&mut self, p: Punctuation) -> PResult<Span> {
+        Ok(self.expect_read(p)?.0)
+    }
+
+    /// [`Parser::expect`], with the proof that it read the token.
+    fn expect_read(&mut self, p: Punctuation) -> PResult<Read<Span>> {
         if self.is(p) {
-            Ok(self.bump())
+            Ok(self.take())
         } else {
-            self.missing(p.text())
+            Err(self.missing(p.text()))
         }
     }
 
     #[inline]
     fn expect_keyword(&mut self, k: Keyword) -> PResult<Span> {
+        Ok(self.expect_keyword_read(k)?.0)
+    }
+
+    /// [`Parser::expect_keyword`], with the proof that it read the keyword.
+    #[inline]
+    fn expect_keyword_read(&mut self, k: Keyword) -> PResult<Read<Span>> {
         if self.is_keyword(k) {
-            Ok(self.bump())
+            Ok(self.take())
         } else {
-            self.missing(k.text())
+            Err(self.missing(k.text()))
         }
     }
 
     /// What [`Parser::expect`] and [`Parser::expect_keyword`] report.
     #[cold]
     #[inline(never)]
-    fn missing(&mut self, text: &str) -> PResult<Span> {
+    fn missing(&mut self, text: &str) -> Bail {
         let found = self.found();
         let span = self.span();
         let want = format!("`{text}`");
         self.expected(span, &want, &found, format!("write {want} here"));
-        Err(Bail)
+        Bail
     }
 
     /// Whether the list the parser is reading has ended, closer or no closer.
@@ -1752,20 +1814,18 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Skip to the end of the current statement.
-    fn sync_stmt(&mut self, mut depth: i32) {
+    /// Skip to the end of the current statement: past its `;`, with the proof
+    /// of reading it, or to the `}` or the end of the file it stops at.
+    fn sync_stmt(&mut self, mut depth: i32) -> Option<Consumed> {
         loop {
             match self.peek() {
-                TokenKind::Eof => return,
-                TokenKind::Semi if depth <= 0 => {
-                    self.bump();
-                    return;
-                }
+                TokenKind::Eof => return None,
+                TokenKind::Semi if depth <= 0 => return Some(self.take().1),
                 TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => {
                     depth = depth.saturating_add(1);
                     self.bump();
                 }
-                TokenKind::RBrace if depth <= 0 => return,
+                TokenKind::RBrace if depth <= 0 => return None,
                 TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket => {
                     depth = depth.saturating_sub(1);
                     self.bump();
@@ -1786,23 +1846,28 @@ impl<'a> Parser<'a> {
         // declaration now, not a pointer to one, so a doubling copies it.
         let mut items = Vec::with_capacity(self.last / 37);
         while !self.at_eof() {
-            let before = self.pos;
             let save = self.save();
-            match self.item() {
-                Ok(Some(item)) => items.push(item),
-                Ok(None) => {}
-                Err(Bail) => {
+            let _read: Consumed = match self.item() {
+                Declared::Read(Ok(item), read) => {
+                    items.push(item);
+                    read
+                }
+                Declared::Read(Err(Bail), read) => {
                     let from = self.tokens.span(self.at(save.pos));
                     let depth = self.open_braces_since(save.pos);
                     self.restore(save);
                     self.sync_item(depth);
                     items.push(Item::Error(from.to(self.prev_span())));
+                    read
                 }
-            }
-            invariant(
-                self.pos != before,
-                "a declaration, or the recovery from one, reads a token",
-            );
+                Declared::Stray => {
+                    let from = self.tokens.span(self.at(save.pos));
+                    self.restore(save);
+                    let read = self.skip_stray();
+                    items.push(Item::Error(from.to(self.prev_span())));
+                    read
+                }
+            };
             // A token held for a production that never asked for it belongs to
             // the declaration it was written in and to nothing after it.
             self.early = None;
@@ -1814,54 +1879,76 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn item(&mut self) -> PResult<Option<Item>> {
+    /// One declaration, read from its keyword on.
+    ///
+    /// The keyword is read here rather than by the production it opens, so the
+    /// token this declaration reads first is in hand whether the rest of it
+    /// reads or not.
+    fn item(&mut self) -> Declared {
         let docs = self.docs();
         let start = self.span();
-        self.exchanged_head();
+        let exchanged = self.exchanged_head();
 
         if self.is_keyword(Keyword::From) {
-            return Ok(Some(self.import_or_reexport()?));
+            return self.declared(|p, keyword| p.import_or_reexport(keyword));
         }
         if self.is_keyword(Keyword::Impl) {
-            return Ok(Some(Item::Impl(self.impl_decl(docs)?)));
+            return self.declared(|p, keyword| Ok(Item::Impl(p.impl_decl(docs, keyword)?)));
         }
         if self.is_keyword(Keyword::Derive) {
-            return Ok(Some(Item::Derive(self.derive_decl()?)));
+            return self.declared(|p, keyword| Ok(Item::Derive(p.derive_decl(keyword)?)));
         }
         if self.is_keyword(Keyword::Test) {
-            return Ok(Some(Item::Test(self.test_decl(docs)?)));
+            return self.declared(|p, keyword| Ok(Item::Test(p.test_decl(docs, keyword)?)));
         }
 
-        let exported = self.eat_keyword(Keyword::Export) || self.export_after_the_keyword();
+        let export = self.take_keyword(Keyword::Export);
+        let exported = export.is_some() || self.export_after_the_keyword();
         // `SEED let: Int = 7;` — the binding keyword and its name, exchanged.
         // The declaration is read as what it says, so it declares `SEED`.
         if self.exchanged_binding() {
-            return Ok(Some(Item::Let(self.let_decl(exported, docs, start)?)));
+            return self.declared(|p, _| Ok(Item::Let(p.let_decl(exported, docs, start)?)));
         }
+        let read = exchanged.or(export);
         let keyword = self.peek().as_keyword();
-        let item = match keyword {
-            Some(Keyword::Fn) => Item::Fn(self.fn_decl(exported, docs, start)?),
-            Some(Keyword::Struct) => Item::Struct(self.struct_decl(exported, docs, start)?),
-            Some(Keyword::Enum) => Item::Enum(self.enum_decl(exported, docs, start)?),
-            Some(Keyword::Type) => Item::TypeAlias(self.type_alias(exported, docs, start)?),
-            Some(Keyword::Let) => Item::Let(self.let_decl(exported, docs, start)?),
+        match keyword {
+            Some(Keyword::Fn) => {
+                self.declared(|p, _| Ok(Item::Fn(p.fn_decl(exported, docs, start)?)))
+            }
+            Some(Keyword::Struct) => {
+                self.declared(|p, _| Ok(Item::Struct(p.struct_decl(exported, docs, start)?)))
+            }
+            Some(Keyword::Enum) => {
+                self.declared(|p, _| Ok(Item::Enum(p.enum_decl(exported, docs, start)?)))
+            }
+            Some(Keyword::Type) => {
+                self.declared(|p, _| Ok(Item::TypeAlias(p.type_alias(exported, docs, start)?)))
+            }
+            Some(Keyword::Let) => {
+                self.declared(|p, _| Ok(Item::Let(p.let_decl(exported, docs, start)?)))
+            }
             // The old spelling: reported at the keyword with the edit that
             // replaces it, then read on, so one error names the whole mistake.
-            Some(Keyword::Const) => {
-                let keyword = self.bump();
-                self.templated("const-declaration", keyword)
+            Some(Keyword::Const) => self.declared(|p, keyword| {
+                p.templated("const-declaration", keyword)
                     .edit(keyword, "let");
-                Item::Let(self.let_decl_tail(exported, docs, start)?)
+                Ok(Item::Let(p.let_decl(exported, docs, start)?))
+            }),
+            Some(Keyword::Trait) => {
+                self.declared(|p, _| Ok(Item::Trait(p.trait_decl(exported, docs, start, false)?)))
             }
-            Some(Keyword::Trait) => Item::Trait(self.trait_decl(exported, docs, start, false)?),
-            Some(Keyword::Effect) => Item::Trait(self.trait_decl(exported, docs, start, true)?),
-            Some(Keyword::Context) => Item::Context(self.context_decl(exported, docs, start)?),
+            Some(Keyword::Effect) => {
+                self.declared(|p, _| Ok(Item::Trait(p.trait_decl(exported, docs, start, true)?)))
+            }
+            Some(Keyword::Context) => {
+                self.declared(|p, _| Ok(Item::Context(p.context_decl(exported, docs, start)?)))
+            }
             // `from "..." export { ... }` after a stray `export`: an unexported
             // `from` was read as an import before the `export` was looked for.
             Some(Keyword::From) => {
                 let span = self.span();
                 self.templated("leading-export", span);
-                return Err(Bail);
+                Declared::failed(read)
             }
             _ => {
                 let found = self.found();
@@ -1874,10 +1961,30 @@ impl<'a> Parser<'a> {
                      `trait` `effect` `impl` `derive` `context` `test` — a module is a list of \
                      declarations, with no statements between them",
                 );
-                return Err(Bail);
+                Declared::failed(read)
             }
-        };
-        Ok(Some(item))
+        }
+    }
+
+    /// The declaration `read` reads, from the keyword under the cursor on.
+    fn declared(&mut self, read: impl FnOnce(&mut Self, Span) -> PResult<Item>) -> Declared {
+        let (keyword, consumed) = self.take();
+        Declared::Read(read(self, keyword), consumed)
+    }
+
+    /// Past a token no declaration starts with, and on to the next one.
+    ///
+    /// What [`Parser::sync_item`] does from a token it never stops at, with
+    /// that token read first.
+    fn skip_stray(&mut self) -> Consumed {
+        let kind = self.peek();
+        let (_, read) = self.take();
+        match kind {
+            TokenKind::LBrace => self.sync_item(1),
+            TokenKind::RBrace | TokenKind::Semi => {}
+            _ => self.sync_item(0),
+        }
+        read
     }
 
     /// `fn export one()`: a declaration's keyword and the `export` it carries,
@@ -1908,12 +2015,12 @@ impl<'a> Parser<'a> {
     /// `@` on a line of its own with a `fn` under it is a stray token between
     /// declarations, and calling it an exchange would repair something nobody
     /// wrote.
-    fn exchanged_head(&mut self) -> bool {
+    fn exchanged_head(&mut self) -> Option<Consumed> {
         let keyword = self.kind_at(self.pos.saturating_add(1));
         if !head_takes(keyword, self.peek())
             || head_takes(keyword, self.kind_at(self.pos.saturating_add(2)))
         {
-            return false;
+            return None;
         }
         let early = self.span();
         let at = self.tokens.span(self.at(self.pos.saturating_add(1)));
@@ -1922,7 +2029,7 @@ impl<'a> Parser<'a> {
             .get(early.end as usize..at.start as usize)
             .is_none_or(|gap| gap.contains('\n'))
         {
-            return false;
+            return None;
         }
         let written = self.slice(at);
         let found = self.found();
@@ -1932,8 +2039,7 @@ impl<'a> Parser<'a> {
         self.expected(early, &want, &found, fix)
             .edit(early.to(at), &repaired);
         self.early = Some(self.at(self.pos));
-        self.bump();
-        true
+        Some(self.take().1)
     }
 
     fn export_after_the_keyword(&mut self) -> bool {
@@ -1954,11 +2060,11 @@ impl<'a> Parser<'a> {
         true
     }
 
-    fn import_or_reexport(&mut self) -> PResult<Item> {
+    fn import_or_reexport(&mut self, keyword: Span) -> PResult<Item> {
         // The token written before the keyword is where this declaration
         // starts: an item's span has to cover the mistake reported inside it.
         let early = self.early_span();
-        let start = early.unwrap_or(self.expect_keyword(Keyword::From)?);
+        let start = early.unwrap_or(keyword);
         let (path, path_span) = self.expect_string()?;
 
         if self.eat_keyword(Keyword::Export) {
@@ -2148,8 +2254,8 @@ impl<'a> Parser<'a> {
             .edit(through_the_gap, "");
     }
 
+    /// From after the `fn`, which the caller has read.
     fn fn_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<FnDecl> {
-        self.expect_keyword(Keyword::Fn)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
         let open = self.expect(Punctuation::LParen)?;
@@ -2220,7 +2326,6 @@ impl<'a> Parser<'a> {
     }
 
     fn struct_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<StructDecl> {
-        self.expect_keyword(Keyword::Struct)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
 
@@ -2317,7 +2422,6 @@ impl<'a> Parser<'a> {
     }
 
     fn enum_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<EnumDecl> {
-        self.expect_keyword(Keyword::Enum)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
         let open = self.expect(Punctuation::LBrace)?;
@@ -2416,7 +2520,6 @@ impl<'a> Parser<'a> {
     }
 
     fn type_alias(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<TypeAliasDecl> {
-        self.expect_keyword(Keyword::Type)?;
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
         self.expect(Punctuation::Eq)?;
@@ -2432,14 +2535,9 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn let_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<LetDecl> {
-        self.expect_keyword(Keyword::Let)?;
-        self.let_decl_tail(exported, docs, start)
-    }
-
     /// Everything after the binding keyword, so that the `const` spelling can
     /// be reported and then read as what it means.
-    fn let_decl_tail(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<LetDecl> {
+    fn let_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<LetDecl> {
         let name = self.expect_ident()?;
         self.expect(Punctuation::Colon)?;
         let ty = self.ty()?;
@@ -2463,7 +2561,6 @@ impl<'a> Parser<'a> {
         start: Span,
         is_effect: bool,
     ) -> PResult<TraitDecl> {
-        self.bump(); // `trait` or `effect`
         let name = self.expect_ident()?;
         let generics = self.generic_params()?;
         let open = self.expect(Punctuation::LBrace)?;
@@ -2501,11 +2598,11 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn impl_decl(&mut self, docs: Docs) -> PResult<ImplDecl> {
+    fn impl_decl(&mut self, docs: Docs, keyword: Span) -> PResult<ImplDecl> {
         // The token written before the keyword is where this declaration
         // starts: an item's span has to cover the mistake reported inside it.
         let early = self.early_span();
-        let start = early.unwrap_or(self.expect_keyword(Keyword::Impl)?);
+        let start = early.unwrap_or(keyword);
         let generics = self.generic_params()?;
         // A full type either side: `[T]` has methods of its own, so the self
         // position is not restricted to a named type. The trait position is,
@@ -2538,7 +2635,10 @@ impl<'a> Parser<'a> {
             } else {
                 false
             };
-            match self.fn_decl(exported, docs, mstart) {
+            let method = self
+                .expect_keyword(Keyword::Fn)
+                .and_then(|_| self.fn_decl(exported, docs, mstart));
+            match method {
                 Ok(f) => self.tree.add(f),
                 Err(Bail) => {
                     // `sync_stmt`, not `sync_item`: it stops *at* the closing
@@ -2571,11 +2671,11 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn derive_decl(&mut self) -> PResult<DeriveDecl> {
+    fn derive_decl(&mut self, keyword: Span) -> PResult<DeriveDecl> {
         // The token written before the keyword is where this declaration
         // starts: an item's span has to cover the mistake reported inside it.
         let early = self.early_span();
-        let start = early.unwrap_or(self.expect_keyword(Keyword::Derive)?);
+        let start = early.unwrap_or(keyword);
         // `derive for Meters;` reaches the type-name parser at `for`, which
         // reports "expected an identifier" and offers to name a binding. The
         // grammar is not what is confusing here: the clause is empty, and a
@@ -2613,7 +2713,6 @@ impl<'a> Parser<'a> {
     }
 
     fn context_decl(&mut self, exported: bool, docs: Docs, start: Span) -> PResult<ContextDecl> {
-        self.expect_keyword(Keyword::Context)?;
         let name = self.expect_ident()?;
         let body = self.context_body()?;
         let span = start.to(self.prev_span());
@@ -2663,11 +2762,11 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    fn test_decl(&mut self, docs: Docs) -> PResult<TestDecl> {
+    fn test_decl(&mut self, docs: Docs, keyword: Span) -> PResult<TestDecl> {
         // The token written before the keyword is where this declaration
         // starts: an item's span has to cover the mistake reported inside it.
         let early = self.early_span();
-        let start = early.unwrap_or(self.expect_keyword(Keyword::Test)?);
+        let start = early.unwrap_or(keyword);
         let (name, name_span) = self.expect_string()?;
         let body = self.block("`test` body")?;
         Ok(TestDecl {
@@ -2956,14 +3055,19 @@ impl<'a> Parser<'a> {
     // -- blocks and statements ---------------------------------------------
 
     fn block(&mut self, construct: &'static str) -> PResult<BlockId> {
+        Ok(self.read_block(construct)?.0)
+    }
+
+    /// [`Parser::block`], with the proof that it read the `{`.
+    fn read_block(&mut self, construct: &'static str) -> PResult<Read<BlockId>> {
         self.enter()?;
         let r = self.block_inner(construct);
         self.leave();
         r
     }
 
-    fn block_inner(&mut self, construct: &'static str) -> PResult<BlockId> {
-        let start = self.expect(Punctuation::LBrace)?;
+    fn block_inner(&mut self, construct: &'static str) -> PResult<Read<BlockId>> {
+        let (start, read) = self.expect_read(Punctuation::LBrace)?;
         let base = self.scratch.stmts.len();
         let mut tail = NONE;
         let mut broken = NONE;
@@ -2974,116 +3078,9 @@ impl<'a> Parser<'a> {
             if starts_declaration(self.peek()) {
                 break;
             }
-            let before = self.pos;
-            let save = self.save();
-            if self.is_keyword(Keyword::Let) || self.exchanged_binding() {
-                match self.let_stmt() {
-                    Ok(s) => {
-                        // A `let` that recovered stands for a value nobody
-                        // wrote, so the block has nothing to return and its
-                        // result is that error rather than `()`.
-                        if self.tree.kind(ExprId(s.value)) == Kind::Error {
-                            broken = s.value;
-                        }
-                        self.scratch.stmts.push(s);
-                    }
-                    Err(Bail) => {
-                        let depth = self.open_delimiters_since(save.pos);
-                        let from = self.tokens.span(self.at(save.pos));
-                        self.restore(save);
-                        self.sync_stmt(depth);
-                        broken = self.error_expr(from.to(self.prev_span())).0;
-                    }
-                }
-            } else {
-                let estart = self.span();
-                let opened_with = self.peek();
-                match self.expr() {
-                    Ok(e) => {
-                        if self.is(Punctuation::Semi) {
-                            let end = self.bump();
-                            // An expression statement is legal only in a test
-                            // source and only when its type is `()`; both are
-                            // static rules, so the grammar admits it here.
-                            self.scratch.stmts.push(StmtData {
-                                kind: StmtKind::Expr,
-                                is_ctx: false,
-                                pattern: NONE,
-                                ty: NONE,
-                                value: e.0,
-                                span: Location::of(estart.to(end)),
-                            });
-                        } else if self.is(Punctuation::Eq) {
-                            // Every binding is final, so `=` after a name is
-                            // not a statement the grammar is missing. The
-                            // right-hand side is read and thrown away, so one
-                            // error names the whole mistake and the rest of
-                            // the block is read for what it says.
-                            let eq = self.span();
-                            self.templated("reassignment", eq);
-                            self.bump();
-                            let _ = self.expr();
-                            self.eat(Punctuation::Semi);
-                            let span = estart.to(self.prev_span());
-                            self.restore(save);
-                            broken = self.error_expr(span).0;
-                        } else if !self.is_keyword(Keyword::Let) && !starts_statement(self.peek()) {
-                            if self.is(Punctuation::RBrace) || self.at_eof() {
-                                // The block ends here, so this expression is
-                                // its value.
-                                tail = e.0;
-                            } else if self.statement_ends_ahead() {
-                                // A stray token inside a statement that still
-                                // ends where it should. The statement is
-                                // poisoned and the block reads on, so one
-                                // mistake stays one mistake instead of
-                                // becoming a `}` the reader is told to write
-                                // in the middle of a line.
-                                self.refuse_postfix(opened_with);
-                                let found = self.found();
-                                let span = self.span();
-                                self.expected(span, "`;`", &found, "write `;` here");
-                                self.sync_stmt(0);
-                                broken = self.error_expr(estart.to(self.prev_span())).0;
-                                continue;
-                            } else {
-                                // Nothing may follow, and this block has no
-                                // `}` left. Either the chain SPEC 12.13
-                                // refuses, or the block's `}` is missing — and
-                                // either way the value is poisoned, because
-                                // what parsed is not what was written.
-                                self.refuse_postfix(opened_with);
-                                broken = self.error_expr(estart.to(self.prev_span())).0;
-                                break;
-                            }
-                        } else {
-                            // Something follows, so this was a statement and
-                            // its `;` is missing rather than the block's `}`.
-                            let end = self.expect_terminator(statement_kind(self.tree.kind(e)))?;
-                            self.scratch.stmts.push(StmtData {
-                                kind: StmtKind::Expr,
-                                is_ctx: false,
-                                pattern: NONE,
-                                ty: NONE,
-                                value: e.0,
-                                span: Location::of(estart.to(end)),
-                            });
-                        }
-                    }
-                    Err(Bail) => {
-                        let depth = self.open_delimiters_since(save.pos);
-                        let from = self.tokens.span(self.at(save.pos));
-                        self.restore(save);
-                        self.sync_stmt(depth);
-                        broken = self.error_expr(from.to(self.prev_span())).0;
-                    }
-                }
-            }
-            invariant(
-                self.pos != before,
-                "a statement, or the recovery from one, reads a token",
-            );
-            self.early = None;
+            let Some(_read) = self.statement(&mut tail, &mut broken)? else {
+                break;
+            };
         }
 
         let end = self.expect_close(Punctuation::RBrace, construct, start)?;
@@ -3095,7 +3092,7 @@ impl<'a> Parser<'a> {
         }
         let (ss, sl) = self.tree.push_stmts(since(&self.scratch.stmts, base));
         self.scratch.stmts.truncate(base);
-        Ok(self.tree.push_block(BlockData {
+        let block = self.tree.push_block(BlockData {
             stmts_start: ss,
             stmts_len: sl,
             tail,
@@ -3107,15 +3104,131 @@ impl<'a> Parser<'a> {
             // they are the tokens somebody wrote; the checker does not, because
             // they are not the program somebody wrote.
             broken: self.closed == Closed::Absent,
-        }))
+        });
+        Ok((block, read))
     }
 
-    fn let_stmt(&mut self) -> PResult<StmtData> {
+    /// One statement of a block, or the recovery from one, with the token it
+    /// read. `None` where the block ends with it.
+    fn statement(&mut self, tail: &mut u32, broken: &mut u32) -> PResult<Option<Consumed>> {
+        let save = self.save();
+        let read = if self.is_keyword(Keyword::Let) || self.exchanged_binding() {
+            match self.let_stmt() {
+                Ok((s, read)) => {
+                    // A `let` that recovered stands for a value nobody
+                    // wrote, so the block has nothing to return and its
+                    // result is that error rather than `()`.
+                    if self.tree.kind(ExprId(s.value)) == Kind::Error {
+                        *broken = s.value;
+                    }
+                    self.scratch.stmts.push(s);
+                    Some(read)
+                }
+                Err(Bail) => {
+                    let depth = self.open_delimiters_since(save.pos);
+                    let from = self.tokens.span(self.at(save.pos));
+                    self.restore(save);
+                    let synced = self.sync_stmt(depth);
+                    *broken = self.error_expr(from.to(self.prev_span())).0;
+                    synced
+                }
+            }
+        } else {
+            let estart = self.span();
+            let opened_with = self.peek();
+            match self.read_expr() {
+                Ok((e, read)) => {
+                    if self.is(Punctuation::Semi) {
+                        let end = self.bump();
+                        // An expression statement is legal only in a test
+                        // source and only when its type is `()`; both are
+                        // static rules, so the grammar admits it here.
+                        self.scratch.stmts.push(StmtData {
+                            kind: StmtKind::Expr,
+                            is_ctx: false,
+                            pattern: NONE,
+                            ty: NONE,
+                            value: e.0,
+                            span: Location::of(estart.to(end)),
+                        });
+                    } else if self.is(Punctuation::Eq) {
+                        // Every binding is final, so `=` after a name is
+                        // not a statement the grammar is missing. The
+                        // right-hand side is read and thrown away, so one
+                        // error names the whole mistake and the rest of
+                        // the block is read for what it says.
+                        let eq = self.span();
+                        self.templated("reassignment", eq);
+                        self.bump();
+                        let _ = self.expr();
+                        self.eat(Punctuation::Semi);
+                        let span = estart.to(self.prev_span());
+                        self.restore(save);
+                        *broken = self.error_expr(span).0;
+                    } else if !self.is_keyword(Keyword::Let) && !starts_statement(self.peek()) {
+                        if self.is(Punctuation::RBrace) || self.at_eof() {
+                            // The block ends here, so this expression is
+                            // its value.
+                            *tail = e.0;
+                        } else if self.statement_ends_ahead() {
+                            // A stray token inside a statement that still
+                            // ends where it should. The statement is
+                            // poisoned and the block reads on, so one
+                            // mistake stays one mistake instead of
+                            // becoming a `}` the reader is told to write
+                            // in the middle of a line.
+                            self.refuse_postfix(opened_with);
+                            let found = self.found();
+                            let span = self.span();
+                            self.expected(span, "`;`", &found, "write `;` here");
+                            self.sync_stmt(0);
+                            *broken = self.error_expr(estart.to(self.prev_span())).0;
+                            return Ok(Some(read));
+                        } else {
+                            // Nothing may follow, and this block has no
+                            // `}` left. Either the chain SPEC 12.13
+                            // refuses, or the block's `}` is missing — and
+                            // either way the value is poisoned, because
+                            // what parsed is not what was written.
+                            self.refuse_postfix(opened_with);
+                            *broken = self.error_expr(estart.to(self.prev_span())).0;
+                            return Ok(None);
+                        }
+                    } else {
+                        // Something follows, so this was a statement and
+                        // its `;` is missing rather than the block's `}`.
+                        let end = self.expect_terminator(statement_kind(self.tree.kind(e)))?;
+                        self.scratch.stmts.push(StmtData {
+                            kind: StmtKind::Expr,
+                            is_ctx: false,
+                            pattern: NONE,
+                            ty: NONE,
+                            value: e.0,
+                            span: Location::of(estart.to(end)),
+                        });
+                    }
+                    Some(read)
+                }
+                Err(Bail) => {
+                    let depth = self.open_delimiters_since(save.pos);
+                    let from = self.tokens.span(self.at(save.pos));
+                    self.restore(save);
+                    let synced = self.sync_stmt(depth);
+                    *broken = self.error_expr(from.to(self.prev_span())).0;
+                    synced
+                }
+            }
+        };
+        self.early = None;
+        Ok(read)
+    }
+
+    fn let_stmt(&mut self) -> PResult<Read<StmtData>> {
         // A name the source wrote in front of the `let` is where the statement
         // starts: the span has to cover the mistake reported at it, because
         // that is what the formatter reproduces byte for byte.
         let early = self.early_span();
-        let keyword = self.expect_keyword(Keyword::Let)?;
+        let (keyword, read) = self.expect_keyword_read(Keyword::Let)?;
         let start = early.unwrap_or(keyword);
         // `let @ x = 1;` — a stray token in front of the binding, stepped over
         // for the reason one in front of a name is: the binding is still
@@ -3150,7 +3263,7 @@ impl<'a> Parser<'a> {
             let at = self.tree.next_pat();
             let payload = [name_span.start, name_span.end, NONE, 0];
             let pattern = self.tree.ppush(PatternKind::Bind, payload, name_span, at);
-            return Ok(self.let_value(start, pattern.0, NONE, true));
+            return Ok((self.let_value(start, pattern.0, NONE, true), read));
         }
         let pattern = self.pattern()?;
         let ty = if self.eat(Punctuation::Colon) {
@@ -3158,7 +3271,7 @@ impl<'a> Parser<'a> {
         } else {
             NONE
         };
-        Ok(self.let_value(start, pattern.0, ty, false))
+        Ok((self.let_value(start, pattern.0, ty, false), read))
     }
 
     /// `= value;`, and what the statement is when that does not read.
@@ -3203,13 +3316,18 @@ impl<'a> Parser<'a> {
     // -- expressions --------------------------------------------------------
 
     fn expr(&mut self) -> PResult<ExprId> {
+        Ok(self.read_expr()?.0)
+    }
+
+    /// [`Parser::expr`], with the proof that it read a token.
+    fn read_expr(&mut self) -> PResult<Read<ExprId>> {
         self.enter()?;
         let r = self.expr_inner();
         self.leave();
         r
     }
 
-    fn expr_inner(&mut self) -> PResult<ExprId> {
+    fn expr_inner(&mut self) -> PResult<Read<ExprId>> {
         // A lambda is top-level-only: its body extends as far right as
         // possible, so allowing it as an operand would make
         // `2 * fn(x) => x + 1` ambiguous (design/grammar-rationale.md 12.11).
@@ -3219,9 +3337,9 @@ impl<'a> Parser<'a> {
         self.binary_expr(0)
     }
 
-    fn lambda(&mut self) -> PResult<ExprId> {
+    fn lambda(&mut self) -> PResult<Read<ExprId>> {
         let at = self.tree.next_node();
-        let start = self.expect_keyword(Keyword::Fn)?;
+        let (start, read) = self.expect_keyword_read(Keyword::Fn)?;
         let open = self.expect(Punctuation::LParen)?;
         let base = self.scratch.lparams.len();
         while !self.list_ended(Punctuation::RParen) {
@@ -3252,9 +3370,10 @@ impl<'a> Parser<'a> {
         let span = start.to(self.tree.span(body));
         let (ps, pl) = self.tree.push_lparams(since(&self.scratch.lparams, base));
         self.scratch.lparams.truncate(base);
-        Ok(self
+        let lambda = self
             .tree
-            .push(Kind::Lambda, [ps, pl, ret, body.0], span, at))
+            .push(Kind::Lambda, [ps, pl, ret, body.0], span, at);
+        Ok((lambda, read))
     }
 
     /// Precedence climbing over the binary operators.
@@ -3267,11 +3386,11 @@ impl<'a> Parser<'a> {
     /// functions held nothing but the order of the rungs, and charged every
     /// expression — `1` included — eight calls down and eight moves of a
     /// hundred-and-twenty-eight-byte `Expr` back up for it.
-    fn binary_expr(&mut self, min_bp: u8) -> PResult<ExprId> {
+    fn binary_expr(&mut self, min_bp: u8) -> PResult<Read<ExprId>> {
         // Recorded before the left operand, so every node this call appends —
         // the whole left-leaning chain — has the same subtree start.
         let at = self.tree.next_node();
-        let mut lhs = match self.leaf(None) {
+        let (mut lhs, read) = match self.leaf(None) {
             Some(leaf) => leaf?,
             None => self.unary_expr()?,
         };
@@ -3285,15 +3404,15 @@ impl<'a> Parser<'a> {
         let mut rung = usize::MAX;
         loop {
             let Some((op, lbp, rbp, level)) = binding_power(self.peek()) else {
-                return Ok(lhs);
+                return Ok((lhs, read));
             };
             if lbp < min_bp {
-                return Ok(lhs);
+                return Ok((lhs, read));
             }
 
             if level == CMP_LEVEL {
                 let op_span = self.bump();
-                let rhs = self.binary_expr(rbp)?;
+                let rhs = self.binary_expr(rbp)?.0;
                 let span = self.tree.span(lhs).to(self.tree.span(rhs));
                 lhs = self.tree.push(
                     Kind::of_binop(op),
@@ -3331,8 +3450,8 @@ impl<'a> Parser<'a> {
             self.link(links)?;
             let op_span = self.bump();
             let rhs = match self.leaf(Some(rbp)) {
-                Some(leaf) => leaf?,
-                None => self.binary_expr(rbp)?,
+                Some(leaf) => leaf?.0,
+                None => self.binary_expr(rbp)?.0,
             };
             let span = self.tree.span(lhs).to(self.tree.span(rhs));
             lhs = self.tree.push(
@@ -3356,7 +3475,7 @@ impl<'a> Parser<'a> {
     /// [`Parser::binary_expr`] would hand the operand straight back, because
     /// no operator after it binds that tightly.
     #[inline(always)]
-    fn leaf(&mut self, rhs: Option<u8>) -> Option<PResult<ExprId>> {
+    fn leaf(&mut self, rhs: Option<u8>) -> Option<PResult<Read<ExprId>>> {
         if self.depth >= MAX_DEPTH || self.chain >= MAX_CHAIN {
             return None;
         }
@@ -3386,16 +3505,16 @@ impl<'a> Parser<'a> {
         } else {
             [0; 4]
         };
-        let span = self.bump();
+        let (span, read) = self.take();
         let leaf = self.tree.push(kind, payload, span, at);
         if !postfix {
-            return Some(Ok(leaf));
+            return Some(Ok((leaf, read)));
         }
         // The level `unary_expr` would have entered around the chain.
         self.depth = self.depth.saturating_add(1);
         let chain = self.postfix_ops(leaf);
         self.leave();
-        Some(chain)
+        Some(chain.map(|chain| (chain, read)))
     }
 
     fn at_cmp_op(&self) -> bool {
@@ -3415,14 +3534,14 @@ impl<'a> Parser<'a> {
     /// [`Parser::expr`] — `!!!!…true` and `----…1` are one production deep in
     /// the reader's eyes and a hundred thousand frames deep in the parser's.
     /// It costs one unit of the same budget the other four spend.
-    fn unary_expr(&mut self) -> PResult<ExprId> {
+    fn unary_expr(&mut self) -> PResult<Read<ExprId>> {
         self.enter()?;
         let r = self.unary_inner();
         self.leave();
         r
     }
 
-    fn unary_inner(&mut self) -> PResult<ExprId> {
+    fn unary_inner(&mut self) -> PResult<Read<ExprId>> {
         let at = self.tree.next_node();
         let op = match self.peek() {
             TokenKind::Minus => Some(UnOp::Neg),
@@ -3431,12 +3550,13 @@ impl<'a> Parser<'a> {
             _ => None,
         };
         if let Some(op) = op {
-            let start = self.bump();
-            let operand = self.unary_expr()?;
+            let (start, read) = self.take();
+            let operand = self.unary_expr()?.0;
             let span = start.to(self.tree.span(operand));
-            return Ok(self
+            let unary = self
                 .tree
-                .push(Kind::of_unop(op), [operand.0, 0, 0, 0], span, at));
+                .push(Kind::of_unop(op), [operand.0, 0, 0, 0], span, at);
+            return Ok((unary, read));
         }
 
         // Block-like expressions are operands but never postfix-chain heads,
@@ -3445,7 +3565,9 @@ impl<'a> Parser<'a> {
         // `postfix_ops`.
         if self.is(Punctuation::LBrace) {
             if self.at_anonymous_struct_lit() {
-                return self.struct_lit_body(NONE, self.span(), at);
+                let start = self.span();
+                let (open, read) = self.take();
+                return Ok((self.struct_lit_fields(NONE, start, at, open)?, read));
             }
             // The type name written inside the brace it belongs in front of.
             // Reported once, with the edit that undoes the exchange, and then
@@ -3457,16 +3579,16 @@ impl<'a> Parser<'a> {
                 let found = self.found();
                 let fix = format!("write the type before the brace: `{written} {{`");
                 let repaired = format!("{written} {{");
-                let open = self.bump();
+                let (open, read) = self.take();
                 let name = self.bump();
                 self.expected(brace, "a struct literal's type", &found, fix)
                     .edit(brace.to(name), &repaired);
                 let head = self.tree.push(Kind::Ident, [0; 4], name, at);
-                return self.struct_lit_fields(head.0, open, at, open);
+                return Ok((self.struct_lit_fields(head.0, open, at, open)?, read));
             }
-            let b = self.block("block")?;
+            let (b, read) = self.read_block("block")?;
             let span = self.tree.span_of(self.tree.block(b).span);
-            return Ok(self.tree.push(Kind::Block, [b.0, 0, 0, 0], span, at));
+            return Ok((self.tree.push(Kind::Block, [b.0, 0, 0, 0], span, at), read));
         }
         if self.is_keyword(Keyword::If) {
             return self.if_expr();
@@ -3475,21 +3597,22 @@ impl<'a> Parser<'a> {
             return self.match_expr();
         }
         if self.is_keyword(Keyword::Context) {
-            let start = self.bump();
+            let (start, read) = self.take();
             let body = self.context_body()?;
             let span = start.to(self.tree.span_of(self.tree.ctx_body(body).span));
-            return Ok(self
+            let context = self
                 .tree
-                .push(Kind::ContextExpr, [body.0, 0, 0, 0], span, at));
+                .push(Kind::ContextExpr, [body.0, 0, 0, 0], span, at);
+            return Ok((context, read));
         }
 
-        let primary = self.primary_expr()?;
-        self.postfix_ops(primary)
+        let (primary, read) = self.primary_expr()?;
+        Ok((self.postfix_ops(primary)?, read))
     }
 
-    fn if_expr(&mut self) -> PResult<ExprId> {
+    fn if_expr(&mut self) -> PResult<Read<ExprId>> {
         let at = self.tree.next_node();
-        let start = self.expect_keyword(Keyword::If)?;
+        let (start, read) = self.expect_keyword_read(Keyword::If)?;
         // The condition is parenthesized, so the `{` that follows is always a
         // block (design/grammar-rationale.md 12.1).
         let open = self.expect(Punctuation::LParen)?;
@@ -3531,7 +3654,7 @@ impl<'a> Parser<'a> {
             self.chain_in()?;
             let nested = self.if_expr();
             self.chain_out();
-            nested?
+            nested?.0
         } else {
             let bat = self.tree.next_node();
             let b = self.block("`else` branch")?;
@@ -3539,69 +3662,78 @@ impl<'a> Parser<'a> {
             self.tree.push(Kind::Block, [b.0, 0, 0, 0], span, bat)
         };
         let span = start.to(self.tree.span(else_));
-        Ok(self
+        let if_ = self
             .tree
-            .push(Kind::If, [cond.0, then.0, else_.0, 0], span, at))
+            .push(Kind::If, [cond.0, then.0, else_.0, 0], span, at);
+        Ok((if_, read))
     }
 
-    fn match_expr(&mut self) -> PResult<ExprId> {
+    fn match_expr(&mut self) -> PResult<Read<ExprId>> {
         let at = self.tree.next_node();
-        let start = self.expect_keyword(Keyword::Match)?;
+        let (start, read) = self.expect_keyword_read(Keyword::Match)?;
         let paren = self.expect(Punctuation::LParen)?;
         let scrutinee = self.expr()?;
         self.expect_close(Punctuation::RParen, "`match` scrutinee", paren)?;
         let open = self.expect(Punctuation::LBrace)?;
         let base = self.scratch.arms.len();
         while !self.list_ended(Punctuation::RBrace) {
-            let before = self.pos;
-            let astart = self.span();
-            let save = self.save();
-            match self.match_arm(astart) {
-                Ok(a) => self.scratch.arms.push(a),
-                Err(Bail) => {
-                    let depth = self.open_delimiters_since(save.pos);
-                    let from = self.tokens.span(self.at(save.pos));
-                    self.restore(save);
-                    self.sync_match_arm(depth);
-                    // The arm stays, as the leaf that says a mistake was here.
-                    let span = from.to(self.prev_span());
-                    let pattern = self.error_pattern(span);
-                    let body = self.error_expr(span);
-                    self.scratch.arms.push(ArmData {
-                        pattern: pattern.0,
-                        guard: NONE,
-                        body: body.0,
-                        span: Location::of(span),
-                    });
-                    if self.is(Punctuation::RBrace) {
-                        break;
-                    }
-                }
-            }
-            // Arms are comma-separated, always — the comma is required even
-            // after a brace-terminated body, because without it `A => x`
-            // followed by `-1 =>` would greedily parse as `x - 1`
-            // (design/grammar-rationale.md 12.12).
-            if !self.more_elements(Punctuation::RBrace, "a match arm", starts_pattern) {
+            let Some(_read) = self.arm() else {
                 break;
-            }
-            invariant(
-                self.pos != before,
-                "a match arm, or the recovery from one, reads a token",
-            );
+            };
         }
         let end = self.expect_close(Punctuation::RBrace, "`match`", open)?;
         let (as_, al) = self.tree.push_arms(since(&self.scratch.arms, base));
         self.scratch.arms.truncate(base);
-        Ok(self
+        let match_ = self
             .tree
-            .push(Kind::Match, [scrutinee.0, as_, al, 0], start.to(end), at))
+            .push(Kind::Match, [scrutinee.0, as_, al, 0], start.to(end), at);
+        Ok((match_, read))
+    }
+
+    /// One arm and the comma after it, or the recovery from one, with the
+    /// token it read. `None` where the arms end with it.
+    fn arm(&mut self) -> Option<Consumed> {
+        let astart = self.span();
+        let save = self.save();
+        match self.match_arm(astart) {
+            Ok((a, read)) => {
+                self.scratch.arms.push(a);
+                // Arms are comma-separated, always — the comma is required
+                // even after a brace-terminated body, because without it
+                // `A => x` followed by `-1 =>` would greedily parse as `x - 1`
+                // (design/grammar-rationale.md 12.12).
+                if !self.more_elements(Punctuation::RBrace, "a match arm", starts_pattern) {
+                    return None;
+                }
+                Some(read)
+            }
+            Err(Bail) => {
+                let depth = self.open_delimiters_since(save.pos);
+                let from = self.tokens.span(self.at(save.pos));
+                self.restore(save);
+                let end = self.sync_match_arm(depth);
+                // The arm stays, as the leaf that says a mistake was here.
+                let span = from.to(self.prev_span());
+                let pattern = self.error_pattern(span);
+                let body = self.error_expr(span);
+                self.scratch.arms.push(ArmData {
+                    pattern: pattern.0,
+                    guard: NONE,
+                    body: body.0,
+                    span: Location::of(span),
+                });
+                match end {
+                    ArmEnd::Comma => Some(self.take().1),
+                    ArmEnd::Close => None,
+                }
+            }
+        }
     }
 
     /// One arm. A method rather than the closure it used to be, because the
     /// closure would have to borrow the parser mutably while the loop around
     /// it holds the arm stack.
-    fn match_arm(&mut self, astart: Span) -> PResult<ArmData> {
+    fn match_arm(&mut self, astart: Span) -> PResult<Read<ArmData>> {
         let pattern = self.pattern()?;
         // A guard comes before this arm's own `=>`, so a `.` in it is never the
         // next arm's: `if written.isSome() =>` inside an outer arm's body is a
@@ -3616,23 +3748,26 @@ impl<'a> Parser<'a> {
         };
         self.expect_arrow()?;
         self.arm_body = self.arm_body.saturating_add(1);
-        let body = self.expr();
+        let body = self.read_expr();
         self.arm_body = self.arm_body.saturating_sub(1);
-        let body = body?;
-        Ok(ArmData {
+        let (body, read) = body?;
+        let arm = ArmData {
             pattern: pattern.0,
             guard,
             body: body.0,
             span: Location::of(astart.to(self.prev_span())),
-        })
+        };
+        Ok((arm, read))
     }
 
-    fn sync_match_arm(&mut self, mut depth: i32) {
+    /// Skip to the end of the current arm: to the comma after it, or to the
+    /// `}` or the end of the file.
+    fn sync_match_arm(&mut self, mut depth: i32) -> ArmEnd {
         loop {
             match self.peek() {
-                TokenKind::Eof => return,
-                TokenKind::Comma if depth <= 0 => return,
-                TokenKind::RBrace if depth <= 0 => return,
+                TokenKind::Eof => return ArmEnd::Close,
+                TokenKind::Comma if depth <= 0 => return ArmEnd::Comma,
+                TokenKind::RBrace if depth <= 0 => return ArmEnd::Close,
                 TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => {
                     depth = depth.saturating_add(1);
                     self.bump();
@@ -3648,7 +3783,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn primary_expr(&mut self) -> PResult<ExprId> {
+    fn primary_expr(&mut self) -> PResult<Read<ExprId>> {
         let at = self.tree.next_node();
         let start = self.span();
         match self.peek() {
@@ -3659,73 +3794,78 @@ impl<'a> Parser<'a> {
             // so that there is one rule rather than two.
             TokenKind::Int => {
                 let value = self.int_value();
-                let span = self.bump();
+                let (span, read) = self.take();
                 let ix = self.tree.push_int(value);
-                Ok(self
-                    .tree
-                    .push(Kind::Int, [ix, span.start, span.end, 0], span, at))
+                Ok((
+                    self.tree
+                        .push(Kind::Int, [ix, span.start, span.end, 0], span, at),
+                    read,
+                ))
             }
             TokenKind::Float => {
                 let value = self.float_value();
-                let span = self.bump();
+                let (span, read) = self.take();
                 let ix = self.tree.push_float(value);
-                Ok(self
-                    .tree
-                    .push(Kind::Float, [ix, span.start, span.end, 0], span, at))
+                Ok((
+                    self.tree
+                        .push(Kind::Float, [ix, span.start, span.end, 0], span, at),
+                    read,
+                ))
             }
             // A string with no closing quote holds the rest of the line rather
             // than a value, so it stands as the region it is. The checker gives
             // it `Ty::Error`, and the block around it is read on from the next
             // line, which is where the lexer left the cursor.
             TokenKind::Str if self.on_an_unterminated_string() => {
-                let span = self.bump();
-                Ok(self.error_expr(span))
+                let (span, read) = self.take();
+                Ok((self.error_expr(span), read))
             }
             TokenKind::Str => {
                 let ix = self.text_into_tree();
-                let span = self.bump();
-                Ok(self.tree.push(Kind::Str, [ix, 0, 0, 0], span, at))
+                let (span, read) = self.take();
+                Ok((self.tree.push(Kind::Str, [ix, 0, 0, 0], span, at), read))
             }
             TokenKind::Char => {
                 let value = self.char_value();
-                let span = self.bump();
-                Ok(self.tree.push(Kind::Char, [value, 0, 0, 0], span, at))
+                let (span, read) = self.take();
+                Ok((self.tree.push(Kind::Char, [value, 0, 0, 0], span, at), read))
             }
             TokenKind::KeywordTrue => {
-                let span = self.bump();
-                Ok(self.tree.push(Kind::True, [0; 4], span, at))
+                let (span, read) = self.take();
+                Ok((self.tree.push(Kind::True, [0; 4], span, at), read))
             }
             TokenKind::KeywordFalse => {
-                let span = self.bump();
-                Ok(self.tree.push(Kind::False, [0; 4], span, at))
+                let (span, read) = self.take();
+                Ok((self.tree.push(Kind::False, [0; 4], span, at), read))
             }
             TokenKind::TemplateHead => {
                 let head = (!self.text_here().is_empty()).then(|| self.text_into_tree());
                 self.template(head, start)
             }
             TokenKind::Ident => {
-                let span = self.bump();
-                Ok(self.tree.push(Kind::Ident, [0; 4], span, at))
+                let (span, read) = self.take();
+                Ok((self.tree.push(Kind::Ident, [0; 4], span, at), read))
             }
             TokenKind::KeywordSelfValue => {
-                let span = self.bump();
-                Ok(self.tree.push(Kind::SelfValue, [0; 4], span, at))
+                let (span, read) = self.take();
+                Ok((self.tree.push(Kind::SelfValue, [0; 4], span, at), read))
             }
             TokenKind::KeywordCtx => {
-                let span = self.bump();
-                Ok(self.tree.push(Kind::Ctx, [0; 4], span, at))
+                let (span, read) = self.take();
+                Ok((self.tree.push(Kind::Ctx, [0; 4], span, at), read))
             }
             // `.Variant` — the inferred-type dot form.
             TokenKind::Dot => {
-                self.bump();
+                let (_, read) = self.take();
                 let name = self.expect_name()?;
                 let span = start.to(name);
-                Ok(self
-                    .tree
-                    .push(Kind::DotVariant, [name.start, name.end, 0, 0], span, at))
+                let variant =
+                    self.tree
+                        .push(Kind::DotVariant, [name.start, name.end, 0, 0], span, at);
+                Ok((variant, read))
             }
             TokenKind::LBracket => {
-                self.bump();
+                let (_, read) = self.take();
                 let base = self.scratch.exprs.len();
                 while !self.list_ended(Punctuation::RBracket) {
                     let e = self.expr()?;
@@ -3737,15 +3877,16 @@ impl<'a> Parser<'a> {
                 let end = self.expect_close(Punctuation::RBracket, "array", start)?;
                 let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, base));
                 self.scratch.exprs.truncate(base);
-                Ok(self
+                let array = self
                     .tree
-                    .push(Kind::Array, [ks, kl, 0, 0], start.to(end), at))
+                    .push(Kind::Array, [ks, kl, 0, 0], start.to(end), at);
+                Ok((array, read))
             }
             TokenKind::LParen => {
-                self.bump();
+                let (_, read) = self.take();
                 if self.is(Punctuation::RParen) {
                     let end = self.bump();
-                    return Ok(self.tree.push(Kind::Unit, [0; 4], start.to(end), at));
+                    return Ok((self.tree.push(Kind::Unit, [0; 4], start.to(end), at), read));
                 }
                 let first = self.expr()?;
                 // Grouping hands back the inner expression, so `(e)` keeps
@@ -3753,7 +3894,7 @@ impl<'a> Parser<'a> {
                 // diagnostics are pinned to that.
                 if self.is(Punctuation::RParen) {
                     self.bump();
-                    return Ok(first);
+                    return Ok((first, read));
                 }
                 let base = self.scratch.exprs.len();
                 self.scratch.exprs.push(first);
@@ -3773,7 +3914,7 @@ impl<'a> Parser<'a> {
                     // nor the type of the one element it happens to hold is a
                     // thing to report.
                     self.scratch.exprs.truncate(base);
-                    return Ok(self.error_expr(start.to(end)));
+                    return Ok((self.error_expr(start.to(end)), read));
                 }
                 if self.scratch.exprs.len().saturating_sub(base) < 2 {
                     self.templated("tuple-element-count", start.to(end))
@@ -3781,9 +3922,10 @@ impl<'a> Parser<'a> {
                 }
                 let (ks, kl) = self.tree.push_kids(since(&self.scratch.exprs, base));
                 self.scratch.exprs.truncate(base);
-                Ok(self
+                let tuple = self
                     .tree
-                    .push(Kind::Tuple, [ks, kl, 0, 0], start.to(end), at))
+                    .push(Kind::Tuple, [ks, kl, 0, 0], start.to(end), at);
+                Ok((tuple, read))
             }
             _ => {
                 let found = self.found();
@@ -3796,9 +3938,9 @@ impl<'a> Parser<'a> {
 
     /// `head` is where the tree keeps the text before the first hole, when
     /// there is any.
-    fn template(&mut self, head: Option<u32>, start: Span) -> PResult<ExprId> {
+    fn template(&mut self, head: Option<u32>, start: Span) -> PResult<Read<ExprId>> {
         let at = self.tree.next_node();
-        self.bump();
+        let (_, read) = self.take();
         let base = self.scratch.parts.len();
         if let Some(ix) = head {
             self.scratch.parts.push(PartData {
@@ -3829,7 +3971,7 @@ impl<'a> Parser<'a> {
                 TokenKind::TemplateTail if self.on_an_unterminated_string() => {
                     let end = self.bump();
                     self.scratch.parts.truncate(base);
-                    return Ok(self.error_expr(start.to(end)));
+                    return Ok((self.error_expr(start.to(end)), read));
                 }
                 TokenKind::TemplateTail => {
                     if !self.text_here().is_empty() {
@@ -3842,9 +3984,10 @@ impl<'a> Parser<'a> {
                     let end = self.bump();
                     let (ps, pl) = self.tree.push_parts(since(&self.scratch.parts, base));
                     self.scratch.parts.truncate(base);
-                    return Ok(self
-                        .tree
-                        .push(Kind::Template, [ps, pl, 0, 0], start.to(end), at));
+                    let template =
+                        self.tree
+                            .push(Kind::Template, [ps, pl, 0, 0], start.to(end), at);
+                    return Ok((template, read));
                 }
                 _ => {
                     let found = self.found();
