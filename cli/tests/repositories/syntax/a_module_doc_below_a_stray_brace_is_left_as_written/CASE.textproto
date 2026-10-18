@@ -1,0 +1,21 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a `//!` written below a stray `}` is a comment the formatter's layout would drop, so buri format leaves the whole file as written rather than lose it, and --check fails"
+
+run {
+  args: ["format"]
+  exit: 0
+  golden: "format.txt"
+}
+
+file {
+  path: "lib/notes/lib.buri"
+  golden: "lib.buri"
+}
+
+run {
+  args: ["format", "--check"]
+  exit: 1
+  golden: "check.txt"
+}
