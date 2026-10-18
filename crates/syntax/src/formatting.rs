@@ -318,20 +318,23 @@ pub fn formatted(text: &str, dialect: Dialect) -> Option<Formatted> {
     // in it the output does not parse by construction, so the claim is the
     // stronger and honest one: it parses outside every region, and every
     // region is byte for byte what was written.
-    let (check, kept) = read(&out, dialect);
-    let after = regions(&check);
-    if !placed(&check) || region_text(text, &broken) != region_text(&out, &after) {
-        return None;
-    }
+    //
     // A formatter that drops a comment is worse still: the loss is invisible
     // in the output, which is the one place somebody might have looked. The
     // set is compared rather than the sequence, because the leading import run
     // is sorted and a comment travels with the import it sits above.
+    //
+    // So the output is read back and has to say what the input said on all
+    // three counts.
+    let (check, kept) = read(&out, dialect);
+    let after = regions(&check);
     let tree = &check.module.tree;
     let mut afterwards = shapes_of(&out, &kept, |d| tree.doc_lines(d));
     before.sort();
     afterwards.sort();
-    if before != afterwards {
+    let input = (placed(&parsed), region_text(text, &broken), before);
+    let output = (placed(&check), region_text(&out, &after), afterwards);
+    if input != output {
         return None;
     }
     let regions = after
