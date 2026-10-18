@@ -2159,6 +2159,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "buri_ast/edges.buri",
     "buri_ast/expressions.buri",
     "buri_ast/items.buri",
+    "buri_ast/lexing.buri",
     "buri_ast/module.buri",
     "buri_ast/parsing.buri",
     "buri_ast/reading.buri",
