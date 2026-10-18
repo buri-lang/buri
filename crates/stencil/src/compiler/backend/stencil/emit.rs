@@ -1634,9 +1634,11 @@ impl<'a> Jit<'a> {
         if self.elidable_at(at) == Some(fall) {
             return KeyArg::At(at);
         }
+        // The twin has the arms the other way round, so its last branch is
+        // the other hole: the one this base does not end in.
         match self.lib.swap_twin(at) {
-            Some((sw, _)) if self.elidable_at(sw) == Some(fall) => KeyArg::At(sw),
-            _ => KeyArg::At(at),
+            Some((sw, _)) => KeyArg::At(sw),
+            None => KeyArg::At(at),
         }
     }
 
