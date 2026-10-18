@@ -1,6 +1,8 @@
 # Loops whose test compares two parameters, so the loop's header is the
 # comparison and the branch alone: one whose way back swaps two values, and
-# one whose test result is read twice. Both backends run every block.
+# one whose test result is read twice. A third loop compares its counter with
+# a value an `if` just produced, so that comparison reads one value kept in a
+# register and one kept in memory. Both backends run every block.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
