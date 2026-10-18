@@ -677,60 +677,69 @@ An exported proto reader whose `end` ran past its bytes read zeros. It now answe
   - compression 984: a bad symbol inside `runLengths`.
   - path 463: `withExtension` with no parent.
 - Needs a compiler change: the phase 14 list, which includes an unchecked code point to `Char` conversion and a `fromUtf8` that can't fail on cleaned input.
-# Stdlib MC/DC phase 16
 
-Total went from 9343/9723 (96.1%) to 9344/9703 (96.3%). Unshown conditions fell from 380 to 359. Every module held or rose. The figures are aarch64 runs on all four backends.
+## Stdlib MC/DC phase 17
 
-| Module | Before | After |
+Two private intrinsics now take out conditions that can never be false. Commit d1b409cd5 is on staging.
+
+```buri
+fn charOf(code: U32): Char;                          // str, json
+fn fromUtf8Trusted<C: Allocator>(ctx: C, octets: [U8]): Str;  // bytes
+```
+
+- `charOf` turns the U32 into a Char with no check. Stencil and LLVM pass the value through unchanged, and JS uses `String.fromCodePoint`.
+- `fromUtf8Trusted` decodes bytes that `cleaned` has already repaired. The native side is `buri_rt_bytes_from_utf8_trusted`, and JS uses `TextDecoder` with `ignoreBOM`.
+- str uses `charOf` in `scalar`, which `valuesFrom`, `hangulParts` and `primaryComposite` all call. A script checked that every code in the NFD, NFKD, compose and fold tables is a valid scalar.
+- json uses it in `unicodeEscape`, after the surrogate checks.
+- bytes `fromUtf8Lossy` uses `fromUtf8Trusted`.
+- buri/ast 5111 stays as it is. The lexer doesn't range-check `\u{...}`, so `parse` accepts `'\u{D800}'` and `scalarOf` answers `' '` for it. `charOf` there would build an invalid Char.
+
+### MC/DC
+
+| Module | Base | New |
 |---|---|---|
-| core/alloc | 2/3 | 3/3 |
-| core/compression | 105/113 | 107/113 |
-| core/date | 184/185 | 185/185 |
-| core/decimal | 61/67 | 60/65 |
-| core/math | 42/43 | 43/43 |
-| core/net/websocket | 17/23 | 18/23 |
-| core/option | 740/741 | 739/739 |
-| core/path | 94/96 | 93/94 |
-| core/proto/struct | 103/104 | 104/104 |
-| core/result | 608/612 | 608/610 |
-| core/set | 12/13 | 13/13 |
-| ui/node | 767/792 | 761/780 |
-| ui/prop | 13/15 | 15/15 |
+| total | 9344/9703 (96.3%) | 9338/9690 (96.4%) |
+| core/bytes | 110/112 | 110/111 |
+| core/json | 224/227 | 222/223 |
+| core/str | 250/259 | 246/251 |
+| core/buri/ast | 905/920 | 905/920 |
 
-## Refactors
+### Compiler branches
 
-- path `withExtension` prefixes the new name with the text before the old one. A path with a file name always has a parent, so `parent()`'s `.None` arm was dead. Phase 15's "withExtension with no parent" test can't exist.
-- decimal `dropDigits` reaches its halfway case only at `drop == 19`, where `5 * 10^18` fits, so `checkedMultiply(5)` is a plain `* 5`.
-- ui/node `variableInline` is `take(1)` plus `split(":")`. Every declaration it gets has a colon, so both `.None` arms (times three contexts) were dead.
+| Area | Base | New |
+|---|---|---|
+| crates/backend | 68/68 | 68/68 |
+| crates/js | 985/1018 | 985/1018 |
+| crates/llvm | 551/552 | 555/556 |
+| crates/middle | 1837/1874 | 1839/1876 |
+| crates/stencil | 1067/1111 | 1069/1113 |
+| crates/stdlib | 12/12 | 12/12 |
+| total | 14837/15120 | 14845/15128 |
 
-## Tests
+### Tests
 
-- deflate: a stored block whose header ends on a byte boundary, and a dynamic block whose lengths use a code the code-length code lacks.
-- `acosh(3.0)`, an RFC 850 date with a four-digit year, `distinctBy` by length with a repeat.
-- Stats that differ only in requests, `Show` of `NullValue.Unrecognized`, a struct that encodes to JSON.
-- A binary frame on the `Str`-state resuming client, and `each` over `.Const` and `.Cell` lists of numbers.
-- Two test-only instantiations went: `guards.buri` uses `assert.some` and `document.buri` uses `assert.ok`.
+Each test passes on base and new, on JS, stencil and LLVM release.
 
-No bugs found.
+- `lib/json/test/parsing.buri` checks escapes at `퟿`, `￿`, `𐀀` and `􏿿`.
+- `lib/data/test/unicode.buri` checks that the last Hangul syllable decomposes and composes back, and that U+1D15E decomposes under both Nfd and Nfc.
+- `lib/text/test/bytes.buri` checks that a BOM and a NUL byte survive `fromUtf8Lossy`.
 
-## Needs a compiler change
+### Output comparison
 
-Both fit as private intrinsics, the way `web.stylesheet()` is a private `fn ...;` today. Nothing new is public.
+All four modes pass 4694/4694 on `cli/tests/conformance`, base and new.
 
-- **A checked code point to `Char`.** Each module declares a private `fn charOf(code: U32): Char;` and calls it where a range check already ran. The backends lower it to the `U32` itself, since `Char` is a `U32` scalar. It removes 14 conditions, 7 of them unshown:
-  - str: `scalar` (1233), and the three matches on its answer at 1298, 1353 and 1359;
-  - json: the two `toChar` matches in `\u` escapes (304, 317);
-  - buri/ast: `scalarOf` (5111).
-- **A UTF-8 decode that can't fail.** bytes declares a private `fn fromUtf8Trusted<C: Allocator>(ctx: C, octets: [U8]): Str;` for `fromUtf8Lossy`, whose `cleaned` octets are valid by construction. The backends reuse `fromUtf8`'s string building without its validation. It removes 1 condition, unshown (bytes 108).
+- **JS debug.** Every package file differs. Each one bundles the full runtime, which gained `$str_charOf`, `$json_charOf` and `$bytes_fromUtf8Trusted`. Each file also gets a new random test seed per run.
+- **JS release.** Only the packages that use json, str or bytes differ: collections, data, generators, json, proto, proto_presence, text and web. In each, the `$toChar` check or the `fromUtf8` fallback is gone.
+- **Tool files.** Their names are cache keys. The one file that is new or renamed has the same bytes as an existing one.
+- **Native, str, json and bytes objects.** These differ in both modes, as expected.
+- **Native debug, other objects.**
+  - core/list differs only in renumbered `fused` symbol ids.
+  - core/number and core/result keep the same symbol set.
+- **Native release, other objects.** The one other difference is the large JSON-derive test object, which gains one symbol.
 
-## Left, and why
+### Validation
 
-- No safe refactor:
-  - str 1415 `acc.get(starter)`: carrying the starter's `Char` adds state for one condition.
-  - proto/wrappers 695 `value.value`: the generator writes `if (v) { 1 } else { 0 }` for every bool, so fixing it means a special case in codegen_proto plus new goldens, for one condition.
-  - ui/node `each`'s `.None` arms: `Each` would need to carry keys instead of indexes.
-- Unreachable with the test doubles: io 124 (an empty chunk), tcp 91 (`tcpConnect` never fails), websocket 241 (`connectReceive` after a close), websocket 205 for `S = Str` (the resuming client's URL is fixed).
-- Needs a second web test package with no styles: web 154 `sheet == ""`.
-- Only a failing property reaches check 198/217.
-- Shifts by a variable count: compression 482, 483, 498, 757 and 777, simd, indexset and map.
-- Out of scope, as before: `C = Scope` copies, `answering`/`taking`, orderedmap `Bool`/`Mood`, traps with a parameter divisor, and uuid `octetOf`.
+- Full suite with `--features buri/backend-llvm`: green.
+- `BURI_RT_HEAP_CHECK=1 cargo test -p buri-rt-tests`: 487 passed.
+- `cargo fmt --all --check`: clean.
+- Both clippy commands: only the existing warnings.
