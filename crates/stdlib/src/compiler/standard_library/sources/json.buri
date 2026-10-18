@@ -46,7 +46,6 @@
 //! buri: {"name":"buri","tags":["a","b"]}
 //! ```
 
-from "core/character" import * as character;
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "platform/effect" import { Allocator };
@@ -604,9 +603,7 @@ fn escape<C: Allocator>(ctx: C, c: Char): Str {
         let n = c.toU32().toI64();
         str.format(
             ctx,
-            "\\u00${HEX2.charAt(n / 16).withDefault('0')}${HEX2
-                .charAt(n % 16)
-                .withDefault('0')}",
+            "\\u00${HEX2.slice(n / 16, n / 16 + 1)}${HEX2.slice(n % 16, n % 16 + 1)}",
         )
     } else {
         str.fromChars(ctx, [c])

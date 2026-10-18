@@ -158,25 +158,7 @@ function core_json$quote$3qb9ap(ctx_0,text_1){
       return '\\t';
     }else if(BigInt($character_toU32(ch_3))<32n){
       const n_7=BigInt($character_toU32(ch_3));
-      const self_8=$str_charAt('0123456789abcdef',n_7/16n);
-      let $t1;
-      if(self_8!==void 0){
-        $t1=self_8;
-      }else if(self_8===void 0){
-        $t1='0';
-      }else{
-        $abort('no arm matched');
-      }
-      const self_11=$str_charAt('0123456789abcdef',n_7%16n);
-      let $t3;
-      if(self_11!==void 0){
-        $t3=self_11;
-      }else if(self_11===void 0){
-        $t3='0';
-      }else{
-        $abort('no arm matched');
-      }
-      return $str_format(c_2,'\\u00'+$t1+$t3);
+      return $str_format(c_2,'\\u00'+$str_slice('0123456789abcdef',n_7/16n,n_7/16n+1n)+$str_slice('0123456789abcdef',n_7%16n,n_7%16n+1n));
     }else{
       return $str_fromChars(c_2,[ch_3]);
     }

@@ -31,7 +31,6 @@
 //! `Saturating` method sets.
 
 from "core/bits" import * as bits;
-from "core/character" import * as character;
 from "core/list" import * as list;
 from "core/order" import { Equal, Order, Ordered, Show };
 from "core/str" import * as str;
@@ -211,14 +210,14 @@ export fn maxValue<T: Bounded>(): T;
 /// asked for gets them. `width` at or below zero asks for the shortest form,
 /// which is one digit for zero.
 export fn toHex<C: Allocator>(ctx: C, value: Int, width: Int): Str {
-    str.fromChars(ctx, hexDigits(ctx, value, width, []).reverse(ctx))
+    hexDigits(ctx, value, width, []).reverse(ctx).join(ctx, "")
 }
 
 /// The digits of `x` lowest first, pushed onto `acc`: as many as `x` needs, and
 /// zeros after them until there are `width`. Each step is a logical shift by
 /// four, so a negative number runs out after sixteen digits like any other.
-fn hexDigits<C: Allocator>(ctx: C, x: Int, width: Int, acc: [Char]): [Char] {
-    let next = acc.push(ctx, character.fromDigit(lowNibble(x), 16).withDefault('0'));
+fn hexDigits<C: Allocator>(ctx: C, x: Int, width: Int, acc: [Str]): [Str] {
+    let next = acc.push(ctx, digitText(lowNibble(x)));
     let rest = bits.shiftRight(x, 4);
     if (rest == 0 && width <= 1) { next } else { hexDigits(ctx, rest, width - 1, next) }
 }
@@ -469,15 +468,24 @@ export fn toRadix<C: Allocator>(ctx: C, value: Int, radix: Int): Str {
         // Counted down from zero rather than up from the magnitude, because
         // `minValue`'s magnitude is not an `Int` and its digits still are.
         let below = if (value < 0) { value } else { 0 - value };
-        let digits = countDown(ctx, below, base, []);
-        str.fromChars(ctx, if (value < 0) { ['-'].concat(ctx, digits) } else { digits })
+        let digits = countDown(ctx, below, base, []).join(ctx, "");
+        if (value < 0) { "-".concat(ctx, digits) } else { digits }
     }
 }
 
 /// The digits of a number at or below zero, most significant first.
-fn countDown<C: Allocator>(ctx: C, n: Int, base: Int, acc: [Char]): [Char] {
-    let digit = character.fromDigit(0 - n % base, base).withDefault('0');
+fn countDown<C: Allocator>(ctx: C, n: Int, base: Int, acc: [Str]): [Str] {
+    let digit = digitText(0 - n % base);
     let rest = n / base;
     let next = [digit].concat(ctx, acc);
     if (rest == 0) { next } else { countDown(ctx, rest, base, next) }
+}
+
+/// The thirty-six digits, in order.
+let DIGITS: Str = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+/// A digit from 0 to 35 as its one character of text. A slice rather than
+/// `character.fromDigit`, whose `.None` no digit in range can reach.
+fn digitText(digit: Int): Str {
+    DIGITS.slice(digit, digit + 1)
 }

@@ -51,7 +51,6 @@
 //! `multiply` sums a column of limb products in one `Int`, and past that many terms
 //! the column would overflow.
 
-from "core/character" import * as character;
 from "core/list" import * as list;
 from "core/number" import * as number;
 from "core/number" import { RangeError };
@@ -757,19 +756,9 @@ fn groups<C: Allocator>(ctx: C, limbs: [Int], tail: [Str]): Str {
     let (rest, chunk) = divModSmall(ctx, limbs, DECIMAL_CHUNK);
     if (rest.isEmpty()) {
         // The top group carries no leading zeros.
-        str.fromChars(ctx, plainDigits(ctx, chunk, [])).concat(ctx, tail.join(ctx, ""))
+        str.fromInt(ctx, chunk).concat(ctx, tail.join(ctx, ""))
     } else {
-        let padded = str
-            .fromChars(ctx, plainDigits(ctx, chunk, []))
-            .padStart(ctx, DECIMAL_CHUNK_DIGITS, '0');
+        let padded = str.fromInt(ctx, chunk).padStart(ctx, DECIMAL_CHUNK_DIGITS, '0');
         groups(ctx, rest, [padded].concat(ctx, tail))
     }
-}
-
-/// One group of digits, most significant first, with no padding.
-fn plainDigits<C: Allocator>(ctx: C, n: Int, acc: [Char]): [Char] {
-    let digit = character.fromDigit(n % 10, 10).withDefault('0');
-    let rest = n / 10;
-    let next = [digit].concat(ctx, acc);
-    if (rest == 0) { next } else { plainDigits(ctx, rest, next) }
 }
