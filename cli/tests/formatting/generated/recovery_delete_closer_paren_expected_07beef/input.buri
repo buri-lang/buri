@@ -1,0 +1,43 @@
+fn if_method(): Int {
+    (if (true) { -1 } else { 2 }).abs()
+}
+
+fn negated_if_method(): Int {
+    -(if (true) { -1 } else { 2 }).abs()
+}
+
+fn if_index(): Int {
+    (if (true) { [1] } else { [2] })[0]
+}
+
+fn if_call(): Int {
+    (if (true) { fn(n: Int) => n } else { fn(n: Int) => -n })(1)
+}
+
+fn if_tuple_index(): Int {
+    (if (true) { (1, 2) } else { (3, 4) }).1
+}
+
+fn match_field(p: Point): Int {
+    (match (p) {
+        q => q,
+    }).x
+}
+
+fn negated_match_method(x: Int): Int {
+    -(match (x {
+        _ => -1,
+    }).abs()
+}
+
+fn match_index(x: Int): Int {
+    (match (x) {
+        _ => [1],
+    })[0]
+}
+
+fn context_method(): Int {
+    (context {
+        ..ctx,
+    }).size()
+}

@@ -1,0 +1,40 @@
+fn method(): Int {
+    ({ -1 }).abs()
+}
+
+fn method_of_a_positive(): Int {
+    ({ 1 }).abs()
+}
+
+fn negated_method(): Int {
+    -({ -1 }).abs()
+}
+
+fn field(p: Point): Int {
+    ({ p }).x
+}
+
+fn index(): Int {
+    ({ [1, 2] })[0]
+}
+
+fn call(): Int {
+    ({ fn(n: Int) => -n })(1)
+}
+
+fn tuple_index(): Int {
+    ({ (-1, 2) }).0
+}
+
+fn bound(): Int {
+    let n = ({ -1 }).abs();
+    n
+}
+
+fn operand(): Int {
+    2 + ({ -1 }).abs()
+}
+
+fn negated_alone(): Int {
+    -{ } 1
+}

@@ -3068,11 +3068,11 @@ fn breakable(t: &Tree, e: ExprId) -> bool {
 }
 
 /// A block-like expression may not head a postfix chain (design/grammar-rationale.md 12.13), so it
-/// gets parentheses; so does anything that binds looser than a postfix
-/// operator.
+/// gets parentheses — a bare `{ … }` as much as an `if` or a `match`:
+/// `{ 1 }.abs()` does not parse. So does anything that binds looser than a
+/// postfix operator.
 fn needs_parens(t: &Tree, e: ExprId) -> bool {
-    let k = t.kind(e);
-    expr_prec(t, e) < 10 || (k.is_block_like() && k != Kind::Block)
+    expr_prec(t, e) < 10 || t.kind(e).is_block_like()
 }
 
 /// The operands of one precedence level, left to right. The first carries no
