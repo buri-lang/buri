@@ -649,15 +649,14 @@ fn a_plan_site_becomes_an_instruction_at_its_node() {
     );
     let target = program
         .funcs
-        .iter()
         .position(|f| f.debug_name.ends_with(":keep"))
         .expect("the function is in the program");
 
     let mut plan = rc::Plan {
-        funcs: Vec::new(),
+        funcs: Default::default(),
         crosses_tasks: false,
     };
-    for (i, f) in program.funcs.iter().enumerate() {
+    for (i, f) in program.funcs.entries() {
         let params = vec![Ownership::Own; f.params.len()];
         let sites = if i == target {
             let local = *f.params.first().expect("`keep` takes one parameter");

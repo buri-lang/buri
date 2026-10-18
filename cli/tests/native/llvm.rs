@@ -1276,12 +1276,7 @@ fn ir_at(source: &str, profile: Profile) -> String {
 
 fn build_ir(source: &str, profile: Profile) -> String {
     let lowered = lower(source);
-    let unit = lowered
-        .ir
-        .funcs
-        .get(lowered.entry().index())
-        .map(|f| f.unit)
-        .expect("the entry point is one of the functions");
+    let unit = lowered.ir.funcs.get(lowered.entry()).unit;
     let (mut backend, program, tables) = lowered.adopted();
     backend
         .emit_ir_text(&program, &tables, &options(profile), unit)
@@ -6089,12 +6084,7 @@ export fn main(host: NativeHost): Result<(), Str> {{
 }}
 "#
     )));
-    let unit = lowered
-        .ir
-        .funcs
-        .get(lowered.entry().index())
-        .map(|f| f.unit)
-        .expect("an entry");
+    let unit = lowered.ir.funcs.get(lowered.entry()).unit;
     let (mut backend, program, tables) = lowered.adopted();
     let ir = expect(backend.emit_ir_text(&program, &tables, &options(Profile::Debug), unit));
     // Every function but `big`, which builds the value and so writes its 600

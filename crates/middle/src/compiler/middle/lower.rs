@@ -162,12 +162,14 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // order a single shared interner met them in, so the emitted type table and
     // every id in it are byte-for-byte the serial ones.
     let mut types = Types::default();
-    let mut funcs = Vec::with_capacity(lowered.len());
-    for (mut func, local) in lowered {
-        let remap = local.remap(|info| types.adopt(tables, info.ty));
-        remap_func_types(&mut func, &remap);
-        funcs.push(func);
-    }
+    let funcs: Dense<FuncIdx, Func> = lowered
+        .into_iter()
+        .map(|(mut func, local)| {
+            let remap = local.remap(|info| types.adopt(tables, info.ty));
+            remap_func_types(&mut func, &remap);
+            func
+        })
+        .collect();
 
     ir::Program {
         funcs,
@@ -252,7 +254,7 @@ fn lower_one(
     };
 
     Func {
-        facts: facts(fplan.or_ice("`rc` plans every function"), dispatch),
+        facts: facts(fplan, dispatch),
         symbol: f.symbol.clone(),
         debug_name: f.debug_name.clone(),
         sig,
@@ -504,8 +506,8 @@ struct Sites {
 }
 
 impl Sites {
-    fn of(plan: Option<&rc::FuncPlan>, body: Option<&Expr>) -> Sites {
-        let (Some(plan), Some(body)) = (plan, body) else {
+    fn of(plan: &rc::FuncPlan, body: Option<&Expr>) -> Sites {
+        let Some(body) = body else {
             return Sites::default();
         };
         if plan.sites.is_empty() && plan.moved.is_empty() {

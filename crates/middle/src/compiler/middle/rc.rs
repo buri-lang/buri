@@ -428,8 +428,8 @@ impl FuncPlan {
 /// What `lower` reads.
 #[derive(Clone, Debug, Default)]
 pub struct Plan {
-    /// One per `Program::funcs` entry, by index.
-    pub funcs: Vec<FuncPlan>,
+    /// One per `Program::funcs` entry, under the same id.
+    pub funcs: Dense<FuncIdx, FuncPlan>,
     /// Whether any value of this program can come to be reachable from a
     /// second thread — see [`crosses_tasks`].
     ///
@@ -443,8 +443,8 @@ pub struct Plan {
 }
 
 impl Plan {
-    pub fn func(&self, f: FuncIdx) -> Option<&FuncPlan> {
-        self.funcs.get(f.index())
+    pub fn func(&self, f: FuncIdx) -> &FuncPlan {
+        self.funcs.get(f)
     }
 }
 
@@ -867,11 +867,14 @@ pub fn analyze<C: Counted + Clone + Sync>(
     // the same answers as one shared table. `parallel::map_with` returns the
     // plans in index order, so the vector is the same as the serial one.
     let base: &C = counted;
-    let funcs: Vec<FuncPlan> = crate::parallel::map_items_with(
-        program.funcs.as_slice(),
+    let entries: Vec<(FuncIdx, &Func)> = program.funcs.entries().collect();
+    let funcs: Dense<FuncIdx, FuncPlan> = crate::parallel::map_items_with(
+        &entries,
         || base.clone(),
-        |worker, i, f| scan_func(worker, &ownership, &purity, &can_abort, opts, i, f),
-    );
+        |worker, _, &(i, f)| scan_func(worker, &ownership, &purity, &can_abort, opts, i, f),
+    )
+    .into_iter()
+    .collect();
     // The whole-program escape answer. `program.funcs` is the
     // post-monomorphization set, so an intrinsic present in it is one the
     // program can *reach* — the same reachability `infer_effects`'s fixpoint
@@ -898,19 +901,19 @@ pub fn analyze<C: Counted + Clone + Sync>(
 )]
 fn scan_func(
     counted: &mut dyn Counted,
-    ownership: &[Vec<ir::Ownership>],
-    purity: &[ir::Purity],
-    can_abort: &[bool],
+    ownership: &Own,
+    purity: &Dense<FuncIdx, ir::Purity>,
+    can_abort: &Dense<FuncIdx, bool>,
     opts: &Options,
-    i: usize,
+    i: FuncIdx,
     f: &Func,
 ) -> FuncPlan {
     {
-        let params = ownership.get(i).cloned().unwrap_or_default();
+        let params = ownership.get(i).clone();
         let mut plan = FuncPlan {
             params,
-            purity: purity.get(i).copied().unwrap_or(ir::Purity::Effectful),
-            can_abort: can_abort.get(i).copied().unwrap_or(true),
+            purity: *purity.get(i),
+            can_abort: *can_abort.get(i),
             sites: Vec::new(),
             unclassified: Vec::new(),
             inherits: Vec::new(),
@@ -1179,8 +1182,8 @@ fn grows(key: &str) -> bool {
 }
 
 /// Whether `f` is one of [`grows`]'s, by [`infer_ownership`]'s table.
-fn grower(growers: &[bool], f: FuncIdx) -> bool {
-    growers.get(f.index()).copied().unwrap_or(false)
+fn grower(growers: &Dense<FuncIdx, bool>, f: FuncIdx) -> bool {
+    *growers.get(f)
 }
 
 fn is_fold(key: &str) -> bool {
@@ -1196,39 +1199,41 @@ fn taken_natively(key: &str) -> bool {
     is_fold(key) || key == "str.show" || TAKEN_NATIVELY.iter().any(|(k, _)| *k == key)
 }
 
+/// Each function's ownership row: one entry per parameter.
+pub type Own = Dense<FuncIdx, Vec<ir::Ownership>>;
+
+/// [`ownership_dependencies`]'s influence list.
+type Deps = Dense<FuncIdx, Vec<FuncIdx>>;
+
 fn infer_ownership(
     program: &Program,
     counted: &mut dyn Counted,
     opts: &Options,
-    deps: &[Vec<usize>],
-    order: &super::Components,
-) -> Vec<Vec<ir::Ownership>> {
-    let mut own: Vec<Vec<ir::Ownership>> = program
-        .funcs
-        .iter()
-        .map(|f| {
-            f.params
-                .iter()
-                .map(|p| {
-                    let ty = f.locals.get(*p).ty;
-                    // A value with no count to take is `Own` by convention and
-                    // costs nothing either way; saying `Borrow` would make a
-                    // backend's signature depend on the classifier's uncertainty.
-                    match counted.counted(&ty) {
-                        Answer::Yes => ir::Ownership::Borrow,
-                        _ => ir::Ownership::Own,
-                    }
-                })
-                .collect()
-        })
-        .collect();
+    deps: &Deps,
+    order: &super::Components<FuncIdx>,
+) -> Own {
+    let mut own: Own = program.funcs.map(|f| {
+        f.params
+            .iter()
+            .map(|p| {
+                let ty = f.locals.get(*p).ty;
+                // A value with no count to take is `Own` by convention and
+                // costs nothing either way; saying `Borrow` would make a
+                // backend's signature depend on the classifier's uncertainty.
+                match counted.counted(&ty) {
+                    Answer::Yes => ir::Ownership::Borrow,
+                    _ => ir::Ownership::Own,
+                }
+            })
+            .collect()
+    });
     // An intrinsic borrows what it is given (see the module docs), so its row
     // never moves — except for [`TAKEN_BY`], whose parameter is seeded owned
     // before the fixpoint so that callers are promoted against it. Under
     // `sharing`, all eleven. Natively, the four folds' seed and `str.show`'s
     // receiver alone: both native backends hand the seed to the first step,
     // and answer the shown `Str`, without a retain of their own.
-    for (i, f) in program.funcs.iter().enumerate() {
+    for (i, f) in program.funcs.entries() {
         let FuncKind::Intrinsic(key) = &f.kind else {
             continue;
         };
@@ -1244,7 +1249,7 @@ fn infer_ownership(
             continue;
         }
         *own.get_mut(i)
-            .and_then(|r| r.get_mut(*at))
+            .get_mut(*at)
             .or_ice("`TAKEN_BY` names a parameter the intrinsic has") = ir::Ownership::Own;
     }
     // The fixpoint is monotone — a parameter only ever moves `Borrow -> Own`,
@@ -1261,23 +1266,17 @@ fn infer_ownership(
     // components callees-first, which is the order this needs.
     // Natively, which functions grow their receiver in place; under
     // `sharing`, nothing, which is also what turns the native rules off.
-    let growers: Vec<bool> = program
+    let growers: Dense<FuncIdx, bool> = program
         .funcs
-        .iter()
-        .map(|f| matches!(&f.kind, FuncKind::Intrinsic(k) if grows(k)))
-        .collect();
-    let pieces = (!opts.sharing).then_some(growers.as_slice());
+        .map(|f| matches!(&f.kind, FuncKind::Intrinsic(k) if grows(k)));
+    let pieces = (!opts.sharing).then_some(&growers);
     let mut members: Vec<Member> = Vec::new();
     for scc in order.iter() {
         // A function with no body consumes nothing and jumps nowhere, so its
         // row is final as seeded.
         members.clear();
         members.extend(scc.iter().filter_map(|&index| {
-            let func = program
-                .funcs
-                .as_slice()
-                .get(index)
-                .or_ice("a component's members are functions");
+            let func = program.funcs.get(index);
             func.body().map(|body| Member { index, func, body })
         }));
         // A non-recursive singleton reads only rows that are already final, so
@@ -1297,7 +1296,7 @@ fn infer_ownership(
 /// A function of a component that has a body: all the ownership rules read.
 #[derive(Clone, Copy)]
 struct Member<'p> {
-    index: usize,
+    index: FuncIdx,
     func: &'p Func,
     body: &'p Expr,
 }
@@ -1305,9 +1304,9 @@ struct Member<'p> {
 /// The one member of a component that is not recursive, which reads only rows
 /// already final when the component is reached, so one evaluation is its
 /// fixed point.
-fn settles_once(deps: &[Vec<usize>], scc: &[usize]) -> Option<usize> {
+fn settles_once(deps: &Deps, scc: &[FuncIdx]) -> Option<FuncIdx> {
     match scc {
-        &[only] if !deps.get(only).is_some_and(|e| e.contains(&only)) => Some(only),
+        &[only] if !deps.get(only).contains(&only) => Some(only),
         _ => None,
     }
 }
@@ -1323,25 +1322,21 @@ fn settles_once(deps: &[Vec<usize>], scc: &[usize]) -> Option<usize> {
 /// (`target -> i`). The second edge is what puts a `Continue` and its target in
 /// one component: a cross-function jump is always a cycle here, so its two ends
 /// converge together rather than one being finalized before the other.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "`deps` has a row per function, and a callee or a jump target is one"
-)]
-fn ownership_dependencies(program: &Program) -> Vec<Vec<usize>> {
-    let mut deps: Vec<Vec<usize>> = vec![Vec::new(); program.funcs.len()];
-    for (i, f) in program.funcs.iter().enumerate() {
+fn ownership_dependencies(program: &Program) -> Deps {
+    let mut deps: Deps = program.funcs.map(|_| Vec::new());
+    for (i, f) in program.funcs.entries() {
         let Some(body) = f.body() else { continue };
         typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::CallFunc { func, .. } => deps[i].push(func.index()),
+            ExprKind::CallFunc { func, .. } => deps.get_mut(i).push(*func),
             ExprKind::Continue { func, .. } => {
-                let target = func.map_or(i, FuncIdx::index);
-                deps[i].push(target);
-                deps[target].push(i);
+                let target = func.unwrap_or(i);
+                deps.get_mut(i).push(target);
+                deps.get_mut(target).push(i);
             }
             _ => {}
         });
     }
-    for row in &mut deps {
+    for row in deps.iter_mut() {
         row.sort_unstable();
         row.dedup();
     }
@@ -1358,12 +1353,12 @@ fn promote_consuming(
         func: f,
         body,
     }: Member,
-    own: &mut [Vec<ir::Ownership>],
-    pieces: Option<&[bool]>,
+    own: &mut Own,
+    pieces: Option<&Dense<FuncIdx, bool>>,
 ) -> bool {
     let mut consumed: HashSet<LocalId> = HashSet::default();
     consuming_uses(body, own, counted, i, &mut consumed, pieces);
-    let row = own.get(i).or_ice("`own` has a row per function");
+    let row = own.get(i);
     let promoted: Vec<ir::Ownership> = f
         .params
         .iter()
@@ -1376,7 +1371,7 @@ fn promote_consuming(
             }
         })
         .collect();
-    let slot = own.get_mut(i).or_ice("`own` has a row per function");
+    let slot = own.get_mut(i);
     if *slot == promoted {
         return false;
     }
@@ -1391,8 +1386,8 @@ fn promote_consuming(
 fn converge_scc(
     counted: &mut dyn Counted,
     scc: &[Member],
-    own: &mut [Vec<ir::Ownership>],
-    pieces: Option<&[bool]>,
+    own: &mut Own,
+    pieces: Option<&Dense<FuncIdx, bool>>,
 ) {
     loop {
         let mut changed = false;
@@ -1400,7 +1395,7 @@ fn converge_scc(
             changed |= promote_consuming(counted, m, own, pieces);
         }
         for (target, k) in loop_variables_taken(own, scc) {
-            match own.get_mut(target).and_then(|r| r.get_mut(k)) {
+            match own.get_mut(target).get_mut(k) {
                 Some(o) if *o == ir::Ownership::Borrow => {
                     *o = ir::Ownership::Own;
                     changed = true;
@@ -1425,8 +1420,8 @@ fn converge_scc(
 /// puts before the back edge frees the next iteration's variable.
 /// `middle/rc.rs`'s own `a_jump_owns_what_it_did_not_pass_through` is that
 /// shape; `stepV` below was the program.
-fn loop_variables_taken(own: &[Vec<ir::Ownership>], scc: &[Member]) -> Vec<(usize, usize)> {
-    let mut out: Vec<(usize, usize)> = Vec::new();
+fn loop_variables_taken(own: &Own, scc: &[Member]) -> Vec<(FuncIdx, usize)> {
+    let mut out: Vec<(FuncIdx, usize)> = Vec::new();
     for &Member {
         index: i,
         func: f,
@@ -1438,14 +1433,14 @@ fn loop_variables_taken(own: &[Vec<ir::Ownership>], scc: &[Member]) -> Vec<(usiz
             let ExprKind::Continue { func, args, .. } = &e.kind else {
                 return;
             };
-            let target = func.map_or(i, FuncIdx::index);
+            let target = func.unwrap_or(i);
             for (k, a) in args.iter().enumerate() {
                 let through = match &a.kind {
                     ExprKind::Local(l) => f
                         .params
                         .iter()
                         .position(|p| p == l)
-                        .and_then(|j| row.and_then(|r| r.get(j)))
+                        .and_then(|j| row.get(j))
                         .is_some_and(|o| *o == ir::Ownership::Borrow),
                     _ => false,
                 };
@@ -1462,11 +1457,11 @@ fn loop_variables_taken(own: &[Vec<ir::Ownership>], scc: &[Member]) -> Vec<(usiz
 /// or passes to a parameter that owns it.
 fn consuming_uses(
     body: &Expr,
-    own: &[Vec<ir::Ownership>],
+    own: &Own,
     counted: &mut dyn Counted,
-    self_index: usize,
+    self_index: FuncIdx,
     out: &mut HashSet<LocalId>,
-    pieces: Option<&[bool]>,
+    pieces: Option<&Dense<FuncIdx, bool>>,
 ) {
     // `let n = r.push(..);`, as `(n, r)`: a name for the result of a growth,
     // and what was grown. And the locals a functional update is written over.
@@ -1567,11 +1562,11 @@ impl Waiting<'_> {
 )]
 fn collect_consuming<'e>(
     body: &'e Expr,
-    own: &[Vec<ir::Ownership>],
+    own: &Own,
     counted: &mut dyn Counted,
-    self_index: usize,
+    self_index: FuncIdx,
     out: &mut HashSet<LocalId>,
-    pieces: Option<&[bool]>,
+    pieces: Option<&Dense<FuncIdx, bool>>,
     grew: &Grew<'_, 'e>,
     waiting: &mut Vec<Waiting<'e>>,
 ) {
@@ -1690,24 +1685,18 @@ fn collect_consuming<'e>(
             if let Some(r) = taken.filter(|_| !updated) {
                 consume(r, out, counted);
             }
-            let row = own.get(func.index());
+            let row = own.get(*func);
             for (k, a) in args.iter().enumerate() {
-                let owns = row
-                    .and_then(|r| r.get(k))
-                    .copied()
-                    .unwrap_or(ir::Ownership::Own);
+                let owns = row.get(k).copied().unwrap_or(ir::Ownership::Own);
                 if owns == ir::Ownership::Own {
                     consume(a, out, counted);
                 }
             }
         }
         ExprKind::CallFunc { func, args } => {
-            let row = own.get(func.index());
+            let row = own.get(*func);
             for (k, a) in args.iter().enumerate() {
-                let owns = row
-                    .and_then(|r| r.get(k))
-                    .copied()
-                    .unwrap_or(ir::Ownership::Own);
+                let owns = row.get(k).copied().unwrap_or(ir::Ownership::Own);
                 if owns == ir::Ownership::Own {
                     consume(a, out, counted);
                 }
@@ -1718,12 +1707,9 @@ fn collect_consuming<'e>(
         // `None` re-enters this function's own loop, so the row to read is its
         // own, which is what makes the fixpoint close over a loop.
         ExprKind::Continue { func, args, .. } => {
-            let row = own.get(func.map_or(self_index, FuncIdx::index));
+            let row = own.get(func.unwrap_or(self_index));
             for (k, a) in args.iter().enumerate() {
-                let owns = row
-                    .and_then(|r| r.get(k))
-                    .copied()
-                    .unwrap_or(ir::Ownership::Own);
+                let owns = row.get(k).copied().unwrap_or(ir::Ownership::Own);
                 if owns == ir::Ownership::Own {
                     consume(a, out, counted);
                 }
@@ -1864,25 +1850,19 @@ fn worse(a: ir::Purity, b: ir::Purity) -> ir::Purity {
 /// component is walked until it settles.
 fn infer_effects(
     program: &Program,
-    deps: &[Vec<usize>],
-    order: &super::Components,
-) -> (Vec<ir::Purity>, Vec<bool>) {
-    let mut purity: Vec<ir::Purity> = program
+    deps: &Deps,
+    order: &super::Components<FuncIdx>,
+) -> (Dense<FuncIdx, ir::Purity>, Dense<FuncIdx, bool>) {
+    let mut purity: Dense<FuncIdx, ir::Purity> = program.funcs.map(|f| match &f.kind {
+        // A body that has not been built aborts when reached, and an
+        // intrinsic is whatever the runtime does.
+        FuncKind::Unbuilt => ir::Purity::Pure,
+        FuncKind::Intrinsic(key) => intrinsic_purity(key),
+        FuncKind::Body(_) => ir::Purity::Pure,
+    });
+    let mut aborts: Dense<FuncIdx, bool> = program
         .funcs
-        .iter()
-        .map(|f| match &f.kind {
-            // A body that has not been built aborts when reached, and an
-            // intrinsic is whatever the runtime does.
-            FuncKind::Unbuilt => ir::Purity::Pure,
-            FuncKind::Intrinsic(key) => intrinsic_purity(key),
-            FuncKind::Body(_) => ir::Purity::Pure,
-        })
-        .collect();
-    let mut aborts: Vec<bool> = program
-        .funcs
-        .iter()
-        .map(|f| matches!(f.kind, FuncKind::Unbuilt | FuncKind::Intrinsic(_)))
-        .collect();
+        .map(|f| matches!(f.kind, FuncKind::Unbuilt | FuncKind::Intrinsic(_)));
     for scc in order.iter() {
         if let Some(only) = settles_once(deps, scc) {
             effects_once(program, only, &mut purity, &mut aborts);
@@ -1903,32 +1883,19 @@ fn infer_effects(
 /// it calls. Returns whether either moved.
 fn effects_once(
     program: &Program,
-    i: usize,
-    purity: &mut [ir::Purity],
-    aborts: &mut [bool],
+    i: FuncIdx,
+    purity: &mut Dense<FuncIdx, ir::Purity>,
+    aborts: &mut Dense<FuncIdx, bool>,
 ) -> bool {
-    let Some(body) = program.funcs.as_slice().get(i).and_then(|f| f.body()) else {
+    let Some(body) = program.funcs.get(i).body() else {
         return false;
     };
     let mut p = ir::Purity::Pure;
     let mut a = false;
     typed::walk(body, &mut |e| match &e.kind {
-        ExprKind::CallFunc { func, .. } => {
-            let c = func.index();
-            p = worse(p, purity.get(c).copied().unwrap_or(ir::Purity::Effectful));
-            a |= aborts.get(c).copied().unwrap_or(true);
-        }
-        // A jump into another function's loop is a call, and one whose effects
-        // propagate the same way.
-        ExprKind::Continue { func: Some(c), .. } => {
-            p = worse(
-                p,
-                purity
-                    .get(c.index())
-                    .copied()
-                    .unwrap_or(ir::Purity::Effectful),
-            );
-            a |= aborts.get(c.index()).copied().unwrap_or(true);
+        ExprKind::CallFunc { func: c, .. } | ExprKind::Continue { func: Some(c), .. } => {
+            p = worse(p, *purity.get(*c));
+            a |= *aborts.get(*c);
         }
         // An indirect call reaches a code pointer this pass cannot name, so it
         // is whatever the worst function in the program is.
@@ -1954,10 +1921,7 @@ fn effects_once(
         }
         _ => {}
     });
-    let (purity, aborts) = (
-        purity.get_mut(i).or_ice("`purity` has a row per function"),
-        aborts.get_mut(i).or_ice("`aborts` has a row per function"),
-    );
+    let (purity, aborts) = (purity.get_mut(i), aborts.get_mut(i));
     if *purity == p && *aborts == a {
         return false;
     }
@@ -2205,7 +2169,7 @@ enum Branches {
 struct Scan<'a> {
     func: &'a Func,
     counted: &'a mut dyn Counted,
-    ownership: &'a [Vec<ir::Ownership>],
+    ownership: &'a Own,
     sizes: &'a [u32],
     /// Where node `i`'s children start in `child_ids`, by node id.
     child_at: Vec<u32>,
@@ -3379,7 +3343,7 @@ impl Scan<'_> {
             // before the back edge rather than a block leaked per iteration.
             ExprKind::Continue { func, args, .. } => {
                 let row: Vec<ir::Ownership> = match func {
-                    Some(f) => self.ownership.get(f.index()).cloned().unwrap_or_default(),
+                    Some(f) => self.ownership.get(*f).clone(),
                     // Back into the enclosing loop, whose variables are this
                     // function's own parameters.
                     None => self.self_params.clone(),
@@ -4903,7 +4867,7 @@ fn fresh_leaf(e: &Expr) -> bool {
 /// A construction and an owning parameter take; a projection, a primitive
 /// operation, a condition and a runtime intrinsic read. The intrinsic row is
 /// the runtime ABI this module's header states.
-pub fn child_modes(e: &Expr, n: usize, own: &[Vec<ir::Ownership>]) -> Vec<Mode> {
+pub fn child_modes(e: &Expr, n: usize, own: &Own) -> Vec<Mode> {
     match &e.kind {
         ExprKind::StructLit { .. }
         | ExprKind::EnumLit { .. }
@@ -4941,9 +4905,9 @@ pub fn child_modes(e: &Expr, n: usize, own: &[Vec<ir::Ownership>]) -> Vec<Mode> 
             .map(|k| if k == 0 { Mode::Borrow } else { Mode::Own })
             .collect(),
         ExprKind::CallFunc { func, .. } => {
-            let row = own.get(func.index());
+            let row = own.get(*func);
             (0..n)
-                .map(|k| match row.and_then(|r| r.get(k)) {
+                .map(|k| match row.get(k) {
                     Some(ir::Ownership::Borrow) => Mode::Borrow,
                     _ => Mode::Own,
                 })

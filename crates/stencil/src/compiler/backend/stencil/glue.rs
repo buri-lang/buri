@@ -75,7 +75,7 @@ use crate::compiler::backend::counts::{Field, Op, Site};
 use crate::compiler::backend::task_thread;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{Layouts, CAP_MASK, CLOSURE_ENV};
-use crate::compiler::semantics::types::Ty;
+use crate::compiler::semantics::types::{FuncIdx, Ty};
 use crate::diagnostics::Invariant;
 
 /// One generated function.
@@ -88,7 +88,11 @@ pub enum Helper {
     /// capture-free lambda still has the first, of the unit type, and a plain
     /// `FuncRef` has none at all. `boxed` says whether the `env` word holds a
     /// block to read the record out of.
-    Thunk { func: u32, args: u32, boxed: bool },
+    Thunk {
+        func: FuncIdx,
+        args: u32,
+        boxed: bool,
+    },
     /// `op` over one value of a type, as `fn(*mut u8)`. A copy replaces every
     /// counted pointer in the value, in place, by a pointer to a fresh block.
     Walk { ty: Ty, op: Op },
@@ -133,7 +137,7 @@ pub enum Helper {
     /// thunk reads one out of the state record. There is no record here to put
     /// it in, so it is the first C argument — and the LLVM backend, which works
     /// on the machine stack, ignores it.
-    Equal { ty: Ty, func: u32 },
+    Equal { ty: Ty, func: FuncIdx },
     /// The release of a kept handler's record whose context owns a count, as
     /// `fn(*mut u8)`: the closure `body` at the start, then the context `ctx`
     /// at `at`.
@@ -1382,14 +1386,11 @@ impl Jit<'_> {
     /// changes hands — so a count is taken here only where the callee's own
     /// ownership column says it consumes its parameter, which is
     /// [`Jit::thunk`]'s reconciliation at a call with exactly one caller.
-    fn equal_thunk(&mut self, prog: &ir::Program, ty: Ty, func: u32) {
-        let f = prog
-            .funcs
-            .get(func as usize)
-            .or_ice("an equality's function is in its program");
+    fn equal_thunk(&mut self, prog: &ir::Program, ty: Ty, func: FuncIdx) {
+        let f = prog.funcs.get(func);
         let facts = f.facts.params.clone();
         let ret_ty = f.sig.ret;
-        let callee = self.frame_sig_of(func as usize);
+        let callee = self.frame_sig_of(func);
 
         let size = self.layouts_of(ty).size;
         let slot = round8(size).max(8);
@@ -1493,11 +1494,8 @@ impl Jit<'_> {
     ///  * an argument the callee **borrows** is released here, after the call;
     ///  * the environment record is **retained** where the callee owns it,
     ///    because those bytes belong to the closure's block.
-    fn thunk(&mut self, prog: &ir::Program, func: u32, args: u32, boxed: bool) {
-        let f = prog
-            .funcs
-            .get(func as usize)
-            .or_ice("a closure's function is in its program");
+    fn thunk(&mut self, prog: &ir::Program, func: FuncIdx, args: u32, boxed: bool) {
+        let f = prog.funcs.get(func);
         let sig_params = f.sig.params.clone();
         let sig_ret = f.sig.ret;
         let facts = f.facts.params.clone();
@@ -1517,7 +1515,7 @@ impl Jit<'_> {
         let frame = round16(at + SCRATCH_BYTES);
         let mut st = self.glue_frame(frame, scratch);
         let base = self.fixups_len();
-        let callee = self.frame_sig_of(func as usize);
+        let callee = self.frame_sig_of(func);
         let cbase = frame;
 
         // The environment record, out of the block and into the callee's first

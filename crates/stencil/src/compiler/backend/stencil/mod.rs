@@ -170,7 +170,8 @@ use crate::compiler::backend::{Backend, Emitted, Options, Target, Units};
 use crate::compiler::middle::layout::{EnumRepr, Layouts};
 use crate::compiler::middle::monomorphize::{Program, ProgramRoots};
 use crate::compiler::middle::{ir, lower};
-use crate::compiler::semantics::types::Tables;
+use crate::compiler::semantics::layered::Dense;
+use crate::compiler::semantics::types::{FuncIdx, Tables};
 use crate::diagnostics::{Diagnostic, Diagnostics, Invariant, Span};
 use std::sync::OnceLock;
 
@@ -444,17 +445,10 @@ impl Backend for Stencil {
             ir::verify(&lowered);
         }
         let root = match &program.roots {
-            ProgramRoots::Main(idx) => Root::Main(idx.index()),
-            ProgramRoots::Tests(tests) => {
-                Root::Tests(tests.iter().map(|t| t.func.index()).collect())
-            }
+            ProgramRoots::Main(idx) => Root::Main(*idx),
+            ProgramRoots::Tests(tests) => Root::Tests(tests.iter().map(|t| t.func).collect()),
         };
-        let member_slots: Vec<Vec<usize>> = lowered
-            .units
-            .iter()
-            .map(|u| u.funcs.iter().map(|f| f.index()).collect())
-            .collect();
-        let members: Vec<&[usize]> = member_slots.iter().map(Vec::as_slice).collect();
+        let members: Vec<&[FuncIdx]> = lowered.units.iter().map(|u| u.funcs.as_slice()).collect();
 
         // Whole-program, and therefore computed here rather than inside the
         // loop. A frame-threaded call site needs its *callee's* frame layout,
@@ -572,8 +566,8 @@ impl Backend for Stencil {
 
 /// Which root a program has, with the indices resolved.
 enum Root {
-    Main(usize),
-    Tests(Vec<usize>),
+    Main(FuncIdx),
+    Tests(Vec<FuncIdx>),
 }
 
 fn one(message: String) -> Diagnostics {
@@ -642,11 +636,11 @@ const ENTRY_SYMBOL: &str = "main";
 /// block both), so there is no record of arguments to read.
 fn thread_door(
     target: abi::StencilTarget,
-    frames: &[jit::FrameSig],
-    idx: usize,
+    frames: &Dense<FuncIdx, jit::FrameSig>,
+    idx: FuncIdx,
     sym: &str,
 ) -> asm::Shim {
-    let frame = frames.get(idx).filter(|f| f.params.is_empty());
+    let frame = Some(frames.get(idx)).filter(|f| f.params.is_empty());
     let frame = frame.or_ice("a root has a frame and takes no arguments");
     asm::thread_entry(target, sym, frame.ret_size)
 }
@@ -662,7 +656,7 @@ struct Whole<'a> {
     lib: &'static library::Library,
     program: &'a ir::Program,
     tables: &'a Tables,
-    frames: &'a [jit::FrameSig],
+    frames: &'a Dense<FuncIdx, jit::FrameSig>,
     root: &'a Root,
     target: abi::StencilTarget,
     /// `runtime::shares_counts`: whether the program can fan out, so its
@@ -736,7 +730,7 @@ fn cut(len: usize) -> Vec<(usize, usize)> {
 }
 
 /// Every wanted unit's parts, as one flat work list.
-fn part_plan(wanted: &[usize], members: &[&[usize]]) -> PartPlan {
+fn part_plan(wanted: &[usize], members: &[&[FuncIdx]]) -> PartPlan {
     let mut jobs: Vec<Job> = Vec::with_capacity(wanted.len());
     let mut spans: Vec<(usize, usize)> = Vec::with_capacity(wanted.len());
     for unit in wanted {
@@ -766,7 +760,7 @@ fn part_plan(wanted: &[usize], members: &[&[usize]]) -> PartPlan {
 fn parts_of<'a>(
     w: &Whole<'a>,
     cycles: &std::sync::Arc<crate::compiler::middle::layout::Cycles>,
-    members: &[usize],
+    members: &[FuncIdx],
 ) -> Vec<Part> {
     let mut scratch = jit::Scratch::new(w.tables, std::sync::Arc::clone(cycles));
     let mut out = Vec::new();
@@ -800,7 +794,7 @@ fn emit_part<'a>(
     w: &Whole<'a>,
     scratch: jit::Scratch<'a>,
     part: usize,
-    members: &[usize],
+    members: &[FuncIdx],
 ) -> (Part, jit::Scratch<'a>) {
     let Whole {
         lib,
@@ -830,7 +824,7 @@ fn emit_part<'a>(
 fn assemble_unit(
     w: &Whole<'_>,
     name: &str,
-    members: &[usize],
+    members: &[FuncIdx],
     parts: Vec<Part>,
 ) -> Result<Emitted, Vec<String>> {
     let Whole {
@@ -877,20 +871,20 @@ fn assemble_unit(
     let marking = asm::Marking::of(shares);
     match root {
         Root::Main(idx) if members.contains(idx) => {
-            let sym = jit::symbol_of(program, u32::try_from(*idx).unwrap_or(0));
+            let sym = jit::symbol_of(program, *idx);
             shims.push((
                 String::from(ENTRY_SYMBOL),
-                asm::program_entry(target, &sym, main_result(program, tables, *idx), marking),
+                asm::program_entry(target, sym, main_result(program, tables, *idx), marking),
             ));
             shims.push((
                 String::from(task_thread::MAIN_ENTRY),
-                thread_door(target, frames, *idx, &sym),
+                thread_door(target, frames, *idx, sym),
             ));
         }
         Root::Tests(tests) if tests.first().is_some_and(|i| members.contains(i)) => {
             let names: Vec<String> = tests
                 .iter()
-                .map(|i| jit::symbol_of(program, u32::try_from(*i).unwrap_or(0)))
+                .map(|i| String::from(jit::symbol_of(program, *i)))
                 .collect();
             shims.push((
                 String::from(ENTRY_SYMBOL),
@@ -934,8 +928,8 @@ fn assemble_unit(
     // Every member of this unit is defined here and visible outside it: a call
     // from another unit is a relocation against this name.
     for (i, entry) in members.iter().zip(&entries) {
-        let sym = jit::symbol_of(program, u32::try_from(*i).unwrap_or(0));
-        let at = want(&mut symbols, &mut index, &sym);
+        let sym = jit::symbol_of(program, *i);
+        let at = want(&mut symbols, &mut index, sym);
         let def = object::Definition {
             section: 0,
             offset: *entry,
@@ -976,10 +970,7 @@ fn assemble_unit(
         target: &'n region::Target,
     ) -> std::borrow::Cow<'n, str> {
         match target {
-            region::Target::Func(f) => match program.funcs.get(*f as usize) {
-                Some(func) => std::borrow::Cow::Borrowed(func.symbol.as_str()),
-                None => std::borrow::Cow::Owned(jit::symbol_of(program, *f)),
-            },
+            region::Target::Func(f) => std::borrow::Cow::Borrowed(jit::symbol_of(program, *f)),
             region::Target::Symbol(s) => std::borrow::Cow::Borrowed(s.as_ref()),
             // The pool's own base, under a local name no Buri symbol can
             // collide with: Mach-O has no "this section" relocation that is
@@ -993,7 +984,7 @@ fn assemble_unit(
     // Most relocations name the pool or a function of the program, so those
     // two remember their symbol rather than hashing its name every time.
     let mut pool_sym: Option<usize> = None;
-    let mut func_sym: crate::hash::Map<u32, usize> = crate::hash::Map::default();
+    let mut func_sym: crate::hash::Map<FuncIdx, usize> = crate::hash::Map::default();
     out.reserve(
         emitted
             .code_relocs
@@ -1249,11 +1240,8 @@ const STACK: usize = 2;
 /// Where a `main` returning `Result<(), Str>` keeps its answer.
 ///
 /// Read off `middle::layout` here so that `asm.rs` never learns a layout rule.
-fn main_result(program: &ir::Program, tables: &Tables, idx: usize) -> asm::MainResult {
-    let f = program
-        .funcs
-        .get(idx)
-        .or_ice("`main` is one of its program's functions");
+fn main_result(program: &ir::Program, tables: &Tables, idx: FuncIdx) -> asm::MainResult {
+    let f = program.funcs.get(idx);
     let id = jit::agg_of(f.sig.ret);
     let mut layouts = Layouts::new(tables);
     let l = layouts.of(program.type_info(id).ty);

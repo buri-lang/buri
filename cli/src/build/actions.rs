@@ -2151,14 +2151,11 @@ fn unit_hashes(program: &ir::Program, tables: &Tables) -> Vec<(String, String, S
             let mut text = String::new();
             let mut types: Vec<ir::TypeId> = Vec::new();
             let members = unit.map_or(&[][..], |unit| unit.funcs.as_slice());
-            for (at, func) in members
-                .iter()
-                .filter_map(|&at| Some((at, program.funcs.get(at.index())?)))
-            {
+            for (at, func) in members.iter().map(|&at| (at, program.funcs.get(at))) {
                 program.render_func_into(func, &mut text);
                 // The LLVM backend drops a function no other unit names
                 // (`backend::linkage`), so who names it is part of the object.
-                if elsewhere.get(at.index()).copied().unwrap_or(false) {
+                if *elsewhere.get(at) {
                     text.push_str("named elsewhere\n");
                 }
                 collect_types(func, &mut types);
@@ -2279,7 +2276,7 @@ fn test_entry_signature(
     let monomorphize::ProgramRoots::Tests(tests) = &program.roots else {
         return None;
     };
-    let unit = lowered.funcs.get(tests.first()?.func.index())?.unit as usize;
+    let unit = lowered.funcs.get(tests.first()?.func).unit as usize;
     let mut sig = String::new();
     for t in tests {
         sig.push_str(&t.module);

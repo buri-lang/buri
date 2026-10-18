@@ -180,7 +180,7 @@ struct Balance<'a> {
     plan: &'a FuncPlan,
     sizes: Vec<u32>,
     counted: Syntactic,
-    own: &'a [Vec<ir::Ownership>],
+    own: &'a Own,
     /// A node whose `After` operations are held back, because the binding
     /// they belong to does not exist until the value has been computed.
     suppress: Option<NodeId>,
@@ -440,7 +440,7 @@ impl Balance<'_> {
             }
             ExprKind::Continue { func, args, .. } => {
                 let row: Vec<ir::Ownership> = match func {
-                    Some(f) => self.own.get(f.index()).cloned().unwrap_or_default(),
+                    Some(f) => self.own.get(*f).clone(),
                     None => self.plan.params.clone(),
                 };
                 for (k, arg) in args.iter().enumerate() {
@@ -558,13 +558,11 @@ impl Balance<'_> {
 fn check_balance(program: &Program) -> Vec<String> {
     let mut counted = Syntactic::new(program);
     let plan = analyze(program, &mut counted, &Options::default());
-    let own: Vec<Vec<ir::Ownership>> = plan.funcs.iter().map(|f| f.params.clone()).collect();
+    let own: Own = plan.funcs.map(|f| f.params.clone());
     let mut errors = Vec::new();
-    for (i, f) in program.funcs.iter().enumerate() {
+    for (i, f) in program.funcs.entries() {
         let Some(body) = f.body() else { continue };
-        let Some(fp) = plan.funcs.get(i) else {
-            continue;
-        };
+        let fp = plan.func(i);
         let mut sizes = Vec::new();
         subtree_sizes(body, &mut sizes);
         let mut b = Balance {
@@ -784,7 +782,7 @@ fn a_jump_owns_what_it_did_not_pass_through() {
     let i = loop_body(&program, "drain");
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
-    let fp = plan.func(i).expect("a plan");
+    let fp = plan.func(i);
     // `ctx` is handed straight through and stays the caller's; `xs` and
     // `acc` are rebuilt, so the loop variable takes the count.
     assert_eq!(fp.params.get(1).copied(), Some(ir::Ownership::Own));
@@ -827,7 +825,7 @@ fn a_loop_drops_what_it_does_not_carry_before_the_back_edge() {
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
     let f = loop_body(&program, "churn");
-    let fp = plan.func(f).expect("a plan");
+    let fp = plan.func(f);
     assert!(
         !fp.sites.is_empty(),
         "a loop body with an allocation per iteration has reference operations in it"
@@ -888,7 +886,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let plan = analyze(&program, &mut counted, &Options::default());
     for name in ["tell", "take"] {
         let i = find(&program, name);
-        let fp = plan.func(i).expect("a plan");
+        let fp = plan.func(i);
         let func = program.funcs.get(i);
         let rest = func
             .locals
@@ -1007,7 +1005,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let plan = analyze(&program, &mut counted, &Options::default());
     for name in ["projected", "aliased"] {
         let i = find(&program, name);
-        let fp = plan.func(i).expect("a plan");
+        let fp = plan.func(i);
         let func = program.funcs.get(i);
         let stale = func
             .locals
@@ -1122,7 +1120,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let plan = analyze(&program, &mut counted, &Options::default());
     let f = loop_body(&program, "tag");
     let func = program.funcs.get(f);
-    let fp = plan.func(f).expect("a plan");
+    let fp = plan.func(f);
     // The environment captures `prefix`, which the next iteration also
     // needs, so the capture increments rather than transfers.
     let incs: Vec<String> = fp
@@ -1193,7 +1191,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let func = program.funcs.get(i);
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
-    let fp = plan.func(i).expect("a plan");
+    let fp = plan.func(i);
     let held = func
         .locals
         .position(|l| l.name == "held")
@@ -1246,21 +1244,13 @@ fn a_parameter_is_borrowed_unless_the_body_takes_it() {
     let program = compile(PROGRAM);
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
-    let borrowed = plan
-        .func(find(&program, "size"))
-        .expect("a plan")
-        .params
-        .clone();
+    let borrowed = plan.func(find(&program, "size")).params.clone();
     assert_eq!(
         borrowed,
         vec![ir::Ownership::Borrow],
         "reading a field borrows"
     );
-    let owned = plan
-        .func(find(&program, "wrap"))
-        .expect("a plan")
-        .params
-        .clone();
+    let owned = plan.func(find(&program, "wrap")).params.clone();
     assert_eq!(owned, vec![ir::Ownership::Own], "storing takes the count");
 }
 
@@ -1271,7 +1261,7 @@ fn a_second_use_is_an_increment() {
     let program = compile(PROGRAM);
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
-    let twice = plan.func(find(&program, "twice")).expect("a plan");
+    let twice = plan.func(find(&program, "twice"));
     let incs = twice.sites.iter().filter(|s| s.op == RcOp::IncRef).count();
     let decs = twice.sites.iter().filter(|s| s.op == RcOp::DecRef).count();
     assert_eq!((incs, decs), (1, 0), "{:?}", twice.sites);
@@ -1317,7 +1307,6 @@ export fn main(host: NodeHost): Result<(), Str> {
     let plan = sharing(&program);
     let marked: Vec<&str> = plan
         .func(idx)
-        .expect("a plan")
         .sites
         .iter()
         .filter(|s| s.op == RcOp::IncRef)
@@ -1438,7 +1427,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let i = find(&program, "main");
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
-    let fp = plan.func(i).expect("a plan");
+    let fp = plan.func(i);
     let sites = named_sites(&program, i, fp);
     assert_eq!(check_balance(&program), Vec::<String>::new(), "{sites:?}");
     assert!(
@@ -1483,7 +1472,7 @@ fn a_consuming_match_dups_what_it_keeps_and_drops_what_it_matched() {
     let i = find(&program, "label");
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
-    let fp = plan.func(i).expect("a plan");
+    let fp = plan.func(i);
     assert_eq!(fp.params, vec![ir::Ownership::Own, ir::Ownership::Own]);
     assert_eq!(
         named_sites(&program, i, fp),
@@ -1533,7 +1522,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let i = find(&program, "main");
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
-    let fp = plan.func(i).expect("a plan");
+    let fp = plan.func(i);
     // `n7` is the call to `two`; `n8` is the call to `one` inside it.
     assert_eq!(named_sites(&program, i, fp), vec!["dec p after n7"]);
     assert_eq!(check_balance(&program), Vec::<String>::new());
@@ -1573,7 +1562,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let i = find(&program, "some");
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
-    let fp = plan.func(i).expect("a plan");
+    let fp = plan.func(i);
     assert_eq!(fp.params, vec![ir::Ownership::Own]);
     assert_eq!(
         named_sites(&program, i, fp),
@@ -1624,7 +1613,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let i = find(&program, "sizes");
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
-    let fp = plan.func(i).expect("a plan");
+    let fp = plan.func(i);
     // `n1` is the `match`, `n2` its scrutinee, and the drop is after the
     // arms have read what they keep out of it.
     assert_eq!(named_sites(&program, i, fp), vec!["dec n2 after n1"]);
@@ -1660,7 +1649,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let i = find(&program, "shown");
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
-    let fp = plan.func(i).expect("a plan");
+    let fp = plan.func(i);
     // `n1` is the call to `size`, `n2` the `if` it borrows. The rest are
     // the two templates' own holes.
     assert!(
@@ -1727,24 +1716,18 @@ export fn main(host: NodeHost): Result<(), Str> {
     let program = compile(src);
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
+    assert_eq!(plan.func(find(&program, "double")).purity, ir::Purity::Pure);
     assert_eq!(
-        plan.func(find(&program, "double")).map(|f| f.purity),
-        Some(ir::Purity::Pure)
-    );
-    assert_eq!(
-        plan.func(find(&program, "quadruple")).map(|f| f.purity),
-        Some(ir::Purity::Pure),
+        plan.func(find(&program, "quadruple")).purity,
+        ir::Purity::Pure,
         "purity propagates through a call"
     );
     assert_eq!(
-        plan.func(find(&program, "main")).map(|f| f.purity),
-        Some(ir::Purity::Effectful),
+        plan.func(find(&program, "main")).purity,
+        ir::Purity::Effectful,
         "printing is not pure"
     );
-    assert_eq!(
-        plan.func(find(&program, "double")).map(|f| f.can_abort),
-        Some(false)
-    );
+    assert_eq!(plan.func(find(&program, "double")).can_abort, false);
 }
 
 /// A type the classifier cannot answer for carries no operations and is named,
@@ -1760,7 +1743,7 @@ fn what_the_classifier_cannot_answer_is_recorded_rather_than_guessed() {
     }
     let program = compile(PROGRAM);
     let plan = analyze(&program, &mut Nothing, &Options::default());
-    let main = plan.func(find(&program, "main")).expect("a plan");
+    let main = plan.func(find(&program, "main"));
     assert!(main.sites.is_empty(), "nothing classified, nothing emitted");
     assert!(!main.unclassified.is_empty(), "and every type is named");
 }
@@ -1863,7 +1846,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let i = loop_body(&program, "drain");
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
-    let fp = plan.func(i).expect("a plan");
+    let fp = plan.func(i);
     assert_eq!(
         named_sites(&program, i, fp),
         vec![
@@ -1931,7 +1914,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     let i = find(&program, "twice");
     let mut counted = Syntactic::new(&program);
     let plan = analyze(&program, &mut counted, &Options::default());
-    let fp = plan.func(i).expect("a plan");
+    let fp = plan.func(i);
     // `n5` is the first call and `n7` the second. One drop, at the last
     // use, and nothing else: a call reads the closure and gives it back.
     assert_eq!(named_sites(&program, i, fp), vec!["dec g after n7"]);
@@ -1996,7 +1979,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     // after the call that read it.
     let i = find(&program, "firstLen");
     assert_eq!(
-        named_sites(&program, i, plan.func(i).expect("a plan")),
+        named_sites(&program, i, plan.func(i)),
         vec!["dec n2 after n1", "inc n2 after n2", "dec n3 after n2"]
     );
 
@@ -2005,7 +1988,7 @@ export fn main(host: NodeHost): Result<(), Str> {
     // without it `b` was freed by nobody and `a` came back one count high.
     let i = find(&program, "keep");
     assert_eq!(
-        named_sites(&program, i, plan.func(i).expect("a plan")),
+        named_sites(&program, i, plan.func(i)),
         vec!["inc n1 after n1", "dec n2 after n1"]
     );
 }

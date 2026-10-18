@@ -7,53 +7,43 @@
 //! another unit calls it.
 
 use crate::compiler::middle::ir::{Body, Inst, Program};
+use crate::compiler::semantics::layered::Dense;
+use crate::compiler::semantics::types::FuncIdx;
 
-/// One flag per function, by index: whether a function in another unit calls
+/// One flag per function: whether a function in another unit calls
 /// it, makes a closure of it, or drops a count through it, or whether the
 /// runtime compares a cell's values with it.
 ///
 /// The program's roots aren't here. A backend keeps those itself.
-pub fn named_elsewhere(program: &Program) -> Vec<bool> {
+pub fn named_elsewhere(program: &Program) -> Dense<FuncIdx, bool> {
     named_from(program, false)
 }
 
 /// [`named_elsewhere`], counting a function's own unit too. A function no
 /// one names, `middle::inline` having inlined it at every call, needs no
 /// code at all.
-pub fn named_anywhere(program: &Program) -> Vec<bool> {
+pub fn named_anywhere(program: &Program) -> Dense<FuncIdx, bool> {
     named_from(program, true)
 }
 
-fn named_from(program: &Program, own_unit: bool) -> Vec<bool> {
-    let mut named = vec![false; program.funcs.len()];
-    let mut mark = |at: usize| {
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "`at` names one of the program's functions, and `named` has one slot per function"
-        )]
-        let slot = &mut named[at];
-        *slot = true;
-    };
-    for f in &program.funcs {
+fn named_from(program: &Program, own_unit: bool) -> Dense<FuncIdx, bool> {
+    let mut named = program.funcs.map(|_| false);
+    for f in program.funcs.iter() {
         let Body::Code(code) = &f.body else { continue };
         for inst in code.blocks().iter().flat_map(|b| &b.insts) {
             let callee = match inst {
                 Inst::Call { func, .. } | Inst::MakeClosure { func, .. } => *func,
                 _ => continue,
             };
-            if program
-                .funcs
-                .get(callee.index())
-                .is_some_and(|c| own_unit || c.unit != f.unit)
-            {
-                mark(callee.index());
+            if own_unit || program.funcs.get(callee).unit != f.unit {
+                *named.get_mut(callee) = true;
             }
         }
     }
     // The comparison thunk a signal's write needs is built in whichever unit
     // writes it.
     for func in program.cell_equal.values() {
-        mark(func.index());
+        *named.get_mut(*func) = true;
     }
     named
 }
@@ -64,8 +54,6 @@ mod tests {
     use crate::compiler::middle::ir::{
         BlockId, Code, Facts, Func, Purity, Signature, Term, Type, TypeList, Unit,
     };
-    use crate::compiler::semantics::layered::Dense;
-    use crate::compiler::semantics::types::FuncIdx;
     use crate::diagnostics::Span;
 
     /// The id the table mints for its function at `i`.
@@ -114,7 +102,9 @@ mod tests {
     #[test]
     fn only_a_call_across_units_names_a_function() {
         let program = Program {
-            funcs: vec![func(0, &[1, 2]), func(0, &[]), func(1, &[]), func(1, &[0])],
+            funcs: [func(0, &[1, 2]), func(0, &[]), func(1, &[]), func(1, &[0])]
+                .into_iter()
+                .collect(),
             units: ["a", "b"]
                 .map(|name| Unit {
                     name: name.into(),
@@ -125,7 +115,13 @@ mod tests {
             crosses_tasks: false,
             cell_equal: Default::default(),
         };
-        assert_eq!(named_elsewhere(&program), vec![true, false, true, false]);
-        assert_eq!(named_anywhere(&program), vec![true, true, true, false]);
+        assert_eq!(
+            named_elsewhere(&program).as_slice(),
+            [true, false, true, false]
+        );
+        assert_eq!(
+            named_anywhere(&program).as_slice(),
+            [true, true, true, false]
+        );
     }
 }

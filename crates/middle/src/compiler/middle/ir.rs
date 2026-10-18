@@ -70,9 +70,10 @@
 
 use std::fmt::{self, Write as _};
 
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::typed::Magnitude;
 use crate::compiler::semantics::types::{FuncIdx, Prim, Ty};
-use crate::diagnostics::{invariant_with, Invariant as _, Span};
+use crate::diagnostics::{invariant_with, Span};
 use crate::hash::Map as HashMap;
 
 // ---------------------------------------------------------------------------
@@ -1112,9 +1113,9 @@ impl Func {
 /// One program's worth of CFGs: what `middle::lower` produces and what both
 /// native backends consume.
 pub struct Program {
-    /// One per `monomorphize::Func`, at the same index, so a `FuncIdx` in an
+    /// One per `monomorphize::Func`, under the same id, so a `FuncIdx` in an
     /// [`Inst::Call`] means the same thing on both sides of the lowering.
-    pub funcs: Vec<Func>,
+    pub funcs: Dense<FuncIdx, Func>,
     /// Codegen units, in first-appearance order: `core_list`, `main`.
     /// The object file for unit `u` is `units[u].o` (ARCHITECTURE.md §6.3).
     pub units: Vec<Unit>,
@@ -1260,10 +1261,7 @@ fn verify_func(program: &Program, func: &Func) {
                 func: callee, args, ..
             } = inst
             {
-                let c = program
-                    .funcs
-                    .get(callee.index())
-                    .or_ice("every call names a function in its program");
+                let c = program.funcs.get(*callee);
                 holds(args.len() == c.sig.params.len(), &|| {
                     format!(
                         "b{bi} calls {} with {} arguments and it takes {}",
@@ -1290,14 +1288,19 @@ fn verify_func(program: &Program, func: &Func) {
     let mut uses: Vec<ValueId> = Vec::new();
     for (bi, b) in code.blocks.iter().enumerate() {
         let check_use = |v: ValueId, at: (usize, usize)| {
-            let (db, dp) = def.get(v).or_ice("every value the IR uses is defined");
-            let ok = if db == at.0 {
-                dp < at.1
-            } else {
-                dom.dominates(db, at.0)
-            };
-            holds(ok, &|| {
-                format!("b{bi} uses v{v}, defined in b{db}, which does not dominate it")
+            let defined = *def.get(v);
+            let ok = defined.is_some_and(|(db, dp)| {
+                if db == at.0 {
+                    dp < at.1
+                } else {
+                    dom.dominates(db, at.0)
+                }
+            });
+            holds(ok, &|| match defined {
+                Some((db, _)) => {
+                    format!("b{bi} uses v{v}, defined in b{db}, which does not dominate it")
+                }
+                None => format!("b{bi} uses v{v}, which nothing defines"),
             });
         };
 
@@ -1615,17 +1618,9 @@ impl Program {
         });
     }
 
-    /// The symbol a callee is rendered by. A `FuncIdx` out of range renders as
-    /// itself so that a malformed program still prints rather than panicking;
-    /// `verify` is what reports it.
+    /// The symbol a callee is rendered by.
     fn sym_into(&self, func: FuncIdx, out: &mut String) {
-        match self.funcs.get(func.index()) {
-            Some(f) => out.push_str(&f.symbol),
-            None => {
-                out.push('f');
-                num(out, func.index() as u64);
-            }
-        }
+        out.push_str(&self.funcs.get(func).symbol);
     }
 
     fn inst_into(&self, inst: &Inst, out: &mut String) {
@@ -1997,7 +1992,7 @@ mod tests {
         });
         code.get_mut(entry).term = Term::Return(sum);
         Program {
-            funcs: vec![Func {
+            funcs: [Func {
                 symbol: "m$add".into(),
                 debug_name: "m:add".into(),
                 sig: Signature {
@@ -2012,7 +2007,9 @@ mod tests {
                 unit: 0,
                 body: Body::Code(code),
                 span: Span::NONE,
-            }],
+            }]
+            .into_iter()
+            .collect(),
             units: vec![Unit {
                 name: "m".into(),
                 funcs: vec![crate::compiler::middle::func_id(0)],
@@ -2041,7 +2038,8 @@ mod tests {
     #[test]
     fn a_block_that_does_not_dominate_another_is_told_apart() {
         let mut p = adder();
-        let Body::Code(code) = &mut p.funcs[0].body else {
+        let Body::Code(code) = &mut p.funcs.get_mut(crate::compiler::middle::func_id(0)).body
+        else {
             return;
         };
         // b1 defines a value; b2 uses it; b0 branches to both, so b1 does not
@@ -2137,7 +2135,9 @@ mod tests {
             "an_edge_whose_arguments_do_not_match_its_destination_is_reported",
             || {
                 let mut p = adder();
-                if let Body::Code(code) = &mut p.funcs[0].body {
+                if let Body::Code(code) =
+                    &mut p.funcs.get_mut(crate::compiler::middle::func_id(0)).body
+                {
                     let b1 = code.block(&[Type::I64, Type::I64]);
                     code.get_mut(b1).term = Term::Unreachable;
                     let entry_param = code.get(BlockId::ENTRY).params[0];
@@ -2157,7 +2157,8 @@ mod tests {
     fn a_block_that_continues_after_an_abort_is_reported() {
         let report = rejected("a_block_that_continues_after_an_abort_is_reported", || {
             let mut p = adder();
-            if let Body::Code(code) = &mut p.funcs[0].body {
+            if let Body::Code(code) = &mut p.funcs.get_mut(crate::compiler::middle::func_id(0)).body
+            {
                 let v = code.value(Type::I64);
                 let entry = code.get_mut(BlockId::ENTRY);
                 entry.insts.insert(

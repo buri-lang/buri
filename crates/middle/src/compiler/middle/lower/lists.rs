@@ -1401,12 +1401,7 @@ impl FnLower<'_> {
             }))
         };
         // The column `lower::facts` copies onto the callee.
-        let own = self
-            .plan
-            .func(func)
-            .or_ice("`rc` plans every function")
-            .params
-            .clone();
+        let own = self.plan.func(func).params.clone();
         let own = own.into_iter().skip(usize::from(env.is_some())).collect();
         Via::Direct { func, env, own }
     }

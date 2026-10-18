@@ -51,7 +51,8 @@ use super::runtime;
 use crate::compiler::backend::counts::{Counts, Site};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Layouts, Repr};
-use crate::compiler::semantics::types::{Tables, Ty};
+use crate::compiler::semantics::layered::Dense;
+use crate::compiler::semantics::types::{FuncIdx, Tables, Ty};
 use crate::diagnostics::{invariant, invariant_with, Invariant};
 use crate::hash::Map as HashMap;
 
@@ -71,8 +72,8 @@ pub enum V {
     Ptr(u64),
     /// The address of a basic block in the function being emitted.
     Blk(u32),
-    /// The entry of a function, by `FuncIdx`.
-    Fn(u32),
+    /// The entry of a function.
+    Fn(FuncIdx),
     /// A C symbol in this process, through a veneer.
     Ext(&'static str),
     /// A symbol this unit defines for itself: one of `glue.rs`'s helpers.
@@ -299,7 +300,7 @@ enum Fix {
     /// hole. See `extract::fold_cond`.
     BlockCond { at: u64, blk: u32 },
     /// A `b`/`bl` whose target is a function entry.
-    Func { at: u64, f: u32 },
+    Func { at: u64, f: FuncIdx },
 }
 
 /// One generated helper, as [`Jit::helper_symbols`] answers it.
@@ -336,19 +337,18 @@ pub struct Jit<'a> {
     /// line program 367 times, which was 2,378 ms of a 3,184 ms emission and
     /// most of `Layouts::compute`. `mod.rs::emit_units` computes it beside
     /// `lower::run`, which is where the other whole-program work already is.
-    frames: &'a [FrameSig],
+    frames: &'a Dense<FuncIdx, FrameSig>,
     /// Section offset of each function of *this unit*; zero for a function the
     /// unit does not own. It is what the object's symbol table is written from
     /// — not what a call site reads, because every call is a relocation
     /// (see [`Jit::resolve`]).
-    entries: Vec<u64>,
+    entries: Dense<FuncIdx, u64>,
     fixups: Vec<Fix>,
     /// Whether the region may be appended to right now. A conditional branch
     /// out of range needs a veneer, and a veneer may only be planted between
     /// functions — never in the middle of one, where it would land inside the
     /// fallthrough of the stencil being patched.
     veneer_ok: bool,
-    current: usize,
     /// The functions this unit generates for itself, in the order they were
     /// first asked for, and where each was laid out.
     ///
@@ -525,14 +525,6 @@ pub(crate) struct FrameSig {
     pub size: u32,
 }
 
-/// The frame of a function `frame_sigs` has no entry for, which no member can be.
-static NO_FRAME: FrameSig = FrameSig {
-    ret_size: 0,
-    params: Vec::new(),
-    param_end: 0,
-    size: 0,
-};
-
 fn round8(n: u32) -> u32 {
     (n + 7) & !7
 }
@@ -689,7 +681,7 @@ impl<'a> Jit<'a> {
     pub(crate) fn new(
         lib: &'static Library,
         tables: &'a Tables,
-        frames: &'a [FrameSig],
+        frames: &'a Dense<FuncIdx, FrameSig>,
         target: StencilTarget,
         scratch: Scratch<'a>,
         part: usize,
@@ -701,10 +693,9 @@ impl<'a> Jit<'a> {
             layouts: scratch.layouts,
             tables,
             frames,
-            entries: Vec::new(),
+            entries: Dense::new(),
             fixups: Vec::new(),
             veneer_ok: false,
-            current: 0,
             helpers: Vec::new(),
             helper_ix: HashMap::default(),
             helper_names: Vec::new(),
@@ -810,18 +801,9 @@ impl<'a> Jit<'a> {
         Some(s.holes.get(s.tail?)?.name.as_str())
     }
 
-    /// `f`'s frame layout, borrowed from the program's table. [`frame_sigs`]
-    /// fills it with one entry per function of the program, so the empty
-    /// signature is what a `FuncIdx` from some other program would get and not
-    /// one from this one.
-    pub(crate) fn frame_sig_of(&self, f: usize) -> &'a FrameSig {
-        static EMPTY: FrameSig = FrameSig {
-            ret_size: 0,
-            params: Vec::new(),
-            param_end: 0,
-            size: 0,
-        };
-        self.frames.get(f).unwrap_or(&EMPTY)
+    /// `f`'s frame layout, borrowed from the program's table.
+    pub(crate) fn frame_sig_of(&self, f: FuncIdx) -> &'a FrameSig {
+        self.frames.get(f)
     }
 
     /// The layout of a source type directly, for the places the IR's `TypeId`
@@ -958,7 +940,7 @@ impl<'a> Jit<'a> {
     /// vector that is genuinely this part's — where each function was laid
     /// out — and it is a `memset`.
     pub fn plan(&mut self, prog: &ir::Program) {
-        self.entries = vec![0; prog.funcs.len()];
+        self.entries = prog.funcs.map(|_| 0);
     }
 }
 
@@ -978,7 +960,7 @@ pub(crate) fn frame_sigs(
     prog: &ir::Program,
     tables: &Tables,
     cycles: std::sync::Arc<crate::compiler::middle::layout::Cycles>,
-) -> Vec<FrameSig> {
+) -> Dense<FuncIdx, FrameSig> {
     let mut layouts = Layouts::with_cycles(tables, cycles);
     // Every value of every function is sized here, so an aggregate's size is
     // looked up by its `TypeId` rather than hashed into `layouts` each time.
@@ -1001,8 +983,8 @@ pub(crate) fn frame_sigs(
             },
         }
     };
-    let mut out = Vec::with_capacity(prog.funcs.len());
-    for f in &prog.funcs {
+    let mut out = Dense::new();
+    for f in prog.funcs.iter() {
         let mut fs = FrameSig::default();
         let mut at = RET + round8(width(f.sig.ret)).max(8);
         fs.ret_size = at;
@@ -1301,7 +1283,7 @@ impl<'a> Jit<'a> {
     /// movable. A function's own branches are resolved before the next function
     /// is laid out and are relative; every other address this backend emits is
     /// a relocation.
-    pub fn compile_part(&mut self, prog: &ir::Program, members: &[usize]) {
+    pub fn compile_part(&mut self, prog: &ir::Program, members: &[FuncIdx]) {
         self.plan(prog);
         for i in members {
             self.function(prog, *i);
@@ -1323,19 +1305,12 @@ impl<'a> Jit<'a> {
         self.resolve(prog);
     }
 
-    fn function(&mut self, prog: &ir::Program, fi: usize) {
-        self.current = fi;
+    fn function(&mut self, prog: &ir::Program, fi: FuncIdx) {
         self.region.align_code(4);
-        let f = prog
-            .funcs
-            .get(fi)
-            .or_ice("stencil: a unit's member is one of its program's functions");
-        // `plan` sized `entries` and `frames` from the same `prog.funcs`, so
-        // the check above is what makes both of these present.
+        let f = prog.funcs.get(fi);
         let entry = self.region.code_addr();
-        put(&mut self.entries, fi, entry);
-        let frames: &'a [FrameSig] = self.frames;
-        let frame = frames.get(fi).unwrap_or(&NO_FRAME);
+        *self.entries.get_mut(fi) = entry;
+        let frame = self.frame_sig_of(fi);
 
         match &f.body {
             ir::Body::Code(code) => {
@@ -1955,7 +1930,7 @@ impl<'a> Jit<'a> {
                 Fix::Block { .. } | Fix::BlockCond { .. } => continue,
             };
             let name = symbol_of(prog, callee);
-            self.branch_reloc(at, Target::Symbol(name.into()));
+            self.branch_reloc(at, Target::Symbol(String::from(name).into()));
         }
     }
 
@@ -1963,8 +1938,8 @@ impl<'a> Jit<'a> {
     /// function of the program an entry — zero for one this part does not own,
     /// which is also what a `FuncIdx` from outside the program would read.
     /// `mod.rs::assemble_unit` adds the part's base to make it the unit's.
-    pub fn entry_of(&self, f: usize) -> u64 {
-        ent(&self.entries, f, 0)
+    pub fn entry_of(&self, f: FuncIdx) -> u64 {
+        *self.entries.get(f)
     }
 }
 
@@ -2746,12 +2721,7 @@ impl<'a> Jit<'a> {
         let alone = |v: ir::ValueId, pin: &[Option<u32>]| {
             ent(&members, v.index(), 0) == 1 && ent(pin, v.index(), None).is_none()
         };
-        let calls_code = |func: &crate::compiler::semantics::types::FuncIdx| {
-            matches!(
-                prog.funcs.get(func.index()).map(|f| &f.body),
-                Some(ir::Body::Code(_))
-            )
-        };
+        let calls_code = |func: &FuncIdx| matches!(prog.funcs.get(*func).body, ir::Body::Code(_));
         // Where each value is read in the block at hand — an instruction's
         // index, or `last` for the terminator — and where it is defined. One
         // entry per value, stamped with the block it describes.
@@ -2844,7 +2814,7 @@ impl<'a> Jit<'a> {
                 if !calls_code(func) {
                     continue;
                 }
-                let fs = self.frames.get(func.index()).or_ice("a callee has a frame");
+                let fs = self.frames.get(*func);
                 for (a, off) in args.iter().zip(fs.params.iter()) {
                     let Some(k) = def_at(*a).filter(|k| *k < j) else {
                         continue;
@@ -3856,9 +3826,6 @@ pub const EXTERNALS: [&str; 7] = [
 /// `ir::Func::symbol` and nothing else: `FuncIdx` is a whole-program index and
 /// would put every unit's key in every other unit's, which is the reason
 /// `ir.rs` §"a callee is named by its symbol" gives for the field existing.
-pub fn symbol_of(prog: &ir::Program, f: u32) -> String {
-    match prog.funcs.get(f as usize) {
-        Some(func) => func.symbol.clone(),
-        None => format!("buri$missing${f}"),
-    }
+pub fn symbol_of(prog: &ir::Program, f: FuncIdx) -> &str {
+    &prog.funcs.get(f).symbol
 }

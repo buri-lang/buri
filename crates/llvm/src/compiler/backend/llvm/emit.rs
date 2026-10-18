@@ -89,6 +89,7 @@ use crate::compiler::middle::layout::{
 };
 use crate::compiler::middle::rc::{self, Counted as _};
 use crate::compiler::semantics::builtins::conversion_is_exact;
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::{
     self as types, FuncIdx, IntPrim, Prim, Tables, Ty, TyKind,
 };
@@ -138,7 +139,7 @@ pub struct Unit<'ctx, 'a> {
     /// it has to be: it is a fixpoint over every body, and computing it inside
     /// each unit made the emission quadratic (`design/PERFORMANCE.md` §6.4's
     /// first finding).
-    observed: &'a [Observed],
+    observed: &'a Dense<FuncIdx, Observed>,
     /// Whether this program can run Buri code on two threads at once
     /// (`runtime::shares_counts`), so every count's fork reads
     /// `buri_rt_shared_mask` — see [`Unit::shared_mask`].
@@ -149,7 +150,7 @@ pub struct Unit<'ctx, 'a> {
     /// Keyed rather than indexed for the same reason the table is lazy: a slot
     /// per function in the program is an allocation and a memset per unit for a
     /// row that holds the unit's own functions and its handful of imports.
-    funcs: Map<usize, FunctionValue<'ctx>>,
+    funcs: Map<FuncIdx, FunctionValue<'ctx>>,
     /// `buri_rt_*` declarations, by symbol.
     runtime: Map<String, FunctionValue<'ctx>>,
     /// Interned string literal bodies, so `"hello"` twice is one global.
@@ -200,7 +201,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         program: &'a ir::Program,
         tables: &'a Tables,
         name: &str,
-        observed: &'a [Observed],
+        observed: &'a Dense<FuncIdx, Observed>,
         shares: bool,
         cycles: std::sync::Arc<layout::Cycles>,
         rc: std::rc::Rc<std::cell::RefCell<rc::Syntactic>>,
@@ -260,7 +261,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// [`attrs::set_convention`] so that the two cannot drift — a mismatch
     /// between them is a miscompile LLVM will not diagnose.
     pub fn declare(&mut self, idx: FuncIdx) -> FunctionValue<'ctx> {
-        if let Some(f) = self.funcs.get(&idx.index()) {
+        if let Some(f) = self.funcs.get(&idx) {
             return *f;
         }
         let func = self.func(idx);
@@ -280,13 +281,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // declaration in unit B claiming `memory(none)` for a function unit A
         // defined as allocating is a miscompile the linker will not notice.
         // [`observe`] is a whole-program answer for exactly that reason.
-        let observed = self
-            .observed
-            .get(idx.index())
-            .copied()
-            .unwrap_or_else(Observed::opaque);
+        let observed = *self.observed.get(idx);
         attrs::decorate(self.ctx, f, &func.facts, observed, &sig, HEAP_ALIGN);
-        self.funcs.insert(idx.index(), f);
+        self.funcs.insert(idx, f);
         f
     }
 
@@ -299,13 +296,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .module
             .add_function(&func.symbol, ty, Some(Linkage::Private));
         attrs::set_convention(f, attrs::FAST);
-        let observed = self
-            .observed
-            .get(idx.index())
-            .copied()
-            .unwrap_or_else(Observed::opaque);
+        let observed = *self.observed.get(idx);
         attrs::decorate(self.ctx, f, &func.facts, observed, &sig, HEAP_ALIGN);
-        self.funcs.insert(idx.index(), f);
+        self.funcs.insert(idx, f);
         self.bodies.push((f, idx));
         f
     }
@@ -588,12 +581,9 @@ enum Read {
 }
 
 impl<'ctx, 'a> Unit<'ctx, 'a> {
-    /// Defines one function's body.
-    pub fn define(&mut self, idx: FuncIdx) {
+    /// Defines one function's body, `code`.
+    pub fn define(&mut self, idx: FuncIdx, code: &ir::Code) {
         let func = self.func(idx);
-        let code = func
-            .code()
-            .or_ice("a unit defines only functions with bodies");
         let value = self.declare(idx);
         value.set_linkage(Linkage::External);
         self.define_code(idx, func, code, value);
@@ -698,11 +688,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // a body that found more than the pre-pass predicted is a bug in
         // `observe`, and the safe direction is to widen.
         let sig = self.machine_of(&func.sig);
-        let mut observed = self
-            .observed
-            .get(idx.index())
-            .copied()
-            .unwrap_or_else(Observed::opaque);
+        let mut observed = *self.observed.get(idx);
         observed.join(state.observed);
         attrs::decorate(self.ctx, value, &func.facts, observed, &sig, HEAP_ALIGN);
     }
@@ -4165,13 +4151,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// The module is walked rather than [`Unit`]'s own table, which can hold a
     /// declaration the pipeline has since deleted.
-    pub fn prune(&mut self, members: &[usize], kept: &[bool]) {
+    pub fn prune(&mut self, members: impl Iterator<Item = FuncIdx>, kept: &Dense<FuncIdx, bool>) {
         self.funcs.clear();
         let droppable: crate::hash::Set<&str> = members
-            .iter()
-            .filter(|at| !kept.get(**at).copied().unwrap_or(true))
-            .filter_map(|at| self.program.funcs.get(*at))
-            .map(|f| f.symbol.as_str())
+            .filter(|at| !*kept.get(*at))
+            .map(|at| self.program.funcs.get(at).symbol.as_str())
             .collect();
         loop {
             let mut candidates = Vec::new();
@@ -4430,10 +4414,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             argv.extend(pieces.into_iter().map(BasicMetadataValueEnum::from));
         }
         let program = self.program;
-        let sig = match program.funcs.get(func.index()).map(|f| &f.sig) {
-            Some(sig) => self.machine_of(sig),
-            None => repr::Machine::default(),
-        };
+        let sig = self.machine_of(&program.funcs.get(func).sig);
         let answer = self.machine_call(b, Callee::Direct(callee), &sig, &[], argv);
         state.observed.opaque = true;
         // A `Bool` is an `i1` in a register and a byte in memory, and the
@@ -6058,10 +6039,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// One of the program's functions.
     fn func(&self, idx: FuncIdx) -> &'a ir::Func {
-        self.program
-            .funcs
-            .get(idx.index())
-            .or_ice("a `FuncIdx` names a function of the program")
+        self.program.funcs.get(idx)
     }
 
     /// The source type behind an [`ir::Type`], where there is one.
@@ -8821,9 +8799,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 /// payload, which only emission knew, so every other unit declared it
 /// `memory(none)` and LLVM folded two calls into one block that was then
 /// released twice.
-pub fn observe(program: &ir::Program, boxes: &Boxes<'_>) -> Vec<Observed> {
+pub fn observe(program: &ir::Program, boxes: &Boxes<'_>) -> Dense<FuncIdx, Observed> {
     let shares = runtime::shares_counts(program);
-    let mut out: Vec<Observed> = program
+    let mut out: Dense<FuncIdx, Observed> = program
         .funcs
         .iter()
         .map(|f| match &f.body {
@@ -8852,27 +8830,21 @@ pub fn observe(program: &ir::Program, boxes: &Boxes<'_>) -> Vec<Observed> {
     let mut changed = true;
     while changed {
         changed = false;
-        for (i, f) in program.funcs.iter().enumerate() {
+        for (i, f) in program.funcs.entries() {
             let Some(code) = f.code() else { continue };
-            let mut here = out.get(i).copied().unwrap_or_else(Observed::opaque);
+            let mut here = *out.get(i);
             let before = key(here);
             for block in code.blocks() {
                 for inst in &block.insts {
-                    let callee = match inst {
-                        ir::Inst::Call { func, .. } => Some(func.index()),
-                        _ => None,
-                    };
-                    let Some(callee) = callee else { continue };
-                    // An unknown callee is the conservative answer, which is
-                    // the direction that costs performance and cannot be wrong.
-                    let theirs = out.get(callee).copied().unwrap_or_else(Observed::opaque);
-                    here.join(theirs);
+                    if let ir::Inst::Call { func, .. } = inst {
+                        here.join(*out.get(*func));
+                    }
                 }
             }
             if before != key(here) {
                 changed = true;
             }
-            *out.get_mut(i).or_ice("one answer per function") = here;
+            *out.get_mut(i) = here;
         }
     }
     out
