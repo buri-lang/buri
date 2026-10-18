@@ -1,0 +1,7 @@
+error: unterminated character literal [unterminated-character]
+ --> cmd/character_ending_in_a_backslash_before_a_line_break/main.buri:4:5
+  |
+4 |     '\
+  |     ^^
+  |
+  = fix: close it with `'`

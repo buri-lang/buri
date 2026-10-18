@@ -1,0 +1,4 @@
+// EXPECT: unterminated string literal
+// A backslash with nothing after it escapes nothing: the string is open.
+fn label(): Str {
+    "oops\
