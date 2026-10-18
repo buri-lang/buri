@@ -2264,12 +2264,7 @@ impl<'a> Jit<'a> {
         // exactly: three words copied, and **a count taken**, because the
         // copy is a second name for one block rather than a second reference
         // to it, and without the retain the second drop is a double free.
-        if key == "str.format" {
-            let last = fs
-                .params
-                .last()
-                .copied()
-                .or_ice("`str.format` takes the template it answers");
+        if let ("str.format", Some(&last)) = (key.as_ref(), fs.params.last()) {
             self.mv(ret0, last, 24);
             self.incref(ret0);
             self.emit("ret", &[]);
@@ -2362,11 +2357,10 @@ impl Jit<'_> {
         b: u32,
         tag: Option<u32>,
     ) -> bool {
-        let (module, op) = key.split_once('.').or_ice("a runtime key is `module.name`");
-        let prim = match module {
-            "bool" => Prim::Bool,
-            "character" => Prim::Char,
-            "str" => Prim::Str,
+        let (prim, op) = match key.split_once('.') {
+            Some(("bool", op)) => (Prim::Bool, op),
+            Some(("character", op)) => (Prim::Char, op),
+            Some(("str", op)) => (Prim::Str, op),
             _ => return false,
         };
         // `str`'s `equal`, `compare` and `hash` are runtime rows, which
@@ -3456,7 +3450,10 @@ impl Jit<'_> {
             );
             return true;
         }
-        let count = count.or_ice("a shift or a rotate takes its count");
+        let count = match count {
+            Some(count) => count,
+            None => return false,
+        };
         self.shift_count_check(st, count, width);
         let key2 = key!["bits/", stem, "/", width];
         let _ = unsigned;
