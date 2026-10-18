@@ -2976,12 +2976,14 @@ struct P {
 }
 
 /// The token stream with its trivia sorted: the significant tokens, the doc
-/// lines standing above each one, and the module's own `//!` lines.
+/// lines standing above each one, the module's own `//!` lines, and the
+/// escapes no literal may hold.
 struct Prep {
     tokens: [Token],
     docs: [[Str]],
     moduleDocs: [Str],
     pending: [Str],
+    errors: [ParseError],
 }
 
 // -----------------------------------------------------------------------------
@@ -3048,7 +3050,7 @@ export fn parse<C: Allocator>(
         tokens: prepared.tokens,
         docs: prepared.docs,
         index: 0,
-        errors: [],
+        errors: prepared.errors,
         panicking: false,
     };
     let (end, items) = parseItems(ctx, start, []);
@@ -3077,10 +3079,11 @@ fn prepare<C: Allocator>(ctx: C, raw: [Token]): Prep {
                     tokens: acc.tokens.push(c, t),
                     docs: acc.docs.push(c, acc.pending),
                     pending: [],
+                    errors: badEscapes(c, t, t.text.chars(c), 0, acc.errors),
                 }
             }
         },
-        Prep { tokens: [], docs: [], moduleDocs: [], pending: [] },
+        Prep { tokens: [], docs: [], moduleDocs: [], pending: [], errors: [] },
     )
 }
 
@@ -5057,8 +5060,11 @@ fn unescapeChars<C: Allocator>(ctx: C, cs: [Char], index: Int, acc: [Char]): [Ch
             let next = charAtOr(cs, index + 1);
             if (next == 'u') {
                 let close = findCurly(cs, index + 3);
-                let digits = codePoint(cs, index + 3, close, 0);
-                unescapeChars(ctx, cs, close + 1, acc.push(ctx, scalarOf(digits)))
+                let named = match (escapeScalar(cs, index + 3, close)) {
+                    .Some(scalar) => acc.push(ctx, scalar),
+                    .None => acc,
+                };
+                unescapeChars(ctx, cs, close + 1, named)
             } else {
                 unescapeChars(ctx, cs, index + 2, acc.push(ctx, escapeOf(next)))
             }
@@ -5103,13 +5109,55 @@ fn codePoint(cs: [Char], index: Int, close: Int, acc: Int): Int {
             .Some(d) => d,
             .None => 0,
         };
-        codePoint(cs, index + 1, close, acc * 16 + digit)
+        // Past `10FFFF` the value stops growing, so no run of digits overflows.
+        codePoint(cs, index + 1, close, number.min(acc * 16 + digit, 0x110000))
     }
 }
 
-fn scalarOf(value: Int): Char {
-    match (value.wrapToU32().toChar()) {
-        .Ok(c) => c,
-        .Err(_e) => ' ',
+/// The scalar a `\u{...}` escape's digits name, or `.None` where they name
+/// none: no digits, a surrogate, or a value past `10FFFF`.
+fn escapeScalar(cs: [Char], start: Int, close: Int): Option<Char> {
+    if (close == start) {
+        .None
+    } else {
+        match (codePoint(cs, start, close, 0).wrapToU32().toChar()) {
+            .Ok(c) => .Some(c),
+            .Err(_e) => .None,
+        }
+    }
+}
+
+/// `acc` and an error for every `\u{...}` in a token's text that names no
+/// scalar value, in the compiler's words, under the token's span. Only a
+/// literal's text has a backslash in it.
+fn badEscapes<C: Allocator>(
+    ctx: C,
+    t: Token,
+    cs: [Char],
+    index: Int,
+    acc: [ParseError],
+): [ParseError] {
+    if (index >= cs.length()) {
+        acc
+    } else if (charAtOr(cs, index) != '\\') {
+        badEscapes(ctx, t, cs, index + 1, acc)
+    } else if (charAtOr(cs, index + 1) != 'u') {
+        badEscapes(ctx, t, cs, index + 2, acc)
+    } else {
+        let close = findCurly(cs, index + 3);
+        let digits = t.text.slice(index + 3, close);
+        let found = match (escapeScalar(cs, index + 3, close)) {
+            .Some(_scalar) => acc,
+            .None => {
+                acc.push(ctx, ParseError {
+                    message: str.format(
+                        ctx,
+                        "`\\u{${digits}}` is not a Unicode scalar value",
+                    ),
+                    span: t.span,
+                })
+            },
+        };
+        badEscapes(ctx, t, cs, close + 1, found)
     }
 }
