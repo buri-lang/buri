@@ -3076,8 +3076,9 @@ fn stylesReactiveAt(styles: [Style], at: Int): Bool {
                         || stylesReactiveAt(otherwise, 0)
                 },
                 .Group(inner) => stylesReactiveAt(inner, 0),
-                .On(_on, inner) => stylesReactiveAt(inner, 0),
-                .At(_screen, inner) => stylesReactiveAt(inner, 0),
+                // `On` and `At` exist only in the stylesheet: the compiler
+                // turns each into the classes it stands for before a node
+                // holds it (`semantics::styles`), so neither reaches here.
                 _ => false,
             };
             if (here) { true } else { stylesReactiveAt(styles, at + 1) }
@@ -4035,7 +4036,7 @@ fn widgetLine<C: Allocator>(
 /// then the scene-only declarations `leading` names, then the styles written
 /// out. What `renderInto` hands the runtime for one element.
 /// The style list flattened to the concrete declarations and extracted classes
-/// an element carries, with every `Computed`/`When`/`On`/`At`/`Group` resolved
+/// an element carries, with every `Computed`/`When`/`Group` resolved
 /// **once**. `classNames` and `inlineIn` then walk a list that holds no
 /// computation, so a `Computed` style's body runs a single time per render
 /// rather than once for the classes and once for the inline tier.
@@ -4051,13 +4052,6 @@ fn resolve(
         .Some(style) => {
             let more: [Style] = match (style) {
                 .Group(inner) => resolve(ctx, painted, inner, 0, []),
-                .On(on, inner) => {
-                    if (applies(stateRank(on), painted)) {
-                        resolve(ctx, painted, inner, 0, [])
-                    } else {
-                        []
-                    }
-                },
                 .When(cond, then, otherwise) => {
                     if (cond.read(ctx)) {
                         resolve(ctx, painted, then, 0, [])
@@ -4066,8 +4060,8 @@ fn resolve(
                     }
                 },
                 .Computed(build) => resolve(ctx, painted, build(ctx), 0, []),
-                // A breakpoint lives in the stylesheet; both tiers here drop it.
-                .At(_screen, _inner) => [],
+                // No `On` or `At` gets here, for the reason `stylesReactiveAt`
+                // gives: each is the classes it stands for by now.
                 _ => [style],
             };
             resolve(ctx, painted, styles, at + 1, acc.concat(ctx, more))
@@ -4671,22 +4665,10 @@ fn declare<C: Allocator>(ctx: C, style: Style): [Str] {
         // takes no space while its text stays for the accessible name. The
         // `--buri-visually-hidden` marker tells the painter to paint nothing
         // rather than a clipped pixel.
-        .VisuallyHidden => {
-            [
-                decl(ctx, "position", "absolute"),
-                decl(ctx, "width", "1px"),
-                decl(ctx, "height", "1px"),
-                decl(ctx, "padding", "0"),
-                decl(ctx, "margin", "-1px"),
-                decl(ctx, "overflow", "hidden"),
-                decl(ctx, "clip", "rect(0,0,0,0)"),
-                decl(ctx, "white-space", "nowrap"),
-                decl(ctx, "border", "0"),
-                decl(ctx, "--buri-visually-hidden", "1"),
-            ]
-        },
         .Animation(motion) => [decl(ctx, "animation", animationCss(motion))],
-        // An extracted style is classes, which declare nothing inline.
+        // An extracted style is classes, which declare nothing inline. So is
+        // `VisuallyHidden` by now: it holds no value, so the compiler always
+        // knows it and a node only ever holds its class.
         _ => [],
     }
 }
