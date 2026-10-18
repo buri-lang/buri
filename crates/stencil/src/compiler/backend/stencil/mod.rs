@@ -1281,8 +1281,7 @@ fn main_result(program: &ir::Program, tables: &Tables, idx: FuncIdx) -> asm::Mai
     let payload = variants
         .get(1)
         .and_then(|v| v.first())
-        .copied()
-        .unwrap_or(0);
+        .map_or(0, |a| a.bytes());
     let message = (
         payload,
         payload.saturating_add(8),
@@ -1295,8 +1294,8 @@ fn main_result(program: &ir::Program, tables: &Tables, idx: FuncIdx) -> asm::Mai
             message,
         },
         EnumRepr::Niche { null_at } => asm::MainResult {
-            tag: (*null_at, 8),
-            niche: Some(*null_at),
+            tag: (null_at.bytes(), 8),
+            niche: Some(null_at.bytes()),
             message,
         },
     }

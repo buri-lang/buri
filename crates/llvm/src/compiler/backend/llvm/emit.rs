@@ -1676,10 +1676,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             EnumRepr::Niche { null_at } => {
                 let i = slots
                     .iter()
-                    .position(|s| s.offset == null_at && s.ty.is_pointer())
+                    .position(|s| s.offset == null_at.bytes() && s.ty.is_pointer())
                     .or_ice("a niche is a pointer slot");
                 let slot = Slot {
-                    offset: null_at,
+                    offset: null_at.bytes(),
                     ty: SlotTy::Scalar(Scalar::Ptr),
                 };
                 let p = ptr(self.piece(b, slots, whole, i as u32, slot));
@@ -1745,7 +1745,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let id = e.id();
         let (slots, offsets, size) = {
             let r = self.reprs.of(self.program, id);
-            let offsets = r.layout.variant(variant).to_vec();
+            let offsets = r
+                .layout
+                .variant(variant)
+                .iter()
+                .map(|a| a.bytes())
+                .collect::<Vec<u32>>();
             (r.slots.clone(), offsets, r.layout.size)
         };
         let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
@@ -1902,7 +1907,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let id = e.id();
         let (slots, offsets) = {
             let r = self.reprs.of(self.program, id);
-            (r.slots.clone(), r.layout.variant(variant).to_vec())
+            (
+                r.slots.clone(),
+                r.layout
+                    .variant(variant)
+                    .iter()
+                    .map(|a| a.bytes())
+                    .collect::<Vec<u32>>(),
+            )
         };
         let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
         let whole = self.get(state, of);
@@ -3297,7 +3309,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         for site in self.reprs.sites(ty).iter() {
             match site {
                 Site::Block { offset, glue } => {
-                    let at = base.saturating_add(*offset);
+                    let at = base.saturating_add(offset.bytes());
                     if op == Op::Copy {
                         // A copy is glue's, which walks memory.
                         let p = Self::place_address(b, place, at)
@@ -3356,7 +3368,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // is not — and the *test* is the discriminant, so there is no
                 // tag to read.
                 Site::Guarded { null_at, ty } => {
-                    let at = base.saturating_add(*null_at);
+                    let at = base.saturating_add(null_at.bytes());
                     let b = state.b;
                     let p = self
                         .place_pointer(b, place, at)
@@ -3385,7 +3397,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         op: Op,
     ) {
         let b = state.b;
-        let at = base.saturating_add(f.offset);
+        let at = base.saturating_add(f.offset.bytes());
         if !f.boxed {
             // A large field of a value in memory is its type's glue's, so a
             // glue body stays one level of its type deep.
@@ -5553,7 +5565,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 r.slots.clone(),
                 r.layout.size,
                 r.layout.align,
-                r.layout.variant(some_at).first().copied().unwrap_or(0),
+                r.layout.variant(some_at).first().map_or(0, |a| a.bytes()),
             )
         };
         let enum_layout = self.reprs.of_enum(self.program, e);
@@ -5686,8 +5698,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let (ok_at, err_at) = {
             let r = self.reprs.of(self.program, e.id());
             (
-                r.layout.variant(ok).first().copied().unwrap_or(0),
-                r.layout.variant(err).first().copied().unwrap_or(0),
+                r.layout.variant(ok).first().map_or(0, |a| a.bytes()),
+                r.layout.variant(err).first().map_or(0, |a| a.bytes()),
             )
         };
         let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
@@ -5853,7 +5865,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             EnumRepr::Niche { null_at } => {
                 let slot = Slot {
-                    offset: *null_at,
+                    offset: null_at.bytes(),
                     ty: SlotTy::Scalar(Scalar::Ptr),
                 };
                 let zero = self
@@ -7648,7 +7660,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             let r = self.reprs.of(self.program, e.id());
             (
                 r.slots.clone(),
-                r.layout.variant(some_at).first().copied().unwrap_or(0),
+                r.layout.variant(some_at).first().map_or(0, |a| a.bytes()),
                 r.layout.size,
             )
         };
@@ -8473,7 +8485,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let e = enum_ty(func.sig.ret);
         let (slots, err_offsets) = {
             let r = self.reprs.of(self.program, e.id());
-            (r.slots.clone(), r.layout.variant(1).to_vec())
+            (
+                r.slots.clone(),
+                r.layout
+                    .variant(1)
+                    .iter()
+                    .map(|a| a.bytes())
+                    .collect::<Vec<u32>>(),
+            )
         };
         let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
         let (some_variant, none_variant) = self.option_variants(e);

@@ -164,8 +164,8 @@ pub(crate) fn payload_at(l: &Layout, v: usize) -> u32 {
         } => 0,
         Repr::Enum { variants, .. } => variants
             .get(v)
-            .and_then(|f| f.first().copied())
-            .unwrap_or(0),
+            .and_then(|f| f.first())
+            .map_or(0, |a| a.bytes()),
         _ => 0,
     }
 }

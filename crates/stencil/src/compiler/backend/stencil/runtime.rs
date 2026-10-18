@@ -82,8 +82,7 @@ impl OptRepr {
         let payload = variants
             .get(some as usize)
             .and_then(|v| v.first())
-            .copied()
-            .unwrap_or(0);
+            .map_or(0, |a| a.bytes());
         Some(match repr {
             EnumRepr::Bare { tag } => OptRepr {
                 tag: (0, tag.size()),
@@ -100,7 +99,7 @@ impl OptRepr {
                 none,
             },
             EnumRepr::Niche { null_at } => OptRepr {
-                tag: (*null_at, 8),
+                tag: (null_at.bytes(), 8),
                 niche: true,
                 payload,
                 some,

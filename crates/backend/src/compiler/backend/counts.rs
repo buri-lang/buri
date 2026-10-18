@@ -7,7 +7,7 @@
 
 use std::rc::Rc;
 
-use crate::compiler::middle::layout::{self, EnumRepr, Layouts, Repr, Scalar};
+use crate::compiler::middle::layout::{self, At, EnumRepr, Layouts, Repr, Scalar, Words};
 use crate::compiler::semantics::types::{field_types, variant_types, Tables, Ty, TyKind};
 use crate::hash::Map;
 
@@ -44,10 +44,10 @@ pub enum Glue {
     Elems(Ty),
 }
 
-/// A field with counts in it, at a byte offset relative to its owner.
+/// A field with counts in it, at an offset relative to its owner.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Field {
-    pub offset: u32,
+    pub offset: Words,
     /// Behind a pointer (VALUE-MODEL.md §5.2): one operation on the pointer
     /// and no descent, since the pointee is released by its type's own glue.
     pub boxed: bool,
@@ -61,12 +61,13 @@ pub struct Arm {
     pub fields: Box<[Field]>,
 }
 
-/// One place a count lives inside a value. Offsets are relative to the value.
+/// One place a count lives inside a value. Offsets are relative to the value,
+/// and in words: a count is behind a pointer, and a pointer is word-aligned.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Site {
     /// A nullable counted block pointer.
     Block {
-        offset: u32,
+        offset: Words,
         glue: Glue,
     },
     Field(Field),
@@ -79,7 +80,7 @@ pub enum Site {
     /// `null_at` is not null. A `.None` writes that null and nothing else, so
     /// the rest of the payload is garbage.
     Guarded {
-        null_at: u32,
+        null_at: Words,
         ty: Ty,
     },
 }
@@ -180,19 +181,19 @@ impl Counts {
         match &l.repr {
             Repr::Zero | Repr::Scalar(_) => Vec::new(),
             Repr::Str => vec![Site::Block {
-                offset: l.field(layout::STR_BASE),
+                offset: Words::nth(layout::STR_BASE),
                 glue: Glue::Str,
             }],
             Repr::List => match ty.kind() {
                 TyKind::Array(elem) => vec![Site::Block {
-                    offset: l.field(layout::LIST_PTR),
+                    offset: Words::nth(layout::LIST_PTR),
                     glue: Glue::Elems(*elem),
                 }],
                 _ => Vec::new(),
             },
             Repr::Closure => {
                 vec![Site::Block {
-                    offset: l.field(layout::CLOSURE_ENV),
+                    offset: Words::nth(layout::CLOSURE_ENV),
                     glue: Glue::Env,
                 }]
             }
@@ -237,19 +238,24 @@ impl Counts {
     }
 
     /// The fields of `owner` that hold counts, at the given offsets.
+    ///
+    /// Only a word-aligned field can: a count is behind a pointer, and
+    /// anything holding a pointer is word-aligned.
     fn fields(
         &mut self,
         tables: &Tables,
         layouts: &mut Layouts<'_>,
         owner: &Ty,
         fields: &[Ty],
-        offsets: &[u32],
+        offsets: &[At],
     ) -> Vec<Field> {
         let mut out = Vec::new();
-        for (i, f) in fields.iter().enumerate() {
+        for (f, at) in fields.iter().zip(offsets) {
+            let Some(offset) = at.words() else {
+                continue;
+            };
             let boxed = layouts.boxes(owner, f);
             if boxed || self.counted(tables, layouts, f) {
-                let offset = offsets.get(i).copied().unwrap_or(0);
                 out.push(Field {
                     offset,
                     boxed,

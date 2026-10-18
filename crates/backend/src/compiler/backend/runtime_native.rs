@@ -71,7 +71,7 @@ fn snake_into(segment: &str, out: &mut String) {
     }
 }
 
-use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
+use crate::compiler::middle::layout::{At, EnumRepr, Layout, Repr};
 use crate::diagnostics::invariant;
 
 /// The byte offset, inside a tagged enum error `E`, of the `Str` its
@@ -106,7 +106,8 @@ pub fn error_message_offset(err: &Layout) -> Option<u32> {
     else {
         return None;
     };
-    let carries = |fields: &Vec<u32>| fields.len() == 1 && fields.first() == Some(payload);
+    let carries =
+        |fields: &Vec<At>| fields.len() == 1 && fields.first().map(|f| f.bytes()) == Some(*payload);
     let shaped = "a tagged error the runtime answers keeps one `Str` at its payload's start";
     invariant(
         variants
@@ -330,11 +331,14 @@ mod tests {
     // `the_message_shape_is_the_one_io_error_has` in `runtime_table.rs` is what
     // ties the rule to that type.
 
-    use crate::compiler::middle::layout::Scalar;
+    use crate::compiler::middle::layout::{Scalar, Words};
+
+    /// The payload area's start, a word in.
+    const WORD: At = At::Word(Words::nth(1));
 
     /// A tagged enum: a one-byte tag at zero, a payload area at eight, and one
     /// field list per variant.
-    fn tagged(size: u32, variants: Vec<Vec<u32>>) -> Layout {
+    fn tagged(size: u32, variants: Vec<Vec<At>>) -> Layout {
         Layout {
             size,
             align: 8,
@@ -355,7 +359,7 @@ mod tests {
     fn one_trailing_str_variant_is_the_message_shape() {
         let io_error = tagged(
             32,
-            vec![vec![], vec![], vec![], vec![], vec![], vec![], vec![8]],
+            vec![vec![], vec![], vec![], vec![], vec![], vec![], vec![WORD]],
         );
         assert_eq!(error_message_offset(&io_error), Some(8));
     }
@@ -364,7 +368,7 @@ mod tests {
     /// so one address serves whichever the discriminant names.
     #[test]
     fn every_payload_variant_holding_one_str_is_the_message_shape() {
-        let net_error = tagged(32, vec![vec![], vec![], vec![8], vec![8], vec![]]);
+        let net_error = tagged(32, vec![vec![], vec![], vec![WORD], vec![WORD], vec![]]);
         assert_eq!(error_message_offset(&net_error), Some(8));
     }
 
@@ -390,7 +394,7 @@ mod tests {
             size: 8,
             align: 8,
             stride: 8,
-            fields: vec![0],
+            fields: vec![At::ZERO],
             repr: Repr::Aggregate,
         };
         assert_eq!(error_message_offset(&utf8_error), None);

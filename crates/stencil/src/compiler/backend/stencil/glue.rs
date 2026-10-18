@@ -75,7 +75,7 @@ use super::rtcall::Src;
 use crate::compiler::backend::counts::{Field, Op, Site};
 use crate::compiler::backend::task_thread;
 use crate::compiler::middle::ir;
-use crate::compiler::middle::layout::{Layouts, CAP_MASK, CLOSURE_ENV};
+use crate::compiler::middle::layout::{Layouts, Words, CAP_MASK, CLOSURE_ENV};
 use crate::compiler::semantics::types::{FuncIdx, Ty};
 
 /// One generated function.
@@ -141,7 +141,7 @@ pub enum Helper {
     /// The release of a kept handler's record whose context owns a count, as
     /// `fn(*mut u8)`: the closure `body` at the start, then the context `ctx`
     /// at `at`.
-    Kept { body: Ty, ctx: Ty, at: u32 },
+    Kept { body: Ty, ctx: Ty, at: Words },
 }
 
 /// The program-wide symbol of a drop or copy glue function, or `None` for a
@@ -306,8 +306,8 @@ const E_CTX: u32 = 24;
 /// The answer is a vector of offsets *parallel to the contexts*, not to
 /// `widths` — a caller zips it against the arguments it supplies, and the two
 /// backends check the lengths agree.
-pub fn state_shape(widths: &[u32], index: Option<usize>) -> (Vec<u32>, u32) {
-    let mut at = E_CTX;
+pub fn state_shape(widths: &[u32], index: Option<usize>) -> (Vec<Words>, u32) {
+    let mut at = Words::covering(E_CTX);
     let mut out = Vec::new();
     for (i, w) in widths
         .iter()
@@ -318,9 +318,9 @@ pub fn state_shape(widths: &[u32], index: Option<usize>) -> (Vec<u32>, u32) {
             continue;
         }
         out.push(at);
-        at += round8(*w);
+        at = at.plus(Words::covering(*w));
     }
-    (out, round16(at))
+    (out, round16(at.bytes()))
 }
 
 impl Jit<'_> {
@@ -341,7 +341,7 @@ impl Jit<'_> {
             } => self.entry_thunk(params.clone(), *ret, *index, *lent),
             Helper::Equal { ty, func } => self.equal_thunk(prog, *ty, *func),
             Helper::Kept { body, ctx, at } => {
-                self.through_glue(&[(*body, 0), (*ctx, *at)], Op::Release)
+                self.through_glue(&[(*body, Words::ZERO), (*ctx, *at)], Op::Release)
             }
         }
         at
@@ -480,7 +480,7 @@ impl Jit<'_> {
     /// whole fields ([`Jit::walk_in_place`]), so its frame holds the widest.
     fn walk_glue_in_place(&mut self, ty: Ty, op: Op) {
         if op != Op::Copy {
-            return self.through_glue(&[(ty, 0)], op);
+            return self.through_glue(&[(ty, Words::ZERO)], op);
         }
         let window = self.in_place_window(&ty);
         let frame = frame_for(window);
@@ -496,7 +496,7 @@ impl Jit<'_> {
 
     /// A retain or a release over each value at its offset from the pointer,
     /// reading only the words it counts or tests ([`Jit::walk_through`]).
-    fn through_glue(&mut self, values: &[(Ty, u32)], op: Op) {
+    fn through_glue(&mut self, values: &[(Ty, Words)], op: Op) {
         let frame = frame_for(8);
         self.glue_stub(frame);
         let mut st = self.glue_frame(frame, G_VALUE + 8);
@@ -516,12 +516,12 @@ impl Jit<'_> {
     ///
     /// The same walk as `Jit::walk_rc`, site for site and depth for depth, with
     /// offsets relative to the pointer instead of the frame.
-    fn walk_through(&mut self, st: &mut Fn2, ty: &Ty, at: u32, op: Op, depth: u32) {
+    fn walk_through(&mut self, st: &mut Fn2, ty: &Ty, at: Words, op: Op, depth: u32) {
         let sites = self.rc_sites(ty);
         for site in sites.iter() {
             match site {
                 Site::Block { offset, glue } => {
-                    self.load_through(G_VALUE, at + offset, 8);
+                    self.load_through(G_VALUE, at.plus(*offset), 8);
                     self.block_op(st, G_VALUE, glue, op);
                 }
                 Site::Field(f) => self.field_through(st, f, at, op, depth),
@@ -554,7 +554,7 @@ impl Jit<'_> {
                     st.place(done, here);
                 }
                 Site::Guarded { null_at, ty } => {
-                    self.load_through(G_SPARE, at + null_at, 8);
+                    self.load_through(G_SPARE, at.plus(*null_at), 8);
                     let skip = st.label();
                     let key = self.arm_key("brcmp/eq/u64/fi", Jump::F);
                     self.emit(
@@ -577,18 +577,18 @@ impl Jit<'_> {
     /// One field of [`Jit::walk_through`]'s value, by `Jit::walk_field`'s
     /// rules: a box is one pointer, a heavy compound field deep in the walk
     /// goes to its type's glue by address, and anything else is walked inline.
-    fn field_through(&mut self, st: &mut Fn2, f: &Field, at: u32, op: Op, depth: u32) {
-        let at = at + f.offset;
+    fn field_through(&mut self, st: &mut Fn2, f: &Field, at: Words, op: Op, depth: u32) {
+        let at = at.plus(f.offset);
         if f.boxed {
             self.load_through(G_VALUE, at, 8);
             let here = Field {
-                offset: 0,
+                offset: Words::ZERO,
                 ..f.clone()
             };
             return self.walk_field(st, &here, G_VALUE, op, depth);
         }
         if self.field_out_of_line(&f.ty, depth) {
-            let addr = self.address_of(at);
+            let addr = self.address_of(at.bytes());
             let sym = self.helper(Helper::Walk { ty: f.ty, op });
             self.c_call_sym(sym, st, &[Src::Word(addr)]);
             return;
@@ -596,12 +596,15 @@ impl Jit<'_> {
         self.walk_through(st, &f.ty, at, op, depth + 1)
     }
 
-    /// `frame[dst] = *(G_PTR + offset)`, `bytes` wide and zero-extended to a
+    /// `frame[dst] = *(G_PTR + at)`, `bytes` wide and zero-extended to a
     /// word, as three instructions rather than an indexed-load stencil.
+    ///
+    /// `bytes` is at most a word, so a word offset is a multiple of it.
     ///
     /// `x9`–`x11` on arm64 and `rax`, `rdx` on x86-64 are as free between a
     /// glue body's stencils as [`Jit::first_nonzero_word`]'s register.
-    fn load_through(&mut self, dst: u32, offset: u32, bytes: u32) {
+    fn load_through(&mut self, dst: u32, at: Words, bytes: u32) {
+        let offset = at.bytes();
         if !self.target.is_arm64() {
             let mut a = X86::new();
             a.ldr(RDX, RDI, G_PTR);
@@ -619,7 +622,7 @@ impl Jit<'_> {
         let mut a = Asm::new();
         a.ldr(10, 0, G_PTR);
         // The unsigned-offset forms scale by the width and take twelve bits.
-        let off = if offset.is_multiple_of(bytes) && offset / bytes <= 0xfff {
+        let off = if offset / bytes <= 0xfff {
             offset
         } else {
             a.mov_imm(11, u64::from(offset));
@@ -650,7 +653,7 @@ impl Jit<'_> {
                     .flat_map(|arm| arm.fields.iter().cloned())
                     .collect(),
                 Site::Guarded { ty, .. } => vec![Field {
-                    offset: 0,
+                    offset: Words::ZERO,
                     boxed: false,
                     ty: *ty,
                 }],
@@ -729,7 +732,7 @@ impl Jit<'_> {
                     st.place(done, here);
                 }
                 Site::Guarded { null_at, ty } => {
-                    self.load_at(G_SPARE, *null_at, 8);
+                    self.load_at(G_SPARE, null_at.bytes(), 8);
                     let skip = st.label();
                     let key = self.arm_key("brcmp/eq/u64/fi", Jump::F);
                     self.emit(
@@ -742,7 +745,7 @@ impl Jit<'_> {
                         ],
                     );
                     let payload = Field {
-                        offset: 0,
+                        offset: Words::ZERO,
                         boxed: false,
                         ty: *ty,
                     };
@@ -765,7 +768,7 @@ impl Jit<'_> {
     fn field_in_place(&mut self, st: &mut Fn2, f: &Field) {
         let width = self.field_width(f);
         if !self.one_load(width) {
-            let at = self.address_of(f.offset);
+            let at = self.address_of(f.offset.bytes());
             let sym = self.helper(Helper::Walk {
                 ty: f.ty,
                 op: Op::Copy,
@@ -773,13 +776,13 @@ impl Jit<'_> {
             self.c_call_sym(sym, st, &[Src::Word(at)]);
             return;
         }
-        self.load_at(G_VALUE, f.offset, width);
+        self.load_at(G_VALUE, f.offset.bytes(), width);
         let here = Field {
-            offset: 0,
+            offset: Words::ZERO,
             ..f.clone()
         };
         self.walk_field(st, &here, G_VALUE, Op::Copy, 0);
-        self.elem_store(G_VALUE, G_PTR, G_INDEX, f.offset, width);
+        self.elem_store(G_VALUE, G_PTR, G_INDEX, f.offset.bytes(), width);
     }
 
     /// The frame word holding `G_PTR + offset`: `G_PTR` itself at zero, and

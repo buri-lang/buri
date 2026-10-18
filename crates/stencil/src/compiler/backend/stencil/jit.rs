@@ -50,7 +50,7 @@ use super::region::{Region, Target};
 use super::runtime;
 use crate::compiler::backend::counts::{Counts, Site};
 use crate::compiler::middle::ir;
-use crate::compiler::middle::layout::{EnumLayout, EnumRepr, Layout, Layouts, Repr};
+use crate::compiler::middle::layout::{At, EnumLayout, EnumRepr, Layout, Layouts, Repr};
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::{FuncIdx, Tables, Ty};
 use crate::diagnostics::{invariant, Invariant};
@@ -2278,7 +2278,7 @@ impl<'a> Jit<'a> {
                     _ => continue,
                 };
                 let owner = prog.type_info(agg_of(code.ty_of(dest))).ty;
-                let offs: &[u32] = match variant {
+                let offs: &[At] = match variant {
                     None => &l.fields,
                     Some(v) => l.variant(v),
                 };
@@ -2327,7 +2327,7 @@ impl<'a> Jit<'a> {
                     {
                         continue;
                     }
-                    put(slot, f.index(), ent(slot, dest.index(), 0) + off);
+                    put(slot, f.index(), ent(slot, dest.index(), 0) + off.bytes());
                     put(&mut aliased, f.index(), true);
                 }
             }
