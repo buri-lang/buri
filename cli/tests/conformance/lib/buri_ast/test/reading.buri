@@ -415,3 +415,11 @@ test "the same text read from two files, or at two places, has two origins" {
     assert.isFalse(first(a) == first(b));
     assert.isFalse(first(a).span == first(c).span);
 }
+
+test "a block in parentheses heading a chain reads back with its parentheses" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    same(ctx, inFn(ctx, "({ 1 }).abs()"));
+    same(ctx, inFn(ctx, "({ f })(2)"));
+}
