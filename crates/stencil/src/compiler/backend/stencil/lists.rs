@@ -12,7 +12,7 @@
               already sized, or an offset inside one value's layout"
 )]
 
-use super::abi::{Jump, Lit};
+use super::abi::{Jump, Lit, Word};
 use super::jit::{Jit, V};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
@@ -39,6 +39,9 @@ pub(crate) fn element_of(prog: &ir::Program, t: ir::Type) -> Ty {
 
 impl Jit<'_> {
     /// `frame[dst] = *(base + i * stride)`, `bytes` wide.
+    ///
+    /// `dst` may share bytes with `base` or `i`: each stencil reads both
+    /// before it writes, and nothing here writes `dst` before that.
     pub(crate) fn elem_load(&mut self, dst: u32, base: u32, i: u32, stride: u32, bytes: u32) {
         // An element narrower than a frame word has to arrive **zero-extended**
         // into a whole one; see `sources.rs`'s `eloadz` family for why.
@@ -61,10 +64,27 @@ impl Jit<'_> {
                 );
                 return;
             }
-            // 3, 5, 6, 7 bytes: no zero-extending twin, so the word is cleared
-            // first and the bytes copied over its low half.
-            self.imm_to(dst, 0);
+            // 3, 5, 6, 7 bytes: no zero-extending twin, so the bytes land in
+            // the word's low half and the rest is masked off after. Clearing
+            // the word first would clear a `base` or `i` that shares it.
+            self.elem_copy(dst, base, i, stride, bytes);
+            self.emit(
+                "bin/and/u64/fi/f",
+                &[
+                    Lit::D.of(u64::from(dst)),
+                    Lit::A.of(u64::from(dst)),
+                    Word::K.lit((1u64 << (8 * bytes)) - 1),
+                    Jump::Cont.to(V::Fall),
+                ],
+            );
+            return;
         }
+        self.elem_copy(dst, base, i, stride, bytes);
+    }
+
+    /// `bytes` bytes of `*(base + i * stride)` into `frame[dst]`, and nothing
+    /// past them.
+    fn elem_copy(&mut self, dst: u32, base: u32, i: u32, stride: u32, bytes: u32) {
         let sk = key!["eload/", bytes, "/s"];
         let key = if stride == bytes && self.has(&sk) {
             sk

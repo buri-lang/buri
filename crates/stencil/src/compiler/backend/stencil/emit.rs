@@ -516,18 +516,7 @@ impl<'a> Jit<'a> {
             // three pieces; `eload` is the three of them as one stencil.
             Inst::ArrayGet { dest, array, index } => {
                 let (stride, w, _) = self.array_elem(prog, code.ty_of(*array));
-                // The pointer is read where it lives, unless the destination
-                // shares its slot: a narrow element clears its destination
-                // first, which would clear the pointer.
-                let (d, a, i) = (st.at(*dest), st.at(*array), st.at(*index));
-                let base = if d < a + 8 && a < d + w.max(8) {
-                    let s0 = st.scratch + 48;
-                    self.mv(s0, a, 8);
-                    s0
-                } else {
-                    a
-                };
-                self.elem_load(d, base, i, stride, w);
+                self.elem_load(st.at(*dest), st.at(*array), st.at(*index), stride, w);
             }
             Inst::ArrayLen { dest, array } => {
                 // `[T]` is `{ ptr, len }`, and the length is O(1) by §4.

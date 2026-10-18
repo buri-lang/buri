@@ -296,6 +296,10 @@ mod lent_try;
 // JavaScript.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod tail_jumps;
+// List elements three, five, six and seven bytes wide, under the heap check,
+// on every backend built in and on JavaScript.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod odd_sizes;
 // A region `ui.rebuild` keys on a heap value read from a signal, rebuilt by a
 // fill, under the heap check, on every backend built in.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
