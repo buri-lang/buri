@@ -17,10 +17,12 @@ from "platform/effect" import { Allocator, Stdout, Tasks };
 from "platform/effect/testing" import { alloc, stdout, tasks };
 from "//lib/variants" import * as variants;
 
-enum CounterMessage {
+enum CounterMessage<C> {
     Increment,
     Add(Int),
     Get,
+    /// Call this from inside the step.
+    Within(fn(C) => ()),
 }
 
 derive Equal, Show for CounterAnswer;
@@ -33,7 +35,7 @@ enum CounterAnswer {
 /// visible in the answer rather than only in the count.
 fn counter<C: Allocator + Tasks>(
     initial: Int,
-): Actor<C, Int, CounterMessage, CounterAnswer> {
+): Actor<C, Int, CounterMessage<C>, CounterAnswer> {
     Actor {
         state: initial,
         step: fn(c, count, message) => {
@@ -41,6 +43,11 @@ fn counter<C: Allocator + Tasks>(
                 .Increment => Stepped { state: count + 1, answer: .Done },
                 .Add(n) => Stepped { state: count * 10 + n, answer: .Done },
                 .Get => Stepped { state: count, answer: .Count(count) },
+                .Within(f) => {
+                    let call = f;
+                    let _ = call(c);
+                    Stepped { state: count, answer: .Done }
+                },
             }
         },
     }
@@ -108,7 +115,7 @@ test "every message is stepped before the stop, so the stop discards none" {
 /// Posts `n` increments, one `sendMessage` at a time.
 fn increments<C: Allocator + Tasks>(
     ctx: C,
-    counted: Address<C, Int, CounterMessage, CounterAnswer>,
+    counted: Address<C, Int, CounterMessage<C>, CounterAnswer>,
     n: Int,
 ): () {
     match (n <= 0) {
@@ -156,7 +163,7 @@ test "onStop runs once, with the final state" {
 }
 
 /// The same counter with a hook that prints the state it ends on.
-fn logged<C: Allocator + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAnswer> {
+fn logged<C: Allocator + Stdout + Tasks>(): Actor<C, Int, CounterMessage<C>, CounterAnswer> {
     Actor {
         state: 0,
         step: fn(c, count, message) => {
@@ -164,6 +171,11 @@ fn logged<C: Allocator + Stdout + Tasks>(): Actor<C, Int, CounterMessage, Counte
                 .Increment => Stepped { state: count + 1, answer: .Done },
                 .Add(n) => Stepped { state: count * 10 + n, answer: .Done },
                 .Get => Stepped { state: count, answer: .Count(count) },
+                .Within(f) => {
+                    let call = f;
+                    let _ = call(c);
+                    Stepped { state: count, answer: .Done }
+                },
             }
         },
         onStop: .Some(fn(c, last) => io.println(c, "final ${last}").ignore()),
@@ -287,6 +299,23 @@ test "a step that sends to its own actor is refused, and the message still arriv
     assert.equal(counted.stop(ctx), .Ok(()));
     assert.equal(counted.stop(ctx), .Err(.Stopped));
     assert.equal(assert.err(counted.sendMessage(ctx, .Get)), SendError.Stopped);
+}
+
+test "the note's counter refuses a send from its own step, and still adds it" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, counter(4));
+    let refused = counted.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            assert.equal(counted.sendMessage(c, .Add(2)), .Err(.WouldDeadlock))
+        }),
+    );
+    assert.equal(refused, .Ok(.Done));
+    assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(42)));
+    assert.equal(counted.stop(ctx), .Ok(()));
 }
 
 test "a step fills the mailbox to its bound, and every message still arrives" {

@@ -743,3 +743,43 @@ All four modes pass 4694/4694 on `cli/tests/conformance`, base and new.
 - `BURI_RT_HEAP_CHECK=1 cargo test -p buri-rt-tests`: 487 passed.
 - `cargo fmt --all --check`: clean.
 - Both clippy commands: only the existing warnings.
+
+## Stdlib MC/DC phase 18
+
+### MC/DC
+
+| Module | Base | New |
+|---|---|---|
+| total | 9548/9893 (96.5%) | 9584/9880 (97.0%) |
+| core/actor | 203/245 | 226/244 |
+| core/tasks | 15/66 | 15/48 |
+| core/time | 12/19 | 18/19 |
+| core/net/tcp | 1/2 | 2/2 |
+| core/result | 608/610 | 614/616 |
+
+Every other module is unchanged.
+
+### Refactor
+
+`beside` and the inner `parallel` in `working` now hand `parallel` a list of two closures, so neither half asks which half it is. That takes out `match (isBody)` and `match (claimed < 0)`: 18 conditions, none of which a test could show.
+
+### Tests
+
+- **A step that sends to its own actor.** It gets `.Err(.WouldDeadlock)`, and its loop steps the message later. Each test actor's message type gained `Within(fn(C) => ())`, which runs inside the step. Covered for 12 of 13 actor types:
+  - `actor/test/payloads.buri`: unit, list, text, record, desk and tally, and a job inside `tasks.scope`
+  - `actor/test/counter.buri`, `actor/test/scoped.buri`
+  - `data/test/steps.buri`, `tasks/test/scope.buri`, `semantics/test/host_testing.buri`
+- **time.** `ui/test/reactivity.buri` has a watcher that formats a duration at every unit size. `Show` for a duration runs once per context, and the UI's `Scope` is its own context.
+- **tcp.** `tcp/test/stream.buri` adds a test-written `Tcp` that refuses one host and connects another, so `connect` shows both arms in one context.
+- **Equal for `Result<Ran, SendError>`.** The job test compares `Ok` and `Err` both ways, so the new instantiation shows every condition.
+
+The touched packages passed 30 runs on JS and 20 runs natively.
+
+### What's left
+
+- **tasks: 33 conditions.** `scopeBeside` answers false in every test, both in the runtime (`in_a_test()`) and in JS `$tasks_scopeBeside`. So `beside`'s answer, `working`, `ran`, `resting` and `running` run only in a release program. Showing them needs a test hook that makes `scopeBeside` true under `TestTasks`. That changes `crates/js`, which is out of scope here, and the native runtime. The `scopeLeave`, `scopeEnter`, `taking .None` and `held.first .None` arms are races, or can't be reached at all.
+- **actor 343 and 452: 2 conditions.** These are the dialler in `host_testing.buri`. Its `M = Str` can't carry a closure, so its step can't send to itself. Making it generic means rewriting the dialler's tests.
+- **actor 491: 15 conditions.** `discarding .Some` needs a stop to land while messages wait. That needs a native race, and a `mailboxClose` from inside a step blocks for up to 30 s.
+- **actor 389: 1 condition.** `unanswered .Ok(())` is a race, or can't be reached.
+- **check: 2 conditions.** A false property is `forAll`'s failure path, so no passing test shows it.
+- **time 224: 1 condition.** The division trap stays.

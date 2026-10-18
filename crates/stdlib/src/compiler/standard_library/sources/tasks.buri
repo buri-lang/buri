@@ -296,21 +296,24 @@ export fn cancel<C: Tasks>(ctx: C, timer: Timer): () {
 /// answered once they have all finished.
 ///
 /// The workers start what the body spawns as soon as it is spawned, each task
-/// on a thread of its own.
+/// on a thread of its own. The two halves are the items `parallel` runs, so
+/// each one is its own code and nothing asks which half it is.
 fn beside<C: Allocator + Tasks, A>(ctx: C, here: Scope, body: fn(C, Scope) => A): A {
-    let halves: [Option<A>] = parallel(ctx, [true, false], fn(c, i, isBody) => {
-        match (isBody) {
-            true => {
-                let run = body;
-                let answer = run(c, here);
-                let _ = scopeRan(c, here.0);
-                .Some(answer)
-            },
-            false => {
-                let _ = working(c, here);
-                .None
-            },
-        }
+    let both: [fn(C) => Option<A>] = [
+        fn(c) => {
+            let run = body;
+            let answer = run(c, here);
+            let _ = scopeRan(c, here.0);
+            .Some(answer)
+        },
+        fn(c) => {
+            let _ = working(c, here);
+            .None
+        },
+    ];
+    let halves = parallel(ctx, both, fn(c, i, half) => {
+        let run = half;
+        run(c)
     });
     match (halves.first()) {
         .Some(.Some(answer)) => answer,
@@ -341,14 +344,18 @@ fn working<C: Allocator + Tasks>(ctx: C, scope: Scope): Bool {
                     working(ctx, scope)
                 },
                 false => {
-                    let _ = parallel(ctx, [at, -1], fn(c, i, claimed) => {
-                        match (claimed < 0) {
-                            true => working(c, scope),
-                            false => {
-                                let _ = ran(c, scope, claimed);
-                                working(c, scope)
-                            },
-                        }
+                    // The claimed task beside a fresh worker, each as its own
+                    // item.
+                    let both: [fn(C) => Bool] = [
+                        fn(c) => {
+                            let _ = ran(c, scope, at);
+                            working(c, scope)
+                        },
+                        fn(c) => working(c, scope),
+                    ];
+                    let _ = parallel(ctx, both, fn(c, i, half) => {
+                        let run = half;
+                        run(c)
                     });
                     true
                 },
