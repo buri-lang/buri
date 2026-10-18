@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15052 15267 98.59%
+total 15046 15259 98.60%
 area cli/build 1694 1711 99.01%
 area cli/documentation 477 480 99.38%
 area cli/format 94 94 100.00%
@@ -20,8 +20,8 @@ area crates/hash 18 18 100.00%
 area crates/js 985 1018 96.76%
 area crates/llvm 580 580 100.00%
 area crates/middle 1841 1880 97.93%
-area crates/project 1342 1356 98.97%
-area crates/semantics 2183 2188 99.77%
+area crates/project 1346 1360 98.97%
+area crates/semantics 2173 2176 99.86%
 area crates/stdlib 12 12 100.00%
 area crates/stencil 1177 1198 98.25%
 area crates/syntax 1194 1196 99.83%
@@ -162,7 +162,7 @@ area crates/syntax 1194 1196 99.83%
 20 20 crates/project/src/languages/json/number.rs
 124 124 crates/project/src/languages/json/regex.rs
 237 248 crates/project/src/languages/json/schema.rs
-182 182 crates/project/src/languages/json/syntax.rs
+186 186 crates/project/src/languages/json/syntax.rs
 112 112 crates/project/src/languages/json/types.rs
 9 10 crates/project/src/languages/mod.rs
 168 168 crates/project/src/languages/proto/mod.rs
@@ -175,19 +175,19 @@ area crates/syntax 1194 1196 99.83%
 88 88 crates/semantics/src/compiler/semantics/exhaustiveness.rs
 436 436 crates/semantics/src/compiler/semantics/expressions.rs
 52 52 crates/semantics/src/compiler/semantics/icons.rs
-238 240 crates/semantics/src/compiler/semantics/inference.rs
+237 238 crates/semantics/src/compiler/semantics/inference.rs
 4 4 crates/semantics/src/compiler/semantics/intern.rs
 6 6 crates/semantics/src/compiler/semantics/layered.rs
 2 2 crates/semantics/src/compiler/semantics/name.rs
 84 84 crates/semantics/src/compiler/semantics/patterns.rs
 28 28 crates/semantics/src/compiler/semantics/reactive.rs
-416 416 crates/semantics/src/compiler/semantics/resolve.rs
+408 408 crates/semantics/src/compiler/semantics/resolve.rs
 16 16 crates/semantics/src/compiler/semantics/resolve/constructible.rs
 64 64 crates/semantics/src/compiler/semantics/resolve/endless.rs
 140 140 crates/semantics/src/compiler/semantics/resolve/platforms.rs
 334 334 crates/semantics/src/compiler/semantics/styles.rs
 22 22 crates/semantics/src/compiler/semantics/typed.rs
-115 118 crates/semantics/src/compiler/semantics/types.rs
+114 116 crates/semantics/src/compiler/semantics/types.rs
 0 0 crates/semantics/src/compiler/standard_library.rs
 12 12 crates/stdlib/src/compiler/standard_library/mod.rs
 0 0 crates/stencil/src/compiler/backend/stencil/abi.rs
