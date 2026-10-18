@@ -69,6 +69,44 @@ impl ModuleId {
     pub const PRIMITIVES: ModuleId = ModuleId(u32::MAX);
 }
 
+/// The standard library types the compiler names, at the ids every
+/// compilation gives them.
+///
+/// Every loader loads the prelude's modules first, with what they import,
+/// and the checker mints ids in load order after the primitives'. So these
+/// ids are fixed by the standard library's text, as `Prim::con`'s are by
+/// `Prim`'s order. `cli/src/compiler/tests/known.rs` checks each against the
+/// declaration it names, in every way a compilation opens.
+impl TyConId {
+    pub const OPTION: TyConId = TyConId(16);
+    pub const REQUEST: TyConId = TyConId(30);
+    pub const RESPONSE: TyConId = TyConId(31);
+    pub const SCOPE: TyConId = TyConId(33);
+    pub const ORDER: TyConId = TyConId(38);
+    pub const RESULT: TyConId = TyConId(42);
+    pub const RANGE_ERROR: TyConId = TyConId(43);
+}
+
+/// The standard library traits the compiler names, for the reason
+/// [`TyConId::OPTION`] gives. An operator's trait has its method first.
+impl TraitId {
+    pub const ALLOCATOR: TraitId = TraitId(0);
+    pub const EQUAL: TraitId = TraitId(18);
+    pub const ORDERED: TraitId = TraitId(19);
+    pub const SHOW: TraitId = TraitId(20);
+    pub const HASH: TraitId = TraitId(21);
+    pub const ADD: TraitId = TraitId(22);
+    pub const SUBTRACT: TraitId = TraitId(23);
+    pub const MULTIPLY: TraitId = TraitId(24);
+    pub const DIVIDE: TraitId = TraitId(25);
+    pub const REMAINDER: TraitId = TraitId(26);
+    pub const NEGATE: TraitId = TraitId(27);
+    pub const BOUNDED: TraitId = TraitId(28);
+    pub const CHECKED: TraitId = TraitId(29);
+    pub const WRAPPING: TraitId = TraitId(30);
+    pub const SATURATING: TraitId = TraitId(31);
+}
+
 /// The variants `core/option` and `core/order` declare, in their order, which
 /// the backends already depend on.
 impl MethodId {
@@ -1610,7 +1648,7 @@ impl Subst {
             (TyKind::Error, _) | (_, TyKind::Error) => Ok(()),
             (TyKind::Var(x), _) => self.bind(tables, *x, &b),
             (_, TyKind::Var(y)) => self.bind(tables, *y, &a),
-            (TyKind::Con(x, xs), TyKind::Con(y, ys)) if x == y && xs.len() == ys.len() => {
+            (TyKind::Con(x, xs), TyKind::Con(y, ys)) if x == y => {
                 for (p, q) in xs.iter().zip(ys.iter()) {
                     self.unify(tables, p, q)?;
                 }

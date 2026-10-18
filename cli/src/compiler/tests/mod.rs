@@ -22,6 +22,7 @@ pub(crate) fn func_id(i: u32) -> crate::compiler::semantics::types::FuncIdx {
 mod derives;
 mod exhaustiveness;
 mod expressions;
+mod known;
 mod lower;
 mod park;
 mod rc;

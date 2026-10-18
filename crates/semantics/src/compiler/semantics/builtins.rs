@@ -10,32 +10,15 @@
 
 use crate::compiler::semantics::resolve::Checker;
 use crate::compiler::semantics::types::*;
-use crate::diagnostics::{Invariant as _, Span};
+use crate::diagnostics::Span;
 
 impl<'a> Checker<'a> {
-    /// A type the prelude (or `core/json`) declares, by name. A builtin `impl`
-    /// is only written once the module declaring its types has loaded.
-    pub(crate) fn known_type(&self, name: &str) -> TyConId {
-        *self
-            .known_types
-            .get(name)
-            .or_ice("a builtin names a type the loaded prelude declares")
-    }
-
-    /// A trait the prelude declares, by name, for the reason [`Self::known_type`] gives.
-    pub(crate) fn known_trait(&self, name: &str) -> TraitId {
-        *self
-            .known_traits
-            .get(name)
-            .or_ice("a builtin names a trait the loaded prelude declares")
-    }
-
     pub(crate) fn register_primitive_methods(&mut self) {
         // A base registered every one of these already, and the `Json` pair
         // too when `core/json` was among its modules. What is left is that
         // pair, for a compilation that reached `core/json` after it.
-        if let Some(base) = self.base_known_traits() {
-            if !base.contains_key("ToJson") {
+        if let Some(json) = self.base_json() {
+            if json.is_none() {
                 self.json_impls();
             }
             return;
@@ -68,15 +51,13 @@ impl<'a> Checker<'a> {
     /// exactly when a program could have named either trait: the module loads
     /// on import, and there is no way to write `ToJson` without importing it.
     fn json_impls(&mut self) {
-        if !self.known_traits.contains_key("ToJson") {
+        let Some(json) = self.json else {
             return;
-        }
-        let json = self.known_type("Json");
-        let json_ty = Ty::con(json, []);
+        };
+        let json_ty = Ty::con(json.json, []);
         let decoded = |me: &Self, p: Prim| -> Ty {
-            let result = me.known_type("Result");
-            let err = me.known_type("DecodeError");
-            Ty::con(result, [me.tables.prim(p), Ty::con(err, [])])
+            let err = Ty::con(json.decode_error, []);
+            Ty::con(TyConId::RESULT, [me.tables.prim(p), err])
         };
 
         let mut prims: Vec<Prim> = Prim::all()
@@ -90,16 +71,15 @@ impl<'a> Checker<'a> {
             let to = self.declare_to_json(p, json_ty);
             let ret = decoded(self, p);
             let from = self.declare_from_json(p, json_ty, ret);
-            self.add_impl("ToJson", con, vec![to]);
-            self.add_impl("FromJson", con, vec![from]);
+            self.add_impl(json.to_json, con, vec![to]);
+            self.add_impl(json.from_json, con, vec![from]);
         }
 
         // `Option` is `derive`d rather than given methods: `.None` is `null`
         // and `.Some(x)` is whatever `x` is, which is a fold over the payload
         // and so exactly what a derived implementation means.
-        let option = self.known_type("Option");
-        self.add_derived_impl("ToJson", option);
-        self.add_derived_impl("FromJson", option);
+        self.add_derived_impl(json.to_json, TyConId::OPTION);
+        self.add_derived_impl(json.from_json, TyConId::OPTION);
     }
 
     /// `fn toJson<C: Allocator>(self, ctx: C): Json` — `Show.show`'s shape,
@@ -107,10 +87,9 @@ impl<'a> Checker<'a> {
     fn declare_to_json(&mut self, p: Prim, json_ty: Ty) -> FnId {
         let con = self.tables.prim_id(p);
         let module = self.prim_module_of(p);
-        let alloc = self.known_traits.get("Allocator").copied();
         let generics = vec![GenericInfo {
             name: "C".into(),
-            bounds: alloc.into_iter().collect(),
+            bounds: vec![TraitId::ALLOCATOR],
             span: Span::NONE,
         }];
         let fid = self.tables.add_fn(FnInfo {
@@ -257,12 +236,7 @@ impl<'a> Checker<'a> {
     /// Three families, distinguished by what happens when the value does not
     /// fit — and the return type is what says which (SPEC 6.2.1).
     fn numeric_conversions(&mut self, from: Prim, all: &[Prim]) {
-        let range_error = self
-            .known_types
-            .get("RangeError")
-            .map(|c| Ty::con(*c, []))
-            .unwrap_or(Ty::ERROR);
-        let result = self.known_types.get("Result").copied();
+        let range_error = Ty::con(TyConId::RANGE_ERROR, []);
 
         for &to in all {
             let name = format!("to{}", to.name());
@@ -271,10 +245,7 @@ impl<'a> Checker<'a> {
             let ret = if exact {
                 target
             } else {
-                match result {
-                    Some(r) => Ty::con(r, [target, range_error]),
-                    None => Ty::ERROR,
-                }
+                Ty::con(TyConId::RESULT, [target, range_error])
             };
             self.method(from, &name, Vec::new(), ret);
 
@@ -291,8 +262,7 @@ impl<'a> Checker<'a> {
         let bool_ty = self.tables.prim(Prim::Bool);
         let str_ty = self.tables.prim(Prim::Str);
         let u64_ty = self.tables.prim(Prim::U64);
-        let order = Ty::con(self.known_type("Order"), []);
-        let opt = self.known_type("Option");
+        let order = Ty::con(TyConId::ORDER, []);
 
         if p.is_signed() || p.is_float() {
             self.method(p, "abs", Vec::new(), self_ty);
@@ -302,14 +272,20 @@ impl<'a> Checker<'a> {
         // The operator traits. `a + b` on two operands of the same primitive
         // compiles to the operation directly; these exist so a bound like
         // `<N: Add>` is satisfiable by a primitive.
-        let mut op_methods: Vec<(&str, FnId)> = Vec::new();
-        for op in ["add", "subtract", "multiply", "divide", "remainder"] {
+        let mut op_methods: Vec<(TraitId, FnId)> = Vec::new();
+        for (op, trait_id) in [
+            ("add", TraitId::ADD),
+            ("subtract", TraitId::SUBTRACT),
+            ("multiply", TraitId::MULTIPLY),
+            ("divide", TraitId::DIVIDE),
+            ("remainder", TraitId::REMAINDER),
+        ] {
             let fid = self.method(p, op, vec![self_ty], self_ty);
-            op_methods.push((op, fid));
+            op_methods.push((trait_id, fid));
         }
         if p.is_signed() || p.is_float() {
             let fid = self.method(p, "negate", Vec::new(), self_ty);
-            op_methods.push(("negate", fid));
+            op_methods.push((TraitId::NEGATE, fid));
         }
 
         let eq = self.method(p, "equal", vec![self_ty], bool_ty);
@@ -322,7 +298,7 @@ impl<'a> Checker<'a> {
         let mut wrapping = Vec::new();
         let mut saturating = Vec::new();
         if p.is_integer() {
-            let opt_self = Ty::con(opt, [self_ty]);
+            let opt_self = Ty::con(TyConId::OPTION, [self_ty]);
             for name in [
                 "checkedAdd",
                 "checkedSubtract",
@@ -355,30 +331,22 @@ impl<'a> Checker<'a> {
             self.static_method(p, "maxValue", self_ty),
         ];
 
-        self.add_impl("Equal", con, vec![eq]);
-        self.add_impl("Ordered", con, vec![compare]);
-        self.add_impl("Show", con, vec![show]);
-        self.add_impl("Hash", con, vec![hash]);
-        for (name, fid) in op_methods {
-            let trait_name = match name {
-                "add" => "Add",
-                "subtract" => "Subtract",
-                "multiply" => "Multiply",
-                "divide" => "Divide",
-                "remainder" => "Remainder",
-                _ => "Negate",
-            };
-            self.add_impl(trait_name, con, vec![fid]);
+        self.add_impl(TraitId::EQUAL, con, vec![eq]);
+        self.add_impl(TraitId::ORDERED, con, vec![compare]);
+        self.add_impl(TraitId::SHOW, con, vec![show]);
+        self.add_impl(TraitId::HASH, con, vec![hash]);
+        for (trait_id, fid) in op_methods {
+            self.add_impl(trait_id, con, vec![fid]);
         }
-        self.add_impl("Bounded", con, bounded_methods);
+        self.add_impl(TraitId::BOUNDED, con, bounded_methods);
         if !checked.is_empty() {
-            self.add_impl("Checked", con, checked);
+            self.add_impl(TraitId::CHECKED, con, checked);
         }
         if !wrapping.is_empty() {
-            self.add_impl("Wrapping", con, wrapping);
+            self.add_impl(TraitId::WRAPPING, con, wrapping);
         }
         if !saturating.is_empty() {
-            self.add_impl("Saturating", con, saturating);
+            self.add_impl(TraitId::SATURATING, con, saturating);
         }
     }
 
@@ -386,10 +354,9 @@ impl<'a> Checker<'a> {
     fn show_method(&mut self, p: Prim, str_ty: Ty) -> FnId {
         let con = self.tables.prim_id(p);
         let module = self.prim_module_of(p);
-        let alloc = self.known_traits.get("Allocator").copied();
         let generics = vec![GenericInfo {
             name: "C".into(),
-            bounds: alloc.into_iter().collect(),
+            bounds: vec![TraitId::ALLOCATOR],
             span: Span::NONE,
         }];
         let fid = self.tables.add_fn(FnInfo {
@@ -449,20 +416,15 @@ impl<'a> Checker<'a> {
         // `n.toChar()` yields `Result<Char, RangeError>`" — not every `U32` is
         // a Unicode scalar value.
         let char_ty = self.tables.prim(Prim::Char);
-        let range_error = self
-            .known_types
-            .get("RangeError")
-            .map(|c| Ty::con(*c, []))
-            .unwrap_or(Ty::ERROR);
-        let result = self.known_type("Result");
-        let ret = Ty::con(result, [char_ty, range_error]);
+        let range_error = Ty::con(TyConId::RANGE_ERROR, []);
+        let ret = Ty::con(TyConId::RESULT, [char_ty, range_error]);
         self.method(Prim::U32, "toChar", Vec::new(), ret);
 
         let char_con = self.tables.prim_id(Prim::Char);
         let bool_ty = self.tables.prim(Prim::Bool);
         let str_ty = self.tables.prim(Prim::Str);
         let u64_ty = self.tables.prim(Prim::U64);
-        let order = Ty::con(self.known_type("Order"), []);
+        let order = Ty::con(TyConId::ORDER, []);
 
         let eq = self.method(
             Prim::Char,
@@ -472,16 +434,16 @@ impl<'a> Checker<'a> {
         );
         let show = self.show_method(Prim::Char, str_ty);
         let hash = self.method(Prim::Char, "hash", Vec::new(), u64_ty);
-        self.add_impl("Equal", char_con, vec![eq]);
-        self.add_impl("Show", char_con, vec![show]);
-        self.add_impl("Hash", char_con, vec![hash]);
+        self.add_impl(TraitId::EQUAL, char_con, vec![eq]);
+        self.add_impl(TraitId::SHOW, char_con, vec![show]);
+        self.add_impl(TraitId::HASH, char_con, vec![hash]);
         let cmp = self.method(
             Prim::Char,
             "compare",
             vec![self_of(self, Prim::Char)],
             order,
         );
-        self.add_impl("Ordered", char_con, vec![cmp]);
+        self.add_impl(TraitId::ORDERED, char_con, vec![cmp]);
 
         // Str, Bool and Template.
         for p in [Prim::Str, Prim::Bool] {
@@ -489,11 +451,11 @@ impl<'a> Checker<'a> {
             let eq = self.method(p, "equal", vec![self_of(self, p)], bool_ty);
             let show = self.show_method(p, str_ty);
             let hash = self.method(p, "hash", Vec::new(), u64_ty);
-            self.add_impl("Equal", con, vec![eq]);
-            self.add_impl("Show", con, vec![show]);
-            self.add_impl("Hash", con, vec![hash]);
+            self.add_impl(TraitId::EQUAL, con, vec![eq]);
+            self.add_impl(TraitId::SHOW, con, vec![show]);
+            self.add_impl(TraitId::HASH, con, vec![hash]);
             let cmp = self.method(p, "compare", vec![self_of(self, p)], order);
-            self.add_impl("Ordered", con, vec![cmp]);
+            self.add_impl(TraitId::ORDERED, con, vec![cmp]);
         }
     }
 
@@ -503,8 +465,7 @@ impl<'a> Checker<'a> {
     /// from the trait itself rather than from the argument, so a caller that
     /// supplies too few or too many cannot leave the table holding a row of a
     /// length no consumer expects.
-    fn add_impl(&mut self, trait_name: &str, con: TyConId, methods: Vec<FnId>) {
-        let trait_id = self.known_trait(trait_name);
+    fn add_impl(&mut self, trait_id: TraitId, con: TyConId, methods: Vec<FnId>) {
         let mut slots = self.tables.trait_(trait_id).methods.map(|_| None);
         for (slot, fid) in slots.iter_mut().zip(methods) {
             *slot = Some(fid);
@@ -523,8 +484,7 @@ impl<'a> Checker<'a> {
     /// The same, marked `derived`: the implementation is the fold over the
     /// type's components rather than a body, so it has no methods and
     /// `satisfies` recurses into the payload before answering.
-    fn add_derived_impl(&mut self, trait_name: &str, con: TyConId) {
-        let trait_id = self.known_trait(trait_name);
+    fn add_derived_impl(&mut self, trait_id: TraitId, con: TyConId) {
         let head = self.tables.generic_head(con);
         self.tables.add_impl(ImplInfo {
             trait_id,

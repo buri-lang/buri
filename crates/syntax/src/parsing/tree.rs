@@ -456,20 +456,6 @@ impl BinOp {
             BinOp::Rem => "%",
         }
     }
-
-    /// The trait method this operator desugars to (SPEC 5.12.4).
-    pub fn trait_method(self) -> Option<(&'static str, &'static str)> {
-        Some(match self {
-            BinOp::Add => ("Add", "add"),
-            BinOp::Sub => ("Subtract", "subtract"),
-            BinOp::Mul => ("Multiply", "multiply"),
-            BinOp::Div => ("Divide", "divide"),
-            BinOp::Rem => ("Remainder", "remainder"),
-            BinOp::Eq | BinOp::Ne => ("Equal", "equal"),
-            BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => ("Ordered", "compare"),
-            _ => return None,
-        })
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

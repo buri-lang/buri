@@ -249,12 +249,7 @@ impl Monomorphizer<'_> {
             }
             _ => return false,
         };
-        // `core/testing`, which declares both reporters, also declares `Scope`.
-        let scope = *self
-            .checked
-            .known_types
-            .get("Scope")
-            .or_ice("`core/testing` declares `Scope`");
+        let scope = TyConId::SCOPE;
         let str_ty = f.locals.get(kind).ty;
         // A reporter's values are of one type.
         let ty = f.locals.get(value).ty;
@@ -523,7 +518,7 @@ impl Monomorphizer<'_> {
             Op::Show => Prim::Str.con(),
             Op::Equal => Prim::Bool.con(),
             Op::Hash => Prim::U64.con(),
-            Op::Compare => *self.checked.known_types.get("Order")?,
+            Op::Compare => TyConId::ORDER,
         };
         let ret = Ty::con(ret_con, []);
         let ctx = ctx.map(|c| (self.new_local("ctx", c, Span::NONE), c));
