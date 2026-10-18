@@ -440,11 +440,10 @@ fn numberEnd(cs: [Char], start: Int, i: Int): Int {
     }
 }
 
+/// Whether the character at `i` marks an exponent. Asked only of the one before
+/// a sign past the start, which is always there.
 fn isExponent(cs: [Char], i: Int): Bool {
-    match (cs.get(i)) {
-        .Some(c) => c == 'e' || c == 'E',
-        .None => false,
-    }
+    cs.get(i) == .Some('e') || cs.get(i) == .Some('E')
 }
 
 // -----------------------------------------------------------------------------

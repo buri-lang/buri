@@ -299,6 +299,15 @@ test "a fixed-width field that runs past its nested message is truncated there" 
     assert.equal(decodePage(ctx, raw(ctx, "12030d000000000000")), .Err(.Truncated(1)));
 }
 
+// `end` is where the reader stops, but the bytes can stop sooner. Past them is
+// truncated too, not zeros.
+test "a reader whose end is past its bytes is truncated there" {
+    assert.equal(assert.err(proto.readVarint([], 0, 1, 0)), .Truncated(0));
+    assert.equal(assert.err(proto.readVarint([0x80], 0, 2, 0)), .Truncated(0));
+    assert.equal(assert.err(proto.readFixed32([1, 2], 0, 4, 0)), .Truncated(0));
+    assert.equal(assert.err(proto.readFixed64([1, 2, 3, 4], 0, 8, 0)), .Truncated(0));
+}
+
 test "skipping a wire type that has no length to skip is an error" {
     // Groups, 3 and 4, are gone from proto3, and 6 and 7 were never assigned.
     let none = list.empty<U8>();

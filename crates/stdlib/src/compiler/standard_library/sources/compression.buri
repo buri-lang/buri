@@ -174,19 +174,47 @@ export fn gunzip<C: Allocator>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
 /// The offset of the first DEFLATE byte, past a header of whatever length the
 /// flags give it.
 fn memberStart(body: [U8]): Result<Int, DecodeError> {
-    if (body.length() < 18) {
+    match (
+        (
+            body.length() >= 18,
+            body.get(0),
+            body.get(1),
+            body.get(2),
+            body.get(3),
+            body.get(10),
+            body.get(11),
+        )
+    ) {
+        (true, .Some(id1), .Some(id2), .Some(method), .Some(flagged), .Some(xlo), .Some(xhi)) => {
+            headerEnd(
+                body,
+                id1,
+                id2,
+                method,
+                flagged.toI64(),
+                xlo.toI64() + xhi.toI64() * 256,
+            )
+        },
+        _ => .Err(DecodeError(0)),
+    }
+}
+
+/// The rest of [`memberStart`], given the header's first four bytes and the
+/// extra field's length, all of which an 18-byte member has.
+fn headerEnd(
+    body: [U8],
+    id1: U8,
+    id2: U8,
+    method: U8,
+    flags: Int,
+    extra: Int,
+): Result<Int, DecodeError> {
+    if (id1 != 31 || id2 != 139) {
         .Err(DecodeError(0))
-    } else if (byteAt(body, 0) != 31 || byteAt(body, 1) != 139) {
-        .Err(DecodeError(0))
-    } else if (byteAt(body, 2) != 8) {
+    } else if (method != 8) {
         .Err(DecodeError(2))
     } else {
-        let flags = byteAt(body, 3);
-        let afterExtra = if (flags & 4 == 4) {
-            10 + 2 + byteAt(body, 10) + byteAt(body, 11) * 256
-        } else {
-            10
-        };
+        let afterExtra = if (flags & 4 == 4) { 10 + 2 + extra } else { 10 };
         let afterName = if (flags & 8 == 8) {
             zeroAfter(body, afterExtra)
         } else {
@@ -214,26 +242,25 @@ fn zeroAfter(body: [U8], at: Int): Int {
 /// The trailer — the last eight bytes — against what came out of the stream.
 fn checked(body: [U8], end: Int, out: [U8]): Result<[U8], DecodeError> {
     let trailer = body.length() - 8;
-    if (end > trailer) {
-        .Err(DecodeError(end))
-    } else {
-        match (
-            (
-                bytes.toU32LittleEndian(body, trailer),
-                bytes.toU32LittleEndian(body, trailer + 4),
-            )
-        ) {
-            (.Some(sum), .Some(size)) => {
-                if (sum != crc32(out)) {
-                    .Err(DecodeError(trailer))
-                } else if (size != out.length().wrapToU32()) {
-                    .Err(DecodeError(trailer + 4))
-                } else {
-                    .Ok(out)
-                }
-            },
-            _ => .Err(DecodeError(trailer)),
-        }
+    // `memberStart` saw eighteen bytes, so both words are there whenever the
+    // stream ended before them.
+    match (
+        (
+            end <= trailer,
+            bytes.toU32LittleEndian(body, trailer),
+            bytes.toU32LittleEndian(body, trailer + 4),
+        )
+    ) {
+        (true, .Some(sum), .Some(size)) => {
+            if (sum != crc32(out)) {
+                .Err(DecodeError(trailer))
+            } else if (size != out.length().wrapToU32()) {
+                .Err(DecodeError(trailer + 4))
+            } else {
+                .Ok(out)
+            }
+        },
+        _ => .Err(DecodeError(end)),
     }
 }
 
@@ -518,7 +545,7 @@ fn fixedCode(symbol: Int): (Int, Int) {
 fn chains<C: Allocator>(ctx: C, raw: [U8]): [Int] {
     let n = raw.length();
     let m = if (n >= MIN_MATCH) { n - 2 } else { 0 };
-    let keys = list.range(ctx, 0, m).map(ctx, fn(i) => keyAt(raw, i));
+    let keys = keysFrom(ctx, raw, 0, 0, list.empty<Int>());
     let order = list
         .range(ctx, 0, m)
         .sortBy(ctx, fn(a, b) => at(keys, a).compare(at(keys, b)));
@@ -541,14 +568,18 @@ fn earlier(keys: [Int], order: [Int], j: Int): Int {
     }
 }
 
-/// The three bytes at `i`, as one number. Exact, so two positions share a key
-/// only when they really do begin alike.
-fn keyAt(raw: [U8], i: Int): Int {
-    byteAt(raw, i) * 65536 + byteAt(raw, i + 1) * 256 + byteAt(raw, i + 2)
-}
-
-fn byteAt(raw: [U8], i: Int): Int {
-    raw.get(i).withDefault(0).toI64()
+/// For each position with three bytes from it, those bytes as one number. Exact,
+/// so two positions share a key only when they really do begin alike. `key` is
+/// the bytes up to `i` that a key can still hold.
+fn keysFrom<C: Allocator>(ctx: C, raw: [U8], i: Int, key: Int, keys: [Int]): [Int] {
+    match (raw.get(i)) {
+        .None => keys,
+        .Some(b) => {
+            let k = key % 65536 * 256 + b.toI64();
+            let held = if (i >= 2) { keys.push(ctx, k) } else { keys };
+            keysFrom(ctx, raw, i + 1, k, held)
+        },
+    }
 }
 
 fn at(xs: [Int], i: Int): Int {
@@ -568,23 +599,32 @@ fn emitting<C: Allocator>(
     held: Int,
     count: Int,
 ): ([U8], Int, Int) {
-    if (start >= raw.length()) {
-        (out, held, count)
-    } else {
-        let limit = smaller(MAX_MATCH, raw.length() - start);
-        let found = if (limit < MIN_MATCH) {
-            (0, 0)
-        } else {
-            longest(raw, prev, start, at(prev, start), CHAIN, 0, 0, limit)
-        };
-        if (found.0 >= MIN_MATCH) {
-            let written = backRef(ctx, out, held, count, found.0, found.1);
-            emitting(ctx, raw, prev, start + found.0, written.0, written.1, written.2)
-        } else {
-            let code = fixedCode(byteAt(raw, start));
-            let written = putCode(ctx, out, held, count, code.0, code.1);
-            emitting(ctx, raw, prev, start + 1, written.0, written.1, written.2)
-        }
+    match (raw.get(start)) {
+        .None => (out, held, count),
+        .Some(byte) => {
+            let limit = smaller(MAX_MATCH, raw.length() - start);
+            let found = if (limit < MIN_MATCH) {
+                (0, 0)
+            } else {
+                longest(raw, prev, start, at(prev, start), CHAIN, 0, 0, limit)
+            };
+            if (found.0 >= MIN_MATCH) {
+                let written = backRef(ctx, out, held, count, found.0, found.1);
+                emitting(
+                    ctx,
+                    raw,
+                    prev,
+                    start + found.0,
+                    written.0,
+                    written.1,
+                    written.2,
+                )
+            } else {
+                let code = fixedCode(byte.toI64());
+                let written = putCode(ctx, out, held, count, code.0, code.1);
+                emitting(ctx, raw, prev, start + 1, written.0, written.1, written.2)
+            }
+        },
     }
 }
 
@@ -1079,13 +1119,18 @@ fn pairs<C: Allocator>(
     }
 }
 
-/// `length` bytes copied from `distance` back, one at a time — the source may
-/// overlap the destination, which is how DEFLATE spells a run.
+/// `length` bytes copied from `distance` back. The source may overlap the
+/// destination, which is how DEFLATE spells a run: the copy then repeats the
+/// last `distance` bytes, so it is that window over and over.
 fn copyBack<C: Allocator>(ctx: C, out: [U8], distance: Int, length: Int): [U8] {
-    if (length <= 0) {
-        out
+    let window = out.slice(ctx, out.length() - distance, out.length());
+    repeating(ctx, out, window, length)
+}
+
+fn repeating<C: Allocator>(ctx: C, out: [U8], window: [U8], length: Int): [U8] {
+    if (length <= window.length()) {
+        out.concat(ctx, window.slice(ctx, 0, length))
     } else {
-        let b = out.get(out.length() - distance).withDefault(0);
-        copyBack(ctx, out.push(ctx, b), distance, length - 1)
+        repeating(ctx, out.concat(ctx, window), window, length - window.length())
     }
 }

@@ -399,7 +399,10 @@ export fn contentType<C: Allocator>(
         .None => .None,
         .Some(field) => {
             let pieces = field.split(ctx, ";");
-            let kind = pieces.first().withDefault("").trim().toLower(ctx);
+            let kind = field
+                .slice(0, field.indexOf(";").withDefault(field.length()))
+                .trim()
+                .toLower(ctx);
             .Some(
                 (
                     kind,

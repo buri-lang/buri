@@ -697,6 +697,40 @@ test "in a list, a map and a set" {
     assert.equal(unique.length(), 1);
 }
 
+// Four sets whose words differ but whose 64-bit hashes are equal: each later
+// set's second word undoes, under the hash's multiply, what its first word
+// changed. A fifth set's hash differs but has the same low five bits, so it
+// lands beside them at the top of a map.
+test "sets that share a hash are told apart as keys" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let a = slots(ctx, [0, 64]);
+    let b = slots(ctx, [1, 66, 67, 68, 69, 71, 73, 104]);
+    let c = slots(ctx, [2, 65, 67, 68, 72, 73, 74, 104, 105]);
+    let never = slots(ctx, [3, 65, 66, 67, 69, 70, 74, 75, 104, 105, 106]);
+    let beside = slots(ctx, [2]);
+    assert.equal(b.hash(), a.hash());
+    assert.equal(c.hash(), a.hash());
+    assert.equal(never.hash(), a.hash());
+    assert.notEqual(beside.hash(), a.hash());
+    assert.equal(beside.hash() & 31, a.hash() & 31);
+    let names = map
+        .empty<IndexSet<Slot>, Str>()
+        .insert(ctx, a, "a")
+        .insert(ctx, b, "b")
+        .insert(ctx, c, "c")
+        .insert(ctx, b, "B")
+        .insert(ctx, beside, "d");
+    assert.equal(names.length(), 4);
+    assert.equal(names.get(a), .Some("a"));
+    assert.equal(names.get(b), .Some("B"));
+    assert.equal(names.get(c), .Some("c"));
+    assert.equal(names.get(beside), .Some("d"));
+    assert.isTrue(names.get(never).isNone());
+    assert.equal(set.of(ctx, [a, b, c, a, beside]).length(), 4);
+}
+
 test "captured by a closure and answered by a task" {
     let ctx = context {
         Allocator: alloc(),

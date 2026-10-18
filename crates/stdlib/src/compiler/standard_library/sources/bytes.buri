@@ -631,9 +631,9 @@ fn varintBytes<C: Allocator>(ctx: C, hi: Int, lo: Int): [U8] {
 /// An encoding that runs off the end of the input, or past ten bytes, is an
 /// error at the index it started from.
 export fn readVarint(bytes: [U8], at: Int): Result<(Int, Int), DecodeError> {
-    match (varintEnd(bytes, at, 0)) {
+    match (varintFrom(bytes, at, 0)) {
         .None => .Err(DecodeError(at)),
-        .Some(end) => .Ok((varintValue(bytes, at, end - 1, 0, 0), end)),
+        .Some((hi, lo, end)) => .Ok((joinHalves(hi, lo), end)),
     }
 }
 
@@ -643,22 +643,17 @@ export fn readVarint(bytes: [U8], at: Int): Result<(Int, Int), DecodeError> {
 /// to 53, so the whole number may already have rounded. This keeps the low half
 /// from the start, which is exact for every input.
 export fn readVarint32(bytes: [U8], at: Int): Result<(Int, Int), DecodeError> {
-    match (varintEnd(bytes, at, 0)) {
+    match (varintFrom(bytes, at, 0)) {
         .None => .Err(DecodeError(at)),
-        .Some(end) => .Ok((varintLow(bytes, at, end - 1, 0), end)),
+        .Some((_hi, lo, end)) => .Ok((lo, end)),
     }
 }
 
-fn varintLow(bytes: [U8], at: Int, i: Int, lo: Int): Int {
-    if (i < at) {
-        lo
-    } else {
-        let g = bytes.get(i).withDefault(0).toI64() % 128;
-        varintLow(bytes, at, i - 1, (lo * 128 + g) % TWO32)
-    }
-}
-
-fn varintEnd(bytes: [U8], i: Int, taken: Int): Option<Int> {
+/// The varint from `i` on, as its high and low 32-bit halves and the index just
+/// past it. The groups after this one are read first, so the fold runs from the
+/// most significant end down and never needs a power of two: each step is a
+/// multiply by 128 with a carry between the halves.
+fn varintFrom(bytes: [U8], i: Int, taken: Int): Option<(Int, Int, Int)> {
     if (taken >= 10) {
         .None
     } else {
@@ -666,32 +661,25 @@ fn varintEnd(bytes: [U8], i: Int, taken: Int): Option<Int> {
             .None => .None,
             .Some(x) => {
                 if (x.toI64() < 128) {
-                    .Some(i + 1)
+                    .Some((0, x.toI64(), i + 1))
                 } else {
-                    varintEnd(bytes, i + 1, taken + 1)
+                    match (varintFrom(bytes, i + 1, taken + 1)) {
+                        .None => .None,
+                        .Some((hi, lo, end)) => {
+                            let wide = lo * 128 + x.toI64() % 128;
+                            let nextLo = wide % TWO32;
+                            .Some(
+                                (
+                                    (hi * 128 + (wide - nextLo) / TWO32) % TWO32,
+                                    nextLo,
+                                    end,
+                                ),
+                            )
+                        },
+                    }
                 }
             },
         }
-    }
-}
-
-/// Folds the groups from the most significant end down, so it never needs a
-/// power of two: each step is a multiply by 128 with a carry between the
-/// halves.
-fn varintValue(bytes: [U8], at: Int, i: Int, hi: Int, lo: Int): Int {
-    if (i < at) {
-        joinHalves(hi, lo)
-    } else {
-        let g = bytes.get(i).withDefault(0).toI64() % 128;
-        let wide = lo * 128 + g;
-        let nextLo = wide % TWO32;
-        varintValue(
-            bytes,
-            at,
-            i - 1,
-            (hi * 128 + (wide - nextLo) / TWO32) % TWO32,
-            nextLo,
-        )
     }
 }
 
