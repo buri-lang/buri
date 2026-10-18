@@ -324,7 +324,10 @@ impl<'a> Folder<'a> {
                         typed::TemplatePart::Text(t) => out.push_str(t),
                         // Only a string hole renders without calling `show`,
                         // and `show` is a trait method this does not dispatch.
-                        typed::TemplatePart::Hole(h) => out.push_str(self.eval(h, env)?.as_str()?),
+                        typed::TemplatePart::Hole(h)
+                        | typed::TemplatePart::Shown { value: h, .. } => {
+                            out.push_str(self.eval(h, env)?.as_str()?)
+                        }
                     }
                 }
                 Some(Value::Str(out))
@@ -352,7 +355,6 @@ impl<'a> Folder<'a> {
             | ExprKind::Try { .. }
             | ExprKind::Loop { .. }
             | ExprKind::Continue { .. }
-            | ExprKind::StructuralEq { .. }
             | ExprKind::CtxLit { .. }
             | ExprKind::CtxGet { .. }
             | ExprKind::CtxCall { .. }

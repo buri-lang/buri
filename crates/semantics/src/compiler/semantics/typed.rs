@@ -115,10 +115,16 @@ pub struct Arm {
 /// Mirrors `tree::TemplatePart`. A part is one or the other and never both or
 /// neither, so it is an enum rather than two `Option`s — a part that carried
 /// both would be rendered twice by the backend.
+///
+/// `monomorphize` settles how each hole renders. After it, a `Hole` is a
+/// string already, and a `Shown` is a primitive of another kind, which the
+/// backend renders from `prim`. A hole of a compound type is a `structuralShow`
+/// call by then, so no hole is left that needs a `show` the backend can't see.
 #[derive(Clone, Debug)]
 pub enum TemplatePart {
     Text(String),
     Hole(Expr),
+    Shown { prim: Prim, value: Expr },
 }
 
 /// Which of `Option` and `Result` a `?` is working on. They are
@@ -354,10 +360,6 @@ pub enum ExprKind {
         prim: Prim,
         arg: Box<Expr>,
     },
-    /// Structural equality on a compound type, compiled per type.
-    StructuralEq {
-        args: Vec<Expr>,
-    },
 
     Template {
         parts: Vec<TemplatePart>,
@@ -573,7 +575,6 @@ pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
         | ExprKind::EnumLit { args, .. }
         | ExprKind::Tuple(args)
         | ExprKind::Array(args)
-        | ExprKind::StructuralEq { args, .. }
         | ExprKind::Intrinsic { args, .. }
         // `Continue`'s arguments and `Loop`'s entries are children like any
         // other. A walk that left them out reported a whole loop as one node,
@@ -628,7 +629,7 @@ pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
         }
         ExprKind::Template { parts } => {
             for p in parts {
-                if let TemplatePart::Hole(h) = p {
+                if let TemplatePart::Hole(h) | TemplatePart::Shown { value: h, .. } = p {
                     f(h);
                 }
             }
@@ -669,7 +670,6 @@ pub fn children_mut<'a>(e: &'a mut Expr, f: &mut impl FnMut(&'a mut Expr)) {
         | ExprKind::EnumLit { args, .. }
         | ExprKind::Tuple(args)
         | ExprKind::Array(args)
-        | ExprKind::StructuralEq { args, .. }
         | ExprKind::Intrinsic { args, .. }
         // `Continue`'s arguments and `Loop`'s entries are children like any
         // other. A walk that left them out reported a whole loop as one node,
@@ -724,7 +724,7 @@ pub fn children_mut<'a>(e: &'a mut Expr, f: &mut impl FnMut(&'a mut Expr)) {
         }
         ExprKind::Template { parts } => {
             for p in parts {
-                if let TemplatePart::Hole(h) = p {
+                if let TemplatePart::Hole(h) | TemplatePart::Shown { value: h, .. } = p {
                     f(h);
                 }
             }

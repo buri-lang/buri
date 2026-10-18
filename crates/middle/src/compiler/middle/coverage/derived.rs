@@ -104,7 +104,6 @@ impl Op {
 /// The operation a call is, and the type it's at.
 fn call(e: &Expr) -> Option<(Op, Ty)> {
     match &e.kind {
-        ExprKind::StructuralEq { args, .. } => Some((Op::Equal, args.first()?.ty)),
         ExprKind::Intrinsic { name, args, .. } => Some((Op::of_intrinsic(name)?, args.first()?.ty)),
         _ => None,
     }
@@ -193,7 +192,7 @@ fn precede(
     };
     let span = e.span;
     let args = match &mut e.kind {
-        ExprKind::StructuralEq { args, .. } | ExprKind::Intrinsic { args, .. } => args,
+        ExprKind::Intrinsic { args, .. } => args,
         _ => return,
     };
     let mut stmts = Vec::new();
@@ -572,11 +571,22 @@ impl Shadows<'_> {
                 span,
             )),
             (_, Desc::Unit) => Some(Expr::new(ExprKind::Bool(true), self.bool_ty, span)),
-            (Op::Equal, _) => Some(Expr::new(
-                ExprKind::StructuralEq { args: vec![x, y] },
-                self.bool_ty,
-                span,
-            )),
+            (Op::Equal, _) => {
+                let index = Expr::new(
+                    ExprKind::Int(Magnitude::new(desc as u128), false),
+                    Ty::ERROR,
+                    span,
+                );
+                Some(Expr::new(
+                    ExprKind::Intrinsic {
+                        name: "structuralEq".into(),
+                        targs: Vec::new(),
+                        args: vec![x, y, index],
+                    },
+                    self.bool_ty,
+                    span,
+                ))
+            }
             (Op::Ordered, _) => {
                 let order = self.order?;
                 let con = order.head()?;

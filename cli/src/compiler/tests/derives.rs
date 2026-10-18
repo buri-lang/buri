@@ -153,7 +153,7 @@ fn sexp(p: &Program, e: &Expr) -> String {
                 .iter()
                 .map(|part| match part {
                     TemplatePart::Text(t) => format!("{t:?}"),
-                    TemplatePart::Hole(h) => sexp(p, h),
+                    TemplatePart::Hole(h) | TemplatePart::Shown { value: h, .. } => sexp(p, h),
                 })
                 .collect();
             format!("cat[{}]", ps.join(" "))
@@ -181,7 +181,6 @@ fn sexp(p: &Program, e: &Expr) -> String {
 fn kind_name(k: &ExprKind) -> &'static str {
     match k {
         ExprKind::CallValue { .. } => "callvalue",
-        ExprKind::StructuralEq { .. } => "structuraleq",
         ExprKind::CtxGet { .. } => "ctxget",
         ExprKind::CtxLit { .. } => "ctxlit",
         ExprKind::Lambda { .. } => "lambda",
@@ -217,9 +216,6 @@ fn remaining(program: &Program) -> Vec<String> {
                 if Op::all().into_iter().any(|o| o.intrinsic() == name) {
                     out.push(name.clone());
                 }
-            }
-            if matches!(e.kind, ExprKind::StructuralEq { .. }) {
-                out.push("StructuralEq".into());
             }
         });
     }

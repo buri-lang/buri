@@ -1047,7 +1047,9 @@ pub(crate) struct Fn2 {
     pub blk: Vec<u64>,
     pub frame: FrameSig,
     pub scratch: u32,
-    /// CPS register assignment, when the level has one.
+    /// Where a value lives other than its frame slot: the CPS register the
+    /// level assigned it, or [`Loc::Imm`] for a `Const` whose every use is an
+    /// immediate operand, so that it is never materialised at all.
     pub reg: Vec<Option<Loc>>,
     /// For a value promoted across block boundaries: whether its frame slot has
     /// to be kept in step with its register, because something that cannot read
@@ -1063,9 +1065,6 @@ pub(crate) struct Fn2 {
     /// The literal a value holds, when it is an `Inst::Const` a stencil can
     /// take as an immediate.
     pub constants: Vec<Option<u64>>,
-    /// Values whose every use is an immediate operand: the `Const` that
-    /// defines them is never materialised into a frame slot at all.
-    pub folded: Vec<bool>,
     /// How many times each value is read, anywhere in the function.
     pub uses: Vec<u32>,
 }
@@ -1348,7 +1347,7 @@ impl<'a> Jit<'a> {
                     self.promote(code, &mut st.reg, &mut st.wt, &mut st.cross, &mut st.region);
                 self.regalloc(code, &mut st.reg, taken, &st.uses, &opnd);
                 self.bufs.opnd = opnd;
-                self.constants(code, &st.uses, &mut st.constants, &mut st.folded);
+                self.constants(code, &st.uses, &mut st.constants, &mut st.reg);
                 st.blk = table(&mut st.blk, code.blocks().len(), 0);
                 st.cur = 0;
                 let base = self.fixups.len();
@@ -1398,7 +1397,6 @@ impl<'a> Jit<'a> {
                     region: Vec::new(),
                     cur: 0,
                     constants: Vec::new(),
-                    folded: Vec::new(),
                     uses: Vec::new(),
                 };
                 let base = self.fixups.len();
@@ -3228,6 +3226,9 @@ impl<'a> Jit<'a> {
 
     /// Which `Inst::Const`s never need a frame slot, because every use of them
     /// is an immediate operand of a stencil that has an immediate variant.
+    /// Each lives at [`Loc::Imm`] in `reg`. The register passes give a
+    /// register only to a value an instruction computes, so none of these
+    /// has one already.
     ///
     /// [`zero_divisor`] is the one use that is *not* eligible however good the
     /// stencil is.
@@ -3236,10 +3237,9 @@ impl<'a> Jit<'a> {
         code: &ir::Code,
         total: &[u32],
         constants: &mut Vec<Option<u64>>,
-        folded: &mut Vec<bool>,
+        reg: &mut [Option<Loc>],
     ) {
         *constants = table(constants, code.values(), None);
-        *folded = table(folded, code.values(), false);
         for block in code.blocks() {
             for i in &block.insts {
                 if let ir::Inst::Const { dest, value } = i {
@@ -3264,9 +3264,11 @@ impl<'a> Jit<'a> {
                 }
             }
         }
-        for (v, f) in folded.iter_mut().enumerate() {
+        for (v, r) in reg.iter_mut().enumerate() {
             let seen = ent(total, v, 0);
-            *f = ent(constants, v, None).is_some() && seen > 0 && seen == ent(&imm, v, 0);
+            if ent(constants, v, None).is_some() && seen > 0 && seen == ent(&imm, v, 0) {
+                *r = Some(Loc::Imm);
+            }
         }
         self.bufs.imm = imm;
     }
@@ -3284,7 +3286,7 @@ impl<'a> Jit<'a> {
         // Every `Const` whose uses are all immediates disappears.
         for (i, skip) in block.insts.iter().zip(p.skip.iter_mut()) {
             if let ir::Inst::Const { dest, .. } = i {
-                if ent(&st.folded, dest.index(), false) {
+                if matches!(st.home(*dest), Loc::Imm) {
                     *skip = true;
                 }
             }
@@ -3315,11 +3317,7 @@ impl<'a> Jit<'a> {
                     );
                     if uses(st, *cond) == 1 && (k + 1..n).all(|j| ent(&p.skip, j, false)) {
                         let a = st.loc(*lhs).tag();
-                        let b = if ent(&st.folded, rhs.index(), false) {
-                            "i".into()
-                        } else {
-                            st.loc(*rhs).tag()
-                        };
+                        let b = st.loc(*rhs).tag();
                         if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
                             let key = key!["brcmp/", op.name(), "/", tag, "/", a, b];
                             // `sources` builds every operand shape of every
@@ -3426,10 +3424,9 @@ impl Jit<'_> {
         let frame = |v: ir::ValueId| matches!(st.home(v), Loc::Frame);
         if !matches!(prim, Prim::I64 | Prim::U64)
             || t.args.get(k) != Some(sum)
-            || !ent(&st.folded, by.index(), false)
+            || !matches!(st.home(*by), Loc::Imm)
             || !frame(*from)
             || !frame(*rhs)
-            || ent(&st.folded, rhs.index(), true)
         {
             return None;
         }
