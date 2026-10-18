@@ -1027,6 +1027,7 @@ impl<'a> Checker<'a> {
                     exported: d.exported,
                     span: d.name.span,
                     item: index,
+                    value: d.value,
                 });
                 self.declare(module, d.name, Sym::Const(id), d.exported);
             }
@@ -1047,6 +1048,8 @@ impl<'a> Checker<'a> {
                     checked: None,
                     span: d.name.span,
                     item: index,
+                    body: d.body,
+                    decl_span: d.span,
                 });
                 self.declare(module, d.name, Sym::Context(id), d.exported);
             }

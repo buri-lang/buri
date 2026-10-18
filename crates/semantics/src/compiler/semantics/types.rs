@@ -710,6 +710,10 @@ pub struct ContextDeclInfo {
     pub span: Span,
     /// The declaration's index among `module`'s items.
     pub item: u32,
+    /// The declaration's bindings, in `module`'s tree.
+    pub body: crate::parsing::flat::CtxBodyId,
+    /// The whole declaration, where a body that is not a context is reported.
+    pub decl_span: Span,
 }
 
 /// A `context` declaration once checked.
@@ -733,6 +737,8 @@ pub struct ConstInfo {
     pub span: Span,
     /// The `let`'s index among `module`'s items.
     pub item: u32,
+    /// The `let`'s value, in `module`'s tree.
+    pub value: crate::parsing::flat::ExprId,
 }
 
 /// The generated type of a context value: exactly the effects bound, and

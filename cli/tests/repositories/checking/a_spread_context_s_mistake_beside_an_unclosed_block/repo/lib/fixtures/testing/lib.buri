@@ -1,0 +1,14 @@
+// A context that spreads `Base`, whose last binding is a block that is never
+// closed. What is inside that block is not reported, but `Base` is another
+// file, and its mistake is.
+from "//lib/fixtures/testing/base.buri" import { Base };
+from "platform/effect" import { Stdout };
+
+export context Fixture {
+    ..Base(),
+    Stdout: {
+        // Everything from the `{` above to the end of the file is the block,
+        // as far as the parser can tell, and `Base`'s mistake sits at the same
+        // offsets in its own file.
+        let unused = 1;
+        unused

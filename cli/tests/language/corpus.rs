@@ -324,6 +324,11 @@ const UNFORMATTED_BY_DESIGN: &[(&str, &str)] = &[
         "a vendored file laid out wrongly on purpose, so the case shows `buri format` leaves \
          everything under `node_modules` as written",
     ),
+    (
+        "cli/tests/repositories/checking/a_spread_context_s_mistake_beside_an_unclosed_block/repo/lib/fixtures/testing",
+        "a file that ends inside a block never closed, which is the case's subject, beside \
+         the file whose mistake sits at the same offsets",
+    ),
 ];
 
 /// Where a `.buri` file is checked but must not be **rewritten** here, and how
