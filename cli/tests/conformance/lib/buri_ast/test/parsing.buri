@@ -326,19 +326,76 @@ test "a unicode escape that names no scalar value is refused, in the compiler's 
     same(ctx, "let S: Str = \"\\u{e000}\\u{10ffff}\\\\u{D800}\";\n");
 }
 
-test "an invalid unicode escape's error carries the literal's span" {
+test "an unknown escape is refused, in the compiler's words" {
     let ctx = context {
         Allocator: alloc(),
     };
-    match (ast.parse(ctx, "probe.buri", "let C: Char = '\\u{D800}';\n")) {
-        .Ok(_tree) => assert.isTrue(false),
-        .Err(errors) => {
-            assert.equal(assert.some(errors.first()).span, ast.Span {
-                start: 14,
-                end: 24,
-            });
-        },
-    }
+    assert.equal(errorsOf(ctx, "let S: Str = \"a\\qb\";\n"), ["unknown escape `\\q`"]);
+    assert.equal(errorsOf(ctx, "let C: Char = '\\a';\n"), ["unknown escape `\\a`"]);
+    assert.equal(errorsOf(ctx, "fn f(c: Char): Str {\n    \"\\x\${c}\\y\"\n}\n"), [
+        "unknown escape `\\x`",
+        "unknown escape `\\y`",
+    ]);
+    // Every escape the compiler knows still reads.
+    assert.equal(errorsOf(ctx, "let S: Str = \"\\n\\r\\t\\0\\\\\\\"\\'\\$\";\n"), []);
+}
+
+test "a unicode escape with no brace is refused, in the compiler's words" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(errorsOf(ctx, "let S: Str = \"\\u0041\";\n"), [
+        "`\\u` must be followed by `{`, as in `\\u{1F600}`",
+    ]);
+    assert.equal(errorsOf(ctx, "let C: Char = '\\u';\n"), [
+        "`\\u` must be followed by `{`, as in `\\u{1F600}`",
+    ]);
+}
+
+test "a unicode escape whose brace never closes is refused, in the compiler's words" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(errorsOf(ctx, "let S: Str = \"\\u{41\";\n"), [
+        "unterminated `\\u{...}` escape",
+    ]);
+    // The digits stop at the first character that is not one.
+    assert.equal(errorsOf(ctx, "let S: Str = \"\\u{4G}\";\n"), [
+        "unterminated `\\u{...}` escape",
+    ]);
+    // A character literal still closes at its quote.
+    assert.equal(errorsOf(ctx, "let C: Char = '\\u{41';\nlet D: Int = 1;\n"), [
+        "unterminated `\\u{...}` escape",
+    ]);
+    assert.equal(errorsOf(ctx, "fn f(c: Char): Str {\n    \"\\u{41\${c}\"\n}\n"), [
+        "unterminated `\\u{...}` escape",
+    ]);
+}
+
+test "an escape's error carries the escape's own span" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        "let C: Char = '\\u{D800}';\n",
+        "let S: Str = \"ab\\q\";\n",
+        "let S: Str = \"é\\u{41\";\n",
+        "let S: Str = \"😀\\u0041\";\n",
+    ];
+    assert.equal(
+        sources.mapCtx(ctx, fn(c, source) => {
+            match (ast.parse(c, "probe.buri", source)) {
+                .Ok(_tree) => [],
+                .Err(errors) => errors.map(c, fn(e) => e.span),
+            }
+        }),
+        [
+            [ast.Span { start: 15, end: 23 }],
+            [ast.Span { start: 16, end: 18 }],
+            [ast.Span { start: 16, end: 21 }],
+            [ast.Span { start: 18, end: 20 }],
+        ],
+    );
 }
 
 test "an error carries the span of the token it is about" {
