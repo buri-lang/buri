@@ -4041,6 +4041,15 @@ pub fn check_platform(
 
 /// The outputs a `build` invocation should produce for one binary. A library
 /// or a tool has none.
+/// A binary's outputs, first and the rest: those it declares, or the host's
+/// own JavaScript output where it declares none.
+pub fn outputs_of(bin: &crate::build::buildfile::Binary) -> (Output, Vec<Output>) {
+    match bin.outputs.split_first() {
+        Some((first, rest)) => (first.clone(), rest.to_vec()),
+        None => (Output::js(Span::NONE), Vec::new()),
+    }
+}
+
 pub fn selected_outputs(session: &Session, target: TargetId, flags: &Flags) -> Vec<Output> {
     let binary = session.workspace.package(target.package).build.binary();
     let outputs: Vec<Output> = binary

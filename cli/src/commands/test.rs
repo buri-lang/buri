@@ -425,7 +425,7 @@ fn one_pass(
         .filter_map(|&t| tested(&session, t).map(|suite| (t, suite)))
         .collect();
     let keys = verdict_keys(&session, &with_tests, &args.flags);
-    let mut slots: Vec<Slot> = Vec::new();
+    let mut slots = Slots::default();
     let mut plans: Vec<Plan> = Vec::new();
     let mut graph = None;
     for ((target, suite), keys) in with_tests.iter().zip(&keys) {
@@ -644,37 +644,40 @@ fn tested(session: &Session, target: TargetId) -> Option<Suite> {
 /// The error stream is read on a thread of its own, so a process that fills
 /// the pipe never waits on the caller.
 fn pipes(
-    child: &mut std::process::Child,
+    piped: crate::build::spawn::Piped,
 ) -> (
+    std::process::Child,
     Option<std::process::ChildStdin>,
     std::thread::JoinHandle<String>,
     std::process::ChildStdout,
 ) {
     use std::io::Read as _;
-    let input = child.stdin.take();
-    let mut errors = child
-        .stderr
-        .take()
-        .or_ice("a stream the runner piped is there to take");
+    let mut errors = piped.stderr;
     let reading_err = std::thread::spawn(move || {
         let mut text = String::new();
         let _ = errors.read_to_string(&mut text);
         text
     });
-    let output = child
-        .stdout
-        .take()
-        .or_ice("a stream the runner piped is there to take");
-    (input, reading_err, output)
+    (piped.child, Some(piped.stdin), reading_err, piped.stdout)
 }
 
-/// What a slot index's lookup claims: every index was minted by the pass's own
-/// slot list.
-const SLOT: &str = "every slot index names a slot of this pass";
+/// A slot of this pass. Only the pass's [`Slots`] mints one, so every lookup
+/// finds its slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct SlotId(usize);
 
-fn slot_mut(slots: &mut [Slot], i: usize) -> &mut Slot {
-    slots.get_mut(i).or_ice(SLOT)
+impl crate::compiler::semantics::layered::DenseId for SlotId {
+    fn from_index(i: usize, _: crate::compiler::semantics::layered::Mint) -> Self {
+        SlotId(i)
+    }
+
+    fn to_index(self) -> usize {
+        self.0
+    }
 }
+
+/// Every slot of one pass, by its id.
+type Slots = Dense<SlotId, Slot>;
 
 /// One run of one suite on one platform: what the report is written in.
 struct Slot {
@@ -705,7 +708,7 @@ struct Slot {
 struct Plan {
     target: TargetId,
     refused: Diagnostics,
-    slots: Vec<usize>,
+    slots: Vec<SlotId>,
 }
 
 /// The platforms a suite runs on, and whether anyone asked for each.
@@ -788,7 +791,7 @@ fn plan(
     args: &arguments::Args,
     keys: &[(Platform, crate::build::cache::ActionKey)],
     graph: &mut Option<crate::build::cache::ActionKey>,
-    slots: &mut Vec<Slot>,
+    slots: &mut Slots,
 ) -> Plan {
     let mut refused = Diagnostics::new();
     let declared: Vec<Platform> = session.workspace.suite_platforms(target, suite);
@@ -893,8 +896,7 @@ fn plan(
             }
             build = Some(at);
         }
-        mine.push(slots.len());
-        slots.push(Slot {
+        let id = slots.push(Slot {
             target,
             suite: Suite::clone(suite),
             platform,
@@ -908,6 +910,7 @@ fn plan(
             queued: false,
             awaiting_build: false,
         });
+        mine.push(id);
     }
     Plan {
         target,
@@ -994,7 +997,7 @@ fn drive(
     args: &arguments::Args,
     pre: &mut Prepass,
     plans: &[Plan],
-    slots: &mut [Slot],
+    slots: &mut Slots,
     queue: &Queue,
     done: &std::sync::mpsc::Receiver<Option<Done>>,
     out: &mut Out,
@@ -1017,16 +1020,15 @@ fn drive(
     // the next pass will start again.
     let _restored = rerun(session, slots, queue, whole);
     batch(session, args, slots, queue, &mut tally.shared_build);
-    for i in 0..slots.len() {
+    for i in slots.ids() {
         solo(session, args, pre, slots, i, queue, &mut tally.shared_build);
     }
     let mut next = 0;
     loop {
         while let Some(plan) = plans.get(next) {
             let ready = plan.slots.iter().all(|&i| {
-                slots
-                    .get(i)
-                    .is_some_and(|s| s.answer.is_some() && !s.awaiting_build)
+                let s = slots.get(i);
+                s.answer.is_some() && !s.awaiting_build
             });
             if !ready {
                 break;
@@ -1051,7 +1053,7 @@ fn drive(
                 notes,
                 built,
             } => {
-                let s = slot_mut(slots, slot);
+                let s = slots.get_mut(slot);
                 // A suite that was built was planned with a build key.
                 if let (Some(built), Some(at)) = (built, &s.build) {
                     remember(session, at, &s.key, &built);
@@ -1063,7 +1065,7 @@ fn drive(
             Done::Progress => {}
             Done::Shared { ns } => add_shared(&mut tally.shared_build, ns),
             Done::Checked { target, analysis } => pre.analyses.push((target, *analysis)),
-            Done::Linking { slot } => slot_mut(slots, slot).awaiting_build = true,
+            Done::Linking { slot } => slots.get_mut(slot).awaiting_build = true,
             // A batch whose type check failed: again without the members whose
             // code failed it, and those alone, where a diagnostic names them.
             Done::Broken {
@@ -1072,17 +1074,17 @@ fn drive(
                 diagnostics,
             } => {
                 let broken = broken_members(session, &members, &diagnostics);
-                let kept: Vec<(TargetId, usize)> = members
+                let kept: Vec<(TargetId, SlotId)> = members
                     .iter()
                     .copied()
                     .zip(member_slots.iter().copied())
                     .filter(|(m, _)| !broken.is_empty() && !broken.contains(m))
                     .collect();
                 for &i in &member_slots {
-                    slot_mut(slots, i).queued = false;
+                    slots.get_mut(i).queued = false;
                 }
                 if kept.len() >= 2 {
-                    let (members, member_slots): (Vec<TargetId>, Vec<usize>) =
+                    let (members, member_slots): (Vec<TargetId>, Vec<SlotId>) =
                         kept.into_iter().unzip();
                     queue_batch(
                         session,
@@ -1097,10 +1099,15 @@ fn drive(
                     solo(session, args, pre, slots, i, queue, &mut tally.shared_build);
                 }
             }
-            Done::Built { slot, explain } => {
-                let s = slot_mut(slots, slot);
-                s.explain.push_str(&explain);
-                s.awaiting_build = false;
+            Done::Built {
+                slots: waiting,
+                explain,
+            } => {
+                for i in waiting {
+                    let s = slots.get_mut(i);
+                    s.explain.push_str(&explain);
+                    s.awaiting_build = false;
+                }
             }
             // A batch that could not be trusted, or a member whose process
             // ended badly: each goes back to run alone, where a diagnostic
@@ -1110,7 +1117,7 @@ fn drive(
                 mut explain,
             } => {
                 for &i in &abandoned {
-                    let s = slot_mut(slots, i);
+                    let s = slots.get_mut(i);
                     // The first member says why for the batch.
                     s.explain.push_str(&std::mem::take(&mut explain));
                     s.queued = false;
@@ -1127,7 +1134,7 @@ fn drive(
 fn report(
     session: &Session,
     plan: &Plan,
-    slots: &mut [Slot],
+    slots: &mut Slots,
     flags: &arguments::Flags,
     tally: &mut Tally,
     out: &mut Out,
@@ -1138,7 +1145,7 @@ fn report(
     // Whether every refusal came from a program that had been built.
     let mut ran_failed = diagnostics.items.is_empty();
     for &i in &plan.slots {
-        let slot = slot_mut(slots, i);
+        let slot = slots.get_mut(i);
         print!("{}", slot.explain);
         eprint!("{}", slot.notes);
         match slot.answer.take() {
@@ -1300,7 +1307,7 @@ struct Shared {
     /// suites never write one directory's goldens at once, and a suite that
     /// paints runs one process at a time ([`queue_members`]), so a suite
     /// never claims a directory it holds.
-    painting: std::sync::Mutex<Vec<(String, usize)>>,
+    painting: std::sync::Mutex<Vec<(String, SlotId)>>,
     /// The graph a front end is checked against.
     workspace: std::sync::Arc<crate::build::workspace::Workspace>,
     /// The coverage run, under `--coverage`.
@@ -1309,7 +1316,7 @@ struct Shared {
 
 impl Shared {
     /// Takes `dir` for the suite in `slot`, unless another suite has it.
-    fn claim(&self, dir: &str, slot: usize) -> bool {
+    fn claim(&self, dir: &str, slot: SlotId) -> bool {
         let mut painters = self
             .painting
             .lock()
@@ -1322,13 +1329,13 @@ impl Shared {
     }
 
     /// Waits until [`Shared::claim`] succeeds. For a suite whose job can't be put back.
-    fn claim_waiting(&self, dir: &str, slot: usize) {
+    fn claim_waiting(&self, dir: &str, slot: SlotId) {
         while !self.claim(dir, slot) {
             std::thread::sleep(Duration::from_millis(20));
         }
     }
 
-    fn release(&self, dir: &str, slot: usize) {
+    fn release(&self, dir: &str, slot: SlotId) {
         self.painting
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -1361,24 +1368,25 @@ enum Done {
     /// A slot's answer. `explain` and `notes` are what the job printed, and
     /// `built` is what the next run may start from instead of building.
     Answer {
-        slot: usize,
+        slot: SlotId,
         answer: Result<Ran, Diagnostics>,
         explain: String,
         notes: String,
         built: Option<Built>,
     },
-    /// A batch's binary is linked and its members are queued. `slot` is the
-    /// first member, whose report carries the link's `--explain` lines.
-    Built { slot: usize, explain: String },
+    /// A binary is linked and its members are queued. `slots` is the member
+    /// told [`Done::Linking`], whose report carries the link's `--explain`
+    /// lines.
+    Built { slots: Vec<SlotId>, explain: String },
     /// A batch's binary is about to be linked, and `slot` is its first member:
     /// that member waits for [`Done::Built`] before it is reported.
-    Linking { slot: usize },
+    Linking { slot: SlotId },
     /// These slots go back to run alone.
-    Abandoned { slots: Vec<usize>, explain: String },
+    Abandoned { slots: Vec<SlotId>, explain: String },
     /// A batch whose type check reported errors.
     Broken {
         members: Vec<TargetId>,
-        member_slots: Vec<usize>,
+        member_slots: Vec<SlotId>,
         diagnostics: Diagnostics,
     },
     /// A suite's analysis, for the lint ([`Prepass`]).
@@ -1476,12 +1484,12 @@ fn solo(
     session: &mut Session,
     args: &arguments::Args,
     pre: &mut Prepass,
-    slots: &mut [Slot],
-    i: usize,
+    slots: &mut Slots,
+    i: SlotId,
     queue: &Queue,
     shared_build: &mut Option<u64>,
 ) {
-    let slot = slot_mut(slots, i);
+    let slot = slots.get_mut(i);
     if slot.answer.is_some() || slot.queued {
         return;
     }
@@ -1554,7 +1562,7 @@ struct BundlePath {
 /// One suite, loaded, and everything about it a worker would otherwise ask the
 /// session.
 struct FrontJob {
-    slot: usize,
+    slot: SlotId,
     target: TargetId,
     platform: Platform,
     chosen: Chosen,
@@ -1748,7 +1756,7 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
 
 /// One suite's own native binary: link it, then run every block.
 struct SoloJob {
-    slot: usize,
+    slot: SlotId,
     label: String,
     private: std::path::PathBuf,
     output: crate::build::buildfile::Output,
@@ -1906,7 +1914,10 @@ fn run_solo(job: SoloJob, held: Held, queue: &Queue, tell: &Tell, shared: &Share
         queue,
         jobs_of(&shared.flags),
     );
-    Done::Built { slot, explain }
+    Done::Built {
+        slots: vec![slot],
+        explain,
+    }
 }
 
 /// Runs every block of a suite in a binary of its own, one process after
@@ -2025,7 +2036,7 @@ fn snapshot_env(dir: &str, update: bool, sheet: Option<String>) -> Vec<(&'static
 
 /// One suite's JavaScript bundle: emit it, write it, run it.
 struct JsJob {
-    slot: usize,
+    slot: SlotId,
     program: monomorphize::Program,
     tables: std::sync::Arc<crate::compiler::semantics::types::Tables>,
     key: crate::build::cache::ActionKey,
@@ -2122,7 +2133,7 @@ impl JsOrigin {
 
 /// One suite's bundle, to be run.
 struct JsSuite {
-    slot: usize,
+    slot: SlotId,
     origin: JsOrigin,
     skipped: Skipped,
     /// The suite's tests, in the bundle's order.
@@ -2337,7 +2348,6 @@ fn run_js_member(pulled: std::sync::Arc<JsPulled>, shared: &Shared) -> Done {
 /// before its array is: the suite did not run.
 fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
     use std::io::BufRead as _;
-    use std::process::Stdio;
     let _phase = crate::profile::enter(crate::profile::Phase::Run);
     let path = &pulled.suite.run.path.file;
     let Some(mut cmd) = crate::build::spawn::command(runtime) else {
@@ -2350,14 +2360,10 @@ fn run_js_pulled(runtime: &str, pulled: &JsPulled) -> Result<(), Diagnostics> {
             cmd.env(name, value);
         }
     }
-    let started = crate::build::spawn::start_runner(
-        cmd.stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped()),
-    );
-    let mut child = started.map_err(|e| cannot_run(&e.to_string()))?;
+    let started = crate::build::spawn::start_piped_runner(&mut cmd);
+    let piped = started.map_err(|e| cannot_run(&e.to_string()))?;
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
-    let (mut input, reading_err, output) = pipes(&mut child);
+    let (mut child, mut input, reading_err, output) = pipes(piped);
     let mut asked = false;
     let mut held: Option<usize> = None;
     for line in std::io::BufReader::new(output)
@@ -3362,7 +3368,7 @@ fn recall(
 /// over a binary kept there ([`actions::release_kept_runner`]).
 fn rerun(
     session: &Session,
-    slots: &mut [Slot],
+    slots: &mut Slots,
     queue: &Queue,
     whole: bool,
 ) -> Vec<std::sync::Arc<actions::Claim>> {
@@ -3373,7 +3379,7 @@ fn rerun(
         TargetId,
         crate::build::buildfile::Output,
     )> = Vec::new();
-    for (i, slot) in slots.iter_mut().enumerate() {
+    for (i, slot) in slots.entries_mut() {
         // Nothing is queued yet: this is the pass's first step ([`drive`]).
         if slot.answer.is_some() {
             continue;
@@ -3567,7 +3573,7 @@ fn serve(job: ServedJob, queue: &Queue, tell: &Tell, shared: &Shared) -> Done {
 
 /// A bundle an earlier run emitted, and the suite to run in it.
 struct BundledJob {
-    slot: usize,
+    slot: SlotId,
     bundled: Bundled,
     run: JsRun,
 }
@@ -4180,7 +4186,7 @@ fn recorded<'b>(
 fn batch(
     session: &mut Session,
     args: &arguments::Args,
-    slots: &mut [Slot],
+    slots: &mut Slots,
     queue: &Queue,
     shared_build: &mut Option<u64>,
 ) {
@@ -4196,9 +4202,8 @@ fn batch(
     }
     // Policy was checked when the slot was planned, so every suite here may be
     // compiled into a shared artifact as far as its own closure goes.
-    let fresh: Vec<(TargetId, usize)> = slots
-        .iter()
-        .enumerate()
+    let fresh: Vec<(TargetId, SlotId)> = slots
+        .entries()
         .filter(|(_, s)| {
             s.answer.is_none()
                 && !s.queued
@@ -4217,7 +4222,7 @@ fn batch(
         if members.len() < 2 {
             continue;
         }
-        let member_slots: Vec<usize> = members
+        let member_slots: Vec<SlotId> = members
             .iter()
             .filter_map(|m| fresh.iter().find(|(t, _)| t == m).map(|(_, i)| *i))
             .collect();
@@ -4412,8 +4417,8 @@ fn left_out(
 fn queue_batch(
     session: &mut Session,
     members: &[TargetId],
-    member_slots: &[usize],
-    slots: &mut [Slot],
+    member_slots: &[SlotId],
+    slots: &mut Slots,
     queue: &Queue,
     shared_build: &mut Option<u64>,
 ) {
@@ -4441,7 +4446,7 @@ fn queue_batch(
     // some other reason cannot be mistaken for a suite's.
     let mut owners = Vec::new();
     for (n, (&target, &i)) in members.iter().zip(member_slots).enumerate() {
-        let slot = slots.get(i).or_ice(SLOT);
+        let slot = slots.get(i);
         note_reads(session, target, &slot.key, &loading, &imports);
         let modules = test_modules_of(session, target, &slot.suite);
         owners.extend(modules.into_iter().map(|m| (m, n)));
@@ -4449,12 +4454,12 @@ fn queue_batch(
     add_shared(shared_build, since(began));
     let platform = crate::compiler::driver::host_native_platform();
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-    let key_of = |i: usize| slots.get(i).map(|s| s.key.clone());
+    let key_of = |i: SlotId| slots.get(i).key.clone();
     let info = BatchInfo {
         members: members.to_vec(),
         member_slots: member_slots.to_vec(),
         owners: owners.into_iter().collect(),
-        keys: member_slots.iter().filter_map(|&i| key_of(i)).collect(),
+        keys: member_slots.iter().map(|&i| key_of(i)).collect(),
         labels: members
             .iter()
             .map(|&t| session.workspace.label(t))
@@ -4468,7 +4473,7 @@ fn queue_batch(
         output,
     };
     for &i in member_slots {
-        slot_mut(slots, i).queued = true;
+        slots.get_mut(i).queued = true;
     }
     let bytes = build_bytes(loading.source_bytes(&session.map));
     let job = BatchJob {
@@ -4483,7 +4488,7 @@ fn queue_batch(
 /// What every binary of one batch shares, each member's at its position.
 struct BatchInfo {
     members: Vec<TargetId>,
-    member_slots: Vec<usize>,
+    member_slots: Vec<SlotId>,
     /// Each test source's module and the member that owns it.
     owners: Vec<(String, usize)>,
     keys: Vec<crate::build::cache::ActionKey>,
@@ -4507,8 +4512,8 @@ impl BatchInfo {
             .or_ice("every test belongs to a member")
     }
 
-    fn slot_of(&self, member: usize) -> usize {
-        self.member_slots.get(member).copied().unwrap_or(usize::MAX)
+    fn slot_of(&self, member: usize) -> Option<SlotId> {
+        self.member_slots.get(member).copied()
     }
 }
 
@@ -4691,7 +4696,11 @@ fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -
             ns: since(step.began),
         });
         Done::Abandoned {
-            slots: group.members.iter().map(|&i| info.slot_of(i)).collect(),
+            slots: group
+                .members
+                .iter()
+                .filter_map(|&i| info.slot_of(i))
+                .collect(),
             explain: String::new(),
         }
     };
@@ -4737,24 +4746,26 @@ fn submit_group(
     shared: &Shared,
 ) -> Done {
     let skipped_of = |i: usize| skipped.get(&i).cloned().unwrap_or_default();
-    let nothing = |i: usize, build| Done::Answer {
-        slot: info.slot_of(i),
-        answer: Ok(Ran {
-            cases: Vec::new(),
-            skipped: skipped_of(i),
-            roots: Vec::new(),
-            build: Some(build),
-        }),
-        explain: String::new(),
-        notes: String::new(),
-        built: Some(Built::Nothing {
-            skipped: skipped_of(i),
-        }),
+    let nothing = |i: usize, build| {
+        Some(Done::Answer {
+            slot: info.slot_of(i)?,
+            answer: Ok(Ran {
+                cases: Vec::new(),
+                skipped: skipped_of(i),
+                roots: Vec::new(),
+                build: Some(build),
+            }),
+            explain: String::new(),
+            notes: String::new(),
+            built: Some(Built::Nothing {
+                skipped: skipped_of(i),
+            }),
+        })
     };
     if selected.is_empty() {
         let build = settle(step.suites, since(step.began), tell);
-        for &i in &group.members {
-            tell.tell(nothing(i, build));
+        for answer in group.members.iter().filter_map(|&i| nothing(i, build)) {
+            tell.tell(answer);
         }
         return Done::Progress;
     }
@@ -4773,7 +4784,7 @@ fn submit_group(
             Some((
                 i,
                 MemberSpec {
-                    slot: info.slot_of(i),
+                    slot: info.slot_of(i)?,
                     key: info.keys.get(i)?.clone(),
                     ranges: ranges_of(&mine),
                     tests: mine
@@ -4807,8 +4818,8 @@ fn submit_group(
     // Another member has tests, so the build served it too.
     let (members, empty): (Vec<_>, Vec<_>) =
         members.into_iter().partition(|(_, m)| !m.ranges.is_empty());
-    for (i, _) in &empty {
-        tell.tell(nothing(*i, Build::Shared));
+    for answer in empty.iter().filter_map(|(i, _)| nothing(*i, Build::Shared)) {
+        tell.tell(answer);
     }
     let members: Vec<MemberSpec> = members.into_iter().map(|(_, m)| m).collect();
     // Told before the link queues anything, so `drive` knows the first member
@@ -4866,7 +4877,7 @@ struct GroupJob {
 
 /// One member of a group, as its own process will run it.
 struct MemberSpec {
-    slot: usize,
+    slot: SlotId,
     key: crate::build::cache::ActionKey,
     /// The member's blocks, in the binary's numbering.
     ranges: Vec<(usize, usize)>,
@@ -4941,7 +4952,8 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, tell: &Tell, shared: &S
     let build = settle(step.suites, since(step.began), tell);
     let sheet = std::sync::Arc::new(sheet);
     let seeds = std::sync::Arc::new(seeds);
-    let first = members.first().map_or(usize::MAX, |m| m.slot);
+    // The member `run_group` told it was linking.
+    let first: Vec<SlotId> = members.iter().take(1).map(|m| m.slot).collect();
     let at = ran_at(&shared.root, &binary);
     let members = members
         .into_iter()
@@ -4953,7 +4965,7 @@ fn build_group(job: GroupJob, held: Held, queue: &Queue, tell: &Tell, shared: &S
         .collect();
     queue_members(binary, written, members, queue, jobs_of(&shared.flags));
     Done::Built {
-        slot: first,
+        slots: first,
         explain,
     }
 }
@@ -5332,7 +5344,6 @@ fn run_pulled(
     snapshots: &[(&str, String)],
 ) -> Pulled {
     use std::io::BufRead as _;
-    use std::process::Stdio;
     let _phase = crate::profile::enter(crate::profile::Phase::Run);
     let Some(mut cmd) = test_process(program) else {
         return Pulled::Broken;
@@ -5347,16 +5358,12 @@ fn run_pulled(
             cmd.env(name, value);
         }
     }
-    let started = crate::build::spawn::start_runner(
-        cmd.stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped()),
-    );
-    let Ok(mut child) = started else {
+    let started = crate::build::spawn::start_piped_runner(&mut cmd);
+    let Ok(piped) = started else {
         return Pulled::Broken;
     };
     crate::build::counted::add(crate::build::counted::Count::TestProcesses);
-    let (mut input, reading_err, output) = pipes(&mut child);
+    let (mut child, mut input, reading_err, output) = pipes(piped);
     let mut verdicts: Vec<(usize, Block)> = Vec::new();
     let mut reached = false;
     let mut held: Option<usize> = None;

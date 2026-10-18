@@ -23,11 +23,10 @@ use crate::build::actions;
 use crate::build::buildfile::Output;
 use crate::build::session;
 use crate::build::session::Session;
-use crate::build::workspace::{RuleKind, TargetId};
+use crate::build::workspace::{Rule, RuleKind, TargetId};
 use crate::commands::arguments;
 use crate::commands::serve;
 use crate::commands::watch;
-use crate::diagnostics::Invariant as _;
 
 pub fn command_run(args: &arguments::Args) -> i32 {
     let (mut session, targets) =
@@ -35,22 +34,26 @@ pub fn command_run(args: &arguments::Args) -> i32 {
             Ok(both) => both,
             Err(c) => return c as i32,
         };
-    let binaries: Vec<_> = targets
+    // Each binary with its outputs, which it always has: one it declares no
+    // output for still builds for the host.
+    let binaries: Vec<(TargetId, (Output, Vec<Output>))> = targets
         .iter()
-        .copied()
-        .filter(|t| t.kind == RuleKind::Binary)
+        .filter_map(|&t| match session.workspace.rule(t) {
+            Rule::Binary(bin) => Some((t, actions::outputs_of(bin))),
+            Rule::Library(_) | Rule::Tool(_) => None,
+        })
         .collect();
-    let &[target] = binaries.as_slice() else {
+    let [(target, (first, rest))] = binaries.as_slice() else {
         eprintln!(
             "error: `buri run` takes exactly one binary, and this matched {}",
             binaries.len()
         );
         // With no argument the match is the whole repository, so the several it
         // found are the choice the user has to make; naming them is the fix.
-        if let Some(first) = binaries.first() {
+        if let Some((first, _)) = binaries.first() {
             let labels: Vec<String> = binaries
                 .iter()
-                .map(|&t| session.workspace.label(t))
+                .map(|&(t, _)| session.workspace.label(t))
                 .collect();
             eprintln!("  = matched: {}", labels.join(", "));
             eprintln!(
@@ -62,27 +65,26 @@ pub fn command_run(args: &arguments::Args) -> i32 {
         }
         return 2;
     };
-    let outputs = actions::selected_outputs(&session, target, &args.flags);
+    let target = *target;
+    let declared = std::iter::once(first).chain(rest);
+    // `--output` keeps the outputs it names, and can name none of them.
+    let (pick, others): (&Output, Vec<Output>) = match args.flags.output.as_deref() {
+        None => (first, rest.clone()),
+        Some(selector) => {
+            let mut picked = declared.clone().filter(|o| o.matches_selector(selector));
+            let Some(pick) = picked.next() else {
+                let names: Vec<String> = declared.map(Output::dir).collect();
+                let names: Vec<&str> = names.iter().map(String::as_str).collect();
+                return crate::commands::build::no_output_matches(selector, &names, &first.dir());
+            };
+            (pick, picked.cloned().collect())
+        }
+    };
+    let outputs: Vec<Output> = std::iter::once(pick.clone()).chain(others).collect();
     let Some(output) = choose(&outputs, &args.flags, &|o| actions::is_page(&session, o)) else {
         // `choose` takes any output that starts itself, so every one left is
         // an entry a `js` file calls: the platform's own host calls in.
-        let Some(hosted) = outputs.first() else {
-            // A binary that declares no output still builds for the host, so
-            // only `--output` can leave nothing.
-            let declared: Vec<String> =
-                actions::selected_outputs(&session, target, &arguments::Flags::default())
-                    .iter()
-                    .map(Output::dir)
-                    .collect();
-            let names: Vec<&str> = declared.iter().map(String::as_str).collect();
-            let example = names.first().copied().or_ice("a binary has an output");
-            let selector = args
-                .flags
-                .output
-                .as_deref()
-                .or_ice("only `--output` leaves no output");
-            return crate::commands::build::no_output_matches(selector, &names, example);
-        };
+        let hosted = pick;
         let custom = hosted
             .custom
             .as_ref()
