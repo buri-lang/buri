@@ -11,7 +11,7 @@ from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/signal" import { signal };
 from "ui/style" import * as style;
-from "ui/style" import { Shadow, State, Style };
+from "ui/style" import { Color, Shadow, State, Style };
 
 /// The variant a style is, as the source spells it: a show of its own.
 fn kind(s: Style): Str {
@@ -1030,6 +1030,38 @@ test "a colour known only at run time writes itself out" {
             .Background(late(ctx, style.token("brand", "ink").alpha(0.125))),
         ]),
         "e 0 class:bg-var;--buri-bg:color-mix(in srgb,var(--brand-ink) 12.5%,transparent)",
+    );
+}
+
+test "a colour known only at run time fades at run time" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [.BorderColor(late(ctx, Color.Rgb(1, 2, 3)).alpha(0.5))]),
+        "e 0 class:bc-var;--buri-bc:rgba(1,2,3,0.5)",
+    );
+    // A second fade replaces the first rather than compounding it.
+    assert.equal(
+        painted(ctx, [.BorderColor(late(ctx, Color.Rgba(1, 2, 3, 0.5)).alpha(0.25))]),
+        "e 0 class:bc-var;--buri-bc:rgba(1,2,3,0.25)",
+    );
+    assert.equal(
+        painted(ctx, [
+            .Background(late(ctx, style.token("brand", "ink").alpha(0.5)).alpha(0.25)),
+        ]),
+        "e 0 class:bg-var;--buri-bg:color-mix(in srgb,var(--brand-ink) 25%,transparent)",
+    );
+    // Neither has anything to fade.
+    assert.equal(
+        painted(ctx, [.Foreground(late(ctx, Color.Transparent).alpha(0.5))]),
+        "e 0 class:fg-var;--buri-fg:transparent",
+    );
+    assert.equal(
+        painted(ctx, [.CaretColor(late(ctx, Color.Inherit).alpha(0.5))]),
+        "e 0 class:caret-var;--buri-caret:inherit",
     );
 }
 

@@ -2067,6 +2067,16 @@ test "a socket server binds with every knob it set, whatever state its sockets h
         }),
     );
     assert.equal((plain.port, plain.handle), (0, 0));
+    // A server with no socket binds with its limits all the same.
+    let limited = assert.ok(
+        server.bind(ctx, server.Server {
+            port: 0,
+            onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+            requestLimit: .Some(5),
+            idleTimeout: .Some(time.milliseconds(20)),
+        }),
+    );
+    assert.equal((limited.port, limited.handle), (0, 6021));
 }
 
 test "two identities are the same only with the same certificate and key" {
