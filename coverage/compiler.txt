@@ -18,13 +18,13 @@ crates/docs                        246/246  100.00%           819/893   91.71%
 crates/hash                          18/18  100.00%           241/294   81.97%
 crates/js                         985/1018   96.76%         5297/5542   95.58%
 crates/llvm                        580/580  100.00%         7548/7722   97.75%
-crates/middle                    1841/1880   97.93%       14582/15012   97.14%
-crates/project                   1342/1356   98.97%         6230/6392   97.47%
-crates/semantics                 2183/2188   99.77%       13413/13723   97.74%
+crates/middle                    1841/1880   97.93%       14578/15008   97.13%
+crates/project                   1346/1360   98.97%         6233/6394   97.48%
+crates/semantics                 2173/2176   99.86%       13359/13670   97.72%
 crates/stdlib                        12/12  100.00%           125/149   83.89%
 crates/stencil                   1177/1198   98.25%         8312/8758   94.91%
-crates/syntax                    1194/1196   99.83%         6525/6683   97.64%
-total                          15052/15267   98.59%      96944/100053   96.89%
+crates/syntax                    1194/1196   99.83%         6516/6672   97.66%
+total                          15046/15259   98.60%       96880/99987   96.89%
 
 cli/src                           branches                      lines         
 build                            1694/1711   99.01%       10819/11127   97.23%
@@ -74,7 +74,6 @@ uncovered          branches           file
         3           301/304   99.01%  crates/js/src/compiler/backend/js/generate.rs
         3             29/32   90.62%  crates/middle/src/compiler/backend/intrinsic_keys.rs
         3             45/48   93.75%  crates/middle/src/compiler/middle/coverage/derived.rs
-        3           115/118   97.46%  crates/semantics/src/compiler/semantics/types.rs
         3           465/468   99.36%  crates/stencil/src/compiler/backend/stencil/jit.rs
         2             30/32   93.75%  cli/src/build/exe_identity.rs
         2             35/37   94.59%  cli/src/build/programs.rs
@@ -82,5 +81,6 @@ uncovered          branches           file
         2             82/84   97.62%  cli/src/documentation/layout.rs
         2             76/78   97.44%  cli/src/language_server/file_operations.rs
         2             68/70   97.14%  crates/js/src/compiler/backend/js/park.rs
-        2           238/240   99.17%  crates/semantics/src/compiler/semantics/inference.rs
+        2           114/116   98.28%  crates/semantics/src/compiler/semantics/types.rs
         2             38/40   95.00%  crates/stencil/src/compiler/backend/stencil/elf.rs
+        2             86/88   97.73%  crates/stencil/src/compiler/backend/stencil/glue.rs
