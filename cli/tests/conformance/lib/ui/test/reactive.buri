@@ -62,6 +62,52 @@ test "a button's reactive styles swap in place" {
     assert.isTrue(page.markup().contains("fw-bold"));
 }
 
+test "a button's label may vary, and its text follows it" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let named = signal(ctx, "Save");
+    let page = render(
+        ctx,
+        ui.button({ label: .Cell(named), styles: [], onPress: .Some(fn(_c) => {}) }),
+    );
+    assert.equal(page.text(), "Save");
+    let _ = named.set(ctx, "Saved");
+    assert.equal(page.text(), "Saved");
+}
+
+test "a toggle's reactive styles keep its checked state, and the last of a property wins" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let on = signal(ctx, true);
+    let wide = signal(ctx, false);
+    let page = render(
+        ctx,
+        ui.toggle({
+            label: .Const("done"),
+            kind: .Checkbox,
+            isOn: on,
+            styles: [
+                .When(
+                    .Cell(wide),
+                    [.Width(.Px(1)), .Height(.Px(2)), .Width(.Px(3))],
+                    [],
+                ),
+            ],
+        }),
+    );
+    assert.equal(
+        page.markup(),
+        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center w-r1 h-r1 shrink-0 am-end;checked:true\ne 2 mark:tick;width:100%;height:100%\nt 1 done",
+    );
+    let _ = wide.set(ctx, true);
+    assert.equal(
+        page.markup(),
+        "e 0 class:lay-row wrap-wrap ac-center\ne 1 class:lay-row ac-center shrink-0 am-end w-3 h-2;checked:true\ne 2 mark:tick;width:100%;height:100%\nt 1 done",
+    );
+}
+
 test "a routing link's reactive styles swap in place" {
     let ctx = context {
         Ui: headless(),

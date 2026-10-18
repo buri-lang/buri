@@ -1323,3 +1323,20 @@ test "spacing, a shadow and a hidden box known only at run time write themselves
         "e 0 class:p-var w-4;--buri-p:2px",
     );
 }
+
+test "a state or screen style known only at run time scopes what it holds" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    assert.equal(
+        painted(ctx, [late(ctx, Style.On(.Hover, [.Width(.Px(3))]))]),
+        "e 0 class:hover_w-3",
+    );
+    assert.equal(painted(ctx, [late(ctx, Style.On(.Focus, [.Width(.Px(4))]))]), "e 0 ");
+    assert.equal(
+        painted(ctx, [late(ctx, Style.At(.Small, [.Width(.Px(5))]))]),
+        "e 0 class:sm_w-5",
+    );
+}
