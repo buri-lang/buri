@@ -355,7 +355,7 @@ impl Str {
     /// not a collation: `"ß"` and `"SS"` are different lengths and this says
     /// no. `caseFold` is the full folding that says yes.
     export fn equalsIgnoreCase(self, other: Str): Bool {
-        self.length() == other.length() && sameFolded(self, other, 0)
+        sameFolded(self, other, 0)
     }
 
     /// `startsWith` under the same simple folding `equalsIgnoreCase` uses.
@@ -939,7 +939,7 @@ fn normalized<C: Allocator>(ctx: C, cs: [Char], form: Normalization): Str {
     let pulled = decomposeFrom(ctx, cs, table, 0, list.empty<Char>());
     let sorted = reorder(ctx, pulled);
     if (composing) {
-        let joined = composeFrom(ctx, sorted, 0, list.empty<Char>(), -1, 0);
+        let joined = composeFrom(ctx, sorted, 0, list.empty<Char>(), -1, ' ', 0);
         fromChars(ctx, joined)
     } else {
         fromChars(ctx, sorted)
@@ -1388,12 +1388,17 @@ fn swapPass<C: Allocator>(ctx: C, cs: [Char], at: Int): [Char] {
 
 /// The canonical composition algorithm: each character joined to the last
 /// starter where the pair is a primary composite and nothing blocks it.
+///
+/// `starter` is where that starter sits in `acc`, or `-1` before there is one,
+/// and `base` is what it holds now. `base` means nothing while `starter` is
+/// `-1`.
 fn composeFrom<C: Allocator>(
     ctx: C,
     cs: [Char],
     at: Int,
     acc: [Char],
     starter: Int,
+    base: Char,
     lastClass: Int,
 ): [Char] {
     match (cs.get(at)) {
@@ -1402,21 +1407,22 @@ fn composeFrom<C: Allocator>(
             let cc = combiningClass(c);
             let open = starter >= 0 && (lastClass == 0 || lastClass < cc);
             let made: Option<Char> = if (open) {
-                match (acc.get(starter)) {
-                    .None => .None,
-                    .Some(base) => primaryComposite(base, c),
-                }
+                primaryComposite(base, c)
             } else {
                 .None
             };
             match (made) {
                 .Some(joined) => {
                     let merged = acc.replaceAt(ctx, starter, joined);
-                    composeFrom(ctx, cs, at + 1, merged, starter, lastClass)
+                    composeFrom(ctx, cs, at + 1, merged, starter, joined, lastClass)
                 },
                 .None => {
-                    let next = if (cc == 0) { acc.length() } else { starter };
-                    composeFrom(ctx, cs, at + 1, acc.push(ctx, c), next, cc)
+                    let (next, nextBase) = if (cc == 0) {
+                        (acc.length(), c)
+                    } else {
+                        (starter, base)
+                    };
+                    composeFrom(ctx, cs, at + 1, acc.push(ctx, c), next, nextBase, cc)
                 },
             }
         },
