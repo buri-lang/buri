@@ -1,8 +1,20 @@
 // EXPECT: a call argument ends with `,`, and the array after it is the next argument
+export fn pick<A, B>(a: A, b: B): A {
+  a
+}
+
 export fn first(xs: [Int], ys: [[Int]]): Option<Int> {
   xs [0]
 }
 
+export fn second(xs: [Int]): Option<Int> {
+  xs[1]
+}
+
+export fn third(xs: [Int]): Option<Int> {
+  xs [pick<Int, Int>(2, 0)]
+}
+
 export fn pair(): Option<Int> {
-  first([1] [[2, 3], [4]])
+  first([1] [[pick<Int, Int>(2, 0), 3], [4]])
 }

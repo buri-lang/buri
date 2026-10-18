@@ -1270,12 +1270,18 @@ impl<'a> Parser<'a> {
     /// and says so: a type error invented downstream of a syntax error. No
     /// index has a `,` in it, so a group that does is the array literal the
     /// author wrote, and stopping the chain before it lets `more_elements`
-    /// report the one comma that is missing.
+    /// report the one comma that is missing. Every valid index still reads as
+    /// one: its `,`s are all inside a delimiter or after a `<`.
     fn opens_an_array(&self) -> bool {
         let mut depth = 0i32;
         for steps in 0..MAX_CLOSE_LOOKAHEAD {
             match self.kind_at(self.pos.saturating_add(steps)) {
                 TokenKind::Comma if depth == 1 => return true,
+                // Type arguments are the one place an index's own expression
+                // has a `,` outside a delimiter — `xs [pick<A, B>(x)]` — and a
+                // `<` can't be told from a comparison here, so it isn't an
+                // array.
+                TokenKind::Lt if depth == 1 => return false,
                 TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => {
                     depth = depth.saturating_add(1);
                 }
