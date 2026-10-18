@@ -28,6 +28,9 @@
 //!   tree with the defect that removes it. This file holds the tree to that
 //!   list exactly — a new `#[ignore]` fails here, on every machine, before it
 //!   ever reaches a runner, and a row whose test is gone fails here too.
+//! * **A slow runner can't fail `goals-timed`.** It scales each phase by a
+//!   yardstick timed around it (`cli/benches/reference.rs`). `goals_timed`
+//!   feeds that made-up durations, so it reads no clock.
 //!
 //! ## The liveness gates
 //!
@@ -2060,4 +2063,77 @@ fn executable_under(dir: &Path) -> Option<PathBuf> {
         }
     }
     found
+}
+
+// The yardstick `goals-timed` scales its phases by.
+#[path = "../benches/reference.rs"]
+#[allow(dead_code)]
+mod reference;
+
+mod goals_timed {
+    use std::time::Duration;
+
+    use super::reference::{on_reference, Sample, Yardstick, CHECKSUM, REFERENCE};
+
+    const LINES: f64 = 1_000_000.0;
+    const GOAL: f64 = 1_000_000.0;
+
+    fn ms(n: f64) -> Duration {
+        Duration::from_secs_f64(n / 1000.0)
+    }
+
+    /// Five check runs on a runner `slow` times slower than the reference core,
+    /// of a checker that takes 400 ms there, `compiler` times slower than today's.
+    fn runs(slow: f64, compiler: f64) -> Vec<Sample> {
+        let yardstick = REFERENCE.as_secs_f64() * 1000.0 * slow;
+        (0..5)
+            .map(|_| Sample {
+                before: ms(yardstick),
+                phase: ms(400.0 * slow * compiler),
+                after: ms(yardstick),
+            })
+            .collect()
+    }
+
+    fn lines_per_second(samples: &[Sample]) -> f64 {
+        LINES / on_reference(samples, REFERENCE).as_secs_f64()
+    }
+
+    #[test]
+    fn a_slow_runner_slows_the_yardstick_with_the_phase_and_meets_the_goal() {
+        let reference_core = lines_per_second(&runs(1.0, 1.0));
+        for slow in [1.5, 2.0, 3.7] {
+            let here = lines_per_second(&runs(slow, 1.0));
+            assert!(
+                (here - reference_core).abs() < 1.0,
+                "{slow}x: {here} against {reference_core}"
+            );
+            assert!(here > GOAL);
+        }
+    }
+
+    #[test]
+    fn a_slower_compiler_misses_the_goal_on_any_runner() {
+        for slow in [1.0, 2.0, 3.7] {
+            let here = lines_per_second(&runs(slow, 3.0));
+            assert!(here < GOAL, "{slow}x runner, 3x compiler: {here} lines/s");
+        }
+    }
+
+    #[test]
+    fn a_sample_where_the_load_changed_midway_does_not_move_the_result() {
+        let steady = runs(2.0, 1.0);
+        let mut disturbed = steady.clone();
+        disturbed[1].phase *= 3;
+        disturbed[3].before /= 2;
+        assert_eq!(
+            on_reference(&steady, REFERENCE),
+            on_reference(&disturbed, REFERENCE)
+        );
+    }
+
+    #[test]
+    fn the_yardstick_does_the_work_its_reference_time_was_measured_on() {
+        assert_eq!(Yardstick::new().run(), CHECKSUM);
+    }
 }

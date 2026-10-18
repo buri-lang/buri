@@ -394,9 +394,9 @@ jobs:
       # would ask musl for fortify's `__*_chk`.
       - run: nix develop .#perf -c env NIX_HARDENING_ENABLE= cargo test -p buri --features backend-llvm --test native -- conformance::the_native_set_passes
 
-  # The throughput goals, timed: lines a second on a machine like a developer's,
-  # failing only below a goal itself. Parse only warns, because it has under
-  # 1.2x headroom and noise could fail it; check and dev compile have over 3x.
+  # The throughput goals, timed: lines a second scaled to the reference core by a
+  # yardstick timed around each phase, so a slow runner can't fail it. Parse only
+  # warns, because its headroom is inside the yardstick's error.
   goals-timed:
     name: throughput goals, timed (macOS)
     runs-on: macos-latest

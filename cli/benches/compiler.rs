@@ -84,6 +84,7 @@ mod calibrate;
 mod corpus;
 mod generate;
 mod goals;
+mod reference;
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -161,6 +162,7 @@ usage: compiler [flags]
   --pin[=<name>]         write a digest-pinned manifest into cli/benches/pinned/
   --goals=<count|wall>   the goals gate: instructions a line against a budget,
                          or lines a second against the goal (PERFORMANCE.md §6.82)
+  --goals=reference      the yardstick's fastest run, to record as the reference
 ";
 
 // ---------------------------------------------------------------------------
