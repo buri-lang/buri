@@ -1,0 +1,12 @@
+// A context whose one binding has the wrong type.
+//
+// The comment is here for its length: it puts the mistake below at offsets
+// that `lib.buri`'s unclosed block also covers, so only the file tells the
+// two apart. A mistake in this file is reported whatever `lib.buri` leaves
+// open, because the block that is never closed is in `lib.buri`, and what
+// is inside it is the one thing that is not reported.
+from "platform/effect" import { Clock };
+
+export context Base {
+    Clock: 5,
+}

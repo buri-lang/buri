@@ -205,15 +205,11 @@ fn check_fn(c: &mut Checker, fid: FnId) -> Option<std::sync::Arc<typed::Body>> {
 
 fn check_const(c: &mut Checker, cid: ConstId) {
     let info = c.tables.const_(cid).clone();
-    let decl = match c.module(info.module).ast.items.get(info.item as usize) {
-        Some(tree::Item::Let(decl)) => decl,
-        _ => crate::ice!("a constant's item is its `let`"),
-    };
     let mut inf = Infer::new(c, info.module, Default::default(), info.ty);
     let _body = inf.push_scope();
     let ty = info.ty;
-    let value_span = inf.t.span(decl.value);
-    let value = inf.check_expr(decl.value, Some(&ty));
+    let value_span = inf.t.span(info.value);
+    let value = inf.check_expr(info.value, Some(&ty));
     inf.unify_at(value_span, &value.ty, &ty, "the declared type");
     let body = inf.finish(value);
     c.const_values.insert(cid, body.expr);
@@ -313,14 +309,10 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
         return;
     }
     let info = c.tables.ctx_decl(id).clone();
-    let decl = match c.module(info.module).ast.items.get(info.item as usize) {
-        Some(tree::Item::Context(decl)) => decl,
-        _ => crate::ice!("a named context's item is its declaration"),
-    };
     let mut inf = Infer::new(c, info.module, Default::default(), Ty::UNIT);
     inf.in_main = true;
     let _body = inf.push_scope();
-    let (expr, ty) = inf.check_context_body(decl.body, decl.span);
+    let (expr, ty) = inf.check_context_body(info.body, info.decl_span);
     let body = inf.finish(expr);
     // A named context is constructed by calling it, and each call builds a
     // fresh one, so the declaration becomes a nullary function.

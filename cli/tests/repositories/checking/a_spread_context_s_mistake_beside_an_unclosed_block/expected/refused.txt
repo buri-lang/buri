@@ -1,0 +1,33 @@
+error: `I64` does not implement `Clock` [missing-impl]
+  --> lib/fixtures/testing/base.buri:11:12
+   |
+11 |     Clock: 5,
+   |            ^
+   |
+   = `I64` implements `Add`, `Bounded`, `Checked`, `Divide`, `Equal`, `Hash`, `Multiply`, `Negate`, `Ordered`, `Remainder`, `Saturating`, `Show`, `Subtract` and `Wrapping`, but not `Clock`
+   = fix: `I64` comes from `core/number`, which leaves out `Clock`: `buri docs core/number` says what to use instead
+
+     A context binding and a bound both ask for an impl. Having the right
+     methods isn't enough: a type conforms only once an impl says so. That's why
+     a test double is a struct plus an impl block.
+
+error: this block is missing its closing `}` [unclosed-delimiter]
+  --> lib/fixtures/testing/lib.buri:15:1
+   |
+15 | 
+   | ^
+   |
+ --> lib/fixtures/testing/lib.buri:9:13
+  |
+9 |     Stdout: {
+  |             ^ opened here
+  |
+  = fix: write `}` here
+
+    An unclosed construct claims the next closer it meets, and every error after
+    that would be about the miscount. Naming the opener stops that cascade.
+
+    Where an unclosed block ends is the parser's guess, so this is the only
+    error you get about it. The editor still completes and hovers the names
+    bound inside, but nothing else in it is reported until you close it.
+

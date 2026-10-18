@@ -1,0 +1,14 @@
+# A block that is never closed takes back what was reported from inside it,
+# because where it ends is the parser's guess. `Fixture` spreads `Base`, so
+# checking `Fixture` checks `Base`, whose mistake sits at the same offsets in
+# another file. That mistake is still reported.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a mistake in a context another file spreads is reported, though the spreading context has a block that is never closed"
+
+run {
+  args: ["build", "//lib/fixtures"]
+  exit: 1
+  golden: "refused.txt"
+}
