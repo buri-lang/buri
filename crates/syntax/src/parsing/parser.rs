@@ -1285,10 +1285,10 @@ impl<'a> Parser<'a> {
                 TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => {
                     depth = depth.saturating_add(1);
                 }
-                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket if depth <= 1 => {
-                    return false;
-                }
                 TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket => {
+                    if depth <= 1 {
+                        return false;
+                    }
                     depth = depth.saturating_sub(1);
                 }
                 _ => {}
