@@ -917,7 +917,7 @@ impl<'a> Checker<'a> {
                     name: t.name(d.name).to_string(),
                     module,
                     generics,
-                    def: TyDef::Struct { fields: Vec::new(), record: matches!(d.body, tree::StructBody::Record(_)) },
+                    def: TyDef::Struct { fields: Vec::new(), form: struct_form(d) },
                     exported: d.exported,
                     span: d.name.span,
                 });
@@ -1482,7 +1482,7 @@ impl<'a> Checker<'a> {
                                         span: f.span,
                                     })
                                     .collect(),
-                                record: true,
+                                form: StructForm::Record,
                             },
                             tree::StructBody::Tuple(fields) => TyDef::Struct {
                                 fields: t
@@ -1496,7 +1496,10 @@ impl<'a> Checker<'a> {
                                         span: f.span,
                                     })
                                     .collect(),
-                                record: false,
+                                form: StructForm::Tuple(TupleDecl {
+                                    generics: d.generics,
+                                    fields: *fields,
+                                }),
                             },
                         };
                         self.tables.tycon_mut(con).def = def;
@@ -1554,6 +1557,7 @@ impl<'a> Checker<'a> {
                                     record,
                                     exported: d.exported,
                                     span: v.span,
+                                    decl: v.clone(),
                                 }
                             })
                             .collect();
@@ -3487,7 +3491,7 @@ impl<'a> Checker<'a> {
         let name = tycon.name.clone();
         let field = match &tycon.def {
             TyDef::Struct {
-                record: true,
+                form: StructForm::Record,
                 fields,
             } if !fields.is_empty() => Err("its fields are named".to_string()),
             TyDef::Struct { fields, .. } => match fields.as_slice() {
@@ -3931,6 +3935,17 @@ fn bound_phrase(tables: &Tables, name: &str, bounds: &[TraitId]) -> String {
         .map(|t| tables.trait_(*t).name.as_str())
         .collect();
     format!("`{name}: {}`", named.join(" + "))
+}
+
+/// Which form `d` is written in, with a tuple struct's generics and fields.
+fn struct_form(d: &tree::StructDecl) -> StructForm {
+    match d.body {
+        tree::StructBody::Record(_) => StructForm::Record,
+        tree::StructBody::Tuple(fields) => StructForm::Tuple(TupleDecl {
+            generics: d.generics,
+            fields,
+        }),
+    }
 }
 
 #[cfg(test)]

@@ -33,7 +33,7 @@
 
 use crate::compiler::semantics::inference::Infer;
 use crate::compiler::semantics::typed::{self, PatKind, Pattern};
-use crate::compiler::semantics::types::{Prim, Ty, TyConId, TyDef, TyKind, VariantId};
+use crate::compiler::semantics::types::{Prim, StructForm, Ty, TyConId, TyDef, TyKind, VariantId};
 use crate::diagnostics::{Diagnostic, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
 
@@ -1066,8 +1066,13 @@ fn render(tables: &crate::compiler::semantics::types::Tables, w: &Witness) -> St
                         name.clone()
                     } else {
                         let fields = tables.tycon(*con).fields();
-                        let record =
-                            matches!(tables.tycon(*con).def, TyDef::Struct { record: true, .. });
+                        let record = matches!(
+                            tables.tycon(*con).def,
+                            TyDef::Struct {
+                                form: StructForm::Record,
+                                ..
+                            }
+                        );
                         if record {
                             let parts: Vec<String> = fields
                                 .iter()

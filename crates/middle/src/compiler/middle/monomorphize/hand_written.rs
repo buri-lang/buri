@@ -972,9 +972,9 @@ impl Monomorphizer<'_> {
         let tycon = self.tables().tycon(con).clone();
         let parts = self.parts_of(&ty);
         match &tycon.def {
-            TyDef::Struct { record, .. } => {
+            TyDef::Struct { form, .. } => {
                 let fields = parts.into_iter().next().unwrap_or_default();
-                self.record(d, &tycon.name, *record, false, &fields, a, b)
+                self.record(d, &tycon.name, form.is_record(), false, &fields, a, b)
             }
             TyDef::Enum { variants } => {
                 let option = self.tables().is_option(con);

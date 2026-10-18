@@ -2821,12 +2821,12 @@ impl Monomorphizer<'_> {
                 let tycon = checked.tables.tycon(*con);
                 match &tycon.def {
                     TyDef::Prim(p) => Desc::Prim(*p),
-                    TyDef::Struct { fields, record } => match checked.tables.flags_word(*con) {
+                    TyDef::Struct { fields, form } => match checked.tables.flags_word(*con) {
                         Some(prim) => {
                             let bool_desc = self.descriptor(&checked.tables.prim(Prim::Bool));
                             Desc::Flags {
                                 name: tycon.name.clone(),
-                                record: *record,
+                                record: form.is_record(),
                                 fields: fields
                                     .iter()
                                     .map(|f| DescField {
@@ -2853,7 +2853,7 @@ impl Monomorphizer<'_> {
                                 .collect();
                             Desc::Struct {
                                 name: tycon.name.clone(),
-                                record: *record,
+                                record: form.is_record(),
                                 fields: described,
                             }
                         }

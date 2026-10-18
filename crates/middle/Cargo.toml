@@ -12,5 +12,8 @@ buri-diagnostics = { path = "../diagnostics", version = "0.3.19" }
 buri-hash = { path = "../hash", version = "0.3.19" }
 buri-semantics = { path = "../semantics", version = "0.3.19" }
 
+[dev-dependencies]
+buri-syntax = { path = "../syntax", version = "0.3.19" }
+
 [lints]
 workspace = true
