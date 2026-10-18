@@ -3,8 +3,8 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 14931 15123 98.73%
-area cli/build 1680 1689 99.47%
+total 14924 15115 98.74%
+area cli/build 1677 1685 99.53%
 area cli/documentation 477 480 99.38%
 area cli/format 94 94 100.00%
 area cli/language_server 1245 1266 98.34%
@@ -25,7 +25,7 @@ area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
 area crates/stencil 1099 1112 98.83%
 area crates/syntax 1210 1212 99.83%
-262 263 cli/src/build/actions.rs
+260 261 cli/src/build/actions.rs
 44 44 cli/src/build/cache.rs
 14 14 cli/src/build/counted.rs
 94 94 cli/src/build/coverage.rs
@@ -38,7 +38,7 @@ area crates/syntax 1210 1212 99.83%
 0 0 cli/src/build/musl.rs
 35 37 cli/src/build/programs.rs
 122 122 cli/src/build/regenerate.rs
-30 31 cli/src/build/runtime_cross.rs
+29 29 cli/src/build/runtime_cross.rs
 2 2 cli/src/build/runtime_src.rs
 8 8 cli/src/build/session.rs
 28 28 cli/src/build/sources.rs
@@ -174,7 +174,7 @@ area crates/syntax 1210 1212 99.83%
 34 34 crates/semantics/src/compiler/semantics/crossing.rs
 12 12 crates/semantics/src/compiler/semantics/decorative.rs
 84 84 crates/semantics/src/compiler/semantics/exhaustiveness.rs
-432 432 crates/semantics/src/compiler/semantics/expressions.rs
+428 428 crates/semantics/src/compiler/semantics/expressions.rs
 52 52 crates/semantics/src/compiler/semantics/icons.rs
 238 238 crates/semantics/src/compiler/semantics/inference.rs
 4 4 crates/semantics/src/compiler/semantics/intern.rs
