@@ -2332,6 +2332,13 @@ test "getOr answers the fallback outside the list" {
     assert.equal(list.empty<Int>().getOr(0, 9), 9);
 }
 
+test "getOr answers the same way for strings and nested lists" {
+    assert.equal(["a", "b"].getOr(1, "z"), "b");
+    assert.equal(["a", "b"].getOr(2, "z"), "z");
+    assert.equal([["a"], ["b", "c"]].getOr(1, []), ["b", "c"]);
+    assert.equal([["a"]].getOr(1, ["z"]), ["z"]);
+}
+
 // --- binarySearchBy / binarySearch / partitionPoint ------------------------------
 
 test "binarySearch over floats answers the insertion point for what is not there" {
