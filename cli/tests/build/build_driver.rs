@@ -1447,6 +1447,27 @@ fn a_link_directory_that_cannot_be_written_is_an_error() {
     scratch.run(&["run", "//cmd/app"]).ok().says("edited");
 }
 
+/// A forced link into a directory it can read but not write to fails with a
+/// path inside that directory, rather than linking what the last build left
+/// there. Once it's writable again the program builds and runs.
+#[test]
+fn a_read_only_link_directory_is_an_error() {
+    let scratch = repository("        { platform: \"native\" },\n", NATIVE_MAIN);
+    scratch.run(&["build", "//cmd/app"]).ok();
+    let dir = link_dir(&scratch);
+    let mode = |m| std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(m));
+    mode(0o555).unwrap();
+    let forced = scratch.run(&["build", "--force", "//cmd/app"]);
+    mode(0o755).unwrap();
+    forced
+        .exits(1)
+        .says("error: cannot write ")
+        .says(&dir.display().to_string());
+
+    scratch.run(&["build", "--force", "//cmd/app"]).ok();
+    scratch.run(&["run", "//cmd/app"]).ok().says("native");
+}
+
 /// A C driver that says it linked but wrote no program is an error naming the
 /// file it should have written.
 #[test]
