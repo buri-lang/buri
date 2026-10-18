@@ -674,13 +674,16 @@ fn optimize(
     machine: &inkwell::targets::TargetMachine,
     profile: crate::compiler::backend::Profile,
 ) {
-    if cfg!(debug_assertions) {
-        module
-            .verify()
-            .map_err(|e| e.to_string())
-            .or_ice("the LLVM backend emits valid IR");
-    }
-    target::optimize(module, machine, profile).or_ice("LLVM runs its own pipeline");
+    // `optimize` fails only on a pipeline string it was not built for, and
+    // both strings are constants, so the one check covers the pair.
+    let verified = if cfg!(debug_assertions) {
+        module.verify().map_err(|e| e.to_string())
+    } else {
+        Ok(())
+    };
+    verified
+        .and_then(|()| target::optimize(module, machine, profile))
+        .or_ice("the LLVM backend emits valid IR, and LLVM runs its own pipeline");
 }
 
 #[cfg(test)]

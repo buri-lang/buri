@@ -27,7 +27,10 @@ use inkwell::context::Context;
 use inkwell::llvm_sys::core as llvm;
 use inkwell::llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
 use inkwell::llvm_sys::LLVMOpcode;
-use inkwell::types::{AsTypeRef, BasicType, FloatType, FunctionType, IntType, PointerType};
+use inkwell::module::{Linkage, Module};
+use inkwell::types::{
+    AsTypeRef, BasicMetadataTypeEnum, BasicType, FloatType, FunctionType, IntType, PointerType,
+};
 use inkwell::values::{
     AggregateValue, ArrayValue, AsValueRef, BasicMetadataValueEnum, BasicValue, BasicValueEnum,
     CallSiteValue, FloatValue, FunctionValue, InstructionOpcode, InstructionValue, IntValue,
@@ -926,6 +929,44 @@ impl<'ctx> At<'ctx> {
     pub fn answer(self, call: CallSiteValue<'ctx>) -> BasicValueEnum<'ctx> {
         // SAFETY: the callee answers a first-class value, so the call is one.
         unsafe { BasicValueEnum::new(call.as_value_ref()) }
+    }
+}
+
+/// A function added with exactly `N` parameters, so each one is there to
+/// read: [`Declared::params`] answers all `N` with no question of whether one
+/// is missing.
+#[derive(Clone, Copy)]
+pub struct Declared<'ctx, const N: usize> {
+    value: FunctionValue<'ctx>,
+}
+
+impl<'ctx, const N: usize> Declared<'ctx, N> {
+    /// Adds `name` to `module`, taking `params`. `ty` makes the function type
+    /// from them: `void_type().fn_type` or a value type's `fn_type`.
+    pub fn add(
+        module: &Module<'ctx>,
+        name: &str,
+        params: [BasicMetadataTypeEnum<'ctx>; N],
+        ty: impl FnOnce(&[BasicMetadataTypeEnum<'ctx>]) -> FunctionType<'ctx>,
+        linkage: Linkage,
+    ) -> Self {
+        Declared {
+            value: module.add_function(name, ty(&params), Some(linkage)),
+        }
+    }
+
+    pub fn value(self) -> FunctionValue<'ctx> {
+        self.value
+    }
+
+    /// The function's parameters, in order.
+    pub fn params(self) -> [BasicValueEnum<'ctx>; N] {
+        let f = self.value.as_value_ref();
+        std::array::from_fn(|i| {
+            // SAFETY: the function was added with `N` parameters and `i` is
+            // below `N`, so `LLVMGetParam` answers one of them.
+            unsafe { BasicValueEnum::new(llvm::LLVMGetParam(f, i as u32)) }
+        })
     }
 }
 
