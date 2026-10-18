@@ -1,5 +1,5 @@
-error [missing-comma] 7:12-7:12
+error [missing-comma] 19:12-19:12
 message: a call argument ends with `,`
 fix: write `,` here
-edit: 7:12-7:12 ","
+edit: 19:12-19:12 ","
 
