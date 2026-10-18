@@ -64,17 +64,14 @@ impl Lowered {
         entry
     }
 
-    /// The backend, handed the lowering this holds, as the build hands it the
-    /// one `actions::objects_named` computed.
-    fn adopted(self) -> (llvm::Llvm, middle::monomorphize::Program, Tables) {
-        let mut backend = llvm::Llvm::default();
-        backend.adopt_lowering(self.ir);
-        (backend, self.program, self.tables)
+    /// The backend, with the program and tables it emits.
+    fn parts(self) -> (llvm::Llvm, middle::monomorphize::Program, Tables) {
+        (llvm::Llvm::default(), self.program, self.tables)
     }
 
     /// Every unit's object, through `Backend::emit`.
     fn emit(self, profile: Profile) -> Vec<buri::compiler::backend::Emitted> {
-        let (mut backend, program, tables) = self.adopted();
+        let (mut backend, program, tables) = self.parts();
         expect(backend.emit(&program, &tables, &options(profile)))
     }
 }
@@ -1277,7 +1274,7 @@ fn ir_at(source: &str, profile: Profile) -> String {
 fn build_ir(source: &str, profile: Profile) -> String {
     let lowered = lower(source);
     let unit = lowered.ir.funcs.get(lowered.entry()).unit;
-    let (mut backend, program, tables) = lowered.adopted();
+    let (mut backend, program, tables) = lowered.parts();
     backend
         .emit_ir_text(&program, &tables, &options(profile), unit)
         .unwrap_or_else(|d| {
@@ -6007,7 +6004,7 @@ export fn main(host: NativeHost): Result<(), Str> {{
         .collect();
     units.sort_unstable();
     units.dedup();
-    let (mut backend, program, tables) = lowered.adopted();
+    let (mut backend, program, tables) = lowered.parts();
     let mut instructions = 0usize;
     for unit in units {
         let ir = expect(backend.emit_ir_text(&program, &tables, &options(Profile::Debug), unit));
@@ -6084,7 +6081,7 @@ export fn main(host: NativeHost): Result<(), Str> {{
 "#
     )));
     let unit = lowered.ir.funcs.get(lowered.entry()).unit;
-    let (mut backend, program, tables) = lowered.adopted();
+    let (mut backend, program, tables) = lowered.parts();
     let ir = expect(backend.emit_ir_text(&program, &tables, &options(Profile::Debug), unit));
     // Every function but `big`, which builds the value and so writes its 600
     // slots once, whatever the representation.
@@ -6369,7 +6366,7 @@ fn longest_derived_load_run(source: &str) -> usize {
         .collect();
     units.sort_unstable();
     units.dedup();
-    let (mut backend, program, tables) = lowered.adopted();
+    let (mut backend, program, tables) = lowered.parts();
     let (mut longest, mut run) = (0, 0);
     for unit in units {
         let ir = expect(backend.emit_ir_text(&program, &tables, &options(Profile::Debug), unit));

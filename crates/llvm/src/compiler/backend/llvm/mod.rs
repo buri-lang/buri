@@ -60,6 +60,7 @@ pub mod attrs;
 mod build;
 pub mod emit;
 pub mod repr;
+pub mod route;
 pub mod target;
 
 use inkwell::context::Context;
@@ -68,7 +69,9 @@ use std::rc::Rc;
 
 use crate::build::buildfile::{Arch, Platform};
 use crate::compiler::backend::task_thread;
-use crate::compiler::backend::{triple_text, Backend, Emitted, Options, Target, Units};
+use crate::compiler::backend::{
+    no_implementation, triple_text, Backend, Emitted, Native, Options, Target, Units,
+};
 use crate::compiler::middle::{ir, layout, lower, monomorphize, rc};
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::{FuncIdx, Tables};
@@ -82,13 +85,8 @@ use crate::diagnostics::{Diagnostic, Diagnostics, Invariant, Span};
 /// the backend's lifetime to a context's and make `Backend` object-unsafe for
 /// the one implementor that most wants a plain object.
 ///
-/// The one field is [`Backend::adopt_lowering`]'s, as it is `Stencil`'s: the IR
-/// the build already lowered for this program, held until the next emission
-/// takes it. Empty means "lower it here".
 #[derive(Default)]
-pub struct Llvm {
-    adopted: Option<ir::Program>,
-}
+pub struct Llvm;
 
 impl Backend for Llvm {
     fn name(&self) -> &'static str {
@@ -200,67 +198,63 @@ impl Backend for Llvm {
         tables: &Tables,
         opts: &Options<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
-        self.emit_units(program, tables, opts, Units::All)
+        let lowered = lower::run(program, tables);
+        let routes = resolved(self, &lowered)?;
+        self.emit_units(program, tables, opts, &lowered, &routes, Units::All)
     }
 
     fn forks_read_shared_mask(&self) -> bool {
         true
     }
+}
 
-    fn adopt_lowering(&mut self, lowered: ir::Program) {
-        self.adopted = Some(lowered);
+impl Native for Llvm {
+    type Routes<'p> = route::Routes<'p>;
+
+    fn resolve<'p>(&self, lowered: &'p ir::Program) -> Result<route::Routes<'p>, Vec<String>> {
+        route::Routes::of(lowered)
     }
 
     /// The unit loop is already per unit; what `units` adds is the parameter
     /// that lets the build system say which of them it still needs. Everything
-    /// above the loop — the triple, the machine, the lowering — is
-    /// whole-program and is done once either way.
-    ///
-    /// It does not ask [`Backend::missing_intrinsics`] again: the build asked
-    /// before it got here.
+    /// above the loop — the triple, the machine — is whole-program and is done
+    /// once either way.
     fn emit_units(
         &mut self,
         program: &monomorphize::Program,
         tables: &Tables,
         opts: &Options<'_>,
+        lowered: &ir::Program,
+        routes: &route::Routes<'_>,
         units: Units<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
-        let lowered = self.take_lowering(program, tables);
         let counted = classifier(program);
         let root = root_of(program);
         emit_selected(
-            &lowered,
+            lowered,
+            routes,
             tables,
             opts,
             root,
             units,
             &counted,
-            For::linker(&lowered),
+            For::linker(lowered),
             &target::object,
         )
     }
 }
 
-impl Llvm {
-    /// The adopted lowering, or a fresh one.
-    ///
-    /// `take`, not `clone`: a lowering is adopted for one emission, so a second
-    /// call with a different program lowers for itself rather than reusing the
-    /// first one's IR.
-    fn take_lowering(&mut self, program: &monomorphize::Program, tables: &Tables) -> ir::Program {
-        match self.adopted.take() {
-            Some(lowered) => {
-                debug_assert_eq!(
-                    lowered.funcs.len(),
-                    program.funcs.len(),
-                    "an adopted lowering must be this program's"
-                );
-                lowered
-            }
-            None => lower::run(program, tables),
-        }
-    }
+/// `lowered`'s routes, or the refusal naming every key this backend has none
+/// for.
+fn resolved<'p>(llvm: &Llvm, lowered: &'p ir::Program) -> Result<route::Routes<'p>, Diagnostics> {
+    llvm.resolve(lowered).map_err(|keys| {
+        let mut diags = Diagnostics::new();
+        diags.push(no_implementation(llvm.name(), &keys));
+        diags
+    })
+}
 
+impl Llvm {
     /// The optimized IR of one unit, as text. What a FileCheck-style assertion
     /// reads.
     ///
@@ -275,7 +269,8 @@ impl Llvm {
         opts: &Options<'_>,
         unit: u32,
     ) -> Result<String, Diagnostics> {
-        let lowered = self.take_lowering(program, tables);
+        let lowered = lower::run(program, tables);
+        let routes = resolved(self, &lowered)?;
         let counted = classifier(program);
         let text = |module: &inkwell::module::Module<'_>, _: &inkwell::targets::TargetMachine| {
             Ok(module.to_string().into_bytes())
@@ -283,6 +278,7 @@ impl Llvm {
         let only = [unit];
         let emitted = emit_selected(
             &lowered,
+            &routes,
             tables,
             opts,
             root_of(program),
@@ -399,6 +395,7 @@ struct Worker {
 /// What every unit's emission reads and none of them changes.
 struct Shared<'p> {
     program: &'p ir::Program,
+    routes: &'p route::Routes<'p>,
     tables: &'p Tables,
     opts: &'p Options<'p>,
     root: Option<Root>,
@@ -444,6 +441,7 @@ struct Shared<'p> {
 )]
 fn emit_selected(
     program: &ir::Program,
+    routes: &route::Routes<'_>,
     tables: &Tables,
     opts: &Options<'_>,
     root: Option<Root>,
@@ -493,6 +491,7 @@ fn emit_selected(
     };
     let shared = Shared {
         program,
+        routes,
         tables,
         opts,
         root,
@@ -608,6 +607,7 @@ fn emit_unit(
         &ctx,
         &builder,
         program,
+        shared.routes,
         shared.tables,
         &module_name,
         &shared.observed,

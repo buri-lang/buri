@@ -114,6 +114,8 @@ mod tests {
             types: TypeList::default(),
             crosses_tasks: false,
             cell_equal: Default::default(),
+            intrinsics: Default::default(),
+            runtimes: Default::default(),
         };
         assert_eq!(
             named_elsewhere(&program).as_slice(),

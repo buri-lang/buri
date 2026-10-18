@@ -32,7 +32,7 @@ use buri::compiler::backend::stencil::{
     self as stencil, abi as stencil_abi, unavailable_reason as stencil_unavailable_reason, Stencil,
 };
 use buri::compiler::backend::LinkOptions;
-use buri::compiler::backend::{Backend, Emitted, Options, Profile, Target};
+use buri::compiler::backend::{Backend, Emitted, Native, Options, Profile, Target, Units};
 use buri::compiler::driver;
 use buri::compiler::middle::{self, monomorphize};
 use buri::compiler::modules::Role;
@@ -364,19 +364,19 @@ fn run_with(name: &str, source: &str, probe: Option<&str>) -> Ran {
 // How the emission is arranged, and the bytes that must not move for it
 // -----------------------------------------------------------------------
 
-/// `Backend::adopt_lowering` is a **hint**: the build hands over the
-/// `ir::Program` it lowered for the unit keys, and the object bytes are the
-/// ones the backend would have produced from a lowering of its own.
+/// `Native::emit_units` is handed the `ir::Program` the build lowered for the
+/// unit keys, and the object bytes are the ones `Backend::emit` produces from a
+/// lowering of its own.
 ///
-/// This is the property the whole optimisation rests on. `middle::lower` is a
-/// pure function of the program, so the two lowerings agreed by construction
-/// and recomputing one was pure waste — one second of an eight-second
+/// This is the property lowering once rests on. `middle::lower` is a pure
+/// function of the program, so the two lowerings agree by construction and
+/// recomputing one was pure waste — one second of an eight-second
 /// `buri test //...` on a real repository, two whole-program `middle::rc`
 /// analyses and two `middle::lower::run_with`s. What is asserted here is the
 /// "by construction" half, over a program with a recursive enum, boxed
 /// payloads, counted struct fields and a closure surface in it.
 #[test]
-fn an_adopted_lowering_emits_the_bytes_the_backend_would_have_lowered_itself() {
+fn the_builds_lowering_emits_the_bytes_the_backend_would_have_lowered_itself() {
     if !supported() {
         return;
     }
@@ -395,10 +395,13 @@ fn an_adopted_lowering_emits_the_bytes_the_backend_would_have_lowered_itself() {
         .emit(&program, &tables, &opts)
         .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
 
-    let mut adopting = Stencil::default();
-    adopting.adopt_lowering(buri::compiler::middle::lower::run(&program, &tables));
-    let adopted = adopting
-        .emit(&program, &tables, &opts)
+    let lowering = buri::compiler::middle::lower::run(&program, &tables);
+    let mut handed = Stencil::default();
+    let routes = handed
+        .resolve(&lowering)
+        .unwrap_or_else(|keys| panic!("no route for {keys:?}"));
+    let adopted = handed
+        .emit_units(&program, &tables, &opts, &lowering, &routes, Units::All)
         .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
 
     assert_eq!(alone.len(), adopted.len(), "the unit count moved");
@@ -409,15 +412,10 @@ fn an_adopted_lowering_emits_the_bytes_the_backend_would_have_lowered_itself() {
     }
 }
 
-/// A lowering is adopted for **one** emission.
-///
-/// The hint is stateful, so the failure it has to be impossible to reach is a
-/// second emission served the first one's IR. `emit_units` takes the adopted
-/// lowering rather than cloning it, and this is that contract asserted from
-/// outside: the same backend value emits two different programs and answers
-/// each one's own bytes.
+/// A backend value keeps nothing of one emission for the next: the same value
+/// emits two different programs and answers each one's own bytes.
 #[test]
-fn a_backend_that_adopted_a_lowering_lowers_the_next_program_for_itself() {
+fn a_backend_that_emitted_a_program_lowers_the_next_program_for_itself() {
     if !supported() {
         return;
     }
@@ -454,12 +452,9 @@ export fn main(host: NativeHost): Result<(), Str> {
         .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
 
     let mut backend = Stencil::default();
-    backend.adopt_lowering(buri::compiler::middle::lower::run(&first, &first_tables));
     let _ = backend
         .emit(&first, &first_tables, &opts)
         .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
-    // No second `adopt_lowering`: the first one was consumed, and this
-    // emission has to lower the program it was actually handed.
     let after = backend
         .emit(&second, &second_tables, &opts)
         .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));

@@ -43,7 +43,9 @@ pub mod counts;
 pub mod linkage;
 use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::ActionKey;
+use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::Program;
+use crate::compiler::semantics::layered::{Dense, DenseId};
 use crate::compiler::semantics::types::Tables;
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 
@@ -254,53 +256,6 @@ pub trait Backend {
         opts: &Options<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics>;
 
-    /// [`Backend::emit`], restricted to the units the caller still needs.
-    ///
-    /// This is the parameter the incremental-link plan was missing: `Func::unit`
-    /// already partitions the program (ARCHITECTURE.md §5.1) and the build
-    /// system already knows which units' keys missed, so invalidating one unit
-    /// should cost one unit's codegen rather than the whole program's.
-    ///
-    /// The default emits everything and is correct rather than fast, because a
-    /// superset satisfies every caller: `build::actions::codegen_units` takes
-    /// the objects it asked for by name and serves the rest from the cache. A
-    /// backend with one unit — JavaScript, whose artifact is one file — wants
-    /// exactly that.
-    fn emit_units(
-        &mut self,
-        program: &Program,
-        tables: &Tables,
-        opts: &Options<'_>,
-        units: Units<'_>,
-    ) -> Result<Vec<Emitted>, Diagnostics> {
-        let _ = units;
-        self.emit(program, tables, opts)
-    }
-
-    /// The lowering the build already computed for this exact program, offered
-    /// so that a native backend does not compute it a second time.
-    ///
-    /// It is a **hint and not a seam**: the emission entry point is still
-    /// [`Backend::emit_units`] and it still takes a `Program`, so a backend
-    /// that ignores this — JavaScript — is not a backend that works
-    /// differently. What is offered is a value the caller is about to
-    /// throw away and the callee is about to recompute:
-    /// `build::actions::objects_named` lowers to hash the unit keys, and
-    /// `middle::lower` is a pure function of the program, so the IR it holds is
-    /// the IR the backend's own `lower::run` would produce. It was measured at
-    /// one second of an eight-second `buri test //...` on a real repository —
-    /// `middle::rc::analyze` twice and `middle::lower::run_with` twice — which
-    /// is what makes a hint worth having.
-    ///
-    /// **The contract is that `lowered` is `lower::run(program, tables)` for
-    /// the `program` the next emission is asked about.** An implementation must
-    /// consume it at most once, so that a second emission of a *different*
-    /// program cannot be served a stale lowering; the default ignores it, which
-    /// satisfies that by construction.
-    fn adopt_lowering(&mut self, lowered: crate::compiler::middle::ir::Program) {
-        let _ = lowered;
-    }
-
     /// Whether every unit's object depends on
     /// [`runtime_table::shares_counts`]: this backend's reference-count fork
     /// reads `buri_rt_shared_mask` in a program that can fan out, in every
@@ -311,6 +266,90 @@ pub trait Backend {
     /// No default, so a wrapper can't answer `false` for a backend that says
     /// `true`.
     fn forks_read_shared_mask(&self) -> bool;
+}
+
+/// A backend that emits from the lowered IR: `stencil` and `llvm`.
+///
+/// Emission is two steps. [`Native::resolve`] reads every intrinsic key the
+/// lowered program names and answers the route this backend emits each by, or
+/// every key it has none for; [`Native::emit_units`] then reads a key's route
+/// by the id `middle::lower` gave it, which is total. So the keys the build
+/// refuses are exactly the keys emission would have had no route for, and
+/// emission has no "a key nobody checked" case to state.
+///
+/// A trait of its own rather than more of [`Backend`] because JavaScript emits
+/// from the monomorphized tree and has no lowered program to resolve.
+pub trait Native: Backend {
+    /// What [`Native::resolve`] answers: a route per key, borrowing the keys
+    /// from the program it read them in.
+    type Routes<'p>;
+
+    /// Every key `lowered` names, resolved — or every key this backend has no
+    /// route for, sorted, each once.
+    fn resolve<'p>(&self, lowered: &'p ir::Program) -> Result<Self::Routes<'p>, Vec<String>>;
+
+    /// The units the caller still needs, from `lowered` — which is
+    /// `lower::run(program, tables)` or the same lowering against the caller's
+    /// own plan — and the routes [`Native::resolve`] answered for it.
+    ///
+    /// Restricted to `units` because `Func::unit` already partitions the
+    /// program (ARCHITECTURE.md §5.1) and the build system already knows which
+    /// units' keys missed, so invalidating one unit costs one unit's codegen
+    /// rather than the whole program's.
+    fn emit_units(
+        &mut self,
+        program: &Program,
+        tables: &Tables,
+        opts: &Options<'_>,
+        lowered: &ir::Program,
+        routes: &Self::Routes<'_>,
+        units: Units<'_>,
+    ) -> Result<Vec<Emitted>, Diagnostics>;
+}
+
+/// The refusal for keys a backend has no route for: a toolchain bug, which is
+/// what the fix says.
+pub fn no_implementation(backend: &str, keys: &[String]) -> Diagnostic {
+    Diagnostic::error(
+        Span::NONE,
+        format!(
+            "the {backend} backend has no implementation of {}",
+            keys.join(", ")
+        ),
+    )
+    .with_fix("report it: this is a toolchain bug, not a problem with your program")
+}
+
+/// Both of a lowered program's key tables resolved, one key at a time — the
+/// calls by `call` and the runtime bodies by `body` — or every key either has
+/// no route for, sorted and each once.
+pub fn resolve_program<'p, C, B>(
+    lowered: &'p ir::Program,
+    call: impl Fn(&'p str) -> Option<C>,
+    body: impl Fn(&'p str) -> Option<B>,
+) -> Result<(Dense<ir::IntrinsicId, C>, Dense<ir::RuntimeId, B>), Vec<String>> {
+    let (calls, mut missing) = resolve_keys(&lowered.intrinsics, call);
+    let (bodies, more) = resolve_keys(&lowered.runtimes, body);
+    missing.extend(more);
+    missing.sort();
+    missing.dedup();
+    calls.zip(bodies).ok_or(missing)
+}
+
+/// A key table resolved by `route`, and the keys it has none for. The table is
+/// `None` exactly when a key is.
+fn resolve_keys<'p, I: DenseId, R>(
+    keys: &'p Dense<I, Box<str>>,
+    route: impl Fn(&'p str) -> Option<R>,
+) -> (Option<Dense<I, R>>, Vec<String>) {
+    let routes: Vec<Option<R>> = keys.iter().map(|key| route(key)).collect();
+    let missing = keys
+        .iter()
+        .zip(&routes)
+        .filter(|(_, route)| route.is_none())
+        .map(|(key, _)| key.to_string())
+        .collect();
+    (routes.into_iter().collect(), missing)
 }
 
 /// [`networking_gap`], with the toolchain's answer as a parameter.

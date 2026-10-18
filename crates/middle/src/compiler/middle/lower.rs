@@ -79,13 +79,13 @@
 //!   every structural operation.
 
 use crate::compiler::middle::ir::{
-    self, BinOp, BlockId, Body, Code, Const, Facts, Func, Inst, Ownership, Remap, Signature,
-    Target, Term, Type, TypeId, TypeList, UnOp, ValueId,
+    self, BinOp, BlockId, Body, Code, Const, Facts, Func, Inst, IntrinsicId, Ownership, Remap,
+    RuntimeId, Signature, Target, Term, Type, TypeId, TypeList, UnOp, ValueId,
 };
 use crate::compiler::middle::layout;
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
-use crate::compiler::semantics::layered::Dense;
+use crate::compiler::semantics::layered::{Dense, DenseId};
 use crate::compiler::semantics::typed::{
     self, Arm, ArrayRest, Expr, ExprKind, FieldPat, Magnitude, OptionOrResult, PatKind, Pattern,
     PrimOp, Stmt, TemplatePart, UnaryOp,
@@ -148,28 +148,32 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     // whole-program below. `parallel::map` returns the results in index order,
     // so `funcs` is the same vector the serial loop built.
     let funcs: Vec<_> = program.funcs.entries().collect();
-    let lowered: Vec<(Func, TypeList)> = crate::parallel::map_items(&funcs, |_, &(i, f)| {
+    let lowered: Vec<(Func, TypeList, Keys)> = crate::parallel::map_items(&funcs, |_, &(i, f)| {
         let mut types = Types::default();
+        let mut keys = Keys::default();
         let func = lower_one(
-            program, tables, plan, &counts, &cycles, &entries, &units, &mut types, i, f,
+            program, tables, plan, &counts, &cycles, &entries, &units, &mut types, &mut keys, i, f,
         );
-        (func, types.list)
+        (func, types.list, keys)
     });
 
     // Fold the per-function type tables into one, in function order, and remap
     // each function's `TypeId`s onto it. The global interner meets function 0's
     // types first, then function 1's new ones, and so on — which is the exact
     // order a single shared interner met them in, so the emitted type table and
-    // every id in it are byte-for-byte the serial ones.
+    // every id in it are byte-for-byte the serial ones. The intrinsic keys
+    // fold the same way, for the same reason.
     let mut types = Types::default();
+    let mut keys = Keys::default();
     let funcs: Dense<FuncIdx, Func> = lowered
         .into_iter()
-        .map(|(mut func, local)| {
+        .map(|(mut func, local, local_keys)| {
             let remap = local.remap(|info| {
                 let id = types.adopt(tables, info.ty);
                 types.list.agg(id)
             });
             remap_func_types(&mut func, &remap);
+            keys.adopt(&mut func, &local_keys);
             func
         })
         .collect();
@@ -180,6 +184,8 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
         types: types.list,
         crosses_tasks: plan.crosses_tasks,
         cell_equal: program.cell_equal.clone(),
+        intrinsics: keys.calls.keys,
+        runtimes: keys.runtimes.keys,
     }
 }
 
@@ -201,6 +207,7 @@ fn lower_one(
     entries: &Dense<FuncIdx, usize>,
     units: &Units,
     types: &mut Types,
+    keys: &mut Keys,
     i: FuncIdx,
     f: &crate::compiler::middle::monomorphize::Func,
 ) -> Func {
@@ -223,7 +230,7 @@ fn lower_one(
     let fplan = plan.func(i);
     let body = match &f.kind {
         FuncKind::Intrinsic(key) if !lists::handles(key) => {
-            Body::Runtime(bounded_key(tables, key, &ret))
+            Body::Runtime(keys.runtimes.intern(&bounded_key(tables, key, &ret)))
         }
         kind => {
             let lower = FnLower {
@@ -233,6 +240,7 @@ fn lower_one(
                 counts,
                 cycles,
                 types,
+                keys,
                 locals: &f.locals,
                 ret,
                 code: Code::new(&sig.params),
@@ -391,6 +399,59 @@ fn unit_name(debug_name: &str) -> String {
     };
     let module = head.split_whitespace().last().unwrap_or("root");
     module.replace(['/', '.'], "_")
+}
+
+// ---------------------------------------------------------------------------
+// The intrinsic-key interners
+// ---------------------------------------------------------------------------
+
+/// The intrinsic keys one function names, or the whole program's.
+///
+/// Each function is lowered against a `Keys` of its own, across the cores, and
+/// [`Keys::adopt`] folds them in function order — the order one shared
+/// interner would have met them in, so the program's tables are the serial
+/// ones.
+#[derive(Default)]
+struct Keys {
+    calls: Interner<IntrinsicId>,
+    runtimes: Interner<RuntimeId>,
+}
+
+impl Keys {
+    /// Folds a function's own keys into these, and points its ids at them.
+    fn adopt(&mut self, func: &mut Func, local: &Keys) {
+        let calls = local.calls.keys.map(|k| self.calls.intern(k));
+        let runtimes = local.runtimes.keys.map(|k| self.runtimes.intern(k));
+        match &mut func.body {
+            Body::Runtime(id) => *id = *runtimes.get(*id),
+            Body::Code(code) => code.remap_intrinsics(&calls),
+        }
+    }
+}
+
+/// One table of keys, each once, with the id each was given.
+struct Interner<I> {
+    keys: Dense<I, Box<str>>,
+    ids: HashMap<Box<str>, I>,
+}
+
+impl<I> Default for Interner<I> {
+    fn default() -> Self {
+        Interner {
+            keys: Dense::default(),
+            ids: HashMap::default(),
+        }
+    }
+}
+
+impl<I: DenseId> Interner<I> {
+    fn intern(&mut self, key: &str) -> I {
+        let keys = &mut self.keys;
+        *self
+            .ids
+            .entry(key.into())
+            .or_insert_with(|| keys.push(key.into()))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -588,6 +649,8 @@ struct FnLower<'a> {
     /// [`ExprKind::StructUpdate`].
     cycles: &'a layout::Cycles,
     types: &'a mut Types,
+    /// The intrinsic keys this function names.
+    keys: &'a mut Keys,
     locals: &'a typed::Locals,
     ret: Ty,
     code: Code,
@@ -1551,6 +1614,12 @@ impl FnLower<'_> {
     fn intrinsic(&mut self, ty: Type, name: &str, args: &[Expr]) -> ValueId {
         let key = qualified_key(self.tables, name, args);
         let args = self.exprs(args).into_boxed_slice();
+        self.call_intrinsic(ty, &key, args)
+    }
+
+    /// An [`Inst::CallIntrinsic`] of `key`.
+    fn call_intrinsic(&mut self, ty: Type, key: &str, args: Box<[ValueId]>) -> ValueId {
+        let key = self.keys.calls.intern(key);
         self.emit(ty, |dest| Inst::CallIntrinsic { dest, key, args })
     }
 
@@ -1590,11 +1659,7 @@ impl FnLower<'_> {
         // A template is written with at least one part.
         let (mut acc, mut acc_is_mine) = it.next().or_ice("a template has a part");
         for (next, next_is_mine) in it {
-            let joined = self.emit(ty, |dest| Inst::CallIntrinsic {
-                dest,
-                key: "str.concat".into(),
-                args: Box::new([acc, next]),
-            });
+            let joined = self.call_intrinsic(ty, "str.concat", Box::new([acc, next]));
             // *After* the join, not before. On MEMORY.md §5.3's in-place path
             // the result is `acc`'s own block with one more count on it, so
             // this drop takes that count back and frees nothing; on the two
@@ -1722,11 +1787,7 @@ impl FnLower<'_> {
         // (`runtime_table`'s `Arg::Dropped`), so nothing stands in for it.
         let ctx = self.constant(Type::Unit, Const::Unit);
         let separator = self.constant(ty, Const::Str(Box::default()));
-        let joined = self.emit(ty, |dest| Inst::CallIntrinsic {
-            dest,
-            key: "list.join".into(),
-            args: Box::new([list, ctx, separator]),
-        });
+        let joined = self.call_intrinsic(ty, "list.join", Box::new([list, ctx, separator]));
         self.push(Inst::DecRef { value: list });
         joined
     }

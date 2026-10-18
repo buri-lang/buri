@@ -76,9 +76,10 @@ use inkwell::values::{
 };
 use inkwell::{FloatPredicate, IntPredicate};
 
+use super::route::{self, Route};
 use crate::compiler::backend::intrinsic_keys::{
-    checked_kind, conversion_target, derive_key, json_arm, json_variant, native_body, number_key,
-    prim_trait_op, step_call, CheckedKind, JsonArm, Leaf,
+    checked_kind, conversion_target, json_arm, json_variant, native_body, prim_trait_op, step_call,
+    CheckedKind, JsonArm, Leaf,
 };
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::task_thread;
@@ -126,6 +127,8 @@ pub struct Unit<'ctx, 'a> {
     /// borrow of the unit.
     builder: &'ctx Builder<'ctx>,
     program: &'a ir::Program,
+    /// What each intrinsic key the program names is emitted as.
+    routes: &'a route::Routes<'a>,
     /// The checker's tables, kept beside [`Reprs`] rather than reached through
     /// it: a structural operation and a `derivePrim*` intrinsic both arrive
     /// carrying a type and nothing else, and `Tables::as_prim` is the only way
@@ -200,6 +203,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         ctx: &'ctx Context,
         builder: &'ctx Builder<'ctx>,
         program: &'a ir::Program,
+        routes: &'a route::Routes<'a>,
         tables: &'a Tables,
         name: &str,
         observed: &'a Dense<FuncIdx, Observed>,
@@ -212,6 +216,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             module: ctx.create_module(name),
             builder,
             program,
+            routes,
             tables,
             reprs: Reprs::new(tables, cycles),
             observed,
@@ -271,7 +276,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // runtime import and defines nothing (VALUE-MODEL.md §10), so a call
         // to one is rewritten at the call site. A function value has no call
         // site, so a closure over one calls a body made of that rewrite.
-        if func.intrinsic_key().is_some() {
+        if func.runtime().is_some() {
             return self.runtime_body(idx, func);
         }
         let sig = self.machine_of(&func.sig);
@@ -1009,7 +1014,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.call_indirect(state, code, *dest, *callee, args)
             }
             ir::Inst::CallIntrinsic { dest, key, args } => {
-                self.call_intrinsic(state, code, *dest, key, args)
+                let route = *self.routes.calls.get(*key);
+                self.call_intrinsic(state, code, *dest, route, args)
             }
             ir::Inst::ShowPrim { dest, prim, value } => {
                 self.show_prim(state, code, *dest, *prim, *value, false)
@@ -2409,8 +2415,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // into `cli/runtime` (VALUE-MODEL.md §10), not a call to a Buri
         // function — the backend declares the import and defines nothing.
         let f = self.func(func);
-        if let Some(key) = f.intrinsic_key() {
-            self.call_intrinsic(state, code, dest, key, args);
+        if let Some(id) = f.runtime() {
+            let route = *self.routes.bodies.get(id);
+            self.call_intrinsic(state, code, dest, route, args);
             return;
         }
         let callee = self.declare(func);
@@ -2464,32 +2471,51 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.bind_results(state, code, dest, result);
     }
 
-    /// One intrinsic, by the four routes it can take.
+    /// One intrinsic, by the route [`route::Routes::of`] resolved its key to.
     ///
-    /// The order is the order of decreasing knowledge, which is also increasing
-    /// cost: an operation this backend can *generate* is generated, an
-    /// operation the archive has a body for is called, and a key that is neither
-    /// never gets here: the build asked `missing_intrinsics` first.
-    /// [`Unit::numeric`] and [`Unit::open_coded`]
-    /// answer `false` for a key they do not claim, so adding a symbol to
-    /// [`runtime::ENTRIES`] later does not mean unpicking one of them.
+    /// A generator answers `false` for an argument list it does not take,
+    /// which `middle::lower` never writes; its destination is then left
+    /// unbound.
     fn call_intrinsic(
         &mut self,
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
-        key: &str,
+        route: Route<'_>,
         args: &[ir::ValueId],
     ) {
-        if self.numeric(state, code, dest, key, args)
-            || self.copy_out(state, code, dest, key, args)
-            || self.open_coded(state, code, dest, key, args)
-            || self.derived(state, code, dest, key, args)
-        {
-            return;
+        match route {
+            Route::Numeric(from, op) => {
+                self.numeric(state, code, dest, from, op, args);
+            }
+            Route::CopyOut => {
+                self.copy_out(state, code, dest, args);
+            }
+            Route::Leaf(prim, op) => {
+                self.leaf(state, code, dest, prim, op, args);
+            }
+            Route::Bits(op) => {
+                self.bits(state, dest, op, args);
+            }
+            Route::OpenCoded(key) => {
+                self.open_coded(state, code, dest, key, args);
+            }
+            Route::Derived(leaf, prim) => {
+                self.derived(state, code, dest, leaf, prim, args);
+            }
+            Route::Row(entry) => self.call_row(state, code, dest, entry, args),
         }
-        let entry = runtime::entry(key)
-            .or_ice("the build asks `missing_intrinsics` before it emits a runtime call");
+    }
+
+    /// A call to the runtime archive's body for `entry`.
+    fn call_row(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        entry: &'static runtime::Entry,
+        args: &[ir::ValueId],
+    ) {
         let source = self.generic_element(code, dest, entry, args);
         let bare = if source.is_none() {
             self.bare_carrier(code, dest, entry, args)
@@ -6280,12 +6306,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
-        key: &str,
+        name: Leaf,
+        prim: Prim,
         args: &[ir::ValueId],
     ) -> bool {
-        let Some((name, prim)) = derive_key(key) else {
-            return false;
-        };
         match (name, args) {
             // Quoted: `$show`'s primitive arm, where a `Str` is
             // `JSON.stringify` and a `Char` is `'c'` (`runtime.js:200-210`).
@@ -6485,12 +6509,21 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
-        key: &str,
         args: &[ir::ValueId],
     ) -> bool {
-        let ("alloc.copyOut", &[arg]) = (key, args) else {
-            return false;
-        };
+        match args {
+            &[arg] => self.copy_out_of(state, code, dest, arg),
+            _ => false,
+        }
+    }
+
+    fn copy_out_of(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        arg: ir::ValueId,
+    ) -> bool {
         let value = self.get(state, arg);
         let counted = self
             .type_of(code.ty_of(arg))
@@ -6519,6 +6552,47 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         true
     }
 
+    /// `str.show`, `character.equal`, `bool.compare` and their siblings: the
+    /// same three operations `Unit::numeric` emits, at the three primitives
+    /// whose defining module is not `core/number` and whose keys are therefore
+    /// two segments rather than three.
+    fn leaf(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        prim: Prim,
+        op: &str,
+        args: &[ir::ValueId],
+    ) -> bool {
+        let b = state.b;
+        match (op, args) {
+            ("show", &[x, ..]) => {
+                self.show_prim(state, code, dest, prim, x, false);
+                true
+            }
+            ("hash", &[x, ..]) => {
+                let seed = self.ctx.i64_type().const_int(runtime::HASH_SEED, false);
+                self.hash_prim(state, code, dest, prim, seed.into(), x);
+                true
+            }
+            ("equal", &[x, y, ..]) => {
+                let (l, r) = (self.get(state, x), self.get(state, y));
+                let out = self.binary(state, ir::BinOp::Eq, prim, code.ty_of(x), l, r);
+                self.set(state, dest, out);
+                true
+            }
+            (_, &[x, y, ..]) => {
+                let (l, r) = (self.get(state, x), self.get(state, y));
+                let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
+                let out = self.order(b, l, r, false, int_ty(want));
+                self.set(state, dest, out);
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn open_coded(
         &mut self,
         state: &mut Function<'ctx>,
@@ -6528,38 +6602,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         args: &[ir::ValueId],
     ) -> bool {
         let b = state.b;
-        // `str.show`, `character.equal`, `bool.compare` and their siblings: the same
-        // three operations `Unit::numeric` emits, at the three primitives whose
-        // defining module is not `core/number` and whose keys are therefore two
-        // segments rather than three.
-        if let Some((prim, op)) = prim_leaf(key) {
-            return match (op, args) {
-                ("show", &[x, ..]) => {
-                    self.show_prim(state, code, dest, prim, x, false);
-                    true
-                }
-                ("hash", &[x, ..]) => {
-                    let seed = self.ctx.i64_type().const_int(runtime::HASH_SEED, false);
-                    self.hash_prim(state, code, dest, prim, seed.into(), x);
-                    true
-                }
-                ("equal", &[x, y, ..]) => {
-                    let (l, r) = (self.get(state, x), self.get(state, y));
-                    let out = self.binary(state, ir::BinOp::Eq, prim, code.ty_of(x), l, r);
-                    self.set(state, dest, out);
-                    true
-                }
-                (_, &[x, y, ..]) => {
-                    let (l, r) = (self.get(state, x), self.get(state, y));
-                    let want =
-                        repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
-                    let out = self.order(b, l, r, false, int_ty(want));
-                    self.set(state, dest, out);
-                    true
-                }
-                _ => false,
-            };
-        }
         match (key, args) {
             // `character.toU32()` is the identity: both sides are an `i32`.
             ("character.toU32", &[x, ..]) => {
@@ -6600,10 +6642,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 true
             }
             ("str.concat", _) => self.concat(state, code, dest, args),
-            _ if key.starts_with("bits.") => {
-                let op = key.split_once('.').map_or("", |(_, o)| o);
-                self.bits(state, dest, op, args)
-            }
             // The two parts of `platform/effect/testing` that are instructions
             // rather than calls. Every other double is stateful — a captured
             // stdout, an in-memory filesystem — and its state lives on the test
@@ -7167,12 +7205,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
-        key: &str,
+        from: Prim,
+        op: &str,
         args: &[ir::ValueId],
     ) -> bool {
-        let Some((from, op)) = number_key(key) else {
-            return false;
-        };
         let b = state.b;
         let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
         let first = args.first().copied();
@@ -8315,7 +8351,7 @@ pub fn implemented(key: &str) -> bool {
 ///
 /// `str.equal`, `str.compare` and `str.hash` are absent because the archive has
 /// bodies for all three and [`runtime::ENTRIES`] is where a body goes.
-fn prim_leaf(key: &str) -> Option<(Prim, &str)> {
+pub(super) fn prim_leaf(key: &str) -> Option<(Prim, &str)> {
     if !prim_trait_op(key) || key == "character.toU32" {
         return None;
     }
@@ -8335,7 +8371,7 @@ fn prim_leaf(key: &str) -> Option<(Prim, &str)> {
 /// of; `str.concat` is the one that is a real body, and it is generated because
 /// it is one allocation and two `memcpy`s and a `ccc` call per interpolation
 /// would cost more than it saves.
-fn open_coded_key(key: &str) -> bool {
+pub(super) fn open_coded_key(key: &str) -> bool {
     matches!(
         key,
         "str.concat"
@@ -9343,6 +9379,8 @@ mod cycles {
             types: ir::TypeList::default(),
             crosses_tasks: false,
             cell_equal: Default::default(),
+            intrinsics: Default::default(),
+            runtimes: Default::default(),
         }
     }
 

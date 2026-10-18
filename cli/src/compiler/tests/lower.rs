@@ -500,7 +500,7 @@ fn a_lowered_program_names_one_unit_per_module() {
 #[test]
 fn an_intrinsic_is_a_runtime_symbol_and_not_a_body() {
     let p = lower(&program("", "  let _ = [1, 2].length();"));
-    let runtime: Vec<&str> = p.funcs.iter().filter_map(|f| f.intrinsic_key()).collect();
+    let runtime: Vec<&str> = p.funcs.iter().filter_map(|f| p.runtime_key(f)).collect();
     assert!(
         runtime.contains(&"list.length"),
         "`len` is supplied by the runtime, by key: {runtime:?}"
@@ -778,5 +778,5 @@ export fn sum(xs: [Int]): Int { xs.fold(fn(a, b) => a + b, 0) }
     // runtime symbol. `fold` and `get` are code now (`lower/lists.rs`);
     // `length` is the runtime symbol.
     assert!(p.funcs.iter().any(|f| f.code().is_some()));
-    assert!(p.funcs.iter().any(|f| f.intrinsic_key().is_some()));
+    assert!(p.funcs.iter().any(|f| f.runtime().is_some()));
 }
