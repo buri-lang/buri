@@ -700,3 +700,29 @@ test "resolving against a base twice over is the same as resolving once" {
     assert.equal(shown(once), "http://a/b/c/x/z");
     assert.equal(shown(assert.ok(once.resolve(ctx, ""))), "http://a/b/c/x/z");
 }
+
+test "a relative reference whose authority is broken reports why" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let base = assert.ok(read(BASE));
+    assert.equal(assert.err(base.resolve(ctx, "//[::1/x")), UrlError.BadHost("[::1"));
+    assert.equal(assert.err(base.resolve(ctx, "//a:x/")), UrlError.BadPort("x"));
+}
+
+test "a reference with an authority or an absolute path keeps its own query" {
+    assert.equal(resolved("//g?y"), "http://g?y");
+    assert.equal(resolved("/g?y"), "http://a/g?y");
+}
+
+test "a leading dot or dot-dot on a path with no directory to climb is dropped" {
+    assert.equal(resolvedAgainst("foo:", "../g"), "foo:g");
+    assert.equal(resolvedAgainst("foo:", "./g"), "foo:g");
+}
+
+test "one reason a URL is refused is not another" {
+    assert.notEqual(UrlError.NoScheme, UrlError.UserInfo);
+    assert.notEqual(UrlError.BadHost("x"), UrlError.BadPort("x"));
+    assert.notEqual(UrlError.BadPort("x"), UrlError.NoScheme);
+    assert.notEqual(UrlError.UserInfo, UrlError.BadHost("x"));
+}

@@ -368,3 +368,86 @@ test "the message on stderr and the message main exits with are the same one" {
     let message = assert.err(r.answer);
     assert.equal(complained(ctx, r), .Some(str.format(ctx, "wc2: ${message}")));
 }
+
+// --- a tool with no global flags -------------------------------------------------
+
+fn loudness<C: Allocator + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
+    let loud = match (arguments.on("loud")) {
+        true => "loud",
+        false => "soft",
+    };
+    let verbose = match (arguments.on("verbose")) {
+        true => "verbose",
+        false => "terse",
+    };
+    let _ = io.println(ctx, "go ${loud} ${verbose}").ignore();
+    .Ok(())
+}
+
+fn bare<C: Allocator + Stdout>(): cli.Cli<C> {
+    cli.Cli {
+        name: "bare",
+        version: "1.0.0",
+        about: "has no global flags",
+        commands: [
+            cli.Command {
+                name: "go",
+                about: "go somewhere",
+                flags: .Some([
+                    cli.Flag {
+                        long: "loud",
+                        short: .None,
+                        arity: .Switch,
+                        help: "make noise",
+                    },
+                    cli.Flag {
+                        long: "verbose",
+                        short: .Some('v'),
+                        arity: .Switch,
+                        help: "say more",
+                    },
+                ]),
+                run: fn(c, arguments) => loudness(c, arguments),
+            },
+        ],
+    }
+}
+
+fn ranBare(argv: [Str]): Ran {
+    let out = stdout();
+    let err = stderr();
+    let ctx = context {
+        Allocator: alloc(),
+        Environment: env().withArguments(argv),
+        Stdout: out,
+        Stderr: err,
+    };
+    Ran { answer: cli.run(ctx, bare()), out: out, err: err }
+}
+
+test "a tool with no global flags says no global options, and a flag may have no letter" {
+    let r = ranBare(["go", "--help"]);
+    assert.ok(r.answer);
+    assert.equal(
+        r.out.captured(),
+        "bare go — go somewhere\n\nusage: bare go [options]\n\noptions:\n      --loud     make noise\n  -v, --verbose  say more\n      --help     print this help and exit\n",
+    );
+}
+
+test "a letter finds its flag past a flag that has none" {
+    assert.equal(printed(ranBare(["go", "-v"])), "go soft verbose");
+    assert.equal(printed(ranBare(["go", "--loud"])), "go loud terse");
+}
+
+test "a Many flag with no value left to take" {
+    assert.equal(
+        assert.err(ran(["hash", "--include"]).answer),
+        "--include needs a value",
+    );
+}
+
+test "a flag with no name before its equals is no flag" {
+    assert.equal(assert.err(ran(["--=x", "count", "f"]).answer), "unknown flag --=x");
+    assert.equal(assert.err(ran(["count", "-=x", "f"]).answer), "unknown flag -=x");
+    assert.equal(assert.err(ran(["count", "-ab=x", "f"]).answer), "unknown flag -ab=x");
+}
