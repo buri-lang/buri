@@ -331,6 +331,15 @@ impl<'a> Jit<'a> {
                 let dest = (st.at(p.dest), code.ty_of(p.dest));
                 self.rt_call(prog, st, runtime::parallel(p.tasks), dest, &list, tail);
             }
+            // The row's arguments, and the closure after them.
+            Inst::Handover(h) => {
+                let entry = runtime::handoff(h.kept.row());
+                let list: Vec<(u32, ir::Type)> =
+                    h.args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
+                let tail = self.handover_words(st, entry, h, &list);
+                let dest = (st.at(h.dest), code.ty_of(h.dest));
+                self.rt_call(prog, st, entry, dest, &list, tail);
+            }
             Inst::MakeStruct { dest, fields } => {
                 let d = st.at(*dest);
                 let (l, owner) = match code.ty_of(*dest) {
