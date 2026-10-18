@@ -305,14 +305,10 @@ pub fn runtime_archive_for(units: &[Emitted]) -> RuntimeArchive {
 /// indexing.
 fn mentions_runtime(haystack: &[u8]) -> bool {
     const PREFIX: &[u8] = runtime_native::SYMBOL_PREFIX.as_bytes();
-    // Evaluated at compile time: an empty prefix fails the build, never a link.
-    const FIRST: u8 = *PREFIX
-        .first()
-        .expect("the runtime's symbol prefix has a first byte");
     haystack
         .iter()
         .enumerate()
-        .filter(|(_, byte)| **byte == FIRST)
+        .filter(|(_, byte)| PREFIX.first() == Some(*byte))
         .any(|(i, _)| {
             haystack
                 .get(i..)
@@ -1232,10 +1228,11 @@ fn probe_target(driver: &Path, triple: &str) -> bool {
             .stderr(std::process::Stdio::null()),
     );
     let Ok(mut child) = spawned else { return false };
-    #[expect(clippy::expect_used, reason = "the command above pipes standard input")]
-    let mut stdin = child.stdin.take().expect("standard input is piped");
-    let _ = stdin.write_all(b"int buri_musl_probe(void) { return 0; }\n");
-    drop(stdin);
+    // Closed once written, so the driver reads to the end.
+    let _ = child
+        .stdin
+        .take()
+        .map(|mut stdin| stdin.write_all(b"int buri_musl_probe(void) { return 0; }\n"));
     child.wait().is_ok_and(|status| status.success())
 }
 

@@ -319,9 +319,8 @@ pub fn output(command: &mut Command) -> std::io::Result<Output> {
     finish(start(command)?)
 }
 
-/// `Child::wait_with_output`, charging the child to the profile's phase. The
-/// child's standard output and error are piped.
-#[expect(clippy::expect_used, reason = "every caller pipes both outputs")]
+/// `Child::wait_with_output`, charging the child to the profile's phase. An
+/// output that is not piped reads as empty, as it does there.
 pub fn finish(mut child: Child) -> std::io::Result<Output> {
     if !crate::profile::enabled() {
         return child.wait_with_output();
@@ -330,19 +329,22 @@ pub fn finish(mut child: Child) -> std::io::Result<Output> {
     // the child's counters in between, so it drains here.
     use std::io::Read as _;
     drop(child.stdin.take());
-    let mut errors = child.stderr.take().expect("standard error is piped");
-    let reading_err = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = errors.read_to_end(&mut bytes);
-        bytes
+    let reading_err = child.stderr.take().map(|mut errors| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = errors.read_to_end(&mut bytes);
+            bytes
+        })
     });
     let mut stdout = Vec::new();
     child
         .stdout
         .take()
-        .expect("standard output is piped")
-        .read_to_end(&mut stdout)?;
-    let stderr = reading_err.join().unwrap_or_default();
+        .map(|mut out| out.read_to_end(&mut stdout))
+        .transpose()?;
+    let stderr = reading_err
+        .map(|reading| reading.join().unwrap_or_default())
+        .unwrap_or_default();
     crate::profile::reaped(child.id());
     Ok(Output {
         status: child.wait()?,
