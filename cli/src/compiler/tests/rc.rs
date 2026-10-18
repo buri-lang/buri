@@ -1727,7 +1727,7 @@ export fn main(host: NodeHost): Result<(), Str> {
         ir::Purity::Effectful,
         "printing is not pure"
     );
-    assert_eq!(plan.func(find(&program, "double")).can_abort, false);
+    assert!(!plan.func(find(&program, "double")).can_abort);
 }
 
 /// A type the classifier cannot answer for carries no operations and is named,
