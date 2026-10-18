@@ -120,49 +120,39 @@ fn tail_callees(e: &Expr, out: &mut Vec<FuncIdx>) {
 ///
 /// The graph is over the functions with a body. One without tail-calls
 /// nothing, so it is in no cycle.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "a component's members are nodes of the graph, with one edge list and one function each"
-)]
 fn analyze(program: &Program) -> Plan {
-    let defined: Vec<(FuncIdx, &Expr)> = program
-        .funcs
-        .entries()
-        .filter_map(|(f, func)| Some((f, func.body()?)))
-        .collect();
-    let mut node: Dense<FuncIdx, Option<usize>> = program.funcs.map(|_| None);
-    for (n, (f, _)) in defined.iter().enumerate() {
-        *node.get_mut(*f) = Some(n);
-    }
-    let edges: Vec<Vec<usize>> = defined
-        .iter()
-        .map(|(_, body)| {
-            let mut callees = Vec::new();
+    let bodies: Dense<FuncIdx, Option<&Expr>> = program.funcs.iter().map(|f| f.body()).collect();
+    let edges: Dense<FuncIdx, Vec<FuncIdx>> = bodies.map(|body| {
+        let mut callees = Vec::new();
+        for body in body.iter() {
             tail_callees(body, &mut callees);
-            let mut es: Vec<usize> = callees.into_iter().filter_map(|c| *node.get(c)).collect();
-            es.sort();
-            es.dedup();
-            es
-        })
-        .collect();
+        }
+        callees.retain(|c| bodies.get(*c).is_some());
+        callees.sort();
+        callees.dedup();
+        callees
+    });
 
     let mut plan = Plan {
         self_loop: program.funcs.map(|_| false),
         groups: Vec::new(),
     };
     for scc in strongly_connected(&edges).iter() {
-        if let [n] = *scc {
-            if edges[n].contains(&n) {
-                *plan.self_loop.get_mut(defined[n].0) = true;
+        if let [f] = *scc {
+            if edges.get(f).contains(&f) {
+                *plan.self_loop.get_mut(f) = true;
             }
             continue;
         }
         // A statically known group of functions that tail-call each other.
+        // Each member has a body, because it tail-calls another.
         let group = scc
             .iter()
-            .map(|n| Member {
-                func: defined[*n].0,
-                body: defined[*n].1.clone(),
+            .filter_map(|&func| {
+                Some(Member {
+                    func,
+                    body: (*bodies.get(func))?.clone(),
+                })
             })
             .collect();
         plan.groups.push(group);

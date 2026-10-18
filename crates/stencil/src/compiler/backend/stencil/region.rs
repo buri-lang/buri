@@ -47,6 +47,7 @@
               is already in memory"
 )]
 
+use crate::compiler::semantics::types::FuncIdx;
 use crate::hash::Map as HashMap;
 
 use super::object::RelKind;
@@ -73,7 +74,7 @@ pub const POOL_ALIGN_X86_64: u32 = 4;
 pub enum Target {
     /// A function of this program, by `FuncIdx`. Resolved inside the object
     /// when the callee is in this unit and left to the linker when it is not.
-    Func(u32),
+    Func(FuncIdx),
     /// A symbol outside this program: the runtime archive's, or the C
     /// library's. Borrowed when the name is the stencil library's or a
     /// literal, which is every import a stencil body makes.

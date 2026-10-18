@@ -70,6 +70,7 @@ use crate::build::buildfile::{Arch, Platform};
 use crate::compiler::backend::task_thread;
 use crate::compiler::backend::{triple_text, Backend, Emitted, Options, Target, Units};
 use crate::compiler::middle::{ir, layout, lower, monomorphize, rc};
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::{FuncIdx, Tables};
 use crate::diagnostics::{Diagnostic, Diagnostics, Invariant, Span};
 
@@ -327,10 +328,8 @@ enum Root {
 /// Whether `unit` is the one the entry point belongs in.
 fn owns(program: &ir::Program, root: &Root, unit: u32) -> bool {
     let here = |f: FuncIdx| {
-        program
-            .funcs
-            .get(f.index())
-            .is_some_and(|x| x.unit == unit && x.code().is_some())
+        let x = program.funcs.get(f);
+        x.unit == unit && x.code().is_some()
     };
     match root {
         Root::Main(e) => here(*e),
@@ -366,10 +365,10 @@ struct For {
     names: bool,
     /// Whether another unit or the entry point names each function, so that
     /// its unit keeps it (`Unit::prune`).
-    kept: Vec<bool>,
+    kept: Dense<FuncIdx, bool>,
     /// Whether anything names each function. One nothing names is not
     /// emitted at all.
-    named: Vec<bool>,
+    named: Dense<FuncIdx, bool>,
 }
 
 impl For {
@@ -383,7 +382,7 @@ impl For {
 
     /// A reader sees every function, by name.
     fn reader(program: &ir::Program) -> For {
-        let every = vec![true; program.funcs.len()];
+        let every = program.funcs.map(|_| true);
         For {
             names: true,
             kept: every.clone(),
@@ -409,7 +408,7 @@ struct Shared<'p> {
     root: Option<Root>,
     triple: String,
     cycles: std::sync::Arc<layout::Cycles>,
-    observed: Vec<attrs::Observed>,
+    observed: Dense<FuncIdx, attrs::Observed>,
     /// `runtime_table::shares_counts`: whether every count's fork reads
     /// `buri_rt_shared_mask`.
     shares: bool,
@@ -485,11 +484,9 @@ fn emit_selected(
         Some(Root::Tests(tests)) => tests.as_slice(),
         None => &[],
     };
-    let with_roots = |mut named: Vec<bool>| {
+    let with_roots = |mut named: Dense<FuncIdx, bool>| {
         for r in roots {
-            *named
-                .get_mut(r.index())
-                .or_ice("a root is one of the program's functions") = true;
+            *named.get_mut(*r) = true;
         }
         named
     };
@@ -589,17 +586,11 @@ fn emit_unit(
     // This unit's functions, ascending — the same list, in the same order,
     // that a filter over the whole program yielded. An object leaves out the
     // ones nothing names (`For`).
-    let members: Vec<FuncIdx> = this
+    let members: Vec<(FuncIdx, &ir::Code)> = this
         .funcs
         .iter()
-        .copied()
-        .filter(|i| {
-            program
-                .funcs
-                .get(i.index())
-                .is_some_and(|f| f.code().is_some())
-        })
-        .filter(|i| audience.named.get(i.index()).copied().unwrap_or(true))
+        .filter(|&&i| *audience.named.get(i))
+        .filter_map(|&i| Some((i, program.funcs.get(i).code()?)))
         .collect();
     // The entry point goes in the unit that owns `main`, so a program is
     // one `_start`-adjacent symbol and the other units are libraries. A test
@@ -632,8 +623,8 @@ fn emit_unit(
         .module
         .set_triple(&inkwell::targets::TargetTriple::create(&shared.triple));
     emitter.module.set_data_layout(&worker.data_layout);
-    for member in &members {
-        emitter.define(*member);
+    for &(member, code) in &members {
+        emitter.define(member, code);
     }
     if owns_entry {
         match root {
@@ -660,8 +651,7 @@ fn emit_unit(
     // no body is a link error rather than a wrong answer.
     emitter.finish();
     optimize(&emitter.module, &worker.machine, opts.profile);
-    let members: Vec<usize> = members.iter().map(|f| f.index()).collect();
-    emitter.prune(&members, &audience.kept);
+    emitter.prune(members.iter().map(|&(f, _)| f), &audience.kept);
     let bytes = match render(&emitter.module, &worker.machine) {
         Ok(b) => b,
         Err(message) => {

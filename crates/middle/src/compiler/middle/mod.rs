@@ -74,7 +74,7 @@ pub mod rc;
 pub mod tail_calls;
 
 use crate::compiler::middle::monomorphize::Program;
-use crate::diagnostics::Invariant as _;
+use crate::compiler::semantics::layered::{Dense, DenseId};
 
 /// What the shared half of the middle end is allowed to do.
 #[derive(Default)]
@@ -166,6 +166,9 @@ struct Node {
     /// The lowest `index` reachable from it without leaving the current stack.
     low: usize,
     on_stack: bool,
+    /// How deep the stack was when the node was pushed, so its component is
+    /// everything from there up.
+    depth: usize,
 }
 
 /// The strongly connected components of a graph given as an adjacency list.
@@ -180,44 +183,40 @@ struct Node {
 /// Each group is sorted, and the groups come out in a deterministic order,
 /// because build output is compared byte for byte
 /// (`two_checkouts_of_one_tree_build_identical_bytes`).
+///
+/// The nodes are the ids the table minted, so every edge names one.
 #[allow(
     clippy::arithmetic_side_effects,
     reason = "the counter and the edge cursor are bounded by the node and edge counts of a graph already held in memory"
 )]
-#[expect(
-    clippy::indexing_slicing,
-    reason = "every edge names a node of the graph: both callers draw them from the program's own function indices"
-)]
-fn strongly_connected(edges: &[Vec<usize>]) -> Components {
-    let n = edges.len();
-    let mut nodes = vec![
-        Node {
-            index: usize::MAX,
-            low: 0,
-            on_stack: false
-        };
-        n
-    ];
-    let mut stack: Vec<usize> = Vec::new();
+fn strongly_connected<I: DenseId + Ord>(edges: &Dense<I, Vec<I>>) -> Components<I> {
+    let mut nodes: Dense<I, Node> = edges.map(|_| Node {
+        index: usize::MAX,
+        low: 0,
+        on_stack: false,
+        depth: 0,
+    });
+    let mut stack: Vec<I> = Vec::new();
     let mut next = 0usize;
     let mut out = Components {
-        members: Vec::with_capacity(n),
+        members: Vec::with_capacity(edges.len()),
         ends: Vec::new(),
     };
     // (node, how many of its edges have been taken)
-    let mut work: Vec<(usize, usize)> = Vec::new();
+    let mut work: Vec<(I, usize)> = Vec::new();
 
-    for root in 0..n {
-        if nodes[root].index != usize::MAX {
+    for root in edges.ids() {
+        if nodes.get(root).index != usize::MAX {
             continue;
         }
         work.push((root, 0));
         while let Some((v, taken)) = work.pop() {
             if taken == 0 {
-                nodes[v] = Node {
+                *nodes.get_mut(v) = Node {
                     index: next,
                     low: next,
                     on_stack: true,
+                    depth: stack.len(),
                 };
                 next += 1;
                 stack.push(v);
@@ -225,10 +224,15 @@ fn strongly_connected(edges: &[Vec<usize>]) -> Components {
 
             // `low` is accumulated in a local and written back once, so that
             // reading a successor's row and updating this one do not overlap.
-            let Node { index, mut low, .. } = nodes[v];
+            let Node {
+                index,
+                mut low,
+                depth,
+                ..
+            } = *nodes.get(v);
             let mut descended = false;
-            for (k, &w) in edges[v].iter().enumerate().skip(taken) {
-                let succ = nodes[w];
+            for (k, &w) in edges.get(v).iter().enumerate().skip(taken) {
+                let succ = *nodes.get(w);
                 if succ.index == usize::MAX {
                     work.push((v, k + 1));
                     work.push((w, 0));
@@ -238,26 +242,23 @@ fn strongly_connected(edges: &[Vec<usize>]) -> Components {
                     low = low.min(succ.index);
                 }
             }
-            nodes[v].low = low;
+            nodes.get_mut(v).low = low;
             if descended {
                 continue;
             }
 
             if low == index {
                 let start = out.members.len();
-                loop {
-                    let w = stack.pop().or_ice("`v` is still on the stack");
-                    nodes[w].on_stack = false;
+                for w in stack.drain(depth..) {
+                    nodes.get_mut(w).on_stack = false;
                     out.members.push(w);
-                    if w == v {
-                        break;
-                    }
                 }
-                out.members[start..].sort_unstable();
+                out.members.split_at_mut(start).1.sort_unstable();
                 out.ends.push(out.members.len());
             }
             if let Some(&(parent, _)) = work.last() {
-                nodes[parent].low = nodes[parent].low.min(low);
+                let row = nodes.get_mut(parent);
+                row.low = row.low.min(low);
             }
         }
     }
@@ -269,13 +270,13 @@ fn strongly_connected(edges: &[Vec<usize>]) -> Components {
 ///
 /// One flat list of members and where each component ends, rather than a
 /// `Vec` per component: most components are a single function.
-pub(crate) struct Components {
-    members: Vec<usize>,
+pub(crate) struct Components<I> {
+    members: Vec<I>,
     ends: Vec<usize>,
 }
 
-impl Components {
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &[usize]> {
+impl<I> Components<I> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &[I]> {
         let mut start = 0;
         self.ends.iter().map(move |&end| {
             let group = self.members.get(start..end).unwrap_or_default();
@@ -308,16 +309,27 @@ pub(crate) fn func_id(i: u32) -> crate::compiler::semantics::types::FuncIdx {
 
 #[cfg(test)]
 mod tests {
-    use super::strongly_connected;
+    use super::{func_id, strongly_connected};
+    use crate::compiler::semantics::layered::Dense;
+    use crate::compiler::semantics::types::FuncIdx;
+
+    /// The components of a graph written as rows of node numbers, as rows of
+    /// node numbers.
+    fn components(rows: &[&[u32]]) -> Vec<Vec<usize>> {
+        let edges: Dense<FuncIdx, Vec<FuncIdx>> = rows
+            .iter()
+            .map(|row| row.iter().map(|&n| func_id(n)).collect())
+            .collect();
+        strongly_connected(&edges)
+            .iter()
+            .map(|group| group.iter().map(|f| f.index()).collect())
+            .collect()
+    }
 
     #[test]
     fn cycles_are_found_and_singletons_are_not_called_recursive() {
         // 0 -> 1 -> 2 -> 1, and 3 alone.
-        let edges = vec![vec![1], vec![2], vec![1], vec![]];
-        let mut groups: Vec<Vec<usize>> = strongly_connected(&edges)
-            .iter()
-            .map(<[usize]>::to_vec)
-            .collect();
+        let mut groups = components(&[&[1], &[2], &[1], &[]]);
         groups.sort();
         let cycles: Vec<Vec<usize>> = groups.into_iter().filter(|g| g.len() > 1).collect();
         assert_eq!(cycles, vec![vec![1, 2]]);
@@ -326,11 +338,7 @@ mod tests {
     #[test]
     fn finds_self_loops_and_groups() {
         // 0 -> 0 (self), 1 <-> 2 (group), 3 -> 1 (not in a cycle)
-        let edges = vec![vec![0], vec![2], vec![1], vec![1]];
-        let sccs: Vec<Vec<usize>> = strongly_connected(&edges)
-            .iter()
-            .map(<[usize]>::to_vec)
-            .collect();
+        let sccs = components(&[&[0], &[2], &[1], &[1]]);
         // Three components: {0}, {3}, and the pair {1, 2}.
         let mut sizes: Vec<usize> = sccs.iter().map(|s| s.len()).collect();
         sizes.sort();
@@ -341,8 +349,14 @@ mod tests {
 
     #[test]
     fn a_chain_is_not_a_cycle() {
-        let edges = vec![vec![1], vec![2], vec![]];
-        let sccs = strongly_connected(&edges);
+        let sccs = components(&[&[1], &[2], &[]]);
         assert!(sccs.iter().all(|s| s.len() == 1));
+    }
+
+    #[test]
+    fn components_come_out_callees_first() {
+        // 0 -> 1 -> {2 <-> 3}: the pair finishes first, then 1, then 0.
+        let sccs = components(&[&[1], &[2], &[3], &[2]]);
+        assert_eq!(sccs, vec![vec![2, 3], vec![1], vec![0]]);
     }
 }

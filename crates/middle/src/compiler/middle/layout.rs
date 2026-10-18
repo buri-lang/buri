@@ -68,6 +68,7 @@
 //! Design: `design/native/VALUE-MODEL.md`, and the `Allocator` cost model in
 //! `MEMORY.md` §7.1.
 
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::{self, Prim, Tables, Ty, TyConId, TyDef, TyKind};
 use crate::diagnostics::Invariant as _;
 use crate::hash::{Map, Set};
@@ -378,20 +379,26 @@ impl Layout {
 /// every
 /// [`Layouts::with_cycles`].
 pub struct Cycles {
-    /// Recursion group per type constructor, by `TyConId` index: the strongly
-    /// connected components of "mentions, in a position that would be stored
-    /// inline". Two constructors share a group exactly when laying either out
-    /// inline would need the other, and that is what [`Layouts::boxes`] tests.
-    groups: Vec<usize>,
-    /// Whether a group is a genuine cycle — more than one constructor, or one
-    /// that mentions itself — by group index.
+    /// Recursion group per type constructor: the strongly connected components
+    /// of "mentions, in a position that would be stored inline". Two
+    /// constructors share a group exactly when laying either out inline would
+    /// need the other, and that is what [`Layouts::boxes`] tests.
+    groups: Dense<TyConId, Group>,
+}
+
+/// One constructor's recursion group.
+#[derive(Clone, Copy)]
+struct Group {
+    id: usize,
+    /// Whether the group is a genuine cycle — more than one constructor, or one
+    /// that mentions itself.
     ///
     /// Without this, `Option<Option<T>>` would box its own payload: the outer
     /// and the inner are the same constructor, so they share a group, and
     /// "shares a group with the owner" would be true of a type that is
     /// strictly smaller than the one holding it. `Option`'s declared field is
     /// its parameter, so it mentions nothing and its group is not a cycle.
-    recursive: Vec<bool>,
+    recursive: bool,
 }
 
 impl Cycles {
@@ -401,20 +408,15 @@ impl Cycles {
         let Some(con) = owner.head() else {
             return false;
         };
-        let group = self.group(con);
-        if !self.recursive.get(group).copied().unwrap_or(false) {
+        let group = self.groups.get(con);
+        if !group.recursive {
             return false;
         }
         let mut mentioned = Vec::new();
         inline_cons(field, &mut mentioned);
-        mentioned.into_iter().any(|c| self.group(c) == group)
-    }
-
-    fn group(&self, con: TyConId) -> usize {
-        *self
-            .groups
-            .get(con.index())
-            .or_ice("every TyConId was minted by add_tycon on this table")
+        mentioned
+            .into_iter()
+            .any(|c| self.groups.get(c).id == group.id)
     }
 
     pub fn new(tables: &Tables) -> Cycles {
@@ -443,34 +445,33 @@ impl Cycles {
 
     /// Every constructor's declared field types, in `TyConId` order.
     fn from_fields(cons: impl Iterator<Item = Vec<Ty>>) -> Cycles {
-        let mut edges: Vec<Vec<usize>> = Vec::new();
-        for fields in cons {
-            let mut mentioned = Vec::new();
-            for ty in &fields {
-                inline_cons(ty, &mut mentioned);
-            }
-            let mut out: Vec<usize> = mentioned.into_iter().map(TyConId::index).collect();
-            out.sort_unstable();
-            out.dedup();
-            edges.push(out);
-        }
-        let mut member_of: Vec<(usize, usize)> = Vec::with_capacity(edges.len());
-        let mut recursive = Vec::new();
+        let edges: Dense<TyConId, Vec<TyConId>> = cons
+            .map(|fields| {
+                let mut out = Vec::new();
+                for ty in &fields {
+                    inline_cons(ty, &mut out);
+                }
+                out.sort_unstable();
+                out.dedup();
+                out
+            })
+            .collect();
+        let mut groups = edges.map(|_| Group {
+            id: 0,
+            recursive: false,
+        });
         for (id, group) in super::strongly_connected(&edges).iter().enumerate() {
             // One constructor that mentions itself is a cycle; one that does
             // not is a group of one and nothing more.
-            let cycle = group.len() > 1
-                || group
-                    .first()
-                    .is_some_and(|n| edges.get(*n).is_some_and(|out| out.contains(n)));
-            recursive.push(cycle);
-            member_of.extend(group.iter().map(|&node| (node, id)));
+            let recursive = match group {
+                [only] => edges.get(*only).contains(only),
+                _ => true,
+            };
+            for &con in group {
+                *groups.get_mut(con) = Group { id, recursive };
+            }
         }
-        // Every constructor is in exactly one group, so in node order this is
-        // one group per constructor.
-        member_of.sort_unstable();
-        let groups = member_of.into_iter().map(|(_, id)| id).collect();
-        Cycles { groups, recursive }
+        Cycles { groups }
     }
 }
 

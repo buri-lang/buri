@@ -43,7 +43,7 @@ use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
 use crate::compiler::middle::layout::{EnumRepr, Repr};
-use crate::compiler::semantics::types::{IntPrim, Prim, Ty, TyKind};
+use crate::compiler::semantics::types::{FuncIdx, IntPrim, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant;
 
 /// How deep an inline reference-count walk goes.
@@ -81,9 +81,8 @@ pub fn num_tag(p: Prim) -> (&'static str, u32, bool) {
 
 /// The aggregate a function answers, for a `Body::Runtime` whose signature
 /// makes it one.
-fn ret_agg(prog: &ir::Program, fi: usize) -> ir::TypeId {
-    let ret = prog.funcs.get(fi).map(|f| f.sig.ret);
-    agg_of(ret.or_ice("a runtime body is one of its program's functions"))
+fn ret_agg(prog: &ir::Program, fi: FuncIdx) -> ir::TypeId {
+    agg_of(prog.funcs.get(fi).sig.ret)
 }
 
 pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
@@ -347,9 +346,7 @@ impl<'a> Jit<'a> {
                 lhs,
                 rhs,
             } => self.binary(st, *dest, *op, *prim, *lhs, *rhs),
-            Inst::Call { dest, func, args } => {
-                self.call(prog, code, st, *dest, func.index() as u32, args)
-            }
+            Inst::Call { dest, func, args } => self.call(prog, code, st, *dest, *func, args),
             Inst::CallIndirect { dest, callee, args } => {
                 self.call_indirect(prog, code, st, *dest, *callee, args)
             }
@@ -443,7 +440,7 @@ impl<'a> Jit<'a> {
                 }
                 .or_ice("a closure's IR type is a function's (middle/ir.rs)");
                 let thunk = self.helper(super::glue::Helper::Thunk {
-                    func: func.index() as u32,
+                    func: *func,
                     args: args as u32,
                     boxed: env.is_some(),
                 });
@@ -1315,10 +1312,10 @@ impl<'a> Jit<'a> {
         code: &ir::Code,
         st: &mut Fn2,
         dest: ir::ValueId,
-        func: u32,
+        func: FuncIdx,
         args: &[ir::ValueId],
     ) {
-        if let Some(ir::Body::Runtime(key)) = prog.funcs.get(func as usize).map(|f| &f.body) {
+        if let ir::Body::Runtime(key) = &prog.funcs.get(func).body {
             let key = key.clone();
             // The archive boundary, **emitted here rather than called**, which
             // is every backend's first act at a `Body::Runtime` call.
@@ -1354,7 +1351,7 @@ impl<'a> Jit<'a> {
             }
         }
         let base = st.frame.size;
-        let callee = self.frame_sig_of(func as usize);
+        let callee = self.frame_sig_of(func);
         for (a, off) in args.iter().zip(&callee.params) {
             // A zero-sized argument — a lifted lambda's empty environment —
             // has no bytes for the callee to read.
@@ -2025,7 +2022,7 @@ impl<'a> Jit<'a> {
     pub(crate) fn runtime_body(
         &mut self,
         prog: &ir::Program,
-        fi: usize,
+        fi: FuncIdx,
         key: String,
         st: &mut Fn2,
     ) {
@@ -2042,7 +2039,10 @@ impl<'a> Jit<'a> {
             let arg = prog
                 .funcs
                 .get(fi)
-                .and_then(|f| f.sig.params.first().copied())
+                .sig
+                .params
+                .first()
+                .copied()
                 .and_then(|t| source_ty(prog, t));
             match arg {
                 Some(ty) => {
@@ -2058,8 +2058,10 @@ impl<'a> Jit<'a> {
                     let size = prog
                         .funcs
                         .get(fi)
-                        .and_then(|f| f.sig.params.first().copied())
-                        .map_or(0, |t| self.width_of(prog, t));
+                        .sig
+                        .params
+                        .first()
+                        .map_or(0, |t| self.width_of(prog, *t));
                     self.mv(ret0, p(0), size);
                 }
             }
@@ -2128,10 +2130,7 @@ impl<'a> Jit<'a> {
                 // table. `U32.toChar` is the case that needs it — not every
                 // `U32` is a scalar value — and casting anyway would have
                 // written a `Char` into a `Result` and called it success.
-                let wide = matches!(
-                    prog.funcs.get(fi).map(|f| f.sig.ret),
-                    Some(ir::Type::Agg(_))
-                );
+                let wide = matches!(prog.funcs.get(fi).sig.ret, ir::Type::Agg(_));
                 let exact = !wide
                     && (op.starts_with("wrapTo")
                         || crate::compiler::semantics::builtins::conversion_is_exact(prim, to)
@@ -2296,7 +2295,7 @@ impl<'a> Jit<'a> {
         crate::diagnostics::invariant_with(key == "str.concat", || {
             format!("stencil: the runtime function {key} has no body here")
         });
-        let argc = prog.funcs.get(fi).map_or(0, |f| f.sig.params.len());
+        let argc = prog.funcs.get(fi).sig.params.len();
         self.str_concat(st, Self::concat_strs(argc).map(p), ret0);
         self.emit("ret", &[]);
     }
@@ -2319,7 +2318,7 @@ impl<'a> Jit<'a> {
     fn runtime_intrinsic(
         &mut self,
         prog: &ir::Program,
-        fi: usize,
+        fi: FuncIdx,
         key: &str,
         fs: &super::jit::FrameSig,
         st: &mut Fn2,
@@ -2327,10 +2326,7 @@ impl<'a> Jit<'a> {
         let Some(entry) = super::runtime::entry(key) else {
             return false;
         };
-        let f = prog
-            .funcs
-            .get(fi)
-            .or_ice("a body is one of its program's functions");
+        let f = prog.funcs.get(fi);
         let args: Vec<(u32, ir::Type)> = f
             .sig
             .params
@@ -2524,7 +2520,7 @@ impl Jit<'_> {
     fn checked(
         &mut self,
         prog: &ir::Program,
-        fi: usize,
+        fi: FuncIdx,
         st: &mut Fn2,
         prim: Prim,
         kind: &str,
@@ -2589,7 +2585,7 @@ impl Jit<'_> {
     fn convert_checked(
         &mut self,
         prog: &ir::Program,
-        fi: usize,
+        fi: FuncIdx,
         st: &mut Fn2,
         from: Prim,
         to: Prim,
@@ -3378,9 +3374,9 @@ impl Jit<'_> {
     /// The tag width of a function's first result, where that result is an
     /// enum. `None` covers both "not an aggregate" and "an aggregate that is
     /// not an enum", which is what the caller declines on either way.
-    fn ret_tag(&mut self, prog: &ir::Program, fi: usize) -> Option<u32> {
-        match prog.funcs.get(fi).map(|f| f.sig.ret) {
-            Some(ir::Type::Agg(id)) => self.tag_width(prog, id),
+    fn ret_tag(&mut self, prog: &ir::Program, fi: FuncIdx) -> Option<u32> {
+        match prog.funcs.get(fi).sig.ret {
+            ir::Type::Agg(id) => self.tag_width(prog, id),
             _ => None,
         }
     }

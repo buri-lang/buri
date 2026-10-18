@@ -322,7 +322,6 @@ impl Facts {
                 .collect(),
         };
         // The whole call graph, not the tail-call subset `tail_calls` builds.
-        let mut edges: Vec<Vec<usize>> = Vec::with_capacity(own.len());
         for (i, o) in own.entries() {
             for (j, call) in &o.edges {
                 let row = f.per_func.get_mut(*j);
@@ -335,23 +334,15 @@ impl Facts {
             if o.edges.iter().any(|(j, _)| *j == i) {
                 f.per_func.get_mut(i).recursive = true;
             }
-            edges.push(o.edges.iter().map(|(j, _)| j.index()).collect());
         }
-        let mut cyclic = vec![false; own.len()];
+        let edges: Dense<FuncIdx, Vec<FuncIdx>> =
+            own.map(|o| o.edges.iter().map(|(j, _)| *j).collect());
         for group in strongly_connected(&edges).iter() {
             if group.len() > 1 {
                 for &i in group {
-                    #[expect(
-                        clippy::indexing_slicing,
-                        reason = "a component's members are functions of the program"
-                    )]
-                    let row = &mut cyclic[i];
-                    *row = true;
+                    f.per_func.get_mut(i).recursive = true;
                 }
             }
-        }
-        for (row, cyclic) in f.per_func.iter_mut().zip(cyclic) {
-            row.recursive |= cyclic;
         }
         f
     }
