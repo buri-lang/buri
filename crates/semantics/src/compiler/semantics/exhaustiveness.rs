@@ -34,7 +34,7 @@
 use crate::compiler::semantics::inference::Infer;
 use crate::compiler::semantics::typed::{self, PatKind, Pattern};
 use crate::compiler::semantics::types::{Prim, Ty, TyConId, TyDef, TyKind, VariantId};
-use crate::diagnostics::{Diagnostic, Invariant as _, Span};
+use crate::diagnostics::{Diagnostic, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
 
 /// The head constructor of a pattern.
@@ -161,69 +161,73 @@ static UNTYPED: Ty = Ty::ERROR;
 /// built from them.
 type Row<'p> = Vec<&'p Pat>;
 
-/// A matrix's rows, end to end in one list.
+/// A matrix's rows.
 ///
-/// Every row of a matrix has the same width, so a row is a slice of `cells`
-/// and building a matrix is one allocation rather than one per row.
+/// Every row of a matrix has the same width, so the rows' heads are one list,
+/// the rest of each row is a slice of `tails`, and building a matrix is two
+/// allocations rather than one per row. Every operation below reads a row by
+/// its head, so a row is handed out split there. A matrix with no column left
+/// has rows with no head, and only how many there are matters.
 #[derive(Default, Clone)]
 struct Rows<'p> {
-    cells: Vec<&'p Pat>,
-    width: usize,
-    len: usize,
+    heads: Vec<&'p Pat>,
+    tails: Vec<&'p Pat>,
+    /// How many patterns follow each head.
+    tail_width: usize,
+    /// How many rows have no head.
+    bare: usize,
 }
 
 impl<'p> Rows<'p> {
     fn len(&self) -> usize {
-        self.len
+        self.heads.len().saturating_add(self.bare)
     }
 
     fn is_empty(&self) -> bool {
-        self.len == 0
+        self.len() == 0
     }
 
-    /// Row `at`. Every caller asks for a row below `len`, and `cells` holds
-    /// exactly `len` rows, so the cells alone bound it.
-    fn get(&self, at: usize) -> Option<&[&'p Pat]> {
-        let start = at.checked_mul(self.width)?;
-        self.cells.get(start..start.checked_add(self.width)?)
+    /// Each row with a head, as its head and the patterns after it.
+    fn iter(&self) -> impl Iterator<Item = (&'p Pat, &[&'p Pat])> {
+        // With nothing after the heads, `tails` is empty and every row's tail
+        // is the empty slice the chain supplies.
+        let tails = self
+            .tails
+            .chunks(self.tail_width.max(1))
+            .chain(std::iter::repeat(&[][..]));
+        self.heads.iter().copied().zip(tails)
     }
 
-    fn iter(&self) -> impl Iterator<Item = &[&'p Pat]> {
-        (0..self.len).filter_map(move |at| self.get(at))
+    /// Appends the row `head` starts and `tail` finishes.
+    fn push(&mut self, head: &'p Pat, tail: impl IntoIterator<Item = &'p Pat>) {
+        let before = self.tails.len();
+        self.heads.push(head);
+        self.tails.extend(tail);
+        self.tail_width = self.tails.len().saturating_sub(before);
     }
 
-    /// Appends the row `fill` writes onto the end of the cells. The first row
-    /// sets the width.
-    fn push_with(&mut self, fill: impl FnOnce(&mut Vec<&'p Pat>)) {
-        let before = self.cells.len();
-        fill(&mut self.cells);
-        let width = self.cells.len().saturating_sub(before);
-        if self.len == 0 {
-            self.width = width;
+    /// Appends the row of `cells`, which has no head when the matrix has no
+    /// column left.
+    fn push_cells(&mut self, cells: impl IntoIterator<Item = &'p Pat>) {
+        let mut cells = cells.into_iter();
+        match cells.next() {
+            Some(head) => self.push(head, cells),
+            None => self.bare = self.bare.saturating_add(1),
         }
-        debug_assert_eq!(
-            width, self.width,
-            "every row of a matrix is as wide as the first"
-        );
-        self.len = self.len.saturating_add(1);
-    }
-
-    fn push(&mut self, row: &[&'p Pat]) {
-        self.push_with(|cells| cells.extend_from_slice(row));
     }
 
     /// The first `k` rows, as rows of their own.
     fn prefix(&self, k: usize) -> Rows<'p> {
-        let len = k.min(self.len);
-        let cells = self
-            .cells
-            .get(..len.saturating_mul(self.width))
-            .unwrap_or_default()
-            .to_vec();
         Rows {
-            cells,
-            width: self.width,
-            len,
+            heads: self.heads.iter().take(k).copied().collect(),
+            tails: self
+                .tails
+                .iter()
+                .take(k.saturating_mul(self.tail_width))
+                .copied()
+                .collect(),
+            tail_width: self.tail_width,
+            bare: k.min(self.bare),
         }
     }
 }
@@ -357,19 +361,6 @@ fn expand(p: Pat, out: &mut Vec<Pat>) {
     }
 }
 
-/// One row per alternative of an or-pattern that sits at the head of a column,
-/// each carrying the rest of the original row along with it.
-fn distribute<'p>(alts: &'p [Pat], rest: &[&'p Pat]) -> Vec<Row<'p>> {
-    alts.iter()
-        .map(|a| {
-            let mut row = Vec::with_capacity(rest.len().saturating_add(1));
-            row.push(a);
-            row.extend_from_slice(rest);
-            row
-        })
-        .collect()
-}
-
 /// The constructors a row's head can start with. An or-pattern contributes
 /// every constructor any of its alternatives does, so that a column covered by
 /// `true | false` counts as complete.
@@ -439,7 +430,7 @@ struct Bucket<'p> {
 
 impl<'p> Bucket<'p> {
     /// The rows numbered `from` on.
-    fn from(&self, from: usize) -> impl Iterator<Item = (usize, &[&'p Pat])> {
+    fn from(&self, from: usize) -> impl Iterator<Item = (usize, (&'p Pat, &[&'p Pat]))> {
         let skip = self.numbers.partition_point(|&r| r < from);
         self.numbers
             .iter()
@@ -451,14 +442,13 @@ impl<'p> Bucket<'p> {
 
 impl<'p> Index<'p> {
     /// Files row `at` under its head.
-    fn add(&mut self, at: usize, row: &[&'p Pat]) {
-        let Some(&head) = row.first() else { return };
+    fn add(&mut self, at: usize, head: &'p Pat, tail: &[&'p Pat]) {
         let bucket = match head {
             Pat::Wild | Pat::Or(_) => &mut self.open,
             Pat::Ctor(c, _) => self.by_ctor.entry(c.clone()).or_default(),
         };
         bucket.numbers.push(at);
-        bucket.rows.push(row);
+        bucket.rows.push(head, tail.iter().copied());
         collect_head_ctors(head, &mut self.heads);
     }
 
@@ -469,7 +459,7 @@ impl<'p> Index<'p> {
         &'i self,
         ctor: &Ctor,
         from: usize,
-    ) -> impl Iterator<Item = &'i [&'p Pat]> {
+    ) -> impl Iterator<Item = (&'p Pat, &'i [&'p Pat])> {
         let mut a = self
             .by_ctor
             .get(ctor)
@@ -508,20 +498,28 @@ impl<'p> Matrix<'p> {
     /// Appends a row, keeping the index in step. The reachability loop grows
     /// one matrix arm by arm, so rebuilding the index per arm would put the
     /// square back.
-    fn push(&mut self, row: &[&'p Pat]) {
+    fn push(&mut self, head: &'p Pat, tail: &[&'p Pat]) {
         let at = self.rows.len();
-        self.rows.push(row);
+        self.rows.push(head, tail.iter().copied());
         if let Some(ix) = self.index.as_mut() {
-            ix.add(at, row);
+            ix.add(at, head, tail);
         } else if self.rows.len() >= INDEX_THRESHOLD {
             self.build_index();
         }
     }
 
+    /// Appends `rows`, keeping the index in step.
+    fn extend(&mut self, rows: &Rows<'p>) {
+        for (head, tail) in rows.iter() {
+            self.push(head, tail);
+        }
+        self.rows.bare = self.rows.bare.saturating_add(rows.bare);
+    }
+
     fn build_index(&mut self) {
         let mut ix = Index::default();
-        for (at, row) in self.rows.iter().enumerate() {
-            ix.add(at, row);
+        for (at, (head, tail)) in self.rows.iter().enumerate() {
+            ix.add(at, head, tail);
         }
         self.index = Some(ix);
     }
@@ -531,10 +529,7 @@ impl<'p> Matrix<'p> {
     fn mentions(&self, c: &Ctor) -> bool {
         match self.index.as_ref() {
             Some(ix) => ix.heads.contains(c),
-            None => self
-                .rows
-                .iter()
-                .any(|row| row.first().is_some_and(|&head| head_mentions(head, c))),
+            None => self.rows.heads.iter().any(|&head| head_mentions(head, c)),
         }
     }
 }
@@ -552,7 +547,7 @@ fn head_mentions(p: &Pat, c: &Ctor) -> bool {
 /// A specialization: built for the asking, or kept by the matrix it came from.
 enum Specialized<'m, 'p> {
     Owned(Matrix<'p>),
-    Kept(std::cell::Ref<'m, Matrix<'p>>),
+    Kept(std::cell::RefMut<'m, Matrix<'p>>),
 }
 
 impl<'p> std::ops::Deref for Specialized<'_, 'p> {
@@ -612,27 +607,16 @@ impl<'a> Ctx<'a> {
             self.specialize_from(matrix, ctor, arity, 0, &mut out);
             return Specialized::Owned(Matrix::new(out));
         };
-        {
-            let mut memo = memo.borrow_mut();
+        Specialized::Kept(std::cell::RefMut::map(memo.borrow_mut(), |memo| {
             let (seen, known) = memo.entry(ctor.clone()).or_default();
             if *seen < matrix.rows.len() {
                 let mut out = Rows::default();
                 self.specialize_from(matrix, ctor, arity, *seen, &mut out);
-                for row in out.iter() {
-                    known.push(row);
-                }
+                known.extend(&out);
                 *seen = matrix.rows.len();
             }
-        }
-        match std::cell::Ref::filter_map(memo.borrow(), |m| m.get(ctor).map(|(_, known)| known)) {
-            Ok(known) => Specialized::Kept(known),
-            // The entry was made a few lines up.
-            Err(_) => {
-                let mut out = Rows::default();
-                self.specialize_from(matrix, ctor, arity, 0, &mut out);
-                Specialized::Owned(Matrix::new(out))
-            }
-        }
+            known
+        }))
     }
 
     /// [`Ctx::specialize`]'s rows from row `from` of `matrix` on, into `out`.
@@ -646,33 +630,36 @@ impl<'a> Ctx<'a> {
     ) {
         match matrix.index.as_ref() {
             Some(ix) => {
-                for row in ix.rows_for_from(ctor, from) {
-                    self.specialize_row(row, ctor, arity, out);
+                for (head, tail) in ix.rows_for_from(ctor, from) {
+                    self.specialize_row(head, tail, ctor, arity, out);
                 }
             }
             None => {
-                for row in matrix.rows.iter().skip(from) {
-                    self.specialize_row(row, ctor, arity, out);
+                for (head, tail) in matrix.rows.iter().skip(from) {
+                    self.specialize_row(head, tail, ctor, arity, out);
                 }
             }
         }
     }
 
-    fn specialize_row<'p>(&self, row: &[&'p Pat], ctor: &Ctor, arity: usize, out: &mut Rows<'p>) {
-        let (&head, rest) = row
-            .split_first()
-            .or_ice("a matrix row is as wide as the vector it's specialized for");
+    fn specialize_row<'p>(
+        &self,
+        head: &'p Pat,
+        rest: &[&'p Pat],
+        ctor: &Ctor,
+        arity: usize,
+        out: &mut Rows<'p>,
+    ) {
         match head {
-            Pat::Wild => out.push_with(|cells| {
-                cells.resize(cells.len().saturating_add(arity), &WILD);
-                cells.extend_from_slice(rest);
-            }),
-            Pat::Ctor(c, subs) if c == ctor => out.push_with(|cells| {
-                let end = cells.len().saturating_add(arity);
-                cells.extend(subs.iter().take(arity));
-                cells.resize(end, &WILD);
-                cells.extend_from_slice(rest);
-            }),
+            Pat::Wild => {
+                out.push_cells(std::iter::repeat_n(&WILD, arity).chain(rest.iter().copied()))
+            }
+            Pat::Ctor(c, subs) if c == ctor => out.push_cells(
+                subs.iter()
+                    .chain(std::iter::repeat(&WILD))
+                    .take(arity)
+                    .chain(rest.iter().copied()),
+            ),
             // An alternation `expand` left nested, now exposed by peeling
             // its constructor off. Distribute: each alternative is a row of
             // its own, and the coverage of all of them is the row's.
@@ -680,8 +667,8 @@ impl<'a> Ctx<'a> {
             // wildcard look useful — the false rejection of `.Some(true |
             // false)`.
             Pat::Or(alts) => {
-                for next in distribute(alts, rest) {
-                    self.specialize_row(&next, ctor, arity, out);
+                for alt in alts {
+                    self.specialize_row(alt, rest, ctor, arity, out);
                 }
             }
             Pat::Ctor(..) => {}
@@ -693,31 +680,28 @@ impl<'a> Ctx<'a> {
         let mut out = Rows::default();
         match matrix.index.as_ref() {
             Some(ix) => {
-                for row in ix.open.rows.iter() {
-                    self.default_row(row, &mut out);
+                for (head, tail) in ix.open.rows.iter() {
+                    self.default_row(head, tail, &mut out);
                 }
             }
             None => {
-                for row in matrix.rows.iter() {
-                    self.default_row(row, &mut out);
+                for (head, tail) in matrix.rows.iter() {
+                    self.default_row(head, tail, &mut out);
                 }
             }
         }
         Matrix::new(out)
     }
 
-    fn default_row<'p>(&self, row: &[&'p Pat], out: &mut Rows<'p>) {
-        let (&head, rest) = row
-            .split_first()
-            .or_ice("a matrix row is as wide as the vector it's defaulted for");
+    fn default_row<'p>(&self, head: &'p Pat, rest: &[&'p Pat], out: &mut Rows<'p>) {
         match head {
-            Pat::Wild => out.push(rest),
+            Pat::Wild => out.push_cells(rest.iter().copied()),
             // Distribute, for the same reason `specialize` does. An
             // alternative that is a wildcard makes the whole row a default
             // row.
             Pat::Or(alts) => {
-                for next in distribute(alts, rest) {
-                    self.default_row(&next, out);
+                for alt in alts {
+                    self.default_row(alt, rest, out);
                 }
             }
             Pat::Ctor(..) => {}
@@ -768,44 +752,40 @@ impl<'a> Ctx<'a> {
             Pat::Wild => {
                 // Once, not once per branch: it allocates one `Ctor` per
                 // variant, and both branches below want the same list.
-                let all_ctors = self.all_ctors(head_ty);
-                let complete = match &all_ctors {
-                    Some(all) => all.iter().all(|c| matrix.mentions(c)),
-                    None => false,
-                };
-                if complete {
-                    // `complete` implies the list is there.
-                    let all = all_ctors.unwrap_or_default();
-                    for c in all {
-                        let arity = c.arity(self.tables, head_ty);
-                        let specialized = self.specialize(matrix, &c, arity);
-                        let mut next: Row<'p> = vec![&WILD; arity];
-                        next.extend_from_slice(tail);
-                        let next_types = self.column_types(&c, head_ty, rest_types);
-                        if let Some(w) = self.useful(&specialized, &next, &next_types) {
-                            return Some(self.wrap(&c, head_ty, arity, w));
+                match self.all_ctors(head_ty) {
+                    Some(all) if all.iter().all(|c| matrix.mentions(c)) => {
+                        for c in all {
+                            let arity = c.arity(self.tables, head_ty);
+                            let specialized = self.specialize(matrix, &c, arity);
+                            let mut next: Row<'p> = vec![&WILD; arity];
+                            next.extend_from_slice(tail);
+                            let next_types = self.column_types(&c, head_ty, rest_types);
+                            if let Some(w) = self.useful(&specialized, &next, &next_types) {
+                                return Some(self.wrap(&c, head_ty, arity, w));
+                            }
                         }
+                        None
                     }
-                    None
-                } else {
-                    let default = self.default_matrix(matrix);
-                    self.useful(&default, tail, rest_types).map(|w| {
-                        if !self.witnesses {
-                            return w;
-                        }
-                        // Name a constructor the match does not mention, when
-                        // there is one to name.
-                        let missing = all_ctors
-                            .and_then(|all| all.into_iter().find(|c| !matrix.mentions(c)))
-                            .map(|c| {
-                                let arity = c.arity(self.tables, head_ty);
-                                Witness::Ctor(c, *head_ty, vec![Witness::Wild; arity])
-                            })
-                            .unwrap_or(Witness::Wild);
-                        let mut out = vec![missing];
-                        out.extend(w);
-                        out
-                    })
+                    all_ctors => {
+                        let default = self.default_matrix(matrix);
+                        self.useful(&default, tail, rest_types).map(|w| {
+                            if !self.witnesses {
+                                return w;
+                            }
+                            // Name a constructor the match does not mention, when
+                            // there is one to name.
+                            let missing = all_ctors
+                                .and_then(|all| all.into_iter().find(|c| !matrix.mentions(c)))
+                                .map(|c| {
+                                    let arity = c.arity(self.tables, head_ty);
+                                    Witness::Ctor(c, *head_ty, vec![Witness::Wild; arity])
+                                })
+                                .unwrap_or(Witness::Wild);
+                            let mut out = vec![missing];
+                            out.extend(w);
+                            out
+                        })
+                    }
                 }
             }
         }
@@ -847,20 +827,21 @@ impl<'a> Ctx<'a> {
     fn covered_by<'p>(
         &self,
         covering: &Covering<'p>,
-        alt: &Rows<'p>,
+        alt: &'p [Pat],
         types: &[Ty],
     ) -> Option<(usize, Span)> {
         // Nothing above it, so nothing covers it.
         let (&last, earlier) = covering.origin.split_last()?;
         if alt
             .iter()
-            .any(|r| self.useful(&covering.matrix, r, types).is_some())
+            .any(|r| self.useful(&covering.matrix, &[r], types).is_some())
         {
             return None;
         }
         let live = |k: usize| {
             let prefix = Matrix::new(covering.matrix.rows.prefix(k));
-            alt.iter().any(|r| self.useful(&prefix, r, types).is_some())
+            alt.iter()
+                .any(|r| self.useful(&prefix, &[r], types).is_some())
         };
         // Every row but the last, which covers it if none of these does.
         let earlier: Vec<(usize, Span)> = earlier.iter().copied().enumerate().collect();
@@ -878,8 +859,9 @@ struct Covering<'p> {
 }
 
 impl<'p> Covering<'p> {
-    fn push(&mut self, row: &[&'p Pat], at: Span) {
-        self.matrix.push(row);
+    /// Appends the one-column row `p`.
+    fn push(&mut self, p: &'p Pat, at: Span) {
+        self.matrix.push(p, &[]);
         self.origin.push(at);
     }
 
@@ -1174,18 +1156,14 @@ pub fn check(inf: &mut Infer<'_, '_>, scrutinee: &Ty, arms: &[typed::Arm], span:
         let mut held = (arm.guard.is_some() && hold).then(|| covering.copy());
         for (at, owned) in alts {
             let cover = held.as_mut().unwrap_or(&mut covering);
-            let mut rows = Rows::default();
-            for r in owned {
-                rows.push(&[r]);
-            }
-            match ctx.covered_by(cover, &rows, &types) {
+            match ctx.covered_by(cover, owned, &types) {
                 None => alive = true,
                 Some(culprit) => dead.push((*at, culprit)),
             }
             // Even a dead alternative goes in — it adds no coverage, and
             // leaving it out would make the next one's "before" a lie.
             if hold {
-                for r in rows.iter() {
+                for r in owned {
                     cover.push(r, *at);
                 }
             }
