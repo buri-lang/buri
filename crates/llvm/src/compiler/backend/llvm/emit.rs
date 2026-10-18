@@ -85,7 +85,7 @@ use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::task_thread;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{
-    self, EnumRepr, Layouts, Repr as LayoutRepr, Scalar, CAP_MASK, CAP_SHARED_FLAG,
+    self, EnumLayout, EnumRepr, Layouts, Repr as LayoutRepr, Scalar, CAP_MASK, CAP_SHARED_FLAG,
     HEADER_CAP_OFFSET, HEADER_RC_OFFSET, IMMORTAL, STR_ASCII_FLAG, STR_LEN_MASK,
 };
 use crate::compiler::middle::rc::{self, Counted as _};
@@ -948,11 +948,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Inst::Unary {
                 dest,
                 op,
-                prim,
+                prim: _,
                 arg,
             } => {
                 let a = self.get(state, *arg);
-                let v = self.unary(state.b, *op, *prim, a);
+                let v = self.unary(state.b, *op, a);
                 self.set(state, *dest, v);
             }
             ir::Inst::Binary {
@@ -990,8 +990,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Inst::GetTag { dest, agg } => self.get_tag(state, code, *dest, *agg),
             ir::Inst::ArrayLen { dest, array } => {
                 let list = self.get(state, *array);
-                let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*array));
-                let [_, len] = self.pieces_n(state.b, &slots, list);
+                let [_, len] = repr::disassemble_n(state.b, list);
                 self.set(state, *dest, len);
             }
             ir::Inst::ArrayGet { dest, array, index } => {
@@ -1018,7 +1017,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.call_intrinsic(state, code, *dest, route, args)
             }
             ir::Inst::ShowPrim { dest, prim, value } => {
-                self.show_prim(state, code, *dest, *prim, *value, false)
+                self.show_prim(state, *dest, *prim, *value, false)
             }
             ir::Inst::IncRef { value } => self.incref(state, code, *value),
             ir::Inst::DecRef { value } => self.decref(state, code, *value),
@@ -1098,26 +1097,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     // -- arithmetic ---------------------------------------------------------
 
-    fn unary(
-        &self,
-        b: At<'ctx>,
-        op: ir::UnOp,
-        prim: Prim,
-        arg: BasicValueEnum<'ctx>,
-    ) -> BasicValueEnum<'ctx> {
+    /// One unary operation. A negation is of a float or else of an integer;
+    /// the checker allows the rest at integers and `Bool` only.
+    fn unary(&self, b: At<'ctx>, op: ir::UnOp, arg: BasicValueEnum<'ctx>) -> BasicValueEnum<'ctx> {
         match (op, arg) {
+            (ir::UnOp::Neg, BasicValueEnum::FloatValue(v)) => b.fneg(v, "fneg").into(),
             // No `nsw`/`nuw` on the negation either, for §3.4's reason: a
             // program that overflows is wrong, and "two's-complement wrap" is
             // a description it can be debugged against.
-            (ir::UnOp::Neg, BasicValueEnum::IntValue(v)) => b.neg(v, "neg").into(),
-            (ir::UnOp::Neg, BasicValueEnum::FloatValue(v)) => b.fneg(v, "fneg").into(),
-            (ir::UnOp::Not | ir::UnOp::BitNot, BasicValueEnum::IntValue(v)) => {
-                b.not(v, "not").into()
-            }
-            (ir::UnOp::FromBool, BasicValueEnum::IntValue(v)) => {
-                b.zext(v, self.ctx.i64_type(), "frombool").into()
-            }
-            _ => crate::diagnostics::ice(&format!("the checker refuses `{op:?}` at `{prim:?}`")),
+            (ir::UnOp::Neg, v) => b.neg(int(v), "neg").into(),
+            (ir::UnOp::Not | ir::UnOp::BitNot, v) => b.not(int(v), "not").into(),
+            (ir::UnOp::FromBool, v) => b.zext(int(v), self.ctx.i64_type(), "frombool").into(),
         }
     }
 
@@ -1532,7 +1522,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .copied()
             .unwrap_or(false)
         {
-            let block = ptr(self.piece(state.b, &slots, whole, start));
+            let block = ptr(repr::slot_at(state.b, whole, start as u32));
             let (_, _, align) = self.dest_shape(code, dest);
             let value = self.load_value(state.b, block, &want, align);
             self.set(state, dest, value);
@@ -1670,8 +1660,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // The value *is* the tag; widen it to the `i32` the IR says a tag
             // is (`ir::Inst::GetTag`), and the width it is *stored* at stays
             // the layout table's answer.
-            EnumRepr::Bare { .. } | EnumRepr::Tagged { .. } => {
-                let tag = int(self.piece(b, slots, whole, 0));
+            EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => {
+                let slot = Slot {
+                    offset: 0,
+                    ty: SlotTy::Scalar(tag),
+                };
+                let tag = int(self.piece(b, slots, whole, 0, slot));
                 b.zext(tag, i32t, "tag").into()
             }
             // The niche: `.None` is the pointer at `null_at` set to null, so
@@ -1682,7 +1676,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     .iter()
                     .position(|s| s.offset == null_at && s.ty.is_pointer())
                     .or_ice("a niche is a pointer slot");
-                let p = ptr(self.piece(b, slots, whole, i));
+                let slot = Slot {
+                    offset: null_at,
+                    ty: SlotTy::Scalar(Scalar::Ptr),
+                };
+                let p = ptr(self.piece(b, slots, whole, i as u32, slot));
                 let is_null = b.is_null(p, "isnone");
                 let some = i32t.const_int(some_variant as u64, false);
                 let none = i32t.const_int(none_variant as u64, false);
@@ -1935,7 +1933,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         } else {
             want.clone()
         };
-        let taken = self.payload_of(state.b, &slots, &enum_repr, &offsets, index, &read, whole);
+        let taken = self.payload_of(state.b, &enum_repr, &offsets, index, &read, whole);
         let value = if boxed {
             let (_, _, align) = self.dest_shape(code, dest);
             self.load_value(state.b, ptr(taken), &want, align)
@@ -1954,7 +1952,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn payload_of(
         &mut self,
         b: At<'ctx>,
-        slots: &[Slot],
         enum_repr: &EnumRepr,
         offsets: &[u32],
         index: usize,
@@ -1968,13 +1965,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `.Some`'s payload is the whole value (`layout::build_enum`).
             EnumRepr::Niche { .. } => whole,
             EnumRepr::Tagged { payload, .. } => {
-                let pieces = self.pieces(b, slots, whole);
+                // `get_payload` reads an enum held in memory there, so this
+                // one is in registers.
+                let [_, blob] = repr::disassemble_n(b, whole);
                 let within = offsets
                     .get(index)
                     .copied()
                     .unwrap_or(0)
                     .saturating_sub(payload);
-                if let Some(BasicValueEnum::ArrayValue(blob)) = pieces.get(1).copied() {
+                if let BasicValueEnum::ArrayValue(blob) = blob {
                     let taken: Vec<_> = want
                         .iter()
                         .map(|slot| {
@@ -1984,7 +1983,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         .collect();
                     return self.assemble(b, want, &taken);
                 }
-                let blob = int(*pieces.get(1).or_ice("a payload follows its tag"));
+                let blob = int(blob);
                 let mut taken = Vec::with_capacity(want.len());
                 for slot in want {
                     let shift = u64::from(within.saturating_add(slot.offset)).saturating_mul(8);
@@ -2102,7 +2101,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         let slots = repr::ir_slots(&mut self.reprs, self.program, list_ty);
         let value = self.get(state, array);
-        let [base, len] = self.pieces_n(state.b, &slots, value);
+        let [base, len] = repr::disassemble_n(state.b, value);
         let (base, len) = (ptr(base), int(len));
         let start = int(self.get(state, from));
         let b = state.b;
@@ -2216,7 +2215,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
         let source = self.get(state, array);
-        let [scratch, _] = self.pieces_n(state.b, &slots, source);
+        let [scratch, _] = repr::disassemble_n(state.b, source);
         let scratch = ptr(scratch);
         let kept = int(self.get(state, len));
         let word = self.ctx.i64_type();
@@ -2242,9 +2241,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) -> ElementRead<'ctx> {
         let list_ty = code.ty_of(array);
         let element = self.element_of(list_ty);
-        let list_slots = repr::ir_slots(&mut self.reprs, self.program, list_ty);
         let list = self.get(state, array);
-        let [base, _] = self.pieces_n(state.b, &list_slots, list);
+        let [base, _] = repr::disassemble_n(state.b, list);
         let base = ptr(base);
         let i = int(self.get(state, index));
         ElementRead {
@@ -2451,9 +2449,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         callee: ir::ValueId,
         args: &[ir::ValueId],
     ) {
-        let closure_slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(callee));
         let value = self.get(state, callee);
-        let [target, env] = self.pieces_n(state.b, &closure_slots, value);
+        let [target, env] = repr::disassemble_n(state.b, value);
         let (target, env) = (ptr(target), ptr(env));
         let params: Vec<Vec<Slot>> = args
             .iter()
@@ -3071,8 +3068,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     /// `buri_rt_abort_assert(kind)`, from a `Str` argument.
-    fn abort_assert(&mut self, state: &mut Function<'ctx>, code: &ir::Code, kind: ir::ValueId) {
-        self.abort_str(state, code, kind, runtime::ABORT_ASSERT);
+    fn abort_assert(&mut self, state: &mut Function<'ctx>, kind: ir::ValueId) {
+        self.abort_str(state, kind, runtime::ABORT_ASSERT);
     }
 
     /// Call a `(ptr, len) -> !` runtime entry with a borrowed `Str`'s bytes.
@@ -3086,28 +3083,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ///
     /// The stored length is masked: bit 63 is the ASCII flag and not part of
     /// the byte count (VALUE-MODEL.md §3).
-    fn abort_str(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        message: ir::ValueId,
-        symbol: &str,
-    ) {
-        self.abort_strs(state, code, &[message], symbol);
+    fn abort_str(&mut self, state: &mut Function<'ctx>, message: ir::ValueId, symbol: &str) {
+        self.abort_strs(state, &[message], symbol);
     }
 
     /// The same, for an entry taking more than one `Str`: the test runner's two
     /// reporting entries take the assertion's kind and the values beside it.
     /// One function rather than three, because the flattening is `lib.rs` §2
     /// rule 1 and there is one of it.
-    fn abort_strs(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        texts: &[ir::ValueId],
-        symbol: &str,
-    ) {
-        self.abort_strs_continuing(state, code, texts, symbol);
+    fn abort_strs(&mut self, state: &mut Function<'ctx>, texts: &[ir::ValueId], symbol: &str) {
+        self.abort_strs_continuing(state, texts, symbol);
         state.b.unreachable();
     }
 
@@ -3121,7 +3106,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn abort_strs_continuing(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         texts: &[ir::ValueId],
         symbol: &str,
     ) {
@@ -3129,9 +3113,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let mut params: Vec<inkwell::types::BasicMetadataTypeEnum<'ctx>> = Vec::new();
         let mut call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = Vec::new();
         for text in texts {
-            let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*text));
             let value = self.get(state, *text);
-            let [_, bytes, raw] = self.pieces_n(state.b, &slots, value);
+            let [_, bytes, raw] = repr::disassemble_n(state.b, value);
             let raw = int(raw);
             let len = state
                 .b
@@ -5165,7 +5148,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         b.load(ty, at, Align::of(repr::access_align(align, slot)), "out.v")
     }
 
-    /// A value's slot values, from either form. `repr::disassemble` for one in
+    /// A value's slot values, from either form. `repr::disassemble_range` for one in
     /// registers, a load per slot for one in memory.
     fn pieces(
         &mut self,
@@ -5176,32 +5159,21 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.pieces_range(b, slots, value, 0..slots.len())
     }
 
-    /// A value's slot values as the `N` it has: two for a list or a closure, three
-    /// for a `Str` (`layout`'s field indices say which is which).
-    fn pieces_n<const N: usize>(
-        &mut self,
-        b: At<'ctx>,
-        slots: &[Slot],
-        value: BasicValueEnum<'ctx>,
-    ) -> [BasicValueEnum<'ctx>; N] {
-        <[_; N]>::try_from(self.pieces(b, slots, value))
-            .ok()
-            .or_ice("a value has the slots its layout names")
-    }
-
-    /// The one slot value at `at`.
+    /// The one slot value at `at`, which is `slot`.
     fn piece(
         &mut self,
         b: At<'ctx>,
         slots: &[Slot],
         value: BasicValueEnum<'ctx>,
-        at: usize,
+        at: u32,
+        slot: Slot,
     ) -> BasicValueEnum<'ctx> {
-        let [piece] =
-            <[_; 1]>::try_from(self.pieces_range(b, slots, value, at..at.saturating_add(1)))
-                .ok()
-                .or_ice("a range of one slot holds one piece");
-        piece
+        match value {
+            BasicValueEnum::PointerValue(p) if repr::in_memory(slots) => {
+                self.load_one(b, p, slot, repr::memory_align(slots))
+            }
+            _ => repr::slot_at(b, value, at),
+        }
     }
 
     /// The slot values at `range`, and no others.
@@ -5631,7 +5603,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 r.layout.variant(some_at).first().copied().unwrap_or(0),
             )
         };
-        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
+        let enum_layout = self.reprs.of_enum(self.program, e);
         let buf = self.scratch(state, size, align);
         let out = b.byte_offset(buf, i64::from(payload_at), "sum.p");
         argv.push(out.into());
@@ -5658,11 +5630,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         b.cond_br(is_ok, some_bb, none_bb);
 
         b.to_end(some_bb);
-        let some_value = self.sum_arm(b, buf, &slots, &enum_repr, align, some_at, true);
+        let some_value = self.sum_arm(b, buf, &slots, &enum_layout, align, some_at, true);
         b.br(join);
 
         b.to_end(none_bb);
-        let none_value = self.sum_arm(b, buf, &slots, &enum_repr, align, none_at, false);
+        let none_value = self.sum_arm(b, buf, &slots, &enum_layout, align, none_at, false);
         b.br(join);
 
         b.to_end(join);
@@ -5688,7 +5660,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         b: At<'ctx>,
         buf: PointerValue<'ctx>,
         slots: &[Slot],
-        enum_repr: &EnumRepr,
+        enum_layout: &EnumLayout,
         align: u32,
         variant: usize,
         loaded: bool,
@@ -5700,8 +5672,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 }
                 other => other.const_zero(),
             };
-        match enum_repr {
-            EnumRepr::Bare { tag } => tag_const(self.ctx, *tag),
+        match enum_layout.repr {
+            EnumRepr::Bare { tag } => tag_const(self.ctx, tag),
             EnumRepr::Niche { .. } => {
                 if loaded {
                     let pieces = self.load_slots(b, buf, slots, align);
@@ -5713,11 +5685,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     repr::register_type(self.ctx, slots).const_zero()
                 }
             }
-            EnumRepr::Tagged { tag, .. } => {
-                let tag_value = tag_const(self.ctx, *tag);
-                let slot = *slots
-                    .get(1)
-                    .or_ice("a tagged enum's payload follows its tag");
+            EnumRepr::Tagged { tag, payload } => {
+                let tag_value = tag_const(self.ctx, tag);
+                let [_, slot] = repr::tagged(tag, payload, enum_layout.size);
                 let blob = if loaded {
                     self.load_one(b, buf, slot, align)
                 } else {
@@ -5781,9 +5751,21 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // else — `Utf8Error(Int)` — crosses through a second out-pointer whole.
         // Whether this entry *uses* that place is the one column beside it
         // (`Ret::ResMsg`), and it is about the entry rather than about `E`.
-        // No entry fails with a value of no bytes.
-        let err_is_enum = matches!(err_layout.repr, LayoutRepr::Enum { .. });
-        if !err_is_enum {
+        // No entry fails with a value of no bytes. An index names a tagged
+        // error by its tag and the payload area from `payload` on, which for a
+        // bare tag is empty; an error without a tag crosses whole.
+        let err_tag = match err_layout.repr {
+            LayoutRepr::Enum {
+                repr: EnumRepr::Bare { tag },
+                ..
+            } => Some((tag, err_layout.size)),
+            LayoutRepr::Enum {
+                repr: EnumRepr::Tagged { tag, payload },
+                ..
+            } => Some((tag, payload)),
+            _ => None,
+        };
+        if err_tag.is_none() {
             let out = b.byte_offset(buf, i64::from(err_at), "res.err");
             argv.push(out.into());
         }
@@ -5847,8 +5829,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
         b.to_end(bad);
         self.store_tag(b, buf, &enum_repr, align, err);
-        if err_is_enum {
-            self.store_variant_index(b, buf, err_at, &err_layout, align, disc, message_at);
+        if let Some(tag) = err_tag {
+            self.store_variant_index(b, buf, err_at, &err_layout, align, tag, disc, message_at);
         }
         b.br(join);
 
@@ -5968,37 +5950,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         at: u32,
         l: &layout::Layout,
         align: u32,
+        (tag, payload): (Scalar, u32),
         index: IntValue<'ctx>,
         message_at: Option<u32>,
     ) {
-        let (enum_repr, tag) = match &l.repr {
-            LayoutRepr::Enum {
-                repr: enum_repr @ (EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. }),
-                ..
-            } => (enum_repr, *tag),
-            _ => crate::diagnostics::ice("an enum error has a tag, and only an `Option` a niche"),
-        };
         let want = int_ty(repr::slot_type(self.ctx, SlotTy::Scalar(tag)));
         let narrowed = self.narrow_int(b, index.as_basic_value_enum(), want);
-        let payload = payload_at(enum_repr, tag);
         self.store_discriminant(b, buf, at, tag, payload, align, narrowed);
-        if let LayoutRepr::Enum {
-            repr: EnumRepr::Tagged { payload, .. },
-            ..
-        } = &l.repr
-        {
-            // §2.1's message shape: the entry wrote `E`'s one `Str` at
-            // `message_at`, so the zeroing stops in front of it rather than
-            // overwriting the sentence the failure came with.
-            let until = message_at.unwrap_or(l.size);
-            self.zero_bytes(
-                b,
-                buf,
-                at.saturating_add(*payload),
-                at.saturating_add(until),
-                align,
-            );
-        }
+        // §2.1's message shape: the entry wrote `E`'s one `Str` at
+        // `message_at`, so the zeroing stops in front of it rather than
+        // overwriting the sentence the failure came with.
+        let until = message_at.unwrap_or(l.size);
+        self.zero_bytes(
+            b,
+            buf,
+            at.saturating_add(payload),
+            at.saturating_add(until),
+            align,
+        );
     }
 
     /// The source type of an aggregate.
@@ -6122,13 +6091,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn show_prim(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         dest: ir::ValueId,
         prim: Prim,
         arg: ir::ValueId,
         quoted: bool,
     ) {
-        let value = self.show_prim_value(state, code, prim, arg, quoted);
+        let value = self.show_prim_value(state, prim, arg, quoted);
         self.set(state, dest, value);
     }
 
@@ -6140,7 +6108,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn show_prim_value(
         &mut self,
         state: &mut Function<'ctx>,
-        code: &ir::Code,
         prim: Prim,
         arg: ir::ValueId,
         quoted: bool,
@@ -6156,10 +6123,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // amounts to in a backend that keeps one.
                     return value;
                 }
-                let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(arg));
                 // `ptr`, `len` and no `base`: the renderer reads the bytes and
                 // keeps nothing, which is `Arg::Bytes`'s shape.
-                let [_, ptr, raw] = self.pieces_n(b, &slots, value);
+                let [_, ptr, raw] = repr::disassemble_n(b, value);
                 let raw = int(raw);
                 // **Masked**, unlike every `Arg::Str` argument. `text.rs`'s
                 // entries take the stored word and clear bit 63 themselves;
@@ -6307,7 +6273,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         match (name, args) {
             // Quoted: `$show`'s primitive arm, where a `Str` is
             // `JSON.stringify` and a `Char` is `'c'` (`runtime.js:200-210`).
-            (Leaf::Show, &[x, ..]) => self.show_prim(state, code, dest, prim, x, true),
+            (Leaf::Show, &[x, ..]) => self.show_prim(state, dest, prim, x, true),
             (Leaf::Json, &[x, ..]) => self.json_prim(state, code, dest, prim, x),
             (Leaf::Hash, &[acc, x, ..]) => {
                 let acc = self.get(state, acc);
@@ -6562,7 +6528,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let b = state.b;
         match (op, args) {
             ("show", &[x, ..]) => {
-                self.show_prim(state, code, dest, prim, x, false);
+                self.show_prim(state, dest, prim, x, false);
                 true
             }
             ("hash", &[x, ..]) => {
@@ -6607,9 +6573,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `list.length()` is the element count, exactly, and always O(1)
             // (VALUE-MODEL.md §4).
             ("list.length", &[a, ..]) => {
-                let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(a));
                 let value = self.get(state, a);
-                let [_, len] = self.pieces_n(b, &slots, value);
+                let [_, len] = repr::disassemble_n(b, value);
                 self.set(state, dest, len);
                 true
             }
@@ -6617,7 +6582,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // the stored length answers what that costs: set means every byte
             // is below 0x80, so the count is the byte count and this is a
             // mask; clear means the runtime counts continuation bytes.
-            ("str.length", &[a, ..]) => self.str_len(state, code, dest, a),
+            ("str.length", &[a, ..]) => self.str_len(state, dest, a),
             // `str.format(ctx, template)` is the identity: a `Template` *is* a
             // `Str` (§3.3), and `middle::lower` has already turned the holes
             // into a `str.concat` chain. The context is zero-sized and has
@@ -6687,7 +6652,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // to know.
                 self.abort_strs_continuing(
                     state,
-                    code,
                     &[kind, actual, expected],
                     runtime::TEST_FAIL_COMPARED,
                 );
@@ -6700,7 +6664,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 true
             }
             ("testing_assert.failExpectedShown", &[kind, shown, ..]) => {
-                self.abort_strs(state, code, &[kind, shown], runtime::TEST_FAIL_EXPECTED);
+                self.abort_strs(state, &[kind, shown], runtime::TEST_FAIL_EXPECTED);
                 self.after_abort(state);
                 let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
                 self.set(state, dest, want.const_zero());
@@ -6715,12 +6679,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let bad = self.ctx.append_basic_block(state.value, "assert.bad");
                 b.cond_br(cond, ok, bad);
                 b.to_end(bad);
-                self.abort_assert(state, code, kind);
+                self.abort_assert(state, kind);
                 b.to_end(ok);
                 true
             }
             ("testing_assert.failWith", &[message, ..]) => {
-                self.abort_str(state, code, message, runtime::ABORT);
+                self.abort_str(state, message, runtime::ABORT);
                 self.after_abort(state);
                 true
             }
@@ -6730,7 +6694,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // follows names it and LLVM's verifier reads that IR before it
             // learns the block is dead.
             ("testing_assert.failExpected", &[kind, ..]) => {
-                self.abort_assert(state, code, kind);
+                self.abort_assert(state, kind);
                 self.after_abort(state);
                 let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
                 self.set(state, dest, want.const_zero());
@@ -6748,17 +6712,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     }
 
     /// `str.length`, with the ASCII flag's fast path.
-    fn str_len(
-        &mut self,
-        state: &mut Function<'ctx>,
-        code: &ir::Code,
-        dest: ir::ValueId,
-        a: ir::ValueId,
-    ) -> bool {
+    fn str_len(&mut self, state: &mut Function<'ctx>, dest: ir::ValueId, a: ir::ValueId) -> bool {
         let b = state.b;
-        let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(a));
         let value = self.get(state, a);
-        let [_, ptr, raw] = self.pieces_n(b, &slots, value);
+        let [_, ptr, raw] = repr::disassemble_n(b, value);
         let raw = int(raw);
         let word = self.ctx.i64_type();
         let bytes = b.and(raw, word.const_int(STR_LEN_MASK, false), "str.bytes");
@@ -6979,12 +6936,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             _ => return false,
         };
         // Two `Str`s, three words each.
-        let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(l));
         let value = self.get(state, l);
-        let [a_base, a_ptr, a_raw] = self.pieces_n(b, &slots, value);
-        let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(r));
+        let [a_base, a_ptr, a_raw] = repr::disassemble_n(b, value);
         let value = self.get(state, r);
-        let [_, b_ptr, b_raw] = self.pieces_n(b, &slots, value);
+        let [_, b_ptr, b_raw] = repr::disassemble_n(b, value);
         let a_base = ptr(a_base);
         let a_ptr = ptr(a_ptr);
         let a_raw = int(a_raw);
@@ -7263,7 +7218,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // as its own character, unquoted. The quoting is `derivePrimShow`'s
             // and belongs to `derive Show`, not to the method.
             ("show", Some(x)) => {
-                self.show_prim(state, code, dest, from, x, false);
+                self.show_prim(state, dest, from, x, false);
                 return true;
             }
             // `x.hash()` is `$hashInto(SEED, x)`: the same body a derived
@@ -7301,7 +7256,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // one place rather than from two that have to agree.
                 self.binary(state, binop, from, code.ty_of(dest), x, y)
             }
-            ("negate", Some(x), _, _) => self.unary(b, ir::UnOp::Neg, from, x),
+            ("negate", Some(x), _, _) => self.unary(b, ir::UnOp::Neg, x),
             ("abs", Some(BasicValueEnum::FloatValue(x)), _, _) => self.fabs(b, x),
             // `abs` of a signed minimum overflows, and overflow is undefined
             // (SPEC 6.2), so there is nothing to check. The checker refuses an
@@ -7874,7 +7829,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // built here rather than before the branch so the allocating call it is
         // runs only on the failing path.
         b.to_end(err_bb);
-        let value_str = self.show_prim_value(state, code, from, arg, false);
+        let value_str = self.show_prim_value(state, from, arg, false);
         let target_str = self.str_literal(b, to.name());
         // The `RangeError`'s slots and their values, disassembled — one payload
         // field of the `.Err` variant, which [`Unit::build_variant`] then
@@ -8171,15 +8126,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     t.const_float(-1.0).as_basic_value_enum(),
                 )
             }
-            BasicValueEnum::IntValue(v) => {
-                let t = v.get_type();
+            v => {
+                let t = int(v).get_type();
                 (
                     t.const_zero().as_basic_value_enum(),
                     t.const_int(1, false).as_basic_value_enum(),
                     t.const_all_ones().as_basic_value_enum(),
                 )
             }
-            _ => crate::diagnostics::ice("`signum` is a number's"),
         };
         let lower = b.select(below, minus, zero, "sgn.lo");
         b.select(above, one, lower, "sgn")
@@ -8227,6 +8181,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         to: Prim,
         want: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
+        // A number is a float or else an integer, on both sides.
         match (v, want) {
             (BasicValueEnum::FloatValue(x), BasicTypeEnum::FloatType(t)) => {
                 if x.get_type() == t {
@@ -8238,17 +8193,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     b.fptrunc(x, t, "fptrunc").into()
                 }
             }
-            (BasicValueEnum::FloatValue(x), BasicTypeEnum::IntType(t)) => {
-                self.float_to_int(b, x, t)
-            }
-            (BasicValueEnum::IntValue(x), BasicTypeEnum::FloatType(t)) => {
+            (BasicValueEnum::FloatValue(x), t) => self.float_to_int(b, x, int_ty(t)),
+            (x, BasicTypeEnum::FloatType(t)) => {
+                let x = int(x);
                 if from.is_signed() {
                     b.sitofp(x, t, "sitofp").into()
                 } else {
                     b.uitofp(x, t, "uitofp").into()
                 }
             }
-            (BasicValueEnum::IntValue(x), BasicTypeEnum::IntType(t)) => {
+            (x, t) => {
+                let (x, t) = (int(x), int_ty(t));
                 let have = x.get_type().get_bit_width();
                 if have == t.get_bit_width() {
                     return v;
@@ -8263,7 +8218,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     b.trunc(x, t, "trunc").into()
                 }
             }
-            _ => crate::diagnostics::ice("a conversion is between numbers"),
         }
     }
 
@@ -8564,66 +8518,25 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // moves this with it.
         let returned = self.declare_rt(runtime::RETURNED, &[], None);
         let e = enum_ty(func.sig.ret);
-        let (slots, err_offsets, size) = {
+        let (slots, err_offsets) = {
             let r = self.reprs.of(self.program, e.id());
-            (r.slots.clone(), r.layout.variant(1).to_vec(), r.layout.size)
+            (r.slots.clone(), r.layout.variant(1).to_vec())
         };
         let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
-        let payload_at = match enum_repr {
-            EnumRepr::Tagged { payload, .. } => payload,
-            _ => 0,
-        };
-        let pieces = self.pieces(b, &slots, result);
+        let (some_variant, none_variant) = self.option_variants(e);
+        let tag = int(self.tag_of(b, &slots, &enum_repr, none_variant, some_variant, result));
         let ok = self.ctx.append_basic_block(shim, "ok");
         let err = self.ctx.append_basic_block(shim, "err");
-        let is_ok = match (&enum_repr, pieces.first().copied()) {
-            (
-                EnumRepr::Bare { .. } | EnumRepr::Tagged { .. },
-                Some(BasicValueEnum::IntValue(tag)),
-            ) => Some(b.icmp(IntPredicate::EQ, tag, tag.get_type().const_zero(), "isok")),
-            _ => None,
-        };
-        match is_ok {
-            Some(c) => {
-                b.cond_br(c, ok, err);
-            }
-            None => {
-                b.br(ok);
-            }
-        }
+        let is_ok = b.icmp(IntPredicate::EQ, tag, i32t.const_zero(), "isok");
+        b.cond_br(is_ok, ok, err);
 
         b.to_end(err);
-        // `.Err`'s message: a `Str` inside the payload, which is held as one integer.
-        let blob = int(*pieces
-            .get(1)
-            .or_ice("a `Result<(), Str>` carries its payload after its tag"));
-        let within = err_offsets
-            .first()
-            .copied()
-            .unwrap_or(0)
-            .saturating_sub(payload_at);
-        let str_slots = [
-            Slot {
-                offset: 0,
-                ty: SlotTy::Scalar(Scalar::Ptr),
-            },
-            Slot {
-                offset: 8,
-                ty: SlotTy::Scalar(Scalar::Ptr),
-            },
-            Slot {
-                offset: 16,
-                ty: SlotTy::Scalar(Scalar::I64),
-            },
-        ];
-        let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
-        for slot in &str_slots {
-            let shift = u64::from(within.saturating_add(slot.offset)).saturating_mul(8);
-            let moved = b.lshr(blob, blob.get_type().const_int(shift, false), "e.sh");
-            let narrow = repr::int_type(self.ctx, slot.ty.size());
-            let cut = b.trunc(moved, narrow, "e.cut");
-            argv.push(repr::slot_from_bits(self.ctx, b, *slot, cut).into());
-        }
+        // `.Err`'s message, the one field of variant 1.
+        let message = self.payload_of(b, &enum_repr, &err_offsets, 0, &repr::STR, result);
+        let argv: Vec<BasicMetadataValueEnum<'ctx>> = repr::disassemble_n::<3>(b, message)
+            .into_iter()
+            .map(Into::into)
+            .collect();
         let types: Vec<BasicMetadataTypeEnum<'ctx>> = argv
             .iter()
             .map(|a| metadata_type_of(self.ctx, *a))
@@ -8631,7 +8544,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let eprintln = self.declare_rt("buri_rt_host_stderr_eprintln", &types, None);
         self.call_c(b, eprintln, &argv);
         self.call_c(b, flush, &[]);
-        let _ = size;
         b.ret(i32t.const_int(1, false));
 
         b.to_end(ok);

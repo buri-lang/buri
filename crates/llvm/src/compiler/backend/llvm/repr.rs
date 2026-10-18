@@ -59,7 +59,7 @@ use super::build::At;
 use crate::compiler::backend::counts::{Counted, Counts, Site};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{
-    self, Cycles, EnumLayout, EnumRepr, Layout, Layouts, Repr as LayoutRepr, Scalar,
+    Cycles, EnumLayout, EnumRepr, Layout, Layouts, Repr as LayoutRepr, Scalar,
 };
 use crate::compiler::semantics::types::{Tables, Ty, TyKind};
 use crate::diagnostics::Invariant;
@@ -238,18 +238,7 @@ impl<'a> Reprs<'a> {
             // it and is not a payload start (VALUE-MODEL.md §3) — and `base` is
             // null for a literal, which is why it is `Nullable`.
             LayoutRepr::Str => {
-                slots.push(Slot {
-                    offset: layout.field(layout::STR_BASE),
-                    ty: ptr(),
-                });
-                slots.push(Slot {
-                    offset: layout.field(layout::STR_PTR),
-                    ty: ptr(),
-                });
-                slots.push(Slot {
-                    offset: layout.field(layout::STR_LEN),
-                    ty: SlotTy::Scalar(Scalar::I64),
-                });
+                slots.extend(STR);
                 counted.extend([Some(Counted::Nullable), None, None]);
                 fields.extend([(0, 1), (1, 2), (2, 3)]);
             }
@@ -275,28 +264,14 @@ impl<'a> Reprs<'a> {
             // have to be repeated in the debug backend, where the same runtime
             // answers the same null.
             LayoutRepr::List => {
-                slots.push(Slot {
-                    offset: layout.field(layout::LIST_PTR),
-                    ty: ptr(),
-                });
-                slots.push(Slot {
-                    offset: layout.field(layout::LIST_LEN),
-                    ty: SlotTy::Scalar(Scalar::I64),
-                });
+                slots.extend(LIST);
                 counted.extend([Some(Counted::Nullable), None]);
                 fields.extend([(0, 1), (1, 2)]);
             }
             // `{ code, env }`. `code` is a function pointer and never counted;
             // `env` is null when nothing was captured (§7).
             LayoutRepr::Closure => {
-                slots.push(Slot {
-                    offset: layout.field(layout::CLOSURE_CODE),
-                    ty: ptr(),
-                });
-                slots.push(Slot {
-                    offset: layout.field(layout::CLOSURE_ENV),
-                    ty: ptr(),
-                });
+                slots.extend(CLOSURE);
                 counted.extend([None, Some(Counted::Nullable)]);
                 fields.extend([(0, 1), (1, 2)]);
             }
@@ -338,17 +313,8 @@ impl<'a> Reprs<'a> {
                 // slot walk, which is why every slot here is `None`. An enum
                 // with no payload bytes is `Bare`.
                 EnumRepr::Tagged { tag, payload } => {
-                    slots.push(Slot {
-                        offset: 0,
-                        ty: SlotTy::Scalar(*tag),
-                    });
-                    counted.push(None);
-                    let bytes = layout.size.saturating_sub(*payload);
-                    slots.push(Slot {
-                        offset: *payload,
-                        ty: SlotTy::Blob(bytes),
-                    });
-                    counted.push(None);
+                    slots.extend(tagged(*tag, *payload, layout.size));
+                    counted.extend([None, None]);
                 }
             },
         }
@@ -445,6 +411,43 @@ impl<'a> Reprs<'a> {
 
 fn ptr() -> SlotTy {
     SlotTy::Scalar(Scalar::Ptr)
+}
+
+/// A slot of `scalar` at `offset`.
+const fn word(offset: u32, scalar: Scalar) -> Slot {
+    Slot {
+        offset,
+        ty: SlotTy::Scalar(scalar),
+    }
+}
+
+/// A `Str`'s slots, `{ base, ptr, len }` (VALUE-MODEL.md §3), one per word and
+/// in `middle::layout`'s field order (`layout::STR_BASE` and the rest).
+pub const STR: [Slot; 3] = [
+    word(0, Scalar::Ptr),
+    word(8, Scalar::Ptr),
+    word(16, Scalar::I64),
+];
+
+/// A `[T]`'s slots, `{ ptr, len }` (§4), in `layout::LIST_PTR` order.
+pub const LIST: [Slot; 2] = [word(0, Scalar::Ptr), word(8, Scalar::I64)];
+
+/// A closure's slots, `{ code, env }` (§7), in `layout::CLOSURE_CODE` order.
+pub const CLOSURE: [Slot; 2] = [word(0, Scalar::Ptr), word(8, Scalar::Ptr)];
+
+/// A tagged enum's slots: the tag at 0, and the payload area from `payload`
+/// to the enum's `size` as one blob.
+pub fn tagged(tag: Scalar, payload: u32, size: u32) -> [Slot; 2] {
+    [
+        Slot {
+            offset: 0,
+            ty: SlotTy::Scalar(tag),
+        },
+        Slot {
+            offset: payload,
+            ty: SlotTy::Blob(size.saturating_sub(payload)),
+        },
+    ]
 }
 
 /// The one slot a value held in memory crosses a call as: its address.
@@ -745,15 +748,6 @@ pub fn assemble<'ctx>(
     }
 }
 
-/// Takes a register value apart into its slot values.
-pub fn disassemble<'ctx>(
-    b: At<'ctx>,
-    slots: &[Slot],
-    value: BasicValueEnum<'ctx>,
-) -> Vec<BasicValueEnum<'ctx>> {
-    disassemble_range(b, slots, value, 0..slots.len())
-}
-
 /// The slot values at `range` of a register value, and no others.
 ///
 /// A field read wants a few slots of a value that may have hundreds. Taking
@@ -767,16 +761,30 @@ pub fn disassemble_range<'ctx>(
     range: std::ops::Range<usize>,
 ) -> Vec<BasicValueEnum<'ctx>> {
     let range = range.start.min(slots.len())..range.end.min(slots.len());
-    match slots.len() {
-        0 => Vec::new(),
-        1 => range.map(|_| value).collect(),
-        _ => range
-            .map(|i| match value {
-                BasicValueEnum::StructValue(s) => b.extract(s, i as u32, "slot"),
-                other => other,
-            })
-            .collect(),
+    range.map(|i| slot_at(b, value, i as u32)).collect()
+}
+
+/// The slot value at `index` of a register value. A value of one slot is its
+/// slot value, and every slot type is a scalar, a blob or an array of blob
+/// words, so a struct is a value of two slots or more.
+pub fn slot_at<'ctx>(b: At<'ctx>, value: BasicValueEnum<'ctx>, index: u32) -> BasicValueEnum<'ctx> {
+    match value {
+        BasicValueEnum::StructValue(s) => b.extract(s, index, "slot"),
+        one => one,
     }
+}
+
+/// A register value of `N` slots, taken apart.
+pub fn disassemble_n<'ctx, const N: usize>(
+    b: At<'ctx>,
+    value: BasicValueEnum<'ctx>,
+) -> [BasicValueEnum<'ctx>; N] {
+    let mut index = 0u32;
+    [(); N].map(|()| {
+        let piece = slot_at(b, value, index);
+        index = index.saturating_add(1);
+        piece
+    })
 }
 
 /// A slot's value as an integer of its own width, for packing into a blob.
