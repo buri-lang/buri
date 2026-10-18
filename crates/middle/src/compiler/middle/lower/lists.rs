@@ -228,26 +228,28 @@ impl FnLower<'_> {
         tys: &[Ty],
         ret: &Ty,
     ) -> Option<ValueId> {
-        let [sched, ctx, items, step] = *vals else {
-            return None;
-        };
-        let TyKind::Fn([c, i, a], b) = tys.get(3)?.kind() else {
-            return None;
-        };
-        let (params, ret_ty) = ([*c, *i, *a], *b);
-        let t = self.type_of(ret);
-        Some(self.emit(t, |dest| {
-            Inst::Parallel(Box::new(Parallel {
-                dest,
-                tasks,
-                sched,
-                ctx,
-                items,
-                step,
-                params,
-                ret: ret_ty,
-            }))
-        }))
+        match (vals, tys) {
+            (&[sched, ctx, items, step], [_, _, _, f]) => match f.kind() {
+                TyKind::Fn([c, i, a], b) => {
+                    let (params, ret_ty) = ([*c, *i, *a], *b);
+                    let t = self.type_of(ret);
+                    Some(self.emit(t, |dest| {
+                        Inst::Parallel(Box::new(Parallel {
+                            dest,
+                            tasks,
+                            sched,
+                            ctx,
+                            items,
+                            step,
+                            params,
+                            ret: ret_ty,
+                        }))
+                    }))
+                }
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     /// `key`'s loop over these operands, answering the result. `tys` are the
