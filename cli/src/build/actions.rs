@@ -21,7 +21,7 @@ use crate::compiler::middle::monomorphize;
 use crate::compiler::middle::{ir, layout, lower};
 use crate::compiler::modules::Unit;
 use crate::compiler::semantics::types::Tables;
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use std::path::{Path, PathBuf};
 
 pub struct Artifact {
@@ -2321,10 +2321,9 @@ fn collect_types(func: &ir::Func, out: &mut Vec<ir::TypeId>) {
 ///   invalidating one unit of several hundred cost exactly what `--force`
 ///   costs, because the backend re-emitted every unit and every object but one
 ///   was thrown away.
-/// - A backend may return more objects than were asked for — the default
-///   `emit_units` does — because the selection here is by name. It may not
-///   return fewer: a unit that missed and has no object is an internal
-///   error.
+/// - `emit` answers one object for each unit it is asked for, in unit order,
+///   as `Native::emit_units` does. So each object is paired with its unit by
+///   position.
 ///
 /// The `Emitted::key` a backend attaches, if it attaches one, is *replaced* by
 /// the one the build system computed. That is not a slight: the cache is the build system's, and
@@ -2340,14 +2339,14 @@ fn collect_types(func: &ir::Func, out: &mut Vec<ir::TypeId>) {
 ///   cache, rather than emitted twice ([`Flights`]). So each unit is emitted
 ///   once a process, whichever build asks first. `emit` is called again only
 ///   for a unit whose other build failed.
-fn codegen_units_for<F>(
+pub fn codegen_units_for<F>(
     cache: &Cache,
     keys: &[(String, ActionKey)],
     force: bool,
     mut emit: F,
 ) -> Result<Vec<(Emitted, bool)>, Diagnostics>
 where
-    F: FnMut(&[u32]) -> Result<Vec<Emitted>, Diagnostics>,
+    F: FnMut(&[usize]) -> Result<Vec<Emitted>, Diagnostics>,
 {
     let hits: Vec<Option<Vec<u8>>> = keys
         .iter()
@@ -2360,7 +2359,7 @@ where
         .enumerate()
         .zip(&hits)
         .filter(|(_, hit)| hit.is_none())
-        .map(|((i, (name, key)), _)| (i, (name, key)))
+        .map(|((i, (_, key)), _)| (i, key))
         .collect();
     // Each missing unit's bytes, and whether this build emitted them.
     let mut got: std::collections::HashMap<usize, (Vec<u8>, bool)> =
@@ -2369,13 +2368,13 @@ where
     emit_into(cache, &mine.units, &mut emit, &mut got)?;
     drop(mine);
     let mut failed = Vec::new();
-    for ((i, (name, key)), flight) in theirs {
+    for ((i, key), flight) in theirs {
         flight.wait();
         match cache.get_checked(key) {
             Some(bytes) => {
                 got.insert(i, (bytes, false));
             }
-            None => failed.push((i, (name, key))),
+            None => failed.push((i, key)),
         }
     }
     emit_into(cache, &failed, &mut emit, &mut got)?;
@@ -2397,11 +2396,14 @@ where
     Ok(out)
 }
 
-/// A unit: its position in the program's units, and its name and key.
-type Coded<'a> = (usize, (&'a String, &'a ActionKey));
+/// A unit: its position in the program's units, and its key.
+type Coded<'a> = (usize, &'a ActionKey);
 
 /// Emits the `wanted` units and puts each in the cache and in `got`, marked
 /// emitted here. Asks `emit` nothing when `wanted` is empty.
+///
+/// `wanted` is in unit order, and `emit` answers one object per unit in that
+/// order, so each unit's object is the one at its position.
 fn emit_into<F>(
     cache: &Cache,
     wanted: &[Coded<'_>],
@@ -2409,24 +2411,16 @@ fn emit_into<F>(
     got: &mut std::collections::HashMap<usize, (Vec<u8>, bool)>,
 ) -> Result<(), Diagnostics>
 where
-    F: FnMut(&[u32]) -> Result<Vec<Emitted>, Diagnostics>,
+    F: FnMut(&[usize]) -> Result<Vec<Emitted>, Diagnostics>,
 {
     if wanted.is_empty() {
         return Ok(());
     }
-    let units: Vec<u32> = wanted
-        .iter()
-        .filter_map(|&(i, _)| u32::try_from(i).ok())
-        .collect();
+    let units: Vec<usize> = wanted.iter().map(|&(i, _)| i).collect();
     let emitted = emit(&units)?;
-    for &(i, (name, key)) in wanted {
-        let object = object_name(name);
-        let unit = emitted
-            .iter()
-            .find(|e| e.name == object || e.name == *name)
-            .or_ice("a backend emits an object for every unit it is asked for");
+    for (&(i, key), unit) in wanted.iter().zip(emitted) {
         cache.put_checked(key, &unit.bytes);
-        got.insert(i, (unit.bytes.clone(), true));
+        got.insert(i, (unit.bytes, true));
     }
     Ok(())
 }
@@ -2492,7 +2486,7 @@ impl Flights {
         let mut theirs = Vec::new();
         let mut flights = Flights::map();
         for &unit in missing {
-            let (_, (_, key)) = unit;
+            let (_, key) = unit;
             let name = cache.path(key);
             match flights.get(&name) {
                 Some(flight) => theirs.push((unit, std::sync::Arc::clone(flight))),
@@ -2527,27 +2521,6 @@ impl Drop for Claimed<'_> {
             flight.ended.notify_all();
         }
     }
-}
-
-/// [`codegen_units_for`], for a caller with no per-unit emission path.
-///
-/// The units the emitter is told about are dropped rather than ignored: a
-/// closure that produces the whole program produces every unit that missed, and
-/// selecting by name is what this hands back.
-pub fn codegen_units<F>(
-    cache: &Cache,
-    keys: &[(String, ActionKey)],
-    force: bool,
-    emit: F,
-) -> Result<Vec<(Emitted, bool)>, Diagnostics>
-where
-    F: FnOnce() -> Result<Vec<Emitted>, Diagnostics>,
-{
-    // Asked again only for a unit another build failed, which a test never has.
-    let mut emit = Some(emit);
-    codegen_units_for(cache, keys, force, |_| {
-        emit.take().map_or_else(|| Ok(Vec::new()), |emit| emit())
-    })
 }
 
 /// `core_list` -> `core_list.o`. One rule, because the manifest names the unit

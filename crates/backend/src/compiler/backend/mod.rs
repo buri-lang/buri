@@ -170,20 +170,18 @@ fn arch_text(arch: Option<Arch>) -> &'static str {
 /// work `--force` does: at 118k lines that was 1680 ms of a 2622 ms rebuild,
 /// spent producing objects that were then thrown away.
 ///
-/// A backend may emit *more* than it was asked for — the caller selects the
-/// objects it wanted by name — but never fewer, which is what makes
-/// [`Backend::emit_units`]'s default implementation correct for a backend that
-/// has no per-unit path.
+/// [`Native::emit_units`] answers exactly these units, one object each, in
+/// unit order. So the caller pairs each unit it asked for with its object by
+/// position, and never looks one up by name.
 #[derive(Clone, Copy)]
 pub enum Units<'a> {
     All,
-    /// Unit indices into `ir::Program::units`, which is the order
-    /// `Backend::emit` returns its objects in.
-    Only(&'a [u32]),
+    /// Unit indices into `ir::Program::units`, in ascending order.
+    Only(&'a [usize]),
 }
 
 impl Units<'_> {
-    pub fn wants(self, unit: u32) -> bool {
+    pub fn wants(self, unit: usize) -> bool {
         match self {
             Units::All => true,
             Units::Only(only) => only.contains(&unit),
@@ -296,6 +294,9 @@ pub trait Native: Backend {
     /// program (ARCHITECTURE.md §5.1) and the build system already knows which
     /// units' keys missed, so invalidating one unit costs one unit's codegen
     /// rather than the whole program's.
+    ///
+    /// Answers one object for each unit `units` names and for no other, in
+    /// unit order.
     fn emit_units(
         &mut self,
         program: &Program,
