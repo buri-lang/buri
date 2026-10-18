@@ -1,16 +1,16 @@
 # The standard library's MC/DC conditions shown, per module: shown, total,
 # module. CI's stdlib-coverage job raises it on main; never edit a count
 # by hand. coverage/stdlib/src/main.rs has the rest.
-# total 9132 9824 (93.0%)
+# total 9231 9787 (94.3%)
 host x86_64-unknown-linux-gnu
 203 245 core/actor
 2 3 core/alloc
-78 92 core/bigint
+83 86 core/bigint
 6 6 core/bool
 903 923 core/buri/ast
-99 133 core/bytes
+104 122 core/bytes
 20 22 core/character
-121 132 core/cli
+130 132 core/cli
 24 29 core/codegen
 99 111 core/compression
 91 91 core/crypto
@@ -29,15 +29,15 @@ host x86_64-unknown-linux-gnu
 127 128 core/net/http
 229 256 core/net/server
 1 2 core/net/tcp
-114 125 core/net/url
+123 125 core/net/url
 17 23 core/net/websocket
-51 71 core/number
-713 743 core/option
+51 68 core/number
+713 741 core/option
 40 40 core/order
-1134 1203 core/orderedmap
+1136 1203 core/orderedmap
 19 19 core/orderedset
 94 103 core/path
-297 328 core/proto
+311 321 core/proto
 25 25 core/proto/any
 16 16 core/proto/duration
 5 5 core/proto/empty
@@ -46,7 +46,7 @@ host x86_64-unknown-linux-gnu
 16 16 core/proto/timestamp
 81 82 core/proto/wrappers
 17 22 core/queue
-12 23 core/random
+14 19 core/random
 595 612 core/result
 0 0 core/secret
 12 13 core/set
@@ -54,12 +54,12 @@ host x86_64-unknown-linux-gnu
 248 266 core/str
 15 66 core/tasks
 3 5 core/testing/check
-12 23 core/time
+12 19 core/time
 14 19 core/uuid
-320 349 std/codegen/proto
-412 412 std/codegen/proto/schema
+344 347 std/codegen/proto
+414 414 std/codegen/proto/schema
 21 21 std/codegen/proto/wellknown
-739 792 ui/node
+766 792 ui/node
 13 15 ui/prop
 0 0 ui/signal
 1 6 ui/style
