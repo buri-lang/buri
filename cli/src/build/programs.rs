@@ -252,12 +252,12 @@ mod tests {
         let dir = scratch("sweep");
         let store = dir.join("store");
         let first = runner(&dir, "a", b"program");
-        settle_in(&store, &first);
-        let entry = std::fs::read_link(&first)
-            .unwrap()
-            .parent()
-            .unwrap()
-            .to_path_buf();
+        // Made with `create`, which never locks it. `settle_in` holds the
+        // lock while it hands the entry out, and a test thread that forks in
+        // that moment keeps a copy of the locked descriptor until its child
+        // execs, so the sweep below would find the entry in use.
+        let entry = store.join("entry");
+        assert!(create(&store, &entry, &first));
         sweep_older_than(&store, Duration::from_secs(3600));
         assert!(entry.is_dir());
         // Last used two hours ago, set outright: an entry touched a moment ago
