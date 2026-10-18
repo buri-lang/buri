@@ -510,19 +510,15 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // 13.02%, one case past what 13 allowed. The parser and checker are not
         // in that change — it is the corpus moving — so it is 14 rounded up.
         ("a syntax error stays a syntax error", "delete-closer") => 14,
-        // Lowered from three: 11 of 574 is 1.9%, and two is that rounded up. The same parser change the two rows below record
-        // — a `let` whose value did not read keeps its binding, so the names it
-        // declares no longer come back as errors of their own.
-        //
-        // Re-read when stdlib MC/DC phase 12 added assertions to
-        // `collections/test/heap.buri`, `data/test/lists.buri`,
-        // `data/test/ordering.buri` and `process/test/process.buri`. The draw in
-        // those files moved, and six commas that were already there are now
-        // drawn: 17 of 708 is 2.4%, so three. The parser and the checker aren't
-        // in that change.
-        ("a syntax error stays a syntax error", "delete-separator ()") => 3,
-        // The same one case, at this invariant: see the note on the row above.
-        ("a syntax error stays a syntax error", "delete-separator []") => 2,
+        // `delete-separator ()` and `delete-separator []` are zero here, so they
+        // have no row. The last cases in `()` were a comma deleted before an
+        // array: `assert.equal(xs, [1, 2])` became `assert.equal(xs [1, 2])`,
+        // which read as the index `xs[1` with its `]` missing. The call was then
+        // left one argument short, and the checker said so — 17 of 708, all of
+        // that shape. An index holds one expression, so a spaced `[` whose group
+        // has a `,` of its own is now read as the next element, and the one
+        // missing comma is the one error.
+
         // The arm before the comma used to swallow the next arm's pattern, so
         // `2` got a field and the checker was asked what field of `Int` that
         // is. It does not any more — `arm_pattern_follows` reads the `.Name`

@@ -1,0 +1,8 @@
+// EXPECT: a call argument ends with `,`, and the array after it is the next argument
+export fn first(xs: [Int], ys: [[Int]]): Option<Int> {
+  xs [0]
+}
+
+export fn pair(): Option<Int> {
+  first([1] [[2, 3], [4]])
+}

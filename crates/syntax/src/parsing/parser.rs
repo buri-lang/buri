@@ -1261,6 +1261,36 @@ impl<'a> Parser<'a> {
         None
     }
 
+    /// Whether the `[` under the cursor opens a group with a `,` directly in
+    /// it.
+    ///
+    /// `f(xs, [1, 2])` with its comma deleted is `f(xs [1, 2])`, which reads on
+    /// as the index `xs[1` and then reports the index's missing `]` at the
+    /// comma. The call is left with one argument, so the checker counts them
+    /// and says so: a type error invented downstream of a syntax error. No
+    /// index has a `,` in it, so a group that does is the array literal the
+    /// author wrote, and stopping the chain before it lets `more_elements`
+    /// report the one comma that is missing.
+    fn opens_an_array(&self) -> bool {
+        let mut depth = 0i32;
+        for steps in 0..MAX_CLOSE_LOOKAHEAD {
+            match self.kind_at(self.pos.saturating_add(steps)) {
+                TokenKind::Comma if depth == 1 => return true,
+                TokenKind::LBrace | TokenKind::LParen | TokenKind::LBracket => {
+                    depth = depth.saturating_add(1);
+                }
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket if depth <= 1 => {
+                    return false;
+                }
+                TokenKind::RBrace | TokenKind::RParen | TokenKind::RBracket => {
+                    depth = depth.saturating_sub(1);
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
     /// Whether a `=>` comes before anything that would end the arm.
     fn arrow_before_the_arm_ends(&self, from: usize) -> bool {
         let mut depth = 0i32;
@@ -3917,6 +3947,13 @@ impl<'a> Parser<'a> {
                         .push(Kind::Call, [base.0, ks, kl, 0], start.to(end), at);
                 }
                 TokenKind::LBracket => {
+                    // An index holds one expression, so a spaced `[` whose
+                    // group has a `,` of its own is an array literal: the next
+                    // element of the list this expression is in, with the
+                    // comma before it missing. See `opens_an_array`.
+                    if self.prev_span().end < self.span().start && self.opens_an_array() {
+                        return Ok(base);
+                    }
                     let open = self.bump();
                     let index = self.expr()?;
                     let end = self.expect_close(Punctuation::RBracket, "index", open)?;
