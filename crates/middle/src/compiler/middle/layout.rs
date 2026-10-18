@@ -1324,11 +1324,11 @@ mod tests {
                     TyDef::Prim(Prim::Str | Prim::Template) => {
                         vec!["base".into(), "ptr".into(), "len".into()]
                     }
-                    TyDef::Struct { fields, record } => fields
+                    TyDef::Struct { fields, form } => fields
                         .iter()
                         .enumerate()
                         .map(|(i, f)| {
-                            if *record {
+                            if form.is_record() {
                                 f.name.clone()
                             } else {
                                 i.to_string()
@@ -1449,6 +1449,12 @@ mod tests {
             record: false,
             exported: true,
             span: Span::NONE,
+            decl: buri_syntax::parsing::tree::Variant {
+                name: buri_syntax::parsing::tree::Name::new(Span::NONE),
+                payload: buri_syntax::parsing::tree::VariantPayload::None,
+                span: Span::NONE,
+                docs: Default::default(),
+            },
         }
     }
 
@@ -1464,7 +1470,7 @@ mod tests {
             generics: generics(generic_names),
             def: TyDef::Struct {
                 fields: fields(named),
-                record: true,
+                form: types::StructForm::Record,
             },
             exported: true,
             span: Span::NONE,
@@ -2343,7 +2349,7 @@ mod tests {
         );
         t.tycon_mut(a).def = TyDef::Struct {
             fields: fields(&[("n", p(Prim::I64)), ("b", con(b))]),
-            record: true,
+            form: types::StructForm::Record,
         };
         let mut l = Layouts::new(&t);
         let la = l.of(con(a));
@@ -2435,7 +2441,7 @@ mod tests {
         let node = add_struct(&mut t, "Node", &[], &[]);
         t.tycon_mut(node).def = TyDef::Struct {
             fields: fields(&[("next", con(node)), ("n", p(Prim::I64))]),
-            record: true,
+            form: types::StructForm::Record,
         };
         let mut l = Layouts::new(&t);
         assert_eq!(l.of(con(node)).fields, vec![0, 8]);

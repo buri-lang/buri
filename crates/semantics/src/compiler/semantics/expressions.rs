@@ -12,7 +12,7 @@ use crate::compiler::semantics::resolve::{Checker, Sym};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
-use crate::diagnostics::{self, counted, were_given, Diagnostic, Invariant as _, Span};
+use crate::diagnostics::{self, counted, were_given, Diagnostic, Span};
 use crate::parsing::flat::{
     self, ArmData, BlockId, CtxBodyId, ExprId, ExprView as V, InitData, LambdaParamData, PartData,
     PartView, TypeId,
@@ -26,7 +26,7 @@ enum Static {
     Context(ContextDeclId),
     Const(ConstId),
     /// A tuple struct's name, which constructs one: `Meters(9.8)`.
-    TupleStruct(TyConId),
+    TupleStruct(TyConId, TupleDecl),
 }
 
 /// A call that supplied the wrong number of things, and what it was measured
@@ -927,14 +927,19 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// is the newtype pattern the operator traits exist for.
     fn tuple_struct(&self, con: TyConId) -> Option<Static> {
         match &self.c.tables.tycon(con).def {
-            TyDef::Struct { record: false, .. } => Some(Static::TupleStruct(con)),
+            TyDef::Struct {
+                form: StructForm::Tuple(decl),
+                ..
+            } => Some(Static::TupleStruct(con, *decl)),
             _ => None,
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn construct_tuple_struct(
         &mut self,
         con: TyConId,
+        decl: TupleDecl,
         explicit: Option<Vec<Ty>>,
         args: &[ExprId],
         span: Span,
@@ -956,7 +961,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             self.check_args(args, &param_types)
         } else {
             let name = self.c.tables.tycon(con).name.clone();
-            let shape = shape_of_struct(self.c, con);
+            let shape = shape_of_struct(self.c, con, decl);
             // A tuple struct's fields are numbered, not named, so there is
             // nothing here for a fix to quote.
             let fill: Vec<ParamInfo> = param_types.iter().map(|t| unnamed_slot(t, span)).collect();
@@ -1031,9 +1036,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let head_span = self.tree().span(callee);
                 self.construct_variant(con, index, args, span, expected, head_span)
             }
-            Some(Static::TupleStruct(con)) => {
+            Some(Static::TupleStruct(con, decl)) => {
                 let head_span = self.tree().span(callee);
-                self.construct_tuple_struct(con, explicit, args, span, expected, head_span)
+                self.construct_tuple_struct(con, decl, explicit, args, span, expected, head_span)
             }
             Some(Static::Context(cid)) => {
                 if !args.is_empty() {
@@ -2177,7 +2182,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         .bind("name", name);
                     self.error_expr(span)
                 }
-                Static::TupleStruct(_) => {
+                Static::TupleStruct(..) => {
                     self.templated("tuple-struct-not-called", span);
                     self.error_expr(span)
                 }
@@ -3921,37 +3926,15 @@ fn signature_of_fn(c: &Checker, id: FnId) -> String {
 ///
 /// The declaration's own syntax, through the printer `buri docs` and the
 /// language server's hover already use.
-fn shape_of_struct(c: &Checker, con: TyConId) -> String {
+fn shape_of_struct(c: &Checker, con: TyConId, decl: TupleDecl) -> String {
     let info = c.tables.tycon(con);
-    c.module(info.module)
-        .ast
-        .items
-        .iter()
-        .find_map(|item| match item {
-            tree::Item::Struct(d) if d.name.span == info.span => {
-                crate::formatting::constructor(c.tree(info.module), d)
-            }
-            _ => None,
-        })
-        .or_ice("a tuple struct is declared in its module, and its body is that declaration's")
+    crate::formatting::constructor(c.tree(info.module), &info.name, decl.generics, decl.fields)
 }
 
 /// The same for one variant of an enum, whose declaration is the enum's.
 fn shape_of_variant(c: &Checker, con: TyConId, index: VariantId) -> String {
     let info = c.tables.tycon(con);
-    c.module(info.module)
-        .ast
-        .items
-        .iter()
-        .find_map(|item| match item {
-            tree::Item::Enum(d) if d.name.span == info.span => c
-                .tree(info.module)
-                .list(d.variants)
-                .get(index.index())
-                .map(|v| crate::formatting::variant(c.tree(info.module), v)),
-            _ => None,
-        })
-        .or_ice("an enum is declared in its module, and its variants are that declaration's")
+    crate::formatting::variant(c.tree(info.module), &info.variant(index).decl)
 }
 
 /// The same for a method reached through a bound, whose declaration is the

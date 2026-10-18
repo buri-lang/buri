@@ -2659,7 +2659,7 @@ fn check_unused_declarations(
     spoken: &Spoken,
     diagnostics: &mut Diagnostics,
 ) {
-    use crate::compiler::semantics::types::TyDef;
+    use crate::compiler::semantics::types::{StructForm, TyDef};
 
     let own = target.package;
     let mine = modules_of(analysis, own);
@@ -2722,7 +2722,7 @@ fn check_unused_declarations(
             // a reader writes, and the type is the finding.
             TyDef::Struct {
                 fields,
-                record: true,
+                form: StructForm::Record,
             } => {
                 if census.read_whole.contains(&id) {
                     continue;

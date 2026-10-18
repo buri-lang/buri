@@ -1702,7 +1702,13 @@ fn is_record(tables: &Tables, con: TyConId, variant: Option<VariantId>) -> bool 
     let info = tables.tycon(con);
     match variant {
         Some(v) => info.variant(v).record,
-        None => matches!(info.def, types::TyDef::Struct { record: true, .. }),
+        None => matches!(
+            info.def,
+            types::TyDef::Struct {
+                form: types::StructForm::Record,
+                ..
+            }
+        ),
     }
 }
 

@@ -83,7 +83,7 @@
 use crate::compiler::standard_library;
 use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{
-    ArmData, BlockId, CtxBodyId, ExprId, ExprView, InitData, Kind, LambdaParamData, Location,
+    ArmData, BlockId, CtxBodyId, ExprId, ExprView, InitData, Kind, LambdaParamData, List, Location,
     PartView, PatId, PatView, StmtKind, Tree, TypeId, TypeView,
 };
 use crate::parsing::lexer::Comment;
@@ -3204,22 +3204,22 @@ pub fn field_decl(t: &Tree, f: &FieldDecl) -> String {
 }
 
 /// A tuple struct's constructor: its name, the generics it binds and the types
-/// it holds. A record struct has none — it is built with a struct literal — and
-/// answers `None`.
-pub fn constructor(t: &Tree, d: &StructDecl) -> Option<String> {
-    match &d.body {
-        StructBody::Tuple(fields) => Some(format!(
-            "{}{}({})",
-            t.name(d.name),
-            generics(t, t.list(d.generics)),
-            t.list(*fields)
-                .iter()
-                .map(|f| type_text(t, f.ty))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )),
-        StructBody::Record(_) => None,
-    }
+/// it holds. A record struct has none: it is built with a struct literal.
+pub fn constructor(
+    t: &Tree,
+    name: &str,
+    generic_params: List<GenericParam>,
+    fields: List<TupleField>,
+) -> String {
+    format!(
+        "{name}{}({})",
+        generics(t, t.list(generic_params)),
+        t.list(fields)
+            .iter()
+            .map(|f| type_text(t, f.ty))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 
 pub fn variant(t: &Tree, v: &Variant) -> String {

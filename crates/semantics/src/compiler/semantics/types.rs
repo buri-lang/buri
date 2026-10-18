@@ -11,6 +11,8 @@ use crate::compiler::semantics::layered::{
 };
 use crate::diagnostics::Span;
 use crate::hash::Map as HashMap;
+use crate::parsing::flat::List;
+use crate::parsing::tree;
 use std::fmt::Write as _;
 
 // ---------------------------------------------------------------------------
@@ -411,19 +413,43 @@ pub struct VariantInfo {
     /// Copied from the enum. A variant has no visibility of its own.
     pub exported: bool,
     pub span: Span,
+    /// The variant as written, in the tree of the enum's module.
+    pub decl: tree::Variant,
 }
 
 #[derive(Clone, Debug)]
 pub enum TyDef {
     Prim(Prim),
-    /// `record` distinguishes `struct S { a: T }` from `struct S(T)`.
     Struct {
         fields: Vec<FieldInfo>,
-        record: bool,
+        form: StructForm,
     },
     Enum {
         variants: Variants,
     },
+}
+
+/// Which of the two struct declarations a struct has.
+#[derive(Clone, Debug)]
+pub enum StructForm {
+    /// `struct S { a: T }`, built with a struct literal.
+    Record,
+    /// `struct S(T)`, whose name is its constructor.
+    Tuple(TupleDecl),
+}
+
+/// A tuple struct's generics and fields as written, in the tree of the
+/// struct's module.
+#[derive(Clone, Copy, Debug)]
+pub struct TupleDecl {
+    pub generics: List<tree::GenericParam>,
+    pub fields: List<tree::TupleField>,
+}
+
+impl StructForm {
+    pub fn is_record(&self) -> bool {
+        matches!(self, StructForm::Record)
+    }
 }
 
 pub type Variants = Dense<VariantId, VariantInfo>;
@@ -1362,7 +1388,7 @@ impl Tables {
         let field = match &self.tycon(con).def {
             TyDef::Struct {
                 fields,
-                record: false,
+                form: StructForm::Tuple(_),
             } => fields.first().filter(|_| fields.len() == 1)?,
             _ => return None,
         };
