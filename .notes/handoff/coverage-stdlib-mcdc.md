@@ -783,3 +783,44 @@ The touched packages passed 30 runs on JS and 20 runs natively.
 - **actor 389: 1 condition.** `unanswered .Ok(())` is a race, or can't be reached.
 - **check: 2 conditions.** A false property is `forAll`'s failure path, so no passing test shows it.
 - **time 224: 1 condition.** The division trap stays.
+
+## Stdlib MC/DC phase 19
+
+### MC/DC
+
+| Module | Base | New |
+|---|---|---|
+| total | 9584/9880 (97.0%) | 9727/9958 (97.7%) |
+| core/orderedmap | 1136/1203 | 1157/1203 |
+| core/net/server | 231/256 | 335/336 |
+| core/indexset | 235/245 | 241/245 |
+| core/decimal | 60/65 | 63/65 |
+| core/net/websocket | 18/23 | 23/23 |
+| ui/theme | 18/24 | 22/22 |
+
+Every other module is unchanged. A script checked every module against `coverage/stdlib-mcdc.txt`, and none dropped.
+
+### Refactor
+
+In ui/theme, `valueText` now writes a token as `var(--name)`, and `.Page` calls it directly, so `colorText` is gone. Its old `.Token(_) => ""` arm couldn't be reached.
+
+### Tests
+
+- **Watchers that show a value.** A UI watcher's `Scope` gets its own copy of `Show`. Build the value outside the watcher with `context { Allocator: alloc() }`, or the watcher makes new, partly-shown copies of `of`.
+  - `collections/test/orderedmap.buri`: a map of eight entries, which has split, for seven key and value types.
+  - `collections/test/indexset.buri`: a set that straddles a word.
+  - `bignum/test/decimal.buri`: a price of each sign and scale.
+- **Theme.** `ui/test/theme.buri` binds tokens to `Rgba`, `Transparent`, `Inherit` and a faded token, and has one binding whose left half isn't a token.
+- **Server in an allocation scope.** `semantics/test/effects.buri` runs every socket-server case inside `core/alloc`'s `scoped` as well. It adds the tuned knobs, a server with no websocket path, and a request whose listener has closed.
+- **Dialler endings.** `semantics/test/host_testing.buri` adds a test-written `WebSocketClient` that refuses one URL and ends sockets abnormally, with an overflow, with a custom code, or normally.
+
+### What's left
+
+- **orderedmap: 46 conditions.**
+  - The `C = Scope` copies for `(I64, Maps)`, `(I64, Tree)`, `(Str, Address)` and `(Str, Value)` need a watcher in the proto and memory packages, as for the builtin types. That's about 12 conditions.
+  - `Bool`/`Mood` and the map collisions can't be reached.
+- **map: 35.** Collisions for keys that can't collide, and 318 `.None` (the key is known present).
+- **tasks: 33.** Unchanged; see phase 18 and the queue note.
+- **server 532: 1.** The `MAX_HANDLERS` clamp.
+- **ui/node 19, buri/ast 8, compression 6, str 5, random 5.** Not looked at.
+- **number 15, simd 8.** Traps.

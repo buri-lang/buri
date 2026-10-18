@@ -14,8 +14,9 @@ from "core/math" import * as math;
 from "core/number" import * as number;
 from "core/order" import { Order };
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, recorder };
+from "ui/signal" import { signal, watch };
 
 // --- of, and the canonical form --------------------------------------------------
 
@@ -29,6 +30,19 @@ test "of puts the point where the scale says" {
     assert.equal(decimal.of(7, 0).text(ctx), "7");
     assert.equal(decimal.of(0, 5).text(ctx), "0");
     assert.equal(decimal.of(123, 3).text(ctx), "0.123");
+}
+
+test "a watcher writes the price it reads, whatever its sign and scale" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let price = signal(ctx, decimal.of(1999, 2));
+    // A watcher's `Scope` allocates, so it can write the number as text.
+    let _ = watch(ctx, fn(s) => log.record(price.get(s).text(s)));
+    let _ = price.set(ctx, decimal.of(-5, 2));
+    let _ = price.set(ctx, decimal.of(7, 0));
+    assert.equal(log.recorded(), ["19.99", "-0.05", "7"]);
 }
 
 test "a trailing zero is absorbed into the scale" {

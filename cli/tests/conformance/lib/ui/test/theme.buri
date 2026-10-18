@@ -235,6 +235,25 @@ test "a token worth another token, faded, is the mix and keeps the chain" {
     );
 }
 
+test "a theme binds a token to any colour a style can name" {
+    // A binding whose left half is a plain colour names no property, so it
+    // binds nothing. A fade whose percentage is not whole keeps its fraction.
+    let block = install([
+        theme.themed([
+            (Card.Surface.color(), .Rgba(1, 2, 3, 0.5)),
+            (Card.OnSurface.color(), .Transparent),
+            (Card.Accent.color(), .Inherit),
+            (.Rgb(9, 9, 9), .Rgb(8, 8, 8)),
+        ]),
+        appThemed(day),
+        theme.themed([(Card.Accent.color(), App.Fg.color().alpha(0.125))]),
+    ]);
+    assert.equal(
+        block,
+        ":root{--cardlib-surface:rgba(1,2,3,0.5);--cardlib-onSurface:transparent;--cardlib-accent:inherit}\n:root{--app-bg:rgb(255,255,255);--app-fg:rgb(24,24,27)}\n:root{--cardlib-accent:color-mix(in srgb,var(--app-fg) 12.5%,transparent)}\n",
+    );
+}
+
 // --- switching -----------------------------------------------------------------------
 
 test "switching a theme swaps the values and changes no class" {

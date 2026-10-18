@@ -11,6 +11,7 @@
 // assertions instead: a build error there is a failure, so those blocks are a
 // compile-time claim as much as a runtime one.
 
+from "core/alloc" import * as scopedAlloc;
 from "core/bytes" import * as bytes;
 from "core/env" import * as env;
 from "core/fs" import * as fs;
@@ -3025,7 +3026,8 @@ test "an accept that fails is the listener failing, and run answers it" {
 /// A `Listen` with one connection, which asks for a socket that says a text and
 /// a binary message and then closes. `failing` names the call that answers an
 /// error instead: `"bind"`, `"accept"`, `"request"`, `"upgrade"`, `"respond"`
-/// or `"receive"`.
+/// or `"receive"`. `"closed"` is a listener that signs off when asked for the
+/// request.
 ///
 /// Like `Scripted`, it reads how far the socket has got from what the hooks
 /// printed to `sink`, and the second accept is `.Closed` once anything has.
@@ -3064,6 +3066,7 @@ impl Listen for Talking {
         let _read = self.sink.println("read");
         match (self.failing) {
             "request" => .Err(broken("reading the request")),
+            "closed" => .Err(ServeError { cause: .Closed, detail: "" }),
             _ => {
                 .Ok(Request {
                     method: .Get,
@@ -3119,8 +3122,10 @@ impl Listen for Talking {
 
 /// A socket server on `Talking`, whose state starts at `start()` and takes
 /// `step` for each message: how it ended, then everything the listener and the
-/// hooks printed.
+/// hooks printed. With `scoped`, the server runs inside `alloc.scoped`, so
+/// every hook is handed the scope.
 fn talked<S>(
+    scoped: Bool,
     failing: Str,
     handlers: Int,
     path: Str,
@@ -3136,31 +3141,14 @@ fn talked<S>(
         Stdout: sink,
         Tasks: SerialTasks { label: "s", bias: 0 },
     };
-    let served = server.serve(ctx, server.Server {
-        port: 0,
-        onRequest: fn(_c, _r) => Response { status: 404, headers: [], body: [] },
-        websocket: .Some(server.WebSocket {
-            path: path,
-            onOpen: fn(c, _socket, _request) => {
-                let _opened = io.println(c, "open");
-                start()
-            },
-            onMessage: fn(c, _socket, state, message) => {
-                let _heard = match (message) {
-                    .Text(text) => io.println(c, "text ${text}"),
-                    .Binary(data) => io.println(c, "binary ${data.length()}"),
-                };
-                step(state, message)
-            },
-            onClose: fn(c, _socket, state, reason) => {
-                let _closed = io.println(
-                    c,
-                    "close ${reason.show(c)} ${describe(state)}",
-                );
-                state
-            },
-        }),
-    });
+    // A server of several workers sets every other knob too. `Talking` ignores
+    // them, so what it hears is the same either way.
+    let tuned = handlers > 1;
+    let served = if (scoped) {
+        scopedAlloc.scoped(ctx, fn(c) => talking(c, tuned, path, start, step, describe))
+    } else {
+        talking(ctx, tuned, path, start, step, describe)
+    };
     let ended = match (served) {
         .Ok(()) => "ok",
         .Err(e) => server.errorText(e),
@@ -3168,23 +3156,79 @@ fn talked<S>(
     str.format(ctx, "${ended}\n${sink.captured()}")
 }
 
+/// `talked`'s server, under whichever context it is handed, with every
+/// optional field set when `tuned`.
+fn talking<C: Allocator + Listen + Stdout + Tasks, S>(
+    ctx: C,
+    tuned: Bool,
+    path: Str,
+    start: fn() => S,
+    step: fn(S, server.Message) => S,
+    describe: fn(S) => Str,
+): Result<(), ServeError> {
+    server.serve(ctx, server.Server {
+        port: 0,
+        address: if (tuned) { .Some("127.0.0.1") } else { .None },
+        protocols: if (tuned) { .Some([.Http1]) } else { .None },
+        tls: if (tuned) {
+            .Some(server.Tls { certificate: "/leaf.pem", key: "/leaf.key" })
+        } else {
+            .None
+        },
+        requestLimit: if (tuned) { .Some(1) } else { .None },
+        idleTimeout: if (tuned) { .Some(time.milliseconds(250)) } else { .None },
+        drain: if (tuned) { .Some(time.milliseconds(2500)) } else { .None },
+        socketBuffer: if (tuned) { .Some(8) } else { .None },
+        onRequest: fn(_c, _r) => Response { status: 404, headers: [], body: [] },
+        // An empty path is a server with no hooks at all.
+        websocket: if (path == "") {
+            .None
+        } else {
+            .Some(server.WebSocket {
+                path: path,
+                onOpen: fn(c, _socket, _request) => {
+                    let _opened = io.println(c, "open");
+                    start()
+                },
+                onMessage: fn(c, _socket, state, message) => {
+                    let _heard = match (message) {
+                        .Text(text) => io.println(c, "text ${text}"),
+                        .Binary(data) => io.println(c, "binary ${data.length()}"),
+                    };
+                    step(state, message)
+                },
+                onClose: fn(c, _socket, state, reason) => {
+                    let _closed = io.println(
+                        c,
+                        "close ${reason.show(c)} ${describe(state)}",
+                    );
+                    state
+                },
+            })
+        },
+    })
+}
+
 /// Every way `talked` can go, for one kind of state.
 fn talkedEveryWay<S>(
+    scoped: Bool,
     start: fn() => S,
     step: fn(S, server.Message) => S,
     describe: fn(S) => Str,
 ): [Str] {
     [
-        talked("", 1, "/socket", start, step, describe),
-        talked("", 3, "/socket", start, step, describe),
-        talked("receive", 1, "/socket", start, step, describe),
-        talked("", 1, "/chat", start, step, describe),
-        talked("upgrade", 1, "/socket", start, step, describe),
-        talked("respond", 1, "/chat", start, step, describe),
-        talked("request", 1, "/socket", start, step, describe),
-        talked("accept", 1, "/socket", start, step, describe),
-        talked("accept", 3, "/socket", start, step, describe),
-        talked("bind", 1, "/socket", start, step, describe),
+        talked(scoped, "", 1, "/socket", start, step, describe),
+        talked(scoped, "", 3, "/socket", start, step, describe),
+        talked(scoped, "receive", 1, "/socket", start, step, describe),
+        talked(scoped, "", 1, "/chat", start, step, describe),
+        talked(scoped, "upgrade", 1, "/socket", start, step, describe),
+        talked(scoped, "respond", 1, "/chat", start, step, describe),
+        talked(scoped, "request", 1, "/socket", start, step, describe),
+        talked(scoped, "accept", 1, "/socket", start, step, describe),
+        talked(scoped, "accept", 3, "/socket", start, step, describe),
+        talked(scoped, "bind", 1, "/socket", start, step, describe),
+        talked(scoped, "", 1, "", start, step, describe),
+        talked(scoped, "closed", 1, "/socket", start, step, describe),
     ]
 }
 
@@ -3203,14 +3247,18 @@ fn heardEveryWay<C: Allocator>(ctx: C, state: Str): [Str] {
         "the transport failed\n",
         "the transport failed\n",
         "listening was not permitted\n",
+        "ok\nread\nanswered 404\n",
+        "ok\nread\n",
     ]
 }
 
-test "a socket's messages reach onMessage in order, whatever its state is" {
+/// `talkedEveryWay` for a count, a text and a unit state, each against what
+/// it should hear.
+fn heardWithEveryState(scoped: Bool): () {
     let ctx = context {
         Allocator: alloc(),
     };
-    let counted = talkedEveryWay(fn() => 0, fn(n, _message) => n + 1, fn(n) => {
+    let counted = talkedEveryWay(scoped, fn() => 0, fn(n, _message) => n + 1, fn(n) => {
         match (n) {
             2 => "two",
             _ => "not two",
@@ -3218,6 +3266,7 @@ test "a socket's messages reach onMessage in order, whatever its state is" {
     });
     assert.equal(counted, heardEveryWay(ctx, "two"));
     let kept = talkedEveryWay(
+        scoped,
         fn() => "first",
         fn(s, message) => {
             match (message) {
@@ -3228,8 +3277,19 @@ test "a socket's messages reach onMessage in order, whatever its state is" {
         fn(s) => s,
     );
     assert.equal(kept, heardEveryWay(ctx, "hi"));
-    let nothing = talkedEveryWay(fn() => (), fn(u, _message) => u, fn(_u) => "()");
+    let nothing = talkedEveryWay(scoped, fn() => (), fn(u, _message) => u, fn(_u) => {
+        "()"
+    });
     assert.equal(nothing, heardEveryWay(ctx, "()"));
+}
+
+test "a socket's messages reach onMessage in order, whatever its state is" {
+    heardWithEveryState(false);
+}
+
+test "a socket server inside an allocation scope hears the same, whatever its state is" {
+    // Every hook is handed the scope rather than the context.
+    heardWithEveryState(true);
 }
 
 test "a socket handle a program wrote for itself is one that has already gone" {
