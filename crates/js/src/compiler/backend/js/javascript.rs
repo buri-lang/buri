@@ -1558,19 +1558,28 @@ where
         let mut state = init();
         return stmts.into_iter().map(|s| f(&mut state, s)).collect();
     }
-    // A lock per statement rather than one around the list: each is taken
-    // exactly once, so no two workers ever wait on the same one.
-    let slots: Vec<std::sync::Mutex<Option<Stmt>>> = stmts
-        .into_iter()
-        .map(|s| std::sync::Mutex::new(Some(s)))
-        .collect();
-    crate::parallel::map_with(slots.len(), init, |state, i| {
-        let taken = slots.get(i).and_then(|slot| slot.lock().ok()?.take());
-        f(
-            state,
-            taken.or_ice("`parallel::map_with` asks for each index once"),
-        )
+    // One queue the workers take statements from, each with its place, until
+    // it runs dry. A statement is far more work than taking the lock. One job
+    // per statement keeps as many workers as before: each worker's first job
+    // empties the queue, and the rest find it empty.
+    let jobs = stmts.len();
+    let queue = std::sync::Mutex::new(stmts.into_iter().enumerate());
+    let next = || {
+        queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .next()
+    };
+    let mut done: Vec<(usize, Stmt)> = crate::parallel::map_with(jobs, init, |state, _| {
+        std::iter::from_fn(&next)
+            .map(|(i, s)| (i, f(state, s)))
+            .collect::<Vec<_>>()
     })
+    .into_iter()
+    .flatten()
+    .collect();
+    done.sort_unstable_by_key(|(i, _)| *i);
+    done.into_iter().map(|(_, s)| s).collect()
 }
 
 // -- constant folding --------------------------------------------------------
@@ -2200,36 +2209,39 @@ struct NameFacts {
 }
 
 impl LocalFacts {
-    /// The entry for `name`, made on first sight. `get_mut` before `insert`
-    /// rather than `entry`: the entry API needs an owned key whether or not
-    /// the name is already there, and this runs over every identifier of every
-    /// body, four times a body. A name is spelled once here however often it
-    /// occurs.
-    fn entry(&mut self, name: &str) -> &mut NameFacts {
-        if !self.names.contains_key(name) {
-            self.names.insert(name.to_string(), NameFacts::default());
+    /// Applies `f` to the entry for `name`, made on first sight. `get_mut`
+    /// before `insert` rather than `entry`: the entry API needs an owned key
+    /// whether or not the name is already there, and this runs over every
+    /// identifier of every body, four times a body. A name is spelled once
+    /// here however often it occurs.
+    fn note(&mut self, name: &str, f: impl FnOnce(&mut NameFacts)) {
+        if let Some(n) = self.names.get_mut(name) {
+            f(n);
+        } else {
+            let mut n = NameFacts::default();
+            f(&mut n);
+            self.names.insert(name.to_string(), n);
         }
-        self.names
-            .get_mut(name)
-            .or_ice("the entry was inserted a line above")
     }
 
     fn read(&mut self, name: &str) {
         let d = self.depth;
-        let n = self.entry(name);
-        n.uses += 1;
-        n.use_depth = n.use_depth.max(d);
+        self.note(name, |n| {
+            n.uses += 1;
+            n.use_depth = n.use_depth.max(d);
+        });
     }
 
     fn declare(&mut self, name: &str) {
         let d = self.depth;
-        let n = self.entry(name);
-        n.declared += 1;
-        n.decl_depth = d;
+        self.note(name, |n| {
+            n.declared += 1;
+            n.decl_depth = d;
+        });
     }
 
     fn assign(&mut self, name: &str) {
-        self.entry(name).assigns += 1;
+        self.note(name, |n| n.assigns += 1);
     }
 
     fn get(&self, name: &str) -> NameFacts {
