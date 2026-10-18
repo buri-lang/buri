@@ -1478,7 +1478,9 @@ fn exprKind<C: Allocator>(ctx: C, out: Out, e: Expr): Out {
         .Generic(base, args) => {
             emit(ctx, typeList(ctx, emit(ctx, headOf(ctx, out, base), "<"), args), ">")
         },
-        .StructLit(head, spread, fields) => structLit(ctx, out, head, spread, fields),
+        .StructLit(head, spread, fields) => {
+            structLit(ctx, out, head, spread, fields, forces(e))
+        },
     }
 }
 
@@ -1874,17 +1876,20 @@ fn lambda<C: Allocator>(
     )
 }
 
+/// A struct literal, on one line unless `broken`: a break anywhere in it,
+/// its head included, breaks all of it, as the formatter does.
 fn structLit<C: Allocator>(
     ctx: C,
     out: Out,
     head: [Expr],
     spread: [Expr],
     fields: [Init],
+    broken: Bool,
 ): Out {
     let named = head.foldCtx(ctx, fn(c, o, e) => emit(c, operand(c, o, e), " "), out);
     if (spread.isEmpty() && fields.isEmpty()) {
         emit(ctx, named, "{ }")
-    } else if (!spread.any(fn(e) => forces(e)) && !fields.any(fn(f) => initForces(f))) {
+    } else if (!broken) {
         let opened = spread.foldCtx(
             ctx,
             fn(c, acc, e) => { (expr(c, emit(c, comma(c, acc, ", "), ".."), e), true) },
