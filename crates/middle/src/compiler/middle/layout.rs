@@ -1130,12 +1130,10 @@ fn offset_of(index: usize) -> u32 {
 /// variants (VALUE-MODEL.md §6). Tags are `0..count`, so 256 variants fit in a
 /// byte.
 fn tag_scalar(count: usize) -> Scalar {
-    if count <= 256 {
-        Scalar::I8
-    } else if count <= 65536 {
-        Scalar::I16
-    } else {
-        Scalar::I32
+    match count {
+        0..=256 => Scalar::I8,
+        257..=65536 => Scalar::I16,
+        _ => Scalar::I32,
     }
 }
 
