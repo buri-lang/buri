@@ -2969,99 +2969,105 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
+        match op {
+            tree::UnOp::Not => self.check_not(operand, span),
+            tree::UnOp::Neg => self.check_negation(operand, span, expected),
+            tree::UnOp::BitNot => self.check_bit_not(operand, span, expected),
+        }
+    }
+
+    fn check_not(&mut self, operand: ExprId, span: Span) -> typed::Expr {
+        let b = self.prim(Prim::Bool);
+        let e = self.check_expr(operand, Some(&b));
+        let ospan = self.tree().span(operand);
+        self.unify_at(ospan, &e.ty, &b, "`!` takes a `Bool`");
+        typed::Expr::new(
+            typed::ExprKind::Unary {
+                op: typed::UnaryOp::Not,
+                prim: Prim::Bool,
+                arg: Box::new(e),
+            },
+            b,
+            span,
+        )
+    }
+
+    fn check_negation(
+        &mut self,
+        operand: ExprId,
+        span: Span,
+        expected: Option<&Ty>,
+    ) -> typed::Expr {
         // `-128` is one literal, not a negation of `128`: SPEC 5.1.1 gives
         // `let y: I8 = -129;` as the error, which makes `-128` legal, and it
         // is not if the magnitude is range-checked on its own.
-        if op == tree::UnOp::Neg {
-            if let V::Int { value, raw, .. } = self.tree().expr(operand) {
-                let ty = self.subst.fresh_num(NumClass::Int, span);
-                if let Some(exp) = expected {
-                    let _ = self.subst.unify(&self.c.tables, &ty, exp);
-                }
-                self.lit_checks.push(LitCheck {
-                    value,
-                    negative: true,
-                    raw,
-                    ty,
-                    span,
-                });
-                return typed::Expr::new(
-                    typed::ExprKind::Int(typed::Magnitude::new(value), true),
-                    ty,
-                    span,
-                );
+        if let V::Int { value, raw, .. } = self.tree().expr(operand) {
+            let ty = self.subst.fresh_num(NumClass::Int, span);
+            if let Some(exp) = expected {
+                let _ = self.subst.unify(&self.c.tables, &ty, exp);
             }
-            if let V::Float {
-                value, span: fspan, ..
-            } = self.tree().expr(operand)
-            {
-                let ty = self.subst.fresh_num(NumClass::Float, fspan);
-                if let Some(exp) = expected {
-                    let _ = self.subst.unify(&self.c.tables, &ty, exp);
-                }
-                return typed::Expr::new(typed::ExprKind::Float(-value), ty, span);
-            }
+            self.lit_checks.push(LitCheck {
+                value,
+                negative: true,
+                raw,
+                ty,
+                span,
+            });
+            return typed::Expr::new(
+                typed::ExprKind::Int(typed::Magnitude::new(value), true),
+                ty,
+                span,
+            );
         }
-        let e = match op {
-            tree::UnOp::Not => {
-                let b = self.prim(Prim::Bool);
-                let e = self.check_expr(operand, Some(&b));
-                let ospan = self.tree().span(operand);
-                self.unify_at(ospan, &e.ty, &b, "`!` takes a `Bool`");
-                return typed::Expr::new(
-                    typed::ExprKind::Unary {
-                        op: typed::UnaryOp::Not,
-                        prim: Prim::Bool,
-                        arg: Box::new(e),
-                    },
-                    b,
-                    span,
-                );
+        if let V::Float {
+            value, span: fspan, ..
+        } = self.tree().expr(operand)
+        {
+            let ty = self.subst.fresh_num(NumClass::Float, fspan);
+            if let Some(exp) = expected {
+                let _ = self.subst.unify(&self.c.tables, &ty, exp);
             }
-            _ => self.check_expr(operand, expected),
-        };
+            return typed::Expr::new(typed::ExprKind::Float(-value), ty, span);
+        }
+        let e = self.check_expr(operand, expected);
         let ty = self.resolve(&e.ty);
-        let prim = self.as_prim(&ty);
-        match op {
-            tree::UnOp::Neg => {
-                if let Some(p) = prim.filter(|p| p.is_signed() || p.is_float()) {
-                    typed::Expr::new(
-                        typed::ExprKind::Unary {
-                            op: typed::UnaryOp::Neg,
-                            prim: p,
-                            arg: Box::new(e),
-                        },
-                        ty,
-                        span,
-                    )
-                } else {
-                    self.operator_trait_call(TraitId::NEGATE, e, None, span)
-                }
+        if let Some(p) = self.as_prim(&ty).filter(|p| p.is_signed() || p.is_float()) {
+            typed::Expr::new(
+                typed::ExprKind::Unary {
+                    op: typed::UnaryOp::Neg,
+                    prim: p,
+                    arg: Box::new(e),
+                },
+                ty,
+                span,
+            )
+        } else {
+            self.operator_trait_call(TraitId::NEGATE, e, None, span)
+        }
+    }
+
+    fn check_bit_not(&mut self, operand: ExprId, span: Span, expected: Option<&Ty>) -> typed::Expr {
+        let e = self.check_expr(operand, expected);
+        let ty = self.resolve(&e.ty);
+        if let Some(p) = self.as_prim(&ty).filter(|p| p.is_integer()) {
+            typed::Expr::new(
+                typed::ExprKind::Unary {
+                    op: typed::UnaryOp::BitNot,
+                    prim: p,
+                    arg: Box::new(e),
+                },
+                ty,
+                span,
+            )
+        } else {
+            let shown = self.show_ty(&ty);
+            if !ty.is_error() {
+                self.templated("bitwise-non-integer", span)
+                    .bind("operator", "~")
+                    .bind("type", shown)
+                    .fix("use `!` for a `Bool`");
             }
-            tree::UnOp::BitNot => {
-                if let Some(p) = prim.filter(|p| p.is_integer()) {
-                    typed::Expr::new(
-                        typed::ExprKind::Unary {
-                            op: typed::UnaryOp::BitNot,
-                            prim: p,
-                            arg: Box::new(e),
-                        },
-                        ty,
-                        span,
-                    )
-                } else {
-                    let shown = self.show_ty(&ty);
-                    if !ty.is_error() {
-                        self.templated("bitwise-non-integer", span)
-                            .bind("operator", "~")
-                            .bind("type", shown)
-                            .fix("use `!` for a `Bool`");
-                    }
-                    self.error_expr(span)
-                }
-            }
-            // `!` returned from the match above; it cannot arrive here.
-            tree::UnOp::Not => crate::ice!("`!` is handled before the operand's type is known"),
+            self.error_expr(span)
         }
     }
 
@@ -3074,32 +3080,46 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
-        use tree::BinOp as B;
-        match op {
-            B::And | B::Or => {
-                let b = self.prim(Prim::Bool);
-                let l = self.check_expr(lhs, Some(&b));
-                let lspan = self.tree().span(lhs);
-                self.unify_at(lspan, &l.ty, &b, "a logical operand");
-                let r = self.check_expr(rhs, Some(&b));
-                let rspan = self.tree().span(rhs);
-                self.unify_at(rspan, &r.ty, &b, "a logical operand");
-                let kind = if op == B::And {
-                    typed::ExprKind::And {
-                        lhs: Box::new(l),
-                        rhs: Box::new(r),
-                    }
-                } else {
-                    typed::ExprKind::Or {
-                        lhs: Box::new(l),
-                        rhs: Box::new(r),
-                    }
-                };
-                return typed::Expr::new(kind, b, span);
-            }
-            _ => {}
+        let _ = expected;
+        match BinaryShape::of(op) {
+            BinaryShape::Logical { and } => self.check_logical(and, lhs, rhs, span),
+            BinaryShape::Valued(shape) => self.check_valued(op, shape, lhs, rhs, op_span, span),
         }
+    }
 
+    fn check_logical(&mut self, and: bool, lhs: ExprId, rhs: ExprId, span: Span) -> typed::Expr {
+        let b = self.prim(Prim::Bool);
+        let l = self.check_expr(lhs, Some(&b));
+        let lspan = self.tree().span(lhs);
+        self.unify_at(lspan, &l.ty, &b, "a logical operand");
+        let r = self.check_expr(rhs, Some(&b));
+        let rspan = self.tree().span(rhs);
+        self.unify_at(rspan, &r.ty, &b, "a logical operand");
+        let kind = if and {
+            typed::ExprKind::And {
+                lhs: Box::new(l),
+                rhs: Box::new(r),
+            }
+        } else {
+            typed::ExprKind::Or {
+                lhs: Box::new(l),
+                rhs: Box::new(r),
+            }
+        };
+        typed::Expr::new(kind, b, span)
+    }
+
+    /// An operator whose operands are values of one type: arithmetic, bitwise
+    /// or a comparison.
+    fn check_valued(
+        &mut self,
+        op: tree::BinOp,
+        shape: Valued,
+        lhs: ExprId,
+        rhs: ExprId,
+        op_span: Span,
+        span: Span,
+    ) -> typed::Expr {
         let l = self.check_expr(lhs, None);
         let lty = self.resolve(&l.ty);
         // On the built-in numeric types the operators are defined on two
@@ -3110,13 +3130,12 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.unify_at(rspan, &r.ty, &lty, "the left operand's type");
         let ty = self.resolve(&l.ty);
         let prim = self.as_prim(&ty);
-        let _ = expected;
 
         // `Equal` is not defined for function types, `Template`, or opaque
         // types, so comparing those is a compile error rather than a
         // representation accident.
         if matches!(prim, Some(Prim::Template))
-            && matches!(op, B::Eq | B::Ne | B::Lt | B::Le | B::Gt | B::Ge)
+            && matches!(shape, Valued::Equality { .. } | Valued::Ordering(_))
         {
             self.templated("missing-impl", op_span)
                 .bind("type", "Template")
@@ -3126,55 +3145,39 @@ impl<'a, 'b> Infer<'a, 'b> {
             return self.error_expr(span);
         }
 
-        let arith = |op: tree::BinOp| -> Option<typed::PrimOp> {
-            Some(match op {
-                B::Add => typed::PrimOp::Add,
-                B::Sub => typed::PrimOp::Sub,
-                B::Mul => typed::PrimOp::Mul,
-                B::Div => typed::PrimOp::Div,
-                B::Rem => typed::PrimOp::Rem,
-                B::BitAnd => typed::PrimOp::BitAnd,
-                B::BitOr => typed::PrimOp::BitOr,
-                B::BitXor => typed::PrimOp::BitXor,
-                _ => return None,
-            })
-        };
-
-        if let Some(prim_op) = arith(op) {
-            let bitwise = matches!(op, B::BitAnd | B::BitOr | B::BitXor);
-            let usable =
-                prim.filter(|p| (p.is_integer() || p.is_float()) && (!bitwise || p.is_integer()));
-            if let Some(p) = usable {
-                return typed::Expr::new(
-                    typed::ExprKind::Prim {
-                        op: prim_op,
-                        prim: p,
-                        args: Box::new([l, r]),
-                    },
-                    ty,
-                    span,
-                );
-            }
-            // Only the bitwise operators have no trait behind them.
-            let Some(tr) = arithmetic_trait(op) else {
-                if !ty.is_error() {
-                    let shown = self.show_ty(&ty);
-                    self.templated("bitwise-non-integer", op_span)
-                        .bind("operator", op.text())
-                        .bind("type", shown)
-                        .fix("use `&&` and `||` for a `Bool`");
-                }
-                return self.error_expr(span);
-            };
-            return self.operator_trait_call(tr, l, Some(r), span);
-        }
-
-        // Comparison.
         let bool_ty = self.prim(Prim::Bool);
-        match op {
-            B::Eq | B::Ne => {
+        match shape {
+            Valued::Arith { prim: prim_op, tr } => {
+                // Only the bitwise operators have no trait behind them.
+                let bitwise = tr.is_none();
+                let usable = prim
+                    .filter(|p| (p.is_integer() || p.is_float()) && (!bitwise || p.is_integer()));
+                if let Some(p) = usable {
+                    return typed::Expr::new(
+                        typed::ExprKind::Prim {
+                            op: prim_op,
+                            prim: p,
+                            args: Box::new([l, r]),
+                        },
+                        ty,
+                        span,
+                    );
+                }
+                let Some(tr) = tr else {
+                    if !ty.is_error() {
+                        let shown = self.show_ty(&ty);
+                        self.templated("bitwise-non-integer", op_span)
+                            .bind("operator", op.text())
+                            .bind("type", shown)
+                            .fix("use `&&` and `||` for a `Bool`");
+                    }
+                    return self.error_expr(span);
+                };
+                self.operator_trait_call(tr, l, Some(r), span)
+            }
+            Valued::Equality { eq } => {
                 if let Some(pr) = prim {
-                    let p = if op == B::Eq {
+                    let p = if eq {
                         typed::PrimOp::Eq
                     } else {
                         typed::PrimOp::Ne
@@ -3190,7 +3193,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     );
                 }
                 let call = self.operator_trait_call(TraitId::EQUAL, l, Some(r), span);
-                if op == B::Eq {
+                if eq {
                     call
                 } else {
                     typed::Expr::new(
@@ -3204,17 +3207,11 @@ impl<'a, 'b> Infer<'a, 'b> {
                     )
                 }
             }
-            B::Lt | B::Le | B::Gt | B::Ge => {
+            Valued::Ordering(cmp) => {
                 if let Some(pr) = prim {
-                    let p = match op {
-                        B::Lt => typed::PrimOp::Lt,
-                        B::Le => typed::PrimOp::Le,
-                        B::Gt => typed::PrimOp::Gt,
-                        _ => typed::PrimOp::Ge,
-                    };
                     return typed::Expr::new(
                         typed::ExprKind::Prim {
-                            op: p,
+                            op: cmp.prim,
                             prim: pr,
                             args: Box::new([l, r]),
                         },
@@ -3223,12 +3220,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                     );
                 }
                 // `a < b` is `a.compare(b)` tested against an `Order`.
-                let cmp = self.operator_trait_call(TraitId::ORDERED, l, Some(r), span);
-                self.order_test(cmp, op, span)
+                let call = self.operator_trait_call(TraitId::ORDERED, l, Some(r), span);
+                self.order_test(call, cmp, span)
             }
-            // `&&`, `||` and the arithmetic and bitwise operators all
-            // returned above, so only the comparisons reach here.
-            _ => crate::ice!("every other binary operator returns before this match"),
         }
     }
 
@@ -3296,16 +3290,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// The match, both arms and the call all carry the operator's span:
     /// `monomorphize`'s `float_operator` reads that to turn the test back into
     /// IEEE's operator where `T` is a float.
-    fn order_test(&mut self, cmp: typed::Expr, op: tree::BinOp, span: Span) -> typed::Expr {
-        use tree::BinOp as B;
+    fn order_test(&mut self, cmp: typed::Expr, test: Comparison, span: Span) -> typed::Expr {
         let order = TyConId::ORDER;
         let bool_ty = self.prim(Prim::Bool);
-        let (index, when_match) = match op {
-            B::Lt => (VariantId::LESS, true),
-            B::Ge => (VariantId::LESS, false),
-            B::Gt => (VariantId::GREATER, true),
-            _ => (VariantId::GREATER, false),
-        };
+        let (index, when_match) = (test.variant, test.when);
         let order_ty = Ty::con(order, []);
         let arms = vec![
             typed::Arm {
@@ -3655,7 +3643,13 @@ impl<'a, 'b> Infer<'a, 'b> {
             let value_span = t.span(ExprId(binding.value));
             let path = match effect {
                 flat::TypeView::Named { path, .. } => path,
-                _ => crate::ice!("the parser reads a context binding's effect as a name"),
+                // `Self`, the one other type an effect's place reads, names
+                // no effect.
+                _ => {
+                    self.templated("unknown-effect", effect_span)
+                        .bind("name", crate::formatting::type_text(t, effect_id));
+                    continue;
+                }
             };
             let resolved = self.c.resolve_path(self.module, path);
             let tid = match resolved {
@@ -3834,6 +3828,71 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 }
 
+/// What a binary operator does with its operands.
+enum BinaryShape {
+    /// `&&` or `||`, on two `Bool`s.
+    Logical { and: bool },
+    /// Every other operator, on two values of one type.
+    Valued(Valued),
+}
+
+enum Valued {
+    /// The built-in operation on numbers, and the trait the operator calls
+    /// where its operands aren't numbers. The bitwise operators have none.
+    Arith {
+        prim: typed::PrimOp,
+        tr: Option<TraitId>,
+    },
+    /// `==`, or `!=` when `eq` is false.
+    Equality {
+        eq: bool,
+    },
+    Ordering(Comparison),
+}
+
+/// An ordering operator: the built-in operation on primitives, and elsewhere
+/// the `Order` variant `compare` returns and whether that variant answers
+/// `true`.
+#[derive(Clone, Copy)]
+struct Comparison {
+    prim: typed::PrimOp,
+    variant: VariantId,
+    when: bool,
+}
+
+impl BinaryShape {
+    fn of(op: tree::BinOp) -> BinaryShape {
+        use tree::BinOp as B;
+        use typed::PrimOp as P;
+        let arith = |prim, tr| BinaryShape::Valued(Valued::Arith { prim, tr });
+        let ordering = |prim, variant, when| {
+            BinaryShape::Valued(Valued::Ordering(Comparison {
+                prim,
+                variant,
+                when,
+            }))
+        };
+        match op {
+            B::And => BinaryShape::Logical { and: true },
+            B::Or => BinaryShape::Logical { and: false },
+            B::Add => arith(P::Add, Some(TraitId::ADD)),
+            B::Sub => arith(P::Sub, Some(TraitId::SUBTRACT)),
+            B::Mul => arith(P::Mul, Some(TraitId::MULTIPLY)),
+            B::Div => arith(P::Div, Some(TraitId::DIVIDE)),
+            B::Rem => arith(P::Rem, Some(TraitId::REMAINDER)),
+            B::BitAnd => arith(P::BitAnd, None),
+            B::BitOr => arith(P::BitOr, None),
+            B::BitXor => arith(P::BitXor, None),
+            B::Eq => BinaryShape::Valued(Valued::Equality { eq: true }),
+            B::Ne => BinaryShape::Valued(Valued::Equality { eq: false }),
+            B::Lt => ordering(P::Lt, VariantId::LESS, true),
+            B::Ge => ordering(P::Ge, VariantId::LESS, false),
+            B::Gt => ordering(P::Gt, VariantId::GREATER, true),
+            B::Le => ordering(P::Le, VariantId::GREATER, false),
+        }
+    }
+}
+
 /// What a function takes, as a caller has to write it.
 ///
 /// The declaration's own syntax where there is some, through the printer
@@ -3841,20 +3900,6 @@ impl<'a, 'b> Infer<'a, 'b> {
 /// spells a parameter the way the source does — `Int` rather than the `I64` the
 /// table holds. A declaration nobody wrote — a primitive's method — is rendered
 /// from the table instead.
-/// The trait an arithmetic operator calls where its operands aren't numbers.
-/// The bitwise operators have none.
-fn arithmetic_trait(op: tree::BinOp) -> Option<TraitId> {
-    use tree::BinOp as B;
-    Some(match op {
-        B::Add => TraitId::ADD,
-        B::Sub => TraitId::SUBTRACT,
-        B::Mul => TraitId::MULTIPLY,
-        B::Div => TraitId::DIVIDE,
-        B::Rem => TraitId::REMAINDER,
-        _ => return None,
-    })
-}
-
 fn signature_of_fn(c: &Checker, id: FnId) -> String {
     let info = c.tables.fn_info(id);
     let written = info.ast.item().and_then(|(module, item)| {

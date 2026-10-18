@@ -1,0 +1,7 @@
+error: `Self` is not a declared effect [unknown-effect]
+ --> cmd/context_binding_of_self/main.buri:7:46
+  |
+7 |   let ctx = context { Allocator: host.alloc, Self: host.alloc, Stdout: host.stdout };
+  |                                              ^^^^
+  |
+  = fix: name an effect the platform declares, as in `Allocator` or `Stdout`; `Self` is not one
