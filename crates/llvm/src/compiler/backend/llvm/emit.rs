@@ -164,15 +164,16 @@ pub struct Unit<'ctx, 'a> {
     /// makes the walk over a recursive type terminate: `Release` for a `Tree`
     /// asks for `Release` for a `Tree`, and the second ask finds the first.
     thunks: Map<(u32, bool), FunctionValue<'ctx>>,
-    /// [`Unit::glue_for`]'s functions: one row per type, one entry per `(op,
-    /// elems)`.
-    glues: Map<Ty, [Option<FunctionValue<'ctx>>; 6]>,
+    /// [`Unit::made_glue`]'s functions, by type, `op` and whether they walk a
+    /// `[T]` block's elements.
+    glues: Map<(Ty, Op, bool), FunctionValue<'ctx>>,
     /// The C-ABI entry thunks of [`Job::Entry`], one per step signature.
     entries: Map<(Vec<Ty>, Ty, Option<usize>, bool), FunctionValue<'ctx>>,
     /// The C-ABI equality thunks of [`Job::Equal`], one per cell type.
     equals: Map<Ty, FunctionValue<'ctx>>,
-    /// [`Unit::env_glue`]'s release and copy.
-    env_glues: [Option<FunctionValue<'ctx>>; 2],
+    /// [`Unit::env_glue`]'s release, and its copy.
+    env_release: Option<FunctionValue<'ctx>>,
+    env_copy: Option<FunctionValue<'ctx>>,
     /// Helper bodies still to be built. Drained by [`Unit::finish`] rather than
     /// built where they are asked for, because a helper is asked for in the
     /// middle of another function's body and the builder is positioned there.
@@ -222,7 +223,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             glues: Map::default(),
             entries: Map::default(),
             equals: Map::default(),
-            env_glues: [None; 2],
+            env_release: None,
+            env_copy: None,
             pending: Vec::new(),
             bodies: Vec::new(),
             helpers: 0,
@@ -1002,14 +1004,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Inst::ArrayPrefix { dest, array, len } => {
                 self.array_prefix(state, code, *dest, *array, *len)
             }
-            ir::Inst::Call { dest, func, args } => {
-                self.call(state, code, std::slice::from_ref(dest), *func, args)
-            }
+            ir::Inst::Call { dest, func, args } => self.call(state, code, *dest, *func, args),
             ir::Inst::CallIndirect { dest, callee, args } => {
-                self.call_indirect(state, code, std::slice::from_ref(dest), *callee, args)
+                self.call_indirect(state, code, *dest, *callee, args)
             }
             ir::Inst::CallIntrinsic { dest, key, args } => {
-                self.call_intrinsic(state, code, std::slice::from_ref(dest), key, args)
+                self.call_intrinsic(state, code, *dest, key, args)
             }
             ir::Inst::Structural { .. } => self.structural(state, code, inst),
             ir::Inst::IncRef { value } => self.incref(state, code, *value),
@@ -1612,17 +1612,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         dest: ir::ValueId,
         of: ir::ValueId,
     ) {
-        let id = agg(code.ty_of(of));
+        let e = enum_ty(code.ty_of(of));
+        let id = e.id();
         // The niche spends one variant's *absence* of fields: `.None` is the
         // pointer set to null and `.Some` is everything else.
-        let (some_variant, none_variant) = self.option_variants(id);
-        let (slots, enum_repr) = {
-            let r = self.reprs.of(self.program, id);
-            (
-                r.slots.clone(),
-                r.enum_repr().cloned().or_ice("a tag is an enum's"),
-            )
-        };
+        let (some_variant, none_variant) = self.option_variants(e);
+        let slots = self.reprs.of(self.program, id).slots.clone();
+        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
         let whole = self.get(state, of);
         let b = state.b;
         let tag = if repr::in_memory(&slots) {
@@ -1638,15 +1634,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// Where `.Some` and `.None` sit, read off the layout's per-variant field
     /// lists rather than assumed to be 0 and 1: a declaration order of
     /// `{ None, Some(T) }` has to work as well as the other.
-    fn option_variants(&mut self, id: ir::TypeId) -> (usize, usize) {
-        let r = self.reprs.of(self.program, id);
-        match &r.layout.repr {
-            LayoutRepr::Enum { variants, .. } => (
-                variants.iter().position(|v| !v.is_empty()).unwrap_or(0),
-                variants.iter().position(Vec::is_empty).unwrap_or(1),
-            ),
-            _ => (0, 1),
-        }
+    fn option_variants(&mut self, e: ir::EnumTy) -> (usize, usize) {
+        let layout = self.reprs.of_enum(self.program, e);
+        let variants = &layout.variants;
+        (
+            variants.iter().position(|v| !v.is_empty()).unwrap_or(0),
+            variants.iter().position(Vec::is_empty).unwrap_or(1),
+        )
     }
 
     /// An enum's discriminant, from the value rather than from a `ValueId`.
@@ -1697,7 +1691,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         variant: u32,
         fields: &[ir::ValueId],
     ) {
-        let id = agg(code.ty_of(dest));
+        let e = enum_ty(code.ty_of(dest));
         let parts: Vec<(Vec<Slot>, Vec<BasicValueEnum<'ctx>>)> = fields
             .iter()
             .map(|f| {
@@ -1714,13 +1708,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .collect();
         // A boxed payload is a block, so a variant that has one allocates.
         if self
-            .boxed_payload(id, variant as usize)
+            .boxed_payload(e.id(), variant as usize)
             .iter()
             .any(|(boxed, _, _)| *boxed)
         {
             state.observed.allocates = true;
         }
-        let value = self.build_variant(state.b, id, variant as usize, &parts);
+        let value = self.build_variant(state.b, e, variant as usize, &parts);
         self.set(state, dest, value);
     }
 
@@ -1736,19 +1730,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn build_variant(
         &mut self,
         b: At<'ctx>,
-        id: ir::TypeId,
+        e: ir::EnumTy,
         variant: usize,
         fields: &[(Vec<Slot>, Vec<BasicValueEnum<'ctx>>)],
     ) -> BasicValueEnum<'ctx> {
-        let (slots, enum_repr, offsets, size) = {
+        let id = e.id();
+        let (slots, offsets, size) = {
             let r = self.reprs.of(self.program, id);
             let offsets = r.layout.variant(variant).to_vec();
-            let enum_repr = r
-                .enum_repr()
-                .cloned()
-                .or_ice("a variant belongs to an enum");
-            (r.slots.clone(), enum_repr, offsets, r.layout.size)
+            (r.slots.clone(), offsets, r.layout.size)
         };
+        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
         if repr::in_memory(&slots) {
             return self.variant_in_memory(b, id, variant, fields, &slots, &enum_repr, &offsets);
         }
@@ -1898,16 +1890,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         variant: usize,
         index: usize,
     ) {
-        let id = agg(code.ty_of(of));
-        let (slots, enum_repr, offsets) = {
+        let e = enum_ty(code.ty_of(of));
+        let id = e.id();
+        let (slots, offsets) = {
             let r = self.reprs.of(self.program, id);
-            let enum_repr = r.enum_repr().cloned().or_ice("a payload is an enum's");
-            (
-                r.slots.clone(),
-                enum_repr,
-                r.layout.variant(variant).to_vec(),
-            )
+            (r.slots.clone(), r.layout.variant(variant).to_vec())
         };
+        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
         let whole = self.get(state, of);
         let want = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         let boxed = self
@@ -2039,17 +2028,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         dest: ir::ValueId,
         elems: &[ir::ValueId],
     ) {
-        let id = agg(code.ty_of(dest));
+        let list = list_ty(code.ty_of(dest));
+        let id = list.id();
         if elems.is_empty() {
             let value = self.empty_list(state.b, id);
             self.set(state, dest, value);
             return;
         }
-        let (list_slots, element) = {
-            let r = self.reprs.of(self.program, id);
-            (r.slots.clone(), self.reprs.of(self.program, id).ty)
-        };
-        let element = self.reprs.element(&element).or_ice("a list has elements");
+        let list_slots = self.reprs.of(self.program, id).slots.clone();
+        let element = self.program.types.elem(list);
         let (stride, element_slots, element_align) = {
             let r = self.reprs.of_ty(&element);
             (r.layout.stride, r.slots.clone(), r.layout.align)
@@ -2261,8 +2248,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// The element type of a list.
     fn element_of(&mut self, list: ir::Type) -> Ty {
-        let list = self.agg_ty(list);
-        self.reprs.element(&list).or_ice("a list has elements")
+        self.program.types.elem(list_ty(list))
+    }
+
+    /// The element type of a value's type, where it is a list.
+    fn list_element(&self, ty: ir::Type) -> Option<Ty> {
+        match ty {
+            ir::Type::Agg(ir::Agg::List(l)) => Some(self.program.types.elem(l)),
+            _ => None,
+        }
     }
 
     /// The element at `i`: the slots it is made of, and the pieces loaded out
@@ -2384,43 +2378,28 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         &mut self,
         state: &mut Function<'ctx>,
         code: &ir::Code,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         result: Option<BasicValueEnum<'ctx>>,
     ) {
-        let mut all_slots = Vec::new();
-        for d in dests {
-            all_slots.extend(repr::ir_slots(
-                &mut self.reprs,
-                self.program,
-                code.ty_of(*d),
-            ));
-        }
+        let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         // A result held in memory is already the buffer the call wrote.
-        if let ([d], true, Some(v)) = (dests, repr::in_memory(&all_slots), result) {
-            self.set(state, *d, v);
+        if let (true, Some(v)) = (repr::in_memory(&slots), result) {
+            self.set(state, dest, v);
             return;
         }
         let pieces = match result {
-            Some(v) => self.pieces(state.b, &all_slots, v),
+            Some(v) => self.pieces(state.b, &slots, v),
             None => Vec::new(),
         };
-        let mut at = 0usize;
-        for d in dests {
-            let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*d));
-            let end = at.saturating_add(slots.len());
-            let taken: Vec<BasicValueEnum<'ctx>> =
-                pieces.get(at..end).map(<[_]>::to_vec).unwrap_or_default();
-            let value = self.assemble(state.b, &slots, &taken);
-            self.set(state, *d, value);
-            at = end;
-        }
+        let value = self.assemble(state.b, &slots, &pieces);
+        self.set(state, dest, value);
     }
 
     fn call(
         &mut self,
         state: &mut Function<'ctx>,
         code: &ir::Code,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         func: FuncIdx,
         args: &[ir::ValueId],
     ) {
@@ -2429,12 +2408,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // function — the backend declares the import and defines nothing.
         let f = self.func(func);
         if let Some(key) = f.intrinsic_key() {
-            self.call_intrinsic(state, code, dests, key, args);
+            self.call_intrinsic(state, code, dest, key, args);
             return;
         }
         let callee = self.declare(func);
         let sig = self.machine_of(&f.sig);
-        let ret = self.slots_of(code, dests);
+        let ret = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         let argv = self.flatten_args(state, code, args);
         let result = self.machine_call(state.b, Callee::Direct(callee), &sig, &ret, argv);
         if f.facts.can_abort {
@@ -2446,20 +2425,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if matches!(f.facts.purity, ir::Purity::Allocating) {
             state.observed.allocates = true;
         }
-        self.bind_results(state, code, dests, result);
-    }
-
-    /// The slots of a list of values, end to end.
-    fn slots_of(&mut self, code: &ir::Code, values: &[ir::ValueId]) -> Vec<Slot> {
-        let mut out = Vec::new();
-        for v in values {
-            out.extend(repr::ir_slots(
-                &mut self.reprs,
-                self.program,
-                code.ty_of(*v),
-            ));
-        }
-        out
+        self.bind_results(state, code, dest, result);
     }
 
     /// A call through a closure value: take `code`, call it with `env` first.
@@ -2472,7 +2438,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         &mut self,
         state: &mut Function<'ctx>,
         code: &ir::Code,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         callee: ir::ValueId,
         args: &[ir::ValueId],
     ) {
@@ -2484,7 +2450,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .iter()
             .map(|a| repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*a)))
             .collect();
-        let ret = self.slots_of(code, dests);
+        let ret = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         let sig = repr::Machine::of(&params, ret.clone());
         let ty = self.machine_type(&sig, 1);
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = vec![env.into()];
@@ -2493,7 +2459,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // An indirect callee's effects are not known here, so the caller keeps
         // the default `memory(readwrite)` rather than a claim it cannot back.
         state.observed.opaque = true;
-        self.bind_results(state, code, dests, result);
+        self.bind_results(state, code, dest, result);
     }
 
     /// One intrinsic, by the four routes it can take.
@@ -2509,32 +2475,32 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         &mut self,
         state: &mut Function<'ctx>,
         code: &ir::Code,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         key: &str,
         args: &[ir::ValueId],
     ) {
-        if self.numeric(state, code, dests, key, args)
-            || self.copy_out(state, code, dests, key, args)
-            || self.open_coded(state, code, dests, key, args)
-            || self.derived(state, code, dests, key, args)
+        if self.numeric(state, code, dest, key, args)
+            || self.copy_out(state, code, dest, key, args)
+            || self.open_coded(state, code, dest, key, args)
+            || self.derived(state, code, dest, key, args)
         {
             return;
         }
         let entry = runtime::entry(key)
             .or_ice("the build asks `missing_intrinsics` before it emits a runtime call");
-        let source = self.generic_element(code, dests, entry, args);
+        let source = self.generic_element(code, dest, entry, args);
         let bare = if source.is_none() {
-            self.bare_carrier(code, dests, entry, args)
+            self.bare_carrier(code, dest, entry, args)
         } else {
             None
         };
         let elements = Elements {
             source,
             bare,
-            answer: self.answer_element(code, dests),
+            answer: self.answer_element(code, dest),
         };
         let argv = self.entry_args(state, code, entry, args, elements);
-        self.call_entry(state, code, dests, entry, argv);
+        self.call_entry(state, code, dest, entry, argv);
     }
 
     /// `T`, for an entry whose C signature carries a stride and a retain
@@ -2555,7 +2521,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn generic_element(
         &mut self,
         code: &ir::Code,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         entry: &runtime::Entry,
         args: &[ir::ValueId],
     ) -> Option<Ty> {
@@ -2574,11 +2540,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             return Some(self.element_of(code.ty_of(arg(args, at))));
         }
-        let out = dests
-            .first()
-            .copied()
-            .and_then(|d| self.type_of(code.ty_of(d)))?;
-        self.reprs.element(&out)
+        self.list_element(code.ty_of(dest))
     }
 
     /// The stride and glue type of a row whose `T` is a **bare type** rather
@@ -2597,7 +2559,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn bare_carrier(
         &mut self,
         code: &ir::Code,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         entry: &runtime::Entry,
         args: &[ir::ValueId],
     ) -> Option<(u32, Option<Ty>)> {
@@ -2614,7 +2576,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 break;
             }
         }
-        let ty = spilled.or_else(|| dests.first().copied().map(|d| code.ty_of(d)))?;
+        let ty = spilled.unwrap_or_else(|| code.ty_of(dest));
         Some(match ty {
             ir::Type::Unit | ir::Type::I1 | ir::Type::I8 => (1, None),
             ir::Type::I16 => (2, None),
@@ -2636,12 +2598,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// runtime *walks*. A step's two lists are different types, so its result's
     /// element is a second question and is asked separately rather than by
     /// changing what the first one means.
-    fn answer_element(&mut self, code: &ir::Code, dests: &[ir::ValueId]) -> Option<Ty> {
-        let out = dests
-            .first()
-            .copied()
-            .and_then(|d| self.type_of(code.ty_of(d)))?;
-        self.reprs.element(&out)
+    fn answer_element(&self, code: &ir::Code, dest: ir::ValueId) -> Option<Ty> {
+        self.list_element(code.ty_of(dest))
     }
 
     /// The C parameter list of one runtime entry, from the Buri argument list.
@@ -2789,8 +2747,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // `Arg::Stride` because a step reads one element type and
                 // writes another, and `element` is only the first.
                 runtime::Arg::Step => {
-                    let step = self.agg_ty(ir_ty);
-                    let (ps, r) = fn_parts(step);
+                    let ir::FnSig { params: ps, ret: r } = self.program.types.sig(fn_ty(ir_ty));
                     let step_index = step_call(key).and_then(|c| c.index);
                     let bytes = self.step_state_bytes(ps, step_index);
                     let record = self.scratch(state, bytes, 8);
@@ -2826,12 +2783,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // argument at this call.
                 runtime::Arg::Compute => {
                     // A body takes its context.
-                    let body = self.agg_ty(ir_ty);
-                    let (ps, r) = fn_parts(body);
+                    let body = fn_ty(ir_ty);
+                    let ir::FnSig { params: ps, ret: r } = self.program.types.sig(body);
                     let bytes = self.step_state_bytes(ps, None);
                     let record = self.scratch(state, bytes, 8);
                     self.store_slots(state.b, record, &slots, 8, &pieces);
-                    let glue = self.glue(Op::Retain, &body).or_ice("a closure is counted");
+                    let glue = self.closure_glue(Op::Retain, body);
                     state.b.call(glue, &[record.into()]);
                     let thunk = self.entry_thunk(ps, r, None, false);
                     let stride = self.reprs.stride_of(r);
@@ -2851,13 +2808,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // And the record's own walk, which is the closure's: what
                     // gives back the reference taken above, at exit, when the
                     // graph lets the body go.
-                    let give_back = self.glue(Op::Release, &body).or_ice("a closure is counted");
+                    let give_back = self.closure_glue(Op::Release, body);
                     argv.push(function_pointer(give_back).into());
                 }
                 runtime::Arg::Walk => {
                     // A walk takes a context, a builder and a node.
-                    let body = self.agg_ty(ir_ty);
-                    let (ps, r) = fn_parts(body);
+                    let ir::FnSig { params: ps, ret: r } = self.program.types.sig(fn_ty(ir_ty));
                     // The context is dropped, the builder handle is the index the
                     // runtime supplies, and the node is the element, so
                     // `index = Some(1)`.
@@ -2907,8 +2863,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 }
                 runtime::Arg::Press => {
                     // A handler takes a context and an event.
-                    let body = self.agg_ty(ir_ty);
-                    let (ps, r) = fn_parts(body);
+                    let body = fn_ty(ir_ty);
+                    let ir::FnSig { params: ps, ret: r } = self.program.types.sig(body);
                     // The context is dropped and the event is the element, so
                     // there is no index the runtime supplies: `index = None`.
                     let bytes = self.step_state_bytes(ps, None);
@@ -2942,7 +2898,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     }
                     // The runtime keeps the handler, so the graph owes its
                     // environment a reference — taken here, given back at exit.
-                    let glue = self.glue(Op::Retain, &body).or_ice("a closure is counted");
+                    let glue = self.closure_glue(Op::Retain, body);
                     state.b.call(glue, &[record.into()]);
                     let thunk = self.entry_thunk(ps, r, None, kept.is_some());
                     let word = self.ctx.i64_type();
@@ -2954,7 +2910,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     argv.push(word.const_all_ones().into());
                     // The record's own walk: what gives back the references taken
                     // above, at exit, when the graph lets the handler go.
-                    let give_back = self.glue(Op::Release, &body).or_ice("a closure is counted");
+                    let give_back = self.closure_glue(Op::Release, body);
                     let give_back = match kept {
                         Some((ctx, at)) => self.kept_glue(give_back, ctx, at),
                         None => give_back,
@@ -3016,29 +2972,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         &mut self,
         state: &mut Function<'ctx>,
         code: &ir::Code,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         entry: &runtime::Entry,
         mut argv: Vec<BasicMetadataValueEnum<'ctx>>,
     ) {
         // The two out-pointer shapes append a buffer to the argument list and
         // then take the result out of it, so they are handled before the
         // declaration is written — the buffer is a parameter.
-        let dest = || {
-            *dests
-                .first()
-                .or_ice("an entry answering through memory has a destination")
-        };
         match entry.ret {
             runtime::Ret::Out => {
-                self.call_out(state, code, dest(), &entry.symbol(), &mut argv);
+                self.call_out(state, code, dest, &entry.symbol(), &mut argv);
                 return;
             }
             runtime::Ret::Sum => {
-                self.call_sum(state, code, dest(), entry, argv);
+                self.call_sum(state, code, dest, entry, argv);
                 return;
             }
             runtime::Ret::Res | runtime::Ret::ResMsg => {
-                self.call_result(state, code, dest(), entry, argv);
+                self.call_result(state, code, dest, entry, argv);
                 return;
             }
             _ => {}
@@ -3054,9 +3005,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             | runtime::Ret::Sum
             | runtime::Ret::Res
             | runtime::Ret::ResMsg => None,
-            runtime::Ret::Scalar => dests
-                .first()
-                .map(|d| repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(*d))),
+            runtime::Ret::Scalar => Some(repr::ir_type(
+                self.ctx,
+                &mut self.reprs,
+                self.program,
+                code.ty_of(dest),
+            )),
             runtime::Ret::Int(bits) => Some(self.int_of_width(bits).as_basic_type_enum()),
         };
         let f = self.declare_rt(&entry.symbol(), &param_types, ret_type);
@@ -3078,9 +3032,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // narrowing happens here rather than in the declaration, because the
         // declaration is what has to agree with the archive.
         if let runtime::Ret::Int(_) = entry.ret {
-            let dest = *dests
-                .first()
-                .or_ice("an entry answering a number has a destination");
             let want = int_ty(repr::ir_type(
                 self.ctx,
                 &mut self.reprs,
@@ -3092,7 +3043,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.set(state, dest, narrowed);
             return;
         }
-        self.bind_results(state, code, dests, call.try_as_basic_value().basic());
+        self.bind_results(state, code, dest, call.try_as_basic_value().basic());
     }
 
     fn abort(&mut self, state: &mut Function<'ctx>, message: &str) {
@@ -3493,7 +3444,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
     /// Runs `op` over the value of type `ty` at `p` through the type's glue.
     fn call_glue(&mut self, b: At<'ctx>, op: Op, ty: &Ty, p: PointerValue<'ctx>) {
-        let f = self.glue(op, ty).or_ice("a counted type has glue");
+        let f = self.made_glue(op, false, ty);
         self.call_c(b, f, &[p.into()]);
     }
 
@@ -4085,11 +4036,27 @@ fn agg(ty: ir::Type) -> ir::TypeId {
     }
 }
 
-/// The parameters and result of a function type: a step, a body, a handler.
-fn fn_parts(ty: Ty) -> (&'static [Ty], &'static Ty) {
-    match ty.kind() {
-        TyKind::Fn(ps, r) => (*ps, r),
+/// The function type a value's type names: a step, a body, a handler.
+fn fn_ty(ty: ir::Type) -> ir::FnTy {
+    match ty {
+        ir::Type::Agg(ir::Agg::Fn(f)) => f,
         _ => crate::diagnostics::ice("the checker types this argument as a function"),
+    }
+}
+
+/// The enum a value's type names.
+fn enum_ty(ty: ir::Type) -> ir::EnumTy {
+    match ty {
+        ir::Type::Agg(ir::Agg::Enum(e)) => e,
+        _ => crate::diagnostics::ice("the verified IR types this value as an enum"),
+    }
+}
+
+/// The list a value's type names.
+fn list_ty(ty: ir::Type) -> ir::ListTy {
+    match ty {
+        ir::Type::Agg(ir::Agg::List(l)) => l,
+        _ => crate::diagnostics::ice("the verified IR types this value as a list"),
     }
 }
 
@@ -4098,13 +4065,6 @@ fn arg(args: &[ir::ValueId], at: usize) -> ir::ValueId {
     *args
         .get(at)
         .or_ice("the checker passes an intrinsic every argument it declares")
-}
-
-/// An intrinsic's destination.
-fn dest_of(dests: &[ir::ValueId]) -> ir::ValueId {
-    *dests
-        .first()
-        .or_ice("an intrinsic answers into one destination")
 }
 
 /// A value the IR types as an integer, a `Bool` or a tag.
@@ -4274,29 +4234,26 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if !self.reprs.counted_type(ty) {
             return None;
         }
-        let (slot, what) = match (op, elems) {
-            (Op::Retain, false) => (0, "retain_elem"),
-            (Op::Retain, true) => (1, "retain_elems"),
-            (Op::Release, false) => (2, "release"),
-            (Op::Release, true) => (3, "release_elems"),
-            (Op::Copy, false) => (4, "copy"),
-            (Op::Copy, true) => (5, "copy_elems"),
-        };
-        if let Some(f) = self
-            .glues
-            .get(ty)
-            .and_then(|row| row.get(slot).copied().flatten())
-        {
-            return Some(f);
+        Some(self.made_glue(op, elems, ty))
+    }
+
+    /// [`Unit::glue_for`]'s function for a type the caller knows is counted: a
+    /// closure, or a value it has just asked [`Reprs::counted_type`] about.
+    fn made_glue(&mut self, op: Op, elems: bool, ty: &Ty) -> FunctionValue<'ctx> {
+        if let Some(f) = self.glues.get(&(*ty, op, elems)) {
+            return *f;
         }
+        let what = match (op, elems) {
+            (Op::Retain, false) => "retain_elem",
+            (Op::Retain, true) => "retain_elems",
+            (Op::Release, false) => "release",
+            (Op::Release, true) => "release_elems",
+            (Op::Copy, false) => "copy",
+            (Op::Copy, true) => "copy_elems",
+        };
         let key = self.reprs.glue_key(ty);
         let (f, fresh) = self.glue_function(what, &key);
-        *self
-            .glues
-            .entry(*ty)
-            .or_default()
-            .get_mut(slot)
-            .or_ice("six kinds of glue") = Some(f);
+        self.glues.insert((*ty, op, elems), f);
         if fresh {
             self.pending.push(Job::Glue {
                 value: f,
@@ -4305,7 +4262,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 ty: *ty,
             });
         }
-        Some(f)
+        f
+    }
+
+    /// A closure's glue: a closure always holds a count, its environment.
+    fn closure_glue(&mut self, op: Op, f: ir::FnTy) -> FunctionValue<'ctx> {
+        let ty = self.program.type_info(f.id()).ty;
+        self.made_glue(op, false, &ty)
     }
 
     /// [`Job::Kept`]: the `void(record)` release of a kept handler whose
@@ -4673,19 +4636,19 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// release) or second word (the copy) is the type's own function, and the
     /// record follows.
     fn env_glue(&mut self, op: Op) -> FunctionValue<'ctx> {
-        let (at, what, word) = match op {
-            Op::Copy => (1, "env_copy_glue", ENV_COPY_WORD),
-            Op::Retain | Op::Release => (0, "env_glue", 0),
+        let (made, what, word) = match op {
+            Op::Copy => (self.env_copy, "env_copy_glue", ENV_COPY_WORD),
+            Op::Retain | Op::Release => (self.env_release, "env_glue", 0),
         };
-        if let Some(f) = self.env_glues.get(at).copied().flatten() {
+        if let Some(f) = made {
             return f;
         }
         // Fresh: only this table makes the two.
         let (f, _) = self.glue_function(what, "any");
-        *self
-            .env_glues
-            .get_mut(at)
-            .or_ice("two kinds of environment glue") = Some(f);
+        match op {
+            Op::Copy => self.env_copy = Some(f),
+            Op::Retain | Op::Release => self.env_release = Some(f),
+        }
         self.pending.push(Job::Env { value: f, word });
         f
     }
@@ -5629,19 +5592,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         mut argv: Vec<BasicMetadataValueEnum<'ctx>>,
     ) {
         let b = state.b;
-        let id = agg(code.ty_of(dest));
-        let (some_at, none_at) = self.option_variants(id);
-        let (slots, enum_repr, size, align, payload_at) = {
-            let r = self.reprs.of(self.program, id);
+        let e = enum_ty(code.ty_of(dest));
+        let (some_at, none_at) = self.option_variants(e);
+        let (slots, size, align, payload_at) = {
+            let r = self.reprs.of(self.program, e.id());
             (
                 r.slots.clone(),
-                r.enum_repr().cloned(),
                 r.layout.size,
                 r.layout.align,
                 r.layout.variant(some_at).first().copied().unwrap_or(0),
             )
         };
-        let enum_repr = enum_repr.or_ice("an `Option` is an enum");
+        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
         let buf = self.scratch(state, size, align);
         let out = b.byte_offset(buf, i64::from(payload_at), "sum.p");
         argv.push(out.into());
@@ -5769,15 +5731,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let b = state.b;
         let (ok, err, ok_bytes, err_ty) = self.result_shape(code, dest);
         let (slots, size, align) = self.dest_shape(code, dest);
-        let (enum_repr, ok_at, err_at) = {
-            let r = self.reprs.of(self.program, agg(code.ty_of(dest)));
+        let e = enum_ty(code.ty_of(dest));
+        let (ok_at, err_at) = {
+            let r = self.reprs.of(self.program, e.id());
             (
-                r.enum_repr().cloned(),
                 r.layout.variant(ok).first().copied().unwrap_or(0),
                 r.layout.variant(err).first().copied().unwrap_or(0),
             )
         };
-        let enum_repr = enum_repr.or_ice("a `Result` is an enum");
+        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
         let err_layout = self.reprs.of_ty(&err_ty).layout.clone();
 
         let buf = self.scratch(state, size, align);
@@ -6368,14 +6330,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         &mut self,
         state: &mut Function<'ctx>,
         code: &ir::Code,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         key: &str,
         args: &[ir::ValueId],
     ) -> bool {
         let Some((name, prim)) = derive_key(key) else {
             return false;
         };
-        let dest = *dests.first().or_ice("a derived operation answers");
         let arg = |at: usize| {
             *args
                 .get(at)
@@ -6418,8 +6379,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         arg: ir::ValueId,
     ) {
         let b = state.b;
-        let id = agg(code.ty_of(dest));
-        let owner = self.program.type_info(id).ty;
+        let e = enum_ty(code.ty_of(dest));
+        let owner = self.program.type_info(e.id()).ty;
         let arm = json_arm(prim);
         let variant = json_variant(self.tables, &owner, arm).or_ice("`core/json` has the arm");
         let field = types::variant_types(self.tables, &owner, variant)
@@ -6462,7 +6423,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.load_slots(b, buf, &slots, align)
             }
         };
-        let value = self.build_variant(b, id, variant, &[(slots, pieces)]);
+        let value = self.build_variant(b, e, variant, &[(slots, pieces)]);
         self.set(state, dest, value);
     }
 
@@ -6578,14 +6539,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         &mut self,
         state: &mut Function<'ctx>,
         code: &ir::Code,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         key: &str,
         args: &[ir::ValueId],
     ) -> bool {
         if key != "alloc.copyOut" {
             return false;
         }
-        let (dest, arg) = (dest_of(dests), arg(args, 0));
+        let arg = arg(args, 0);
         let value = self.get(state, arg);
         let counted = self
             .type_of(code.ty_of(arg))
@@ -6606,7 +6567,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let (slots, size, align) = self.dest_shape(code, dest);
         let buf = self.scratch(state, size, align);
         self.store_value(b, buf, &slots, align, value);
-        let f = self.glue(Op::Copy, &ty).or_ice("a counted type has glue");
+        let f = self.made_glue(Op::Copy, false, &ty);
         self.call_c(b, f, &[buf.into()]);
         state.observed.allocates = true;
         let out = self.adopt(b, buf, &slots, align);
@@ -6618,12 +6579,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         &mut self,
         state: &mut Function<'ctx>,
         code: &ir::Code,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         key: &str,
         args: &[ir::ValueId],
     ) -> bool {
         let b = state.b;
-        let dest = dest_of(dests);
         // `str.show`, `character.equal`, `bool.compare` and their siblings: the same
         // three operations `Unit::numeric` emits, at the three primitives whose
         // defining module is not `core/number` and whose keys are therefore two
@@ -6807,7 +6767,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `list.empty()` is `Inst::MakeArray` with no elements, and it goes
             // to the same place: the null descriptor, which allocates nothing.
             "list.empty" => {
-                let value = self.empty_list(b, agg(code.ty_of(dest)));
+                let value = self.empty_list(b, list_ty(code.ty_of(dest)).id());
                 self.set(state, dest, value);
                 true
             }
@@ -7259,7 +7219,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         &mut self,
         state: &mut Function<'ctx>,
         code: &ir::Code,
-        dests: &[ir::ValueId],
+        dest: ir::ValueId,
         key: &str,
         args: &[ir::ValueId],
     ) -> bool {
@@ -7267,7 +7227,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return false;
         };
         let b = state.b;
-        let dest = dest_of(dests);
         let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
         let a = args.first().copied().map(|v| self.get(state, v));
         let rhs = args.get(1).copied().map(|v| self.get(state, v));
@@ -7795,28 +7754,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         ok: IntValue<'ctx>,
         payload: IntValue<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let id = agg(code.ty_of(dest));
-        let (slots, enum_repr, offsets, size) = {
-            let r = self.reprs.of(self.program, id);
-            let (none_at, some_at) = match &r.layout.repr {
-                LayoutRepr::Enum { variants, .. } => (
-                    variants.iter().position(Vec::is_empty).unwrap_or(1),
-                    variants.iter().position(|v| !v.is_empty()).unwrap_or(0),
-                ),
-                _ => (1, 0),
-            };
+        let e = enum_ty(code.ty_of(dest));
+        let (some_at, none_at) = self.option_variants(e);
+        let (slots, payload_at, size) = {
+            let r = self.reprs.of(self.program, e.id());
             (
                 r.slots.clone(),
-                r.enum_repr().cloned().or_ice("an `Option` is an enum"),
-                (
-                    some_at,
-                    none_at,
-                    r.layout.variant(some_at).first().copied().unwrap_or(0),
-                ),
+                r.layout.variant(some_at).first().copied().unwrap_or(0),
                 r.layout.size,
             )
         };
-        let (some_at, none_at, payload_at) = offsets;
+        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
         let tag_const = |ctx: &'ctx Context, tag: Scalar, v: usize| match repr::slot_type(
             ctx,
             SlotTy::Scalar(tag),
@@ -7895,7 +7843,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) -> bool {
         let b = state.b;
         // A `Result<T, RangeError>`, whose error names the value and the target.
-        let id = agg(code.ty_of(dest));
+        let e = enum_ty(code.ty_of(dest));
+        let id = e.id();
         let kind = checked_kind(from, to);
         let owner = self.program.type_info(id).ty;
         let variant = |at| {
@@ -7937,7 +7886,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
 
         // `.Ok(narrowed)`.
         b.to_end(ok_bb);
-        let ok_value = self.build_variant(b, id, 0, &[(ok_slots, vec![narrowed])]);
+        let ok_value = self.build_variant(b, e, 0, &[(ok_slots, vec![narrowed])]);
         let ok_end = b.block();
         b.br(join);
 
@@ -7955,7 +7904,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             &err_ty,
             &[(value_ty, value_str), (target_ty, target_str)],
         );
-        let err_value = self.build_variant(b, id, 1, &[range_error]);
+        let err_value = self.build_variant(b, e, 1, &[range_error]);
         let err_end = b.block();
         b.br(join);
 
@@ -8630,22 +8579,22 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // layout table like every other enum's, so a change to the encoding
         // moves this with it.
         let returned = self.declare_rt(runtime::RETURNED, &[], None);
-        let id = agg(func.sig.ret);
-        let (slots, enum_repr, err_offsets, payload_at, size) = {
-            let r = self.reprs.of(self.program, id);
-            let offsets = r.layout.variant(1).to_vec();
-            let (at, size) = match r.enum_repr() {
-                Some(EnumRepr::Tagged { payload, .. }) => (*payload, r.layout.size),
-                _ => (0, r.layout.size),
-            };
-            (r.slots.clone(), r.enum_repr().cloned(), offsets, at, size)
+        let e = enum_ty(func.sig.ret);
+        let (slots, err_offsets, size) = {
+            let r = self.reprs.of(self.program, e.id());
+            (r.slots.clone(), r.layout.variant(1).to_vec(), r.layout.size)
+        };
+        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
+        let payload_at = match enum_repr {
+            EnumRepr::Tagged { payload, .. } => payload,
+            _ => 0,
         };
         let pieces = self.pieces(b, &slots, result);
         let ok = self.ctx.append_basic_block(shim, "ok");
         let err = self.ctx.append_basic_block(shim, "err");
         let is_ok = match (&enum_repr, pieces.first().copied()) {
             (
-                Some(EnumRepr::Bare { .. } | EnumRepr::Tagged { .. }),
+                EnumRepr::Bare { .. } | EnumRepr::Tagged { .. },
                 Some(BasicValueEnum::IntValue(tag)),
             ) => Some(b.icmp(IntPredicate::EQ, tag, tag.get_type().const_zero(), "isok")),
             _ => None,

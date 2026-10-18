@@ -1242,10 +1242,10 @@ const STACK: usize = 2;
 /// Read off `middle::layout` here so that `asm.rs` never learns a layout rule.
 fn main_result(program: &ir::Program, tables: &Tables, idx: FuncIdx) -> asm::MainResult {
     let f = program.funcs.get(idx);
-    let id = jit::agg_of(f.sig.ret);
+    let e = jit::enum_ty(f.sig.ret);
     let mut layouts = Layouts::new(tables);
-    let l = layouts.of(program.type_info(id).ty);
-    let (repr, variants) = jit::enum_of(&l);
+    let l = layouts.of_enum(&program.types.enum_head(e));
+    let (repr, variants) = (&l.repr, &l.variants);
     // `.Err(msg)`'s payload is a `Str` at the variant's first field.
     let payload = variants
         .get(1)

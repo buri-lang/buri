@@ -50,7 +50,7 @@ use super::region::{Region, Target};
 use super::runtime;
 use crate::compiler::backend::counts::{Counts, Site};
 use crate::compiler::middle::ir;
-use crate::compiler::middle::layout::{EnumRepr, Layout, Layouts, Repr};
+use crate::compiler::middle::layout::{EnumLayout, EnumRepr, Layout, Layouts, Repr};
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::{FuncIdx, Tables, Ty};
 use crate::diagnostics::{invariant, invariant_with, Invariant};
@@ -563,14 +563,21 @@ pub(crate) fn agg_of(t: ir::Type) -> ir::TypeId {
     .or_ice("the IR gives this value an aggregate type")
 }
 
-/// An enum's representation and its variants' field offsets, for a layout the
-/// IR says is an enum's.
-pub(crate) fn enum_of(l: &Layout) -> (&EnumRepr, &[Vec<u32>]) {
-    match &l.repr {
-        Repr::Enum { repr, variants } => Some((repr, variants.as_slice())),
-        _ => None,
+/// The enum an IR value's type names, where its instruction makes it one
+/// (`middle/ir.rs`).
+pub(crate) fn enum_ty(t: ir::Type) -> ir::EnumTy {
+    match t {
+        ir::Type::Agg(ir::Agg::Enum(e)) => e,
+        _ => crate::diagnostics::ice("the IR gives this value an enum type"),
     }
-    .or_ice("the IR gives this value an enum's layout")
+}
+
+/// The function type an IR value's type names: a closure's (`middle/ir.rs`).
+pub(crate) fn fn_ty(t: ir::Type) -> ir::FnTy {
+    match t {
+        ir::Type::Agg(ir::Agg::Fn(f)) => f,
+        _ => crate::diagnostics::ice("the IR gives this value a function type"),
+    }
 }
 
 /// Sets entry `i` of a side table.
@@ -824,6 +831,15 @@ impl<'a> Jit<'a> {
     /// the largest single cost in emitting `core/orderedmap`.
     pub(crate) fn layout_shared(&mut self, ty: &Ty) -> std::rc::Rc<Layout> {
         self.layouts.shared(ty)
+    }
+
+    /// An interned enum's layout: its discriminant encoding and its variants.
+    pub(crate) fn enum_layout(
+        &mut self,
+        prog: &ir::Program,
+        e: ir::EnumTy,
+    ) -> std::rc::Rc<EnumLayout> {
+        self.layouts.of_enum(&prog.types.enum_head(e))
     }
 
     /// [`Jit::layout_of`], shared.

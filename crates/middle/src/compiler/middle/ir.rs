@@ -70,6 +70,7 @@
 
 use std::fmt::{self, Write as _};
 
+use crate::compiler::middle::layout::EnumHead;
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::typed::Magnitude;
 use crate::compiler::semantics::types::{FuncIdx, Prim, Tables, Ty, TyDef, TyKind};
@@ -117,34 +118,56 @@ ir_id!(
 );
 ir_id!(TypeId, "One source type, interned in [`Program::types`].");
 
+/// A struct, tuple, context or `Str`: fields at offsets, and no tag.
+///
+/// Only [`TypeList::ty`] makes one, from the kind the interner recorded for the
+/// type, so the id and its kind always agree.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct RecTy(TypeId);
+
+impl RecTy {
+    /// The interned type.
+    pub fn id(self) -> TypeId {
+        self.0
+    }
+}
+
 macro_rules! kind_id {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
         ///
         /// Only [`TypeList::ty`] makes one, from the kind the interner recorded
-        /// for the type, so the id and its kind always agree.
+        /// for the type, so the id and its kind always agree. `row` is where
+        /// the interner keeps what only this kind has, so reading that needs
+        /// no check.
         #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-        pub struct $name(TypeId);
+        pub struct $name {
+            id: TypeId,
+            row: u32,
+        }
 
         impl $name {
             /// The interned type.
             pub fn id(self) -> TypeId {
-                self.0
+                self.id
             }
         }
     };
 }
 
 kind_id!(
-    RecTy,
-    "A struct, tuple, context or `Str`: fields at offsets, and no tag."
-);
-kind_id!(
     EnumTy,
     "An enum: a tag, or a niche, and each variant's fields."
 );
 kind_id!(ListTy, "A list, `[T]`.");
 kind_id!(FnTy, "A closure: a function and its environment.");
+
+/// What a function type is made of: its parameters and its result.
+#[derive(Clone, Copy, Debug)]
+pub struct FnSig {
+    pub params: &'static [Ty],
+    pub ret: &'static Ty,
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -198,25 +221,14 @@ impl Agg {
     }
 }
 
-/// Which [`Agg`] an interned type is.
+/// Which [`Agg`] an interned type is, and for a kind with a row in the
+/// [`TypeList`], which row.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {
     Record,
-    Enum,
-    List,
-    Fn,
-}
-
-impl Kind {
-    /// The kind of a source type with no register shape.
-    fn of(tables: &Tables, ty: &Ty) -> Kind {
-        match ty.kind() {
-            TyKind::Array(_) => Kind::List,
-            TyKind::Fn(..) => Kind::Fn,
-            TyKind::Con(id, _) if matches!(tables.tycon(*id).def, TyDef::Enum { .. }) => Kind::Enum,
-            _ => Kind::Record,
-        }
-    }
+    Enum(u32),
+    List(u32),
+    Fn(u32),
 }
 
 impl Type {
@@ -258,65 +270,117 @@ pub struct TypeInfo {
     kind: Kind,
 }
 
-impl TypeInfo {
-    pub fn new(tables: &Tables, name: String, ty: Ty) -> TypeInfo {
-        TypeInfo {
-            name,
-            kind: Kind::of(tables, &ty),
-            ty,
-        }
-    }
+/// Interned types, by [`TypeId`]. Only [`TypeList::push`] mints an id.
+///
+/// What only one kind has (an enum's constructor, a list's element, a
+/// function's signature) is kept in a row of its own, read off the source type
+/// once, when the type is interned. The kind's id carries its row, so a backend
+/// holding an [`EnumTy`] reads its head without asking the source type again
+/// what it is.
+#[derive(Default)]
+pub struct TypeList {
+    infos: Vec<TypeInfo>,
+    enums: Vec<EnumHead>,
+    lists: Vec<Ty>,
+    fns: Vec<FnSig>,
 }
 
-/// Interned types, by [`TypeId`]. Only [`TypeList::push`] mints an id.
-#[derive(Default)]
-pub struct TypeList(Vec<TypeInfo>);
+/// The row the next push to `rows` makes.
+fn next_row<T>(rows: &[T]) -> u32 {
+    rows.len() as u32
+}
 
 #[expect(
     clippy::indexing_slicing,
-    reason = "only `push` mints an id, at the length the list then grows past"
+    reason = "only `push` mints an id or a row, at the length its table then grows past"
 )]
 impl TypeList {
-    pub fn push(&mut self, info: TypeInfo) -> TypeId {
-        let id = TypeId::at(self.0.len());
-        self.0.push(info);
+    /// Interns `ty`, a type with no register shape, under `name`.
+    pub fn push(&mut self, tables: &Tables, name: String, ty: Ty) -> TypeId {
+        let kind = match ty.kind() {
+            TyKind::Array(elem) => {
+                let row = next_row(&self.lists);
+                self.lists.push(*elem);
+                Kind::List(row)
+            }
+            TyKind::Fn(params, ret) => {
+                let row = next_row(&self.fns);
+                self.fns.push(FnSig { params, ret });
+                Kind::Fn(row)
+            }
+            TyKind::Con(con, args) if matches!(tables.tycon(*con).def, TyDef::Enum { .. }) => {
+                let row = next_row(&self.enums);
+                self.enums.push(EnumHead {
+                    ty,
+                    con: *con,
+                    args,
+                });
+                Kind::Enum(row)
+            }
+            _ => Kind::Record,
+        };
+        let id = TypeId::at(self.infos.len());
+        self.infos.push(TypeInfo { name, ty, kind });
         id
     }
 
     pub fn get(&self, id: TypeId) -> &TypeInfo {
-        &self.0[id.index()]
+        &self.infos[id.index()]
+    }
+
+    /// The aggregate an interned type is.
+    pub fn agg(&self, id: TypeId) -> Agg {
+        match self.get(id).kind {
+            Kind::Record => Agg::Record(RecTy(id)),
+            Kind::Enum(row) => Agg::Enum(EnumTy { id, row }),
+            Kind::List(row) => Agg::List(ListTy { id, row }),
+            Kind::Fn(row) => Agg::Fn(FnTy { id, row }),
+        }
     }
 
     /// The [`Type`] of an interned type.
     pub fn ty(&self, id: TypeId) -> Type {
-        Type::Agg(match self.get(id).kind {
-            Kind::Record => Agg::Record(RecTy(id)),
-            Kind::Enum => Agg::Enum(EnumTy(id)),
-            Kind::List => Agg::List(ListTy(id)),
-            Kind::Fn => Agg::Fn(FnTy(id)),
-        })
+        Type::Agg(self.agg(id))
+    }
+
+    /// An enum's constructor and the arguments it is applied to.
+    pub fn enum_head(&self, e: EnumTy) -> EnumHead {
+        self.enums[e.row as usize]
+    }
+
+    /// A list's element type.
+    pub fn elem(&self, l: ListTy) -> Ty {
+        self.lists[l.row as usize]
+    }
+
+    /// A closure's parameters and result.
+    pub fn sig(&self, f: FnTy) -> FnSig {
+        self.fns[f.row as usize]
     }
 
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.infos.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.infos.is_empty()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (TypeId, &TypeInfo)> {
-        self.0.iter().enumerate().map(|(i, t)| (TypeId::at(i), t))
+        self.infos
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (TypeId::at(i), t))
     }
 
-    /// Each entry's id in another list, by `adopt`.
-    pub fn remap(self, adopt: impl FnMut(TypeInfo) -> TypeId) -> Remap {
-        Remap(self.0.into_iter().map(adopt).collect())
+    /// Each entry's aggregate in another list, by `adopt`.
+    pub fn remap(self, adopt: impl FnMut(TypeInfo) -> Agg) -> Remap {
+        Remap(self.infos.into_iter().map(adopt).collect())
     }
 }
 
-/// The ids one [`TypeList`] minted, mapped to another's.
-pub struct Remap(Vec<TypeId>);
+/// The aggregates one [`TypeList`] minted, mapped to another's.
+pub struct Remap(Vec<Agg>);
 
 #[expect(
     clippy::indexing_slicing,
@@ -324,19 +388,14 @@ pub struct Remap(Vec<TypeId>);
 )]
 impl Remap {
     pub fn id(&self, id: TypeId) -> TypeId {
-        self.0[id.index()]
+        self.0[id.index()].id()
     }
 
     /// A type in the list this remap maps to: the same kind, since both
     /// lists interned the same source type.
     pub fn ty(&self, ty: &mut Type) {
         if let Type::Agg(agg) = ty {
-            *agg = match *agg {
-                Agg::Record(t) => Agg::Record(RecTy(self.id(t.0))),
-                Agg::Enum(t) => Agg::Enum(EnumTy(self.id(t.0))),
-                Agg::List(t) => Agg::List(ListTy(self.id(t.0))),
-                Agg::Fn(t) => Agg::Fn(FnTy(self.id(t.0))),
-            };
+            *agg = self.0[agg.id().index()];
         }
     }
 }

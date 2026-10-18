@@ -15,7 +15,7 @@
 use super::jit::{Jit, V};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
-use crate::compiler::semantics::types::{Ty, TyKind};
+use crate::compiler::semantics::types::Ty;
 use crate::diagnostics::Invariant;
 
 impl Jit<'_> {
@@ -30,14 +30,10 @@ impl Jit<'_> {
 
 /// The element type of an array instruction's `[T]` operand.
 pub(crate) fn element_of(prog: &ir::Program, t: ir::Type) -> Ty {
-    let elem = match t {
-        ir::Type::Agg(id) => match prog.type_info(id.id()).ty.kind() {
-            TyKind::Array(elem) => Some(*elem),
-            _ => None,
-        },
-        _ => None,
-    };
-    elem.or_ice("an array instruction's operand is a `[T]` (middle/ir.rs)")
+    match t {
+        ir::Type::Agg(ir::Agg::List(l)) => prog.types.elem(l),
+        _ => crate::diagnostics::ice("an array instruction's operand is a `[T]` (middle/ir.rs)"),
+    }
 }
 
 impl Jit<'_> {
@@ -160,9 +156,12 @@ impl Jit<'_> {
     /// `middle/layout.rs` gives a niche only to an `Option` of a pointer, so
     /// the layout always has a tag.
     pub(crate) fn store_disc(&mut self, l: &Layout, at: u32, v: usize) {
-        let tag = match super::jit::enum_of(l).0 {
-            EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => Some(tag),
-            EnumRepr::Niche { .. } => None,
+        let tag = match &l.repr {
+            Repr::Enum {
+                repr: EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. },
+                ..
+            } => Some(tag),
+            _ => None,
         }
         .or_ice("a `Result` or an `Option` of a number has a tag");
         self.imm_w(at, tag.size(), v as u64);

@@ -49,7 +49,7 @@
 // the stencil library holds, read from `abi.rs` — the one file the library
 // builder and this emitter both compile — rather than written down twice.
 use super::abi::{MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as MAX_INT};
-use super::jit::{agg_of, Fn2, Jit, V};
+use super::jit::{agg_of, enum_ty, fn_ty, Fn2, Jit, V};
 use super::runtime::{self, Entry, Extra, OptRepr, Ret, BURI_OK};
 use crate::compiler::backend::counts::Op;
 use crate::compiler::backend::intrinsic_keys::StepCall;
@@ -101,10 +101,8 @@ fn round8(n: u32) -> u32 {
 /// The element type of a value whose IR type is a `[T]`, and `None` for
 /// anything else.
 fn array_elem(prog: &ir::Program, t: ir::Type) -> Option<Ty> {
-    let ir::Type::Agg(agg) = t else { return None };
-    let id = agg.id();
-    match prog.type_info(id).ty.kind() {
-        TyKind::Array(e) => Some(*e),
+    match t {
+        ir::Type::Agg(ir::Agg::List(l)) => Some(prog.types.elem(l)),
         _ => None,
     }
 }
@@ -324,7 +322,7 @@ impl Jit<'_> {
         }
         let opt = match entry.ret {
             Ret::Sum => {
-                let l = self.layout_id_shared(prog, agg_of(dty));
+                let l = self.enum_layout(prog, enum_ty(dty));
                 let o = OptRepr::of(&l).or_ice("a `Ret::Sum` row answers an `Option`");
                 ints.push(Src::Addr(dslot + o.payload));
                 Some(o)
@@ -888,11 +886,7 @@ impl Jit<'_> {
         ints: &mut Vec<Src>,
     ) {
         let (fslot, fty) = *args.get(call.func).or_ice("a step row's call has its step");
-        let (params, ret) = match source_ty(prog, fty).map(Ty::kind) {
-            Some(TyKind::Fn(params, ret)) => Some((params, ret)),
-            _ => None,
-        }
-        .or_ice("a step is a function");
+        let ir::FnSig { params, ret } = prog.types.sig(fn_ty(fty));
         let source = args.iter().find_map(|(_, t)| array_elem(prog, *t));
         let source = source.or_ice("a step row walks a list");
         let answer = array_elem(prog, dest).or_ice("a step row answers a list");
@@ -1368,12 +1362,9 @@ pub(crate) fn source_ty(prog: &ir::Program, t: ir::Type) -> Option<Ty> {
 /// type, and that type's parameters and result.
 fn last_closure(prog: &ir::Program, args: &[(u32, ir::Type)]) -> (u32, Ty, &'static [Ty], Ty) {
     let (fslot, fty) = *args.last().or_ice("an `Extra` row takes its closure last");
-    let ty = source_ty(prog, fty).or_ice("a closure has a source type");
-    match ty.kind() {
-        TyKind::Fn(params, ret) => Some((fslot, ty, *params, *ret)),
-        _ => None,
-    }
-    .or_ice("an `Extra` row's last argument is a function")
+    let f = fn_ty(fty);
+    let ir::FnSig { params, ret } = prog.types.sig(f);
+    (fslot, prog.type_info(f.id()).ty, params, *ret)
 }
 
 /// `core/order`'s three variants, in declaration order, which is what

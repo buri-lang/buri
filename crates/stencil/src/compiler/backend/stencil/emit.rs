@@ -37,7 +37,7 @@ enum RSrc {
     Slot(u32),
 }
 use super::glue::Helper;
-use super::jit::{agg_of, enum_of, Fn2, Jit, Plan, RET, V};
+use super::jit::{agg_of, enum_ty, fn_ty, Fn2, Jit, Plan, RET, V};
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
 use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
@@ -440,14 +440,7 @@ impl<'a> Jit<'a> {
                 // separates the environment parameter from a value one: a
                 // capture-free lambda still has a leading parameter, of the
                 // unit type, and a plain `FuncRef` has none at all.
-                let args = match code.ty_of(*dest) {
-                    ir::Type::Agg(id) => match prog.type_info(id.id()).ty.kind() {
-                        TyKind::Fn(ps, _) => Some(ps.len()),
-                        _ => None,
-                    },
-                    _ => None,
-                }
-                .or_ice("a closure's IR type is a function's (middle/ir.rs)");
+                let args = prog.types.sig(fn_ty(code.ty_of(*dest))).params.len();
                 let thunk = self.helper(super::glue::Helper::Thunk {
                     func: *func,
                     args: args as u32,
@@ -676,17 +669,13 @@ impl<'a> Jit<'a> {
         variant: u32,
         fields: &[ir::ValueId],
     ) {
-        let (l, owner) = match code.ty_of(dest) {
-            ir::Type::Agg(id) => (
-                self.layout_id_shared(prog, id.id()),
-                &prog.type_info(id.id()).ty,
-            ),
-            _ => crate::diagnostics::ice("stencil: MakeEnum of a non-aggregate"),
-        };
+        let e = enum_ty(code.ty_of(dest));
+        let owner = &prog.type_info(e.id()).ty;
+        let l = self.enum_layout(prog, e);
         let ftys = variant_types(self.tables, owner, variant as usize);
         let d = st.at(dest);
-        let (repr, variants) = super::jit::enum_of(&l);
-        let offs: &[u32] = variants.get(variant as usize).map_or(&[], Vec::as_slice);
+        let repr = &l.repr;
+        let offs: &[u32] = l.variants.get(variant as usize).map_or(&[], Vec::as_slice);
         match repr {
             EnumRepr::Bare { tag } => self.imm_w(d, tag.size(), variant as u64),
             EnumRepr::Tagged { tag, .. } => {
@@ -757,15 +746,14 @@ impl<'a> Jit<'a> {
         arg: ir::ValueId,
         dest: ir::ValueId,
     ) {
-        let id = agg_of(code.ty_of(dest));
-        let owner = prog.type_info(id).ty;
+        let e = enum_ty(code.ty_of(dest));
+        let owner = prog.type_info(e.id()).ty;
         let arm = json_arm(prim);
         let variant = json_variant(self.tables, &owner, arm)
             .or_ice("a `derive ToJson` answers `core/json`'s `Json`");
-        let l = self.layout_id_shared(prog, id);
-        let (repr, _) = enum_of(&l);
-        let tag = match repr {
-            EnumRepr::Tagged { tag, .. } => Some(*tag),
+        let l = self.layout_id_shared(prog, e.id());
+        let tag = match self.enum_layout(prog, e).repr {
+            EnumRepr::Tagged { tag, .. } => Some(tag),
             _ => None,
         }
         .or_ice("`Json` is a tagged enum");
@@ -867,10 +855,10 @@ impl<'a> Jit<'a> {
         dest: ir::ValueId,
         agg: ir::ValueId,
     ) {
-        let l = self.layout_id_shared(prog, agg_of(code.ty_of(agg)));
+        let l = self.enum_layout(prog, enum_ty(code.ty_of(agg)));
         let d = st.at(dest);
         let a = st.at(agg);
-        let (repr, variants) = enum_of(&l);
+        let (repr, variants) = (&l.repr, &l.variants);
         match repr {
             EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => self.load_w(d, a, tag.size()),
             EnumRepr::Niche { null_at } => {
@@ -1793,8 +1781,8 @@ impl<'a> Jit<'a> {
         agg: ir::ValueId,
     ) -> (u32, u32, bool) {
         let base = st.at(agg);
-        let l = self.layout_id_shared(prog, agg_of(code.ty_of(agg)));
-        let (repr, variants) = enum_of(&l);
+        let l = self.enum_layout(prog, enum_ty(code.ty_of(agg)));
+        let (repr, variants) = (&l.repr, &l.variants);
         match repr {
             EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => (base, tag.size(), false),
             EnumRepr::Niche { null_at } => (

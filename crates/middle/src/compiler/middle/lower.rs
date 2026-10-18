@@ -80,7 +80,7 @@
 
 use crate::compiler::middle::ir::{
     self, BinOp, BlockId, Body, Code, Const, Facts, Func, Inst, Ownership, Remap, Signature,
-    StructuralOp, Target, Term, Type, TypeId, TypeInfo, TypeList, UnOp, ValueId,
+    StructuralOp, Target, Term, Type, TypeId, TypeList, UnOp, ValueId,
 };
 use crate::compiler::middle::layout;
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
@@ -165,7 +165,10 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
     let funcs: Dense<FuncIdx, Func> = lowered
         .into_iter()
         .map(|(mut func, local)| {
-            let remap = local.remap(|info| types.adopt(tables, info.ty));
+            let remap = local.remap(|info| {
+                let id = types.adopt(tables, info.ty);
+                types.list.agg(id)
+            });
             remap_func_types(&mut func, &remap);
             func
         })
@@ -409,7 +412,7 @@ impl Types {
         }
         // Named in [`Types::adopt`], once per program rather than once per
         // function that meets the type: nothing reads a function's own names.
-        let id = self.list.push(TypeInfo::new(tables, String::new(), *ty));
+        let id = self.list.push(tables, String::new(), *ty);
         self.index.insert(*ty, id);
         id
     }
@@ -423,7 +426,7 @@ impl Types {
             return *id;
         }
         let name = crate::compiler::semantics::types::show(tables, None, &[], &ty);
-        let id = self.list.push(TypeInfo::new(tables, name, ty));
+        let id = self.list.push(tables, name, ty);
         self.index.insert(ty, id);
         id
     }
