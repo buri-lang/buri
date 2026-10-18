@@ -1,0 +1,15 @@
+# A suite that names no backend reaches `number.minValue` and
+# `number.maxValue`, so `buri test` asks the native backend whether it can
+# answer them before it builds anything. It can, so the suite runs natively
+# rather than being refused for a gap.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a suite on the default backend that reaches a type's bounds runs natively"
+
+run {
+  args: ["test", "//lib/bounds", "--force"]
+  exit: 0
+  golden: "test.txt"
+}

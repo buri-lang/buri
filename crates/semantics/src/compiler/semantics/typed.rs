@@ -440,6 +440,12 @@ pub enum PatKind {
     },
     Int(Magnitude, bool),
     Float(f64),
+    /// An `Int` or a `Float` once `monomorphize` has settled the primitive
+    /// it compares at, which before it can be a type parameter's.
+    Number {
+        prim: Prim,
+        value: NumberLit,
+    },
     Str(String),
     Char(char),
     Bool(bool),
@@ -461,6 +467,13 @@ pub enum PatKind {
     },
     Or(Vec<Pattern>),
     Error,
+}
+
+/// A number literal pattern's value: [`PatKind::Int`]'s, or [`PatKind::Float`]'s.
+#[derive(Clone, Copy, Debug)]
+pub enum NumberLit {
+    Int(Magnitude, bool),
+    Float(f64),
 }
 
 impl Pattern {

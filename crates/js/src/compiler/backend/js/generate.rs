@@ -1937,14 +1937,23 @@ impl<'a> Gen<'a> {
     /// it always does.
     fn test(&mut self, pattern: &typed::Pattern, subject: &Expr) -> Option<Expr> {
         match &pattern.kind {
-            PatKind::Wild | PatKind::Unit | PatKind::Error => None,
+            // A number literal is poison by here, as at `Error`: `monomorphize`
+            // makes each one it can a `Number`.
+            PatKind::Wild
+            | PatKind::Unit
+            | PatKind::Error
+            | PatKind::Int(..)
+            | PatKind::Float(_) => None,
             PatKind::Bind { sub, .. } => sub.as_ref().and_then(|s| self.test(s, subject)),
             PatKind::Bool(b) => Some(if *b {
                 subject.clone()
             } else {
                 Expr::un(UnOp::Not, subject.clone())
             }),
-            PatKind::Int(v, neg) => {
+            PatKind::Number {
+                value: typed::NumberLit::Int(v, neg),
+                ..
+            } => {
                 let lit = self.int_literal(v.get(), *neg, &pattern.ty);
                 Some(Expr::bin(BinOp::StrictEq, subject.clone(), lit))
             }
@@ -1953,7 +1962,10 @@ impl<'a> Gen<'a> {
             // for could only ever answer false here. A `NaN` subject fails this
             // test on every backend, which is `float_eq` at a non-`NaN`
             // literal.
-            PatKind::Float(v) => Some(Expr::bin(BinOp::StrictEq, subject.clone(), Expr::Num(*v))),
+            PatKind::Number {
+                value: typed::NumberLit::Float(v),
+                ..
+            } => Some(Expr::bin(BinOp::StrictEq, subject.clone(), Expr::Num(*v))),
             PatKind::Str(s) => Some(Expr::bin(
                 BinOp::StrictEq,
                 subject.clone(),

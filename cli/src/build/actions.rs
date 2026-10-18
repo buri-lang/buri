@@ -2716,17 +2716,17 @@ fn objects_named(
     gaps.extend(backend::cryptography_gap(program));
     gaps.extend(backend::networking_gap_when(program, net));
     gaps.extend(backend::cryptography_gap_when(program, crypto));
-    let mut backend = match (backend.resolve(&lowered), gaps.is_empty()) {
-        (Ok(ready), true) => ready,
-        (Ok(ready), false) => {
-            let name = ready.backend().name();
-            return Err(refuse_missing(name, gaps, net, crypto, diagnostics));
-        }
-        (Err((name, mut keys)), _) => {
+    let mut backend = match backend.resolve(&lowered) {
+        Ok(ready) => ready,
+        Err((name, mut keys)) => {
             keys.extend(gaps);
             return Err(refuse_missing(name, keys, net, crypto, diagnostics));
         }
     };
+    if !gaps.is_empty() {
+        let name = backend.backend().name();
+        return Err(refuse_missing(name, gaps, net, crypto, diagnostics));
+    }
 
     let name = backend.backend().name().to_string();
     let identity = backend.backend().identity();

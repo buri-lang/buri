@@ -87,8 +87,8 @@ use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::layered::{Dense, DenseId};
 use crate::compiler::semantics::typed::{
-    self, Arm, ArrayRest, Expr, ExprKind, FieldPat, Magnitude, OptionOrResult, PatKind, Pattern,
-    PrimOp, Stmt, TemplatePart, UnaryOp,
+    self, Arm, ArrayRest, Expr, ExprKind, FieldPat, Magnitude, NumberLit, OptionOrResult, PatKind,
+    Pattern, PrimOp, Stmt, TemplatePart, UnaryOp,
 };
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Tables, Ty, TyConId, TyKind};
 use crate::diagnostics::Invariant as _;
@@ -1656,8 +1656,11 @@ impl FnLower<'_> {
         }
         let (rendered, _) = self.render(ty, parts);
         let mut it = rendered.into_iter();
-        // A template is written with at least one part.
-        let (mut acc, mut acc_is_mine) = it.next().or_ice("a template has a part");
+        // A template is written with at least one part; one with none would be
+        // the empty string.
+        let (mut acc, mut acc_is_mine) = it
+            .next()
+            .unwrap_or_else(|| (self.constant(ty, Const::Str("".into())), false));
         for (next, next_is_mine) in it {
             let joined = self.call_intrinsic(ty, "str.concat", Box::new([acc, next]));
             // *After* the join, not before. On MEMORY.md §5.3's in-place path
@@ -2078,35 +2081,30 @@ impl FnLower<'_> {
                     self.pattern(val, s, fail);
                 }
             }
-            PatKind::Int(v, negative) => {
+            PatKind::Number { prim, value } => {
                 let ty = self.type_of(&pat.ty);
                 let c = self.constant(
                     ty,
-                    Const::Int {
-                        bits: *v,
-                        negative: *negative,
+                    match *value {
+                        NumberLit::Int(bits, negative) => Const::Int { bits, negative },
+                        NumberLit::Float(v) => Const::Float(v),
                     },
                 );
-                self.test_eq(val, c, &pat.ty, fail);
-            }
-            PatKind::Float(v) => {
-                let ty = self.type_of(&pat.ty);
-                let c = self.constant(ty, Const::Float(*v));
-                self.test_eq(val, c, &pat.ty, fail);
+                self.test_eq(val, c, *prim, fail);
             }
             PatKind::Str(s) => {
                 let ty = self.type_of(&pat.ty);
                 let c = self.constant(ty, Const::Str(s.as_str().into()));
-                self.test_eq(val, c, &pat.ty, fail);
+                self.test_eq(val, c, Prim::Str, fail);
             }
             PatKind::Char(c) => {
                 let ty = self.type_of(&pat.ty);
                 let c = self.constant(ty, Const::Char(*c));
-                self.test_eq(val, c, &pat.ty, fail);
+                self.test_eq(val, c, Prim::Char, fail);
             }
             PatKind::Bool(b) => {
                 let c = self.constant(Type::I1, Const::Bool(*b));
-                self.test_eq(val, c, &pat.ty, fail);
+                self.test_eq(val, c, Prim::Bool, fail);
             }
             PatKind::Tuple(ps) => {
                 for (i, p) in ps.iter().enumerate() {
@@ -2241,28 +2239,25 @@ impl FnLower<'_> {
                 }
             }
             // Poison: a diagnostic was already reported, so this arm is
-            // whatever keeps the CFG well formed.
-            PatKind::Error => {
+            // whatever keeps the CFG well formed. A number literal is one
+            // too, by here: `monomorphize` makes each one it can a `Number`.
+            PatKind::Int(..) | PatKind::Float(_) | PatKind::Error => {
                 self.set_term(Term::Jump(Target::to(fail)));
                 let _ = self.dead(Type::Unit);
             }
         }
     }
 
-    /// `val == c`, continuing where it holds and jumping to `fail` where it
-    /// does not.
-    fn test_eq(&mut self, val: ValueId, c: ValueId, ty: &Ty, fail: BlockId) {
-        let ok = match self.tables.as_prim(ty) {
-            Some(prim) => self.emit(Type::I1, |dest| Inst::Binary {
-                dest,
-                op: BinOp::Eq,
-                prim,
-                lhs: val,
-                rhs: c,
-            }),
-            // A literal pattern is a primitive's.
-            None => crate::diagnostics::ice("a literal pattern is at a primitive type"),
-        };
+    /// `val == c` at `prim`, continuing where it holds and jumping to `fail`
+    /// where it does not.
+    fn test_eq(&mut self, val: ValueId, c: ValueId, prim: Prim, fail: BlockId) {
+        let ok = self.emit(Type::I1, |dest| Inst::Binary {
+            dest,
+            op: BinOp::Eq,
+            prim,
+            lhs: val,
+            rhs: c,
+        });
         let next = self.block(&[]);
         self.set_term(Term::Branch {
             cond: ok,
@@ -2440,7 +2435,16 @@ fn disjoint(p: &Pattern, q: &Pattern) -> bool {
         (PatKind::Struct { fields: f, .. }, PatKind::Struct { fields: g, .. }) => same_fields(f, g),
         (PatKind::Tuple(a), PatKind::Tuple(b)) => a.iter().zip(b).any(|(x, y)| disjoint(x, y)),
         // `-0` is `0`.
-        (PatKind::Int(a, m), PatKind::Int(b, n)) => a != b || (m != n && a.get() != 0),
+        (
+            PatKind::Number {
+                value: NumberLit::Int(a, m),
+                ..
+            },
+            PatKind::Number {
+                value: NumberLit::Int(b, n),
+                ..
+            },
+        ) => a != b || (m != n && a.get() != 0),
         (PatKind::Str(a), PatKind::Str(b)) => a != b,
         (PatKind::Char(a), PatKind::Char(b)) => a != b,
         (PatKind::Bool(a), PatKind::Bool(b)) => a != b,

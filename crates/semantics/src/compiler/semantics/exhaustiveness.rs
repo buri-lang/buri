@@ -238,9 +238,17 @@ fn lower(p: &Pattern) -> Pat {
         },
         PatKind::Unit => Pat::Ctor(Ctor::Single, Vec::new()),
         PatKind::Bool(b) => Pat::Ctor(Ctor::Bool(*b), Vec::new()),
-        PatKind::Int(v, neg) => Pat::Ctor(Ctor::Lit(LitValue::Int(v.get(), *neg)), Vec::new()),
+        PatKind::Int(v, neg)
+        | PatKind::Number {
+            value: typed::NumberLit::Int(v, neg),
+            ..
+        } => Pat::Ctor(Ctor::Lit(LitValue::Int(v.get(), *neg)), Vec::new()),
         // `+0.0 == -0.0`, so they are one constructor rather than two.
-        PatKind::Float(v) => Pat::Ctor(Ctor::Lit(LitValue::Float((v + 0.0).to_bits())), Vec::new()),
+        PatKind::Float(v)
+        | PatKind::Number {
+            value: typed::NumberLit::Float(v),
+            ..
+        } => Pat::Ctor(Ctor::Lit(LitValue::Float((v + 0.0).to_bits())), Vec::new()),
         PatKind::Str(v) => Pat::Ctor(Ctor::Lit(LitValue::Str(v.clone())), Vec::new()),
         PatKind::Char(v) => Pat::Ctor(Ctor::Lit(LitValue::Char(*v)), Vec::new()),
         PatKind::Tuple(ps) => Pat::Ctor(Ctor::Single, ps.iter().map(lower).collect()),

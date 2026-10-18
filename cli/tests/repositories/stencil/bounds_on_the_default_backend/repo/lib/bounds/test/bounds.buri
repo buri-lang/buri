@@ -1,0 +1,7 @@
+from "core/number" import * as number;
+from "core/testing/assert" import * as assert;
+
+test "a type's bounds" {
+    assert.equal(number.minValue<I8>(), -128);
+    assert.equal(number.maxValue<U8>(), 255);
+}
