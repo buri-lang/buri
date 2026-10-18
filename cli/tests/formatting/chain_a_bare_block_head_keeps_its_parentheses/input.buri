@@ -20,3 +20,5 @@ fn bound(): Int {
 fn operand(): Int { 2 + ({ -1 }).abs() }
 
 fn negated_alone(): Int { -({ 1 }) }
+
+fn try_option(x: Option<Int>): Option<Int> { let y = ({ x })?; Some(-y) }

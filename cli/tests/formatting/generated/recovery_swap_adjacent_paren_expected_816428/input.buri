@@ -41,3 +41,8 @@ fn context_method(): Int {
         ..ctx,
     }).size()
 }
+
+fn if_try(x: Option<Int>): Option<Int> {
+    let y = (if (true) { x } else { None })?;
+    Some(y)
+}
