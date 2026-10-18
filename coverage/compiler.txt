@@ -20,11 +20,11 @@ crates/js                         985/1018   96.76%         5294/5539   95.58%
 crates/llvm                        576/576  100.00%         7429/7606   97.67%
 crates/middle                    1838/1876   97.97%       14543/14975   97.12%
 crates/project                   1346/1360   98.97%         6233/6394   97.48%
-crates/semantics                 2173/2176   99.86%       13370/13670   97.81%
+crates/semantics                 2165/2166   99.95%       13348/13654   97.76%
 crates/stdlib                        12/12  100.00%           125/149   83.89%
 crates/stencil                   1176/1196   98.33%         8293/8732   94.97%
-crates/syntax                    1194/1196   99.83%         6516/6672   97.66%
-total                          15038/15249   98.62%       96705/99799   96.90%
+crates/syntax                    1194/1196   99.83%         6523/6679   97.66%
+total                          15030/15239   98.63%       96690/99790   96.89%
 
 cli/src                           branches                      lines         
 build                            1694/1711   99.01%       10817/11125   97.23%
@@ -81,6 +81,6 @@ uncovered          branches           file
         2             82/84   97.62%  cli/src/documentation/layout.rs
         2             76/78   97.44%  cli/src/language_server/file_operations.rs
         2             68/70   97.14%  crates/js/src/compiler/backend/js/park.rs
-        2           114/116   98.28%  crates/semantics/src/compiler/semantics/types.rs
         2             38/40   95.00%  crates/stencil/src/compiler/backend/stencil/elf.rs
         2             86/88   97.73%  crates/stencil/src/compiler/backend/stencil/glue.rs
+        2             42/44   95.45%  crates/stencil/src/compiler/backend/stencil/mod.rs
