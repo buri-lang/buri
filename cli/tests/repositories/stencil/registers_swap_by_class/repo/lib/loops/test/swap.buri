@@ -30,3 +30,16 @@ test "two integers and two floats swap on each pass" {
     assert.equal(swapBoth(1, 1, 2.0, 3, 4.0), 1310.0);
     assert.equal(swapBoth(2, 1, 2.0, 3, 4.0), 3108.0);
 }
+
+fn swapPairs(a: Int, x: F64, b: Int, y: F64, n: Int): F64 {
+    if (n == 0) {
+        x * 2.0 + y + a.toF64() * 100.0 + b.toF64() * 1000.0
+    } else {
+        swapPairs(b, y, a, x, n - 1)
+    }
+}
+
+test "two integers and two floats ahead of the count swap on each pass" {
+    assert.equal(swapPairs(1, 2.0, 3, 4.0, 1), 1310.0);
+    assert.equal(swapPairs(1, 2.0, 3, 4.0, 2), 3108.0);
+}

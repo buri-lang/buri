@@ -21,3 +21,18 @@ test "a loop whose test is read twice" {
     assert.equal(sumUntil(0, 5, 0), 10);
     assert.equal(sumUntil(3, 6, 100), 112);
 }
+
+fn stepped(n: Int, acc: Int): Int {
+    if (n == 0) {
+        acc
+    } else {
+        let bar = if (acc > 10) { acc - 3 } else { acc + 2 };
+        if (n > bar) { stepped(n - 1, acc + 1) } else { stepped(n - 1, acc + 5) }
+    }
+}
+
+test "a loop that compares its counter with a value it just joined" {
+    assert.equal(stepped(0, 5), 5);
+    assert.equal(stepped(1, 0), 5);
+    assert.equal(stepped(20, 0), 64);
+}
