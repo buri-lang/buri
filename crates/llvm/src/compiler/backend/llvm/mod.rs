@@ -238,7 +238,7 @@ impl Backend for Llvm {
             root,
             units,
             &counted,
-            For::Linker,
+            For::linker(&lowered),
             &target::object,
         )
     }
@@ -291,7 +291,7 @@ impl Llvm {
             root_of(program),
             Units::Only(&only),
             &counted,
-            For::Reader,
+            For::reader(&lowered),
             &text,
         )?;
         let bytes = emitted
@@ -361,10 +361,35 @@ fn classifier(program: &monomorphize::Program) -> rc::Syntactic {
 ///   (`Unit::prune`). The linker would strip both.
 ///
 /// The functions left are optimized exactly as the reader sees them.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum For {
-    Reader,
-    Linker,
+struct For {
+    /// Whether values and blocks keep their names.
+    names: bool,
+    /// Whether another unit or the entry point names each function, so that
+    /// its unit keeps it (`Unit::prune`).
+    kept: Vec<bool>,
+    /// Whether anything names each function. One nothing names is not
+    /// emitted at all.
+    named: Vec<bool>,
+}
+
+impl For {
+    fn linker(program: &ir::Program) -> For {
+        For {
+            names: false,
+            kept: crate::compiler::backend::linkage::named_elsewhere(program),
+            named: crate::compiler::backend::linkage::named_anywhere(program),
+        }
+    }
+
+    /// A reader sees every function, by name.
+    fn reader(program: &ir::Program) -> For {
+        let every = vec![true; program.funcs.len()];
+        For {
+            names: true,
+            kept: every.clone(),
+            named: every,
+        }
+    }
 }
 
 /// What one thread emitting units keeps between them: the machine, which
@@ -388,13 +413,8 @@ struct Shared<'p> {
     /// `runtime_table::shares_counts`: whether every count's fork reads
     /// `buri_rt_shared_mask`.
     shares: bool,
+    /// Who the units are for, with the roots kept and named.
     audience: For,
-    /// Whether another unit or the entry point names each function, so that
-    /// its unit keeps it (`Unit::prune`).
-    kept: Vec<bool>,
-    /// Whether anything names each function. One nothing names is not
-    /// emitted at all.
-    named: Vec<bool>,
 }
 
 /// One object per codegen unit, for a chosen subset of the units, from an
@@ -473,8 +493,11 @@ fn emit_selected(
         }
         named
     };
-    let kept = with_roots(crate::compiler::backend::linkage::named_elsewhere(program));
-    let named = with_roots(crate::compiler::backend::linkage::named_anywhere(program));
+    let audience = For {
+        names: audience.names,
+        kept: with_roots(audience.kept),
+        named: with_roots(audience.named),
+    };
     let shared = Shared {
         program,
         tables,
@@ -485,8 +508,6 @@ fn emit_selected(
         observed,
         shares: crate::compiler::backend::runtime_table::shares_counts(program),
         audience,
-        kept,
-        named,
     };
 
     let mut wanted: Vec<(usize, &ir::Unit)> = program
@@ -564,7 +585,7 @@ fn emit_unit(
     let mut diags = Diagnostics::new();
     let unit = index as u32;
     let unit_name = this.name.as_str();
-    let linker = shared.audience == For::Linker;
+    let audience = &shared.audience;
     // This unit's functions, ascending — the same list, in the same order,
     // that a filter over the whole program yielded. An object leaves out the
     // ones nothing names (`For`).
@@ -578,7 +599,7 @@ fn emit_unit(
                 .get(i.index())
                 .is_some_and(|f| f.code().is_some())
         })
-        .filter(|i| !linker || shared.named.get(i.index()).copied().unwrap_or(true))
+        .filter(|i| audience.named.get(i.index()).copied().unwrap_or(true))
         .collect();
     // The entry point goes in the unit that owns `main`, so a program is
     // one `_start`-adjacent symbol and the other units are libraries. A test
@@ -593,7 +614,7 @@ fn emit_unit(
     // `x`". The debug backend's loop is over the same list for the same
     // reason.
     let ctx = Context::create();
-    build::keep_names(&ctx, !linker);
+    build::keep_names(&ctx, audience.names);
     let builder = ctx.create_builder();
     let module_name = format!("{}{unit_name}", opts.unit_prefix);
     let mut emitter = emit::Unit::new(
@@ -639,10 +660,8 @@ fn emit_unit(
     // no body is a link error rather than a wrong answer.
     emitter.finish();
     optimize(&emitter.module, &worker.machine, opts.profile);
-    if linker {
-        let members: Vec<usize> = members.iter().map(|f| f.index()).collect();
-        emitter.prune(&members, &shared.kept);
-    }
+    let members: Vec<usize> = members.iter().map(|f| f.index()).collect();
+    emitter.prune(&members, &audience.kept);
     let bytes = match render(&emitter.module, &worker.machine) {
         Ok(b) => b,
         Err(message) => {
