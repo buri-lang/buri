@@ -679,6 +679,17 @@ test "in a list, a map and a set" {
         .insert(ctx, slots(ctx, [64]), "b");
     assert.equal(names.get(slots(ctx, [1, 64, 2]).remove(ctx, Slot(2))), .Some("a"));
     assert.equal(names.get(slots(ctx, [64])), .Some("b"));
+    let renamed = names.insert(ctx, slots(ctx, [64]), "c");
+    assert.equal(renamed.length(), 2);
+    assert.equal(renamed.get(slots(ctx, [64])), .Some("c"));
+    assert.equal(renamed.get(slots(ctx, [1, 64])), .Some("a"));
+    // Sets never stored are found nowhere, whatever slot their hash picks.
+    assert.isTrue(names.get(slots(ctx, [1])).isNone());
+    assert.isTrue(names.get(slots(ctx, [2])).isNone());
+    assert.isTrue(names.get(slots(ctx, [5])).isNone());
+    assert.isTrue(names.get(slots(ctx, [1, 2])).isNone());
+    assert.isTrue(names.get(slots(ctx, [2, 64])).isNone());
+    assert.isTrue(names.get(slots(ctx, [])).isNone());
     let unique = set.of(ctx, [
         slots(ctx, [3]),
         slots(ctx, [3, 4]).remove(ctx, Slot(4)),

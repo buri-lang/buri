@@ -496,6 +496,10 @@ test "a map of bool keys holds two entries at most" {
     assert.equal(m.length(), 2);
     assert.equal(orderedmap.of(ctx, m.entries(ctx)), m);
     assert.equal(orderedmap.of(ctx, list.empty<(Bool, Mood)>()).length(), 0);
+    // A map that holds one key finds it, and finds nothing under the other.
+    let happy = orderedmap.of(ctx, [(true, Mood.HAPPY)]);
+    assert.equal(happy.get(true), .Some(Mood.HAPPY));
+    assert.equal(happy.get(false), .None);
     let v = Maps { ..defaultMaps(), moods: m };
     assert.equal(decodeMaps(ctx, encodeMaps(ctx, v)), .Ok(v));
     let tail = Maps {
