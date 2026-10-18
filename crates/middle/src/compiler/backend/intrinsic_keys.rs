@@ -433,7 +433,7 @@ pub fn list_call(key: &str) -> Option<ListCall> {
 // its own element type, so calling one from C would mean synthesizing a
 // parameter list that depends on `T`". The trampoline is the answer to that
 // sentence and not a contradiction of it: the runtime never synthesizes
-// anything, because the four words of [`StepCall`]'s ABI carry a function
+// anything, because the four words of the entry thunk's ABI carry a function
 // **the backend generated at the call site**, which is where the element type
 // is known. What crosses the C boundary is three pointers and a number — the
 // backend's own state, which item this is, one element in, one element out — at
@@ -445,94 +445,50 @@ pub fn list_call(key: &str) -> Option<ListCall> {
 // is the runtime's — a scheduler, a socket, a task pool — and which happen to
 // take a closure.
 
-/// One runtime-driven closure-taking key.
+/// Which scheduler a `Tasks.parallel` call runs its steps on.
+///
+/// Each is a runtime-driven key, and the one shape the mechanism has:
+/// `parallel(self, ctx, items, step)`, with `step: fn(C, Int, A) => B`.
+/// `middle::lower` reads that shape once and writes an
+/// [`crate::compiler::middle::ir::Parallel`], whose operands are named, so a
+/// backend reaches the step, its context and its list without counting
+/// arguments.
+///
+/// The receiver carries the *effect* and `ctx` the *authority*, and they are
+/// two arguments because they are two values: the receiver is the scheduler
+/// (for `TestTasks` a live handle the runtime reads), while `ctx` is the
+/// caller's whole context, which is what `Tasks` promises every step. Handing
+/// a step the receiver instead made a step reading a clock out of its context
+/// read the scheduler's bytes.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct StepCall {
-    /// Which loop it is, in the vocabulary [`list_call`] already has: the same
-    /// operation reached a second way, so it is named the same way.
-    pub kind: Step,
-    /// The context, where the *step* takes one — the index into the Buri
-    /// argument list, as [`ListCall::ctx`].
-    pub ctx: Option<usize>,
-    /// The closure. **Always the last argument**, which is what lets the two
-    /// backends emit one C signature from one `runtime_table.rs` row: the
-    /// frame-threaded one appends the step's four words after the flattened
-    /// arguments, the LLVM one writes them at the closure's own position, and
-    /// the two agree because the closure is where the arguments end.
-    /// `the_step_is_the_last_argument`, below, is that claim as a test.
-    pub func: usize,
-    /// How many arguments the declaration takes, so that "the closure is last"
-    /// is checkable rather than remembered.
-    pub arity: usize,
-    /// Which of the **closure's own parameters** receives the runtime's index,
-    /// where the closure takes one.
-    ///
-    /// This is the one field that indexes into the step's signature rather than
-    /// into the intrinsic's argument list, and it has to: the index is not a
-    /// Buri argument at all. It is the loop counter, which only the runtime
-    /// has, so it arrives as the second word of `StepEntry` and the entry thunk
-    /// writes it into the parameter this names.
-    ///
-    /// `None` is a step that is not told where it is, whose closure is
-    /// `fn(C, A) => B`. The word still crosses (one C signature, not one per
-    /// key); the thunk ignores it, and no slot is reserved for it in the state
-    /// record.
-    pub index: Option<usize>,
+pub enum Tasks {
+    /// `host.HostTasks.parallel`, what the mechanism was built for: a walk on
+    /// the calling thread, or a task per step (`cli/runtime/rt.rs`).
+    Host,
+    /// `platform/effect/testing`'s scheduler. Its steps cross the same
+    /// boundary rather than a Buri loop of its own, so what a test runs its
+    /// program through is the mechanism the program ships on, with one
+    /// decision, the order, changed.
+    Testing,
 }
 
-/// The table. Two rows.
-///
-/// `host.HostTasks.parallel` is what the mechanism was built for. Four
-/// words, and today one walk — the native body runs the steps in index
-/// order on the calling thread (`cli/runtime/rt.rs`) — with a scheduler behind
-/// them in D4. It is the row that makes the index parameter necessary:
-/// `effect Tasks` hands the step its item's own index, and only the side
-/// driving the walk knows one.
-pub fn step_call(key: &str) -> Option<StepCall> {
-    match key {
-        // `parallel(self, ctx, items, f)`, with `f: fn(C, Int, A) => B`. The
-        // receiver carries the *effect* and `ctx` carries the *authority*, and
-        // they are two arguments because they are two values: argument 0
-        // dispatches — it is the scheduler, and for `TestTasks` it is a live
-        // handle the runtime reads — while argument 1 is the caller's whole
-        // context, which is what `Tasks` promises every step. Pointing this
-        // column at argument 0 is what handed a step the implementation, so a
-        // step reading a clock out of its context read the scheduler's bytes
-        // instead. The index is the closure's second parameter, between that
-        // context and the element.
-        "host.HostTasks.parallel" => Some(StepCall {
-            kind: Step::Map,
-            ctx: Some(1),
-            func: 3,
-            arity: 4,
-            index: Some(1),
-        }),
-        // `platform/effect/testing`'s scheduler, at the same four arguments. The
-        // double reaches its steps through this boundary rather than through a
-        // Buri loop of its own, and that is the point of it: what a test runs
-        // its program through is the mechanism the program will ship on, with
-        // one decision — the order — changed. Argument 0 is the live handle
-        // this one genuinely reads; argument 1 is the context, as above.
-        "host_testing.TestTasks.parallel" => Some(StepCall {
-            kind: Step::Map,
-            ctx: Some(1),
-            func: 3,
-            arity: 4,
-            index: Some(1),
-        }),
-        _ => None,
+impl Tasks {
+    /// Both, for a reader that enumerates them.
+    pub const ALL: [Tasks; 2] = [Tasks::Host, Tasks::Testing];
+
+    /// The scheduler `key` names, where it is one.
+    pub fn of(key: &str) -> Option<Tasks> {
+        Tasks::ALL.into_iter().find(|t| t.key() == key)
+    }
+
+    /// The intrinsic key.
+    pub fn key(self) -> &'static str {
+        match self {
+            Tasks::Host => "host.HostTasks.parallel",
+            Tasks::Testing => "host_testing.TestTasks.parallel",
+        }
     }
 }
-
-/// Whether a key is runtime-driven, asked ahead of emission.
-pub fn step_key(key: &str) -> bool {
-    step_call(key).is_some()
-}
-
-/// Every key [`step_call`] answers for, so that a reader — and the tests
-/// below — can enumerate them rather than rediscover them from a `match`.
-/// `the_table_and_the_roll_agree`, below, is what keeps the two from drifting.
-pub const STEP_KEYS: &[&str] = &["host.HostTasks.parallel", "host_testing.TestTasks.parallel"];
 
 /// Whether this key **hands its step the caller's context**, and so waits
 /// exactly when the step waits.
@@ -549,8 +505,7 @@ pub const STEP_KEYS: &[&str] = &["host.HostTasks.parallel", "host_testing.TestTa
 /// Asked of both tables because a key belongs to one or the other: `mapCtx` is
 /// open-coded and `Tasks.parallel` is runtime-driven.
 pub fn ctx_step_key(key: &str) -> bool {
-    list_call(key).is_some_and(|c| c.ctx.is_some())
-        || step_call(key).is_some_and(|c| c.ctx.is_some())
+    list_call(key).is_some_and(|c| c.ctx.is_some()) || Tasks::of(key).is_some()
 }
 
 #[cfg(test)]
@@ -612,25 +567,11 @@ mod tests {
         }
     }
 
-    /// The invariant the two runtime tables rest on. See [`StepCall::func`].
+    /// Each scheduler's key names it, and no other key names one.
     #[test]
-    fn the_step_is_the_last_argument() {
-        for key in STEP_KEYS {
-            let call = step_call(key).unwrap_or_else(|| panic!("{key}"));
-            assert_eq!(call.func + 1, call.arity, "{key}");
-        }
-    }
-
-    /// The roll and the table name the same keys. A key in one and not the
-    /// other is a table whose two readers disagree about what is in it.
-    #[test]
-    fn the_table_and_the_roll_agree() {
-        assert!(
-            !STEP_KEYS.is_empty(),
-            "a mechanism with no key is a mechanism with no test"
-        );
-        for key in STEP_KEYS {
-            assert!(step_key(key), "{key} is on the roll and not in the table");
+    fn a_scheduler_is_named_by_its_key() {
+        for tasks in Tasks::ALL {
+            assert_eq!(Tasks::of(tasks.key()), Some(tasks), "{tasks:?}");
         }
         for key in [
             "list.map",
@@ -641,55 +582,7 @@ mod tests {
             "host.HostTasks",
             "host.HostTasks.parallelly",
         ] {
-            assert_eq!(step_key(key), STEP_KEYS.contains(&key), "{key}");
-        }
-    }
-
-    /// The index is a property of the *key*, and only one key has one.
-    ///
-    /// It cannot be derived from the signature — two steps can take the same
-    /// types and mean different things by the second parameter — so it is in
-    /// the table, and both backends read it from here. What it names is a
-    /// position in the *closure's* parameters, and the two facts that make that
-    /// position usable are asserted rather than assumed: it is not the element
-    /// (which is last and travels through `arg`), and it is not the context
-    /// (which is a Buri argument and travels in the record).
-    #[test]
-    fn only_a_key_that_promises_an_index_is_given_one() {
-        let tasks = step_call("host.HostTasks.parallel").expect("the scheduler");
-        assert_eq!(
-            tasks.index,
-            Some(1),
-            "`effect Tasks` names the index second"
-        );
-        assert_ne!(
-            tasks.index,
-            Some(tasks.arity - 1),
-            "the index is not the element"
-        );
-        // A step told where it is still takes its context out of the record,
-        // and that context is still the argument the table names — argument 1,
-        // `ctx`, and not argument 0, which is the scheduler. The two are
-        // different values and the assertion says which is which, because
-        // naming the receiver here is the bug this row is the fix for.
-        assert_eq!(
-            tasks.ctx,
-            Some(1),
-            "`parallel`'s context is its own parameter"
-        );
-        assert_ne!(
-            tasks.ctx,
-            Some(0),
-            "argument 0 is the implementation, not the context"
-        );
-        for key in STEP_KEYS {
-            let call = step_call(key).expect(key);
-            assert_ne!(
-                call.ctx,
-                Some(call.func),
-                "{key}: the closure is not its own context"
-            );
-            assert_ne!(call.ctx, None, "{key}: a step is always handed a context");
+            assert_eq!(Tasks::of(key), None, "{key}");
         }
     }
 
@@ -698,14 +591,12 @@ mod tests {
     /// whichever the backend asked about first would win, silently.
     #[test]
     fn the_two_closure_tables_are_disjoint() {
-        for key in STEP_KEYS {
-            assert!(step_call(key).is_some(), "{key}");
-            assert!(list_call(key).is_none(), "{key}");
+        for tasks in Tasks::ALL {
+            assert!(list_call(tasks.key()).is_none(), "{tasks:?}");
         }
         for key in ["list.map", "list.mapCtx", "list.filterCtx", "list.sortBy"] {
             assert!(list_call(key).is_some(), "{key}");
-            assert!(step_call(key).is_none(), "{key}");
-            assert!(!step_key(key), "{key}");
+            assert!(Tasks::of(key).is_none(), "{key}");
         }
     }
 
