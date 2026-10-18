@@ -211,6 +211,41 @@ fn a_runner_recorded_outside_the_output_directory_is_restored() {
     );
 }
 
+/// A runner overwritten with another program is not started again: the suite
+/// runs the binary it was linked as.
+#[test]
+fn a_runner_overwritten_with_another_program_is_restored() {
+    if let Some(why) = ci::native_host_gap() {
+        ci::skipped("build::build_corners", &why);
+        return;
+    }
+    let scratch = suite("corners-overwritten");
+    let test = || scratch.run_with_env(&["test", "//lib/a"], &[LINKED]);
+    test().ok().says("1 passed, 0 failed");
+    let mut runners = Vec::new();
+    let mut dirs = vec![scratch.path(".buri/out")];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.file_name().is_some_and(|n| n == "test-runner") {
+                runners.push(path);
+            }
+        }
+    }
+    let [runner] = runners.as_slice() else {
+        panic!("no one runner was left where it ran: {runners:?}")
+    };
+    // A program that fails every suite it is started for.
+    std::fs::remove_file(runner).unwrap();
+    std::fs::write(runner, "#!/bin/sh\necho 'not the runner' >&2\nexit 3\n").unwrap();
+    std::fs::set_permissions(runner, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    // A golden is in the verdict's key and not in the build's.
+    scratch.write("lib/a/test/__snapshots__/unused.png", "not a picture\n");
+    test().ok().says("1 passed, 0 failed");
+}
+
 /// `BURI_COVERAGE_STD=1` under MC/DC counts the standard library, and a suite
 /// that calls its built-in generic operations is counted like any other.
 #[test]
