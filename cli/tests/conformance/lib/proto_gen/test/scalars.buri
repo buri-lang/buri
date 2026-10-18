@@ -298,3 +298,39 @@ test "a map key of each kind is written in its own wire type, and read from JSON
     assert.equal(holding(ctx, out, "proto.unsignedText(c, k)").length(), 2);
     assert.equal(holding(ctx, out, "proto.intText(c, k)").length(), 8);
 }
+
+test "an enum field is skipped at its zero, packed when repeated, and a map's value" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let source = [
+        HEAD,
+        "enum Mood { CALM = 0; GLAD = 1; }\n",
+        "message M {\n",
+        "  Mood a = 1 [features.field_presence = IMPLICIT];\n",
+        "  repeated Mood b = 2;\n",
+        "  map<string, Mood> c = 3;\n",
+        "}\n",
+    ].join(ctx, "");
+    let moods = holding(ctx, lines(ctx, source), "Mood");
+    // An implicit field defaults to the enum's zero and isn't written at it.
+    assert.contains(
+        moods,
+        "M { a: Mood.CALM, b: list.empty<Mood>(), c: orderedmap.empty<Str, Mood>() }",
+    );
+    assert.contains(
+        moods,
+        "let size = if (encodeMood(value.a) == 0) { 0 } else { 1 + proto.varintSize(encodeMood(value.a)) };",
+    );
+    // A packed run is a list of numbers, each decoded as the enum.
+    assert.contains(
+        moods,
+        "readM(ctx, b, after, end, base, M { ..acc, b: acc.b.concat(ctx, values.map(ctx, fn(v) => decodeMood(proto.signed32(v)))) })",
+    );
+    // An entry that leaves its value out holds the enum's zero.
+    assert.contains(
+        moods,
+        "let (key, item) = readM_cEntry(ctx, b, raw, after, raw, \"\", Mood.CALM)?;",
+    );
+    assert.contains(moods, "let got = decodeMood(proto.signed32(raw));");
+}

@@ -713,17 +713,17 @@ export fn isOptional(f: ResolvedField): Bool {
 
 fn fieldType(f: ResolvedField): ast.Type {
     let base = baseType(f.ty);
-    if (mapKey(f).isSome()) {
-        match (mapKey(f)) {
-            .Some(k) => mapType(f, k),
-            .None => base,
-        }
-    } else if (isRepeated(f)) {
-        tyArray(base)
-    } else if (isOptional(f)) {
-        tyOf("Option", [base])
-    } else {
-        base
+    match (mapKey(f)) {
+        .Some(k) => mapType(f, k),
+        .None => {
+            if (isRepeated(f)) {
+                tyArray(base)
+            } else if (isOptional(f)) {
+                tyOf("Option", [base])
+            } else {
+                base
+            }
+        },
     }
 }
 
@@ -1287,39 +1287,39 @@ fn structItem<C: Allocator>(
 // -----------------------------------------------------------------------------
 
 export fn defaultOf(f: ResolvedField): ast.Expr {
-    if (mapKey(f).isSome()) {
-        match (mapKey(f)) {
-            .Some(k) => emptyMap(f, k),
-            .None => variantE("None"),
-        }
-    } else if (isRepeated(f)) {
-        emptyList(baseType(f.ty))
-    } else if (isOptional(f)) {
-        variantE("None")
-    } else {
-        match (f.ty) {
-            .Scalar(s) => {
-                let k = scalarName(s);
-                if (k == "bool") {
-                    ex(.Bool(false))
-                } else if (k == "string") {
-                    strE("")
-                } else if (k == "bytes") {
-                    emptyList(tyNamed("U8"))
-                } else if (k == "double" || k == "float") {
-                    ex(.Float(0.0))
-                } else {
-                    intE(0)
+    match (mapKey(f)) {
+        .Some(k) => emptyMap(f, k),
+        .None => {
+            if (isRepeated(f)) {
+                emptyList(baseType(f.ty))
+            } else if (isOptional(f)) {
+                variantE("None")
+            } else {
+                match (f.ty) {
+                    .Scalar(s) => {
+                        let k = scalarName(s);
+                        if (k == "bool") {
+                            ex(.Bool(false))
+                        } else if (k == "string") {
+                            strE("")
+                        } else if (k == "bytes") {
+                            emptyList(tyNamed("U8"))
+                        } else if (k == "double" || k == "float") {
+                            ex(.Float(0.0))
+                        } else {
+                            intE(0)
+                        }
+                    },
+                    .Named(e) => {
+                        let zero = match (e.zero) {
+                            .Some(z) => z,
+                            .None => "UNSPECIFIED",
+                        };
+                        dot(id(e.buri), zero)
+                    },
                 }
-            },
-            .Named(e) => {
-                let zero = match (e.zero) {
-                    .Some(z) => z,
-                    .None => "UNSPECIFIED",
-                };
-                dot(id(e.buri), zero)
-            },
-        }
+            }
+        },
     }
 }
 

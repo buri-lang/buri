@@ -93,6 +93,11 @@ test "a message item that breaks off is refused, and the message is still read" 
             "5",
         ),
         (
+            "message M { .5 y = 1; int32 x = 1; }\n",
+            "expected a field type, found `.`",
+            ".",
+        ),
+        (
             "message M { map<5, int32> m = 1; int32 x = 1; }\n",
             "expected a map key type, found `5`",
             "5",
