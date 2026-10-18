@@ -824,3 +824,60 @@ In ui/theme, `valueText` now writes a token as `var(--name)`, and `.Page` calls 
 - **server 532: 1.** The `MAX_HANDLERS` clamp.
 - **ui/node 19, buri/ast 8, compression 6, str 5, random 5.** Not looked at.
 - **number 15, simd 8.** Traps.
+
+## Stdlib MC/DC phase 20
+
+### MC/DC
+
+| Module | Base | New |
+|---|---|---|
+| total | 9727/9958 (97.7%) | 9735/9941 (97.9%) |
+| core/orderedmap | 1157/1203 | 1170/1203 |
+| ui/node | 761/780 | 761/772 |
+| core/buri/ast | 1109/1117 | 1105/1111 |
+| core/str | 246/251 | 245/248 |
+
+Every other module is unchanged. The gate compares shares, not counts. buri/ast and str show fewer conditions because some that the refactors removed were shown. A script checked every module against `coverage/stdlib-mcdc.txt`, and no share dropped.
+
+### Refactors
+
+- **buri/ast.**
+  - `leadingImports` collects `(importKey, item)` pairs while it matches `.Import`. So `isImport` and `importKey`'s unreachable `_other` arm are gone.
+  - `needsParens` no longer exempts a bare block. That exemption was a bug: `({ 1 }).abs()` printed as `{ 1 }.abs()`, which doesn't parse.
+- **str.**
+  - `equalsIgnoreCase` drops its length precheck, so `sameFolded`'s `_` arm is reachable.
+  - `composeFrom` carries the starter character, so it no longer reads it back through an `Option`.
+- **ui/node.** The compiler turns every `On`, `At` and `VisuallyHidden` into classes before a node holds it (`semantics::styles`; a non-static `On`/`At` is `style-not-static`). So their arms in `stylesReactiveAt`, `resolve` and `declare` are gone.
+
+### Tests
+
+- **Watchers that show a map that has split.**
+  - `memory/test/boxes.buri`: a `Tree` with eight kids.
+  - `proto/test/maps.buri`: `Maps` with eight places and eight nested maps, and a `Struct` with eight fields.
+- **A block heading a chain.**
+  - `buri_ast/test/expressions.buri` prints a bare block before `.length()`.
+  - `buri_ast/test/reading.buri` reads `({ 1 }).abs()` and `({ f })(2)` back.
+
+### Compiler bug, not fixed
+
+`buri format` refuses a file that holds `({ -1 }).abs()`. It reports that the file "does not parse", although `buri test` compiles and runs it. The formatter probably prints `{ -1 }.abs()`, the same bug buri/ast had.
+
+### What's left
+
+- **map: 35.** Collisions for keys that can't collide, and 318 `.None`. No buri-level refactor removes them without an intrinsic in `crates/middle`, or merging Entry and Collision at a cost to performance.
+- **orderedmap: 33.** `Bool`/`Mood`, and the `Str`/`[Entry]` codegen copies.
+- **tasks: 33, actor: 18.** Unchanged; see phase 18.
+- **number: 15, simd: 8.** Traps.
+- **ui/node: 11.**
+  - `nodeLines`' `.Raw` and `.Fragment` arms: only `bindDynamic` builds these, and `describe` never walks it.
+  - 879 `artworkOf` and the `each` `.None` arms at 1796 and 1802 can't be reached.
+  - 4113 `painted.checked .Some` and 4423 `slotAgain`, both for C = Scope, need a reactive toggle, or a reactive element with two pairs in one slot.
+- **buri/ast: 6.**
+  - 889 `derivedName _other`, and the `.None` arms of `elseLinks`/`elseForces`, are reached only by a hand-built tree.
+  - `digitAt` and `floatOf` are traps or reads that can't fail.
+- **compression: 6.** Shift traps and `at()`'s `withDefault`.
+- **random: 5.**
+  - The `%` traps at 179 and 180.
+  - Exchange `_` at 453.
+  - `radius == 0.0` at 467.
+- **str: 3.** 712 `withDefault`, and `digitAt` at 1224 and 1225.

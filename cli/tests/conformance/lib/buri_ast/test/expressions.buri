@@ -83,6 +83,12 @@ test "a block-like expression heading a chain takes parentheses" {
         ast.print(ctx, letOf(call(field(branch, "length"), []))).text,
         "let X: Int = (if (a) { b } else { c }).length();\n",
     );
+    // A bare block is block-like too: `{ c }.length()` would not parse.
+    let bare = ex(.Block(block([], [id("c")])));
+    assert.equal(
+        ast.print(ctx, letOf(call(field(bare, "length"), []))).text,
+        "let X: Int = ({ c }).length();\n",
+    );
 }
 
 test "a nested tuple index takes parentheses" {

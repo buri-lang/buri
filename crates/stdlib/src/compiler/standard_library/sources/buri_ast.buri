@@ -732,15 +732,15 @@ fn printModule<C: Allocator>(ctx: C, out: Out, m: Module): Out {
     let head = docs(ctx, out, m.docs, "//!");
     let gap = !m.docs.isEmpty() && !m.items.isEmpty();
     let afterDocs = if (gap) { nl(ctx, head) } else { head };
-    let run = leadingImports(m.items);
-    let sorted = sortImports(ctx, m.items.take(ctx, run));
-    let rest = m.items.drop(ctx, run);
+    let run = leadingImports(ctx, m.items, 0, []);
+    let sorted = sortImports(ctx, run);
+    let rest = m.items.drop(ctx, run.length());
     let afterImports = sorted.foldCtx(
         ctx,
         fn(c, o, it) => nl(c, item(c, o, it)),
         afterDocs,
     );
-    let started = if (run > 0 && !rest.isEmpty()) {
+    let started = if (!run.isEmpty() && !rest.isEmpty()) {
         nl(ctx, afterImports)
     } else {
         afterImports
@@ -748,29 +748,37 @@ fn printModule<C: Allocator>(ctx: C, out: Out, m: Module): Out {
     printDecls(ctx, started, rest)
 }
 
-/// How many of the leading items are imports. The formatter sorts that run and
-/// leaves every later import where it was written, so this does the same.
-fn leadingImports(items: [Item]): Int {
-    match (items.findIndex(fn(it) => !isImport(it))) {
-        .Some(i) => i,
-        .None => items.length(),
-    }
-}
-
-fn isImport(it: Item): Bool {
-    match (it.kind) {
-        .Import(_i) => true,
-        _other => false,
+/// The leading items that are imports, each beside the key it sorts by. The
+/// formatter sorts that run and leaves every later import where it was
+/// written, so this does the same.
+fn leadingImports<C: Allocator>(
+    ctx: C,
+    items: [Item],
+    at: Int,
+    acc: [((Int, Str, Str), Item)],
+): [((Int, Str, Str), Item)] {
+    match (items.get(at)) {
+        .None => acc,
+        .Some(it) => {
+            match (it.kind) {
+                .Import(i) => {
+                    leadingImports(
+                        ctx,
+                        items,
+                        at + 1,
+                        acc.push(ctx, (importKey(ctx, i), it)),
+                    )
+                },
+                _other => acc,
+            }
+        },
     }
 }
 
 /// The run in the order the formatter puts it in: the standard library first,
 /// then by path, then by clause.
-fn sortImports<C: Allocator>(ctx: C, items: [Item]): [Item] {
-    items
-        .mapCtx(ctx, fn(c, it) => (importKey(c, it), it))
-        .sortBy(ctx, fn(a, b) => keyOrder(a.0, b.0))
-        .map(ctx, fn(pair) => pair.1)
+fn sortImports<C: Allocator>(ctx: C, run: [((Int, Str, Str), Item)]): [Item] {
+    run.sortBy(ctx, fn(a, b) => keyOrder(a.0, b.0)).map(ctx, fn(pair) => pair.1)
 }
 
 fn keyOrder(a: (Int, Str, Str), b: (Int, Str, Str)): Order {
@@ -785,14 +793,9 @@ fn keyOrder(a: (Int, Str, Str), b: (Int, Str, Str)): Order {
     }
 }
 
-fn importKey<C: Allocator>(ctx: C, it: Item): (Int, Str, Str) {
-    match (it.kind) {
-        .Import(i) => {
-            let group = if (i.path.startsWith("//")) { 1 } else { 0 };
-            (group, i.path, clauseText(ctx, i.clause))
-        },
-        _other => (0, "", ""),
-    }
+fn importKey<C: Allocator>(ctx: C, i: Import): (Int, Str, Str) {
+    let group = if (i.path.startsWith("//")) { 1 } else { 0 };
+    (group, i.path, clauseText(ctx, i.clause))
 }
 
 fn clauseText<C: Allocator>(ctx: C, clause: ImportClause): Str {
@@ -2056,11 +2059,7 @@ fn isTupleIndex(e: Expr): Bool {
 /// A block-like expression may not head a postfix chain, so it takes
 /// parentheses; so does anything binding looser than a postfix operator.
 fn needsParens(e: Expr): Bool {
-    let blockish = match (e.kind) {
-        .Block(_b) => false,
-        _other => isBlockLike(e),
-    };
-    exprPrec(e) < 10 || blockish
+    exprPrec(e) < 10 || isBlockLike(e)
 }
 
 fn exprPrec(e: Expr): Int {
