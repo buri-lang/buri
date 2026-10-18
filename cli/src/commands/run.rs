@@ -288,6 +288,11 @@ fn serve_page(
 #[cfg(feature = "test-hooks")]
 static BUILT: crate::hold::Point = crate::hold::Point::new("page-built");
 
+/// Where a test lands a signal partway through a rebuild ([`crate::hold`]):
+/// each byte held is a signal, raised before the page is built again.
+#[cfg(feature = "test-hooks")]
+static REBUILDING: crate::hold::Point = crate::hold::Point::new("rebuilding");
+
 /// One pass of the watch loop: build the page again, into the same directory
 /// the server is answering out of.
 ///
@@ -349,6 +354,8 @@ fn rebuild(
         return stalled(2);
     };
     let inputs = watch::inputs(&session, &[target]);
+    #[cfg(feature = "test-hooks")]
+    REBUILDING.raised();
     let built = {
         let _writing = page.building();
         build_page(&mut session, target, &output, &args.flags)
