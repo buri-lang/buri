@@ -1720,8 +1720,11 @@ impl<'a> Lexer<'a> {
                 }
             }
             _ => {
+                // The whole character, so `\é` names `é` rather than its
+                // first byte, and the next token starts on a boundary.
+                self.pos = start.saturating_add(1);
+                let shown = self.next_char().to_string();
                 let span = self.span(start);
-                let shown = (c as char).to_string();
                 self.templated("unknown-escape", span).bind("escape", shown);
                 return None;
             }

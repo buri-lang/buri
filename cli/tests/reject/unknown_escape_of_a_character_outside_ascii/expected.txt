@@ -1,0 +1,16 @@
+error: unknown escape `\é` [unknown-escape]
+ --> cmd/unknown_escape_of_a_character_outside_ascii/main.buri:3:9
+  |
+3 |     "caf\é"
+  |         ^^
+  |
+  = the escapes are \n \r \t \0 \\ \" \' \$ and \u{...}
+  = fix: the escapes are `\n` `\r` `\t` `\0` `\\` `\"` `\'` `\$` and `\u{...}`
+error: unknown escape `\😀` [unknown-escape]
+ --> cmd/unknown_escape_of_a_character_outside_ascii/main.buri:7:6
+  |
+7 |     '\😀'
+  |      ^^
+  |
+  = the escapes are \n \r \t \0 \\ \" \' \$ and \u{...}
+  = fix: the escapes are `\n` `\r` `\t` `\0` `\\` `\"` `\'` `\$` and `\u{...}`
