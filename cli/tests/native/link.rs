@@ -843,36 +843,28 @@ fn keys(pairs: &[(&str, &str)]) -> Vec<(String, ActionKey)> {
 /// The case a watch loop hits on every keystroke inside a comment: nothing's IR
 /// moved, so no unit is re-emitted and the backend is never entered at all.
 ///
-/// Asserted by handing `codegen_units` a closure that panics. "The backend was
-/// not called" is then a fact this establishes rather than a claim about a call
-/// that happened not to be made.
+/// Asserted by handing `codegen_units_for` a closure that panics. "The backend
+/// was not called" is then a fact this establishes rather than a claim about a
+/// call that happened not to be made.
 #[test]
 fn every_unit_cached_never_reaches_the_backend() {
     let root = workspace("all-cached");
     let cache = Cache::open(&root);
     let keys = keys(&[("lib_answer", "fn answer -> 1"), ("main", "fn main")]);
 
-    let first = ok(actions::codegen_units(&cache, &keys, false, || {
-        Ok(vec![
-            Emitted {
-                name: "lib_answer.o".into(),
-                key: Some(keys[0].1.clone()),
-                bytes: b"AAAA".to_vec(),
-            },
-            Emitted {
-                name: "main.o".into(),
-                key: Some(keys[1].1.clone()),
-                bytes: b"MMMM".to_vec(),
-            },
-        ])
-    }));
+    let first = ok(actions::codegen_units_for(
+        &cache,
+        &keys,
+        false,
+        objects(&[("lib_answer", b"AAAA"), ("main", b"MMMM")]),
+    ));
     assert_eq!(
         first.iter().filter(|(_, cached)| *cached).count(),
         0,
         "a first build hit"
     );
 
-    let second = ok(actions::codegen_units(&cache, &keys, false, || {
+    let second = ok(actions::codegen_units_for(&cache, &keys, false, |_| {
         panic!("the backend was entered although every unit's key was unchanged")
     }));
     assert!(
@@ -895,36 +887,24 @@ fn editing_one_unit_re_emits_exactly_that_unit() {
     let root = workspace("one-unit");
     let cache = Cache::open(&root);
     let before = keys(&[("lib_answer", "fn answer -> 1"), ("main", "fn main")]);
-    let objects = |bytes: &'static [u8]| {
-        move || {
-            Ok(vec![
-                Emitted {
-                    name: "lib_answer.o".into(),
-                    key: Some(ActionKey::of(b"")),
-                    bytes: bytes.to_vec(),
-                },
-                Emitted {
-                    name: "main.o".into(),
-                    key: Some(ActionKey::of(b"")),
-                    bytes: b"MMMM".to_vec(),
-                },
-            ])
-        }
-    };
-    ok(actions::codegen_units(
+    ok(actions::codegen_units_for(
         &cache,
         &before,
         false,
-        objects(b"AAAA"),
+        objects(&[("lib_answer", b"AAAA"), ("main", b"MMMM")]),
     ));
 
     // One module edited: its unit's IR hash moves and the other's does not.
     let after = keys(&[("lib_answer", "fn answer -> 2"), ("main", "fn main")]);
-    let built = ok(actions::codegen_units(
+    let mut emit = objects(&[("lib_answer", b"BBBB"), ("main", b"NNNN")]);
+    let built = ok(actions::codegen_units_for(
         &cache,
         &after,
         false,
-        objects(b"BBBB"),
+        |wanted| {
+            assert_eq!(wanted, [0], "the backend was asked for the sibling too");
+            emit(wanted)
+        },
     ));
 
     let statuses: Vec<bool> = built.iter().map(|(_, cached)| *cached).collect();
@@ -945,10 +925,30 @@ fn editing_one_unit_re_emits_exactly_that_unit() {
     );
 
     // And the new object was stored, so going back is a hit in both units.
-    let again = ok(actions::codegen_units(&cache, &after, false, || {
+    let again = ok(actions::codegen_units_for(&cache, &after, false, |_| {
         panic!("the re-emitted object was not stored")
     }));
     assert!(again.iter().all(|(_, cached)| *cached));
+}
+
+/// A backend that answers each unit it is asked for, in the order asked, from
+/// `units`: one name and bytes per unit, in unit order.
+fn objects(
+    units: &'static [(&'static str, &'static [u8])],
+) -> impl FnMut(&[usize]) -> Result<Vec<Emitted>, buri::diagnostics::Diagnostics> {
+    move |wanted| {
+        Ok(wanted
+            .iter()
+            .map(|&unit| {
+                let (name, bytes) = units[unit];
+                Emitted {
+                    name: actions::object_name(name),
+                    key: Some(ActionKey::of(b"")),
+                    bytes: bytes.to_vec(),
+                }
+            })
+            .collect())
+    }
 }
 
 /// `--force` is the way past the cache here as everywhere else, so it is an
@@ -958,17 +958,11 @@ fn force_re_emits_every_unit() {
     let root = workspace("force");
     let cache = Cache::open(&root);
     let keys = keys(&[("main", "fn main")]);
-    let emit = || {
-        Ok(vec![Emitted {
-            name: "main.o".into(),
-            key: Some(ActionKey::of(b"")),
-            bytes: b"MMMM".to_vec(),
-        }])
-    };
-    ok(actions::codegen_units(&cache, &keys, false, emit));
-    let cached = ok(actions::codegen_units(&cache, &keys, false, emit));
+    let emit = || objects(&[("main", b"MMMM")]);
+    ok(actions::codegen_units_for(&cache, &keys, false, emit()));
+    let cached = ok(actions::codegen_units_for(&cache, &keys, false, emit()));
     assert!(cached[0].1, "an unchanged unit was re-emitted");
-    let forced = ok(actions::codegen_units(&cache, &keys, true, emit));
+    let forced = ok(actions::codegen_units_for(&cache, &keys, true, emit()));
     assert!(!forced[0].1, "--force was served from the cache");
 }
 

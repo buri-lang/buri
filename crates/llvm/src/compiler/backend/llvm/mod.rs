@@ -275,7 +275,7 @@ impl Llvm {
         let text = |module: &inkwell::module::Module<'_>, _: &inkwell::targets::TargetMachine| {
             Ok(module.to_string().into_bytes())
         };
-        let only = [unit];
+        let only = [unit as usize];
         let emitted = emit_selected(
             &lowered,
             &routes,
@@ -506,7 +506,7 @@ fn emit_selected(
         .units
         .iter()
         .enumerate()
-        .filter(|(i, _)| units.wants(*i as u32))
+        .filter(|(i, _)| units.wants(*i))
         .collect();
     // Largest first, by member count, with the unit index breaking ties so that
     // the order is a function of the program alone.

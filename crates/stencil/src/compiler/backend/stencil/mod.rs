@@ -465,7 +465,7 @@ impl Native for Stencil {
             shares: runtime::shares_counts(lowered),
         };
         let wanted: Vec<usize> = (0..lowered.units.len())
-            .filter(|i| units.wants(u32::try_from(*i).unwrap_or(0)))
+            .filter(|i| units.wants(*i))
             .collect();
 
         // **The functions are the grain, and not the units.** Emission used to
