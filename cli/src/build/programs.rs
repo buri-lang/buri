@@ -40,17 +40,12 @@ fn store() -> Option<PathBuf> {
 
 fn settle_in(store: &Path, binary: &Path) {
     // Already a link to an entry: `link::place_from` found the bytes there.
-    if let Some(target) = std::fs::read_link(binary)
-        .ok()
+    let target = std::fs::read_link(binary).ok();
+    if let Some(entry) = target
+        .as_deref()
         .filter(|t| t.starts_with(store))
+        .and_then(Path::parent)
     {
-        #[expect(
-            clippy::expect_used,
-            reason = "the target starts with the store, so it has a parent"
-        )]
-        let entry = target
-            .parent()
-            .expect("a link into the store names a file in an entry");
         touch(entry);
         return;
     }

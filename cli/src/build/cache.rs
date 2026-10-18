@@ -460,16 +460,11 @@ mod tag {
 
     /// Tags the file at `path`, best effort.
     pub fn set(path: &Path, tag: &[u8]) {
-        #[expect(
-            clippy::expect_used,
-            reason = "an entry's path is the cache directory's and a hex key"
-        )]
-        let path =
-            CString::new(path.as_os_str().as_bytes()).expect("a cache entry's path holds no NUL");
-        // SAFETY: two NUL-terminated strings and a buffer of the length given.
-        unsafe {
-            setxattr(path.as_ptr(), NAME.as_ptr(), tag.as_ptr(), tag.len(), 0, 0);
-        }
+        // A path with a NUL in it names no file, so there is nothing to tag.
+        let _ = CString::new(path.as_os_str().as_bytes()).map(|path| {
+            // SAFETY: two NUL-terminated strings and a buffer of the length given.
+            unsafe { setxattr(path.as_ptr(), NAME.as_ptr(), tag.as_ptr(), tag.len(), 0, 0) }
+        });
     }
 
     /// The tag on the file at `path`, if it has one.
