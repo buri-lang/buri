@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+ --> main.buri:7:45
+  |
+7 | export fn h(x: Int): Int { match (x) { 1 => @ { 2 // two
+  |                                             ^
+  |
+  = expected: an expression
+  = actual: `@`
+  = fix: write a value here

@@ -1,0 +1,9 @@
+error: expected `{`, found `,` [unexpected-token]
+ --> main.buri:4:36
+  |
+4 | export fn g(c: Bool): Int { if (c) , { 1 } else { 2 // two
+  |                                    ^
+  |
+  = expected: `{`
+  = actual: `,`
+  = fix: write `{` here

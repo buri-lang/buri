@@ -1,0 +1,23 @@
+error: a match arm ends with `,` [missing-comma]
+ --> main.buri:8:2
+  |
+8 | }_ , => 3 } }
+  |  ^
+  |
+  = fix: write `,` here
+error: a match arm is `pattern => expression` [missing-arrow]
+ --> main.buri:8:3
+  |
+8 | }_ , => 3 } }
+  |   ^
+  |
+  = fix: write `=>` here
+error: expected a pattern, found `=>` [unexpected-token]
+ --> main.buri:8:6
+  |
+8 | }_ , => 3 } }
+  |      ^^
+  |
+  = expected: a pattern
+  = actual: `=>`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

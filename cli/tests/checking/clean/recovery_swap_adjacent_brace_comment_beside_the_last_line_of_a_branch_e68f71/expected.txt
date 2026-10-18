@@ -1,0 +1,9 @@
+error: expected `{`, found `1` [unexpected-token]
+ --> main.buri:7:38
+  |
+7 | export fn h(x: Int): Int { match (x) 1 { => { 2 // two
+  |                                      ^
+  |
+  = expected: `{`
+  = actual: `1`
+  = fix: write `{` here

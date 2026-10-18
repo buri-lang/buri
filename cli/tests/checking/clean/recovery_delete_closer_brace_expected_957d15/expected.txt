@@ -1,0 +1,24 @@
+error: this block is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:21:9
+   |
+21 |         ,
+   |         ^
+   |
+  --> main.buri:19:14
+   |
+19 |         1 => {
+   |              ^ opened here
+   |
+   = fix: write `}` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:25:1
+   |
+25 | 
+   | ^
+   |
+  --> main.buri:17:26
+   |
+17 | export fn h(x: Int): Int {
+   |                          ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,9 @@
+error: expected `{`, found `extra` [unexpected-token]
+ --> main.buri:1:36
+  |
+1 | export fn f(c: Bool): Int { if (c) extra { 1 // one
+  |                                    ^^^^^
+  |
+  = expected: `{`
+  = actual: `extra`
+  = fix: write `{` here

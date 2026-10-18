@@ -1,0 +1,8 @@
+export fn f(): Int { { 1 // one
+} }
+
+export fn g(): Int { let x = { h(); // only a statement
+}; 1 }
+
+export fn h(): Int { let y = { 2 // two
+} y }
