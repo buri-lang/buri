@@ -119,6 +119,69 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 41: struct and variant declarations, units by position
+
+## What changed
+
+- `TyDef::Struct` has `form: StructForm` in place of `record: bool`.
+  `StructForm::Tuple(TupleDecl)` holds a tuple struct's generics and fields as
+  written. `Static::TupleStruct` carries the `TupleDecl`, so
+  `shape_of_struct` renders it with no lookup.
+- `VariantInfo.decl` is the variant as written, so `shape_of_variant` renders
+  it with no lookup.
+- `formatting::constructor` takes the name, generics and fields, and returns a
+  `String`. The record arm that answered `None` is gone.
+- `Units::Only` holds `usize` indices. `Native::emit_units` answers one object
+  for each unit asked for, in unit order. `emit_into` pairs units and objects
+  by position, so the name lookup and its `or_ice` are gone.
+- `actions::codegen_units` (a test-only wrapper whose closure ignored the
+  units) is gone. `cli/tests/native/link.rs` calls `codegen_units_for`, and
+  its fake backend answers the units it is asked for.
+- `buri-middle` has `buri-syntax` as a dev-dependency, for the layout tests'
+  `VariantInfo`.
+
+- `runtime_cross::cross_features` filters a `CROSSES` list by what the host
+  declares. Behaviour is the same. This keeps cli/build's branch fraction up:
+  deleting the name lookup removed two covered branches.
+
+## Status
+
+Done. Staging is at 933e79602.
+
+## Guards (`invariant`, `or_ice`)
+
+| File | Before | After |
+|---|---|---|
+| crates/semantics/.../expressions.rs | 2 | 0 |
+| cli/src/build/actions.rs | 1 | 0 |
+
+## Coverage (compiler branches)
+
+| Area | Local base | New | CI baseline |
+|---|---|---|---|
+| cli/build | 1628/1687 (96.50%) | 1625/1683 (96.55%) | 1680/1689 (99.47%), estimated 1677/1685 (99.53%) |
+| crates/semantics | 2158/2158 | 2154/2154 | 100% |
+
+Every other area is unchanged.
+
+## Notes
+
+- Constant conditions (`!runtime_native::AVAILABLE`, `cfg!`) are folded and
+  not counted. Removing one only drops its covered side, so that lowers the
+  fraction.
+- CI's uncovered cli/build branches can't be reached from an e2e test: the
+  `RuntimeArchive::Omitted` sides, a failing stencil `select`, lock and
+  symlink failures in `programs.rs`, and musl staging errors.
+
+## Output check
+
+- Same hashes for debug, release and JS on programs, example, tested and
+  conformance.
+- Differences:
+  - JS test libraries: a random `$t.seed` per run.
+  - One conformance tool file name: it is hashed from the checkout path.
+- Logs are the same once timings and paths are normalised.
+
 # Guard phase 40: semantics expressions, exhaustiveness, inference
 
 ## Guards
