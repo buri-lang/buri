@@ -1,4 +1,4 @@
-error: `\ ` is not an escape [json-syntax]
+error: `\` followed by the paragraph separator U+2029 is not an escape [json-syntax]
  --> lib/plain/paragraph.json:3:22
   |
 3 |     "ps": "paragraph \ separator"
@@ -20,15 +20,14 @@ error: `\ ` is not an escape [json-syntax]
     A file that does not parse is neither checked nor formatted, and the
     generator that lists it does not run.
 
-error: `\ ` is not an escape [json-syntax]
+error: `\` followed by the line separator U+2028 is not an escape [json-syntax]
  --> lib/plain/separator.json:3:17
   |
 3 |     "ls": "line \ separator"
   |                 ^^
   |
   = fix: write `\\` for a backslash
-error: `\
-` is not an escape [json-syntax]
+error: `\` followed by a line feed is not an escape [json-syntax]
  --> lib/plain/text.json:3:17
   |
 3 |     "lf": "line \

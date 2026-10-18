@@ -11,6 +11,7 @@
 //! `NaN`. A key written twice in one object is an error in all three.
 
 use super::number::{Decimal, Number};
+use buri_stdlib::compiler::standard_library::is_printable;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Dialect {
@@ -193,10 +194,16 @@ struct Parser<'t> {
     depth: usize,
 }
 
+/// How a message names `c`. A character that cannot be seen is named by its
+/// code point rather than written between backticks, where a line break would
+/// split the message and a non-breaking space would look like a space.
 fn describe(c: char) -> String {
     match c {
-        '\n' => "a line break".to_string(),
+        '\n' => "a line feed".to_string(),
+        '\u{2028}' => "the line separator U+2028".to_string(),
+        '\u{2029}' => "the paragraph separator U+2029".to_string(),
         c if c.is_control() => format!("the control character U+{:04X}", c as u32),
+        c if !is_printable(c) => format!("the character U+{:04X}", c as u32),
         c => format!("`{c}`"),
     }
 }
@@ -473,11 +480,12 @@ impl<'t> Parser<'t> {
             '\n' | '\u{2028}' | '\u{2029}' if json5 => {}
             c if json5 && !c.is_ascii_digit() => out.push(c),
             _ => {
-                return Err(self.error(
-                    span,
-                    &format!("`\\{c}` is not an escape"),
-                    "write `\\\\` for a backslash",
-                ))
+                let message = if is_printable(c) {
+                    format!("`\\{c}` is not an escape")
+                } else {
+                    format!("`\\` followed by {} is not an escape", describe(c))
+                };
+                return Err(self.error(span, &message, "write `\\\\` for a backslash"));
             }
         }
         Ok(())
