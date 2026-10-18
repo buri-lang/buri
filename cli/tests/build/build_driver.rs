@@ -964,7 +964,8 @@ fn a_damaged_linker_record_is_asked_again() {
 }
 
 /// A cross link drives the C driver with `--target=`, so a driver that can't
-/// compile for the target is refused before anything is built.
+/// compile for the target, or can't be run at all, is refused before anything
+/// is built.
 #[test]
 fn a_cross_link_needs_a_c_driver_that_takes_a_target() {
     let (variant, triple) = if cfg!(target_os = "linux") && cfg!(target_arch = "x86_64") {
@@ -976,17 +977,23 @@ fn a_cross_link_needs_a_c_driver_that_takes_a_target() {
         &format!("        {{ platform: \"native\", variant: \"{variant}\" }},\n"),
         NATIVE_MAIN,
     );
-    let cc = scratch
+    let refuses = scratch
         .write_executable("fake/cc", "#!/bin/sh\nexit 1\n")
         .display()
         .to_string();
-    scratch
-        .run_with_env(&["build", "//cmd/app"], &[("CC", &cc)])
-        .exits(1)
-        .says(&format!(
-            "error: the C driver cannot be pointed at {triple}, so it cannot cross-link"
-        ))
-        .says("fix: install a clang that understands `--target=`, or set `CC` to one");
+    let not_a_program = scratch
+        .write("fake/notes", "not a program\n")
+        .display()
+        .to_string();
+    for cc in [refuses, not_a_program] {
+        scratch
+            .run_with_env(&["build", "//cmd/app"], &[("CC", &cc)])
+            .exits(1)
+            .says(&format!(
+                "error: the C driver cannot be pointed at {triple}, so it cannot cross-link"
+            ))
+            .says("fix: install a clang that understands `--target=`, or set `CC` to one");
+    }
 }
 
 /// `BURI_MUSL` is a question about a Linux link. Elsewhere it's ignored. On
