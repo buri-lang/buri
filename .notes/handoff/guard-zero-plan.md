@@ -119,6 +119,41 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard plan, phase 49
+
+## Branches
+
+- **`emit.rs` ArrayGet overlap**: removed by a refactor (6d4f5ba73).
+  - The overlap can't happen: slots are 8-aligned, coalesced classes are disjoint, and `forward_fields` refuses a write over the field it reads.
+  - `elem_load` now reads before it writes on every path. 3, 5, 6 and 7-byte elements are copied, then masked. They were cleared first before.
+  - e2e test: `cli/tests/native/odd_sizes.rs` `elements_of_three_five_six_and_seven_bytes_read_back`.
+- **`object.rs` addend over 24 bits**: this was a real bug. A literal past 16 MiB failed to build on macOS. Fixed in 2d1580811.
+  - `assemble_unit` now gives each pool stretch past `MAX_ADDEND` an anchor of its own, so addends stay in range.
+  - e2e test: `a_literal_past_sixteen_mebibytes_builds_and_reads_back`. Both tests together take about 1.3 s.
+  - The check in `object.rs` (about line 612) is still uncovered (2 branches), because nothing can reach it now.
+- **`glue.rs` `load_through` unaligned offset**: not done. It's unreachable, because every rc site offset is a multiple of 8. Two ways to remove it:
+  - type the offsets through `counts.rs` and layout as aligned words; or
+  - always use the register-offset form, at a cost of one instruction per glue site.
+
+## Coverage (local, then CI)
+
+| Area | Local base | Local new | CI baseline | CI estimate |
+| --- | --- | --- | --- | --- |
+| stencil | 1039/1081 | 1040/1081 | 1090/1102 | 1091/1102 |
+| middle | 1840/1876 | 1840/1876 | 1832/1868 | 1832/1868 |
+| llvm | 547/548 | 547/548 | 580/580 | 580/580 |
+| backend | 64/64 | 64/64 | 68/68 | 68/68 |
+| total | | 14793/15064 | 14906/15095 | 14907/15095 |
+
+## Left
+
+- The `glue.rs` `load_through` unaligned offset (see above).
+- The `object.rs` addend check, now unreachable. To remove it, make the addend type carry its range.
+- `jit::fn_ty`: not started.
+  - Record arity on `MakeClosure` in `lower.rs`, at about lines 1160 and 1413.
+  - That also touches the IR printer (`ir.rs` about 1972), the llvm emitter (`emit.rs` about 978) and `linkage.rs`.
+  - Its ice arm doesn't seem to count in coverage, so removing it gains nothing.
+
 # Guard phase 48: closures the runtime keeps
 
 `Ui.memo`, `Ui.watch`, `ui_node.reactive`, `mount`, `rebuildRegion`, `reconcile`, the two timers and the six element handlers lower to one typed instruction, the way phase 46 did `Tasks.parallel`:
