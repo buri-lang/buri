@@ -3,7 +3,7 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 14906 15095 98.75%
+total 14883 15071 98.75%
 area cli/build 1677 1685 99.53%
 area cli/documentation 477 480 99.38%
 area cli/format 94 94 100.00%
@@ -19,11 +19,11 @@ area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 985 1018 96.76%
 area crates/llvm 580 580 100.00%
-area crates/middle 1832 1868 98.07%
+area crates/middle 1840 1876 98.08%
 area crates/project 1346 1360 98.97%
 area crates/semantics 2158 2158 100.00%
 area crates/stdlib 12 12 100.00%
-area crates/stencil 1090 1102 98.91%
+area crates/stencil 1069 1080 98.98%
 area crates/syntax 1210 1212 99.83%
 260 261 cli/src/build/actions.rs
 44 44 cli/src/build/cache.rs
@@ -105,7 +105,7 @@ area crates/syntax 1210 1212 99.83%
 6 6 crates/backend/src/compiler/backend/linkage.rs
 8 8 crates/backend/src/compiler/backend/mod.rs
 24 24 crates/backend/src/compiler/backend/runtime_native.rs
-14 14 crates/backend/src/compiler/backend/runtime_table.rs
+10 10 crates/backend/src/compiler/backend/runtime_table.rs
 0 0 crates/backend/src/compiler/backend/task_thread.rs
 98 98 crates/diagnostics/src/diagnostics.rs
 44 44 crates/diagnostics/src/json.rs
@@ -128,7 +128,7 @@ area crates/syntax 1210 1212 99.83%
 68 70 crates/js/src/compiler/backend/js/park.rs
 52 52 crates/llvm/src/compiler/backend/llvm/attrs.rs
 10 10 crates/llvm/src/compiler/backend/llvm/build.rs
-442 442 crates/llvm/src/compiler/backend/llvm/emit.rs
+436 436 crates/llvm/src/compiler/backend/llvm/emit.rs
 6 6 crates/llvm/src/compiler/backend/llvm/mod.rs
 44 44 crates/llvm/src/compiler/backend/llvm/repr.rs
 0 0 crates/llvm/src/compiler/backend/llvm/route.rs
@@ -148,7 +148,7 @@ area crates/syntax 1210 1212 99.83%
 66 66 crates/middle/src/compiler/middle/ir.rs
 46 46 crates/middle/src/compiler/middle/layout.rs
 130 130 crates/middle/src/compiler/middle/lower.rs
-38 38 crates/middle/src/compiler/middle/lower/lists.rs
+46 46 crates/middle/src/compiler/middle/lower/lists.rs
 16 16 crates/middle/src/compiler/middle/mod.rs
 178 190 crates/middle/src/compiler/middle/monomorphize.rs
 104 108 crates/middle/src/compiler/middle/monomorphize/hand_written.rs
@@ -195,7 +195,7 @@ area crates/syntax 1210 1212 99.83%
 22 22 crates/stencil/src/compiler/backend/stencil/asm.rs
 38 40 crates/stencil/src/compiler/backend/stencil/elf.rs
 269 270 crates/stencil/src/compiler/backend/stencil/emit.rs
-85 86 crates/stencil/src/compiler/backend/stencil/glue.rs
+87 88 crates/stencil/src/compiler/backend/stencil/glue.rs
 445 448 crates/stencil/src/compiler/backend/stencil/jit.rs
 4 4 crates/stencil/src/compiler/backend/stencil/library.rs
 18 18 crates/stencil/src/compiler/backend/stencil/lists.rs
@@ -203,7 +203,7 @@ area crates/syntax 1210 1212 99.83%
 42 44 crates/stencil/src/compiler/backend/stencil/object.rs
 12 12 crates/stencil/src/compiler/backend/stencil/region.rs
 6 6 crates/stencil/src/compiler/backend/stencil/route.rs
-105 106 crates/stencil/src/compiler/backend/stencil/rtcall.rs
+82 82 crates/stencil/src/compiler/backend/stencil/rtcall.rs
 0 0 crates/stencil/src/compiler/backend/stencil/runtime.rs
 378 380 crates/syntax/src/formatting.rs
 30 30 crates/syntax/src/layout.rs
