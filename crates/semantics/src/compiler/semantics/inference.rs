@@ -198,7 +198,19 @@ fn check_fn(c: &mut Checker, fid: FnId) -> Option<std::sync::Arc<typed::Body>> {
     let body_span = inf.t.block_span(body);
     let expr = inf.check_block(body, Some(&expected));
     inf.unify_at(body_span, &expr.ty, &expected, "the declared return type");
-    let hir_body = std::sync::Arc::new(inf.finish(expr));
+    let mut hir_body = inf.finish(expr);
+    let t = c.tree(module);
+    hir_body.bounds_written = t
+        .list(decl.generics)
+        .iter()
+        .map(|g| {
+            t.type_list(g.bounds)
+                .iter()
+                .map(|b| t.type_span(*b))
+                .collect()
+        })
+        .collect();
+    let hir_body = std::sync::Arc::new(hir_body);
     c.bodies.insert(fid, std::sync::Arc::clone(&hir_body));
     Some(hir_body)
 }
@@ -679,6 +691,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             params: std::mem::take(&mut self.params),
             expr,
             bounds_used,
+            bounds_written: Vec::new(),
         }
     }
 
