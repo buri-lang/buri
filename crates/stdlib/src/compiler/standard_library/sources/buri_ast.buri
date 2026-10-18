@@ -3160,9 +3160,9 @@ fn isPunctuation(c: Char): Bool {
 derive Equal, Show for ParseError;
 /// Why a source did not parse, and where.
 ///
-/// `message` reads the way the compiler's own `unexpected-token` reads —
-/// `expected an identifier, found `=`` — and `span` is the byte range of the
-/// token it is about, so an editor can underline it. There is no `file`: it is
+/// `message` is the compiler's own wording for the mistake —
+/// `expected an identifier, found `=`` — and `span` is the byte range it
+/// reports, so an editor can underline it. There is no `file`: it is
 /// the one [`parse`] was handed.
 export struct ParseError {
     export message: Str,
@@ -3170,20 +3170,33 @@ export struct ParseError {
 }
 
 /// The parser's whole state: where it is, what it has said, and whether it is
-/// looking for the next declaration.
+/// unwinding to the next place it can pick the walk back up.
 ///
-/// `lexical` is where the lexer refused something and `open` is which tokens
-/// are strings with no closing quote: the compiler says nothing more about
-/// either, so neither does this.
+/// It is the compiler's parser read as a value. `panicking` is the compiler's
+/// bail: while it is set every step is a no-op, until a recovery point clears
+/// it and skips to where reading can resume. `reported` is every span already
+/// spoken for, the lexer's included, so one mistake is said once. `open` is
+/// which tokens are strings with no closing quote. `trial` counts speculative
+/// readings, which say nothing. `early` is a token written one place too soon
+/// and held for the production that wants it, or `-1`. `armBody` is how many
+/// match-arm bodies the cursor is inside, `closed` how the last closer was
+/// found — `0` where it was, `1` further on, `2` nowhere — and `depth` how
+/// deep the reading nests.
 struct P {
     file: Str,
+    source: Str,
     tokens: [Token],
     docs: [[Str]],
     index: Int,
     errors: [ParseError],
     panicking: Bool,
-    lexical: [Span],
+    reported: [Span],
     open: [Int],
+    trial: Int,
+    early: Int,
+    armBody: Int,
+    closed: Int,
+    depth: Int,
 }
 
 /// The token stream with its trivia sorted: the significant tokens, the doc
@@ -3232,11 +3245,12 @@ struct Prep {
 /// export type Id = Int;
 /// ```
 ///
-/// **Every declaration that failed is reported, not only the first.** A
-/// declaration that does not parse is skipped whole — the walk resumes at the
-/// next token outside every bracket that can begin one — so a file with three
-/// mistakes in three functions answers three errors, and a mistake inside a
-/// function costs that function and nothing after it.
+/// **The errors are the compiler's.** Each syntax error comes back with the
+/// message and span `buri build` reports for it, and the walk recovers where
+/// the compiler's does: a missing `,`, `;` or closing bracket is reported and
+/// read past, a statement that fails costs that statement, and a declaration
+/// that fails costs that declaration. So a file with three mistakes in three
+/// functions answers three errors.
 ///
 /// **The text that comes back is not the text that went in.** `print` has no
 /// page width, it drops `//` comments, it sorts the leading import run and it
@@ -3246,9 +3260,9 @@ struct Prep {
 ///
 /// **It reads the grammar and nothing else.** Where a source is well-formed
 /// text and ill-formed *program* — `export fn` on a method that satisfies a
-/// trait, a `test` outside a test source, a `//!` after the first declaration —
-/// this answers a tree and the compiler is what says no. So a `.Ok` here is not
-/// a promise that the source compiles.
+/// trait, a function with no body, a `test` outside a test source, a `//!`
+/// after the first declaration — this answers a tree and the compiler is what
+/// says no. So a `.Ok` here is not a promise that the source compiles.
 ///
 /// Reading costs one `[Char]` of the source, one `[Token]`, and a walk.
 export fn parse<C: Allocator>(
@@ -3259,13 +3273,19 @@ export fn parse<C: Allocator>(
     let prepared = prepare(ctx, lex(ctx, source));
     let start = P {
         file: file,
+        source: source,
         tokens: prepared.tokens,
         docs: prepared.docs,
         index: 0,
         errors: prepared.errors,
         panicking: false,
-        lexical: prepared.errors.map(ctx, fn(e) => e.span),
+        reported: prepared.errors.map(ctx, fn(e) => e.span),
         open: prepared.open,
+        trial: 0,
+        early: -1,
+        armBody: 0,
+        closed: 0,
+        depth: 0,
     };
     let (end, items) = parseItems(ctx, start, []);
     if (end.errors.isEmpty()) {
@@ -3344,6 +3364,12 @@ fn docBody(text: Str): Str {
 // The cursor
 // -----------------------------------------------------------------------------
 
+/// How deep the reading may nest, and how far a lookahead may scan: the
+/// compiler's own bounds.
+let MAX_DEPTH: Int = 256;
+
+let MAX_LOOKAHEAD: Int = 256;
+
 fn tokenAt(p: P, offset: Int): Token {
     match (p.tokens.get(p.index + offset)) {
         .Some(t) => t,
@@ -3351,13 +3377,10 @@ fn tokenAt(p: P, offset: Int): Token {
     }
 }
 
-/// The zero-width token past the last one. Its empty text is what tells it from
-/// every real token, none of which is empty.
+/// The zero-width token at the end of the source. Its empty text is what tells
+/// it from every real token, none of which is empty.
 fn endToken(p: P): Token {
-    let at = match (p.tokens.last()) {
-        .Some(t) => t.span.end,
-        .None => 0,
-    };
+    let at = p.source.length();
     Token { kind: TokenKind.Unknown, text: "", span: Span { start: at, end: at } }
 }
 
@@ -3365,30 +3388,31 @@ fn isEnd(p: P): Bool {
     p.index >= p.tokens.length()
 }
 
+/// One token on. The cursor stays on the end of the file once it is there.
 fn advance(p: P): P {
-    P { ..p, index: p.index + 1 }
+    if (isEnd(p)) { p } else { P { ..p, index: p.index + 1 } }
 }
 
 fn at(p: P, text: Str): Bool {
     p.panicking == false && tokenAt(p, 0).text == text
 }
 
-/// Unlike `at`, no check for a failure: every caller is reached only while
-/// nothing has failed.
-fn atKind(p: P, kind: TokenKind): Bool {
-    tokenAt(p, 0).kind == kind
-}
-
 fn here(p: P): Span {
     tokenAt(p, 0).span
 }
 
+/// The token just read, or the first one before anything has been.
+fn prevSpan(p: P): Span {
+    tokenAt(p, -1).span
+}
+
+fn point(at: Int): Span {
+    Span { start: at, end: at }
+}
+
 /// The end of the token just consumed, which is where a node stops.
 fn lastEnd(p: P): Int {
-    match (p.tokens.get(p.index - 1)) {
-        .Some(t) => t.span.end,
-        .None => 0,
-    }
+    prevSpan(p).end
 }
 
 fn spanFrom(p: P, start: Span): Span {
@@ -3404,57 +3428,513 @@ fn originAt(p: P, span: Span): Origin {
 }
 
 fn docsHere(p: P): [Str] {
-    match (p.docs.get(p.index)) {
-        .Some(d) => d,
-        .None => [],
-    }
+    p.docs.getOr(p.index, [])
+}
+
+fn nameOf(p: P, t: Token): Name {
+    Name { text: t.text, origin: originAt(p, t.span) }
+}
+
+// --- what a token can begin ------------------------------------------------------
+
+fn isIdent(t: Token): Bool {
+    t.kind == TokenKind.Identifier
+}
+
+fn isStr(t: Token): Bool {
+    t.kind == TokenKind.Str
+}
+
+fn isCtx(t: Token): Bool {
+    t.text == "ctx"
+}
+
+fn startsExpr(t: Token): Bool {
+    [
+        TokenKind.Identifier,
+        TokenKind.Int,
+        TokenKind.Float,
+        TokenKind.Str,
+        TokenKind.Char,
+        TokenKind.TemplateHead,
+    ].contains(t.kind)
+        || [
+            "true",
+            "false",
+            "self",
+            "ctx",
+            "if",
+            "match",
+            "context",
+            "fn",
+            ".",
+            "[",
+            "(",
+            "{",
+            "-",
+            "!",
+            "~",
+        ].contains(t.text)
+}
+
+/// [`startsExpr`] less the three tokens that continue the expression before
+/// them.
+fn startsStatement(t: Token): Bool {
+    startsExpr(t) && [".", "(", "["].contains(t.text) == false
+}
+
+fn startsPattern(t: Token): Bool {
+    [
+        TokenKind.Identifier,
+        TokenKind.Int,
+        TokenKind.Float,
+        TokenKind.Str,
+        TokenKind.Char,
+    ].contains(t.kind)
+        || ["_", "-", "true", "false", ".", "[", "("].contains(t.text)
+}
+
+fn startsType(t: Token): Bool {
+    isIdent(t) || ["fn", "Self", "[", "("].contains(t.text)
+}
+
+fn startsName(t: Token): Bool {
+    isIdent(t)
+}
+
+fn startsField(t: Token): Bool {
+    isIdent(t) || t.text == "export"
+}
+
+fn startsParam(t: Token): Bool {
+    isIdent(t) || ["self", "ctx"].contains(t.text)
+}
+
+fn startsTupleField(t: Token): Bool {
+    startsType(t) || t.text == "export"
+}
+
+/// The keywords no statement starts with, so a block that reaches one has
+/// lost its `}`.
+fn startsDeclaration(t: Token): Bool {
+    [
+        "from",
+        "export",
+        "struct",
+        "enum",
+        "type",
+        "trait",
+        "effect",
+        "impl",
+        "derive",
+        "test",
+        "const",
+    ].contains(t.text)
+}
+
+fn startsPostfix(t: Token): Bool {
+    [".", "(", "[", "?", "<", "::", "{"].contains(t.text)
+}
+
+/// A token written in front of what a production wants rather than part of
+/// it: two operators of other constructs, and a misplaced modifier.
+fn strayToken(t: Token): Bool {
+    ["@", "?", "export"].contains(t.text)
+}
+
+fn opener(t: Token): Bool {
+    ["{", "(", "["].contains(t.text)
+}
+
+fn closer(t: Token): Bool {
+    ["}", ")", "]"].contains(t.text)
 }
 
 // -----------------------------------------------------------------------------
 // Saying no
 // -----------------------------------------------------------------------------
 
-/// The compiler's own wording: what was wanted, and what was there.
-fn expected<C: Allocator>(ctx: C, p: P, what: Str): P {
-    if (p.panicking) {
-        p
+fn bail(p: P): P {
+    P { ..p, panicking: true }
+}
+
+/// A recovery point: the walk reads again from here.
+fn resume(p: P): P {
+    P { ..p, panicking: false }
+}
+
+fn onOpen(p: P): Bool {
+    p.open.contains(p.index)
+}
+
+/// Whether the token just read was a string with no closing quote, which may
+/// be holding whatever comes next.
+fn afterOpen(p: P): Bool {
+    p.open.contains(p.index - 1)
+}
+
+/// How a message names a token.
+fn describe<C: Allocator>(ctx: C, t: Token): Str {
+    if (t.text == "") {
+        "end of file"
+    } else if (t.kind == TokenKind.Str) {
+        "a string literal"
+    } else if (t.kind == TokenKind.Char) {
+        "a character literal"
     } else if (
-        p.lexical.contains(here(p))
-            || p.open.contains(p.index)
-            || p.open.contains(p.index - 1)
+        [
+            TokenKind.TemplateHead,
+            TokenKind.TemplateSpan,
+            TokenKind.TemplateTail,
+        ].contains(t.kind)
     ) {
-        P { ..p, panicking: true }
+        "an interpolated string"
     } else {
-        let found = if (isEnd(p)) {
-            "the end of the file"
-        } else {
-            str.format(ctx, "`${tokenAt(p, 0).text}`")
-        };
+        str.format(ctx, "`${t.text}`")
+    }
+}
+
+/// One error, said once: nothing while unwinding, nothing in a trial, and
+/// nothing at a span already spoken for.
+fn report<C: Allocator>(ctx: C, p: P, span: Span, message: Str): P {
+    if (p.panicking || p.trial > 0 || p.reported.contains(span)) {
+        p
+    } else {
         P {
             ..p,
-            panicking: true,
-            errors: p
-                .errors
-                .push(ctx, ParseError {
-                    message: str.format(ctx, "expected ${what}, found ${found}"),
-                    span: here(p),
-                }),
+            reported: p.reported.push(ctx, span),
+            errors: p.errors.push(ctx, ParseError { message: message, span: span }),
         }
     }
 }
 
-fn eat<C: Allocator>(ctx: C, p: P, text: Str, what: Str): P {
-    if (p.panicking) {
+/// The compiler's `unexpected-token`. A string with no closing quote under the
+/// cursor is the mistake, and the lexer already said so.
+fn expectedAs<C: Allocator>(ctx: C, p: P, span: Span, want: Str, found: Str): P {
+    if (span == here(p) && onOpen(p)) {
         p
-    } else if (at(p, text)) {
-        advance(p)
     } else {
-        expected(ctx, p, what)
+        report(ctx, p, span, str.format(ctx, "expected ${want}, found ${found}"))
     }
 }
 
-fn eatPunct<C: Allocator>(ctx: C, p: P, text: Str): P {
-    eat(ctx, p, text, str.format(ctx, "`${text}`"))
+fn expected<C: Allocator>(ctx: C, p: P, want: Str): P {
+    expectedAs(ctx, p, here(p), want, describe(ctx, tokenAt(p, 0)))
+}
+
+fn expect<C: Allocator>(ctx: C, p: P, text: Str): P {
+    if (at(p, text)) {
+        advance(p)
+    } else {
+        bail(expected(ctx, p, str.format(ctx, "`${text}`")))
+    }
+}
+
+fn eatComma(p: P): P {
+    if (at(p, ",")) { advance(p) } else { p }
+}
+
+/// Whether the list being read has ended, closer or no closer: a delimiter it
+/// did not open, a `;` or the end of the file belongs to something outside it.
+fn listEnded(p: P, close: Str): Bool {
+    p.panicking || [close, ";", "}", ")", "]", ""].contains(tokenAt(p, 0).text)
+}
+
+/// One element read: whether another follows. A missing `,` with the next
+/// element already under the cursor is reported where the comma belongs, and
+/// the list reads on.
+fn moreElements<C: Allocator>(
+    ctx: C,
+    p: P,
+    close: Str,
+    construct: Str,
+    starts: fn(Token) => Bool,
+): (P, Bool) {
+    let t = tokenAt(p, 0);
+    if (at(p, ",")) {
+        (advance(p), true)
+    } else if (p.panicking || t.text == close || starts(t) == false) {
+        (p, false)
+    } else if (afterOpen(p)) {
+        (p, true)
+    } else {
+        (separatorMissing(ctx, p, construct), true)
+    }
+}
+
+fn separatorMissing<C: Allocator>(ctx: C, p: P, construct: Str): P {
+    report(
+        ctx,
+        p,
+        point(prevSpan(p).end),
+        str.format(ctx, "${construct} ends with `,`"),
+    )
+}
+
+/// A construct's closing delimiter, or the error that names what never
+/// closed. The walk then reads on as though the closer were there — past it,
+/// when it is still ahead at this depth. A trial gives up instead: a
+/// speculative reading that repaired itself would always win.
+fn expectClose<C: Allocator>(ctx: C, p: P, close: Str, construct: Str): P {
+    if (at(p, close)) {
+        P { ..advance(p), closed: 0 }
+    } else if (p.panicking || p.trial > 0) {
+        bail(p)
+    } else {
+        let told = if (afterOpen(p)) {
+            p
+        } else {
+            report(
+                ctx,
+                p,
+                here(p),
+                str.format(ctx, "this ${construct} is missing its closing `${close}`"),
+            )
+        };
+        match (findClose(told, close, 0, 0)) {
+            .Some(steps) => P { ..told, index: told.index + steps + 1, closed: 1 },
+            .None => P { ..told, closed: 2 },
+        }
+    }
+}
+
+/// How far ahead this construct's closer is, if it is there at all: a
+/// delimiter that closes something outside, a `;`, a declaration or the end of
+/// the file says it was never written.
+fn findClose(p: P, close: Str, steps: Int, depth: Int): Option<Int> {
+    let t = tokenAt(p, steps);
+    if (steps >= MAX_LOOKAHEAD || t.text == "") {
+        .None
+    } else if (depth == 0 && t.text == close) {
+        .Some(steps)
+    } else if (depth == 0 && (startsDeclaration(t) || closer(t) || t.text == ";")) {
+        .None
+    } else if (opener(t)) {
+        findClose(p, close, steps + 1, depth + 1)
+    } else if (closer(t)) {
+        findClose(p, close, steps + 1, depth - 1)
+    } else {
+        findClose(p, close, steps + 1, depth)
+    }
+}
+
+/// Whether what is under the cursor could begin the next declaration, the
+/// next statement, or the end of the block.
+fn startsSomething(p: P): Bool {
+    let t = tokenAt(p, 0);
+    ["}", "", "let"].contains(t.text) || startsDeclaration(t) || startsStatement(t)
+}
+
+/// The `;` that ends `construct`. Where what follows could not start anything
+/// the token is the mistake, not the terminator.
+fn expectTerminator<C: Allocator>(ctx: C, p: P, construct: Str): P {
+    if (at(p, ";")) {
+        advance(p)
+    } else if (p.panicking || afterOpen(p)) {
+        p
+    } else if (startsSomething(p) == false) {
+        bail(expected(ctx, p, "`;`"))
+    } else {
+        report(
+            ctx,
+            p,
+            point(prevSpan(p).end),
+            str.format(ctx, "${construct} ends with `;`"),
+        )
+    }
+}
+
+/// The `=>` of a match arm. The body is read anyway where one follows.
+fn expectArrow<C: Allocator>(ctx: C, p: P): P {
+    if (at(p, "=>")) {
+        advance(p)
+    } else if (p.panicking || afterOpen(p)) {
+        bail(p)
+    } else {
+        let told = report(
+            ctx,
+            p,
+            point(prevSpan(p).end),
+            "a match arm is `pattern => expression`",
+        );
+        if (startsExpr(tokenAt(p, 0))) { told } else { bail(told) }
+    }
+}
+
+fn expectName<C: Allocator>(ctx: C, p: P): (P, Name) {
+    let t = tokenAt(p, 0);
+    if (p.panicking) {
+        (p, noName())
+    } else if (isIdent(t)) {
+        (advance(p), nameOf(p, t))
+    } else {
+        nameMissing(ctx, p)
+    }
+}
+
+/// A name held from earlier, or a stray token in front of the name stepped
+/// over, or an `export` where the name goes read as the name.
+fn nameMissing<C: Allocator>(ctx: C, p: P): (P, Name) {
+    match (takeEarly(p, isIdent)) {
+        .Some(taken) => (taken.0, nameOf(p, taken.1)),
+        .None => {
+            let told = expected(ctx, p, "an identifier");
+            let t = tokenAt(p, 0);
+            let next = tokenAt(p, 1);
+            if (strayToken(t) && isIdent(next)) {
+                (advance(advance(told)), nameOf(p, next))
+            } else if (t.text == "export" && next.kind != TokenKind.Keyword) {
+                (advance(told), nameOf(p, t))
+            } else {
+                (bail(told), noName())
+            }
+        },
+    }
+}
+
+fn noName(): Name {
+    Name { text: "", origin: nowhere() }
+}
+
+/// The token held from earlier, when it is what this production wants. It is
+/// used once.
+fn takeEarly(p: P, wanted: fn(Token) => Bool): Option<(P, Token)> {
+    match (p.tokens.get(p.early)) {
+        .Some(t) => if (wanted(t)) { .Some((P { ..p, early: -1 }, t)) } else { .None },
+        .None => .None,
+    }
+}
+
+/// A string literal, as an import's path or a test's name.
+fn expectString<C: Allocator>(ctx: C, p: P): (P, Str) {
+    let t = tokenAt(p, 0);
+    if (onOpen(p)) {
+        (bail(p), "")
+    } else if (isStr(t)) {
+        (advance(p), literalText(ctx, t.text))
+    } else {
+        match (takeEarly(p, isStr)) {
+            .Some(taken) => (taken.0, literalText(ctx, taken.1.text)),
+            .None => {
+                let told = expected(ctx, p, "a string literal");
+                let next = tokenAt(p, 1);
+                if (
+                    strayToken(t)
+                        && isStr(next)
+                        && p.open.contains(p.index + 1) == false
+                ) {
+                    (advance(advance(told)), literalText(ctx, next.text))
+                } else {
+                    (bail(told), "")
+                }
+            },
+        }
+    }
+}
+
+/// One level deeper, or `expression-too-deep`. The caller puts `depth` back.
+fn enter<C: Allocator>(ctx: C, p: P): P {
+    if (p.depth >= MAX_DEPTH) {
+        bail(report(ctx, p, here(p), "expression nests too deeply"))
+    } else {
+        P { ..p, depth: p.depth + 1 }
+    }
+}
+
+// --- recovery --------------------------------------------------------------------
+
+/// How many delimiters the tokens from `from` to the cursor left open.
+fn openSince(p: P, mark: Int, bracesOnly: Bool): Int {
+    countOpen(p, mark, 0, bracesOnly)
+}
+
+fn countOpen(p: P, i: Int, depth: Int, bracesOnly: Bool): Int {
+    if (i >= p.index) {
+        depth
+    } else {
+        let t = tokenAt(p, i - p.index).text;
+        let counted = bracesOnly == false || t == "{" || t == "}";
+        if (counted && ["{", "(", "["].contains(t)) {
+            countOpen(p, i + 1, depth + 1, bracesOnly)
+        } else if (counted && ["}", ")", "]"].contains(t)) {
+            countOpen(p, i + 1, depth - 1, bracesOnly)
+        } else {
+            countOpen(p, i + 1, depth, bracesOnly)
+        }
+    }
+}
+
+/// On to the next token that can begin a declaration outside every brace,
+/// or past the `;` or `}` that ends this one.
+fn syncItem(p: P, depth: Int): P {
+    let t = tokenAt(p, 0).text;
+    if (isEnd(p)) {
+        p
+    } else if (t == "{") {
+        syncItem(advance(p), depth + 1)
+    } else if (t == "}") {
+        if (depth <= 1) { advance(p) } else { syncItem(advance(p), depth - 1) }
+    } else if (depth <= 0 && t == ";") {
+        advance(p)
+    } else if (
+        depth <= 0
+            && [
+                "from",
+                "export",
+                "fn",
+                "struct",
+                "enum",
+                "type",
+                "const",
+                "trait",
+                "effect",
+                "impl",
+                "derive",
+                "test",
+            ].contains(t)
+    ) {
+        p
+    } else {
+        syncItem(advance(p), depth)
+    }
+}
+
+/// To the end of the statement: past its `;`, answering `true`, or to the `}`
+/// or the end of the file, answering `false`.
+fn syncStmt(p: P, depth: Int): (P, Bool) {
+    let t = tokenAt(p, 0);
+    if (isEnd(p)) {
+        (p, false)
+    } else if (depth <= 0 && t.text == ";") {
+        (advance(p), true)
+    } else if (opener(t)) {
+        syncStmt(advance(p), depth + 1)
+    } else if (depth <= 0 && t.text == "}") {
+        (p, false)
+    } else if (closer(t)) {
+        syncStmt(advance(p), depth - 1)
+    } else {
+        syncStmt(advance(p), depth)
+    }
+}
+
+/// To the end of the arm: to the `,` after it, answering `true`, or to the `}`
+/// or the end of the file. Neither is consumed.
+fn syncMatchArm(p: P, depth: Int): (P, Bool) {
+    let t = tokenAt(p, 0);
+    if (isEnd(p)) {
+        (p, false)
+    } else if (depth <= 0 && t.text == ",") {
+        (p, true)
+    } else if (depth <= 0 && t.text == "}") {
+        (p, false)
+    } else if (opener(t)) {
+        syncMatchArm(advance(p), depth + 1)
+    } else if (closer(t)) {
+        syncMatchArm(advance(p), depth - 1)
+    } else {
+        syncMatchArm(advance(p), depth)
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -3465,60 +3945,36 @@ fn parseItems<C: Allocator>(ctx: C, p: P, acc: [Item]): (P, [Item]) {
     if (isEnd(p)) {
         (p, acc)
     } else {
+        let mark = p.index;
         let (after, made) = parseItem(ctx, p);
-        if (after.panicking) {
-            parseItems(ctx, recover(P { ..after, panicking: false }), acc)
+        let next = if (after.panicking == false) {
+            after
+        } else if (after.index == mark) {
+            skipStray(resume(after))
         } else {
-            parseItems(ctx, after, acc.concat(ctx, made))
-        }
+            syncItem(resume(after), openSince(after, mark, true))
+        };
+        parseItems(ctx, P { ..next, early: -1 }, acc.concat(ctx, made))
     }
 }
 
-/// Past whatever did not parse, to the next token that can begin a declaration
-/// outside every bracket. One token is always taken first, so a declaration
-/// that fails at its own keyword cannot be tried twice.
-fn recover(p: P): P {
-    skipToItem(advance(p), 0)
-}
-
-fn skipToItem(p: P, depth: Int): P {
-    if (isEnd(p)) {
-        p
+/// Past a token no declaration starts with, and on to the next one.
+fn skipStray(p: P): P {
+    let t = tokenAt(p, 0).text;
+    if (t == "{") {
+        syncItem(advance(p), 1)
+    } else if (t == "}" || t == ";") {
+        advance(p)
     } else {
-        let t = tokenAt(p, 0);
-        if (t.text == "{" || t.text == "(" || t.text == "[") {
-            skipToItem(advance(p), depth + 1)
-        } else if (t.text == "}" || t.text == ")" || t.text == "]") {
-            skipToItem(advance(p), if (depth > 0) { depth - 1 } else { 0 })
-        } else if (depth == 0 && startsItem(t)) {
-            p
-        } else {
-            skipToItem(advance(p), depth)
-        }
+        syncItem(advance(p), 0)
     }
-}
-
-fn startsItem(t: Token): Bool {
-    t.text == "from"
-        || t.text == "export"
-        || t.text == "fn"
-        || t.text == "struct"
-        || t.text == "enum"
-        || t.text == "type"
-        || t.text == "let"
-        || t.text == "trait"
-        || t.text == "effect"
-        || t.text == "impl"
-        || t.text == "derive"
-        || t.text == "context"
-        || t.text == "test"
 }
 
 /// One declaration, as a list of nought or one so that a failure adds nothing.
 fn parseItem<C: Allocator>(ctx: C, p: P): (P, [Item]) {
     let start = here(p);
     let docs = docsHere(p);
-    let (after, kind) = parseItemKind(ctx, p, docs);
+    let (after, kind) = parseItemKind(ctx, exchangedHead(ctx, p), docs);
     if (after.panicking) {
         (after, [])
     } else {
@@ -3528,17 +3984,27 @@ fn parseItem<C: Allocator>(ctx: C, p: P): (P, [Item]) {
 
 fn parseItemKind<C: Allocator>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
     if (at(p, "from")) {
-        parseImport(ctx, p)
+        parseImport(ctx, advance(p))
     } else if (at(p, "impl")) {
         parseImpl(ctx, advance(p), docs)
     } else if (at(p, "derive")) {
         parseDerive(ctx, advance(p))
     } else if (at(p, "test")) {
         parseTest(ctx, advance(p), docs)
-    } else if (at(p, "export")) {
-        parseExportable(ctx, advance(p), docs, true)
     } else {
-        parseExportable(ctx, p, docs, false)
+        let exportTaken = at(p, "export");
+        let (q, late) = exportAfterTheKeyword(ctx, if (exportTaken) {
+            advance(p)
+        } else {
+            p
+        });
+        let exported = exportTaken || late;
+        let (r, exchanged) = exchangedBinding(ctx, q);
+        if (exchanged) {
+            parseLet(ctx, advance(r), docs, exported)
+        } else {
+            parseExportable(ctx, r, docs, exported)
+        }
     }
 }
 
@@ -3559,14 +4025,34 @@ fn parseExportable<C: Allocator>(
         parseTypeAlias(ctx, advance(p), docs, exported)
     } else if (at(p, "let")) {
         parseLet(ctx, advance(p), docs, exported)
+    } else if (at(p, "const")) {
+        let told = report(
+            ctx,
+            p,
+            here(p),
+            "there is no `const` declaration; a module-level binding is written with `let`",
+        );
+        parseLet(ctx, advance(told), docs, exported)
     } else if (at(p, "trait")) {
         parseTrait(ctx, advance(p), docs, exported, false)
     } else if (at(p, "effect")) {
         parseTrait(ctx, advance(p), docs, exported, true)
     } else if (at(p, "context")) {
         parseContext(ctx, advance(p), docs, exported)
+    } else if (at(p, "from")) {
+        (
+            bail(
+                report(
+                    ctx,
+                    p,
+                    here(p),
+                    "write `from \"...\" export { ... }`, without a leading `export`",
+                ),
+            ),
+            emptyKind(),
+        )
     } else {
-        (expected(ctx, p, "a declaration"), emptyKind())
+        (bail(expected(ctx, p, "a declaration")), emptyKind())
     }
 }
 
@@ -3574,142 +4060,267 @@ fn emptyKind(): ItemKind {
     .Derive(DeriveDecl { traits: [], selfTy: unitType() })
 }
 
+/// `"core/list" from import * as list;`: a declaration's keyword written one
+/// token late. Reported once, and the token is held for the declaration to
+/// ask for.
+fn exchangedHead<C: Allocator>(ctx: C, p: P): P {
+    let t = tokenAt(p, 0);
+    let keyword = tokenAt(p, 1);
+    if (headTakes(keyword, t) == false || headTakes(keyword, tokenAt(p, 2))) {
+        p
+    } else if (p.source.slice(t.span.end, keyword.span.start).contains("\n")) {
+        p
+    } else {
+        let told = expectedAs(
+            ctx,
+            p,
+            t.span,
+            str.format(ctx, "`${keyword.text}`"),
+            describe(ctx, t),
+        );
+        advance(P { ..told, early: p.index })
+    }
+}
+
+/// What a declaration's keyword is followed by, where that is one token.
+fn headTakes(keyword: Token, t: Token): Bool {
+    if (["from", "test"].contains(keyword.text)) {
+        isStr(t)
+    } else {
+        isIdent(t)
+            && [
+                "impl",
+                "derive",
+                "struct",
+                "enum",
+                "type",
+                "trait",
+                "effect",
+                "context",
+                "const",
+                "fn",
+            ].contains(keyword.text)
+    }
+}
+
+/// `fn export one()`: the keyword and its `export`, exchanged. Reported at the
+/// `export`, which the name is then read past.
+fn exportAfterTheKeyword<C: Allocator>(ctx: C, p: P): (P, Bool) {
+    let mark = tokenAt(p, 1);
+    if (
+        tokenAt(p, 0).kind != TokenKind.Keyword
+            || mark.text != "export"
+            || isIdent(tokenAt(p, 2)) == false
+    ) {
+        (p, false)
+    } else {
+        (expectedAs(ctx, p, mark.span, "an identifier", describe(ctx, mark)), true)
+    }
+}
+
+/// `total let = 1;`: the binding keyword and its name, exchanged. The name is
+/// held for the binding to ask for.
+fn exchangedBinding<C: Allocator>(ctx: C, p: P): (P, Bool) {
+    let t = tokenAt(p, 0);
+    if (
+        isIdent(t) == false && isCtx(t) == false
+            || tokenAt(p, 1).text != "let"
+            || [":", "="].contains(tokenAt(p, 2).text) == false
+    ) {
+        (p, false)
+    } else {
+        let told = expectedAs(ctx, p, t.span, "`let`", describe(ctx, t));
+        (advance(P { ..told, early: p.index }), true)
+    }
+}
+
 // --- imports -------------------------------------------------------------------
 
 fn parseImport<C: Allocator>(ctx: C, p: P): (P, ItemKind) {
-    let opened = advance(p);
-    if (atKind(opened, TokenKind.Str) == false) {
-        (expected(ctx, opened, "a string literal"), emptyKind())
+    let (q, path) = expectString(ctx, p);
+    if (at(q, "export")) {
+        let opened = expect(ctx, advance(q), "{");
+        let (afterSpecs, specs) = parseSpecs(ctx, opened, []);
+        let closed = expectClose(ctx, afterSpecs, "}", "re-export list");
+        (
+            expectTerminator(ctx, closed, "a re-export declaration"),
+            .ReExport(ReExport { path: path, specs: specs }),
+        )
     } else {
-        let path = literalText(ctx, tokenAt(opened, 0).text);
-        let afterPath = advance(opened);
-        if (at(afterPath, "export")) {
-            let (afterSpecs, specs) = parseSpecBraces(ctx, advance(afterPath));
-            let done = eatPunct(ctx, afterSpecs, ";");
-            (done, .ReExport(ReExport { path: path, specs: specs }))
-        } else {
-            let started = eat(ctx, afterPath, "import", "`import` or `export`");
-            if (at(started, "*")) {
-                let starred = eat(ctx, advance(started), "as", "`as`");
-                let (named, alias) = parseName(ctx, starred);
-                let done = eatPunct(ctx, named, ";");
-                (done, .Import(Import { path: path, clause: .Namespace(alias) }))
+        let started = expect(ctx, q, "import");
+        if (at(started, "*")) {
+            let starred = advance(started);
+            if (at(starred, "as")) {
+                let (named, alias) = expectName(ctx, advance(starred));
+                (
+                    expectTerminator(ctx, named, "an import declaration"),
+                    .Import(Import { path: path, clause: .Namespace(alias) }),
+                )
             } else {
-                let (afterSpecs, specs) = parseSpecBraces(ctx, started);
-                let done = eatPunct(ctx, afterSpecs, ";");
-                (done, .Import(Import { path: path, clause: .Named(specs) }))
+                (
+                    bail(
+                        report(
+                            ctx,
+                            starred,
+                            prevSpan(starred),
+                            "a namespace import must be named",
+                        ),
+                    ),
+                    emptyKind(),
+                )
             }
+        } else {
+            let opened = expect(ctx, started, "{");
+            let (afterSpecs, specs) = parseSpecs(ctx, opened, []);
+            let closed = expectClose(ctx, afterSpecs, "}", "import list");
+            (
+                expectTerminator(ctx, closed, "an import declaration"),
+                .Import(Import { path: path, clause: .Named(specs) }),
+            )
         }
     }
 }
 
-fn parseSpecBraces<C: Allocator>(ctx: C, p: P): (P, [ImportSpec]) {
-    parseSpecs(ctx, eatPunct(ctx, p, "{"), [])
-}
-
 fn parseSpecs<C: Allocator>(ctx: C, p: P, acc: [ImportSpec]): (P, [ImportSpec]) {
-    if (p.panicking) {
+    if (listEnded(p, "}")) {
         (p, acc)
-    } else if (at(p, "}")) {
-        (advance(p), acc)
     } else {
-        let (named, name) = parseName(ctx, p);
+        let (named, name) = expectName(ctx, p);
         let (aliased, alias) = if (at(named, "as")) {
-            let (a, n) = parseName(ctx, advance(named));
+            let (a, n) = expectName(ctx, advance(named));
             (a, [n])
         } else {
             (named, [])
         };
         let grown = acc.push(ctx, ImportSpec { name: name, alias: alias });
-        if (at(aliased, ",")) {
-            parseSpecs(ctx, advance(aliased), grown)
-        } else {
-            (eatPunct(ctx, aliased, "}"), grown)
-        }
+        let (q, more) = moreElements(ctx, aliased, "}", "an import name", startsName);
+        if (more) { parseSpecs(ctx, q, grown) } else { (q, grown) }
     }
 }
 
 // --- functions -----------------------------------------------------------------
 
 fn parseFn<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, FnDecl) {
-    let (named, name) = parseName(ctx, p);
+    let (named, name) = expectName(ctx, p);
     let (afterGenerics, generics) = parseGenerics(ctx, named);
-    let opened = eatPunct(ctx, afterGenerics, "(");
+    let opened = expect(ctx, afterGenerics, "(");
     let (afterParams, params) = parseParams(ctx, opened, []);
-    let colon = eatPunct(ctx, afterParams, ":");
+    let closed = expectClose(ctx, afterParams, ")", "parameter list");
+    let colon = expect(ctx, closed, ":");
     let (afterRet, ret) = parseType(ctx, colon);
-    if (at(afterRet, ";")) {
-        (
-            advance(afterRet),
-            FnDecl {
-                name: name,
-                generics: generics,
-                params: params,
-                ret: ret,
-                body: [],
-                exported: exported,
-                docs: docs,
-            },
-        )
+    let decl = FnDecl {
+        name: name,
+        generics: generics,
+        params: params,
+        ret: ret,
+        body: [],
+        exported: exported,
+        docs: docs,
+    };
+    if (at(afterRet, "{")) {
+        let (afterBody, body) = parseBlock(ctx, afterRet, "function body");
+        (afterBody, FnDecl { ..decl, body: [body] })
+    } else if (at(afterRet, ";")) {
+        (advance(afterRet), decl)
     } else {
-        let (afterBody, body) = parseBlock(ctx, afterRet);
-        (
-            afterBody,
-            FnDecl {
-                name: name,
-                generics: generics,
-                params: params,
-                ret: ret,
-                body: [body],
-                exported: exported,
-                docs: docs,
-            },
-        )
+        (bail(expected(ctx, afterRet, "a function body")), decl)
     }
 }
 
+/// A trait's or an effect's method: no body, and a `;`.
+fn parseMethodSig<C: Allocator>(ctx: C, p: P): (P, FnDecl) {
+    let docs = docsHere(p);
+    let (named, name) = expectName(ctx, expect(ctx, p, "fn"));
+    let (afterGenerics, generics) = parseGenerics(ctx, named);
+    let opened = expect(ctx, afterGenerics, "(");
+    let (afterParams, params) = parseParams(ctx, opened, []);
+    let closed = expectClose(ctx, afterParams, ")", "parameter list");
+    let colon = expect(ctx, closed, ":");
+    let (afterRet, ret) = parseType(ctx, colon);
+    (
+        expectTerminator(ctx, afterRet, "a method signature"),
+        FnDecl {
+            name: name,
+            generics: generics,
+            params: params,
+            ret: ret,
+            body: [],
+            exported: false,
+            docs: docs,
+        },
+    )
+}
+
 fn parseParams<C: Allocator>(ctx: C, p: P, acc: [Param]): (P, [Param]) {
-    if (p.panicking) {
+    let t = tokenAt(p, 0);
+    if (listEnded(p, ")") || acc.isEmpty() && t.text == ":") {
         (p, acc)
-    } else if (at(p, ")")) {
-        (advance(p), acc)
     } else {
-        let t = tokenAt(p, 0);
         let (afterOne, param) = if (t.text == "self") {
-            (
-                advance(p),
-                Param {
-                    name: Name { text: "self", origin: originAt(p, t.span) },
-                    ty: [],
-                },
-            )
+            let taken = advance(p);
+            let placed = if (acc.isEmpty()) {
+                taken
+            } else {
+                report(
+                    ctx,
+                    taken,
+                    t.span,
+                    "`self` may appear only as a function's first parameter",
+                )
+            };
+            (selfAnnotation(ctx, placed), Param { name: nameOf(p, t), ty: [] })
         } else if (t.text == "ctx") {
-            let colon = eatPunct(ctx, advance(p), ":");
+            let colon = expect(ctx, advance(p), ":");
             let (afterTy, ty) = parseType(ctx, colon);
-            (
-                afterTy,
-                Param {
-                    name: Name { text: "ctx", origin: originAt(p, t.span) },
-                    ty: [ty],
-                },
-            )
+            (afterTy, Param { name: nameOf(p, t), ty: [ty] })
         } else {
-            let (named, name) = parseName(ctx, p);
-            let colon = eatPunct(ctx, named, ":");
+            let (named, name) = expectName(ctx, p);
+            let colon = expect(ctx, named, ":");
             let (afterTy, ty) = parseType(ctx, colon);
             (afterTy, Param { name: name, ty: [ty] })
         };
         let grown = acc.push(ctx, param);
-        if (at(afterOne, ",")) {
-            parseParams(ctx, advance(afterOne), grown)
+        let (q, more) = moreElements(
+            ctx,
+            afterOne,
+            ")",
+            "a function parameter",
+            startsParam,
+        );
+        if (more) { parseParams(ctx, q, grown) } else { (q, grown) }
+    }
+}
+
+/// The old `self: Type`, read and reported. A trial reading decides first: in
+/// `fn area(self: Int;` the `: Int` is the return type of a list whose `)` is
+/// missing, and the old form is only where the list goes on or ends after it.
+fn selfAnnotation<C: Allocator>(ctx: C, p: P): P {
+    if (at(p, ":") == false) {
+        p
+    } else {
+        let (tried, _) = parseType(ctx, P { ..advance(p), trial: p.trial + 1 });
+        if (tried.panicking || [",", ")"].contains(tokenAt(tried, 0).text) == false) {
+            p
         } else {
-            (eatPunct(ctx, afterOne, ")"), grown)
+            let colon = here(p);
+            let (typed, ty) = parseType(ctx, advance(p));
+            report(
+                ctx,
+                typed,
+                Span { start: colon.start, end: ty.origin.span.end },
+                "`self` is written without a type",
+            )
         }
     }
 }
 
 fn parseGenerics<C: Allocator>(ctx: C, p: P): (P, [GenericParam]) {
-    if (at(p, "<")) { parseGenericList(ctx, advance(p), []) } else { (p, []) }
+    if (at(p, "<")) {
+        let (afterList, generics) = parseGenericList(ctx, advance(p), []);
+        (expectClose(ctx, afterList, ">", "generic parameter list"), generics)
+    } else {
+        (p, [])
+    }
 }
 
 fn parseGenericList<C: Allocator>(
@@ -3717,21 +4328,24 @@ fn parseGenericList<C: Allocator>(
     p: P,
     acc: [GenericParam],
 ): (P, [GenericParam]) {
-    if (at(p, ">")) {
-        (advance(p), acc)
+    if (listEnded(p, ">")) {
+        (p, acc)
     } else {
-        let (named, name) = parseName(ctx, p);
+        let (named, name) = expectName(ctx, p);
         let (afterBounds, bounds) = if (at(named, ":")) {
             parseBounds(ctx, advance(named), [])
         } else {
             (named, [])
         };
         let grown = acc.push(ctx, GenericParam { name: name, bounds: bounds });
-        if (at(afterBounds, ",")) {
-            parseGenericList(ctx, advance(afterBounds), grown)
-        } else {
-            (eatPunct(ctx, afterBounds, ">"), grown)
-        }
+        let (q, more) = moreElements(
+            ctx,
+            afterBounds,
+            ">",
+            "a generic parameter",
+            startsName,
+        );
+        if (more) { parseGenericList(ctx, q, grown) } else { (q, grown) }
     }
 }
 
@@ -3748,93 +4362,122 @@ fn parseBounds<C: Allocator>(ctx: C, p: P, acc: [Type]): (P, [Type]) {
 // --- structs and enums -----------------------------------------------------------
 
 fn parseStruct<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
-    let (named, name) = parseName(ctx, p);
+    let (named, name) = expectName(ctx, p);
     let (afterGenerics, generics) = parseGenerics(ctx, named);
+    let decl = StructDecl {
+        name: name,
+        generics: generics,
+        body: .Tuple([]),
+        exported: exported,
+        docs: docs,
+    };
     if (at(afterGenerics, "(")) {
         let (afterFields, fields) = parseTupleFields(ctx, advance(afterGenerics), []);
-        let done = eatPunct(ctx, afterFields, ";");
+        let closed = expectClose(ctx, afterFields, ")", "tuple-struct field list");
         (
-            done,
-            .Struct(StructDecl {
-                name: name,
-                generics: generics,
-                body: .Tuple(fields),
-                exported: exported,
-                docs: docs,
-            }),
+            expectTerminator(ctx, closed, "a `struct` declaration"),
+            .Struct(StructDecl { ..decl, body: .Tuple(fields) }),
         )
     } else {
-        let opened = eatPunct(ctx, afterGenerics, "{");
-        let (afterFields, fields) = parseFieldDecls(ctx, opened, []);
+        let opened = expect(ctx, afterGenerics, "{");
+        let (afterFields, fields) = parseFieldDecls(ctx, opened, "}", true, []);
         (
-            afterFields,
-            .Struct(StructDecl {
-                name: name,
-                generics: generics,
-                body: .Record(fields),
-                exported: exported,
-                docs: docs,
-            }),
+            expectClose(ctx, afterFields, "}", "`struct` body"),
+            .Struct(StructDecl { ..decl, body: .Record(fields) }),
         )
     }
 }
 
-fn parseFieldDecls<C: Allocator>(ctx: C, p: P, acc: [FieldDecl]): (P, [FieldDecl]) {
-    if (p.panicking) {
+/// A struct's fields carry their own `export`. A variant's payload fields take
+/// the enum's, so one written there is reported.
+fn parseFieldDecls<C: Allocator>(
+    ctx: C,
+    p: P,
+    close: Str,
+    perField: Bool,
+    acc: [FieldDecl],
+): (P, [FieldDecl]) {
+    if (listEnded(p, close)) {
         (p, acc)
-    } else if (at(p, "}")) {
-        (advance(p), acc)
     } else {
         let start = here(p);
         let docs = docsHere(p);
-        let exported = at(p, "export");
-        let opened = if (exported) { advance(p) } else { p };
-        let (named, name) = parseName(ctx, opened);
-        let colon = eatPunct(ctx, named, ":");
+        let marked = at(p, "export");
+        let (named, name) = expectName(ctx, if (marked) { advance(p) } else { p });
+        let told = if (marked && perField == false) {
+            variantExport(ctx, named, start)
+        } else {
+            named
+        };
+        let colon = expect(ctx, told, ":");
         let (afterTy, ty) = parseType(ctx, colon);
         let grown = acc.push(ctx, FieldDecl {
             name: name,
             ty: ty,
-            exported: exported,
+            exported: marked && perField,
             docs: docs,
             origin: originFrom(afterTy, start),
         });
-        if (at(afterTy, ",")) {
-            parseFieldDecls(ctx, advance(afterTy), grown)
+        let construct = if (perField) {
+            "a record field"
         } else {
-            (eatPunct(ctx, afterTy, "}"), grown)
+            "a variant payload field"
+        };
+        let (q, more) = moreElements(ctx, afterTy, close, construct, startsField);
+        if (more) {
+            parseFieldDecls(ctx, q, close, perField, grown)
+        } else {
+            (q, grown)
         }
     }
 }
 
+fn variantExport<C: Allocator>(ctx: C, p: P, keyword: Span): P {
+    report(
+        ctx,
+        p,
+        keyword,
+        "a variant carries no `export` of its own; an exported enum exports every one of its variants",
+    )
+}
+
 fn parseTupleFields<C: Allocator>(ctx: C, p: P, acc: [TupleField]): (P, [TupleField]) {
-    if (at(p, ")")) {
-        (advance(p), acc)
+    if (listEnded(p, ")")) {
+        (p, acc)
     } else {
         let start = here(p);
         let exported = at(p, "export");
-        let opened = if (exported) { advance(p) } else { p };
-        let (afterTy, ty) = parseType(ctx, opened);
+        let (afterTy, ty) = parseType(ctx, if (exported) { advance(p) } else { p });
         let grown = acc.push(ctx, TupleField {
             ty: ty,
             exported: exported,
             origin: originFrom(afterTy, start),
         });
-        if (at(afterTy, ",")) {
-            parseTupleFields(ctx, advance(afterTy), grown)
-        } else {
-            (eatPunct(ctx, afterTy, ")"), grown)
-        }
+        let (q, more) = moreElements(
+            ctx,
+            afterTy,
+            ")",
+            "a tuple-struct field",
+            startsTupleField,
+        );
+        if (more) { parseTupleFields(ctx, q, grown) } else { (q, grown) }
     }
 }
 
 fn parseEnum<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
-    let (named, name) = parseName(ctx, p);
+    let (named, name) = expectName(ctx, p);
     let (afterGenerics, generics) = parseGenerics(ctx, named);
-    let opened = eatPunct(ctx, afterGenerics, "{");
-    let (afterVariants, variants) = parseVariants(ctx, opened, []);
+    let opened = expect(ctx, afterGenerics, "{");
+    let (afterVariants, variants, recovered) = parseVariants(ctx, opened, [], false);
+    // A body that lost a variant has said what went wrong, and a `}` missing
+    // after that is the same mistake again.
+    let closed = if (recovered == false || at(afterVariants, "}")) {
+        expectClose(ctx, afterVariants, "}", "`enum`")
+    } else {
+        afterVariants
+    };
     (
-        afterVariants,
+        closed,
         .Enum(EnumDecl {
             name: name,
             generics: generics,
@@ -3845,36 +4488,59 @@ fn parseEnum<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemK
     )
 }
 
-fn parseVariants<C: Allocator>(ctx: C, p: P, acc: [Variant]): (P, [Variant]) {
-    if (p.panicking) {
-        (p, acc)
-    } else if (at(p, "}")) {
-        (advance(p), acc)
+/// The variants, each one that fails skipped to the next.
+fn parseVariants<C: Allocator>(
+    ctx: C,
+    p: P,
+    acc: [Variant],
+    recovered: Bool,
+): (P, [Variant], Bool) {
+    if (listEnded(p, "}")) {
+        (p, acc, recovered)
     } else {
-        let start = here(p);
-        let docs = docsHere(p);
-        let (named, name) = parseName(ctx, p);
-        let (afterPayload, payload) = if (at(named, "(")) {
-            let (a, types) = parseTypeList(ctx, advance(named), [], ")");
-            (a, VariantPayload.Tuple(types))
-        } else if (at(named, "{")) {
-            let (a, fields) = parseFieldDecls(ctx, advance(named), []);
-            (a, VariantPayload.Record(fields))
+        let mark = p.index;
+        let (after, v) = parseVariant(ctx, p);
+        let (synced, grown, lost) = if (after.panicking) {
+            (syncMatchArm(resume(after), openSince(after, mark, false)).0, acc, true)
         } else {
-            (named, VariantPayload.Empty)
+            (after, acc.push(ctx, v), recovered)
         };
-        let grown = acc.push(ctx, Variant {
+        let moved = if (synced.index == mark) { advance(synced) } else { synced };
+        let (q, more) = moreElements(ctx, moved, "}", "an enum variant", startsField);
+        if (more) { parseVariants(ctx, q, grown, lost) } else { (q, grown, lost) }
+    }
+}
+
+fn parseVariant<C: Allocator>(ctx: C, p: P): (P, Variant) {
+    let start = here(p);
+    let docs = docsHere(p);
+    let marked = at(p, "export");
+    let (named, name) = expectName(ctx, if (marked) { advance(p) } else { p });
+    let told = if (marked) { variantExport(ctx, named, start) } else { named };
+    let (afterPayload, payload) = if (at(told, "(")) {
+        let (a, types) = parseTypes(
+            ctx,
+            advance(told),
+            [],
+            ")",
+            "a variant payload field",
+        );
+        (expectClose(ctx, a, ")", "variant payload"), VariantPayload.Tuple(types))
+    } else if (at(told, "{")) {
+        let (a, fields) = parseFieldDecls(ctx, advance(told), "}", false, []);
+        (expectClose(ctx, a, "}", "variant field list"), VariantPayload.Record(fields))
+    } else {
+        (told, VariantPayload.Empty)
+    };
+    (
+        afterPayload,
+        Variant {
             name: name,
             payload: payload,
             docs: docs,
             origin: originFrom(afterPayload, start),
-        });
-        if (at(afterPayload, ",")) {
-            parseVariants(ctx, advance(afterPayload), grown)
-        } else {
-            (eatPunct(ctx, afterPayload, "}"), grown)
-        }
-    }
+        },
+    )
 }
 
 // --- the rest of the declarations -------------------------------------------------
@@ -3885,13 +4551,12 @@ fn parseTypeAlias<C: Allocator>(
     docs: [Str],
     exported: Bool,
 ): (P, ItemKind) {
-    let (named, name) = parseName(ctx, p);
+    let (named, name) = expectName(ctx, p);
     let (afterGenerics, generics) = parseGenerics(ctx, named);
-    let equals = eatPunct(ctx, afterGenerics, "=");
+    let equals = expect(ctx, afterGenerics, "=");
     let (afterTy, ty) = parseType(ctx, equals);
-    let done = eatPunct(ctx, afterTy, ";");
     (
-        done,
+        expectTerminator(ctx, afterTy, "a type alias"),
         .TypeAlias(TypeAliasDecl {
             name: name,
             generics: generics,
@@ -3903,14 +4568,13 @@ fn parseTypeAlias<C: Allocator>(
 }
 
 fn parseLet<C: Allocator>(ctx: C, p: P, docs: [Str], exported: Bool): (P, ItemKind) {
-    let (named, name) = parseName(ctx, p);
-    let colon = eatPunct(ctx, named, ":");
+    let (named, name) = expectName(ctx, p);
+    let colon = expect(ctx, named, ":");
     let (afterTy, ty) = parseType(ctx, colon);
-    let equals = eatPunct(ctx, afterTy, "=");
+    let equals = expect(ctx, afterTy, "=");
     let (afterValue, value) = parseExpr(ctx, equals);
-    let done = eatPunct(ctx, afterValue, ";");
     (
-        done,
+        expectTerminator(ctx, afterValue, "a `let` declaration"),
         .Let(LetDecl {
             name: name,
             ty: ty,
@@ -3928,12 +4592,13 @@ fn parseTrait<C: Allocator>(
     exported: Bool,
     isEffect: Bool,
 ): (P, ItemKind) {
-    let (named, name) = parseName(ctx, p);
+    let (named, name) = expectName(ctx, p);
     let (afterGenerics, generics) = parseGenerics(ctx, named);
-    let opened = eatPunct(ctx, afterGenerics, "{");
+    let opened = expect(ctx, afterGenerics, "{");
     let (afterMethods, methods) = parseMethods(ctx, opened, [], false);
+    let construct = if (isEffect) { "`effect` body" } else { "`trait` body" };
     (
-        afterMethods,
+        expectClose(ctx, afterMethods, "}", construct),
         .Trait(TraitDecl {
             name: name,
             generics: generics,
@@ -3954,10 +4619,10 @@ fn parseImpl<C: Allocator>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
     } else {
         (afterFirst, first, [])
     };
-    let opened = eatPunct(ctx, afterHead, "{");
+    let opened = expect(ctx, afterHead, "{");
     let (afterMethods, methods) = parseMethods(ctx, opened, [], true);
     (
-        afterMethods,
+        expectClose(ctx, afterMethods, "}", "`impl` body"),
         .Impl(ImplDecl {
             generics: generics,
             traitTy: traitTy,
@@ -3968,43 +4633,71 @@ fn parseImpl<C: Allocator>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
     )
 }
 
+/// The methods of a trait or an `impl`. One that fails is skipped to its `;`
+/// or to the body's `}`, and the rest are read.
 fn parseMethods<C: Allocator>(
     ctx: C,
     p: P,
     acc: [FnDecl],
-    allowExport: Bool,
+    inImpl: Bool,
 ): (P, [FnDecl]) {
-    if (p.panicking) {
+    if (p.panicking || at(p, "}") || isEnd(p)) {
         (p, acc)
-    } else if (at(p, "}")) {
-        (advance(p), acc)
-    } else if (isEnd(p)) {
-        (expected(ctx, p, "`}`"), acc)
     } else {
-        let docs = docsHere(p);
-        let exported = allowExport && at(p, "export");
-        let opened = if (exported) { advance(p) } else { p };
-        let started = eat(ctx, opened, "fn", "`fn`");
-        let (afterFn, d) = parseFn(ctx, started, docs, exported);
-        parseMethods(ctx, afterFn, acc.push(ctx, d), allowExport)
+        let mark = p.index;
+        let (after, d) = if (inImpl) {
+            let docs = docsHere(p);
+            let exported = at(p, "export");
+            let started = expect(ctx, if (exported) { advance(p) } else { p }, "fn");
+            parseFn(ctx, started, docs, exported)
+        } else {
+            parseMethodSig(ctx, p)
+        };
+        if (after.panicking) {
+            let (synced, _) = syncStmt(resume(after), openSince(after, mark, false));
+            if (at(synced, "}")) {
+                (synced, acc)
+            } else {
+                parseMethods(ctx, synced, acc, inImpl)
+            }
+        } else {
+            parseMethods(ctx, after, acc.push(ctx, d), inImpl)
+        }
     }
 }
 
 fn parseDerive<C: Allocator>(ctx: C, p: P): (P, ItemKind) {
-    let (afterTraits, traits) = parseDeriveList(ctx, p, []);
-    let forKeyword = eat(ctx, afterTraits, "for", "`for`");
-    let (afterSelf, selfTy) = parseNamedType(ctx, forKeyword);
-    let done = eatPunct(ctx, afterSelf, ";");
-    (done, .Derive(DeriveDecl { traits: traits, selfTy: selfTy }))
+    if (at(p, "for")) {
+        (
+            bail(report(ctx, p, here(p), "a `derive` clause names no traits")),
+            emptyKind(),
+        )
+    } else {
+        let (afterFirst, first) = parseNamedType(ctx, p);
+        let (afterTraits, traits) = parseDeriveList(ctx, afterFirst, [first]);
+        let forKeyword = expect(ctx, afterTraits, "for");
+        let (afterSelf, selfTy) = parseNamedType(ctx, forKeyword);
+        (
+            expectTerminator(ctx, afterSelf, "a `derive` declaration"),
+            .Derive(DeriveDecl { traits: traits, selfTy: selfTy }),
+        )
+    }
 }
 
+/// The traits after the first. `for` ends the list, so a name where it goes is
+/// another trait with its comma missing.
 fn parseDeriveList<C: Allocator>(ctx: C, p: P, acc: [Type]): (P, [Type]) {
-    let (afterOne, ty) = parseNamedType(ctx, p);
-    let grown = acc.push(ctx, ty);
-    if (at(afterOne, ",")) {
-        parseDeriveList(ctx, advance(afterOne), grown)
+    if (at(p, ",")) {
+        let (afterOne, ty) = parseNamedType(ctx, advance(p));
+        parseDeriveList(ctx, afterOne, acc.push(ctx, ty))
+    } else if (p.panicking || isIdent(tokenAt(p, 0)) == false) {
+        (p, acc)
     } else {
-        (afterOne, grown)
+        let (afterOne, ty) = parseNamedType(
+            ctx,
+            separatorMissing(ctx, p, "a derived trait"),
+        );
+        parseDeriveList(ctx, afterOne, acc.push(ctx, ty))
     }
 }
 
@@ -4014,9 +4707,8 @@ fn parseContext<C: Allocator>(
     docs: [Str],
     exported: Bool,
 ): (P, ItemKind) {
-    let (named, name) = parseName(ctx, p);
-    let opened = eatPunct(ctx, named, "{");
-    let (afterBody, spread, bindings) = parseContextBody(ctx, opened);
+    let (named, name) = expectName(ctx, p);
+    let (afterBody, spread, bindings) = parseContextBody(ctx, named);
     (
         afterBody,
         .Context(ContextDecl {
@@ -4030,13 +4722,9 @@ fn parseContext<C: Allocator>(
 }
 
 fn parseTest<C: Allocator>(ctx: C, p: P, docs: [Str]): (P, ItemKind) {
-    if (atKind(p, TokenKind.Str) == false) {
-        (expected(ctx, p, "a string literal"), emptyKind())
-    } else {
-        let name = literalText(ctx, tokenAt(p, 0).text);
-        let (afterBody, body) = parseBlock(ctx, advance(p));
-        (afterBody, .Test(TestDecl { name: name, body: body, docs: docs }))
-    }
+    let (named, name) = expectString(ctx, p);
+    let (afterBody, body) = parseBlock(ctx, named, "`test` body");
+    (afterBody, .Test(TestDecl { name: name, body: body, docs: docs }))
 }
 
 // -----------------------------------------------------------------------------
@@ -4047,187 +4735,334 @@ fn parseType<C: Allocator>(ctx: C, p: P): (P, Type) {
     if (p.panicking) {
         (p, unitType())
     } else {
-        let start = here(p);
-        if (at(p, "fn")) {
-            let opened = eatPunct(ctx, advance(p), "(");
-            let (afterArgs, args) = parseTypeList(ctx, opened, [], ")");
-            let arrow = eatPunct(ctx, afterArgs, "=>");
-            let (afterRet, ret) = parseType(ctx, arrow);
-            (
-                afterRet,
-                Type { kind: .Fn(args, [ret]), origin: originFrom(afterRet, start) },
-            )
-        } else if (at(p, "[")) {
-            let (afterElem, elem) = parseType(ctx, advance(p));
-            let closed = eatPunct(ctx, afterElem, "]");
-            (closed, Type { kind: .Array([elem]), origin: originFrom(closed, start) })
-        } else if (at(p, "(")) {
-            parseParenType(ctx, p, start)
-        } else {
-            parseNamedType(ctx, p)
-        }
+        let (after, ty) = parseTypeInner(ctx, enter(ctx, p));
+        (P { ..after, depth: p.depth }, ty)
+    }
+}
+
+fn parseTypeInner<C: Allocator>(ctx: C, p: P): (P, Type) {
+    let start = here(p);
+    if (at(p, "fn")) {
+        let opened = expect(ctx, advance(p), "(");
+        let (afterArgs, args) = parseTypes(
+            ctx,
+            opened,
+            [],
+            ")",
+            "a function-type parameter",
+        );
+        let closed = expectClose(ctx, afterArgs, ")", "function type");
+        let arrow = expect(ctx, closed, "=>");
+        let (afterRet, ret) = parseType(ctx, arrow);
+        (afterRet, Type { kind: .Fn(args, [ret]), origin: originFrom(afterRet, start) })
+    } else if (at(p, "Self")) {
+        parseNamedType(ctx, p)
+    } else if (at(p, "[")) {
+        let (afterElem, elem) = parseType(ctx, advance(p));
+        let closed = expectClose(ctx, afterElem, "]", "array type");
+        (closed, Type { kind: .Array([elem]), origin: originFrom(closed, start) })
+    } else if (at(p, "(")) {
+        parseParenType(ctx, advance(p), start)
+    } else if (isIdent(tokenAt(p, 0)) || takeEarly(p, isIdent).isSome()) {
+        parseNamedType(ctx, p)
+    } else {
+        (bail(expected(ctx, p, "a type")), unitType())
     }
 }
 
 /// `()`, a grouped type, or a tuple. A grouped type keeps the inner node, so
 /// the parentheses a reader wrote leave no trace — the printer puts back the
-/// ones the grammar needs.
+/// ones the grammar needs. The `(` is already read.
 fn parseParenType<C: Allocator>(ctx: C, p: P, start: Span): (P, Type) {
-    let opened = advance(p);
-    if (at(opened, ")")) {
-        let closed = advance(opened);
+    if (at(p, ")")) {
+        let closed = advance(p);
         (closed, Type { kind: .Unit, origin: originFrom(closed, start) })
     } else {
-        let (afterFirst, first) = parseType(ctx, opened);
+        let (afterFirst, first) = parseType(ctx, p);
         if (at(afterFirst, ")")) {
             (advance(afterFirst), first)
         } else {
-            let comma = eatPunct(ctx, afterFirst, ",");
-            let (afterRest, rest) = parseTypeList(ctx, comma, [], ")");
-            (
-                afterRest,
-                Type {
-                    kind: .Tuple([first].concat(ctx, rest)),
-                    origin: originFrom(afterRest, start),
-                },
-            )
+            let (afterRest, elements) = tupleTypeRest(ctx, afterFirst, [first]);
+            let closed = expectClose(ctx, afterRest, ")", "tuple type");
+            let told = if (elements.length() < 2) {
+                report(
+                    ctx,
+                    closed,
+                    spanFrom(closed, start),
+                    "a tuple type has two elements or more",
+                )
+            } else {
+                closed
+            };
+            (told, Type { kind: .Tuple(elements), origin: originFrom(closed, start) })
         }
     }
 }
 
-fn parseTypeList<C: Allocator>(ctx: C, p: P, acc: [Type], close: Str): (P, [Type]) {
-    if (p.panicking) {
+fn tupleTypeRest<C: Allocator>(ctx: C, p: P, acc: [Type]): (P, [Type]) {
+    let (q, more) = moreElements(ctx, p, ")", "a tuple type element", startsType);
+    if (more == false || at(q, ")")) {
+        (q, acc)
+    } else {
+        let (afterOne, ty) = parseType(ctx, q);
+        tupleTypeRest(ctx, afterOne, acc.push(ctx, ty))
+    }
+}
+
+/// Types up to `close`, which is left for the caller to ask for.
+fn parseTypes<C: Allocator>(
+    ctx: C,
+    p: P,
+    acc: [Type],
+    close: Str,
+    construct: Str,
+): (P, [Type]) {
+    if (listEnded(p, close)) {
         (p, acc)
-    } else if (at(p, close)) {
-        (advance(p), acc)
     } else {
         let (afterOne, ty) = parseType(ctx, p);
         let grown = acc.push(ctx, ty);
-        if (at(afterOne, ",")) {
-            parseTypeList(ctx, advance(afterOne), grown, close)
-        } else {
-            (eatPunct(ctx, afterOne, close), grown)
-        }
+        let (q, more) = moreElements(ctx, afterOne, close, construct, startsType);
+        if (more) { parseTypes(ctx, q, grown, close, construct) } else { (q, grown) }
     }
 }
 
 /// A path and its arguments. `Self` is a name like any other, and a dotted path
 /// is one name spanning the whole of it.
 fn parseNamedType<C: Allocator>(ctx: C, p: P): (P, Type) {
-    if (p.panicking) {
-        (p, unitType())
+    let start = here(p);
+    if (at(p, "Self")) {
+        let after = advance(p);
+        (
+            after,
+            Type {
+                kind: .Named(Name { text: "Self", origin: originAt(p, start) }, []),
+                origin: originFrom(after, start),
+            },
+        )
     } else {
-        let start = here(p);
-        if (at(p, "Self")) {
-            let after = advance(p);
-            (
-                after,
-                Type {
-                    kind: .Named(Name { text: "Self", origin: originAt(p, start) }, []),
-                    origin: originFrom(after, start),
-                },
-            )
-        } else if (atKind(p, TokenKind.Identifier)) {
-            let afterPath = walkPath(p);
-            let text = pathText(ctx, p, afterPath);
-            let name = Name { text: text, origin: originFrom(afterPath, start) };
-            let (afterArgs, args) = if (at(afterPath, "<")) {
-                parseTypeList(ctx, advance(afterPath), [], ">")
-            } else {
-                (afterPath, [])
-            };
-            (
-                afterArgs,
-                Type { kind: .Named(name, args), origin: originFrom(afterArgs, start) },
-            )
-        } else {
-            (expected(ctx, p, "a type"), unitType())
-        }
+        let (named, first) = expectName(ctx, p);
+        let (afterPath, segments) = parsePath(ctx, named, [first.text]);
+        let name = Name {
+            text: segments.join(ctx, "."),
+            origin: originFrom(afterPath, start),
+        };
+        let (afterArgs, args) = parseTypeArgs(ctx, afterPath);
+        (
+            afterArgs,
+            Type { kind: .Named(name, args), origin: originFrom(afterArgs, start) },
+        )
     }
 }
 
-/// Past `a.b.c`, stopping before anything that is not another `.` and name.
-fn walkPath(p: P): P {
-    let after = advance(p);
-    if (
-        tokenAt(after, 0).text == "." && tokenAt(after, 1).kind == TokenKind.Identifier
-    ) {
-        walkPath(advance(after))
+fn parsePath<C: Allocator>(ctx: C, p: P, acc: [Str]): (P, [Str]) {
+    if (at(p, ".")) {
+        let (named, name) = expectName(ctx, advance(p));
+        parsePath(ctx, named, acc.push(ctx, name.text))
     } else {
-        after
+        (p, acc)
     }
 }
 
-/// The dotted spelling between two positions, joined back up.
-fn pathText<C: Allocator>(ctx: C, opened: P, closed: P): Str {
-    opened
-        .tokens
-        .slice(ctx, opened.index, closed.index)
-        .map(ctx, fn(t) => t.text)
-        .join(ctx, "")
+/// `<...>`, or nothing when there is no `<`.
+fn parseTypeArgs<C: Allocator>(ctx: C, p: P): (P, [Type]) {
+    if (at(p, "<")) {
+        let (afterArgs, args) = parseTypes(ctx, advance(p), [], ">", "a type argument");
+        (expectClose(ctx, afterArgs, ">", "type argument list"), args)
+    } else {
+        (p, [])
+    }
 }
 
 // -----------------------------------------------------------------------------
 // Blocks and statements
 // -----------------------------------------------------------------------------
 
-fn parseBlock<C: Allocator>(ctx: C, p: P): (P, Block) {
+fn parseBlock<C: Allocator>(ctx: C, p: P, construct: Str): (P, Block) {
     let start = here(p);
-    let opened = eatPunct(ctx, p, "{");
-    let (afterBody, stmts, tail) = parseBlockBody(ctx, opened, []);
+    let opened = expect(ctx, enter(ctx, p), "{");
+    let (afterBody, stmts, tail) = parseBlockBody(ctx, opened, [], []);
+    let closed = expectClose(ctx, afterBody, "}", construct);
     (
-        afterBody,
-        Block { stmts: stmts, tail: tail, origin: originFrom(afterBody, start) },
+        P { ..closed, depth: p.depth },
+        Block { stmts: stmts, tail: tail, origin: originFrom(closed, start) },
     )
 }
 
-fn parseBlockBody<C: Allocator>(ctx: C, p: P, acc: [Stmt]): (P, [Stmt], [Expr]) {
-    if (p.panicking) {
-        (p, acc, [])
-    } else if (at(p, "}")) {
-        (advance(p), acc, [])
-    } else if (isEnd(p)) {
-        (expected(ctx, p, "`}`"), acc, [])
-    } else if (at(p, "let")) {
-        let start = here(p);
-        let (afterLet, kind) = parseLetStmt(ctx, advance(p));
-        parseBlockBody(
-            ctx,
-            afterLet,
-            acc.push(ctx, Stmt { kind: kind, origin: originFrom(afterLet, start) }),
-        )
+/// The statements up to the `}`. A declaration keyword means the block ended
+/// and its `}` is what is missing.
+fn parseBlockBody<C: Allocator>(
+    ctx: C,
+    p: P,
+    acc: [Stmt],
+    tail: [Expr],
+): (P, [Stmt], [Expr]) {
+    if (p.panicking || at(p, "}") || isEnd(p) || startsDeclaration(tokenAt(p, 0))) {
+        (p, acc, tail)
     } else {
-        let start = here(p);
-        let (afterExpr, e) = parseExpr(ctx, p);
-        if (at(afterExpr, ";")) {
-            let done = advance(afterExpr);
-            parseBlockBody(
-                ctx,
-                done,
-                acc.push(ctx, Stmt { kind: .Expr(e), origin: originFrom(done, start) }),
-            )
+        let (after, made, value, more) = parseStatement(ctx, p);
+        let grown = acc.concat(ctx, made);
+        if (more) {
+            parseBlockBody(ctx, P { ..after, early: -1 }, grown, value)
         } else {
-            (eatPunct(ctx, afterExpr, "}"), acc, [e])
+            (P { ..after, early: -1 }, grown, value)
         }
     }
 }
 
-fn parseLetStmt<C: Allocator>(ctx: C, p: P): (P, StmtKind) {
-    if (at(p, "ctx")) {
-        let equals = eatPunct(ctx, advance(p), "=");
-        let (afterValue, value) = parseExpr(ctx, equals);
-        (eatPunct(ctx, afterValue, ";"), .LetCtx(value))
-    } else {
-        let (afterPat, pattern) = parsePattern(ctx, p);
-        let (afterTy, ty) = if (at(afterPat, ":")) {
-            let (a, t) = parseType(ctx, advance(afterPat));
-            (a, [t])
+/// One statement, or the recovery from one: what it adds, the block's value
+/// if this is it, and whether the block reads on.
+fn parseStatement<C: Allocator>(ctx: C, p: P): (P, [Stmt], [Expr], Bool) {
+    let mark = p.index;
+    let start = here(p);
+    let (q, isLet) = if (at(p, "let")) { (p, true) } else { exchangedBinding(ctx, p) };
+    if (isLet) {
+        let (after, kind) = parseLetStmt(ctx, q);
+        if (after.panicking) {
+            let (synced, semi) = syncStmt(resume(after), openSince(after, mark, false));
+            (synced, [], [], semi)
         } else {
-            (afterPat, [])
-        };
-        let equals = eatPunct(ctx, afterTy, "=");
-        let (afterValue, value) = parseExpr(ctx, equals);
-        (eatPunct(ctx, afterValue, ";"), .Let(pattern, ty, value))
+            (after, [Stmt { kind: kind, origin: originFrom(after, start) }], [], true)
+        }
+    } else {
+        let opening = tokenAt(p, 0);
+        let (after, e) = parseExpr(ctx, p);
+        let next = tokenAt(after, 0);
+        if (after.panicking) {
+            let (synced, semi) = syncStmt(resume(after), openSince(after, mark, false));
+            (synced, [], [], semi)
+        } else if (next.text == ";") {
+            let done = advance(after);
+            (done, [Stmt { kind: .Expr(e), origin: originFrom(done, start) }], [], true)
+        } else if (next.text == "=") {
+            let told = report(
+                ctx,
+                after,
+                next.span,
+                "there is no assignment; a binding is given its value once, where it is declared",
+            );
+            let (rhs, _) = parseExpr(ctx, advance(told));
+            let read = resume(rhs);
+            (if (at(read, ";")) { advance(read) } else { read }, [], [], true)
+        } else if (next.text == "let" || startsStatement(next)) {
+            let done = expectTerminator(ctx, after, statementKind(e));
+            (done, [Stmt { kind: .Expr(e), origin: originFrom(done, start) }], [], true)
+        } else if (next.text == "}" || next.text == "") {
+            (after, [], [e], true)
+        } else if (statementEndsAhead(after, 0, 0)) {
+            let told = expected(ctx, refusePostfix(ctx, after, opening), "`;`");
+            (syncStmt(told, 0).0, [], [], true)
+        } else {
+            (refusePostfix(ctx, after, opening), [], [], false)
+        }
+    }
+}
+
+/// What to call a statement whose `;` is missing.
+fn statementKind(e: Expr): Str {
+    match (e.kind) {
+        .Match(_, _) => "a `match` used as a statement",
+        .If(_, _, _) => "an `if` used as a statement",
+        .Block(_) => "a block used as a statement",
+        .Context(_, _) => "a `context` used as a statement",
+        _ => "a statement",
+    }
+}
+
+/// Whether the statement still ends with a `;` inside this block.
+fn statementEndsAhead(p: P, steps: Int, depth: Int): Bool {
+    let t = tokenAt(p, steps);
+    if (steps >= MAX_LOOKAHEAD || t.text == "") {
+        false
+    } else if (depth == 0 && (t.text == ";" || startsDeclaration(t))) {
+        t.text == ";"
+    } else if (opener(t)) {
+        statementEndsAhead(p, steps + 1, depth + 1)
+    } else if (closer(t)) {
+        depth > 0 && statementEndsAhead(p, steps + 1, depth - 1)
+    } else {
+        statementEndsAhead(p, steps + 1, depth)
+    }
+}
+
+/// The chain a block-like expression may not head, named where a reader would
+/// otherwise be told the block's `}` is missing.
+fn refusePostfix<C: Allocator>(ctx: C, p: P, opening: Token): P {
+    let token = tokenAt(p, 0).text;
+    let what = if (opening.text == "{") {
+        "a block"
+    } else if (opening.text == "if") {
+        "an `if`"
+    } else if (opening.text == "match") {
+        "a `match`"
+    } else {
+        "a `context`"
+    };
+    if (
+        [".", "(", "[", "?"].contains(token) == false
+            || ["{", "if", "match", "context"].contains(opening.text) == false
+    ) {
+        p
+    } else {
+        report(
+            ctx,
+            p,
+            here(p),
+            str.format(ctx, "${what} is an operand, not the head of a `${token}`"),
+        )
+    }
+}
+
+fn parseLetStmt<C: Allocator>(ctx: C, p: P): (P, StmtKind) {
+    let opened = expect(ctx, p, "let");
+    let next = tokenAt(opened, 1);
+    let q = if (
+        strayToken(tokenAt(opened, 0)) && (startsPattern(next) || isCtx(next))
+    ) {
+        advance(expected(ctx, opened, "a pattern"))
+    } else {
+        opened
+    };
+    match (takeEarly(q, isCtx)) {
+        .Some(taken) => {
+            let (afterValue, value) = parseLetValue(ctx, taken.0);
+            (afterValue, .LetCtx(value))
+        },
+        .None => {
+            if (at(q, "ctx")) {
+                let (afterValue, value) = parseLetValue(ctx, advance(q));
+                (afterValue, .LetCtx(value))
+            } else {
+                let (afterPat, pattern) = parsePattern(ctx, q);
+                let (afterTy, ty) = if (at(afterPat, ":")) {
+                    let (a, t) = parseType(ctx, advance(afterPat));
+                    (a, [t])
+                } else {
+                    (afterPat, [])
+                };
+                if (afterTy.panicking) {
+                    (afterTy, .LetCtx(unitExpr()))
+                } else {
+                    let (afterValue, value) = parseLetValue(ctx, afterTy);
+                    (afterValue, .Let(pattern, ty, value))
+                }
+            }
+        },
+    }
+}
+
+/// `= value;`. The pattern is behind us, so a mistake in the value costs the
+/// value and not the binding: the statement is kept and the walk reads on
+/// past its `;`.
+fn parseLetValue<C: Allocator>(ctx: C, p: P): (P, Expr) {
+    let mark = p.index;
+    let equals = expect(ctx, p, "=");
+    let (afterValue, value) = parseExpr(ctx, equals);
+    let ended = expectTerminator(ctx, afterValue, "a statement");
+    if (ended.panicking) {
+        (syncStmt(resume(ended), openSince(ended, mark, false)).0, unitExpr())
+    } else {
+        (ended, value)
     }
 }
 
@@ -4263,7 +5098,17 @@ let LEVELS: Int = 8;
 let COMPARISON: Int = 2;
 
 fn parseExpr<C: Allocator>(ctx: C, p: P): (P, Expr) {
-    if (at(p, "fn")) { parseLambda(ctx, p) } else { parseBinary(ctx, p, 0) }
+    if (p.panicking) {
+        (p, unitExpr())
+    } else {
+        let entered = enter(ctx, p);
+        let (after, e) = if (at(entered, "fn")) {
+            parseLambda(ctx, entered)
+        } else {
+            parseBinary(ctx, entered, 0)
+        };
+        (P { ..after, depth: p.depth }, e)
+    }
 }
 
 fn parseBinary<C: Allocator>(ctx: C, p: P, level: Int): (P, Expr) {
@@ -4293,10 +5138,30 @@ fn binaryRest<C: Allocator>(
             origin: originFrom(afterRight, start),
         };
         if (level == COMPARISON) {
-            (afterRight, node)
+            (refuseChain(ctx, afterRight), node)
         } else {
             binaryRest(ctx, afterRight, level, node, start)
         }
+    }
+}
+
+/// `a < b < c`: said once, and the rest of the chain read and dropped.
+fn refuseChain<C: Allocator>(ctx: C, p: P): P {
+    if (p.panicking || levelOps(COMPARISON).contains(tokenAt(p, 0).text) == false) {
+        p
+    } else {
+        dropChain(
+            ctx,
+            report(ctx, p, here(p), "comparison operators are non-associative"),
+        )
+    }
+}
+
+fn dropChain<C: Allocator>(ctx: C, p: P): P {
+    if (p.panicking || levelOps(COMPARISON).contains(tokenAt(p, 0).text) == false) {
+        p
+    } else {
+        dropChain(ctx, parseBinary(ctx, advance(p), COMPARISON + 1).0)
     }
 }
 
@@ -4340,31 +5205,33 @@ fn parseUnary<C: Allocator>(ctx: C, p: P): (P, Expr) {
     if (p.panicking) {
         (p, unitExpr())
     } else {
-        let start = here(p);
-        let text = tokenAt(p, 0).text;
-        if (text == "-" || text == "!" || text == "~") {
-            let (afterInner, inner) = parseUnary(ctx, advance(p));
-            let op = if (text == "-") {
-                UnOp.Neg
-            } else if (text == "!") {
-                UnOp.Not
-            } else {
-                UnOp.BitNot
-            };
-            (
-                afterInner,
-                Expr {
-                    kind: .Unary(op, [inner]),
-                    origin: originFrom(afterInner, start),
-                },
-            )
-        } else if (
-            text == "if" || text == "match" || text == "context" || text == "{"
-        ) {
-            parseBlockLike(ctx, p)
+        let (after, e) = parseUnaryInner(ctx, enter(ctx, p));
+        (P { ..after, depth: p.depth }, e)
+    }
+}
+
+fn parseUnaryInner<C: Allocator>(ctx: C, p: P): (P, Expr) {
+    let start = here(p);
+    let text = tokenAt(p, 0).text;
+    if (p.panicking) {
+        (p, unitExpr())
+    } else if (["-", "!", "~"].contains(text)) {
+        let (afterInner, inner) = parseUnary(ctx, advance(p));
+        let op = if (text == "-") {
+            UnOp.Neg
+        } else if (text == "!") {
+            UnOp.Not
         } else {
-            parsePostfix(ctx, p)
-        }
+            UnOp.BitNot
+        };
+        (
+            afterInner,
+            Expr { kind: .Unary(op, [inner]), origin: originFrom(afterInner, start) },
+        )
+    } else if (["if", "match", "context", "{"].contains(text)) {
+        parseBlockLike(ctx, p)
+    } else {
+        parsePostfix(ctx, p)
     }
 }
 
@@ -4382,8 +5249,7 @@ fn parseBlockLike<C: Allocator>(ctx: C, p: P): (P, Expr) {
     } else if (at(p, "match")) {
         parseMatch(ctx, p)
     } else if (at(p, "context")) {
-        let opened = eatPunct(ctx, advance(p), "{");
-        let (afterBody, spread, bindings) = parseContextBody(ctx, opened);
+        let (afterBody, spread, bindings) = parseContextBody(ctx, advance(p));
         (
             afterBody,
             Expr {
@@ -4391,8 +5257,8 @@ fn parseBlockLike<C: Allocator>(ctx: C, p: P): (P, Expr) {
                 origin: originFrom(afterBody, start),
             },
         )
-    } else if (opensAnonymousStruct(p)) {
-        let (afterLit, spread, fields) = parseStructBody(ctx, p);
+    } else if (opensFields(p, 0)) {
+        let (afterLit, spread, fields) = parseStructFields(ctx, advance(p));
         (
             afterLit,
             Expr {
@@ -4400,33 +5266,69 @@ fn parseBlockLike<C: Allocator>(ctx: C, p: P): (P, Expr) {
                 origin: originFrom(afterLit, start),
             },
         )
+    } else if (isIdent(tokenAt(p, 1)) && opensFields(p, 1)) {
+        // `{ Point x: 1 }`: the type written inside the brace it belongs in
+        // front of, reported and read as the literal it says it is.
+        let told = expectedAs(ctx, p, start, "a struct literal's type", "`{`");
+        let typeName = tokenAt(p, 1);
+        let head = Expr {
+            kind: .Ident(nameOf(p, typeName)),
+            origin: originAt(p, typeName.span),
+        };
+        let (afterLit, spread, fields) = parseStructFields(ctx, advance(advance(told)));
+        (
+            afterLit,
+            Expr {
+                kind: .StructLit([head], spread, fields),
+                origin: originFrom(afterLit, start),
+            },
+        )
     } else {
-        let (afterBlock, b) = parseBlock(ctx, p);
+        let (afterBlock, b) = parseBlock(ctx, p, "block");
         (afterBlock, Expr { kind: .Block(b), origin: originFrom(afterBlock, start) })
     }
 }
 
-/// Two tokens after the `{` decide: a `..`, or a name and a `:`. Neither can
-/// begin a statement or an expression, so `{ }`, `{ name }` and `{ name, ... }`
-/// are all blocks. The caller has already seen the `{`.
-fn opensAnonymousStruct(p: P): Bool {
-    tokenAt(p, 1).text == ".."
-        || tokenAt(p, 1).kind == TokenKind.Identifier && tokenAt(p, 2).text == ":"
+/// Whether the token after the one at `offset` opens a field list: a `..`, or a
+/// name and a `:`. Neither can begin a statement or an expression, so `{ }`,
+/// `{ name }` and `{ name, ... }` are all blocks.
+fn opensFields(p: P, offset: Int): Bool {
+    tokenAt(p, offset + 1).text == ".."
+        || isIdent(tokenAt(p, offset + 1)) && tokenAt(p, offset + 2).text == ":"
 }
 
 fn parseIf<C: Allocator>(ctx: C, p: P): (P, Expr) {
     let start = here(p);
-    let opened = eatPunct(ctx, advance(p), "(");
+    let opened = expect(ctx, advance(p), "(");
     let (afterCond, cond) = parseExpr(ctx, opened);
-    let closed = eatPunct(ctx, afterCond, ")");
-    let (afterThen, then) = parseBlock(ctx, closed);
-    let elseKeyword = eat(ctx, afterThen, "else", "`else`");
-    let (afterElse, otherwise) = if (at(elseKeyword, "if")) {
-        parseIf(ctx, elseKeyword)
+    let closed = expectClose(ctx, afterCond, ")", "`if` condition");
+    let (afterThen, then) = parseBlock(ctx, closed, "`if` branch");
+    let (afterElse, otherwise) = if (at(afterThen, "else")) {
+        let elseKeyword = advance(afterThen);
+        if (at(elseKeyword, "if")) {
+            parseIf(ctx, elseKeyword)
+        } else {
+            let elseStart = here(elseKeyword);
+            let (a, b) = parseBlock(ctx, elseKeyword, "`else` branch");
+            (a, Expr { kind: .Block(b), origin: originFrom(a, elseStart) })
+        }
+    } else if (tokenAt(afterThen, 1).text == "else") {
+        // A stray token right before the `else` is the whole mistake.
+        (bail(expected(ctx, afterThen, "`else`")), unitExpr())
+    } else if (afterThen.closed == 0) {
+        (
+            bail(
+                report(
+                    ctx,
+                    afterThen,
+                    then.origin.span,
+                    "`if` requires an `else` branch",
+                ),
+            ),
+            unitExpr(),
+        )
     } else {
-        let elseStart = here(elseKeyword);
-        let (a, b) = parseBlock(ctx, elseKeyword);
-        (a, Expr { kind: .Block(b), origin: originFrom(a, elseStart) })
+        (bail(afterThen), unitExpr())
     };
     (
         afterElse,
@@ -4439,90 +5341,99 @@ fn parseIf<C: Allocator>(ctx: C, p: P): (P, Expr) {
 
 fn parseMatch<C: Allocator>(ctx: C, p: P): (P, Expr) {
     let start = here(p);
-    let opened = eatPunct(ctx, advance(p), "(");
+    let opened = expect(ctx, advance(p), "(");
     let (afterValue, value) = parseExpr(ctx, opened);
-    let closed = eatPunct(ctx, afterValue, ")");
-    let braced = eatPunct(ctx, closed, "{");
+    let closed = expectClose(ctx, afterValue, ")", "`match` scrutinee");
+    let braced = expect(ctx, closed, "{");
     let (afterArms, arms) = parseArms(ctx, braced, []);
-    (
-        afterArms,
-        Expr { kind: .Match([value], arms), origin: originFrom(afterArms, start) },
-    )
+    let done = expectClose(ctx, afterArms, "}", "`match`");
+    (done, Expr { kind: .Match([value], arms), origin: originFrom(done, start) })
 }
 
+/// The arms. One that fails is skipped to the `,` after it.
 fn parseArms<C: Allocator>(ctx: C, p: P, acc: [Arm]): (P, [Arm]) {
-    if (p.panicking) {
+    if (listEnded(p, "}")) {
         (p, acc)
-    } else if (at(p, "}")) {
-        (advance(p), acc)
-    } else if (isEnd(p)) {
-        (expected(ctx, p, "`}`"), acc)
     } else {
-        let (afterPat, pattern) = parsePattern(ctx, p);
-        let (afterGuard, guard) = if (at(afterPat, "if")) {
-            let (a, g) = parseExpr(ctx, advance(afterPat));
-            (a, [g])
+        let mark = p.index;
+        let (after, arm) = parseArm(ctx, p);
+        if (after.panicking) {
+            let (synced, comma) = syncMatchArm(
+                resume(after),
+                openSince(after, mark, false),
+            );
+            if (comma) { parseArms(ctx, advance(synced), acc) } else { (synced, acc) }
         } else {
-            (afterPat, [])
-        };
-        let arrow = eatPunct(ctx, afterGuard, "=>");
-        let (afterBody, body) = parseExpr(ctx, arrow);
-        let grown = acc.push(ctx, Arm { pattern: pattern, guard: guard, body: body });
-        if (at(afterBody, ",")) {
-            parseArms(ctx, advance(afterBody), grown)
-        } else {
-            (eatPunct(ctx, afterBody, "}"), grown)
+            let grown = acc.push(ctx, arm);
+            let (q, more) = moreElements(ctx, after, "}", "a match arm", startsPattern);
+            if (more) { parseArms(ctx, q, grown) } else { (q, grown) }
         }
     }
 }
 
-/// The body of a `context`, which both of its forms share. The opening brace is
-/// already eaten.
+fn parseArm<C: Allocator>(ctx: C, p: P): (P, Arm) {
+    let (afterPat, pattern) = parsePattern(ctx, p);
+    let (afterGuard, guard) = if (at(afterPat, "if")) {
+        let (a, g) = parseExpr(ctx, P { ..advance(afterPat), armBody: 0 });
+        (P { ..a, armBody: p.armBody }, [g])
+    } else {
+        (afterPat, [])
+    };
+    let arrow = expectArrow(ctx, afterGuard);
+    let (afterBody, body) = parseExpr(ctx, P { ..arrow, armBody: p.armBody + 1 });
+    (
+        P { ..afterBody, armBody: p.armBody },
+        Arm { pattern: pattern, guard: guard, body: body },
+    )
+}
+
+/// The body of a `context`, which both of its forms share, from its `{`.
 fn parseContextBody<C: Allocator>(ctx: C, p: P): (P, [Expr], [Binding]) {
-    let (afterSpread, spread) = parseSpread(ctx, p);
+    let (afterSpread, spread) = parseSpread(ctx, expect(ctx, p, "{"));
     let (afterBindings, bindings) = parseBindings(ctx, afterSpread, []);
-    (afterBindings, spread, bindings)
+    (expectClose(ctx, afterBindings, "}", "context"), spread, bindings)
 }
 
 fn parseSpread<C: Allocator>(ctx: C, p: P): (P, [Expr]) {
     if (at(p, "..")) {
         let (afterExpr, e) = parseExpr(ctx, advance(p));
-        let done = if (at(afterExpr, ",")) { advance(afterExpr) } else { afterExpr };
-        (done, [e])
+        (eatComma(afterExpr), [e])
     } else {
         (p, [])
     }
 }
 
 fn parseBindings<C: Allocator>(ctx: C, p: P, acc: [Binding]): (P, [Binding]) {
-    if (p.panicking) {
+    if (listEnded(p, "}")) {
         (p, acc)
-    } else if (at(p, "}")) {
-        (advance(p), acc)
     } else {
         let (afterTy, effectTy) = parseNamedType(ctx, p);
-        let colon = eatPunct(ctx, afterTy, ":");
+        let colon = expect(ctx, afterTy, ":");
         let (afterValue, value) = parseExpr(ctx, colon);
         let grown = acc.push(ctx, Binding { effectTy: effectTy, value: value });
-        if (at(afterValue, ",")) {
-            parseBindings(ctx, advance(afterValue), grown)
-        } else {
-            (eatPunct(ctx, afterValue, "}"), grown)
-        }
+        let (q, more) = moreElements(
+            ctx,
+            afterValue,
+            "}",
+            "a context binding",
+            startsName,
+        );
+        if (more) { parseBindings(ctx, q, grown) } else { (q, grown) }
     }
 }
 
 fn parseLambda<C: Allocator>(ctx: C, p: P): (P, Expr) {
     let start = here(p);
-    let opened = eatPunct(ctx, advance(p), "(");
+    let opened = expect(ctx, advance(p), "(");
     let (afterParams, params) = parseLambdaParams(ctx, opened, []);
-    let (afterRet, ret) = if (at(afterParams, ":")) {
-        let (a, t) = parseType(ctx, advance(afterParams));
+    let closed = expectClose(ctx, afterParams, ")", "lambda parameter list");
+    let (afterRet, ret) = if (at(closed, ":")) {
+        let (a, t) = parseType(ctx, advance(closed));
         (a, [t])
     } else {
-        (afterParams, [])
+        (closed, [])
     };
-    let arrow = eatPunct(ctx, afterRet, "=>");
+    let arrow = expect(ctx, afterRet, "=>");
     let (afterBody, body) = parseExpr(ctx, arrow);
     (
         afterBody,
@@ -4538,12 +5449,10 @@ fn parseLambdaParams<C: Allocator>(
     p: P,
     acc: [LambdaParam],
 ): (P, [LambdaParam]) {
-    if (p.panicking) {
+    if (listEnded(p, ")")) {
         (p, acc)
-    } else if (at(p, ")")) {
-        (advance(p), acc)
     } else {
-        let (named, name) = parseName(ctx, p);
+        let (named, name) = expectName(ctx, p);
         let (afterTy, ty) = if (at(named, ":")) {
             let (a, t) = parseType(ctx, advance(named));
             (a, [t])
@@ -4551,11 +5460,14 @@ fn parseLambdaParams<C: Allocator>(
             (named, [])
         };
         let grown = acc.push(ctx, LambdaParam { name: name, ty: ty });
-        if (at(afterTy, ",")) {
-            parseLambdaParams(ctx, advance(afterTy), grown)
-        } else {
-            (eatPunct(ctx, afterTy, ")"), grown)
-        }
+        let (q, more) = moreElements(
+            ctx,
+            afterTy,
+            ")",
+            "a lambda parameter",
+            startsName,
+        );
+        if (more) { parseLambdaParams(ctx, q, grown) } else { (q, grown) }
     }
 }
 
@@ -4568,49 +5480,30 @@ fn parsePostfix<C: Allocator>(ctx: C, p: P): (P, Expr) {
 }
 
 fn postfixRest<C: Allocator>(ctx: C, p: P, base: Expr, start: Span): (P, Expr) {
-    if (p.panicking) {
+    let text = tokenAt(p, 0).text;
+    if (p.panicking || startsPostfix(tokenAt(p, 0)) == false) {
         (p, base)
-    } else {
-        let text = tokenAt(p, 0).text;
-        if (text == ".") {
-            let next = tokenAt(p, 1);
-            if (next.kind == TokenKind.Int) {
-                let after = advance(advance(p));
-                postfixRest(
-                    ctx,
-                    after,
-                    Expr {
-                        kind: .TupleIndex([base], intOf(ctx, next.text)),
-                        origin: originFrom(after, start),
-                    },
-                    start,
-                )
-            } else {
-                let (named, name) = parseName(ctx, advance(p));
-                postfixRest(
-                    ctx,
-                    named,
-                    Expr {
-                        kind: .Field([base], name),
-                        origin: originFrom(named, start),
-                    },
-                    start,
-                )
-            }
-        } else if (text == "(") {
-            let (afterArgs, args) = parseArgs(ctx, advance(p), []);
-            postfixRest(
-                ctx,
-                afterArgs,
-                Expr {
-                    kind: .Call([base], args),
-                    origin: originFrom(afterArgs, start),
-                },
-                start,
-            )
-        } else if (text == "[") {
+    } else if (text == ".") {
+        if (p.armBody > 0 && armPatternFollows(p)) {
+            (p, base)
+        } else {
+            postfixDot(ctx, advance(p), base, start)
+        }
+    } else if (text == "(") {
+        let (afterArgs, args) = parseArgs(ctx, advance(p), []);
+        let closed = expectClose(ctx, afterArgs, ")", "call");
+        postfixRest(
+            ctx,
+            closed,
+            Expr { kind: .Call([base], args), origin: originFrom(closed, start) },
+            start,
+        )
+    } else if (text == "[") {
+        if (prevSpan(p).end < here(p).start && opensAnArray(p, 0, 0)) {
+            (p, base)
+        } else {
             let (afterIndex, index) = parseExpr(ctx, advance(p));
-            let closed = eatPunct(ctx, afterIndex, "]");
+            let closed = expectClose(ctx, afterIndex, "]", "index");
             postfixRest(
                 ctx,
                 closed,
@@ -4620,77 +5513,224 @@ fn postfixRest<C: Allocator>(ctx: C, p: P, base: Expr, start: Span): (P, Expr) {
                 },
                 start,
             )
-        } else if (text == "?") {
-            let after = advance(p);
-            postfixRest(
+        }
+    } else if (text == "?") {
+        let after = advance(p);
+        postfixRest(
+            ctx,
+            after,
+            Expr { kind: .Try([base]), origin: originFrom(after, start) },
+            start,
+        )
+    } else if (text == "<") {
+        match (tryTypeArgs(ctx, p)) {
+            .Some(taken) => {
+                postfixRest(
+                    ctx,
+                    taken.0,
+                    Expr {
+                        kind: .Generic([base], taken.1),
+                        origin: originFrom(taken.0, start),
+                    },
+                    start,
+                )
+            },
+            .None => (p, base),
+        }
+    } else if (text == "::") {
+        let colons = here(p);
+        let after = advance(p);
+        if (at(after, "<")) {
+            let told = report(
                 ctx,
                 after,
-                Expr { kind: .Try([base]), origin: originFrom(after, start) },
-                start,
-            )
-        } else if (text == "{") {
-            let (afterLit, spread, fields) = parseStructBody(ctx, p);
+                colons,
+                "type arguments in an expression are written without `::`",
+            );
+            let (afterArgs, args) = parseTypeArgs(ctx, told);
             postfixRest(
                 ctx,
-                afterLit,
+                afterArgs,
                 Expr {
-                    kind: .StructLit([base], spread, fields),
-                    origin: originFrom(afterLit, start),
+                    kind: .Generic([base], args),
+                    origin: originFrom(afterArgs, start),
                 },
                 start,
             )
-        } else if (text == "<") {
-            match (tryTypeArgs(ctx, p)) {
-                .Some(taken) => {
-                    postfixRest(
-                        ctx,
-                        taken.0,
-                        Expr {
-                            kind: .Generic([base], taken.1),
-                            origin: originFrom(taken.0, start),
-                        },
-                        start,
-                    )
-                },
-                .None => (p, base),
-            }
         } else {
-            (p, base)
+            (bail(report(ctx, after, colons, "`::` is not an operator")), base)
         }
+    } else {
+        let (afterLit, spread, fields) = parseStructFields(ctx, advance(p));
+        postfixRest(
+            ctx,
+            afterLit,
+            Expr {
+                kind: .StructLit([base], spread, fields),
+                origin: originFrom(afterLit, start),
+            },
+            start,
+        )
+    }
+}
+
+/// After a `.`: a tuple index, or a field.
+fn postfixDot<C: Allocator>(ctx: C, p: P, base: Expr, start: Span): (P, Expr) {
+    let t = tokenAt(p, 0);
+    if (t.kind == TokenKind.Int) {
+        let after = advance(p);
+        match (intValue(ctx, t.text).filter(fn(n) => n <= 4294967295)) {
+            .Some(n) => {
+                postfixRest(
+                    ctx,
+                    after,
+                    Expr {
+                        kind: .TupleIndex([base], n),
+                        origin: originFrom(after, start),
+                    },
+                    start,
+                )
+            },
+            .None => {
+                postfixRest(
+                    ctx,
+                    report(
+                        ctx,
+                        after,
+                        t.span,
+                        str.format(ctx, "`${t.text}` is not a tuple index"),
+                    ),
+                    base,
+                    start,
+                )
+            },
+        }
+    } else if (t.kind == TokenKind.Float) {
+        (
+            bail(
+                report(
+                    ctx,
+                    p,
+                    t.span,
+                    str.format(
+                        ctx,
+                        "`.${t.text}` lexes as a float, not two tuple indices",
+                    ),
+                ),
+            ),
+            base,
+        )
+    } else {
+        let (named, name) = expectName(ctx, p);
+        postfixRest(
+            ctx,
+            named,
+            Expr { kind: .Field([base], name), origin: originFrom(named, start) },
+            start,
+        )
+    }
+}
+
+/// Inside a match arm's body, whether the `.` under the cursor opens the next
+/// arm's pattern, with the comma between them missing: a whole variant pattern
+/// and then its `=>`.
+fn armPatternFollows(p: P): Bool {
+    if (isIdent(tokenAt(p, 1)) == false) {
+        false
+    } else {
+        let after = if (tokenAt(p, 2).text == "(") {
+            pastGroup(p, 2, ")", 0, 0)
+        } else if (tokenAt(p, 2).text == "{") {
+            pastGroup(p, 2, "}", 0, 0)
+        } else {
+            .Some(2)
+        };
+        match (after) {
+            .Some(i) => {
+                let t = tokenAt(p, i);
+                t.text == "=>"
+                    || ["if", "|"].contains(t.text) && arrowBeforeTheArmEnds(p, i, 0, 0)
+            },
+            .None => false,
+        }
+    }
+}
+
+/// The offset just past the group opening at `i`, if it closes with `close`.
+fn pastGroup(p: P, i: Int, close: Str, steps: Int, depth: Int): Option<Int> {
+    let t = tokenAt(p, i + steps);
+    if (steps >= MAX_LOOKAHEAD || t.text == "") {
+        .None
+    } else if (opener(t)) {
+        pastGroup(p, i, close, steps + 1, depth + 1)
+    } else if (closer(t) && depth == 1) {
+        if (t.text == close) { .Some(i + steps + 1) } else { .None }
+    } else if (closer(t)) {
+        pastGroup(p, i, close, steps + 1, depth - 1)
+    } else {
+        pastGroup(p, i, close, steps + 1, depth)
+    }
+}
+
+/// Whether a `=>` comes before anything that would end the arm.
+fn arrowBeforeTheArmEnds(p: P, i: Int, steps: Int, depth: Int): Bool {
+    let t = tokenAt(p, i + steps);
+    if (steps >= MAX_LOOKAHEAD || t.text == "") {
+        false
+    } else if (depth <= 0 && t.text == "=>") {
+        true
+    } else if (opener(t)) {
+        arrowBeforeTheArmEnds(p, i, steps + 1, depth + 1)
+    } else if (depth <= 0 && ([",", ";"].contains(t.text) || closer(t))) {
+        false
+    } else if (closer(t)) {
+        arrowBeforeTheArmEnds(p, i, steps + 1, depth - 1)
+    } else {
+        arrowBeforeTheArmEnds(p, i, steps + 1, depth)
+    }
+}
+
+/// Whether the spaced `[` under the cursor opens a group with a `,` directly in
+/// it — an array, the next element of the list this expression is in, rather
+/// than an index.
+fn opensAnArray(p: P, steps: Int, depth: Int): Bool {
+    let t = tokenAt(p, steps);
+    if (steps >= MAX_LOOKAHEAD) {
+        false
+    } else if (depth == 1 && [",", "<"].contains(t.text)) {
+        t.text == ","
+    } else if (opener(t)) {
+        opensAnArray(p, steps + 1, depth + 1)
+    } else if (closer(t)) {
+        depth > 1 && opensAnArray(p, steps + 1, depth - 1)
+    } else {
+        opensAnArray(p, steps + 1, depth)
     }
 }
 
 fn parseArgs<C: Allocator>(ctx: C, p: P, acc: [Expr]): (P, [Expr]) {
-    if (p.panicking) {
+    if (listEnded(p, ")")) {
         (p, acc)
-    } else if (at(p, ")")) {
-        (advance(p), acc)
     } else {
         let (afterOne, e) = parseExpr(ctx, p);
         let grown = acc.push(ctx, e);
-        if (at(afterOne, ",")) {
-            parseArgs(ctx, advance(afterOne), grown)
-        } else {
-            (eatPunct(ctx, afterOne, ")"), grown)
-        }
+        let (q, more) = moreElements(ctx, afterOne, ")", "a call argument", startsExpr);
+        if (more) { parseArgs(ctx, q, grown) } else { (q, grown) }
     }
 }
 
-/// `{ ..base, a: 1, b }`. The opening brace is not yet eaten.
-fn parseStructBody<C: Allocator>(ctx: C, p: P): (P, [Expr], [Init]) {
-    let opened = eatPunct(ctx, p, "{");
-    let (afterSpread, spread) = parseSpread(ctx, opened);
+/// `..base, a: 1, b }`, from inside the brace.
+fn parseStructFields<C: Allocator>(ctx: C, p: P): (P, [Expr], [Init]) {
+    let (afterSpread, spread) = parseSpread(ctx, p);
     let (afterFields, fields) = parseInits(ctx, afterSpread, []);
-    (afterFields, spread, fields)
+    (expectClose(ctx, afterFields, "}", "struct literal"), spread, fields)
 }
 
 fn parseInits<C: Allocator>(ctx: C, p: P, acc: [Init]): (P, [Init]) {
-    if (p.panicking) {
+    if (listEnded(p, "}")) {
         (p, acc)
-    } else if (at(p, "}")) {
-        (advance(p), acc)
     } else {
-        let (named, name) = parseName(ctx, p);
+        let (named, name) = expectName(ctx, p);
         let (afterValue, value) = if (at(named, ":")) {
             let (a, e) = parseExpr(ctx, advance(named));
             (a, [e])
@@ -4698,11 +5738,14 @@ fn parseInits<C: Allocator>(ctx: C, p: P, acc: [Init]): (P, [Init]) {
             (named, [])
         };
         let grown = acc.push(ctx, Init { name: name, value: value });
-        if (at(afterValue, ",")) {
-            parseInits(ctx, advance(afterValue), grown)
-        } else {
-            (eatPunct(ctx, afterValue, "}"), grown)
-        }
+        let (q, more) = moreElements(
+            ctx,
+            afterValue,
+            "}",
+            "a struct-literal field",
+            startsName,
+        );
+        if (more) { parseInits(ctx, q, grown) } else { (q, grown) }
     }
 }
 
@@ -4712,16 +5755,16 @@ fn parseInits<C: Allocator>(ctx: C, p: P, acc: [Init]): (P, [Init]) {
 /// comparison, and which one cannot be known until the `>` is found.
 ///
 /// Three steps, cheapest first: a bounded token scan for a `>` over the tokens
-/// a type may be built from, the real type-argument parser speculatively, and
-/// then the token *after* the `>`, which is what settles the readings both
-/// parse.
+/// a type may be built from, the real type-argument parser on trial, and then
+/// the token *after* the `>`, which is what settles the readings both parse.
+/// The trial says nothing, so a list that commits is read again for real.
 fn tryTypeArgs<C: Allocator>(ctx: C, p: P): Option<(P, [Type])> {
-    if (scanForTypeArgs(p, p.index + 1, 1, 0) == false) {
+    if (scanForTypeArgs(p, 0, 0) == false) {
         .None
     } else {
-        let (after, args) = parseTypeList(ctx, advance(p), [], ">");
-        if (after.panicking == false && args.isEmpty() == false && commits(after)) {
-            .Some((after, args))
+        let (tried, args) = parseTypeArgs(ctx, P { ..p, trial: p.trial + 1 });
+        if (tried.panicking == false && args.isEmpty() == false && commits(tried)) {
+            .Some(parseTypeArgs(ctx, p))
         } else {
             .None
         }
@@ -4733,174 +5776,128 @@ fn tryTypeArgs<C: Allocator>(ctx: C, p: P): Option<(P, [Type])> {
 /// arguments are the only reading that is a program at all. Anything else keeps
 /// the comparison.
 fn commits(p: P): Bool {
-    at(p, "(") || at(p, "{") || startsExpr(tokenAt(p, 0)) == false
+    let t = tokenAt(p, 0);
+    ["(", "{"].contains(t.text) || startsExpr(t) == false
 }
 
-let LOOKAHEAD: Int = 64;
-
-fn scanForTypeArgs(p: P, index: Int, depth: Int, steps: Int): Bool {
-    if (steps > LOOKAHEAD) {
+fn scanForTypeArgs(p: P, steps: Int, depth: Int): Bool {
+    let t = tokenAt(p, steps);
+    if (steps >= MAX_LOOKAHEAD) {
         false
+    } else if (t.text == "<") {
+        scanForTypeArgs(p, steps + 1, depth + 1)
+    } else if (t.text == ">") {
+        depth <= 1 || scanForTypeArgs(p, steps + 1, depth - 1)
+    } else if (
+        isIdent(t)
+            || ["Self", "fn", ".", ",", "(", ")", "[", "]", "=>"].contains(t.text)
+    ) {
+        scanForTypeArgs(p, steps + 1, depth)
     } else {
-        match (p.tokens.get(index)) {
-            .None => false,
-            .Some(t) => {
-                if (t.text == "<") {
-                    scanForTypeArgs(p, index + 1, depth + 1, steps + 1)
-                } else if (t.text == ">") {
-                    if (depth == 1) {
-                        true
-                    } else {
-                        scanForTypeArgs(p, index + 1, depth - 1, steps + 1)
-                    }
-                } else if (typeToken(t)) {
-                    scanForTypeArgs(p, index + 1, depth, steps + 1)
-                } else {
-                    false
-                }
-            },
-        }
+        false
     }
-}
-
-fn typeToken(t: Token): Bool {
-    t.kind == TokenKind.Identifier
-        || t.text == "Self"
-        || t.text == "fn"
-        || t.text == ","
-        || t.text == "."
-        || t.text == "["
-        || t.text == "]"
-        || t.text == "("
-        || t.text == ")"
-        || t.text == "=>"
-}
-
-/// What else can begin an expression: `commits` has already looked for `(`
-/// and `{`.
-fn startsExpr(t: Token): Bool {
-    t.kind == TokenKind.Identifier
-        || t.kind == TokenKind.Int
-        || t.kind == TokenKind.Float
-        || t.kind == TokenKind.Str
-        || t.kind == TokenKind.Char
-        || t.kind == TokenKind.TemplateHead
-        || t.text == "self"
-        || t.text == "ctx"
-        || t.text == "true"
-        || t.text == "false"
-        || t.text == "if"
-        || t.text == "match"
-        || t.text == "context"
-        || t.text == "fn"
-        || t.text == "["
-        || t.text == "."
-        || t.text == "-"
-        || t.text == "!"
-        || t.text == "~"
 }
 
 // --- primary expressions -------------------------------------------------------------
 
 fn parsePrimary<C: Allocator>(ctx: C, p: P): (P, Expr) {
-    if (p.panicking) {
-        (p, unitExpr())
+    let t = tokenAt(p, 0);
+    let start = t.span;
+    let after = advance(p);
+    if (t.kind == TokenKind.Int) {
+        (after, Expr { kind: intKind(ctx, t.text), origin: originAt(p, start) })
+    } else if (t.kind == TokenKind.Float) {
+        (after, Expr { kind: .Float(floatOf(ctx, t.text)), origin: originAt(p, start) })
+    } else if (t.kind == TokenKind.Str) {
+        (
+            after,
+            Expr { kind: .Str(literalText(ctx, t.text)), origin: originAt(p, start) },
+        )
+    } else if (t.kind == TokenKind.Char) {
+        (
+            after,
+            Expr { kind: .Char(charLiteral(ctx, t.text)), origin: originAt(p, start) },
+        )
+    } else if (t.kind == TokenKind.TemplateHead) {
+        parseTemplate(ctx, p)
+    } else if (t.text == "true") {
+        (after, Expr { kind: .Bool(true), origin: originAt(p, start) })
+    } else if (t.text == "false") {
+        (after, Expr { kind: .Bool(false), origin: originAt(p, start) })
+    } else if (t.text == "self") {
+        (after, Expr { kind: .SelfValue, origin: originAt(p, start) })
+    } else if (t.text == "ctx") {
+        (after, Expr { kind: .Ctx, origin: originAt(p, start) })
+    } else if (isIdent(t)) {
+        (after, Expr { kind: .Ident(nameOf(p, t)), origin: originAt(p, start) })
+    } else if (t.text == ".") {
+        let (named, name) = expectName(ctx, after);
+        (named, Expr { kind: .DotVariant(name), origin: originFrom(named, start) })
+    } else if (t.text == "[") {
+        let (afterItems, items) = parseArrayItems(ctx, after, []);
+        let closed = expectClose(ctx, afterItems, "]", "array");
+        (closed, Expr { kind: .Array(items), origin: originFrom(closed, start) })
+    } else if (t.text == "(") {
+        parseParenExpr(ctx, after, start)
     } else {
-        let t = tokenAt(p, 0);
-        let start = t.span;
-        let after = advance(p);
-        if (t.kind == TokenKind.Int) {
-            (after, Expr { kind: intKind(ctx, t.text), origin: originAt(p, start) })
-        } else if (t.kind == TokenKind.Float) {
-            (
-                after,
-                Expr { kind: .Float(floatOf(ctx, t.text)), origin: originAt(p, start) },
-            )
-        } else if (t.kind == TokenKind.Str) {
-            (
-                after,
-                Expr {
-                    kind: .Str(literalText(ctx, t.text)),
-                    origin: originAt(p, start),
-                },
-            )
-        } else if (t.kind == TokenKind.Char) {
-            (
-                after,
-                Expr {
-                    kind: .Char(charLiteral(ctx, t.text)),
-                    origin: originAt(p, start),
-                },
-            )
-        } else if (t.kind == TokenKind.TemplateHead) {
-            parseTemplate(ctx, p)
-        } else if (t.text == "true") {
-            (after, Expr { kind: .Bool(true), origin: originAt(p, start) })
-        } else if (t.text == "false") {
-            (after, Expr { kind: .Bool(false), origin: originAt(p, start) })
-        } else if (t.text == "self") {
-            (after, Expr { kind: .SelfValue, origin: originAt(p, start) })
-        } else if (t.text == "ctx") {
-            (after, Expr { kind: .Ctx, origin: originAt(p, start) })
-        } else if (t.kind == TokenKind.Identifier) {
-            (
-                after,
-                Expr {
-                    kind: .Ident(Name { text: t.text, origin: originAt(p, start) }),
-                    origin: originAt(p, start),
-                },
-            )
-        } else if (t.text == ".") {
-            let (named, name) = parseName(ctx, after);
-            (named, Expr { kind: .DotVariant(name), origin: originFrom(named, start) })
-        } else if (t.text == "[") {
-            let (afterItems, items) = parseArrayItems(ctx, after, []);
-            (
-                afterItems,
-                Expr { kind: .Array(items), origin: originFrom(afterItems, start) },
-            )
-        } else if (t.text == "(") {
-            parseParenExpr(ctx, p, start)
-        } else {
-            (expected(ctx, p, "an expression"), unitExpr())
-        }
+        (bail(expected(ctx, p, "an expression")), unitExpr())
     }
 }
 
 fn parseArrayItems<C: Allocator>(ctx: C, p: P, acc: [Expr]): (P, [Expr]) {
-    if (at(p, "]")) {
-        (advance(p), acc)
+    if (listEnded(p, "]")) {
+        (p, acc)
     } else {
         let (afterOne, e) = parseExpr(ctx, p);
         let grown = acc.push(ctx, e);
-        if (at(afterOne, ",")) {
-            parseArrayItems(ctx, advance(afterOne), grown)
+        let (q, more) = moreElements(
+            ctx,
+            afterOne,
+            "]",
+            "an array element",
+            startsExpr,
+        );
+        if (more) { parseArrayItems(ctx, q, grown) } else { (q, grown) }
+    }
+}
+
+/// `()`, a grouped expression, or a tuple, from after the `(`.
+fn parseParenExpr<C: Allocator>(ctx: C, p: P, start: Span): (P, Expr) {
+    if (at(p, ")")) {
+        let closed = advance(p);
+        (closed, Expr { kind: .Unit, origin: originFrom(closed, start) })
+    } else {
+        let (afterFirst, first) = parseExpr(ctx, p);
+        if (at(afterFirst, ")")) {
+            (advance(afterFirst), first)
         } else {
-            (eatPunct(ctx, afterOne, "]"), grown)
+            let (afterRest, elements) = tupleRest(ctx, afterFirst, [first]);
+            let whole = at(afterRest, ")");
+            let closed = expectClose(ctx, afterRest, ")", "tuple");
+            // What is inside a group that never closed is whatever the
+            // recovery stopped at, so its count is not a thing to report.
+            let told = if (whole && elements.length() < 2) {
+                report(
+                    ctx,
+                    closed,
+                    spanFrom(closed, start),
+                    "a tuple has two elements or more",
+                )
+            } else {
+                closed
+            };
+            (told, Expr { kind: .Tuple(elements), origin: originFrom(closed, start) })
         }
     }
 }
 
-fn parseParenExpr<C: Allocator>(ctx: C, p: P, start: Span): (P, Expr) {
-    let opened = advance(p);
-    if (at(opened, ")")) {
-        let closed = advance(opened);
-        (closed, Expr { kind: .Unit, origin: originFrom(closed, start) })
+fn tupleRest<C: Allocator>(ctx: C, p: P, acc: [Expr]): (P, [Expr]) {
+    let (q, more) = moreElements(ctx, p, ")", "a tuple element", startsExpr);
+    if (more == false || at(q, ")")) {
+        (q, acc)
     } else {
-        let (afterFirst, first) = parseExpr(ctx, opened);
-        if (at(afterFirst, ")")) {
-            (advance(afterFirst), first)
-        } else {
-            let comma = eatPunct(ctx, afterFirst, ",");
-            let (afterRest, rest) = parseArgs(ctx, comma, []);
-            (
-                afterRest,
-                Expr {
-                    kind: .Tuple([first].concat(ctx, rest)),
-                    origin: originFrom(afterRest, start),
-                },
-            )
-        }
+        let (afterOne, e) = parseExpr(ctx, q);
+        tupleRest(ctx, afterOne, acc.push(ctx, e))
     }
 }
 
@@ -4914,32 +5911,30 @@ fn parseTemplate<C: Allocator>(ctx: C, p: P): (P, Expr) {
 }
 
 fn templateParts<C: Allocator>(ctx: C, p: P, acc: [Part]): (P, [Part]) {
-    if (p.panicking) {
-        (p, acc)
-    } else {
-        let (afterHole, hole) = parseExpr(ctx, p);
-        let withHole = acc.push(ctx, Part.Hole(hole));
-        let t = tokenAt(afterHole, 0);
-        if (t.kind == TokenKind.TemplateSpan) {
-            templateParts(
+    let (afterHole, hole) = parseExpr(ctx, p);
+    let withHole = acc.push(ctx, Part.Hole(hole));
+    let t = tokenAt(afterHole, 0);
+    if (afterHole.panicking) {
+        (afterHole, withHole)
+    } else if (t.kind == TokenKind.TemplateSpan) {
+        templateParts(
+            ctx,
+            advance(afterHole),
+            withHole.push(
                 ctx,
-                advance(afterHole),
-                withHole.push(
-                    ctx,
-                    .Text(unescape(ctx, t.text.slice(1, t.text.length() - 2))),
-                ),
-            )
-        } else if (t.kind == TokenKind.TemplateTail) {
-            (
-                advance(afterHole),
-                withHole.push(
-                    ctx,
-                    .Text(unescape(ctx, t.text.slice(1, t.text.length() - 1))),
-                ),
-            )
-        } else {
-            (expected(ctx, afterHole, "the rest of the template"), withHole)
-        }
+                .Text(unescape(ctx, t.text.slice(1, t.text.length() - 2))),
+            ),
+        )
+    } else if (t.kind == TokenKind.TemplateTail) {
+        (
+            advance(afterHole),
+            withHole.push(
+                ctx,
+                .Text(unescape(ctx, t.text.slice(1, t.text.length() - 1))),
+            ),
+        )
+    } else {
+        (bail(expected(ctx, afterHole, "the rest of the string")), withHole)
     }
 }
 
@@ -4948,9 +5943,10 @@ fn templateParts<C: Allocator>(ctx: C, p: P, acc: [Part]): (P, [Part]) {
 // -----------------------------------------------------------------------------
 
 fn parsePattern<C: Allocator>(ctx: C, p: P): (P, Pattern) {
+    let entered = enter(ctx, p);
     let start = here(p);
-    let (afterFirst, first) = parsePatternNoOr(ctx, p);
-    if (at(afterFirst, "|")) {
+    let (afterFirst, first) = parsePatternNoOr(ctx, entered);
+    let (after, pattern) = if (at(afterFirst, "|")) {
         let (afterRest, rest) = parseOrPatterns(ctx, afterFirst, []);
         (
             afterRest,
@@ -4961,7 +5957,8 @@ fn parsePattern<C: Allocator>(ctx: C, p: P): (P, Pattern) {
         )
     } else {
         (afterFirst, first)
-    }
+    };
+    (P { ..after, depth: p.depth }, pattern)
 }
 
 fn parseOrPatterns<C: Allocator>(ctx: C, p: P, acc: [Pattern]): (P, [Pattern]) {
@@ -4977,12 +5974,14 @@ fn parsePatternNoOr<C: Allocator>(ctx: C, p: P): (P, Pattern) {
     let t = tokenAt(p, 0);
     let start = t.span;
     let after = advance(p);
-    if (t.text == "_") {
+    if (p.panicking) {
+        (p, wildPattern())
+    } else if (t.text == "_") {
         (after, Pattern { kind: .Wild, origin: originAt(p, start) })
     } else if (t.text == "-") {
         let number = tokenAt(after, 0);
+        let done = advance(after);
         if (number.kind == TokenKind.Int) {
-            let done = advance(after);
             (
                 done,
                 Pattern {
@@ -4991,7 +5990,6 @@ fn parsePatternNoOr<C: Allocator>(ctx: C, p: P): (P, Pattern) {
                 },
             )
         } else if (number.kind == TokenKind.Float) {
-            let done = advance(after);
             (
                 done,
                 Pattern {
@@ -5000,7 +5998,7 @@ fn parsePatternNoOr<C: Allocator>(ctx: C, p: P): (P, Pattern) {
                 },
             )
         } else {
-            (expected(ctx, after, "a number"), wildPattern())
+            (bail(expected(ctx, after, "a number after `-`")), wildPattern())
         }
     } else if (t.kind == TokenKind.Int) {
         (
@@ -5036,7 +6034,7 @@ fn parsePatternNoOr<C: Allocator>(ctx: C, p: P): (P, Pattern) {
     } else if (t.text == "false") {
         (after, Pattern { kind: .LitBool(false), origin: originAt(p, start) })
     } else if (t.text == ".") {
-        let (named, name) = parseName(ctx, after);
+        let (named, name) = expectName(ctx, after);
         let (afterPayload, payload) = parsePayload(ctx, named);
         (
             afterPayload,
@@ -5049,10 +6047,21 @@ fn parsePatternNoOr<C: Allocator>(ctx: C, p: P): (P, Pattern) {
         parseArrayPattern(ctx, after, start)
     } else if (t.text == "(") {
         parseParenPattern(ctx, after, start)
-    } else if (t.kind == TokenKind.Identifier) {
+    } else if (isIdent(t)) {
         parseIdentPattern(ctx, p, start)
     } else {
-        (expected(ctx, p, "a pattern"), wildPattern())
+        match (takeEarly(p, isIdent)) {
+            .Some(taken) => {
+                (
+                    taken.0,
+                    Pattern {
+                        kind: .Bind(nameOf(p, taken.1), []),
+                        origin: originAt(p, taken.1.span),
+                    },
+                )
+            },
+            .None => (bail(expected(ctx, p, "a pattern")), wildPattern()),
+        }
     }
 }
 
@@ -5064,15 +6073,24 @@ fn wildPattern(): Pattern {
 /// variant or a struct — which is what makes a pattern parseable with no name
 /// resolution behind it.
 fn parseIdentPattern<C: Allocator>(ctx: C, p: P, start: Span): (P, Pattern) {
-    let dotted = tokenAt(p, 1).text == "."
-        && tokenAt(p, 2).kind == TokenKind.Identifier;
-    if (dotted) {
-        let afterPath = walkPath(p);
-        let name = Name {
-            text: pathText(ctx, p, afterPath),
+    let name = nameOf(p, tokenAt(p, 0));
+    let after = advance(p);
+    if (at(after, ".")) {
+        let (afterPath, segments) = parsePath(ctx, after, [name.text]);
+        let path = Name {
+            text: segments.join(ctx, "."),
             origin: originFrom(afterPath, start),
         };
         let (afterPayload, payload) = parsePayload(ctx, afterPath);
+        (
+            afterPayload,
+            Pattern {
+                kind: .Path(path, false, payload),
+                origin: originFrom(afterPayload, start),
+            },
+        )
+    } else if (at(after, "(") || at(after, "{")) {
+        let (afterPayload, payload) = parsePayload(ctx, after);
         (
             afterPayload,
             Pattern {
@@ -5080,81 +6098,59 @@ fn parseIdentPattern<C: Allocator>(ctx: C, p: P, start: Span): (P, Pattern) {
                 origin: originFrom(afterPayload, start),
             },
         )
+    } else if (at(after, "@")) {
+        let (afterSub, sub) = parsePatternNoOr(ctx, advance(after));
+        (
+            afterSub,
+            Pattern { kind: .Bind(name, [sub]), origin: originFrom(afterSub, start) },
+        )
     } else {
-        let t = tokenAt(p, 0);
-        let name = Name { text: t.text, origin: originAt(p, start) };
-        let after = advance(p);
-        if (at(after, "(") || at(after, "{")) {
-            let (afterPayload, payload) = parsePayload(ctx, after);
-            (
-                afterPayload,
-                Pattern {
-                    kind: .Path(name, false, payload),
-                    origin: originFrom(afterPayload, start),
-                },
-            )
-        } else if (at(after, "@")) {
-            let (afterSub, sub) = parsePatternNoOr(ctx, advance(after));
-            (
-                afterSub,
-                Pattern {
-                    kind: .Bind(name, [sub]),
-                    origin: originFrom(afterSub, start),
-                },
-            )
-        } else {
-            (after, Pattern { kind: .Bind(name, []), origin: originAt(p, start) })
-        }
+        (after, Pattern { kind: .Bind(name, []), origin: originAt(p, start) })
     }
 }
 
 fn parsePayload<C: Allocator>(ctx: C, p: P): (P, [Payload]) {
     if (at(p, "(")) {
-        let (after, items) = parsePatternList(ctx, advance(p), [], ")");
-        (after, [Payload.Tuple(items)])
+        let (after, items) = parsePatternList(ctx, advance(p), []);
+        (
+            expectClose(ctx, after, ")", "variant payload pattern"),
+            [Payload.Tuple(items)],
+        )
     } else if (at(p, "{")) {
-        let (after, fields, rest) = parseFieldPats(ctx, advance(p), [], false);
-        (after, [Payload.Record(fields, rest)])
+        let (after, fields, rest) = parseFieldPats(ctx, advance(p), []);
+        (
+            expectClose(ctx, after, "}", "variant field pattern"),
+            [Payload.Record(fields, rest)],
+        )
     } else {
         (p, [])
     }
 }
 
-fn parsePatternList<C: Allocator>(
-    ctx: C,
-    p: P,
-    acc: [Pattern],
-    close: Str,
-): (P, [Pattern]) {
-    if (p.panicking) {
+fn parsePatternList<C: Allocator>(ctx: C, p: P, acc: [Pattern]): (P, [Pattern]) {
+    if (listEnded(p, ")")) {
         (p, acc)
-    } else if (at(p, close)) {
-        (advance(p), acc)
     } else {
         let (afterOne, one) = parsePattern(ctx, p);
         let grown = acc.push(ctx, one);
-        if (at(afterOne, ",")) {
-            parsePatternList(ctx, advance(afterOne), grown, close)
-        } else {
-            (eatPunct(ctx, afterOne, close), grown)
-        }
+        let (q, more) = moreElements(
+            ctx,
+            afterOne,
+            ")",
+            "a variant-pattern field",
+            startsPattern,
+        );
+        if (more) { parsePatternList(ctx, q, grown) } else { (q, grown) }
     }
 }
 
-fn parseFieldPats<C: Allocator>(
-    ctx: C,
-    p: P,
-    acc: [FieldPat],
-    rest: Bool,
-): (P, [FieldPat], Bool) {
-    if (at(p, "}")) {
-        (advance(p), acc, rest)
+fn parseFieldPats<C: Allocator>(ctx: C, p: P, acc: [FieldPat]): (P, [FieldPat], Bool) {
+    if (listEnded(p, "}")) {
+        (p, acc, false)
     } else if (at(p, "..")) {
-        let after = advance(p);
-        let done = if (at(after, ",")) { advance(after) } else { after };
-        (eatPunct(ctx, done, "}"), acc, true)
+        (eatComma(advance(p)), acc, true)
     } else {
-        let (named, name) = parseName(ctx, p);
+        let (named, name) = expectName(ctx, p);
         let (afterPat, inner) = if (at(named, ":")) {
             let (a, one) = parsePattern(ctx, advance(named));
             (a, [one])
@@ -5162,48 +6158,57 @@ fn parseFieldPats<C: Allocator>(
             (named, [])
         };
         let grown = acc.push(ctx, FieldPat { name: name, pattern: inner });
-        if (at(afterPat, ",")) {
-            parseFieldPats(ctx, advance(afterPat), grown, rest)
-        } else {
-            (eatPunct(ctx, afterPat, "}"), grown, rest)
-        }
+        let (q, more) = moreElements(ctx, afterPat, "}", "a field pattern", startsName);
+        if (more) { parseFieldPats(ctx, q, grown) } else { (q, grown, false) }
     }
 }
 
 fn parseArrayPattern<C: Allocator>(ctx: C, p: P, start: Span): (P, Pattern) {
-    let (after, items, rest) = arrayPatternBody(ctx, p, [], []);
-    (after, Pattern { kind: .Array(items, rest), origin: originFrom(after, start) })
+    let (after, items, rest) = arrayPatternBody(ctx, p, []);
+    let closed = expectClose(ctx, after, "]", "array pattern");
+    (closed, Pattern { kind: .Array(items, rest), origin: originFrom(closed, start) })
 }
 
 fn arrayPatternBody<C: Allocator>(
     ctx: C,
     p: P,
     acc: [Pattern],
-    rest: [Rest],
 ): (P, [Pattern], [Rest]) {
-    if (at(p, "]")) {
-        (advance(p), acc, rest)
+    if (listEnded(p, "]")) {
+        (p, acc, [])
     } else if (at(p, "..")) {
         let after = advance(p);
-        let (named, tail) = if (atKind(after, TokenKind.Identifier)) {
-            let (a, n) = parseName(ctx, after);
+        let (named, tail) = if (isIdent(tokenAt(after, 0))) {
+            let (a, n) = expectName(ctx, after);
             (a, [Rest.Named(n)])
         } else {
             (after, [Rest.Anonymous])
         };
-        let done = if (at(named, ",")) { advance(named) } else { named };
-        (eatPunct(ctx, done, "]"), acc, tail)
+        let done = eatComma(named);
+        if (at(done, "]")) {
+            (done, acc, tail)
+        } else {
+            (
+                bail(report(ctx, done, here(done), "a rest pattern must come last")),
+                acc,
+                tail,
+            )
+        }
     } else {
         let (afterOne, one) = parsePattern(ctx, p);
         let grown = acc.push(ctx, one);
-        if (at(afterOne, ",")) {
-            arrayPatternBody(ctx, advance(afterOne), grown, rest)
-        } else {
-            (eatPunct(ctx, afterOne, "]"), grown, rest)
-        }
+        let (q, more) = moreElements(
+            ctx,
+            afterOne,
+            "]",
+            "an array-pattern element",
+            startsPattern,
+        );
+        if (more) { arrayPatternBody(ctx, q, grown) } else { (q, grown, []) }
     }
 }
 
+/// `()`, a grouped pattern, or a tuple, from after the `(`.
 fn parseParenPattern<C: Allocator>(ctx: C, p: P, start: Span): (P, Pattern) {
     if (at(p, ")")) {
         let closed = advance(p);
@@ -5213,37 +6218,29 @@ fn parseParenPattern<C: Allocator>(ctx: C, p: P, start: Span): (P, Pattern) {
         if (at(afterFirst, ")")) {
             (advance(afterFirst), first)
         } else {
-            let comma = eatPunct(ctx, afterFirst, ",");
-            let (afterRest, rest) = parsePatternList(ctx, comma, [], ")");
+            let (afterRest, elements) = tuplePatternRest(ctx, afterFirst, [first]);
+            let closed = expectClose(ctx, afterRest, ")", "tuple pattern");
             (
-                afterRest,
-                Pattern {
-                    kind: .Tuple([first].concat(ctx, rest)),
-                    origin: originFrom(afterRest, start),
-                },
+                closed,
+                Pattern { kind: .Tuple(elements), origin: originFrom(closed, start) },
             )
         }
     }
 }
 
-// -----------------------------------------------------------------------------
-// Names, and what a literal says
-// -----------------------------------------------------------------------------
-
-fn parseName<C: Allocator>(ctx: C, p: P): (P, Name) {
-    if (p.panicking) {
-        (p, noName())
-    } else if (atKind(p, TokenKind.Identifier)) {
-        let t = tokenAt(p, 0);
-        (advance(p), Name { text: t.text, origin: originAt(p, t.span) })
+fn tuplePatternRest<C: Allocator>(ctx: C, p: P, acc: [Pattern]): (P, [Pattern]) {
+    let (q, more) = moreElements(ctx, p, ")", "a tuple-pattern element", startsPattern);
+    if (more == false || at(q, ")")) {
+        (q, acc)
     } else {
-        (expected(ctx, p, "an identifier"), noName())
+        let (afterOne, one) = parsePattern(ctx, q);
+        tuplePatternRest(ctx, afterOne, acc.push(ctx, one))
     }
 }
 
-fn noName(): Name {
-    Name { text: "", origin: nowhere() }
-}
+// -----------------------------------------------------------------------------
+// What a literal says
+// -----------------------------------------------------------------------------
 
 /// An integer literal as a node: the number where the digits are plain decimal
 /// and fit an `Int`, and the spelling where they are not.
@@ -5259,6 +6256,11 @@ fn intKind<C: Allocator>(ctx: C, text: Str): ExprKind {
 /// The digits of an integer literal, whatever radix it was written in. Answers
 /// zero for one that does not fit, which is why [`intKind`] asks first.
 fn intOf<C: Allocator>(ctx: C, text: Str): Int {
+    intValue(ctx, text).withDefault(0)
+}
+
+/// The digits of an integer literal, or nothing for one that does not fit.
+fn intValue<C: Allocator>(ctx: C, text: Str): Option<Int> {
     let bare = text.replace(ctx, "_", "");
     let radix = if (bare.startsWith("0x")) {
         16
@@ -5270,10 +6272,7 @@ fn intOf<C: Allocator>(ctx: C, text: Str): Int {
         10
     };
     let digits = if (radix == 10) { bare } else { bare.slice(2, bare.length()) };
-    match (digits.toRadix(radix)) {
-        .Some(n) => n,
-        .None => 0,
-    }
+    digits.toRadix(radix)
 }
 
 fn floatOf<C: Allocator>(ctx: C, text: Str): Float {

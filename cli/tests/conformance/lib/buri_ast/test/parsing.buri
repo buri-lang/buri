@@ -270,7 +270,7 @@ test "a mistake names what was wanted and what was there" {
         "expected an identifier, found `=`",
     ]);
     assert.equal(errorsOf(ctx, "let x: Int = 1\n"), [
-        "expected `;`, found the end of the file",
+        "a `let` declaration ends with `;`",
     ]);
     assert.equal(errorsOf(ctx, "2\n"), ["expected a declaration, found `2`"]);
 }
@@ -416,4 +416,531 @@ fn errorsOf<C: Allocator>(ctx: C, source: Str): [Str] {
         .Ok(_tree) => [],
         .Err(errors) => errors.map(ctx, fn(e) => e.message),
     }
+}
+
+// --- recovery, in the compiler's words and spans ---------------------------------------
+//
+// Each expectation is what `buri build` reports for the same source.
+
+fn spannedOf<C: Allocator>(ctx: C, source: Str): [Str] {
+    match (ast.parse(ctx, "probe.buri", source)) {
+        .Ok(_tree) => [],
+        .Err(errors) => {
+            errors.map(ctx, fn(e) => "${e.span.start}..${e.span.end} ${e.message}")
+        },
+    }
+}
+
+test "a missing comma or semicolon is said where it belongs, and the walk reads on" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        spannedOf(
+            ctx,
+            "fn f(): [Int] {\n    let a = [1 2];\n    let b = a\n    a\n}\n\nfn g(): Int {\n    h(1 2)\n}\n",
+        ),
+        [
+            "30..30 an array element ends with `,`",
+            "48..48 a statement ends with `;`",
+            "79..79 a call argument ends with `,`",
+        ],
+    );
+}
+
+test "an unclosed delimiter names what never closed, and the declarations after it are read" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        spannedOf(
+            ctx,
+            "fn f(): Int {\n    g(1\n}\n\nstruct S { x: Int\n\nfn h(): Int {\n    [1, 2\n}\n",
+        ),
+        [
+            "22..23 this call is missing its closing `)`",
+            "44..46 this `struct` body is missing its closing `}`",
+            "68..69 this array is missing its closing `]`",
+        ],
+    );
+}
+
+test "a delimiter still open at the end of the file is said once, at the end" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(spannedOf(ctx, "fn f(): Int {\n    match (x) {\n        _ => 1,\n"), [
+        "46..46 this `match` is missing its closing `}`",
+    ]);
+}
+
+test "a string that never closes is the only thing said about the rest of its line" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(spannedOf(ctx, "fn f(): Str {\n    let s = \"abc;\n}\n"), [
+        "31..32 unterminated string literal",
+    ]);
+}
+
+test "a token written one place too soon is said once and read where it belongs" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        spannedOf(
+            ctx,
+            "\"core/list\" from import * as list;\nfn export one(): Int {\n    total let = 1;\n    { Point x: 1 }\n}\n",
+        ),
+        [
+            "0..11 expected `from`, found a string literal",
+            "38..44 expected an identifier, found `export`",
+            "62..67 expected `let`, found `total`",
+            "81..82 expected a struct literal's type, found `{`",
+        ],
+    );
+}
+
+test "a binding, an assignment, a block's postfix and a tuple index are refused in the compiler's words" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        spannedOf(
+            ctx,
+            "const N: Int = 1;\nfn f(): Int {\n    x = 2;\n    { 1 }.y;\n    t.99999999999;\n    t.0.1\n}\n",
+        ),
+        [
+            "0..5 there is no `const` declaration; a module-level binding is written with `let`",
+            "38..39 there is no assignment; a binding is given its value once, where it is declared",
+            "52..53 a block is an operand, not the head of a `.`",
+            "62..73 `99999999999` is not a tuple index",
+            "81..84 `.0.1` lexes as a float, not two tuple indices",
+        ],
+    );
+}
+
+test "a double colon, a turbofish and a lone if are refused in the compiler's words" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        spannedOf(
+            ctx,
+            "fn f(): Int {\n    let a = b::c;\n    let d = e::<Int>();\n    if (x) { 1 }\n}\n",
+        ),
+        [
+            "27..29 `::` is not an operator",
+            "45..47 type arguments in an expression are written without `::`",
+            "67..72 `if` requires an `else` branch",
+        ],
+    );
+}
+
+test "a misplaced self, a variant's export and an empty derive are refused in the compiler's words" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        spannedOf(
+            ctx,
+            "fn f(a: Int, self): Int {\n    1\n}\n\nfn g(self: Int): Int {\n    1\n}\n\nenum E { export A }\n\nderive for X;\n",
+        ),
+        [
+            "13..17 `self` may appear only as a function's first parameter",
+            "44..49 `self` is written without a type",
+            "76..82 a variant carries no `export` of its own; an exported enum exports every one of its variants",
+            "95..98 a `derive` clause names no traits",
+        ],
+    );
+}
+
+test "a rest pattern, a one-element tuple and an unnamed or leading-export import are refused in the compiler's words" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        spannedOf(
+            ctx,
+            "fn f(): Int {\n    match (x) {\n        [..a, b] => 1,\n    };\n    (1,)\n}\n\nfrom \"a\" import *;\nexport from \"a\" export { b };\n",
+        ),
+        [
+            "44..45 a rest pattern must come last",
+            "64..68 a tuple has two elements or more",
+            "88..89 a namespace import must be named",
+            "98..102 write `from \"...\" export { ... }`, without a leading `export`",
+        ],
+    );
+}
+
+test "a comparison chain is refused once, however long it is" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(spannedOf(ctx, "fn f(): Int {\n    a < b < c\n}\n"), [
+        "24..25 comparison operators are non-associative",
+    ]);
+}
+
+test "the end of the file is named as such, at the file's end" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(spannedOf(ctx, "fn f(): Int {\n    let x =\n"), [
+        "26..26 expected an expression, found end of file",
+    ]);
+}
+
+test "nesting deeper than the compiler reads is refused where it gives up" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let grouped = "let X: Int = "
+        .concat(ctx, "(".repeat(ctx, 300))
+        .concat(ctx, "1")
+        .concat(ctx, ")".repeat(ctx, 300))
+        .concat(ctx, ";\n");
+    let negated = "let X: Int = ".concat(ctx, "-".repeat(ctx, 300)).concat(ctx, "1;\n");
+    assert.equal(spannedOf(ctx, grouped), ["141..142 expression nests too deeply"]);
+    assert.equal(spannedOf(ctx, negated), ["268..269 expression nests too deeply"]);
+}
+
+test "a list reads on past a missing comma, and ends at what cannot start an element" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        "struct S { a: Int b: Int }\n",
+        "struct S { a: Int export b: Int }\n",
+        "struct S { a: Int 1 }\n",
+        "fn g(a: Int b: Int): Int {\n    a\n}\n",
+        "fn g(a: Int self): Int {\n    a\n}\n",
+        "fn g(a: Int 1): Int {\n    a\n}\n",
+        "struct S(Int Str);\n",
+        "struct S(Int export Str);\n",
+        "struct S(Int 1);\n",
+        "fn f(): Int {\n    match (x) {\n        1 => 2 y => 3,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A() => 1,\n        A(x, y) => 2,\n        A(x y) => 3,\n    }\n}\n",
+        "fn f(): Int {\n    g(\"abc\n    x)\n}\n",
+        "fn f(): Int {\n    g(1 = 2)\n}\n",
+        "fn f(): Int {\n    g(1 = (2))\n}\n",
+        "fn f(): Int {\n    g(1 = export)\n}\n",
+        "fn f(): Int {\n    g(\"abc\n\n}\n",
+        "enum E { A { export x: Int } }\n",
+        "enum E { 1, B }\n",
+        "enum E { 1\n",
+        "enum E { , B }\n",
+        "type T = (Int,);\n",
+    ];
+    assert.equal(sources.mapCtx(ctx, fn(c, s) => spannedOf(c, s).join(c, "; ")), [
+        "17..17 a record field ends with `,`",
+        "17..17 a record field ends with `,`",
+        "18..19 this `struct` body is missing its closing `}`",
+        "11..11 a function parameter ends with `,`",
+        "11..11 a function parameter ends with `,`; 12..16 `self` may appear only as a function's first parameter",
+        "12..13 this parameter list is missing its closing `)`",
+        "12..12 a tuple-struct field ends with `,`",
+        "12..12 a tuple-struct field ends with `,`",
+        "13..14 this tuple-struct field list is missing its closing `)`",
+        "44..44 a match arm ends with `,`",
+        "81..81 a variant-pattern field ends with `,`",
+        "24..25 unterminated string literal",
+        "22..23 this call is missing its closing `)`",
+        "22..23 this call is missing its closing `)`",
+        "22..23 this call is missing its closing `)`; 24..30 expected an expression, found `export`; 30..31 expected a declaration, found `)`",
+        "24..25 unterminated string literal",
+        "13..19 a variant carries no `export` of its own; an exported enum exports every one of its variants",
+        "9..10 expected an identifier, found `1`",
+        "9..10 expected an identifier, found `1`",
+        "9..10 expected an identifier, found `,`; 10..10 an enum variant ends with `,`",
+        "9..15 a tuple type has two elements or more",
+    ]);
+}
+
+test "a statement missing its semicolon, or one that cannot end, is said in the compiler's words" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        "let X: Int = 1 ) ;\n",
+        "fn f(): Int {\n    x = 2\n}\n",
+        "fn f(): Int {\n    a\n    let b = 1;\n    b\n}\n",
+        "fn f(): Int {\n    a\n    b\n}\n",
+        "fn f(): Int {\n    a => b;\n    c\n}\n",
+        "fn f(): Int {\n    a => b\n}\n",
+        "fn f(): Int {\n    a => b\n}\nstruct S {\n}\n",
+        "fn f(): Int {\n    a => (b);\n    c\n}\n",
+        "fn f(): Int {\n    a => (b) }\n}\n",
+        "fn f(): Int {\n    match (x) { _ => 1 } a\n}\n",
+        "fn f(): Int {\n    if (x) { 1 } else { 2 } a\n}\n",
+        "fn f(): Int {\n    { 1 } a\n}\n",
+        "fn f(): Int {\n    context { A: a } a\n}\n",
+        "fn f(): Int {\n    a b\n}\n",
+        "fn f(): Int {\n    if (x) { 1 } else { 2 }.y;\n    c\n}\n",
+        "fn f(): Int {\n    match (x) { _ => 1 }.y;\n    c\n}\n",
+        "fn f(): Int {\n    context { A: a }.y;\n    c\n}\n",
+        "fn f(): Int {\n    { 1 }?;\n    c\n}\n",
+        "fn f(): Int {\n    { 1 }.y\n}\n",
+        "fn f(): Int {\n    let @x = 1;\n    x\n}\n",
+        "fn f(): Int {\n    let @ctx = c;\n    1\n}\n",
+        "fn f(): Int {\n    let @ = 1;\n    1\n}\n",
+        "fn f(): Int {\n    ctx let = c;\n    1\n}\n",
+        "fn f(): Int {\n    x let y = 1;\n    1\n}\n",
+        "fn f(): Int {\n    let x: = 1;\n    x\n}\n",
+        "fn f(): Int {\n    let = 1;\n    1\n}\n",
+        "fn f(): Int {\n    let a = 1 + * (b; c);\n    a\n}\n",
+        "fn f(): Int {\n    struct S {}\n}\n",
+        "fn f(): Int {\n    if (x) { 1 } y else { 2 }\n}\n",
+        "fn f(): Int {\n    if (x) { 1\n}\n",
+    ];
+    assert.equal(sources.mapCtx(ctx, fn(c, s) => spannedOf(c, s).join(c, "; ")), [
+        "15..16 expected `;`, found `)`",
+        "20..21 there is no assignment; a binding is given its value once, where it is declared",
+        "19..19 a statement ends with `;`",
+        "19..19 a statement ends with `;`",
+        "20..22 expected `;`, found `=>`",
+        "20..22 this function body is missing its closing `}`",
+        "20..22 this function body is missing its closing `}`",
+        "20..22 expected `;`, found `=>`",
+        "20..22 this function body is missing its closing `}`; 29..30 expected a declaration, found `}`",
+        "38..38 a `match` used as a statement ends with `;`",
+        "41..41 an `if` used as a statement ends with `;`",
+        "23..23 a block used as a statement ends with `;`",
+        "34..34 a `context` used as a statement ends with `;`",
+        "19..19 a statement ends with `;`",
+        "41..42 an `if` is an operand, not the head of a `.`",
+        "38..39 a `match` is an operand, not the head of a `.`",
+        "34..35 a `context` is an operand, not the head of a `.`",
+        "23..24 a block is an operand, not the head of a `?`",
+        "23..24 a block is an operand, not the head of a `.`",
+        "22..23 expected a pattern, found `@`",
+        "22..23 expected a pattern, found `@`",
+        "22..23 expected a pattern, found `@`",
+        "18..21 expected `let`, found `ctx`",
+        "19..19 a statement ends with `;`",
+        "25..26 expected a type, found `=`",
+        "22..23 expected a pattern, found `=`",
+        "30..31 expected an expression, found `*`",
+        "18..24 this function body is missing its closing `}`; 30..31 expected a declaration, found `}`",
+        "31..32 expected `else`, found `y`",
+        "25..30 `if` requires an `else` branch; 31..31 this function body is missing its closing `}`",
+    ]);
+}
+
+test "a declaration's stray or misplaced token is said once, and the declaration read where it can be" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        "type T = 'c';\n",
+        "Point struct { x: Int }\n",
+        "struct @Point {}\n",
+        "struct @ {}\n",
+        "struct export {}\n",
+        "struct export fn f(): Int { 1 }\n",
+        "from @\"a\" import * as a;\n",
+        "from @ import * as a;\n",
+        "from @\"abc\n",
+        "{ a { b } }\nstruct S {}\n",
+        "let X: Int = { 1 } + ;\nstruct S {}\n",
+        "let X: Int = (1) + ;\nstruct S {}\n",
+        "X let: Int = 1;\n",
+        "Point struct Other {}\n",
+        "Point\nstruct {}\n",
+        "fn export (): Int { 1 }\n",
+        "fn g(): Int;\n",
+        "fn g(: Int): Int { 1 }\n",
+        "fn g(a: Int, : Int): Int { 1 }\n",
+        "fn g(self: Int;\n",
+        "fn g(self: ): Int { 1 }\n",
+        "trait T { fn (): Int; fn g(): Int; }\n",
+        "trait T { fn = }\n",
+        "derive Equal, 1 for X;\n",
+        "Point impl {}\n",
+    ];
+    assert.equal(sources.mapCtx(ctx, fn(c, s) => spannedOf(c, s).join(c, "; ")), [
+        "9..12 expected a type, found a character literal",
+        "0..5 expected `struct`, found `Point`",
+        "7..8 expected an identifier, found `@`",
+        "7..8 expected an identifier, found `@`",
+        "7..13 expected an identifier, found `export`",
+        "7..13 expected an identifier, found `export`",
+        "5..6 expected a string literal, found `@`",
+        "5..6 expected a string literal, found `@`",
+        "5..6 expected a string literal, found `@`; 10..11 unterminated string literal",
+        "0..1 expected a declaration, found `{`",
+        "21..22 expected an expression, found `;`",
+        "19..20 expected an expression, found `;`",
+        "0..1 expected `let`, found `X`",
+        "0..5 expected a declaration, found `Point`",
+        "0..5 expected a declaration, found `Point`; 13..14 expected an identifier, found `{`",
+        "3..9 expected an identifier, found `export`",
+        "",
+        "5..6 this parameter list is missing its closing `)`",
+        "13..14 expected an identifier, found `:`",
+        "9..10 this parameter list is missing its closing `)`",
+        "9..10 this parameter list is missing its closing `)`",
+        "13..14 expected an identifier, found `(`",
+        "13..14 expected an identifier, found `=`",
+        "14..15 expected an identifier, found `1`",
+        "0..5 expected `impl`, found `Point`",
+    ]);
+}
+
+test "a match arm that runs into the next is told apart from a field access" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        "fn f(): Int {\n    match (x) {\n        \"abc\n        1 => 2,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        1 ; 2 => 3,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        1 2,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        1 => *, 2 => 3,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        1 => * { a }, 2 => 3,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B => 2,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a.b,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B(x) => 2,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B(x => 2,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B { x } => 2,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B if c => 2,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B if (c) => 2,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B | .C => 2,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B if c, 2\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B if c; 2\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B if c ) 2\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B if c\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B ) => 2,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B (x) y => 2,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => t .0,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        A => a .B c,\n    }\n}\n",
+        "fn f(): Int {\n    match (x) {\n        = => 1,\n    }\n}\n",
+    ];
+    assert.equal(sources.mapCtx(ctx, fn(c, s) => spannedOf(c, s).join(c, "; ")), [
+        "42..43 unterminated string literal",
+        "39..39 a match arm is `pattern => expression`",
+        "39..39 a match arm is `pattern => expression`",
+        "43..44 expected an expression, found `*`",
+        "43..44 expected an expression, found `*`",
+        "44..44 a match arm ends with `,`",
+        "",
+        "44..44 a match arm ends with `,`",
+        "50..52 this call is missing its closing `)`",
+        "44..44 a match arm ends with `,`",
+        "44..44 a match arm ends with `,`",
+        "44..44 a match arm ends with `,`",
+        "44..44 a match arm ends with `,`",
+        "48..50 this `match` is missing its closing `}`",
+        "47..47 a `match` used as a statement ends with `;`; 48..50 this `match` is missing its closing `}`; 51..52 expected `(`, found `c`; 62..63 expected a declaration, found `}`",
+        "47..47 a `match` used as a statement ends with `;`; 48..50 this `match` is missing its closing `}`; 51..52 expected `(`, found `c`; 63..64 expected a declaration, found `}`",
+        "48..50 this `match` is missing its closing `}`",
+        "48..49 this `match` is missing its closing `}`; 62..63 expected a declaration, found `}`",
+        "51..51 a match arm ends with `,`",
+        "",
+        "47..47 a match arm ends with `,`; 49..49 a match arm is `pattern => expression`",
+        "38..39 expected a pattern, found `=`",
+    ]);
+}
+
+test "a spaced bracket, a trial type argument and a tuple index read as the compiler reads them" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        "fn f(): Int {\n    [a [1, 2]]\n}\n",
+        "fn f(): Int {\n    [a [1]]\n}\n",
+        "fn f(): Int {\n    [a[1, 2]]\n}\n",
+        "fn f(): Int {\n    [a [(1, 2)]]\n}\n",
+        "fn f(): Int {\n    [a [b<c, d]]\n}\n",
+        "fn f(): Int {\n    [a [1)]\n}\n",
+        "fn f(): Int {\n    f<[Int>(1)\n}\n",
+        "fn f(): Int {\n    t.0\n}\n",
+        "fn f(): Int {\n    t.99999999999999999999\n}\n",
+    ];
+    assert.equal(sources.mapCtx(ctx, fn(c, s) => spannedOf(c, s).join(c, "; ")), [
+        "20..20 an array element ends with `,`",
+        "",
+        "22..23 this index is missing its closing `]`",
+        "",
+        "25..26 this index is missing its closing `]`",
+        "23..24 this index is missing its closing `]`",
+        "29..30 this array is missing its closing `]`",
+        "",
+        "20..40 `99999999999999999999` is not a tuple index",
+    ]);
+}
+
+fn inBody<C: Allocator>(ctx: C, inner: Str): Str {
+    "fn f(): Int {\n    ".concat(ctx, inner).concat(ctx, "\n}\n")
+}
+
+fn inArm<C: Allocator>(ctx: C, inner: Str): Str {
+    "fn f(): Int {\n    match (x) {\n        "
+        .concat(ctx, inner)
+        .concat(ctx, "\n    }\n}\n")
+}
+
+fn around<C: Allocator>(ctx: C, before: Str, run: Str, after: Str): Str {
+    before.concat(ctx, run.repeat(ctx, 300)).concat(ctx, after)
+}
+
+test "a lookahead gives up where the compiler's does, 256 tokens on" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        inBody(ctx, around(ctx, "g(1 = ", "a ", ")")),
+        inBody(ctx, around(ctx, "a => ", "b ", ";")),
+        inArm(ctx, around(ctx, "A => a .B(", "x ", ") => 2,")),
+        inArm(ctx, around(ctx, "A => a .B if ", "c ", "=> 2,")),
+        inBody(ctx, around(ctx, "[a [", "1 ", ", 2]]")),
+        inBody(ctx, around(ctx, "a < ", "b ", "> c")),
+        inBody(
+            ctx,
+            around(ctx, "let ", "(", "x")
+                .concat(ctx, ")".repeat(ctx, 300))
+                .concat(ctx, " = 1;\n    x"),
+        ),
+    ];
+    assert.equal(
+        sources.mapCtx(ctx, fn(c, s): Str => {
+            let errors = spannedOf(c, s);
+            let first = errors.getOr(0, "");
+            errors.length().show(c).concat(c, ": ").concat(c, first)
+        }),
+        [
+            "300: 22..23 this call is missing its closing `)`",
+            "2: 20..22 this function body is missing its closing `}`",
+            "300: 49..49 a call argument ends with `,`",
+            "4: 47..47 a `match` used as a statement ends with `;`",
+            "301: 23..23 an array element ends with `,`",
+            "299: 23..23 a statement ends with `;`",
+            "1: 277..278 expression nests too deeply",
+        ],
+    );
+}
+
+test "a lookahead that meets the end of the file, a declaration or a nested group stops there" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let sources = [
+        "fn f(): Int {\n    a => b",
+        "fn f(): Int {\n    match (x) {\n        A => a .B(x",
+        "fn f(): Int {\n    match (x) {\n        A => a .B if c",
+        "fn f(): Int {\n    a => b\nstruct S {}\n",
+        inBody(ctx, "-{ 1 }.y;\n    c"),
+        inArm(ctx, "A => a .B((x)) => 2,"),
+        inArm(ctx, "A => a .B(x] => 2,"),
+        inArm(ctx, "1 => *"),
+    ];
+    assert.equal(sources.mapCtx(ctx, fn(c, s) => spannedOf(c, s).join(c, "; ")), [
+        "20..22 this function body is missing its closing `}`",
+        "49..49 this call is missing its closing `)`",
+        "47..47 a `match` used as a statement ends with `;`; 48..50 this `match` is missing its closing `}`; 51..52 expected `(`, found `c`; 52..52 this function body is missing its closing `}`",
+        "20..22 this function body is missing its closing `}`",
+        "24..25 expected `;`, found `.`",
+        "44..44 a match arm ends with `,`",
+        "49..50 this call is missing its closing `)`; 63..64 expected a declaration, found `}`",
+        "43..44 expected an expression, found `*`",
+    ]);
 }
