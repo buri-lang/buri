@@ -2875,24 +2875,21 @@ fn scanChar<C: Allocator>(ctx: C, lx: Lex): Lex {
     pushToken(ctx, lx, TokenKind.Char, end)
 }
 
-/// The escape's own characters: one for `\n`, and `u{...}`'s whole brace group.
+/// The escape's own characters, as the compiler reads them: one for `\n`, and
+/// for `\u{...}` the brace, its hex digits, and a `}` only if one follows them.
 fn scanEscape(cur: Cursor): Cursor {
     if (
         charOf(cur.chars, cur.index) == 'u' && charOf(cur.chars, cur.index + 1) == '{'
     ) {
-        scanToCurly(skipChars(cur, 2))
+        let (stop, _value) = hexRun(cur.chars, cur.index + 2, 0);
+        let digits = skipChars(cur, stop - cur.index);
+        if (charOf(digits.chars, digits.index) == '}') {
+            nextChar(digits)
+        } else {
+            digits
+        }
     } else {
         nextChar(cur)
-    }
-}
-
-fn scanToCurly(cur: Cursor): Cursor {
-    if (atEnd(cur)) {
-        cur
-    } else if (charOf(cur.chars, cur.index) == '}') {
-        nextChar(cur)
-    } else {
-        scanToCurly(nextChar(cur))
     }
 }
 
@@ -3079,7 +3076,14 @@ fn prepare<C: Allocator>(ctx: C, raw: [Token]): Prep {
                     tokens: acc.tokens.push(c, t),
                     docs: acc.docs.push(c, acc.pending),
                     pending: [],
-                    errors: badEscapes(c, t, t.text.chars(c), 0, acc.errors),
+                    errors: badEscapes(
+                        c,
+                        t,
+                        t.text.chars(c),
+                        0,
+                        t.span.start,
+                        acc.errors,
+                    ),
                 }
             }
         },
@@ -5059,8 +5063,8 @@ fn unescapeChars<C: Allocator>(ctx: C, cs: [Char], index: Int, acc: [Char]): [Ch
         } else {
             let next = charAtOr(cs, index + 1);
             if (next == 'u') {
-                let close = findCurly(cs, index + 3);
-                let named = match (escapeScalar(cs, index + 3, close)) {
+                let (close, value) = hexRun(cs, index + 3, 0);
+                let named = match (escapeScalar(index + 3, close, value)) {
                     .Some(scalar) => acc.push(ctx, scalar),
                     .None => acc,
                 };
@@ -5093,71 +5097,106 @@ fn escapeOf(c: Char): Char {
     }
 }
 
-fn findCurly(cs: [Char], index: Int): Int {
-    if (index >= cs.length() || charAtOr(cs, index) == '}') {
-        index
-    } else {
-        findCurly(cs, index + 1)
-    }
-}
-
-fn codePoint(cs: [Char], index: Int, close: Int, acc: Int): Int {
-    if (index >= close) {
-        acc
-    } else {
-        let digit = match (charAtOr(cs, index).toDigit(16)) {
-            .Some(d) => d,
-            .None => 0,
-        };
-        // Past `10FFFF` the value stops growing, so no run of digits overflows.
-        codePoint(cs, index + 1, close, number.min(acc * 16 + digit, 0x110000))
+/// Where the run of hex digits from `index` stops, and the value they spell.
+/// Past `10FFFF` the value stops growing, so no run of digits overflows.
+fn hexRun(cs: [Char], index: Int, value: Int): (Int, Int) {
+    match (charAtOr(cs, index).toDigit(16)) {
+        .Some(d) => hexRun(cs, index + 1, number.min(value * 16 + d, 0x110000)),
+        .None => (index, value),
     }
 }
 
 /// The scalar a `\u{...}` escape's digits name, or `.None` where they name
 /// none: no digits, a surrogate, or a value past `10FFFF`.
-fn escapeScalar(cs: [Char], start: Int, close: Int): Option<Char> {
+fn escapeScalar(start: Int, close: Int, value: Int): Option<Char> {
     if (close == start) {
         .None
     } else {
-        match (codePoint(cs, start, close, 0).wrapToU32().toChar()) {
+        match (value.wrapToU32().toChar()) {
             .Ok(c) => .Some(c),
             .Err(_e) => .None,
         }
     }
 }
 
-/// `acc` and an error for every `\u{...}` in a token's text that names no
-/// scalar value, in the compiler's words, under the token's span. Only a
-/// literal's text has a backslash in it.
+/// `acc` and an error for every escape in a token's text that the compiler
+/// refuses, in its words and under the escape's own span. `at` is where
+/// `cs[index]` starts in the source. Only a literal's text has a backslash in
+/// it.
 fn badEscapes<C: Allocator>(
     ctx: C,
     t: Token,
     cs: [Char],
     index: Int,
+    at: Int,
     acc: [ParseError],
 ): [ParseError] {
     if (index >= cs.length()) {
         acc
     } else if (charAtOr(cs, index) != '\\') {
-        badEscapes(ctx, t, cs, index + 1, acc)
-    } else if (charAtOr(cs, index + 1) != 'u') {
-        badEscapes(ctx, t, cs, index + 2, acc)
+        badEscapes(ctx, t, cs, index + 1, at + utf8Width(charAtOr(cs, index)), acc)
     } else {
-        let close = findCurly(cs, index + 3);
-        let digits = t.text.slice(index + 3, close);
-        let found = match (escapeScalar(cs, index + 3, close)) {
-            .Some(_scalar) => acc,
-            .None => {
+        let (end, problem) = escapeProblem(ctx, t.text, cs, index);
+        let width = widthOf(cs, index, end, 0);
+        let found = match (problem) {
+            .Some(message) => {
                 acc.push(ctx, ParseError {
-                    message: str.format(
-                        ctx,
-                        "`\\u{${digits}}` is not a Unicode scalar value",
-                    ),
-                    span: t.span,
+                    message: message,
+                    span: Span { start: at, end: at + width },
                 })
             },
+            .None => acc,
         };
-        badEscapes(ctx, t, cs, close + 1, found)
+        badEscapes(ctx, t, cs, end, at + width, found)
+    }
+}
+
+/// Where the escape whose backslash is at `index` ends, and what the compiler
+/// says is wrong with it, if anything.
+fn escapeProblem<C: Allocator>(
+    ctx: C,
+    text: Str,
+    cs: [Char],
+    index: Int,
+): (Int, Option<Str>) {
+    let named = text.slice(index + 1, index + 2);
+    if (named != "u") {
+        if ("nrt0\\\"'$".contains(named)) {
+            (index + 2, .None)
+        } else {
+            (index + 2, .Some(str.format(ctx, "unknown escape `\\${named}`")))
+        }
+    } else if (charAtOr(cs, index + 2) != '{') {
+        (index + 2, .Some("`\\u` must be followed by `{`, as in `\\u{1F600}`"))
+    } else {
+        let (close, value) = hexRun(cs, index + 3, 0);
+        if (charAtOr(cs, close) != '}') {
+            (close, .Some("unterminated `\\u{...}` escape"))
+        } else {
+            match (escapeScalar(index + 3, close, value)) {
+                .Some(_scalar) => (close + 1, .None),
+                .None => {
+                    let digits = text.slice(index + 3, close);
+                    (
+                        close + 1,
+                        .Some(
+                            str.format(
+                                ctx,
+                                "`\\u{${digits}}` is not a Unicode scalar value",
+                            ),
+                        ),
+                    )
+                },
+            }
+        }
+    }
+}
+
+/// How many UTF-8 bytes `cs[start..stop]` takes, on top of `acc`.
+fn widthOf(cs: [Char], start: Int, stop: Int, acc: Int): Int {
+    if (start >= stop) {
+        acc
+    } else {
+        widthOf(cs, start + 1, stop, acc + utf8Width(charAtOr(cs, start)))
     }
 }

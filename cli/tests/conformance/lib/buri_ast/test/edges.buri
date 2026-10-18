@@ -144,7 +144,7 @@ test "a unicode escape reads as the character it names" {
             "let S: Str = \"\\u{41}\\u{1F600}b\";\n",
             "let S: Str = \"\\u{41\";\n",
         ]),
-        ["let S: Str = \"A😀b\";\n", "let S: Str = \"A\";\n"],
+        ["let S: Str = \"A😀b\";\n", "unterminated `\\u{...}` escape"],
     );
 }
 
