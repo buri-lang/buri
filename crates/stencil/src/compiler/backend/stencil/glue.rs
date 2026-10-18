@@ -489,7 +489,7 @@ impl Jit<'_> {
         // One, so that an indexed load at stride `offset` reads `G_PTR + offset`.
         self.imm_to(G_INDEX, 1);
         let base = self.fixups_len();
-        self.walk_in_place(&mut st, &ty, op);
+        self.walk_in_place(&mut st, &ty);
         self.emit("ret", &[]);
         self.resolve_helper_blocks(base, &st);
     }
@@ -682,11 +682,12 @@ impl Jit<'_> {
         self.has(&key!["eload/", bytes])
     }
 
-    /// `op` over the value at `G_PTR`, read through the pointer rather than
-    /// out of a copy of the whole value.
+    /// A copy of the value at `G_PTR`, read through the pointer rather than
+    /// out of a copy of the whole value. A retain or a release never comes
+    /// here: it reads only the words it tests ([`Jit::walk_through`]).
     ///
     /// Each counted field is copied into the frame on its own, walked there by
-    /// the ordinary `walk_field`, and for a copy written back. A tag or a
+    /// the ordinary `walk_field`, and written back. A tag or a
     /// niche's pointer is read the same way and tested in the frame. A field no
     /// one load copies goes to its own type's glue, which walks it in place in
     /// turn.
@@ -694,11 +695,11 @@ impl Jit<'_> {
     /// Only the value's own sites are read through the pointer, so every
     /// offset here is relative to `G_PTR`: anything deeper is inside a field
     /// that was copied in or handed on.
-    fn walk_in_place(&mut self, st: &mut Fn2, ty: &Ty, op: Op) {
+    fn walk_in_place(&mut self, st: &mut Fn2, ty: &Ty) {
         let sites = self.rc_sites(ty);
         for site in sites.iter() {
             match site {
-                Site::Field(f) => self.field_in_place(st, f, op),
+                Site::Field(f) => self.field_in_place(st, f),
                 Site::Tagged { tag, arms } => {
                     self.load_at(G_SPARE, 0, tag.size());
                     let done = st.label();
@@ -715,7 +716,7 @@ impl Jit<'_> {
                             ],
                         );
                         for f in arm.fields.iter() {
-                            self.field_in_place(st, f, op);
+                            self.field_in_place(st, f);
                         }
                         // The last arm's `next` is `done`, so it falls there.
                         if i + 1 < arms.len() {
@@ -745,7 +746,7 @@ impl Jit<'_> {
                         boxed: false,
                         ty: *ty,
                     };
-                    self.field_in_place(st, &payload, op);
+                    self.field_in_place(st, &payload);
                     let here = self.region.code_addr();
                     st.place(skip, here);
                 }
@@ -761,11 +762,14 @@ impl Jit<'_> {
     /// One counted field of the value at `G_PTR`: loaded into the frame and
     /// walked there when one load copies it, and handed to its type's glue
     /// when none does.
-    fn field_in_place(&mut self, st: &mut Fn2, f: &Field, op: Op) {
+    fn field_in_place(&mut self, st: &mut Fn2, f: &Field) {
         let width = self.field_width(f);
         if !self.one_load(width) {
             let at = self.address_of(f.offset);
-            let sym = self.helper(Helper::Walk { ty: f.ty, op });
+            let sym = self.helper(Helper::Walk {
+                ty: f.ty,
+                op: Op::Copy,
+            });
             self.c_call_sym(sym, st, &[Src::Word(at)]);
             return;
         }
@@ -774,10 +778,8 @@ impl Jit<'_> {
             offset: 0,
             ..f.clone()
         };
-        self.walk_field(st, &here, G_VALUE, op, 0);
-        if op == Op::Copy {
-            self.elem_store(G_VALUE, G_PTR, G_INDEX, f.offset, width);
-        }
+        self.walk_field(st, &here, G_VALUE, Op::Copy, 0);
+        self.elem_store(G_VALUE, G_PTR, G_INDEX, f.offset, width);
     }
 
     /// The frame word holding `G_PTR + offset`: `G_PTR` itself at zero, and
