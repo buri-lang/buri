@@ -106,12 +106,16 @@ impl Cross {
 /// compile-time gap check without building anything: the decision is the same
 /// whether or not the archive has been cached yet.
 pub fn cross_features() -> Vec<String> {
-    let mut features = Vec::new();
-    if backend::runtime_native::declares("paint") {
-        features.push(String::from("paint"));
-    }
-    features
+    CROSSES
+        .into_iter()
+        .filter(|feature| backend::runtime_native::declares(feature))
+        .map(String::from)
+        .collect()
 }
+
+/// The runtime features a cross archive can carry: pure Rust, with nothing
+/// compiled against the target's C headers.
+const CROSSES: [&str; 1] = ["paint"];
 
 /// `net`/`crypto` for a cross target, without building the archive.
 ///
