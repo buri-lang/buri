@@ -119,6 +119,170 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 45: integer literals in inference, js statement queue
+
+Commits on staging (d8e849570):
+
+- 55a9f3ada semantics: an integer literal waits on its variable for the type it settles at
+- d8e849570 js: a body's statements are taken from one queue, and a name's facts are noted in place
+
+## Guards (non-test code)
+
+- `crates/semantics/.../inference.rs`: 1 → 0. `Subst<L>` now carries each integer literal on its variable (`Class::Int(Vec<L>)`). Binding the variable to a concrete integer moves the literal to `settled`, with the `IntPrim` it settled at. `check_literal_ranges` drains that list, so it no longer has to look the type up.
+- `crates/js/.../javascript.rs`: 3 → 1.
+  - `each_statement_with` takes statements from one shared queue rather than from per-slot `Mutex<Option>` slots.
+  - `LocalFacts::entry` is replaced by `note(name, f)`, which updates the entry in place.
+- `crates/project/.../json/types.rs`: 3 → 3, not attempted.
+- Total: 7 → 4.
+
+## Coverage (local base → new; CI baseline)
+
+| Area | Branches | Lines |
+|---|---|---|
+| semantics | 2154/2154 → 2154/2154 (CI 2158/2158) | 13333/13635 → 13365/13667 |
+| js | 985/1018 → 985/1018 (CI 985/1018) | 5288/5531 → 5298/5541 |
+| project | 1345/1360, unchanged (CI 1346/1360) | 6290/6454, unchanged |
+
+## Left
+
+- **js `Extract::expr` slot or_ice:** the survey and rewrite invariant spans two passes. A fallback would silently drop a binding that is still read. Counting rewrites would add an uncovered branch and lower the js fraction.
+- **project, all 3 guards:** each needs the schema check to return what it found. That means carrying the `$ref` targets, giving decls stable typed ids, and having the validator return the oneOf branch it matched.
+
+## Observation
+
+Release builds of `conformance-native-src` sometimes lose one out-link. The missing link varied between runs (proto, proto_presence, variants), and the base binary does it too. This is pre-existing nondeterminism.
+
+# Guard phase 44: typed enum and word slots in llvm
+
+Commit `899577f15`. Non-test guards in `crates/llvm` went from 45 to 36:
+
+- `emit.rs`: 42 to 33.
+- `repr.rs` 1, `attrs.rs` 1 (plus 1 in test code), `mod.rs` 1: unchanged.
+
+## How
+
+- `repr::STR`, `repr::LIST` and `repr::CLOSURE` are the constant slot arrays of those types. `repr::tagged(tag, payload, size)` builds a tagged enum's two slots from its layout. `build` uses all four.
+- `repr::disassemble_n::<N>` takes a register value apart into `N` slots, and `repr::slot_at` takes one. The callers that read a Str, list or closure use it directly. None of those types is ever in memory, so `pieces_n` and every `ir_slots` lookup feeding it are gone, along with the `code` parameter on the abort, show and `str_len` helpers.
+- `payload_of` reads a tagged payload as `let [_, blob] = disassemble_n(..)`. `sum_arm` takes the `EnumLayout` and builds its slot with `repr::tagged`.
+- `call_result` reads the err tag off its layout once, as `Option<(Scalar, u32)>`, and `store_variant_index` takes that pair. A bare tag zeroes an empty range, so its ice is gone.
+- The `main` shim tests the tag with `tag_of` and reads the message with `payload_of`, then `disassemble_n::<3>`.
+- `unary`, `signum` and `cast` read the operand's kind off the value, not off `prim`.
+
+## Left, and why
+
+- **Niche `position` search in `tag_of`:** needs the null slot's index recorded where the slots are built.
+- **`repr.rs` `option_payload`:** needs a change to middle's `EnumRepr::Niche`, which reaches stencil.
+- **`walk_rc` place Options (7):** needs a `Walk` typestate, or spilling registers to memory, which risks performance.
+- **Type-kind helpers (8)** (`agg`, `fn_ty`, `enum_ty`, `list_ty`, `int`, `int_ty`, `float`, `ptr`): need typed IR instructions or typed values.
+- **`result_shape` (3), `json_prim` (2), `convert_checked` (3):** Option lookups into stdlib and types tables in other crates.
+- **Runtime-call sites (4):** out of scope.
+- **Floors:** intrinsic find (2), `check_terminators`, the float constant, `bounds`, `attrs.rs` attribute kind lookup and `mod.rs` verify.
+
+## Checks
+
+- Full suite with `--features buri/backend-llvm`: passes, 11 min 23 s locally.
+- Native outputs of `cli/tests/example` and `cli/benches/instructions/{programs,tested}` are byte-identical in debug and release. Logs match apart from JS `$t.seed=` values.
+- Coverage, `crates/llvm` branches: 553/554 locally before and after (lines 7481/7670 to 7386/7565). The one miss is the Linux-only comdat branch in glue declarations. CI baseline 580/580.
+
+# Guard phase 43: build declarations, slot placement and branch rows
+
+Guards in non-test code went from 205 to 185. Both counts include 4 in `crates/project/src/languages/json/suite.rs`, which is test-only through `mod.rs`.
+
+## Per file
+
+- `crates/llvm/.../emit.rs`: 56 to 42.
+- `crates/llvm/.../repr.rs`: 2 to 1.
+- `crates/llvm/.../mod.rs`: 2 to 1.
+- `crates/middle/.../rc.rs`: 12 to 8.
+
+## How
+
+- `build::Declared<'ctx, N>` declares a function from an array of `N` parameter types. Its `params()` hands back `[BasicValueEnum; N]`. The equal thunk, the entry thunk, the `main` shim and the thread door all read their parameters from it.
+- `reaches_a_cycle_in` runs over `Dense` tables.
+- `cancelled_counts` uses a `Set`.
+- `load_slots` maps over `load_one`.
+- The step layout is a typed `StepParam` list.
+- `place_piece` zips slots with pieces.
+- `repr::struct_of` builds the struct type of two or more slots.
+- `optimize` folds verify and the pipeline into one check.
+- `Scan::branches` takes rows of (size, data) and passes each branch its own row, so the `if` and `match` callers no longer look anything up by index.
+- `layout::tag_scalar` is now a `match`. This keeps the middle area's fraction from falling: its `> 65536` arm was never covered.
+
+## Left, and why
+
+Everything below would need a new typestate or typed view before its guard can go.
+
+- **Type-kind helpers** (`agg`, `int`, `ptr` and the rest): these need typed values.
+- **Enum slot reads** (`pieces_n`, `piece`, niche and tagged payload): these need a typed enum slot view.
+- **`walk_rc` Copy-needs-memory**: this needs a `Walk` enum. Two guards don't justify that cost.
+- **`subtree_sizes` and `Index::go` placeholders**: the preorder slot is filled after the children, so the write needs the slot looked up again.
+- **Runtime-call sites**: these are another agent's area.
+
+# Guard phase 42: typed stencil hole names
+
+Commits on staging: `a6dcfcc86` (phase 41 notes), `239dff92f` and `e1be9575b`. The work is in `crates/stencil`.
+
+## What changed
+
+- **Hole names have types.**
+  - `abi.rs` adds `HoleName`, which is either a `Slot` or an outside `Symbol`.
+  - A `Slot` is one of three classes: `Lit` (H32), `Word` (H64) or `Jump` (branch).
+  - The library reads each name once. Its encoding is the same as before.
+- **Binds have types.** `Jit::emit` takes `&[Bind]`, built with helpers such as `Lit::A.of(x)`, `Word::K.lit(x)`, `Word::M.ptr(p)` and `Jump::T.to(V::Blk(b))`.
+  - `Datum` holds a word's value. `V` now covers jump targets only, so `V::I` and `V::Ptr` are gone.
+  - `patch_hole` dispatches on the bind's class.
+- **The build checks each hole's kind.** `sources.rs` refuses a stencil whose relocation kind disagrees with its name's class. This replaces the old check that refused a symbol whose address was taken.
+- **Two fixes the new build check exposed:**
+  - `decref/drop` used to call its glue through `_JIT_M`. It now calls it through `_JIT_CALLEE`, and the machine code is the same.
+  - The `rt/N` and `rtv/N` stencils had no users, so they were deleted. They called `_JIT_R`.
+- **Compare-and-branch fusion is now a lookup.** `brcmp` fuses only when the library has the stencil, which removes the guards `is_comparison` and `has(key)`.
+- **Dead code removed:** `key_fmt!`, `Stencil::find` and `same_name`.
+- **`arm_key`:** when the base doesn't end in the arm to elide, the swap twin is taken outright. A twin swaps its arms, so it ends in the other hole. This drops a match guard that was never false.
+
+## Guards (non-test)
+
+| File | Before | After |
+| --- | --- | --- |
+| `jit.rs` | 13 | 7 |
+| All other stencil files | unchanged | unchanged |
+
+Removed:
+- The Imm32 `or_ice` and the Imm64 lo12 `or_ice`.
+- Both Imm64 `takes a datum` ices.
+- The brcmp `invariant` and `invariant_with`.
+
+Kept: the unbound slot hole in `emit_key`, now an `ice` arm (it was `invariant_with`). Only a binding type per stencil could tie the slots a stencil has to the slots a call site binds.
+
+## Not done
+
+- **Step rows:**
+  - Affected guards: `rtcall.rs` (step's call, source and answer, `last_closure`) and the two element guards in `glue.rs`.
+  - These need a typed IR instruction for `parallel` across middle, llvm, js and stencil, plus type arguments. That is more than one phase and touches other agents' crates.
+- **`check_literal_ranges` (semantics):** skipped because phase 43 is working in semantics at the same time.
+
+## Output check
+
+Base `ad1114bd2` against new, with `buri` built with `--features backend-llvm`.
+
+- Every native object and binary is byte-identical in debug and release, on programs, tested, example and conformance with the `backends: [JS]` lines removed:
+  - debug: 71, 14, 27 and 641 files;
+  - release: 71, 17, 30 and 716 files.
+- JS differs only in `$t.seed=Nn`, which is random per run.
+- Conformance tool file names differ, because they are hashed from the checkout path.
+- Logs are the same once timings and paths are normalised.
+
+## Coverage (stencil branches)
+
+| Run | Covered / total |
+| --- | --- |
+| Local base | 1069/1113 (96.05%) |
+| Local new | 1060/1103 (96.10%) |
+| CI baseline | 1099/1112 (98.83%) |
+| CI estimate | about 1090/1102 (98.9%) |
+
+- The new code adds 2 covered branches in `abi.rs`. `jit.rs` loses 10 covered branches. `emit.rs` loses 1 uncovered and 1 covered.
+- No other area changed.
+
 # Guard phase 41: struct and variant declarations, units by position
 
 ## What changed
