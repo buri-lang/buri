@@ -24,6 +24,16 @@ test "a code point past the low surrogates is a character of its own" {
     assert.equal(json.parse(ctx, "\"\\uDFFF\""), .Err(JsonError.BadEscape(3)));
 }
 
+test "an escape reaches the last character on either side of the surrogates" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(json.parse(ctx, "\"\\uD7FF\""), .Ok(Json.Str("\u{d7ff}")));
+    assert.equal(json.parse(ctx, "\"\\uFFFF\""), .Ok(Json.Str("\u{ffff}")));
+    assert.equal(json.parse(ctx, "\"\\uD800\\uDC00\""), .Ok(Json.Str("𐀀")));
+    assert.equal(json.parse(ctx, "\"\\uDBFF\\uDFFF\""), .Ok(Json.Str("\u{10ffff}")));
+}
+
 test "a high surrogate is paired only with a low one" {
     let ctx = context {
         Allocator: alloc(),

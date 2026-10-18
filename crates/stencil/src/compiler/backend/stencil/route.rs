@@ -9,7 +9,7 @@
 use super::emit::bound_pattern;
 use super::runtime::{self, Entry};
 use crate::compiler::backend::intrinsic_keys::{
-    bits_op, conversion_target, derive_key, number_key, Leaf,
+    bits_op, char_of, conversion_target, derive_key, number_key, Leaf,
 };
 use crate::compiler::middle::ir;
 use crate::compiler::semantics::layered::Dense;
@@ -97,7 +97,9 @@ pub(crate) enum PrimOp {
     Equal,
     Compare,
     Hash,
-    ToU32,
+    /// `Char::toU32` and a `charOf`: the value as it is, because a `Char`
+    /// **is** a `U32`.
+    Same,
 }
 
 fn call(key: &str) -> Option<Call> {
@@ -181,6 +183,7 @@ fn open_coded(key: &str) -> Option<Body<'_>> {
         "str.format" => Body::StrFormat,
         "list.empty" => Body::ListEmpty,
         "str.concat" => Body::Concat,
+        _ if char_of(key) => Body::PrimTrait(Prim::Char, PrimOp::Same),
         _ => return prim_trait(key).or_else(|| bits(key)),
     })
 }
@@ -197,7 +200,7 @@ fn prim_trait(key: &str) -> Option<Body<'static>> {
         "equal" => PrimOp::Equal,
         "compare" => PrimOp::Compare,
         "hash" => PrimOp::Hash,
-        "toU32" => PrimOp::ToU32,
+        "toU32" => PrimOp::Same,
         _ => return None,
     };
     Some(Body::PrimTrait(prim, op))

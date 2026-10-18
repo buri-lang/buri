@@ -37,15 +37,27 @@ pub fn prim_trait_op(key: &str) -> bool {
     )
 }
 
+/// A module's private `charOf(code: U32): Char`, which takes a code point as a
+/// `Char` without checking it.
+///
+/// Each module declares its own and calls it only where every code point it
+/// hands over is already a Unicode scalar value. A `Char` **is** a `U32`, so
+/// this is the identity, as `Char::toU32` is the other way.
+pub fn char_of(key: &str) -> bool {
+    matches!(key, "str.charOf" | "json.charOf")
+}
+
 /// Whether a key has a body on every native backend with no table row or
 /// open-coded sequence of its own: a loop `middle::lower` builds, a `core/bits`
 /// operation, a derive leaf, a `number.<T>.<op>` operation, a
-/// [`prim_trait_op`], or `json.decode`, whose body `middle::derives` writes.
-/// Each backend's `implemented` adds what it claims alone.
+/// [`prim_trait_op`], a [`char_of`], or `json.decode`, whose body
+/// `middle::derives` writes. Each backend's `implemented` adds what it claims
+/// alone.
 pub fn native_body(key: &str) -> bool {
     crate::compiler::middle::lower::lowers(key)
         || bits_op(key)
         || prim_trait_op(key)
+        || char_of(key)
         || derive_key(key).is_some()
         || numeric_key(key)
         || key == crate::compiler::middle::derives::JSON_DECODE

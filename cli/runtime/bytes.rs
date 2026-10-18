@@ -1,4 +1,4 @@
-//! `core/bytes` — the six entries `bytes.buri` declares as intrinsics.
+//! `core/bytes` — the seven entries `bytes.buri` declares as intrinsics.
 //!
 //! The rest of that module is written in Buri: hexadecimal, base64, varints and
 //! zigzag are all arithmetic over a `[U8]` and a backend has nothing to add to
@@ -158,6 +158,26 @@ pub unsafe extern "C" fn buri_rt_bytes_from_utf8(
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) };
     BURI_OK
+}
+
+/// `bytes.fromUtf8Trusted(ctx, b) -> Str`, `fromUtf8Lossy`'s last step.
+///
+/// The octets are valid UTF-8 by construction, so they are the string's bytes
+/// already, as [`buri_rt_bytes_to_utf8`]'s are the other way.
+///
+/// # Safety
+/// `ptr`/`len` describe a readable range of valid UTF-8; `out` is writable and
+/// aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_bytes_from_utf8_trusted(
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriStr,
+) {
+    // SAFETY: the caller promises the range.
+    let value = BuriStr::copy_from(unsafe { octets(ptr, len) });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) };
 }
 
 /// The one NaN. A payload is not part of a `Float`'s value — SPEC 6.2 rules

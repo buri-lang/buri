@@ -185,6 +185,33 @@ test "Hangul composes and decomposes by arithmetic" {
     assert.equal("한글".normalize(ctx, .Nfc), "한글");
 }
 
+test "the last Hangul syllable decomposes into three jamo and composes back" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // U+D7A3 is the last syllable and U+AC00 the first.
+    let last = "힣";
+    let first = "가";
+    assert.equal(codes(ctx, last.normalize(ctx, .Nfd)), [0x1112, 0x1175, 0x11c2]);
+    assert.equal(codes(ctx, last.normalize(ctx, .Nfd).normalize(ctx, .Nfc)), [0xd7a3]);
+    assert.equal(codes(ctx, first.normalize(ctx, .Nfd)), [0x1100, 0x1161]);
+}
+
+test "a character past the Basic Multilingual Plane decomposes from the table" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // U+1D15E MUSICAL SYMBOL HALF NOTE is a composition exclusion, so NFC
+    // leaves it apart too.
+    let note = "𝅗𝅥";
+    assert.equal(codes(ctx, note.normalize(ctx, .Nfd)), [0x1d157, 0x1d165]);
+    assert.equal(codes(ctx, note.normalize(ctx, .Nfc)), [0x1d157, 0x1d165]);
+}
+
+fn codes<C: Allocator>(ctx: C, text: Str): [U32] {
+    text.chars(ctx).map(ctx, fn(c) => c.toU32())
+}
+
 // A composition exclusion is a character NFC will not put back together, and
 // U+0344 is one of the ones a naive implementation gets wrong.
 test "a composition exclusion is not recomposed" {

@@ -634,6 +634,15 @@ test "an overlong encoding, a surrogate and a stray continuation each replace" {
     assert.equal(bytes.fromUtf8Lossy(ctx, [245, 128, 128, 128]).length(), 4);
 }
 
+test "a byte-order mark and a NUL byte survive the lossy decoding" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(bytes.fromUtf8Lossy(ctx, [0xef, 0xbb, 0xbf, 0x61]), "\u{feff}a");
+    assert.equal(bytes.fromUtf8Lossy(ctx, [0, 0x61, 0]), "\0a\0");
+    assert.equal(bytes.fromUtf8Lossy(ctx, [0xef, 0xbb, 0xbf, 0xff]).length(), 2);
+}
+
 test "lossy and strict agree on every input strict accepts" {
     let ctx = context {
         Allocator: alloc(),

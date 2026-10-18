@@ -1515,6 +1515,11 @@ function $character_toU32(c) {
   return c.codePointAt(0);
 }
 
+// A module's private `charOf`: a code point its caller already knows is a
+// scalar value, as a `Char`, without `$toChar`'s check.
+const $str_charOf = String.fromCodePoint;
+const $json_charOf = String.fromCodePoint;
+
 function $character_toDigit(c, radix) {
   const n = parseInt(c, Number(radix));
   return Number.isNaN(n) ? undefined : $some(BigInt(n));
@@ -1816,6 +1821,13 @@ function $bytes_fromUtf8(_c, b) {
     i += n + 1;
   }
   return $ok(out);
+}
+
+// `fromUtf8Lossy`'s octets, which are valid UTF-8 by construction, so there is
+// nothing to refuse. `ignoreBOM` keeps a leading U+FEFF, as `$bytes_fromUtf8`
+// does.
+function $bytes_fromUtf8Trusted(_c, b) {
+  return new TextDecoder("utf-8", { ignoreBOM: true }).decode(Uint8Array.from(b));
 }
 
 // The IEEE 754 byte patterns, little-endian. Intrinsics for the same reason

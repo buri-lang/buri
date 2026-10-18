@@ -1227,14 +1227,17 @@ fn digitAt(table: Str, at: Int): Int {
     }
 }
 
-/// The character at code point `cp`, or `.None` for a surrogate or a number
-/// past U+10FFFF, which no table holds.
-fn scalar(cp: Int): Option<Char> {
-    match (cp.wrapToU32().toChar()) {
-        .Ok(c) => .Some(c),
-        .Err(_) => .None,
-    }
+/// The character at code point `cp`, which is a scalar value: every code in
+/// the generated tables is one, and so is every answer of the Hangul
+/// arithmetic.
+fn scalar(cp: Int): Char {
+    charOf(cp.wrapToU32())
 }
+
+/// A code point as a `Char`, unchecked.
+///
+/// Private: `scalar` hands it only scalar values.
+fn charOf(code: U32): Char;
 
 /// Where `cp` sits in a table of four-digit keys, or `.None`.
 fn keyIndex(keys: Str, cp: Int, lo: Int, hi: Int): Option<Int> {
@@ -1295,10 +1298,7 @@ fn valuesFrom<C: Allocator>(
     if (at >= end) {
         acc
     } else {
-        let next = match (scalar(codeAt(values, at * 4))) {
-            .Some(c) => acc.push(ctx, c),
-            .None => acc,
-        };
+        let next = acc.push(ctx, scalar(codeAt(values, at * 4)));
         valuesFrom(ctx, values, at + 1, end, next)
     }
 }
@@ -1334,7 +1334,7 @@ fn decomposeFrom<C: Allocator>(
         .Some(c) => {
             let cp = c.toU32().toI64();
             let next = if (cp >= 0xac00 && cp <= 0xd7a3) {
-                hangulParts(ctx, acc, c, cp - 0xac00)
+                hangulParts(ctx, acc, cp - 0xac00)
             } else {
                 match (mapped(ctx, table, cp, acc)) {
                     .None => acc.push(ctx, c),
@@ -1348,22 +1348,12 @@ fn decomposeFrom<C: Allocator>(
 
 /// `acc` with a Hangul syllable's two or three jamo on the end, by the
 /// arithmetic in UAX #15 §3.12.
-fn hangulParts<C: Allocator>(ctx: C, acc: [Char], syllable: Char, index: Int): [Char] {
+fn hangulParts<C: Allocator>(ctx: C, acc: [Char], index: Int): [Char] {
     let trailing = index % 28;
-    match ((scalar(0x1100 + index / 588), scalar(0x1161 + index % 588 / 28))) {
-        (.Some(lead), .Some(vowel)) => {
-            let pair = acc.push(ctx, lead).push(ctx, vowel);
-            if (trailing == 0) {
-                pair
-            } else {
-                match (scalar(0x11a7 + trailing)) {
-                    .Some(tail) => pair.push(ctx, tail),
-                    .None => pair,
-                }
-            }
-        },
-        _ => acc.push(ctx, syllable),
-    }
+    let pair = acc
+        .push(ctx, scalar(0x1100 + index / 588))
+        .push(ctx, scalar(0x1161 + index % 588 / 28));
+    if (trailing == 0) { pair } else { pair.push(ctx, scalar(0x11a7 + trailing)) }
 }
 
 /// The canonical ordering algorithm: inside each run of non-starters, sort by
@@ -1439,7 +1429,7 @@ fn primaryComposite(a: Char, b: Char): Option<Char> {
     let x = a.toU32().toI64();
     let y = b.toU32().toI64();
     if (x >= 0x1100 && x <= 0x1112 && y >= 0x1161 && y <= 0x1175) {
-        scalar(0xac00 + ((x - 0x1100) * 21 + (y - 0x1161)) * 28)
+        .Some(scalar(0xac00 + ((x - 0x1100) * 21 + (y - 0x1161)) * 28))
     } else if (
         x >= 0xac00
             && x <= 0xd7a3
@@ -1447,11 +1437,11 @@ fn primaryComposite(a: Char, b: Char): Option<Char> {
             && y >= 0x11a8
             && y <= 0x11c2
     ) {
-        scalar(x + (y - 0x11a7))
+        .Some(scalar(x + (y - 0x11a7)))
     } else {
         match (pairIndex(COMPOSE_KEYS, x, y, 0, COMPOSE_KEYS.length() / 8)) {
             .None => .None,
-            .Some(found) => scalar(codeAt(COMPOSE_VALUES, found * 4)),
+            .Some(found) => .Some(scalar(codeAt(COMPOSE_VALUES, found * 4))),
         }
     }
 }

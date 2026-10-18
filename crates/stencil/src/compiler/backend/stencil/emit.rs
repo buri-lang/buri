@@ -2286,9 +2286,9 @@ impl Jit<'_> {
                 let args = [Src::Word(seed), Src::Word(a)];
                 self.c_call(symbol, st, &args, &[], d, "i");
             }
-            // `Char::toU32` is the representation: a `Char` **is** a `U32`
-            // holding a Unicode scalar value.
-            route::PrimOp::ToU32 => self.mv(d, a, 8),
+            // `Char::toU32` and a `charOf` are the representation: a `Char`
+            // **is** a `U32` holding a Unicode scalar value.
+            route::PrimOp::Same => self.mv(d, a, 8),
         }
     }
 
