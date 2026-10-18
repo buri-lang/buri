@@ -1,0 +1,9 @@
+error: expected `;`, found `[` [unexpected-token]
+ --> main.buri:1:22
+  |
+1 | let K: [U32] = extra [
+  |                      ^
+  |
+  = expected: `;`
+  = actual: `[`
+  = fix: write `;` here
