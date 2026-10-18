@@ -513,7 +513,14 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // Lowered from three: 11 of 574 is 1.9%, and two is that rounded up. The same parser change the two rows below record
         // — a `let` whose value did not read keeps its binding, so the names it
         // declares no longer come back as errors of their own.
-        ("a syntax error stays a syntax error", "delete-separator ()") => 2,
+        //
+        // Re-read when stdlib MC/DC phase 12 added assertions to
+        // `collections/test/heap.buri`, `data/test/lists.buri`,
+        // `data/test/ordering.buri` and `process/test/process.buri`. The draw in
+        // those files moved, and six commas that were already there are now
+        // drawn: 17 of 708 is 2.4%, so three. The parser and the checker aren't
+        // in that change.
+        ("a syntax error stays a syntax error", "delete-separator ()") => 3,
         // The same one case, at this invariant: see the note on the row above.
         ("a syntax error stays a syntax error", "delete-separator []") => 2,
         // The arm before the comma used to swallow the next arm's pattern, so
