@@ -67,7 +67,7 @@ use crate::compiler::semantics::types::{
     ConstId, FnId, FuncIdx, LocalId, MethodId, ModuleId, Tables, TraitId, Ty, TyConId, TyKind,
     VariantId,
 };
-use crate::diagnostics::{invariant, Diagnostic, Diagnostics, Invariant as _, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::hash::{Map as HashMap, Set as HashSet};
 use std::cell::RefCell;
 
@@ -994,59 +994,92 @@ impl<'a> Extractor<'a> {
     /// Writes into each `classify` the names a value reaching it can have,
     /// and whether the compiler saw every one of those values.
     fn fill(&self, consts: &mut [(ConstId, typed::Expr)], bodies: &mut [(FnId, typed::Body)]) {
-        let mut found = self.wrapped.iter().map(|leaf| self.names(*leaf));
-        for (_, init) in consts
-            .iter_mut()
-            .filter(|(id, _)| self.leafy.contains(&Owner::Const(*id)))
+        let mut slots = Vec::new();
+        for (_, init) in
+            (consts.iter_mut()).filter(|(id, _)| self.leafy.contains(&Owner::Const(*id)))
         {
-            self.fill_in(init, &mut found);
+            self.slots_in(init, &mut slots);
         }
-        for (_, body) in bodies
-            .iter_mut()
-            .filter(|(id, _)| self.leafy.contains(&Owner::Fn(*id)))
+        for (_, body) in (bodies.iter_mut()).filter(|(id, _)| self.leafy.contains(&Owner::Fn(*id)))
         {
-            self.fill_in(&mut body.expr, &mut found);
+            self.slots_in(&mut body.expr, &mut slots);
         }
-        invariant(
-            found.next().is_none(),
-            "every leaf is one `classify` in a declaration that holds one",
-        );
+        for ((names, strictness), leaf) in slots.into_iter().zip(&self.wrapped) {
+            let (known, strict) = self.names(*leaf);
+            let span = names.span;
+            *names = self.known(known, span);
+            *strictness = self.boolean(strict, span);
+        }
+        for (_, init) in
+            (consts.iter_mut()).filter(|(id, _)| self.leafy.contains(&Owner::Const(*id)))
+        {
+            self.unwrap_unknown(init);
+        }
+        for (_, body) in (bodies.iter_mut()).filter(|(id, _)| self.leafy.contains(&Owner::Fn(*id)))
+        {
+            self.unwrap_unknown(&mut body.expr);
+        }
     }
 
-    /// The `classify`s under `e`, in the order [`Extractor::leaf_or_descend`]
-    /// wrote them: each one's children first. Only a declaration that holds
-    /// one is filled in, so `classify` is loaded whenever this runs.
-    fn fill_in(
+    /// The names and strictness of each `classify` under `e`, in the order
+    /// [`Extractor::leaf_or_descend`] wrote them: each one's children first.
+    /// Only a declaration that holds one is filled in, so `classify` is
+    /// loaded whenever this runs.
+    fn slots_in<'e>(
         &self,
-        e: &mut typed::Expr,
-        found: &mut dyn Iterator<Item = (Vec<(String, String)>, bool)>,
+        e: &'e mut typed::Expr,
+        out: &mut Vec<(&'e mut typed::Expr, &'e mut typed::Expr)>,
     ) {
-        typed::children_mut(e, &mut |child| self.fill_in(child, found));
-        let (span, ty) = (e.span, e.ty);
-        let ExprKind::CallFn { func, args } = &mut e.kind else {
-            return;
+        let classify = match &e.kind {
+            ExprKind::CallFn { func, .. } => {
+                [self.classify, self.classify_style].contains(&func.id)
+            }
+            _ => false,
         };
+        let mut children: Vec<&'e mut typed::Expr> = Vec::new();
+        typed::children_mut(e, &mut |child| children.push(child));
         // Both take the style, the names, strictness and `make`.
-        let (true, [value, names, strictness, _]) = (
-            [self.classify, self.classify_style].contains(&func.id),
-            args.as_mut_slice(),
-        ) else {
-            return;
+        match (classify, <[&mut typed::Expr; 4]>::try_from(children)) {
+            (true, Ok([value, names, strictness, make])) => {
+                self.slots_in(value, out);
+                self.slots_in(make, out);
+                out.push((names, strictness));
+            }
+            (_, Ok(children)) => children.into_iter().for_each(|c| self.slots_in(c, out)),
+            (_, Err(children)) => children.into_iter().for_each(|c| self.slots_in(c, out)),
+        }
+    }
+
+    /// Every `classify` under `e` that names nothing and isn't strict, as the
+    /// value it was given: nothing the compiler saw can get there, so there
+    /// is nothing to look up, and the value is the one the runtime writes
+    /// inline.
+    fn unwrap_unknown(&self, e: &mut typed::Expr) {
+        typed::children_mut(e, &mut |child| self.unwrap_unknown(child));
+        let (span, ty) = (e.span, e.ty);
+        let value = match &mut e.kind {
+            ExprKind::CallFn { func, args } => match (
+                [self.classify, self.classify_style].contains(&func.id),
+                args.as_mut_slice(),
+            ) {
+                (
+                    true,
+                    [value, typed::Expr {
+                        kind: ExprKind::Array(known),
+                        ..
+                    }, typed::Expr {
+                        kind: ExprKind::Bool(false),
+                        ..
+                    }, _],
+                ) => known
+                    .is_empty()
+                    .then(|| std::mem::replace(value, typed::Expr::new(ExprKind::Error, ty, span))),
+                _ => None,
+            },
+            _ => None,
         };
-        let (known, strict) = found
-            .next()
-            .or_ice("every `classify` this pass wrote is one leaf");
-        match (known.is_empty(), strict) {
-            // Nothing the compiler saw can get here, so there is nothing to
-            // look up: the value is the one the runtime writes inline.
-            (true, false) => {
-                let value = std::mem::replace(value, typed::Expr::new(ExprKind::Error, ty, span));
-                *e = value;
-            }
-            _ => {
-                *names = self.known(known, span);
-                *strictness = self.boolean(strict, span);
-            }
+        if let Some(value) = value {
+            *e = value;
         }
     }
 
@@ -3599,23 +3632,18 @@ fn collect(variant: usize, args: &[typed::Expr], out: &mut Reached) {
             {
                 // A `Classes` literal is the extractor's: a program cannot
                 // write one, its field being private.
-                for item in items {
-                    let class = match &item.kind {
-                        ExprKind::Tuple(pair) => match pair.get(1) {
-                            Some(typed::Expr {
-                                kind: ExprKind::Str(class),
-                                ..
-                            }) => Some(class),
-                            _ => None,
-                        },
+                // Each item is a `(slot, class)` pair.
+                let classes = items.iter().filter_map(|item| match &item.kind {
+                    ExprKind::Tuple(pair) => match pair.as_slice() {
+                        [_, typed::Expr {
+                            kind: ExprKind::Str(class),
+                            ..
+                        }] => Some(class.clone()),
                         _ => None,
-                    };
-                    out.classes.insert(
-                        class
-                            .or_ice("the extractor writes each class as a `(slot, class)` pair")
-                            .clone(),
-                    );
-                }
+                    },
+                    _ => None,
+                });
+                out.classes.extend(classes);
             }
         }
         // `Group` is transparent and `When` holds two lists that were

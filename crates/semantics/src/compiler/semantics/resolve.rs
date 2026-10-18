@@ -25,7 +25,7 @@ use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
 use crate::compiler::standard_library;
 use crate::diagnostics::{
-    counted, were_given, Diagnostic, Diagnostics, FileId, Invariant as _, SecondarySpan, Span,
+    counted, were_given, Diagnostic, Diagnostics, FileId, SecondarySpan, Span,
 };
 use crate::hash::{Map as HashMap, Set as HashSet};
 use crate::parsing::flat::{self, TypeId};
@@ -50,10 +50,11 @@ pub enum Sym {
     /// `lib.buri` can put it on the surface; a method is never callable as a
     /// free function, because it is reached through a receiver.
     Method(String),
-    /// A transparent type alias, carrying the module that declares it and the
-    /// name it is declared under. Both are needed because the alias expands in
-    /// its declaring module, wherever an import or a rename carried it to.
-    Alias(ModuleId, String),
+    /// A transparent type alias, carrying the module that declares it, the
+    /// name it is declared under and where that name is written. The module
+    /// and name are needed because the alias expands in its declaring module,
+    /// wherever an import or a rename carried it to.
+    Alias(ModuleId, String, Span),
 }
 
 /// One module's own type, by name, when this compilation loaded the module.
@@ -335,9 +336,9 @@ pub struct Checker<'a> {
     /// Guards re-export cycles.
     resolving: Vec<(ModuleId, String)>,
     /// The aliases being expanded, outermost first, each as the module that
-    /// declares it and the name it is declared under. Guards alias cycles, the
-    /// way `resolving` guards re-export ones.
-    expanding: Vec<(ModuleId, String)>,
+    /// declares it, the name it is declared under and where that name is
+    /// written. Guards alias cycles, the way `resolving` guards re-export ones.
+    expanding: Vec<(ModuleId, String, Span)>,
     /// Every alias on a cycle already reported. A cycle is one mistake, so the
     /// second signature that names one of these gets the error type without a
     /// second diagnostic.
@@ -838,11 +839,7 @@ impl<'a> Checker<'a> {
     /// A diagnostic whose wording lives on its page. What follows is
     /// `.bind(…)` for each `{placeholder}` the page names.
     pub fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
-        self.diags.items.push(Diagnostic::templated(code, span));
-        self.diags
-            .items
-            .last_mut()
-            .or_ice("the diagnostic just pushed is the last one")
+        crate::parsing::pushed(&mut self.diags.items, Diagnostic::templated(code, span))
     }
 
     /// One module's scope. `new` sizes `scopes` to `loaded.modules`, the
@@ -1073,7 +1070,8 @@ impl<'a> Checker<'a> {
             // declares and may publish, so it is a symbol like any other.
             tree::Item::TypeAlias(d) => {
                 let name = t.name(d.name).to_string();
-                self.declare(module, d.name, Sym::Alias(module, name), d.exported);
+                let sym = Sym::Alias(module, name, d.name.span);
+                self.declare(module, d.name, sym, d.exported);
             }
             tree::Item::Import(_)
             | tree::Item::ReExport(_)
@@ -1136,9 +1134,7 @@ impl<'a> Checker<'a> {
             Some(Sym::Trait(t)) => self.tables.trait_(*t).span,
             Some(Sym::Const(c)) => self.tables.const_(*c).span,
             Some(Sym::Context(c)) => self.tables.ctx_decl(*c).span,
-            Some(Sym::Alias(m, n)) => self
-                .alias_decl_span(*m, n)
-                .or_ice("a module's own alias is declared in it"),
+            Some(Sym::Alias(_, _, span)) => *span,
         };
         self.diags.push(
             Diagnostic::templated("duplicate-declaration", name.span)
@@ -1613,12 +1609,12 @@ impl<'a> Checker<'a> {
                             .extend(slots.map(|slot| PendingCtxRule::Signature(tid, slot)));
                     }
                     tree::Item::Fn(d) => {
-                        let sym = self.scope(id).own.get(t.name(d.name)).cloned().or_ice(
-                            "`collect_declarations` declared every function under its name",
-                        );
                         // A refused redeclaration was never added, and the
                         // name is the first declaration's.
-                        let Sym::Fn(fid) = sym else { continue };
+                        let Some(Sym::Fn(fid)) = self.scope(id).own.get(t.name(d.name)).cloned()
+                        else {
+                            continue;
+                        };
                         if self.tables.fn_info(fid).span != d.name.span {
                             continue;
                         }
@@ -1785,23 +1781,6 @@ impl<'a> Checker<'a> {
     /// Both are checked, and at least one of them fails, which is the refusal:
     /// a function cannot take two hosts.
     fn entry_platforms(&self, module: ModuleId, name: &str) -> Vec<Option<Platform>> {
-        // A build produces one artifact, and that artifact has one entry. Its
-        // output is the whole answer: reporting the other output's requirement
-        // here would report it twice, once per output built.
-        if let (Some(platform), Some(built)) = (self.loaded.platform, self.loaded.entry.as_deref())
-        {
-            return match built == name {
-                // A repository platform's entry is its declaration's business.
-                true if self.loaded.custom.is_some() => Vec::new(),
-                true => vec![Some(platform)],
-                // Not this artifact's entry. Another entry of a repository
-                // platform answers to its declaration when that artifact is
-                // built; `main` otherwise still answers below, because every
-                // analysis that has one expects the one shape.
-                false if self.fills_custom_entry(module, name) => Vec::new(),
-                false => self.default_entry_platform(name, None),
-            };
-        }
         let mut declared: Vec<Option<Platform>> = Vec::new();
         let mut outputs = false;
         // Whether a repository platform's output enters here, which holds the
@@ -1827,6 +1806,23 @@ impl<'a> Checker<'a> {
                     declared.push(Some(entry.platform));
                 }
             }
+        }
+        // A build produces one artifact, and that artifact has one entry. Its
+        // output is the whole answer: reporting the other output's requirement
+        // here would report it twice, once per output built.
+        if let (Some(platform), Some(built)) = (self.loaded.platform, self.loaded.entry.as_deref())
+        {
+            return match built == name {
+                // A repository platform's entry is its declaration's business.
+                true if self.loaded.custom.is_some() => Vec::new(),
+                true => vec![Some(platform)],
+                // Not this artifact's entry. Another entry of a repository
+                // platform answers to its declaration when that artifact is
+                // built; `main` otherwise still answers below, because every
+                // analysis that has one expects the one shape.
+                false if custom => Vec::new(),
+                false => self.default_entry_platform(name, None),
+            };
         }
         if !declared.is_empty() || custom {
             return declared;
@@ -1870,24 +1866,6 @@ impl<'a> Checker<'a> {
                     && e.custom.as_ref().is_some_and(|c| c.point == name)
                     && !self.exports_fn(module, &e.name))
         })
-    }
-
-    /// Whether an output of a repository platform enters through `name`.
-    /// Asked only by a build of one output, which reads a workspace, of its
-    /// binary's entry module.
-    fn fills_custom_entry(&self, module: ModuleId, name: &str) -> bool {
-        let ws = self.ws.or_ice("a build of one output reads a workspace");
-        let pkg = self
-            .module(module)
-            .pkg
-            .or_ice("a build's entry module is its binary's");
-        let target = TargetId {
-            package: pkg,
-            kind: RuleKind::Binary,
-        };
-        ws.declared_entries(target)
-            .iter()
-            .any(|e| e.name == name && e.custom.is_some())
     }
 
     /// Whether `module` exports a free function called `name`.
@@ -2345,12 +2323,13 @@ impl<'a> Checker<'a> {
                     .collect();
                 Ty::func(ps, self.elaborate(module, generics, ret))
             }
-            flat::TypeView::Named { path, args, span } => {
-                let name = t.text(
-                    *path
-                        .last()
-                        .or_ice("the parser builds every named type from at least one identifier"),
-                );
+            flat::TypeView::Named {
+                path,
+                name,
+                args,
+                span,
+            } => {
+                let name = t.text(name);
                 // A generic parameter shadows everything.
                 if path.len() == 1 {
                     if let Some(i) = generics.iter().position(|g| g.name == name) {
@@ -2372,7 +2351,7 @@ impl<'a> Checker<'a> {
                 // A type alias is transparent: `type UserId = Str` makes
                 // `UserId` and `Str` the same type. It expands in the module
                 // that declared it, wherever an import carried the name to.
-                if let Some(Sym::Alias(owner, declared)) = self.resolve_path(module, path) {
+                if let Some(Sym::Alias(owner, declared, _)) = self.resolve_path(module, path) {
                     return self
                         .expand_alias(owner, &declared, &elaborated_args, span)
                         .unwrap_or(Ty::ERROR);
@@ -2453,8 +2432,12 @@ impl<'a> Checker<'a> {
         // back to `A`, which an exported alias lets span modules — never ends,
         // and used to be a stack overflow rather than a diagnostic.
         let key = (module, name.to_string());
-        if let Some(at) = self.expanding.iter().position(|k| *k == key) {
-            self.report_alias_cycle(at, alias.name.span);
+        if let Some(at) = self
+            .expanding
+            .iter()
+            .position(|(m, n, _)| (*m, n.as_str()) == (module, name))
+        {
+            self.report_alias_cycle(module, at, alias.name.span);
             return Some(Ty::ERROR);
         }
         // Every alias of a cycle already reported is answered with the error
@@ -2479,7 +2462,7 @@ impl<'a> Checker<'a> {
                 .bind("given", were_given(args.len()));
             return Some(Ty::ERROR);
         }
-        self.expanding.push(key);
+        self.expanding.push((module, key.1, alias.name.span));
         let body = self.elaborate(module, &generics, alias.ty);
         self.expanding.pop();
         Some(substitute(&body, args, None))
@@ -2493,22 +2476,22 @@ impl<'a> Checker<'a> {
     /// where the edit goes; the uses that led here are correct in themselves.
     /// Every other alias on the chain gets a secondary span, which is the only
     /// way a reader sees the other file when the cycle crosses a module.
-    fn report_alias_cycle(&mut self, at: usize, decl: Span) {
-        let chain: Vec<(ModuleId, String)> = self.expanding.iter().skip(at).cloned().collect();
-        let head = chain
-            .first()
-            .map(|(m, _)| *m)
-            .or_ice("`at` is a position in `expanding`, so the chain has a head");
-        if chain.iter().any(|k| self.cyclic_aliases.contains(k)) {
+    fn report_alias_cycle(&mut self, head: ModuleId, at: usize, decl: Span) {
+        let chain: Vec<(ModuleId, String, Span)> =
+            self.expanding.iter().skip(at).cloned().collect();
+        if chain
+            .iter()
+            .any(|(m, n, _)| self.cyclic_aliases.contains(&(*m, n.clone())))
+        {
             return;
         }
         // A cycle inside one module names its aliases plainly; one that crosses
         // a boundary has to say which module each name was declared in, or
         // `A -> B -> A` is a chain a reader cannot follow to a file.
-        let crosses = chain.iter().any(|(m, _)| *m != head);
+        let crosses = chain.iter().any(|(m, _, _)| *m != head);
         let written: Vec<String> = chain
             .iter()
-            .map(|(m, n)| match crosses {
+            .map(|(m, n, _)| match crosses {
                 true => format!("`{n}` in \"{}\"", self.module(*m).path),
                 false => format!("`{n}`"),
             })
@@ -2518,10 +2501,7 @@ impl<'a> Checker<'a> {
         let others: Vec<(Span, String)> = chain
             .iter()
             .skip(1)
-            .filter_map(|(m, n)| {
-                let span = self.alias_decl_span(*m, n)?;
-                Some((span, format!("`{n}`, next on the cycle, is declared here")))
-            })
+            .map(|(_, n, span)| (*span, format!("`{n}`, next on the cycle, is declared here")))
             .collect();
         let d = self
             .templated("circular-type-alias", decl)
@@ -2529,18 +2509,9 @@ impl<'a> Checker<'a> {
         for (span, label) in others {
             d.secondary_span(span, label);
         }
-        for key in chain {
-            self.cyclic_aliases.insert(key);
+        for (m, n, _) in chain {
+            self.cyclic_aliases.insert((m, n));
         }
-    }
-
-    /// Where a module declares the alias it calls `name`.
-    fn alias_decl_span(&self, module: ModuleId, name: &str) -> Option<Span> {
-        let t = self.tree(module);
-        self.module(module).ast.items.iter().find_map(|i| match i {
-            tree::Item::TypeAlias(a) if t.name(a.name) == name => Some(a.name.span),
-            _ => None,
-        })
     }
 
     /// Whether what a written path names is already answered, so the caller
@@ -2666,15 +2637,10 @@ impl<'a> Checker<'a> {
     /// Reports every declared type no value of which can be built
     /// (`resolve/constructible.rs`).
     fn check_values(&mut self, declared: &[(TyConId, Span)]) {
-        let cons: Vec<TyConId> = declared.iter().map(|(c, _)| *c).collect();
-        let (none, reported) = constructible::unconstructible(&self.tables, &cons, &self.valueless);
+        let (none, reported) =
+            constructible::unconstructible(&self.tables, declared, &self.valueless);
         self.valueless.extend(none);
-        for (con, why) in reported {
-            let span = declared
-                .iter()
-                .find(|(c, _)| *c == con)
-                .or_ice("reported from `declared`")
-                .1;
+        for (con, span, why) in reported {
             let name = self.tables.tycon(con).name.clone();
             let (reason, fix) = match why {
                 constructible::Why::Variants => (
@@ -2693,16 +2659,10 @@ impl<'a> Checker<'a> {
         }
         // One that can't be built is reported once, above, whether or not it
         // also grows.
-        let buildable: Vec<TyConId> = cons
-            .into_iter()
-            .filter(|c| !self.valueless.contains(c))
+        let buildable: Vec<(TyConId, Span)> = (declared.iter().copied())
+            .filter(|(c, _)| !self.valueless.contains(c))
             .collect();
-        for (con, args) in endless::endless(&self.tables, &buildable) {
-            let span = declared
-                .iter()
-                .find(|(c, _)| *c == con)
-                .or_ice("reported from `declared`")
-                .1;
+        for (con, span, args) in endless::endless(&self.tables, &buildable) {
             let decl = self.tables.tycon(con);
             let at = |args: &[Ty]| {
                 show(
@@ -3364,7 +3324,10 @@ impl<'a> Checker<'a> {
 
     /// The type constructor a `derive` names.
     fn derive_target(&mut self, module: ModuleId, id: TypeId) -> Option<TyConId> {
-        let flat::TypeView::Named { path, args, span } = self.tree(module).ty(id) else {
+        let flat::TypeView::Named {
+            path, args, span, ..
+        } = self.tree(module).ty(id)
+        else {
             let at = self.tree(module).type_span(id);
             self.templated("derive-target-not-type", at);
             return None;
@@ -3726,38 +3689,22 @@ impl<'a> Checker<'a> {
             let name = name_of(f);
             // Three times round reaches `f` three times, wherever the cycle
             // is read from.
-            let seen = endless::instantiations(&self.tables, cycle, 3);
+            let growth = endless::growth(&self.tables, cycle);
             let from = &self.tables.fn_info(cycle.from).generics;
-            let at: Vec<usize> = seen
-                .iter()
-                .enumerate()
-                .filter(|(_, (g, _))| *g == f)
-                .map(|(i, _)| i)
-                .collect();
-            let nth = |n: usize| {
-                let i = *at
-                    .get(n)
-                    .or_ice("a cycle reaches each function on it once a round");
-                let args = &seen.get(i).or_ice("found above").1;
+            let [mine_at, grown, grown_again] = growth.rounds.map(|args| {
                 let shown: Vec<String> = args
                     .iter()
                     .map(|a| show(&self.tables, None, from, a))
                     .collect();
-                (i, format!("{name}<{}>", shown.join(", ")))
-            };
-            let ((first, mine_at), (second, grown), (_, grown_again)) = (nth(0), nth(1), nth(2));
+                format!("{name}<{}>", shown.join(", "))
+            });
             let mut through: Vec<String> = Vec::new();
             if cycle
                 .steps
                 .iter()
                 .any(|s| matches!(s, endless::Step::Dispatch { .. }))
             {
-                through.extend(
-                    seen.get(first.saturating_add(1)..second)
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|(g, _)| format!("`{}`", name_of(*g))),
-                );
+                through.extend(growth.between.iter().map(|g| format!("`{}`", name_of(*g))));
             }
             let through = if through.is_empty() {
                 String::new()

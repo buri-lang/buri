@@ -16,23 +16,24 @@ pub(super) enum Why {
 }
 
 /// The declarations among `decls` that can never be built, and the ones of
-/// those to report, each with why.
+/// those to report, each with what it was declared with and why.
 ///
 /// One that can't be only because it holds another such type is not reported:
 /// that type's own report is the mistake, and fixing it gives this one values
 /// too. `refused` are the enums already reported for having no variants.
-pub(super) fn unconstructible(
+pub(super) fn unconstructible<P: Copy>(
     tables: &Tables,
-    decls: &[TyConId],
+    decls: &[(TyConId, P)],
     refused: &HashSet<TyConId>,
-) -> (Vec<TyConId>, Vec<(TyConId, Why)>) {
-    let none: Vec<TyConId> = decls
+) -> (Vec<TyConId>, Vec<(TyConId, P, Why)>) {
+    let unbuilt: Vec<(TyConId, P)> = decls
         .iter()
         .copied()
-        .filter(|&c| Search::new(tables, refused.clone()).declared(c).is_err())
+        .filter(|&(c, _)| Search::new(tables, refused.clone()).declared(c).is_err())
         .collect();
+    let none: Vec<TyConId> = unbuilt.iter().map(|&(c, _)| c).collect();
     let mut out = Vec::new();
-    for &c in &none {
+    for &(c, p) in &unbuilt {
         // Every unbuildable type outside this one's cycle counts as buildable,
         // so what is left is this one's own doing.
         let mut assumed = refused.clone();
@@ -42,7 +43,7 @@ pub(super) fn unconstructible(
                 .filter(|&o| !(reaches(tables, &none, c, o) && reaches(tables, &none, o, c))),
         );
         if let Err(why) = Search::new(tables, assumed).declared(c) {
-            out.push((c, why));
+            out.push((c, p, why));
         }
     }
     (none, out)

@@ -431,6 +431,9 @@ const MISSING_TYPE: TypeData = TypeData {
     payload: [0; 4],
     span: Location { start: 0, end: 0 },
 };
+/// What a path's name reads as where the path has none, which the parser
+/// never builds: an empty identifier.
+const MISSING_NAME: Location = Location { start: 0, end: 0 };
 
 const _: () = assert!(std::mem::size_of::<Node>() == 24);
 const _: () = assert!(std::mem::size_of::<PNode>() == 24);
@@ -831,11 +834,15 @@ impl Tree {
         let span = self.span_of(n.span);
         let p = n.payload;
         match n.kind {
-            TypeKind::Named => TypeView::Named {
-                path: self.slice(&self.names, p[0], p[1]),
-                args: self.slice(&self.tkids, p[2], p[3]),
-                span,
-            },
+            TypeKind::Named => {
+                let path = self.slice(&self.names, p[0], p[1]);
+                TypeView::Named {
+                    path,
+                    name: path.last().copied().unwrap_or(MISSING_NAME),
+                    args: self.slice(&self.tkids, p[2], p[3]),
+                    span,
+                }
+            }
             TypeKind::SelfType => TypeView::SelfType { span },
             TypeKind::Unit => TypeView::Unit { span },
             TypeKind::Tuple => TypeView::Tuple {
@@ -861,7 +868,7 @@ impl Tree {
     /// The trailing segment of a named type's path — the name itself.
     pub fn type_head(&self, id: TypeId) -> Option<&str> {
         match self.ty(id) {
-            TypeView::Named { path, .. } => path.last().map(|s| self.text(*s)),
+            TypeView::Named { name, .. } => Some(self.text(name)),
             _ => None,
         }
     }
@@ -1279,12 +1286,19 @@ impl Tree {
             },
             PatternKind::LitTrue => PatView::LitBool { value: true, span },
             PatternKind::LitFalse => PatView::LitBool { value: false, span },
-            PatternKind::Path => PatView::Path {
-                path: self.slice(&self.names, p[0], p[1]),
-                dotted: p[3] != 0,
-                payload: self.payload(p[2]),
-                span,
-            },
+            PatternKind::Path => {
+                let path = self.slice(&self.names, p[0], p[1]);
+                let (head, rest) =
+                    (path.split_first()).map_or((MISSING_NAME, &[][..]), |(h, r)| (*h, r));
+                PatView::Path {
+                    path,
+                    head,
+                    rest,
+                    dotted: p[3] != 0,
+                    payload: self.payload(p[2]),
+                    span,
+                }
+            }
             PatternKind::Unit => PatView::Unit { span },
             PatternKind::Tuple => PatView::Tuple {
                 elems: self.slice(&self.pkids, p[0], p[1]),
@@ -1832,6 +1846,8 @@ pub enum PartView<'t> {
 pub enum TypeView<'t> {
     Named {
         path: &'t [Location],
+        /// The path's last segment, the name itself.
+        name: Location,
         args: &'t [TypeId],
         span: Span,
     },
@@ -1907,6 +1923,9 @@ pub enum PatView<'t> {
     },
     Path {
         path: &'t [Location],
+        /// The path's first segment, and the others.
+        head: Location,
+        rest: &'t [Location],
         dotted: bool,
         payload: Option<PatPayloadData>,
         span: Span,

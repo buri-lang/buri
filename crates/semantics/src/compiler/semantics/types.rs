@@ -1789,19 +1789,17 @@ pub fn field_types(tables: &Tables, ty: &Ty) -> Vec<Ty> {
 
 /// One variant's fields, as types, in declaration order.
 pub fn variant_types(tables: &Tables, ty: &Ty, variant: usize) -> Vec<Ty> {
-    let TyKind::Con(id, args) = ty.kind() else {
-        return Vec::new();
+    let (id, args) = match ty.kind() {
+        TyKind::Con(id, args) => (*id, args),
+        _ => return Vec::new(),
     };
-    match &tables.tycon(*id).def {
-        TyDef::Enum { .. } => match tables.tycon(*id).variants().as_slice().get(variant) {
-            Some(v) => v
-                .fields
-                .iter()
-                .map(|f| substitute(&f.ty, args, None))
-                .collect(),
-            None => Vec::new(),
-        },
-        TyDef::Prim(_) | TyDef::Struct { .. } => Vec::new(),
+    match tables.tycon(id).variants().as_slice().get(variant) {
+        Some(v) => v
+            .fields
+            .iter()
+            .map(|f| substitute(&f.ty, args, None))
+            .collect(),
+        None => Vec::new(),
     }
 }
 
@@ -1828,8 +1826,9 @@ pub fn traits_of(tables: &Tables, con: TyConId) -> std::collections::BTreeSet<St
 /// out of a table that records it, and the two would have to be kept in step
 /// by hand. `None` for anything that is not a two-armed `Result`.
 pub fn result_shape(tables: &Tables, ty: &Ty) -> Option<(usize, usize, Ty)> {
-    let TyKind::Con(id, args) = ty.kind() else {
-        return None;
+    let (id, args) = match ty.kind() {
+        TyKind::Con(id, args) => (id, args),
+        _ => return None,
     };
     let variants = tables.tycon(*id).variants();
     let ok = variants.iter().position(|v| v.name == "Ok")?;
