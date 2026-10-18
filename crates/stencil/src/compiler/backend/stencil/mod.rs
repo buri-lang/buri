@@ -969,9 +969,29 @@ fn assemble_unit(
             }
         }
     }
+    // Mach-O carries an instruction's addend in 24 bits (`object.rs`), so a
+    // pool slot further than that from the last anchor gets an anchor of its
+    // own, defined at the slot. Every reference into the pool, a pool word's
+    // included, names the last anchor at or before the byte it reaches, so a
+    // linker that splits the pool at its symbols keeps each piece whole.
+    let mut slots: Vec<i64> = emitted
+        .code_relocs
+        .iter()
+        .filter(|r| matches!(r.target, region::Target::Pool))
+        .map(|r| r.addend)
+        .collect();
+    slots.sort_unstable();
+    let mut anchors: Vec<i64> = vec![0];
+    let mut last = 0;
+    for slot in slots {
+        if slot.saturating_sub(last) > object::MAX_ADDEND {
+            anchors.push(slot);
+            last = slot;
+        }
+    }
     // Most relocations name the pool or a function of the program, so those
     // two remember their symbol rather than hashing its name every time.
-    let mut pool_sym: Option<usize> = None;
+    let mut pool_sym: crate::hash::Map<usize, usize> = crate::hash::Map::default();
     let mut func_sym: crate::hash::Map<FuncIdx, usize> = crate::hash::Map::default();
     out.reserve(
         emitted
@@ -985,31 +1005,44 @@ fn assemble_unit(
         .map(|r| (CODE, r))
         .chain(emitted.pool_relocs.iter().map(|r| (POOL, r)))
     {
-        let sym = match r.target {
+        let (sym, addend) = match r.target {
             region::Target::Here(_) | region::Target::Pool => {
-                *pool_sym.get_or_insert_with(|| want(&mut symbols, &mut index, POOL_ANCHOR))
+                let k = anchors
+                    .partition_point(|a| *a <= r.addend)
+                    .saturating_sub(1);
+                let at = anchors.get(k).copied().unwrap_or(0);
+                let sym = *pool_sym
+                    .entry(k)
+                    .or_insert_with(|| want(&mut symbols, &mut index, &pool_anchor(k)));
+                (sym, r.addend.saturating_sub(at))
             }
-            region::Target::Func(f) => *func_sym
-                .entry(f)
-                .or_insert_with(|| want(&mut symbols, &mut index, &name_of(program, &r.target))),
-            region::Target::Symbol(_) => {
-                want(&mut symbols, &mut index, &name_of(program, &r.target))
-            }
+            region::Target::Func(f) => (
+                *func_sym.entry(f).or_insert_with(|| {
+                    want(&mut symbols, &mut index, &name_of(program, &r.target))
+                }),
+                r.addend,
+            ),
+            region::Target::Symbol(_) => (
+                want(&mut symbols, &mut index, &name_of(program, &r.target)),
+                r.addend,
+            ),
         };
         out.push(object::Reloc {
             section,
             offset: r.at,
             kind: r.kind,
             symbol: sym,
-            addend: r.addend,
+            addend,
         });
     }
-    let anchor = want(&mut symbols, &mut index, POOL_ANCHOR);
-    let def = object::Definition {
-        section: POOL,
-        offset: 0,
-    };
-    defs.insert(anchor, (def, false, false));
+    for (k, at) in anchors.iter().enumerate() {
+        let anchor = want(&mut symbols, &mut index, &pool_anchor(k));
+        let def = object::Definition {
+            section: POOL,
+            offset: at.unsigned_abs(),
+        };
+        defs.insert(anchor, (def, false, false));
+    }
 
     // The three sections a unit has, under whichever container's names. Only
     // the spelling differs: a Mach-O section is `segment,section` and an ELF
@@ -1217,6 +1250,16 @@ fn carve(
 /// `$` cannot appear in a Buri path, so no `ir::Func::symbol` can collide with
 /// it (`monomorphize::Func::symbol`).
 const POOL_ANCHOR: &str = "buri$stencil$pool";
+
+/// The pool's `k`th anchor: [`POOL_ANCHOR`] itself, then one per stretch of
+/// the pool past what an instruction's addend reaches.
+fn pool_anchor(k: usize) -> std::borrow::Cow<'static, str> {
+    if k == 0 {
+        std::borrow::Cow::Borrowed(POOL_ANCHOR)
+    } else {
+        std::borrow::Cow::Owned(format!("{POOL_ANCHOR}${k}"))
+    }
+}
 
 /// The sections a unit's object has, in the order `object::write` takes them:
 /// the code, the constant pool, and — in the unit that owns `main` — the Buri
