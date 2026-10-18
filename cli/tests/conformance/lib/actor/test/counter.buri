@@ -606,10 +606,13 @@ test "an actor answers the same while a scope holds pages" {
         let held = "pages".repeat(c, 100);
         (held.length(), countedApart(), reenteredApart(), carriedApart())
     });
-    assert.equal(answers, (
-        500,
-        .Ok(.Count(42)),
-        [.Ok(.Reentered(0)), .Ok(.Count(1))],
-        [.Ok(.Total(0)), .Ok(.Listed([0, 1]))],
-    ));
+    assert.equal(
+        answers,
+        (
+            500,
+            .Ok(.Count(42)),
+            [.Ok(.Reentered(0)), .Ok(.Count(1))],
+            [.Ok(.Total(0)), .Ok(.Listed([0, 1]))],
+        ),
+    );
 }
