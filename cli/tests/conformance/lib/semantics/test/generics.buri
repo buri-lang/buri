@@ -168,6 +168,28 @@ test "number.min and number.max are the same Ordered bound at three types" {
     assert.equal(number.max(Meters(1.0), Meters(2.0)), Meters(2.0));
 }
 
+test "number.min and number.max pick either argument, at every type" {
+    let small: I128 = 1;
+    let big: I128 = 2;
+    assert.equal(number.min(7, 3), 3);
+    assert.equal(number.max(3, 7), 7);
+    assert.equal(number.max(7, 3), 7);
+    assert.equal(number.min("a", "b"), "a");
+    assert.equal(number.max("a", "b"), "b");
+    assert.equal(number.max("b", "a"), "b");
+    assert.equal(number.max(Meters(2.0), Meters(1.0)), Meters(2.0));
+    assert.equal(number.min(Meters(2.0), Meters(1.0)), Meters(1.0));
+    assert.equal(number.min(small, big), small);
+    assert.equal(number.min(big, small), small);
+    assert.equal(number.max(small, big), big);
+    assert.equal(number.max(big, small), big);
+    // Backwards' own order puts the smaller Int last.
+    assert.equal(number.min(Backwards(1), Backwards(2)), Backwards(2));
+    assert.equal(number.min(Backwards(2), Backwards(1)), Backwards(2));
+    assert.equal(number.max(Backwards(1), Backwards(2)), Backwards(1));
+    assert.equal(number.max(Backwards(2), Backwards(1)), Backwards(1));
+}
+
 // -----------------------------------------------------------------------------
 // Monomorphization: one body, two instantiations, both right
 // -----------------------------------------------------------------------------

@@ -2,7 +2,8 @@
 // comma, the surrogates either side of a pair, and the signs a number may carry.
 
 from "core/json" import * as json;
-from "core/json" import { Json, JsonError };
+from "core/json" import { DecodeError, Json, JsonError };
+from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
@@ -49,4 +50,113 @@ test "a sign belongs to a number only at its start or after its e" {
     assert.equal(json.parse(ctx, "1E+2"), .Ok(Json.Num(100.0)));
     assert.equal(json.parse(ctx, "[1-2]"), .Err(JsonError.Unexpected(2)));
     assert.equal(json.parse(ctx, "[1.5+2]"), .Err(JsonError.Unexpected(4)));
+}
+
+test "a document that stops inside an array or an object is unterminated" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(json.parse(ctx, "["), .Err(JsonError.Unterminated));
+    assert.equal(json.parse(ctx, "{"), .Err(JsonError.Unterminated));
+    assert.equal(json.parse(ctx, "{\"a"), .Err(JsonError.Unterminated));
+    assert.equal(json.parse(ctx, "{\"a\""), .Err(JsonError.Unterminated));
+    assert.equal(json.parse(ctx, "{\"a\":"), .Err(JsonError.Unterminated));
+    assert.equal(json.parse(ctx, "{\"a\":1"), .Err(JsonError.Unterminated));
+    assert.equal(json.parse(ctx, "\"\\"), .Err(JsonError.Unterminated));
+    assert.equal(json.parse(ctx, "\"\\u12"), .Err(JsonError.Unterminated));
+}
+
+test "a member followed by neither a comma nor a brace is unexpected" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(json.parse(ctx, "{\"a\":1 2}"), .Err(JsonError.Unexpected(7)));
+    assert.equal(json.parse(ctx, "{\"a\" 1}"), .Err(JsonError.Unexpected(5)));
+}
+
+test "a pair's second half must be four hexadecimal digits" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(json.parse(ctx, "\"\\uD83D\\uZZZZ\""), .Err(JsonError.BadEscape(9)));
+    assert.equal(json.parse(ctx, "\"\\r\\t\""), .Ok(Json.Str("\r\t")));
+}
+
+test "an exponent needs a digit after its e" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(json.parse(ctx, "1e"), .Err(JsonError.BadNumber(0)));
+    assert.equal(json.parse(ctx, "1e+"), .Err(JsonError.BadNumber(0)));
+}
+
+test "a carriage return and a tab are written as their escapes" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(json.stringify(ctx, Json.Str("a\rb\tc")), "\"a\\rb\\tc\"");
+}
+
+test "values of different kinds are never equal" {
+    assert.isFalse(Json.Null == Json.Bool(false));
+    assert.isFalse(Json.Bool(false) == Json.Num(0.0));
+    assert.isFalse(Json.Num(0.0) == Json.Str("0"));
+    assert.isFalse(Json.Str("") == Json.Array([]));
+    assert.isFalse(Json.Array([]) == Json.Object([]));
+    assert.isFalse(Json.Object([]) == Json.Null);
+}
+
+test "errors of different kinds are never equal, and each shows itself" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.isFalse(JsonError.Unexpected(1) == JsonError.Unterminated);
+    assert.isFalse(JsonError.Unterminated == JsonError.Trailing(1));
+    assert.isFalse(JsonError.Trailing(1) == JsonError.BadNumber(1));
+    assert.isFalse(JsonError.BadNumber(1) == JsonError.BadEscape(1));
+    assert.isFalse(JsonError.BadEscape(1) == JsonError.TooDeep(1));
+    assert.isFalse(JsonError.TooDeep(1) == JsonError.Unexpected(1));
+    assert.isTrue(JsonError.TooDeep(1) == JsonError.TooDeep(1));
+    assert.isFalse(JsonError.TooDeep(1) == JsonError.TooDeep(2));
+    assert.equal(str.format(ctx, "${JsonError.Unterminated}"), ".Unterminated");
+    assert.equal(str.format(ctx, "${JsonError.Trailing(2)}"), ".Trailing(2)");
+    assert.equal(str.format(ctx, "${JsonError.BadNumber(3)}"), ".BadNumber(3)");
+    assert.equal(str.format(ctx, "${JsonError.BadEscape(4)}"), ".BadEscape(4)");
+    assert.equal(str.format(ctx, "${JsonError.TooDeep(5)}"), ".TooDeep(5)");
+}
+
+test "a number that isn't whole is no Int, and a value that isn't a number is neither" {
+    assert.equal(Json.Num(7.0).asInt(), .Some(7));
+    assert.equal(Json.Num(7.5).asInt(), .None);
+    assert.equal(Json.Num(-0.5).asInt(), .None);
+    assert.equal(Json.Num(1e300).asInt(), .None);
+    assert.equal(Json.Null.asNumber(), .None);
+}
+
+test "decode errors of different kinds are never equal, and each shows itself" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let missing = DecodeError.Missing { path: "$.a" };
+    let wrong = DecodeError.WrongType { path: "$.a", wanted: "Int", found: "Str" };
+    let unknown = DecodeError.UnknownVariant { path: "$.a", tag: "Blue" };
+    assert.isFalse(missing == wrong);
+    assert.isFalse(wrong == unknown);
+    assert.isFalse(unknown == missing);
+    assert.isFalse(
+        wrong == DecodeError.WrongType { path: "$.b", wanted: "Int", found: "Str" },
+    );
+    assert.isFalse(
+        wrong == DecodeError.WrongType { path: "$.a", wanted: "Bool", found: "Str" },
+    );
+    assert.isFalse(unknown == DecodeError.UnknownVariant { path: "$.b", tag: "Blue" });
+    assert.equal(str.format(ctx, "${missing}"), ".Missing { path: \"$.a\" }");
+    assert.equal(
+        str.format(ctx, "${wrong}"),
+        ".WrongType { path: \"$.a\", wanted: \"Int\", found: \"Str\" }",
+    );
+    assert.equal(
+        str.format(ctx, "${unknown}"),
+        ".UnknownVariant { path: \"$.a\", tag: \"Blue\" }",
+    );
 }

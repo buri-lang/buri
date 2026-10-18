@@ -159,6 +159,14 @@ test "the RangeError names the value and the target" {
     assert.equal(e.target, "I32");
 }
 
+test "two RangeErrors are equal only with the same value and target" {
+    let a: I64 = 3000000000;
+    let b: I64 = 3000000001;
+    assert.isTrue(assert.err(a.toI32()) == assert.err(a.toI32()));
+    assert.isFalse(assert.err(a.toI32()) == assert.err(b.toI32()));
+    assert.isFalse(assert.err(a.toI32()) == assert.err(a.toU16()));
+}
+
 test "a narrowing conversion succeeds exactly at the boundary" {
     let a: I64 = 2147483647;
     assert.equal(assert.ok(a.toI32()), number.maxValue<I32>());

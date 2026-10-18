@@ -2642,3 +2642,14 @@ test "normalization vectors, 960 to 999" {
     forms(ctx, "𖄡𖄤", "𖄡𖄤", "𖄡𖄤", "𖄡𖄤", "𖄡𖄤");
     forms(ctx, "𖵪𖵧", "𖵪𖵧", "𖵪𖵧", "𖵪𖵧", "𖵪𖵧");
 }
+
+test "a normalization form is equal only to itself" {
+    assert.isTrue(Normalization.Nfc == Normalization.Nfc);
+    assert.isTrue(Normalization.Nfd == Normalization.Nfd);
+    assert.isTrue(Normalization.Nfkc == Normalization.Nfkc);
+    assert.isTrue(Normalization.Nfkd == Normalization.Nfkd);
+    assert.isFalse(Normalization.Nfc == Normalization.Nfd);
+    assert.isFalse(Normalization.Nfd == Normalization.Nfkc);
+    assert.isFalse(Normalization.Nfkc == Normalization.Nfkd);
+    assert.isFalse(Normalization.Nfkd == Normalization.Nfc);
+}

@@ -9,6 +9,7 @@
 from "core/json" import * as json;
 from "core/json" import { Json };
 from "core/math" import * as math;
+from "core/proto" import * as proto;
 from "core/proto" import { ProtoError };
 from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
@@ -236,4 +237,31 @@ test "a uint64 past 2^64 - 1 or below zero is refused" {
     );
     assert.equal(read(ctx, "{\"large\":\"-1\"}"), outOfRange("$.large"));
     assert.equal(read(ctx, "{\"large\":\"1e536870000\"}"), outOfRange("$.large"));
+}
+
+// --- a quoted number ------------------------------------------------------------
+
+fn notANumber(): Result<Float, ProtoError> {
+    .Err(.BadJson { path: "$", wanted: "a number" })
+}
+
+test "a quoted double is a JSON number and nothing else" {
+    assert.equal(proto.asFloat(Json.Str("0"), "$"), .Ok(0.0));
+    assert.equal(proto.asFloat(Json.Str("0.5"), "$"), .Ok(0.5));
+    assert.equal(proto.asFloat(Json.Str("0e1"), "$"), .Ok(0.0));
+    assert.equal(proto.asFloat(Json.Str("0E1"), "$"), .Ok(0.0));
+    assert.equal(proto.asFloat(Json.Str("-1.5e+2"), "$"), .Ok(-150.0));
+    assert.equal(proto.asFloat(Json.Str("1E-2"), "$"), .Ok(0.01));
+    assert.equal(proto.asFloat(Json.Str("01"), "$"), notANumber());
+    assert.equal(proto.asFloat(Json.Str(""), "$"), notANumber());
+    assert.equal(proto.asFloat(Json.Str("-"), "$"), notANumber());
+    assert.equal(proto.asFloat(Json.Str("x1"), "$"), notANumber());
+    assert.equal(proto.asFloat(Json.Str("1x"), "$"), notANumber());
+    assert.isFalse(proto.asFloat(Json.Str("1"), "$") == notANumber());
+    assert.isFalse(notANumber() == proto.asFloat(Json.Str("1"), "$"));
+}
+
+test "a NaN a document already holds is read as one" {
+    let x = assert.ok(proto.asFloat(Json.Num(0.0 / 0.0), "$"));
+    assert.isTrue(math.isNan(x));
 }
