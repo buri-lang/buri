@@ -2068,16 +2068,7 @@ pub fn native_gap(target: Target, profile: Profile) -> Option<NativeGap> {
     // The backend last, because it is the only one of the three whose answer
     // depends on the profile and the only one a different invocation can change.
     if let Err(reason) = backend::select(target, profile) {
-        let release_only =
-            profile == Profile::Release && backend::select(target, Profile::Debug).is_ok();
-        let fix = if release_only {
-            format!(
-                "build without `--release` — the development backend emits {output} — or \
-                 install a toolchain built with `backend-llvm`"
-            )
-        } else {
-            format!("declare an output this toolchain can build, or {js}")
-        };
+        let fix = backend::refusal_fix(target, profile, &output, js);
         return Some(NativeGap {
             output,
             reason,
