@@ -29,7 +29,6 @@ use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp, UnaryOp
 use crate::compiler::semantics::types::{
     field_types, FuncIdx, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
 };
-use crate::diagnostics::Invariant as _;
 use crate::hash::{Map as HashMap, Set as HashSet};
 use std::sync::OnceLock;
 
@@ -2505,14 +2504,11 @@ impl<'a> Gen<'a> {
                 con, variant, args, ..
             } => {
                 if let Some(nested) = self.option_nesting(&e.ty) {
-                    // Variant 0 is `Some`, 1 is `None`; `Tables::is_option`
-                    // checks that.
-                    if *variant == VariantId::NONE {
+                    // `None` is declared with no field and `Some` with one, so
+                    // the checker gives `None` no argument and `Some` its one.
+                    let Some(arg) = args.first() else {
                         return Expr::Undefined;
-                    }
-                    let arg = args.first().or_ice(
-                        "`Some` is declared with one field, so the checker gives it one argument",
-                    );
+                    };
                     let v = self.expr(arg, out);
                     return if nested {
                         Expr::call(Expr::ident("$some"), vec![v])
@@ -2853,19 +2849,19 @@ impl<'a> Gen<'a> {
                     // Both are emitted with a value and the descriptor of its
                     // type, and with nothing else.
                     name @ ("structuralShow" | "structuralToJson") => {
-                        let [value, desc] = <[Expr; 2]>::try_from(a)
-                            .ok()
-                            .or_ice("a structural show is emitted with a value and a descriptor");
-                        let d = match desc {
+                        // The descriptor, last, by name.
+                        let mut a = a;
+                        let desc = a.pop().map(|desc| match desc {
                             Expr::Num(n) => Expr::ident(descriptor_name(n as usize)),
                             other => other,
-                        };
+                        });
+                        a.extend(desc);
                         let helper = if name == "structuralShow" {
                             "$show"
                         } else {
                             "$json_of"
                         };
-                        Expr::call(Expr::ident(helper), vec![value, d])
+                        Expr::call(Expr::ident(helper), a)
                     }
                     // The runner's end-of-block hook, which
                     // `middle::monomorphize` emits after every `test` body so

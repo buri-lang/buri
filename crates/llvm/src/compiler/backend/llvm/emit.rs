@@ -5973,30 +5973,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
-    /// Which argument of `str.concat` is the context, at the arity this call
-    /// arrived with — the one the C signature has no parameter for.
-    ///
-    /// `str.concat` has no [`runtime::ENTRIES`] row, so the `Arg::Dropped` that
-    /// answers this for every other key is spelled here instead, off the same
-    /// source: the **declaration**. `Str.concat<C: Allocator>(self, ctx: C,
-    /// other: Str)` is three arguments and the middle one is the context;
-    /// `lower::template`'s `str.concat(a, b)` is two and never had one.
-    ///
-    /// By position rather than by type. This asked `Ty::Ctx` once, which is the
-    /// same question only while every `C: Allocator` is instantiated at a `context
-    /// { … }` record — and `C` is an ordinary type parameter with an ordinary
-    /// bound (SPEC 10.1), so a value that merely *implements* `Allocator` satisfies
-    /// it. `platform/effect/testing`'s `alloc()` is `struct TestAllocator(I64)` and
-    /// carries a handle; one of those in this position spread to a leaf and
-    /// `pieces` was read off by one from there on.
-    const fn concat_ctx(argc: usize) -> Option<usize> {
-        if argc == 3 {
-            Some(1)
-        } else {
-            None
-        }
-    }
-
     /// The source type of an aggregate.
     fn agg_ty(&self, ty: ir::Type) -> Ty {
         self.program.type_info(agg(ty)).ty
@@ -6185,12 +6161,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     return value;
                 }
                 let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(arg));
-                let pieces = self.pieces(b, &slots, value);
                 // `ptr`, `len` and no `base`: the renderer reads the bytes and
                 // keeps nothing, which is `Arg::Bytes`'s shape.
-                let [_, ptr, raw] = <[_; 3]>::try_from(pieces)
-                    .ok()
-                    .or_ice("a value has the slots its layout names");
+                let [_, ptr, raw] = self.pieces_n(b, &slots, value);
                 let raw = int(raw);
                 // **Masked**, unlike every `Arg::Str` argument. `text.rs`'s
                 // entries take the stored word and clear bit 63 themselves;
@@ -6337,20 +6310,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let Some((name, prim)) = derive_key(key) else {
             return false;
         };
-        let arg = |at: usize| {
-            *args
-                .get(at)
-                .or_ice("a derived operation takes its operands")
-        };
-        match name {
+        match (name, args) {
             // Quoted: `$show`'s primitive arm, where a `Str` is
             // `JSON.stringify` and a `Char` is `'c'` (`runtime.js:200-210`).
-            Leaf::Show => self.show_prim(state, code, dest, prim, arg(0), true),
-            Leaf::Json => self.json_prim(state, code, dest, prim, arg(0)),
-            Leaf::Hash => {
-                let acc = self.get(state, arg(0));
-                self.hash_prim(state, code, dest, prim, acc, arg(1));
+            (Leaf::Show, &[x, ..]) => self.show_prim(state, code, dest, prim, x, true),
+            (Leaf::Json, &[x, ..]) => self.json_prim(state, code, dest, prim, x),
+            (Leaf::Hash, &[acc, x, ..]) => {
+                let acc = self.get(state, acc);
+                self.hash_prim(state, code, dest, prim, acc, x);
             }
+            _ => return false,
         }
         true
     }
@@ -6543,10 +6512,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         key: &str,
         args: &[ir::ValueId],
     ) -> bool {
-        if key != "alloc.copyOut" {
+        let ("alloc.copyOut", &[arg]) = (key, args) else {
             return false;
-        }
-        let arg = arg(args, 0);
+        };
         let value = self.get(state, arg);
         let counted = self
             .type_of(code.ty_of(arg))
@@ -6589,44 +6557,43 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // defining module is not `core/number` and whose keys are therefore two
         // segments rather than three.
         if let Some((prim, op)) = prim_leaf(key) {
-            let x = arg(args, 0);
-            return match op {
-                "show" => {
+            return match (op, args) {
+                ("show", &[x, ..]) => {
                     self.show_prim(state, code, dest, prim, x, false);
                     true
                 }
-                "hash" => {
+                ("hash", &[x, ..]) => {
                     let seed = self.ctx.i64_type().const_int(runtime::HASH_SEED, false);
                     self.hash_prim(state, code, dest, prim, seed.into(), x);
                     true
                 }
-                "equal" => {
-                    let (l, r) = (self.get(state, x), self.get(state, arg(args, 1)));
+                ("equal", &[x, y, ..]) => {
+                    let (l, r) = (self.get(state, x), self.get(state, y));
                     let out = self.binary(state, ir::BinOp::Eq, prim, code.ty_of(x), l, r);
                     self.set(state, dest, out);
                     true
                 }
-                _ => {
-                    let (l, r) = (self.get(state, x), self.get(state, arg(args, 1)));
+                (_, &[x, y, ..]) => {
+                    let (l, r) = (self.get(state, x), self.get(state, y));
                     let want =
                         repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
                     let out = self.order(b, l, r, false, int_ty(want));
                     self.set(state, dest, out);
                     true
                 }
+                _ => false,
             };
         }
-        match key {
+        match (key, args) {
             // `character.toU32()` is the identity: both sides are an `i32`.
-            "character.toU32" => {
-                let value = self.get(state, arg(args, 0));
+            ("character.toU32", &[x, ..]) => {
+                let value = self.get(state, x);
                 self.set(state, dest, value);
                 true
             }
             // `list.length()` is the element count, exactly, and always O(1)
             // (VALUE-MODEL.md §4).
-            "list.length" => {
-                let a = arg(args, 0);
+            ("list.length", &[a, ..]) => {
                 let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(a));
                 let value = self.get(state, a);
                 let [_, len] = self.pieces_n(b, &slots, value);
@@ -6637,7 +6604,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // the stored length answers what that costs: set means every byte
             // is below 0x80, so the count is the byte count and this is a
             // mask; clear means the runtime counts continuation bytes.
-            "str.length" => self.str_len(state, code, dest, args),
+            ("str.length", &[a, ..]) => self.str_len(state, code, dest, a),
             // `str.format(ctx, template)` is the identity: a `Template` *is* a
             // `Str` (§3.3), and `middle::lower` has already turned the holes
             // into a `str.concat` chain. The context is zero-sized and has
@@ -6650,14 +6617,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // count is taken here. Without it the argument and the result are
             // one block with one count and two owners, and the second drop is
             // a double free.
-            "str.format" => {
-                let src = *args.last().or_ice("`format` takes its template");
+            ("str.format", &[.., src]) => {
                 let value = self.get(state, src);
                 self.set(state, dest, value);
                 self.incref(state, code, src);
                 true
             }
-            "str.concat" => self.concat(state, code, dest, args),
+            ("str.concat", _) => self.concat(state, code, dest, args),
             _ if key.starts_with("bits.") => {
                 let op = key.split_once('.').map_or("", |(_, o)| o);
                 self.bits(state, dest, op, args)
@@ -6671,7 +6637,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // arena the runner reclaims. Natively there is no runner and one
             // allocator, so the handle names nothing and zero is as good a name
             // as any.
-            "host_testing.alloc" => {
+            ("host_testing.alloc", _) => {
                 let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
                 let zero = self.ctx.i64_type().const_zero();
                 let values = [zero.into()];
@@ -6684,8 +6650,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // function of the *types*, computed by `middle::layout`, so
             // `allocate` returns what it was asked for and the accounting is the
             // caller's.
-            "host_testing.TestAllocator.allocate" => {
-                let value = self.get(state, arg(args, 1));
+            ("host_testing.TestAllocator.allocate", &[_, bytes, ..]) => {
+                let value = self.get(state, bytes);
                 self.set(state, dest, value);
                 true
             }
@@ -6702,8 +6668,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `commands/test.rs::report_failure` states the failure format for
             // every backend. `stencil/rtcall.rs` lowers the same two keys to
             // the same two entries.
-            "testing_assert.reportShown" => {
-                let (kind, actual, expected) = (arg(args, 0), arg(args, 1), arg(args, 2));
+            ("testing_assert.reportShown", &[kind, actual, expected, ..]) => {
                 // No `unreachable` and no fresh block: this sits in the else of
                 // an `if` the derive pass generated, and the block it is in is
                 // the one the merge's phi names as a predecessor. Ending it
@@ -6725,8 +6690,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.set(state, dest, want.const_zero());
                 true
             }
-            "testing_assert.failExpectedShown" => {
-                let (kind, shown) = (arg(args, 0), arg(args, 1));
+            ("testing_assert.failExpectedShown", &[kind, shown, ..]) => {
                 self.abort_strs(state, code, &[kind, shown], runtime::TEST_FAIL_EXPECTED);
                 self.after_abort(state);
                 let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
@@ -6736,8 +6700,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // Reached where the derive pass declined to generate a `Show` at
             // the type — an opaque one — so there is nothing to render with and
             // the kind is what makes the failure attributable.
-            "testing_assert.report" => {
-                let (passed, kind) = (arg(args, 0), arg(args, 1));
+            ("testing_assert.report", &[passed, kind, ..]) => {
                 let cond = int(self.get(state, passed));
                 let ok = self.ctx.append_basic_block(state.value, "assert.ok");
                 let bad = self.ctx.append_basic_block(state.value, "assert.bad");
@@ -6747,8 +6710,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 b.to_end(ok);
                 true
             }
-            "testing_assert.failWith" => {
-                self.abort_str(state, code, arg(args, 0), runtime::ABORT);
+            ("testing_assert.failWith", &[message, ..]) => {
+                self.abort_str(state, code, message, runtime::ABORT);
                 self.after_abort(state);
                 true
             }
@@ -6757,8 +6720,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // block nothing reaches — but it is bound, because the IR that
             // follows names it and LLVM's verifier reads that IR before it
             // learns the block is dead.
-            "testing_assert.failExpected" => {
-                self.abort_assert(state, code, arg(args, 0));
+            ("testing_assert.failExpected", &[kind, ..]) => {
+                self.abort_assert(state, code, kind);
                 self.after_abort(state);
                 let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
                 self.set(state, dest, want.const_zero());
@@ -6766,7 +6729,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             }
             // `list.empty()` is `Inst::MakeArray` with no elements, and it goes
             // to the same place: the null descriptor, which allocates nothing.
-            "list.empty" => {
+            ("list.empty", _) => {
                 let value = self.empty_list(b, list_ty(code.ty_of(dest)).id());
                 self.set(state, dest, value);
                 true
@@ -6781,16 +6744,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         state: &mut Function<'ctx>,
         code: &ir::Code,
         dest: ir::ValueId,
-        args: &[ir::ValueId],
+        a: ir::ValueId,
     ) -> bool {
         let b = state.b;
-        let a = arg(args, 0);
         let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(a));
         let value = self.get(state, a);
-        let pieces = self.pieces(b, &slots, value);
-        let [_, ptr, raw] = <[_; 3]>::try_from(pieces)
-            .ok()
-            .or_ice("a value has the slots its layout names");
+        let [_, ptr, raw] = self.pieces_n(b, &slots, value);
         let raw = int(raw);
         let word = self.ctx.i64_type();
         let bytes = b.and(raw, word.const_int(STR_LEN_MASK, false), "str.bytes");
@@ -6845,10 +6804,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         args: &[ir::ValueId],
     ) -> bool {
         let b = state.b;
-        let x = int(self.get(
-            state,
-            *args.first().or_ice("a `bits` operation takes a word"),
-        ));
+        let (x, count) = match args {
+            &[x] => (x, None),
+            &[x, n, ..] => (x, Some(n)),
+            [] => return false,
+        };
+        let x = int(self.get(state, x));
         // `llvm.ctpop`, `llvm.ctlz` and `llvm.cttz` answer at the operand's own
         // width, which here is `Int`'s, so nothing is converted. `false` for
         // the zero-is-poison flag: `$bits_leadingZeros(0)` is `64` and
@@ -6871,7 +6832,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.set(state, dest, v);
             return true;
         }
-        let n = int(self.get(state, *args.get(1).or_ice("a shift takes a count")));
+        let n = match count {
+            Some(n) => int(self.get(state, n)),
+            None => return false,
+        };
         let bits = match op {
             "shiftLeftU8" | "shiftRightU8" | "rotateLeftU8" | "rotateRightU8" => 8,
             "shiftLeftU32" | "shiftRightU32" | "rotateLeftU32" | "rotateRightU32" => 32,
@@ -6985,26 +6949,33 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // method call, and `str.concat(a, b)` from `lower::template`, which
         // never had a context. Both flatten to the same six words, so the
         // flattening is the check.
+        //
+        // A context contributes nothing, whatever it weighs — the same rule
+        // `entry_args` applies to `Arg::Dropped`, and for the same reason.
+        // `str.concat` has no [`runtime::ENTRIES`] row, so which argument it is
+        // comes from the **declaration**: `Str.concat<C: Allocator>(self, ctx:
+        // C, other: Str)` is three arguments and the middle one is the context.
+        //
+        // By position rather than by type. This asked `Ty::Ctx` once, which is
+        // the same question only while every `C: Allocator` is instantiated at
+        // a `context { … }` record — and `C` is an ordinary type parameter with
+        // an ordinary bound (SPEC 10.1), so a value that merely *implements*
+        // `Allocator` satisfies it. `platform/effect/testing`'s `alloc()` is
+        // `struct TestAllocator(I64)` and carries a handle; one of those in this
+        // position spread to a leaf and `pieces` was read off by one from there
+        // on.
         let b = state.b;
-        let drop = Self::concat_ctx(args.len());
-        let mut pieces: Vec<BasicValueEnum<'ctx>> = Vec::new();
-        for (i, a) in args.iter().enumerate() {
-            // A context contributes nothing, whatever it weighs — the same rule
-            // `entry_args` applies to `Arg::Dropped`, and for the same reason.
-            // Which argument it is comes from the arity rather than from the
-            // type, because this key has no table row to name it; see
-            // `concat_ctx`.
-            if drop == Some(i) {
-                continue;
-            }
-            let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*a));
-            let value = self.get(state, *a);
-            pieces.extend(self.pieces(b, &slots, value));
-        }
+        let (l, r) = match args {
+            &[l, _, r] | &[l, r] => (l, r),
+            _ => return false,
+        };
         // Two `Str`s, three words each.
-        let [a_base, a_ptr, a_raw, _, b_ptr, b_raw] = <[_; 6]>::try_from(pieces)
-            .ok()
-            .or_ice("`concat` joins two `Str`s");
+        let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(l));
+        let value = self.get(state, l);
+        let [a_base, a_ptr, a_raw] = self.pieces_n(b, &slots, value);
+        let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(r));
+        let value = self.get(state, r);
+        let [_, b_ptr, b_raw] = self.pieces_n(b, &slots, value);
         let a_base = ptr(a_base);
         let a_ptr = ptr(a_ptr);
         let a_raw = int(a_raw);
@@ -7228,7 +7199,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         let b = state.b;
         let want = repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(dest));
-        let a = args.first().copied().map(|v| self.get(state, v));
+        let first = args.first().copied();
+        let a = first.map(|v| self.get(state, v));
         let rhs = args.get(1).copied().map(|v| self.get(state, v));
 
         // A conversion is named by its target: `toI32`, `wrapToU8`. Both
@@ -7242,8 +7214,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // building a `RangeError`, whose fields are two `Str`s naming the
         // value and the target — a rendering, not a conversion — so those keys
         // are left to the table and to `missing_intrinsics`.
-        if let Some(to) = conversion_target(op) {
-            let v = self.get(state, arg(args, 0));
+        if let (Some(to), Some(x)) = (conversion_target(op), first) {
+            let v = self.get(state, x);
             // The modular form always answers the target type. From a float it
             // truncates and keeps the low bits, as `$wrapTo` does
             // (`float_to_int`).
@@ -7257,14 +7229,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // target where it does not. `stencil/emit.rs`'s `convert_checked`
             // is the twin, and the two agree because both render the value with
             // `show_prim` and name the target with a `Str` literal.
-            return self.convert_checked(state, code, dest, from, to, arg(args, 0));
+            return self.convert_checked(state, code, dest, from, to, x);
         }
         // `U32.toChar` is the one inexact conversion [`conversion_target`] does
         // not name — `Char` is not a numeric target — and it is the same
         // `Result<Char, RangeError>` shape: not every `U32` is a Unicode
         // scalar (`text/json.buri`'s `\uXXXX` path is the reachable caller).
-        if op == "toChar" {
-            return self.convert_checked(state, code, dest, from, Prim::Char, arg(args, 0));
+        if let ("toChar", Some(x)) = (op, first) {
+            return self.convert_checked(state, code, dest, from, Prim::Char, x);
         }
 
         // `Bounded`'s two, which take no `self` and whose type is in the key
@@ -7278,6 +7250,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return true;
         }
 
+        match (op, first) {
+            // `x.show(ctx)` is `$str(x)` and **not** `$show(x)`
+            // (`js/intrinsics.rs:58`): a `Str` renders as itself and a `Char`
+            // as its own character, unquoted. The quoting is `derivePrimShow`'s
+            // and belongs to `derive Show`, not to the method.
+            ("show", Some(x)) => {
+                self.show_prim(state, code, dest, from, x, false);
+                return true;
+            }
+            // `x.hash()` is `$hashInto(SEED, x)`: the same body a derived
+            // `Hash` reaches, started rather than continued.
+            ("hash", Some(x)) => {
+                let seed = self.ctx.i64_type().const_int(runtime::HASH_SEED, false);
+                self.hash_prim(state, code, dest, from, seed.into(), x);
+                return true;
+            }
+            _ => {}
+        }
         let signed = from.is_signed();
         let value = match (op, a, rhs, from.as_int()) {
             // `wrappingAdd` and `add` are the same instruction here: §3.4
@@ -7333,15 +7323,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.binary(state, ir::BinOp::Eq, from, operand, x, y)
             }
             ("compare", Some(x), Some(y), _) => self.order(b, x, y, signed, int_ty(want)),
-            // `x.show(ctx)` is `$str(x)` and **not** `$show(x)`
-            // (`js/intrinsics.rs:58`): a `Str` renders as itself and a `Char`
-            // as its own character, unquoted. The quoting is `derivePrimShow`'s
-            // and belongs to `derive Show`, not to the method.
-            ("show", _, _, _) => {
-                let arg = *args.first().or_ice("`show` takes its value");
-                self.show_prim(state, code, dest, from, arg, false);
-                return true;
-            }
             // `Checked` and `Saturating`, which are integer traits: exact
             // arithmetic in 128 bits, then a range test or a clamp.
             (
@@ -7393,14 +7374,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     y,
                 };
                 return self.saturating(state, code, dest, &task);
-            }
-            // `x.hash()` is `$hashInto(SEED, x)`: the same body a derived
-            // `Hash` reaches, started rather than continued.
-            ("hash", _, _, _) => {
-                let arg = *args.first().or_ice("`hash` takes its value");
-                let seed = self.ctx.i64_type().const_int(runtime::HASH_SEED, false);
-                self.hash_prim(state, code, dest, from, seed.into(), arg);
-                return true;
             }
             _ => return false,
         };
