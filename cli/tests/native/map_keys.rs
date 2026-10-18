@@ -4,6 +4,10 @@
 //! The work is counted rather than timed: instructions retired where the kernel
 //! counts them (macOS on hardware), each run against one that does less, so the
 //! difference is the work alone. Every run also goes once under the heap check.
+//!
+//! The count includes starting the process, which on a busy machine costs 1–2 M
+//! more instructions one run in ten. So each run does enough work, [`INSERTS`]
+//! inserts and [`LOOKUPS`] lookups, that 4 M more moves a figure a few percent.
 //! Where nothing is counted, the hash values themselves are what
 //! `agreement::wide_integers_hash_every_bit` and
 //! `agreement::floats_hash_every_bit` pin.
@@ -11,11 +15,15 @@
 use crate::shared::{exited_instructions, heap_checked, ran_command, Ran};
 use std::path::Path;
 
-const LOOKUPS: u64 = 100_000;
+/// The lookups a `get` run does.
+const LOOKUPS: u64 = 500_000;
 
-/// `main <mode> <size> <step>` builds a map of `size` keys `i * step`. `build`
-/// answers its size, `get` also reads it [`LOOKUPS`] times, and `none` does
-/// neither.
+/// The inserts a `build` run does, over as many maps as it takes.
+const INSERTS: u64 = 64_000;
+
+/// `main <mode> <size> <rounds> <step>` builds a map of `size` keys `i * step`,
+/// `rounds` times. `build` answers the sizes' sum, `get` also reads the last
+/// map [`LOOKUPS`] times, and `none` does neither.
 const PROGRAM: &str = r#"
 from "core/env" import * as env;
 from "core/io" import * as io;
@@ -29,6 +37,10 @@ fn built<C: Allocator>(ctx: C, n: Int, step: Int): Map<Int, Int> {
   list.range(ctx, 0, n).foldCtx(ctx, fn(c, acc: Map<Int, Int>, i) => acc.insert(c, i * step, i), map.empty())
 }
 
+fn rebuilt<C: Allocator>(ctx: C, n: Int, step: Int, rounds: Int, acc: Int): Int {
+  if (rounds <= 0) { acc } else { rebuilt(ctx, n, step, rounds - 1, acc + built(ctx, n, step).size) }
+}
+
 fn gets(m: Map<Int, Int>, step: Int, i: Int, n: Int, acc: Int): Int {
   if (i >= n) { acc } else { gets(m, step, i + 1, n, acc + m.get(i * 7 % m.size * step).withDefault(0)) }
 }
@@ -37,10 +49,11 @@ export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
   let args = env.arguments(ctx);
   let size = args.get(1).andThen(fn(s) => s.toInt()).withDefault(1);
-  let step = args.get(2).andThen(fn(s) => s.toInt()).withDefault(1);
+  let rounds = args.get(2).andThen(fn(s) => s.toInt()).withDefault(1);
+  let step = args.get(3).andThen(fn(s) => s.toInt()).withDefault(1);
   let answer = match (args.first()) {
-    .Some("build") => built(ctx, size, step).size,
-    .Some("get") => gets(built(ctx, size, step), step, 0, LOOKUPS, 0),
+    .Some("build") => rebuilt(ctx, size, step, rounds, 0),
+    .Some("get") => rebuilt(ctx, size, step, rounds - 1, 0) + gets(built(ctx, size, step), step, 0, LOOKUPS, 0),
     _ => 0,
   };
   io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
@@ -48,7 +61,7 @@ export fn main(host: NativeHost): Result<(), Str> {
 "#;
 
 /// [`PROGRAM`] over `F64` keys `start + i * scale`, with `scale` and `start`
-/// the third and fourth arguments.
+/// the arguments after `rounds`.
 const FLOATS: &str = r#"
 from "core/env" import * as env;
 from "core/io" import * as io;
@@ -62,6 +75,10 @@ fn built<C: Allocator>(ctx: C, n: Int, scale: F64, start: F64): Map<F64, Int> {
   list.range(ctx, 0, n).foldCtx(ctx, fn(c, acc: Map<F64, Int>, i) => acc.insert(c, start + i.toF64() * scale, i), map.empty())
 }
 
+fn rebuilt<C: Allocator>(ctx: C, n: Int, scale: F64, start: F64, rounds: Int, acc: Int): Int {
+  if (rounds <= 0) { acc } else { rebuilt(ctx, n, scale, start, rounds - 1, acc + built(ctx, n, scale, start).size) }
+}
+
 fn gets(m: Map<F64, Int>, scale: F64, start: F64, i: Int, n: Int, acc: Int): Int {
   if (i >= n) { acc } else { gets(m, scale, start, i + 1, n, acc + m.get(start + (i * 7 % m.size).toF64() * scale).withDefault(0)) }
 }
@@ -70,19 +87,21 @@ export fn main(host: NativeHost): Result<(), Str> {
   let ctx = context { Allocator: host.alloc, Environment: host.env, Stdout: host.stdout };
   let args = env.arguments(ctx);
   let size = args.get(1).andThen(fn(s) => s.toInt()).withDefault(1);
-  let scale = args.get(2).andThen(fn(s) => s.toFloat()).withDefault(1.0);
-  let start = args.get(3).andThen(fn(s) => s.toFloat()).withDefault(0.0);
+  let rounds = args.get(2).andThen(fn(s) => s.toInt()).withDefault(1);
+  let scale = args.get(3).andThen(fn(s) => s.toFloat()).withDefault(1.0);
+  let start = args.get(4).andThen(fn(s) => s.toFloat()).withDefault(0.0);
   let answer = match (args.first()) {
-    .Some("build") => built(ctx, size, scale, start).size,
-    .Some("get") => gets(built(ctx, size, scale, start), scale, start, 0, LOOKUPS, 0),
+    .Some("build") => rebuilt(ctx, size, scale, start, rounds, 0),
+    .Some("get") => rebuilt(ctx, size, scale, start, rounds - 1, 0) + gets(built(ctx, size, scale, start), scale, start, 0, LOOKUPS, 0),
     _ => 0,
   };
   io.println(ctx, "${answer}").mapErr(fn(_e) => "stdout")
 }
 "#;
 
-/// The fewest instructions of five runs, since a short process's count only
-/// gains noise. `None` where the kernel counts nothing.
+/// The fewer instructions of two runs, since a short process's count only
+/// gains noise (`design/PERFORMANCE.md` §8). `None` where the kernel counts
+/// nothing.
 fn measured(backend: &str, binary: &Path, args: &[&str], expected: &str) -> Option<u64> {
     let once = || {
         let child = std::process::Command::new(binary)
@@ -101,35 +120,34 @@ fn measured(backend: &str, binary: &Path, args: &[&str], expected: &str) -> Opti
         (ran, instructions)
     };
     let (ran, first) = once();
-    let rest: Vec<Option<u64>> = (0..4).map(|_| once().1).collect();
+    let (_, second) = once();
     let checked = ran_command(heap_checked(std::process::Command::new(binary).args(args)));
     for r in [&ran, &checked] {
         assert_eq!(r.status, 0, "{backend} {args:?}: {}", r.stderr);
         assert_eq!(r.stdout, expected, "{backend} {args:?}: {}", r.stderr);
     }
-    rest.into_iter()
-        .try_fold(first?, |a, b| b.map(|b| a.min(b)))
-        .filter(|&n| n > 0)
+    first.zip(second).map(|(a, b)| a.min(b)).filter(|&n| n > 0)
 }
 
 /// Instructions per insert and per lookup, with `keys` the arguments after the
-/// size.
+/// rounds.
 fn costs(backend: &str, binary: &Path, size: u64, keys: &[&str]) -> Option<(u64, u64)> {
-    let n = size.to_string();
+    let rounds = INSERTS / size;
+    let (n, r) = (size.to_string(), rounds.to_string());
     let run = |mode: &str, expected: &str| {
-        let args: Vec<&str> = [mode, n.as_str()]
+        let args: Vec<&str> = [mode, n.as_str(), r.as_str()]
             .into_iter()
             .chain(keys.iter().copied())
             .collect();
         measured(backend, binary, &args, expected)
     };
     let idle = run("none", "0\n");
-    let built = run("build", &format!("{size}\n"));
-    let got: u64 = (0..LOOKUPS).map(|i| i * 7 % size).sum();
+    let built = run("build", &format!("{}\n", size * rounds));
+    let got: u64 = (0..LOOKUPS).map(|i| i * 7 % size).sum::<u64>() + size * (rounds - 1);
     let read = run("get", &format!("{got}\n"));
     let (idle, built, read) = (idle?, built?, read?);
     Some((
-        built.saturating_sub(idle) / size,
+        built.saturating_sub(idle) / (size * rounds),
         read.saturating_sub(built) / LOOKUPS,
     ))
 }
@@ -163,8 +181,7 @@ fn a_map_of_keys_that_differ_only_above_bit_32_costs_what_any_other_does() {
         };
         over("an insert of a key above bit 32", high.0, low.0);
         over("a lookup of a key above bit 32", high.1, low.1);
-        // Linear growth, with room for a deeper trie and the noise a short run
-        // of 1,000 inserts carries (up to 2x measured). One collision list grew
+        // Linear growth, with room for a deeper trie. One collision list grew
         // 7.6x.
         if high.0 > small.0 * 3 {
             failures.push(format!(
