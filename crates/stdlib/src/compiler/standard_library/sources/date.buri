@@ -429,16 +429,14 @@ fn pad<C: Allocator>(ctx: C, n: Int, width: Int): Str {
 /// has. Anything else is `None` rather than a guess.
 export fn parseDate<C: Allocator>(ctx: C, text: Str): Option<Date> {
     let parts = text.split(ctx, "-");
-    if (parts.length() != 3) {
-        .None
-    } else {
-        let y = parts.get(0).andThen(fn(p) => p.toInt());
-        let m = parts.get(1).andThen(fn(p) => p.toInt());
-        let d = parts.get(2).andThen(fn(p) => p.toInt());
-        match ((y, m, d)) {
-            (.Some(yy), .Some(mm), .Some(dd)) => date(yy, mm, dd),
-            _ => .None,
-        }
+    match ((parts.get(0), parts.get(1), parts.get(2), parts.get(3))) {
+        (.Some(y), .Some(m), .Some(d), .None) => {
+            match ((y.toInt(), m.toInt(), d.toInt())) {
+                (.Some(yy), .Some(mm), .Some(dd)) => date(yy, mm, dd),
+                _ => .None,
+            }
+        },
+        _ => .None,
     }
 }
 

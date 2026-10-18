@@ -234,3 +234,40 @@ test "the structural order on [T] is the one compare answers" {
         [[1, 2], [3]].sortBy(ctx, fn(a, b) => a.compare(b)),
     );
 }
+
+// --- Order's own methods -------------------------------------------------------------
+
+test "flip turns each answer around" {
+    assert.equal(Order.Less.flip(), Order.Greater);
+    assert.equal(Order.Equal.flip(), Order.Equal);
+    assert.equal(Order.Greater.flip(), Order.Less);
+}
+
+test "isLess is true of Less alone" {
+    assert.isTrue(Order.Less.isLess());
+    assert.isFalse(Order.Equal.isLess());
+    assert.isFalse(Order.Greater.isLess());
+    assert.isFalse(Order.Greater.isEqual());
+}
+
+test "then lets the second comparison decide only a tie" {
+    assert.equal(Order.Equal.then(Order.Less), Order.Less);
+    assert.equal(Order.Greater.then(Order.Less), Order.Greater);
+}
+
+test "float and bool order their values" {
+    assert.equal(order.float(1.0, 2.0), Order.Less);
+    assert.equal(order.float(2.0, 1.0), Order.Greater);
+    assert.equal(order.float(1.0, 1.0), Order.Equal);
+    assert.equal(order.bool(false, true), Order.Less);
+    assert.equal(order.bool(true, false), Order.Greater);
+    assert.equal(order.bool(true, true), Order.Equal);
+}
+
+test "a chain whose comparators all tie answers Equal, in either direction" {
+    let byScore = order.reverseIf(false, order.by(fn(r: Row) => r.score, order.int));
+    let cmp = order.chain([byScore]);
+    let a = Row { name: "a", score: 1 };
+    assert.equal(cmp(a, Row { name: "b", score: 1 }), Order.Equal);
+    assert.equal(cmp(a, Row { name: "b", score: 2 }), Order.Less);
+}

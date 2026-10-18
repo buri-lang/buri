@@ -679,7 +679,8 @@ impl Json {
         match (self) {
             .Num(x) => {
                 match (x.toI64()) {
-                    .Ok(n) => if (n.toF64() == x) { .Some(n) } else { .None },
+                    // `toI64` is exact: a fraction is `.Err` (SPEC 6.2.1).
+                    .Ok(n) => .Some(n),
                     .Err(_e) => .None,
                 }
             },
