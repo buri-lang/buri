@@ -3,8 +3,8 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15002 15207 98.65%
-area cli/build 1691 1707 99.06%
+total 14988 15191 98.66%
+area cli/build 1682 1697 99.12%
 area cli/documentation 477 480 99.38%
 area cli/format 94 94 100.00%
 area cli/language_server 1245 1266 98.34%
@@ -19,11 +19,11 @@ area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 985 1018 96.76%
 area crates/llvm 580 580 100.00%
-area crates/middle 1833 1870 98.02%
+area crates/middle 1835 1872 98.02%
 area crates/project 1346 1360 98.97%
 area crates/semantics 2165 2166 99.95%
 area crates/stdlib 12 12 100.00%
-area crates/stencil 1152 1170 98.46%
+area crates/stencil 1145 1162 98.54%
 area crates/syntax 1204 1206 99.83%
 262 267 cli/src/build/actions.rs
 44 44 cli/src/build/cache.rs
@@ -33,11 +33,11 @@ area crates/syntax 1204 1206 99.83%
 164 164 cli/src/build/generators.rs
 230 230 cli/src/build/hosted.rs
 30 30 cli/src/build/image.rs
-158 164 cli/src/build/link.rs
+159 164 cli/src/build/link.rs
 0 0 cli/src/build/mod.rs
 0 0 cli/src/build/musl.rs
 35 37 cli/src/build/programs.rs
-124 124 cli/src/build/regenerate.rs
+122 122 cli/src/build/regenerate.rs
 30 31 cli/src/build/runtime_cross.rs
 2 2 cli/src/build/runtime_src.rs
 8 8 cli/src/build/session.rs
@@ -45,7 +45,7 @@ area crates/syntax 1204 1206 99.83%
 14 14 cli/src/build/spawn.rs
 14 14 cli/src/build/test_host.rs
 108 108 cli/src/build/tools.rs
-302 302 cli/src/build/workspace.rs
+294 294 cli/src/build/workspace.rs
 0 0 cli/src/commands/add/mod.rs
 8 8 cli/src/commands/add/skills.rs
 41 44 cli/src/commands/arguments.rs
@@ -139,7 +139,7 @@ area crates/syntax 1204 1206 99.83%
 138 138 crates/middle/src/compiler/middle/coverage/mod.rs
 23 24 crates/middle/src/compiler/middle/dce.rs
 36 36 crates/middle/src/compiler/middle/decision.rs
-195 200 crates/middle/src/compiler/middle/derives.rs
+197 202 crates/middle/src/compiler/middle/derives.rs
 6 6 crates/middle/src/compiler/middle/flags.rs
 18 18 crates/middle/src/compiler/middle/forward.rs
 28 28 crates/middle/src/compiler/middle/fuse.rs
@@ -193,9 +193,9 @@ area crates/syntax 1204 1206 99.83%
 0 0 crates/stencil/src/compiler/backend/stencil/abi.rs
 22 22 crates/stencil/src/compiler/backend/stencil/asm.rs
 38 40 crates/stencil/src/compiler/backend/stencil/elf.rs
-325 330 crates/stencil/src/compiler/backend/stencil/emit.rs
+321 326 crates/stencil/src/compiler/backend/stencil/emit.rs
 86 88 crates/stencil/src/compiler/backend/stencil/glue.rs
-458 462 crates/stencil/src/compiler/backend/stencil/jit.rs
+455 458 crates/stencil/src/compiler/backend/stencil/jit.rs
 4 4 crates/stencil/src/compiler/backend/stencil/library.rs
 18 18 crates/stencil/src/compiler/backend/stencil/lists.rs
 42 44 crates/stencil/src/compiler/backend/stencil/mod.rs
