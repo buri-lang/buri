@@ -20,7 +20,7 @@ fn check_target(kind: buri::build::workspace::RuleKind, package: &str, with_test
         panic!("no package {package}")
     };
     let unit = buri::compiler::modules::Unit {
-        target: Some(buri::build::workspace::TargetId { package: id, kind }),
+        target: Some(workspace.target(id, kind).unwrap()),
         platform: None,
         entry: None,
         with_tests,

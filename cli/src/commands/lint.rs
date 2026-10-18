@@ -967,7 +967,7 @@ fn check_target_platforms(session: &Session, target: TargetId, diagnostics: &mut
             .push(Diagnostic::templated("unsatisfiable-target", span).with_bind("target", label));
         return;
     }
-    let Rule::Binary(bin) = session.workspace.package(target.package).rule(target.kind) else {
+    let Rule::Binary(bin) = session.workspace.rule(target) else {
         return;
     };
     for output in &bin.outputs {
@@ -992,10 +992,10 @@ fn check_test_suites(session: &Session, package: PackageId, diagnostics: &mut Di
         diagnostics
             .push(Diagnostic::templated("empty-test-suite", suite.span).with_bind("rule", rule));
     };
-    if let Some(l) = &p.build.library {
+    if let Some(l) = p.build.library() {
         report(l.test.as_ref(), "library");
     }
-    if let Some(b) = &p.build.binary {
+    if let Some(b) = p.build.binary() {
         report(b.test.as_ref(), "binary");
     }
 }
@@ -1005,8 +1005,7 @@ fn check_test_suites(session: &Session, package: PackageId, diagnostics: &mut Di
 /// graph is the same with the entry gone.
 fn check_listed_dependencies(session: &Session, package: PackageId, diagnostics: &mut Diagnostics) {
     let own = session.workspace.package(package).label();
-    for kind in [RuleKind::Library, RuleKind::Binary, RuleKind::Tool] {
-        let target = TargetId { package, kind };
+    for target in session.workspace.targets_of(package) {
         let mut seen: BTreeSet<&str> = BTreeSet::new();
         for dep in session.workspace.declared_deps(target) {
             let fault = if dep.value == own {
@@ -1054,7 +1053,7 @@ fn declared_sources(session: &Session, package: PackageId) -> Vec<(String, Span)
             out.push((x.value.clone(), x.span));
         }
     };
-    if let Some(lib) = &p.build.library {
+    if let Some(lib) = p.build.library() {
         push(&lib.sources, &mut declared);
         // A generator's input is declared by the entry that hands it over.
         // Without this every one of them is a file no rule lists.
@@ -1068,7 +1067,7 @@ fn declared_sources(session: &Session, package: PackageId) -> Vec<(String, Span)
             push(&t.sources, &mut declared);
         }
     }
-    if let Some(bin) = &p.build.binary {
+    if let Some(bin) = p.build.binary() {
         push(&bin.sources, &mut declared);
         for g in &bin.generators {
             push(&g.inputs, &mut declared);
@@ -1077,7 +1076,7 @@ fn declared_sources(session: &Session, package: PackageId) -> Vec<(String, Span)
             push(&t.sources, &mut declared);
         }
     }
-    if let Some(tool) = &p.build.tool {
+    if let Some(tool) = p.build.tool() {
         push(&tool.sources, &mut declared);
         if let Some(t) = &tool.test {
             push(&t.sources, &mut declared);
@@ -1142,8 +1141,7 @@ fn package_files(session: &Session, package: PackageId) -> Vec<String> {
 /// than a document.
 pub fn generator_extensions(session: &Session, package: PackageId) -> BTreeSet<String> {
     let mut extensions: BTreeSet<String> = BTreeSet::new();
-    for kind in [RuleKind::Library, RuleKind::Binary] {
-        let target = crate::build::workspace::TargetId { package, kind };
+    for target in session.workspace.targets_of(package) {
         for input in crate::build::generators::inputs(&session.workspace, target) {
             if let Some((_, ext)) = input.rsplit_once('.') {
                 extensions.insert(ext.to_string());
@@ -4515,7 +4513,7 @@ pub(crate) fn reached_by_resolution(
 fn in_test_deps(session: &Session, target: TargetId, label: &str) -> bool {
     let p = session.workspace.package(target.package);
     let suite = p.test_suite(target.kind);
-    let testing = p.build.library.as_ref().and_then(|l| l.testing.as_ref());
+    let testing = p.build.library().and_then(|l| l.testing.as_ref());
     suite.is_some_and(|t| t.dependencies.iter().any(|d| d.value == label))
         || testing.is_some_and(|t| t.dependencies.iter().any(|d| d.value == label))
 }

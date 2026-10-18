@@ -24,7 +24,7 @@ pub use buri_project::build::workspace::*;
 pub struct Workspace {
     pub root: PathBuf,
     pub repo: RepoConfig,
-    pub packages: Vec<Package>,
+    pub packages: PackageList,
     /// What this repository's generators produced.
     ///
     /// Empty when the graph is loaded and filled by
@@ -76,8 +76,8 @@ impl Packages for Workspace {
         Workspace::resolve_module(self, path)
     }
 
-    fn declared_entries(&self, target: TargetId) -> Vec<DeclaredEntry> {
-        Workspace::declared_entries(self, target)
+    fn declared_entries(&self, package: PackageId) -> Vec<DeclaredEntry> {
+        Workspace::declared_entries(self, package)
     }
 }
 
@@ -215,7 +215,7 @@ impl Workspace {
             let misplaced = [
                 (
                     "tool",
-                    read.value.tool.is_some() && !is_tool_directory(&path),
+                    read.value.tool().is_some() && !is_tool_directory(&path),
                     "outside //tools/",
                     tool_destination(&path, name),
                 ),
@@ -250,9 +250,9 @@ impl Workspace {
                         .with_bind("destination", destination),
                 );
             }
-            if read.value.library.is_none()
-                && read.value.binary.is_none()
-                && read.value.tool.is_none()
+            if read.value.library().is_none()
+                && read.value.binary().is_none()
+                && read.value.tool().is_none()
                 && read.value.platform.is_none()
             {
                 diagnostics.push(
@@ -270,10 +270,10 @@ impl Workspace {
             });
         }
 
+        let mut packages = PackageList::new(packages);
         let by_path: HashMap<String, PackageId> = packages
-            .iter()
-            .enumerate()
-            .map(|(i, p)| (p.path.clone(), PackageId(i as u32)))
+            .entries()
+            .map(|(id, p)| (p.path.clone(), id))
             .collect();
         resolve_custom_outputs(&mut packages, &by_path, &refused, diagnostics);
         check_artifact_paths(root, &packages, diagnostics);
@@ -299,45 +299,38 @@ impl Workspace {
     }
 
     pub fn package(&self, id: PackageId) -> &Package {
-        self.packages
-            .get(id.0 as usize)
-            .or_ice("every PackageId is an index this table minted while loading the repository")
+        self.packages.get(id)
+    }
+
+    /// The rule a target is.
+    pub fn rule(&self, target: TargetId) -> &Rule {
+        self.packages.rule(target)
+    }
+
+    /// A package's target of `kind`, if it declares that rule.
+    pub fn target(&self, package: PackageId, kind: RuleKind) -> Option<TargetId> {
+        self.packages.target(package, kind)
     }
 
     pub fn package_by_path(&self, path: &str) -> Option<PackageId> {
         self.by_path.get(path).copied()
     }
 
-    pub fn ids(&self) -> impl Iterator<Item = PackageId> {
-        (0..self.packages.len() as u32).map(PackageId)
+    pub fn ids(&self) -> impl Iterator<Item = PackageId> + use<> {
+        self.packages.ids()
     }
 
     // -- targets ------------------------------------------------------------
 
+    /// Every target a package declares, in rule order.
+    pub fn targets_of(&self, package: PackageId) -> impl Iterator<Item = TargetId> + '_ {
+        self.packages.targets(package)
+    }
+
     pub fn targets(&self) -> Vec<TargetId> {
-        let mut out = Vec::new();
-        for id in self.ids() {
-            let p = self.package(id);
-            if p.has_library() {
-                out.push(TargetId {
-                    package: id,
-                    kind: RuleKind::Library,
-                });
-            }
-            if p.has_binary() {
-                out.push(TargetId {
-                    package: id,
-                    kind: RuleKind::Binary,
-                });
-            }
-            if p.has_tool() {
-                out.push(TargetId {
-                    package: id,
-                    kind: RuleKind::Tool,
-                });
-            }
-        }
-        out
+        self.ids()
+            .flat_map(|id| self.packages.targets(id))
+            .collect()
     }
 
     pub fn label(&self, target: TargetId) -> String {
@@ -346,37 +339,20 @@ impl Workspace {
 
     /// The declared dependencies of a target, as labels with spans.
     pub fn declared_deps(&self, target: TargetId) -> &[Spanned<String>] {
-        let p = self.package(target.package);
-        match target.kind {
-            RuleKind::Library => p
-                .build
-                .library
-                .as_ref()
-                .map(|l| &l.dependencies[..])
-                .unwrap_or(&[]),
-            RuleKind::Binary => p
-                .build
-                .binary
-                .as_ref()
-                .map(|b| &b.dependencies[..])
-                .unwrap_or(&[]),
-            RuleKind::Tool => p
-                .build
-                .tool
-                .as_ref()
-                .map(|t| &t.dependencies[..])
-                .unwrap_or(&[]),
+        match self.rule(target) {
+            Rule::Library(l) => &l.dependencies,
+            Rule::Binary(b) => &b.dependencies,
+            Rule::Tool(t) => &t.dependencies,
         }
     }
 
     /// A tool carries no tags: nothing is built from it, so there is nothing
     /// a policy could forbid it from reaching.
     pub fn tags(&self, target: TargetId) -> &[Spanned<String>] {
-        let p = self.package(target.package);
-        match target.kind {
-            RuleKind::Library => p.build.library.as_ref().map(|l| &l.tags[..]).unwrap_or(&[]),
-            RuleKind::Binary => p.build.binary.as_ref().map(|b| &b.tags[..]).unwrap_or(&[]),
-            RuleKind::Tool => &[],
+        match self.rule(target) {
+            Rule::Library(l) => &l.tags,
+            Rule::Binary(b) => &b.tags,
+            Rule::Tool(_) => &[],
         }
     }
 
@@ -409,14 +385,10 @@ impl Workspace {
     fn read_dep_edges(&self, target: TargetId) -> Vec<(TargetId, Option<Span>)> {
         count_graph_work(1);
         let mut out = Vec::new();
-        if target.kind != RuleKind::Library && self.package(target.package).has_library() {
-            out.push((
-                TargetId {
-                    package: target.package,
-                    kind: RuleKind::Library,
-                },
-                None,
-            ));
+        if target.kind != RuleKind::Library {
+            if let Some(own) = self.target(target.package, RuleKind::Library) {
+                out.push((own, None));
+            }
         }
         for dep in self.declared_deps(target) {
             if let Some(id) = self.dep_target(&dep.value) {
@@ -438,35 +410,15 @@ impl Workspace {
     /// target under test, and says everything else "including a test suite
     /// reaching a library named in `test.dependencies`, is checked normally".
     pub fn test_dep_edges(&self, target: TargetId) -> Vec<(TargetId, Option<Span>)> {
-        let p = self.package(target.package);
-        // A target exists only where its rule does, so each kind reads its own
-        // rule and the others contribute nothing.
-        let declared: Vec<&Spanned<String>> = match target.kind {
-            RuleKind::Library => p
-                .build
-                .library
+        let declared: Vec<&Spanned<String>> = match self.rule(target) {
+            Rule::Library(l) => l
+                .test
                 .iter()
-                .flat_map(|l| {
-                    l.test
-                        .iter()
-                        .flat_map(|t| t.dependencies.iter())
-                        .chain(l.testing.iter().flat_map(|t| t.dependencies.iter()))
-                })
-                .collect(),
-            RuleKind::Binary => p
-                .build
-                .binary
-                .iter()
-                .flat_map(|b| b.test.iter())
                 .flat_map(|t| t.dependencies.iter())
+                .chain(l.testing.iter().flat_map(|t| t.dependencies.iter()))
                 .collect(),
-            RuleKind::Tool => p
-                .build
-                .tool
-                .iter()
-                .flat_map(|t| t.test.iter())
-                .flat_map(|t| t.dependencies.iter())
-                .collect(),
+            Rule::Binary(b) => b.test.iter().flat_map(|t| t.dependencies.iter()).collect(),
+            Rule::Tool(t) => t.test.iter().flat_map(|t| t.dependencies.iter()).collect(),
         };
         let mut out = Vec::new();
         for dep in declared {
@@ -484,26 +436,16 @@ impl Workspace {
     pub fn dep_target(&self, label: &str) -> Option<TargetId> {
         let path = label.strip_prefix("//")?;
         if let Some(id) = self.package_by_path(path) {
-            if self.package(id).has_library() {
-                return Some(TargetId {
-                    package: id,
-                    kind: RuleKind::Library,
-                });
-            }
-            return None;
+            return self.target(id, RuleKind::Library);
         }
         // `//lib/ledger/testing` -> the library rule of //lib/ledger.
         let owner = path.strip_suffix("/testing")?;
         let id = self.package_by_path(owner)?;
         self.package(id)
             .build
-            .library
-            .as_ref()
+            .library()
             .filter(|l| l.testing.is_some())
-            .map(|_| TargetId {
-                package: id,
-                kind: RuleKind::Library,
-            })
+            .and_then(|_| self.target(id, RuleKind::Library))
     }
 
     /// Every source file this package's rules declare, package-relative.
@@ -520,7 +462,7 @@ impl Workspace {
     pub fn declared_sources(&self, package: PackageId) -> Vec<String> {
         let p = self.package(package);
         let mut out: Vec<String> = Vec::new();
-        if let Some(l) = &p.build.library {
+        if let Some(l) = p.build.library() {
             out.push("lib.buri".into());
             out.extend(l.sources.iter().map(|s| s.value.clone()));
             out.extend(
@@ -534,7 +476,7 @@ impl Workspace {
                 out.extend(testing.sources.iter().map(|s| s.value.clone()));
             }
         }
-        if let Some(b) = &p.build.binary {
+        if let Some(b) = p.build.binary() {
             out.push("main.buri".into());
             out.extend(b.sources.iter().map(|s| s.value.clone()));
             out.extend(
@@ -544,7 +486,7 @@ impl Workspace {
                     .map(|s| s.value.clone()),
             );
         }
-        if let Some(t) = &p.build.tool {
+        if let Some(t) = p.build.tool() {
             out.push("tool.buri".into());
             out.extend(t.sources.iter().map(|s| s.value.clone()));
             out.extend(
@@ -594,7 +536,7 @@ impl Workspace {
             "tool.buri" if p.has_tool() => return Some(RuleKind::Tool),
             _ => {}
         }
-        if let Some(t) = &p.build.tool {
+        if let Some(t) = p.build.tool() {
             if t.sources
                 .iter()
                 .chain(t.test.iter().flat_map(|t| t.sources.iter()))
@@ -603,7 +545,7 @@ impl Workspace {
                 return Some(RuleKind::Tool);
             }
         }
-        if let Some(l) = &p.build.library {
+        if let Some(l) = p.build.library() {
             let listed = l
                 .sources
                 .iter()
@@ -613,7 +555,7 @@ impl Workspace {
                 return Some(RuleKind::Library);
             }
         }
-        if let Some(b) = &p.build.binary {
+        if let Some(b) = p.build.binary() {
             if b.sources
                 .iter()
                 .chain(b.test.iter().flat_map(|t| t.sources.iter()))
@@ -1022,18 +964,17 @@ impl Workspace {
         if from == to.package {
             return true;
         }
-        let lib = self
-            .package(to.package)
-            .build
-            .library
-            .as_ref()
-            .or_ice("a dependency edge ends at a library");
+        // Nothing can depend on a binary or a tool, so neither is visible.
+        let visibility: &[Spanned<Visibility>] = match self.rule(to) {
+            Rule::Library(lib) => &lib.visibility,
+            Rule::Binary(_) | Rule::Tool(_) => &[],
+        };
         let from_path = &self.package(from).path;
-        lib.visibility.iter().any(|v| v.value.allows(from_path))
+        visibility.iter().any(|v| v.value.allows(from_path))
     }
 
     pub fn visibility_list(&self, to: TargetId) -> String {
-        match &self.package(to.package).build.library {
+        match self.package(to.package).build.library() {
             Some(l) if !l.visibility.is_empty() => l
                 .visibility
                 .iter()
@@ -1055,11 +996,8 @@ impl Workspace {
     /// page's `host.ui` is checked against `WebHost` alone.
     ///
     /// Empty for a library, and for a binary that declares no `outputs`.
-    pub fn declared_entries(&self, target: TargetId) -> Vec<DeclaredEntry> {
-        if target.kind != RuleKind::Binary {
-            return Vec::new();
-        }
-        let Some(bin) = self.package(target.package).build.binary.as_ref() else {
+    pub fn declared_entries(&self, package: PackageId) -> Vec<DeclaredEntry> {
+        let Some(bin) = self.package(package).build.binary() else {
             return Vec::new();
         };
         bin.outputs
@@ -1111,7 +1049,10 @@ impl Workspace {
     /// order they are first named.
     pub fn custom_platforms(&self, target: TargetId) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
-        for e in self.declared_entries(target) {
+        if target.kind != RuleKind::Binary {
+            return out;
+        }
+        for e in self.declared_entries(target.package) {
             if let Some(c) = e.custom {
                 if !out.contains(&c.label.value) {
                     out.push(c.label.value);
@@ -1159,7 +1100,7 @@ impl Workspace {
     pub fn platforms_of(&self, members: &[TargetId]) -> BTreeSet<OutputPlatform> {
         let mut allowed = self.every_platform();
         for &member in members {
-            if let Some(lib) = &self.package(member.package).build.library {
+            if let Some(lib) = self.package(member.package).build.library() {
                 if member.kind == RuleKind::Library {
                     allowed.retain(|p| lib.admits.admits(p));
                 }
@@ -1181,7 +1122,7 @@ impl Workspace {
         let allowed = self.platforms(target);
         let admits = |p: &Platform| allowed.contains(&OutputPlatform::Bundled(*p));
         let declared: Vec<Platform> =
-            match (target.kind, &self.package(target.package).build.binary) {
+            match (target.kind, self.package(target.package).build.binary()) {
                 (RuleKind::Binary, Some(bin)) => bin
                     .outputs
                     .iter()
@@ -1244,7 +1185,7 @@ impl Workspace {
         platform: &OutputPlatform,
     ) -> Option<PlatformBlocker> {
         for &member in members {
-            if let Some(lib) = &self.package(member.package).build.library {
+            if let Some(lib) = self.package(member.package).build.library() {
                 if member.kind == RuleKind::Library && !lib.admits.admits(platform) {
                     return Some(PlatformBlocker {
                         member,
@@ -1351,7 +1292,7 @@ impl Workspace {
 /// the checks a bundled platform's output gets from the reader. An
 /// output that fails is dropped, so nothing downstream builds it.
 fn resolve_custom_outputs(
-    packages: &mut [Package],
+    packages: &mut PackageList,
     by_path: &HashMap<String, PackageId>,
     refused: &[String],
     diagnostics: &mut Diagnostics,
@@ -1362,8 +1303,8 @@ fn resolve_custom_outputs(
         .iter()
         .filter_map(|p| Some((p.path.clone(), p.build.platform.clone()?)))
         .collect();
-    for package in packages.iter_mut() {
-        let Some(binary) = package.build.binary.as_mut() else {
+    for (_, package) in packages.entries_mut() {
+        let Some(binary) = package.build.binary_mut() else {
             continue;
         };
         let mut resolved = Vec::new();
@@ -1460,9 +1401,9 @@ fn resolve_custom_outputs(
 
 /// `duplicate-artifact-path` for two outputs of one binary that land at one
 /// path, where the second would overwrite the first.
-fn check_artifact_paths(root: &Path, packages: &[Package], diagnostics: &mut Diagnostics) {
+fn check_artifact_paths(root: &Path, packages: &PackageList, diagnostics: &mut Diagnostics) {
     for package in packages {
-        let Some(binary) = package.build.binary.as_ref() else {
+        let Some(binary) = package.build.binary() else {
             continue;
         };
         let mut seen: Vec<(PathBuf, &buildfile::Output)> = Vec::new();
@@ -1509,7 +1450,7 @@ fn check_artifact_paths(root: &Path, packages: &[Package], diagnostics: &mut Dia
 }
 
 /// Whether an output's platform ships assets, which name its artifacts.
-fn ships_assets(packages: &[Package], output: &buildfile::Output) -> bool {
+fn ships_assets(packages: &PackageList, output: &buildfile::Output) -> bool {
     let rule = match &output.custom {
         Some(custom) => packages
             .iter()
@@ -1559,7 +1500,7 @@ fn check_platform_labels(workspace: &Workspace) -> Vec<Diagnostic> {
     let libraries = workspace
         .packages
         .iter()
-        .filter_map(|p| p.build.library.as_ref())
+        .filter_map(|p| p.build.library())
         .map(|l| &l.admits);
     let tags = workspace
         .repo
@@ -1590,7 +1531,7 @@ fn check_platform_labels(workspace: &Workspace) -> Vec<Diagnostic> {
 fn check_dependency_labels(workspace: &Workspace) -> Vec<Diagnostic> {
     let mut known: Vec<String> = Vec::new();
     for p in &workspace.packages {
-        if let Some(lib) = &p.build.library {
+        if let Some(lib) = p.build.library() {
             known.push(format!("//{}", p.path));
             if lib.testing.is_some() {
                 known.push(format!("//{}/testing", p.path));
@@ -1608,16 +1549,16 @@ fn check_dependency_labels(workspace: &Workspace) -> Vec<Diagnostic> {
             test.iter().flat_map(|t| t.dependencies.iter())
         }
         let mut lists: Vec<&Spanned<String>> = Vec::new();
-        if let Some(l) = &b.library {
+        if let Some(l) = b.library() {
             lists.extend(&l.dependencies);
             lists.extend(suites(&l.test));
             lists.extend(l.testing.iter().flat_map(|t| t.dependencies.iter()));
         }
-        if let Some(bin) = &b.binary {
+        if let Some(bin) = b.binary() {
             lists.extend(&bin.dependencies);
             lists.extend(suites(&bin.test));
         }
-        if let Some(t) = &b.tool {
+        if let Some(t) = b.tool() {
             lists.extend(&t.dependencies);
             lists.extend(suites(&t.test));
         }

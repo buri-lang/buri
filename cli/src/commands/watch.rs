@@ -187,7 +187,7 @@ fn declared_sources(session: &Session, member: TargetId, out: &mut BTreeSet<Path
         member,
     ));
     let dir = &package.dir;
-    match package.rule(member.kind) {
+    match session.workspace.rule(member) {
         Rule::Library(lib) => {
             out.insert(dir.join("lib.buri"));
             for x in lib.sources.iter() {

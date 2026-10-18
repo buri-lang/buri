@@ -957,10 +957,52 @@ pub struct PlatformEntry {
 
 #[derive(Clone, Debug, Default)]
 pub struct BuildFile {
-    pub library: Option<Library>,
-    pub binary: Option<Binary>,
-    pub tool: Option<Tool>,
+    /// At most one rule of each kind, library first, then binary, then tool.
+    /// A target is one of these, and holds its place in the list.
+    rules: Vec<Rule>,
     pub platform: Option<PlatformRule>,
+}
+
+/// A rule a package declares, with what it declares.
+#[derive(Clone, Debug)]
+pub enum Rule {
+    Library(Library),
+    Binary(Binary),
+    Tool(Tool),
+}
+
+impl BuildFile {
+    pub fn rules(&self) -> &[Rule] {
+        &self.rules
+    }
+
+    pub fn library(&self) -> Option<&Library> {
+        self.rules.iter().find_map(|r| match r {
+            Rule::Library(l) => Some(l),
+            _ => None,
+        })
+    }
+
+    pub fn binary(&self) -> Option<&Binary> {
+        self.rules.iter().find_map(|r| match r {
+            Rule::Binary(b) => Some(b),
+            _ => None,
+        })
+    }
+
+    pub fn binary_mut(&mut self) -> Option<&mut Binary> {
+        self.rules.iter_mut().find_map(|r| match r {
+            Rule::Binary(b) => Some(b),
+            _ => None,
+        })
+    }
+
+    pub fn tool(&self) -> Option<&Tool> {
+        self.rules.iter().find_map(|r| match r {
+            Rule::Tool(t) => Some(t),
+            _ => None,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -2069,9 +2111,10 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
 
     ReadResult {
         value: BuildFile {
-            library,
-            binary,
-            tool,
+            rules: (library.map(Rule::Library).into_iter())
+                .chain(binary.map(Rule::Binary))
+                .chain(tool.map(Rule::Tool))
+                .collect(),
             platform,
         },
         document: parsed.document,
@@ -2218,13 +2261,13 @@ library {
 "#;
         let read = read_build_file(src, FileId(0));
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
-        let lib = read.value.library.unwrap();
+        let lib = read.value.library().unwrap();
         assert_eq!(lib.sources.len(), 2);
         assert_eq!(
             lib.visibility[0].value,
             crate::build::workspace::Visibility::Public
         );
-        assert_eq!(lib.test.unwrap().sources.len(), 1);
+        assert_eq!(lib.test.as_ref().unwrap().sources.len(), 1);
     }
 
     #[test]
@@ -2234,7 +2277,7 @@ library {
                    { platform: \"web\" },\n  ]\n}\n";
         let read = read_build_file(src, FileId(0));
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
-        let b = read.value.binary.unwrap();
+        let b = read.value.binary().unwrap();
         assert_eq!(b.outputs.len(), 3);
         assert_eq!(b.outputs[0].dir(), "native/linux-x86_64");
         assert_eq!(b.outputs[0].platform(), Platform::Linux);
@@ -2346,7 +2389,7 @@ library {
             FileId(0),
         );
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
-        let admits = read.value.library.unwrap().admits;
+        let admits = read.value.library().unwrap().admits.clone();
         let worker = OutputPlatform::Repository {
             label: "//platform/worker".into(),
             backend: Backend::Js,
@@ -2361,7 +2404,7 @@ library {
         assert!(!admits.admits(&OutputPlatform::Bundled(Platform::Js)));
 
         let read = read_build_file("library {\n  backends: [JS]\n}\n", FileId(0));
-        let admits = read.value.library.unwrap().admits;
+        let admits = read.value.library().unwrap().admits.clone();
         assert!(
             admits.admits(&other),
             "a backend admits every platform it builds"
@@ -2419,7 +2462,7 @@ library {
             .iter()
             .any(|e| e.message.contains("//visibility:pubic"));
         assert!(named, "{:#?}", read.errors);
-        assert!(read.value.library.unwrap().visibility.is_empty());
+        assert!(read.value.library().unwrap().visibility.is_empty());
     }
 
     #[test]

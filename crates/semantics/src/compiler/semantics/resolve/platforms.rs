@@ -205,13 +205,9 @@ impl<'a> Checker<'a> {
             };
         }
         let (ws, pkg) = (self.ws?, self.module(module).pkg?);
-        let target = TargetId {
-            package: pkg,
-            kind: RuleKind::Binary,
-        };
         let mut out: Vec<CustomPlatform> = Vec::new();
         for c in ws
-            .declared_entries(target)
+            .declared_entries(pkg)
             .into_iter()
             .filter(|e| e.name == name)
             .filter_map(|e| e.custom)
@@ -547,11 +543,7 @@ impl<'a> Checker<'a> {
                 continue;
             };
             let package = ws.package(pkg);
-            let has_testing = package
-                .build
-                .library
-                .as_ref()
-                .is_some_and(|l| l.testing.is_some());
+            let has_testing = package.build.library().is_some_and(|l| l.testing.is_some());
             let surface = self
                 .loaded
                 .find(&package.module_path("testing/lib.buri"))

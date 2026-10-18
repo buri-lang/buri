@@ -544,7 +544,7 @@ pub(crate) fn reach(
                 .map(|s| (pkg.module_path(&s.value), Some(role))),
         );
     };
-    match pkg.rule(target.kind) {
+    match ws.rule(target) {
         Rule::Library(lib) => {
             starts.push((pkg.module_path("lib.buri"), Some(Role::Source)));
             generated(&mut starts);

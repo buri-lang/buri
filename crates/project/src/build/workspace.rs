@@ -5,9 +5,10 @@
 //! generators and tools. The checker sees it through [`Packages`], which is
 //! the three questions it asks.
 
+pub use crate::build::buildfile::Rule;
 use crate::build::buildfile::{self, BuildFile, Platform};
 use crate::build::textproto::Document;
-use crate::diagnostics::{FileId, Invariant as _, Span};
+use crate::diagnostics::{FileId, Span};
 use std::path::PathBuf;
 
 /// What the checker asks of a workspace. `buri`'s `Workspace` answers it.
@@ -17,11 +18,14 @@ pub trait Packages {
     /// Where a module path resolves to, or why it resolves nowhere.
     fn resolve_module(&self, path: &str) -> Result<ModuleLocation, String>;
 
-    /// Every entry a binary's `outputs` name, in declaration order.
-    fn declared_entries(&self, target: TargetId) -> Vec<DeclaredEntry>;
+    /// Every entry the `outputs` of a package's binary name, in declaration
+    /// order.
+    fn declared_entries(&self, package: PackageId) -> Vec<DeclaredEntry>;
 }
+
+/// A package, by its place in the [`PackageList`] that minted it.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct PackageId(pub u32);
+pub struct PackageId(u32);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum RuleKind {
@@ -42,20 +46,110 @@ impl RuleKind {
     }
 }
 
-/// A package's rule of one kind, with what it declares.
-#[derive(Clone, Copy, Debug)]
-pub enum Rule<'a> {
-    Library(&'a buildfile::Library),
-    Binary(&'a buildfile::Binary),
-    Tool(&'a buildfile::Tool),
+impl Rule {
+    pub fn kind(&self) -> RuleKind {
+        match self {
+            Rule::Library(_) => RuleKind::Library,
+            Rule::Binary(_) => RuleKind::Binary,
+            Rule::Tool(_) => RuleKind::Tool,
+        }
+    }
+
+    /// The contracts the entry point `name` declares. Only a tool has entry
+    /// points, so a library and a binary declare none.
+    pub fn accepts(&self, name: &str) -> &[buildfile::Accepts] {
+        match self {
+            Rule::Tool(tool) => tool.accepts(name),
+            Rule::Library(_) | Rule::Binary(_) => &[],
+        }
+    }
+
+    /// Every contract, over both entry points.
+    pub fn contracts(&self) -> impl Iterator<Item = &buildfile::Accepts> {
+        self.accepts("check").iter().chain(self.accepts("generate"))
+    }
 }
 
 /// A target is a package plus a rule kind. There is no `:name` syntax to learn
 /// because a package holds at most one of each.
+///
+/// Only a [`PackageList`] makes one, from a rule its package declares, so
+/// [`PackageList::rule`] always finds it.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct TargetId {
     pub package: PackageId,
     pub kind: RuleKind,
+    /// The rule's place in its build file's [`BuildFile::rules`].
+    slot: u8,
+}
+
+/// Every package of a repository, with the ids it hands out for them.
+pub struct PackageList {
+    rows: Vec<Package>,
+}
+
+impl PackageList {
+    pub fn new(rows: Vec<Package>) -> Self {
+        PackageList { rows }
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "only this list mints a `PackageId`, below its length, and nothing shrinks it"
+    )]
+    pub fn get(&self, id: PackageId) -> &Package {
+        &self.rows[id.0 as usize]
+    }
+
+    pub fn ids(&self) -> impl Iterator<Item = PackageId> + use<> {
+        (0..self.rows.len() as u32).map(PackageId)
+    }
+
+    /// Every package with its id, in id order.
+    pub fn entries(&self) -> impl Iterator<Item = (PackageId, &Package)> {
+        self.ids().zip(&self.rows)
+    }
+
+    /// Every package with its id, to change.
+    pub fn entries_mut(&mut self) -> impl Iterator<Item = (PackageId, &mut Package)> {
+        self.ids().zip(&mut self.rows)
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, Package> {
+        self.rows.iter()
+    }
+
+    /// Every target a package declares, in rule order.
+    pub fn targets(&self, package: PackageId) -> impl Iterator<Item = TargetId> + '_ {
+        (0u8..)
+            .zip(self.get(package).build.rules())
+            .map(move |(slot, rule)| TargetId {
+                package,
+                kind: rule.kind(),
+                slot,
+            })
+    }
+
+    /// The package's target of `kind`, if it declares that rule.
+    pub fn target(&self, package: PackageId, kind: RuleKind) -> Option<TargetId> {
+        self.targets(package).find(|t| t.kind == kind)
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "only `targets` mints a `TargetId`, from a rule its package holds, and a build file's rules never change"
+    )]
+    pub fn rule(&self, target: TargetId) -> &Rule {
+        &self.get(target.package).build.rules()[usize::from(target.slot)]
+    }
+}
+
+impl<'a> IntoIterator for &'a PackageList {
+    type Item = &'a Package;
+    type IntoIter = std::slice::Iter<'a, Package>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.rows.iter()
+    }
 }
 
 /// The member of a closure that rules a platform out, and why.
@@ -117,41 +211,16 @@ impl Package {
         }
     }
 
-    /// The rule of `kind` this package declares. A target names a rule its
-    /// package declares, so the one it names is there.
-    pub fn rule(&self, kind: RuleKind) -> Rule<'_> {
-        match kind {
-            RuleKind::Library => Rule::Library(
-                self.build
-                    .library
-                    .as_ref()
-                    .or_ice("a library target's package has a library rule"),
-            ),
-            RuleKind::Binary => Rule::Binary(
-                self.build
-                    .binary
-                    .as_ref()
-                    .or_ice("a binary target's package has a binary rule"),
-            ),
-            RuleKind::Tool => Rule::Tool(
-                self.build
-                    .tool
-                    .as_ref()
-                    .or_ice("a tool target's package has a tool rule"),
-            ),
-        }
-    }
-
     pub fn has_library(&self) -> bool {
-        self.build.library.is_some()
+        self.build.library().is_some()
     }
 
     pub fn has_binary(&self) -> bool {
-        self.build.binary.is_some()
+        self.build.binary().is_some()
     }
 
     pub fn has_tool(&self) -> bool {
-        self.build.tool.is_some()
+        self.build.tool().is_some()
     }
 
     /// The suite one rule declares, if it declares one.
@@ -162,9 +231,9 @@ impl Package {
     /// when a rule gains a way to carry a suite.
     pub fn test_suite(&self, kind: RuleKind) -> Option<&buildfile::TestSuite> {
         match kind {
-            RuleKind::Library => self.build.library.as_ref().and_then(|l| l.test.as_ref()),
-            RuleKind::Binary => self.build.binary.as_ref().and_then(|b| b.test.as_ref()),
-            RuleKind::Tool => self.build.tool.as_ref().and_then(|t| t.test.as_ref()),
+            RuleKind::Library => self.build.library().and_then(|l| l.test.as_ref()),
+            RuleKind::Binary => self.build.binary().and_then(|b| b.test.as_ref()),
+            RuleKind::Tool => self.build.tool().and_then(|t| t.test.as_ref()),
         }
     }
 }
