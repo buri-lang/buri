@@ -3,24 +3,24 @@
 # CI's coverage job raises it on main; never edit a count by hand.
 # coverage/compiler/src/main.rs has the rest.
 hosts aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-unknown-linux-gnu+release
-total 15056 15277 98.55%
+total 15052 15267 98.59%
 area cli/build 1694 1711 99.01%
 area cli/documentation 477 480 99.38%
 area cli/format 94 94 100.00%
-area cli/language_server 1246 1268 98.26%
+area cli/language_server 1245 1266 98.34%
 area cli/lint 560 566 98.94%
 area cli/other 532 558 95.34%
 area cli/run 58 58 100.00%
 area cli/serve+watch 69 70 98.57%
 area cli/test 484 508 95.28%
 area crates/backend 68 68 100.00%
-area crates/diagnostics 191 194 98.45%
+area crates/diagnostics 193 196 98.47%
 area crates/docs 246 246 100.00%
 area crates/hash 18 18 100.00%
 area crates/js 985 1018 96.76%
-area crates/llvm 586 588 99.66%
+area crates/llvm 580 580 100.00%
 area crates/middle 1841 1880 97.93%
-area crates/project 1341 1358 98.75%
+area crates/project 1342 1356 98.97%
 area crates/semantics 2183 2188 99.77%
 area crates/stdlib 12 12 100.00%
 area crates/stencil 1177 1198 98.25%
@@ -75,7 +75,7 @@ area crates/syntax 1194 1196 99.83%
 146 146 cli/src/documentation/mod.rs
 76 76 cli/src/documentation/reference.rs
 6 6 cli/src/hold.rs
-62 62 cli/src/language_server/build_files.rs
+60 60 cli/src/language_server/build_files.rs
 15 16 cli/src/language_server/call_hierarchy.rs
 52 58 cli/src/language_server/code_actions.rs
 10 10 cli/src/language_server/code_lens.rs
@@ -86,7 +86,7 @@ area crates/syntax 1194 1196 99.83%
 16 16 cli/src/language_server/execute_command.rs
 55 56 cli/src/language_server/features.rs
 76 78 cli/src/language_server/file_operations.rs
-31 32 cli/src/language_server/formatting.rs
+32 32 cli/src/language_server/formatting.rs
 62 62 cli/src/language_server/inlay_hints.rs
 30 30 cli/src/language_server/links.rs
 155 160 cli/src/language_server/mod.rs
@@ -107,7 +107,7 @@ area crates/syntax 1194 1196 99.83%
 24 24 crates/backend/src/compiler/backend/runtime_native.rs
 14 14 crates/backend/src/compiler/backend/runtime_table.rs
 0 0 crates/backend/src/compiler/backend/task_thread.rs
-96 96 crates/diagnostics/src/diagnostics.rs
+98 98 crates/diagnostics/src/diagnostics.rs
 44 44 crates/diagnostics/src/json.rs
 24 24 crates/diagnostics/src/parallel.rs
 27 30 crates/diagnostics/src/profile.rs
@@ -127,10 +127,10 @@ area crates/syntax 1194 1196 99.83%
 3 4 crates/js/src/compiler/backend/js/mod.rs
 68 70 crates/js/src/compiler/backend/js/park.rs
 52 52 crates/llvm/src/compiler/backend/llvm/attrs.rs
-2 2 crates/llvm/src/compiler/backend/llvm/build.rs
-474 474 crates/llvm/src/compiler/backend/llvm/emit.rs
-8 10 crates/llvm/src/compiler/backend/llvm/mod.rs
-50 50 crates/llvm/src/compiler/backend/llvm/repr.rs
+10 10 crates/llvm/src/compiler/backend/llvm/build.rs
+468 468 crates/llvm/src/compiler/backend/llvm/emit.rs
+6 6 crates/llvm/src/compiler/backend/llvm/mod.rs
+44 44 crates/llvm/src/compiler/backend/llvm/repr.rs
 0 0 crates/llvm/src/compiler/backend/llvm/target.rs
 29 32 crates/middle/src/compiler/backend/intrinsic_keys.rs
 30 30 crates/middle/src/compiler/middle/chunks.rs
@@ -153,16 +153,16 @@ area crates/syntax 1194 1196 99.83%
 104 108 crates/middle/src/compiler/middle/monomorphize/hand_written.rs
 584 592 crates/middle/src/compiler/middle/rc.rs
 40 40 crates/middle/src/compiler/middle/tail_calls.rs
-177 178 crates/project/src/build/buildfile.rs
+178 178 crates/project/src/build/buildfile.rs
 1 2 crates/project/src/build/platforms.rs
 91 92 crates/project/src/build/textproto.rs
 22 22 crates/project/src/build/workspace.rs
 28 28 crates/project/src/languages/json/format.rs
-48 48 crates/project/src/languages/json/mod.rs
+46 46 crates/project/src/languages/json/mod.rs
 20 20 crates/project/src/languages/json/number.rs
 124 124 crates/project/src/languages/json/regex.rs
 237 248 crates/project/src/languages/json/schema.rs
-180 182 crates/project/src/languages/json/syntax.rs
+182 182 crates/project/src/languages/json/syntax.rs
 112 112 crates/project/src/languages/json/types.rs
 9 10 crates/project/src/languages/mod.rs
 168 168 crates/project/src/languages/proto/mod.rs
@@ -207,5 +207,6 @@ area crates/syntax 1194 1196 99.83%
 30 30 crates/syntax/src/layout.rs
 20 20 crates/syntax/src/parsing/flat.rs
 166 166 crates/syntax/src/parsing/lexer.rs
+0 0 crates/syntax/src/parsing/mod.rs
 598 598 crates/syntax/src/parsing/parser.rs
 2 2 crates/syntax/src/parsing/tree.rs
