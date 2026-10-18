@@ -371,7 +371,7 @@ test "the message on stderr and the message main exits with are the same one" {
 
 // --- a tool with no global flags -------------------------------------------------
 
-fn loudness<C: Allocator + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
+fn loudness<C: Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
     let loud = match (arguments.on("loud")) {
         true => "loud",
         false => "soft",
