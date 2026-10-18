@@ -4,11 +4,14 @@
 //! ```text
 //! cargo bench -p buri --bench compiler -- --goals=count   # instructions a line, against a budget
 //! cargo bench -p buri --bench compiler -- --goals=wall    # lines a second, against the goal
+//! cargo bench -p buri --bench compiler -- --goals=reference
 //! ```
 //!
 //! `count` reads the kernel's instruction counter on macOS and cachegrind's on
 //! Linux. Counts don't move with the machine's load, so it never flakes. `wall`
-//! times this machine and fails only below a goal itself.
+//! times this machine and scales each phase to the reference core by a
+//! yardstick timed around it (`reference.rs`), so a slow runner doesn't fail it.
+//! `reference` prints the yardstick's time here, to record for the reference core.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -18,7 +21,8 @@ use buri::diagnostics::{Diagnostics, FileId, SourceMap};
 use buri::parsing::parser;
 
 use crate::generate::Program;
-use crate::{bench, check, corpus, fail, load, Config, TARGET_LOWER, TARGET_PARSE, TARGET_SEMA};
+use crate::reference::{self, Sample, Yardstick, REFERENCE};
+use crate::{check, corpus, fail, load, TARGET_LOWER, TARGET_PARSE, TARGET_SEMA};
 
 /// One goal, and the corpora and budget it's checked with.
 struct Goal {
@@ -33,8 +37,8 @@ struct Goal {
     /// because cachegrind runs a 1M build for minutes.
     counted_on: &'static str,
     timed_on: &'static str,
-    /// Whether `wall` fails below the goal. Only where this machine has at
-    /// least 3x headroom, so noise can't fail it.
+    /// Whether `wall` fails below the goal. Parse only warns: its headroom on
+    /// the reference core is under 1.5x, inside the yardstick's error.
     blocking: bool,
 }
 
@@ -76,6 +80,10 @@ pub fn run(mode: &str) {
     let failures = match mode {
         "count" => counted(),
         "wall" => timed(),
+        "reference" => {
+            yardstick_here();
+            Vec::new()
+        }
         _ => fail("--goals wants `count` or `wall`"),
     };
     if !failures.is_empty() {
@@ -385,62 +393,120 @@ fn counted() -> Vec<String> {
 // wall: lines a second
 // ---------------------------------------------------------------------------
 
-/// Cold `buri build`s for dev compile; the fastest counts.
+/// Cold `buri build`s for dev compile.
 const BUILDS: usize = 3;
 
-fn timed() -> Vec<String> {
-    let cfg = Config {
-        min_reps: 5,
-        min_time: Duration::from_secs(1),
-        warmup: Duration::from_millis(300),
-        warm_reps: 1,
-        reduced: true,
+/// Parse and check run until both hold.
+const MIN_REPS: usize = 5;
+const MIN_TIME: Duration = Duration::from_secs(1);
+
+/// Runs `phase`, which returns the time it took, between yardstick runs.
+fn samples(
+    yardstick: &Yardstick,
+    reps: usize,
+    min_time: Duration,
+    mut phase: impl FnMut() -> Duration,
+) -> Vec<Sample> {
+    let run = || {
+        let started = Instant::now();
+        std::hint::black_box(yardstick.run());
+        started.elapsed()
     };
+    run();
+    phase();
+    let started = Instant::now();
+    let mut out = Vec::new();
+    while out.len() < reps || started.elapsed() < min_time {
+        let before = run();
+        let phase = phase();
+        let after = run();
+        out.push(Sample {
+            before,
+            phase,
+            after,
+        });
+    }
+    out
+}
+
+fn timing(mut f: impl FnMut()) -> impl FnMut() -> Duration {
+    move || {
+        let started = Instant::now();
+        f();
+        started.elapsed()
+    }
+}
+
+/// `--goals=reference`: the yardstick's fastest run on this machine, which
+/// [`REFERENCE`] records for the reference core.
+fn yardstick_here() {
+    let yardstick = Yardstick::new();
+    let mut fastest = Duration::MAX;
+    let mut checksum = 0;
+    for _ in 0..50 {
+        let started = Instant::now();
+        checksum = yardstick.run();
+        fastest = fastest.min(started.elapsed());
+    }
+    println!("yardstick: fastest {} us", fastest.as_micros());
+    if checksum != reference::CHECKSUM {
+        println!("its checksum is now {checksum}: update CHECKSUM and REFERENCE together");
+    }
+}
+
+fn timed() -> Vec<String> {
     println!(
-        "goals, timed: the fastest of several runs against each goal (design/PERFORMANCE.md §6.82)"
+        "goals, timed: lines a second scaled to the reference core (design/PERFORMANCE.md §6.82)"
     );
     println!();
     println!(
-        "  {:<12} {:<12} {:>10} {:>10} {:>9}  on a miss",
-        "phase", "corpus", "lines/s", "goal", "headroom"
+        "  {:<12} {:<12} {:>10} {:>10} {:>10} {:>9}  on a miss",
+        "phase", "corpus", "here", "reference", "goal", "headroom"
     );
+    let yardstick = Yardstick::new();
     let mut failures = Vec::new();
     for g in &GOALS {
         let (dir, program) = repository(g.timed_on);
-        let fastest = match g.phase {
-            "parse" => {
-                let (_, _, fastest, _) = bench(&cfg, || {
+        let samples = match g.phase {
+            "parse" => samples(
+                &yardstick,
+                MIN_REPS,
+                MIN_TIME,
+                timing(|| {
                     for (i, m) in program.modules.iter().enumerate() {
                         std::hint::black_box(parser::parse(&m.text, FileId(i as u32)));
                     }
-                });
-                fastest
-            }
+                }),
+            ),
             "check" => {
                 let mut map = SourceMap::new();
                 let mut cache = parser::Cache::new();
                 let mut diagnostics = Diagnostics::new();
                 let loaded = load(&program, &mut map, &mut cache, &mut diagnostics);
-                let (_, _, fastest, _) = bench(&cfg, || {
-                    std::hint::black_box(check(&loaded, &mut Diagnostics::new()));
-                });
-                fastest
+                samples(
+                    &yardstick,
+                    MIN_REPS,
+                    MIN_TIME,
+                    timing(|| {
+                        std::hint::black_box(check(&loaded, &mut Diagnostics::new()));
+                    }),
+                )
             }
             _ => {
-                let fastest = (0..BUILDS)
-                    .map(|_| cold_build(&dir))
-                    .min()
-                    .unwrap_or_default();
+                let samples = samples(&yardstick, BUILDS, Duration::ZERO, || cold_build(&dir));
                 clean(&dir);
-                fastest
+                samples
             }
         };
-        let rate = program.lines() as f64 / fastest.as_secs_f64();
+        let lines = program.lines() as f64;
+        let here = lines / reference::median_phase(&samples).as_secs_f64();
+        let rate = lines / reference::on_reference(&samples, REFERENCE).as_secs_f64();
         let headroom = rate / g.goal;
         println!(
-            "  {:<12} {:<12} {:>10} {:>10} {:>8.2}x  {}",
+            "  {:<12} {:<12} {:>10} {:>10} {:>10} {:>8.2}x  {}",
             g.phase,
             g.timed_on,
+            crate::rate(here),
             crate::rate(rate),
             crate::rate(g.goal),
             headroom,
@@ -448,7 +514,7 @@ fn timed() -> Vec<String> {
         );
         if headroom < 1.0 {
             let what = format!(
-                "{} ran at {} on pinned:{}, the fastest of its runs, under the goal of {}.",
+                "{} ran at {} on pinned:{}, scaled to the reference core, under the goal of {}.",
                 g.phase,
                 lines_per_second(rate),
                 g.timed_on,

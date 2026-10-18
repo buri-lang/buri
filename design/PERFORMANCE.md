@@ -7599,7 +7599,7 @@ Two CI jobs hold the three goals, both on the pinned `mixed` corpora:
 | Job | Runs | Fails when | Blocks |
 |---|---|---|---|
 | `goals-counted` | `--goals=count` under cachegrind, arm64 Linux | a phase retires more instructions a line than its budget | always: counts don't move with load |
-| `goals-timed` | `--goals=wall` on the 12-core macOS runner | a phase runs below its goal, fastest of several runs | check and dev compile; parse only warns |
+| `goals-timed` | `--goals=wall` on the macOS runner | a phase, scaled to the reference core, runs below its goal | check and dev compile; parse only warns |
 
 The gate checks absolute goals. §9's gate checks growth against a baseline.
 
@@ -7607,9 +7607,9 @@ The gate checks absolute goals. §9's gate checks growth against a baseline.
 
 | Phase | Counted | Timed |
 |---|---|---|
-| parse | `parser::parse` over every module of `mixed-1M` | the same, fastest of at least 5 |
+| parse | `parser::parse` over every module of `mixed-1M` | the same, at least 5 runs |
 | check | `Checker::resume` + `run` over `mixed-1M`, loaded beforehand | the same |
-| dev compile | the `buri` process of a cold `buri build` of `mixed-100k` | the wall time of a cold `buri build` of `mixed-1M`, fastest of 3 |
+| dev compile | the `buri` process of a cold `buri build` of `mixed-100k` | the wall time of a cold `buri build` of `mixed-1M`, 3 runs |
 
 Parse and check are §4's seams, so `--goals=wall` reads what the `lex+parse` and
 `sema` rows read. Dev compile is the real command: front end, middle, stencil
@@ -7645,7 +7645,7 @@ Dev compile's single-core figure is lines over the whole process's CPU time,
 on one thread per program, so for one build the two are the same. A cold build
 of `mixed-1M` uses 4.03 s of CPU in 2.62 s, 1.54x parallel on 12 cores, so a
 per-core budget only errs on the strict side. The wall time is what you wait
-for, so it's taken whole, on a runner with the same core count as this machine.
+for, so it's taken whole.
 
 **The slowest runner isn't the reference.** Its Ampere-1a cores are about a
 third of an M3's: PassMark single-thread 1,350 against the x86_64 runner's
@@ -7716,6 +7716,39 @@ How each counter works:
 
 The corpora are written to `target/goals` (or `BURI_GOALS_DIR`) once and reused
 while their bytes match the pinned digest. CI caches that directory.
+
+**A yardstick scales the clock to the reference core.** The free macOS runner
+is a shared VM, several times slower than an M3 Pro and slower still when its
+host is busy. Run 39132864884 failed check at 0.57x and dev compile at 0.80x
+while the counted job, on the same commit, matched the run before to the
+instruction. So `wall` times a fixed workload, `cli/benches/reference.rs`,
+right before and right after every phase run:
+
+```text
+time on the reference core = median(phase / mean(yardstick before, after)) * 58.5 ms
+```
+
+58.5 ms is the yardstick's fastest run on the M3 Pro, from `--goals=reference`.
+A busy host slows the yardstick and the phase together, so the ratio holds. A
+slower compiler moves only the phase. The yardstick chases pointers through
+32 MB, fills and probes a hash map, and branches, using no compiler code. The
+median ignores a sample where the load changed midway. `cli/tests/ci.rs`
+checks all of this on made-up durations, and pins the yardstick's checksum so
+its reference time can't go stale.
+
+On the M3 Pro at load 14, then with 36 extra busy loops, then with check run
+three times over, injected and reverted:
+
+| Run | parse | check | dev compile | `wall` |
+|---|---:|---:|---:|---|
+| load 14 | 12.06 M here, 14.77 M scaled | 1.95 M, 2.65 M | 387 k, 424 k | passes |
+| 36 busy loops | 2.37 M, 12.66 M | 408 k, 2.30 M | 80 k, 247 k | passes |
+| check 3x, 36 busy loops | 2.29 M, 14.99 M | 117 k, 679 k | 51 k, 250 k | fails |
+| check 3x, no extra load | 12.16 M, 14.28 M | 698 k, 795 k | 377 k, 426 k | fails |
+
+Unscaled, the busy machine fails check and dev compile. Scaled, it reads close
+to the quiet one, a little low, which errs on the strict side. Dev compile
+drifts most: it's several processes and the yardstick is one thread.
 
 **Leads, measured and left:**
 
