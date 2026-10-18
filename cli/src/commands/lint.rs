@@ -51,7 +51,7 @@ use crate::commands::arguments;
 use crate::compiler::modules::{ModuleData, PerModule, Unit};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::{FnId, ModuleId};
-use crate::diagnostics::{ice, Diagnostic, Diagnostics, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -3804,7 +3804,14 @@ fn check_unused_context_bounds(
         // finding this rule makes always points at a file in `mine` — which is
         // what keeps it out of `core/…`, where a span would defeat the lint
         // cache for the target rather than merely misplace the caret.
-        let Some(spans) = bound_spans(analysis, info, *gi as usize) else {
+        // A method's type parameters are its `impl`'s followed by its own, and
+        // a bound on one of the `impl`'s is a demand every method of the block
+        // shares, so there is nothing to say about it from one method's body.
+        let own = &body.bounds_written;
+        let Some(spans) = (*gi as usize)
+            .checked_sub(info.generics.len().saturating_sub(own.len()))
+            .and_then(|i| own.get(i))
+        else {
             continue;
         };
         let bounds: Vec<(Span, bool)> = spans
@@ -3948,48 +3955,6 @@ fn mentions_param(t: &crate::compiler::semantics::types::Ty, gi: u32) -> bool {
         }
         _ => false,
     }
-}
-
-/// The span of each bound a type parameter was written with, in order.
-///
-/// Read from the declaring module's syntax tree, because `GenericInfo` keeps
-/// the resolved [`TraitId`]s and the span of the parameter as a whole — the
-/// text `FileSystem` sits at is only in the tree the parser built.
-///
-/// [`TraitId`]: crate::compiler::semantics::types::TraitId
-///
-/// A method's type parameters are its `impl`'s followed by its own, and a
-/// bound on one of the `impl`'s is a demand every method of the block shares,
-/// so there is nothing to say about it from one method's body: `None`.
-fn bound_spans(
-    analysis: &crate::compiler::driver::Analysis,
-    info: &crate::compiler::semantics::types::FnInfo,
-    gi: usize,
-) -> Option<Vec<Span>> {
-    use crate::compiler::semantics::types::AstRef;
-    use crate::parsing::tree::Item;
-    let (module, item, sub) = match info.ast {
-        AstRef::Item { module, item } => (module, item, None),
-        AstRef::Method { module, item, sub } => (module, item, Some(sub)),
-        AstRef::Builtin => ice("a function with a body the repository wrote has syntax"),
-    };
-    let m = analysis.loaded.module(module);
-    let t = &m.ast.tree;
-    let (decl, gi) = match (m.ast.items.get(item as usize), sub) {
-        (Some(Item::Fn(decl)), None) => (decl, gi),
-        (Some(Item::Impl(block)), Some(sub)) => {
-            let decl = t.list(block.methods).get(sub as usize)?;
-            (decl, gi.checked_sub(t.list(block.generics).len())?)
-        }
-        _ => ice("a function's syntax is the item it names"),
-    };
-    let g = t.list(decl.generics).get(gi)?;
-    Some(
-        t.type_list(g.bounds)
-            .iter()
-            .map(|b| t.type_span(*b))
-            .collect(),
-    )
 }
 
 /// The bytes that take a set of bounds out of one type parameter's list.

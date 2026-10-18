@@ -59,6 +59,10 @@ pub struct Body {
     /// It includes a bound reached through an `impl`'s own bounds, as in
     /// `impl<C: Clock> Allocator for Wrap<C>`.
     pub bounds_used: Vec<(u32, TraitId)>,
+    /// The span of each bound the declaration's own type parameters were
+    /// written with, by parameter and then in order. A method's own parameters
+    /// come after its `impl`'s in its generics, and those are not here.
+    pub bounds_written: Vec<Vec<Span>>,
 }
 
 #[derive(Clone, Debug)]
