@@ -95,3 +95,33 @@ test "a dependency that is not a pair of strings is an error" {
     );
     assert.equal(out.captured(), "");
 }
+
+test "an input that is not a list at all is not a pair" {
+    let out = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdin: stdin().lines(["{\"inputs\":[\"lib/wire/p.proto\"]}"]),
+        Stdout: out,
+    };
+    let silent = fn(_c, _r) => Response { modules: [], diagnostics: [] };
+    assert.equal(
+        assert.err(codegen.run(ctx, silent)),
+        "codegen: `inputs` holds something that is not a (path, text) pair",
+    );
+    assert.equal(out.captured(), "");
+}
+
+test "an input whose path is not a string is not a pair" {
+    let out = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdin: stdin().lines(["{\"inputs\":[[7,\"syntax = 3;\"]]}"]),
+        Stdout: out,
+    };
+    let silent = fn(_c, _r) => Response { modules: [], diagnostics: [] };
+    assert.equal(
+        assert.err(codegen.run(ctx, silent)),
+        "codegen: `inputs` holds something that is not a (path, text) pair",
+    );
+    assert.equal(out.captured(), "");
+}

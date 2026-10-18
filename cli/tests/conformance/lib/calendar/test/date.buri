@@ -49,6 +49,8 @@ test "a date the calendar does not have cannot be built" {
     assert.isTrue(date.date(2023, 4, 31).isNone());
     assert.isTrue(date.date(2023, 1, 0).isNone());
     assert.isTrue(date.date(2024, 2, 29).isSome());
+    assert.isFalse(date.date(2023, 2, 29).isSome());
+    assert.isFalse(date.date(2024, 2, 29).isNone());
 }
 
 test "a time outside the clock cannot be built" {
@@ -60,6 +62,8 @@ test "a time outside the clock cannot be built" {
     assert.isTrue(date.time(0, 0, -1, 0).isNone());
     assert.isTrue(date.time(0, 0, 0, -1).isNone());
     assert.isTrue(date.time(23, 59, 59, 999).isSome());
+    assert.isFalse(date.time(24, 0, 0, 0).isSome());
+    assert.isFalse(date.time(23, 59, 59, 999).isNone());
 }
 
 // --- days from civil ---------------------------------------------------------------

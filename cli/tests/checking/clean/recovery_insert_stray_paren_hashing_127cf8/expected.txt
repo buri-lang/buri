@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> main.buri:37:18
+   |
+37 |     assert.equal(@ table.length(), 2);
+   |                  ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

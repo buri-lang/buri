@@ -118,6 +118,7 @@ test "a key that is not 32 bytes is not a key" {
         crypto.ed25519PublicKeyFromRaw(hex("d75a98")).map(fn(_k) => ()),
         .Err("an Ed25519 key is 32 bytes"),
     );
+    assert.equal(crypto.ed25519PublicKeyFromRaw(hex(KEY_1)).map(fn(_k) => ()), .Ok(()));
 }
 
 // --- ES256, RFC 7515 appendix A.3 -------------------------------------------------
@@ -227,6 +228,10 @@ test "keys in the wrong shape are not keys" {
     assert.equal(
         crypto.p256PublicKeyFromJwk(ctx, "f83OJ3D2", JWK_Y).map(fn(_k) => ()),
         .Err("a P-256 coordinate is 32 bytes"),
+    );
+    assert.equal(
+        crypto.p256PublicKeyFromJwk(ctx, JWK_X, JWK_Y).map(fn(_k) => ()),
+        .Ok(()),
     );
     assert.equal(
         crypto.p256PublicKeyFromJwk(ctx, "not base64!", JWK_Y).map(fn(_k) => ()),

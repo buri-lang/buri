@@ -31,6 +31,7 @@ test "popping an empty heap is nothing" {
         Allocator: alloc(),
     };
     assert.isTrue(heap.empty<Int>().pop(ctx).isNone());
+    assert.isFalse(heap.of(ctx, [1]).pop(ctx).isNone());
     assert.equal(heap.empty<Int>().toSortedList(ctx), []);
     assert.equal(heap.of(ctx, list.empty<Int>()).length(), 0);
 }
@@ -299,6 +300,19 @@ test "a heap of a derived Ordered orders by the fields in declaration order" {
         Job { priority: 2, name: "a" },
         Job { priority: 2, name: "b" },
     ]);
+}
+
+test "an empty heap peeks nothing, whatever its order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.none(heap.empty<Highest>().peek());
+    assert.none(heap.empty<Job>().peek());
+    assert.none(heap.empty<Str>().peek());
+    // And once the last element is popped, which is the same empty root reached
+    // the other way.
+    let (_only, drained) = assert.some(heap.of(ctx, ["one"]).pop(ctx));
+    assert.none(drained.peek());
 }
 
 // Two elements the order calls equal are two elements, not one — which is the

@@ -1192,6 +1192,15 @@ test "each question about a Result answers for both variants of every type" {
     let broken: Result<Json, JsonError> = .Err(.Unterminated);
     assert.isFalse(broken.isOk());
     assert.isTrue(broken.errToOption().isSome());
+    // And the other way round: a success has no error, and a failure falls back.
+    let hex: Result<[U8], DecodeError> = .Ok([1]);
+    let parsed: Result<Json, JsonError> = .Ok(.Null);
+    assert.isFalse(text.errToOption().isSome());
+    assert.isFalse(hex.errToOption().isSome());
+    assert.isFalse(parsed.errToOption().isSome());
+    assert.equal(notText.withDefault("fallback"), "fallback");
+    assert.equal(notHex.withDefault([7]), [7]);
+    assert.equal(broken.withDefault(.Null), .Null);
     // `map` hands an `Err` straight back, whatever it would have made.
     let count: Result<Int, Str> = .Err("no");
     let body: Result<[U8], Str> = .Err("no");

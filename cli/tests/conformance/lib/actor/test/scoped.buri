@@ -224,6 +224,7 @@ test "a scope answers what it asked an actor inside it" {
         let _ = address.sendMessage(c, .Put(big(c, "a"))).ignore();
         let answered = address.sendMessage(c, .Get);
         let _ = address.stop(c).ignore();
+        let _ = address.sendMessage(c, .Get).ignore();
         answered
     });
     let _ = churn(ctx);

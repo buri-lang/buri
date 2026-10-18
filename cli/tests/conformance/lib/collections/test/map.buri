@@ -661,6 +661,7 @@ test "popping what is not there is nothing" {
     };
     assert.isTrue(map.of(ctx, [("a", 1)]).pop(ctx, "zzz").isNone());
     assert.isTrue(map.empty<Str, Int>().pop(ctx, "a").isNone());
+    assert.isFalse(map.of(ctx, [("a", 1)]).pop(ctx, "a").isNone());
 }
 
 // --- takeKeys / dropKeys -------------------------------------------------------------

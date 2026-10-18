@@ -92,6 +92,9 @@ test "a record of the wrong width names itself" {
     assert.equal(assert.err(read("a,b\nc")), CsvError.RaggedRow(1));
     assert.equal(assert.err(read("a\nb,c")), CsvError.RaggedRow(1));
     assert.equal(assert.err(read("a\nb\nc,d")), CsvError.RaggedRow(2));
+    // The two reasons are never the same one, whatever record they name.
+    assert.notEqual(assert.err(read("a,b\nc")), CsvError.Unterminated(1));
+    assert.notEqual(assert.err(read("\"unclosed")), CsvError.RaggedRow(0));
 }
 
 test "another delimiter changes nothing else" {

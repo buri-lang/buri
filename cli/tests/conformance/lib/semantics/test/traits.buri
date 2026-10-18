@@ -373,6 +373,8 @@ test "list.maximum through a hand-written Ordered follows it" {
         assert.some([Backwards(1), Backwards(3), Backwards(2)].maximum()),
         Backwards(1),
     );
+    // A later element that the impl calls greater takes over.
+    assert.equal(assert.some([Backwards(2), Backwards(1)].maximum()), Backwards(1));
     assert.equal(
         assert.some([Backwards(1), Backwards(3), Backwards(2)].minimum()),
         Backwards(3),

@@ -56,6 +56,10 @@ test "the note's counter answers two increments" {
     let _ = counted.sendMessage(ctx, .Increment).ignore();
     assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(2)));
     let _ = counted.stop(ctx).ignore();
+    // Once it has stopped, a second stop and a send fail, and ignoring them is
+    // allowed.
+    let _ = counted.stop(ctx).ignore();
+    let _ = counted.sendMessage(ctx, .Get).ignore();
 }
 
 test "one sender's messages arrive in the order it sent them" {

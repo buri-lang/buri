@@ -1465,7 +1465,7 @@ test "respond answers a new network with a log of its own" {
         Network: answering,
     };
     assert.isTrue(ping(one, "https://example.test/refused").isErr());
-    let _ = assert.ok(ping(two, "https://example.test/answered"));
+    assert.isFalse(ping(two, "https://example.test/answered").isErr());
     assert.equal(refusing.calls(), [
         fetch(http.request(.Get, "https://example.test/refused")),
     ]);

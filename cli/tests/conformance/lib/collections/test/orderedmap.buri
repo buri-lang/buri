@@ -681,6 +681,7 @@ test "pop answers the value and the map without it" {
     assert.equal(m.length(), 2);
     assert.isTrue(m.pop(ctx, 99).isNone());
     assert.isTrue(orderedmap.empty<Int, Str>().pop(ctx, 1).isNone());
+    assert.isFalse(m.pop(ctx, 2).isNone());
 }
 
 test "popFirst and popLast take the ends" {
@@ -704,6 +705,7 @@ test "popping the ends of an empty map is nothing" {
     };
     assert.isTrue(orderedmap.empty<Int, Str>().popFirst(ctx).isNone());
     assert.isTrue(orderedmap.empty<Int, Str>().popLast(ctx).isNone());
+    assert.isFalse(orderedmap.of(ctx, [(1, "a")]).popFirst(ctx).isNone());
 }
 
 test "popping the last entry leaves the empty map" {

@@ -209,6 +209,9 @@ test "add and subtract undo each other" {
     let b = decimal.of(7, 3);
     assert.equal(a.add(b).andThen(fn(v) => v.subtract(b)), .Some(a));
     assert.equal(a.subtract(b).andThen(fn(v) => v.add(b)), .Some(a));
+    // An undo of a sum that didn't fit is nothing.
+    let top = decimal.of(number.maxValue<Int>(), 0);
+    assert.equal(top.add(decimal.of(1, 0)).andThen(fn(v) => v.subtract(b)), .None);
 }
 
 test "negate flips the sign, and fails only where the negation does not fit" {

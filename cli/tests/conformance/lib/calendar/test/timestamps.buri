@@ -402,6 +402,18 @@ test "a fraction of a second of every length, in a whole timestamp" {
     // A point with nothing after it is not a fraction.
     assert.none(date.parseDateTime(ctx, "2026-08-15T13:45:00.Z"));
     assert.none(date.parseDateTime(ctx, "2026-08-15T13:45:00.+02:00"));
+    assert.isTrue(date.parseDateTime(ctx, "2026-08-15T13:45:00.Z").isNone());
+    assert.isFalse(date.parseDateTime(ctx, "2026-08-15T13:45:00.Z").isSome());
+    assert.none(
+        date
+            .parseDateTime(ctx, "2026-08-15T13:45:00.Z")
+            .map(fn(dt) => dt.time.millisecond),
+    );
+    assert.none(
+        date
+            .parseZoned(ctx, "2026-08-15T15:45:00.+02:00")
+            .map(fn(z) => z.offsetMinutes),
+    );
 }
 
 test "a leap second is refused wherever a time of day is read" {

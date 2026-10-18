@@ -323,6 +323,11 @@ test "fromJson names the flag it could not read" {
         doc(ctx, "{\"read\":true,\"write\":true,\"delete\":false}"),
     );
     assert.equal(missing, .Err(.Missing { path: "$.share" }));
+    let plainMissing: Result<Plain, DecodeError> = json.decode(
+        ctx,
+        doc(ctx, "{\"read\":true,\"write\":true,\"delete\":false}"),
+    );
+    assert.equal(plainMissing.map(fn(x) => x.read), .Err(.Missing { path: "$.share" }));
     let number: Result<Access, DecodeError> = json.decode(
         ctx,
         doc(ctx, "{\"read\":true,\"write\":1,\"share\":true,\"delete\":false}"),
@@ -459,6 +464,8 @@ test "in an enum payload and an Option" {
     assert.equal(lost, [0, 2, -1]);
     let found: Option<Access> = .Some(editor());
     assert.equal(found.map(fn(a) => a.write), .Some(true));
+    let missing: Option<Access> = .None;
+    assert.equal(missing.map(fn(a) => a.write), .None);
     assert.equal(found, .Some(editor()));
 }
 

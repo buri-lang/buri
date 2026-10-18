@@ -58,6 +58,7 @@ test "an `if` branch is checked against the type the `if` produces" {
 test "an array element is checked against the element type" {
     let xs: [World] = [{ hi: "a" }, { hi: "b" }];
     assert.equal(xs.get(1).withDefault(World { hi: "z" }), World { hi: "b" });
+    assert.equal(xs.get(2).withDefault({ hi: "z" }), World { hi: "z" });
 }
 
 test "a tuple element is checked against its own position" {

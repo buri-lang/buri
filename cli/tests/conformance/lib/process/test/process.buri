@@ -222,9 +222,11 @@ test "a started child runs until it is waited on, and exits with the scripted co
     };
     let child = assert.ok(process.start(ctx, process.command("server", [])));
     assert.equal(assert.ok(child.tryWait(ctx)), .None);
+    assert.notEqual(assert.ok(child.tryWait(ctx)), .Some(.Exited(7)));
     assert.equal(assert.ok(child.wait(ctx)), .Exited(7));
     assert.equal(assert.ok(child.wait(ctx)), .Exited(7));
     assert.equal(assert.ok(child.tryWait(ctx)), .Some(.Exited(7)));
+    assert.notEqual(assert.ok(child.tryWait(ctx)), .None);
 }
 
 test "a signal that ends a process ends a started child" {

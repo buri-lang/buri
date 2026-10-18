@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:27:25
+   |
+27 |     let got = far.toInt(;
+   |                         ^
+   |
+  --> main.buri:27:24
+   |
+27 |     let got = far.toInt(;
+   |                        ^ opened here
+   |
+   = fix: write `)` here

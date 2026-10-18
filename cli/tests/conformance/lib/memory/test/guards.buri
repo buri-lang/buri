@@ -110,7 +110,7 @@ test "a guard whose call binds names of its own leaves the map its arm grows ali
     let ctx = context {
         Allocator: alloc(),
     };
-    let words = ["users.name", "teams.name", "users.email"];
+    let words = ["users.name", "teams.name", "users.email", "count"];
     let seen = words.foldCtx(
         ctx,
         fn(c, all: OrderedMap<Str, ()>, word) => {

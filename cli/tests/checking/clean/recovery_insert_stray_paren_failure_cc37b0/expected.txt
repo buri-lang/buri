@@ -1,9 +1,0 @@
-error: expected an expression, found `,` [unexpected-token]
-  --> main.buri:93:20
-   |
-93 |         assert.err(, codegen.run(ctx, silent)),
-   |                    ^
-   |
-   = expected: an expression
-   = actual: `,`
-   = fix: write a value here
