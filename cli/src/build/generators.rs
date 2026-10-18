@@ -25,7 +25,7 @@ use crate::build::sources::Overlay;
 use crate::build::tools::{self, Tool};
 use crate::build::workspace::{Rule, RuleKind, TargetId, Workspace};
 use crate::commands::arguments::Flags;
-use crate::diagnostics::{Invariant as _, Span};
+use crate::diagnostics::Span;
 use crate::json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -399,10 +399,10 @@ pub fn rule_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
     k.rule_identity(&package.label(), "generate", &paths);
     for g in declared(&session.workspace, target) {
         k.input("tool", g.tool.value.as_bytes());
-        let tool = tools::resolve(&session.workspace, &g.tool.value)
-            .ok()
-            .or_ice("loading the repository refuses a generator that names no tool");
-        k.dependency(&tools::program_key(session, tool, flags));
+        // Loading refuses a generator that names no tool, so each has one.
+        for tool in tools::resolve(&session.workspace, &g.tool.value).into_iter() {
+            k.dependency(&tools::program_key(session, tool, flags));
+        }
     }
     for rel in &paths {
         let full = package.dir.join(rel);
@@ -1471,8 +1471,8 @@ fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overla
             let rel = workspace.rel_of(&full);
             match checks
                 .texts
-                .get(&full)
-                .or_ice("`Checks::start` read every input")
+                .entry(full.clone())
+                .or_insert_with(|| input_text(overlay, &full))
             {
                 Ok(text) => inputs.push((rel, text.clone())),
                 Err(e) => {
@@ -1517,7 +1517,8 @@ fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overla
             .map(|(rel, _)| contract_of(&workspace, tool, rel))
             .collect();
         let mut failed = false;
-        for (((rel, _), contract), input) in inputs.iter().zip(&contracts).zip(&generator.inputs) {
+        for (((rel, text), contract), input) in inputs.iter().zip(&contracts).zip(&generator.inputs)
+        {
             let kind = workspace.repo.languages.of(rel).map(|l| &l.kind);
             let identity = contract.as_ref().zip(kind).map(|(c, k)| c.identity(k));
             match checks.contracts.get(rel) {
@@ -1547,7 +1548,7 @@ fn run_rule(session: &Session, target: TargetId, flags: &Flags, overlay: &Overla
                         .insert(rel.clone(), (identity, generator.tool.value.clone()));
                 }
             }
-            let (key, found) = checks.check(rel, contract.as_ref());
+            let (key, found) = checks.check(session, rel, text, contract.as_ref(), &read, flags);
             if let Some(key) = key {
                 fingerprint.push_str(key.as_str());
                 fingerprint.push('\n');
@@ -1710,9 +1711,18 @@ impl Checks {
         }
     }
 
-    /// One input's check, as [`Checks::start`] ran it: the key the verdict is
-    /// cached under, and what it found. A file no tool checks has neither.
-    fn check(&mut self, rel: &str, contract: Option<&tools::Contract>) -> Verdict {
+    /// One input's check, as [`Checks::start`] ran it ahead, or as it runs
+    /// here: the key the verdict is cached under, and what it found. A file no
+    /// tool checks has neither.
+    fn check(
+        &mut self,
+        session: &Session,
+        rel: &str,
+        text: &str,
+        contract: Option<&tools::Contract>,
+        read: &(dyn Fn(&str) -> Option<String> + Sync),
+        flags: &Flags,
+    ) -> Verdict {
         let at = (rel.to_string(), contract.cloned());
         if let Some(known) = self.done.get(&at) {
             return known.clone();
@@ -1720,7 +1730,7 @@ impl Checks {
         let checked = self
             .started
             .remove(&at)
-            .or_ice("`Checks::start` checked each readable input under its contract");
+            .unwrap_or_else(|| tools::check_file(session, rel, text, contract, read, flags));
         let answer = match checked {
             Some(checked) => {
                 self.reads.extend(checked.asked);
