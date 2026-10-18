@@ -486,10 +486,7 @@ fn forwarded(): [Result<Desked, SendError>] {
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, tally());
-    let front = actor.start(ctx, Actor {
-        ..desk(counted),
-        onStop: .Some(bumpedOnce),
-    });
+    let front = actor.start(ctx, Actor { ..desk(counted), onStop: .Some(bumpedOnce) });
     let bumped = front.sendMessage(ctx, .Bump);
     let total = front.sendMessage(ctx, .Total);
     let _ = front.stop(ctx).ignore();
@@ -498,7 +495,10 @@ fn forwarded(): [Result<Desked, SendError>] {
 }
 
 /// The desk's hook: the actor behind it was bumped once.
-fn bumpedOnce<C: Allocator + Tasks>(ctx: C, behind: Address<C, Int, Tally, Tallied>): () {
+fn bumpedOnce<C: Allocator + Tasks>(
+    ctx: C,
+    behind: Address<C, Int, Tally, Tallied>,
+): () {
     assert.equal(behind.sendMessage(ctx, .Get), .Ok(.Count(1)))
 }
 
@@ -525,15 +525,26 @@ test "every payload crosses the same while a scope holds pages" {
     };
     let answers = alloc.scoped(ctx, fn(c) => {
         let held = "pages".repeat(c, 100);
-        (held.length(), quietly(), bagged(), said(), filedAway(), forwarded(), spawned())
+        (
+            held.length(),
+            quietly(),
+            bagged(),
+            said(),
+            filedAway(),
+            forwarded(),
+            spawned(),
+        )
     });
-    assert.equal(answers, (
-        500,
-        (.Ok(()), .Ok(()), .Err(.Stopped)),
-        [.Ok(.Kept(1)), .Ok(.Kept(2))],
-        [.Ok(.Scalars(5)), .Ok(.Text("after"))],
-        .Ok(.Was(record("first", .None))),
-        [.Ok(.Noted), .Ok(.Total(1))],
-        [.Ok(.Started(1)), .Ok(.Started(2)), .Err(.Stopped)],
-    ));
+    assert.equal(
+        answers,
+        (
+            500,
+            (.Ok(()), .Ok(()), .Err(.Stopped)),
+            [.Ok(.Kept(1)), .Ok(.Kept(2))],
+            [.Ok(.Scalars(5)), .Ok(.Text("after"))],
+            .Ok(.Was(record("first", .None))),
+            [.Ok(.Noted), .Ok(.Total(1))],
+            [.Ok(.Started(1)), .Ok(.Started(2)), .Err(.Stopped)],
+        ),
+    );
 }

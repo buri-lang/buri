@@ -1013,7 +1013,7 @@ impl Equal for Collider {
 
 impl Hash for Collider {
     fn hash(self): U64 {
-        ((self.id % 8) * 32).wrapToU64()
+        (self.id % 8 * 32).wrapToU64()
     }
 }
 
@@ -1068,7 +1068,10 @@ test "distinct keys that share a hash are all retrievable" {
         .insert(ctx, Collider { id: 0 }, 0)
         .insert(ctx, Collider { id: 1 }, 10);
     assert.equal(pair.entries(ctx).length(), 2);
-    assert.equal(pair.remove(ctx, Collider { id: 0 }).get(Collider { id: 1 }), .Some(10));
+    assert.equal(
+        pair.remove(ctx, Collider { id: 0 }).get(Collider { id: 1 }),
+        .Some(10),
+    );
 }
 
 test "a colliding key is removed without disturbing the others in its bucket" {
