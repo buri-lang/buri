@@ -119,6 +119,74 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 48: closures the runtime keeps
+
+`Ui.memo`, `Ui.watch`, `ui_node.reactive`, `mount`, `rebuildRegion`, `reconcile`, the two timers and the six element handlers lower to one typed instruction, the way phase 46 did `Tasks.parallel`:
+
+```rust
+Inst::Handover(Box<Handover>)
+
+pub struct Handover {
+    pub dest: ValueId,
+    pub args: Box<[ValueId]>, // the row's own arguments
+    pub closure: ValueId,
+    pub ty: Ty,               // the closure's type
+    pub ret: Ty,
+    pub kept: Kept,
+}
+
+pub enum Kept {
+    Compute(ComputeRow, [Ty; 1]), // body
+    Walk(WalkRow, [Ty; 3]),       // context, builder, node
+    Press(PressRow, [Ty; 2]),     // context, event
+}
+```
+
+- `intrinsic_keys::Handoff` names the 14 rows. `lists::handles` covers them, so their functions are code, not runtime bodies.
+- `runtime_table::handoff(row)` returns the row with no key lookup. `Extra::Compute`, `Walk` and `Press` are gone.
+- Stencil: `handover_words` builds the closure's words as `rt_call`'s tail. `last_closure` and the press-context guard are gone.
+- LLVM: `Unit::handover` emits the call. The `entry_args` closure arms and `fn_ty` are gone.
+
+Commit: `middle: a closure the runtime keeps is a typed instruction`.
+
+## Guards (non-test code)
+
+Same rule as phase 47. Total in the touched files: 69 → 66.
+
+| File | Before | After |
+|---|---|---|
+| `stencil/rtcall.rs` | 13 | 11 |
+| `llvm/emit.rs` | 29 | 28 |
+
+## Checks
+
+- The full suite with `--features buri/backend-llvm` passes: 3159 tests, none failed.
+- fmt passes. Both CI clippy commands show only the three warnings base already has.
+- Debug and release output matches base. That covers the bench programs, `tested`, `tests/example`, conformance, and conformance with its JS-only suites stripped so they build natively. Native binaries, linked test hosts and compiled objects are byte-identical. JS differs only in `$t.seed`. Cache entries differ only in toolchain id, keys and test timings.
+
+## Coverage
+
+Local runs are macOS only. The CI estimate is the CI baseline plus the change since the code CI measured. Phase 46's local base is the local figure for that code.
+
+| Area | Local base | Local new | CI baseline | CI estimate |
+|---|---|---|---|---|
+| stencil | 1057/1099 | 1039/1081 | 1090/1102 (98.911%) | 1069/1080 (98.981%), passes |
+| middle | 1836/1872 | 1840/1876 | 1832/1868 (98.073%) | 1840/1876 (98.081%), passes |
+| llvm | 547/548 | 547/548 | 580/580 | 574/574, passes |
+| backend | 70/70 | 64/64 | 68/68 | 64/64, passes |
+| js | 985/1018 | 985/1018 | 985/1018 | unchanged |
+| total | 14816/15090 | 14796/15070 | 14906/15095 (98.7479%) | about 14883/15071 (98.7526%), passes by under one branch |
+
+The stencil gains back the branch phase 46 cost it, because the 18 branches this removes are all covered. The total margin is thin.
+
+## Left
+
+- `jit::fn_ty` stays for `MakeClosure`. The stencil thunk needs the closure type's arity, because a capture-free lambda keeps a leading unit parameter of 8 slot bytes. Removing it means recording the arity on `MakeClosure`, or having `middle::closures` drop that unit parameter. Either way the output changes.
+- The uncovered stencil branches are untouched, because none is clearly impossible:
+  - `glue.rs` `load_through` at an unaligned offset can't happen, since layouts align tags and pointers. But nothing in the types says so.
+  - `emit.rs` `ArrayGet` with the destination in the array's slot needs a closer look at `pin_call_values`.
+  - `object.rs` rejects an addend over 24 bits, which a big enough data section could reach.
+
 # Guard phase 47: cli, project, diagnostics, docs
 
 Commits on staging:
