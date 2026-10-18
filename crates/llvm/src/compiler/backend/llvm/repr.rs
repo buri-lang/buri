@@ -572,7 +572,8 @@ pub fn ir_type<'ctx>(
         ir::Type::F64 => ctx.f64_type().into(),
         ir::Type::Ptr => ctx.ptr_type(inkwell::AddressSpace::default()).into(),
         ir::Type::Unit => ctx.struct_type(&[], false).into(),
-        ir::Type::Agg(id) => {
+        ir::Type::Agg(agg) => {
+            let id = agg.id();
             let slots = reprs.of(program, id).slots.clone();
             register_type(ctx, &slots)
         }
@@ -599,7 +600,7 @@ pub fn ir_slots(reprs: &mut Reprs<'_>, program: &ir::Program, ty: ir::Type) -> V
         ir::Type::F64 => scalar(Scalar::F64),
         ir::Type::Ptr => scalar(Scalar::Ptr),
         ir::Type::Unit => Vec::new(),
-        ir::Type::Agg(id) => reprs.of(program, id).slots.clone(),
+        ir::Type::Agg(id) => reprs.of(program, id.id()).slots.clone(),
     }
 }
 

@@ -1256,26 +1256,33 @@ impl Branches<'_> {
         let Some(file) = (self.options.file_of)(span) else {
             return false;
         };
-        let keys = [0, 1].map(|slot| self.key(&file, Kind::Builtin, span, slot));
+        let stmt_count = args.len().saturating_add(1);
+        // A built-in that picks by variant picks by its receiver, and one that
+        // takes a predicate takes it last.
+        let (receiver, rest) = match args.split_first_mut() {
+            Some(split) => split,
+            None => return false,
+        };
         if how == Builtin::Predicate {
-            let p = args
-                .last_mut()
-                .or_ice("a built-in that takes a predicate takes it last");
-            self.predicate(p, keys);
+            let p = rest.last_mut().unwrap_or(receiver);
+            let (params, ret) = match p.ty.kind() {
+                TyKind::Fn(params, ret) => (params, ret),
+                _ => return false,
+            };
+            let keys = [0, 1].map(|slot| self.key(&file, Kind::Builtin, span, slot));
+            self.predicate(p, params, *ret, keys);
             return true;
         }
+        let keys = [0, 1].map(|slot| self.key(&file, Kind::Builtin, span, slot));
         // { let a = recv; let b = arg; ...; count a; f(a, b, ...) }
-        let mut stmts = Vec::with_capacity(args.len().saturating_add(1));
-        for arg in args.iter_mut() {
+        let mut stmts = Vec::with_capacity(stmt_count);
+        for arg in std::iter::once(&mut *receiver).chain(rest.iter_mut()) {
             let ty = arg.ty;
             let a = self.local(ty, span);
             let value = std::mem::replace(arg, Expr::new(ExprKind::Local(a), ty, span));
             stmts.push(bind(a, value, span));
         }
-        let receiver = args
-            .first()
-            .or_ice("a built-in that picks by variant has a receiver")
-            .clone();
+        let receiver = receiver.clone();
         stmts.push(Stmt::Expr(self.outcome(receiver, keys)));
         let call = std::mem::replace(e, Expr::new(ExprKind::Unit, Ty::UNIT, span));
         let ty = call.ty;
@@ -1290,19 +1297,15 @@ impl Branches<'_> {
         true
     }
 
-    /// Counts what the predicate `p` answers. A lambda's body is counted in
-    /// place; any other function value becomes `{ let q = p; fn(x) => q(x) }`.
-    fn predicate(&mut self, p: &mut Expr, keys: [u64; 2]) {
+    /// Counts what the predicate `p`, a function from `params` to `ret`,
+    /// answers. A lambda's body is counted in place; any other function value
+    /// becomes `{ let q = p; fn(x) => q(x) }`.
+    fn predicate(&mut self, p: &mut Expr, params: &[Ty], ret: Ty, keys: [u64; 2]) {
         if let ExprKind::Lambda { body, .. } = &mut p.kind {
             self.answers(body, keys);
             return;
         }
         let (span, fn_ty) = (p.span, p.ty);
-        let (params, ret) = match fn_ty.kind() {
-            TyKind::Fn(params, ret) => Some((params, *ret)),
-            _ => None,
-        }
-        .or_ice("a predicate is a function");
         let q = self.local(fn_ty, span);
         let xs: Vec<LocalId> = params.iter().map(|t| self.local(*t, span)).collect();
         let forwarded = xs

@@ -69,7 +69,6 @@ use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{self, Arm, Expr, ExprKind, FieldPat, PatKind, Pattern};
 use crate::compiler::semantics::types::{Ty, TyConId, VariantId};
-use crate::diagnostics::Invariant as _;
 use crate::hash::Map;
 
 /// Rewrites every `Match` whose arms discriminate on a scrutinee into a tree
@@ -152,10 +151,19 @@ fn always_matches(p: &Pattern) -> bool {
 enum Fate {
     /// One arm, total: it is already the group, and moves as it is.
     Keep,
-    /// Several arms, collapsed on this field.
-    Collapse(usize),
+    /// Several arms testing one variant, collapsed on one of its fields.
+    Collapse(Collapse),
     /// A group the rewrite cannot build, so the whole match stays a chain.
     Decline,
+}
+
+/// The variant several arms test, and the field [`column`] chose to collapse
+/// them on.
+#[derive(Clone, Copy)]
+struct Collapse {
+    con: TyConId,
+    variant: VariantId,
+    column: usize,
 }
 
 /// The arms of one match, grouped by head — or left as they are where
@@ -276,15 +284,15 @@ fn fields_of(p: &Pattern) -> &[FieldPat] {
     }
 }
 
-/// The field that several arms testing one constructor can be collapsed on,
-/// or `None` where they cannot be.
+/// The variant several arms test and the field they can be collapsed on, or
+/// `None` where they cannot be.
 ///
 /// One column. Two arms disagreeing about two fields of one constructor would
 /// need a scrutinee that is both, and building a tuple to be one is an
 /// allocation this pass would be adding rather than removing.
-fn column(rows: &[&Arm]) -> Option<usize> {
+fn column(rows: &[&Arm]) -> Option<Collapse> {
     let first = rows.first()?;
-    let PatKind::Variant { .. } = &first.pattern.kind else {
+    let PatKind::Variant { con, variant, .. } = first.pattern.kind else {
         return None;
     };
     let mut tested: Option<usize> = None;
@@ -328,7 +336,11 @@ fn column(rows: &[&Arm]) -> Option<usize> {
     if !total(rows.last()?) {
         return None;
     }
-    Some(column)
+    Some(Collapse {
+        con,
+        variant,
+        column,
+    })
 }
 
 fn binds_any(p: &Pattern) -> bool {
@@ -344,13 +356,13 @@ fn binds_any(p: &Pattern) -> bool {
 /// is what "shared tests hoisted" means here: the head is tested once, the
 /// projection happens once, and what is left is a smaller match the same rules
 /// apply to.
-fn collapse(locals: &mut typed::Locals, rows: Vec<Arm>, column: usize, ty: &Ty) -> Option<Arm> {
+fn collapse(locals: &mut typed::Locals, rows: Vec<Arm>, at: Collapse, ty: &Ty) -> Option<Arm> {
+    let Collapse {
+        con,
+        variant,
+        column,
+    } = at;
     let first = rows.first()?;
-    let (con, variant) = match &first.pattern.kind {
-        PatKind::Variant { con, variant, .. } => Some((*con, *variant)),
-        _ => None,
-    }
-    .or_ice("a collapsed group tests a variant");
     let (head_ty, head_span, arm_span) = (first.pattern.ty, first.pattern.span, first.span);
 
     // Each row's pattern on the column, moved out of it. A row that does not

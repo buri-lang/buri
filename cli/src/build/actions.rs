@@ -2293,14 +2293,14 @@ fn test_entry_signature(
 /// Every aggregate type one function names in `Program::types`.
 fn collect_types(func: &ir::Func, out: &mut Vec<ir::TypeId>) {
     for t in func.sig.params.iter().chain([&func.sig.ret]) {
-        if let ir::Type::Agg(id) = t {
-            out.push(*id);
+        if let ir::Type::Agg(agg) = t {
+            out.push(agg.id());
         }
     }
     let Some(code) = func.code() else { return };
     for v in code.value_ids() {
-        if let ir::Type::Agg(id) = code.ty_of(v) {
-            out.push(id);
+        if let ir::Type::Agg(agg) = code.ty_of(v) {
+            out.push(agg.id());
         }
     }
     for block in code.blocks() {

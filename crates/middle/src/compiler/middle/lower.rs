@@ -409,10 +409,7 @@ impl Types {
         }
         // Named in [`Types::adopt`], once per program rather than once per
         // function that meets the type: nothing reads a function's own names.
-        let id = self.list.push(TypeInfo {
-            name: String::new(),
-            ty: *ty,
-        });
+        let id = self.list.push(TypeInfo::new(tables, String::new(), *ty));
         self.index.insert(*ty, id);
         id
     }
@@ -426,7 +423,7 @@ impl Types {
             return *id;
         }
         let name = crate::compiler::semantics::types::show(tables, None, &[], &ty);
-        let id = self.list.push(TypeInfo { name, ty });
+        let id = self.list.push(TypeInfo::new(tables, name, ty));
         self.index.insert(ty, id);
         id
     }
@@ -476,7 +473,10 @@ impl Types {
             .and_then(Type::of_prim)
         {
             Some(t) => t,
-            None => Type::Agg(self.intern(tables, ty)),
+            None => {
+                let id = self.intern(tables, ty);
+                self.list.ty(id)
+            }
         }
     }
 }

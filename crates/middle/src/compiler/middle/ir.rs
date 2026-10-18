@@ -72,7 +72,7 @@ use std::fmt::{self, Write as _};
 
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::typed::Magnitude;
-use crate::compiler::semantics::types::{FuncIdx, Prim, Ty};
+use crate::compiler::semantics::types::{FuncIdx, Prim, Tables, Ty, TyDef, TyKind};
 use crate::diagnostics::{invariant_with, Span};
 use crate::hash::Map as HashMap;
 
@@ -117,6 +117,35 @@ ir_id!(
 );
 ir_id!(TypeId, "One source type, interned in [`Program::types`].");
 
+macro_rules! kind_id {
+    ($name:ident, $doc:literal) => {
+        #[doc = $doc]
+        ///
+        /// Only [`TypeList::ty`] makes one, from the kind the interner recorded
+        /// for the type, so the id and its kind always agree.
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+        pub struct $name(TypeId);
+
+        impl $name {
+            /// The interned type.
+            pub fn id(self) -> TypeId {
+                self.0
+            }
+        }
+    };
+}
+
+kind_id!(
+    RecTy,
+    "A struct, tuple, context or `Str`: fields at offsets, and no tag."
+);
+kind_id!(
+    EnumTy,
+    "An enum: a tag, or a niche, and each variant's fields."
+);
+kind_id!(ListTy, "A list, `[T]`.");
+kind_id!(FnTy, "A closure: a function and its environment.");
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -145,7 +174,49 @@ pub enum Type {
     Unit,
     /// A struct, tuple, enum, list, `Str`, closure or context: one value whose
     /// layout is the source type's.
-    Agg(TypeId),
+    Agg(Agg),
+}
+
+/// An aggregate [`Type`], by what its layout holds.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Agg {
+    Record(RecTy),
+    Enum(EnumTy),
+    List(ListTy),
+    Fn(FnTy),
+}
+
+impl Agg {
+    /// The interned type.
+    pub fn id(self) -> TypeId {
+        match self {
+            Agg::Record(t) => t.id(),
+            Agg::Enum(t) => t.id(),
+            Agg::List(t) => t.id(),
+            Agg::Fn(t) => t.id(),
+        }
+    }
+}
+
+/// Which [`Agg`] an interned type is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Kind {
+    Record,
+    Enum,
+    List,
+    Fn,
+}
+
+impl Kind {
+    /// The kind of a source type with no register shape.
+    fn of(tables: &Tables, ty: &Ty) -> Kind {
+        match ty.kind() {
+            TyKind::Array(_) => Kind::List,
+            TyKind::Fn(..) => Kind::Fn,
+            TyKind::Con(id, _) if matches!(tables.tycon(*id).def, TyDef::Enum { .. }) => Kind::Enum,
+            _ => Kind::Record,
+        }
+    }
 }
 
 impl Type {
@@ -184,6 +255,17 @@ pub struct TypeInfo {
     /// For reading the IR, and for nothing else.
     pub name: String,
     pub ty: Ty,
+    kind: Kind,
+}
+
+impl TypeInfo {
+    pub fn new(tables: &Tables, name: String, ty: Ty) -> TypeInfo {
+        TypeInfo {
+            name,
+            kind: Kind::of(tables, &ty),
+            ty,
+        }
+    }
 }
 
 /// Interned types, by [`TypeId`]. Only [`TypeList::push`] mints an id.
@@ -203,6 +285,16 @@ impl TypeList {
 
     pub fn get(&self, id: TypeId) -> &TypeInfo {
         &self.0[id.index()]
+    }
+
+    /// The [`Type`] of an interned type.
+    pub fn ty(&self, id: TypeId) -> Type {
+        Type::Agg(match self.get(id).kind {
+            Kind::Record => Agg::Record(RecTy(id)),
+            Kind::Enum => Agg::Enum(EnumTy(id)),
+            Kind::List => Agg::List(ListTy(id)),
+            Kind::Fn => Agg::Fn(FnTy(id)),
+        })
     }
 
     pub fn len(&self) -> usize {
@@ -235,9 +327,16 @@ impl Remap {
         self.0[id.index()]
     }
 
+    /// A type in the list this remap maps to: the same kind, since both
+    /// lists interned the same source type.
     pub fn ty(&self, ty: &mut Type) {
-        if let Type::Agg(id) = ty {
-            *id = self.id(*id);
+        if let Type::Agg(agg) = ty {
+            *agg = match *agg {
+                Agg::Record(t) => Agg::Record(RecTy(self.id(t.0))),
+                Agg::Enum(t) => Agg::Enum(EnumTy(self.id(t.0))),
+                Agg::List(t) => Agg::List(ListTy(self.id(t.0))),
+                Agg::Fn(t) => Agg::Fn(FnTy(self.id(t.0))),
+            };
         }
     }
 }
@@ -1614,7 +1713,7 @@ impl Program {
             Type::F64 => "f64",
             Type::Ptr => "ptr",
             Type::Unit => "unit",
-            Type::Agg(id) => &self.type_info(id).name,
+            Type::Agg(agg) => &self.type_info(agg.id()).name,
         });
     }
 
