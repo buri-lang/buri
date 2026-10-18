@@ -40,7 +40,7 @@ use crate::compiler::middle::monomorphize;
 use crate::compiler::modules::Unit;
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::FuncIdx;
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::json::Value;
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -468,7 +468,14 @@ fn one_pass(
                 &mut out,
             )
         },
-    );
+    )
+    .unwrap_or_else(|| {
+        eprintln!("error: no test could run: the machine has no thread to run one on");
+        Tally {
+            hard_error: true,
+            ..Tally::default()
+        }
+    });
     let Tally {
         passed,
         failed,
@@ -999,7 +1006,7 @@ fn drive(
     plans: &[Plan],
     slots: &mut Slots,
     queue: &Queue,
-    done: &std::sync::mpsc::Receiver<Option<Done>>,
+    done: &crate::parallel::Results<Done>,
     out: &mut Out,
 ) -> Tally {
     RULE_PATHS.with(|paths| paths.borrow_mut().clear());
@@ -1039,13 +1046,7 @@ fn drive(
         if next >= plans.len() {
             return tally;
         }
-        // `None` is a job that panicked, which is a toolchain bug.
-        let answer = done
-            .recv()
-            .ok()
-            .flatten()
-            .or_ice("a test job stopped without an answer");
-        match answer {
+        match done.recv() {
             Done::Answer {
                 slot,
                 answer,
@@ -1401,7 +1402,7 @@ enum Done {
 }
 
 /// How a job hands [`drive`] a [`Done`] before its last.
-type Tell = crate::parallel::Tell<Done>;
+type Tell<'r> = crate::parallel::Tell<'r, Done>;
 
 /// One test of a program, as the report locates it.
 #[derive(Clone)]
@@ -4503,13 +4504,13 @@ struct BatchInfo {
 }
 
 impl BatchInfo {
-    /// The member that owns a test module. Only a member's test sources are
-    /// loaded as test sources, so every test has one.
-    fn owner_of(&self, module: &str) -> usize {
-        let owner = self.owners.iter().find(|(m, _)| m == module);
-        owner
+    /// The member that owns a test module, where one lists it as a test
+    /// source.
+    fn owner_of(&self, module: &str) -> Option<usize> {
+        self.owners
+            .iter()
+            .find(|(m, _)| m == module)
             .map(|(_, i)| *i)
-            .or_ice("every test belongs to a member")
     }
 
     fn slot_of(&self, member: usize) -> Option<SlotId> {
@@ -4591,22 +4592,23 @@ fn batch_job(job: BatchJob, held: Held, queue: &Queue, tell: &Tell, shared: &Sha
     {
         return abandoned();
     }
+    let mut selected = selected_of(&mut program, &info);
     // What a `--filter` leaves out, per suite, counted before the roots are
     // narrowed.
     // By member.
     let mut skipped: std::collections::BTreeMap<usize, Skipped> = std::collections::BTreeMap::new();
     if let Some(f) = &shared.flags.filter {
-        for test in program.roots.tests() {
+        for test in &selected {
             if !test.name.contains(f.as_str()) {
                 skipped
-                    .entry(info.owner_of(&test.module))
+                    .entry(test.owner)
                     .or_default()
                     .push((test.name.clone(), test.module.clone()));
             }
         }
         retain_tests(&mut program, |t| t.name.contains(f.as_str()));
+        selected.retain(|t| t.name.contains(f.as_str()));
     }
-    let selected = selected_of(&program, &info);
     let groups = groups_of(&info.dirs, &program, &selected, batch_limit());
     if let [group] = groups.as_slice() {
         let tables = std::sync::Arc::new(std::mem::take(&mut analysis.checked.tables));
@@ -4710,7 +4712,7 @@ fn part(job: PartJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared) -
     if let Some(f) = &shared.flags.filter {
         retain_tests(&mut program, |t| t.name.contains(f.as_str()));
     }
-    let mine = selected_of(&program, &info);
+    let mine = selected_of(&mut program, &info);
     submit_group(
         &info, &skipped, &group, &mine, program, tables, step, held, queue, tell, shared,
     )
@@ -5494,24 +5496,30 @@ fn linked_of(spec: &MemberSpec) -> Option<Built> {
 }
 
 /// Each of a program's tests with the member that owns it, in block order.
-fn selected_of(program: &monomorphize::Program, info: &BatchInfo) -> Vec<Selected> {
-    program
-        .roots
-        .tests()
-        .iter()
-        .map(|test| Selected {
-            owner: info.owner_of(&test.module),
-            name: test.name.clone(),
-            module: test.module.clone(),
-            func: test.func,
-        })
-        .collect()
+///
+/// The program keeps only those tests: a test in a module that is no member's
+/// test source is none of the batch's suites', so it is not run.
+fn selected_of(program: &mut monomorphize::Program, info: &BatchInfo) -> Vec<Selected> {
+    let mut selected = Vec::new();
+    retain_tests(program, |test| {
+        info.owner_of(&test.module)
+            .map(|owner| {
+                selected.push(Selected {
+                    owner,
+                    name: test.name.clone(),
+                    module: test.module.clone(),
+                    func: test.func,
+                });
+            })
+            .is_some()
+    });
+    selected
 }
 
 /// Keeps the tests a program is rooted at that `keep` answers yes for.
 fn retain_tests(
     program: &mut monomorphize::Program,
-    keep: impl Fn(&monomorphize::TestEntry) -> bool,
+    keep: impl FnMut(&monomorphize::TestEntry) -> bool,
 ) {
     match &mut program.roots {
         monomorphize::ProgramRoots::Tests(tests) => tests.retain(keep),

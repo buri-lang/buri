@@ -381,7 +381,8 @@ impl<J> Queue<J> {
 }
 
 /// Starts `width` workers running `work`, and hands `drive` the queue and the
-/// results. Returns once `drive` does and the workers have stopped.
+/// results. Returns once `drive` does and the workers have stopped, or `None`
+/// at once when the machine has no thread for any worker.
 ///
 /// The heavy jobs holding a program at once are expected to hold at most
 /// `budget` bytes between them. It limits nothing else: a job that has dropped
@@ -389,14 +390,15 @@ impl<J> Queue<J> {
 /// jobs can always be in flight.
 ///
 /// `work` hands its result back by returning it, and may hand more back on the
-/// way with the [`Tell`] it is given. A result is `None` when its job panicked,
-/// so `drive` never waits for a result that will not come.
+/// way with the [`Tell`] it is given. A job that panics hands back its panic,
+/// which [`Results::recv`] raises again on `drive`'s thread, so `drive` never
+/// waits for a result that will not come.
 pub fn pool<J, R, T>(
     width: usize,
     budget: u64,
-    work: impl Fn(J, Held<'_>, &Queue<J>, &Tell<R>) -> R + Sync,
-    drive: impl FnOnce(&Queue<J>, &std::sync::mpsc::Receiver<Option<R>>) -> T,
-) -> T
+    work: impl Fn(J, Held<'_>, &Queue<J>, &Tell<'_, R>) -> R + Sync,
+    drive: impl FnOnce(&Queue<J>, &Results<R>) -> T,
+) -> Option<T>
 where
     J: Send,
     R: Send,
@@ -411,38 +413,44 @@ where
         ready: std::sync::Condvar::new(),
         budget,
     };
-    let (send, receive) = std::sync::mpsc::channel();
+    let results = Results {
+        inbox: std::sync::Mutex::new(std::collections::VecDeque::new()),
+        arrived: std::sync::Condvar::new(),
+    };
     let phase = crate::profile::current();
     let tally = crate::profile::tally();
     std::thread::scope(|scope| {
-        for _ in 0..width.max(1) {
-            let (queue, work, send) = (&queue, &work, send.clone());
-            let tally = tally.clone();
-            // A worker the machine has no thread for leaves its jobs to the
-            // ones that started.
-            let _ = std::thread::Builder::new()
-                .name("buri-job".into())
-                .stack_size(STACK)
-                .spawn_scoped(scope, move || {
-                    let _phase = crate::profile::adopt(phase);
-                    crate::profile::tallied(tally, || {
-                        let tell = Tell { send };
-                        while let Some((job, held)) = queue.take() {
-                            // A job that panics drops its `Held` as it unwinds.
-                            let done =
-                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    work(job, held, queue, &tell)
-                                }));
-                            let _ = tell.send.send(done.ok());
-                        }
-                    });
-                });
-        }
-        drop(send);
+        // A worker the machine has no thread for leaves its jobs to the ones
+        // that started.
+        let started = (0..width.max(1))
+            .filter(|_| {
+                let (queue, work, results) = (&queue, &work, &results);
+                let tally = tally.clone();
+                std::thread::Builder::new()
+                    .name("buri-job".into())
+                    .stack_size(STACK)
+                    .spawn_scoped(scope, move || {
+                        let _phase = crate::profile::adopt(phase);
+                        crate::profile::tallied(tally, || {
+                            let tell = Tell { results };
+                            while let Some((job, held)) = queue.take() {
+                                // A job that panics drops its `Held` as it
+                                // unwinds.
+                                results.send(std::panic::catch_unwind(
+                                    std::panic::AssertUnwindSafe(|| {
+                                        work(job, held, queue, &tell)
+                                    }),
+                                ));
+                            }
+                        });
+                    })
+                    .is_ok()
+            })
+            .count();
         // Closed on the way out however `drive` leaves. If it panicked, the
         // workers would otherwise wait on the queue and the scope on them.
         let _closing = Closing(&queue);
-        drive(&queue, &receive)
+        (started > 0).then(|| drive(&queue, &results))
     })
 }
 
@@ -454,15 +462,49 @@ impl<J> Drop for Closing<'_, J> {
     }
 }
 
-/// How a job hands back a result before its last one.
-pub struct Tell<R> {
-    send: std::sync::mpsc::Sender<Option<R>>,
+/// The results of a [`pool`]'s jobs, in the order they were handed back.
+pub struct Results<R> {
+    inbox: std::sync::Mutex<std::collections::VecDeque<std::thread::Result<R>>>,
+    arrived: std::sync::Condvar,
 }
 
-impl<R> Tell<R> {
+impl<R> Results<R> {
+    /// The next result, waiting for one. A job that panicked raises its panic
+    /// here.
+    pub fn recv(&self) -> R {
+        let mut inbox = self
+            .inbox
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        loop {
+            if let Some(next) = inbox.pop_front() {
+                return next.unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            }
+            inbox = self
+                .arrived
+                .wait(inbox)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+
+    fn send(&self, result: std::thread::Result<R>) {
+        self.inbox
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push_back(result);
+        self.arrived.notify_one();
+    }
+}
+
+/// How a job hands back a result before its last one.
+pub struct Tell<'r, R> {
+    results: &'r Results<R>,
+}
+
+impl<R> Tell<'_, R> {
     /// Hands `result` to `drive` now, ahead of anything this job queues next.
     pub fn tell(&self, result: R) {
-        let _ = self.send.send(Some(result));
+        self.results.send(Ok(result));
     }
 }
 
@@ -530,5 +572,24 @@ mod tests {
         // A safety net only: a pool that never closes never answers.
         let panicked = finished.recv_timeout(std::time::Duration::from_secs(60));
         assert_eq!(panicked, Ok(true));
+    }
+
+    /// A job that panics raises its panic in `drive`, which would otherwise
+    /// wait for ever for the result it was owed.
+    #[test]
+    fn a_panicking_job_raises_its_panic_in_drive() {
+        let outcome = std::panic::catch_unwind(|| {
+            pool(
+                2,
+                0,
+                |_: u8, _, _, _: &Tell<'_, u8>| -> u8 { std::panic::panic_any("job failed") },
+                |queue: &Queue<u8>, results| {
+                    queue.push(1, 0);
+                    results.recv()
+                },
+            )
+        });
+        let payload = outcome.err().map(|p| p.downcast_ref::<&str>().copied());
+        assert_eq!(payload, Some(Some("job failed")));
     }
 }
