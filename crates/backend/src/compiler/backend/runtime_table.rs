@@ -55,6 +55,8 @@
 //! (`runtime_native::symbol_for`) only names the symbol of a key the table
 //! has ([`Entry::symbol`]).
 
+use crate::compiler::backend::intrinsic_keys::Tasks;
+use crate::compiler::middle::ir;
 use Arg::{
     Bytes, Compute, Dropped, Elems, Equal, List, Press, Release, Retain, Scalar, Spilled, Step,
     Str, Stride, Walk,
@@ -155,7 +157,7 @@ pub enum Arg {
     Equal,
     // -- the closure trampoline ---------------------------------------------
     /// A **runtime-driven step**: four parameters, from one Buri closure
-    /// argument (`backend/intrinsic_keys.rs`'s `step_call`).
+    /// argument (`middle::ir::Parallel`'s `step`).
     ///
     /// ```text
     ///   entry       the generated C-ABI thunk, `void(state, index, in, out)`
@@ -361,8 +363,6 @@ pub enum Extra {
     /// it ([`Arg::Release`], [`Arg::Equal`]): a store the runtime keeps and
     /// later writes over.
     Owned,
-    /// [`Arg::Step`]'s four words, for the closure `step_call` places.
-    Step(crate::compiler::backend::intrinsic_keys::StepCall),
     /// [`Arg::Compute`]'s seven words.
     Compute,
     /// [`Arg::Walk`]'s three words.
@@ -422,11 +422,9 @@ impl Entry {
     /// What the frame-threaded backend appends after the flattened arguments.
     pub fn extra(&self) -> Extra {
         let has = |a| self.args.contains(&a);
-        // A row has an `Arg::Step` exactly where `step_call` has a row
-        // (`the_step_is_the_last_argument`).
-        if let Some(call) = crate::compiler::backend::intrinsic_keys::step_call(self.key) {
-            Extra::Step(call)
-        } else if has(Compute) {
+        // A row with an `Arg::Step` is reached through an `ir::Parallel`, which
+        // names its step, and never through here.
+        if has(Compute) {
             Extra::Compute
         } else if has(Walk) {
             Extra::Walk
@@ -464,6 +462,30 @@ const fn v(entry: Entry) -> Entry {
     Entry {
         whole_value: true,
         ..entry
+    }
+}
+
+/// `host.HostTasks.parallel`'s row, which `ENTRIES` lists where `Tasks` is
+/// argued.
+const HOST_PARALLEL: Entry = e(
+    "host.HostTasks.parallel",
+    &[Dropped, Dropped, Elems, Step],
+    Ret::Out,
+);
+
+/// `host_testing.TestTasks.parallel`'s row, which `ENTRIES` lists beside the
+/// rest of the testing scheduler.
+const TEST_PARALLEL: Entry = e(
+    "host_testing.TestTasks.parallel",
+    &[Scalar, Dropped, Elems, Step],
+    Ret::Out,
+);
+
+/// The row an `ir::Parallel` on `tasks` calls.
+pub fn parallel(tasks: Tasks) -> &'static Entry {
+    match tasks {
+        Tasks::Host => &HOST_PARALLEL,
+        Tasks::Testing => &TEST_PARALLEL,
     }
 }
 
@@ -974,7 +996,7 @@ pub const ENTRIES: &[Entry] = &[
     // so it flattens to nothing; `ctx` is the caller's whole context and is the
     // one this row drops at index 1, because it is dropped from the C call
     // and read into the step's state record instead; `items` is the `[A]` the
-    // runtime walks, which is what the strides of [`Extra::Step`] describe; `f`
+    // runtime walks, which is what the strides of [`Arg::Step`] describe; `f`
     // crosses as the entry thunk and the state record rather than as
     // `{ code, env }`.
     //
@@ -988,16 +1010,12 @@ pub const ENTRIES: &[Entry] = &[
     // `runtime_native::net_intrinsic` names the `host.HostTasks.*` family: a
     // toolchain built without the reactor refuses this key with a sentence
     // before code generation rather than with a missing symbol from `cc`.
-    e(
-        "host.HostTasks.parallel",
-        &[Dropped, Dropped, Elems, Step],
-        Ret::Out,
-    ),
+    HOST_PARALLEL,
     // -- Listen, and Sockets beside it --------------------------------------
     //
     // Seven operations and no closure among them: the accept loop is
     // `core/net/server`'s, in Buri, so nothing here is runtime-driven and none
-    // of these rows is an [`Extra::Step`]. A socket's loop and a socket's
+    // of these rows is an [`Arg::Step`]. A socket's loop and a socket's
     // state are Buri's too, which is why F7 cost two more ordinary rows and no
     // shape at all. That is the whole reason `Listen`
     // costs seven ordinary rows where `Tasks` costs one with a trampoline
@@ -1144,7 +1162,7 @@ pub const ENTRIES: &[Entry] = &[
     // the answer are two words each and the runtime holds them without ever
     // learning what is inside. That is a *fifth* way an erased type can be
     // carried, beside `Extra::Element`'s stride, `Entry::by_ref`'s address,
-    // `Func::desc`'s descriptor and `Extra::Step`'s thunk, and
+    // `Func::desc`'s descriptor and `Arg::Step`'s thunk, and
     // `middle/monomorphize.rs`'s `GENERIC_INTRINSICS` is where it is argued.
     //
     // The context is argument `0` on every row: `core/actor` declares these as
@@ -1192,7 +1210,7 @@ pub const ENTRIES: &[Entry] = &[
     // one-element `[Carried<fn(C) => ()>]`, the runtime holds the block and
     // hands it back, and nothing about the closure is described. So no stride,
     // no glue, no descriptor and no entry thunk — which is what makes
-    // background work land without [`Extra::Step`] growing a second shape. The
+    // background work land without [`Arg::Step`] growing a second shape. The
     // task is *entered* by `core/tasks::running`, in Buri, through
     // `Tasks.parallel`.
     //
@@ -1421,11 +1439,7 @@ pub const ENTRIES: &[Entry] = &[
     // `Arg::Dropped` — the runtime has to be able to ask which order this run
     // schedules in. The other rows are the ordering builders, the log, and the
     // plan's two halves.
-    e(
-        "host_testing.TestTasks.parallel",
-        &[Scalar, Dropped, Elems, Step],
-        Ret::Out,
-    ),
+    TEST_PARALLEL,
     e("host_testing.tasks", &[], Ret::Out),
     e("host_testing.TestTasks.anyOrder", &[Scalar], Ret::Out),
     e("host_testing.TestTasks.everyOrder", &[Scalar], Ret::Out),
@@ -1600,7 +1614,7 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `Ui.memo` and `Ui.watch` are what [`Extra::Compute`] was added for: both
     // take a Buri closure the runtime keeps and calls later, which is
-    // [`Extra::Step`]'s thunk with a lifetime problem to answer. A snapshot
+    // [`Arg::Step`]'s thunk with a lifetime problem to answer. A snapshot
     // still reaches neither — `ui/node`'s `describe` reads props under
     // `rootScope`, and an untracked read subscribes nothing.
     //
@@ -2085,12 +2099,21 @@ pub const FANS_OUT: [&str; 2] = ["host.HostTasks.parallel", "tasks.scopeBeside"]
 /// thread, so it keeps the plain fork: a mask read on every count was 6.5% of
 /// the instructions of buri-lang/buri#243's program, which starts no thread.
 ///
-/// Both keys are bodyless functions, so each reaches the program as a function
-/// of its own. The middle end emits an `Inst::CallIntrinsic` only for its own
-/// operations: derives, joins, test hooks, lazy chunks and coverage counts.
-pub fn shares_counts(program: &crate::compiler::middle::ir::Program) -> bool {
+/// A scope reaches the program as a bodyless function of its own, and
+/// `HostTasks.parallel` as an [`ir::Parallel`] on [`Tasks::Host`]. The middle
+/// end emits an `Inst::CallIntrinsic` only for its own operations: derives,
+/// joins, test hooks, lazy chunks and coverage counts.
+pub fn shares_counts(program: &ir::Program) -> bool {
     let fans_out = |key: &Box<str>| FANS_OUT.contains(&&**key);
-    program.crosses_tasks && program.runtimes.iter().any(fans_out)
+    let host = |inst: &ir::Inst| matches!(inst, ir::Inst::Parallel(p) if p.tasks == Tasks::Host);
+    let parallel = || {
+        program
+            .funcs
+            .iter()
+            .filter_map(ir::Func::code)
+            .any(|code| code.blocks().iter().any(|b| b.insts.iter().any(host)))
+    };
+    program.crosses_tasks && (program.runtimes.iter().any(fans_out) || parallel())
 }
 
 /// `void *buri_rt_copy_block(void *p, void (*glue)(void *))` — a fresh block
@@ -2211,7 +2234,6 @@ pub const HASH_STR: &str = "buri_rt_hash_str";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compiler::backend::intrinsic_keys::step_call;
     use crate::compiler::backend::runtime_native::symbol_for;
 
     /// The examples `cli/runtime/lib.rs` §1 and VALUE-MODEL.md §10 spell out,
@@ -2370,7 +2392,7 @@ mod tests {
     }
 
     /// Every closure-shaped argument is the **last** Buri argument, and a step
-    /// is where [`step_call`] says the closure is.
+    /// is exactly a [`Tasks`] row, which [`parallel`] answers by its key.
     ///
     /// That is what lets the frame-threaded backend, which flattens the other
     /// arguments and appends the closure's words after them, emit the same C
@@ -2393,11 +2415,16 @@ mod tests {
                 );
                 checked += 1;
             }
-            match (buri.iter().position(|a| *a == Step), step_call(e.key)) {
-                (None, None) => {}
-                (Some(at), Some(call)) => assert_eq!(at, call.func, "{}", e.key),
-                (Some(_), None) => panic!("{} has a step and no `step_call` row", e.key),
-                (None, Some(_)) => panic!("{} is runtime-driven and has no `Arg::Step`", e.key),
+            let tasks = Tasks::of(e.key);
+            assert_eq!(buri.contains(&Step), tasks.is_some(), "{}", e.key);
+            if let Some(t) = tasks {
+                assert_eq!(parallel(t).key, e.key);
+                assert_eq!(
+                    buri.len(),
+                    4,
+                    "{}: `parallel(self, ctx, items, step)`",
+                    e.key
+                );
             }
         }
         // Two steps, the graph's two deferred bodies and the renderer's

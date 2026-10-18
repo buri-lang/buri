@@ -321,6 +321,16 @@ impl<'a> Jit<'a> {
                 let route = *self.routes.calls.get(*key);
                 self.intrinsic(prog, code, st, *dest, route, args)
             }
+            // The row's three arguments, and the step after them.
+            Inst::Parallel(p) => {
+                let tail = self.step_words(st, p);
+                let list: Vec<(u32, ir::Type)> = [p.sched, p.ctx, p.items]
+                    .iter()
+                    .map(|a| (st.at(*a), code.ty_of(*a)))
+                    .collect();
+                let dest = (st.at(p.dest), code.ty_of(p.dest));
+                self.rt_call(prog, st, runtime::parallel(p.tasks), dest, &list, tail);
+            }
             Inst::MakeStruct { dest, fields } => {
                 let d = st.at(*dest);
                 let (l, owner) = match code.ty_of(*dest) {
@@ -1256,7 +1266,7 @@ impl<'a> Jit<'a> {
                 let list: Vec<(u32, ir::Type)> =
                     args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
                 let dest = (st.at(dest), code.ty_of(dest));
-                self.rt_call(prog, st, entry, dest, &list);
+                self.rt_call(prog, st, entry, dest, &list, Vec::new());
                 return;
             }
         }
@@ -1396,7 +1406,7 @@ impl<'a> Jit<'a> {
             route::Call::Row(entry) => {
                 let list: Vec<(u32, ir::Type)> =
                     args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
-                self.rt_call(prog, st, entry, (d, code.ty_of(dest)), &list);
+                self.rt_call(prog, st, entry, (d, code.ty_of(dest)), &list, Vec::new());
             }
         }
     }
@@ -2163,7 +2173,7 @@ impl<'a> Jit<'a> {
             .map(|(i, t)| (fs.params.get(i).copied().unwrap_or(0), *t))
             .collect();
         let dest = (RET, f.sig.ret);
-        self.rt_call(prog, st, entry, dest, &args);
+        self.rt_call(prog, st, entry, dest, &args, Vec::new());
     }
 
     /// The stride of `[T]`'s element, for an IR type that is a `[T]`.

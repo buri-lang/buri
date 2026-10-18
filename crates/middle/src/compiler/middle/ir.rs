@@ -69,6 +69,7 @@
 
 use std::fmt::{self, Write as _};
 
+use crate::compiler::backend::intrinsic_keys::Tasks;
 use crate::compiler::middle::layout::EnumHead;
 use crate::compiler::semantics::layered::{Dense, DenseId, Mint};
 use crate::compiler::semantics::typed::Magnitude;
@@ -677,6 +678,9 @@ pub enum Inst {
         key: IntrinsicId,
         args: Box<[ValueId]>,
     },
+    /// `Tasks.parallel`: every element of a list through a step, on a
+    /// scheduler the runtime drives. Boxed for the 40 bytes.
+    Parallel(Box<Parallel>),
     /// A template hole's primitive as a `Str`, the way `runtime.js`'s `$str`
     /// renders it: a `Char` as its own bytes, a number as `show` does.
     ShowPrim {
@@ -707,6 +711,32 @@ pub enum Inst {
     },
 }
 
+/// One [`Inst::Parallel`]: `tasks.parallel(sched, ctx, items, step)`.
+///
+/// The step is a `fn(C, Int, A) => B` and the answer a `[B]`. Its operands are
+/// named, and its signature is the semantic one the checker gave it, so a
+/// backend reaches the step, its context and its list without counting
+/// arguments or asking what a type is. It reads its operands as a call to a
+/// runtime function does: none of them is consumed.
+#[derive(Clone, Debug)]
+pub struct Parallel {
+    pub dest: ValueId,
+    pub tasks: Tasks,
+    /// The receiver, which carries the effect: an empty `HostTasks`, or a
+    /// `TestTasks` handle the runtime reads its order from.
+    pub sched: ValueId,
+    /// The caller's context, which every step is handed.
+    pub ctx: ValueId,
+    /// The `[A]` the runtime walks.
+    pub items: ValueId,
+    /// The closure each element goes through.
+    pub step: ValueId,
+    /// The step's parameters `C`, `Int` and `A`, in order.
+    pub params: [Ty; 3],
+    /// The step's answer, `B`.
+    pub ret: Ty,
+}
+
 impl Inst {
     /// The values this instruction defines.
     pub fn results(&self) -> &[ValueId] {
@@ -730,6 +760,7 @@ impl Inst {
             | Inst::Call { dest, .. }
             | Inst::CallIndirect { dest, .. }
             | Inst::CallIntrinsic { dest, .. } => std::slice::from_ref(dest),
+            Inst::Parallel(p) => std::slice::from_ref(&p.dest),
             Inst::IncRef { .. }
             | Inst::DecRef { .. }
             | Inst::Abort { .. }
@@ -781,6 +812,7 @@ impl Inst {
             }
             Inst::Call { args, .. } => out.extend_from_slice(args),
             Inst::CallIntrinsic { args, .. } => out.extend_from_slice(args),
+            Inst::Parallel(p) => out.extend_from_slice(&[p.sched, p.ctx, p.items, p.step]),
             Inst::CallIndirect { callee, args, .. } => {
                 out.push(*callee);
                 out.extend_from_slice(args);
@@ -1992,6 +2024,11 @@ impl Program {
                 dest(out, d);
                 let _ = write!(out, "intrinsic {:?}", self.intrinsic(*key));
                 wrapped(out, args);
+            }
+            Inst::Parallel(p) => {
+                dest(out, &p.dest);
+                let _ = write!(out, "parallel {:?}", p.tasks.key());
+                wrapped(out, &[p.sched, p.ctx, p.items, p.step]);
             }
             Inst::ShowPrim {
                 dest: d,

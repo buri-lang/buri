@@ -52,7 +52,6 @@ use super::abi::{Jump, Lit, Word, MAX_FLOAT_ARGS as MAX_FLOAT, MAX_INT_ARGS as M
 use super::jit::{agg_of, enum_ty, fn_ty, Bind, Fn2, Jit, V};
 use super::runtime::{self, Entry, Extra, OptRepr, Ret, BURI_OK};
 use crate::compiler::backend::counts::Op;
-use crate::compiler::backend::intrinsic_keys::StepCall;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 use crate::compiler::semantics::types::{self as types, Ty, TyKind};
@@ -98,15 +97,6 @@ fn round8(n: u32) -> u32 {
     (n + 7) & !7
 }
 
-/// The element type of a value whose IR type is a `[T]`, and `None` for
-/// anything else.
-fn array_elem(prog: &ir::Program, t: ir::Type) -> Option<Ty> {
-    match t {
-        ir::Type::Agg(ir::Agg::List(l)) => Some(prog.types.elem(l)),
-        _ => None,
-    }
-}
-
 /// One scalar of a flattened Buri value: where it is in the frame and how wide.
 #[derive(Clone, Copy)]
 pub(crate) struct Leaf {
@@ -134,7 +124,8 @@ const STR_PTR: u32 = 8;
 const STR_LEN: u32 = 16;
 
 impl Jit<'_> {
-    /// Emits a call to `entry`.
+    /// Emits a call to `entry`, with `tail` after the words its arguments
+    /// make: a step's four ([`Self::step_words`]), or nothing.
     pub(crate) fn rt_call(
         &mut self,
         prog: &ir::Program,
@@ -142,6 +133,7 @@ impl Jit<'_> {
         entry: &Entry,
         dest: (u32, ir::Type),
         args: &[(u32, ir::Type)],
+        tail: Vec<Src>,
     ) {
         let (dslot, dty) = dest;
         let mut ints: Vec<Src> = Vec::new();
@@ -186,15 +178,6 @@ impl Jit<'_> {
             );
             if by_ref == Some(i) {
                 ints.push(Src::Addr(slot));
-                continue;
-            }
-            // The **step** is not flattened: `{ code, env }` is this backend's
-            // business and crosses inside the state record below
-            // ([`Extra::Step`]). It is the last argument at every key
-            // `step_call` names, so skipping it here and appending four words
-            // after the loop writes the same C signature the LLVM backend
-            // writes with the `Arg::Step` in its place.
-            if matches!(extra, Extra::Step(call) if call.func == i) {
                 continue;
             }
             // And a **deferred body** is not flattened either, for the same
@@ -282,9 +265,7 @@ impl Jit<'_> {
             }
         }
 
-        if let Extra::Step(call) = extra {
-            self.step_extra(prog, st, call, dty, args, &mut ints);
-        }
+        ints.extend(tail);
 
         if extra == Extra::Compute {
             self.compute_extra(prog, st, args, &mut ints);
@@ -854,8 +835,11 @@ impl Jit<'_> {
         st.place(done, here);
     }
 
-    /// [`Extra::Step`]'s four words: the generated entry thunk, the state
-    /// record, and the two element strides.
+    /// A step's four words: the generated entry thunk, the state record, and
+    /// the two element strides. They follow the row's own words, so the call
+    /// has the C signature the LLVM backend writes with the `Arg::Step` in
+    /// place; `{ code, env }` is this backend's business and crosses inside
+    /// the record rather than flattened.
     ///
     /// The runtime's own loop counter is the fifth thing the boundary carries
     /// and it is **not** one of these: it is an argument of the thunk rather
@@ -863,7 +847,7 @@ impl Jit<'_> {
     ///
     /// The record's shape is `glue.rs`'s [`super::glue::E_FRAME`] — the
     /// closure's two words, the frame the entry thunk is to work in, and the
-    /// step's contexts. It is built **past this function's own frame**, which is
+    /// step's context. It is built **past this function's own frame**, which is
     /// where a Buri callee's frame begins, and the entry thunk's frame is put past the
     /// record in turn. Nothing else is live up there while a call is in
     /// flight, and putting the record in a scratch word instead would have
@@ -871,48 +855,25 @@ impl Jit<'_> {
     ///
     /// The runtime never looks inside any of it: it is handed the address and
     /// hands it back to the thunk.
-    fn step_extra(
-        &mut self,
-        prog: &ir::Program,
-        st: &mut Fn2,
-        call: StepCall,
-        dest: ir::Type,
-        args: &[(u32, ir::Type)],
-        ints: &mut Vec<Src>,
-    ) {
-        let (fslot, fty) = *args.get(call.func).or_ice("a step row's call has its step");
-        let ir::FnSig { params, ret } = prog.types.sig(fn_ty(fty));
-        let source = args.iter().find_map(|(_, t)| array_elem(prog, *t));
-        let source = source.or_ice("a step row walks a list");
-        let answer = array_elem(prog, dest).or_ice("a step row answers a list");
-        let in_stride = self.layouts_of(source).stride.max(1);
-        let out_stride = self.layouts_of(answer).stride.max(1);
-
-        let widths: Vec<u32> = params.iter().map(|t| self.layouts_of(*t).size).collect();
-        let (ctx_at, bytes) = super::glue::state_shape(&widths, call.index);
+    pub(crate) fn step_words(&mut self, st: &Fn2, p: &ir::Parallel) -> Vec<Src> {
+        let [_, _, elem] = p.params;
+        let in_stride = self.layouts_of(elem).stride.max(1);
+        let out_stride = self.layouts_of(p.ret).stride.max(1);
+        let widths = p.params.map(|t| self.layouts_of(t).size);
+        // The step's index is its second parameter.
+        let index = Some(1);
+        let (ctx_at, bytes) = super::glue::state_shape(&widths, index);
         // A context is a *value* here rather than the dropped argument a
         // runtime entry takes, because what reads it is the step and not the
         // runtime. The record lends it: the caller keeps its count for the
-        // whole call, and the entry thunk takes one per element.
-        let supplied: Vec<(u32, ir::Type)> = call
-            .ctx
-            .into_iter()
-            .filter_map(|i| args.get(i).copied())
-            .collect();
-        // `ctx_at` is parallel to the supplied contexts; `widths` to the
-        // closure's parameters. An index parameter sits in the second and not
-        // in the first, so the walk carries its own cursor rather than reusing
-        // the enumeration.
-        let ctx_params: Vec<usize> = (0..params.len().saturating_sub(1))
-            .filter(|i| call.index != Some(*i))
-            .collect();
-        for ((off, (from, _)), i) in ctx_at.iter().copied().zip(supplied).zip(ctx_params) {
-            // A zero-width context moves nothing.
-            let w = widths.get(i).copied().unwrap_or(0);
-            self.mv(st.frame.size + off, from, round8(w));
+        // whole call, and the entry thunk takes one per element. A zero-width
+        // context moves nothing.
+        let [ctx_width, _, _] = widths;
+        for off in ctx_at {
+            self.mv(st.frame.size + off, st.at(p.ctx), round8(ctx_width));
         }
         let state = st.frame.size;
-        self.mv(state, fslot, 16);
+        self.mv(state, st.at(p.step), 16);
         self.emit(
             "lea",
             &[
@@ -922,15 +883,17 @@ impl Jit<'_> {
             ],
         );
         let thunk = self.helper(super::glue::Helper::Entry {
-            params: params.to_vec(),
-            ret: *ret,
-            index: call.index,
+            params: p.params.to_vec(),
+            ret: p.ret,
+            index,
             lent: true,
         });
-        ints.push(Src::Sym(thunk));
-        ints.push(Src::Addr(state));
-        ints.push(Src::Imm(u64::from(in_stride)));
-        ints.push(Src::Imm(u64::from(out_stride)));
+        vec![
+            Src::Sym(thunk),
+            Src::Addr(state),
+            Src::Imm(u64::from(in_stride)),
+            Src::Imm(u64::from(out_stride)),
+        ]
     }
 
     /// Zeroes the whole of the frame slot a `width`-byte result is about to be

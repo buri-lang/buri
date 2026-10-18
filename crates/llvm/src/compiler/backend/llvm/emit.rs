@@ -79,7 +79,7 @@ use inkwell::{FloatPredicate, IntPredicate};
 use super::route::{self, Route};
 use crate::compiler::backend::intrinsic_keys::{
     char_of, checked_kind, conversion_target, json_arm, json_variant, native_body, prim_trait_op,
-    step_call, CheckedKind, JsonArm, Leaf,
+    CheckedKind, JsonArm, Leaf,
 };
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::task_thread;
@@ -1016,6 +1016,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let route = *self.routes.calls.get(*key);
                 self.call_intrinsic(state, code, *dest, route, args)
             }
+            ir::Inst::Parallel(p) => self.parallel(state, code, p),
             ir::Inst::ShowPrim { dest, prim, value } => {
                 self.show_prim(state, *dest, *prim, *value, false)
             }
@@ -2513,19 +2514,50 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         entry: &'static runtime::Entry,
         args: &[ir::ValueId],
     ) {
-        let source = self.generic_element(code, dest, entry, args);
-        let bare = if source.is_none() {
-            self.bare_carrier(code, dest, entry, args)
-        } else {
-            None
+        let carried = match self.generic_element(code, dest, entry, args) {
+            Some(elem) => (self.reprs.of_ty(&elem).layout.stride, Some(elem)),
+            None => self.bare_carrier(code, dest, entry, args),
         };
-        let elements = Elements {
-            source,
-            bare,
-            answer: self.answer_element(code, dest),
-        };
-        let argv = self.entry_args(state, code, entry, args, elements);
+        let argv = self.entry_args(state, code, entry, args, carried);
         self.call_entry(state, code, dest, entry, argv);
+    }
+
+    /// `Tasks.parallel`: the row's arguments, then the trampoline's four
+    /// words. `{ code, env }` does not cross: it goes into a record the entry
+    /// thunk reads, beside the context, so what the runtime holds is a C
+    /// function pointer and an opaque record. The two strides are words of
+    /// their own rather than an `Arg::Stride` because a step reads one element
+    /// type and writes another.
+    fn parallel(&mut self, state: &mut Function<'ctx>, code: &ir::Code, p: &ir::Parallel) {
+        let entry = runtime::parallel(p.tasks);
+        let [_, _, elem] = p.params;
+        // The row carries no stride of its own: the step's two are below.
+        let row = [p.sched, p.ctx, p.items];
+        let mut argv = self.entry_args(state, code, entry, &row, (0, None));
+        // The step's index is its second parameter.
+        let index = Some(1);
+        let bytes = self.step_state_bytes(&p.params, index);
+        let record = self.scratch(state, bytes, 8);
+        let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(p.step));
+        let value = self.get(state, p.step);
+        let pieces = self.pieces(state.b, &slots, value);
+        self.store_slots(state.b, record, &slots, 8, &pieces);
+        // The context, beside the closure. The row `Arg::Dropped`s it out of
+        // the C signature, and this is where it goes instead — read back by
+        // the entry thunk, which is the only thing that wants it. The record
+        // lends it: the caller keeps its count for the whole call, and the
+        // thunk takes one per element.
+        for at in self.step_ctx_offsets(&p.params, index) {
+            self.store_ctx(state, code, p.ctx, record, at);
+        }
+        let thunk = self.entry_thunk(&p.params, &p.ret, index, true);
+        let (a, b) = (self.reprs.stride_of(&elem), self.reprs.stride_of(&p.ret));
+        let word = self.ctx.i64_type();
+        argv.push(function_pointer(thunk).into());
+        argv.push(record.into());
+        argv.push(word.const_int(u64::from(a), false).into());
+        argv.push(word.const_int(u64::from(b), false).into());
+        self.call_entry(state, code, p.dest, entry, argv);
     }
 
     /// `T`, for an entry whose C signature carries a stride and a retain
@@ -2582,13 +2614,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         dest: ir::ValueId,
         entry: &runtime::Entry,
         args: &[ir::ValueId],
-    ) -> Option<(u32, Option<Ty>)> {
+    ) -> (u32, Option<Ty>) {
         let spilled = c_params(entry, args).find_map(|p| match p {
             CParam::Arg(runtime::Arg::Spilled, a) => Some(a),
             _ => None,
         });
         let ty = code.ty_of(spilled.unwrap_or(dest));
-        Some(match ty {
+        match ty {
             ir::Type::Unit | ir::Type::I1 | ir::Type::I8 => (1, None),
             ir::Type::I16 => (2, None),
             ir::Type::I32 | ir::Type::F32 => (4, None),
@@ -2599,18 +2631,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let ty = self.program.type_info(id).ty;
                 (self.reprs.of_ty(&ty).layout.stride, Some(ty))
             }
-        })
-    }
-
-    /// The element type of an entry's `[T]` **result**, where it has one.
-    ///
-    /// [`Unit::generic_element`] answers with the destination's element only
-    /// when no argument had one, because a `stride` describes the list the
-    /// runtime *walks*. A step's two lists are different types, so its result's
-    /// element is a second question and is asked separately rather than by
-    /// changing what the first one means.
-    fn answer_element(&self, code: &ir::Code, dest: ir::ValueId) -> Option<Ty> {
-        self.list_element(code.ty_of(dest))
+        }
     }
 
     /// The C parameter list of one runtime entry, from the Buri argument list.
@@ -2630,88 +2651,31 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         code: &ir::Code,
         entry: &runtime::Entry,
         args: &[ir::ValueId],
-        elements: Elements,
+        carried: (u32, Option<Ty>),
     ) -> Vec<BasicMetadataValueEnum<'ctx>> {
-        let element = elements.source;
-        let key = entry.key;
+        // The stride and glue type of the `T` the row carries. A bare scalar
+        // has no `Ty` behind it, and holds no counted pointer, so its glue is
+        // null.
+        let (stride, glue_ty) = carried;
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
         for param in c_params(entry, args) {
             let (mode, a) = match param {
                 CParam::Arg(mode, a) => (mode, a),
                 CParam::Extra(mode) => {
-                    // A bare `T` with no `Ty` behind it answers the stride and
-                    // nothing else: it is a scalar, and a scalar holds no counted
-                    // pointer, so the retain beside it is null.
-                    let bare = if element.is_none() {
-                        elements.bare
-                    } else {
-                        None
-                    };
-                    if let Some((stride, glue_ty)) = bare {
-                        match mode {
-                            runtime::Arg::Stride => argv.push(
-                                self.ctx
-                                    .i64_type()
-                                    .const_int(u64::from(stride), false)
-                                    .into(),
-                            ),
-                            runtime::Arg::Release => {
-                                let glue = glue_ty
-                                    .and_then(|t| self.glue(Op::Release, &t))
-                                    .map(function_pointer)
-                                    .unwrap_or_else(|| self.ptr_ty().const_null());
-                                argv.push(glue.into());
-                            }
-                            runtime::Arg::Equal => {
-                                let glue = glue_ty
-                                    .and_then(|t| self.equal_glue(&t))
-                                    .map(function_pointer)
-                                    .unwrap_or_else(|| self.ptr_ty().const_null());
-                                argv.push(glue.into());
-                            }
-                            _ => {
-                                let glue = glue_ty
-                                    .and_then(|t| self.glue(Op::Retain, &t))
-                                    .map(function_pointer)
-                                    .unwrap_or_else(|| self.ptr_ty().const_null());
-                                argv.push(glue.into());
-                            }
-                        }
-                        continue;
-                    }
-                    let elem = element.or_ice("a row with a stride names its element type");
-                    match mode {
+                    let glue = match mode {
                         runtime::Arg::Stride => {
-                            let stride = self.reprs.of_ty(&elem).layout.stride;
-                            argv.push(
-                                self.ctx
-                                    .i64_type()
-                                    .const_int(u64::from(stride), false)
-                                    .into(),
-                            );
+                            let word = self.ctx.i64_type();
+                            argv.push(word.const_int(u64::from(stride), false).into());
+                            continue;
                         }
-                        runtime::Arg::Release => {
-                            let glue = self
-                                .glue(Op::Release, &elem)
-                                .map(function_pointer)
-                                .unwrap_or_else(|| self.ptr_ty().const_null());
-                            argv.push(glue.into());
-                        }
-                        runtime::Arg::Equal => {
-                            let glue = self
-                                .equal_glue(&elem)
-                                .map(function_pointer)
-                                .unwrap_or_else(|| self.ptr_ty().const_null());
-                            argv.push(glue.into());
-                        }
-                        _ => {
-                            let glue = self
-                                .glue(Op::Retain, &elem)
-                                .map(function_pointer)
-                                .unwrap_or_else(|| self.ptr_ty().const_null());
-                            argv.push(glue.into());
-                        }
-                    }
+                        runtime::Arg::Release => glue_ty.and_then(|t| self.glue(Op::Release, &t)),
+                        runtime::Arg::Equal => glue_ty.and_then(|t| self.equal_glue(&t)),
+                        _ => glue_ty.and_then(|t| self.glue(Op::Retain, &t)),
+                    };
+                    let glue = glue
+                        .map(function_pointer)
+                        .unwrap_or_else(|| self.ptr_ty().const_null());
+                    argv.push(glue.into());
                     continue;
                 }
             };
@@ -2751,42 +2715,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // flatten it into. The copy is at `T`'s *memory* layout, which
                 // is what `stride` describes and what the runtime's
                 // `copy_nonoverlapping` reads.
-                // The trampoline's four words. `{ code, env }` does not cross:
-                // it goes into a two-word `alloca` the entry thunk reads, so
-                // what the runtime holds is a C function pointer and an opaque
-                // record. The two strides are here rather than in an
-                // `Arg::Stride` because a step reads one element type and
-                // writes another, and `element` is only the first.
-                runtime::Arg::Step => {
-                    let ir::FnSig { params: ps, ret: r } = self.program.types.sig(fn_ty(ir_ty));
-                    let step_index = step_call(key).and_then(|c| c.index);
-                    let bytes = self.step_state_bytes(ps, step_index);
-                    let record = self.scratch(state, bytes, 8);
-                    self.store_slots(state.b, record, &slots, 8, &pieces);
-                    // The contexts, beside the closure. They are Buri arguments
-                    // this row `Arg::Dropped`s out of the C signature, and this
-                    // is where they go instead — read back by the entry thunk,
-                    // which is the only thing that wants them. The record
-                    // lends them: the caller keeps its count for the whole
-                    // call, and the thunk takes one per element.
-                    let ctx_at = self.step_ctx_offsets(ps, step_index);
-                    // The checker passes the step one context per one it takes.
-                    let from = step_call(key)
-                        .and_then(|c| c.ctx)
-                        .and_then(|i| args.get(i).copied());
-                    for (at, arg) in ctx_at.iter().copied().zip(from) {
-                        self.store_ctx(state, code, arg, record, at);
-                    }
-                    let thunk = self.entry_thunk(ps, r, step_index, true);
-                    let inn = element.or_ice("a step reads a list");
-                    let outn = elements.answer.or_ice("a step writes a list");
-                    let (a, b) = (self.reprs.stride_of(&inn), self.reprs.stride_of(&outn));
-                    let word = self.ctx.i64_type();
-                    argv.push(function_pointer(thunk).into());
-                    argv.push(record.into());
-                    argv.push(word.const_int(u64::from(a), false).into());
-                    argv.push(word.const_int(u64::from(b), false).into());
-                }
                 // The deferred body's six words. The record is built the way
                 // a step's is and holds the same two, and then the runtime
                 // **copies** it: this `alloca` is gone by the time a memo
@@ -2889,7 +2817,15 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // drops none (`ui/node`'s handlers) gets its document's
                     // context from the runtime when it fires, so the slot is
                     // zeroed until then, as a walk's is.
-                    let ctx_at = self.step_ctx_offsets(ps, None);
+                    // The context, with where it sits in the record.
+                    let first_ctx =
+                        self.step_layout(ps, None)
+                            .0
+                            .into_iter()
+                            .find_map(|p| match p {
+                                StepParam::Ctx(t, at) => Some((t, at)),
+                                StepParam::Index | StepParam::Element(_) => None,
+                            });
                     let dropped = (0..args.len()).find(|i| entry.dropped(*i));
                     if dropped.is_none() {
                         self.clear_ctx(state.b, record, bytes);
@@ -2900,9 +2836,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // to the handler each time it fires, as a step's record
                     // does.
                     let mut kept = None;
-                    if let (Some(arg), Some(at)) = (ctx_arg, ctx_at.first().copied()) {
+                    if let (Some(arg), Some((cty, at))) = (ctx_arg, first_ctx) {
                         self.store_ctx(state, code, arg, record, at);
-                        let cty = ps.first().or_ice("a handler takes its context first");
                         if let Some(retain) = self.glue(Op::Retain, cty) {
                             let p = state.b.byte_offset(record, i64::from(at), "ctx.kept");
                             state.b.call(retain, &[p.into()]);
@@ -3952,22 +3887,6 @@ enum Job<'ctx> {
         func: FuncIdx,
         ty: Ty,
     },
-}
-
-/// The element types one runtime entry's generic parameters are read at.
-///
-/// `source` is the `[T]` the runtime walks — `cli/runtime/lib.rs` §2 rule 4's
-/// stride — and `answer` is the one it builds. They are the same type at every
-/// entry but a **step**, which reads a `[A]` and writes a `[B]`.
-#[derive(Clone, Default)]
-struct Elements {
-    source: Option<Ty>,
-    /// The stride and the glue type of a bare `T` — a row that names its type
-    /// in the result or in a spilled argument rather than as a `[T]`'s element
-    /// ([`Unit::bare_carrier`]). `None` whenever `source` answered, and the
-    /// inner type is `None` for a scalar, which has no `Ty` and needs none.
-    bare: Option<(u32, Option<Ty>)>,
-    answer: Option<Ty>,
 }
 
 /// Where a step's context arguments begin inside its **state record**.
@@ -8885,6 +8804,7 @@ fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> ir::PerValue<bool> {
                     | ir::Inst::CallIntrinsic { dest, .. } => {
                         set(&mut based, *dest, false, &mut changed);
                     }
+                    ir::Inst::Parallel(p) => set(&mut based, p.dest, false, &mut changed),
                     // Everything else either produces a scalar — which is
                     // never counted, so its verdict is read by nobody — or
                     // assembles registers out of values already classified
@@ -9091,7 +9011,9 @@ fn local(code: &ir::Code, boxes: &Boxes<'_>) -> Observed {
                 // is in [`observe`]: an intrinsic or a closure may grow a list
                 // it was handed in place, which is a write through the caller's
                 // parameter, and `readonly` reads `writes_args` alone.
-                ir::Inst::CallIntrinsic { .. } | ir::Inst::CallIndirect { .. } => {
+                ir::Inst::CallIntrinsic { .. }
+                | ir::Inst::CallIndirect { .. }
+                | ir::Inst::Parallel(_) => {
                     o.join(Observed::opaque());
                 }
                 // Both are runtime calls once emitted — `Unit::string_binary`

@@ -53,16 +53,17 @@
 use std::sync::{Mutex, OnceLock};
 
 use super::FnLower;
-use crate::compiler::backend::intrinsic_keys::{self, Step};
+use crate::compiler::backend::intrinsic_keys::{self, Step, Tasks};
 use crate::compiler::middle::ir::{
-    BinOp, BlockId, Code, Const, Inst, Ownership, Target, Term, Type, UnOp, ValueId,
+    BinOp, BlockId, Code, Const, Inst, Ownership, Parallel, Target, Term, Type, UnOp, ValueId,
 };
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{Expr, ExprKind};
 use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyKind};
 
-/// Whether `key` is lowered here.
+/// Whether `key` is lowered here: as a loop, or as the [`Inst::Parallel`] a
+/// runtime-driven key is.
 pub(super) fn handles(key: &str) -> bool {
     matches!(
         key,
@@ -75,6 +76,7 @@ pub(super) fn handles(key: &str) -> bool {
             | "deriveArrayHash"
     ) || derive_map(key).is_some()
         || intrinsic_keys::list_call(key).is_some()
+        || Tasks::of(key).is_some()
 }
 
 /// `deriveArrayJson(xs, step)`, which is a `map` with no context: each element
@@ -218,6 +220,36 @@ impl FnLower<'_> {
         self.code
     }
 
+    /// `tasks.parallel(sched, ctx, items, step)`, whose loop is the runtime's.
+    fn parallel(
+        &mut self,
+        tasks: Tasks,
+        vals: &[ValueId],
+        tys: &[Ty],
+        ret: &Ty,
+    ) -> Option<ValueId> {
+        let [sched, ctx, items, step] = *vals else {
+            return None;
+        };
+        let TyKind::Fn([c, i, a], b) = tys.get(3)?.kind() else {
+            return None;
+        };
+        let (params, ret_ty) = ([*c, *i, *a], *b);
+        let t = self.type_of(ret);
+        Some(self.emit(t, |dest| {
+            Inst::Parallel(Box::new(Parallel {
+                dest,
+                tasks,
+                sched,
+                ctx,
+                items,
+                step,
+                params,
+                ret: ret_ty,
+            }))
+        }))
+    }
+
     /// `key`'s loop over these operands, answering the result. `tys` are the
     /// operands' source types and `step` is the function the closure operand
     /// names where the call site shows one.
@@ -239,6 +271,9 @@ impl FnLower<'_> {
             "deriveArrayShow" => return self.derive_show(vals, tys, step, ret),
             "deriveArrayHash" => return self.derive_hash(vals, tys, step, ret),
             _ => {}
+        }
+        if let Some(tasks) = Tasks::of(key) {
+            return self.parallel(tasks, vals, tys, ret);
         }
         let call = derive_map(key).or_else(|| intrinsic_keys::list_call(key))?;
         let xs = *vals.first()?;

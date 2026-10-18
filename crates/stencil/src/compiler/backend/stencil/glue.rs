@@ -77,7 +77,6 @@ use crate::compiler::backend::task_thread;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{Layouts, CAP_MASK, CLOSURE_ENV};
 use crate::compiler::semantics::types::{FuncIdx, Ty};
-use crate::diagnostics::Invariant;
 
 /// One generated function.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -1185,13 +1184,10 @@ impl Jit<'_> {
     /// a counted context is retained as the element is, since the step owns
     /// it too.
     fn entry_thunk(&mut self, params: Vec<Ty>, ret: Ty, index: Option<usize>, lent: bool) {
-        let elem = *params
-            .last()
-            .or_ice("a runtime-driven step takes its element");
-        let widths: Vec<u32> = params.iter().map(|t| self.layouts_of(*t).size).collect();
-        let (ctx_at, _) = state_shape(&widths, index);
-        let elem_l = self.layouts_of(elem);
-        let (elem_size, elem_slot) = (elem_l.size, round8(elem_l.size).max(8));
+        // The last parameter is the element, which travels through `arg`.
+        let last = params.len().saturating_sub(1);
+        let elem_size = params.last().map_or(0, |t| self.layouts_of(*t).size);
+        let elem_slot = round8(elem_size).max(8);
         let ret_l = self.layouts_of(ret);
         let (ret_size, ret_slot) = (ret_l.size, round8(ret_l.size).max(8));
 
@@ -1201,64 +1197,46 @@ impl Jit<'_> {
         let mut st = self.glue_frame(frame, scratch);
         let base = self.fixups_len();
 
-        // The step's own frame, `[ret][env: 8][params...]`, laid out exactly as
-        // `Jit::call_indirect` lays it out: what a `calli` enters is the
-        // thunk, and this is the thunk's frame.
-        let mut at = frame + ret_slot + 8;
-        let mut param_at: Vec<u32> = Vec::new();
-        for t in &params {
-            param_at.push(at);
-            at += round8(self.layouts_of(*t).size).max(8);
-        }
-
         self.imm_to(E_ZERO, 0);
         self.elem_load(E_CLOS, E_STATE, E_ZERO, 8, 16);
-        // The step's index, straight from the C argument into the parameter the
-        // key names. It is the one parameter that is neither in the record nor
-        // in `arg`, because it is the one thing about this call that only the
-        // runtime knows.
-        if let Some(to) = index.and_then(|i| param_at.get(i).copied()) {
-            self.mv(to, E_INDEX, 8);
-        }
-        // `ctx_at` is parallel to the *contexts*, and `param_at` to the
-        // parameters, so the two are walked together rather than by one index:
-        // an index parameter sits between them and is in neither.
-        let ctx_params: Vec<usize> = (0..params.len().saturating_sub(1))
-            .filter(|i| index != Some(*i))
-            .collect();
-        for (off, i) in ctx_at.iter().copied().zip(ctx_params) {
-            let w = widths.get(i).copied().unwrap_or(0);
-            let Some(to) = param_at.get(i).copied().filter(|_| w > 0) else {
-                continue;
-            };
-            self.emit(
-                "bin/add/u64/fi/f",
-                &[
-                    Lit::D.of(u64::from(E_CTXP)),
-                    Lit::A.of(u64::from(E_STATE)),
-                    Word::K.lit(u64::from(off)),
-                    Jump::Cont.to(V::Fall),
-                ],
-            );
-            self.elem_load(to, E_CTXP, E_ZERO, 8, w);
-            if let Some(t) = params.get(i).filter(|t| lent && self.rc_counted(t)) {
-                self.walk_rc(&mut st, t, to, Op::Retain, 0);
+        // The step's own frame, `[ret][env: 8][params...]`, laid out exactly as
+        // `Jit::call_indirect` lays it out: what a `calli` enters is the
+        // thunk, and this is the thunk's frame. The contexts are in the record
+        // in parameter order, past the closure, as `state_shape` lays them out.
+        let mut to = frame + ret_slot + 8;
+        let mut ctx_at = E_CTX;
+        for (i, t) in params.iter().enumerate() {
+            let w = self.layouts_of(*t).size;
+            let at = to;
+            to += round8(w).max(8);
+            if i == last {
+                self.entry_element(&mut st, t, at, elem_slot);
+            } else if index == Some(i) {
+                // The step's index, straight from the C argument into its
+                // parameter. It is the one parameter that is neither in the
+                // record nor in `arg`, because it is the one thing about this
+                // call that only the runtime knows.
+                self.mv(at, E_INDEX, 8);
+            } else {
+                let off = ctx_at;
+                ctx_at += round8(w);
+                if w == 0 {
+                    continue;
+                }
+                self.emit(
+                    "bin/add/u64/fi/f",
+                    &[
+                        Lit::D.of(u64::from(E_CTXP)),
+                        Lit::A.of(u64::from(E_STATE)),
+                        Word::K.lit(u64::from(off)),
+                        Jump::Cont.to(V::Fall),
+                    ],
+                );
+                self.elem_load(at, E_CTXP, E_ZERO, 8, w);
+                if lent && self.rc_counted(t) {
+                    self.walk_rc(&mut st, t, at, Op::Retain, 0);
+                }
             }
-        }
-        if elem_size > 0 {
-            self.elem_load(E_ELEM, E_ARG, E_ZERO, 8, elem_size);
-            // `middle/rc.rs`: a call through a function value owns its
-            // arguments. The runtime lends the element and keeps its own count,
-            // so the step's is taken here — the same retain `middle::lower`'s
-            // list loops place before a call through a closure.
-            if self.rc_counted(&elem) {
-                self.walk_rc(&mut st, &elem, E_ELEM, Op::Retain, 0);
-            }
-            let to = param_at
-                .last()
-                .copied()
-                .or_ice("a step takes the element it is handed");
-            self.mv(to, E_ELEM, elem_slot);
         }
         self.mv(frame + ret_slot, E_CLOS + ENV_WORD, 8);
         self.emit(
@@ -1275,6 +1253,23 @@ impl Jit<'_> {
         }
         self.emit("ret", &[]);
         self.resolve_helper_blocks(base, &st);
+    }
+
+    /// The element, out of `arg` and into its parameter slot at `to`, with a
+    /// retain on it: `middle/rc.rs` has a call through a function value own its
+    /// arguments, and the runtime lends the element and keeps its own count, so
+    /// the step's is taken here — the same retain `middle::lower`'s list loops
+    /// place before a call through a closure. An element of no bytes moves
+    /// nothing.
+    fn entry_element(&mut self, st: &mut Fn2, elem: &Ty, to: u32, slot: u32) {
+        let size = self.layouts_of(*elem).size;
+        if size > 0 {
+            self.elem_load(E_ELEM, E_ARG, E_ZERO, 8, size);
+            if self.rc_counted(elem) {
+                self.walk_rc(st, elem, E_ELEM, Op::Retain, 0);
+            }
+            self.mv(to, E_ELEM, slot);
+        }
     }
 
     /// The instructions in front of an entry thunk's body: pick the Buri frame
