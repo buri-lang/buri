@@ -1,0 +1,16 @@
+export fn f(): Int {
+    g(fn(x) => {
+        x // the same
+    })
+}
+
+export fn g(): [Int] { , [{ 1 // one
+}] }
+
+export fn h(): P {
+    P {
+        x: {
+            1 // x
+        },
+    }
+}

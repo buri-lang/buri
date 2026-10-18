@@ -1,0 +1,9 @@
+error: expected `else`, found `{` [unexpected-token]
+ --> main.buri:4:7
+  |
+4 |     } { else
+  |       ^
+  |
+  = expected: `else`
+  = actual: `{`
+  = fix: delete it — the `else` branch follows

@@ -1,9 +1,0 @@
-error: expected `else`, found `{` [unexpected-token]
- --> main.buri:1:49
-  |
-1 | export fn f(x: Int): Str { if (x > 0) { "yes" } { else "no" } }
-  |                                                 ^
-  |
-  = expected: `else`
-  = actual: `{`
-  = fix: delete it — the `else` branch follows

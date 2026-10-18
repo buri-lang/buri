@@ -1,0 +1,8 @@
+export fn f(c: Bool): Int if { (c) { 1 // one
+} else { 2 } }
+
+export fn g(c: Bool): Int { if (c) { 1 } else { 2 // two
+} }
+
+export fn h(x: Int): Int { match (x) { 1 => { 2 // two
+}, _ => 3 } }

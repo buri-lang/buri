@@ -1,0 +1,7 @@
+//! What this module is.
+
+// a header
+/* a note */
+export fn f(): Int {
+    1
+}

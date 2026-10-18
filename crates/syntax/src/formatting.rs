@@ -1574,9 +1574,17 @@ impl<'t> Build<'t> {
     /// One space between the code and the `//`, like every other gap the
     /// formatter decides. Columns lined up by hand are a layout, and a layout
     /// is what this file is for.
+    ///
+    /// A `//` runs to the end of its line, so the line has to end there:
+    /// whatever encloses the comment cannot be flat. `{ 1 // one` / `}` laid
+    /// out on one line came back as `{ 1 // one }`, with its own `}` commented
+    /// out.
     fn trailing(&mut self, lo: u32, hi: u32) -> Doc<'t> {
         match self.tv.take_beside(lo, hi) {
-            Some(c) => Doc::Aside(format!(" {}", c.text(self.src))),
+            Some(c) => cat(vec![
+                Doc::Aside(format!(" {}", c.text(self.src))),
+                Doc::BreakParent,
+            ]),
             None => Doc::Nil,
         }
     }

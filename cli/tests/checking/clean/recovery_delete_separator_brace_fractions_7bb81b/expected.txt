@@ -1,7 +1,0 @@
-error: a statement ends with `;` [missing-semicolon]
-  --> main.buri:31:81
-   |
-31 |     assert.equal(time.secondsFloat(1.0 / 0.0), Duration(number.maxValue<I64>()))
-   |                                                                                 ^
-   |
-   = fix: write `;` here
