@@ -15,3 +15,5 @@ fn negated_match_method(x: Int): Int { -(match (x) { _ => -1 }).abs() }
 fn match_index(x: Int): Int { (match (x) { _ => [1] })[0] }
 
 fn context_method(): Int { (context { ..ctx }).size() }
+
+fn if_try(x: Option<Int>): Option<Int> { let y = (if (true) { x } else { None })?; Some(y) }

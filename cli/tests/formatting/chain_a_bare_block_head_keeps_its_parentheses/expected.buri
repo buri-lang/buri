@@ -38,3 +38,8 @@ fn operand(): Int {
 fn negated_alone(): Int {
     -{ 1 }
 }
+
+fn try_option(x: Option<Int>): Option<Int> {
+    let y = ({ x })?;
+    Some(-y)
+}
