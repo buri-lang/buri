@@ -103,3 +103,34 @@ fn a_buri_with_widely_aligned_notes_still_caches() {
     write_executable(&copy, bytes);
     caches(&scratch, &copy);
 }
+
+/// A `buri` whose note segments claim more bytes than any header holds doesn't
+/// believe them, knows itself by the hash of its bytes instead, and still
+/// caches.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_buri_whose_notes_claim_gigabytes_still_caches() {
+    let mut bytes = std::fs::read(buri()).unwrap();
+    let le = |bytes: &[u8], at: usize, len: usize| {
+        bytes[at..at + len]
+            .iter()
+            .rev()
+            .fold(0usize, |acc, &b| acc << 8 | usize::from(b))
+    };
+    // The program header table: offset, entry size and count.
+    let (table, entry, count) = (le(&bytes, 32, 8), le(&bytes, 54, 2), le(&bytes, 56, 2));
+    let mut grown = 0;
+    for header in (0..count).map(|i| table + i * entry) {
+        // A `PT_NOTE`'s size in the file, which the loader doesn't read: it
+        // finds notes in memory, by the size there.
+        if le(&bytes, header, 4) == 4 {
+            bytes[header + 32..header + 40].copy_from_slice(&(1u64 << 32).to_le_bytes());
+            grown += 1;
+        }
+    }
+    assert!(grown > 0, "buri has no note segment");
+    let scratch = repository();
+    let copy = scratch.path("bin/buri-grown");
+    write_executable(&copy, bytes);
+    caches(&scratch, &copy);
+}
