@@ -1136,10 +1136,7 @@ test "a state that ends the script it sits in closes nothing" {
         ctx,
         json.parse(ctx, embedded(document)).withDefault(.Null),
     );
-    assert.equal(
-        read.withDefault(Reading { title: "", note: "" }).note,
-        "</script><b>",
-    );
+    assert.equal(assert.ok(read).note, "</script><b>");
 }
 
 test "the state crosses as every shape JSON has" {

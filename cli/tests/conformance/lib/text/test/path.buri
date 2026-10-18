@@ -321,6 +321,7 @@ test "withExtension replaces the extension rather than appending to the name" {
     assert.equal(extended(ctx, "/var/log/app.log", "gz"), .Some("/var/log/app.gz"));
     assert.equal(extended(ctx, "a/report.tar.gz", "txt"), .Some("a/report.tar.txt"));
     assert.equal(extended(ctx, "README", "md"), .Some("README.md"));
+    assert.equal(extended(ctx, "/app.log", "gz"), .Some("/app.gz"));
     assert.equal(extended(ctx, "a/.gitignore", "txt"), .Some("a/.gitignore.txt"));
 }
 

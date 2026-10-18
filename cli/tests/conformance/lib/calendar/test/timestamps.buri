@@ -320,8 +320,10 @@ test "each HTTP date form is refused at each of its own parts" {
     let ctx = context {
         Allocator: alloc(),
     };
-    // RFC 850: the zone, the weekday's comma, and the hyphenated date.
+    // RFC 850: the zone, the weekday's comma, the hyphenated date, and its
+    // two-digit year.
     assert.none(date.parseHttpDate(ctx, "Sunday, 06-Nov-94 08:49:37 UTC"));
+    assert.none(date.parseHttpDate(ctx, "Sunday, 06-Nov-1994 08:49:37 GMT"));
     assert.none(date.parseHttpDate(ctx, "Sunday 06-Nov-94 08:49:37 GMT"));
     assert.none(date.parseHttpDate(ctx, "Sunday, 06-Nov 08:49:37 GMT"));
     // asctime: a day of three digits, or of something else.

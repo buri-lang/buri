@@ -363,6 +363,8 @@ test "a Struct or a ListValue refuses what ends early inside what it holds" {
         fields: orderedmap.of(ctx, [("a", number(0.0 / 0.0)), ("b", number(1.0))]),
     };
     assert.isTrue(structs.encodeStructJson(ctx, bad).isErr());
+    let good = Struct { fields: orderedmap.of(ctx, [("b", number(1.0))]) };
+    assert.isFalse(structs.encodeStructJson(ctx, good).isErr());
 }
 
 /// Eighty fields over 72 names from `start`, each holding its number plus

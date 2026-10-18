@@ -4523,18 +4523,12 @@ fn variableProperty(style: Style): Option<(Int, Str)> {
 /// the `--buri-<abbr>` custom property the `<abbr>-var` rule reads instead of
 /// the property itself (#195). The value is what stood after the first colon.
 fn variableInline<C: Allocator>(ctx: C, abbreviation: Str, declarations: [Str]): [Str] {
-    match (declarations.get(0)) {
-        .Some(declaration) => {
-            match (declaration.splitOnce(":")) {
-                .Some(split) => {
-                    let (_property, value) = split;
-                    [str.format(ctx, "--buri-${abbreviation}:${value}")]
-                },
-                .None => declarations,
-            }
-        },
-        .None => declarations,
-    }
+    declarations
+        .take(ctx, 1)
+        .mapCtx(ctx, fn(c, declaration) => {
+            let value = declaration.split(c, ":").drop(c, 1).join(c, ":");
+            str.format(c, "--buri-${abbreviation}:${value}")
+        })
 }
 
 /// One property, as the declarations it lowers to.

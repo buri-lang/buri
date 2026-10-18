@@ -166,5 +166,5 @@ test "a guard that fails on a bound heap value falls through cleanly" {
         0,
     );
     assert.equal(total, 16);
-    assert.equal(decoded(ctx, 2).map(fn(s) => s.node), .Some("node-2"));
+    assert.equal(assert.some(decoded(ctx, 2)).node, "node-2");
 }

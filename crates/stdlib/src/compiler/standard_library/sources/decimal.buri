@@ -369,13 +369,9 @@ fn dropDigits(units: Int, drop: Int): Int {
             match (tenTo(drop - 1)) {
                 // `10^drop` is past `Int`, so every quotient is zero and only the
                 // halfway test can lift it. `5 * 10^(drop - 1)` still fits at
-                // `drop == 19`, and past that nothing does.
-                .Some(tenth) => {
-                    match (tenth.checkedMultiply(5)) {
-                        .None => 0,
-                        .Some(half) => pastHalf(units, half),
-                    }
-                },
+                // `drop == 19`, and past that nothing does. Only `drop == 19`
+                // gets here, so `tenth` is `10^18` and its five-fold fits.
+                .Some(tenth) => pastHalf(units, tenth * 5),
                 .None => 0,
             }
         },
