@@ -358,6 +358,31 @@ fn no_optimizing_backend() -> String {
         .to_string()
 }
 
+/// What to do about a refusal [`select`] gave `target` under `profile`, where
+/// `output` names the target as the reader wrote it and `js` is how to declare
+/// a JavaScript output instead.
+///
+/// With `backend-llvm` a release build always has a backend, so a refusal is
+/// about the target whatever the profile.
+#[cfg(feature = "backend-llvm")]
+pub fn refusal_fix(_: Target, _: Profile, _: &str, js: &str) -> String {
+    format!("declare an output this toolchain can build, or {js}")
+}
+
+/// Without `backend-llvm`, a release build is refused where a debug build of
+/// the same output would succeed, and then the fix is the invocation's.
+#[cfg(not(feature = "backend-llvm"))]
+pub fn refusal_fix(target: Target, profile: Profile, output: &str, js: &str) -> String {
+    if profile == Profile::Release && select(target, Profile::Debug).is_ok() {
+        format!(
+            "build without `--release` — the development backend emits {output} — or \
+             install a toolchain built with `backend-llvm`"
+        )
+    } else {
+        format!("declare an output this toolchain can build, or {js}")
+    }
+}
+
 /// The same sentence for the other half: a toolchain built
 /// `--no-default-features` has no code generator for a native artifact at all.
 #[cfg(not(feature = "backend-stencil"))]
