@@ -9,6 +9,7 @@
 
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Address, SendError, Stepped, Stopped };
+from "core/alloc" import * as alloc;
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
@@ -549,4 +550,66 @@ test "each answer here, in a send's result, equals itself and not a failure" {
     assert.isTrue(variants.resultsCompare(Carrying.Total(1), stopped));
     assert.isTrue(variants.resultsCompare(CounterAnswer.Done, stopped));
     assert.isTrue(variants.resultsCompare(Reentered.Ticked, stopped));
+}
+
+// -----------------------------------------------------------------------------
+// While a scope holds pages
+// -----------------------------------------------------------------------------
+//
+// While any `alloc.scoped` arena holds pages, every value an actor hands the
+// runtime is copied out of the arenas first; while none does, it crosses as it
+// is. Each actor below lives its whole life inside a scope, through a context
+// of its own, and answers what it answers anywhere else.
+
+fn countedApart(): Result<CounterAnswer, SendError> {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, counter(4));
+    let _ = counted.sendMessage(ctx, .Add(2)).ignore();
+    let asked = counted.sendMessage(ctx, .Get);
+    let _ = counted.stop(ctx).ignore();
+    asked
+}
+
+fn reenteredApart(): [Result<Reentered, SendError>] {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, reentrant());
+    let refused = counted.sendMessage(ctx, .Reenter(fn(c) => ticks(c, counted, 1)));
+    let asked = counted.sendMessage(ctx, .Get);
+    let _ = counted.stop(ctx).ignore();
+    [refused, asked]
+}
+
+fn carriedApart(): [Result<Carrying, SendError>] {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, carrier());
+    let refused = counted.sendMessage(ctx, .Reenter(fn(c) => saying(c, counted, 1)));
+    let listed = counted.sendMessage(ctx, .List(2));
+    let _ = counted.stop(ctx).ignore();
+    [refused, listed]
+}
+
+test "an actor answers the same while a scope holds pages" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let answers = alloc.scoped(ctx, fn(c) => {
+        let held = "pages".repeat(c, 100);
+        (held.length(), countedApart(), reenteredApart(), carriedApart())
+    });
+    assert.equal(answers, (
+        500,
+        .Ok(.Count(42)),
+        [.Ok(.Reentered(0)), .Ok(.Count(1))],
+        [.Ok(.Total(0)), .Ok(.Listed([0, 1]))],
+    ));
 }

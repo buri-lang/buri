@@ -15,7 +15,8 @@
 // in the corpus writes one.
 
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Address, SendError, Stepped };
+from "core/actor" import { Actor, Address, SendError, Stepped, Stopped };
+from "core/alloc" import * as alloc;
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 from "core/tasks" import { Scope };
@@ -409,4 +410,130 @@ test "each answer here, in a send's result, equals itself and not a failure" {
     assert.isTrue(variants.resultsCompare(Filed.Was(record("first", .None)), stopped));
     assert.isTrue(variants.resultsCompare(Said.Text("a"), stopped));
     assert.isTrue(variants.resultsCompare(Tallied.Done, stopped));
+}
+
+// -----------------------------------------------------------------------------
+// While a scope holds pages
+// -----------------------------------------------------------------------------
+//
+// While any `alloc.scoped` arena holds pages, every value an actor hands the
+// runtime is copied out of the arenas first; while none does, it crosses as it
+// is. `scoped.buri` drives an actor through a scope's own context. Each actor
+// below lives its whole life inside a scope instead, through a context of its
+// own, and answers what it answers anywhere else. Each one stops with a hook
+// that checks the state it ends on.
+
+/// `silent` without a hook: stopping it runs nothing.
+fn quietly(): (Result<(), SendError>, Result<(), Stopped>, Result<(), SendError>) {
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: stdout(),
+        Tasks: tasks(),
+    };
+    let quiet = actor.start(ctx, Actor { ..silent(), onStop: .None });
+    let answered = quiet.sendMessage(ctx, .Ping);
+    let stopped = quiet.stop(ctx);
+    (answered, stopped, quiet.sendMessage(ctx, .Ping))
+}
+
+fn bagged(): [Result<Bagged, SendError>] {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let held = actor.start(ctx, Actor {
+        ..bag(),
+        onStop: .Some(fn(c, last) => assert.equal(last, [1, 2])),
+    });
+    let filled = held.sendMessage(ctx, .Fill([1]));
+    let pushed = held.sendMessage(ctx, .Push(2));
+    let _ = held.stop(ctx).ignore();
+    [filled, pushed]
+}
+
+fn said(): [Result<Said, SendError>] {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let told = actor.start(ctx, Actor {
+        ..scribe("before"),
+        onStop: .Some(fn(c, last) => assert.equal(last, "after")),
+    });
+    let replaced = told.sendMessage(ctx, .Say("after"));
+    let read = told.sendMessage(ctx, .Read);
+    let _ = told.stop(ctx).ignore();
+    [replaced, read]
+}
+
+fn filedAway(): Result<Filed, SendError> {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let filed = actor.start(ctx, Actor {
+        ..cabinet(record("first", .None)),
+        onStop: .Some(fn(c, last) => assert.equal(last, record("second", .Some("x")))),
+    });
+    let answered = filed.sendMessage(ctx, .File(record("second", .Some("x"))));
+    let _ = filed.stop(ctx).ignore();
+    answered
+}
+
+fn forwarded(): [Result<Desked, SendError>] {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, tally());
+    let front = actor.start(ctx, Actor {
+        ..desk(counted),
+        onStop: .Some(bumpedOnce),
+    });
+    let bumped = front.sendMessage(ctx, .Bump);
+    let total = front.sendMessage(ctx, .Total);
+    let _ = front.stop(ctx).ignore();
+    let _ = counted.stop(ctx).ignore();
+    [bumped, total]
+}
+
+/// The desk's hook: the actor behind it was bumped once.
+fn bumpedOnce<C: Allocator + Tasks>(ctx: C, behind: Address<C, Int, Tally, Tallied>): () {
+    assert.equal(behind.sendMessage(ctx, .Get), .Ok(.Count(1)))
+}
+
+fn spawned(): [Result<Ran, SendError>] {
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: stdout(),
+        Tasks: tasks(),
+    };
+    let boss = actor.start(ctx, foreman());
+    tasks.scope(ctx, fn(c, here) => {
+        let first = boss.sendMessage(c, .Run(here));
+        let second = boss.sendMessage(c, .Run(here));
+        let _ = boss.stop(c).ignore();
+        // And after the stop, the job is refused before it is posted.
+        [first, second, boss.sendMessage(c, .Run(here))]
+    })
+}
+
+test "every payload crosses the same while a scope holds pages" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let answers = alloc.scoped(ctx, fn(c) => {
+        let held = "pages".repeat(c, 100);
+        (held.length(), quietly(), bagged(), said(), filedAway(), forwarded(), spawned())
+    });
+    assert.equal(answers, (
+        500,
+        (.Ok(()), .Ok(()), .Err(.Stopped)),
+        [.Ok(.Kept(1)), .Ok(.Kept(2))],
+        [.Ok(.Scalars(5)), .Ok(.Text("after"))],
+        .Ok(.Was(record("first", .None))),
+        [.Ok(.Noted), .Ok(.Total(1))],
+        [.Ok(.Started(1)), .Ok(.Started(2)), .Err(.Stopped)],
+    ));
 }

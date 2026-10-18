@@ -3201,6 +3201,60 @@ test "a client dialled from inside an actor step is an ordinary client" {
     assert.equal(worker.stop(ctx), .Err(.Stopped));
 }
 
+/// The room's whole life, through a context of its own: two joins, a publish,
+/// a leave, and a hook that checks who is still there.
+fn roomApart(): [(Socket, Message)] {
+    let s = sockets();
+    let ctx = context {
+        Allocator: alloc(),
+        Sockets: s,
+        Tasks: tasks(),
+    };
+    let staying = s.open();
+    let going = s.open();
+    let members = actor.start(ctx, Actor {
+        ..room(),
+        onStop: .Some(fn(c, last) => assert.equal(last, [staying])),
+    });
+    let _joinedStaying = members.sendMessage(ctx, .Joined(staying));
+    let _joinedGoing = members.sendMessage(ctx, .Joined(going));
+    let _left = members.sendMessage(ctx, .Left(going));
+    let _published = members.sendMessage(ctx, .Publish(.Text("kept")));
+    let _stopped = members.stop(ctx);
+    s.sent()
+}
+
+/// The dialling worker's whole life, through a context of its own.
+fn diallerApart(): Bool {
+    let s = sockets();
+    let ctx = context {
+        Allocator: alloc(),
+        Sockets: s,
+        Tasks: tasks(),
+        WebSocketClient: s.dialling([.Text("one")]),
+    };
+    let worker = actor.start(ctx, dialler());
+    let dialled = worker.sendMessage(ctx, "ws://example/socket");
+    let _stopped = worker.stop(ctx);
+    match (dialled) {
+        .Ok(echoed) => echoed,
+        .Err(_gone) => false,
+    }
+}
+
+test "an actor that pushes to sockets answers the same while a scope holds pages" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // Inside a scope that holds pages, every value an actor hands the runtime
+    // is copied out of the arenas first.
+    let answered = alloc.scoped(ctx, fn(c) => {
+        let held = "pages".repeat(c, 100);
+        (held.length(), roomApart().length(), diallerApart())
+    });
+    assert.equal(answered, (500, 1, true));
+}
+
 test "a client dialled from inside a spawned task is an ordinary client" {
     let s = sockets();
     let ctx = context {

@@ -230,6 +230,24 @@ test "a scope answers what it asked an actor inside it" {
     assert.equal(out, .Ok(.Held(big(ctx, "a"))));
 }
 
+/// `stop` takes the final state back out of the runtime and hands it to the
+/// hook, inside the scope that started the actor.
+test "an actor stopped inside its scope runs its hook with the state it ends on" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        let address = actor.start(c, Actor {
+            ..keeper(""),
+            onStop: .Some(fn(k, last) => assert.equal(last, big(k, "h"))),
+        });
+        let _ = address.sendMessage(c, .Put(big(c, "h"))).ignore();
+        address.stop(c)
+    });
+    assert.equal(out, .Ok(()));
+}
+
 test "an answer here, in a send's result, equals itself and not a failure" {
     assert.isTrue(variants.resultsCompare(Kept.Stored, SendError.Stopped));
 }

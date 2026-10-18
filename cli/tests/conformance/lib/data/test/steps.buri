@@ -28,6 +28,7 @@
 
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, SendError, Stepped };
+from "core/alloc" import * as arenas;
 from "core/list" import * as list;
 from "core/tasks" import * as tasks;
 from "core/testing/assert" import * as assert;
@@ -459,6 +460,34 @@ test "a waiting mapCtx inside a parallel step runs before parallel answers" {
     assert.equal(out, [2, 2]);
     assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 1122);
     let _ = heard.stop(ctx).ignore();
+}
+
+// --- while a scope holds pages ------------------------------------------------
+
+/// The recorder's whole life, through a context of its own: what it heard.
+fn recordedApart(): Int {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let heard = actor.start(ctx, recorder());
+    let doubled = [1, 2].mapCtx(ctx, fn(c, x) => noted(heard.sendMessage(c, .Saw(x))));
+    let log = heardSoFar(heard.sendMessage(ctx, .Read));
+    let _ = heard.stop(ctx).ignore();
+    log * 100 + doubled.fold(fn(a, n) => a + n, 0)
+}
+
+test "a waiting step answers the same while a scope holds pages" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // Inside a scope that holds pages, every value the recorder hands the
+    // runtime is copied out of the arenas first.
+    let answered = arenas.scoped(ctx, fn(c) => {
+        let held = "pages".repeat(c, 100);
+        (held.length(), recordedApart())
+    });
+    assert.equal(answered, (500, 1206));
 }
 
 // --- and the step that never waits, once more ---------------------------------
