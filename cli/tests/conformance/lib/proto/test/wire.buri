@@ -295,6 +295,17 @@ test "a fixed-width field that runs past its nested message is truncated there" 
         decodePage(ctx, raw(ctx, "12030900000000000000000000")),
         .Err(.Truncated(1)),
     );
+    // And arriving as I32, four bytes do not fit in three either.
+    assert.equal(decodePage(ctx, raw(ctx, "12030d000000000000")), .Err(.Truncated(1)));
+}
+
+test "skipping a wire type that has no length to skip is an error" {
+    // Groups, 3 and 4, are gone from proto3, and 6 and 7 were never assigned.
+    let none = list.empty<U8>();
+    let group: ProtoError = .BadWireType { field: 0, wire: 3 };
+    assert.equal(assert.err(proto.skip(none, 0, 0, 0, 3)), group);
+    let unassigned: ProtoError = .BadWireType { field: 0, wire: 7 };
+    assert.equal(assert.err(proto.skip(none, 0, 0, 0, 7)), unassigned);
 }
 
 test "the other errors inside a nested message keep their own offsets" {
@@ -322,6 +333,15 @@ test "a packed field that ends mid-varint is truncated at the offset in its body
         decodeVarints(ctx, raw(ctx, "3a0401000000ffffffff")),
         .Err(.Truncated(0)),
     );
+    // The same for every other packed width: a uint32 varint, a sfixed32, a
+    // double and a float, each body one element short.
+    assert.equal(decodeVarints(ctx, raw(ctx, "6202808001")), .Err(.Truncated(0)));
+    assert.equal(decodeVarints(ctx, raw(ctx, "5a020100ffff")), .Err(.Truncated(0)));
+    assert.equal(
+        decodeVarints(ctx, raw(ctx, "420400000000ffffffff")),
+        .Err(.Truncated(0)),
+    );
+    assert.equal(decodeVarints(ctx, raw(ctx, "52020000ffff")), .Err(.Truncated(0)));
 }
 
 test "each message, in a decoding's result, equals itself and not a failure" {

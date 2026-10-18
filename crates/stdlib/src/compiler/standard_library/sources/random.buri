@@ -240,10 +240,16 @@ fn gather<C: Allocator>(
     } else {
         let (x, next) = step(g);
         let take = number.min(8, remaining);
-        let chunk = list
-            .range(ctx, 0, take)
-            .map(ctx, fn(i) => bits.shiftRightU64(x, i * 8).wrapToU8());
-        gather(ctx, next, remaining - take, acc.concat(ctx, chunk))
+        gather(ctx, next, remaining - take, octets(ctx, x, take, acc))
+    }
+}
+
+/// The low `take` octets of `x` pushed onto `acc`, least-significant first.
+fn octets<C: Allocator>(ctx: C, x: U64, take: Int, acc: [U8]): [U8] {
+    if (take <= 0) {
+        acc
+    } else {
+        octets(ctx, bits.shiftRightU64(x, 8), take - 1, acc.push(ctx, x.wrapToU8()))
     }
 }
 
@@ -444,14 +450,9 @@ fn exchange<T, C: Allocator>(
     here: Int,
     there: Int,
 ): OrderedMap<Int, T> {
-    match (numbered.get(here)) {
-        .None => numbered,
-        .Some(a) => {
-            match (numbered.get(there)) {
-                .None => numbered,
-                .Some(b) => numbered.insert(ctx, here, b).insert(ctx, there, a),
-            }
-        },
+    match ((numbered.get(here), numbered.get(there))) {
+        (.Some(a), .Some(b)) => numbered.insert(ctx, here, b).insert(ctx, there, a),
+        _ => numbered,
     }
 }
 
