@@ -821,9 +821,8 @@ const PACKAGES: &[Case] = &[
     included("ui/reactivity.buri"),
     // The native renderer's static half (#53): `render`/`markup`/`text`/`count`
     // over trees with no reactivity, pinned byte-for-byte to the headerless
-    // `describe`. Native-only — on the JavaScript backend `markup()` is still
-    // the HTML document double, which is Phase 6's to move — so it is not in the
-    // package's `BUILD.buri` and `buri test` never runs it; this driver does.
+    // `describe`. `BUILD.buri` lists it too, so `buri test` runs it on
+    // JavaScript.
     included("ui/render.buri"),
     // The native renderer's reactive half (#53, phase 3): a leaf prop patches
     // the element it was rendered into, and `computed`/`choose` rebuild their

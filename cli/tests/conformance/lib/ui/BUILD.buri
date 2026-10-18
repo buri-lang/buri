@@ -5,6 +5,7 @@ library {
         sources: [
             "test/reactive.buri",
             "test/reactivity.buri",
+            "test/render.buri",
             "test/style_values.buri",
             "test/styling.buri",
             "test/tree.buri",
@@ -28,8 +29,8 @@ library {
         #
         # The one block that reached `ui/node`'s real page `mount` is split into
         # `lib/ui_mount`, which keeps `backends: [JS]` for the mount that cannot
-        # cross. `test/render.buri` is not listed — it is the native renderer's
-        # own parity file, driven by `native::conformance` alone. The retired
+        # cross. `test/render.buri` pins `markup()` to a headerless `describe`
+        # for every static node kind, on both backends. The retired
         # `test/fetch.buri` covered `platform/effect`'s callback-shaped `Fetch`; a page
         # grants `Network` now and `semantics/test/http.buri` pins a request.
         backends: [JS]

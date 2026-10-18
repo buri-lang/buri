@@ -266,15 +266,24 @@ test "a heading is an outline level, and there is no seventh" {
             children: [
                 ui.text({ content: .Const("top"), headingLevel: .Some(1) }),
                 ui.text({ content: .Const("inner"), headingLevel: .Some(3) }),
+                ui.text({ content: .Const("deeper"), headingLevel: .Some(4) }),
+                ui.text({ content: .Const("deeper still"), headingLevel: .Some(5) }),
                 ui.text({ content: .Const("clamped"), headingLevel: .Some(9) }),
                 ui.text({ content: .Const("also clamped"), headingLevel: .Some(0) }),
             ],
         }),
     );
+    let page = render(ctx, tree);
     assert.equal(
-        render(ctx, tree).markup(),
-        "e 0 \ne 1 \nt 2 top\ne 1 \nt 2 inner\ne 1 \nt 2 clamped\ne 1 \nt 2 also clamped",
+        page.markup(),
+        "e 0 \ne 1 \nt 2 top\ne 1 \nt 2 inner\ne 1 \nt 2 deeper\ne 1 \nt 2 deeper still\ne 1 \nt 2 clamped\ne 1 \nt 2 also clamped",
     );
+    assert.equal(page.count("h1"), 2);
+    assert.equal(page.count("h2"), 0);
+    assert.equal(page.count("h3"), 1);
+    assert.equal(page.count("h4"), 1);
+    assert.equal(page.count("h5"), 1);
+    assert.equal(page.count("h6"), 1);
 }
 
 test "a heading paints what the program asked for and nothing else" {
@@ -3455,6 +3464,10 @@ test "a file picker hands onPick the chosen file's name and text" {
     assert.equal(picked.get(ctx), .Ok(PickedFile { name: "SALES.CSV", text: "x" }));
     let _ = page.pickFile("Import", "export", "text/csv", bytes.toUtf8(ctx, "y"));
     assert.equal(picked.get(ctx), .Ok(PickedFile { name: "export", text: "y" }));
+    // A file is its name as well as its text.
+    assert.isFalse(
+        picked.get(ctx) == .Ok(PickedFile { name: "export.csv", text: "y" }),
+    );
 }
 
 test "a file picker refuses a file no accept entry matches" {
@@ -5718,6 +5731,14 @@ test "a tooltip's bubble is text in the scene, placed under its trigger" {
         str.format(ctx, "buri-scene 1\nviewport 800 fit\n${shown}"),
     );
     assert.equal(
+        ui.describe(ctx, tip, .FocusWithin),
+        str.format(ctx, "buri-scene 1\nviewport 800 fit\n${shown}"),
+    );
+    assert.equal(
+        ui.describe(ctx, tip, .Active),
+        str.format(ctx, "buri-scene 1\nviewport 800 fit\n${shown}"),
+    );
+    assert.equal(
         ui.describe(ctx, tip, .Checked),
         "buri-scene 1\nviewport 800 fit\ne 0 \ne 1 \nt 2 Copy",
     );
@@ -5782,6 +5803,32 @@ fn pair<C>(a: Signal<Bool>, b: Signal<Bool>): Node<C> {
             }),
         ],
     })
+}
+
+test "a box bound to hasFocus draws its focus styles while the signal holds true" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    let held = signal(ctx, true);
+    let box = rooted(
+        ctx,
+        ui.stack({
+            styles: [.On(.Focus, [.Width(.Px(7))])],
+            children: [],
+            hasFocus: .Some(held),
+        }),
+    );
+    // The signal answers for the box, whatever the snapshot's state says.
+    assert.equal(
+        ui.describe(ctx, box, .Hover),
+        "buri-scene 1\nviewport 800 fit\ne 0 class:focus_w-7;focused:true",
+    );
+    held.set(ctx, false);
+    assert.equal(
+        ui.describe(ctx, box, .Focus),
+        "buri-scene 1\nviewport 800 fit\ne 0 focused:false",
+    );
 }
 
 test "the platform writes hasFocus as the focus moves" {

@@ -162,6 +162,10 @@ test "an element that holds nothing still writes its closing tag" {
         web.render<()>(ui.spacer({ size: .None })),
         "<div class=\"grow-1\"></div>",
     );
+    assert.equal(
+        web.render<()>(ui.spacer({ size: .Some(.Px(8)) })),
+        "<div class=\"w-var h-var shrink-0\" style=\"--buri-w: 8px; --buri-h: 8px\"></div>",
+    );
     // And the ones HTML says hold nothing close themselves, because a closing
     // tag for one of those is markup a browser refuses to nest.
     assert.equal(
@@ -341,6 +345,23 @@ test "every kind of node renders" {
                 ],
                 value: signal(ctx, "pro"),
                 styles: [],
+            }),
+        ),
+        "<div role=\"radiogroup\" aria-label=\"Plan\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" />Free</label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked />Pro</label></div>",
+    );
+    // Another shape keeps the accessible model: the same radios, the same
+    // group.
+    assert.equal(
+        web.render<()>(
+            ui.picker({
+                label: .Const("Plan"),
+                options: [
+                    ("free", ui.text({ content: .Const("Free") })),
+                    ("pro", ui.text({ content: .Const("Pro") })),
+                ],
+                value: signal(ctx, "pro"),
+                styles: [],
+                style: .Some(.Dropdown),
             }),
         ),
         "<div role=\"radiogroup\" aria-label=\"Plan\"><label><input type=\"radio\" name=\"buri-radio-0\" value=\"free\" />Free</label><label><input type=\"radio\" name=\"buri-radio-0\" value=\"pro\" checked />Pro</label></div>",

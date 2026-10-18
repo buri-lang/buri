@@ -6,13 +6,10 @@
 // This is the parity the design asks for, met by construction: `describe` is
 // ordinary Buri that runs the same on both backends, and `renderInto` mirrors
 // its `nodeLines` arm for arm — the same helpers build the class-and-declaration
-// body — so pinning `markup()` to a headerless `describe` pins it to what the
-// JavaScript backend produces for the scene document too. Every static
-// `NodeKind` is covered here, styled and unstyled.
+// body. Every static `NodeKind` is covered here, styled and unstyled.
 //
-// It runs on the native backend only — `native::conformance` drives it — because
-// on the JavaScript backend `markup()` is still the HTML document double, which
-// is Phase 6's to move; here it is the scene lines.
+// It runs on both backends: `buri test` runs it on JavaScript, and
+// `native::conformance` drives it on the native backend.
 //
 // Static only. `choose`/`computed`/`each` are built once, a `Prop` is read once,
 // and a widget's `disabled`/`checked`/value are the current ones. Reactive
@@ -528,4 +525,35 @@ test "count reaches the widget elements a form builds" {
     assert.equal(page.count("input"), 2);
     assert.equal(page.count("button"), 1);
     assert.equal(page.count("label"), 2);
+}
+
+test "a fixed spacer, a picker drawn in another shape and a file picker" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Ui: headless(),
+    };
+    matchesDescribe(ctx, ui.spacer({ size: .Some(.Px(12)) }));
+    let choice = signal(ctx, "a");
+    matchesDescribe(
+        ctx,
+        ui.picker({
+            label: .Const("Pick"),
+            options: [
+                ("a", ui.text({ content: .Const("First") })),
+                ("b", ui.text({ content: .Const("Second") })),
+            ],
+            value: choice,
+            styles: [],
+            style: .Some(.Segmented),
+        }),
+    );
+    matchesDescribe(
+        ctx,
+        ui.filePicker({
+            label: .Const("Import"),
+            maxBytes: 100,
+            onPick: fn(_c, _file) => (),
+            styles: [.Padding(.Px(4))],
+        }),
+    );
 }

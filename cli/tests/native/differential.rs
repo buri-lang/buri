@@ -91,22 +91,6 @@ impl Verdict {
 }
 
 /// One package's test source, as `<package>/<file>.buri`.
-/// Conformance files whose assertions are backend-specific by design, so the
-/// two pipelines do not agree and this sweep must not compare them.
-///
-/// `ui/render.buri` is the native renderer's parity test (#53): `markup()` is
-/// the scene document on the native backend and still the HTML document double
-/// on JavaScript, so the two disagree until Phase 6 moves JavaScript to the
-/// scene document. It is driven on the native backend by `native::conformance`.
-///
-/// `ui/theme.buri` compiles and runs on both backends since #53 phase 5 — its
-/// `install`/`variables`/`stylesheet` blocks *agree*, and `ui/styling.buri`
-/// carries that parity in this sweep — but four of its blocks assert
-/// `render(...).markup()`, which is HTML here and the scene document there, so
-/// the whole file cannot be compared until phase 6 unifies the format.
-/// `native::conformance`'s `Out::Wrong` runs it and proves it still diverges.
-const NATIVE_ONLY: &[&str] = &["ui/render.buri"];
-
 fn corpus_files() -> Vec<String> {
     let root = crate::shared::conformance_corpus();
     let mut out = Vec::new();
@@ -414,10 +398,6 @@ fn agreement_shard(at: usize, count: usize) {
     let mine = shard::of(&files, at, count);
     for path in &mine {
         let path = path.to_string();
-        if NATIVE_ONLY.contains(&path.as_str()) {
-            excluded.push(format!("{path} (native-only by design)"));
-            continue;
-        }
         let source = read(&path);
         let reference = match javascript(&path, &source) {
             Ok(v) => v,
