@@ -477,6 +477,12 @@ test "as a map key and a set member" {
     );
     assert.equal(names.get(flags.all<Access>()), .Some("owner"));
     assert.equal(names.length(), 3);
+    // Storing under a key already there replaces its value and keeps the count,
+    // and a key never stored is found nowhere.
+    let renamed = names.insert(ctx, editor(), "writer");
+    assert.equal(renamed.length(), 3);
+    assert.equal(renamed.get(editor()), .Some("writer"));
+    assert.equal(names.get(Access { ..flags.none<Access>(), delete: true }), .None);
     let s = set.of(ctx, every(ctx).map(ctx, fn(a) => Access { ..a, delete: false }));
     assert.equal(s.length(), 8);
 }

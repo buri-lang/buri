@@ -525,6 +525,18 @@ test "filterMapValues drops what it answers nothing for" {
     assert.isTrue(m.get("b").isNone());
 }
 
+test "filterMapValues can keep only that a key passed" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let passed = map
+        .of(ctx, [("a", 1), ("b", 2)])
+        .filterMapValues(ctx, fn(v) => if (v > 1) { .Some(()) } else { .None });
+    assert.equal(passed.length(), 1);
+    assert.isTrue(passed.has("b"));
+    assert.isFalse(passed.has("a"));
+}
+
 test "filterMapValues that keeps nothing is empty" {
     let ctx = context {
         Allocator: alloc(),
@@ -573,6 +585,22 @@ test "mergeWith combines only the keys in both" {
     assert.equal(assert.some(total.get("ana")), 203);
     assert.equal(assert.some(total.get("bo")), 1);
     assert.equal(assert.some(total.get("cy")), 5);
+}
+
+test "mergeWith over number keys combines the ones in both" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let a = map.of(ctx, [(1, 10), (2, 20)]);
+    let b = map.of(ctx, [(2, 2), (3, 3)]);
+    let both = a.mergeWith(ctx, b, fn(x, y) => x + y);
+    assert.equal(both.length(), 3);
+    assert.equal(both.get(2), .Some(22));
+    // The same entries in another order are equal; a different size, or one
+    // value that differs, is not.
+    assert.isTrue(both.equals(ctx, map.of(ctx, [(3, 3), (2, 22), (1, 10)])));
+    assert.isFalse(both.equals(ctx, a));
+    assert.isFalse(both.equals(ctx, map.of(ctx, [(1, 10), (2, 20), (3, 3)])));
 }
 
 test "mergeWith over two hundred keys keeps every one" {
@@ -681,6 +709,16 @@ test "countBy counts the elements under each key" {
     assert.equal(assert.some(counts.get("b")), 2);
     assert.equal(assert.some(counts.get("c")), 1);
     assert.isTrue(counts.get("z").isNone());
+}
+
+test "countBy can count under a number" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let counts = map.countBy(ctx, ["ant", "bee", "deer"], fn(w: Str) => w.length());
+    assert.equal(counts.length(), 2);
+    assert.equal(counts.get(3), .Some(2));
+    assert.equal(counts.get(4), .Some(1));
 }
 
 test "countBy of the empty list is the empty map" {
@@ -956,8 +994,10 @@ test "set.of over a list mapped inside the call keeps every item" {
 //
 // Two distinct keys can hash to the same 64-bit value, and the map has to keep
 // both, find each, and remove each without disturbing the other. `Collider`
-// forces the case: its hash is `id % 8`, so ids 0, 8, 16, ... all collide, and
-// a constant hash would pile every key into one collision leaf. The interface
+// forces the case: its hash is `(id % 8) * 32`, so ids 0, 8, 16, ... all
+// collide, and a constant hash would pile every key into one collision leaf.
+// The low five bits are always zero, so the hashes that differ differ only
+// further up, and the tree has to branch below its root to tell them apart. The interface
 // says nothing about how a map does this; these cases only ever `get`, `remove`
 // and count.
 
@@ -973,7 +1013,7 @@ impl Equal for Collider {
 
 impl Hash for Collider {
     fn hash(self): U64 {
-        (self.id % 8).wrapToU64()
+        ((self.id % 8) * 32).wrapToU64()
     }
 }
 
@@ -1014,6 +1054,21 @@ test "distinct keys that share a hash are all retrievable" {
         list.range(ctx, 0, n).all(fn(i) => m.get(Collider { id: i }) == .Some(i * 10)),
     );
     assert.isTrue(m.get(Collider { id: n }).isNone());
+    // Taking a key out of a shared bucket leaves the rest of it, and taking
+    // one that was never put in changes nothing.
+    let less = m.remove(ctx, Collider { id: 8 });
+    assert.equal(less.length(), n - 1);
+    assert.isTrue(less.get(Collider { id: 8 }).isNone());
+    assert.equal(less.get(Collider { id: 16 }), .Some(160));
+    assert.equal(less.remove(ctx, Collider { id: n }).length(), n - 1);
+    assert.equal(less.entries(ctx).length(), n - 1);
+    // Two keys whose hashes differ each keep a bucket of their own.
+    let pair = map
+        .empty<Collider, Int>()
+        .insert(ctx, Collider { id: 0 }, 0)
+        .insert(ctx, Collider { id: 1 }, 10);
+    assert.equal(pair.entries(ctx).length(), 2);
+    assert.equal(pair.remove(ctx, Collider { id: 0 }).get(Collider { id: 1 }), .Some(10));
 }
 
 test "a colliding key is removed without disturbing the others in its bucket" {
@@ -1056,6 +1111,12 @@ test "colliding and lone keys live side by side" {
     assert.isTrue(m.get(Collider { id: 16 }).isNone());
     assert.isTrue(m.get(Collider { id: 9 }).isNone());
     assert.isTrue(m.get(Collider { id: 2 }).isNone());
+    // Every entry is walked, whether it shares its bucket or has one alone.
+    assert.equal(m.entries(ctx).length(), 3);
+    // Two lone keys whose hashes differ are told apart a level down.
+    let lone = map.of(ctx, [(Collider { id: 2 }, "x"), (Collider { id: 3 }, "y")]);
+    assert.equal(assert.some(lone.get(Collider { id: 2 })), "x");
+    assert.equal(assert.some(lone.get(Collider { id: 3 })), "y");
     // A third key joins the shared bucket; the second of 1's makes one more.
     let more = m
         .insert(ctx, Collider { id: 16 }, "d")
