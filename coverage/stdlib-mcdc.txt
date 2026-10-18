@@ -1,7 +1,7 @@
 # The standard library's MC/DC conditions shown, per module: shown, total,
 # module. CI's stdlib-coverage job raises it on main; never edit a count
 # by hand. coverage/stdlib/src/main.rs has the rest.
-# total 8898 9833 (90.5%)
+# total 9062 9852 (92.0%)
 host x86_64-unknown-linux-gnu
 164 273 core/actor
 2 3 core/alloc
@@ -15,14 +15,14 @@ host x86_64-unknown-linux-gnu
 99 111 core/compression
 91 91 core/crypto
 32 34 core/csv
-160 199 core/date
+185 199 core/date
 62 71 core/decimal
 8 8 core/env
 7 7 core/hash
 45 52 core/heap
 235 245 core/indexset
 4 5 core/io
-184 232 core/json
+225 231 core/json
 265 275 core/list
 491 567 core/map
 42 43 core/math
@@ -31,13 +31,13 @@ host x86_64-unknown-linux-gnu
 1 2 core/net/tcp
 114 125 core/net/url
 17 23 core/net/websocket
-43 69 core/number
-700 731 core/option
-28 40 core/order
+51 71 core/number
+713 743 core/option
+40 40 core/order
 1132 1203 core/orderedmap
 19 19 core/orderedset
 94 103 core/path
-287 328 core/proto
+297 328 core/proto
 25 25 core/proto/any
 16 16 core/proto/duration
 5 5 core/proto/empty
@@ -47,11 +47,11 @@ host x86_64-unknown-linux-gnu
 81 82 core/proto/wrappers
 17 22 core/queue
 12 23 core/random
-589 606 core/result
+595 612 core/result
 0 0 core/secret
 12 13 core/set
 93 101 core/simd
-239 266 core/str
+248 266 core/str
 15 66 core/tasks
 3 5 core/testing/check
 12 23 core/time
@@ -59,10 +59,10 @@ host x86_64-unknown-linux-gnu
 320 349 std/codegen/proto
 412 412 std/codegen/proto/schema
 21 21 std/codegen/proto/wellknown
-738 792 ui/node
+739 792 ui/node
 13 15 ui/prop
 0 0 ui/signal
 1 6 ui/style
-184 226 ui/style/classify
+223 226 ui/style/classify
 18 24 ui/theme
 2 3 ui/web
