@@ -1,0 +1,37 @@
+error: `\ ` is not an escape [json-syntax]
+ --> lib/plain/paragraph.json:3:22
+  |
+3 |     "ps": "paragraph \ separator"
+  |                      ^^
+  |
+  = fix: write `\\` for a backslash
+
+    The extension decides what a file may hold:
+
+                       .json  .jsonc  .json5
+      Comments         no     yes     yes
+      Trailing commas  no     yes     yes
+      JSON5 syntax     no     no      yes
+
+    JSON5 syntax is single-quoted strings, unquoted keys, hexadecimal numbers,
+    Infinity and NaN. A key written twice in one object is an error in all
+    three, because nothing says which one wins.
+
+    A file that does not parse is neither checked nor formatted, and the
+    generator that lists it does not run.
+
+error: `\ ` is not an escape [json-syntax]
+ --> lib/plain/separator.json:3:17
+  |
+3 |     "ls": "line \ separator"
+  |                 ^^
+  |
+  = fix: write `\\` for a backslash
+error: `\
+` is not an escape [json-syntax]
+ --> lib/plain/text.json:3:17
+  |
+3 |     "lf": "line \
+  |                 ^
+  |
+  = fix: write `\\` for a backslash

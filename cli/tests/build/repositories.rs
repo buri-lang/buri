@@ -161,9 +161,11 @@ fn generators() {
 /// generator's `inputs`. `json_check` is the check in `build`, `test` and
 /// `lint`, with both schema path forms and a schema edit re-checking an
 /// unchanged file; `json_errors` is every way a check refuses one;
-/// `json_format` is `buri format` over them; `repo_languages` is `REPO.buri`'s
-/// `language` block, and each way one is refused; `custom_language` is a
-/// language of the repository's own, checked and formatted by its tool rule;
+/// `json_format` is `buri format` over them; `json_line_continuations` is
+/// JSON5's backslash before a line break, which JSON refuses;
+/// `repo_languages` is `REPO.buri`'s `language` block, and each way one is
+/// refused; `custom_language` is a language of the repository's own, checked
+/// and formatted by its tool rule;
 /// `tool_layout` is how a tool's document is laid out at the margin.
 /// `textproto_values` is a text format file's value through `textproto`,
 /// and a `.proto` edit re-checking it; `textproto_errors` is every way the
