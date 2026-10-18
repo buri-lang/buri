@@ -1,7 +1,7 @@
 # The standard library's MC/DC conditions shown, per module: shown, total,
 # module. CI's stdlib-coverage job raises it on main; never edit a count
 # by hand. coverage/stdlib/src/main.rs has the rest.
-# total 9231 9787 (94.3%)
+# total 9302 9785 (95.1%)
 host x86_64-unknown-linux-gnu
 203 245 core/actor
 2 3 core/alloc
@@ -11,19 +11,19 @@ host x86_64-unknown-linux-gnu
 104 122 core/bytes
 20 22 core/character
 130 132 core/cli
-24 29 core/codegen
+26 29 core/codegen
 99 111 core/compression
 91 91 core/crypto
-32 34 core/csv
+34 34 core/csv
 185 199 core/date
 62 71 core/decimal
 8 8 core/env
 7 7 core/hash
-45 52 core/heap
+56 56 core/heap
 235 245 core/indexset
 4 5 core/io
 225 231 core/json
-265 275 core/list
+274 275 core/list
 520 567 core/map
 42 43 core/math
 127 128 core/net/http
@@ -32,7 +32,7 @@ host x86_64-unknown-linux-gnu
 123 125 core/net/url
 17 23 core/net/websocket
 51 68 core/number
-713 741 core/option
+739 741 core/option
 40 40 core/order
 1136 1203 core/orderedmap
 19 19 core/orderedset
@@ -41,13 +41,13 @@ host x86_64-unknown-linux-gnu
 25 25 core/proto/any
 16 16 core/proto/duration
 5 5 core/proto/empty
-4 7 core/proto/field_mask
-103 110 core/proto/struct
+7 7 core/proto/field_mask
+103 104 core/proto/struct
 16 16 core/proto/timestamp
 81 82 core/proto/wrappers
-17 22 core/queue
+22 22 core/queue
 14 19 core/random
-595 612 core/result
+608 612 core/result
 0 0 core/secret
 12 13 core/set
 93 101 core/simd
