@@ -157,7 +157,7 @@ pub fn command_query(args: &arguments::Args) -> i32 {
             let Some(t) = operand(first) else { return 2 };
             let p = session.workspace.package(t.package);
             let mut all = Vec::new();
-            if let Some(lib) = &p.build.library {
+            if let Some(lib) = p.build.library() {
                 all.push("lib.buri".to_string());
                 all.extend(lib.sources.iter().map(|x| x.value.clone()));
                 // A generator's input is a source of this target too: what the
@@ -168,7 +168,7 @@ pub fn command_query(args: &arguments::Args) -> i32 {
                         .flat_map(|g| g.inputs.iter().map(|x| x.value.clone())),
                 );
             }
-            if let Some(bin) = &p.build.binary {
+            if let Some(bin) = p.build.binary() {
                 all.push("main.buri".to_string());
                 all.extend(bin.sources.iter().map(|x| x.value.clone()));
                 all.extend(

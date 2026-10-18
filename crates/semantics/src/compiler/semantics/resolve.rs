@@ -18,7 +18,7 @@
 //! because top-level signatures are mandatory.
 
 use crate::build::buildfile::Platform;
-use crate::build::workspace::{PackageId, Packages, RuleKind, TargetId};
+use crate::build::workspace::{PackageId, Packages};
 use crate::compiler::modules::{Loaded, Role};
 use crate::compiler::semantics::layered::{Dense, IdMap, Table};
 use crate::compiler::semantics::typed;
@@ -1787,11 +1787,7 @@ impl<'a> Checker<'a> {
         // function to that platform's declaration instead.
         let mut custom = false;
         if let (Some(ws), Some(pkg)) = (self.ws, self.module(module).pkg) {
-            let target = TargetId {
-                package: pkg,
-                kind: RuleKind::Binary,
-            };
-            for entry in ws.declared_entries(target) {
+            for entry in ws.declared_entries(pkg) {
                 outputs = true;
                 if entry.custom.is_some() {
                     if entry.name == name {
@@ -1853,14 +1849,10 @@ impl<'a> Checker<'a> {
         let (Some(ws), Some(pkg)) = (self.ws, self.module(module).pkg) else {
             return false;
         };
-        let target = TargetId {
-            package: pkg,
-            kind: RuleKind::Binary,
-        };
         // An output whose `function` names nothing the binary exports is
         // `unknown-entry-function`. The function named after the platform's
         // entry stands in for it here, so its context isn't reported as well.
-        ws.declared_entries(target).iter().any(|e| {
+        ws.declared_entries(pkg).iter().any(|e| {
             e.name == name
                 || (e.named
                     && e.custom.as_ref().is_some_and(|c| c.point == name)
@@ -1914,17 +1906,13 @@ impl<'a> Checker<'a> {
         module: ModuleId,
         pkg: PackageId,
     ) {
-        let target = TargetId {
-            package: pkg,
-            kind: RuleKind::Binary,
-        };
         let own = self.module_entries.get(&module);
         let mut exported: Vec<String> =
             own.map(|m| m.keys().cloned().collect()).unwrap_or_default();
         exported.sort();
         let label = ws.package(pkg).label();
         let mut said: Vec<String> = Vec::new();
-        for entry in ws.declared_entries(target) {
+        for entry in ws.declared_entries(pkg) {
             // An output that named nothing is `missing-main`'s business, which is a
             // different mistake and is reported by the build.
             if !entry.named || exported.contains(&entry.name) {

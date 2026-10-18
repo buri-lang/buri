@@ -23,7 +23,7 @@ use crate::build::cache::{Action, ActionKey, KeyBuilder};
 use crate::build::session::Session;
 use crate::build::sources::Overlay;
 use crate::build::tools::{self, Tool};
-use crate::build::workspace::{RuleKind, TargetId, Workspace};
+use crate::build::workspace::{Rule, RuleKind, TargetId, Workspace};
 use crate::commands::arguments::Flags;
 use crate::diagnostics::{Invariant as _, Span};
 use crate::json::Value;
@@ -350,21 +350,10 @@ impl std::fmt::Debug for Store {
 
 /// The generators one rule declares.
 pub fn declared(workspace: &Workspace, target: TargetId) -> &[Generator] {
-    let p = workspace.package(target.package);
-    match target.kind {
-        RuleKind::Library => p
-            .build
-            .library
-            .as_ref()
-            .map(|l| &l.generators[..])
-            .unwrap_or(&[]),
-        RuleKind::Binary => p
-            .build
-            .binary
-            .as_ref()
-            .map(|b| &b.generators[..])
-            .unwrap_or(&[]),
-        RuleKind::Tool => &[],
+    match workspace.rule(target) {
+        Rule::Library(l) => &l.generators,
+        Rule::Binary(b) => &b.generators,
+        Rule::Tool(_) => &[],
     }
 }
 
@@ -432,8 +421,7 @@ pub fn has_contracts(workspace: &Workspace, target: TargetId) -> bool {
         && workspace
             .package(target.package)
             .build
-            .tool
-            .as_ref()
+            .tool()
             .is_some_and(|t| t.contracts().next().is_some())
 }
 
@@ -1107,8 +1095,7 @@ fn tools_run_by(workspace: &Workspace, target: TargetId) -> Vec<Tool> {
     if let Some(rule) = workspace
         .package(target.package)
         .build
-        .tool
-        .as_ref()
+        .tool()
         .filter(|_| target.kind == RuleKind::Tool)
     {
         for a in rule.contracts() {
@@ -1167,8 +1154,7 @@ fn tools_of(workspace: &Workspace, target: TargetId) -> Vec<TargetId> {
     if let Some(rule) = workspace
         .package(target.package)
         .build
-        .tool
-        .as_ref()
+        .tool()
         .filter(|_| target.kind == RuleKind::Tool)
     {
         for a in rule.contracts() {
@@ -1255,7 +1241,7 @@ fn walk_worked_out_from(
 fn run_contracts(session: &Session, target: TargetId, flags: &Flags, overlay: &Overlay) {
     let workspace = Arc::clone(&session.workspace);
     let package = workspace.package(target.package);
-    let rule = tools::rule_of(&workspace, target);
+    let rule = workspace.rule(target);
     let languages = &workspace.repo.languages;
     let read = crate::languages::reader(&session.root, overlay);
     let mut seen: BTreeSet<String> = BTreeSet::new();

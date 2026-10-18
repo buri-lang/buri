@@ -134,7 +134,7 @@ impl<'a> Loader<'a> {
             return;
         };
         let pkg = ws.package(target.package);
-        match pkg.rule(target.kind) {
+        match ws.rule(target) {
             Rule::Library(lib) => {
                 self.check_testing_surface_declared(ws, target);
                 self.load_path(&pkg.module_path("lib.buri"), Role::Source, Span::NONE);
@@ -182,7 +182,7 @@ impl<'a> Loader<'a> {
                     (unit.platform, &unit.entry, &self.custom)
                 {
                     self.custom = ws
-                        .declared_entries(target)
+                        .declared_entries(target.package)
                         .into_iter()
                         .find(|e| e.platform == platform && e.name == *entry && e.custom.is_some())
                         .and_then(|e| e.custom);
@@ -368,12 +368,7 @@ impl<'a> Loader<'a> {
         if ws.owning_package(&dir.join("x")) != Some(target.package) {
             return;
         }
-        if pkg
-            .build
-            .library
-            .as_ref()
-            .is_some_and(|l| l.testing.is_some())
-        {
+        if pkg.build.library().is_some_and(|l| l.testing.is_some()) {
             return;
         }
         self.diags.push(
@@ -1239,13 +1234,11 @@ fn is_declared_test_source(
     let listed =
         |suite: &crate::build::buildfile::TestSuite| suite.sources.iter().any(|s| s.value == rel);
     build
-        .library
-        .as_ref()
+        .library()
         .and_then(|l| l.test.as_ref())
         .is_some_and(listed)
         || build
-            .binary
-            .as_ref()
+            .binary()
             .and_then(|b| b.test.as_ref())
             .is_some_and(listed)
 }

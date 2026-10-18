@@ -89,14 +89,10 @@ fn generate_all(args: &arguments::Args) -> i32 {
         let units: Vec<TargetId> = todo
             .iter()
             .flat_map(|&package| {
-                let p = session.workspace.package(package);
-                [
-                    (RuleKind::Library, p.has_library()),
-                    (RuleKind::Binary, p.has_binary()),
-                ]
-                .into_iter()
-                .filter(|(_, has)| *has)
-                .map(move |(kind, _)| TargetId { package, kind })
+                session
+                    .workspace
+                    .targets_of(package)
+                    .filter(|t| t.kind != RuleKind::Tool)
             })
             .collect();
         let batch = Batch::of(&mut session, &units);
@@ -215,7 +211,9 @@ impl Answers {
                 let Some(kind) = kind_named(kind) else {
                     return false;
                 };
-                generator_key(workspace, TargetId { package, kind }) == *key
+                workspace
+                    .target(package, kind)
+                    .is_some_and(|t| generator_key(workspace, t) == *key)
             })
         };
         let names: BTreeSet<&str> = records

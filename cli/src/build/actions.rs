@@ -863,7 +863,6 @@ fn unlisted(
                 })
                 .contains(path)
     };
-    const KINDS: [RuleKind; 3] = [RuleKind::Library, RuleKind::Binary, RuleKind::Tool];
     let all: Vec<TargetId> = members.iter().copied().collect();
     let mut unkeyed = Vec::new();
     for (path, package) in files {
@@ -871,9 +870,9 @@ fn unlisted(
             continue;
         }
         let listed = match package {
-            Some(package) => KINDS
-                .iter()
-                .any(|&kind| keyed_by(TargetId { package, kind }, &path)),
+            Some(package) => workspace
+                .targets_of(package)
+                .any(|member| keyed_by(member, &path)),
             None => all.iter().any(|&m| keyed_by(m, &path)),
         };
         if !listed {
@@ -1302,14 +1301,13 @@ pub fn remember_reads() {
 /// becomes are a function of its bytes, so editing one moves the key exactly
 /// as editing a source does.
 pub fn rule_files(workspace: &crate::build::workspace::Workspace, member: TargetId) -> Vec<String> {
-    let package = workspace.package(member.package);
     let entry = match member.kind {
         RuleKind::Library => "lib.buri",
         RuleKind::Binary => "main.buri",
         RuleKind::Tool => "tool.buri",
     };
     let mut files: Vec<String> = vec![entry.to_string()];
-    match package.rule(member.kind) {
+    match workspace.rule(member) {
         Rule::Library(lib) => {
             files.extend(lib.sources.iter().map(|x| x.value.clone()));
             if let Some(testing) = &lib.testing {
@@ -4004,8 +4002,7 @@ pub fn check_platform(
         .workspace
         .package(target.package)
         .build
-        .binary
-        .as_ref()
+        .binary()
         .and_then(|b| b.outputs.iter().find(|o| &o.output_platform() == platform))
         .map(|o| o.span)
         .unwrap_or(Span::point(
@@ -4045,7 +4042,7 @@ pub fn check_platform(
 /// The outputs a `build` invocation should produce for one binary. A library
 /// or a tool has none.
 pub fn selected_outputs(session: &Session, target: TargetId, flags: &Flags) -> Vec<Output> {
-    let binary = &session.workspace.package(target.package).build.binary;
+    let binary = session.workspace.package(target.package).build.binary();
     let outputs: Vec<Output> = binary
         .iter()
         .filter(|_| target.kind == RuleKind::Binary)

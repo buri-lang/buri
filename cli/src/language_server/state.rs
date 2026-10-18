@@ -1829,7 +1829,6 @@ fn target_for(session: &Session, path: &Path) -> Option<TargetId> {
         .ok()
         .map(|rel| rel.display().to_string().replace('\\', "/"))
         .and_then(|rel| session.workspace.rule_of_file(package, &rel))
-        .map(|kind| TargetId { package, kind })
-        .filter(|t| targets.contains(t));
+        .and_then(|kind| session.workspace.target(package, kind));
     declared.or_else(|| targets.into_iter().find(|t| t.package == package))
 }

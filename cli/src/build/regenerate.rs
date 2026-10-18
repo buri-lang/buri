@@ -115,8 +115,7 @@ fn regenerate_reading(
     // walk collects must not be placed in `sources` on top of it.
     let generated_inputs: BTreeSet<String> = {
         let mut out = BTreeSet::new();
-        for kind in [RuleKind::Library, RuleKind::Binary] {
-            let target = crate::build::workspace::TargetId { package, kind };
+        for target in session.workspace.targets_of(package) {
             out.extend(crate::build::generators::inputs(&session.workspace, target));
         }
         out
@@ -307,12 +306,7 @@ fn regenerate_reading(
         // A `testing/` directory is a surface only because a rule says so, so
         // this is the one managed field that waits to be asked for: `gen`
         // fills the block in and never decides the package has one.
-        if rule == "library"
-            && p.build
-                .library
-                .as_ref()
-                .is_some_and(|l| l.testing.is_some())
-        {
+        if rule == "library" && p.build.library().is_some_and(|l| l.testing.is_some()) {
             set_list(
                 &mut document,
                 rule,
@@ -399,16 +393,11 @@ fn derive_dependencies(
 ) -> Option<Derived> {
     use crate::compiler::modules::Role;
     let mut out = Derived::default();
-    for kind in [RuleKind::Library, RuleKind::Binary] {
-        let has = match kind {
-            RuleKind::Library => session.workspace.package(package).has_library(),
-            RuleKind::Binary => session.workspace.package(package).has_binary(),
-            RuleKind::Tool => false,
-        };
-        if !has {
-            continue;
-        }
-        let target = crate::build::workspace::TargetId { package, kind };
+    for target in session
+        .workspace
+        .targets_of(package)
+        .filter(|t| t.kind != RuleKind::Tool)
+    {
         let alone;
         let seen = match batch.and_then(|b| b.seen(target)) {
             Some(seen) => seen,
@@ -475,7 +464,7 @@ fn derive_dependencies(
         // otherwise `gen` would need two passes to reach a fixed point, and a
         // command whose second run differs from its first is a command whose
         // `--check` lies.
-        let on_disk = match kind {
+        let on_disk = match target.kind {
             RuleKind::Library => lib_tests,
             RuleKind::Binary | RuleKind::Tool => bin_tests,
         };
@@ -496,7 +485,7 @@ fn derive_dependencies(
             .collect();
         let testing: Vec<String> = testing.into_iter().collect();
         let production: Vec<String> = production.into_iter().collect();
-        match kind {
+        match target.kind {
             RuleKind::Library => {
                 out.library = Some(LibraryDeps {
                     production,

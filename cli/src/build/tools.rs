@@ -33,7 +33,7 @@ use crate::build::cache::{Action, ActionKey, Cache, KeyBuilder};
 use crate::build::session::Session;
 use crate::build::workspace::{RuleKind, TargetId, Workspace};
 use crate::commands::arguments::Flags;
-use crate::diagnostics::{Diagnostic, Invariant as _, Span};
+use crate::diagnostics::{Diagnostic, Span};
 use crate::json::Value;
 use crate::languages::{Finding, Kind, Language, Said};
 use std::collections::{BTreeMap, BTreeSet};
@@ -82,14 +82,10 @@ pub fn resolve(workspace: &Workspace, name: &str) -> Result<Tool, Unresolved> {
     }
     let path = name.strip_prefix("//").ok_or(Unresolved::Nothing)?;
     let package = workspace.package_by_path(path).ok_or(Unresolved::Nothing)?;
-    let p = workspace.package(package);
-    if p.has_tool() {
-        return Ok(Tool::Repo(TargetId {
-            package,
-            kind: RuleKind::Tool,
-        }));
+    if let Some(tool) = workspace.target(package, RuleKind::Tool) {
+        return Ok(Tool::Repo(tool));
     }
-    Err(if p.has_binary() {
+    Err(if workspace.package(package).has_binary() {
         Unresolved::Binary
     } else {
         Unresolved::Nothing
@@ -103,8 +99,7 @@ impl Tool {
             Tool::Repo(t) => workspace
                 .package(t.package)
                 .build
-                .tool
-                .as_ref()
+                .tool()
                 .is_some_and(|r| r.block(entry).is_some()),
             Tool::Json | Tool::Proto | Tool::Textproto => ENTRY_POINTS.contains(&entry),
         }
@@ -132,12 +127,15 @@ pub fn validate(workspace: &Workspace) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     for id in workspace.ids() {
         let build = &workspace.package(id).build;
-        let generators = build.library.iter().flat_map(|l| l.generators.iter());
-        for g in generators.chain(build.binary.iter().flat_map(|b| b.generators.iter())) {
+        let generators = build
+            .library()
+            .into_iter()
+            .flat_map(|l| l.generators.iter());
+        for g in generators.chain(build.binary().into_iter().flat_map(|b| b.generators.iter())) {
             refer(workspace, &g.tool, "generate", true, &mut out);
             accepted(workspace, g, &mut out);
         }
-        if let Some(rule) = &build.tool {
+        if let Some(rule) = build.tool() {
             contracts(workspace, rule, &mut out);
         }
     }
@@ -175,7 +173,7 @@ fn accepted(workspace: &Workspace, g: &buildfile::Generator, out: &mut Vec<Diagn
     let Ok(Tool::Repo(t)) = resolve(workspace, &g.tool.value) else {
         return;
     };
-    let accepts = rule_of(workspace, t).accepts("generate");
+    let accepts = workspace.rule(t).accepts("generate");
     if accepts.is_empty() {
         return;
     }
@@ -467,7 +465,7 @@ impl Contract {
     pub fn of(workspace: &Workspace, tool: Tool, entry: &str, language: &str) -> Option<Contract> {
         let Tool::Repo(t) = tool else { return None };
         let package = workspace.package(t.package);
-        let rule = package.build.tool.as_ref()?;
+        let rule = package.build.tool()?;
         let a = rule
             .accepts(entry)
             .iter()
@@ -527,7 +525,8 @@ impl Contract {
 /// entry point.
 fn typed(workspace: &Workspace, t: TargetId, entry: &str) -> Vec<(String, String)> {
     let package = workspace.package(t.package);
-    rule_of(workspace, t)
+    workspace
+        .rule(t)
         .accepts(entry)
         .iter()
         .map(|a| {
@@ -658,16 +657,6 @@ fn repo_source(workspace: &Workspace, t: TargetId) -> Source {
 
 /// The package a tool's `main` stands in, that `main`'s module path, and its text.
 type Source = (Option<crate::build::workspace::PackageId>, String, String);
-
-/// The `tool` rule of a tool target.
-pub fn rule_of(workspace: &Workspace, t: TargetId) -> &buildfile::Tool {
-    workspace
-        .package(t.package)
-        .build
-        .tool
-        .as_ref()
-        .or_ice("a tool target's package has a `tool` rule")
-}
 
 /// The key of the program a tool is: its `main`, and — for a tool of this
 /// repository — the `link` key of everything it is compiled from. Computed
@@ -808,7 +797,7 @@ pub fn artifact(session: &Session, tool: Tool, flags: &Flags) -> Result<PathBuf,
 fn broken_contract(workspace: &Workspace, tool: Tool) -> Option<String> {
     let Tool::Repo(t) = tool else { return None };
     let package = workspace.package(t.package);
-    let rule = package.build.tool.as_ref()?;
+    let rule = package.build.tool()?;
     let text = std::fs::read_to_string(package.dir.join("tool.buri")).ok()?;
     let parsed = crate::parsing::parser::parse(&text, crate::diagnostics::FileId(0));
     let roots = |path: &str| {

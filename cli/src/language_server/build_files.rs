@@ -473,12 +473,7 @@ fn labels(session: &Session) -> Vec<Entry> {
         // 9 module: a label names a package, which is where a module comes
         // from.
         out.push((package.label(), 9, "library".to_string(), Vec::new()));
-        if package
-            .build
-            .library
-            .as_ref()
-            .is_some_and(|l| l.testing.is_some())
-        {
+        if package.build.library().is_some_and(|l| l.testing.is_some()) {
             out.push((
                 format!("{}/testing", package.label()),
                 9,
