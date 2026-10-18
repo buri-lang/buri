@@ -14,7 +14,7 @@ use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::resolve::{Bodies, Checker, Sym};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use crate::hash::Map as HashMap;
 use crate::parsing::flat;
 use crate::parsing::tree;
@@ -387,12 +387,13 @@ fn check_tests(c: &mut Checker) {
 
 // ---------------------------------------------------------------------------
 
-/// A numeric literal whose type is not known until defaulting has run.
+/// An integer literal, waiting on its variable for the type it is checked
+/// against.
+#[derive(Clone)]
 pub(crate) struct LitCheck<'b> {
     pub(crate) value: u128,
     pub(crate) negative: bool,
     pub(crate) raw: &'b str,
-    pub(crate) ty: Ty,
     pub(crate) span: Span,
 }
 
@@ -427,7 +428,7 @@ pub struct Infer<'a, 'b> {
     pub(crate) module: ModuleId,
     pub(crate) generics: std::sync::Arc<[GenericInfo]>,
     pub(crate) ret: Ty,
-    pub(crate) subst: Subst,
+    pub(crate) subst: Subst<LitCheck<'b>>,
     /// Every local in scope, innermost last: its name's hash and its id. A
     /// local's name is the one it was bound under, so a lookup compares the
     /// hash and then the name in [`Infer::locals`].
@@ -465,7 +466,6 @@ pub struct Infer<'a, 'b> {
     /// [`typed::Body::bounds_used`] reports them. A cell because
     /// [`Infer::satisfies`] answers through `&self`.
     pub(crate) bounds_used: std::cell::RefCell<Vec<(u32, TraitId)>>,
-    pub(crate) lit_checks: Vec<LitCheck<'b>>,
     /// Template holes, checked after defaulting so `"${1 + 1}"` is fine.
     pub(crate) hole_checks: Vec<(Ty, Span)>,
     /// Calls to a bodyless declaration — an intrinsic the runtime supplies —
@@ -510,13 +510,12 @@ pub struct Infer<'a, 'b> {
 /// checker between bodies so each body reuses the allocations of the last.
 #[derive(Default)]
 pub(crate) struct Scratch<'b> {
-    subst: Subst,
+    subst: Subst<LitCheck<'b>>,
     scopes: Vec<(u64, LocalId)>,
     shadows: Vec<u32>,
     latest: crate::hash::Map<u64, u32>,
     ty_lists: Vec<Vec<Ty>>,
     obligations: Vec<(Ty, TraitId, Span)>,
-    lit_checks: Vec<LitCheck<'b>>,
     pattern_names: Vec<&'b str>,
 }
 
@@ -533,8 +532,6 @@ impl Drop for Infer<'_, '_> {
         let ty_lists = std::mem::take(&mut self.ty_lists);
         let mut obligations = std::mem::take(&mut self.obligations);
         obligations.clear();
-        let mut lit_checks = std::mem::take(&mut self.lit_checks);
-        lit_checks.clear();
         let mut pattern_names = std::mem::take(&mut self.pattern_names);
         pattern_names.clear();
         self.c.scratch = Scratch {
@@ -544,7 +541,6 @@ impl Drop for Infer<'_, '_> {
             latest,
             ty_lists,
             obligations,
-            lit_checks,
             pattern_names,
         };
     }
@@ -582,7 +578,6 @@ impl<'a, 'b> Infer<'a, 'b> {
             latest,
             ty_lists,
             obligations,
-            lit_checks,
             pattern_names,
         } = std::mem::take(&mut c.scratch);
         Infer {
@@ -604,7 +599,6 @@ impl<'a, 'b> Infer<'a, 'b> {
             lambda_depth: 0,
             obligations,
             bounds_used: Default::default(),
-            lit_checks,
             hole_checks: Vec::new(),
             erased_calls: Vec::new(),
             role,
@@ -1522,23 +1516,18 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// Because a literal's type is known before it is checked, a literal that
     /// does not fit its type is a compile error, not a runtime surprise.
     fn check_literal_ranges(&mut self) {
-        let mut checks = std::mem::take(&mut self.lit_checks);
-        for lit in checks.drain(..) {
-            // `default_numerics` has run, and an integer literal's class binds it
-            // to nothing but an integer primitive.
-            let (p, (lo, hi)) = self
-                .c
-                .tables
-                .as_prim(&self.subst.shallow(&lit.ty))
-                .and_then(|p| Some((p, p.int_range()?)))
-                .or_ice("an integer literal settles at an integer primitive");
+        // `default_numerics` has run, so every integer literal has settled.
+        let settled = self.subst.settled();
+        settled.sort_by_key(|(lit, _)| lit.span.start);
+        for (lit, p) in settled.drain(..) {
+            let (lo, hi) = p.range();
             let fits = if lit.negative {
                 p.is_signed() && (lit.value <= (lo.unsigned_abs()))
             } else {
                 lit.value <= hi
             };
             if !fits {
-                let name = p.name();
+                let name = p.prim().name();
                 let raw = if lit.negative {
                     format!("-{}", lit.raw)
                 } else {
@@ -1562,7 +1551,6 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.c.diags.push(d);
             }
         }
-        self.lit_checks = checks;
     }
 }
 

@@ -385,17 +385,16 @@ impl<'a, 'b> Infer<'a, 'b> {
             V::Int { value, raw, span } => {
                 // A numeric literal gets a fresh type variable constrained to
                 // the integer types; ordinary unification then decides.
-                let ty = self.subst.fresh_num(NumClass::Int, span);
-                if let Some(exp) = expected {
-                    let _ = self.subst.unify(&self.c.tables, &ty, exp);
-                }
-                self.lit_checks.push(LitCheck {
+                let lit = LitCheck {
                     value,
                     negative: false,
                     raw,
-                    ty,
                     span,
-                });
+                };
+                let ty = self.subst.fresh_int(lit, span);
+                if let Some(exp) = expected {
+                    let _ = self.subst.unify(&self.c.tables, &ty, exp);
+                }
                 typed::Expr::new(
                     typed::ExprKind::Int(typed::Magnitude::new(value), false),
                     ty,
@@ -403,7 +402,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 )
             }
             V::Float { value, span, .. } => {
-                let ty = self.subst.fresh_num(NumClass::Float, span);
+                let ty = self.subst.fresh_float(span);
                 if let Some(exp) = expected {
                     let _ = self.subst.unify(&self.c.tables, &ty, exp);
                 }
@@ -1376,7 +1375,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         ty: &Ty,
         param: &ParamInfo,
         want: &Ty,
-        probe: &mut Subst,
+        probe: &mut Subst<LitCheck<'b>>,
     ) -> bool {
         if let Some(variant) = self.dot_form(arg) {
             let TyKind::Con(con, _) = probe.shallow(want).kind() else {
@@ -3007,17 +3006,16 @@ impl<'a, 'b> Infer<'a, 'b> {
         // `let y: I8 = -129;` as the error, which makes `-128` legal, and it
         // is not if the magnitude is range-checked on its own.
         if let V::Int { value, raw, .. } = self.tree().expr(operand) {
-            let ty = self.subst.fresh_num(NumClass::Int, span);
-            if let Some(exp) = expected {
-                let _ = self.subst.unify(&self.c.tables, &ty, exp);
-            }
-            self.lit_checks.push(LitCheck {
+            let lit = LitCheck {
                 value,
                 negative: true,
                 raw,
-                ty,
                 span,
-            });
+            };
+            let ty = self.subst.fresh_int(lit, span);
+            if let Some(exp) = expected {
+                let _ = self.subst.unify(&self.c.tables, &ty, exp);
+            }
             return typed::Expr::new(
                 typed::ExprKind::Int(typed::Magnitude::new(value), true),
                 ty,
@@ -3028,7 +3026,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             value, span: fspan, ..
         } = self.tree().expr(operand)
         {
-            let ty = self.subst.fresh_num(NumClass::Float, fspan);
+            let ty = self.subst.fresh_float(fspan);
             if let Some(exp) = expected {
                 let _ = self.subst.unify(&self.c.tables, &ty, exp);
             }

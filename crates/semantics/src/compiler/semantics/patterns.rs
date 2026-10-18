@@ -53,21 +53,20 @@ impl<'a, 'b> Infer<'a, 'b> {
                 raw,
                 ..
             } => {
-                let lit = self.subst.fresh_num(NumClass::Int, span);
-                self.unify_at(span, &lit, &ty, "the scrutinee");
-                self.lit_checks.push(LitCheck {
+                let lit = LitCheck {
                     value,
                     negative,
                     raw,
-                    ty: lit,
                     span,
-                });
+                };
+                let lit = self.subst.fresh_int(lit, span);
+                self.unify_at(span, &lit, &ty, "the scrutinee");
                 typed::PatKind::Int(typed::Magnitude::new(value), negative)
             }
             P::LitFloat {
                 value, negative, ..
             } => {
-                let lit = self.subst.fresh_num(NumClass::Float, span);
+                let lit = self.subst.fresh_float(span);
                 self.unify_at(span, &lit, &ty, "the scrutinee");
                 typed::PatKind::Float(if negative { -value } else { value })
             }
