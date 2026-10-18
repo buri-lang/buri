@@ -27,6 +27,12 @@ pub trait Packages {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct PackageId(u32);
 
+#[cfg(test)]
+impl PackageId {
+    /// A list's first package, for a test that needs an id and no list.
+    pub(crate) const FIRST: PackageId = PackageId(0);
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum RuleKind {
     Library,

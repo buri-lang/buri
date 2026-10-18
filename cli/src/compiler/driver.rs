@@ -559,8 +559,8 @@ pub(crate) fn reach(
         }
         Rule::Binary(bin) => {
             generated(&mut starts);
-            for label in ws.custom_platforms(target) {
-                starts.push((label, Some(Role::Source)));
+            for platform in ws.custom_platforms(target) {
+                starts.push((platform.label, Some(Role::Source)));
             }
             starts.push((pkg.module_path("main.buri"), Some(Role::Entry)));
             listed(&mut starts, &bin.sources, Role::Source);

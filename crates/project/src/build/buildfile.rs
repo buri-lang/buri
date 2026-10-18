@@ -7,6 +7,7 @@
 //! artifact — a typo in a field name is an error, not a silent no-op.
 
 use crate::build::textproto::{self, Document, Message, Value};
+use crate::build::workspace::PackageId;
 use crate::diagnostics::{Diagnostic, FileId, Span};
 
 /// The top level of a `BUILD.buri`, and the top level of a `REPO.buri`.
@@ -308,8 +309,8 @@ impl PlatformRef {
             (PlatformRef::Bundled(p), OutputPlatform::Bundled(built)) => {
                 p.platforms().contains(built)
             }
-            (PlatformRef::Repository(label), OutputPlatform::Repository { label: built, .. }) => {
-                label == built
+            (PlatformRef::Repository(label), OutputPlatform::Repository { platform, .. }) => {
+                *label == platform.label
             }
             _ => false,
         }
@@ -322,7 +323,48 @@ impl PlatformRef {
 #[derive(Clone, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub enum OutputPlatform {
     Bundled(Platform),
-    Repository { label: String, backend: Backend },
+    Repository {
+        platform: RepoPlatform,
+        backend: Backend,
+    },
+}
+
+/// A repository's own platform, a `platform` rule under `//platform/`, as
+/// loading resolved a label to it: its package and its rule.
+///
+/// Equal, ordered and hashed by its label, because a label names one platform.
+#[derive(Clone, Debug)]
+pub struct RepoPlatform {
+    /// `//platform/cloudflare_worker`.
+    pub label: String,
+    pub package: PackageId,
+    pub rule: std::sync::Arc<PlatformRule>,
+}
+
+impl PartialEq for RepoPlatform {
+    fn eq(&self, other: &Self) -> bool {
+        self.label == other.label
+    }
+}
+
+impl Eq for RepoPlatform {}
+
+impl PartialOrd for RepoPlatform {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RepoPlatform {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.label.cmp(&other.label)
+    }
+}
+
+impl std::hash::Hash for RepoPlatform {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.label.hash(state);
+    }
 }
 
 impl OutputPlatform {
@@ -337,7 +379,7 @@ impl OutputPlatform {
     pub fn name(&self) -> &str {
         match self {
             OutputPlatform::Bundled(p) => p.slug(),
-            OutputPlatform::Repository { label, .. } => label,
+            OutputPlatform::Repository { platform, .. } => &platform.label,
         }
     }
 }
@@ -462,15 +504,16 @@ pub struct Output {
     pub span: Span,
 }
 
-/// An output of a repository's own platform, a `platform` rule under
-/// `//platform/`.
+/// An output of a repository's own platform, as written.
 ///
 /// The reader cannot check one: the rule is in another build file. So it keeps
 /// what was written, and the workspace checks it once every build file is
-/// read, filling in `point` and `backend` and turning one output into one per
-/// entry of the platform ([`crate::build::workspace::Workspace::load`]).
+/// read, turning it into one [`Output`] per entry of the platform.
 #[derive(Clone, Debug)]
-pub struct CustomPlatform {
+pub struct WrittenOutput {
+    /// How many of the binary's other outputs were written before it, so the
+    /// outputs it becomes keep their place.
+    pub at: usize,
     /// `//platform/cloudflare_worker`, where it was written.
     pub label: Spanned<String>,
     /// The `variant`, as written.
@@ -478,6 +521,18 @@ pub struct CustomPlatform {
     /// The `entries`, as written: the platform's entry, and the function
     /// filling it.
     pub entries: Vec<WrittenEntry>,
+    pub artifact_name: Option<Spanned<String>>,
+    pub span: Span,
+}
+
+/// An output of a repository's own platform, a `platform` rule under
+/// `//platform/`, for one of the platform's entries.
+#[derive(Clone, Debug)]
+pub struct CustomPlatform {
+    /// `//platform/cloudflare_worker`, where it was written.
+    pub label: Spanned<String>,
+    /// The `variant`, as written.
+    pub variant: Option<Spanned<String>>,
     /// The platform's entry this output builds: `fetch`.
     pub point: String,
     /// The backend that entry is built by.
@@ -485,6 +540,8 @@ pub struct CustomPlatform {
     /// The entry's `js` file, package-relative to the platform, where it has
     /// one.
     pub js: Option<String>,
+    /// The platform the label names.
+    pub platform: RepoPlatform,
 }
 
 impl CustomPlatform {
@@ -562,7 +619,7 @@ impl Output {
     pub fn output_platform(&self) -> OutputPlatform {
         match &self.custom {
             Some(custom) => OutputPlatform::Repository {
-                label: custom.label.value.clone(),
+                platform: custom.platform.clone(),
                 backend: custom.backend,
             },
             None => OutputPlatform::Bundled(self.platform()),
@@ -692,6 +749,9 @@ pub struct Binary {
     pub dependencies: Vec<Spanned<String>>,
     pub tags: Vec<Spanned<String>>,
     pub outputs: Vec<Output>,
+    /// The outputs of a repository's own platforms, which loading the
+    /// repository turns into `outputs`. Empty once it has.
+    pub written: Vec<WrittenOutput>,
     pub test: Option<TestSuite>,
     pub span: Span,
 }
@@ -1696,8 +1756,10 @@ impl Reader {
         out
     }
 
-    fn outputs(&mut self, message: &Message) -> Vec<Output> {
+    /// The outputs as read, and the repository platforms' as written.
+    fn outputs(&mut self, message: &Message) -> (Vec<Output>, Vec<WrittenOutput>) {
         let mut out = Vec::new();
+        let mut written = Vec::new();
         for f in message.all("outputs") {
             let items: Vec<&Value> = match &f.value {
                 Value::List(items, _) => items.iter().collect(),
@@ -1709,16 +1771,22 @@ impl Reader {
                     self.wrong_kind(item.span(), "outputs", "a block", &kind);
                     continue;
                 };
-                if let Some(output) = self.output(m, *span) {
+                if let Some(output) = self.output(m, *span, out.len(), &mut written) {
                     out.push(output);
                 }
             }
         }
-        out
+        (out, written)
     }
 
-    /// One `outputs` entry, or `None` once refused.
-    fn output(&mut self, m: &Message, span: Span) -> Option<Output> {
+    /// One `outputs` entry, or `None` once refused or put in `written`.
+    fn output(
+        &mut self,
+        m: &Message,
+        span: Span,
+        at: usize,
+        written: &mut Vec<WrittenOutput>,
+    ) -> Option<Output> {
         self.check_known(m, textproto::schema_order("outputs"), &[], "an output");
         let artifact_name = self.spanned_string(m, "artifact_name");
         let variant = self.spanned_string(m, "variant");
@@ -1734,21 +1802,15 @@ impl Reader {
         if let Value::Str(label, label_span) = &field.value {
             if label.starts_with("//") {
                 let entries = self.entry_items(m, &[]);
-                let custom = CustomPlatform {
+                written.push(WrittenOutput {
+                    at,
                     label: Spanned::new(label.clone(), *label_span),
                     variant,
                     entries,
-                    point: String::new(),
-                    backend: Backend::Js,
-                    js: None,
-                };
-                return Some(Output {
-                    target: OutputTarget::Js,
                     artifact_name,
-                    entry: None,
-                    custom: Some(custom),
                     span,
                 });
+                return None;
             }
         }
         let platform = self.platform_name(&field.value)?;
@@ -2067,12 +2129,14 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
                     .note(note);
             }
         }
+        let (outputs, written) = reader.outputs(m);
         Binary {
             sources: reader.strings(m, "sources"),
             generators: reader.generators(m),
             dependencies: reader.strings(m, "dependencies"),
             tags: reader.strings(m, "tags"),
-            outputs: reader.outputs(m),
+            outputs,
+            written,
             test: reader.test_suite(m),
             span,
         }
@@ -2390,14 +2454,16 @@ library {
         );
         assert!(read.errors.is_empty(), "{:#?}", read.errors);
         let admits = read.value.library().unwrap().admits.clone();
-        let worker = OutputPlatform::Repository {
-            label: "//platform/worker".into(),
+        let repository = |label: &str| OutputPlatform::Repository {
+            platform: RepoPlatform {
+                label: label.into(),
+                package: crate::build::workspace::PackageId::FIRST,
+                rule: std::sync::Arc::default(),
+            },
             backend: Backend::Js,
         };
-        let other = OutputPlatform::Repository {
-            label: "//platform/other".into(),
-            backend: Backend::Js,
-        };
+        let worker = repository("//platform/worker");
+        let other = repository("//platform/other");
         assert!(admits.admits(&worker));
         assert!(admits.admits(&OutputPlatform::Bundled(Platform::Web)));
         assert!(!admits.admits(&other));

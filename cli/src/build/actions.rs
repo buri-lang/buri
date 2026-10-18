@@ -60,15 +60,18 @@ fn copy_assets(
     output: &Output,
     diagnostics: &mut Diagnostics,
 ) -> bool {
-    let rule = platform_rule(session, output);
+    let rule = platform_rule(output);
     let into = artifact_dir(session, target, output);
     for asset in &rule.assets {
         let destination = into.join(&asset.value);
         crate::build::create_parent(&destination);
         let copied = match &output.custom {
             Some(custom) => {
-                let (pid, _) = session.workspace.platform_rule(&custom.label.value);
-                let source = session.workspace.package(pid).dir.join(&asset.value);
+                let source = session
+                    .workspace
+                    .package(custom.platform.package)
+                    .dir
+                    .join(&asset.value);
                 std::fs::copy(source, &destination).map(|_| ())
             }
             None => std::fs::write(
@@ -91,20 +94,17 @@ fn copy_assets(
 
 /// The rule of the platform an output names: a bundled one's, embedded in the
 /// toolchain, or a repository platform's.
-pub fn platform_rule<'s>(session: &'s Session, output: &Output) -> &'s PlatformRule {
+pub fn platform_rule(output: &Output) -> &PlatformRule {
     match &output.custom {
-        Some(custom) => session.workspace.platform_rule(&custom.label.value).1,
+        Some(custom) => &custom.platform.rule,
         None => crate::build::platforms::bundled(output.platform().bundled()),
     }
 }
 
 /// Whether an output is a page: its platform ships an `index.html` beside
 /// every entry, which `buri run` serves instead of starting the entry.
-pub fn is_page(session: &Session, output: &Output) -> bool {
-    platform_rule(session, output)
-        .assets
-        .iter()
-        .any(|a| a.value == PAGE)
+pub fn is_page(output: &Output) -> bool {
+    platform_rule(output).assets.iter().any(|a| a.value == PAGE)
 }
 
 /// The document `buri run` serves an output's directory by.
@@ -468,8 +468,11 @@ fn host_file(
     };
     let file = match &output.custom {
         Some(custom) => {
-            let (pid, _) = session.workspace.platform_rule(&custom.label.value);
-            let disk = session.workspace.package(pid).dir.join(&js);
+            let disk = session
+                .workspace
+                .package(custom.platform.package)
+                .dir
+                .join(&js);
             let rel = session.workspace.rel_of(&disk);
             match session.map.load(&rel, &disk) {
                 Ok(file) => file,
@@ -598,8 +601,8 @@ fn action_key_as(
     // `platform.buri` and sources, its `js` files and assets, and the
     // libraries it depends on. An edit to any of them is an edit to every
     // output built for it.
-    for label in session.workspace.custom_platforms(target) {
-        contribute_platform(session, &label, &closure, &mut k);
+    for platform in session.workspace.custom_platforms(target) {
+        contribute_platform(session, &platform, &closure, &mut k);
     }
     k.finish()
 }
@@ -639,9 +642,9 @@ fn unkeyed_reads_over(
     let mut members: std::collections::HashSet<TargetId> =
         workspace.closure(target).into_iter().collect();
     let mut extra: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
-    for label in workspace.custom_platforms(target) {
-        let (pid, files, platform_members) = platform_inputs(workspace, &label);
-        let dir = &workspace.package(pid).dir;
+    for platform in workspace.custom_platforms(target) {
+        let (files, platform_members) = platform_inputs(workspace, &platform);
+        let dir = &workspace.package(platform.package).dir;
         extra.extend(files.iter().map(|rel| dir.join(rel)));
         members.extend(platform_members);
     }
@@ -1082,10 +1085,15 @@ pub fn record_clean_share(
 }
 
 /// One repository platform's contribution to a key. See [`action_key`].
-fn contribute_platform(session: &Session, label: &str, closure: &[TargetId], k: &mut KeyBuilder) {
+fn contribute_platform(
+    session: &Session,
+    platform: &crate::build::buildfile::RepoPlatform,
+    closure: &[TargetId],
+    k: &mut KeyBuilder,
+) {
     let workspace = &session.workspace;
-    let (pid, files, members) = platform_inputs(workspace, label);
-    let package = workspace.package(pid);
+    let (files, members) = platform_inputs(workspace, platform);
+    let package = workspace.package(platform.package);
     k.rule_identity(&package.label(), "platform", &files);
     for rel in &files {
         let disk = package.dir.join(rel);
@@ -1106,13 +1114,9 @@ fn contribute_platform(session: &Session, label: &str, closure: &[TargetId], k: 
 /// set can't disagree.
 pub fn platform_inputs(
     workspace: &crate::build::workspace::Workspace,
-    label: &str,
-) -> (
-    crate::build::workspace::PackageId,
-    Vec<String>,
-    Vec<TargetId>,
-) {
-    let (pid, rule) = workspace.platform_rule(label);
+    platform: &crate::build::buildfile::RepoPlatform,
+) -> (Vec<String>, Vec<TargetId>) {
+    let rule = &platform.rule;
     let mut files: Vec<String> = vec![String::from("BUILD.buri"), String::from("platform.buri")];
     files.extend(rule.sources.iter().map(|s| s.value.clone()));
     files.extend(
@@ -1131,7 +1135,7 @@ pub fn platform_inputs(
     }
     members.sort();
     members.dedup();
-    (pid, files, members)
+    (files, members)
 }
 
 /// One target's own contribution to a key: its rule identity, and the contents
@@ -3773,11 +3777,11 @@ fn check_platform_visibility(
     platform: &OutputPlatform,
     diagnostics: &mut Diagnostics,
 ) {
-    let OutputPlatform::Repository { label, .. } = platform else {
+    let OutputPlatform::Repository { platform, .. } = platform else {
         return;
     };
     let ws = &session.workspace;
-    let (pid, rule) = ws.platform_rule(label);
+    let (pid, rule) = (platform.package, &platform.rule);
     let mut edges: Vec<(crate::build::workspace::PackageId, TargetId, Span)> = Vec::new();
     let mut members: Vec<TargetId> = Vec::new();
     for dep in &rule.dependencies {
