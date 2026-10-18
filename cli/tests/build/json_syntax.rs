@@ -18,6 +18,9 @@ const ROWS: &[(&str, &str, Option<&str>)] = &[
     ("json", "{S, \"a\": \"\u{1}\"}", Some("the control character U+0001 must be escaped in a string")),
     ("json", "\u{7}", Some("the control character U+0007 cannot start a JSON value")),
     ("json", "@", Some("`@` cannot start a JSON value")),
+    ("json", "\u{2028}", Some("the line separator U+2028 cannot start a JSON value")),
+    ("json", "\u{2029}", Some("the paragraph separator U+2029 cannot start a JSON value")),
+    ("json", "\u{a0}", Some("the character U+00A0 cannot start a JSON value")),
     ("json", "{S, \"a\": \"x\ny\"}", Some("this string is never closed")),
     ("json", "{S, \"a\": \"abc", Some("this string is never closed")),
     ("json", "{S, \"a\": \"\\", Some("this string is never closed")),
@@ -75,8 +78,8 @@ const ROWS: &[(&str, &str, Option<&str>)] = &[
     ("json", "{S, \"a\": \"\\v\"}", Some("`\\v` is not an escape")),
     ("json", "{S, \"a\": \"\\0\"}", Some("`\\0` is not an escape")),
     ("json", "{S, \"a\": \"\\x41\"}", Some("`\\x` is not an escape")),
-    ("json", "{S, \"a\": \"\\\r\"}", Some("`\\\r` is not an escape")),
-    ("json", "{S, \"a\": \"\\\n\"}", Some("`\\\n` is not an escape")),
+    ("json", "{S, \"a\": \"\\\r\"}", Some("`\\` followed by the control character U+000D is not an escape")),
+    ("json", "{S, \"a\": \"\\\n\"}", Some("`\\` followed by a line feed is not an escape")),
     ("json", "{S, \"a\": -NaN}", Some("`NaN` is JSON5, not JSON")),
 ];
 
