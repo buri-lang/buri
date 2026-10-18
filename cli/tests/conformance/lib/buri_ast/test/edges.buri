@@ -111,6 +111,26 @@ test "a dollar with no brace after it is text, and a u with no brace is an escap
     };
     assert.equal(texts(ctx, "\"a$b\" x"), ["\"a$b\"", "x"]);
     assert.equal(texts(ctx, "'\\u{41}' '\\u' x"), ["'\\u{41}'", "'\\u'", "x"]);
+    // An escape whose brace never closes runs to the end of the text.
+    assert.equal(texts(ctx, "x '\\u{41"), ["x", "'\\u{41"]);
+}
+
+test "a doc line with no space after its marker prints with one" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(printed(ctx, ["///A key.\ntype Id = Int;\n"]), [
+        "/// A key.\ntype Id = Int;\n",
+    ]);
+}
+
+test "an enum with no comma after its last variant prints with one" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(printed(ctx, ["enum E { A, B }\n"]), [
+        "enum E {\n    A,\n    B,\n}\n",
+    ]);
 }
 
 // --- what a string reads as ----------------------------------------------------------
@@ -194,6 +214,17 @@ test "blocks, bare spreads and struct literals print" {
         ]),
         [
             "fn f(): P {\n    P {\n        x: if (a) {\n            1\n        } else if (\n            match (b) {\n                _ => true,\n            }\n        ) {\n            2\n        } else {\n            3\n        },\n    }\n}\n",
+        ],
+    );
+    // A literal passed along breaks where a match in its spread or its head does.
+    assert.equal(
+        printed(ctx, [
+            "fn f(): P {\n    g(P { ..match (a) { _ => p } })\n}\n",
+            "fn f(): P {\n    g(h(match (a) { _ => 1 }) { x: 1 })\n}\n",
+        ]),
+        [
+            "fn f(): P {\n    g(P {\n        ..match (a) {\n            _ => p,\n        },\n    })\n}\n",
+            "fn f(): P {\n    g(h(match (a) {\n        _ => 1,\n    }) {\n        x: 1,\n    })\n}\n",
         ],
     );
 }
