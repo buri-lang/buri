@@ -75,12 +75,12 @@
 //! * **`monomorphize::Func::desc`.** The descriptor a `testing_assert.report`
 //!   or a `json.decode` is handed. No descriptor reaches a native artifact at
 //!   all (VALUE-MODEL.md §9), so it is dropped here and `middle::derives`
-//!   supplies a generated `show`/`decode` at the type instead — the same
-//!   substitution [`ir::Inst::Structural`] stands for.
+//!   supplies a generated `show`/`decode` at the type instead, as it does for
+//!   every structural operation.
 
 use crate::compiler::middle::ir::{
     self, BinOp, BlockId, Body, Code, Const, Facts, Func, Inst, Ownership, Remap, Signature,
-    StructuralOp, Target, Term, Type, TypeId, TypeList, UnOp, ValueId,
+    Target, Term, Type, TypeId, TypeList, UnOp, ValueId,
 };
 use crate::compiler::middle::layout;
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
@@ -268,8 +268,7 @@ fn lower_one(
 }
 
 /// Rewrites a function's local `TypeId`s to the whole-program ones. Covers every
-/// place a `TypeId` reaches the IR: a value's or a signature slot's [`Type`],
-/// and a [`Inst::Structural`]'s type.
+/// place a `TypeId` reaches the IR: a value's or a signature slot's [`Type`].
 fn remap_func_types(func: &mut Func, remap: &Remap) {
     for t in func.sig.params.iter_mut().chain([&mut func.sig.ret]) {
         remap.ty(t);
@@ -773,10 +772,6 @@ impl FnLower<'_> {
             lhs: bit,
             rhs: zero,
         })
-    }
-
-    fn type_id(&mut self, ty: &Ty) -> TypeId {
-        self.types.intern(self.tables, ty)
     }
 
     fn local_type(&mut self, l: LocalId) -> Type {
@@ -1313,7 +1308,9 @@ impl FnLower<'_> {
                     arg,
                 })
             }
-            ExprKind::StructuralEq { args } => self.structural(ty, StructuralOp::Eq, args),
+            ExprKind::StructuralEq { .. } => {
+                crate::diagnostics::ice("`middle::derives` replaced every structural operation")
+            }
             ExprKind::Template { parts } => self.template(ty, parts),
 
             ExprKind::CtxLit { bindings, .. } => {
@@ -1550,39 +1547,11 @@ impl FnLower<'_> {
         })
     }
 
-    fn structural(&mut self, ty: Type, op: StructuralOp, args: &[Expr]) -> ValueId {
-        let at = args.first().map(|a| a.ty).unwrap_or(Ty::UNIT);
-        let at = self.type_id(&at);
-        let args = self.exprs(args);
-        self.emit(ty, |dest| Inst::Structural {
-            dest,
-            op,
-            ty: at,
-            args,
-        })
-    }
-
     /// An operation the runtime supplies.
     ///
-    /// The `structural*` family is the exception: it is emitted with a
-    /// descriptor index as its last argument (`monomorphize.rs:815-840`), and
-    /// natively no descriptor reaches the artifact at all (VALUE-MODEL.md §9).
-    /// So the descriptor is dropped and the operation becomes an
-    /// [`Inst::Structural`] at the type, which `middle::derives` turns into a
-    /// call to the function it generated for that type.
+    /// The `structural*` family never reaches here: `middle::derives` replaced
+    /// each with a call to the function it generated for the type.
     fn intrinsic(&mut self, ty: Type, name: &str, args: &[Expr]) -> ValueId {
-        let structural = match name {
-            "structuralEq" => Some(StructuralOp::Eq),
-            "structuralCompare" => Some(StructuralOp::Cmp),
-            "structuralShow" => Some(StructuralOp::Show),
-            "structuralHash" => Some(StructuralOp::Hash),
-            "structuralToJson" => Some(StructuralOp::ToJson),
-            _ => None,
-        };
-        if let Some(op) = structural {
-            let without_desc = args.split_last().map(|(_, rest)| rest).unwrap_or(&[]);
-            return self.structural(ty, op, without_desc);
-        }
         let key = qualified_key(self.tables, name, args);
         let args = self.exprs(args).into_boxed_slice();
         self.emit(ty, |dest| Inst::CallIntrinsic { dest, key, args })
@@ -1669,19 +1638,22 @@ impl FnLower<'_> {
                 }
                 TemplatePart::Hole(h) => {
                     let v = self.expr(h);
-                    let is_str =
-                        matches!(self.tables.as_prim(&h.ty), Some(Prim::Str | Prim::Template));
-                    if is_str {
-                        rendered.push((v, false));
-                    } else {
-                        let at = self.type_id(&h.ty);
-                        let shown = self.emit(ty, |dest| Inst::Structural {
-                            dest,
-                            op: StructuralOp::Show,
-                            ty: at,
-                            args: vec![v],
-                        });
-                        rendered.push((shown, true));
+                    // `monomorphize` made a compound hole a `structuralShow`
+                    // call, which `derives` routed, so what is left is a `Str`
+                    // or another primitive.
+                    match self.tables.as_prim(&h.ty) {
+                        Some(Prim::Str | Prim::Template) => rendered.push((v, false)),
+                        Some(prim) => {
+                            let shown = self.emit(ty, |dest| Inst::ShowPrim {
+                                dest,
+                                prim,
+                                value: v,
+                            });
+                            rendered.push((shown, true));
+                        }
+                        None => crate::diagnostics::ice(
+                            "`middle::derives` replaced every structural operation",
+                        ),
                     }
                 }
             }
@@ -2237,15 +2209,8 @@ impl FnLower<'_> {
                 lhs: val,
                 rhs: c,
             }),
-            None => {
-                let at = self.type_id(ty);
-                self.emit(Type::I1, |dest| Inst::Structural {
-                    dest,
-                    op: StructuralOp::Eq,
-                    ty: at,
-                    args: vec![val, c],
-                })
-            }
+            // A literal pattern is a primitive's.
+            None => crate::diagnostics::ice("a literal pattern is at a primitive type"),
         };
         let next = self.block(&[]);
         self.set_term(Term::Branch {

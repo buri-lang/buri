@@ -33,10 +33,10 @@
 //! [`Backend::emit`] is handed the **layer-A** program — `monomorphize::Program`
 //! after `middle::run` — and takes it by shared reference. `middle::native`
 //! (`derives`, `closures`, `rc`) needs `&mut`, so this backend cannot run it,
-//! and lowering a tree that has not been through it produces
-//! `ir::Inst::Structural` placeholders and unlifted lambdas. A caller that has
-//! not run `middle::native` therefore gets a diagnostic naming the pass rather
-//! than an object file that is quietly wrong. `actions::prepare` is where the
+//! and lowering a tree that has not been through it meets structural
+//! operations and unlifted lambdas. A caller that has not run `middle::native`
+//! therefore gets a diagnostic naming the pass rather than an object file that
+//! is quietly wrong. `actions::prepare` is where the
 //! composition lives — `middle::run`, then `middle::native` on a native
 //! target — and [`Backend::adopt_lowering`] hands this backend the
 //! `ir::Program` the build already lowered from it.
@@ -179,10 +179,6 @@ impl Backend for Llvm {
     /// toolchain built without one would otherwise meet it as an unresolved
     /// `buri_rt_*` symbol at `cc` time, which is the one failure mode this hook
     /// exists to replace.
-    ///
-    /// A structural operation on a type `middle::derives` did not reach is an
-    /// `ir::Inst::Structural`, which exists only after lowering and is
-    /// therefore not in this program at all.
     fn missing_intrinsics(&self, program: &monomorphize::Program, _tables: &Tables) -> Vec<String> {
         let mut missing: Vec<String> = program
             .funcs

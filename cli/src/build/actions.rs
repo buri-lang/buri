@@ -2303,13 +2303,6 @@ fn collect_types(func: &ir::Func, out: &mut Vec<ir::TypeId>) {
             out.push(agg.id());
         }
     }
-    for block in code.blocks() {
-        for inst in &block.insts {
-            if let ir::Inst::Structural { ty, .. } = inst {
-                out.push(*ty);
-            }
-        }
-    }
 }
 
 /// The objects for one program, from the cache where the cache has them.

@@ -1300,9 +1300,8 @@ fn allowed_leak(path: &str) -> u64 {
 /// **Both halves**, and the second is not optional. `missing_intrinsics`
 /// answers before emission and is where an unimplemented `FuncKind::Intrinsic`
 /// shows up — but a `deriveArray*` is an `ExprKind::Intrinsic` inside a body
-/// `middle::derives` generated, and a structural operation is an
-/// `ir::Inst::Structural` that exists only after lowering, so neither is in the
-/// program that hook is handed. `native/agreement.rs`'s `emitted` says
+/// `middle::derives` generated, so it is not in the program that hook is
+/// handed. `native/agreement.rs`'s `emitted` says
 /// the same thing and asks the same two questions; this used to ask only the
 /// first, and `data/patterns.buri` — refused for `deriveArrayShow` and for
 /// nothing the hook can see — is the file that made the difference visible.

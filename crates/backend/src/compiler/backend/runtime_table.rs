@@ -2141,7 +2141,7 @@ pub const STR_WRITTEN: &str = "buri_rt_str_written";
 // -- rendering: a template hole, and `derivePrimShow` ------------------------
 //
 // These have no intrinsic *key* — a template hole arrives as
-// `ir::Inst::Structural { op: Show }` and `derivePrimShow` arrives with the
+// `ir::Inst::ShowPrim` and `derivePrimShow` arrives with the
 // primitive only in the IR type of its argument — so they are named here rather
 // than in [`ENTRIES`], which is keyed on something neither of them has. Every
 // one writes its `Str` through a trailing out-pointer (`cli/runtime/lib.rs` §2

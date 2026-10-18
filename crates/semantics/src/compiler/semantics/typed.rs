@@ -577,9 +577,8 @@ pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
         | ExprKind::Intrinsic { args, .. }
         // `Continue`'s arguments and `Loop`'s entries are children like any
         // other. A walk that left them out reported a whole loop as one node,
-        // and left a `structuralEq` inside one for `lower` to meet as an
-        // `Inst::Structural`; both were real bugs, in two separate copies of
-        // this match.
+        // and left a `structuralEq` inside one for `lower` to meet; both were
+        // real bugs, in two separate copies of this match.
         | ExprKind::Continue { args, .. }
         | ExprKind::Closure { env: args, .. }
         | ExprKind::Loop { entries: args } => args.iter().for_each(f),
@@ -674,9 +673,8 @@ pub fn children_mut<'a>(e: &'a mut Expr, f: &mut impl FnMut(&'a mut Expr)) {
         | ExprKind::Intrinsic { args, .. }
         // `Continue`'s arguments and `Loop`'s entries are children like any
         // other. A walk that left them out reported a whole loop as one node,
-        // and left a `structuralEq` inside one for `lower` to meet as an
-        // `Inst::Structural`; both were real bugs, in two separate copies of
-        // this match.
+        // and left a `structuralEq` inside one for `lower` to meet; both were
+        // real bugs, in two separate copies of this match.
         | ExprKind::Continue { args, .. }
         | ExprKind::Closure { env: args, .. }
         | ExprKind::Loop { entries: args } => args.iter_mut().for_each(f),

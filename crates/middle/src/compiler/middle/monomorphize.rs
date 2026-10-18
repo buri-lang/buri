@@ -2365,11 +2365,10 @@ impl Monomorphizer<'_> {
     /// of `x.show(ctx)` at a derived impl, context dropped and descriptor
     /// appended. Making the hole that call here rather than in each backend is
     /// what keeps all three agreeing: the JavaScript generator already
-    /// compiles `structuralShow` to `$show(v, d)`, and `middle::lower` already
-    /// turns it into the `Inst::Structural` that `middle::derives` replaces
-    /// with a call to the function it generated for the type. A primitive is
-    /// left alone, because both ends render one from its static type with no
-    /// descriptor and no call at all.
+    /// compiles `structuralShow` to `$show(v, d)`, and `middle::derives`
+    /// replaces it with a call to the function it generated for the type. A
+    /// primitive is left alone, because both ends render one from its static
+    /// type with no descriptor and no call at all.
     fn render_hole(&mut self, h: typed::Expr) -> typed::Expr {
         if self.tables().as_prim(&h.ty).is_some() || h.ty.is_error() {
             return h;
