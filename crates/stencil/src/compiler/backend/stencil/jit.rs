@@ -315,6 +315,8 @@ pub struct HelperSymbol {
 
 pub struct Jit<'a> {
     pub(crate) lib: &'static Library,
+    /// What each intrinsic key the program names is emitted as.
+    pub(crate) routes: &'a super::route::Routes<'a>,
     /// Which machine's fields are being patched.
     ///
     /// The one axis this file has: a stencil's bytes are clang's, so *where* a
@@ -685,6 +687,7 @@ impl<'a> Jit<'a> {
     /// one had not.
     pub(crate) fn new(
         lib: &'static Library,
+        routes: &'a super::route::Routes<'a>,
         tables: &'a Tables,
         frames: &'a Dense<FuncIdx, FrameSig>,
         target: StencilTarget,
@@ -693,6 +696,7 @@ impl<'a> Jit<'a> {
     ) -> Jit<'a> {
         Jit {
             lib,
+            routes,
             target,
             region: Region::new(),
             layouts: scratch.layouts,
@@ -1385,7 +1389,7 @@ impl<'a> Jit<'a> {
             // branch resolution a real body gets. So it is given an empty
             // `Fn2` whose frame is its own signature's and whose scratch is the
             // area `Jit::plan` reserved past the parameters.
-            ir::Body::Runtime(key) => {
+            ir::Body::Runtime(id) => {
                 let mut st = Fn2 {
                     slot: Vec::new(),
                     blk: Vec::new(),
@@ -1400,7 +1404,8 @@ impl<'a> Jit<'a> {
                     uses: Vec::new(),
                 };
                 let base = self.fixups.len();
-                self.runtime_body(prog, fi, key.clone(), &mut st);
+                let route = *self.routes.bodies.get(*id);
+                self.runtime_body(prog, fi, route, &mut st);
                 self.resolve_blocks(base, &st.blk);
             }
         }
@@ -3651,7 +3656,7 @@ fn keeps_callee_frame(i: &ir::Inst) -> bool {
 
 fn is_barrier(i: &ir::Inst) -> bool {
     match i {
-        ir::Inst::CallIntrinsic { key, .. } => &**key != "testing_assert.report",
+        ir::Inst::CallIntrinsic { .. } => true,
         // A comparison of two `Str`s is a *call* — `stencil_str_cmp` — and every
         // stencil that calls uses the zero-register prototype, so nothing may
         // be live in the CPS file across one. Missing this is not a slow

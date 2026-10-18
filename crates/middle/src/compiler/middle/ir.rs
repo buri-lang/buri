@@ -70,7 +70,7 @@
 use std::fmt::{self, Write as _};
 
 use crate::compiler::middle::layout::EnumHead;
-use crate::compiler::semantics::layered::Dense;
+use crate::compiler::semantics::layered::{Dense, DenseId, Mint};
 use crate::compiler::semantics::typed::Magnitude;
 use crate::compiler::semantics::types::{FuncIdx, Prim, Tables, Ty, TyDef, TyKind};
 use crate::diagnostics::{invariant_with, Span};
@@ -116,6 +116,36 @@ ir_id!(
     "One basic block within a function. `BlockId(0)` is the entry."
 );
 ir_id!(TypeId, "One source type, interned in [`Program::types`].");
+ir_id!(
+    IntrinsicId,
+    "One key an [`Inst::CallIntrinsic`] names, interned in [`Program::intrinsics`]."
+);
+ir_id!(
+    RuntimeId,
+    "One key a [`Body::Runtime`] names, interned in [`Program::runtimes`]."
+);
+
+// A key table is a `Dense`, so a backend's table of what each key resolved to
+// is one too, and reading either by an id `lower` minted is total.
+impl DenseId for IntrinsicId {
+    fn from_index(i: usize, _: Mint) -> Self {
+        IntrinsicId::at(i)
+    }
+
+    fn to_index(self) -> usize {
+        self.index()
+    }
+}
+
+impl DenseId for RuntimeId {
+    fn from_index(i: usize, _: Mint) -> Self {
+        RuntimeId::at(i)
+    }
+
+    fn to_index(self) -> usize {
+        self.index()
+    }
+}
 
 /// A struct, tuple, context or `Str`: fields at offsets, and no tag.
 ///
@@ -638,12 +668,13 @@ pub enum Inst {
     /// An operation the runtime supplies, by intrinsic key — `str.concat`,
     /// `host.HostFileSystem.readFile`. One symbol each (VALUE-MODEL.md §10).
     ///
-    /// The key and the arguments are boxed slices rather than a `String` and
-    /// a `Vec`, which keeps this variant inside the 40 bytes every other
-    /// instruction fits in.
+    /// The key is an id into [`Program::intrinsics`], which is what lets a
+    /// backend resolve every key once, before it emits, into a table this id
+    /// reads. The arguments are a boxed slice rather than a `Vec`, which keeps
+    /// this variant inside the 40 bytes every other instruction fits in.
     CallIntrinsic {
         dest: ValueId,
-        key: Box<str>,
+        key: IntrinsicId,
         args: Box<[ValueId]>,
     },
     /// A template hole's primitive as a `Str`, the way `runtime.js`'s `$str`
@@ -939,9 +970,9 @@ pub struct Facts {
 /// at the far end of a `return 0`.
 pub enum Body {
     Code(Code),
-    /// An intrinsic key. The backend declares an import and defines nothing
-    /// (VALUE-MODEL.md §10).
-    Runtime(String),
+    /// An intrinsic key, by its id in [`Program::runtimes`]. The backend
+    /// declares an import and defines nothing (VALUE-MODEL.md §10).
+    Runtime(RuntimeId),
 }
 
 /// The blocks of one function, and the type of every value in it.
@@ -1037,6 +1068,17 @@ impl Code {
     pub fn remap_types(&mut self, remap: &Remap) {
         for ty in &mut self.values {
             remap.ty(ty);
+        }
+    }
+
+    /// Rewrites every [`IntrinsicId`] this code holds through `remap`, which
+    /// maps a function's own key table onto the program's, as
+    /// [`Code::remap_types`] does for its types.
+    pub fn remap_intrinsics(&mut self, remap: &Dense<IntrinsicId, IntrinsicId>) {
+        for inst in self.blocks.iter_mut().flat_map(|b| b.insts.iter_mut()) {
+            if let Inst::CallIntrinsic { key, .. } = inst {
+                *key = *remap.get(*key);
+            }
         }
     }
 
@@ -1235,9 +1277,10 @@ impl Func {
         }
     }
 
-    pub fn intrinsic_key(&self) -> Option<&str> {
+    /// The runtime key this function's body is, where it is one.
+    pub fn runtime(&self) -> Option<RuntimeId> {
         match &self.body {
-            Body::Runtime(k) => Some(k),
+            Body::Runtime(k) => Some(*k),
             Body::Code(_) => None,
         }
     }
@@ -1281,9 +1324,31 @@ pub struct Program {
     /// one. Empty for every program with no signals, and for every program the
     /// JavaScript backend compiles: `middle::run` does not run `derives`.
     pub cell_equal: HashMap<Ty, FuncIdx>,
+    /// Every key an [`Inst::CallIntrinsic`] names, once each.
+    pub intrinsics: Dense<IntrinsicId, Box<str>>,
+    /// Every key a [`Body::Runtime`] names, once each. A table of its own
+    /// rather than [`Program::intrinsics`] because a backend answers the two
+    /// differently: a call is emitted where it stands, and a runtime body is a
+    /// function.
+    pub runtimes: Dense<RuntimeId, Box<str>>,
 }
 
 impl Program {
+    /// The key an [`Inst::CallIntrinsic`] names.
+    pub fn intrinsic(&self, id: IntrinsicId) -> &str {
+        self.intrinsics.get(id)
+    }
+
+    /// The key a [`Body::Runtime`] names.
+    pub fn runtime(&self, id: RuntimeId) -> &str {
+        self.runtimes.get(id)
+    }
+
+    /// The runtime key a function's body is, where it is one.
+    pub fn runtime_key(&self, func: &Func) -> Option<&str> {
+        func.runtime().map(|id| self.runtime(id))
+    }
+
     pub fn type_info(&self, id: TypeId) -> &TypeInfo {
         self.types.get(id)
     }
@@ -1692,8 +1757,8 @@ impl Program {
         out.push_str(" -> ");
         self.ty_into(func.sig.ret, out);
         let code = match &func.body {
-            Body::Runtime(key) => {
-                let _ = writeln!(out, " = runtime {key:?}");
+            Body::Runtime(id) => {
+                let _ = writeln!(out, " = runtime {:?}", self.runtime(*id));
                 return;
             }
             Body::Code(c) => c,
@@ -1925,7 +1990,7 @@ impl Program {
             }
             Inst::CallIntrinsic { dest: d, key, args } => {
                 dest(out, d);
-                let _ = write!(out, "intrinsic {key:?}");
+                let _ = write!(out, "intrinsic {:?}", self.intrinsic(*key));
                 wrapped(out, args);
             }
             Inst::ShowPrim {
@@ -2138,6 +2203,8 @@ mod tests {
             types: TypeList::default(),
             crosses_tasks: false,
             cell_equal: HashMap::default(),
+            intrinsics: Dense::default(),
+            runtimes: Dense::default(),
         }
     }
 

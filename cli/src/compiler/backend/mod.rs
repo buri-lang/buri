@@ -49,6 +49,7 @@ pub mod stencil {
 }
 
 use crate::build::buildfile::Platform;
+use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::Program;
 use crate::compiler::semantics::types::Tables;
 use crate::diagnostics::Diagnostics;
@@ -106,22 +107,29 @@ impl<B: Backend> Backend for WithRuntime<B> {
         self.0.emit(program, tables, opts)
     }
 
+    fn forks_read_shared_mask(&self) -> bool {
+        self.0.forks_read_shared_mask()
+    }
+}
+
+impl<B: Native> Native for WithRuntime<B> {
+    type Routes<'p> = B::Routes<'p>;
+
+    fn resolve<'p>(&self, lowered: &'p ir::Program) -> Result<B::Routes<'p>, Vec<String>> {
+        self.0.resolve(lowered)
+    }
+
     fn emit_units(
         &mut self,
         program: &Program,
         tables: &Tables,
         opts: &Options<'_>,
+        lowered: &ir::Program,
+        routes: &B::Routes<'_>,
         units: Units<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
-        self.0.emit_units(program, tables, opts, units)
-    }
-
-    fn adopt_lowering(&mut self, lowered: crate::compiler::middle::ir::Program) {
-        self.0.adopt_lowering(lowered);
-    }
-
-    fn forks_read_shared_mask(&self) -> bool {
-        self.0.forks_read_shared_mask()
+        self.0
+            .emit_units(program, tables, opts, lowered, routes, units)
     }
 }
 
@@ -204,28 +212,120 @@ pub fn split_cryptography(missing: &[String]) -> (Vec<String>, Vec<String>) {
 /// the compiler was installed is the same class of bug as an unpinned
 /// toolchain.
 pub fn select(target: Target, profile: Profile) -> Result<Box<dyn Backend>, String> {
-    match (target.platform, profile) {
+    match target.platform {
         // `Web` joins `Js` here because the question this match asks is
         // "which backend emits this artifact", and a page is JavaScript.
-        (Platform::Js | Platform::Web, _) => Ok(Box::new(js::Js)),
+        Platform::Js | Platform::Web => Ok(Box::new(js::Js)),
+        Platform::Linux | Platform::Macos => native(target, profile).map(NativeBackend::boxed),
+    }
+}
+
+/// The backend [`select`] answers for a native target, as its own type rather
+/// than as a `dyn Backend`: what a native backend resolves an intrinsic key to
+/// is a type of that backend's own ([`Native::Routes`]).
+pub enum NativeBackend {
+    #[cfg(feature = "backend-stencil")]
+    Stencil(stencil::Stencil),
+    #[cfg(feature = "backend-llvm")]
+    Llvm(llvm::Llvm),
+}
+
+impl NativeBackend {
+    fn boxed(self) -> Box<dyn Backend> {
+        match self {
+            #[cfg(feature = "backend-stencil")]
+            NativeBackend::Stencil(b) => Box::new(b),
+            #[cfg(feature = "backend-llvm")]
+            NativeBackend::Llvm(b) => Box::new(b),
+        }
+    }
+
+    /// This backend, with every key `lowered` names resolved — or its name and
+    /// every key it has no route for.
+    pub fn resolve<'p>(
+        self,
+        lowered: &'p ir::Program,
+    ) -> Result<Box<dyn Ready + 'p>, (&'static str, Vec<String>)> {
+        match self {
+            #[cfg(feature = "backend-stencil")]
+            NativeBackend::Stencil(b) => ready(b, lowered),
+            #[cfg(feature = "backend-llvm")]
+            NativeBackend::Llvm(b) => ready(b, lowered),
+        }
+    }
+}
+
+/// A native backend whose routes for one lowered program are resolved, so its
+/// emission is total.
+pub trait Ready {
+    fn backend(&self) -> &dyn Backend;
+
+    /// [`Native::emit_units`], from the lowered program and routes this holds.
+    fn emit_units(
+        &mut self,
+        program: &Program,
+        tables: &Tables,
+        opts: &Options<'_>,
+        units: Units<'_>,
+    ) -> Result<Vec<Emitted>, Diagnostics>;
+}
+
+struct Resolved<'p, B: Native> {
+    backend: B,
+    lowered: &'p ir::Program,
+    routes: B::Routes<'p>,
+}
+
+impl<B: Native> Ready for Resolved<'_, B> {
+    fn backend(&self) -> &dyn Backend {
+        &self.backend
+    }
+
+    fn emit_units(
+        &mut self,
+        program: &Program,
+        tables: &Tables,
+        opts: &Options<'_>,
+        units: Units<'_>,
+    ) -> Result<Vec<Emitted>, Diagnostics> {
+        self.backend
+            .emit_units(program, tables, opts, self.lowered, &self.routes, units)
+    }
+}
+
+fn ready<'p, B: Native + 'p>(
+    backend: B,
+    lowered: &'p ir::Program,
+) -> Result<Box<dyn Ready + 'p>, (&'static str, Vec<String>)> {
+    match backend.resolve(lowered) {
+        Ok(routes) => Ok(Box::new(Resolved {
+            backend,
+            lowered,
+            routes,
+        })),
+        Err(keys) => Err((backend.name(), keys)),
+    }
+}
+
+/// [`select`]'s native rows: the target is `linux` or `macos`.
+pub fn native(target: Target, profile: Profile) -> Result<NativeBackend, String> {
+    match profile {
         #[cfg(feature = "backend-stencil")]
-        (Platform::Linux | Platform::Macos, Profile::Debug) => match stencil::supported(target) {
-            Ok(_) => Ok(Box::new(stencil::Stencil::default())),
+        Profile::Debug => match stencil::supported(target) {
+            Ok(_) => Ok(NativeBackend::Stencil(stencil::Stencil::default())),
             Err(why) => Err(no_development_backend(target, &why)),
         },
         // Gated the other way, not left as a fallback: with the feature on the
         // arm above is total for a native debug build, and an arm nothing can
         // reach is a warning rather than a safety net.
         #[cfg(not(feature = "backend-stencil"))]
-        (_, Profile::Debug) => Err(no_development_code_generator()),
+        Profile::Debug => Err(no_development_code_generator()),
         #[cfg(feature = "backend-llvm")]
-        (Platform::Linux | Platform::Macos, Profile::Release) => {
-            Ok(Box::new(llvm::Llvm::default()))
-        }
+        Profile::Release => Ok(NativeBackend::Llvm(llvm::Llvm::default())),
         // Gated the other way for the same reason the debug arm above is: with
         // the feature on the arm above is total for a native release build.
         #[cfg(not(feature = "backend-llvm"))]
-        (_, Profile::Release) => Err(no_optimizing_backend()),
+        Profile::Release => Err(no_optimizing_backend()),
     }
 }
 

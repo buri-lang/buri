@@ -161,12 +161,15 @@ pub mod lists;
 mod names;
 pub mod object;
 pub mod region;
+pub mod route;
 pub mod rtcall;
 pub mod runtime;
 
 use crate::build::buildfile::{Arch, Platform};
 use crate::compiler::backend::task_thread;
-use crate::compiler::backend::{Backend, Emitted, Options, Target, Units};
+use crate::compiler::backend::{
+    no_implementation, Backend, Emitted, Native, Options, Target, Units,
+};
 use crate::compiler::middle::layout::{EnumRepr, Layouts};
 use crate::compiler::middle::monomorphize::{Program, ProgramRoots};
 use crate::compiler::middle::{ir, lower};
@@ -310,14 +313,8 @@ fn load(t: abi::StencilTarget) -> Result<&'static library::Library, String> {
 }
 
 /// The copy-and-patch backend.
-///
-/// The one field is [`Backend::adopt_lowering`]'s: the IR the build already
-/// lowered for this program, held until the next emission takes it. Empty is
-/// the ordinary state and means "lower it here".
 #[derive(Default)]
-pub struct Stencil {
-    adopted: Option<ir::Program>,
-}
+pub struct Stencil;
 
 impl Backend for Stencil {
     fn name(&self) -> &'static str {
@@ -398,11 +395,21 @@ impl Backend for Stencil {
         tables: &Tables,
         opts: &Options<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
-        self.emit_units(program, tables, opts, Units::All)
+        let lowered = lower::run(program, tables);
+        let routes = self.resolve(&lowered).map_err(|keys| {
+            let mut diags = Diagnostics::new();
+            diags.push(no_implementation(self.name(), &keys));
+            diags
+        })?;
+        self.emit_units(program, tables, opts, &lowered, &routes, Units::All)
     }
+}
 
-    fn adopt_lowering(&mut self, lowered: ir::Program) {
-        self.adopted = Some(lowered);
+impl Native for Stencil {
+    type Routes<'p> = route::Routes<'p>;
+
+    fn resolve<'p>(&self, lowered: &'p ir::Program) -> Result<route::Routes<'p>, Vec<String>> {
+        route::Routes::of(lowered)
     }
 
     /// One object per codegen unit, which is the granularity
@@ -417,6 +424,8 @@ impl Backend for Stencil {
         program: &Program,
         tables: &Tables,
         opts: &Options<'_>,
+        lowered: &ir::Program,
+        routes: &route::Routes<'_>,
         units: Units<'_>,
     ) -> Result<Vec<Emitted>, Diagnostics> {
         let target = match supported(opts.target) {
@@ -427,22 +436,8 @@ impl Backend for Stencil {
             Ok(l) => l,
             Err(e) => return Err(one(e)),
         };
-        // `take`, not `clone`: a lowering is adopted for one emission, so a
-        // second call with a different program lowers for itself rather than
-        // reusing the first one's IR.
-        let lowered = match self.adopted.take() {
-            Some(lowered) => {
-                debug_assert_eq!(
-                    lowered.funcs.len(),
-                    program.funcs.len(),
-                    "an adopted lowering must be this program's"
-                );
-                lowered
-            }
-            None => lower::run(program, tables),
-        };
         if cfg!(debug_assertions) {
-            ir::verify(&lowered);
+            ir::verify(lowered);
         }
         let root = match &program.roots {
             ProgramRoots::Main(idx) => Root::Main(*idx),
@@ -458,15 +453,16 @@ impl Backend for Stencil {
         // lines and 367 units. This is the same place `lower::run` above is,
         // for the same reason.
         let cycles = std::sync::Arc::new(crate::compiler::middle::layout::Cycles::new(tables));
-        let frames = jit::frame_sigs(&lowered, tables, std::sync::Arc::clone(&cycles));
+        let frames = jit::frame_sigs(lowered, tables, std::sync::Arc::clone(&cycles));
         let whole = Whole {
             lib,
-            program: &lowered,
+            program: lowered,
+            routes,
             tables,
             frames: &frames,
             root: &root,
             target,
-            shares: runtime::shares_counts(&lowered),
+            shares: runtime::shares_counts(lowered),
         };
         let wanted: Vec<usize> = (0..lowered.units.len())
             .filter(|i| units.wants(u32::try_from(*i).unwrap_or(0)))
@@ -655,6 +651,7 @@ fn thread_door(
 struct Whole<'a> {
     lib: &'static library::Library,
     program: &'a ir::Program,
+    routes: &'a route::Routes<'a>,
     tables: &'a Tables,
     frames: &'a Dense<FuncIdx, jit::FrameSig>,
     root: &'a Root,
@@ -799,13 +796,14 @@ fn emit_part<'a>(
     let Whole {
         lib,
         program,
+        routes,
         tables,
         frames,
         target,
         shares,
         ..
     } = *w;
-    let mut j = jit::Jit::new(lib, tables, frames, target, scratch, part);
+    let mut j = jit::Jit::new(lib, routes, tables, frames, target, scratch, part);
     j.shares = shares;
     j.compile_part(program, members);
     let entries: Vec<u64> = members.iter().map(|i| j.entry_of(*i)).collect();

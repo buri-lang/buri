@@ -25,8 +25,7 @@
 use super::abi::Loc;
 use super::jit::KeyArg;
 use crate::compiler::backend::intrinsic_keys::{
-    checked_kind, conversion_target, derive_key, json_arm, json_variant, native_body, number_key,
-    CheckedKind, JsonArm, Leaf,
+    checked_kind, json_arm, json_variant, native_body, CheckedKind, JsonArm, Leaf,
 };
 use crate::compiler::semantics::types::{field_types, variant_types};
 
@@ -38,6 +37,7 @@ enum RSrc {
 }
 use super::glue::Helper;
 use super::jit::{agg_of, copyless_test, enum_ty, fn_ty, Fn2, Jit, Plan, RET, V};
+use super::route;
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
 use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
@@ -111,26 +111,6 @@ pub fn prim_tag(p: Prim) -> Option<(&'static str, u32, bool)> {
 /// The runtime hash of an integer or a `Bool` in the frame slot at `v`, and
 /// the words it is handed. Up to 32 bits, `$mix` reads the low word, which a
 /// slot holds zero-extended at its own width; wider, every word goes across.
-/// The stencil table's name for an arithmetic operation, given the method's.
-///
-/// The two spellings are deliberately different. A stencil is named after the
-/// **C operator** it wraps — `bin/sub/i64/ff/f` is `a - b` — and `core/number`
-/// names its methods after the word: `subtract`, `multiply`, `divide`,
-/// `remainder`, `negate`, `equal`. An `op` read out of an intrinsic key is the
-/// method's spelling, so it is translated here rather than at the place that
-/// builds a stencil key from one.
-fn stencil_op(op: &str) -> &str {
-    match op {
-        "subtract" => "sub",
-        "multiply" => "mul",
-        "divide" => "div",
-        "remainder" => "rem",
-        "negate" => "neg",
-        "equal" => "eq",
-        other => other,
-    }
-}
-
 // `Fn2::constants` and `Fn2::wt` are `Jit::plan`'s side tables and carry one
 // entry per value of the `ir::Code` being emitted, exactly as `Fn2::slot` —
 // which is why `Fn2::at` reads its own with the same fallback. An index past
@@ -345,7 +325,8 @@ impl<'a> Jit<'a> {
                 self.call_indirect(prog, code, st, *dest, *callee, args)
             }
             Inst::CallIntrinsic { dest, key, args } => {
-                self.intrinsic(prog, code, st, *dest, key, args)
+                let route = *self.routes.calls.get(*key);
+                self.intrinsic(prog, code, st, *dest, route, args)
             }
             Inst::MakeStruct { dest, fields } => {
                 let d = st.at(*dest);
@@ -1263,8 +1244,7 @@ impl<'a> Jit<'a> {
         func: FuncIdx,
         args: &[ir::ValueId],
     ) {
-        if let ir::Body::Runtime(key) = &prog.funcs.get(func).body {
-            let key = key.clone();
+        if let ir::Body::Runtime(id) = &prog.funcs.get(func).body {
             // The archive boundary, **emitted here rather than called**, which
             // is every backend's first act at a `Body::Runtime` call.
             //
@@ -1290,7 +1270,7 @@ impl<'a> Jit<'a> {
             // A key with no row in `runtime.rs`'s table is `str.length`,
             // `number.<T>.<op>` and the rest, whose bodies `runtime_body`
             // generates from the signature; those are called.
-            if let Some(entry) = super::runtime::entry(&key) {
+            if let route::Body::Row(entry) = *self.routes.bodies.get(*id) {
                 let list: Vec<(u32, ir::Type)> =
                     args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
                 let dest = (st.at(dest), code.ty_of(dest));
@@ -1373,13 +1353,13 @@ impl<'a> Jit<'a> {
         code: &ir::Code,
         st: &mut Fn2,
         dest: ir::ValueId,
-        key: &str,
+        route: route::Call,
         args: &[ir::ValueId],
     ) {
         let scr = st.scratch;
         let d = st.at(dest);
         let arg = |st: &Fn2, i: usize| -> u32 { args.get(i).map(|v| st.at(*v)).unwrap_or(0) };
-        match key {
+        match route {
             // A failed assertion is an abort, and the kind is what makes it
             // attributable (`cli/runtime/testing.rs`). Both are the shape
             // `llvm/emit.rs` emits, symbol for symbol, because what `buri test`
@@ -1389,7 +1369,7 @@ impl<'a> Jit<'a> {
             // `failExpected<T, R>(kind, got): R` answers the bottom type: the
             // call does not come back, and the destination the IR gives it is
             // unreachable.
-            "testing_assert.failExpectedShown" => {
+            route::Call::FailExpectedShown => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
                 let (vp, vl) = self.str_arg(arg(st, 1), scr + 8);
                 self.c_call(
@@ -1401,7 +1381,7 @@ impl<'a> Jit<'a> {
                     "v",
                 );
             }
-            "testing_assert.reportShown" => {
+            route::Call::ReportShown => {
                 let (kp, kl) = self.str_arg(arg(st, 0), scr);
                 let (ap, al) = self.str_arg(arg(st, 1), scr + 8);
                 let (ep, el) = self.str_arg(arg(st, 2), scr + 16);
@@ -1417,28 +1397,25 @@ impl<'a> Jit<'a> {
             // `str.concat` is a runtime call with no table row, so its
             // arguments are narrowed here rather than flattened: the two
             // `Str`s and nothing else (`rtcall.rs`'s `str_concat`).
-            "str.concat" => {
+            route::Call::Concat => {
                 let strs = Self::concat_strs(args.len()).map(|i| arg(st, i));
                 self.str_concat(st, strs, d);
             }
             // `middle::derives` names each leaf by its primitive's type.
-            _ => match (derive_key(key), args) {
-                (Some((Leaf::Hash, prim)), _) => {
-                    self.hash_prim(st, prim, arg(st, 0), arg(st, 1), d);
-                }
-                (Some((Leaf::Show, prim)), _) => self.show_prim(st, prim, arg(st, 0), d, true),
-                (Some((Leaf::Json, prim)), [a, ..]) => {
-                    self.json_prim(prog, code, st, prim, *a, dest)
-                }
-                // `middle` writes every other key itself, and each has a row.
-                _ => {
-                    let entry = super::runtime::entry(key)
-                        .or_ice("an intrinsic key middle writes has a runtime row");
-                    let list: Vec<(u32, ir::Type)> =
-                        args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
-                    self.rt_call(prog, st, entry, (d, code.ty_of(dest)), &list);
-                }
-            },
+            route::Call::Derive(Leaf::Hash, prim) => {
+                self.hash_prim(st, prim, arg(st, 0), arg(st, 1), d);
+            }
+            route::Call::Derive(Leaf::Show, prim) => self.show_prim(st, prim, arg(st, 0), d, true),
+            route::Call::Derive(Leaf::Json, prim) => {
+                let value = args.first().copied().unwrap_or(dest);
+                self.json_prim(prog, code, st, prim, value, dest)
+            }
+            // `middle` writes every other key itself, and each has a row.
+            route::Call::Row(entry) => {
+                let list: Vec<(u32, ir::Type)> =
+                    args.iter().map(|a| (st.at(*a), code.ty_of(*a))).collect();
+                self.rt_call(prog, st, entry, (d, code.ty_of(dest)), &list);
+            }
         }
     }
 
@@ -1955,106 +1932,144 @@ impl<'a> Jit<'a> {
         &mut self,
         prog: &ir::Program,
         fi: FuncIdx,
-        key: String,
+        route: route::Body<'_>,
         st: &mut Fn2,
     ) {
         let fs = self.frame_sig_of(fi);
         let ret0 = RET;
         let p = |i: usize| fs.params.get(i).copied().unwrap_or(0);
 
-        // `core/alloc`'s `copyOut(value)`: the value, and then every counted
-        // block inside it, copied. The type is the signature's — this function
-        // is one of `middle::monomorphize`'s instantiations, so the erasure the
-        // key suffers is repaired by the *body* being generated here, where the
-        // instantiation is known (`GENERIC_INTRINSICS`).
-        if key == "alloc.copyOut" {
-            let arg = prog
-                .funcs
-                .get(fi)
-                .sig
-                .params
-                .first()
-                .copied()
-                .and_then(|t| source_ty(prog, t));
-            match arg {
-                Some(ty) => {
-                    let size = self.layouts_of(ty).size;
-                    self.mv(ret0, p(0), size);
-                    if self.rc_counted(&ty) {
-                        self.walk_rc(st, &ty, ret0, Op::Copy, 0);
+        match route {
+            // `core/alloc`'s `copyOut(value)`: the value, and then every
+            // counted block inside it, copied. The type is the signature's —
+            // this function is one of `middle::monomorphize`'s instantiations,
+            // so the erasure the key suffers is repaired by the *body* being
+            // generated here, where the instantiation is known
+            // (`GENERIC_INTRINSICS`).
+            route::Body::CopyOut => {
+                let arg = prog
+                    .funcs
+                    .get(fi)
+                    .sig
+                    .params
+                    .first()
+                    .copied()
+                    .and_then(|t| source_ty(prog, t));
+                match arg {
+                    Some(ty) => {
+                        let size = self.layouts_of(ty).size;
+                        self.mv(ret0, p(0), size);
+                        if self.rc_counted(&ty) {
+                            self.walk_rc(st, &ty, ret0, Op::Copy, 0);
+                        }
+                    }
+                    // A scalar or a unit: the move above is the whole copy,
+                    // and there is no source type to walk.
+                    None => {
+                        let size = prog
+                            .funcs
+                            .get(fi)
+                            .sig
+                            .params
+                            .first()
+                            .map_or(0, |t| self.width_of(prog, *t));
+                        self.mv(ret0, p(0), size);
                     }
                 }
-                // A scalar or a unit: the move above is the whole copy, and
-                // there is no source type to walk.
-                None => {
-                    let size = prog
-                        .funcs
-                        .get(fi)
-                        .sig
-                        .params
-                        .first()
-                        .map_or(0, |t| self.width_of(prog, *t));
-                    self.mv(ret0, p(0), size);
-                }
             }
-            self.emit("ret", &[]);
-            return;
-        }
-        // `failExpected(kind, got)` where `got` has no `Show`: the abort names
-        // the kind alone. Where it has one, `hand_written.rs` writes a body that
-        // reaches `failExpectedShown` as an `Inst::CallIntrinsic`, as `report`'s
-        // reaches `reportShown`.
-        if key == "testing_assert.failExpected" {
-            let (kp, kl) = self.str_arg(p(0), fs.param_end);
-            self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v");
-            self.emit("ret", &[]);
-            return;
-        }
-        if key == "testing_assert.failWith" {
-            let (kp, kl) = self.str_arg(p(0), fs.param_end);
-            self.c_call(runtime::ABORT, st, &[kp, kl], &[], 0, "v");
-            self.emit("ret", &[]);
-            return;
-        }
-        // `number.<T>.<op>`, which the native backends open-code.
-        if let Some((prim, op)) = number_key(&key) {
-            if op == "show" {
-                self.show_prim(st, prim, p(0), ret0, true);
-                self.emit("ret", &[]);
-                return;
+            // `failExpected(kind, got)` where `got` has no `Show`: the abort
+            // names the kind alone. Where it has one, `hand_written.rs` writes
+            // a body that reaches `failExpectedShown` as an
+            // `Inst::CallIntrinsic`, as `report`'s reaches `reportShown`.
+            route::Body::FailExpected => {
+                let (kp, kl) = self.str_arg(p(0), fs.param_end);
+                self.c_call(runtime::ABORT_ASSERT, st, &[kp, kl], &[], 0, "v");
             }
-            // `Bounded::minValue` and `Bounded::maxValue`. The type comes
-            // from the key — `middle::lower`'s `bounded_key` puts it there,
-            // because the methods take no argument and the IR type of the
-            // result has lost the signedness that separates `0` from
-            // `-128`. The bounds are the **type's**, not JavaScript's
-            // exactly-representable ones: `exact_int_range` is the
-            // JavaScript backend's business alone.
-            if matches!(op, "minValue" | "maxValue") {
-                let low = op == "minValue";
-                match bound_pattern(prim, low) {
-                    Some(bits) => {
-                        self.imm_num(ret0, prim, bits);
-                        self.emit("ret", &[]);
-                    }
-                    None => crate::diagnostics::ice(&format!("stencil: Body::Runtime {key}")),
-                }
-                return;
+            route::Body::FailWith => {
+                let (kp, kl) = self.str_arg(p(0), fs.param_end);
+                self.c_call(runtime::ABORT, st, &[kp, kl], &[], 0, "v");
             }
+            // `number.<T>.<op>`, which the native backends open-code.
+            route::Body::Number(prim, op) => self.number_body(prog, fi, st, prim, op),
+            route::Body::Row(entry) => self.runtime_intrinsic(prog, fi, entry, fs, st),
+            // `str.length` is the number of Unicode scalar values
+            // (VALUE-MODEL.md §3.1), which `cli/runtime/text.rs` answers for
+            // both the ASCII and the multibyte case. Not in the table because
+            // it has no `Ret` shape of its own: the count comes straight back
+            // in a register.
+            route::Body::StrLength => {
+                let (sp, sl) = self.str_arg(p(0), fs.param_end);
+                self.c_call(runtime::STR_SCALAR_LEN, st, &[sp, sl], &[], ret0, "i");
+            }
+            // The test allocator, as a runtime-supplied body rather than as an
+            // intrinsic call: `alloc` reads no state, so the handle is zero and
+            // `allocate` answers the request.
+            route::Body::Alloc => self.imm_to(ret0, 0),
+            route::Body::Allocate => self.mv(ret0, p(1), 8),
+            route::Body::ListLength => self.mv(ret0, p(0) + 8, 8),
+            // `str.format(ctx, s)` answers its last argument — the template
+            // has already been built by `str.concat` — and is `llvm/emit.rs`'s
+            // arm exactly: three words copied, and **a count taken**, because
+            // the copy is a second name for one block rather than a second
+            // reference to it, and without the retain the second drop is a
+            // double free.
+            route::Body::StrFormat => {
+                let last = fs.params.last().copied().unwrap_or(0);
+                self.mv(ret0, last, 24);
+                self.incref(ret0);
+            }
+            route::Body::ListEmpty => {
+                self.imm_to(ret0, 0);
+                self.imm_to(ret0 + 8, 0);
+            }
+            // The surfaces this backend open-codes, which reach it as a call
+            // to the `Body::Runtime` function whose body this is.
+            route::Body::PrimTrait(prim, op) => {
+                let ret_tag = self.ret_tag(prog, fi);
+                self.prim_trait_at(st, prim, op, ret0, p(0), p(1), ret_tag);
+            }
+            route::Body::Bits {
+                stem,
+                width,
+                counted,
+            } => self.bits_at(st, stem, width, counted, ret0, p(0), p(1)),
+            route::Body::Concat => {
+                let argc = prog.funcs.get(fi).sig.params.len();
+                self.str_concat(st, Self::concat_strs(argc).map(p), ret0);
+            }
+        }
+        self.emit("ret", &[]);
+    }
+
+    /// A `number.<T>.<op>` body, short of its `ret`.
+    fn number_body(
+        &mut self,
+        prog: &ir::Program,
+        fi: FuncIdx,
+        st: &mut Fn2,
+        prim: Prim,
+        op: route::Number<'_>,
+    ) {
+        let fs = self.frame_sig_of(fi);
+        let ret0 = RET;
+        let p = |i: usize| fs.params.get(i).copied().unwrap_or(0);
+        match op {
+            route::Number::Show => self.show_prim(st, prim, p(0), ret0, true),
+            // `Bounded::minValue` and `Bounded::maxValue`. The type comes from
+            // the key — `middle::lower`'s `bounded_key` puts it there, because
+            // the methods take no argument and the IR type of the result has
+            // lost the signedness that separates `0` from `-128`. The bounds
+            // are the **type's**, not JavaScript's exactly-representable ones:
+            // `exact_int_range` is the JavaScript backend's business alone.
+            route::Number::Bound(bits) => self.imm_num(ret0, prim, bits),
             // A conversion is named by its target: `toU8`, `wrapToI32`,
             // `toChar`. Between two integers it is a truncation and a
-            // re-widening, because a frame slot holds an integer
-            // zero-extended at its own width — so the source is
-            // sign-extended first where it is signed, and masked to the
-            // target's width after.
-            let to = if op == "toChar" {
-                Some(Prim::Char)
-            } else {
-                conversion_target(op)
-            };
-            if let Some(to) = to {
-                // An **aggregate** result is the whole of the test, and it
-                // is the same one `llvm/emit.rs::numeric` makes before its
+            // re-widening, because a frame slot holds an integer zero-extended
+            // at its own width — so the source is sign-extended first where it
+            // is signed, and masked to the target's width after.
+            route::Number::Convert(to) => {
+                // An **aggregate** result is the whole of the test, and it is
+                // the same one `llvm/emit.rs::numeric` makes before its
                 // `toChar` arm: an exact conversion, a `wrapTo` among them,
                 // answers the target type and an inexact one answers
                 // `Result<T, RangeError>` (SPEC 6.2.1), so the result's
@@ -2069,66 +2084,45 @@ impl<'a> Jit<'a> {
                 } else {
                     self.convert_checked(prog, fi, st, prim, to, p(0), ret0);
                 }
-                self.emit("ret", &[]);
-                return;
             }
             // `Hash::hash` takes no accumulator, so it is the seeded form
-            // (`cli/runtime/hash.rs`), and a float hashes through the
-            // double it widens to.
-            if op == "hash" {
+            // (`cli/runtime/hash.rs`), and a float hashes through the double
+            // it widens to.
+            route::Number::Hash => {
                 let seed = fs.param_end;
                 self.imm_to(seed, runtime::HASH_SEED);
                 self.hash_prim(st, prim, seed, p(0), ret0);
-                self.emit("ret", &[]);
-                return;
             }
-            // `Checked`, `Saturating`, `Wrapping`, `abs` and `signum`,
-            // which `core/number` declares without a body and every backend
-            // open-codes. `llvm/emit.rs::numeric` is the twin, and the
-            // bound each one checks is the **type's own range** — SPEC
-            // 6.2.2 and VALUE-MODEL.md §12 row 2.
-            if let Some(kind) = op.strip_prefix("checked") {
+            // `Checked`, `Saturating`, `Wrapping`, `abs` and `signum`, which
+            // `core/number` declares without a body and every backend
+            // open-codes. `llvm/emit.rs::numeric` is the twin, and the bound
+            // each one checks is the **type's own range** — SPEC 6.2.2 and
+            // VALUE-MODEL.md §12 row 2.
+            route::Number::Checked(kind) => {
                 self.checked(prog, fi, st, prim, kind, p(0), p(1), ret0);
-                self.emit("ret", &[]);
-                return;
             }
-            if let (Some(kind), Some(int)) = (op.strip_prefix("saturating"), prim.as_int()) {
+            route::Number::Saturating(int, kind) => {
                 self.saturating(st, int, kind, p(0), p(1), ret0);
-                self.emit("ret", &[]);
-                return;
             }
-            // Wrapping **is** the machine operation: two's complement at
-            // the operand's own width is what an `i8` addition already
-            // does, and a frame slot holds the answer re-truncated.
-            if let Some(kind) = op.strip_prefix("wrapping") {
-                self.wrapping(prim, kind, p(0), p(1), ret0);
-                self.emit("ret", &[]);
-                return;
-            }
-            if matches!(op, "abs" | "signum") {
-                self.abs_signum(st, prim, op == "abs", p(0), ret0);
-                self.emit("ret", &[]);
-                return;
-            }
+            // Wrapping **is** the machine operation: two's complement at the
+            // operand's own width is what an `i8` addition already does, and a
+            // frame slot holds the answer re-truncated.
+            route::Number::Wrapping(kind) => self.wrapping(prim, kind, p(0), p(1), ret0),
+            route::Number::AbsSignum(abs) => self.abs_signum(st, prim, abs, p(0), ret0),
             // `Ordered::compare` answers an `Order`, which is an enum and not a
-            // register, so it is taken before the binary-operator table
-            // below could refuse it for having no `bin/compare` stencil.
-            if op == "compare" {
-                match self.ret_tag(prog, fi) {
-                    Some(w) => {
-                        self.compare_prim(st, prim, p(0), p(1), ret0, w);
-                        self.emit("ret", &[]);
-                    }
-                    None => crate::diagnostics::ice(&format!("stencil: Body::Runtime {key}")),
-                }
-                return;
-            }
-            let (tag, _, _) = num_tag(prim);
-            let binkey = key!["bin/", stencil_op(op), "/", tag, "/ff/f"];
+            // register.
+            route::Number::Compare => match self.ret_tag(prog, fi) {
+                Some(w) => self.compare_prim(st, prim, p(0), p(1), ret0, w),
+                None => crate::diagnostics::ice(&format!(
+                    "stencil: number.{}.compare into a destination that is not a tag",
+                    prim.name()
+                )),
+            },
             // A number operator answers `Self`, one result.
-            if self.has(&binkey) {
+            route::Number::Bin(name) => {
+                let (tag, _, _) = num_tag(prim);
                 self.emit(
-                    &binkey,
+                    &key!["bin/", name, "/", tag, "/ff/f"],
                     &[
                         ("JIT_A", V::I(p(0) as u64)),
                         ("JIT_B", V::I(p(1) as u64)),
@@ -2137,11 +2131,10 @@ impl<'a> Jit<'a> {
                         ("JIT_CONT0", V::Fall),
                     ],
                 );
-                self.emit("ret", &[]);
-                return;
             }
             // `Negate::negate(self)` takes its one operand.
-            if op == "negate" {
+            route::Number::Negate => {
+                let (tag, _, _) = num_tag(prim);
                 self.emit(
                     &key!["un/neg/", tag, "/f/f"],
                     &[
@@ -2150,77 +2143,8 @@ impl<'a> Jit<'a> {
                         ("JIT_CONT", V::Fall),
                     ],
                 );
-                self.emit("ret", &[]);
-                return;
             }
         }
-        if self.runtime_intrinsic(prog, fi, &key, fs, st) {
-            self.emit("ret", &[]);
-            return;
-        }
-        // `str.length` is the number of Unicode scalar values (VALUE-MODEL.md
-        // §3.1), which `cli/runtime/text.rs` answers for both the ASCII and the
-        // multibyte case. Not in the table because it has no `Ret` shape of its
-        // own: the count comes straight back in a register.
-        if key == "str.length" {
-            let (sp, sl) = self.str_arg(p(0), fs.param_end);
-            self.c_call(runtime::STR_SCALAR_LEN, st, &[sp, sl], &[], ret0, "i");
-            self.emit("ret", &[]);
-            return;
-        }
-        // The test allocator, as a runtime-supplied body rather than as an
-        // intrinsic call: `alloc` reads no state, so the handle is zero and
-        // `allocate` answers the request.
-        if key == "host_testing.alloc" {
-            self.imm_to(ret0, 0);
-            self.emit("ret", &[]);
-            return;
-        }
-        if key == "host_testing.TestAllocator.allocate" {
-            self.mv(ret0, p(1), 8);
-            self.emit("ret", &[]);
-            return;
-        }
-        if key == "list.length" {
-            self.mv(ret0, p(0) + 8, 8);
-            self.emit("ret", &[]);
-            return;
-        }
-        // `str.format(ctx, s)` answers its last argument — the template has
-        // already been built by `str.concat` — and is `llvm/emit.rs`'s arm
-        // exactly: three words copied, and **a count taken**, because the
-        // copy is a second name for one block rather than a second reference
-        // to it, and without the retain the second drop is a double free.
-        if let ("str.format", Some(&last)) = (key.as_ref(), fs.params.last()) {
-            self.mv(ret0, last, 24);
-            self.incref(ret0);
-            self.emit("ret", &[]);
-            return;
-        }
-        if key == "list.empty" {
-            self.imm_to(ret0, 0);
-            self.imm_to(ret0 + 8, 0);
-            self.emit("ret", &[]);
-            return;
-        }
-        // The surfaces this backend open-codes, which reach it as a call to
-        // the `Body::Runtime` function whose body this is.
-        let ret_tag = self.ret_tag(prog, fi);
-        if self.prim_trait_at(st, &key, ret0, p(0), p(1), ret_tag) {
-            self.emit("ret", &[]);
-            return;
-        }
-        if self.bits_at(st, &key, ret0, p(0), fs.params.get(1).copied()) {
-            self.emit("ret", &[]);
-            return;
-        }
-        // `missing_intrinsics` refused every key no arm above answers.
-        crate::diagnostics::invariant_with(key == "str.concat", || {
-            format!("stencil: the runtime function {key} has no body here")
-        });
-        let argc = prog.funcs.get(fi).sig.params.len();
-        self.str_concat(st, Self::concat_strs(argc).map(p), ret0);
-        self.emit("ret", &[]);
     }
 }
 
@@ -2242,13 +2166,10 @@ impl<'a> Jit<'a> {
         &mut self,
         prog: &ir::Program,
         fi: FuncIdx,
-        key: &str,
+        entry: &'static runtime::Entry,
         fs: &super::jit::FrameSig,
         st: &mut Fn2,
-    ) -> bool {
-        let Some(entry) = super::runtime::entry(key) else {
-            return false;
-        };
+    ) {
         let f = prog.funcs.get(fi);
         let args: Vec<(u32, ir::Type)> = f
             .sig
@@ -2259,7 +2180,6 @@ impl<'a> Jit<'a> {
             .collect();
         let dest = (RET, f.sig.ret);
         self.rt_call(prog, st, entry, dest, &args);
-        true
     }
 
     /// The stride of `[T]`'s element, for an IR type that is a `[T]`.
@@ -2275,35 +2195,31 @@ impl Jit<'_> {
     ///
     /// `tag` is the destination's tag width where the destination is an enum,
     /// as `compare`'s `Order` is.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the primitive and the operation are the route, and the rest \
+                  are the frame offsets the sequence reads and writes"
+    )]
     pub(crate) fn prim_trait_at(
         &mut self,
         st: &mut Fn2,
-        key: &str,
+        prim: Prim,
+        op: route::PrimOp,
         d: u32,
         a: u32,
         b: u32,
         tag: Option<u32>,
-    ) -> bool {
-        let (prim, op) = match key.split_once('.') {
-            Some(("bool", op)) => (Prim::Bool, op),
-            Some(("character", op)) => (Prim::Char, op),
-            Some(("str", op)) => (Prim::Str, op),
-            _ => return false,
-        };
+    ) {
         // `str`'s `equal`, `compare` and `hash` are runtime rows, which
-        // `runtime_intrinsic` answers before this is asked, and only a `Char`
-        // has a `toU32`.
+        // resolve before this, and only a `Char` has a `toU32`.
         match op {
             // `show` is `$str`, not `$show`: the trait method renders the value
             // and the *derived* one quotes it.
-            "show" => {
-                self.show_prim(st, prim, a, d, false);
-                true
-            }
+            route::PrimOp::Show => self.show_prim(st, prim, a, d, false),
             // A frame slot holds a `Bool` and a `Char` zero-extended, so both
             // compare at sixty-four bits whatever their own width is, and
             // `false` sorting before `true` is what an unsigned compare says.
-            "equal" => {
+            route::PrimOp::Equal => {
                 self.emit(
                     "bin/eq/u64/ff/f",
                     &[
@@ -2313,9 +2229,8 @@ impl Jit<'_> {
                         ("JIT_CONT", V::Fall),
                     ],
                 );
-                true
             }
-            "compare" => {
+            route::PrimOp::Compare => {
                 let raw = st.scratch + super::rtcall::RAW_WORD * 8;
                 let entry: &[(&'static str, u64)] =
                     &[("bin/lt/u64/ff/f", LESS), ("bin/gt/u64/ff/f", GREATER)];
@@ -2351,16 +2266,16 @@ impl Jit<'_> {
                 match tag {
                     Some(w) => self.store_w(d, raw, w),
                     None => crate::diagnostics::ice(&format!(
-                        "stencil: {key} into a destination that is not a tag"
+                        "stencil: {}.compare into a destination that is not a tag",
+                        prim.name()
                     )),
                 }
-                true
             }
             // `$hashInto` at a `Bool` or a `Char`, from `core/order`'s offset
             // basis. A `Char` is one *string* of one character, so an astral
             // scalar is two mixes and the runtime owns that; a `Bool` is one
             // mix of its low word.
-            "hash" => {
+            route::PrimOp::Hash => {
                 let symbol = if prim == Prim::Char {
                     runtime::HASH_CHAR
                 } else {
@@ -2370,15 +2285,10 @@ impl Jit<'_> {
                 self.imm_to(seed, runtime::HASH_SEED);
                 let args = [Src::Word(seed), Src::Word(a)];
                 self.c_call(symbol, st, &args, &[], d, "i");
-                true
             }
             // `Char::toU32` is the representation: a `Char` **is** a `U32`
             // holding a Unicode scalar value.
-            "toU32" => {
-                self.mv(d, a, 8);
-                true
-            }
-            _ => false,
+            route::PrimOp::ToU32 => self.mv(d, a, 8),
         }
     }
 
@@ -3329,42 +3239,24 @@ impl Jit<'_> {
     /// shared one. A machine shift *masks* the count instead, which is a
     /// different answer rather than an undefined one and would be silently
     /// wrong.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the stem, width and count are the route, and the rest are \
+                  the frame offsets the sequence reads and writes"
+    )]
     pub(crate) fn bits_at(
         &mut self,
         st: &mut Fn2,
-        key: &str,
+        stem: &str,
+        width: u32,
+        counted: bool,
         d: u32,
         a: u32,
-        count: Option<u32>,
-    ) -> bool {
-        let Some(op) = key.strip_prefix("bits.") else {
-            return false;
-        };
-        // The operand's width comes from the key's suffix; the bare names are
-        // `Int`, which is sixty-four bits.
-        let (width, unsigned) = match op {
-            _ if op.ends_with("U8") => (8u32, true),
-            _ if op.ends_with("U32") => (32, true),
-            _ if op.ends_with("U64") => (64, true),
-            _ => (64, false),
-        };
-        let stem = op
-            .trim_end_matches(|c: char| c.is_ascii_digit())
-            .trim_end_matches('U');
-        // The stencil is named after the machine's shift, `core/bits` after the
-        // word — the same split `stencil_op` above names for the arithmetic.
-        let stem = match stem {
-            "shiftLeft" => "shl",
-            "shiftRightArithmetic" => "sar",
-            "shiftRight" => "shr",
-            other => other,
-        };
+        count: u32,
+    ) {
         // The one-operand family: three counts and the byte reversal, none of
         // which takes a shift count and so none of which needs the range check.
-        if matches!(
-            stem,
-            "popCount" | "leadingZeros" | "trailingZeros" | "byteSwap"
-        ) {
+        if !counted {
             // `sources.rs` generates every width `core/bits` declares.
             let k = key!["bits/", stem, "/", width];
             self.emit(
@@ -3375,15 +3267,10 @@ impl Jit<'_> {
                     ("JIT_CONT", V::Fall),
                 ],
             );
-            return true;
+            return;
         }
-        let count = match count {
-            Some(count) => count,
-            None => return false,
-        };
         self.shift_count_check(st, count, width);
         let key2 = key!["bits/", stem, "/", width];
-        let _ = unsigned;
         self.emit(
             &key2,
             &[
@@ -3393,7 +3280,6 @@ impl Jit<'_> {
                 ("JIT_CONT", V::Fall),
             ],
         );
-        true
     }
 
     /// `$shiftCount`'s range check: negative, or at or beyond the operand's
@@ -3435,7 +3321,7 @@ impl Jit<'_> {
 /// The pattern, not the number: `u64::MAX` is not an `i64`, and a slot holds an
 /// integer zero-extended at its own width. A float's bounds are its largest
 /// finite magnitude, signed, and an `F32` is its own thirty-two bits.
-fn bound_pattern(prim: Prim, low: bool) -> Option<u128> {
+pub(crate) fn bound_pattern(prim: Prim, low: bool) -> Option<u128> {
     if prim.is_float() {
         return Some(match (prim, low) {
             (Prim::F32, true) => u128::from((-f32::MAX).to_bits()),

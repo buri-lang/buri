@@ -818,11 +818,7 @@ impl FnLower<'_> {
         let (elem_t, ret_t) = (self.type_of(&elem), self.type_of(ret));
         let callee = self.callee(f, step, 2);
         let n = self.emit(Type::I64, |dest| Inst::ArrayLen { dest, array: xs });
-        let sized = self.emit(ret_t, |dest| Inst::CallIntrinsic {
-            dest,
-            key: "derivePrimHash.I64".into(),
-            args: Box::new([h, n]),
-        });
+        let sized = self.call_intrinsic(ret_t, "derivePrimHash.I64", Box::new([h, n]));
         let w = self.walk(n, &[sized]);
         let acc = *w.vars.first()?;
         let e = self.emit(elem_t, |dest| Inst::ArrayGet {
@@ -889,11 +885,7 @@ impl FnLower<'_> {
         });
         self.again(&w, Vec::new());
         self.end(&w);
-        let joined = self.emit(ret_t, |dest| Inst::CallIntrinsic {
-            dest,
-            key: "show.list".into(),
-            args: Box::new([strs]),
-        });
+        let joined = self.call_intrinsic(ret_t, "show.list", Box::new([strs]));
         self.push(Inst::DecRef { value: strs });
         Some(joined)
     }

@@ -2682,18 +2682,11 @@ fn objects_named(
     // reaches a native backend and that one reaches JavaScript, and which
     // passes a target gets must not be a fact stated twice.
     let plan = prepare(program, back_target);
-    // Lowered here for the unit *keys*, and then handed to the backend through
-    // [`Backend::adopt_lowering`] so that the bytes are emitted from this same
-    // IR instead of from a second copy of it. `middle::lower` is deterministic
-    // and a pure function of the program, so the two agreed by construction —
-    // and agreeing by construction is what made recomputing it pure waste. It
-    // was one second of an eight-second `buri test //...` on a real repository:
+    // Lowered once, here: for the unit *keys*, for the backend to resolve its
+    // intrinsic keys against, and for the bytes. Lowering it a second time was
+    // one second of an eight-second `buri test //...` on a real repository:
     // `middle::rc::analyze` twice over the whole program and
     // `middle::lower::run_with` twice.
-    //
-    // This is a *hint*, not a second entry point: emission is still
-    // `emit_units` and it still takes the `Program`. Both native backends take
-    // it; a backend that ignores it compiles the same bytes it always did.
     //
     // Against the plan `prepare` already produced. `lower::run` would compute
     // an identical one — it is a pure function of the program, and nothing has
@@ -2704,7 +2697,7 @@ fn objects_named(
         None => lower::run(program, tables),
     };
 
-    let mut backend = match backend::select(back_target, profile) {
+    let backend = match backend::native(back_target, profile) {
         Ok(b) => b,
         Err(message) => {
             diagnostics.push(Diagnostic::error(output.span, message));
@@ -2712,51 +2705,31 @@ fn objects_named(
         }
     };
     // The **target's** runtime capabilities, which are the host's for a host
-    // build and the cross archive's for a cross one. `missing_intrinsics` folds
-    // in the host's own gaps (the seam it has always had), and a cross target is
-    // against an archive with fewer features — net-off and crypto-off on the
-    // first one (`runtime_cross`) — so its gaps are folded in here, where the
-    // target is known. On a host build `net`/`crypto` are the host's, both these
-    // additions are empty, and the behaviour is byte-identical.
+    // build and the cross archive's for a cross one. The host's own gaps are
+    // the seam `WithRuntime` has always had, and a cross target is against an
+    // archive with fewer features — net-off and crypto-off on the first one
+    // (`runtime_cross`) — so its gaps are folded in here, where the target is
+    // known. On a host build `net`/`crypto` are the host's and the two halves
+    // are the same keys.
     let (net, crypto) = runtime_features_for(back_target);
-    let mut missing = backend.missing_intrinsics(program, tables);
-    missing.extend(backend::networking_gap_when(program, net));
-    missing.extend(backend::cryptography_gap_when(program, crypto));
-    missing.sort();
-    missing.dedup();
-    if !missing.is_empty() {
-        // One diagnostic per cause rather than one per program: an operation a
-        // toolchain built without the runtime's `net` feature cannot answer is
-        // a different sentence, and asks for a different thing, from an
-        // operation the backend has no body for. The split reads the target's
-        // own answer, not the baked one, so a cross `net` program is named here
-        // rather than at the system linker.
-        let (networking, rest) = backend::split_networking_when(&missing, net);
-        let (cryptography, rest) = backend::split_cryptography_when(&rest, crypto);
-        if !networking.is_empty() {
-            diagnostics.push(backend::no_networking(&networking, Span::NONE));
+    let mut gaps = backend::networking_gap(program);
+    gaps.extend(backend::cryptography_gap(program));
+    gaps.extend(backend::networking_gap_when(program, net));
+    gaps.extend(backend::cryptography_gap_when(program, crypto));
+    let mut backend = match (backend.resolve(&lowered), gaps.is_empty()) {
+        (Ok(ready), true) => ready,
+        (Ok(ready), false) => {
+            let name = ready.backend().name();
+            return Err(refuse_missing(name, gaps, net, crypto, diagnostics));
         }
-        if !cryptography.is_empty() {
-            diagnostics.push(backend::no_cryptography(&cryptography, Span::NONE));
+        (Err((name, mut keys)), _) => {
+            keys.extend(gaps);
+            return Err(refuse_missing(name, keys, net, crypto, diagnostics));
         }
-        if !rest.is_empty() {
-            diagnostics.push(
-                Diagnostic::error(
-                    Span::NONE,
-                    format!(
-                        "the {} backend has no implementation of {}",
-                        backend.name(),
-                        rest.join(", ")
-                    ),
-                )
-                .with_fix("report it: this is a toolchain bug, not a problem with your program"),
-            );
-        }
-        return Err(std::mem::take(diagnostics));
-    }
+    };
 
-    let name = backend.name().to_string();
-    let identity = backend.identity();
+    let name = backend.backend().name().to_string();
+    let identity = backend.backend().identity();
     // The one unit whose object depends on the set of tests rather than on the
     // functions it renders — the entry point the backend synthesises. Folding
     // the set into its `ir` term is what relinks a test binary from scratch when
@@ -2795,9 +2768,6 @@ fn objects_named(
         })
         .collect();
 
-    // Handed to the backend for the emission below, its last reader: the keys
-    // are computed and `unit_hashes` has already borrowed it.
-    backend.adopt_lowering(lowered);
     let cache = Cache::open(root);
     let emitted = codegen_units_for(&cache, &keys, flags.force, |wanted| {
         let opts = BackendOptions {
@@ -2844,6 +2814,38 @@ fn objects_named(
         rows,
         keys: keys.into_iter().map(|(_, k)| k).collect(),
     })
+}
+
+/// The refusal of a program naming keys the backend or the target's runtime
+/// archive has nothing for.
+///
+/// One diagnostic per cause rather than one per program: an operation a
+/// toolchain built without the runtime's `net` feature cannot answer is a
+/// different sentence, and asks for a different thing, from an operation the
+/// backend has no body for. The split reads the target's own answer, not the
+/// baked one, so a cross `net` program is named here rather than at the system
+/// linker.
+fn refuse_missing(
+    backend_name: &str,
+    mut missing: Vec<String>,
+    net: bool,
+    crypto: bool,
+    diagnostics: &mut Diagnostics,
+) -> Diagnostics {
+    missing.sort();
+    missing.dedup();
+    let (networking, rest) = backend::split_networking_when(&missing, net);
+    let (cryptography, rest) = backend::split_cryptography_when(&rest, crypto);
+    if !networking.is_empty() {
+        diagnostics.push(backend::no_networking(&networking, Span::NONE));
+    }
+    if !cryptography.is_empty() {
+        diagnostics.push(backend::no_cryptography(&cryptography, Span::NONE));
+    }
+    if !rest.is_empty() {
+        diagnostics.push(backend::no_implementation(backend_name, &rest));
+    }
+    std::mem::take(diagnostics)
 }
 
 /// A native build: codegen per unit, then one full link.
