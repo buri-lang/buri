@@ -119,6 +119,38 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 40: semantics expressions, exhaustiveness, inference
+
+## Guards
+
+| File | Before | After |
+|---|---|---|
+| exhaustiveness.rs | 2 (`or_ice` in `specialize_row`, `default_row`) | 0 |
+| inference.rs | 3 (`ice!` in `check_const`, `check_context_decl`; `or_ice` in `check_literal_ranges`) | 1 |
+| expressions.rs | 5 (`ice!` at the unary and binary fallthroughs and the context binding's effect; `or_ice` in `shape_of_struct`, `shape_of_variant`) | 2 |
+
+- exhaustiveness: `Rows` keeps heads and tails apart and counts the rows with no head (`bare`). A row is read as `(head, tail)`, so specializing never asks whether a head exists.
+- inference: `ConstInfo.value`, `ContextDeclInfo.body` and `decl_span` are filled in by resolve, so checking needs no item lookup.
+- expressions:
+  - `check_unary` dispatches to `check_not`, `check_negation` and `check_bit_not`.
+  - `check_binary` classifies through `BinaryShape::of`, an exhaustive match over `BinOp`, and `order_test` takes a `Comparison`. `arithmetic_trait` is gone.
+  - A context binding's effect that is not a name (`Self`, which `named_type` accepts) used to be an ICE. It is now `unknown-effect`.
+
+## Left, and why
+
+- inference.rs `check_literal_ranges`, `or_ice` on an integer literal's primitive. Removing it needs Subst to track an `IntPrim` per integer-class variable, a separate union-find. That is a redesign.
+- expressions.rs `shape_of_struct` and `shape_of_variant`. Both find the declaration by span in the module's items, and both work for built-in types (`Order`, `Option`, `Result`) because those are declared in stdlib sources. Removing them means recording the declaration in `TyDef::Struct` or `VariantInfo`. `cli/src/commands/lint.rs` matches `TyDef::Struct { fields, record: true }` with no `..`, and `cli/src` is out of scope.
+
+## Tests
+
+- `cli/tests/reject/context_binding_of_self`: `Self: host.alloc` in a context is `unknown-effect`. It failed first with the ICE.
+- `cli/tests/repositories/checking/a_spread_context_s_mistake_beside_an_unclosed_block`: a spread base's mistake in another file is reported beside an unclosed block at the same offsets. It covers the false side of the file check in `retract_from_broken_blocks`. Its testing directory is in `UNFORMATTED_BY_DESIGN`, because the file ends inside an unclosed block.
+
+## Coverage
+
+- crates/semantics went from 2165/2166 (99.95%) to 2158/2158 (100%).
+- Every other area's branch fraction is unchanged.
+
 # Guard phase 39: crates/syntax
 
 ## Guards
