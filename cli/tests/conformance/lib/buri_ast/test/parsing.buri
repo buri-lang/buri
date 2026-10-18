@@ -272,9 +272,7 @@ test "a mistake names what was wanted and what was there" {
     assert.equal(errorsOf(ctx, "let x: Int = 1\n"), [
         "expected `;`, found the end of the file",
     ]);
-    assert.equal(errorsOf(ctx, "while (x) {}\n"), [
-        "expected a declaration, found `while`",
-    ]);
+    assert.equal(errorsOf(ctx, "2\n"), ["expected a declaration, found `2`"]);
 }
 
 test "every declaration that failed is reported, not only the first" {

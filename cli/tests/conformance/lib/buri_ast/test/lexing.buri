@@ -1,0 +1,301 @@
+// What `core/buri/ast`'s parser says about text the compiler's lexer refuses:
+// the compiler's words, under the compiler's span, and nothing more where the
+// compiler says nothing more.
+
+from "core/buri/ast" import * as ast;
+from "core/buri/ast" import { TokenKind };
+from "core/testing/assert" import * as assert;
+from "platform/effect" import { Allocator };
+from "platform/effect/testing" import { alloc };
+
+/// Each error `parse` answers, as its message and its span's two ends.
+fn refused<C: Allocator>(ctx: C, source: Str): [(Str, Int, Int)] {
+    match (ast.parse(ctx, "probe.buri", source)) {
+        .Ok(_tree) => [],
+        .Err(errors) => errors.map(ctx, fn(e) => (e.message, e.span.start, e.span.end)),
+    }
+}
+
+fn texts<C: Allocator>(ctx: C, source: Str): [Str] {
+    ast.tokenize(ctx, source).map(ctx, fn(t) => t.text)
+}
+
+// --- strings ---------------------------------------------------------------------
+
+test "a string with no closing quote is refused where the file ends" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "let S: Str = \"abc"), [
+        ("unterminated string literal", 17, 17),
+    ]);
+}
+
+test "a string with no closing quote is refused at its line break, and the next line still reads" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "let S: Str = \"abc\nlet T: Int = 1;\n"), [
+        ("unterminated string literal", 17, 18),
+    ]);
+    assert.equal(refused(ctx, "from \"core/list\nimport * as list;\n"), [
+        ("unterminated string literal", 15, 16),
+    ]);
+    assert.equal(texts(ctx, "\"abc\ndef\""), ["\"abc", "def", "\""]);
+}
+
+test "an open string is all that is said about it, even where a name was wanted" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "let \"abc\n"), [("unterminated string literal", 8, 9)]);
+}
+
+test "a closing brace with nothing open is read as one" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "}\n"), [("expected a declaration, found `}`", 0, 1)]);
+}
+
+test "a backslash at the end of its line escapes nothing, and leaves the string open" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "let S: Str = \"abc\\"), [
+        ("unterminated string literal", 18, 18),
+    ]);
+    assert.equal(refused(ctx, "let S: Str = \"abc\\\nlet T: Int = 1;\n"), [
+        ("unterminated string literal", 18, 19),
+    ]);
+}
+
+test "a template whose text after a hole never closes is refused at its line break" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "fn f(c: Char): Str { \"a\${c}b\n}\n"), [
+        ("unterminated string literal", 28, 29),
+    ]);
+}
+
+test "an open string's errors come in source order, a bad escape first" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "let S: Str = \"a\\qb\nlet T: Int = 1;\n"), [
+        ("unknown escape `\\q`", 15, 17),
+        ("unterminated string literal", 18, 19),
+    ]);
+}
+
+// --- characters ------------------------------------------------------------------
+
+test "a character literal with nothing after its quote is refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "let C: Char = '\n;\n"), [
+        ("unterminated character literal", 14, 15),
+    ]);
+    assert.equal(refused(ctx, "let C: Char = '\\\n;\n"), [
+        ("unterminated character literal", 14, 16),
+    ]);
+    assert.equal(texts(ctx, "'\n;"), ["'", ";"]);
+}
+
+test "a character literal holding more than one character is refused under what it read" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "let C: Char = 'ab';\n"), [
+        ("a character literal holds exactly one Unicode scalar value", 14, 16),
+    ]);
+    assert.equal(refused(ctx, "let C: Char = 'éx';\n"), [
+        ("a character literal holds exactly one Unicode scalar value", 14, 17),
+    ]);
+    assert.equal(refused(ctx, "let C: Char = '\\u{41}b';\n"), [
+        ("a character literal holds exactly one Unicode scalar value", 14, 21),
+    ]);
+    // With no closing quote on the line, the literal stops at the line break.
+    assert.equal(refused(ctx, "let C: Char = 'ab\n;\n"), [
+        ("a character literal holds exactly one Unicode scalar value", 14, 16),
+    ]);
+    assert.equal(refused(ctx, "let C: Char = '\\qx';\n"), [
+        ("a character literal holds exactly one Unicode scalar value", 14, 17),
+        ("unknown escape `\\q`", 15, 17),
+    ]);
+    assert.equal(texts(ctx, "'ab' 'cd\n"), ["'ab'", "'cd"]);
+}
+
+test "a lexical error and a syntax error come back in source order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "2\nlet C: Char = 'ab';\n"), [
+        ("expected a declaration, found `2`", 0, 1),
+        ("a character literal holds exactly one Unicode scalar value", 16, 18),
+    ]);
+    assert.equal(refused(ctx, "let C: Char = 'ab';\n2\n"), [
+        ("a character literal holds exactly one Unicode scalar value", 14, 16),
+        ("expected a declaration, found `2`", 20, 21),
+    ]);
+}
+
+// --- comments --------------------------------------------------------------------
+
+test "a block comment that never closes is refused from its opener to the end" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "/* abc"), [("unterminated block comment", 0, 6)]);
+    assert.equal(refused(ctx, "let x: Int = 1; /* /* */\n"), [
+        ("unterminated block comment", 16, 25),
+    ]);
+}
+
+// --- characters no token starts with ---------------------------------------------
+
+test "a character no token starts with is refused, named with its code point" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "fn f(): Int { 1 # }\n"), [
+        ("unexpected character `#` (U+0023)", 16, 17),
+    ]);
+    assert.equal(refused(ctx, "fn f(): Int { 1 $ }\n"), [
+        ("unexpected character `$` (U+0024)", 16, 17),
+    ]);
+    assert.equal(refused(ctx, "let a: Int = 1;\n\u{a0}\n"), [
+        ("unexpected character `\u{a0}` (U+00A0)", 16, 18),
+    ]);
+    assert.equal(refused(ctx, "let a: Int = 1;\n😀\n"), [
+        ("unexpected character `😀` (U+1F600)", 16, 20),
+    ]);
+    assert.equal(refused(ctx, "let a: Int = 1;\0"), [
+        ("unexpected character `\0` (U+0000)", 15, 16),
+    ]);
+}
+
+// --- reserved words --------------------------------------------------------------
+
+test "a reserved word is refused as a reserved word, and read on as a name" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "let mut: Int = 1;\n"), [
+        ("`mut` is a reserved word and may not be used as an identifier", 4, 7),
+    ]);
+    assert.equal(refused(ctx, "while (x) {}\n"), [
+        ("`while` is a reserved word and may not be used as an identifier", 0, 5),
+    ]);
+    assert.equal(ast.tokenize(ctx, "while").map(ctx, fn(t) => t.kind), [
+        TokenKind.Unknown,
+    ]);
+}
+
+// --- numbers ---------------------------------------------------------------------
+
+test "a base prefix with no digits after it is refused" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "let n: Int = 0x;\n"), [("`0x` has no digits", 13, 15)]);
+    assert.equal(refused(ctx, "let n: Int = 0o;\n"), [("`0o` has no digits", 13, 15)]);
+    assert.equal(refused(ctx, "let n: Int = 0b_;\n"), [
+        ("`0b_` has no digits", 13, 16),
+    ]);
+}
+
+test "a digit its base does not have is refused, the whole word with it" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(refused(ctx, "let n: Int = 0b12;\n"), [
+        ("`0b12` is not a valid base-2 integer, or does not fit in 128 bits", 13, 17),
+    ]);
+    assert.equal(refused(ctx, "let n: Int = 0o9;\n"), [
+        ("`0o9` is not a valid base-8 integer, or does not fit in 128 bits", 13, 16),
+    ]);
+    assert.equal(refused(ctx, "let n: Int = 0xfg;\n"), [
+        ("`0xfg` is not a valid base-16 integer, or does not fit in 128 bits", 13, 17),
+    ]);
+    assert.equal(texts(ctx, "0xfg 0b12"), ["0xfg", "0b12"]);
+}
+
+test "a base prefix reads in either case" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        refused(ctx, "let n: Int = 0X1F;\nlet m: Int = 0O17;\nlet k: Int = 0B101;\n"),
+        [],
+    );
+    assert.equal(texts(ctx, "0X1F 0O17 0B101"), ["0X1F", "0O17", "0B101"]);
+}
+
+test "an integer wider than 128 bits is refused, and one exactly 128 bits wide is not" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        refused(
+            ctx,
+            "let a: Int = 0xffffffffffffffffffffffffffffffff;\nlet b: Int = 0o3777777777777777777777777777777777777777777;\nlet c: Int = 0b11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111;\nlet d: Int = 340282366920938463463374607431768211455;\nlet e: Int = 000000000000000000000000000000000000000000001;\nlet f: Int = 0x0_0000_0000_0000_0000_0000_0000_0000_0000_1;\n",
+        ),
+        [],
+    );
+    assert.equal(
+        refused(ctx, "let n: Int = 0x1_0000_0000_0000_0000_0000_0000_0000_0000;\n"),
+        [
+            (
+                "`0x1_0000_0000_0000_0000_0000_0000_0000_0000` is not a valid base-16 integer, or does not fit in 128 bits",
+                13,
+                56,
+            ),
+        ],
+    );
+    assert.equal(
+        refused(ctx, "let n: Int = 0o4000000000000000000000000000000000000000000;\n"),
+        [
+            (
+                "`0o4000000000000000000000000000000000000000000` is not a valid base-8 integer, or does not fit in 128 bits",
+                13,
+                58,
+            ),
+        ],
+    );
+    assert.equal(
+        refused(
+            ctx,
+            "let n: Int = 0b111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111;\n",
+        ),
+        [
+            (
+                "`0b111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111` is not a valid base-2 integer, or does not fit in 128 bits",
+                13,
+                144,
+            ),
+        ],
+    );
+    assert.equal(
+        refused(ctx, "let n: Int = 340282366920938463463374607431768211456;\n"),
+        [
+            (
+                "`340282366920938463463374607431768211456` does not fit in 128 bits",
+                13,
+                52,
+            ),
+        ],
+    );
+    assert.equal(
+        refused(ctx, "let n: Int = 1_000000000000000000000000000000000000000;\n"),
+        [
+            (
+                "`1_000000000000000000000000000000000000000` does not fit in 128 bits",
+                13,
+                54,
+            ),
+        ],
+    );
+}

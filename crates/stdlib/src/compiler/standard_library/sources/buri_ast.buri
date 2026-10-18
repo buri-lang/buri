@@ -2402,6 +2402,9 @@ export struct Token {
 /// reads ahead with a [`Cursor`] and hands the record and the cursor it stopped
 /// at to [`pushToken`] together, so nothing else holds `tokens` and each push
 /// writes into the list rather than copying it.
+///
+/// `errors` is what the compiler's lexer refuses, and `open` is where each
+/// string with no closing quote starts.
 struct Lex {
     source: Str,
     chars: [Char],
@@ -2409,6 +2412,8 @@ struct Lex {
     at: Int,
     tokens: [Token],
     modes: [Int],
+    errors: [ParseError],
+    open: [Int],
 }
 
 /// A position a scanner has read up to: the scalar index into `chars`, and the
@@ -2451,7 +2456,7 @@ let HOLE: Int = 1;
 /// ```
 ///
 /// **This classifies; it does not validate.** Nothing is refused: an
-/// unterminated string is a `Str` token running to the end of the source, a
+/// unterminated string is a `Str` token running to the end of its line, a
 /// `0b12` is an `Int`, and a stray backtick is `Unknown`. What a mistake means
 /// is [`parse`]'s answer, and this is the one place a tool that only wants to
 /// see the text — a highlighter, a token count, a rename — needs no answer at
@@ -2460,6 +2465,10 @@ let HOLE: Int = 1;
 /// Whitespace is dropped and every comment is kept, so the tokens' spans cover
 /// the source apart from the gaps between them.
 export fn tokenize<C: Allocator>(ctx: C, source: Str): [Token] {
+    lex(ctx, source).tokens
+}
+
+fn lex<C: Allocator>(ctx: C, source: Str): Lex {
     let start = Lex {
         source: source,
         chars: source.chars(ctx),
@@ -2467,8 +2476,10 @@ export fn tokenize<C: Allocator>(ctx: C, source: Str): [Token] {
         at: 0,
         tokens: [],
         modes: [],
+        errors: [],
+        open: [],
     };
-    lexRun(ctx, start).tokens
+    lexRun(ctx, start)
 }
 
 fn lexRun<C: Allocator>(ctx: C, lx: Lex): Lex {
@@ -2565,6 +2576,25 @@ fn oneChar<C: Allocator>(ctx: C, lx: Lex, kind: TokenKind): Lex {
     pushToken(ctx, lx, kind, end)
 }
 
+/// `lx` with `message` refused from byte `start` to byte `end`.
+fn refuse<C: Allocator>(ctx: C, lx: Lex, message: Str, start: Int, end: Int): Lex {
+    Lex {
+        ..lx,
+        errors: lx
+            .errors
+            .push(ctx, ParseError {
+                message: message,
+                span: Span { start: start, end: end },
+            }),
+    }
+}
+
+/// Whether `cur` is at a line break or the end of the source, where no
+/// literal reads on.
+fn atLineEnd(cur: Cursor): Bool {
+    atEnd(cur) || charOf(cur.chars, cur.index) == '\n'
+}
+
 // --- classes ------------------------------------------------------------------
 
 fn isWhitespace(c: Char): Bool {
@@ -2585,10 +2615,6 @@ fn isWordStart(c: Char): Bool {
 
 fn isWordPart(c: Char): Bool {
     isLetter(c) || isDigit(c) || c == '_'
-}
-
-fn isHexDigit(c: Char): Bool {
-    isDigit(c) || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
 }
 
 // --- whitespace and comments ----------------------------------------------------
@@ -2637,15 +2663,23 @@ fn scanToEndOfLine(cur: Cursor): Cursor {
 }
 
 fn scanBlockComment<C: Allocator>(ctx: C, lx: Lex): Lex {
-    let end = scanNesting(skipChars(cursor(lx), 2), 1);
-    pushToken(ctx, lx, TokenKind.BlockComment, end)
+    let start = lx.at;
+    let (end, closed) = scanNesting(skipChars(cursor(lx), 2), 1);
+    let pushed = pushToken(ctx, lx, TokenKind.BlockComment, end);
+    if (closed) {
+        pushed
+    } else {
+        refuse(ctx, pushed, "unterminated block comment", start, end.at)
+    }
 }
 
 /// Block comments nest, so the scan carries a depth rather than stopping at the
-/// first `*/`.
-fn scanNesting(cur: Cursor, depth: Int): Cursor {
-    if (depth <= 0 || atEnd(cur)) {
-        cur
+/// first `*/`. Says whether the comment closed.
+fn scanNesting(cur: Cursor, depth: Int): (Cursor, Bool) {
+    if (depth <= 0) {
+        (cur, true)
+    } else if (atEnd(cur)) {
+        (cur, false)
     } else {
         let c = charOf(cur.chars, cur.index);
         let next = charOf(cur.chars, cur.index + 1);
@@ -2664,16 +2698,25 @@ fn scanNesting(cur: Cursor, depth: Int): Cursor {
 fn scanWord<C: Allocator>(ctx: C, lx: Lex): Lex {
     let end = scanWordEnd(nextChar(cursor(lx)));
     let spelling = lx.source.slice(lx.index, end.index);
-    let kind = if (spelling == "_") {
-        TokenKind.Punctuation
+    if (spelling == "_") {
+        pushToken(ctx, lx, TokenKind.Punctuation, end)
     } else if (isKeyword(spelling)) {
-        TokenKind.Keyword
+        pushToken(ctx, lx, TokenKind.Keyword, end)
     } else if (isReserved(spelling)) {
-        TokenKind.Unknown
+        let start = lx.at;
+        refuse(
+            ctx,
+            pushToken(ctx, lx, TokenKind.Unknown, end),
+            str.format(
+                ctx,
+                "`${spelling}` is a reserved word and may not be used as an identifier",
+            ),
+            start,
+            end.at,
+        )
     } else {
-        TokenKind.Identifier
-    };
-    pushToken(ctx, lx, kind, end)
+        pushToken(ctx, lx, TokenKind.Identifier, end)
+    }
 }
 
 fn scanWordEnd(cur: Cursor): Cursor {
@@ -2742,23 +2785,101 @@ fn isReserved(spelling: Str): Bool {
 // --- numbers -------------------------------------------------------------------
 
 fn scanNumber<C: Allocator>(ctx: C, lx: Lex): Lex {
-    let next = charOf(lx.chars, lx.index + 1);
-    if (
-        charOf(lx.chars, lx.index) == '0' && (next == 'x' || next == 'o' || next == 'b')
-    ) {
+    let radix = radixOf(charOf(lx.chars, lx.index + 1));
+    if (charOf(lx.chars, lx.index) == '0' && radix > 0) {
+        let start = lx.at;
         let end = scanRadixDigits(skipChars(cursor(lx), 2));
-        pushToken(ctx, lx, TokenKind.Int, end)
+        let raw = lx.source.slice(lx.index, end.index);
+        let digits = raw.slice(2, raw.length()).replace(ctx, "_", "");
+        let pushed = pushToken(ctx, lx, TokenKind.Int, end);
+        if (digits.isEmpty()) {
+            refuse(
+                ctx,
+                pushed,
+                str.format(ctx, "`${raw}` has no digits"),
+                start,
+                end.at,
+            )
+        } else if (radixFits(digits.chars(ctx), 0, radix, 0)) {
+            pushed
+        } else {
+            let base = radix.show(ctx);
+            let message = str.format(
+                ctx,
+                "`${raw}` is not a valid base-${base} integer, or does not fit in 128 bits",
+            );
+            refuse(ctx, pushed, message, start, end.at)
+        }
     } else {
         scanDecimal(ctx, lx)
     }
 }
 
+/// The base a prefix's letter names, in either case, or 0 for none.
+fn radixOf(c: Char): Int {
+    if (c == 'x' || c == 'X') {
+        16
+    } else if (c == 'o' || c == 'O') {
+        8
+    } else if (c == 'b' || c == 'B') {
+        2
+    } else {
+        0
+    }
+}
+
+/// A prefixed literal runs on through every letter, as the compiler reads it,
+/// so `0xfg` is one literal with a digit its base lacks rather than two tokens.
 fn scanRadixDigits(cur: Cursor): Cursor {
     let c = charOf(cur.chars, cur.index);
-    if (atEnd(cur) == false && (isHexDigit(c) || c == '_')) {
+    if (atEnd(cur) == false && isWordPart(c)) {
         scanRadixDigits(nextChar(cur))
     } else {
         cur
+    }
+}
+
+/// Whether `cs[index..]` are all digits of `radix`, a power of two, and the
+/// whole literal fits in 128 bits. `bits` is how many the digits before
+/// `index` take, which leading zeros leave at 0.
+fn radixFits(cs: [Char], index: Int, radix: Int, bits: Int): Bool {
+    match (cs.get(index)) {
+        .None => bits <= 128,
+        .Some(c) => {
+            match (c.toDigit(radix)) {
+                .Some(d) => {
+                    let width = if (bits == 0) {
+                        bitLength(d)
+                    } else {
+                        bits + bitLength(radix - 1)
+                    };
+                    radixFits(cs, index + 1, radix, width)
+                },
+                .None => false,
+            }
+        },
+    }
+}
+
+fn bitLength(n: Int): Int {
+    if (n == 0) { 0 } else { 1 + bitLength(n / 2) }
+}
+
+/// The widest integer a literal may spell, 2^128 - 1.
+let U128_MAX: Str = "340282366920938463463374607431768211455";
+
+/// Whether decimal `digits` fit in 128 bits.
+fn decimalFits(digits: Str): Bool {
+    let significant = digits.slice(leadingZeros(digits, 0), digits.length());
+    significant.length() < U128_MAX.length()
+        || significant.length() == U128_MAX.length() && significant <= U128_MAX
+}
+
+fn leadingZeros(digits: Str, index: Int): Int {
+    if (digits.slice(index, index + 1) == "0") {
+        leadingZeros(digits, index + 1)
+    } else {
+        index
     }
 }
 
@@ -2794,8 +2915,24 @@ fn scanDecimal<C: Allocator>(ctx: C, lx: Lex): Lex {
     } else {
         afterPoint
     };
-    let kind = if (float || hasExponent) { TokenKind.Float } else { TokenKind.Int };
-    pushToken(ctx, lx, kind, end)
+    if (float || hasExponent) {
+        pushToken(ctx, lx, TokenKind.Float, end)
+    } else {
+        let start = lx.at;
+        let raw = lx.source.slice(lx.index, end.index);
+        let pushed = pushToken(ctx, lx, TokenKind.Int, end);
+        if (decimalFits(raw.replace(ctx, "_", ""))) {
+            pushed
+        } else {
+            refuse(
+                ctx,
+                pushed,
+                str.format(ctx, "`${raw}` does not fit in 128 bits"),
+                start,
+                end.at,
+            )
+        }
+    }
 }
 
 // --- text ----------------------------------------------------------------------
@@ -2804,16 +2941,18 @@ fn scanDecimal<C: Allocator>(ctx: C, lx: Lex): Lex {
 /// quote. The mode stack is what tells the `}` that closes a block inside a hole
 /// from the `}` that resumes template text.
 fn scanText<C: Allocator>(ctx: C, lx: Lex): Lex {
-    let (end, hole) = scanStrBody(nextChar(cursor(lx)));
-    if (hole) {
-        pushToken(
-            ctx,
-            Lex { ..lx, modes: lx.modes.push(ctx, HOLE) },
-            TokenKind.TemplateHead,
-            end,
-        )
-    } else {
-        pushToken(ctx, lx, TokenKind.Str, end)
+    let (end, stop) = scanStrBody(nextChar(cursor(lx)));
+    match (stop) {
+        .Hole => {
+            pushToken(
+                ctx,
+                Lex { ..lx, modes: lx.modes.push(ctx, HOLE) },
+                TokenKind.TemplateHead,
+                end,
+            )
+        },
+        .Quote => pushToken(ctx, lx, TokenKind.Str, end),
+        .Open => openText(ctx, lx, TokenKind.Str, end),
     }
 }
 
@@ -2822,11 +2961,15 @@ fn scanCloser<C: Allocator>(ctx: C, lx: Lex): Lex {
     match (lx.modes.last()) {
         .Some(mode) => {
             if (mode == HOLE) {
-                let (end, hole) = scanStrBody(nextChar(cursor(lx)));
-                if (hole) {
-                    pushToken(ctx, lx, TokenKind.TemplateSpan, end)
-                } else {
-                    pushToken(ctx, popMode(ctx, lx), TokenKind.TemplateTail, end)
+                let (end, stop) = scanStrBody(nextChar(cursor(lx)));
+                match (stop) {
+                    .Hole => pushToken(ctx, lx, TokenKind.TemplateSpan, end),
+                    .Quote => {
+                        pushToken(ctx, popMode(ctx, lx), TokenKind.TemplateTail, end)
+                    },
+                    .Open => {
+                        openText(ctx, popMode(ctx, lx), TokenKind.TemplateTail, end)
+                    },
                 }
             } else {
                 let end = nextChar(cursor(lx));
@@ -2842,37 +2985,87 @@ fn popMode<C: Allocator>(ctx: C, lx: Lex): Lex {
     Lex { ..lx, modes: lx.modes.take(ctx, lx.modes.length() - 1) }
 }
 
-/// Scans to the `"` that ends a string or the `${` that opens a hole, and says
-/// which of the two it found. The opener is already consumed.
-fn scanStrBody(cur: Cursor): (Cursor, Bool) {
-    if (atEnd(cur)) {
-        (cur, false)
+/// `lx` with text that runs to the end of its line pushed and refused, the way
+/// the compiler refuses it: at the line break, or where the file ends.
+fn openText<C: Allocator>(ctx: C, lx: Lex, kind: TokenKind, end: Cursor): Lex {
+    let pushed = pushToken(
+        ctx,
+        Lex { ..lx, open: lx.open.push(ctx, lx.at) },
+        kind,
+        end,
+    );
+    let width = if (atEnd(end)) { 0 } else { 1 };
+    refuse(ctx, pushed, "unterminated string literal", end.at, end.at + width)
+}
+
+/// Where a run of string text stops.
+enum TextStop {
+    Quote,
+    Hole,
+    Open,
+}
+
+/// Scans to the `"` that ends a string, the `${` that opens a hole, or the end
+/// of the line, and says which it found. The opener is already consumed.
+fn scanStrBody(cur: Cursor): (Cursor, TextStop) {
+    if (atLineEnd(cur)) {
+        (cur, .Open)
     } else {
         let c = charOf(cur.chars, cur.index);
         if (c == '"') {
-            (nextChar(cur), false)
+            (nextChar(cur), .Quote)
         } else if (c == '\\') {
-            scanStrBody(skipChars(cur, 2))
+            // A backslash at the end of its line escapes nothing.
+            let past = nextChar(cur);
+            scanStrBody(if (atLineEnd(past)) { past } else { nextChar(past) })
         } else if (c == '$' && charOf(cur.chars, cur.index + 1) == '{') {
-            (skipChars(cur, 2), true)
+            (skipChars(cur, 2), .Hole)
         } else {
             scanStrBody(nextChar(cur))
         }
     }
 }
 
+/// A character literal, refused the way the compiler refuses one: open when its
+/// line ends before a character, too long when the first character is not
+/// followed by `'`. A long one runs on to a `'` or the end of its line.
 fn scanChar<C: Allocator>(ctx: C, lx: Lex): Lex {
-    let body = if (charOf(lx.chars, lx.index + 1) == '\\') {
-        scanEscape(skipChars(cursor(lx), 2))
+    let start = lx.at;
+    let quote = nextChar(cursor(lx));
+    let escaped = charOf(quote.chars, quote.index) == '\\';
+    let body = if (escaped) { nextChar(quote) } else { quote };
+    if (atLineEnd(body)) {
+        let pushed = pushToken(ctx, lx, TokenKind.Char, body);
+        refuse(ctx, pushed, "unterminated character literal", start, body.at)
     } else {
-        skipChars(cursor(lx), 2)
-    };
-    let end = if (charOf(body.chars, body.index) == '\'') {
-        nextChar(body)
+        let one = if (escaped) { scanEscape(body) } else { nextChar(body) };
+        if (charOf(one.chars, one.index) == '\'') {
+            pushToken(ctx, lx, TokenKind.Char, nextChar(one))
+        } else {
+            let stop = skipToQuote(one);
+            let end = if (charOf(stop.chars, stop.index) == '\'') {
+                nextChar(stop)
+            } else {
+                stop
+            };
+            refuse(
+                ctx,
+                pushToken(ctx, lx, TokenKind.Char, end),
+                "a character literal holds exactly one Unicode scalar value",
+                start,
+                one.at,
+            )
+        }
+    }
+}
+
+/// The `'` or line end a too-long character literal stops at.
+fn skipToQuote(cur: Cursor): Cursor {
+    if (atLineEnd(cur) || charOf(cur.chars, cur.index) == '\'') {
+        cur
     } else {
-        body
-    };
-    pushToken(ctx, lx, TokenKind.Char, end)
+        skipToQuote(nextChar(cur))
+    }
 }
 
 /// The escape's own characters, as the compiler reads them: one for `\n`, and
@@ -2914,7 +3107,22 @@ fn scanPunctuation<C: Allocator>(ctx: C, lx: Lex): Lex {
     } else if (isPunctuation(charOf(lx.chars, lx.index))) {
         oneChar(ctx, lx, TokenKind.Punctuation)
     } else {
-        oneChar(ctx, lx, TokenKind.Unknown)
+        let c = charOf(lx.chars, lx.index);
+        let code = number.toHex(ctx, c.toU32().toI64(), 4).toUpper(ctx);
+        let start = lx.at;
+        let pushed = oneChar(ctx, lx, TokenKind.Unknown);
+        refuse(
+            ctx,
+            pushed,
+            str.format(
+                ctx,
+                "unexpected character `${lx
+                    .source
+                    .slice(lx.index, lx.index + 1)}` (U+${code})",
+            ),
+            start,
+            pushed.at,
+        )
     }
 }
 
@@ -2963,6 +3171,10 @@ export struct ParseError {
 
 /// The parser's whole state: where it is, what it has said, and whether it is
 /// looking for the next declaration.
+///
+/// `lexical` is where the lexer refused something and `open` is which tokens
+/// are strings with no closing quote: the compiler says nothing more about
+/// either, so neither does this.
 struct P {
     file: Str,
     tokens: [Token],
@@ -2970,17 +3182,20 @@ struct P {
     index: Int,
     errors: [ParseError],
     panicking: Bool,
+    lexical: [Span],
+    open: [Int],
 }
 
 /// The token stream with its trivia sorted: the significant tokens, the doc
-/// lines standing above each one, the module's own `//!` lines, and the
-/// escapes no literal may hold.
+/// lines standing above each one, the module's own `//!` lines, what the lexer
+/// refused, and which tokens are open strings.
 struct Prep {
     tokens: [Token],
     docs: [[Str]],
     moduleDocs: [Str],
     pending: [Str],
     errors: [ParseError],
+    open: [Int],
 }
 
 // -----------------------------------------------------------------------------
@@ -3041,7 +3256,7 @@ export fn parse<C: Allocator>(
     file: Str,
     source: Str,
 ): Result<Module, [ParseError]> {
-    let prepared = prepare(ctx, tokenize(ctx, source));
+    let prepared = prepare(ctx, lex(ctx, source));
     let start = P {
         file: file,
         tokens: prepared.tokens,
@@ -3049,46 +3264,72 @@ export fn parse<C: Allocator>(
         index: 0,
         errors: prepared.errors,
         panicking: false,
+        lexical: prepared.errors.map(ctx, fn(e) => e.span),
+        open: prepared.open,
     };
     let (end, items) = parseItems(ctx, start, []);
     if (end.errors.isEmpty()) {
         .Ok(Module { items: items, docs: prepared.moduleDocs })
     } else {
-        .Err(end.errors)
+        .Err(end.errors.sortBy(ctx, fn(a, b) => order.int(a.span.start, b.span.start)))
     }
 }
 
-fn prepare<C: Allocator>(ctx: C, raw: [Token]): Prep {
-    raw.foldCtx(
-        ctx,
-        fn(c, acc, t) => {
-            if (t.kind == TokenKind.ModuleDoc) {
-                Prep { ..acc, moduleDocs: acc.moduleDocs.push(c, docBody(t.text)) }
-            } else if (t.kind == TokenKind.DocComment) {
-                Prep { ..acc, pending: acc.pending.push(c, docBody(t.text)) }
-            } else if (
-                t.kind == TokenKind.LineComment || t.kind == TokenKind.BlockComment
-            ) {
-                acc
-            } else {
-                Prep {
-                    ..acc,
-                    tokens: acc.tokens.push(c, t),
-                    docs: acc.docs.push(c, acc.pending),
-                    pending: [],
-                    errors: badEscapes(
-                        c,
-                        t,
-                        t.text.chars(c),
-                        0,
-                        t.span.start,
-                        acc.errors,
-                    ),
+/// A reserved word reads on as a name, and a character no token starts with
+/// is gone, as they are to the compiler once its lexer has refused them.
+fn prepare<C: Allocator>(ctx: C, lx: Lex): Prep {
+    lx
+        .tokens
+        .foldCtx(
+            ctx,
+            fn(c, acc, t) => {
+                if (t.kind == TokenKind.ModuleDoc) {
+                    Prep { ..acc, moduleDocs: acc.moduleDocs.push(c, docBody(t.text)) }
+                } else if (t.kind == TokenKind.DocComment) {
+                    Prep { ..acc, pending: acc.pending.push(c, docBody(t.text)) }
+                } else if (
+                    t.kind == TokenKind.LineComment
+                        || t.kind == TokenKind.BlockComment
+                        || t.kind == TokenKind.Unknown && isReserved(t.text) == false
+                ) {
+                    acc
+                } else {
+                    let kind = if (t.kind == TokenKind.Unknown) {
+                        TokenKind.Identifier
+                    } else {
+                        t.kind
+                    };
+                    let open = if (lx.open.contains(t.span.start)) {
+                        acc.open.push(c, acc.tokens.length())
+                    } else {
+                        acc.open
+                    };
+                    Prep {
+                        ..acc,
+                        tokens: acc.tokens.push(c, Token { ..t, kind: kind }),
+                        docs: acc.docs.push(c, acc.pending),
+                        pending: [],
+                        errors: badEscapes(
+                            c,
+                            t,
+                            t.text.chars(c),
+                            0,
+                            t.span.start,
+                            acc.errors,
+                        ),
+                        open: open,
+                    }
                 }
-            }
-        },
-        Prep { tokens: [], docs: [], moduleDocs: [], pending: [], errors: [] },
-    )
+            },
+            Prep {
+                tokens: [],
+                docs: [],
+                moduleDocs: [],
+                pending: [],
+                errors: lx.errors,
+                open: [],
+            },
+        )
 }
 
 /// A doc line without its marker: one leading space taken off, the trailing
@@ -3177,6 +3418,12 @@ fn docsHere(p: P): [Str] {
 fn expected<C: Allocator>(ctx: C, p: P, what: Str): P {
     if (p.panicking) {
         p
+    } else if (
+        p.lexical.contains(here(p))
+            || p.open.contains(p.index)
+            || p.open.contains(p.index - 1)
+    ) {
+        P { ..p, panicking: true }
     } else {
         let found = if (isEnd(p)) {
             "the end of the file"
