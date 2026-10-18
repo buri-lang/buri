@@ -1528,26 +1528,66 @@ impl Tables {
 /// `Clone` because a question can be asked of a substitution without being
 /// asked *of* it: working out which parameter a call left out tries an
 /// alignment on a copy, so a reading that does not hold leaves nothing behind.
-#[derive(Default, Clone)]
-pub struct Subst {
-    vars: Vec<Var>,
+#[derive(Clone)]
+pub struct Subst<L = ()> {
+    vars: Vec<Var<L>>,
     /// Where the body being checked starts in `vars`. Earlier bodies' variables
     /// stay, so every id `mint` handed out keeps indexing its own entry.
     start: usize,
+    /// Each integer literal, with the integer type its variable settled at.
+    settled: Vec<(L, IntPrim)>,
+}
+
+impl<L> Default for Subst<L> {
+    fn default() -> Self {
+        Subst {
+            vars: Vec::new(),
+            start: 0,
+            settled: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone)]
-struct Var {
+struct Var<L> {
     ty: Option<Ty>,
-    class: Option<NumClass>,
+    class: Option<Class<L>>,
     /// The span the variable was created at, for defaulting diagnostics.
     span: Span,
 }
 
-impl Subst {
+/// What a numeric literal's variable is constrained to. An integer one carries
+/// the literals waiting for the integer type it settles at.
+#[derive(Clone)]
+enum Class<L> {
+    Int(Vec<L>),
+    Float,
+}
+
+impl<L> Class<L> {
+    fn num(&self) -> NumClass {
+        match self {
+            Class::Int(_) => NumClass::Int,
+            Class::Float => NumClass::Float,
+        }
+    }
+}
+
+impl<L> Var<L> {
+    /// The literals waiting on this variable, which a binding passes on.
+    fn take_lits(&mut self) -> Vec<L> {
+        match &mut self.class {
+            Some(Class::Int(lits)) => std::mem::take(lits),
+            _ => Vec::new(),
+        }
+    }
+}
+
+impl<L> Subst<L> {
     /// Starts the next body. Its defaulting passes see only its own variables.
     pub fn clear(&mut self) {
         self.start = self.vars.len();
+        self.settled.clear();
     }
 
     pub fn fresh(&mut self, span: Span) -> Ty {
@@ -1556,12 +1596,17 @@ impl Subst {
 
     /// A numeric literal gets a fresh variable constrained to the integer
     /// types or the float types; ordinary unification then decides
-    /// (SPEC 5.1.1).
-    pub fn fresh_num(&mut self, class: NumClass, span: Span) -> Ty {
-        self.mint(Some(class), span)
+    /// (SPEC 5.1.1). An integer literal waits on its variable until that
+    /// settles at an integer type, and [`Subst::settled`] then holds it.
+    pub fn fresh_int(&mut self, lit: L, span: Span) -> Ty {
+        self.mint(Some(Class::Int(vec![lit])), span)
     }
 
-    fn mint(&mut self, class: Option<NumClass>, span: Span) -> Ty {
+    pub fn fresh_float(&mut self, span: Span) -> Ty {
+        self.mint(Some(Class::Float), span)
+    }
+
+    fn mint(&mut self, class: Option<Class<L>>, span: Span) -> Ty {
         let id = TyVarId(self.vars.len() as u32);
         self.vars.push(Var {
             ty: None,
@@ -1575,7 +1620,7 @@ impl Subst {
         clippy::indexing_slicing,
         reason = "only `mint` makes a TyVarId, at the length it then grows past, and nothing shrinks `vars`"
     )]
-    fn var(&self, id: TyVarId) -> &Var {
+    fn var(&self, id: TyVarId) -> &Var<L> {
         &self.vars[id.index()]
     }
 
@@ -1583,12 +1628,19 @@ impl Subst {
         clippy::indexing_slicing,
         reason = "only `mint` makes a TyVarId, at the length it then grows past, and nothing shrinks `vars`"
     )]
-    fn var_mut(&mut self, id: TyVarId) -> &mut Var {
+    fn var_mut(&mut self, id: TyVarId) -> &mut Var<L> {
         &mut self.vars[id.index()]
     }
 
     pub fn class_of(&self, id: TyVarId) -> Option<NumClass> {
-        self.var(id).class
+        self.var(id).class.as_ref().map(Class::num)
+    }
+
+    /// Every integer literal of this body whose variable has settled, with
+    /// the integer type it settled at. After `default_numerics`, that is all
+    /// of them.
+    pub fn settled(&mut self) -> &mut Vec<(L, IntPrim)> {
+        &mut self.settled
     }
 
     pub fn span_of(&self, id: TyVarId) -> Span {
@@ -1604,7 +1656,7 @@ impl Subst {
     }
 
     /// This body's variables.
-    fn own_vars(&mut self) -> impl Iterator<Item = &mut Var> {
+    fn own_vars(&mut self) -> impl Iterator<Item = &mut Var<L>> {
         self.vars.iter_mut().skip(self.start)
     }
 
@@ -1714,25 +1766,37 @@ impl Subst {
             let resolved = self.shallow(ty);
             match resolved.kind() {
                 &TyKind::Var(other) => {
-                    let slot = &mut self.var_mut(other).class;
-                    match *slot {
-                        None => *slot = Some(class),
-                        Some(existing) if existing != class => return Err((Ty::var(id), *ty)),
-                        Some(_) => {}
-                    }
-                }
-                _ => {
-                    let ok = match tables.as_prim(&resolved) {
-                        Some(p) => match class {
-                            NumClass::Int => p.is_integer(),
-                            NumClass::Float => p.is_float(),
-                        },
-                        None => false,
-                    };
-                    if !ok {
+                    if self
+                        .class_of(other)
+                        .is_some_and(|existing| existing != class)
+                    {
                         return Err((Ty::var(id), *ty));
                     }
+                    let lits = self.var_mut(id).take_lits();
+                    match &mut self.var_mut(other).class {
+                        Some(Class::Int(waiting)) => waiting.extend(lits),
+                        slot => {
+                            *slot = Some(match class {
+                                NumClass::Int => Class::Int(lits),
+                                NumClass::Float => Class::Float,
+                            })
+                        }
+                    }
                 }
+                _ => match class {
+                    NumClass::Int => {
+                        let Some(p) = tables.as_prim(&resolved).and_then(Prim::as_int) else {
+                            return Err((Ty::var(id), *ty));
+                        };
+                        let lits = self.var_mut(id).take_lits();
+                        self.settled.extend(lits.into_iter().map(|lit| (lit, p)));
+                    }
+                    NumClass::Float => {
+                        if !tables.as_prim(&resolved).is_some_and(Prim::is_float) {
+                            return Err((Ty::var(id), *ty));
+                        }
+                    }
+                },
             }
         }
         self.set(id, *ty);
@@ -1742,15 +1806,19 @@ impl Subst {
     /// Only if nothing constrains a literal does the default apply — `Int` for
     /// integer literals, `Float` for float literals (SPEC 5.1.1).
     pub fn default_numerics(&mut self, tables: &Tables) {
-        for var in self.own_vars() {
+        for var in self.vars.iter_mut().skip(self.start) {
             if var.ty.is_some() {
                 continue;
             }
-            if let Some(class) = var.class {
-                var.ty = Some(match class {
-                    NumClass::Int => tables.prim(Prim::I64),
-                    NumClass::Float => tables.prim(Prim::F64),
-                });
+            match &mut var.class {
+                Some(Class::Int(lits)) => {
+                    var.ty = Some(tables.prim(Prim::I64));
+                    let lits = std::mem::take(lits);
+                    self.settled
+                        .extend(lits.into_iter().map(|lit| (lit, IntPrim::I64)));
+                }
+                Some(Class::Float) => var.ty = Some(tables.prim(Prim::F64)),
+                None => {}
             }
         }
     }
@@ -1898,9 +1966,30 @@ pub fn substitute(ty: &Ty, args: &[Ty], self_ty: Option<&Ty>) -> Ty {
 // Printing
 // ---------------------------------------------------------------------------
 
+/// What printing a type asks of a substitution, whatever its literals carry.
+pub trait Solved {
+    fn resolve(&self, ty: &Ty) -> Ty;
+    fn class_of(&self, id: TyVarId) -> Option<NumClass>;
+}
+
+impl<L> Solved for Subst<L> {
+    fn resolve(&self, ty: &Ty) -> Ty {
+        Subst::resolve(self, ty)
+    }
+
+    fn class_of(&self, id: TyVarId) -> Option<NumClass> {
+        Subst::class_of(self, id)
+    }
+}
+
 /// Renders a type the way a program would write it. Diagnostics print whichever
 /// spelling the program used where they can, but the canonical name otherwise.
-pub fn show(tables: &Tables, subst: Option<&Subst>, generics: &[GenericInfo], ty: &Ty) -> String {
+pub fn show(
+    tables: &Tables,
+    subst: Option<&dyn Solved>,
+    generics: &[GenericInfo],
+    ty: &Ty,
+) -> String {
     let resolved = match subst {
         Some(s) => s.resolve(ty),
         None => *ty,
@@ -1994,9 +2083,9 @@ impl Spelling {
 
 /// How a type is named in a diagnostic: the same spelling `show` gives, plus
 /// whether it came from a literal. `show` stays the renderer everywhere else.
-pub fn show_in_diagnostic(
+pub fn show_in_diagnostic<L>(
     tables: &Tables,
-    subst: &Subst,
+    subst: &Subst<L>,
     generics: &[GenericInfo],
     ty: &Ty,
 ) -> Spelling {
@@ -2012,7 +2101,7 @@ pub fn show_in_diagnostic(
 fn write_ty(
     out: &mut String,
     tables: &Tables,
-    subst: Option<&Subst>,
+    subst: Option<&dyn Solved>,
     generics: &[GenericInfo],
     ty: &Ty,
 ) {
@@ -2099,8 +2188,8 @@ mod tests {
     #[test]
     fn int_literals_unify_with_any_integer_width() {
         let t = tables_with_prims();
-        let mut s = Subst::default();
-        let lit = s.fresh_num(NumClass::Int, Span::NONE);
+        let mut s = Subst::<()>::default();
+        let lit = s.fresh_int((), Span::NONE);
         assert!(s.unify(&t, &lit, &t.prim(Prim::U8)).is_ok());
         assert_eq!(s.resolve(&lit), t.prim(Prim::U8));
     }
@@ -2109,17 +2198,17 @@ mod tests {
     fn an_integer_literal_does_not_become_a_float() {
         // There is no implicit promotion of any kind, not even for literals.
         let t = tables_with_prims();
-        let mut s = Subst::default();
-        let lit = s.fresh_num(NumClass::Int, Span::NONE);
+        let mut s = Subst::<()>::default();
+        let lit = s.fresh_int((), Span::NONE);
         assert!(s.unify(&t, &lit, &t.prim(Prim::F64)).is_err());
     }
 
     #[test]
     fn an_unpinned_literal_is_named_by_the_type_it_defaults_to() {
         let t = tables_with_prims();
-        let mut s = Subst::default();
-        let int = s.fresh_num(NumClass::Int, Span::NONE);
-        let float = s.fresh_num(NumClass::Float, Span::NONE);
+        let mut s = Subst::<()>::default();
+        let int = s.fresh_int((), Span::NONE);
+        let float = s.fresh_float(Span::NONE);
         assert_eq!(show_in_diagnostic(&t, &s, &[], &int).quoted(), "`Int`");
         assert_eq!(show_in_diagnostic(&t, &s, &[], &float).quoted(), "`Float`");
         // Nested inside a larger type it is the same name, so one literal is
@@ -2131,9 +2220,9 @@ mod tests {
     #[test]
     fn unconstrained_literals_default() {
         let t = tables_with_prims();
-        let mut s = Subst::default();
-        let i = s.fresh_num(NumClass::Int, Span::NONE);
-        let f = s.fresh_num(NumClass::Float, Span::NONE);
+        let mut s = Subst::<()>::default();
+        let i = s.fresh_int((), Span::NONE);
+        let f = s.fresh_float(Span::NONE);
         s.default_numerics(&t);
         assert_eq!(s.resolve(&i), t.prim(Prim::I64));
         assert_eq!(s.resolve(&f), t.prim(Prim::F64));
@@ -2146,7 +2235,7 @@ mod tests {
         // `monomorphize::descriptor` describe it and `middle::derives` generate
         // a `Show` for a failure report to call.
         let t = tables_with_prims();
-        let mut s = Subst::default();
+        let mut s = Subst::<()>::default();
         let free = s.fresh(Span::NONE);
         let bound = s.fresh(Span::NONE);
         assert!(s.unify(&t, &bound, &t.prim(Prim::Str)).is_ok());
@@ -2160,7 +2249,7 @@ mod tests {
     #[test]
     fn occurs_check() {
         let t = tables_with_prims();
-        let mut s = Subst::default();
+        let mut s = Subst::<()>::default();
         let v = s.fresh(Span::NONE);
         let arr = Ty::array(v);
         assert!(s.unify(&t, &v, &arr).is_err());
@@ -2169,7 +2258,7 @@ mod tests {
     #[test]
     fn the_error_type_unifies_with_anything() {
         let t = tables_with_prims();
-        let mut s = Subst::default();
+        let mut s = Subst::<()>::default();
         assert!(s.unify(&t, &Ty::ERROR, &t.prim(Prim::Str)).is_ok());
         assert!(s.unify(&t, &t.prim(Prim::Bool), &Ty::ERROR).is_ok());
     }
