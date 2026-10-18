@@ -1011,7 +1011,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             ir::Inst::CallIntrinsic { dest, key, args } => {
                 self.call_intrinsic(state, code, *dest, key, args)
             }
-            ir::Inst::Structural { .. } => self.structural(state, code, inst),
+            ir::Inst::ShowPrim { dest, prim, value } => {
+                self.show_prim(state, code, *dest, *prim, *value, false)
+            }
             ir::Inst::IncRef { value } => self.incref(state, code, *value),
             ir::Inst::DecRef { value } => self.decref(state, code, *value),
             ir::Inst::Abort { message } => {
@@ -2528,19 +2530,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         if entry.whole_value {
             return None;
         }
-        let mut cursor = 0usize;
-        for mode in entry.args {
-            if !mode.consumes() {
-                continue;
-            }
-            let at = cursor;
-            cursor = cursor.saturating_add(1);
-            if !matches!(mode, runtime::Arg::Elems) {
-                continue;
-            }
-            return Some(self.element_of(code.ty_of(arg(args, at))));
+        let list = c_params(entry, args).find_map(|p| match p {
+            CParam::Arg(runtime::Arg::Elems, a) => Some(a),
+            _ => None,
+        });
+        match list {
+            Some(a) => Some(self.element_of(code.ty_of(a))),
+            None => self.list_element(code.ty_of(dest)),
         }
-        self.list_element(code.ty_of(dest))
     }
 
     /// The stride and glue type of a row whose `T` is a **bare type** rather
@@ -2563,20 +2560,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         entry: &runtime::Entry,
         args: &[ir::ValueId],
     ) -> Option<(u32, Option<Ty>)> {
-        let mut cursor = 0usize;
-        let mut spilled: Option<ir::Type> = None;
-        for mode in entry.args {
-            if !mode.consumes() {
-                continue;
-            }
-            let at = cursor;
-            cursor = cursor.saturating_add(1);
-            if matches!(mode, runtime::Arg::Spilled) {
-                spilled = args.get(at).copied().map(|a| code.ty_of(a));
-                break;
-            }
-        }
-        let ty = spilled.unwrap_or_else(|| code.ty_of(dest));
+        let spilled = c_params(entry, args).find_map(|p| match p {
+            CParam::Arg(runtime::Arg::Spilled, a) => Some(a),
+            _ => None,
+        });
+        let ty = code.ty_of(spilled.unwrap_or(dest));
         Some(match ty {
             ir::Type::Unit | ir::Type::I1 | ir::Type::I8 => (1, None),
             ir::Type::I16 => (2, None),
@@ -2610,9 +2598,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// entry that has drifted from the contract is an internal error here rather
     /// than a wrong answer at run time.
     ///
-    /// The walk is over the *C* list with a cursor into the Buri one, because
-    /// §2 rule 4's `stride` and `retain` sit inside the C list at positions
-    /// that no Buri argument corresponds to.
+    /// The walk is over the *C* list ([`c_params`]), because §2 rule 4's
+    /// `stride` and `retain` sit inside it at positions that no Buri argument
+    /// corresponds to.
     fn entry_args(
         &mut self,
         state: &mut Function<'ctx>,
@@ -2624,42 +2612,78 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let element = elements.source;
         let key = entry.key;
         let mut argv: Vec<BasicMetadataValueEnum<'ctx>> = Vec::new();
-        let mut cursor = 0usize;
-        for mode in entry.args {
-            if !mode.consumes() {
-                // A bare `T` with no `Ty` behind it answers the stride and
-                // nothing else: it is a scalar, and a scalar holds no counted
-                // pointer, so the retain beside it is null.
-                let bare = if element.is_none() {
-                    elements.bare
-                } else {
-                    None
-                };
-                if let Some((stride, glue_ty)) = bare {
+        for param in c_params(entry, args) {
+            let (mode, a) = match param {
+                CParam::Arg(mode, a) => (mode, a),
+                CParam::Extra(mode) => {
+                    // A bare `T` with no `Ty` behind it answers the stride and
+                    // nothing else: it is a scalar, and a scalar holds no counted
+                    // pointer, so the retain beside it is null.
+                    let bare = if element.is_none() {
+                        elements.bare
+                    } else {
+                        None
+                    };
+                    if let Some((stride, glue_ty)) = bare {
+                        match mode {
+                            runtime::Arg::Stride => argv.push(
+                                self.ctx
+                                    .i64_type()
+                                    .const_int(u64::from(stride), false)
+                                    .into(),
+                            ),
+                            runtime::Arg::Release => {
+                                let glue = glue_ty
+                                    .and_then(|t| self.glue(Op::Release, &t))
+                                    .map(function_pointer)
+                                    .unwrap_or_else(|| self.ptr_ty().const_null());
+                                argv.push(glue.into());
+                            }
+                            runtime::Arg::Equal => {
+                                let glue = glue_ty
+                                    .and_then(|t| self.equal_glue(&t))
+                                    .map(function_pointer)
+                                    .unwrap_or_else(|| self.ptr_ty().const_null());
+                                argv.push(glue.into());
+                            }
+                            _ => {
+                                let glue = glue_ty
+                                    .and_then(|t| self.glue(Op::Retain, &t))
+                                    .map(function_pointer)
+                                    .unwrap_or_else(|| self.ptr_ty().const_null());
+                                argv.push(glue.into());
+                            }
+                        }
+                        continue;
+                    }
+                    let elem = element.or_ice("a row with a stride names its element type");
                     match mode {
-                        runtime::Arg::Stride => argv.push(
-                            self.ctx
-                                .i64_type()
-                                .const_int(u64::from(stride), false)
-                                .into(),
-                        ),
+                        runtime::Arg::Stride => {
+                            let stride = self.reprs.of_ty(&elem).layout.stride;
+                            argv.push(
+                                self.ctx
+                                    .i64_type()
+                                    .const_int(u64::from(stride), false)
+                                    .into(),
+                            );
+                        }
                         runtime::Arg::Release => {
-                            let glue = glue_ty
-                                .and_then(|t| self.glue(Op::Release, &t))
+                            let glue = self
+                                .glue(Op::Release, &elem)
                                 .map(function_pointer)
                                 .unwrap_or_else(|| self.ptr_ty().const_null());
                             argv.push(glue.into());
                         }
                         runtime::Arg::Equal => {
-                            let glue = glue_ty
-                                .and_then(|t| self.equal_glue(&t))
+                            let glue = self
+                                .equal_glue(&elem)
                                 .map(function_pointer)
                                 .unwrap_or_else(|| self.ptr_ty().const_null());
                             argv.push(glue.into());
                         }
                         _ => {
-                            let glue = glue_ty
-                                .and_then(|t| self.glue(Op::Retain, &t))
+                            let glue = self
+                                .glue(Op::Retain, &elem)
                                 .map(function_pointer)
                                 .unwrap_or_else(|| self.ptr_ty().const_null());
                             argv.push(glue.into());
@@ -2667,43 +2691,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     }
                     continue;
                 }
-                let elem = element.or_ice("a row with a stride names its element type");
-                match mode {
-                    runtime::Arg::Stride => {
-                        let stride = self.reprs.of_ty(&elem).layout.stride;
-                        argv.push(
-                            self.ctx
-                                .i64_type()
-                                .const_int(u64::from(stride), false)
-                                .into(),
-                        );
-                    }
-                    runtime::Arg::Release => {
-                        let glue = self
-                            .glue(Op::Release, &elem)
-                            .map(function_pointer)
-                            .unwrap_or_else(|| self.ptr_ty().const_null());
-                        argv.push(glue.into());
-                    }
-                    runtime::Arg::Equal => {
-                        let glue = self
-                            .equal_glue(&elem)
-                            .map(function_pointer)
-                            .unwrap_or_else(|| self.ptr_ty().const_null());
-                        argv.push(glue.into());
-                    }
-                    _ => {
-                        let glue = self
-                            .glue(Op::Retain, &elem)
-                            .map(function_pointer)
-                            .unwrap_or_else(|| self.ptr_ty().const_null());
-                        argv.push(glue.into());
-                    }
-                }
-                continue;
-            }
-            let a = arg(args, cursor);
-            cursor = cursor.saturating_add(1);
+            };
             let ir_ty = code.ty_of(a);
             let slots = repr::ir_slots(&mut self.reprs, self.program, ir_ty);
             let value = self.get(state, a);
@@ -2760,7 +2748,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     // call, and the thunk takes one per element.
                     let ctx_at = self.step_ctx_offsets(ps, step_index);
                     // The checker passes the step one context per one it takes.
-                    let from = step_call(key).and_then(|c| c.ctx).map(|i| arg(args, i));
+                    let from = step_call(key)
+                        .and_then(|c| c.ctx)
+                        .and_then(|i| args.get(i).copied());
                     for (at, arg) in ctx_at.iter().copied().zip(from) {
                         self.store_ctx(state, code, arg, record, at);
                     }
@@ -4060,11 +4050,29 @@ fn list_ty(ty: ir::Type) -> ir::ListTy {
     }
 }
 
-/// An intrinsic's `at`th argument.
-fn arg(args: &[ir::ValueId], at: usize) -> ir::ValueId {
-    *args
-        .get(at)
-        .or_ice("the checker passes an intrinsic every argument it declares")
+/// One parameter of a runtime entry's C list: a Buri argument it takes, or
+/// one of §2 rule 4's stride and glue words, which take none.
+#[derive(Clone, Copy)]
+enum CParam {
+    Arg(runtime::Arg, ir::ValueId),
+    Extra(runtime::Arg),
+}
+
+/// `entry`'s C parameter list, each consuming row paired with the Buri
+/// argument it takes, in order. The checker passes an intrinsic every
+/// argument it declares, so every row has one.
+fn c_params<'a>(
+    entry: &'a runtime::Entry,
+    args: &'a [ir::ValueId],
+) -> impl Iterator<Item = CParam> + 'a {
+    let mut buri = args.iter().copied();
+    entry.args.iter().filter_map(move |mode| {
+        if mode.consumes() {
+            buri.next().map(|a| CParam::Arg(*mode, a))
+        } else {
+            Some(CParam::Extra(*mode))
+        }
+    })
 }
 
 /// A value the IR types as an integer, a `Bool` or a tag.
@@ -6080,38 +6088,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             (int_predicate(op, true), ret.const_int(1, false))
         };
         b.icmp(predicate, answer, against, "str.cmp").into()
-    }
-
-    /// A structural operation the derive pass left behind.
-    ///
-    /// `middle::derives` replaces every one it can with a call to a function it
-    /// generated. What reaches here is a **template hole**, which
-    /// `middle::lower` emits directly and after that pass has run. So the arms
-    /// below are exactly the primitive arms of `derivePrimShow`
-    /// (`middle/derives.rs`'s header) *without* its quoting, and anything else
-    /// is a gap named rather than miscompiled.
-    ///
-    /// Unlike [`Unit::derived`] this has the source type in hand — an
-    /// `Inst::Structural` carries an interned `TypeId` — so every primitive is
-    /// reachable here, including the ones a bare register shape cannot name.
-    fn structural(&mut self, state: &mut Function<'ctx>, code: &ir::Code, inst: &ir::Inst) {
-        // `middle::native` replaces every structural operation but a
-        // primitive's `Show`, a template's hole.
-        let (dest, ty, arg) = match inst {
-            ir::Inst::Structural {
-                dest,
-                op: ir::StructuralOp::Show,
-                ty,
-                args,
-            } => (*dest, *ty, *args.first().or_ice("`Show` takes its value")),
-            _ => crate::diagnostics::ice("`middle::native` derived this structural operation"),
-        };
-        let source = self.program.type_info(ty).ty;
-        let prim = self
-            .tables
-            .as_prim(&source)
-            .or_ice("`middle::native` derives `Show` but a primitive's");
-        self.show_prim(state, code, dest, prim, arg, false);
     }
 
     /// One primitive as a `Str`, for a template hole (`quoted == false`) or for
@@ -8937,7 +8913,7 @@ fn argument_based(code: &ir::Code, boxes: &Boxes<'_>) -> ir::PerValue<bool> {
                     {
                         set(&mut based, *dest, false, &mut changed);
                     }
-                    ir::Inst::Structural { dest, .. }
+                    ir::Inst::ShowPrim { dest, .. }
                     | ir::Inst::Call { dest, .. }
                     | ir::Inst::CallIndirect { dest, .. }
                     | ir::Inst::CallIntrinsic { dest, .. } => {
@@ -9158,7 +9134,7 @@ fn local(code: &ir::Code, boxes: &Boxes<'_>) -> Observed {
                     prim: Prim::Str | Prim::Template,
                     ..
                 }
-                | ir::Inst::Structural { .. } => o.join(Observed::opaque()),
+                | ir::Inst::ShowPrim { .. } => o.join(Observed::opaque()),
                 // A count is memory, and *which* memory decides the attribute
                 // — see [`argument_based`]. `decref` keeps `opaque` on top of
                 // that for its free path, which goes back to the allocator

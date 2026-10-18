@@ -61,9 +61,8 @@
 //!
 //! # What is opaque on purpose
 //!
-//! [`Inst::IncRef`], [`Inst::DecRef`] and [`Inst::Structural`] carry no
-//! meaning of their own here. `middle::rc` decides where the first two go, and
-//! `middle::derives` replaces the third with a call to a generated function.
+//! [`Inst::IncRef`] and [`Inst::DecRef`] carry no meaning of their own here.
+//! `middle::rc` decides where they go.
 //! They are in the instruction set rather than in those passes' private
 //! vocabularies so that the backends have one shape to lower and the passes
 //! that fill them write to a fixed target rather than a negotiated one.
@@ -503,21 +502,6 @@ impl BinOp {
     }
 }
 
-/// A structural operation at a type, before `middle::derives` has generated
-/// the function that implements it. **`middle::derives` replaces every one of
-/// these with an ordinary [`Inst::Call`]** (VALUE-MODEL.md §9), so a backend
-/// that meets one has been handed a tree the native branch did not finish.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum StructuralOp {
-    Eq,
-    /// Three-way comparison, answering an `Order`.
-    Cmp,
-    /// `Show::show`, and the rendering of a template hole.
-    Show,
-    Hash,
-    ToJson,
-}
-
 /// One instruction. Every one either defines its results or is executed for
 /// effect; none of them transfers control, which is [`Term`]'s job.
 #[derive(Clone, Debug)]
@@ -662,13 +646,12 @@ pub enum Inst {
         key: Box<str>,
         args: Box<[ValueId]>,
     },
-    /// See [`StructuralOp`]: `middle::derives` turns this into a
-    /// [`Inst::Call`].
-    Structural {
+    /// A template hole's primitive as a `Str`, the way `runtime.js`'s `$str`
+    /// renders it: a `Char` as its own bytes, a number as `show` does.
+    ShowPrim {
         dest: ValueId,
-        op: StructuralOp,
-        ty: TypeId,
-        args: Vec<ValueId>,
+        prim: Prim,
+        value: ValueId,
     },
 
     // -- reference counting -------------------------------------------------
@@ -712,7 +695,7 @@ impl Inst {
             | Inst::ArraySlice { dest, .. }
             | Inst::ArrayAlloc { dest, .. }
             | Inst::ArrayPrefix { dest, .. }
-            | Inst::Structural { dest, .. }
+            | Inst::ShowPrim { dest, .. }
             | Inst::Call { dest, .. }
             | Inst::CallIndirect { dest, .. }
             | Inst::CallIntrinsic { dest, .. } => std::slice::from_ref(dest),
@@ -771,7 +754,7 @@ impl Inst {
                 out.push(*callee);
                 out.extend_from_slice(args);
             }
-            Inst::Structural { args, .. } => out.extend_from_slice(args),
+            Inst::ShowPrim { value, .. } => out.push(*value),
             Inst::IncRef { value } | Inst::DecRef { value, .. } => out.push(*value),
         }
     }
@@ -1050,18 +1033,10 @@ impl Code {
     /// local interner's ids to a whole-program one's. `lower` builds each
     /// function against a private interner, across the cores, and folds the
     /// interners together afterwards; this is how a function's ids follow. The
-    /// two places a `TypeId` reaches are a value's [`Type`] and a
-    /// [`Inst::Structural`]'s type.
+    /// one place a `TypeId` reaches is a value's [`Type`].
     pub fn remap_types(&mut self, remap: &Remap) {
         for ty in &mut self.values {
             remap.ty(ty);
-        }
-        for block in &mut self.blocks {
-            for inst in &mut block.insts {
-                if let Inst::Structural { ty, .. } = inst {
-                    *ty = remap.id(*ty);
-                }
-            }
         }
     }
 
@@ -1953,18 +1928,16 @@ impl Program {
                 let _ = write!(out, "intrinsic {key:?}");
                 wrapped(out, args);
             }
-            Inst::Structural {
+            Inst::ShowPrim {
                 dest: d,
-                op,
-                ty,
-                args,
+                prim,
+                value: v,
             } => {
                 dest(out, d);
-                out.push_str("structural.");
-                out.push_str(structural_op(*op));
+                out.push_str("show.");
+                out.push_str(prim.name());
                 out.push(' ');
-                out.push_str(&self.type_info(*ty).name);
-                wrapped(out, args);
+                value(out, *v);
             }
             Inst::IncRef { value: v } => {
                 out.push_str("incref ");
@@ -2114,16 +2087,6 @@ fn un_op(op: UnOp) -> &'static str {
         UnOp::Not => "not",
         UnOp::BitNot => "bitnot",
         UnOp::FromBool => "frombool",
-    }
-}
-
-fn structural_op(op: StructuralOp) -> &'static str {
-    match op {
-        StructuralOp::Eq => "eq",
-        StructuralOp::Cmp => "cmp",
-        StructuralOp::Show => "show",
-        StructuralOp::Hash => "hash",
-        StructuralOp::ToJson => "toJson",
     }
 }
 

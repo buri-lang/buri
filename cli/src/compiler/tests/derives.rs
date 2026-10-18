@@ -591,8 +591,8 @@ export fn main(host: NodeHost): Result<(), Str> {
 
 /// A derive inside a tail-recursive body is inside an `ExprKind::Loop` by
 /// the time this pass runs, and the rewrite has to reach it: one left
-/// behind arrives at `lower` as an `Inst::Structural`, which is the
-/// placeholder for the thing this pass was supposed to have replaced.
+/// behind arrives at `lower`, which stops the build there, because this pass
+/// was supposed to have replaced it.
 #[test]
 fn a_call_site_inside_a_loop_is_rewritten_too() {
     let src = r#"

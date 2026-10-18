@@ -385,10 +385,10 @@ fn run_cargo(
         command.arg("--manifest-path").arg(src.join("Cargo.toml"));
         command.args(["--target", triple]);
         command.arg("--target-dir").arg(target_dir);
+        // An empty list is no features, which is what `--no-default-features`
+        // left.
         command.arg("--no-default-features");
-        if !features.is_empty() {
-            command.arg("--features").arg(features.join(","));
-        }
+        command.arg("--features").arg(features.join(","));
         command.arg("--locked");
         if offline {
             command.arg("--offline");

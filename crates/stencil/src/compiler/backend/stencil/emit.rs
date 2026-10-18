@@ -37,7 +37,7 @@ enum RSrc {
     Slot(u32),
 }
 use super::glue::Helper;
-use super::jit::{agg_of, enum_ty, fn_ty, Fn2, Jit, Plan, RET, V};
+use super::jit::{agg_of, copyless_test, enum_ty, fn_ty, Fn2, Jit, Plan, RET, V};
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
 use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
@@ -613,51 +613,12 @@ impl<'a> Jit<'a> {
                 ];
                 self.c_call("buri_rt_list_slice", st, &args, &[], dst, "v");
             }
-            Inst::Structural { dest, op, ty, args } => {
-                self.structural(prog, code, st, *dest, *op, *ty, args)
+            Inst::ShowPrim { dest, prim, value } => {
+                let (d, a) = (st.at(*dest), st.at(*value));
+                // `quoted = false`: a `Char` renders as its own bytes.
+                self.show_prim(st, *prim, a, d, false);
             }
         }
-    }
-
-    /// `Inst::Structural` — the placeholder `middle::derives` leaves where it
-    /// declined to generate a body.
-    ///
-    /// `llvm/emit.rs::structural` is the twin, and it is narrower than the name
-    /// suggests: **only `Show` reaches a backend**, only at a *primitive*
-    /// type, and only from a template hole — every structural `Equal`, `Cmp`,
-    /// `Hash` and `ToJson` on a compound type has already become an
-    /// `Inst::Call` to a generated function by the time lowering runs. So this
-    /// is `show_prim(quoted = false)`, and "unquoted" is the whole of the
-    /// difference from `derivePrimShow`: `runtime.js`'s `$str` hole renders a
-    /// `Str` as itself and a `Char` without the `'`s, where `$show` quotes both.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "one instruction's operands, each of which it needs: the two \
-                  programs it is read against, the frame it is emitted into, \
-                  and the four fields `Inst::Structural` has"
-    )]
-    fn structural(
-        &mut self,
-        prog: &ir::Program,
-        code: &ir::Code,
-        st: &mut Fn2,
-        dest: ir::ValueId,
-        op: ir::StructuralOp,
-        ty: ir::TypeId,
-        args: &[ir::ValueId],
-    ) {
-        // `middle::derives` turns every other structural operation into a call.
-        let _ = (code, op);
-        let arg = *args.first().or_ice("a `Structural::Show` has its value");
-        let source = prog.type_info(ty).ty;
-        let prim = self
-            .tables
-            .as_prim(&source)
-            .or_ice("a `Structural::Show` left by derives is at a primitive");
-        let d = st.at(dest);
-        let a = st.at(arg);
-        // `quoted = false`: a `Char` renders as its own bytes.
-        self.show_prim(st, prim, a, d, false);
     }
 
     fn make_enum(
@@ -1802,22 +1763,10 @@ impl<'a> Jit<'a> {
     /// in a register: the register half of an edge is [`Jit::edge`]'s, and a
     /// read here is from the jumping block's side of a promotion's region.
     fn jump_into_test(&mut self, code: &ir::Code, st: &mut Fn2, t: &Target) -> bool {
-        let header = code.get(t.block);
-        let Term::Branch { cond, then, else_ } = &header.term else {
+        let Some((header, cond, then, else_)) = copyless_test(code, st, t) else {
             return false;
         };
-        if header.insts.len() != 1 || !then.args.is_empty() || !else_.args.is_empty() {
-            return false;
-        }
         let frame = |v: ir::ValueId| matches!(st.home(v), Loc::Frame);
-        let copies = header
-            .params
-            .iter()
-            .zip(t.args.iter())
-            .any(|(p, a)| !frame(*p) || !frame(*a) || st.at(*p) != st.at(*a));
-        if copies {
-            return false;
-        }
         let plan = self.plan_block(code, st, header);
         let Some((_, _, lhs, rhs)) = plan.cmpbr else {
             return false;
@@ -1829,7 +1778,7 @@ impl<'a> Jit<'a> {
         // `then` arm is the one left for the trailing jump.
         self.cond(
             st,
-            *cond,
+            cond,
             &plan,
             V::Blk(then.block.index() as u32),
             V::Blk(else_.block.index() as u32),
@@ -2124,20 +2073,15 @@ impl<'a> Jit<'a> {
             if let Some(to) = to {
                 // An **aggregate** result is the whole of the test, and it
                 // is the same one `llvm/emit.rs::numeric` makes before its
-                // `toChar` arm: an exact
-                // conversion answers the target type and an inexact one
-                // answers `Result<T, RangeError>` (SPEC 6.2.1), so the
-                // result's *shape* says which this is without a second
-                // table. `U32.toChar` is the case that needs it — not every
-                // `U32` is a scalar value — and casting anyway would have
-                // written a `Char` into a `Result` and called it success.
-                let wide = matches!(prog.funcs.get(fi).sig.ret, ir::Type::Agg(_));
-                let exact = !wide
-                    && (op.starts_with("wrapTo")
-                        || crate::compiler::semantics::builtins::conversion_is_exact(prim, to)
-                        || op == "toChar");
-                // An inexact `toX` answers a `Result` (SPEC 6.2.1), so it
+                // `toChar` arm: an exact conversion, a `wrapTo` among them,
+                // answers the target type and an inexact one answers
+                // `Result<T, RangeError>` (SPEC 6.2.1), so the result's
+                // *shape* says which this is without a second table.
+                // `U32.toChar` is the case that needs it — not every `U32` is
+                // a scalar value — and casting anyway would have written a
+                // `Char` into a `Result` and called it success. An inexact one
                 // is a range test and two arms rather than a cast.
+                let exact = !matches!(prog.funcs.get(fi).sig.ret, ir::Type::Agg(_));
                 if exact {
                     self.convert(st, prim, to, p(0), ret0);
                 } else {
@@ -2214,7 +2158,8 @@ impl<'a> Jit<'a> {
                 self.emit("ret", &[]);
                 return;
             }
-            if op == "negate" && fs.params.len() == 1 {
+            // `Negate::negate(self)` takes its one operand.
+            if op == "negate" {
                 self.emit(
                     &key!["un/neg/", tag, "/f/f"],
                     &[

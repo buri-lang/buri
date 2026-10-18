@@ -484,11 +484,9 @@ pub(crate) fn prepared_native(
 /// gap tests care about either. `missing_intrinsics` answers *before* emission
 /// and is where an unimplemented `FuncKind::Intrinsic` shows up — that is the
 /// hook on the trait, and a key with no runtime row is what trips it. But a
-/// structural operation is an `ir::Inst::Structural`, which exists only after
-/// lowering and is therefore not in the program that hook is handed
-/// (`llvm/mod.rs` says so where the hook is implemented), so a `deriveArray*`
-/// can only be discovered by asking the backend to emit and reading the
-/// diagnostic.
+/// `deriveArray*` is an `ExprKind::Intrinsic` inside a body `middle::derives`
+/// generated, which is not in the program that hook is handed, so it can only
+/// be discovered by asking the backend to emit and reading the diagnostic.
 pub(crate) fn emitted(
     native: Native,
     program: &monomorphize::Program,

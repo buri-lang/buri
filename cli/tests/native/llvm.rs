@@ -2640,12 +2640,11 @@ export fn main(host: NativeHost): Result<(), Str> {{
 // The intrinsic surface
 // ---------------------------------------------------------------------------
 
-/// A template hole at every primitive `ir::Inst::Structural { op: Show }` can
-/// carry.
+/// A template hole at every primitive `ir::Inst::ShowPrim` can carry.
 ///
 /// This is the shape that used to be a flat refusal, and it is the one every
-/// program hits: `middle::lower` emits a hole as a `Structural` at the hole's
-/// *interned* type, so unlike `derivePrimShow` every primitive is reachable
+/// program hits: `middle::lower` emits a primitive hole as a `ShowPrim` at the
+/// hole's primitive, so unlike `derivePrimShow` every primitive is reachable
 /// here. The bytes are the JavaScript backend's — `runtime.js`'s `$str` — so
 /// what is asserted is the rendering and not the call.
 #[test]
