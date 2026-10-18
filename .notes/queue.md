@@ -40,5 +40,4 @@ Ordered by the standing priority: bugs and planned issues, then Valgrind, then c
 - **arm64 Memcheck:** decided 2026-10-12 to leave the arm64 runtime tests out of Memcheck for now. Revisit later.
 - **Root library testing label `///testing`:** user said leave it for now.
 - **Coverage, weakest areas:** cli/documentation 62.9%, cli/serve+watch 60.7%, cli/run 72.7%, crates/docs 79.9%, cli/lint 83.2%, cli/other 86.1%. Also syntax (25 gaps), stencil phase 7, and language_server phase 3.
-- Guard phase 41: `shape_of_struct` and `shape_of_variant` in semantics `expressions.rs`. Record the declaration in the type tables, and update `cli/src/commands/lint.rs`. Also `emit_into` in `cli/src/build/actions.rs`, via a `Backend` trait change so `emit_units` returns exactly the units it was asked for (stencil, llvm and js implement it). Starts once main's red CI from the flaky serving test is fixed.
 - Guard later: `check_literal_ranges` in semantics `inference.rs`. The substitution has to track each integer variable's integer type.
