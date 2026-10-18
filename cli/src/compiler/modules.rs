@@ -190,8 +190,8 @@ impl<'a> Loader<'a> {
                 // Every repository platform an output names is part of the
                 // binary, imported or not: its entries are what the binary's
                 // own are checked against.
-                for label in ws.custom_platforms(target) {
-                    self.load_path(&label, Role::Source, Span::NONE);
+                for platform in ws.custom_platforms(target) {
+                    self.load_path(&platform.label, Role::Source, Span::NONE);
                 }
                 self.load_path(&pkg.module_path("main.buri"), Role::Entry, Span::NONE);
                 for src in &bin.sources {

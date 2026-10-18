@@ -437,9 +437,7 @@ where
                                 // A job that panics drops its `Held` as it
                                 // unwinds.
                                 results.send(std::panic::catch_unwind(
-                                    std::panic::AssertUnwindSafe(|| {
-                                        work(job, held, queue, &tell)
-                                    }),
+                                    std::panic::AssertUnwindSafe(|| work(job, held, queue, &tell)),
                                 ));
                             }
                         });

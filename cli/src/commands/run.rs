@@ -81,7 +81,7 @@ pub fn command_run(args: &arguments::Args) -> i32 {
         }
     };
     let outputs: Vec<Output> = std::iter::once(pick.clone()).chain(others).collect();
-    let Some(output) = choose(&outputs, &args.flags, &|o| actions::is_page(&session, o)) else {
+    let Some(output) = choose(&outputs, &args.flags, &|o| actions::is_page(o)) else {
         // `choose` takes any output that starts itself, so every one left is
         // an entry a `js` file calls: the platform's own host calls in.
         let hosted = pick;
@@ -100,7 +100,7 @@ pub fn command_run(args: &arguments::Args) -> i32 {
         return 2;
     };
     // A page has no process to start, so `run` serves it instead.
-    if actions::is_page(&session, &output) {
+    if actions::is_page(&output) {
         return serve_page(session, target, &output, args);
     }
     // And the two flags that belong to that server are refused on everything
@@ -333,7 +333,7 @@ fn rebuild(
     // for out of the directory a page was in.
     let still_a_page = match binaries.as_slice() {
         &[target] => {
-            let page = |o: &Output| actions::is_page(&session, o);
+            let page = |o: &Output| actions::is_page(o);
             choose(
                 &actions::selected_outputs(&session, target, &args.flags),
                 &args.flags,

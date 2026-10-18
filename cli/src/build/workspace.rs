@@ -13,7 +13,7 @@
 use crate::build::buildfile::{
     self, Backend, OutputPlatform, Platform, PlatformRef, RepoConfig, Spanned,
 };
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -33,6 +33,8 @@ pub struct Workspace {
     /// workspace is the one thing already threaded to the compiler's loader, so
     /// every command and the language server read one answer.
     pub generated: crate::build::generators::Store,
+    /// Every repository platform, a `platform` rule under `//platform/`.
+    platforms: Vec<buildfile::RepoPlatform>,
     by_path: HashMap<String, PackageId>,
     /// `actions::graph_key` per mode, worked out once: it is the build files'
     /// bytes, and a workspace is loaded anew whenever one of them moves.
@@ -275,13 +277,14 @@ impl Workspace {
             .entries()
             .map(|(id, p)| (p.path.clone(), id))
             .collect();
-        resolve_custom_outputs(&mut packages, &by_path, &refused, diagnostics);
+        let platforms = resolve_custom_outputs(&mut packages, &refused, diagnostics);
         check_artifact_paths(root, &packages, diagnostics);
 
         let workspace = Workspace {
             root: root.to_path_buf(),
             repo,
             packages,
+            platforms,
             by_path,
             generated: crate::build::generators::Store::default(),
             graph_keys: std::sync::Mutex::new(Vec::new()),
@@ -1014,27 +1017,13 @@ impl Workspace {
             .collect()
     }
 
-    /// The repository platform a label names: its package and its rule.
-    ///
-    /// Every label asked about names one: loading drops an output whose label
-    /// names no `platform` rule under `//platform/` ([`resolve_custom_outputs`]),
-    /// and [`Self::every_platform`] lists only those rules.
-    pub fn platform_rule(&self, label: &str) -> (PackageId, &buildfile::PlatformRule) {
-        label
-            .strip_prefix("//")
-            .and_then(|path| self.package_by_path(path))
-            .and_then(|id| Some((id, self.package(id).build.platform.as_ref()?)))
-            .or_ice("loading the repository resolved every platform an output names")
-    }
-
     /// Everything an output of `target` for `platform` is built from: the
     /// target's closure, and for a repository platform the closure of every
     /// library the platform depends on. What policy is checked over.
     pub fn policy_members(&self, target: TargetId, platform: &OutputPlatform) -> Vec<TargetId> {
         let mut members = self.closure(target);
-        if let OutputPlatform::Repository { label, .. } = platform {
-            let (_, rule) = self.platform_rule(label);
-            for dep in &rule.dependencies {
+        if let OutputPlatform::Repository { platform, .. } = platform {
+            for dep in &platform.rule.dependencies {
                 if let Some(t) = self.dep_target(&dep.value) {
                     members.extend(self.closure(t));
                 }
@@ -1047,15 +1036,15 @@ impl Workspace {
 
     /// The repository platforms a binary's outputs name, each once, in the
     /// order they are first named.
-    pub fn custom_platforms(&self, target: TargetId) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
+    pub fn custom_platforms(&self, target: TargetId) -> Vec<buildfile::RepoPlatform> {
+        let mut out: Vec<buildfile::RepoPlatform> = Vec::new();
         if target.kind != RuleKind::Binary {
             return out;
         }
         for e in self.declared_entries(target.package) {
             if let Some(c) = e.custom {
-                if !out.contains(&c.label.value) {
-                    out.push(c.label.value);
+                if !out.contains(&c.platform) {
+                    out.push(c.platform);
                 }
             }
         }
@@ -1069,18 +1058,10 @@ impl Workspace {
             .into_iter()
             .map(OutputPlatform::Bundled)
             .collect();
-        for p in &self.packages {
-            let Some(rule) = p
-                .build
-                .platform
-                .as_ref()
-                .filter(|_| is_platform_directory(&p.path))
-            else {
-                continue;
-            };
-            for entry in &rule.entries {
+        for platform in &self.platforms {
+            for entry in &platform.rule.entries {
                 out.insert(OutputPlatform::Repository {
-                    label: format!("//{}", p.path),
+                    platform: platform.clone(),
                     backend: entry.backend.value,
                 });
             }
@@ -1293,44 +1274,56 @@ impl Workspace {
 /// output that fails is dropped, so nothing downstream builds it.
 fn resolve_custom_outputs(
     packages: &mut PackageList,
-    by_path: &HashMap<String, PackageId>,
     refused: &[String],
     diagnostics: &mut Diagnostics,
-) {
+) -> Vec<buildfile::RepoPlatform> {
     use buildfile::{NativePlatform, OutputTarget};
-    // The rules, by package path, read before any output is rewritten.
-    let rules: HashMap<String, buildfile::PlatformRule> = packages
+    // The platforms, read before any output is rewritten.
+    let platforms: Vec<buildfile::RepoPlatform> = packages
+        .entries()
+        .filter(|(_, p)| is_platform_directory(&p.path))
+        .filter_map(|(package, p)| {
+            Some(buildfile::RepoPlatform {
+                label: format!("//{}", p.path),
+                package,
+                rule: std::sync::Arc::new(p.build.platform.clone()?),
+            })
+        })
+        .collect();
+    let paths: Vec<&str> = platforms
         .iter()
-        .filter_map(|p| Some((p.path.clone(), p.build.platform.clone()?)))
+        .map(|p| p.label.strip_prefix("//").unwrap_or(&p.label))
         .collect();
     for (_, package) in packages.entries_mut() {
         let Some(binary) = package.build.binary_mut() else {
             continue;
         };
-        let mut resolved = Vec::new();
-        for output in std::mem::take(&mut binary.outputs) {
-            let Some(custom) = output.custom.clone() else {
-                resolved.push(output);
-                continue;
-            };
-            let path = custom.package_path().to_string();
-            if refused.contains(&path) {
+        // Each output with the place it was written at: a written one goes
+        // before the read one that came after it.
+        let mut placed: Vec<((usize, bool), buildfile::Output)> =
+            std::mem::take(&mut binary.outputs)
+                .into_iter()
+                .enumerate()
+                .map(|(i, output)| ((i, true), output))
+                .collect();
+        for written in std::mem::take(&mut binary.written) {
+            let label = written.label.value.as_str();
+            let path = label.strip_prefix("//").unwrap_or(label);
+            if refused.iter().any(|r| r == path) {
                 continue;
             }
-            let rule = by_path.get(&path).and_then(|_| rules.get(&path));
-            let Some(rule) = rule.filter(|_| is_platform_directory(&path)) else {
-                let platforms: Vec<&str> = rules.keys().map(String::as_str).collect();
-                diagnostics.push(no_such_platform(&custom.label, &platforms));
+            let Some(platform) = platforms.iter().find(|p| p.label == label) else {
+                diagnostics.push(no_such_platform(&written.label, &paths));
                 continue;
             };
-            let label = custom.label.value.as_str();
-            let variant = custom.variant.as_ref();
+            let rule = &platform.rule;
+            let variant = written.variant.as_ref();
             if let Some(d) = buildfile::check_variant(
                 label,
                 &rule.variants(),
                 rule.variant_required(),
                 variant,
-                output.span,
+                written.span,
             ) {
                 diagnostics.push(d);
                 continue;
@@ -1339,7 +1332,7 @@ fn resolve_custom_outputs(
                 diagnostics.push(d);
                 continue;
             }
-            if let Some(d) = output
+            if let Some(d) = written
                 .artifact_name
                 .as_ref()
                 .and_then(|n| buildfile::check_artifact_name(label, rule, n))
@@ -1348,7 +1341,7 @@ fn resolve_custom_outputs(
                 continue;
             }
             let (filled, errors) =
-                buildfile::check_entries(label, &rule.entry_names(), &custom.entries);
+                buildfile::check_entries(label, &rule.entry_names(), &written.entries);
             if !errors.is_empty() {
                 for d in errors {
                     diagnostics.push(d);
@@ -1358,15 +1351,13 @@ fn resolve_custom_outputs(
             // One output per entry: each entry is its own artifact, named after
             // the entry, in the output's one directory.
             for entry in &rule.entries {
-                let mut one = output.clone();
                 let function = filled.iter().find(|(k, _)| k.value == entry.name.value);
-                one.entry = function.map(|(_, f)| f.clone());
-                one.target = match entry.backend.value {
+                let target = match entry.backend.value {
                     Backend::Js => OutputTarget::Js,
                     // The reader held a native entry's variants to
                     // `<os>-<arch>`, and the checks above held the output's
                     // variant to the entry's, so a written one parses.
-                    Backend::Native => match custom.variant.as_ref().and_then(|v| {
+                    Backend::Native => match written.variant.as_ref().and_then(|v| {
                         buildfile::native_variant(&v.value)
                             .map(|(os, arch)| (os, Spanned::new(arch, v.span)))
                     }) {
@@ -1386,17 +1377,28 @@ fn resolve_custom_outputs(
                         }
                     },
                 };
-                one.custom = Some(buildfile::CustomPlatform {
-                    point: entry.name.value.clone(),
-                    backend: entry.backend.value,
-                    js: entry.js.as_ref().map(|j| j.value.clone()),
-                    ..custom.clone()
-                });
-                resolved.push(one);
+                let one = buildfile::Output {
+                    target,
+                    artifact_name: written.artifact_name.clone(),
+                    entry: function.map(|(_, f)| f.clone()),
+                    custom: Some(buildfile::CustomPlatform {
+                        label: written.label.clone(),
+                        variant: written.variant.clone(),
+                        point: entry.name.value.clone(),
+                        backend: entry.backend.value,
+                        js: entry.js.as_ref().map(|j| j.value.clone()),
+                        platform: platform.clone(),
+                    }),
+                    span: written.span,
+                };
+                placed.push(((written.at, false), one));
             }
         }
-        binary.outputs = resolved;
+        // Stable, so one written output's entries keep the platform's order.
+        placed.sort_by_key(|(at, _)| *at);
+        binary.outputs = placed.into_iter().map(|(_, output)| output).collect();
     }
+    platforms
 }
 
 /// `duplicate-artifact-path` for two outputs of one binary that land at one
@@ -1426,7 +1428,7 @@ fn check_artifact_paths(root: &Path, packages: &PackageList, diagnostics: &mut D
                     format!("`{platform}` has several entries, and `artifact_name` names each of them `{}`", name.value),
                     String::from("remove `artifact_name`: each entry's artifact is named after the entry"),
                 ),
-                _ if output.artifact_name.is_none() && first.artifact_name.is_none() && ships_assets(packages, output) => (
+                _ if output.artifact_name.is_none() && first.artifact_name.is_none() && ships_assets(output) => (
                     output.span,
                     format!("both outputs are `{platform}` pages, and a page's file is named after its entry"),
                     format!("drop one of the two `{platform}` outputs"),
@@ -1450,17 +1452,12 @@ fn check_artifact_paths(root: &Path, packages: &PackageList, diagnostics: &mut D
 }
 
 /// Whether an output's platform ships assets, which name its artifacts.
-fn ships_assets(packages: &PackageList, output: &buildfile::Output) -> bool {
+fn ships_assets(output: &buildfile::Output) -> bool {
     let rule = match &output.custom {
-        Some(custom) => packages
-            .iter()
-            .find(|p| p.path == custom.package_path())
-            .and_then(|p| p.build.platform.as_ref()),
-        None => Some(crate::build::platforms::bundled(
-            output.platform().bundled(),
-        )),
+        Some(custom) => &custom.platform.rule,
+        None => crate::build::platforms::bundled(output.platform().bundled()),
     };
-    rule.is_some_and(|r| !r.assets.is_empty())
+    !rule.assets.is_empty()
 }
 
 /// `unknown-platform` for a `//` label that names no `platform` rule under

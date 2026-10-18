@@ -117,10 +117,10 @@ pub fn inputs(session: &Session, targets: &[TargetId]) -> Watched {
         }
         // Every repository platform the binary's outputs name: its own files
         // and its dependencies, which `actions::contribute_platform` keys.
-        for label in session.workspace.custom_platforms(target) {
-            let (pid, files, members) =
-                crate::build::actions::platform_inputs(&session.workspace, &label);
-            let dir = &session.workspace.package(pid).dir;
+        for platform in session.workspace.custom_platforms(target) {
+            let (files, members) =
+                crate::build::actions::platform_inputs(&session.workspace, &platform);
+            let dir = &session.workspace.package(platform.package).dir;
             out.extend(files.iter().map(|f| dir.join(f)));
             for member in members {
                 declared_sources(session, member, &mut out);
