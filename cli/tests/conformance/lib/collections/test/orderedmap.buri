@@ -8,15 +8,16 @@
 // supposed to behave like.
 
 from "core/list" import * as list;
-from "core/order" import { Equal, Hash };
+from "core/order" import { Equal, Hash, Ordered, Show };
 from "core/orderedmap" import * as orderedmap;
 from "core/orderedmap" import { OrderedMap };
 from "core/orderedset" import * as orderedset;
 from "core/orderedset" import { OrderedSet };
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, recorder };
+from "ui/signal" import { signal, watch };
 
 /// The key half of an entry, for asserting on order.
 fn keyOf<V>(entry: (Int, V)): Int {
@@ -2113,4 +2114,76 @@ fn floorWithoutSevens(p: Int): Option<Int> {
     let even = p - p % 2;
     let wanted = if (even % 14 == 0) { even - 2 } else { even };
     if (wanted < 0) { .None } else { .Some(wanted) }
+}
+
+/// What a watcher records as its signal moves from an empty map to the map of
+/// `pairs`. A reactive closure is handed a `Scope`, which allocates, so a
+/// watcher can format the map it reads.
+fn watchedGrowing<K: Ordered + Show, V: Show>(pairs: [(K, V)]): [Str] {
+    let built = context {
+        Allocator: alloc(),
+    };
+    let ctx = context {
+        Ui: headless(),
+    };
+    let maps = [orderedmap.empty<K, V>(), orderedmap.of(built, pairs)];
+    let log = recorder();
+    let step = signal(ctx, 0);
+    let _ = watch(ctx, fn(s) => {
+        match (maps.get(step.get(s))) {
+            .Some(m) => log.record(m.show(s)),
+            .None => log.record("no map"),
+        }
+    });
+    let _ = step.set(ctx, 1);
+    log.recorded()
+}
+
+test "a watcher shows a map of eight entries, which has split, in key order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let keys = [8, 3, 6, 1, 7, 2, 5, 4];
+    assert.equal(watchedGrowing(keys.map(ctx, fn(k) => (k, k % 2 == 0))), [
+        "{}",
+        "{1: false, 2: true, 3: false, 4: true, 5: false, 6: true, 7: false, 8: true}",
+    ]);
+    assert.equal(watchedGrowing(keys.map(ctx, fn(k) => (k, k * 10))), [
+        "{}",
+        "{1: 10, 2: 20, 3: 30, 4: 40, 5: 50, 6: 60, 7: 70, 8: 80}",
+    ]);
+    assert.equal(
+        watchedGrowing([
+            (8, 4.0),
+            (3, 1.5),
+            (6, 3.0),
+            (1, 0.5),
+            (7, 3.5),
+            (2, 1.0),
+            (5, 2.5),
+            (4, 2.0),
+        ]),
+        ["{}", "{1: 0.5, 2: 1.0, 3: 1.5, 4: 2.0, 5: 2.5, 6: 3.0, 7: 3.5, 8: 4.0}"],
+    );
+    assert.equal(watchedGrowing(keys.mapCtx(ctx, fn(c, k) => (k, "#".repeat(c, k)))), [
+        "{}",
+        "{1: #, 2: ##, 3: ###, 4: ####, 5: #####, 6: ######, 7: #######, 8: ########}",
+    ]);
+    assert.equal(watchedGrowing(keys.map(ctx, fn(k) => (k, [k.wrapToU8()]))), [
+        "{}",
+        "{1: [1], 2: [2], 3: [3], 4: [4], 5: [5], 6: [6], 7: [7], 8: [8]}",
+    ]);
+    assert.equal(watchedGrowing(keys.mapCtx(ctx, fn(c, k) => (str.fromInt(c, k), k))), [
+        "{}",
+        "{1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8}",
+    ]);
+    assert.equal(
+        watchedGrowing(
+            keys.mapCtx(ctx, fn(c, k) => (str.fromInt(c, k), "#".repeat(c, k))),
+        ),
+        [
+            "{}",
+            "{1: #, 2: ##, 3: ###, 4: ####, 5: #####, 6: ######, 7: #######, 8: ########}",
+        ],
+    );
 }

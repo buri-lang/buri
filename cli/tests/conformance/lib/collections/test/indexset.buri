@@ -10,11 +10,13 @@ from "core/json" import * as json;
 from "core/json" import { DecodeError, FromJson, Json, ToJson };
 from "core/list" import * as list;
 from "core/map" import * as map;
+from "core/order" import { Show };
 from "core/set" import * as set;
 from "core/tasks" import * as tasks;
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator, Tasks };
-from "platform/effect/testing" import { alloc, tasks };
+from "platform/effect" import { Allocator, Tasks, Ui };
+from "platform/effect/testing" import { alloc, headless, recorder, tasks };
+from "ui/signal" import { signal, watch };
 from "//lib/variants" import * as variants;
 
 derive Index, Equal, Hash, Show, ToJson, FromJson for Slot;
@@ -753,4 +755,39 @@ test "a member, in an option, equals itself and not None" {
     assert.isTrue(variants.optionsCompare(Slot(1)));
     let tagged: Tagged<Str> = Tagged(1);
     assert.isTrue(variants.optionsCompare(tagged));
+}
+
+// --- inside a watcher -----------------------------------------------------------
+
+/// What a watcher records as its signal moves from an empty set to the set of
+/// `members`. The watcher's `Scope` allocates, so it can format the set.
+fn watchedGrowing<K: Index + Show>(members: [K]): [Str] {
+    let built = context {
+        Allocator: alloc(),
+    };
+    let ctx = context {
+        Ui: headless(),
+    };
+    let sets = [indexSet.empty<K>(), indexSet.of(built, members)];
+    let log = recorder();
+    let step = signal(ctx, 0);
+    let _ = watch(ctx, fn(s) => {
+        match (sets.get(step.get(s))) {
+            .Some(set) => log.record(set.show(s)),
+            .None => log.record("no set"),
+        }
+    });
+    let _ = step.set(ctx, 1);
+    log.recorded()
+}
+
+test "a watcher shows a set whose members straddle a word, in ascending order" {
+    assert.equal(watchedGrowing([Slot(130), Slot(2), Slot(64)]), [
+        "[]",
+        "[Slot(2), Slot(64), Slot(130)]",
+    ]);
+    assert.equal(watchedGrowing([Seq(130), Seq(2), Seq(64)]), [
+        "[]",
+        "[Seq(2), Seq(64), Seq(130)]",
+    ]);
 }

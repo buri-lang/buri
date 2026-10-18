@@ -213,8 +213,8 @@ fn blocks(ctx: Scope, themes: [Theme], at: Int, acc: [Str]): [Str] {
                 },
                 .Scheme(which) => [str.format(ctx, "scheme ${schemeName(which)}")],
                 .Page(background, foreground) => {
-                    let ground = colorText(ctx, background);
-                    let ink = colorText(ctx, foreground);
+                    let ground = valueText(ctx, background);
+                    let ink = valueText(ctx, foreground);
                     [str.format(ctx, "page ${ground} ${ink}")]
                 },
             };
@@ -265,22 +265,6 @@ fn bindLine<C: Allocator>(ctx: C, left: Color, right: Color): [Str] {
     }
 }
 
-/// A colour as CSS, a token included.
-///
-/// `bindLine` answers a token before `valueText` is reached, because the left
-/// half of a binding *is* the property being defined. A page's ground is the
-/// other side of that: it is a use, so a token there is the same `var()` a
-/// class would have held.
-fn colorText<C: Allocator>(ctx: C, color: Color): Str {
-    match (color) {
-        .Token(reference) => {
-            let name = propertyName(ctx, reference);
-            str.format(ctx, "var(--${name})")
-        },
-        _ => valueText(ctx, color),
-    }
-}
-
 /// The custom property a token reference names, without its leading dashes.
 fn propertyName<C: Allocator>(ctx: C, reference: TokenReference): Str {
     let space = reference.namespace();
@@ -288,8 +272,11 @@ fn propertyName<C: Allocator>(ctx: C, reference: TokenReference): Str {
     str.format(ctx, "${space}-${name}")
 }
 
-/// A colour that is not a token, as CSS — the same text `ui/node`'s walk writes
-/// into a declaration.
+/// A colour as CSS — the same text `ui/node`'s walk writes into a declaration.
+///
+/// `bindLine` answers a token on the right before this is reached, because
+/// there it names the chain to follow. A page's ground is a use, so a token
+/// there is the same `var()` a class would have held.
 fn valueText<C: Allocator>(ctx: C, color: Color): Str {
     match (color) {
         .Rgb(r, g, b) => str.format(ctx, "rgb(${r},${g},${b})"),
@@ -310,7 +297,9 @@ fn valueText<C: Allocator>(ctx: C, color: Color): Str {
                 "color-mix(in srgb,var(--${space}-${name}) ${percent}%,transparent)",
             )
         },
-        // Answered by `bindLine` before this is reached.
-        .Token(_) => "",
+        .Token(reference) => {
+            let name = propertyName(ctx, reference);
+            str.format(ctx, "var(--${name})")
+        },
     }
 }

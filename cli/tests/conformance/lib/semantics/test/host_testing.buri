@@ -33,9 +33,9 @@ from "core/tasks" import * as tasks;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
 from "platform/effect" import {
-    Allocator, Clock, Entropy, Environment, Header, IoError, NetError, Network, Process,
-    Random, Region, Request, Response, Sockets, Stderr, Stdin, Stdout, Tasks,
-    WebSocketClient,
+    Allocator, Clock, Connected, Entropy, Environment, Header, IoError, NetError,
+    Network, Process, Random, Received, Region, Request, Response, ServeError, Sockets,
+    Stderr, Stdin, Stdout, Tasks, WebSocketClient,
 };
 
 // The doubles, and the call log's constructors: one per method, ordinary
@@ -2749,6 +2749,85 @@ test "a URL this platform cannot dial never opens a socket" {
     let refused = assert.err(websocket.connect(ctx, echoing("http://example/socket")));
     assert.equal(refused.cause, .Unsupported);
     assert.equal(s.sent(), []);
+}
+
+/// A dialler a program wrote for itself. It refuses `ws://refused`, and every
+/// socket it opens ends at once: gone when `gone`, and otherwise closed with
+/// `code`.
+struct Dropping {
+    gone: Bool,
+    code: Int,
+}
+
+impl WebSocketClient for Dropping {
+    fn connectSocket(self, url: Str): Result<Connected, ServeError> {
+        match (url) {
+            "ws://refused" => .Err(ServeError { cause: .Unsupported, detail: url }),
+            _ => .Ok(Connected { socket: 1, status: 101, headers: [], body: [] }),
+        }
+    }
+
+    fn connectReceive(self, socket: Int): Result<Received, ServeError> {
+        if (self.gone) {
+            .Err(ServeError { cause: .Closed, detail: "" })
+        } else {
+            .Ok(Received { frame: .Closed, text: "", data: [], code: self.code })
+        }
+    }
+}
+
+/// A client whose state is the text it was opened with.
+fn noting<C: Allocator + Sockets + WebSocketClient>(url: Str): Client<C, Str> {
+    Client {
+        url: url,
+        onOpen: fn(_c, _socket, _response) => "opened",
+        onMessage: fn(_c, _socket, sofar, _message) => sofar,
+        onClose: fn(c, _socket, sofar, reason) => {
+            str.format(c, "${sofar}, ${reason.show(c)}")
+        },
+    }
+}
+
+/// How `connect` ended on a `Dropping`, for a counting and a noting client.
+fn dropped(gone: Bool, code: Int, url: Str): (Str, Str) {
+    let ctx = context {
+        Allocator: alloc(),
+        Sockets: sockets(),
+        WebSocketClient: Dropping { gone: gone, code: code },
+    };
+    let counted = match (websocket.connect(ctx, echoing(url))) {
+        .Ok((reason, seen)) => str.format(ctx, "${reason.show(ctx)} ${seen}"),
+        .Err(e) => server.errorText(e),
+    };
+    let noted = match (websocket.connect(ctx, noting(url))) {
+        .Ok((_reason, said)) => said,
+        .Err(e) => server.errorText(e),
+    };
+    (counted, noted)
+}
+
+test "a dialler a program wrote decides how each socket ends" {
+    // A socket that is gone before anything arrives is an abnormal close, and a
+    // close with a code the platform minted for itself is an overflow.
+    assert.equal(
+        dropped(true, 1000, "ws://example"),
+        (".Abnormal 0", "opened, .Abnormal"),
+    );
+    assert.equal(
+        dropped(false, -1, "ws://example"),
+        (".Overflow 0", "opened, .Overflow"),
+    );
+    assert.equal(
+        dropped(false, 4321, "ws://example"),
+        (".Abnormal 0", "opened, .Abnormal"),
+    );
+    assert.equal(
+        dropped(false, 1000, "ws://example"),
+        (".Normal 0", "opened, .Normal"),
+    );
+    // A dial it refuses opens nothing, whatever the client's state.
+    let refused = "the protocol is not supported by this toolchain";
+    assert.equal(dropped(false, 1000, "ws://refused"), (refused, refused));
 }
 
 test "a client that closes the socket stops reading the script" {
