@@ -119,148 +119,31 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
-# Guard-zero phase 38: the `cli` crate's build and test guards (done)
+# Guard phase 39: crates/syntax
 
-## What changed
+## Guards
 
-- `parallel::pool` hands each job's result back as a `thread::Result`.
-  `Results::recv` raises a job's panic where the report waits, so
-  `test.rs` `recv` no longer has an `or_ice`. A pool that can start no
-  thread returns `None`, and `buri test` says so as an error.
-- `test.rs` `owner_of` returns `Option<usize>`. `selected_of` keeps only
-  the tests a member owns, so the `expect` is gone.
-- `generators.rs`: three guards are gone.
-  - The tool key loops over the resolved tool.
-  - An input text that `Checks::start` didn't read is read where it's
-    wanted.
-  - A check that didn't run ahead runs where its verdict is wanted.
-- `platform_rule` in `build/workspace.rs` is deleted. Loading resolves
-  each written custom output to a `RepoPlatform` (label, package, rule),
-  which the output carries. `actions.rs`, `watch.rs`, `modules.rs`,
-  `driver.rs` and `run.rs` read the platform from the output.
-- `link.rs` `object_path` is total. A separator in a unit's name becomes
-  `_`, so the `or_ice` is gone. `map_items` replaces the indexed `expect`.
+| File | Before | After |
+|---|---|---|
+| parsing/lexer.rs | 1 (const `panic!` for a slot past the table) | 0 |
+| parsing/parser.rs | 3 (`invariant` at the item, statement and match-arm loops) | 0 |
+| formatting.rs, flat.rs, tree.rs, layout.rs | 0 | 0 |
 
-## Left, and why
+- lexer: `WORD_TABLE` now walks the slots and fills each one from the words that hash to it. The slot index can't overrun.
+- parser: the `Consumed` typestate. `Parser::take` is the only way to make a `Consumed`. Each loop iteration is a function that returns a `Consumed`, or `None` to end the loop. A loop that makes no progress no longer type-checks.
+  - The item loop uses `Declared`: either a read that holds its proof, or `Stray`, which `skip_stray` handles.
+  - The statement loop uses `statement()`, which returns `Option<Consumed>`.
+  - The arm loop uses `arm()` and `ArmEnd`.
+  - Productions take their keyword from the caller, and the expression chain returns `Read<T> = (T, Consumed)`.
 
-- `actions.rs` `emit_into` `or_ice`. The backend contract lets
-  `emit_units` return more objects than were asked for, so the units
-  are picked by name. Removing the guard means changing the `Backend`
-  trait to return objects keyed by unit, and stencil implements it.
-  That's another agent's crate this phase. Do it in a phase that owns
-  `crates/stencil`.
-- Other guards seen but not targets:
-  - `link.rs` line 311 and the `stdin` `expect` in `probe_target`;
-  - `programs.rs` `settle_in` `expect`.
+## Checks
 
-## Coverage
-
-- On this Mac, base (staging at `bde50398e`) against new:
-  - cli/build: 1631/1695 (96.22%) to 1628/1691 (96.27%);
-  - cli/test: 484/508 to 484/508;
-  - crates/diagnostics: 191/196 to 193/198;
-  - crates/project: 1345/1360 to 1345/1360.
-- The platform refactor removed 4 covered branches from
-  `build/workspace.rs`. Two tests make up for it:
-  - `the_c_drivers_version_is_asked_again_when_its_sdk_variables_change`
-    reaches the `SDKROOT`, `DEVELOPER_DIR` and `DEPLOYMENT_TARGET` arms
-    of `shapes_the_link`. CI run 39110604749's Linux shards never took
-    them, so Linux should gain 3.
-  - `a_cross_link_needs_a_c_driver_that_takes_a_target` now also uses a
-    driver that can't run, which reaches `probe_target`'s spawn failure.
-    This Mac gains 1.
-- CI estimate for cli/build, against staging's baseline of 1682/1697
-  (99.12%): (1682 - 4 + 3) / (1697 - 4) = 1681/1693 (99.29%).
-
-## Commits on staging
-
-- `26d6f1256` test: a test job that panics raises its panic where the
-  report waits
-- `8fb37270d` build: a generator's check runs where its verdict is
-  wanted when none ran ahead
-- `bb7d99514` build: an output carries the repository platform it names
-- `7693942d9` build: a unit's object stays in the link directory
-  whatever the unit is named
-- `0fec126b7` test: the C driver is asked again when its SDK variables
-  change, and a cross driver that can't run is refused
-
-## Release output
-
-All object and JS hashes are identical between base and new:
-b-programs (debug, release), example, tested and conformance (debug,
-release, JS), with conformance's `backends: [JS]` lines removed.
-
-# Guard-zero phase 37: number patterns carry their primitive (done)
-
-## What changed
-
-- `typed::PatKind::Number { prim, value: NumberLit }` is the form an `Int`
-  or `Float` literal pattern takes once `monomorphize` has settled its
-  type. An unsettled type becomes `PatKind::Error`.
-- `lower::test_eq` takes the primitive, so its
-  `ice("a literal pattern is at a primitive type")` is gone. A pattern
-  still in the `Int` or `Float` form at lowering is poison.
-- The template lowering's `or_ice("a template has a part")` is gone. A
-  template with no parts lowers to `""`.
-- Two stencil e2e cases cover branches the phase touched:
-  `bounds_on_the_default_backend` and `loop_headers_on_parameters`.
-
-## Candidates looked at and left
-
-- `lower.rs` `release_except` (about line 1042), and the guards near lines
-  1813 and 2220. Each needs a typed form that the borrow and drop
-  analyses would have to carry, which is a phase of its own.
-- `rc.rs` index guards. They index arrays the same pass built, so a typed
-  index would be the fix, not a lookup.
-- `coverage/mod.rs` (about line 1374).
-
-## Coverage to make up next
-
-The route refactor removed 49 covered stencil branches and 18 covered
-llvm branches, which lowers stencil's fraction on this Mac
-(1115/1163 to 1066/1113). CI's estimate still holds, at 1103/1120
-(98.48%) against 1152/1170 (98.46%). The removed `negate` branch was
-uncovered on every host, but the margin is thin. The next phase should
-cover a portable uncovered stencil branch:
-
-- `emit.rs` `ArrayGet`: the destination shares the array's slot (about
-  line 514);
-- `emit.rs` `jump_into_test`: `lhs` not in the frame (about line 1733);
-- `emit.rs` edge deadlock (about line 1869).
-
-`loop_headers_on_parameters` was meant for `jump_into_test` and
-`copyless_test`, but a probe with the instrumented binary shows it
-doesn't reach them. Tail recursion here doesn't make a loop edge into a
-test block. The case still checks behaviour on both backends.
-
-To probe one program, run `target/coverage/debug/buri` with
-`LLVM_PROFILE_FILE` set, then rustup's `llvm-profdata` and `llvm-cov
-export` (1.99.0 toolchain). Nix's are a different profile version.
-
-# Guard-zero phase 36: resolved intrinsic routes (done)
-
-## What changed
-
-- `lower` mints an `IntrinsicId` per intrinsic key and a `RuntimeId` per
-  runtime body. `ir::Program` carries the key tables, and
-  `Inst::CallIntrinsic` and `Body::Runtime` carry the ids.
-- The `Native` trait has `type Routes<'p>`, `resolve(lowered)` and
-  `emit_units(..., lowered, routes, units)`. Each backend defines its own
-  route type (`stencil/route.rs`, `llvm/route.rs`). `resolve` answers the
-  routes or the keys it has no route for.
-- `cli/src/build/actions.rs` lowers first, then resolves, then emits.
-  Missing keys and the networking or cryptography gaps are refused
-  together through `refuse_missing`. `adopt_lowering` is gone.
-- Backends never call `runtime::entry(key).or_ice`. Stencil's
-  `invariant_with(key == "str.concat")` is gone.
-
-## Left for later
-
-- llvm `emit.rs` still has 56 guards, most of them layout and
-  register-class checks unrelated to routes.
-- Stencil's `compare` into a destination that is not a tag still ICEs. A
-  route could carry the tag width, but `ret_tag` reads the function's
-  signature, so it would move the guard rather than remove it.
+- Coverage: crates/syntax went from 1204/1206 to 1206/1208. parser.rs went from 608/608 to 610/610. Every other area is unchanged.
+- Output, base 0fec126b7 against new, LLVM release build of `buri`:
+  - The `.buri/out` files and the cache artefacts are identical in debug and release for programs, example, tested and conformance. Action records and test results are left out, because they name toolchain keys or carry timings.
+  - The conformance `.mjs` content is the same. Only its toolchain-keyed file name differs.
+- `buri format`: the stdlib (87 files) and cli/tests (9135 files) give identical output and logs.
+- Nothing changes for users, so there are no new e2e tests.
 
 # Guard-zero phase 35: resolved intrinsic routes (not done)
 
