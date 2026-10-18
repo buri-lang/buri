@@ -43,8 +43,8 @@
               and the five of a `jmp rel32` on x86-64"
 )]
 
-use super::abi::{Loc, StencilTarget};
-use super::library::{Hole, HoleKind, Library, Stencil};
+use super::abi::{HoleName, Jump, Lit, Loc, Slot, StencilTarget, Word};
+use super::library::{Hole, Library, Stencil};
 use super::object::RelKind;
 use super::region::{Region, Target};
 use super::runtime;
@@ -53,23 +53,16 @@ use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumLayout, EnumRepr, Layout, Layouts, Repr};
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::{FuncIdx, Tables, Ty};
-use crate::diagnostics::{invariant, invariant_with, Invariant};
+use crate::diagnostics::{invariant, Invariant};
 use crate::hash::Map as HashMap;
 
 // ---------------------------------------------------------------------------
 // Hole values
 // ---------------------------------------------------------------------------
 
+/// Where a [`Jump`] hole goes.
 #[derive(Clone, Debug)]
 pub enum V {
-    /// A literal: a frame offset, a size, a tag, a pooled 64-bit datum.
-    I(u64),
-    /// A literal that **is an address inside the region** — a string literal's
-    /// bytes, an abort message, a runtime helper's descriptor. Identical to
-    /// `I` at emission time and distinguished from it for exactly one reason:
-    /// the image cache has to know which pooled words move when the region is
-    /// mapped somewhere else. See `cache.rs`.
-    Ptr(u64),
     /// The address of a basic block in the function being emitted.
     Blk(u32),
     /// The entry of a function.
@@ -87,13 +80,87 @@ pub enum V {
     Fall,
 }
 
-impl V {
-    /// The literal, where this is one.
-    fn imm(&self) -> Option<u64> {
-        match self {
-            V::I(x) => Some(*x),
+/// What [`Jit::emit`] binds one hole to: a value of the class the hole's
+/// [`Slot`] is declared in, so a hole is only ever handed a value its
+/// relocation can hold.
+#[derive(Clone, Debug)]
+pub enum Bind {
+    Lit(Lit, u64),
+    Word(Word, Datum),
+    Jump(Jump, V),
+}
+
+/// A full-width datum: a [`Word`] hole's value.
+#[derive(Clone, Debug)]
+pub enum Datum {
+    /// A literal: a constant, a mask, a pooled 64-bit datum.
+    I(u64),
+    /// A literal that **is an address inside the region** — a string literal's
+    /// bytes, an abort message, a runtime helper's descriptor. Identical to
+    /// `I` at emission time and distinguished from it for exactly one reason:
+    /// the image cache has to know which pooled words move when the region is
+    /// mapped somewhere else. See `cache.rs`.
+    Ptr(u64),
+    /// A C symbol in this process, as [`V::Ext`].
+    Ext(&'static str),
+    /// A symbol this unit defines for itself, as [`V::Sym`].
+    Sym(String),
+}
+
+impl Lit {
+    pub fn of(self, x: u64) -> Bind {
+        Bind::Lit(self, x)
+    }
+}
+
+impl Word {
+    pub fn lit(self, x: u64) -> Bind {
+        Bind::Word(self, Datum::I(x))
+    }
+
+    pub fn ptr(self, x: u64) -> Bind {
+        Bind::Word(self, Datum::Ptr(x))
+    }
+
+    pub fn ext(self, n: &'static str) -> Bind {
+        Bind::Word(self, Datum::Ext(n))
+    }
+
+    pub fn sym(self, n: String) -> Bind {
+        Bind::Word(self, Datum::Sym(n))
+    }
+}
+
+impl Jump {
+    pub fn to(self, v: V) -> Bind {
+        Bind::Jump(self, v)
+    }
+}
+
+impl Bind {
+    /// The hole this binds.
+    fn slot(&self) -> Slot {
+        match *self {
+            Bind::Lit(l, _) => Slot::Lit(l),
+            Bind::Word(w, _) => Slot::Word(w),
+            Bind::Jump(j, _) => Slot::Jump(j),
+        }
+    }
+
+    /// The literal, where this is one: what a folded twin's `imm12` takes.
+    fn literal(&self) -> Option<u64> {
+        match *self {
+            Bind::Lit(_, x) | Bind::Word(_, Datum::I(x)) => Some(x),
             _ => None,
         }
+    }
+}
+
+/// The bind for hole `h`, where the caller named it.
+fn bind_of<'b>(binds: &'b [Bind], h: &Hole) -> Option<&'b Bind> {
+    match h.name {
+        HoleName::Slot(slot) => binds.iter().find(|b| b.slot() == slot),
+        HoleName::Symbol(_) => None,
     }
 }
 
@@ -542,14 +609,6 @@ fn round8(n: u32) -> u32 {
 // can actually produce: they are here so that consulting a table is not a
 // panic, and each call site that leans on one says which way it leans.
 
-/// Whether a binding names a hole. Hole names share their `JIT_` prefix and
-/// differ at the end, so this compares from the end, inline, rather than
-/// calling `memcmp` for every hole and binding [`Jit::emit`] pairs up.
-fn same_name(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    a.len() == b.len() && a.iter().rev().zip(b.iter().rev()).all(|(x, y)| x == y)
-}
-
 /// Entry `i` of a side table, or `d` when the table has none.
 fn ent<T: Copy>(t: &[T], i: usize, d: T) -> T {
     t.get(i).copied().unwrap_or(d)
@@ -805,9 +864,12 @@ impl<'a> Jit<'a> {
     /// twin asked for by index: this is called twice per conditional branch
     /// the backend emits, and it used to allocate a `String` for the name, a
     /// second for the comparison and a third for `key+fold`.
-    pub(crate) fn elidable_at(&self, at: usize) -> Option<&'a str> {
+    pub(crate) fn elidable_at(&self, at: usize) -> Option<Jump> {
         let s = self.lib.stencil(at)?;
-        Some(s.holes.get(s.tail?)?.name.as_str())
+        match s.holes.get(s.tail?)?.name {
+            HoleName::Slot(Slot::Jump(j)) => Some(j),
+            _ => None,
+        }
     }
 
     /// `f`'s frame layout, borrowed from the program's table.
@@ -1456,12 +1518,12 @@ impl<'a> Jit<'a> {
     /// lives independently of the `&mut self` the region needs: no stencil is
     /// ever copied out of the library, which matters because a clone per
     /// instruction would be most of this compiler's running time.
-    pub(crate) fn emit<'k>(&mut self, key: impl Into<KeyArg<'k>>, binds: &[(&str, V)]) {
+    pub(crate) fn emit<'k>(&mut self, key: impl Into<KeyArg<'k>>, binds: &[Bind]) {
         self.emit_key(key.into(), binds);
     }
 
     /// [`Jit::emit`], once for every spelling of a key.
-    fn emit_key(&mut self, key: KeyArg<'_>, binds: &[(&str, V)]) {
+    fn emit_key(&mut self, key: KeyArg<'_>, binds: &[Bind]) {
         let lib: &'static Library = self.lib;
         let found = self.index_of(key).and_then(|i| Some((i, lib.stencil(i)?)));
         let (at, mut s) = match found {
@@ -1491,13 +1553,11 @@ impl<'a> Jit<'a> {
             };
             let fits = f.holes.iter().all(|h| {
                 h.lo12.is_empty()
-                    || match binds.iter().find(|(n, _)| same_name(n, &h.name)) {
-                        Some((_, V::I(v))) => h
-                            .lo12
+                    || bind_of(binds, h).and_then(Bind::literal).is_some_and(|v| {
+                        h.lo12
                             .iter()
-                            .all(|(_, sc)| v % u64::from(*sc) == 0 && v / u64::from(*sc) < 4096),
-                        _ => false,
-                    }
+                            .all(|(_, sc)| v % u64::from(*sc) == 0 && v / u64::from(*sc) < 4096)
+                    })
             });
             if fits {
                 s = f;
@@ -1506,21 +1566,16 @@ impl<'a> Jit<'a> {
         }
         // The hole on the stencil's last instruction, once the fold above has
         // settled which twin is being copied.
-        let tail_name: Option<&str> = s.tail.and_then(|t| s.holes.get(t)).map(|h| h.name.as_str());
+        let tail = s.tail.and_then(|t| s.holes.get(t));
         let mut len = s.code.len();
         // Fallthrough elision: the continuation is the next stencil, so the
         // trailing branch is not patched, it is dropped. One A64 instruction,
         // or the five bytes of an x86-64 `jmp rel32`.
         let tail_bytes = if self.target.is_arm64() { 4 } else { 5 };
         let mut elide = false;
-        if let Some(name) = tail_name {
-            if binds
-                .iter()
-                .any(|(n, v)| matches!(v, V::Fall) && same_name(n, name))
-            {
-                elide = true;
-                len = len.saturating_sub(tail_bytes);
-            }
+        if let Some(Bind::Jump(_, V::Fall)) = tail.and_then(|h| bind_of(binds, h)) {
+            elide = true;
+            len = len.saturating_sub(tail_bytes);
         }
         let (bytes, _) = s.code.split_at(len);
         let at = self.region.put(bytes);
@@ -1542,20 +1597,25 @@ impl<'a> Jit<'a> {
             if elide && s.tail == Some(i) {
                 continue;
             }
-            let Some((_, v)) = binds.iter().find(|(n, _)| same_name(n, &h.name)) else {
-                // A hole the caller did not name is a symbol the stencil body
-                // reached on its own — an abort, `buri_rt_free`, `memcpy` —
-                // and becomes an import. The generated C declares nothing
-                // undefined but the `_JIT_*` holes and `cli/runtime/lib.rs`'s
-                // exports, so the name *is* the symbol; `EXTERNALS` records the
-                // set for a test to check rather than for this to consult.
-                invariant_with(!h.name.starts_with("JIT_"), || {
-                    format!("stencil: stencil {key} has an unbound hole {}", h.name)
-                });
-                self.import(at, h);
+            let Some(b) = bind_of(binds, h) else {
+                match &h.name {
+                    // A symbol the stencil body reached on its own — an abort,
+                    // `buri_rt_free`, `memcpy` — becomes an import. The
+                    // generated C declares nothing undefined but the `_JIT_*`
+                    // holes and `cli/runtime/lib.rs`'s exports, so the name
+                    // *is* the symbol; `EXTERNALS` records the set for a test
+                    // to check rather than for this to consult.
+                    HoleName::Symbol(sym) => self.import(at, h, sym),
+                    // Which slots a stencil has is the library's, and which
+                    // ones a call site binds is the emitter's: only a type per
+                    // stencil would tie the two together.
+                    HoleName::Slot(slot) => crate::diagnostics::ice(&format!(
+                        "stencil: stencil {key} has an unbound hole {slot}"
+                    )),
+                }
                 continue;
             };
-            self.patch_hole(at, end, h, v);
+            self.patch_hole(at, end, h, b);
         }
     }
 
@@ -1573,9 +1633,9 @@ impl<'a> Jit<'a> {
     /// A hole naming a symbol outside this program: one relocation per site,
     /// and no instruction rewritten. A `bl` becomes a `BRANCH26`. Nothing
     /// takes such a symbol's address: `sources.rs` refuses a library that does.
-    fn import(&mut self, at: u64, h: &'static Hole) {
+    fn import(&mut self, at: u64, h: &Hole, sym: &'static str) {
         for off in &h.branches {
-            self.branch_reloc(at + *off as u64, Target::Symbol(h.name.as_str().into()));
+            self.branch_reloc(at + *off as u64, Target::Symbol(sym.into()));
         }
     }
 
@@ -1592,68 +1652,63 @@ impl<'a> Jit<'a> {
         self.region.reloc_with(at, RelKind::Rel32, target, -4);
     }
 
-    fn patch_hole(&mut self, at: u64, end: u64, h: &Hole, v: &V) {
-        match h.kind {
-            HoleKind::Branch => {
-                let target = match *v {
-                    V::I(x) | V::Ptr(x) => Some(x),
-                    // A call out of the program: `bl` a symbol the linker
-                    // resolves. The prototype planted a veneer holding the
-                    // address of a function in its own process; there is no
-                    // such address here, and a relocation is both simpler and
-                    // one instruction shorter.
-                    V::Ext(n) => {
-                        for off in &h.branches {
-                            self.branch_reloc(at + *off as u64, Target::Symbol(n.into()));
-                        }
-                        None
-                    }
-                    V::Sym(ref n) => {
-                        for off in &h.branches {
-                            self.branch_reloc(at + *off as u64, Target::Symbol(n.clone().into()));
-                        }
-                        None
-                    }
-                    // The stencil laid out immediately after this one, which
-                    // is the address one past this body — *not* one past this
-                    // branch, which for a two-target stencil is the other arm.
-                    V::Fall => Some(end),
-                    V::Blk(b) => {
-                        for off in &h.branches {
-                            self.fixups.push(Fix::Block {
-                                at: at + *off as u64,
-                                blk: b,
-                            });
-                        }
-                        for off in &h.conds {
-                            self.fixups.push(Fix::BlockCond {
-                                at: at + *off as u64,
-                                blk: b,
-                            });
-                        }
-                        None
-                    }
-                    V::Fn(f) => {
-                        for off in &h.branches {
-                            self.fixups.push(Fix::Func {
-                                at: at + *off as u64,
-                                f,
-                            });
-                        }
-                        None
-                    }
-                };
-                if let Some(t) = target {
+    /// Patch hole `h` of the copy at `at` with `b`. `sources.rs` refused, when
+    /// the library was built, any hole whose relocation is not the one its
+    /// slot's class is declared with, so the bind's class is the hole's kind.
+    fn patch_hole(&mut self, at: u64, end: u64, h: &Hole, b: &Bind) {
+        match b {
+            Bind::Jump(_, v) => match *v {
+                // A call out of the program: `bl` a symbol the linker
+                // resolves. The prototype planted a veneer holding the
+                // address of a function in its own process; there is no
+                // such address here, and a relocation is both simpler and
+                // one instruction shorter.
+                V::Ext(n) => {
                     for off in &h.branches {
-                        self.patch_branch(at + *off as u64, t);
-                    }
-                    for off in &h.conds {
-                        self.patch_cond(at + *off as u64, t);
+                        self.branch_reloc(at + *off as u64, Target::Symbol(n.into()));
                     }
                 }
-            }
-            HoleKind::Imm32 => {
-                let x = v.imm().or_ice("a small-literal hole is bound to a literal");
+                V::Sym(ref n) => {
+                    for off in &h.branches {
+                        self.branch_reloc(at + *off as u64, Target::Symbol(n.clone().into()));
+                    }
+                }
+                // The stencil laid out immediately after this one, which
+                // is the address one past this body — *not* one past this
+                // branch, which for a two-target stencil is the other arm.
+                V::Fall => {
+                    for off in &h.branches {
+                        self.patch_branch(at + *off as u64, end);
+                    }
+                    for off in &h.conds {
+                        self.patch_cond(at + *off as u64, end);
+                    }
+                }
+                V::Blk(b) => {
+                    for off in &h.branches {
+                        self.fixups.push(Fix::Block {
+                            at: at + *off as u64,
+                            blk: b,
+                        });
+                    }
+                    for off in &h.conds {
+                        self.fixups.push(Fix::BlockCond {
+                            at: at + *off as u64,
+                            blk: b,
+                        });
+                    }
+                }
+                V::Fn(f) => {
+                    for off in &h.branches {
+                        self.fixups.push(Fix::Func {
+                            at: at + *off as u64,
+                            f,
+                        });
+                    }
+                }
+            },
+            Bind::Lit(_, x) => {
+                let x = *x;
                 if !self.target.is_arm64() {
                     // One instruction rewritten in place, where A64 rewrites a
                     // pair. `lo12` is an A64 fold's output and is always empty
@@ -1670,52 +1725,40 @@ impl<'a> Jit<'a> {
                     self.patch_lo12(at + *o as u64, x as u32, *scale);
                 }
             }
-            HoleKind::Imm64 => {
+            Bind::Word(_, d) => {
                 if !self.target.is_arm64() {
-                    self.patch_imm64_x86_64(at, h, v);
+                    self.patch_imm64_x86_64(at, h, d);
                     return;
                 }
-                // The immediate fold may have taken this hole into an `imm12`
-                // field, in which case there is no pair left to relax.
-                if !h.lo12.is_empty() {
-                    // The stencil builder only ever produces `lo12` for
-                    // offset-shaped holes, so anything else here is a library
-                    // that does not match this emitter.
-                    let x = v
-                        .imm()
-                        .or_ice("a hole folded into an imm12 is bound to an offset");
-                    for (o, scale) in &h.lo12 {
-                        self.patch_lo12(at + *o as u64, x as u32, *scale);
-                    }
-                    if h.pairs.is_empty() {
-                        return;
-                    }
-                }
-                // A value that fits 32 bits does not need the pool at all: the
-                // GOT form is two instructions with one destination register,
-                // and so is `movz`/`movk`. This is the same relaxation a linker
-                // does, and it takes a load off every immediate operand.
-                // `sources::one_register_pairs` refused, when the library was
-                // built, any pair that names a second register.
-                if let V::I(x) = *v {
-                    if x < (1u64 << 32) {
-                        for (a, b) in &h.pairs {
-                            self.patch_imm32(at + *a as u64, at + *b as u64, x as u32);
+                let slot = match *d {
+                    Datum::I(x) => {
+                        // The immediate fold may have taken this hole into an
+                        // `imm12` field, in which case there is no pair left
+                        // to relax. `emit` copies a folded twin only when its
+                        // `imm12` holes are bound to literals.
+                        for (o, scale) in &h.lo12 {
+                            self.patch_lo12(at + *o as u64, x as u32, *scale);
                         }
-                        return;
+                        if h.pairs.is_empty() {
+                            return;
+                        }
+                        // A value that fits 32 bits does not need the pool at
+                        // all: the GOT form is two instructions with one
+                        // destination register, and so is `movz`/`movk`. This
+                        // is the same relaxation a linker does, and it takes a
+                        // load off every immediate operand.
+                        // `sources::one_register_pairs` refused, when the
+                        // library was built, any pair that names a second
+                        // register.
+                        if x < (1u64 << 32) {
+                            for (a, b) in &h.pairs {
+                                self.patch_imm32(at + *a as u64, at + *b as u64, x as u32);
+                            }
+                            return;
+                        }
+                        self.region.pool_u64(x)
                     }
-                }
-                let slot = match *v {
-                    V::I(x) => self.region.pool_u64(x),
-                    // A byte inside this section, whose base the linker picks.
-                    V::Ptr(x) => self.region.pool_target(Target::Here(x)),
-                    V::Fn(f) => self.region.pool_target(Target::Func(f)),
-                    V::Ext(n) => self.region.pool_target(Target::Symbol(n.into())),
-                    V::Sym(ref n) => self.region.pool_target(Target::Symbol(n.clone().into())),
-                    ref other => crate::diagnostics::ice(&format!(
-                        "stencil: hole {} takes a datum, got {other:?}",
-                        h.name
-                    )),
+                    _ => self.pool_datum(d),
                 };
                 for (a, b) in &h.pairs {
                     self.region.pool_ref(at + *a as u64, at + *b as u64, slot);
@@ -1729,14 +1772,14 @@ impl<'a> Jit<'a> {
     /// A default-visibility hole compiles to `mov rD, sym@GOTPCREL(%rip)`, and
     /// the patch is to aim its `disp32` at this unit's constant pool — one
     /// relocation, where A64 needs the two halves of a GOT `adrp`/`ldr` pair.
-    fn patch_imm64_x86_64(&mut self, at: u64, h: &Hole, v: &V) {
+    fn patch_imm64_x86_64(&mut self, at: u64, h: &Hole, d: &Datum) {
         // The same relaxation A64 takes, and for the same reason: a value that
         // fits 32 bits does not need the pool, and dropping the load takes an
         // L1 access off every immediate operand. It is only sound where the
         // instruction is a plain `mov rD, [rip+disp32]` — a float immediate
         // arrives as `movsd` and a small comparison as `cmpl $0, …`, and
         // neither may become a `mov` of a literal.
-        if let V::I(x) = *v {
+        if let Datum::I(x) = *d {
             if x < (1u64 << 32)
                 && h.pairs
                     .iter()
@@ -1748,21 +1791,22 @@ impl<'a> Jit<'a> {
                 return;
             }
         }
-        let slot = match *v {
-            V::I(x) => self.region.pool_u64(x),
-            V::Ptr(x) => self.region.pool_target(Target::Here(x)),
-            V::Fn(f) => self.region.pool_target(Target::Func(f)),
-            V::Ext(n) => self.region.pool_target(Target::Symbol(n.into())),
-            V::Sym(ref n) => self.region.pool_target(Target::Symbol(n.clone().into())),
-            ref other => crate::diagnostics::ice(&format!(
-                "stencil: hole {} takes a datum, got {other:?}",
-                h.name
-            )),
-        };
+        let slot = self.pool_datum(d);
         // On x86-64 a pair is `(instruction end, field)`.
         for (insn_end, field) in &h.pairs {
             self.region
                 .pool_ref_pc32(at + u64::from(*field), at + u64::from(*insn_end), slot);
+        }
+    }
+
+    /// The constant-pool slot holding `d`.
+    fn pool_datum(&mut self, d: &Datum) -> u64 {
+        match *d {
+            Datum::I(x) => self.region.pool_u64(x),
+            // A byte inside this section, whose base the linker picks.
+            Datum::Ptr(x) => self.region.pool_target(Target::Here(x)),
+            Datum::Ext(n) => self.region.pool_target(Target::Symbol(n.into())),
+            Datum::Sym(ref n) => self.region.pool_target(Target::Symbol(n.clone().into())),
         }
     }
 
@@ -3313,23 +3357,18 @@ impl<'a> Jit<'a> {
                     // Immediately before: the branch reads the operands where
                     // the comparison would have, and anything emitted between
                     // the two can reuse or clobber where that is (#297).
-                    // Only a `Const` is skipped yet, so `k` is not. A `Bool`
-                    // operator other than a comparison is refused by the
-                    // checker (`bitwise-non-integer`) or lowered to a join.
-                    invariant(
-                        op.is_comparison(),
-                        "stencil: a branch's condition is a comparison",
-                    );
+                    // Only a `Const` is skipped yet, so `k` is not.
                     if uses(st, *cond) == 1 && (k + 1..n).all(|j| ent(&p.skip, j, false)) {
                         let a = st.loc(*lhs).tag();
                         let b = st.loc(*rhs).tag();
-                        if let Some((tag, _, _)) = super::emit::prim_tag(*prim) {
-                            let key = key!["brcmp/", op.name(), "/", tag, "/", a, b];
-                            // `sources` builds every operand shape of every
-                            // comparison of every type `prim_tag` names.
-                            invariant_with(self.has(&key), || {
-                                format!("stencil: the library has no {key}")
-                            });
+                        // Fused where the library has the supernode: `sources`
+                        // builds one for every operand shape of every
+                        // comparison of every type `prim_tag` names, and none
+                        // for an operator that is not a comparison.
+                        let fused = super::emit::prim_tag(*prim)
+                            .map(|(tag, _, _)| key!["brcmp/", op.name(), "/", tag, "/", a, b])
+                            .filter(|key| self.has(key));
+                        if fused.is_some() {
                             put(&mut p.skip, k, true);
                             p.cmpbr = Some((*op, *prim, *lhs, *rhs));
                         }

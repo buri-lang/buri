@@ -51,6 +51,7 @@
               of them"
 )]
 
+use super::abi::HoleName;
 use super::elfobj as elf;
 use super::library::{ConstRef, Hole, HoleKind, Site, SiteKind, Stencil};
 use super::names::{refuse_hole_name, refuse_stencil_name};
@@ -333,10 +334,11 @@ fn one(
         let at = off as usize;
         let byte = |i: usize| code.get(i).copied().unwrap_or(0);
 
-        let hname = sym
-            .name
-            .strip_prefix("_JIT_")
-            .map_or_else(|| sym.name.clone(), |rest| format!("JIT_{rest}"));
+        let hname = HoleName::of(
+            &sym.name
+                .strip_prefix("_JIT_")
+                .map_or_else(|| sym.name.clone(), |rest| format!("JIT_{rest}")),
+        );
 
         let (hk, sk, pair, branch) = match r.kind {
             // A hidden hole: `lea rD, [rip+disp32]`, seven bytes, of which the
@@ -484,7 +486,7 @@ fn one(
         h.branches.sort_unstable();
         h.conds.sort_unstable();
     }
-    holes.sort_by(|a, b| a.name.cmp(&b.name));
+    holes.sort_by_cached_key(|h| h.name.to_string());
 
     // The continuation branch, when it is the last instruction: `jmp rel32` is
     // five bytes, so the opcode is at `len - 5` and its field at `len - 4`.

@@ -36,6 +36,7 @@
               than trusted"
 )]
 
+use super::abi::{HoleName, Jump, Slot};
 use super::elfobj as elf;
 use super::library::{Hole, HoleKind, Site, SiteKind, Stencil};
 use super::machobj as macho;
@@ -368,6 +369,7 @@ fn finish_arm64(raws: Vec<RawFn>) -> Result<Vec<Stencil>, String> {
                     ));
                 }
             }
+            let hname = HoleName::of(&hname);
             match holes.iter_mut().find(|h| h.name == hname) {
                 Some(h) => {
                     if h.kind != hk {
@@ -663,7 +665,7 @@ pub fn strip_dead_clears(s: &Stencil) -> Option<Stencil> {
     let zero_reg = s
         .tail
         .and_then(|t| s.holes.get(t))
-        .is_some_and(|h| h.name == "JIT_CONT0");
+        .is_some_and(|h| h.name == HoleName::Slot(Slot::Jump(Jump::Cont0)));
     let lo = if zero_reg { 1 } else { 8 };
     let is_clear = |w: u32| w & 0xffff_ffe0 == 0xd280_0000 && (lo..=17).contains(&(w & 0x1f));
     let mut dead = vec![false; words];

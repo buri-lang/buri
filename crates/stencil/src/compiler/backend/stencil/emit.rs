@@ -22,7 +22,7 @@
               bounded by a program already in memory"
 )]
 
-use super::abi::Loc;
+use super::abi::{Jump, Lit, Loc, Word};
 use super::jit::KeyArg;
 use crate::compiler::backend::intrinsic_keys::{
     checked_kind, json_arm, json_variant, native_body, CheckedKind, JsonArm, Leaf,
@@ -36,7 +36,7 @@ enum RSrc {
     Slot(u32),
 }
 use super::glue::Helper;
-use super::jit::{agg_of, copyless_test, enum_ty, fn_ty, Fn2, Jit, Plan, RET, V};
+use super::jit::{agg_of, copyless_test, enum_ty, fn_ty, Bind, Fn2, Jit, Plan, RET, V};
 use super::route;
 use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
 use super::runtime;
@@ -156,9 +156,9 @@ impl<'a> Jit<'a> {
             self.emit(
                 key,
                 &[
-                    ("JIT_D", V::I(d as u64)),
-                    ("JIT_A", V::I(s as u64)),
-                    ("JIT_CONT", V::Fall),
+                    Lit::D.of(d as u64),
+                    Lit::A.of(s as u64),
+                    Jump::Cont.to(V::Fall),
                 ],
             );
             d += n;
@@ -169,26 +169,19 @@ impl<'a> Jit<'a> {
 
     pub(crate) fn imm_to(&mut self, dst: u32, v: u64) {
         if v == 0 {
-            self.emit(
-                "imm/z",
-                &[("JIT_D", V::I(dst as u64)), ("JIT_CONT", V::Fall)],
-            );
+            self.emit("imm/z", &[Lit::D.of(dst as u64), Jump::Cont.to(V::Fall)]);
         } else if v < (1u64 << 32) {
             self.emit(
                 "imm/32",
-                &[
-                    ("JIT_D", V::I(dst as u64)),
-                    ("JIT_N", V::I(v)),
-                    ("JIT_CONT", V::Fall),
-                ],
+                &[Lit::D.of(dst as u64), Lit::N.of(v), Jump::Cont.to(V::Fall)],
             );
         } else {
             self.emit(
                 "imm/64",
                 &[
-                    ("JIT_D", V::I(dst as u64)),
-                    ("JIT_M", V::I(v)),
-                    ("JIT_CONT", V::Fall),
+                    Lit::D.of(dst as u64),
+                    Word::M.lit(v),
+                    Jump::Cont.to(V::Fall),
                 ],
             );
         }
@@ -205,9 +198,9 @@ impl<'a> Jit<'a> {
         self.emit(
             "imm/64",
             &[
-                ("JIT_D", V::I(dst as u64)),
-                ("JIT_M", V::Ptr(v)),
-                ("JIT_CONT", V::Fall),
+                Lit::D.of(dst as u64),
+                Word::M.ptr(v),
+                Jump::Cont.to(V::Fall),
             ],
         );
     }
@@ -223,9 +216,9 @@ impl<'a> Jit<'a> {
                     _ => "store/4",
                 },
                 &[
-                    ("JIT_D", V::I(dst as u64)),
-                    ("JIT_A", V::I(src as u64)),
-                    ("JIT_CONT", V::Fall),
+                    Lit::D.of(dst as u64),
+                    Lit::A.of(src as u64),
+                    Jump::Cont.to(V::Fall),
                 ],
             ),
             _ => self.mv(dst, src, w),
@@ -244,9 +237,9 @@ impl<'a> Jit<'a> {
                     _ => "loadu/4",
                 },
                 &[
-                    ("JIT_D", V::I(dst as u64)),
-                    ("JIT_A", V::I(src as u64)),
-                    ("JIT_CONT", V::Fall),
+                    Lit::D.of(dst as u64),
+                    Lit::A.of(src as u64),
+                    Jump::Cont.to(V::Fall),
                 ],
             ),
             _ => self.mv(dst, src, w),
@@ -424,9 +417,9 @@ impl<'a> Jit<'a> {
                 self.emit(
                     "imm/64",
                     &[
-                        ("JIT_D", V::I(d as u64)),
-                        ("JIT_M", V::Sym(thunk)),
-                        ("JIT_CONT", V::Fall),
+                        Lit::D.of(d as u64),
+                        Word::M.sym(thunk),
+                        Jump::Cont.to(V::Fall),
                     ],
                 );
                 match env {
@@ -448,10 +441,7 @@ impl<'a> Jit<'a> {
                 // two backends pass is one.
                 let b = message.as_bytes();
                 let p = self.region.pool_bytes(b);
-                self.emit(
-                    "abort",
-                    &[("JIT_M", V::Ptr(p)), ("JIT_N", V::I(b.len() as u64))],
-                );
+                self.emit("abort", &[Word::M.ptr(p), Lit::N.of(b.len() as u64)]);
             }
             Inst::MakeArray { dest, elems } => {
                 // One allocation and `n` stores (VALUE-MODEL.md §4).
@@ -467,10 +457,10 @@ impl<'a> Jit<'a> {
                 self.emit(
                     "elemalloc",
                     &[
-                        ("JIT_D", V::I(d0 as u64)),
-                        ("JIT_A", V::I(n as u64)),
-                        ("JIT_P", V::I(stride)),
-                        ("JIT_CONT0", V::Fall),
+                        Lit::D.of(d0 as u64),
+                        Lit::A.of(n as u64),
+                        Lit::P.of(stride),
+                        Jump::Cont0.to(V::Fall),
                     ],
                 );
                 self.imm_to(d0 + 8, elems.len() as u64);
@@ -489,10 +479,10 @@ impl<'a> Jit<'a> {
                         self.emit(
                             key,
                             &[
-                                ("JIT_A", V::I(d0 as u64)),
-                                ("JIT_B", V::I((src + done) as u64)),
-                                ("JIT_N", V::I(base + k)),
-                                ("JIT_CONT", V::Fall),
+                                Lit::A.of(d0 as u64),
+                                Lit::B.of((src + done) as u64),
+                                Lit::N.of(base + k),
+                                Jump::Cont.to(V::Fall),
                             ],
                         );
                         done += n;
@@ -533,10 +523,10 @@ impl<'a> Jit<'a> {
                 self.emit(
                     "elemalloc",
                     &[
-                        ("JIT_D", V::I(u64::from(d))),
-                        ("JIT_A", V::I(u64::from(n))),
-                        ("JIT_P", V::I(stride)),
-                        ("JIT_CONT0", V::Fall),
+                        Lit::D.of(u64::from(d)),
+                        Lit::A.of(u64::from(n)),
+                        Lit::P.of(stride),
+                        Jump::Cont0.to(V::Fall),
                     ],
                 );
                 self.mv(d + 8, n, 8);
@@ -746,10 +736,10 @@ impl<'a> Jit<'a> {
         self.emit(
             "elemalloc",
             &[
-                ("JIT_D", V::I(u64::from(ptr))),
-                ("JIT_A", V::I(u64::from(one))),
-                ("JIT_P", V::I(u64::from(size))),
-                ("JIT_CONT0", V::Fall),
+                Lit::D.of(u64::from(ptr)),
+                Lit::A.of(u64::from(one)),
+                Lit::P.of(u64::from(size)),
+                Jump::Cont0.to(V::Fall),
             ],
         );
         self.imm_to(one, 0);
@@ -773,11 +763,7 @@ impl<'a> Jit<'a> {
                     2 => "immw/2",
                     _ => "immw/4",
                 },
-                &[
-                    ("JIT_D", V::I(dst as u64)),
-                    ("JIT_N", V::I(v)),
-                    ("JIT_CONT", V::Fall),
-                ],
+                &[Lit::D.of(dst as u64), Lit::N.of(v), Jump::Cont.to(V::Fall)],
             ),
             _ => self.imm_to(dst, v),
         }
@@ -803,11 +789,11 @@ impl<'a> Jit<'a> {
                 self.emit(
                     "niche_tag",
                     &[
-                        ("JIT_D", V::I(d as u64)),
-                        ("JIT_A", V::I((a + null_at) as u64)),
-                        ("JIT_N", V::I(null_variant)),
-                        ("JIT_P", V::I(other)),
-                        ("JIT_CONT", V::Fall),
+                        Lit::D.of(d as u64),
+                        Lit::A.of((a + null_at) as u64),
+                        Lit::N.of(null_variant),
+                        Lit::P.of(other),
+                        Jump::Cont.to(V::Fall),
                     ],
                 );
             }
@@ -856,9 +842,9 @@ impl<'a> Jit<'a> {
         self.emit(
             "lea",
             &[
-                ("JIT_D", V::I(u64::from(addr))),
-                ("JIT_A", V::I(u64::from(at))),
-                ("JIT_CONT", V::Fall),
+                Lit::D.of(u64::from(addr)),
+                Lit::A.of(u64::from(at)),
+                Jump::Cont.to(V::Fall),
             ],
         );
         self.c_call_sym(sym, st, &[Src::Word(addr)]);
@@ -900,27 +886,27 @@ impl<'a> Jit<'a> {
                     for (i, arm) in arms.iter().enumerate() {
                         let next = st.label();
                         if let Some(base) = fused {
-                            let key = self.arm_key(base, "JIT_T");
+                            let key = self.arm_key(base, Jump::T);
                             self.emit(
                                 key,
                                 &[
-                                    ("JIT_A", V::I(u64::from(at))),
-                                    ("JIT_N", V::I(u64::from(arm.variant))),
-                                    ("JIT_T", V::Fall),
-                                    ("JIT_F", V::Blk(next)),
+                                    Lit::A.of(u64::from(at)),
+                                    Lit::N.of(u64::from(arm.variant)),
+                                    Jump::T.to(V::Fall),
+                                    Jump::F.to(V::Blk(next)),
                                 ],
                             );
                         } else {
                             let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
                             self.load_w(scr, at, tag.size());
-                            let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+                            let key = self.arm_key("brcmp/eq/u64/fi", Jump::T);
                             self.emit(
                                 key,
                                 &[
-                                    ("JIT_A", V::I(u64::from(scr))),
-                                    ("JIT_K", V::I(u64::from(arm.variant))),
-                                    ("JIT_T", V::Fall),
-                                    ("JIT_F", V::Blk(next)),
+                                    Lit::A.of(u64::from(scr)),
+                                    Word::K.lit(u64::from(arm.variant)),
+                                    Jump::T.to(V::Fall),
+                                    Jump::F.to(V::Blk(next)),
                                 ],
                             );
                         }
@@ -929,7 +915,7 @@ impl<'a> Jit<'a> {
                         }
                         // The last arm's `next` is `done`, so it falls there.
                         if i + 1 < arms.len() {
-                            self.emit("jump", &[("JIT_T", V::Blk(done))]);
+                            self.emit("jump", &[Jump::T.to(V::Blk(done))]);
                         }
                         let here = self.region.code_addr();
                         st.place(next, here);
@@ -943,14 +929,14 @@ impl<'a> Jit<'a> {
                 // whatever the frame last held and the walk is behind the test.
                 Site::Guarded { null_at, ty } => {
                     let skip = st.label();
-                    let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+                    let key = self.arm_key("brcmp/eq/u64/fi", Jump::T);
                     self.emit(
                         key,
                         &[
-                            ("JIT_A", V::I(u64::from(at + null_at))),
-                            ("JIT_K", V::I(0)),
-                            ("JIT_T", V::Blk(skip)),
-                            ("JIT_F", V::Fall),
+                            Lit::A.of(u64::from(at + null_at)),
+                            Word::K.lit(0),
+                            Jump::T.to(V::Blk(skip)),
+                            Jump::F.to(V::Fall),
                         ],
                     );
                     self.walk_rc(st, ty, at, op, depth + 1);
@@ -1034,10 +1020,10 @@ impl<'a> Jit<'a> {
                 self.emit(
                     key,
                     &[
-                        ("JIT_A", V::I(u64::from(at))),
-                        ("JIT_M", V::Sym(g)),
+                        Lit::A.of(u64::from(at)),
+                        Jump::Callee.to(V::Sym(g)),
                         mask,
-                        ("JIT_CONT0", V::Fall),
+                        Jump::Cont0.to(V::Fall),
                     ],
                 )
             }
@@ -1045,7 +1031,7 @@ impl<'a> Jit<'a> {
                 let (key, mask) = self.rc_key("decref/free", "decref/free/shared");
                 self.emit(
                     key,
-                    &[("JIT_A", V::I(u64::from(at))), mask, ("JIT_CONT0", V::Fall)],
+                    &[Lit::A.of(u64::from(at)), mask, Jump::Cont0.to(V::Fall)],
                 )
             }
             (Op::Copy, glue) => {
@@ -1060,7 +1046,7 @@ impl<'a> Jit<'a> {
         let (key, mask) = self.rc_key("incref", "incref/shared");
         self.emit(
             key,
-            &[("JIT_A", V::I(u64::from(at))), mask, ("JIT_CONT", V::Fall)],
+            &[Lit::A.of(u64::from(at)), mask, Jump::Cont.to(V::Fall)],
         );
     }
 
@@ -1071,15 +1057,11 @@ impl<'a> Jit<'a> {
     /// fan-out is counted atomically after it (buri-lang/buri#243). Any other
     /// program keeps the plain stencil; the plain one has no `R` hole, so the
     /// binding is never read.
-    fn rc_key(
-        &self,
-        plain: &'static str,
-        shared: &'static str,
-    ) -> (&'static str, (&'static str, V)) {
+    fn rc_key(&self, plain: &'static str, shared: &'static str) -> (&'static str, Bind) {
         if self.shares {
-            (shared, ("JIT_R", V::Ext(runtime::SHARED_MASK)))
+            (shared, Word::R.ext(runtime::SHARED_MASK))
         } else {
-            (plain, ("JIT_R", V::I(0)))
+            (plain, Word::R.lit(0))
         }
     }
 
@@ -1158,18 +1140,18 @@ impl<'a> Jit<'a> {
         self.emit(
             &key,
             &[
-                ("JIT_A", V::I(a as u64)),
-                ("JIT_B", V::I(b as u64)),
-                ("JIT_D", V::I(d as u64)),
-                ("JIT_K", V::I(k)),
-                ("JIT_CONT", V::Fall),
+                Lit::A.of(a as u64),
+                Lit::B.of(b as u64),
+                Lit::D.of(d as u64),
+                Word::K.lit(k),
+                Jump::Cont.to(V::Fall),
                 // A 128-bit divide is a *call* — the runtime owns it
                 // (`sources.rs::wide`) — so its stencil has the
                 // zero-register prototype and names its continuation
                 // `JIT_CONT0`. Binding both costs nothing: `emit` looks a
                 // hole up by name and a stencil that has neither ignores
                 // the other.
-                ("JIT_CONT0", V::Fall),
+                Jump::Cont0.to(V::Fall),
             ],
         );
     }
@@ -1204,9 +1186,9 @@ impl<'a> Jit<'a> {
             return self.emit(
                 &key,
                 &[
-                    ("JIT_A", V::I(a as u64)),
-                    ("JIT_D", V::I(d as u64)),
-                    ("JIT_CONT", V::Fall),
+                    Lit::A.of(a as u64),
+                    Lit::D.of(d as u64),
+                    Jump::Cont.to(V::Fall),
                 ],
             );
         }
@@ -1225,9 +1207,9 @@ impl<'a> Jit<'a> {
         self.emit(
             &key,
             &[
-                ("JIT_A", V::I(a as u64)),
-                ("JIT_D", V::I(d as u64)),
-                ("JIT_CONT", V::Fall),
+                Lit::A.of(a as u64),
+                Lit::D.of(d as u64),
+                Jump::Cont.to(V::Fall),
             ],
         );
         let _ = (prog, code);
@@ -1292,10 +1274,10 @@ impl<'a> Jit<'a> {
         self.emit(
             "call",
             &[
-                ("JIT_N", V::I(base as u64)),
-                ("JIT_P", V::I(base as u64)),
-                ("JIT_CALLEE", V::Fn(func)),
-                ("JIT_CONT0", V::Fall),
+                Lit::N.of(base as u64),
+                Lit::P.of(base as u64),
+                Jump::Callee.to(V::Fn(func)),
+                Jump::Cont0.to(V::Fall),
             ],
         );
         let n = self.slot_bytes_of(prog, code.ty_of(dest));
@@ -1334,10 +1316,10 @@ impl<'a> Jit<'a> {
         self.emit(
             "calli",
             &[
-                ("JIT_A", V::I(c as u64)),
-                ("JIT_N", V::I(base as u64)),
-                ("JIT_P", V::I(base as u64)),
-                ("JIT_CONT0", V::Fall),
+                Lit::A.of(c as u64),
+                Lit::N.of(base as u64),
+                Lit::P.of(base as u64),
+                Jump::Cont0.to(V::Fall),
             ],
         );
         self.mv(st.at(dest), base + RET, ret_n);
@@ -1439,16 +1421,16 @@ impl<'a> Jit<'a> {
                     } else {
                         V::Blk(b.out.index() as u32)
                     };
-                    let key = self.arm_key("incbr/lt", "JIT_F");
+                    let key = self.arm_key("incbr/lt", Jump::F);
                     self.emit(
                         key,
                         &[
-                            ("JIT_D", V::I(u64::from(st.at(b.into)))),
-                            ("JIT_A", V::I(u64::from(st.at(b.from)))),
-                            ("JIT_N", V::I(b.by)),
-                            ("JIT_B", V::I(u64::from(st.at(b.bound)))),
-                            ("JIT_T", V::Blk(b.back.index() as u32)),
-                            ("JIT_F", out),
+                            Lit::D.of(u64::from(st.at(b.into))),
+                            Lit::A.of(u64::from(st.at(b.from))),
+                            Lit::N.of(b.by),
+                            Lit::B.of(u64::from(st.at(b.bound))),
+                            Jump::T.to(V::Blk(b.back.index() as u32)),
+                            Jump::F.to(out),
                         ],
                     );
                     return;
@@ -1461,9 +1443,9 @@ impl<'a> Jit<'a> {
                 }
                 self.edge(prog, code, st, x);
                 if fall {
-                    self.emit("jump", &[("JIT_T", V::Fall)]);
+                    self.emit("jump", &[Jump::T.to(V::Fall)]);
                 } else {
-                    self.emit("jump", &[("JIT_T", V::Blk(x.block.index() as u32))]);
+                    self.emit("jump", &[Jump::T.to(V::Blk(x.block.index() as u32))]);
                 }
             }
             Term::Branch { cond, then, else_ } => {
@@ -1489,7 +1471,7 @@ impl<'a> Jit<'a> {
                     } else {
                         V::Blk(else_.block.index() as u32)
                     };
-                    let fall = if ft { "JIT_T" } else { "JIT_F" };
+                    let fall = if ft { Jump::T } else { Jump::F };
                     self.cond(st, *cond, plan, tv, fv, fall);
                     return;
                 }
@@ -1508,14 +1490,14 @@ impl<'a> Jit<'a> {
                 } else {
                     (V::Fall, V::Blk(lf))
                 };
-                let fall = if y_is_then { "JIT_F" } else { "JIT_T" };
+                let fall = if y_is_then { Jump::F } else { Jump::T };
                 self.cond(st, *cond, plan, tv, fv, fall);
                 self.edge(prog, code, st, x);
-                self.emit("jump", &[("JIT_T", V::Blk(x.block.index() as u32))]);
+                self.emit("jump", &[Jump::T.to(V::Blk(x.block.index() as u32))]);
                 st.place(lf, self.region.code_addr());
                 // `y` is the arm laid out next.
                 self.edge(prog, code, st, y);
-                self.emit("jump", &[("JIT_T", V::Fall)]);
+                self.emit("jump", &[Jump::T.to(V::Fall)]);
             }
             Term::Switch { on, cases, default } => {
                 // What the comparison reads: the discriminant's frame slot, or
@@ -1534,11 +1516,11 @@ impl<'a> Jit<'a> {
                         self.emit(
                             "niche_tag",
                             &[
-                                ("JIT_D", V::I(s0 as u64)),
-                                ("JIT_A", V::I(off as u64)),
-                                ("JIT_N", V::I(w as u64)),
-                                ("JIT_P", V::I(u64::from(w == 0))),
-                                ("JIT_CONT", V::Fall),
+                                Lit::D.of(s0 as u64),
+                                Lit::A.of(off as u64),
+                                Lit::N.of(w as u64),
+                                Lit::P.of(u64::from(w == 0)),
+                                Jump::Cont.to(V::Fall),
                             ],
                         );
                         src = s0;
@@ -1574,28 +1556,28 @@ impl<'a> Jit<'a> {
                     // walk visits them in order.
                     if total && ci == last {
                         self.edge(prog, code, st, tgt);
-                        self.emit("jump", &[("JIT_T", V::Fall)]);
+                        self.emit("jump", &[Jump::T.to(V::Fall)]);
                         return;
                     }
                     let lnext = st.label();
                     // (g) The case body falls through, so the test's `JIT_T`
                     // arm is the one that has to be the elidable one.
-                    let key = self.arm_key(fusedw.unwrap_or("brcmp/eq/u64/fi"), "JIT_T");
+                    let key = self.arm_key(fusedw.unwrap_or("brcmp/eq/u64/fi"), Jump::T);
                     // (2) The census says `tagbr + jump` is the commonest
                     // adjacent pair in the corpus after the constant
                     // stores: every `match` arm is a tag test followed by a
                     // jump to the arm's block. A case's edge carries no copies
                     // (`middle::lower` gives every case a block of its own with
                     // no parameters), so the test names the block itself.
-                    let mut binds: Vec<(&str, V)> = vec![
-                        ("JIT_A", V::I(src as u64)),
-                        ("JIT_T", V::Blk(tgt.block.index() as u32)),
-                        ("JIT_F", V::Blk(lnext)),
+                    let mut binds: Vec<Bind> = vec![
+                        Lit::A.of(src as u64),
+                        Jump::T.to(V::Blk(tgt.block.index() as u32)),
+                        Jump::F.to(V::Blk(lnext)),
                     ];
                     if fusedw.is_some() {
-                        binds.push(("JIT_N", V::I(*k)));
+                        binds.push(Lit::N.of(*k));
                     } else {
-                        binds.push(("JIT_K", V::I(*k)));
+                        binds.push(Word::K.lit(*k));
                     }
                     self.emit(key, &binds);
                     st.place(lnext, self.region.code_addr());
@@ -1603,7 +1585,7 @@ impl<'a> Jit<'a> {
                 match default {
                     Some(tgt) => {
                         self.edge(prog, code, st, tgt);
-                        self.emit("jump", &[("JIT_T", V::Blk(tgt.block.index() as u32))]);
+                        self.emit("jump", &[Jump::T.to(V::Blk(tgt.block.index() as u32))]);
                     }
                     None => self.emit("unreachable", &[]),
                 }
@@ -1642,12 +1624,12 @@ impl<'a> Jit<'a> {
     /// without looking the name up again: this is asked once per conditional
     /// branch, and the twin is found by index rather than by building its
     /// name.
-    pub(crate) fn arm_key<'k>(&mut self, base: impl Into<KeyArg<'k>>, fall: &str) -> KeyArg<'k> {
+    pub(crate) fn arm_key<'k>(&mut self, base: impl Into<KeyArg<'k>>, fall: Jump) -> KeyArg<'k> {
         self.arm_key_of(base.into(), fall)
     }
 
     /// [`Jit::arm_key`], once for every spelling of a key.
-    fn arm_key_of<'k>(&mut self, base: KeyArg<'k>, fall: &str) -> KeyArg<'k> {
+    fn arm_key_of<'k>(&mut self, base: KeyArg<'k>, fall: Jump) -> KeyArg<'k> {
         let at = self.index_of(base).or_ice("an arm key names a stencil");
         if self.elidable_at(at) == Some(fall) {
             return KeyArg::At(at);
@@ -1658,7 +1640,7 @@ impl<'a> Jit<'a> {
         }
     }
 
-    fn cond(&mut self, st: &Fn2, cond: ir::ValueId, plan: &Plan, tv: V, fv: V, fall: &str) {
+    fn cond(&mut self, st: &Fn2, cond: ir::ValueId, plan: &Plan, tv: V, fv: V, fall: Jump) {
         // `rtcall.rs` names `br/f` without asking. A library without
         // a branch stencil is broken, so this stops here rather than emitting
         // a fall-through that would run the wrong arm.
@@ -1671,11 +1653,11 @@ impl<'a> Jit<'a> {
             self.emit(
                 key,
                 &[
-                    ("JIT_A", V::I(st.at(lhs) as u64)),
-                    ("JIT_B", V::I(st.at(rhs) as u64)),
-                    ("JIT_K", V::I(k)),
-                    ("JIT_T", tv),
-                    ("JIT_F", fv),
+                    Lit::A.of(st.at(lhs) as u64),
+                    Lit::B.of(st.at(rhs) as u64),
+                    Word::K.lit(k),
+                    Jump::T.to(tv),
+                    Jump::F.to(fv),
                 ],
             );
             return;
@@ -1683,9 +1665,9 @@ impl<'a> Jit<'a> {
         self.emit(
             key,
             &[
-                ("JIT_A", V::I(st.at(cond) as u64)),
-                ("JIT_T", tv),
-                ("JIT_F", fv),
+                Lit::A.of(st.at(cond) as u64),
+                Jump::T.to(tv),
+                Jump::F.to(fv),
             ],
         );
     }
@@ -1741,7 +1723,7 @@ impl<'a> Jit<'a> {
             &plan,
             V::Blk(then.block.index() as u32),
             V::Blk(else_.block.index() as u32),
-            "JIT_T",
+            Jump::T,
         );
         true
     }
@@ -1780,17 +1762,17 @@ impl<'a> Jit<'a> {
         }
         // `sources.rs` builds `movjump/1` to `movjump/4`.
         let key = key!["movjump/", n];
-        let src = ["JIT_A", "JIT_B", "JIT_C", "JIT_E"];
-        let dst = ["JIT_D", "JIT_N", "JIT_P", "JIT_Q"];
-        let mut binds: Vec<(&str, V)> = Vec::new();
+        let src = [Lit::A, Lit::B, Lit::C, Lit::E];
+        let dst = [Lit::D, Lit::N, Lit::P, Lit::Q];
+        let mut binds: Vec<Bind> = Vec::new();
         // `movjump/{n}` has `n` source holes and `n` destination holes, and
         // `n` is `pairs.len()`, which the test above holds to four — so the
         // zip runs out with the pairs and not with the hole names.
         for ((d, s), (sh, dh)) in pairs.iter().zip(src.into_iter().zip(dst)) {
-            binds.push((sh, V::I(*s as u64)));
-            binds.push((dh, V::I(*d as u64)));
+            binds.push(sh.of(*s as u64));
+            binds.push(dh.of(*d as u64));
         }
-        binds.push(("JIT_T", V::Blk(t.block.index() as u32)));
+        binds.push(Jump::T.to(V::Blk(t.block.index() as u32)));
         self.emit(&key, &binds);
         true
     }
@@ -1824,7 +1806,7 @@ impl<'a> Jit<'a> {
                                 "/r",
                                 k
                             ],
-                            &[("JIT_D", V::I(st.at(*p) as u64)), ("JIT_CONT", V::Fall)],
+                            &[Lit::D.of(st.at(*p) as u64), Jump::Cont.to(V::Fall)],
                         );
                     }
                     continue;
@@ -1863,7 +1845,7 @@ impl<'a> Jit<'a> {
                     .or_ice("stencil: an edge's register copies deadlock only on register sources");
                     self.emit(
                         &key![if f { "stwg" } else { "stw" }, "/r", j],
-                        &[("JIT_D", V::I(tmp as u64)), ("JIT_CONT", V::Fall)],
+                        &[Lit::D.of(tmp as u64), Jump::Cont.to(V::Fall)],
                     );
                     for p in pend.iter_mut() {
                         if p.1 == f && p.2 == RSrc::Reg(j) {
@@ -1917,11 +1899,11 @@ impl<'a> Jit<'a> {
         match src {
             RSrc::Reg(j) => self.emit(
                 &key![if float { "mvg" } else { "mvr" }, "/r", k, "/r", j],
-                &[("JIT_CONT", V::Fall)],
+                &[Jump::Cont.to(V::Fall)],
             ),
             RSrc::Slot(o) => self.emit(
                 &key![if float { "ldg" } else { "ld" }, "/r", k],
-                &[("JIT_A", V::I(o as u64)), ("JIT_CONT", V::Fall)],
+                &[Lit::A.of(o as u64), Jump::Cont.to(V::Fall)],
             ),
         }
     }
@@ -2124,11 +2106,11 @@ impl<'a> Jit<'a> {
                 self.emit(
                     &key!["bin/", name, "/", tag, "/ff/f"],
                     &[
-                        ("JIT_A", V::I(p(0) as u64)),
-                        ("JIT_B", V::I(p(1) as u64)),
-                        ("JIT_D", V::I(ret0 as u64)),
-                        ("JIT_CONT", V::Fall),
-                        ("JIT_CONT0", V::Fall),
+                        Lit::A.of(p(0) as u64),
+                        Lit::B.of(p(1) as u64),
+                        Lit::D.of(ret0 as u64),
+                        Jump::Cont.to(V::Fall),
+                        Jump::Cont0.to(V::Fall),
                     ],
                 );
             }
@@ -2138,9 +2120,9 @@ impl<'a> Jit<'a> {
                 self.emit(
                     &key!["un/neg/", tag, "/f/f"],
                     &[
-                        ("JIT_A", V::I(p(0) as u64)),
-                        ("JIT_D", V::I(ret0 as u64)),
-                        ("JIT_CONT", V::Fall),
+                        Lit::A.of(p(0) as u64),
+                        Lit::D.of(ret0 as u64),
+                        Jump::Cont.to(V::Fall),
                     ],
                 );
             }
@@ -2223,10 +2205,10 @@ impl Jit<'_> {
                 self.emit(
                     "bin/eq/u64/ff/f",
                     &[
-                        ("JIT_D", V::I(u64::from(d))),
-                        ("JIT_A", V::I(u64::from(a))),
-                        ("JIT_B", V::I(u64::from(b))),
-                        ("JIT_CONT", V::Fall),
+                        Lit::D.of(u64::from(d)),
+                        Lit::A.of(u64::from(a)),
+                        Lit::B.of(u64::from(b)),
+                        Jump::Cont.to(V::Fall),
                     ],
                 );
             }
@@ -2243,20 +2225,20 @@ impl Jit<'_> {
                     self.emit(
                         *k,
                         &[
-                            ("JIT_D", V::I(u64::from(scr))),
-                            ("JIT_A", V::I(u64::from(a))),
-                            ("JIT_B", V::I(u64::from(b))),
-                            ("JIT_CONT", V::Fall),
+                            Lit::D.of(u64::from(scr)),
+                            Lit::A.of(u64::from(a)),
+                            Lit::B.of(u64::from(b)),
+                            Jump::Cont.to(V::Fall),
                         ],
                     );
                     let skip = st.label();
-                    let brkey = self.arm_key("br/f", "JIT_T");
+                    let brkey = self.arm_key("br/f", Jump::T);
                     self.emit(
                         brkey,
                         &[
-                            ("JIT_A", V::I(u64::from(scr))),
-                            ("JIT_T", V::Fall),
-                            ("JIT_F", V::Blk(skip)),
+                            Lit::A.of(u64::from(scr)),
+                            Jump::T.to(V::Fall),
+                            Jump::F.to(V::Blk(skip)),
                         ],
                     );
                     self.imm_to(raw, *v);
@@ -2329,12 +2311,12 @@ impl Jit<'_> {
         self.emit(
             &key,
             &[
-                ("JIT_A", V::I(u64::from(a))),
-                ("JIT_B", V::I(u64::from(b))),
-                ("JIT_D", V::I(u64::from(res))),
-                ("JIT_N", V::I(u64::from(flag))),
-                ("JIT_CONT", V::Fall),
-                ("JIT_CONT0", V::Fall),
+                Lit::A.of(u64::from(a)),
+                Lit::B.of(u64::from(b)),
+                Lit::D.of(u64::from(res)),
+                Lit::N.of(u64::from(flag)),
+                Jump::Cont.to(V::Fall),
+                Jump::Cont0.to(V::Fall),
             ],
         );
     }
@@ -2368,18 +2350,18 @@ impl Jit<'_> {
         let pay = super::lists::payload_at(&l, 0);
         let some = st.label();
         let done = st.label();
-        let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+        let key = self.arm_key("brcmp/eq/u64/fi", Jump::T);
         self.emit(
             key,
             &[
-                ("JIT_A", V::I(u64::from(flag))),
-                ("JIT_K", V::I(0)),
-                ("JIT_T", V::Blk(some)),
-                ("JIT_F", V::Fall),
+                Lit::A.of(u64::from(flag)),
+                Word::K.lit(0),
+                Jump::T.to(V::Blk(some)),
+                Jump::F.to(V::Fall),
             ],
         );
         self.store_disc(&l, dest, 1);
-        self.emit("jump", &[("JIT_T", V::Blk(done))]);
+        self.emit("jump", &[Jump::T.to(V::Blk(done))]);
         let here = self.region.code_addr();
         st.place(some, here);
         self.store_w(dest + pay, res, bits / 8);
@@ -2530,7 +2512,7 @@ impl Jit<'_> {
                 self.cmp_to(tag, "lt", src, bound, verdict, scalar);
                 self.imm_num(bound, from, 0xdfff);
                 self.cmp_to(tag, "gt", src, bound, verdict, scalar);
-                self.emit("jump", &[("JIT_T", V::Blk(err))]);
+                self.emit("jump", &[Jump::T.to(V::Blk(err))]);
                 let here = self.region.code_addr();
                 st.place(scalar, here);
                 self.convert(st, from, to, src, dest + ok_at);
@@ -2555,7 +2537,7 @@ impl Jit<'_> {
             }
         }
         self.store_disc(&result, dest, 0);
-        self.emit("jump", &[("JIT_T", V::Blk(done))]);
+        self.emit("jump", &[Jump::T.to(V::Blk(done))]);
 
         let here = self.region.code_addr();
         st.place(err, here);
@@ -2577,19 +2559,19 @@ impl Jit<'_> {
         self.emit(
             &key!["bin/", op, "/", tag, "/ff/f"],
             &[
-                ("JIT_D", V::I(u64::from(verdict))),
-                ("JIT_A", V::I(u64::from(a))),
-                ("JIT_B", V::I(u64::from(b))),
-                ("JIT_CONT", V::Fall),
+                Lit::D.of(u64::from(verdict)),
+                Lit::A.of(u64::from(a)),
+                Lit::B.of(u64::from(b)),
+                Jump::Cont.to(V::Fall),
             ],
         );
-        let brkey = self.arm_key("br/f", "JIT_F");
+        let brkey = self.arm_key("br/f", Jump::F);
         self.emit(
             brkey,
             &[
-                ("JIT_A", V::I(u64::from(verdict))),
-                ("JIT_T", V::Blk(target)),
-                ("JIT_F", V::Fall),
+                Lit::A.of(u64::from(verdict)),
+                Jump::T.to(V::Blk(target)),
+                Jump::F.to(V::Fall),
             ],
         );
     }
@@ -2599,9 +2581,9 @@ impl Jit<'_> {
         self.emit(
             key,
             &[
-                ("JIT_D", V::I(u64::from(dest))),
-                ("JIT_A", V::I(u64::from(src))),
-                ("JIT_CONT", V::Fall),
+                Lit::D.of(u64::from(dest)),
+                Lit::A.of(u64::from(src)),
+                Jump::Cont.to(V::Fall),
             ],
         );
     }
@@ -2616,9 +2598,9 @@ impl Jit<'_> {
             self.emit(
                 &key!["zext/", bits],
                 &[
-                    ("JIT_D", V::I(u64::from(dest))),
-                    ("JIT_A", V::I(u64::from(src))),
-                    ("JIT_CONT", V::Fall),
+                    Lit::D.of(u64::from(dest)),
+                    Lit::A.of(u64::from(src)),
+                    Jump::Cont.to(V::Fall),
                 ],
             );
         }
@@ -2662,14 +2644,14 @@ impl Jit<'_> {
         let (lo, hi) = (int_pattern(int, true), int_pattern(int, false));
         let ok = st.label();
         let done = st.label();
-        let key = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+        let key = self.arm_key("brcmp/eq/u64/fi", Jump::T);
         self.emit(
             key,
             &[
-                ("JIT_A", V::I(u64::from(flag))),
-                ("JIT_K", V::I(0)),
-                ("JIT_T", V::Blk(ok)),
-                ("JIT_F", V::Fall),
+                Lit::A.of(u64::from(flag)),
+                Word::K.lit(0),
+                Jump::T.to(V::Blk(ok)),
+                Jump::F.to(V::Fall),
             ],
         );
         if !signed {
@@ -2692,30 +2674,30 @@ impl Jit<'_> {
                 self.emit(
                     "bin/xor/u64/ff/f",
                     &[
-                        ("JIT_D", V::I(u64::from(scr))),
-                        ("JIT_A", V::I(u64::from(scr))),
-                        ("JIT_B", V::I(u64::from(other))),
-                        ("JIT_CONT", V::Fall),
+                        Lit::D.of(u64::from(scr)),
+                        Lit::A.of(u64::from(scr)),
+                        Lit::B.of(u64::from(other)),
+                        Jump::Cont.to(V::Fall),
                     ],
                 );
             }
             let top = st.label();
-            let brkey = self.arm_key("br/f", "JIT_T");
+            let brkey = self.arm_key("br/f", Jump::T);
             self.emit(
                 brkey,
                 &[
-                    ("JIT_A", V::I(u64::from(scr))),
-                    ("JIT_T", V::Fall),
-                    ("JIT_F", V::Blk(top)),
+                    Lit::A.of(u64::from(scr)),
+                    Jump::T.to(V::Fall),
+                    Jump::F.to(V::Blk(top)),
                 ],
             );
             self.imm_num(dest, prim, lo);
-            self.emit("jump", &[("JIT_T", V::Blk(done))]);
+            self.emit("jump", &[Jump::T.to(V::Blk(done))]);
             let here = self.region.code_addr();
             st.place(top, here);
             self.imm_num(dest, prim, hi);
         }
-        self.emit("jump", &[("JIT_T", V::Blk(done))]);
+        self.emit("jump", &[Jump::T.to(V::Blk(done))]);
         let here = self.region.code_addr();
         st.place(ok, here);
         self.mv(dest, res, if prim.bits() > 64 { 16 } else { 8 });
@@ -2738,10 +2720,10 @@ impl Jit<'_> {
         self.emit(
             &key,
             &[
-                ("JIT_D", V::I(u64::from(d))),
-                ("JIT_A", V::I(u64::from(at))),
-                ("JIT_K", V::I(0)),
-                ("JIT_CONT", V::Fall),
+                Lit::D.of(u64::from(d)),
+                Lit::A.of(u64::from(at)),
+                Word::K.lit(0),
+                Jump::Cont.to(V::Fall),
             ],
         );
     }
@@ -2772,10 +2754,10 @@ impl Jit<'_> {
         self.emit(
             &key,
             &[
-                ("JIT_A", V::I(u64::from(a))),
-                ("JIT_B", V::I(u64::from(b))),
-                ("JIT_D", V::I(u64::from(dest))),
-                ("JIT_CONT", V::Fall),
+                Lit::A.of(u64::from(a)),
+                Lit::B.of(u64::from(b)),
+                Lit::D.of(u64::from(dest)),
+                Jump::Cont.to(V::Fall),
             ],
         );
     }
@@ -2807,10 +2789,10 @@ impl Jit<'_> {
                 self.emit(
                     "bin/and/u64/fi/f",
                     &[
-                        ("JIT_D", V::I(u64::from(dest))),
-                        ("JIT_A", V::I(u64::from(a))),
-                        ("JIT_K", V::I(sign)),
-                        ("JIT_CONT", V::Fall),
+                        Lit::D.of(u64::from(dest)),
+                        Lit::A.of(u64::from(a)),
+                        Word::K.lit(sign),
+                        Jump::Cont.to(V::Fall),
                     ],
                 );
                 return;
@@ -2820,21 +2802,21 @@ impl Jit<'_> {
             let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
             self.lt_zero(scr, a, tag);
             let skip = st.label();
-            let brkey = self.arm_key("br/f", "JIT_T");
+            let brkey = self.arm_key("br/f", Jump::T);
             self.emit(
                 brkey,
                 &[
-                    ("JIT_A", V::I(u64::from(scr))),
-                    ("JIT_T", V::Fall),
-                    ("JIT_F", V::Blk(skip)),
+                    Lit::A.of(u64::from(scr)),
+                    Jump::T.to(V::Fall),
+                    Jump::F.to(V::Blk(skip)),
                 ],
             );
             self.emit(
                 &key!["un/neg/", tag, "/f/f"],
                 &[
-                    ("JIT_A", V::I(u64::from(a))),
-                    ("JIT_D", V::I(u64::from(dest))),
-                    ("JIT_CONT", V::Fall),
+                    Lit::A.of(u64::from(a)),
+                    Lit::D.of(u64::from(dest)),
+                    Jump::Cont.to(V::Fall),
                 ],
             );
             let here = self.region.code_addr();
@@ -2884,21 +2866,21 @@ impl Jit<'_> {
             self.emit(
                 &key,
                 &[
-                    ("JIT_D", V::I(u64::from(scr))),
-                    ("JIT_A", V::I(u64::from(a))),
-                    ("JIT_B", V::I(u64::from(zslot))),
-                    ("JIT_K", V::I(0)),
-                    ("JIT_CONT", V::Fall),
+                    Lit::D.of(u64::from(scr)),
+                    Lit::A.of(u64::from(a)),
+                    Lit::B.of(u64::from(zslot)),
+                    Word::K.lit(0),
+                    Jump::Cont.to(V::Fall),
                 ],
             );
             let skip = st.label();
-            let brkey = self.arm_key("br/f", "JIT_T");
+            let brkey = self.arm_key("br/f", Jump::T);
             self.emit(
                 brkey,
                 &[
-                    ("JIT_A", V::I(u64::from(scr))),
-                    ("JIT_T", V::Fall),
-                    ("JIT_F", V::Blk(skip)),
+                    Lit::A.of(u64::from(scr)),
+                    Jump::T.to(V::Fall),
+                    Jump::F.to(V::Blk(skip)),
                 ],
             );
             self.imm_num(dest, prim, v);
@@ -2927,20 +2909,20 @@ impl Jit<'_> {
             self.emit(
                 &key!["bin/", op, "/", tag, "/ff/f"],
                 &[
-                    ("JIT_D", V::I(u64::from(scr))),
-                    ("JIT_A", V::I(u64::from(a))),
-                    ("JIT_B", V::I(u64::from(b))),
-                    ("JIT_CONT", V::Fall),
+                    Lit::D.of(u64::from(scr)),
+                    Lit::A.of(u64::from(a)),
+                    Lit::B.of(u64::from(b)),
+                    Jump::Cont.to(V::Fall),
                 ],
             );
             let skip = st.label();
-            let brkey = self.arm_key("br/f", "JIT_T");
+            let brkey = self.arm_key("br/f", Jump::T);
             self.emit(
                 brkey,
                 &[
-                    ("JIT_A", V::I(u64::from(scr))),
-                    ("JIT_T", V::Fall),
-                    ("JIT_F", V::Blk(skip)),
+                    Lit::A.of(u64::from(scr)),
+                    Jump::T.to(V::Fall),
+                    Jump::F.to(V::Blk(skip)),
                 ],
             );
             self.imm_to(raw, v);
@@ -2973,10 +2955,10 @@ impl Jit<'_> {
             self.emit(
                 &bin("div"),
                 &[
-                    ("JIT_D", V::I(u64::from(to))),
-                    ("JIT_A", V::I(u64::from(constant))),
-                    ("JIT_B", V::I(u64::from(from))),
-                    ("JIT_CONT", V::Fall),
+                    Lit::D.of(u64::from(to)),
+                    Lit::A.of(u64::from(constant)),
+                    Lit::B.of(u64::from(from)),
+                    Jump::Cont.to(V::Fall),
                 ],
             );
         }
@@ -3001,19 +2983,19 @@ impl Jit<'_> {
                 self.emit(
                     &bin(op),
                     &[
-                        ("JIT_D", V::I(u64::from(scr))),
-                        ("JIT_A", V::I(u64::from(x))),
-                        ("JIT_B", V::I(u64::from(y))),
-                        ("JIT_CONT", V::Fall),
+                        Lit::D.of(u64::from(scr)),
+                        Lit::A.of(u64::from(x)),
+                        Lit::B.of(u64::from(y)),
+                        Jump::Cont.to(V::Fall),
                     ],
                 );
-                let brkey = self.arm_key("br/f", "JIT_T");
+                let brkey = self.arm_key("br/f", Jump::T);
                 self.emit(
                     brkey,
                     &[
-                        ("JIT_A", V::I(u64::from(scr))),
-                        ("JIT_T", V::Fall),
-                        ("JIT_F", V::Blk(skip)),
+                        Lit::A.of(u64::from(scr)),
+                        Jump::T.to(V::Fall),
+                        Jump::F.to(V::Blk(skip)),
                     ],
                 );
             }
@@ -3047,9 +3029,9 @@ impl Jit<'_> {
                     self.emit(
                         "cvt/f322f",
                         &[
-                            ("JIT_D", V::I(u64::from(scr))),
-                            ("JIT_A", V::I(u64::from(v))),
-                            ("JIT_CONT", V::Fall),
+                            Lit::D.of(u64::from(scr)),
+                            Lit::A.of(u64::from(v)),
+                            Jump::Cont.to(V::Fall),
                         ],
                     );
                     scr
@@ -3095,9 +3077,9 @@ impl Jit<'_> {
                 self.emit(
                     &key!["cvt/to/", ttag, "/", if fsigned { "i" } else { "u" }],
                     &[
-                        ("JIT_D", V::I(u64::from(dest))),
-                        ("JIT_A", V::I(u64::from(at))),
-                        ("JIT_CONT", V::Fall),
+                        Lit::D.of(u64::from(dest)),
+                        Lit::A.of(u64::from(at)),
+                        Jump::Cont.to(V::Fall),
                     ],
                 );
                 return;
@@ -3110,9 +3092,9 @@ impl Jit<'_> {
             self.emit(
                 &key,
                 &[
-                    ("JIT_D", V::I(u64::from(dest))),
-                    ("JIT_A", V::I(u64::from(src))),
-                    ("JIT_CONT", V::Fall),
+                    Lit::D.of(u64::from(dest)),
+                    Lit::A.of(u64::from(src)),
+                    Jump::Cont.to(V::Fall),
                 ],
             );
             return;
@@ -3131,9 +3113,9 @@ impl Jit<'_> {
                 self.emit(
                     key,
                     &[
-                        ("JIT_D", V::I(u64::from(dest))),
-                        ("JIT_A", V::I(u64::from(src))),
-                        ("JIT_CONT", V::Fall),
+                        Lit::D.of(u64::from(dest)),
+                        Lit::A.of(u64::from(src)),
+                        Jump::Cont.to(V::Fall),
                     ],
                 );
             }
@@ -3175,9 +3157,9 @@ impl Jit<'_> {
                     self.emit(
                         &key!["zext/", tw],
                         &[
-                            ("JIT_D", V::I(u64::from(dest))),
-                            ("JIT_A", V::I(u64::from(at))),
-                            ("JIT_CONT", V::Fall),
+                            Lit::D.of(u64::from(dest)),
+                            Lit::A.of(u64::from(at)),
+                            Jump::Cont.to(V::Fall),
                         ],
                     );
                 }
@@ -3195,9 +3177,9 @@ impl Jit<'_> {
         self.emit(
             &key!["sext/", bits],
             &[
-                ("JIT_D", V::I(u64::from(scratch))),
-                ("JIT_A", V::I(u64::from(src))),
-                ("JIT_CONT", V::Fall),
+                Lit::D.of(u64::from(scratch)),
+                Lit::A.of(u64::from(src)),
+                Jump::Cont.to(V::Fall),
             ],
         );
         scratch
@@ -3262,9 +3244,9 @@ impl Jit<'_> {
             self.emit(
                 &k,
                 &[
-                    ("JIT_D", V::I(u64::from(d))),
-                    ("JIT_A", V::I(u64::from(a))),
-                    ("JIT_CONT", V::Fall),
+                    Lit::D.of(u64::from(d)),
+                    Lit::A.of(u64::from(a)),
+                    Jump::Cont.to(V::Fall),
                 ],
             );
             return;
@@ -3274,10 +3256,10 @@ impl Jit<'_> {
         self.emit(
             &key2,
             &[
-                ("JIT_D", V::I(u64::from(d))),
-                ("JIT_A", V::I(u64::from(a))),
-                ("JIT_B", V::I(u64::from(count))),
-                ("JIT_CONT", V::Fall),
+                Lit::D.of(u64::from(d)),
+                Lit::A.of(u64::from(a)),
+                Lit::B.of(u64::from(count)),
+                Jump::Cont.to(V::Fall),
             ],
         );
     }
@@ -3294,19 +3276,19 @@ impl Jit<'_> {
         self.emit(
             "bin/lt/u64/fi/f",
             &[
-                ("JIT_D", V::I(u64::from(scr))),
-                ("JIT_A", V::I(u64::from(count))),
-                ("JIT_K", V::I(u64::from(width))),
-                ("JIT_CONT", V::Fall),
+                Lit::D.of(u64::from(scr)),
+                Lit::A.of(u64::from(count)),
+                Word::K.lit(u64::from(width)),
+                Jump::Cont.to(V::Fall),
             ],
         );
-        let brkey = self.arm_key("br/f", "JIT_T");
+        let brkey = self.arm_key("br/f", Jump::T);
         self.emit(
             brkey,
             &[
-                ("JIT_A", V::I(u64::from(scr))),
-                ("JIT_T", V::Blk(ok)),
-                ("JIT_F", V::Fall),
+                Lit::A.of(u64::from(scr)),
+                Jump::T.to(V::Blk(ok)),
+                Jump::F.to(V::Fall),
             ],
         );
         self.c_call(runtime::ABORT_SHIFT, st, &[], &[], 0, "v");

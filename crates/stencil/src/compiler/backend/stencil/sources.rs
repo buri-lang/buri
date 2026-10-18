@@ -33,7 +33,7 @@
 //! The measured consequence is in the report: it is small, because the register
 //! pressure in a stencil is 2–3 values.
 
-use super::abi::{Loc, StencilTarget, CPS_REGISTER_COUNT};
+use super::abi::{Loc, StencilTarget, CPS_REGISTER_COUNT, RETURN_SHAPES};
 use super::elfobj as elf;
 use super::extract::{extract, extract_elf_arm64, fold_addressing, fold_cond, fold_imm, swap_arms};
 use super::library::{Builder, HoleKind, Stencil};
@@ -1345,44 +1345,6 @@ fn regmoves(o: &mut Out) {
     }
 }
 
-/// The boundary onto `libburi_rt.a`: one stencil per *shape* of C call.
-///
-/// A stencil cannot name a symbol the emitter chooses, so the callee is a hole
-/// — and a hole that is *called* rather than materialised, so that it becomes
-/// one `bl` and one `ARM64_RELOC_BRANCH26` instead of a pooled pointer and an
-/// indirect call. That is why there is a `_JIT_RT_*` declared per shape rather
-/// than one `void *` hole: C has one type per name, and the type is what
-/// decides which registers clang reads the arguments out of.
-///
-/// The arguments do not come from holes at all. AAPCS64 puts the first eight
-/// integers in `x0`–`x7` and the first eight doubles in `d0`–`d7`, and reading
-/// each from its own frame offset would make the shape the *cross product* of
-/// eight offsets — thousands of stencils. Instead the emitter writes the
-/// arguments into a **contiguous scratch area** with the ordinary `mov` and
-/// `imm` stencils it already has (which is what the frame-threaded convention
-/// does for a Buri call anyway), and this stencil reads them off consecutively
-/// from one hole. The shape is then just `(integers, doubles, result)`.
-///
-/// Two areas rather than one because the two register banks are assigned
-/// independently: a double in argument position three still goes in `d0` if it
-/// is the first float.
-/// The result shapes a `crt` stencil is generated for.
-///
-/// **A shape per C return type, and that is the whole point of the list.** A
-/// stencil declares the entry it calls, and a declaration that is wider than
-/// what the entry returns is not a rounding error: both psABIs leave the upper
-/// bits of a narrower integer return **unspecified**, so `uint64_t` against a
-/// `u8` reads whatever was in the register. AAPCS64 happened to hide it — Rust's
-/// arm64 codegen zeroes the register on the way out — and SysV does not, which
-/// is where it was found. `rtcall::scalar_kind` picks the letter from the
-/// destination's own width, which is the same fact the other two backends build
-/// their call signature from.
-///
-/// `w` is the odd one and stays: it is the **signed** 32-bit shape a fallible
-/// entry's `BURI_*` discriminant comes back in (`cli/runtime/lib.rs` §2), not a
-/// width a Buri value has.
-const RETURN_SHAPES: [&str; 7] = ["v", "i", "w", "d", "b", "h", "u"];
-
 /// The C return type one shape declares.
 fn return_ctype(ret: &str) -> &'static str {
     match ret {
@@ -1414,6 +1376,27 @@ fn return_store(ret: &str, call: &str) -> String {
     }
 }
 
+/// The boundary onto `libburi_rt.a`: one stencil per *shape* of C call.
+///
+/// A stencil cannot name a symbol the emitter chooses, so the callee is a hole
+/// — and a hole that is *called* rather than materialised, so that it becomes
+/// one `bl` and one `ARM64_RELOC_BRANCH26` instead of a pooled pointer and an
+/// indirect call. That is why there is a `_JIT_RT_*` declared per shape rather
+/// than one `void *` hole: C has one type per name, and the type is what
+/// decides which registers clang reads the arguments out of.
+///
+/// The arguments do not come from holes at all. AAPCS64 puts the first eight
+/// integers in `x0`–`x7` and the first eight doubles in `d0`–`d7`, and reading
+/// each from its own frame offset would make the shape the *cross product* of
+/// eight offsets — thousands of stencils. Instead the emitter writes the
+/// arguments into a **contiguous scratch area** with the ordinary `mov` and
+/// `imm` stencils it already has (which is what the frame-threaded convention
+/// does for a Buri call anyway), and this stencil reads them off consecutively
+/// from one hole. The shape is then just `(integers, doubles, result)`.
+///
+/// Two areas rather than one because the two register banks are assigned
+/// independently: a double in argument position three still goes in `d0` if it
+/// is the first float.
 fn runtime_calls(o: &mut Out) {
     for ni in 0..=MAX_INT_ARGS {
         for nf in 0..=MAX_FLOAT_ARGS {
@@ -1625,34 +1608,6 @@ fn calls(o: &mut Out) {
          ((uint64_t *)((char *)fp + OFF(_JIT_N))) - OFF(_JIT_P)); TAIL0; }"
             .into(),
     );
-    // A tail call: reuse this frame rather than pushing one. `middle::tail_calls`
-    // has already turned self- and mutual recursion into loops, so this exists
-    // for the cross-function tail calls it did not.
-    for n in 0..=4usize {
-        // `n` is at most four, which is how many hole letters there are.
-        let args: Vec<String> = ["A", "B", "C", "E"]
-            .iter()
-            .take(n)
-            .map(|h| format!("AT(uint64_t, _JIT_{h})"))
-            .collect();
-        let call = format!(
-            "((uint64_t (*)({}))(uintptr_t)_JIT_R)({})",
-            if n == 0 {
-                "void".to_string()
-            } else {
-                vec!["uint64_t"; n].join(", ")
-            },
-            args.join(", ")
-        );
-        o.push(
-            &format!("rt/{n}"),
-            format!("void $NAME(ARGS0) {{ AT(uint64_t, _JIT_D) = {call}; TAIL0; }}"),
-        );
-        o.push(
-            &format!("rtv/{n}"),
-            format!("void $NAME(ARGS0) {{ (void){call}; TAIL0; }}"),
-        );
-    }
 }
 
 fn memory(o: &mut Out) {
@@ -1761,11 +1716,11 @@ fn memory_counts(o: &mut Out, suffix: &str, marked: &str) {
          if (__builtin_expect_with_probability({marked}, 0, 0.9)) {{ \
          uint64_t v = __atomic_load_n(rc, __ATOMIC_RELAXED); \
          if (__atomic_fetch_sub(rc, (uint64_t)(v != (uint64_t)-1), __ATOMIC_ACQ_REL) == 1) {{ \
-         ((void (*)(uint64_t))(uintptr_t)_JIT_M)(p); buri_rt_free(p); }} \
+         ((void (*)(uint64_t))_JIT_CALLEE)(p); buri_rt_free(p); }} \
          }} else {{ uint64_t v = *rc; \
          if (v > 1 && v != (uint64_t)-1) {{ *rc = v - 1; }} \
          else if (v != (uint64_t)-1) {{ \
-         ((void (*)(uint64_t))(uintptr_t)_JIT_M)(p); buri_rt_free(p); }} }} }} TAIL0; }}"
+         ((void (*)(uint64_t))_JIT_CALLEE)(p); buri_rt_free(p); }} }} }} TAIL0; }}"
         ),
     );
     o.push(
@@ -2024,14 +1979,14 @@ fn assemble(
                 }
                 continue;
             };
-            // A symbol outside the program is only ever called. `Jit::import`
-            // relocates its branches and nothing else.
-            if let Some(h) = base
-                .holes
-                .iter()
-                .find(|h| !h.name.starts_with("JIT_") && !h.pairs.is_empty())
-            {
-                return Err(format!("{name} ({key}) takes the address of {}", h.name));
+            // A hole is relocated the way its name was declared, which is
+            // what `Jit` patches it by: a slot by its class, and a symbol
+            // outside the program, which is only ever called, by a branch.
+            if let Some(h) = base.holes.iter().find(|h| h.kind != h.name.kind()) {
+                return Err(format!(
+                    "{name} ({key}) reaches {} as an {:?} hole",
+                    h.name, h.kind
+                ));
             }
             let mut base = base.clone();
             base.name = key.clone();
