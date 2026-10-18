@@ -230,6 +230,32 @@ pub fn start_runner(command: &mut Command) -> std::io::Result<Child> {
     start(command)
 }
 
+/// A runner started with all three of its streams piped, and the streams.
+pub struct Piped {
+    pub child: Child,
+    pub stdin: std::process::ChildStdin,
+    pub stdout: std::process::ChildStdout,
+    pub stderr: std::process::ChildStderr,
+}
+
+/// [`start_runner`] with every stream piped, handed back beside the child.
+pub fn start_piped_runner(command: &mut Command) -> std::io::Result<Piped> {
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = start_runner(command)?;
+    match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
+        (Some(stdin), Some(stdout), Some(stderr)) => Ok(Piped {
+            child,
+            stdin,
+            stdout,
+            stderr,
+        }),
+        _ => Err(std::io::Error::other("a runner started without its pipes")),
+    }
+}
+
 /// What [`reaper`] runs: it waits for its input to end, then kills its group.
 const REAPER: &str = "while read -r _; do :; done; kill -s KILL 0";
 
