@@ -704,6 +704,48 @@ fn the_c_drivers_version_is_asked_once_per_toolchain() {
     assert_eq!(asked, 3, "a different driver was not asked its version");
 }
 
+/// The C driver's version is asked again when a variable that can pick its
+/// SDK or its deployment target changes.
+///
+/// A driver that is a script finds what it runs through its environment, so
+/// the remembered answer holds only for the environment it was asked in. Each
+/// family of variable is set to a name no driver reads, so the build itself is
+/// the same.
+#[cfg(unix)]
+#[test]
+fn the_c_drivers_version_is_asked_again_when_its_sdk_variables_change() {
+    let scratch = Scratch::repo("linker-version-sdk-variables");
+    let log = scratch.path("driver-calls");
+    counting_driver(&scratch, &log, "");
+    let env = driver_env(&scratch);
+
+    one_suite(&scratch, 1);
+    if test_with_driver(&scratch, &env).is_none() {
+        crate::harness::ci::skipped("build", "this toolchain cannot run a suite on its own host");
+        return;
+    }
+    assert_eq!(count(&log, "--version"), 1);
+    for (n, name) in [
+        "SDKROOT_FOR_BURI_TEST",
+        "DEVELOPER_DIR_FOR_BURI_TEST",
+        "BURI_TEST_DEPLOYMENT_TARGET",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut changed = env.clone();
+        changed.push((name.into(), "picked".into()));
+        one_suite(&scratch, 2 + n as i64);
+        test_with_driver(&scratch, &changed).expect("this run ran where the first did");
+        let asked = count(&log, "--version");
+        assert_eq!(
+            asked,
+            2 + n,
+            "setting `{name}` did not ask the driver its version again"
+        );
+    }
+}
+
 /// A run that never links still remembers the C driver's version.
 ///
 /// `buri test` asks for it before it knows a link will follow. A run with
