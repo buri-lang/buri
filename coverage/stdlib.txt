@@ -8,7 +8,7 @@ core/alloc                           3/3  100.0%         2/2  100.0%           4
 core/bigint                        82/84   97.6%       60/62   96.8%       140/142   98.6%
 core/bool                            6/6  100.0%         6/6  100.0%         12/12  100.0%
 core/buri/ast                    905/920   98.4%     505/520   97.1%     1500/1515   99.0%
-core/bytes                       110/112   98.2%       73/75   97.3%       163/165   98.8%
+core/bytes                       110/111   99.1%       73/74   98.6%       162/163   99.4%
 core/character                     20/22   90.9%       10/12   83.3%         36/38   94.7%
 core/cli                         126/126  100.0%       60/60  100.0%       131/131  100.0%
 core/codegen                       25/26   96.2%       14/15   93.3%         29/30   96.7%
@@ -22,7 +22,7 @@ core/hash                            7/7  100.0%         5/5  100.0%         10/
 core/heap                          56/56  100.0%       32/32  100.0%         64/64  100.0%
 core/indexset                    235/245   95.9%     198/206   96.1%       420/432   97.2%
 core/io                              4/5   80.0%         2/3   66.7%           5/6   83.3%
-core/json                        224/227   98.7%     117/120   97.5%       302/305   99.0%
+core/json                        222/223   99.6%     117/118   99.2%       300/301   99.7%
 core/list                        277/278   99.6%     155/156   99.4%       329/330   99.7%
 core/map                         532/567   93.8%     324/358   90.5%       728/772   94.3%
 core/math                          43/43  100.0%       37/37  100.0%         82/82  100.0%
@@ -51,7 +51,7 @@ core/result                      608/610   99.7%     303/305   99.3%       608/6
 core/secret                          0/0       -         0/0       -           0/0       -
 core/set                           13/13  100.0%       13/13  100.0%         26/26  100.0%
 core/simd                         93/101   92.1%       81/89   91.0%       178/186   95.7%
-core/str                         250/259   96.5%     147/156   94.2%       393/402   97.8%
+core/str                         246/251   98.0%     147/152   96.7%       389/394   98.7%
 core/tasks                         15/66   22.7%        2/33    6.1%         15/66   22.7%
 core/testing/check                   3/5   60.0%         3/5   60.0%          8/10   80.0%
 core/time                          12/19   63.2%       11/18   61.1%         25/38   65.8%
@@ -66,7 +66,7 @@ ui/style                             6/6  100.0%         1/1  100.0%           6
 ui/style/classify                223/226   98.7%       46/49   93.9%       227/230   98.7%
 ui/theme                           18/24   75.0%        7/10   70.0%         20/26   76.9%
 ui/web                               2/3   66.7%         1/2   50.0%           3/4   75.0%
-total                          9344/9703   96.3%   5224/5532   94.4%   12760/13161   97.0%
+total                          9338/9690   96.4%   5224/5525   94.6%   12753/13147   97.0%
 
 The 30 modules with the most unshown conditions:
 
@@ -80,7 +80,6 @@ The 30 modules with the most unshown conditions:
       15     905/920   98.4%  core/buri/ast
       15       51/66   77.3%  core/number
       10     235/245   95.9%  core/indexset
-       9     250/259   96.5%  core/str
        8      93/101   92.1%  core/simd
        7       12/19   63.2%  core/time
        6     107/113   94.7%  core/compression
@@ -88,16 +87,17 @@ The 30 modules with the most unshown conditions:
        5       60/65   92.3%  core/decimal
        5       18/23   78.3%  core/net/websocket
        5       14/19   73.7%  core/random
-       3     224/227   98.7%  core/json
+       5     246/251   98.0%  core/str
        3     344/347   99.1%  std/codegen/proto
        3     223/226   98.7%  ui/style/classify
        2       82/84   97.6%  core/bigint
-       2     110/112   98.2%  core/bytes
        2       20/22   90.9%  core/character
        2     318/320   99.4%  core/proto
        2     608/610   99.7%  core/result
        2         3/5   60.0%  core/testing/check
+       1     110/111   99.1%  core/bytes
        1       25/26   96.2%  core/codegen
        1         4/5   80.0%  core/io
+       1     222/223   99.6%  core/json
        1     277/278   99.6%  core/list
        1         1/2   50.0%  core/net/tcp
