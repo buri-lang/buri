@@ -5708,6 +5708,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// entry that answers `0` leaves the out-pointer untouched
     /// (`cli/runtime/lib.rs` §2 rule 3), so the register constant is the only
     /// defined answer.
+    #[allow(clippy::too_many_arguments)]
     fn sum_arm(
         &mut self,
         b: At<'ctx>,
@@ -5958,6 +5959,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// A tag at `buf + at`, and the padding between it and the payload as
     /// zeros, in one store where the payload's offset allows (`store_slots`
     /// says why the padding is written).
+    #[allow(clippy::too_many_arguments)]
     fn store_discriminant(
         &mut self,
         b: At<'ctx>,
@@ -5984,6 +5986,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// known until the call comes back. The zeroing is why the payload area is
     /// walked here rather than left alone; `Unit::call_result`'s comment is the
     /// argument for it.
+    #[allow(clippy::too_many_arguments)]
     fn store_variant_index(
         &mut self,
         b: At<'ctx>,
