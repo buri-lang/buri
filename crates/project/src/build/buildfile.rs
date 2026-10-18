@@ -7,7 +7,7 @@
 //! artifact — a typo in a field name is an error, not a silent no-op.
 
 use crate::build::textproto::{self, Document, Message, Value};
-use crate::diagnostics::{Diagnostic, FileId, Invariant, Span};
+use crate::diagnostics::{Diagnostic, FileId, Span};
 
 /// The top level of a `BUILD.buri`, and the top level of a `REPO.buri`.
 ///
@@ -69,10 +69,15 @@ impl Platform {
     /// The spelling used in `--output=`, in artifact paths, in messages, and
     /// in a build file.
     pub fn slug(self) -> &'static str {
+        self.bundled().name()
+    }
+
+    /// The bundled platform a build file names to get this one.
+    pub fn bundled(self) -> PlatformName {
         match self {
-            Platform::Linux | Platform::Macos => "native",
-            Platform::Js => "node",
-            Platform::Web => "web",
+            Platform::Linux | Platform::Macos => PlatformName::Native,
+            Platform::Js => PlatformName::Node,
+            Platform::Web => PlatformName::Web,
         }
     }
 
@@ -216,25 +221,23 @@ impl PlatformName {
     }
 
     /// The platform's rule.
-    pub fn rule(self) -> Option<&'static PlatformRule> {
-        crate::build::platforms::bundled(self.name())
+    pub fn rule(self) -> &'static PlatformRule {
+        crate::build::platforms::bundled(self)
     }
 
     /// The variants an output picks between. Empty when there are none.
     pub fn variants(self) -> Vec<&'static str> {
-        self.rule().map(PlatformRule::variants).unwrap_or_default()
+        self.rule().variants()
     }
 
     /// Whether an output must name a variant.
     pub fn variant_required(self) -> bool {
-        self.rule().is_some_and(PlatformRule::variant_required)
+        self.rule().variant_required()
     }
 
     /// The names of the platform's entries.
     pub fn entries(self) -> Vec<&'static str> {
-        self.rule()
-            .map(|r| r.entries.iter().map(|e| e.name.value.as_str()).collect())
-            .unwrap_or_default()
+        self.rule().entry_names()
     }
 }
 
@@ -1105,10 +1108,7 @@ impl Reader {
     /// A diagnostic whose wording lives on its page. What follows is
     /// `.bind(…)` for each `{placeholder}` the page names.
     fn templated(&mut self, code: &str, span: Span) -> &mut Diagnostic {
-        self.errors.push(Diagnostic::templated(code, span));
-        self.errors
-            .last_mut()
-            .or_ice("the diagnostic just pushed is the last one")
+        buri_syntax::parsing::pushed(&mut self.errors, Diagnostic::templated(code, span))
     }
 
     /// The common shape: a field holds one kind of value and was given
@@ -1517,12 +1517,11 @@ impl Reader {
                     }
                     continue;
                 }
-                let language = languages
-                    .all
-                    .iter_mut()
-                    .find(|l| l.name == name.value)
-                    .or_ice("the language is a built-in one or was declared above");
-                language.extensions.push(extension);
+                // The one language of that name: a built-in one, or the one
+                // declared above.
+                for language in languages.all.iter_mut().filter(|l| l.name == name.value) {
+                    language.extensions.push(extension.clone());
+                }
             }
         }
         languages
@@ -1725,8 +1724,9 @@ impl Reader {
             self.errors.push(d);
             return None;
         }
-        if let (Some(name), Some(rule)) = (&artifact_name, platform.value.rule()) {
-            if let Some(d) = check_artifact_name(platform.value.name(), rule, name) {
+        if let Some(name) = &artifact_name {
+            if let Some(d) = check_artifact_name(platform.value.name(), platform.value.rule(), name)
+            {
                 self.errors.push(d);
                 return None;
             }

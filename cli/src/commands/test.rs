@@ -40,7 +40,7 @@ use crate::compiler::middle::monomorphize;
 use crate::compiler::modules::Unit;
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::FuncIdx;
-use crate::diagnostics::{invariant, Diagnostic, Diagnostics, Invariant as _, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, Span};
 use crate::json::Value;
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -396,8 +396,10 @@ fn one_pass(
         crate::build::generators::prepare_for(&mut session, &args.flags, &targets);
     }
 
+    let mut coverage = None;
     if args.flags.coverage {
-        if let Err(msg) = crate::build::coverage::begin(&session.root, args.flags.mcdc) {
+        let begun = crate::build::coverage::begin(&session.root, args.flags.mcdc);
+        if let Err(msg) = &begun {
             eprintln!("error: {msg}");
             return watch::Pass {
                 code: 2,
@@ -406,6 +408,7 @@ fn one_pass(
                 quiet: false,
             };
         }
+        coverage = begun.ok();
     }
     let started = Instant::now();
     warm_linker(args);
@@ -417,19 +420,19 @@ fn one_pass(
     // Every suite's cache lookup first: on an unedited repository that is the
     // whole pass. The keys read and hash every suite's sources, so they are
     // taken side by side before the lookups.
-    let with_tests: Vec<TargetId> = targets
+    let with_tests: Vec<(TargetId, Suite)> = targets
         .iter()
-        .copied()
-        .filter(|&t| has_tests(&session, t))
+        .filter_map(|&t| tested(&session, t).map(|suite| (t, suite)))
         .collect();
     let keys = verdict_keys(&session, &with_tests, &args.flags);
     let mut slots: Vec<Slot> = Vec::new();
     let mut plans: Vec<Plan> = Vec::new();
     let mut graph = None;
-    for (&target, keys) in with_tests.iter().zip(&keys) {
+    for ((target, suite), keys) in with_tests.iter().zip(&keys) {
         plans.push(plan(
             &mut session,
-            target,
+            *target,
+            suite,
             args,
             keys,
             &mut graph,
@@ -442,6 +445,7 @@ fn one_pass(
         flags: args.flags.clone(),
         painting: std::sync::Mutex::new(Vec::new()),
         workspace: std::sync::Arc::clone(&session.workspace),
+        coverage,
     };
     let width = if slots.iter().all(|s| s.answer.is_some()) {
         1
@@ -561,8 +565,8 @@ fn one_pass(
     out.line(&format!(
         "{passed} passed, {failed} failed, {skipped} skipped{uncompiled_note}{unrun_note} ({elapsed:.1}s{note})"
     ));
-    if args.flags.coverage {
-        crate::build::coverage::report(&session.root, &mut |line| out.line(line));
+    if let Some(run) = shared.coverage {
+        run.report(&session.root, &mut |line| out.line(line));
     }
     // Silent only when there was nothing to do: every case came out of the
     // cache, none failed, and nothing was asked for by name. `--explain` is
@@ -593,21 +597,17 @@ fn may_cache(cases: &[Case], flags: &arguments::Flags) -> bool {
         && flags.filter.is_none()
 }
 
-fn has_tests(session: &Session, target: TargetId) -> bool {
+/// A target's `test` block, shared by every run of its suite.
+type Suite = std::sync::Arc<crate::build::buildfile::TestSuite>;
+
+/// `target`'s suite, when its `test` block names a source.
+fn tested(session: &Session, target: TargetId) -> Option<Suite> {
     session
         .workspace
         .package(target.package)
         .test_suite(target.kind)
-        .is_some_and(|t| !t.sources.is_empty())
-}
-
-/// A planned target's suite: only targets with one are planned.
-fn suite(session: &Session, target: TargetId) -> crate::build::buildfile::TestSuite {
-    let suite = session
-        .workspace
-        .package(target.package)
-        .test_suite(target.kind);
-    suite.cloned().or_ice("a planned target has a test suite")
+        .filter(|t| !t.sources.is_empty())
+        .map(|t| std::sync::Arc::new(t.clone()))
 }
 
 // ---------------------------------------------------------------------------
@@ -679,6 +679,7 @@ fn slot_mut(slots: &mut [Slot], i: usize) -> &mut Slot {
 /// One run of one suite on one platform: what the report is written in.
 struct Slot {
     target: TargetId,
+    suite: Suite,
     platform: Platform,
     chosen: Chosen,
     key: crate::build::cache::ActionKey,
@@ -711,9 +712,10 @@ struct Plan {
 fn runs_of(
     session: &Session,
     target: TargetId,
+    suite: &Suite,
     flags: &arguments::Flags,
 ) -> Vec<(Platform, Chosen)> {
-    let declared: Vec<Platform> = session.workspace.suite_platforms(target);
+    let declared: Vec<Platform> = session.workspace.suite_platforms(target, suite);
     if !declared.is_empty() {
         declared.into_iter().map(|p| (p, Chosen::Asked)).collect()
     } else if let Some(p) = selected_platform(flags) {
@@ -735,26 +737,26 @@ fn runs_of(
 /// [`plan`] refuses has a key nobody reads.
 fn verdict_keys(
     session: &Session,
-    suites: &[TargetId],
+    suites: &[(TargetId, Suite)],
     flags: &arguments::Flags,
 ) -> Vec<Vec<(Platform, crate::build::cache::ActionKey)>> {
     let platforms: Vec<Vec<Platform>> = suites
         .iter()
-        .map(|&t| {
-            runs_of(session, t, flags)
+        .map(|(t, suite)| {
+            runs_of(session, *t, suite, flags)
                 .into_iter()
                 .map(|(p, _)| p)
                 .collect()
         })
         .collect();
-    let runs: Vec<(TargetId, Platform)> = suites
+    let runs: Vec<(TargetId, &Suite, Platform)> = suites
         .iter()
         .zip(&platforms)
-        .flat_map(|(&t, ps)| ps.iter().map(move |&p| (t, p)))
+        .flat_map(|((t, suite), ps)| ps.iter().map(move |&p| (*t, suite, p)))
         .collect();
-    let keys = crate::parallel::map_items(&runs, |_, &(target, platform)| {
+    let keys = crate::parallel::map_items(&runs, |_, &(target, suite, platform)| {
         let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-        actions::test_key(session, target, &output, flags)
+        actions::test_key(session, target, suite, &output, flags)
     });
     // Each suite takes as many keys as it has runs, in order.
     let mut keys = keys.into_iter();
@@ -782,13 +784,14 @@ fn verdict_keys(
 fn plan(
     session: &mut Session,
     target: TargetId,
+    suite: &Suite,
     args: &arguments::Args,
     keys: &[(Platform, crate::build::cache::ActionKey)],
     graph: &mut Option<crate::build::cache::ActionKey>,
     slots: &mut Vec<Slot>,
 ) -> Plan {
     let mut refused = Diagnostics::new();
-    let declared: Vec<Platform> = session.workspace.suite_platforms(target);
+    let declared: Vec<Platform> = session.workspace.suite_platforms(target, suite);
     let checked: Vec<Platform> = if declared.is_empty() {
         vec![crate::compiler::driver::host_native_platform()]
     } else {
@@ -808,18 +811,18 @@ fn plan(
             slots: Vec::new(),
         };
     }
-    let runs = runs_of(session, target, &args.flags);
+    let runs = runs_of(session, target, suite, &args.flags);
     let mut mine = Vec::new();
     for (platform, chosen) in runs {
         if platform.is_native() && !native_ready(platform, &args.flags) {
-            let span = suite(session, target).span;
+            let span = suite.span;
             refused.push(not_ready(platform, &args.flags, chosen, span));
             continue;
         }
         let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
         let key = match keys.iter().find(|(p, _)| *p == platform) {
             Some((_, key)) => key.clone(),
-            None => actions::test_key(session, target, &output, &args.flags),
+            None => actions::test_key(session, target, suite, &output, &args.flags),
         };
         let (cached, mut explain) =
             crate::build::cache::holding_explain(|| served(session, target, platform, &key, args));
@@ -828,7 +831,7 @@ fn plan(
             // A suite the filter leaves no test in is answered unbuilt.
             let filter = args.flags.filter.as_deref();
             answer = filter
-                .and_then(|f| left_out(session, target, f))
+                .and_then(|f| left_out(session, target, suite, f))
                 .map(|skipped| {
                     Ok(Outcome {
                         cases: Vec::new(),
@@ -862,7 +865,7 @@ fn plan(
             let graph = graph
                 .get_or_insert_with(|| actions::graph_key(session, &args.flags))
                 .clone();
-            let at = actions::test_build_key(session, target, &output, &args.flags, &graph);
+            let at = actions::test_build_key(session, target, suite, &output, &args.flags, &graph);
             // `--force` builds again, as it links again. So does `--coverage`:
             // a recorded build may put its probes on lines an edit has moved.
             let recalled = if args.flags.force || args.flags.coverage {
@@ -893,6 +896,7 @@ fn plan(
         mine.push(slots.len());
         slots.push(Slot {
             target,
+            suite: Suite::clone(suite),
             platform,
             chosen,
             key,
@@ -1007,7 +1011,7 @@ fn drive(
                 .workspace
                 .targets()
                 .into_iter()
-                .filter(|&t| has_tests(session, t))
+                .filter(|&t| tested(session, t).is_some())
                 .count();
     // Held for the pass, so no link this pass writes over a restored binary
     // the next pass will start again.
@@ -1050,7 +1054,7 @@ fn drive(
                 let s = slot_mut(slots, slot);
                 // A suite that was built was planned with a build key.
                 if let (Some(built), Some(at)) = (built, &s.build) {
-                    remember(session, at, &s.key, &built, &answer);
+                    remember(session, at, &s.key, &built);
                 }
                 s.explain.push_str(&explain);
                 s.notes.push_str(&notes);
@@ -1299,6 +1303,8 @@ struct Shared {
     painting: std::sync::Mutex<Vec<(String, usize)>>,
     /// The graph a front end is checked against.
     workspace: std::sync::Arc<crate::build::workspace::Workspace>,
+    /// The coverage run, under `--coverage`.
+    coverage: Option<crate::build::coverage::Run>,
 }
 
 impl Shared {
@@ -1482,6 +1488,7 @@ fn solo(
     slot.queued = true;
     let (target, platform, chosen, key) =
         (slot.target, slot.platform, slot.chosen, slot.key.clone());
+    let suite = Suite::clone(&slot.suite);
     let unit = Unit {
         target: Some(target),
         platform: None,
@@ -1505,7 +1512,7 @@ fn solo(
     add_shared(shared_build, since(began));
     let bytes = build_bytes(loading.source_bytes(&session.map));
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
-    let limit = suite(session, target).timeout_seconds;
+    let limit = suite.timeout_seconds;
     let js = bundle_path(session, target);
     let job = FrontJob {
         slot: i,
@@ -1518,7 +1525,7 @@ fn solo(
         keep: pre.promise(target),
         label: session.workspace.label(target),
         limit,
-        on_timeout: timed_out(session, target, limit),
+        on_timeout: timed_out(session, target, &suite),
         private: private_test_binary(session, target, &output),
         output,
         js,
@@ -1599,7 +1606,8 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
     };
     let mut analysis = crate::compiler::driver::check(loading, Some(&shared.workspace), &map);
     if analysis.diagnostics.has_errors() {
-        return answer(Err(analysis.diagnostics), Some(Built::Refused));
+        let refused = analysis.diagnostics;
+        return answer(Err(refused.clone()), Some(Built::Refused(refused)));
     }
     let module_paths: Vec<String> = analysis
         .loaded
@@ -1615,10 +1623,10 @@ fn front(job: FrontJob, held: Held, queue: &Queue, tell: &Tell, shared: &Shared)
         monomorphize::Roots::Tests,
     );
     if diagnostics.has_errors() {
-        return answer(Err(diagnostics), Some(Built::Refused));
+        return answer(Err(diagnostics.clone()), Some(Built::Refused(diagnostics)));
     }
-    if shared.flags.coverage {
-        crate::build::coverage::instrument(&analysis, &map, &mut program);
+    if let Some(run) = &shared.coverage {
+        run.instrument(&analysis, &map, &mut program);
     }
     drop(map);
     if program.roots.tests().is_empty() {
@@ -2777,10 +2785,6 @@ fn gap_refusal(label: &str, gap: Gap) -> Diagnostics {
 }
 
 fn is_backend_gap(diagnostics: &Diagnostics) -> bool {
-    invariant(
-        !diagnostics.items.is_empty(),
-        "a failed link says why it failed",
-    );
     diagnostics
         .items
         .iter()
@@ -2863,14 +2867,14 @@ thread_local! {
 }
 
 /// Stores a verdict with its reads, which the suite's load or its recalled
-/// build noted.
+/// build noted. Every suite that runs was loaded ([`note_reads`]) or recalled
+/// ([`recall`]); one whose reads nobody noted would be stored without what
+/// decides when it goes stale, so it isn't stored.
 fn store_verdict(root: &std::path::Path, key: &crate::build::cache::ActionKey, record: &[u8]) {
-    let reads = noted_reads(key).or_ice(NOTED);
-    crate::build::cache::Cache::open(root).put(key, &actions::with_reads(&reads, record));
+    noted_reads(key).iter().for_each(|reads| {
+        crate::build::cache::Cache::open(root).put(key, &actions::with_reads(reads, record));
+    });
 }
-
-/// Every suite that runs was loaded ([`note_reads`]) or recalled ([`recall`]).
-const NOTED: &str = "a suite that ran had its reads noted";
 
 /// The verdicts the cache holds for this key, where it may serve them.
 ///
@@ -2948,8 +2952,8 @@ fn served(
 
 /// What a suite's build left for the next run, as a job hands it to [`drive`].
 enum Built {
-    /// The front end refused it, with the answer's diagnostics.
-    Refused,
+    /// The front end refused it, with these diagnostics.
+    Refused(Diagnostics),
     /// It had no test to run.
     Nothing { skipped: Skipped },
     /// A binary in the link cache, and where the suite's tests are in it.
@@ -3012,18 +3016,13 @@ fn remember(
     at: &crate::build::cache::ActionKey,
     key: &crate::build::cache::ActionKey,
     built: &Built,
-    answer: &Result<Ran, Diagnostics>,
 ) {
     use crate::commands::lint_cache::{put_diagnostic_with, put_text, put_u32};
     let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
     let mut anchors = Anchors::default();
     let mut out = BUILD_FORMAT.to_vec();
     match built {
-        Built::Refused => {
-            let diagnostics = answer
-                .as_ref()
-                .err()
-                .or_ice("a refused build has its diagnostics");
+        Built::Refused(diagnostics) => {
             out.push(0);
             put_u32(&mut out, count(diagnostics.items.len()));
             for d in &diagnostics.items {
@@ -3057,8 +3056,10 @@ fn remember(
             put_roots(&mut out, &session.map, &mut anchors, &b.roots);
         }
     }
-    let reads = noted_reads(key).or_ice(NOTED);
-    crate::build::cache::Cache::open(&session.root).put(at, &actions::with_reads(&reads, &out));
+    // As [`store_verdict`]: a build is stored only with its reads.
+    noted_reads(key).iter().for_each(|reads| {
+        crate::build::cache::Cache::open(&session.root).put(at, &actions::with_reads(reads, &out));
+    });
 }
 
 /// What a `--filter` left out of a suite, in a build record.
@@ -3382,7 +3383,8 @@ fn rerun(
         };
         slot.queued = true;
         let target = slot.target;
-        let limit = suite(session, target).timeout_seconds;
+        let suite = Suite::clone(&slot.suite);
+        let limit = suite.timeout_seconds;
         let linked = match again {
             Again::Linked(linked) => linked,
             Again::Bundled(bundled) => {
@@ -3390,7 +3392,7 @@ fn rerun(
                     key: slot.key.clone(),
                     path: bundle_path(session, target),
                     limit,
-                    on_timeout: timed_out(session, target, limit),
+                    on_timeout: timed_out(session, target, &suite),
                     build: None,
                 };
                 queue.push_later(
@@ -3428,7 +3430,7 @@ fn rerun(
             snapshot_dir: snapshot_dir(session, target),
             paints,
             limit,
-            on_timeout: timed_out(session, target, limit),
+            on_timeout: timed_out(session, target, &suite),
             remember: None,
             alone: None,
             build: None,
@@ -4202,7 +4204,7 @@ fn batch(
                 && !s.queued
                 // The default is the host's own platform ([`runs_of`]).
                 && s.chosen == Chosen::Default
-                && may_batch(session, s.target)
+                && may_batch(&s.suite)
         })
         .map(|(i, s)| (s.target, i))
         .collect();
@@ -4277,8 +4279,8 @@ fn broken_members(
 ///
 /// A suite that declares its backends is never offered: it runs where it
 /// asked ([`Chosen::Asked`]), so only its timeout is asked here.
-fn may_batch(session: &Session, target: TargetId) -> bool {
-    suite(session, target).timeout_seconds.is_none()
+fn may_batch(suite: &Suite) -> bool {
+    suite.timeout_seconds.is_none()
 }
 /// Every tag that would be carried by a suite's own test binary: its production
 /// closure's, and its test dependencies' closures' too.
@@ -4359,8 +4361,7 @@ fn batches_of(session: &Session, candidates: &[TargetId]) -> Vec<Vec<TargetId>> 
 /// because this is the only thing that maps a block back to the suite that owns
 /// it: a root records the module its `test` block was declared in, and a module
 /// is named by its package-relative path from the repository root.
-fn test_modules_of(session: &Session, target: TargetId) -> Vec<String> {
-    let suite = suite(session, target);
+fn test_modules_of(session: &Session, target: TargetId, suite: &Suite) -> Vec<String> {
     let pkg = session.workspace.package(target.package);
     suite
         .sources
@@ -4372,10 +4373,15 @@ fn test_modules_of(session: &Session, target: TargetId) -> Vec<String> {
 /// Every test in `target`'s suite, in block order, when `filter` matches none
 /// of them: read off the parsed sources, so the suite needn't be compiled.
 /// `None` when one matches, or a source doesn't parse, and the suite is built.
-fn left_out(session: &mut Session, target: TargetId, filter: &str) -> Option<Skipped> {
+fn left_out(
+    session: &mut Session,
+    target: TargetId,
+    suite: &Suite,
+    filter: &str,
+) -> Option<Skipped> {
     use crate::build::workspace::{ModuleKind, ModuleLocation};
     let mut skipped = Vec::new();
-    for module in test_modules_of(session, target) {
+    for module in test_modules_of(session, target, suite) {
         let Ok(ModuleLocation::InPackage(found)) = session.workspace.resolve_module(&module) else {
             return None;
         };
@@ -4430,14 +4436,15 @@ fn queue_batch(
         &units,
     );
     let imports = actions::Imports::of(loading.loaded());
-    for (&target, &i) in members.iter().zip(member_slots) {
-        note_reads(
-            session,
-            target,
-            &slots.get(i).or_ice(SLOT).key,
-            &loading,
-            &imports,
-        );
+    // Which suite owns each module that declares tests. Built from the build
+    // files rather than from the program, so a module the batch loaded for
+    // some other reason cannot be mistaken for a suite's.
+    let mut owners = Vec::new();
+    for (n, (&target, &i)) in members.iter().zip(member_slots).enumerate() {
+        let slot = slots.get(i).or_ice(SLOT);
+        note_reads(session, target, &slot.key, &loading, &imports);
+        let modules = test_modules_of(session, target, &slot.suite);
+        owners.extend(modules.into_iter().map(|m| (m, n)));
     }
     add_shared(shared_build, since(began));
     let platform = crate::compiler::driver::host_native_platform();
@@ -4446,14 +4453,7 @@ fn queue_batch(
     let info = BatchInfo {
         members: members.to_vec(),
         member_slots: member_slots.to_vec(),
-        // Which suite owns each module that declares tests. Built from the
-        // build files rather than from the program, so a module the batch
-        // loaded for some other reason cannot be mistaken for a suite's.
-        owners: members
-            .iter()
-            .enumerate()
-            .flat_map(|(i, &t)| test_modules_of(session, t).into_iter().map(move |m| (m, i)))
-            .collect(),
+        owners: owners.into_iter().collect(),
         keys: member_slots.iter().filter_map(|&i| key_of(i)).collect(),
         labels: members
             .iter()
@@ -5743,25 +5743,25 @@ fn diff_of(value: &Value) -> Option<Diff> {
 /// `duplicate-test` refuses them before anything is compiled.
 fn locate(session: &Session, roots: &[Root], cases: &mut [Case]) {
     for c in cases.iter_mut() {
-        // A runner's record is of a test it was handed ([`cases_of`]).
-        let t = roots
+        // A runner's record is of a test it was handed ([`cases_of`]), and a
+        // test block has a place.
+        let test = roots
             .iter()
-            .find(|t| (&t.name, &t.module) == (&c.name, &c.module))
-            .or_ice("a case is one of its suite's tests");
-        invariant(!t.span.is_none(), "a test block has a place");
-        let f = session.map.get(t.span.file);
-        let (line, col) = f.line_col(t.span.start);
-        c.location = Some(format!("{}:{line}:{col}", f.name));
+            .find(|t| (&t.name, &t.module) == (&c.name, &c.module));
+        c.location = test.filter(|t| !t.span.is_none()).map(|t| {
+            let f = session.map.get(t.span.file);
+            let (line, col) = f.line_col(t.span.start);
+            format!("{}:{line}:{col}", f.name)
+        });
     }
 }
 
 /// The diagnostic a suite that ran past its own `timeout_seconds` gets.
-fn timed_out(session: &Session, target: TargetId, limit: Option<u32>) -> Diagnostics {
+fn timed_out(session: &Session, target: TargetId, suite: &Suite) -> Diagnostics {
     let mut diagnostics = Diagnostics::new();
-    let span = suite(session, target).span;
-    let seconds = limit.unwrap_or(0);
+    let seconds = suite.timeout_seconds.unwrap_or(0);
     diagnostics.push(
-        Diagnostic::templated("test-timeout", span)
+        Diagnostic::templated("test-timeout", suite.span)
             .with_bind("target", session.workspace.label(target))
             .with_bind("seconds", seconds.to_string()),
     );
@@ -6084,8 +6084,9 @@ fn report_failure(
         out.line(&indented(note));
     }
     // Only a passing verdict is served from the cache, unlocated.
-    let loc = c.location.as_ref().or_ice("a failed case was located");
-    out.line(&format!("  --> {loc}"));
+    c.location
+        .iter()
+        .for_each(|loc| out.line(&format!("  --> {loc}")));
 }
 
 #[cfg(test)]

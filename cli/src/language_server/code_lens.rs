@@ -14,7 +14,7 @@
 use super::convert::{self, Position};
 use super::state::Analyzed;
 use super::symbols;
-use crate::diagnostics::{FileId, Invariant, Span};
+use crate::diagnostics::{FileId, Span};
 use crate::json::Value;
 use crate::parsing::parser;
 use crate::parsing::tree::Item;
@@ -126,13 +126,16 @@ fn unresolved(text: &str, uri: &str, span: Span) -> Value {
 /// protocol's result for this request is a code lens, and an unresolved one is
 /// still one; `null` is not a legal answer to it.
 pub fn resolve(analyzed: &Analyzed, path: &Path, text: &str, lens: &Value) -> Value {
-    let mut resolved = lens.clone();
-    let Some(position) = lens.at("data.position").and_then(Position::from_json) else {
-        return resolved;
+    // A lens with a `data.position` is an object.
+    let (Some(position), Value::Object(mut fields)) = (
+        lens.at("data.position").and_then(Position::from_json),
+        lens.clone(),
+    ) else {
+        return lens.clone();
     };
     let offset = convert::offset_of(text, position);
     let Some(found) = symbols::at(analyzed, path, text, offset) else {
-        return resolved;
+        return lens.clone();
     };
     let spans = symbols::references(analyzed, &found.symbol);
     let locations = super::features::locations(analyzed, spans);
@@ -140,11 +143,6 @@ pub fn resolve(analyzed: &Analyzed, path: &Path, text: &str, lens: &Value) -> Va
         Value::Array(items) => items.len(),
         _ => 0,
     };
-    let fields = match &mut resolved {
-        Value::Object(fields) => Some(fields),
-        _ => None,
-    }
-    .or_ice("a lens with a `data.position` is an object");
     fields.insert(
         "command".to_string(),
         Value::object(vec![
@@ -166,5 +164,5 @@ pub fn resolve(analyzed: &Analyzed, path: &Path, text: &str, lens: &Value) -> Va
             ),
         ]),
     );
-    resolved
+    Value::Object(fields)
 }

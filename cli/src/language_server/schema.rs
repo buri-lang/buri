@@ -16,12 +16,8 @@
 //! the comment above a declaration, the declaration's own line, and the nesting
 //! it is in, and it recognizes exactly the constructs those two files use.
 
-use crate::diagnostics::Invariant;
 use crate::documentation::topics::{BUILD_PROTO, REPO_PROTO};
 use std::collections::HashMap;
-
-/// Why an index into the blocks names one.
-const INDEXED: &str = "every index is one `read` took from the blocks it pushed";
 
 /// One field of one message.
 pub struct Field {
@@ -129,37 +125,35 @@ impl Schema {
 /// is why nothing here holds a hand-written table of the pairing.
 fn message_blocks(blocks: &[Block]) -> HashMap<String, Vec<usize>> {
     let mut out: HashMap<String, Vec<usize>> = HashMap::new();
-    let mut queue: Vec<(String, usize)> = Vec::new();
-    for root in ["BuildFile", "RepoConfig"] {
-        let i = blocks
-            .iter()
-            .position(|b| b.name == root)
-            .or_ice("the schemas declare both root messages");
-        queue.push((String::new(), i));
-    }
-    while let Some((name, index)) = queue.pop() {
+    // The schemas declare both root messages.
+    let mut queue: Vec<(String, usize, &Block)> = ["BuildFile", "RepoConfig"]
+        .iter()
+        .filter_map(|root| blocks.iter().enumerate().find(|(_, b)| b.name == *root))
+        .map(|(i, b)| (String::new(), i, b))
+        .collect();
+    while let Some((name, index, block)) = queue.pop() {
         let found = out.entry(name).or_default();
         if found.contains(&index) {
             continue;
         }
         found.push(index);
-        let block = blocks.get(index).or_ice(INDEXED);
         for field in &block.fields {
             // A type nested in this message first, as protobuf scopes it:
             // `Output.Entry` and `Platform.Entry` are both written `Entry`.
             let nested = format!("{}.{}", block.name, field.type_name);
-            let Some(i) = blocks
+            let Some((i, nested)) = blocks
                 .iter()
-                .position(|b| b.constants.is_empty() && b.name == nested)
+                .enumerate()
+                .find(|(_, b)| b.constants.is_empty() && b.name == nested)
                 .or_else(|| {
-                    blocks.iter().position(|b| {
+                    blocks.iter().enumerate().find(|(_, b)| {
                         b.constants.is_empty() && ends_with_name(&b.name, &field.type_name)
                     })
                 })
             else {
                 continue;
             };
-            queue.push((field.name.clone(), i));
+            queue.push((field.name.clone(), i, nested));
         }
     }
     out
@@ -218,13 +212,14 @@ fn read(text: &str, out: &mut Vec<Block>) {
             }
             continue;
         }
-        let Some(index) = open.last().copied() else {
+        // Every index in `open` is one this loop took from the blocks it
+        // pushed.
+        let Some(block) = open.last().and_then(|i| out.get_mut(*i)) else {
             docs.clear();
             continue;
         };
         let declaration = line.split(';').next().unwrap_or(line).trim().to_string();
         let taken = std::mem::take(&mut docs);
-        let block = out.get_mut(index).or_ice(INDEXED);
         // A constant when the block is an enum, a field when it is a message.
         // The two are told apart by the declaration itself: `NAME = 1` has no
         // type in front of the name.

@@ -17,11 +17,8 @@ pub mod tree;
     clippy::indexing_slicing,
     reason = "the index is the slot the push just filled"
 )]
-fn pushed(
-    errors: &mut Vec<crate::diagnostics::Diagnostic>,
-    d: crate::diagnostics::Diagnostic,
-) -> &mut crate::diagnostics::Diagnostic {
-    let at = errors.len();
-    errors.push(d);
-    &mut errors[at]
+pub fn pushed<T>(items: &mut Vec<T>, item: T) -> &mut T {
+    let at = items.len();
+    items.push(item);
+    &mut items[at]
 }

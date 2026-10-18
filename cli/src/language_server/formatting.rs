@@ -13,11 +13,7 @@
 //! so a finer diff would spend more and land in the same places.
 
 use super::convert::{self, Position};
-use crate::diagnostics::Invariant;
 use crate::json::Value;
-
-/// Why the lines between the matching top and bottom are always there.
-const MIDDLE: &str = "the lines in common at either end are no more than either side has";
 
 /// The whole file as one edit, or an empty array when there is nothing to do.
 ///
@@ -85,15 +81,10 @@ pub fn formatted(
     let name = path.file_name()?.to_string_lossy().to_string();
     if let Some(session) = state.session_for(path) {
         let rel = session.workspace.rel_of(path);
-        if session
-            .workspace
-            .repo
-            .languages
-            .of(&rel)
-            .is_some_and(|l| l.tools().is_some())
-        {
+        let languages = &session.workspace.repo.languages;
+        if let Some(language) = languages.of(&rel).filter(|l| l.tools().is_some()) {
             let flags = crate::commands::arguments::Flags::default();
-            return match crate::build::tools::format_file(&session, &rel, text, &flags) {
+            return match crate::build::tools::format_file(&session, language, &rel, text, &flags) {
                 crate::build::tools::Formatted::Text(out) => Some(out),
                 _ => None,
             };
@@ -142,11 +133,12 @@ fn hunks(text: &str, formatted: &str) -> Vec<Hunk> {
 
     // The matching top and bottom are not differences and are not searched.
     let head = same_run(before.iter(), after.iter());
-    let a = before.get(head..).or_ice(MIDDLE);
-    let b = after.get(head..).or_ice(MIDDLE);
+    // The lines in common at either end are no more than either side has.
+    let a = before.get(head..).unwrap_or_default();
+    let b = after.get(head..).unwrap_or_default();
     let tail = same_run(a.iter().rev(), b.iter().rev());
-    let a = a.get(..a.len().saturating_sub(tail)).or_ice(MIDDLE);
-    let b = b.get(..b.len().saturating_sub(tail)).or_ice(MIDDLE);
+    let a = a.get(..a.len().saturating_sub(tail)).unwrap_or_default();
+    let b = b.get(..b.len().saturating_sub(tail)).unwrap_or_default();
 
     let mut out = Vec::new();
     let (mut i, mut j) = (0usize, 0usize);

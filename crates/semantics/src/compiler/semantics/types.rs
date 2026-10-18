@@ -1064,13 +1064,14 @@ impl Tables {
         true
     }
 
-    /// Every method name `con` has, for the "did you mean" a failed lookup
-    /// offers. Unordered, and `nearest` is order-independent.
-    pub fn method_names(&self, con: TyConId) -> impl Iterator<Item = &str> {
+    /// Every method `con` has, by name: for the "did you mean" a failed
+    /// lookup offers, and for completion. Unordered, and `nearest` is
+    /// order-independent.
+    pub fn methods_of(&self, con: TyConId) -> impl Iterator<Item = (&str, FnId)> {
         self.methods
             .get(&con)
             .into_iter()
-            .flat_map(|m| m.keys().map(String::as_str))
+            .flat_map(|m| m.iter().map(|(name, f)| (name.as_str(), *f)))
     }
 
     /// The traits `con` implements, ascending.

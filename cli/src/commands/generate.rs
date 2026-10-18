@@ -28,7 +28,6 @@ use crate::build::regenerate::{self, Batch, Worked};
 use crate::build::session::{self, Session};
 use crate::build::workspace::{PackageId, RuleKind, TargetId, Workspace};
 use crate::commands::arguments;
-use crate::diagnostics::Invariant as _;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -190,7 +189,7 @@ impl Answers {
         crate::parallel::map_items(packages, |_, &package| {
             let package = workspace.package(package);
             let (mut files, mut schemas) = (Vec::new(), Vec::new());
-            regenerate::collect(&package.dir, &package.dir, &mut files, &mut schemas);
+            regenerate::collect(&package.dir, "", &mut files, &mut schemas);
             let mut k = KeyBuilder::new(Action::Regenerate, arguments::BuildMode::Debug);
             k.input("graph", &self.graph.to_le_bytes());
             k.rule_identity(&package.label(), "gen", &files);
@@ -239,6 +238,12 @@ impl Answers {
             .collect()
     }
 
+    /// The digest of each file's bytes now, or `absent`, read on every core.
+    fn digests(&self, files: Vec<PathBuf>) -> BTreeMap<PathBuf, String> {
+        let digests = crate::parallel::map_items(&files, |_, p| digest(p));
+        files.into_iter().zip(digests).collect()
+    }
+
     /// Keeps each package's answer and what it read, before `gen` writes a build file.
     fn remember(
         &self,
@@ -252,6 +257,7 @@ impl Answers {
             .collect();
         let packages: Vec<PackageId> = done.iter().map(|(p, _)| *p).collect();
         let keys = self.keys(workspace, &packages);
+        // Each file once, however many packages read it.
         let files: BTreeSet<PathBuf> = done
             .iter()
             .flat_map(|(_, w)| w.reads.iter().cloned())
@@ -263,13 +269,17 @@ impl Answers {
                 let path = workspace.package(rule.package).path.clone();
                 generated.insert((path, rule.kind.name(), generator_key(workspace, *rule)));
             }
-            let mut reads: BTreeMap<String, &str> = BTreeMap::new();
-            for path in &w.reads {
-                let digest = digests
-                    .get(path)
-                    .or_ice("every file a package read was digested");
-                reads.insert(workspace.rel_of(path), digest);
-            }
+            let reads: BTreeMap<String, String> = w
+                .reads
+                .iter()
+                .map(|path| {
+                    let known = digests.get(path).cloned();
+                    (
+                        workspace.rel_of(path),
+                        known.unwrap_or_else(|| digest(path)),
+                    )
+                })
+                .collect();
             let mut out = format!(
                 "{FORMAT}\n{}\n{}\n",
                 if w.update.is_some() { "stale" } else { "same" },
@@ -283,12 +293,6 @@ impl Answers {
             }
             self.cache.put(key, out.as_bytes());
         }
-    }
-
-    /// The digest of each file's bytes now, or `absent`, read on every core.
-    fn digests(&self, files: Vec<PathBuf>) -> BTreeMap<PathBuf, String> {
-        let digests = crate::parallel::map_items(&files, |_, p| digest(p));
-        files.into_iter().zip(digests).collect()
     }
 }
 

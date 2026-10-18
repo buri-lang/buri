@@ -24,7 +24,6 @@
 //! so the round trip is byte-for-byte and the drift test cannot be fooled by a
 //! renderer that happens to normalize.
 
-use crate::diagnostics::Invariant as _;
 use crate::documentation::topics::{self, Topic};
 
 pub struct Section {
@@ -32,19 +31,6 @@ pub struct Section {
     /// renumber is a deliberate, reviewable edit.
     pub number: &'static str,
     pub topic: &'static str,
-}
-
-impl Section {
-    /// The topic this section is. `every_section_names_a_topic` is what makes
-    /// the failure unreachable; without it a typo in the table below would fail
-    /// somewhere inside `buri docs assemble` instead of in the test suite.
-    pub fn topic(&self) -> &'static Topic {
-        topics::find(self.topic).or_ice(&format!(
-            "`{}` is named by the `DOCUMENTS` table, which `every_section_names_a_topic` \
-             holds against the topic list",
-            self.topic
-        ))
-    }
 }
 
 const fn sec(number: &'static str, topic: &'static str) -> Section {
@@ -57,6 +43,16 @@ pub struct Document {
     /// Whatever precedes the first section: title, version line, separator.
     pub front: &'static str,
     pub sections: &'static [Section],
+}
+
+impl Document {
+    /// The topics its sections are, in order. `every_section_names_a_topic`
+    /// is what makes each one there; without it a typo in the table below
+    /// would drop a section from `buri docs assemble` instead of failing the
+    /// test suite.
+    fn topics(&self) -> impl Iterator<Item = &'static Topic> {
+        self.sections.iter().filter_map(|s| topics::find(s.topic))
+    }
 }
 
 pub const DOCUMENTS: &[Document] = &[Document {
@@ -82,8 +78,8 @@ pub const DOCUMENTS: &[Document] = &[Document {
 /// document added to `DOCUMENTS` cannot ship without it.
 fn generated_notice(document: &Document) -> String {
     let mut directories: Vec<String> = Vec::new();
-    for section in document.sections {
-        let directory = format!("crates/docs/src/docs/{}/", section.topic().kind.directory());
+    for topic in document.topics() {
+        let directory = format!("crates/docs/src/docs/{}/", topic.kind.directory());
         if !directories.contains(&directory) {
             directories.push(directory);
         }
@@ -100,9 +96,9 @@ pub fn assemble(doc: &Document) -> String {
     let mut out = String::with_capacity(64 * 1024);
     out.push_str(&generated_notice(doc));
     out.push_str(doc.front);
-    for s in doc.sections {
+    for topic in doc.topics() {
         out.push('\n');
-        out.push_str(s.topic().text);
+        out.push_str(topic.text);
     }
     out
 }
@@ -142,7 +138,7 @@ pub fn document_of(topic: &Topic) -> Option<&'static Document> {
 mod tests {
     use super::*;
 
-    /// What makes `Section::topic` total in practice. Two other tests catch a
+    /// What makes `Document::topics` whole in practice. Two other tests catch a
     /// typo indirectly — the real topic goes orphaned — but only this one says
     /// which entry is wrong.
     #[test]

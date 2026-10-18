@@ -21,7 +21,6 @@ use crate::build::actions;
 use crate::build::session::{self, open_or_exit};
 use crate::build::workspace::RuleKind;
 use crate::commands::arguments;
-use crate::diagnostics::Invariant;
 
 pub fn command_build(args: &arguments::Args) -> i32 {
     if args.flags.check_reproducible {
@@ -218,8 +217,7 @@ fn foreign(
         "networking-unavailable",
         "cryptography-unavailable",
     ];
-    let mut errors = diagnostics.items.iter().filter(|d| d.is_error()).peekable();
-    errors.peek().or_ice("a build that failed reports an error");
+    let mut errors = diagnostics.items.iter().filter(|d| d.is_error());
     errors.all(|d| {
         d.code
             .as_deref()

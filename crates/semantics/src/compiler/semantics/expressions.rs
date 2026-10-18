@@ -2033,7 +2033,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
             }
             TyKind::Con(con, _) => {
-                let refs: Vec<&str> = self.c.tables.method_names(*con).collect();
+                let refs: Vec<&str> = self
+                    .c
+                    .tables
+                    .methods_of(*con)
+                    .map(|(name, _)| name)
+                    .collect();
                 near = nearest(name, &refs).map(str::to_string);
                 if let Some(n) = &near {
                     notes.push(format!("did you mean `{n}`?"));

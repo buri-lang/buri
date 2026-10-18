@@ -29,7 +29,7 @@ use crate::compiler::semantics::resolve::{ModuleScope, Sym};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::{self as types, ModuleId, Ty, TyConId, VariantId};
 use crate::compiler::standard_library;
-use crate::diagnostics::{Invariant as _, Span};
+use crate::diagnostics::Span;
 use crate::json::Value;
 use crate::parsing::flat::{ExprId, ExprView, Tree, TypeId, TypeView};
 use crate::parsing::lexer::Keyword;
@@ -42,9 +42,8 @@ use std::path::Path;
 /// what is left over.
 pub fn completion(analyzed: &Analyzed, path: &Path, text: &str, position: Position) -> Value {
     let offset = convert::offset_of(text, position) as usize;
-    let before_cursor = text
-        .get(..offset)
-        .or_ice("`offset_of` clamps into the text and onto a character boundary");
+    // `offset_of` clamps into the text and onto a character boundary.
+    let before_cursor = text.get(..offset).unwrap_or_default();
     let line = before_cursor.rsplit('\n').next().unwrap_or(before_cursor);
     let cursor = offset as u32;
 
@@ -278,9 +277,8 @@ fn receiver_symbol(
 
 /// The run of `[A-Za-z0-9_]` ending at `at`, and where it starts.
 fn word_before(text: &str, at: u32) -> (&str, u32) {
-    let before = text
-        .get(..at as usize)
-        .or_ice("every offset asked about is the cursor's or a word's start before it");
+    // Every offset asked about is the cursor's or a word's start before it.
+    let before = text.get(..at as usize).unwrap_or_default();
     let start = before
         .char_indices()
         .rev()
@@ -766,11 +764,11 @@ fn members_of(analyzed: &Analyzed, con: TyConId, from: Option<ModuleId>) -> Vec<
     // the body of an `impl` supplying the effect, and neither is a file this
     // server edits.
     let effectful = |trait_id: types::TraitId| tables.trait_(trait_id).is_effect;
-    let names: Vec<String> = tables.method_names(con).map(str::to_string).collect();
-    for name in names {
-        let id = tables
-            .method(con, &name)
-            .or_ice("`method_names` lists the names the method table holds");
+    let methods: Vec<(String, types::FnId)> = tables
+        .methods_of(con)
+        .map(|(name, id)| (name.to_string(), id))
+        .collect();
+    for (name, id) in methods {
         if tables
             .fn_info(id)
             .impl_of
@@ -1021,13 +1019,13 @@ fn module_paths(
         let own = ws.package(package);
         let mut sources = Vec::new();
         let mut schemas = Vec::new();
-        crate::build::regenerate::collect(&ws.root, &own.dir, &mut sources, &mut schemas);
         let own_rel = ws.rel_of(path);
         let package_prefix = if own.path.is_empty() {
             String::new()
         } else {
             format!("{}/", own.path)
         };
+        crate::build::regenerate::collect(&own.dir, &package_prefix, &mut sources, &mut schemas);
         // This package's own surfaces, as modules. `lib.buri` and
         // `testing/lib.buri` are dropped from the file list below and offered
         // here instead, because a surface is named as a module from inside the

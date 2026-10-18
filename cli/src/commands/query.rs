@@ -14,7 +14,6 @@
 use crate::build::session;
 use crate::build::workspace::TargetId;
 use crate::commands::arguments;
-use crate::diagnostics::Invariant as _;
 
 /// `deps`, `rdeps`, `path`, `tags`, `platforms`, `sources`.
 pub fn command_query(args: &arguments::Args) -> i32 {
@@ -94,24 +93,19 @@ pub fn command_query(args: &arguments::Args) -> i32 {
             };
             match session.workspace.dep_path(from, to) {
                 Some(path) => {
-                    let mut nodes = path.iter();
-                    // `dep_path` builds its answer starting from `from`, so a
-                    // path it returns always has that first element.
-                    let (start, _) = nodes
-                        .next()
-                        .or_ice("`dep_path` returns a path that begins at `from`");
-                    println!("{}", session.workspace.label(*start));
-                    for (node, span) in nodes {
-                        // A dependency is always a library, so the one edge
-                        // with no declaration, a binary's to its own library,
-                        // never lies on a path from a package's first target.
-                        let sp = span
-                            .filter(|sp| !sp.is_none())
-                            .or_ice("every edge on a path is declared in a build file");
-                        let f = session.map.get(sp.file);
-                        let (line, _) = f.line_col(sp.start);
-                        let where_ = format!("{}:{}", f.name, line);
-                        println!("  -> {:<22} {where_}", session.workspace.label(*node));
+                    // `dep_path` builds its answer starting from `from`.
+                    println!("{}", session.workspace.label(from));
+                    for (node, span) in path.iter().skip(1) {
+                        // Where the edge is declared. The one edge with no
+                        // declaration, a binary's to its own library, has none.
+                        let where_ =
+                            span.filter(|sp| !sp.is_none())
+                                .map_or_else(String::new, |sp| {
+                                    let f = session.map.get(sp.file);
+                                    format!("{}:{}", f.name, f.line_col(sp.start).0)
+                                });
+                        let label = session.workspace.label(*node);
+                        println!("{}", format!("  -> {label:<22} {where_}").trim_end());
                     }
                 }
                 None => println!("no path"),

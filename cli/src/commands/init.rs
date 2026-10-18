@@ -41,7 +41,6 @@
 
 use crate::commands::add::skills::{self, Outcome};
 use crate::commands::arguments::Args;
-use crate::diagnostics::Invariant as _;
 use std::path::{Path, PathBuf};
 
 /// One generated file: where it lands under the target directory, and the
@@ -161,8 +160,9 @@ pub fn generate(root: &Path) -> Result<Vec<(Outcome, PathBuf)>, String> {
     let mut done = Vec::new();
     for file in SCAFFOLD {
         let path = root.join(file.path);
-        let parent = path.parent().or_ice("a scaffold file is under the root");
-        std::fs::create_dir_all(parent)
+        let mut parent = path.clone();
+        parent.pop();
+        std::fs::create_dir_all(&parent)
             .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
         if file.path == IGNORE_FILE && path.exists() {
             let outcome = if merge_ignore(&path, file.text)? {

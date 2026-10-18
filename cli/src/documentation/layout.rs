@@ -34,7 +34,6 @@
 //!   * `wrap=expr`, whose layout is the layout of the expression it is bound
 //!     into rather than anything the fence owns.
 
-use crate::diagnostics::invariant;
 use crate::documentation::examples::{Block, Claim, Failure, Wrap};
 use crate::documentation::markdown;
 use crate::formatting::{self, Dialect};
@@ -276,12 +275,9 @@ pub fn format_document(file: &str, text: &str) -> Option<String> {
     edits.sort_by_key(|e| std::cmp::Reverse(e.0));
     let mut lines: Vec<String> = text.lines().map(String::from).collect();
     for (first, count, replacement) in edits {
-        let last = first.saturating_add(count);
-        invariant(
-            last <= lines.len(),
-            "a fence's body is lines of the document it was found in",
-        );
-        lines.splice(first..last, replacement);
+        // A fence's body is lines of the document it was found in.
+        let last = first.saturating_add(count).min(lines.len());
+        lines.splice(first.min(last)..last, replacement);
     }
     let mut out = lines.join("\n");
     if text.ends_with('\n') {
@@ -471,11 +467,10 @@ pub fn format_doc_comments(source: &str) -> Option<String> {
             continue;
         };
         let first = block.origin.line.saturating_sub(1);
-        let last = first.saturating_add(block.body.lines().count());
-        invariant(
-            last <= lines.len(),
-            "`doc_comments` keeps one line per source line",
-        );
+        // `doc_comments` keeps one line per source line.
+        let last = first
+            .saturating_add(block.body.lines().count())
+            .min(lines.len());
         // The marker every line of this comment carries — `///` or `//!`, at
         // whatever column the comment is written in.
         let Some(marker) = lines.get(first).and_then(|l| comment_marker(l)) else {

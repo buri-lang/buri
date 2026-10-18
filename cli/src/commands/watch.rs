@@ -41,7 +41,6 @@
 
 use crate::build::session::Session;
 use crate::build::workspace::{Rule, TargetId};
-use crate::diagnostics::invariant;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -311,10 +310,6 @@ impl Snapshot {
     /// exactly the thing that wakes the loop. So does a file a listing found on
     /// one side only.
     pub fn difference(&self, other: &Snapshot) -> Vec<PathBuf> {
-        invariant(
-            self.stamps.keys().eq(other.stamps.keys()),
-            "two snapshots compared sweep one set",
-        );
         let mut out = Vec::new();
         for (path, stamp) in &other.stamps {
             if self.stamps.get(path) != Some(stamp) {

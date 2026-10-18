@@ -26,7 +26,7 @@ use crate::build::session::{self, Session};
 use crate::build::workspace::Workspace;
 use crate::commands::arguments::Flags;
 use crate::compiler::driver::Analysis;
-use crate::diagnostics::{FileId, Invariant as _};
+use crate::diagnostics::FileId;
 use std::collections::BTreeMap;
 use std::hash::Hasher;
 use std::path::{Path, PathBuf};
@@ -268,16 +268,14 @@ impl Sources {
     /// next.
     pub fn keep(&mut self, session: &Session) {
         self.take_stock(session);
-        let warm = self
-            .warm
-            .as_mut()
-            .or_ice("a session to keep came from `Sources::session`");
         // The two read caches and nothing else: the diagnostics loading the
         // repository collected belong to the warm copy, and a caller that has
         // reported and cleared its own must not clear them here.
-        let kept = Rc::make_mut(warm);
-        kept.map = session.map.clone();
-        kept.parsed = session.parsed.clone();
+        for warm in self.warm.iter_mut() {
+            let kept = Rc::make_mut(warm);
+            kept.map = session.map.clone();
+            kept.parsed = session.parsed.clone();
+        }
     }
 
     /// Reopens the repository if the graph moved, and re-reads the files whose
@@ -324,26 +322,38 @@ impl Sources {
         if moved.is_empty() && fresh.is_empty() {
             return Ok(());
         }
-        let warm = self
-            .warm
-            .as_mut()
-            .or_ice("`refresh_now` opens a warm copy first");
-        // The copy this makes when the session is shared is what leaves every
-        // analysis already in hand reading the text it was built on.
-        let session = Rc::make_mut(warm);
+        // The copy just opened, or the one kept from the round before.
+        self.warm = self.warm.take().map(|mut warm| {
+            self.read_into(Rc::make_mut(&mut warm), moved, fresh);
+            warm
+        });
+        Ok(())
+    }
+
+    /// Puts the files that moved and the overlaid ones nothing has read yet
+    /// into the warm copy.
+    ///
+    /// The copy `Rc::make_mut` makes of it when the session is shared is what
+    /// leaves every analysis already in hand reading the text it was built on.
+    fn read_into(
+        &mut self,
+        session: &mut Session,
+        moved: Vec<(PathBuf, FileId, String)>,
+        fresh: Vec<(PathBuf, String)>,
+    ) {
+        let mut texts = std::collections::HashMap::new();
         for (path, file, text) in moved {
-            let hash = hash_of(&text);
-            session.map.replace(file, text);
+            self.held.insert(path, (file, hash_of(&text)));
             session.parsed.forget(file);
-            self.held.insert(path, (file, hash));
+            texts.insert(file, text);
         }
+        session.map.replace(texts);
         for (path, text) in fresh {
             let hash = hash_of(&text);
             let name = session.workspace.rel_of(&path);
             let file = session.map.add(name, path.clone(), text);
             self.held.insert(path, (file, hash));
         }
-        Ok(())
     }
 
     /// Opens the repository afresh as the warm copy, its graph at `key`.

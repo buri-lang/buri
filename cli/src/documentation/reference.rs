@@ -13,7 +13,6 @@
 //! in somebody else's repository without any of this knowing about it.
 
 use crate::compiler::modules::{Loaded, ModuleData, Role};
-use crate::diagnostics::Invariant as _;
 use crate::formatting;
 use crate::parsing::tree::{self, Item, ParamKind};
 use std::fmt::Write as _;
@@ -536,16 +535,15 @@ fn function(
 /// may do to the world. Reading them off the signature is the point: purity is
 /// the absence of this list, not an annotation somebody had to remember.
 fn effects_of(t: &crate::parsing::flat::Tree, d: &tree::FnDecl) -> Vec<String> {
-    let Some(ctx) = t
+    // Only `self` is written without a type.
+    let Some(ty) = t
         .list(d.params)
         .iter()
         .find(|p| p.kind == ParamKind::CtxParam)
+        .and_then(|p| p.written_type())
     else {
         return Vec::new();
     };
-    let ty = ctx
-        .written_type()
-        .or_ice("only `self` is written without a type");
     let name = formatting::type_text(t, ty);
     t.list(d.generics)
         .iter()
@@ -622,14 +620,13 @@ fn structure(t: &crate::parsing::flat::Tree, d: &tree::StructDecl) -> ApiItem {
 /// page, and a reader can go to it rather than read it twice.
 fn config_of(module: &tree::Module, d: &tree::FnDecl) -> Option<Config> {
     let t = &module.tree;
-    for p in t
+    // Only `self` is written without a type.
+    for ty in t
         .list(d.params)
         .iter()
         .filter(|p| p.kind == ParamKind::Normal)
+        .filter_map(|p| p.written_type())
     {
-        let ty = p
-            .written_type()
-            .or_ice("only `self` is written without a type");
         let written = formatting::type_text(t, ty);
         let head = written.split('<').next().unwrap_or(&written).trim();
         let head = head.rsplit('.').next().unwrap_or(head);

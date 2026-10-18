@@ -22,7 +22,6 @@ use super::symbols::{self, Symbol};
 use crate::compiler::modules::ModuleData;
 use crate::compiler::semantics::typed::{self, ExprKind};
 use crate::compiler::semantics::types::{self, ParamInfo, ParamRole, Tables};
-use crate::diagnostics::Invariant as _;
 use crate::json::Value;
 use crate::parsing::flat::{self, ExprId, ExprView, PatId, PatView, StmtKind};
 use std::collections::BTreeSet;
@@ -84,14 +83,9 @@ pub fn hints(analyzed: &Analyzed, path: &Path, text: &str, from: u32, to: u32) -
     }
     // A module-level `let` writes its own type, so what is hinted in one is
     // what its value binds and calls.
-    for (id, expr) in &checked.consts {
+    for (id, expr, locals) in symbols::consts(checked) {
         if tables.const_(id).span.file == file {
-            type_hints(
-                tables,
-                &unwritten,
-                symbols::const_locals(checked, id),
-                &mut found,
-            );
+            type_hints(tables, &unwritten, locals, &mut found);
             parameter_hints(analyzed, text, expr, &mut found);
         }
     }
@@ -205,14 +199,17 @@ fn about(analyzed: &Analyzed, hint: &Hint) -> Option<Value> {
 /// place you can go to. Everything else the client sent is preserved — the
 /// protocol says a resolved hint is the hint, filled in.
 pub fn resolve(analyzed: &Analyzed, path: &Path, text: &str, hint: &Value) -> Value {
-    let mut resolved = hint.clone();
-    let Some(position) = hint.at("data.position").and_then(Position::from_json) else {
-        return resolved;
+    // A hint with a `data.position` is an object.
+    let (Some(position), Value::Object(mut fields)) = (
+        hint.at("data.position").and_then(Position::from_json),
+        hint.clone(),
+    ) else {
+        return hint.clone();
     };
     let part = hint.at("data.part").and_then(|p| p.as_u32()).unwrap_or(0) as usize;
     let offset = convert::offset_of(text, position);
     let Some(found) = symbols::at(analyzed, path, text, offset) else {
-        return resolved;
+        return hint.clone();
     };
     let (signature, docs) = symbols::describe(analyzed, &found.symbol);
     let mut markdown = format!("```buri\n{signature}\n```");
@@ -226,11 +223,6 @@ pub fn resolve(analyzed: &Analyzed, path: &Path, text: &str, hint: &Value) -> Va
         .map(|i| i as usize);
     let location = navigation(analyzed, &found.symbol, parameter);
 
-    let fields = match &mut resolved {
-        Value::Object(fields) => Some(fields),
-        _ => None,
-    }
-    .or_ice("a hint with a `data.position` is an object");
     fields.insert(
         "tooltip".to_string(),
         Value::object(vec![
@@ -243,7 +235,7 @@ pub fn resolve(analyzed: &Analyzed, path: &Path, text: &str, hint: &Value) -> Va
             named.insert("location".to_string(), location);
         }
     }
-    resolved
+    Value::Object(fields)
 }
 
 /// Where clicking the hinted name goes.
@@ -411,10 +403,10 @@ fn names_with_no_written_type(module: &ModuleData) -> BTreeSet<(u32, u32)> {
             if stmt.kind != StmtKind::Let || stmt.is_ctx || stmt.ty != flat::NONE {
                 continue;
             }
-            let pattern = tree
-                .opt_pat(stmt.pattern)
-                .or_ice("the parser writes a pattern into every `let`");
-            bound_names(tree, pattern, &mut out);
+            // The parser writes a pattern into every `let`.
+            tree.opt_pat(stmt.pattern)
+                .into_iter()
+                .for_each(|pattern| bound_names(tree, pattern, &mut out));
         }
     }
     out

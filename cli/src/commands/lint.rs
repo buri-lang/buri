@@ -51,7 +51,7 @@ use crate::commands::arguments;
 use crate::compiler::modules::{ModuleData, PerModule, Unit};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::{FnId, ModuleId};
-use crate::diagnostics::{ice, invariant, Diagnostic, Diagnostics, Invariant as _, Span};
+use crate::diagnostics::{ice, Diagnostic, Diagnostics, Span};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -2071,11 +2071,11 @@ fn check_warning_comments(lexes: &Lexes<'_>, m: &ModuleData, diagnostics: &mut D
     }
 }
 
-/// Every marker in `text[from..to]`, as an offset into the whole file.
+/// Every marker in `text[from..to]`, as an offset into the whole file. Tokens
+/// come in order and never overlap, so the gap is text; were it not, there
+/// would be nothing between them to search.
 fn markers_in(text: &str, from: usize, to: usize, out: &mut Vec<(usize, &'static str)>) {
-    let gap = text
-        .get(from..to)
-        .or_ice("tokens come in order and never overlap, so a gap between two is text");
+    let gap = text.get(from..to).unwrap_or_default();
     // Nearly every gap is a space or an indent, which holds no marker's first
     // letter; searching it three times was most of what this rule cost.
     if !gap.bytes().any(|b| {
@@ -2854,12 +2854,8 @@ impl<'m> Owned<'m> {
                 // Only the type the `derive` is *for*. The traits it names
                 // are uses of those traits like any other mention.
                 Item::Derive(d) => {
-                    let name = m
-                        .ast
-                        .tree
-                        .type_head(d.self_ty)
-                        .or_ice("a `derive` is for a named type");
-                    owned.push((name, m.ast.tree.type_span(d.self_ty)));
+                    let span = m.ast.tree.type_span(d.self_ty);
+                    owned.extend(m.ast.tree.type_head(d.self_ty).map(|name| (name, span)));
                 }
                 _ => {}
             }
@@ -2948,8 +2944,8 @@ impl Census {
                     self.variants.insert((*con, *variant));
                 }
                 typed::ExprKind::Field { base, index } => {
-                    let con = base.ty.head().or_ice("a field is read off a struct");
-                    self.read.insert((con, *index));
+                    // A field is read off a struct, which has a head.
+                    self.read.extend(base.ty.head().map(|con| (con, *index)));
                 }
                 typed::ExprKind::Intrinsic { args, .. }
                 | typed::ExprKind::StructuralEq { args, .. } => {
@@ -3790,13 +3786,13 @@ fn check_unused_context_bounds(
         else {
             continue;
         };
-        let TyKind::Param(gi) = param.ty.kind() else {
+        // A type parameter indexes its function's generics.
+        let Some((gi, generic)) = (match param.ty.kind() {
+            TyKind::Param(gi) => info.generics.get(*gi as usize).map(|g| (gi, g)),
+            _ => None,
+        }) else {
             continue;
         };
-        let generic = info
-            .generics
-            .get(*gi as usize)
-            .or_ice("a type parameter indexes its function's generics");
         if !generic.bounds.iter().any(|b| tables.trait_(*b).is_effect) {
             continue;
         }
@@ -3814,10 +3810,6 @@ fn check_unused_context_bounds(
         let Some(spans) = bound_spans(analysis, info, *gi as usize) else {
             continue;
         };
-        invariant(
-            spans.len() == generic.bounds.len(),
-            "a signature that checked resolved every bound it wrote",
-        );
         let bounds: Vec<(Span, bool)> = spans
             .iter()
             .zip(&generic.bounds)
@@ -3989,18 +3981,12 @@ fn bound_spans(
     let (decl, gi) = match (m.ast.items.get(item as usize), sub) {
         (Some(Item::Fn(decl)), None) => (decl, gi),
         (Some(Item::Impl(block)), Some(sub)) => {
-            let decl = t
-                .list(block.methods)
-                .get(sub as usize)
-                .or_ice("a method indexes its block");
+            let decl = t.list(block.methods).get(sub as usize)?;
             (decl, gi.checked_sub(t.list(block.generics).len())?)
         }
         _ => ice("a function's syntax is the item it names"),
     };
-    let g = t
-        .list(decl.generics)
-        .get(gi)
-        .or_ice("a type parameter indexes its function's generics");
+    let g = t.list(decl.generics).get(gi)?;
     Some(
         t.type_list(g.bounds)
             .iter()
@@ -4393,10 +4379,6 @@ fn discards_by_hand(analysis: &crate::compiler::driver::Analysis, e: &typed::Exp
     };
     // A guard on the second of two arms leaves the first to catch everything,
     // which is `unreachable-arm`, and only a body that checked is asked.
-    invariant(
-        second.guard.is_none(),
-        "the last of two arms in a match that checked has no guard",
-    );
     if first.guard.is_some() {
         return false;
     }

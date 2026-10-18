@@ -14,7 +14,7 @@ use crate::compiler::driver::Analysis;
 use crate::compiler::modules::{ModuleData, PerModule};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::ModuleId;
-use crate::diagnostics::{Diagnostic, Invariant as _, Span};
+use crate::diagnostics::{Diagnostic, Span};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -105,7 +105,7 @@ fn regenerate_reading(
     // Every `.buri` and `.proto` file in the package, by category.
     let mut files = Vec::new();
     let mut schemas = Vec::new();
-    collect(&dir, &dir, &mut files, &mut schemas);
+    collect(&dir, "", &mut files, &mut schemas);
     files.sort();
     schemas.sort();
 
@@ -137,8 +137,8 @@ fn regenerate_reading(
     // A file already listed in a rule's `sources` stays there.
     let existing_lib = listed(&document, "library", "sources");
     let existing_bin = listed(&document, "binary", "sources");
-    let existing_lib_tests = listed_at(&document, "library", &["test", "sources"]);
-    let existing_bin_tests = listed_at(&document, "binary", &["test", "sources"]);
+    let existing_lib_tests = listed_at(&document, "library", (&["test"], "sources"));
+    let existing_bin_tests = listed_at(&document, "binary", (&["test"], "sources"));
 
     // In a package with both rules, `gen` needs to know which rule a new file
     // belongs to, and the answer is which entry point reaches it. Computed
@@ -269,7 +269,7 @@ fn regenerate_reading(
         set_list(
             &mut document,
             rule,
-            &["sources"],
+            (&[], "sources"),
             sources,
             &mut summary,
             &name(rule, "sources"),
@@ -278,7 +278,7 @@ fn regenerate_reading(
             set_list(
                 &mut document,
                 rule,
-                &["dependencies"],
+                (&[], "dependencies"),
                 production,
                 &mut summary,
                 &name(rule, "dependencies"),
@@ -288,7 +288,7 @@ fn regenerate_reading(
             set_list(
                 &mut document,
                 rule,
-                &["test", "sources"],
+                (&["test"], "sources"),
                 tests,
                 &mut summary,
                 &name(rule, "test.sources"),
@@ -297,7 +297,7 @@ fn regenerate_reading(
                 set_list(
                     &mut document,
                     rule,
-                    &["test", "dependencies"],
+                    (&["test"], "dependencies"),
                     test,
                     &mut summary,
                     &name(rule, "test.dependencies"),
@@ -316,7 +316,7 @@ fn regenerate_reading(
             set_list(
                 &mut document,
                 rule,
-                &["testing", "sources"],
+                (&["testing"], "sources"),
                 &testing_sources,
                 &mut summary,
                 &name(rule, "testing.sources"),
@@ -325,7 +325,7 @@ fn regenerate_reading(
                 set_list(
                     &mut document,
                     rule,
-                    &["testing", "dependencies"],
+                    (&["testing"], "dependencies"),
                     &d.testing,
                     &mut summary,
                     &name(rule, "testing.dependencies"),
@@ -830,15 +830,15 @@ pub(crate) fn is_configuration(name: &str) -> bool {
     matches!(name, "BUILD.buri" | "REPO.buri")
 }
 
-/// Every source a package owns, package-relative: the `.buri` files in `out`
-/// and the `.proto` schemas in `schemas`.
+/// Every source a package owns: the `.buri` files in `out` and the `.proto`
+/// schemas in `schemas`, each named by its path under `dir` after `prefix`.
 ///
 /// A directory with a `BUILD.buri` of its own is another package and is not
 /// descended into. Public to the crate because this is the one walk that
 /// decides what a package's sources *are*, and the editor offers exactly this
 /// list when a `sources` entry is being typed — one walk, so what `gen` writes
 /// and what completion offers cannot disagree.
-pub(crate) fn collect(root: &Path, dir: &Path, out: &mut Vec<String>, schemas: &mut Vec<String>) {
+pub(crate) fn collect(dir: &Path, prefix: &str, out: &mut Vec<String>, schemas: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -852,20 +852,12 @@ pub(crate) fn collect(root: &Path, dir: &Path, out: &mut Vec<String>, schemas: &
         if name.starts_with('.') {
             continue;
         }
-        let rel = || {
-            p.strip_prefix(root)
-                .or_ice(
-                    "this walk started at `root` and only ever descends, so every path is under it",
-                )
-                .display()
-                .to_string()
-                .replace('\\', "/")
-        };
+        let rel = || format!("{prefix}{name}");
         if p.is_dir() {
             if p.join("BUILD.buri").is_file() {
                 continue;
             }
-            collect(root, &p, out, schemas);
+            collect(&p, &format!("{prefix}{name}/"), out, schemas);
         } else if p.extension().is_some_and(|x| x == "buri") && !is_configuration(&name) {
             out.push(rel());
         } else if p.extension().is_some_and(|x| x == "proto") {
@@ -888,11 +880,13 @@ fn listed(document: &Document, rule: &str, field: &str) -> BTreeSet<String> {
     out
 }
 
+/// A managed field: the blocks it is inside, outermost first, and its name.
+/// `test.sources` is `(&["test"], "sources")`.
+pub(crate) type FieldPath<'a> = (&'a [&'a str], &'a str);
+
 /// The same, for a field inside a block: `test.sources`.
-pub(crate) fn listed_at(document: &Document, rule: &str, path: &[&str]) -> BTreeSet<String> {
-    let (leaf, blocks) = path
-        .split_last()
-        .or_ice("every caller names a field, so the path is never empty");
+pub(crate) fn listed_at(document: &Document, rule: &str, path: FieldPath<'_>) -> BTreeSet<String> {
+    let (blocks, leaf) = path;
     let Some(Value::Message(mut m, _)) = document.get(rule).map(|f| f.value.clone()) else {
         return BTreeSet::new();
     };
@@ -916,7 +910,12 @@ fn has_block(document: &Document, rule: &str, block: &str) -> bool {
 ///
 /// `buri gen` prints what it changed; the language server's file operations
 /// hand back an edit instead, and the summary would be a string nobody reads.
-pub(crate) fn replace_list(document: &mut Document, rule: &str, path: &[&str], values: &[String]) {
+pub(crate) fn replace_list(
+    document: &mut Document,
+    rule: &str,
+    path: FieldPath<'_>,
+    values: &[String],
+) {
     set_list(document, rule, path, values, &mut Vec::new(), "");
 }
 
@@ -925,14 +924,12 @@ pub(crate) fn replace_list(document: &mut Document, rule: &str, path: &[&str], v
 fn set_list(
     document: &mut Document,
     rule: &str,
-    path: &[&str],
+    path: FieldPath<'_>,
     values: &[String],
     summary: &mut Vec<String>,
     label: &str,
 ) {
-    let (leaf, blocks) = path
-        .split_last()
-        .or_ice("every caller names a field, so the path is never empty");
+    let (blocks, leaf) = path;
     let Some(Value::Message(message, _)) = document
         .fields
         .iter_mut()

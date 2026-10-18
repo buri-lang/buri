@@ -15,7 +15,7 @@
 use super::convert::{self, Position};
 use super::state::Analyzed;
 use super::symbols::{self, Symbol};
-use crate::diagnostics::{Invariant as _, Span};
+use crate::diagnostics::Span;
 use crate::json::Value;
 use std::path::Path;
 
@@ -53,18 +53,13 @@ pub fn incoming(analyzed: &Analyzed, symbol: &Symbol) -> Value {
             callers.push((Symbol::Function(id), sites));
         }
     }
-    for (id, expr) in &checked.consts {
+    for (id, expr, locals) in symbols::consts(checked) {
         let mut sites = Vec::new();
-        symbols::call_names(
-            analyzed,
-            symbols::const_locals(checked, id),
-            expr,
-            &mut |span, called| {
-                if symbols::same(&called, symbol) {
-                    sites.push(span);
-                }
-            },
-        );
+        symbols::call_names(analyzed, locals, expr, &mut |span, called| {
+            if symbols::same(&called, symbol) {
+                sites.push(span);
+            }
+        });
         if !sites.is_empty() {
             callers.push((Symbol::Const(id), sites));
         }
@@ -94,13 +89,9 @@ pub fn outgoing(analyzed: &Analyzed, symbol: &Symbol) -> Value {
             }
         }
         Symbol::Const(id) => {
-            let expr = checked.consts.get(id).or_ice("every constant was checked");
-            symbols::call_names(
-                analyzed,
-                symbols::const_locals(checked, *id),
-                expr,
-                &mut take,
-            );
+            for (_, expr, locals) in symbols::consts(checked).filter(|(c, _, _)| c == id) {
+                symbols::call_names(analyzed, locals, expr, &mut take);
+            }
         }
         _ => {}
     }

@@ -1,0 +1,7 @@
+export fn one(): Int {
+    1
+}
+
+export fn two(): Int {
+    2
+}
