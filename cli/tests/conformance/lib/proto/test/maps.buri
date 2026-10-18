@@ -8,10 +8,12 @@ from "core/json" import * as json;
 from "core/list" import * as list;
 from "core/orderedmap" import * as orderedmap;
 from "core/proto" import { ProtoError };
+from "core/proto/struct" import { Struct, Value, Value_Kind };
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
-from "platform/effect" import { Allocator };
-from "platform/effect/testing" import { alloc };
+from "platform/effect" import { Allocator, Ui };
+from "platform/effect/testing" import { alloc, headless, recorder };
+from "ui/signal" import { signal, watch };
 from "//lib/proto" import {
     Address, decodeMaps, decodeMapsJson, defaultAddress, defaultMaps, encodeMaps,
     encodeMapsJson, Maps, Mood,
@@ -517,4 +519,97 @@ test "a map of bool keys holds two entries at most" {
 
 test "an enum value, in an option, equals itself and not None" {
     assert.isTrue(variants.optionsCompare(Mood.HAPPY));
+}
+
+/// What a watcher records as its signal moves through `values`. A watcher's
+/// closure gets a context of its own, so the values are built outside it.
+fn watched<T: Show>(values: [T]): [Str] {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let step = signal(ctx, 0);
+    let _ = watch(ctx, fn(s) => {
+        match (values.get(step.get(s))) {
+            .Some(v) => log.record(v.show(s)),
+            .None => log.record("nothing"),
+        }
+    });
+    let _ = step.set(ctx, 1);
+    log.recorded()
+}
+
+/// Eight keys out of order, which is enough to split a map's node.
+let SCATTERED: [Int] = [8, 3, 6, 1, 7, 2, 5, 4];
+
+test "a watcher shows message and nested maps that have split, in key order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let places = orderedmap.of(
+        ctx,
+        SCATTERED.mapCtx(ctx, fn(c, k) => {
+            let key = str.fromInt(c, k);
+            (key, Address { ..defaultAddress(), city: .Some(key) })
+        }),
+    );
+    let nested = orderedmap.of(ctx, SCATTERED.map(ctx, fn(k) => (k, defaultMaps())));
+    let shown = watched([
+        defaultMaps(),
+        Maps { ..defaultMaps(), places: places, nested: nested },
+    ]);
+    let bare =
+        "Maps { counts: {}, names: {}, flags: {}, ratios: {}, blobs: {}, moods: {}, places: {}, nested: {}, totals: {} }";
+    let keys = list.range(ctx, 1, 9).mapCtx(ctx, fn(c, k) => str.fromInt(c, k));
+    let cities = keys
+        .mapCtx(ctx, fn(c, k) => {
+            [
+                k,
+                ": Address { city: .Some(\"",
+                k,
+                "\"), zip: .None, country: .None }",
+            ].join(c, "")
+        })
+        .join(ctx, ", ");
+    let kids = keys.mapCtx(ctx, fn(c, k) => [k, bare].join(c, ": ")).join(ctx, ", ");
+    assert.equal(shown, [
+        bare,
+        [
+            "Maps { counts: {}, names: {}, flags: {}, ratios: {}, blobs: {}, moods: {}, places: {",
+            cities,
+            "}, nested: {",
+            kids,
+            "}, totals: {} }",
+        ].join(ctx, ""),
+    ]);
+}
+
+test "a watcher shows a Struct whose fields have split, in key order" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let fields = orderedmap.of(
+        ctx,
+        SCATTERED.mapCtx(ctx, fn(c, k) => {
+            (
+                str.fromInt(c, k),
+                Value { kind: .Some(Value_Kind.NumberValue(k.toF64())) },
+            )
+        }),
+    );
+    let shown = watched([
+        Struct { fields: orderedmap.empty<Str, Value>() },
+        Struct { fields: fields },
+    ]);
+    let numbers = list
+        .range(ctx, 1, 9)
+        .mapCtx(ctx, fn(c, k) => {
+            let key = str.fromInt(c, k);
+            [key, ": Value { kind: .Some(.NumberValue(", key, ".0)) }"].join(c, "")
+        })
+        .join(ctx, ", ");
+    assert.equal(shown, [
+        "Struct { fields: {} }",
+        ["Struct { fields: {", numbers, "} }"].join(ctx, ""),
+    ]);
 }
