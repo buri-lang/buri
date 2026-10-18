@@ -193,18 +193,14 @@ fn pair(bad: Str, item: Json): Result<(Str, Str), Str> {
     match (item.asArray()) {
         .None => .Err(bad),
         .Some(parts) => {
-            if (parts.length() != 2) {
-                .Err(bad)
-            } else {
-                match (parts.get(0).andThen(fn(v) => v.asStr())) {
-                    .None => .Err(bad),
-                    .Some(path) => {
-                        match (parts.get(1).andThen(fn(v) => v.asStr())) {
-                            .None => .Err(bad),
-                            .Some(text) => .Ok((path, text)),
-                        }
-                    },
-                }
+            match (parts) {
+                [first, second] => {
+                    match ((first.asStr(), second.asStr())) {
+                        (.Some(path), .Some(text)) => .Ok((path, text)),
+                        _ => .Err(bad),
+                    }
+                },
+                _ => .Err(bad),
             }
         },
     }

@@ -881,3 +881,13 @@ test "a member whose extra field runs past its end" {
     let body = header.concat(ctx, list.repeat(ctx, 0, 8));
     assert.equal(assert.err(unwrapped(body)), DecodeError(3));
 }
+
+test "a member whose file name never ends" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // FNAME, and no zero byte after the header to end the name.
+    let header: [U8] = [31, 139, 8, 8, 0, 0, 0, 0, 0, 255];
+    let body = header.concat(ctx, list.repeat(ctx, 65, 10));
+    assert.equal(assert.err(unwrapped(body)), DecodeError(3));
+}

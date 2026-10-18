@@ -236,15 +236,16 @@ export fn readVarint(
     end: Int,
     base: Int,
 ): Result<(Int, Int), ProtoError> {
-    if (at < end) {
-        let first = byteAt(b, at);
-        if (first < 128) {
-            .Ok((first, at + 1))
-        } else {
-            varintFrom(b, at, at + 1, end, base, 7, first - 128)
-        }
-    } else {
-        .Err(.Truncated(at - base))
+    match ((at < end, b.get(at))) {
+        (true, .Some(octet)) => {
+            let first = octet.toI64();
+            if (first < 128) {
+                .Ok((first, at + 1))
+            } else {
+                varintFrom(b, at, at + 1, end, base, 7, first - 128)
+            }
+        },
+        _ => .Err(.Truncated(at - base)),
     }
 }
 
@@ -259,23 +260,24 @@ fn varintFrom(
     shift: Int,
     acc: Int,
 ): Result<(Int, Int), ProtoError> {
-    if (i >= end || shift > 63) {
-        .Err(.Truncated(start - base))
-    } else {
-        let x = byteAt(b, i);
-        if (x < 128) {
-            .Ok((acc + bits.shiftLeft(x, shift), i + 1))
-        } else {
-            varintFrom(
-                b,
-                start,
-                i + 1,
-                end,
-                base,
-                shift + 7,
-                acc + bits.shiftLeft(x - 128, shift),
-            )
-        }
+    match ((i < end && shift <= 63, b.get(i))) {
+        (true, .Some(octet)) => {
+            let x = octet.toI64();
+            if (x < 128) {
+                .Ok((acc + bits.shiftLeft(x, shift), i + 1))
+            } else {
+                varintFrom(
+                    b,
+                    start,
+                    i + 1,
+                    end,
+                    base,
+                    shift + 7,
+                    acc + bits.shiftLeft(x - 128, shift),
+                )
+            }
+        },
+        _ => .Err(.Truncated(start - base)),
     }
 }
 
@@ -297,18 +299,10 @@ export fn readFixed32(
     end: Int,
     base: Int,
 ): Result<(Int, Int), ProtoError> {
-    if (at + 4 > end) {
-        .Err(.Truncated(at - base))
-    } else {
-        .Ok((fixed32At(b, at), at + 4))
+    match ((at + 4 <= end, bytes.toU32LittleEndian(b, at))) {
+        (true, .Some(v)) => .Ok((v.toI64(), at + 4)),
+        _ => .Err(.Truncated(at - base)),
     }
-}
-
-fn fixed32At(b: [U8], at: Int): Int {
-    byteAt(b, at)
-        + byteAt(b, at + 1) * 256
-        + byteAt(b, at + 2) * 65536
-        + byteAt(b, at + 3) * 16777216
 }
 
 /// Eight little-endian bytes, read as a signed 64-bit number. `fixed64` and
@@ -320,16 +314,23 @@ export fn readFixed64(
     end: Int,
     base: Int,
 ): Result<(Int, Int), ProtoError> {
-    if (at + 8 > end) {
-        .Err(.Truncated(at - base))
-    } else {
-        let lo = fixed32At(b, at);
-        let hi = fixed32At(b, at + 4);
-        if (hi >= 2147483648) {
-            .Ok(((hi - TWO32) * TWO32 + lo, at + 8))
-        } else {
-            .Ok((hi * TWO32 + lo, at + 8))
-        }
+    match (
+        (
+            at + 8 <= end,
+            bytes.toU32LittleEndian(b, at),
+            bytes.toU32LittleEndian(b, at + 4),
+        )
+    ) {
+        (true, .Some(low), .Some(high)) => {
+            let lo = low.toI64();
+            let hi = high.toI64();
+            if (hi >= 2147483648) {
+                .Ok(((hi - TWO32) * TWO32 + lo, at + 8))
+            } else {
+                .Ok((hi * TWO32 + lo, at + 8))
+            }
+        },
+        _ => .Err(.Truncated(at - base)),
     }
 }
 
@@ -433,10 +434,6 @@ export fn skip(
     } else {
         .Err(.BadWireType { field: 0, wire: wire })
     }
-}
-
-fn byteAt(b: [U8], i: Int): Int {
-    b.get(i).withDefault(0).toI64()
 }
 
 // --- Packed repeated fields --------------------------------------------------------
@@ -759,7 +756,7 @@ export fn asInt64(doc: Json, path: Str): Result<Int, ProtoError> {
             if (negative && digits == "9223372036854775808") {
                 .Ok(-9223372036854775807 - 1)
             } else if (atMost(digits, "9223372036854775807")) {
-                let n = digits.toInt().withDefault(0);
+                let n = digitsValue(digits, 0, 0);
                 .Ok(if (negative) { 0 - n } else { n })
             } else {
                 .Err(.BadJson { path: path, wanted: "an integer in range" })
@@ -782,14 +779,14 @@ export fn asUint64(doc: Json, path: Str): Result<Int, ProtoError> {
                     .Err(.BadJson { path: path, wanted: "an integer in range" })
                 }
             } else if (atMost(digits, "9223372036854775807")) {
-                .Ok(digits.toInt().withDefault(0))
+                .Ok(digitsValue(digits, 0, 0))
             } else if (atMost(digits, "18446744073709551615")) {
                 // 2^64 is 1844674407370955161 * 10 + 6, and the value less 2^64
                 // is negative. The sum below is in this order so no step of it
                 // leaves the range of an `Int`.
                 let n = digits.length();
-                let q = digits.slice(0, n - 1).toInt().withDefault(0);
-                let d = digits.slice(n - 1, n).toInt().withDefault(0);
+                let q = digitsValue(digits.slice(0, n - 1), 0, 0);
+                let d = digitsValue(digits.slice(n - 1, n), 0, 0);
                 .Ok((q - 1844674407370955161 + 1) * 10 + (d - 16))
             } else {
                 .Err(.BadJson { path: path, wanted: "an integer in range" })
@@ -841,6 +838,15 @@ fn allDigits(s: Str, i: Int): Bool {
     match (s.charAt(i)) {
         .None => true,
         .Some(c) => c.isDigit() && allDigits(s, i + 1),
+    }
+}
+
+/// Text already known to be ASCII digits, from `i` on, as the number after
+/// `acc`. `toInt` would answer an option the caller has no use for.
+fn digitsValue(s: Str, i: Int, acc: Int): Int {
+    match (s.charAt(i)) {
+        .None => acc,
+        .Some(c) => digitsValue(s, i + 1, acc * 10 + c.toU32().toI64() - 48),
     }
 }
 
@@ -1152,12 +1158,8 @@ fn decimal<C: Allocator>(ctx: C, text: Str): Option<(Int, Int)> {
     let partOk = !pointed
         || part.length() > 0 && part.length() <= 9 && allDigits(part, 0);
     if (wholeOk && partOk) {
-        let s = whole.toInt().withDefault(0);
-        let n = if (pointed) {
-            part.padEnd(ctx, 9, '0').toInt().withDefault(0)
-        } else {
-            0
-        };
+        let s = digitsValue(whole, 0, 0);
+        let n = if (pointed) { digitsValue(part.padEnd(ctx, 9, '0'), 0, 0) } else { 0 };
         .Some((s, n))
     } else {
         .None
@@ -1315,7 +1317,7 @@ fn instant<C: Allocator>(ctx: C, text: Str): Option<(Int, Int)> {
                 (0, "")
             } else {
                 (
-                    part.padEnd(ctx, 9, '0').toInt().withDefault(-1),
+                    digitsValue(part.padEnd(ctx, 9, '0'), 0, 0),
                     rest.slice(end, rest.length()),
                 )
             }

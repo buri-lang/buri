@@ -154,29 +154,38 @@ export fn fromBytes(bytes: [U8]): Option<Uuid> {
 /// The version and variant fields are read rather than checked, so the nil
 /// identifier and anything else already written down still parses.
 export fn parse(text: Str): Option<Uuid> {
-    if (text.length() != 36 || !hyphenated(text) || !allHexDigits(text, 0)) {
-        .None
-    } else {
-        .Some(
-            Uuid([
-                octetAt(text, 0),
-                octetAt(text, 1),
-                octetAt(text, 2),
-                octetAt(text, 3),
-                octetAt(text, 4),
-                octetAt(text, 5),
-                octetAt(text, 6),
-                octetAt(text, 7),
-                octetAt(text, 8),
-                octetAt(text, 9),
-                octetAt(text, 10),
-                octetAt(text, 11),
-                octetAt(text, 12),
-                octetAt(text, 13),
-                octetAt(text, 14),
-                octetAt(text, 15),
-            ]),
+    match (
+        (
+            text.length() == 36 && hyphenated(text),
+            word(text, 0, 8, 0),
+            word(text, 8, 16, 0),
+            word(text, 16, 24, 0),
+            word(text, 24, 32, 0),
         )
+    ) {
+        (true, .Some(a), .Some(b), .Some(c), .Some(d)) => {
+            .Some(
+                Uuid([
+                    (a / 16777216).wrapToU8(),
+                    (a / 65536).wrapToU8(),
+                    (a / 256).wrapToU8(),
+                    a.wrapToU8(),
+                    (b / 16777216).wrapToU8(),
+                    (b / 65536).wrapToU8(),
+                    (b / 256).wrapToU8(),
+                    b.wrapToU8(),
+                    (c / 16777216).wrapToU8(),
+                    (c / 65536).wrapToU8(),
+                    (c / 256).wrapToU8(),
+                    c.wrapToU8(),
+                    (d / 16777216).wrapToU8(),
+                    (d / 65536).wrapToU8(),
+                    (d / 256).wrapToU8(),
+                    d.wrapToU8(),
+                ]),
+            )
+        },
+        _ => .None,
     }
 }
 
@@ -196,31 +205,23 @@ fn hexPosition(n: Int): Int {
     }
 }
 
-fn nibbleAt(text: Str, n: Int): Int {
-    text.charAt(hexPosition(n)).andThen(fn(c) => c.toDigit(16)).withDefault(0)
-}
-
-fn octetAt(text: Str, i: Int): U8 {
-    (nibbleAt(text, i * 2) * 16 + nibbleAt(text, i * 2 + 1)).wrapToU8()
-}
-
 fn hyphenated(text: Str): Bool {
     hyphenAt(text, 8) && hyphenAt(text, 13) && hyphenAt(text, 18) && hyphenAt(text, 23)
 }
 
 fn hyphenAt(text: Str, at: Int): Bool {
-    text.charAt(at).withDefault(' ') == '-'
+    text.charAt(at) == .Some('-')
 }
 
-/// All thirty-two hex positions hold a hex digit. Checked before anything is
-/// read, so `nibbleAt`'s default is never the answer.
-fn allHexDigits(text: Str, n: Int): Bool {
-    if (n >= 32) {
-        true
+/// The hex digits from the `n`th up to the `end`th as a number after `acc`, or
+/// `.None` where one is missing or not a hex digit. Eight of them are 32 bits.
+fn word(text: Str, n: Int, end: Int, acc: Int): Option<Int> {
+    if (n >= end) {
+        .Some(acc)
     } else {
         match (text.charAt(hexPosition(n)).andThen(fn(c) => c.toDigit(16))) {
-            .Some(_d) => allHexDigits(text, n + 1),
-            .None => false,
+            .Some(d) => word(text, n + 1, end, acc * 16 + d),
+            .None => .None,
         }
     }
 }

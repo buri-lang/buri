@@ -441,6 +441,10 @@ test "a set matches one of its members, and `!` turns it round" {
     assert.isFalse(path.of(ctx, "a").matchesGlob("[!abc]"));
     // A set nothing closes matches nothing.
     assert.isFalse(path.of(ctx, "a").matchesGlob("[abc"));
+    // Nor does one opened as the pattern ends, or one with no character left
+    // to match.
+    assert.isFalse(path.of(ctx, "a").matchesGlob("a["));
+    assert.isFalse(path.of(ctx, "a").matchesGlob("a[b]"));
 }
 
 test "`**` matches any number of whole components, none included" {
