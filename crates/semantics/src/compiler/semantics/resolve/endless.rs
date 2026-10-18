@@ -115,11 +115,15 @@ struct Edge<'a, K> {
 }
 
 /// A declaration that needs endless instantiations.
-pub(super) struct Endless<'a, K> {
+pub(super) struct Endless<'a, K, P> {
     /// Where the error goes: where the cycle is read from, when that is one of
-    /// the owners searched, or else the first declared of those it goes
-    /// through.
+    /// the owners searched, or else the owner whose search found it.
     pub report: K,
+    /// What the caller handed in with `report`.
+    pub about: P,
+    /// Where on the cycle `report` is: `0` is `from`, and `n` the target of
+    /// the `n`th step.
+    pub report_at: usize,
     /// Where the cycle is read from: there, at its own parameters, each step
     /// round it only grows them.
     pub from: K,
@@ -127,12 +131,15 @@ pub(super) struct Endless<'a, K> {
 }
 
 /// The declarations among `decls` whose instantiations never end, each with
-/// the arguments it contains itself at. Types that grow through each other are
-/// reported once, on the first declared.
-pub(super) fn endless(tables: &Tables, decls: &[TyConId]) -> Vec<(TyConId, Vec<Ty>)> {
-    let owners: Vec<(TyConId, usize)> = decls
+/// the arguments it contains itself at, and what it was declared with. Types
+/// that grow through each other are reported once, on the first declared.
+pub(super) fn endless<P: Copy>(
+    tables: &Tables,
+    decls: &[(TyConId, P)],
+) -> Vec<(TyConId, P, Vec<Ty>)> {
+    let owners: Vec<(TyConId, usize, P)> = decls
         .iter()
-        .map(|&c| (c, tables.tycon(c).arity()))
+        .map(|&(c, p)| (c, tables.tycon(c).arity(), p))
         .collect();
     let found = search(&owners, |c| {
         let con = tables.tycon(c);
@@ -159,7 +166,7 @@ pub(super) fn endless(tables: &Tables, decls: &[TyConId]) -> Vec<(TyConId, Vec<T
             for step in &e.steps {
                 args = step.apply(&args);
             }
-            (e.report, args)
+            (e.report, e.about, args)
         })
         .collect()
 }
@@ -175,10 +182,10 @@ pub(super) fn endless_functions<'a>(
     bodies: &'a BodyMap,
     fns: &[FnId],
     beyond: bool,
-) -> Vec<Endless<'a, FnId>> {
-    let owners: Vec<(FnId, usize)> = fns
+) -> Vec<Endless<'a, FnId, ()>> {
+    let owners: Vec<(FnId, usize, ())> = fns
         .iter()
-        .map(|&f| (f, tables.fn_info(f).generics.len()))
+        .map(|&f| (f, tables.fn_info(f).generics.len(), ()))
         .collect();
     let mine: HashSet<FnId> = fns.iter().copied().collect();
     // Every `impl` of each trait, in a fixed order, for a method called on a
@@ -303,23 +310,37 @@ fn receivers_of(
     }
 }
 
-/// The instantiations a cycle goes through, from `from` at its own
-/// parameters, `rounds` times round.
-pub(super) fn instantiations(
-    tables: &Tables,
-    found: &Endless<'_, FnId>,
-    rounds: usize,
-) -> Vec<(FnId, Vec<Ty>)> {
+/// How a cycle grows its report: the arguments `report` is reached at in each
+/// of the first three rounds, read from `from` at its own parameters, and the
+/// declarations one round goes through between two of them.
+pub(super) struct Growth {
+    pub rounds: [Vec<Ty>; 3],
+    pub between: Vec<FnId>,
+}
+
+pub(super) fn growth(tables: &Tables, found: &Endless<'_, FnId, ()>) -> Growth {
     let arity = tables.fn_info(found.from).generics.len();
     let mut args: Vec<Ty> = (0..arity).map(|i| Ty::param(i as u32)).collect();
-    let mut out = vec![(found.from, args.clone())];
-    for _ in 0..rounds {
-        for step in &found.steps {
-            args = step.apply(&args);
-            out.push((step.target(), args.clone()));
-        }
+    for step in found.steps.iter().take(found.report_at) {
+        args = step.apply(&args);
     }
-    out
+    // One round, read from the report: back round to it.
+    let round = || {
+        found
+            .steps
+            .iter()
+            .cycle()
+            .skip(found.report_at)
+            .take(found.steps.len())
+    };
+    let next = |args: &[Ty]| round().fold(args.to_vec(), |args, step| step.apply(&args));
+    let second = next(&args);
+    let third = next(&second);
+    let last = found.steps.len().saturating_sub(1);
+    Growth {
+        rounds: [args, second, third],
+        between: round().take(last).map(Step::target).collect(),
+    }
 }
 
 /// Binds the parameters of an `impl`'s `head` to the parts of `ty`, which it
@@ -417,11 +438,13 @@ fn parts(ty: Ty) -> Vec<((Shape, usize), Ty)> {
     }
 }
 
-/// The owners, each with its parameter count, that need endless
-/// instantiations, each with the cycle it grows round.
-fn search<'a, K, F>(owners: &[(K, usize)], edges_of: F) -> Vec<Endless<'a, K>>
+/// The owners, each with its parameter count and what the caller hands in
+/// with it, that need endless instantiations, each with the cycle it grows
+/// round.
+fn search<'a, K, P, F>(owners: &[(K, usize, P)], edges_of: F) -> Vec<Endless<'a, K, P>>
 where
     K: Copy + Eq + Ord + std::hash::Hash,
+    P: Copy,
     F: FnMut(K) -> Vec<Edge<'a, K>>,
 {
     let mut graph = Graph {
@@ -431,7 +454,7 @@ where
     let components = graph.growing_components(
         owners
             .iter()
-            .flat_map(|&(k, n)| (0..n).map(move |i| (k, i))),
+            .flat_map(|&(k, n, _)| (0..n).map(move |i| (k, i))),
     );
     let mut component: HashMap<Node<K>, (usize, &Component<'a, K>)> = HashMap::default();
     for (id, c) in components.iter().enumerate() {
@@ -440,12 +463,13 @@ where
     let order: HashMap<K, usize> = owners
         .iter()
         .enumerate()
-        .map(|(i, &(k, _))| (k, i))
+        .map(|(i, &(k, _, _))| (k, i))
         .collect();
+    let handed: HashMap<K, P> = owners.iter().map(|&(k, _, p)| (k, p)).collect();
     let mut covered: HashSet<K> = HashSet::default();
     let mut walked: HashSet<usize> = HashSet::default();
     let mut out = Vec::new();
-    for &(k, arity) in owners {
+    for &(k, arity, p) in owners {
         if covered.contains(&k) {
             continue;
         }
@@ -462,9 +486,16 @@ where
         });
         let Some((from, steps)) = found else { continue };
         covered.extend(steps.iter().map(Step::target));
-        let report = order.get(&from).map_or(k, |_| from);
+        // A walk read from outside the owners is reported on `k`, and read
+        // from where it reaches `k`.
+        let on_walk =
+            (steps.iter().position(|s| s.target() == k)).map_or(0, |j| j.saturating_add(1));
+        let (report, about, report_at) =
+            (handed.get(&from)).map_or((k, p, on_walk), |&p| (from, p, 0));
         out.push(Endless {
             report,
+            about,
+            report_at,
             from,
             steps,
         });

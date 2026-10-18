@@ -10,7 +10,7 @@ use crate::compiler::semantics::inference::{Infer, LitCheck, OrScope};
 use crate::compiler::semantics::resolve::Sym;
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
-use crate::diagnostics::{counted, Invariant as _, Span};
+use crate::diagnostics::{counted, Span};
 use crate::parsing::flat::{Location, PatId, PatPayloadData, PatView as P};
 
 impl<'a, 'b> Infer<'a, 'b> {
@@ -242,10 +242,12 @@ impl<'a, 'b> Infer<'a, 'b> {
 
             P::Path {
                 path,
+                head,
+                rest,
                 dotted,
                 payload,
                 ..
-            } => self.check_path_pattern(path, dotted, payload, &ty, span),
+            } => self.check_path_pattern((path, head, rest), dotted, payload, &ty, span),
         };
         typed::Pattern { kind, ty, span }
     }
@@ -299,17 +301,14 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     fn check_path_pattern(
         &mut self,
-        path: &[Location],
+        (path, head, rest): (&[Location], Location, &[Location]),
         dotted: bool,
         payload: Option<PatPayloadData>,
         ty: &Ty,
         span: Span,
     ) -> typed::PatKind {
         let t = self.tree();
-        let (head, rest) = path
-            .split_first()
-            .or_ice("the parser builds every path pattern from at least one identifier");
-        let head = t.text(*head);
+        let head = t.text(head);
         // `.Variant` — the scrutinee's type supplies the enum.
         if dotted {
             let TyKind::Con(con, args) = ty.kind() else {
