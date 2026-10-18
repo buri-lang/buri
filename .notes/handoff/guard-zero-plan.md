@@ -119,6 +119,77 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard-zero phase 38: the `cli` crate's build and test guards (done)
+
+## What changed
+
+- `parallel::pool` hands each job's result back as a `thread::Result`.
+  `Results::recv` raises a job's panic where the report waits, so
+  `test.rs` `recv` no longer has an `or_ice`. A pool that can start no
+  thread returns `None`, and `buri test` says so as an error.
+- `test.rs` `owner_of` returns `Option<usize>`. `selected_of` keeps only
+  the tests a member owns, so the `expect` is gone.
+- `generators.rs`: three guards are gone.
+  - The tool key loops over the resolved tool.
+  - An input text that `Checks::start` didn't read is read where it's
+    wanted.
+  - A check that didn't run ahead runs where its verdict is wanted.
+- `platform_rule` in `build/workspace.rs` is deleted. Loading resolves
+  each written custom output to a `RepoPlatform` (label, package, rule),
+  which the output carries. `actions.rs`, `watch.rs`, `modules.rs`,
+  `driver.rs` and `run.rs` read the platform from the output.
+- `link.rs` `object_path` is total. A separator in a unit's name becomes
+  `_`, so the `or_ice` is gone. `map_items` replaces the indexed `expect`.
+
+## Left, and why
+
+- `actions.rs` `emit_into` `or_ice`. The backend contract lets
+  `emit_units` return more objects than were asked for, so the units
+  are picked by name. Removing the guard means changing the `Backend`
+  trait to return objects keyed by unit, and stencil implements it.
+  That's another agent's crate this phase. Do it in a phase that owns
+  `crates/stencil`.
+- Other guards seen but not targets:
+  - `link.rs` line 311 and the `stdin` `expect` in `probe_target`;
+  - `programs.rs` `settle_in` `expect`.
+
+## Coverage
+
+- On this Mac, base (staging at `bde50398e`) against new:
+  - cli/build: 1631/1695 (96.22%) to 1628/1691 (96.27%);
+  - cli/test: 484/508 to 484/508;
+  - crates/diagnostics: 191/196 to 193/198;
+  - crates/project: 1345/1360 to 1345/1360.
+- The platform refactor removed 4 covered branches from
+  `build/workspace.rs`. Two tests make up for it:
+  - `the_c_drivers_version_is_asked_again_when_its_sdk_variables_change`
+    reaches the `SDKROOT`, `DEVELOPER_DIR` and `DEPLOYMENT_TARGET` arms
+    of `shapes_the_link`. CI run 39110604749's Linux shards never took
+    them, so Linux should gain 3.
+  - `a_cross_link_needs_a_c_driver_that_takes_a_target` now also uses a
+    driver that can't run, which reaches `probe_target`'s spawn failure.
+    This Mac gains 1.
+- CI estimate for cli/build, against staging's baseline of 1682/1697
+  (99.12%): (1682 - 4 + 3) / (1697 - 4) = 1681/1693 (99.29%).
+
+## Commits on staging
+
+- `26d6f1256` test: a test job that panics raises its panic where the
+  report waits
+- `8fb37270d` build: a generator's check runs where its verdict is
+  wanted when none ran ahead
+- `bb7d99514` build: an output carries the repository platform it names
+- `7693942d9` build: a unit's object stays in the link directory
+  whatever the unit is named
+- `0fec126b7` test: the C driver is asked again when its SDK variables
+  change, and a cross driver that can't run is refused
+
+## Release output
+
+All object and JS hashes are identical between base and new:
+b-programs (debug, release), example, tested and conformance (debug,
+release, JS), with conformance's `backends: [JS]` lines removed.
+
 # Guard-zero phase 37: number patterns carry their primitive (done)
 
 ## What changed
