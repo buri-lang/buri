@@ -120,6 +120,28 @@ test "a schema that already names Unrecognized keeps its meaning" {
     assert.contains(out, "        .Unrecognized_(n) => n,");
 }
 
+test "an enum with no zero still has a default: its first value, or UNSPECIFIED when it has none" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // The reader refuses both enums, and the module still parses.
+    let source = [
+        HEAD,
+        "enum Late { ONE = 1; TWO = 2; }\n",
+        "enum Bare {}\n",
+        "message M {\n",
+        "  Late late = 1 [features.field_presence = IMPLICIT];\n",
+        "  Bare bare = 2 [features.field_presence = IMPLICIT];\n",
+        "}\n",
+    ].join(ctx, "");
+    let out = lines(ctx, source);
+    assert.contains(out, "    M { late: Late.ONE, bare: Bare.UNSPECIFIED }");
+    assert.equal(block(ctx, out, "export enum Bare {", 2), [
+        "export enum Bare {",
+        "    UNSPECIFIED,",
+    ]);
+}
+
 test "an alias decodes to the first name that claimed its number" {
     let ctx = context {
         Allocator: alloc(),

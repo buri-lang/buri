@@ -718,6 +718,18 @@ fn word<C: Allocator>(ctx: C, p0: P, what: Str): (P, Option<(Str, ast.Origin)>) 
     }
 }
 
+/// A type a field names. A leading `.` makes it absolute, read from the root
+/// rather than from the scope the field is in: `.pkg.Type`.
+fn typeName<C: Allocator>(ctx: C, p0: P, what: Str): (P, Option<(Str, ast.Origin)>) {
+    let p = skipTrivia(ctx, p0);
+    if (charAt(p, p.at) == '.' && isWordStart(charAt(p, p.at + 1))) {
+        let end = wordEnd(p, p.at + 1);
+        (P { ..p, at: end }, .Some((text(ctx, p, p.at, end), span(p, p.at, end))))
+    } else {
+        word(ctx, p, what)
+    }
+}
+
 /// Everything up to and including the next `;`, for the statements this reader
 /// records nothing from.
 fn skipStatement<C: Allocator>(ctx: C, p: P): P {
@@ -1772,13 +1784,13 @@ fn reused<C: Allocator>(
 fn field<C: Allocator>(ctx: C, p0: P): (P, Option<Field>) {
     let p = skipTrivia(ctx, p0);
     let start = p.at;
-    let (p1, first) = word(ctx, p, "a field type");
+    let (p1, first) = typeName(ctx, p, "a field type");
     match (first) {
         .None => (p1, .None),
         .Some(pair) => {
             let (w, origin) = pair;
             if (w == "repeated") {
-                let (p2, ty) = word(ctx, p1, "a field type");
+                let (p2, ty) = typeName(ctx, p1, "a field type");
                 fieldRest(ctx, p2, start, Label.Repeated, ty)
             } else if (w == "optional" || w == "required") {
                 // Both removed labels are refused where they are written, so a
@@ -1796,7 +1808,7 @@ fn field<C: Allocator>(ctx: C, p0: P): (P, Option<Field>) {
                     "editions replaced the labels with `features.field_presence`, whose default is EXPLICIT",
                     remedy,
                 );
-                let (p2, ty) = word(ctx, q, "a field type");
+                let (p2, ty) = typeName(ctx, q, "a field type");
                 fieldRest(ctx, p2, start, Label.Single, ty)
             } else {
                 fieldRest(ctx, p1, start, Label.Single, .Some((w, origin)))
@@ -1843,7 +1855,7 @@ fn mapField<C: Allocator>(
     let (p1, _) = expect(ctx, p, "<", "`map`");
     let (p2, key) = word(ctx, p1, "a map key type");
     let (p3, _) = expect(ctx, p2, ",", "a map key type");
-    let (p4, value) = word(ctx, p3, "a map value type");
+    let (p4, value) = typeName(ctx, p3, "a map value type");
     let (p5, _) = expect(ctx, p4, ">", "a map value type");
     match ((key, value)) {
         (.Some((k, kOrigin)), .Some((v, _))) => {

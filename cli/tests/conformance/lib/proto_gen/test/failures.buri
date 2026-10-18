@@ -8,7 +8,8 @@ from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator };
 from "platform/effect/testing" import { alloc };
 from "std/codegen/proto" import * as proto;
-from "//lib/proto_gen" import { generated, generatedWith, HEAD, spanText };
+from "std/codegen/proto/schema" import * as schema;
+from "//lib/proto_gen" import { FILE, generated, generatedWith, HEAD, spanText };
 
 fn codes<C: Allocator>(ctx: C, diagnostics: [Diagnostic]): [Str] {
     diagnostics.map(ctx, fn(d) => d.code)
@@ -139,4 +140,138 @@ test "a schema imported twice, under two spellings, is one schema and no complai
     let text = ast.print(ctx, person.1).text.lines(ctx);
     assert.contains(text, "    export home: Option<Address>,");
     assert.contains(text, "    export work: Option<Address>,");
+}
+
+test "a fully-qualified name declared three times is reported once, beside another" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let here = [
+        HEAD,
+        "package p;\n",
+        "message Dup { int32 a = 1; }\n",
+        "message Other { int32 a = 1; }\n",
+    ].join(ctx, "");
+    let two = [
+        HEAD,
+        "package p;\n",
+        "message Dup { int32 b = 1; }\n",
+        "message Other { int32 b = 1; }\n",
+    ].join(ctx, "");
+    let three = [HEAD, "package p;\n", "message Dup { int32 c = 1; }\n"].join(ctx, "");
+    let out = proto.generate(ctx, FILE, schema.parse(ctx, here, FILE).schema, [
+        ("//two.proto", schema.parse(ctx, two, "//two.proto").schema),
+        ("//three.proto", schema.parse(ctx, three, "//three.proto").schema),
+    ]);
+    assert.equal(out.diagnostics.map(ctx, fn(d) => d.message), [
+        "`p.Dup` is declared twice",
+        "`p.Other` is declared twice",
+    ]);
+}
+
+test "a short name three packages claim names each of them once" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let here = [
+        HEAD,
+        "package a;\n",
+        "message Status { int32 a = 1; }\n",
+        "message Use { Status s = 1; }\n",
+    ].join(ctx, "");
+    let b = [HEAD, "package b;\n", "message Status { int32 a = 1; }\n"].join(ctx, "");
+    let c = [HEAD, "package c;\n", "message Status { int32 a = 1; }\n"].join(ctx, "");
+    let bSchema = schema.parse(ctx, b, "//b.proto").schema;
+    // `b` reached twice is still one claimant.
+    let out = proto.generate(ctx, FILE, schema.parse(ctx, here, FILE).schema, [
+        ("//b.proto", bSchema),
+        ("//c.proto", schema.parse(ctx, c, "//c.proto").schema),
+        ("//b.proto", bSchema),
+    ]);
+    assert.equal(codes(ctx, out.diagnostics), ["proto-ambiguous-type"]);
+    assert.equal(
+        assert.some(out.diagnostics.first()).note,
+        .Some(
+            "it could be Status in //b.proto, or Status in //c.proto, or Status in lib/wire/point.proto",
+        ),
+    );
+}
+
+test "a name that starts with a dot is looked up from the root" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = [
+        HEAD,
+        "package p;\n",
+        "message Status { int32 a = 1; }\n",
+        "message Use { .p.Status s = 1; }\n",
+    ].join(ctx, "");
+    let out = proto.emit(ctx, Request { inputs: [(FILE, text)], dependencies: [] });
+    assert.equal(out.diagnostics.map(ctx, fn(d) => d.message), []);
+    let generatedModule = assert.some(out.modules.first());
+    assert.contains(
+        ast.print(ctx, generatedModule.1).text.lines(ctx),
+        "    export s: Option<Status>,",
+    );
+}
+
+test "a oneof whose only case names nothing is reported and left out" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = [
+        HEAD,
+        "message M { oneof pick { Missing m = 1; } int32 n = 2; }\n",
+    ].join(ctx, "");
+    let out = generated(ctx, text);
+    assert.equal(codes(ctx, out.diagnostics), ["proto-unknown-type"]);
+    let printed = ast.print(ctx, out.tree).text;
+    assert.isFalse(printed.contains("pick"));
+    assert.isTrue(printed.contains("    export n: Option<Int>,"));
+}
+
+test "an import nothing provides is reported where it is written" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let text = [
+        HEAD,
+        "import \"lib/proto/gone.proto\";\n",
+        "message M { int32 n = 1; }\n",
+    ].join(ctx, "");
+    let request = Request { inputs: [(FILE, text)], dependencies: [] };
+    let out = proto.emit(ctx, request);
+    assert.equal(codes(ctx, out.diagnostics), ["proto-unknown-import"]);
+    let d = assert.some(out.diagnostics.first());
+    assert.equal(
+        d.message,
+        "\"lib/proto/gone.proto\" names no schema in this repository",
+    );
+    assert.equal(spanText(text, assert.some(d.origin)), "\"lib/proto/gone.proto\"");
+}
+
+test "an import written from the root with a leading slash is the same schema" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let request = Request {
+        inputs: [
+            (
+                "lib/proto/address.proto",
+                "edition = \"2026\";\nmessage Address { string city = 1; }\n",
+            ),
+            (
+                FILE,
+                [
+                    HEAD,
+                    "import \"/lib/proto/address.proto\";\n",
+                    "message Person { Address home = 1; }\n",
+                ].join(ctx, ""),
+            ),
+        ],
+        dependencies: [],
+    };
+    let out = proto.emit(ctx, request);
+    assert.isEmpty(out.diagnostics);
 }
