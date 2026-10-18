@@ -1,5 +1,7 @@
 //! Values at the sizes a native backend takes a different path for: list
-//! elements three, five, six and seven bytes wide, which no single load reads.
+//! elements three, five, six and seven bytes wide, which no single load reads,
+//! and a string literal longer than sixteen mebibytes, past what a Mach-O
+//! instruction relocation's addend can reach.
 //!
 //! Each run is a real `buri test` over a repository, under the heap check, on
 //! JavaScript and on every native backend this toolchain has built in.
@@ -144,4 +146,25 @@ test "seven bytes" {
 "#,
         4,
     );
+}
+
+/// A literal of sixteen mebibytes and eight bytes, with a short one after it,
+/// both read back.
+#[test]
+fn a_literal_past_sixteen_mebibytes_builds_and_reads_back() {
+    let n = (16 << 20) + 8;
+    let test = format!(
+        r#"from "core/testing/assert" import * as assert;
+
+test "a long literal and a short one after it" {{
+    let long = "{}";
+    let short = "after";
+    assert.equal(long.length(), {n});
+    assert.equal(short, "after");
+    assert.equal(long.slice(0, 4), "abab");
+}}
+"#,
+        "ab".repeat(n / 2)
+    );
+    passes("long-literal", &test, 1);
 }

@@ -114,7 +114,7 @@ const ARM64_RELOC_PAGEOFF12: u32 = 4;
 const ARM64_RELOC_ADDEND: u32 = 10;
 
 /// `r_symbolnum` is 24 bits, and an `ARM64_RELOC_ADDEND` puts the addend there.
-const MAX_ADDEND: i64 = 0x00ff_ffff;
+pub(crate) const MAX_ADDEND: i64 = 0x00ff_ffff;
 
 /// One section of the object.
 pub struct Section {
