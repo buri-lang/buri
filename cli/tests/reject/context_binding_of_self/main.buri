@@ -1,0 +1,10 @@
+// EXPECT: `Self` is not a declared effect
+from "platform/effect" import { Allocator, Stdout };
+from "node" import { NodeHost };
+from "core/io" import * as io;
+
+export fn main(host: NodeHost): Result<(), Str> {
+  let ctx = context { Allocator: host.alloc, Self: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "hi").ignore();
+  .Ok(())
+}
