@@ -183,6 +183,24 @@ pub const MAX_FLOAT_ARGS: usize = 2;
 /// undeclared symbol.
 const _: () = assert!(MAX_INT_ARGS <= 10 && MAX_FLOAT_ARGS <= 2);
 
+/// The result shapes a `crt` stencil is generated for, by the letter its keys
+/// and its callee hole spell (`sources.rs`'s `return_ctype`).
+///
+/// **A shape per C return type, and that is the whole point of the list.** A
+/// stencil declares the entry it calls, and a declaration that is wider than
+/// what the entry returns is not a rounding error: both psABIs leave the upper
+/// bits of a narrower integer return **unspecified**, so `uint64_t` against a
+/// `u8` reads whatever was in the register. AAPCS64 happened to hide it — Rust's
+/// arm64 codegen zeroes the register on the way out — and SysV does not, which
+/// is where it was found. `rtcall::scalar_kind` picks the letter from the
+/// destination's own width, which is the same fact the other two backends build
+/// their call signature from.
+///
+/// `w` is the odd one and stays: it is the **signed** 32-bit shape a fallible
+/// entry's `BURI_*` discriminant comes back in (`cli/runtime/lib.rs` §2), not a
+/// width a Buri value has.
+pub const RETURN_SHAPES: [&str; 7] = ["v", "i", "w", "d", "b", "h", "u"];
+
 /// The hole a runtime call's callee is bound to.
 ///
 /// One name per *shape* rather than one name for every call, because the hole
@@ -190,24 +208,8 @@ const _: () = assert!(MAX_INT_ARGS <= 10 && MAX_FLOAT_ARGS <= 2);
 /// the declared type is what decides which registers clang reads the arguments
 /// out of. `sources.rs::runtime_calls` declares them; `rtcall.rs` binds them;
 /// this is the one spelling both compile.
-///
-/// A `Display` rather than a `String`, because the emitter spells one per
-/// runtime call and can write it without allocating.
-pub fn rt_callee(ints: usize, floats: usize, ret: &str) -> RtCallee<'_> {
-    RtCallee { ints, floats, ret }
-}
-
-/// [`rt_callee`]'s spelling.
-pub struct RtCallee<'r> {
-    ints: usize,
-    floats: usize,
-    ret: &'r str,
-}
-
-impl std::fmt::Display for RtCallee<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "JIT_RT_{}_{}_{}", self.ints, self.floats, self.ret)
-    }
+pub fn rt_callee(ints: usize, floats: usize, ret: &'static str) -> Jump {
+    Jump::Rt { ints, floats, ret }
 }
 
 /// The hole a **slots-only** runtime call reads its `i`th integer argument
@@ -222,22 +224,188 @@ impl std::fmt::Display for RtCallee<'_> {
 ///
 /// Declared in `sources.rs`'s prelude, bound in `rtcall.rs`; this is the one
 /// spelling both compile.
-pub fn rt_slot(i: usize) -> std::borrow::Cow<'static, str> {
-    const SLOTS: [&str; MAX_INT_ARGS] = [
-        "JIT_S0", "JIT_S1", "JIT_S2", "JIT_S3", "JIT_S4", "JIT_S5", "JIT_S6", "JIT_S7", "JIT_S8",
-        "JIT_S9",
-    ];
-    match SLOTS.get(i) {
-        Some(s) => (*s).into(),
-        None => format!("JIT_S{i}").into(),
-    }
+pub fn rt_slot(i: usize) -> Lit {
+    Lit::S(i)
 }
 
 /// [`rt_slot`] for a float argument, in the second register bank.
-pub fn rt_float_slot(i: usize) -> std::borrow::Cow<'static, str> {
-    const SLOTS: [&str; MAX_FLOAT_ARGS] = ["JIT_G0", "JIT_G1"];
-    match SLOTS.get(i) {
-        Some(s) => (*s).into(),
-        None => format!("JIT_G{i}").into(),
+pub fn rt_float_slot(i: usize) -> Lit {
+    Lit::G(i)
+}
+
+/// A hole the emitter binds: one of the `_JIT_*` symbols `sources.rs`'s
+/// prelude declares.
+///
+/// The prelude declares each one as a small literal (`H32`), a full-width
+/// datum (`H64`) or a function, and that declaration decides the relocation
+/// clang writes for it. So the name says what a hole takes, and the emitter
+/// binds each class with its own kind of value.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Slot {
+    Lit(Lit),
+    Word(Word),
+    Jump(Jump),
+}
+
+/// A small literal hole, `H32`: a frame offset, a size, a tag.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Lit {
+    A,
+    B,
+    C,
+    D,
+    E,
+    N,
+    P,
+    Q,
+    /// [`rt_slot`]'s.
+    S(usize),
+    /// [`rt_float_slot`]'s.
+    G(usize),
+}
+
+/// A full-width datum hole, `H64`: a constant, an address, a mask.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Word {
+    K,
+    M,
+    R,
+}
+
+/// A hole that is a jump or a call target.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Jump {
+    Cont,
+    Cont0,
+    T,
+    F,
+    Callee,
+    /// [`rt_callee`]'s, one per call shape.
+    Rt {
+        ints: usize,
+        floats: usize,
+        ret: &'static str,
+    },
+}
+
+/// What a stencil's hole is named: a [`Slot`] the emitter binds, or a symbol
+/// outside the program that the stencil body reached on its own — an abort,
+/// `buri_rt_free`, `memcpy`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum HoleName {
+    Slot(Slot),
+    Symbol(String),
+}
+
+impl HoleName {
+    /// The name a relocation spells, read.
+    pub fn of(name: &str) -> HoleName {
+        match name.strip_prefix("JIT_").and_then(Slot::of) {
+            Some(slot) => HoleName::Slot(slot),
+            None => HoleName::Symbol(name.to_string()),
+        }
+    }
+}
+
+impl Slot {
+    /// The slot spelled `JIT_{name}`.
+    fn of(name: &str) -> Option<Slot> {
+        Some(match name {
+            "A" => Slot::Lit(Lit::A),
+            "B" => Slot::Lit(Lit::B),
+            "C" => Slot::Lit(Lit::C),
+            "D" => Slot::Lit(Lit::D),
+            "E" => Slot::Lit(Lit::E),
+            "N" => Slot::Lit(Lit::N),
+            "P" => Slot::Lit(Lit::P),
+            "Q" => Slot::Lit(Lit::Q),
+            "K" => Slot::Word(Word::K),
+            "M" => Slot::Word(Word::M),
+            "R" => Slot::Word(Word::R),
+            "CONT" => Slot::Jump(Jump::Cont),
+            "CONT0" => Slot::Jump(Jump::Cont0),
+            "T" => Slot::Jump(Jump::T),
+            "F" => Slot::Jump(Jump::F),
+            "CALLEE" => Slot::Jump(Jump::Callee),
+            _ => return Slot::numbered(name),
+        })
+    }
+
+    /// `S{i}`, `G{i}` and `RT_{ints}_{floats}_{ret}`, the families
+    /// [`rt_slot`], [`rt_float_slot`] and [`rt_callee`] spell.
+    fn numbered(name: &str) -> Option<Slot> {
+        if let Some(rest) = name.strip_prefix("RT_") {
+            let mut parts = rest.split('_');
+            let ints = parts.next()?.parse().ok()?;
+            let floats = parts.next()?.parse().ok()?;
+            let ret = parts.next()?;
+            let ret = *RETURN_SHAPES.iter().find(|r| **r == ret)?;
+            let slot = Slot::Jump(Jump::Rt { ints, floats, ret });
+            return parts.next().is_none().then_some(slot);
+        }
+        let (lit, i): (fn(usize) -> Lit, &str) = match name.split_at_checked(1)? {
+            ("S", i) => (Lit::S, i),
+            ("G", i) => (Lit::G, i),
+            _ => return None,
+        };
+        let slot = Slot::Lit(lit(i.parse().ok()?));
+        // Only the spelling `Display` writes back, so `S01` is no slot.
+        (slot.to_string().strip_prefix("JIT_") == Some(name)).then_some(slot)
+    }
+}
+
+impl std::fmt::Display for Slot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Slot::Lit(Lit::S(i)) => return write!(f, "JIT_S{i}"),
+            Slot::Lit(Lit::G(i)) => return write!(f, "JIT_G{i}"),
+            Slot::Jump(Jump::Rt { ints, floats, ret }) => {
+                return write!(f, "JIT_RT_{ints}_{floats}_{ret}");
+            }
+            Slot::Lit(Lit::A) => "A",
+            Slot::Lit(Lit::B) => "B",
+            Slot::Lit(Lit::C) => "C",
+            Slot::Lit(Lit::D) => "D",
+            Slot::Lit(Lit::E) => "E",
+            Slot::Lit(Lit::N) => "N",
+            Slot::Lit(Lit::P) => "P",
+            Slot::Lit(Lit::Q) => "Q",
+            Slot::Word(Word::K) => "K",
+            Slot::Word(Word::M) => "M",
+            Slot::Word(Word::R) => "R",
+            Slot::Jump(Jump::Cont) => "CONT",
+            Slot::Jump(Jump::Cont0) => "CONT0",
+            Slot::Jump(Jump::T) => "T",
+            Slot::Jump(Jump::F) => "F",
+            Slot::Jump(Jump::Callee) => "CALLEE",
+        };
+        write!(f, "JIT_{name}")
+    }
+}
+
+impl std::fmt::Display for Lit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Slot::Lit(*self).fmt(f)
+    }
+}
+
+impl std::fmt::Display for Word {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Slot::Word(*self).fmt(f)
+    }
+}
+
+impl std::fmt::Display for Jump {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Slot::Jump(*self).fmt(f)
+    }
+}
+
+impl std::fmt::Display for HoleName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HoleName::Slot(s) => s.fmt(f),
+            HoleName::Symbol(s) => f.write_str(s),
+        }
     }
 }

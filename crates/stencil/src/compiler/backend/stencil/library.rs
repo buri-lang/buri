@@ -11,6 +11,7 @@
 //! The one place this deviates from the paper is *what a hole is patched with*,
 //! and it is an ISA fact rather than a design choice — see [`HoleKind`].
 
+use super::abi::{HoleName, Slot};
 use crate::hash::Map as HashMap;
 
 /// How a hole's value reaches the instruction stream.
@@ -66,6 +67,19 @@ pub enum HoleKind {
     Branch,
 }
 
+impl HoleName {
+    /// The relocation a hole by this name is written with: the class its slot
+    /// is declared in, and a branch for a symbol outside the program, which a
+    /// stencil only ever calls.
+    pub fn kind(&self) -> HoleKind {
+        match self {
+            HoleName::Slot(Slot::Lit(_)) => HoleKind::Imm32,
+            HoleName::Slot(Slot::Word(_)) => HoleKind::Imm64,
+            HoleName::Slot(Slot::Jump(_)) | HoleName::Symbol(_) => HoleKind::Branch,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SiteKind {
     /// `adrp` of a `PAGE21` pair; rewritten to `movz`.
@@ -115,7 +129,7 @@ pub struct Site {
 
 #[derive(Clone, Debug)]
 pub struct Hole {
-    pub name: String,
+    pub name: HoleName,
     pub kind: HoleKind,
     /// The relocation records this hole was built from, grouped. Populated by
     /// the build script's extractor and **empty in a decoded library**: the
@@ -188,10 +202,6 @@ impl Stencil {
             const_refs: Vec::new(),
             tail: None,
         }
-    }
-
-    pub fn find(&self, name: &str) -> Option<usize> {
-        self.holes.iter().position(|h| h.name == name)
     }
 }
 
@@ -466,7 +476,7 @@ fn put_record(out: &mut Vec<u8>, s: &Stencil) {
     put_u32(out, s.tail.map_or(u32::MAX, |t| t as u32));
     put_u32(out, s.holes.len() as u32);
     for h in &s.holes {
-        put_str(out, &h.name);
+        put_str(out, &h.name.to_string());
         put_u32(
             out,
             match h.kind {
@@ -503,7 +513,7 @@ fn read_stencil(bytes: &[u8], record: u32, code: u32) -> Result<Stencil, String>
     let nh = c.usize()?;
     let mut holes = Vec::with_capacity(nh);
     for _ in 0..nh {
-        let hname = c.str()?;
+        let hname = HoleName::of(&c.str()?);
         let kind = match c.u32()? {
             0 => HoleKind::Imm32,
             1 => HoleKind::Imm64,
@@ -625,7 +635,7 @@ mod tests {
             name: String::from("bin/add/i64/ff/f"),
             code: vec![1, 2, 3, 4, 5, 6, 7, 8],
             holes: vec![Hole {
-                name: String::from("_JIT_A"),
+                name: HoleName::of("JIT_A"),
                 kind: HoleKind::Imm32,
                 sites: vec![Site {
                     off: 0,
@@ -716,7 +726,7 @@ mod tests {
         assert_eq!(s.code, vec![1, 2, 3, 4, 5, 6, 7, 8]);
         assert_eq!(s.tail, Some(0));
         let h = s.holes.first().unwrap();
-        assert_eq!(h.name, "_JIT_A");
+        assert_eq!(h.name, HoleName::of("JIT_A"));
         assert_eq!(h.kind, HoleKind::Imm32);
         assert_eq!(h.pairs, vec![(0, 4)]);
         assert_eq!(h.branches, vec![8]);

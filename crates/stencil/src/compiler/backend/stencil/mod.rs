@@ -139,16 +139,6 @@ macro_rules! key {
     }};
 }
 
-/// [`key!`] from a format string, for the rare key built from a `Display`.
-macro_rules! key_fmt {
-    ($($arg:tt)*) => {{
-        let mut k = $crate::compiler::backend::stencil::jit::Key::default();
-        // A `Key` takes any length, so the write cannot fail.
-        let _ = ::std::fmt::Write::write_fmt(&mut k, ::std::format_args!($($arg)*));
-        k
-    }};
-}
-
 pub mod abi;
 pub mod asm;
 pub mod elf;
@@ -1366,7 +1356,7 @@ mod tests {
             for s in lib.iter() {
                 for h in &s.holes {
                     assert_eq!(
-                        names::outlining_artifact(&h.name),
+                        names::outlining_artifact(&h.name.to_string()),
                         None,
                         "{}: {} reaches {}",
                         t.slug(),

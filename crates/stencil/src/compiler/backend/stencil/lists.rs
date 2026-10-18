@@ -12,6 +12,7 @@
               already sized, or an offset inside one value's layout"
 )]
 
+use super::abi::{Jump, Lit};
 use super::jit::{Jit, V};
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
@@ -51,11 +52,11 @@ impl Jit<'_> {
                 self.emit(
                     &zk,
                     &[
-                        ("JIT_D", V::I(u64::from(dst))),
-                        ("JIT_A", V::I(u64::from(base))),
-                        ("JIT_B", V::I(u64::from(i))),
-                        ("JIT_P", V::I(u64::from(stride))),
-                        ("JIT_CONT", V::Fall),
+                        Lit::D.of(u64::from(dst)),
+                        Lit::A.of(u64::from(base)),
+                        Lit::B.of(u64::from(i)),
+                        Lit::P.of(u64::from(stride)),
+                        Jump::Cont.to(V::Fall),
                     ],
                 );
                 return;
@@ -74,11 +75,11 @@ impl Jit<'_> {
             self.emit(
                 &key,
                 &[
-                    ("JIT_D", V::I(u64::from(dst))),
-                    ("JIT_A", V::I(u64::from(base))),
-                    ("JIT_B", V::I(u64::from(i))),
-                    ("JIT_P", V::I(u64::from(stride))),
-                    ("JIT_CONT", V::Fall),
+                    Lit::D.of(u64::from(dst)),
+                    Lit::A.of(u64::from(base)),
+                    Lit::B.of(u64::from(i)),
+                    Lit::P.of(u64::from(stride)),
+                    Jump::Cont.to(V::Fall),
                 ],
             );
             return;
@@ -86,12 +87,12 @@ impl Jit<'_> {
         self.emit(
             "eload/n",
             &[
-                ("JIT_D", V::I(u64::from(dst))),
-                ("JIT_A", V::I(u64::from(base))),
-                ("JIT_B", V::I(u64::from(i))),
-                ("JIT_P", V::I(u64::from(stride))),
-                ("JIT_N", V::I(u64::from(bytes))),
-                ("JIT_CONT", V::Fall),
+                Lit::D.of(u64::from(dst)),
+                Lit::A.of(u64::from(base)),
+                Lit::B.of(u64::from(i)),
+                Lit::P.of(u64::from(stride)),
+                Lit::N.of(u64::from(bytes)),
+                Jump::Cont.to(V::Fall),
             ],
         );
     }
@@ -108,11 +109,11 @@ impl Jit<'_> {
             self.emit(
                 &key,
                 &[
-                    ("JIT_D", V::I(u64::from(src))),
-                    ("JIT_A", V::I(u64::from(base))),
-                    ("JIT_B", V::I(u64::from(i))),
-                    ("JIT_P", V::I(u64::from(stride))),
-                    ("JIT_CONT", V::Fall),
+                    Lit::D.of(u64::from(src)),
+                    Lit::A.of(u64::from(base)),
+                    Lit::B.of(u64::from(i)),
+                    Lit::P.of(u64::from(stride)),
+                    Jump::Cont.to(V::Fall),
                 ],
             );
             return;
@@ -120,12 +121,12 @@ impl Jit<'_> {
         self.emit(
             "estore/n",
             &[
-                ("JIT_D", V::I(u64::from(src))),
-                ("JIT_A", V::I(u64::from(base))),
-                ("JIT_B", V::I(u64::from(i))),
-                ("JIT_P", V::I(u64::from(stride))),
-                ("JIT_N", V::I(u64::from(bytes))),
-                ("JIT_CONT", V::Fall),
+                Lit::D.of(u64::from(src)),
+                Lit::A.of(u64::from(base)),
+                Lit::B.of(u64::from(i)),
+                Lit::P.of(u64::from(stride)),
+                Lit::N.of(u64::from(bytes)),
+                Jump::Cont.to(V::Fall),
             ],
         );
     }
