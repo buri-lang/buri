@@ -241,6 +241,9 @@ test "an Any writes its type and its bytes only when they aren't empty" {
     assert.equal(badUrl, .Err(.BadJson { path: "$.typeUrl", wanted: "a string" }));
     let badValue = readAny(ctx, "{\"value\":1}");
     assert.equal(badValue, .Err(.BadJson { path: "$.value", wanted: "base64" }));
+    // One character is no whole byte, padded or not.
+    let shortValue = readAny(ctx, "{\"value\":\"A\"}");
+    assert.equal(shortValue, .Err(.BadJson { path: "$.value", wanted: "base64" }));
 }
 
 test "an Empty writes nothing, skips any field it is sent, and is only an object" {

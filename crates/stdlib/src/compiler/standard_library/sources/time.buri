@@ -272,11 +272,14 @@ impl Show for Duration {
         let sign = if (self.0 < 0) { "-" } else { "" };
         let magnitude = self.abs().0;
         if (magnitude >= NANOSECONDS_PER_SECOND) {
-            scaled(ctx, sign, magnitude, NANOSECONDS_PER_SECOND, 9, "s")
+            let whole = magnitude / NANOSECONDS_PER_SECOND;
+            scaled(ctx, sign, whole, magnitude % NANOSECONDS_PER_SECOND, 9, "s")
         } else if (magnitude >= NANOSECONDS_PER_MILLISECOND) {
-            scaled(ctx, sign, magnitude, NANOSECONDS_PER_MILLISECOND, 6, "ms")
+            let whole = magnitude / NANOSECONDS_PER_MILLISECOND;
+            scaled(ctx, sign, whole, magnitude % NANOSECONDS_PER_MILLISECOND, 6, "ms")
         } else if (magnitude >= NANOSECONDS_PER_MICROSECOND) {
-            scaled(ctx, sign, magnitude, NANOSECONDS_PER_MICROSECOND, 3, "us")
+            let whole = magnitude / NANOSECONDS_PER_MICROSECOND;
+            scaled(ctx, sign, whole, magnitude % NANOSECONDS_PER_MICROSECOND, 3, "us")
         } else if (magnitude > 0) {
             str.format(ctx, "${sign}${magnitude}ns")
         } else {
@@ -285,18 +288,17 @@ impl Show for Duration {
     }
 }
 
-/// `magnitude` in a unit that is `unit` nanoseconds and `places` decimal digits
-/// wide, with the fraction written out and its trailing zeros dropped.
+/// `whole` units and `rest` nanoseconds over, in a unit whose fraction is
+/// `places` decimal digits wide, with the fraction written out and its trailing
+/// zeros dropped. The callers divide, each by its own constant unit.
 fn scaled<C: Allocator>(
     ctx: C,
     sign: Str,
-    magnitude: Int,
-    unit: Int,
+    whole: Int,
+    rest: Int,
     places: Int,
     suffix: Str,
 ): Str {
-    let whole = magnitude / unit;
-    let rest = magnitude % unit;
     if (rest == 0) {
         str.format(ctx, "${sign}${whole}${suffix}")
     } else {

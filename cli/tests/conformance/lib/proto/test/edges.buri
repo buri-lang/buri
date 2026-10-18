@@ -243,6 +243,20 @@ test "a uint64 written as a JSON number past 2^63 keeps its bits" {
     assert.equal(read(ctx, "{\"large\":1e20}"), bad("$.large", "an integer in range"));
 }
 
+test "a uint64 written as a string may be minus zero but nothing else below zero" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(
+        read(ctx, "{\"large\":\"-0\"}"),
+        .Ok(Everything { ..defaultEverything(), large: .Some(0) }),
+    );
+    assert.equal(
+        read(ctx, "{\"large\":\"-5\"}"),
+        bad("$.large", "an integer in range"),
+    );
+}
+
 test "a float refuses a number past either end of single precision" {
     let ctx = context {
         Allocator: alloc(),
@@ -359,6 +373,8 @@ test "a timestamp's fraction is one to nine digits" {
     };
     assert.equal(instant(ctx, "2021-01-01T00:00:00.Z"), noInstant());
     assert.equal(instant(ctx, "2021-01-01T00:00:00.0000000001Z"), noInstant());
+    // A fraction that runs to the end leaves no zone, and a zone is required.
+    assert.equal(instant(ctx, "2021-01-01T00:00:00.123"), noInstant());
 }
 
 test "an offset is hours to 23 and minutes to 59, after a sign and before a colon" {
@@ -368,6 +384,8 @@ test "an offset is hours to 23 and minutes to 59, after a sign and before a colo
     assert.equal(instant(ctx, "1970-01-01T00:00:00+01-00"), noInstant());
     assert.equal(instant(ctx, "1970-01-01T00:00:00+24:00"), noInstant());
     assert.equal(instant(ctx, "1970-01-01T00:00:00+01:60"), noInstant());
+    assert.equal(instant(ctx, "1970-01-01T00:00:00*01:00"), noInstant());
+    assert.equal(instant(ctx, "1970-01-01T00:00:00+0a:00"), noInstant());
     assert.equal(instant(ctx, "1970-01-01T00:00:00+23:59"), seconds(-86340));
 }
 
@@ -384,6 +402,17 @@ test "a timestamp with a letter that is not ASCII where a digit belongs is refus
         Allocator: alloc(),
     };
     assert.equal(instant(ctx, "202é-01-01T00:00:00Z"), noInstant());
+}
+
+test "a timestamp and a field mask are each a JSON string and nothing else" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(known(ctx, "{\"timestamp\":5}"), noInstant());
+    assert.equal(
+        known(ctx, "{\"mask\":[\"a\"]}"),
+        .Err(.BadJson { path: "$.mask", wanted: "a field mask" }),
+    );
 }
 
 // --- field masks in JSON -----------------------------------------------------------------

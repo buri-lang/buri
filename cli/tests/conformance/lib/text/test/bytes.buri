@@ -102,6 +102,8 @@ test "hex refuses an odd length or a character that is not a digit" {
     assert.equal(assert.err(bytes.fromHex(ctx, "abc")), DecodeError(3));
     assert.equal(assert.err(bytes.fromHex(ctx, "zz")), DecodeError(0));
     assert.equal(assert.err(bytes.fromHex(ctx, "00zz")), DecodeError(2));
+    // A good first digit and a bad second one: the index is the second's.
+    assert.equal(assert.err(bytes.fromHex(ctx, "0z")), DecodeError(1));
 }
 
 // --- Base64 ------------------------------------------------------------------------
@@ -535,6 +537,7 @@ test "a truncated read reports the index it began at" {
 test "a reader is a value, so two of them compare" {
     assert.equal(bytes.reader([1, 2]), bytes.readerAt([1, 2], 0));
     assert.notEqual(bytes.reader([1, 2]), bytes.readerAt([1, 2], 1));
+    assert.notEqual(bytes.reader([1, 2]), bytes.reader([1, 3]));
 }
 
 // --- base64url ---------------------------------------------------------------------

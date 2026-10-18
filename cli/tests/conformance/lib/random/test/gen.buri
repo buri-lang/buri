@@ -101,6 +101,26 @@ test "a range of one is that one value" {
     assert.equal(v, 41);
 }
 
+test "a draw from the range's biased prefix is thrown away and drawn again" {
+    // A span of 2^63 + 1 leaves 2^63 - 1 draws over, so a draw whose top bit is
+    // clear is one of them: about half are rejected. `nextBool` reads that bit.
+    let low = -9_223_372_036_854_775_807 - 1;
+    let accepted = random.seeded(1);
+    let (top, once) = accepted.nextBool();
+    assert.isTrue(top);
+    let (kept, after) = accepted.nextInt(low, 1);
+    assert.equal(kept, -7_995_527_694_508_729_152);
+    assert.equal(after, once);
+    let rejected = random.seeded(3);
+    let (first, skipped) = rejected.nextBool();
+    let (second, twice) = skipped.nextBool();
+    assert.isFalse(first);
+    assert.isTrue(second);
+    let (redrawn, afterBoth) = rejected.nextInt(low, 1);
+    assert.equal(redrawn, -5_528_608_851_982_440_056);
+    assert.equal(afterBoth, twice);
+}
+
 test "a bounded draw stays inside its range over three thousand of them" {
     let counts = tally(random.seeded(2024), 3000, 0, 0, 0);
     // Every draw landed in `[0, 3)`, which is the first thing a bounded draw

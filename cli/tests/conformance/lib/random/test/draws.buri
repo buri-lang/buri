@@ -88,6 +88,8 @@ test "a shuffle of strings moves the values it was given" {
     let cards = ["ace", "king", "queen", "jack"];
     let (dealt, _) = random.seeded(5).nextShuffle(ctx, cards);
     assert.equal(dealt.sort(ctx), cards.sort(ctx));
+    let (lone, _) = random.seeded(5).nextShuffle(ctx, ["ace"]);
+    assert.equal(lone, ["ace"]);
 }
 
 // --- nextPick ------------------------------------------------------------------
@@ -188,6 +190,8 @@ test "pick through a context answers a member, and .None from nothing" {
     assert.isTrue(items.contains(assert.some(picked)));
     let none: [Str] = [];
     assert.equal(random.pick(ctx, none), .None);
+    let numbers: [Int] = [];
+    assert.equal(random.pick(ctx, numbers), .None);
 }
 
 test "sample through a context draws without replacement" {

@@ -142,9 +142,9 @@ export fn le32(value: Int): [U8] {
     let v = if (value < 0) { value + TWO32 } else { value };
     [
         (v % 256).wrapToU8(),
-        (divide(v, 256) % 256).wrapToU8(),
-        (divide(v, 65536) % 256).wrapToU8(),
-        (divide(v, 16777216) % 256).wrapToU8(),
+        (v / 256 % 256).wrapToU8(),
+        (v / 65536 % 256).wrapToU8(),
+        (v / 16777216 % 256).wrapToU8(),
     ]
 }
 
@@ -173,10 +173,6 @@ export fn writeBytes<C: Allocator>(ctx: C, out: [U8], body: [U8]): [U8] {
 /// A `string` body. UTF-8 is what the format says a string is.
 export fn writeStr<C: Allocator>(ctx: C, out: [U8], s: Str): [U8] {
     writeBytes(ctx, out, bytes.toUtf8(ctx, s))
-}
-
-fn divide(a: Int, b: Int): Int {
-    (a - a % b) / b
 }
 
 /// A 64-bit value as (high 32 bits, low 32 bits), both non-negative.
@@ -216,7 +212,7 @@ export fn readTag(
 ): Result<(Int, Int, Int), ProtoError> {
     let (key, next) = readVarint(b, at, end, base)?;
     let wire = key % 8;
-    let field = divide(key - wire, 8);
+    let field = (key - wire) / 8;
     // A tag is a `uint32` and a five-byte varint carries more than 32 bits, so
     // this checks the value too rather than reading the low 32 bits. Within 32
     // bits the field number is at most 2^29 - 1, the largest there is.
@@ -349,13 +345,9 @@ export fn readF64(
     end: Int,
     base: Int,
 ): Result<(Float, Int), ProtoError> {
-    if (at + 8 > end) {
-        .Err(.Truncated(at - base))
-    } else {
-        match (bytes.f64FromBytes(b, at)) {
-            .Some(x) => .Ok((x, at + 8)),
-            .None => .Err(.Truncated(at - base)),
-        }
+    match ((at + 8 > end, bytes.f64FromBytes(b, at))) {
+        (false, .Some(x)) => .Ok((x, at + 8)),
+        _ => .Err(.Truncated(at - base)),
     }
 }
 
@@ -365,13 +357,9 @@ export fn readF32(
     end: Int,
     base: Int,
 ): Result<(Float, Int), ProtoError> {
-    if (at + 4 > end) {
-        .Err(.Truncated(at - base))
-    } else {
-        match (bytes.f32FromBytes(b, at)) {
-            .Some(x) => .Ok((x, at + 4)),
-            .None => .Err(.Truncated(at - base)),
-        }
+    match ((at + 4 > end, bytes.f32FromBytes(b, at))) {
+        (false, .Some(x)) => .Ok((x, at + 4)),
+        _ => .Err(.Truncated(at - base)),
     }
 }
 
@@ -1194,15 +1182,6 @@ fn digits<C: Allocator>(ctx: C, n: Int, width: Int): Str {
     str.fromInt(ctx, n).padStart(ctx, width, '0')
 }
 
-/// `a / b` rounded toward negative infinity, for a positive `b`.
-fn floorDiv(a: Int, b: Int): Int {
-    (a - floorMod(a, b)) / b
-}
-
-fn floorMod(a: Int, b: Int): Int {
-    (a % b + b) % b
-}
-
 /// The earliest and latest instants proto3 JSON writes: 0001-01-01T00:00:00Z
 /// and 9999-12-31T23:59:59Z, in seconds from the epoch.
 let MIN_TIMESTAMP: Int = -62135596800;
@@ -1226,7 +1205,7 @@ export fn jsonTimestamp<C: Allocator>(
 }
 
 fn rfc3339<C: Allocator>(ctx: C, seconds: Int, nanos: Int): Json {
-    let days = floorDiv(seconds, 86400);
+    let days = number.divideFloor(seconds, 86400);
     let rest = seconds - days * 86400;
     let (y, m, d) = civil(days);
     let hh = rest / 3600;
@@ -1248,7 +1227,7 @@ fn rfc3339<C: Allocator>(ctx: C, seconds: Int, nanos: Int): Json {
 /// Gregorian calendar.
 fn civil(days: Int): (Int, Int, Int) {
     let z = days + 719468;
-    let era = floorDiv(z, 146097);
+    let era = number.divideFloor(z, 146097);
     let doe = z - era * 146097;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
@@ -1262,7 +1241,7 @@ fn civil(days: Int): (Int, Int, Int) {
 /// The inverse: a date's day number from the epoch.
 fn dayNumber(year: Int, month: Int, day: Int): Int {
     let y = if (month <= 2) { year - 1 } else { year };
-    let era = floorDiv(y, 400);
+    let era = number.divideFloor(y, 400);
     let yoe = y - era * 400;
     let mp = if (month > 2) { month - 3 } else { month + 9 };
     let doy = (153 * mp + 2) / 5 + day - 1;

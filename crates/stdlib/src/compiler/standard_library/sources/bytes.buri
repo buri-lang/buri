@@ -115,33 +115,34 @@ let REPLACEMENT: [U8] = [0xef, 0xbf, 0xbd];
 /// The input with every maximal subpart that is not a valid sequence swapped for
 /// U+FFFD. Tail-recursive over the whole run.
 fn cleaned<C: Allocator>(ctx: C, bytes: [U8], i: Int, acc: [U8]): [U8] {
-    if (i >= bytes.length()) {
-        acc
-    } else {
-        let lead = bytes.get(i).withDefault(0).toI64();
-        if (lead < 0x80) {
-            cleaned(ctx, bytes, i + 1, acc.push(ctx, bytes.get(i).withDefault(0)))
-        } else {
-            let width = sequenceWidth(lead);
-            let taken = valid(bytes, i, width);
-            if (taken == width) {
-                cleaned(
-                    ctx,
-                    bytes,
-                    i + width,
-                    acc.concat(ctx, bytes.slice(ctx, i, i + width)),
-                )
+    match (bytes.get(i)) {
+        .None => acc,
+        .Some(octet) => {
+            let lead = octet.toI64();
+            if (lead < 0x80) {
+                cleaned(ctx, bytes, i + 1, acc.push(ctx, octet))
             } else {
-                // The maximal subpart: what was consumed before the byte that
-                // did not belong, and never fewer than one byte.
-                cleaned(
-                    ctx,
-                    bytes,
-                    i + if (taken < 1) { 1 } else { taken },
-                    acc.concat(ctx, REPLACEMENT),
-                )
+                let width = sequenceWidth(lead);
+                let taken = valid(bytes, i, lead, width);
+                if (taken == width) {
+                    cleaned(
+                        ctx,
+                        bytes,
+                        i + width,
+                        acc.concat(ctx, bytes.slice(ctx, i, i + width)),
+                    )
+                } else {
+                    // The maximal subpart: what was consumed before the byte that
+                    // did not belong, and never fewer than one byte.
+                    cleaned(
+                        ctx,
+                        bytes,
+                        i + if (taken < 1) { 1 } else { taken },
+                        acc.concat(ctx, REPLACEMENT),
+                    )
+                }
             }
-        }
+        },
     }
 }
 
@@ -159,14 +160,14 @@ fn sequenceWidth(lead: Int): Int {
     }
 }
 
-/// How many of the `width` bytes at `i` are what the sequence needs. `width`
-/// means the whole sequence is there; anything less names the first byte that
-/// is not, and a lead byte that leads nothing answers 0.
-fn valid(bytes: [U8], i: Int, width: Int): Int {
+/// How many of the `width` bytes at `i`, the first of them `lead`, are what the
+/// sequence needs. `width` means the whole sequence is there; anything less
+/// names the first byte that is not, and a lead byte that leads nothing
+/// answers 0.
+fn valid(bytes: [U8], i: Int, lead: Int, width: Int): Int {
     if (width == 1) {
         0
     } else {
-        let lead = bytes.get(i).withDefault(0).toI64();
         // The second byte's range is narrower than 80..bf for four lead bytes,
         // and that is what rejects an overlong encoding and a surrogate before
         // the code point is ever assembled.
@@ -191,16 +192,19 @@ fn valid(bytes: [U8], i: Int, width: Int): Int {
 fn continuations(bytes: [U8], i: Int, width: Int, low: Int, high: Int, at: Int): Int {
     if (at >= width) {
         width
-    } else if (i + at >= bytes.length()) {
-        at
     } else {
-        let x = bytes.get(i + at).withDefault(0).toI64();
-        let lo = if (at == 1) { low } else { 0x80 };
-        let hi = if (at == 1) { high } else { 0xbf };
-        if (x < lo || x > hi) {
-            at
-        } else {
-            continuations(bytes, i, width, low, high, at + 1)
+        match (bytes.get(i + at)) {
+            .None => at,
+            .Some(octet) => {
+                let x = octet.toI64();
+                let lo = if (at == 1) { low } else { 0x80 };
+                let hi = if (at == 1) { high } else { 0xbf };
+                if (x < lo || x > hi) {
+                    at
+                } else {
+                    continuations(bytes, i, width, low, high, at + 1)
+                }
+            },
         }
     }
 }
@@ -385,9 +389,11 @@ fn decode64<C: Allocator>(ctx: C, text: Str, alphabet: Str): Result<[U8], Decode
 /// How many of the trailing bytes the padding says are not there.
 fn padding(cs: [Char]): Int {
     let n = cs.length();
-    let last = cs.get(n - 1).withDefault('A');
-    let before = cs.get(n - 2).withDefault('A');
-    if (last == '=' && before == '=') { 2 } else if (last == '=') { 1 } else { 0 }
+    match ((cs.get(n - 2), cs.get(n - 1))) {
+        (.Some('='), .Some('=')) => 2,
+        (_, .Some('=')) => 1,
+        _ => 0,
+    }
 }
 
 /// The alphabet position of a character, or 0 — the caller has already checked
@@ -481,14 +487,14 @@ export fn endsWith(haystack: [U8], suffix: [U8]): Bool {
         && equalAt(haystack, suffix, haystack.length() - suffix.length(), 0)
 }
 
-/// Whether `needle` sits at `at`. Every caller has checked that it fits.
+/// Whether `needle` sits at `at`. Every caller has checked that it fits, so the
+/// haystack runs out only after the needle does.
 fn equalAt(haystack: [U8], needle: [U8], at: Int, i: Int): Bool {
-    if (i >= needle.length()) {
-        true
-    } else if (haystack.get(at + i).withDefault(0) != needle.get(i).withDefault(0)) {
-        false
-    } else {
-        equalAt(haystack, needle, at, i + 1)
+    match ((needle.get(i), haystack.get(at + i))) {
+        (.Some(n), .Some(h)) => {
+            if (n == h) { equalAt(haystack, needle, at, i + 1) } else { false }
+        },
+        _ => true,
     }
 }
 
@@ -766,100 +772,73 @@ export fn fromU16LittleEndian(value: U16): [U8] {
 /// The `U16` the two octets at `at` spell, most significant first, or `.None` if
 /// there are not two of them.
 export fn toU16BigEndian(bytes: [U8], at: Int): Option<U16> {
-    if (at < 0 || at + 2 > bytes.length()) {
-        .None
-    } else {
-        .Some(
-            (bytes.get(at).withDefault(0).toI64() * 256
-                + bytes.get(at + 1).withDefault(0).toI64()).wrapToU16(),
-        )
+    match ((bytes.get(at), bytes.get(at + 1))) {
+        (.Some(high), .Some(low)) => {
+            .Some((high.toI64() * 256 + low.toI64()).wrapToU16())
+        },
+        _ => .None,
     }
 }
 
 /// The same two octets read least significant first.
 export fn toU16LittleEndian(bytes: [U8], at: Int): Option<U16> {
-    if (at < 0 || at + 2 > bytes.length()) {
-        .None
-    } else {
-        .Some(
-            (bytes.get(at + 1).withDefault(0).toI64() * 256
-                + bytes.get(at).withDefault(0).toI64()).wrapToU16(),
-        )
+    match ((bytes.get(at), bytes.get(at + 1))) {
+        (.Some(low), .Some(high)) => {
+            .Some((high.toI64() * 256 + low.toI64()).wrapToU16())
+        },
+        _ => .None,
     }
 }
 
 /// The `U64` the eight octets at `at` spell, most significant first, or `.None`
 /// if there are not eight of them — never a truncated reading.
 export fn toU64BigEndian(bytes: [U8], at: Int): Option<U64> {
-    if (at < 0 || at + 8 > bytes.length()) {
-        .None
-    } else {
-        .Some(
-            bits.shiftLeftU64(octet64(bytes, at), 56)
-                | bits.shiftLeftU64(octet64(bytes, at + 1), 48)
-                | bits.shiftLeftU64(octet64(bytes, at + 2), 40)
-                | bits.shiftLeftU64(octet64(bytes, at + 3), 32)
-                | bits.shiftLeftU64(octet64(bytes, at + 4), 24)
-                | bits.shiftLeftU64(octet64(bytes, at + 5), 16)
-                | bits.shiftLeftU64(octet64(bytes, at + 6), 8)
-                | octet64(bytes, at + 7),
-        )
+    match ((toU32BigEndian(bytes, at), toU32BigEndian(bytes, at + 4))) {
+        (.Some(high), .Some(low)) => {
+            .Some(bits.shiftLeftU64(high.toU64(), 32) | low.toU64())
+        },
+        _ => .None,
     }
 }
 
 /// The same eight octets read least significant first.
 export fn toU64LittleEndian(bytes: [U8], at: Int): Option<U64> {
-    if (at < 0 || at + 8 > bytes.length()) {
-        .None
-    } else {
-        .Some(
-            octet64(bytes, at)
-                | bits.shiftLeftU64(octet64(bytes, at + 1), 8)
-                | bits.shiftLeftU64(octet64(bytes, at + 2), 16)
-                | bits.shiftLeftU64(octet64(bytes, at + 3), 24)
-                | bits.shiftLeftU64(octet64(bytes, at + 4), 32)
-                | bits.shiftLeftU64(octet64(bytes, at + 5), 40)
-                | bits.shiftLeftU64(octet64(bytes, at + 6), 48)
-                | bits.shiftLeftU64(octet64(bytes, at + 7), 56),
-        )
+    match ((toU32LittleEndian(bytes, at), toU32LittleEndian(bytes, at + 4))) {
+        (.Some(low), .Some(high)) => {
+            .Some(bits.shiftLeftU64(high.toU64(), 32) | low.toU64())
+        },
+        _ => .None,
     }
 }
 
 /// Four octets at `at`, most significant first.
 export fn toU32BigEndian(bytes: [U8], at: Int): Option<U32> {
-    if (at < 0 || at + 4 > bytes.length()) {
-        .None
-    } else {
-        .Some(
-            bits.shiftLeftU32(octet32(bytes, at), 24)
-                | bits.shiftLeftU32(octet32(bytes, at + 1), 16)
-                | bits.shiftLeftU32(octet32(bytes, at + 2), 8)
-                | octet32(bytes, at + 3),
-        )
+    match ((bytes.get(at), bytes.get(at + 1), bytes.get(at + 2), bytes.get(at + 3))) {
+        (.Some(a), .Some(b), .Some(c), .Some(d)) => {
+            .Some(
+                bits.shiftLeftU32(a.toU32(), 24)
+                    | bits.shiftLeftU32(b.toU32(), 16)
+                    | bits.shiftLeftU32(c.toU32(), 8)
+                    | d.toU32(),
+            )
+        },
+        _ => .None,
     }
 }
 
 /// Four octets at `at`, least significant first.
 export fn toU32LittleEndian(bytes: [U8], at: Int): Option<U32> {
-    if (at < 0 || at + 4 > bytes.length()) {
-        .None
-    } else {
-        .Some(
-            octet32(bytes, at)
-                | bits.shiftLeftU32(octet32(bytes, at + 1), 8)
-                | bits.shiftLeftU32(octet32(bytes, at + 2), 16)
-                | bits.shiftLeftU32(octet32(bytes, at + 3), 24),
-        )
+    match ((bytes.get(at), bytes.get(at + 1), bytes.get(at + 2), bytes.get(at + 3))) {
+        (.Some(a), .Some(b), .Some(c), .Some(d)) => {
+            .Some(
+                a.toU32()
+                    | bits.shiftLeftU32(b.toU32(), 8)
+                    | bits.shiftLeftU32(c.toU32(), 16)
+                    | bits.shiftLeftU32(d.toU32(), 24),
+            )
+        },
+        _ => .None,
     }
-}
-
-/// The octet at `i` widened, or zero. Every caller checks the bounds first.
-fn octet64(bytes: [U8], i: Int): U64 {
-    bytes.get(i).withDefault(0).toU64()
-}
-
-fn octet32(bytes: [U8], i: Int): U32 {
-    bytes.get(i).withDefault(0).toU32()
 }
 
 // --- A reader -----------------------------------------------------------------------

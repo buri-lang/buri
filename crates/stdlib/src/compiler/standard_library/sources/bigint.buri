@@ -466,12 +466,11 @@ fn compareLimbs(a: [Int], b: [Int]): Order {
 
 /// The first limb the two disagree at, counting down.
 fn fromTop(a: [Int], b: [Int], at: Int): Order {
-    if (at < 0) {
-        Order.Equal
-    } else {
-        let x = a.get(at).withDefault(0);
-        let y = b.get(at).withDefault(0);
-        if (x == y) { fromTop(a, b, at - 1) } else { x.compare(y) }
+    match ((a.get(at), b.get(at))) {
+        (.Some(x), .Some(y)) => {
+            if (x == y) { fromTop(a, b, at - 1) } else { x.compare(y) }
+        },
+        _ => Order.Equal,
     }
 }
 
@@ -501,15 +500,16 @@ fn subLimbs<C: Allocator>(
     borrowed: Int,
     acc: [Int],
 ): [Int] {
-    if (at >= a.length()) {
-        trim(ctx, acc)
-    } else {
-        let difference = a.get(at).withDefault(0) - b.get(at).withDefault(0) - borrowed;
-        if (difference < 0) {
-            subLimbs(ctx, a, b, at + 1, 1, acc.push(ctx, difference + BASE))
-        } else {
-            subLimbs(ctx, a, b, at + 1, 0, acc.push(ctx, difference))
-        }
+    match (a.get(at)) {
+        .None => trim(ctx, acc),
+        .Some(x) => {
+            let difference = x - b.get(at).withDefault(0) - borrowed;
+            if (difference < 0) {
+                subLimbs(ctx, a, b, at + 1, 1, acc.push(ctx, difference + BASE))
+            } else {
+                subLimbs(ctx, a, b, at + 1, 0, acc.push(ctx, difference))
+            }
+        },
     }
 }
 
@@ -523,11 +523,9 @@ fn column(a: [Int], b: [Int], k: Int): Int {
 }
 
 fn diagonal(a: [Int], b: [Int], k: Int, i: Int, acc: Int): Int {
-    if (i > k || i >= a.length()) {
-        acc
-    } else {
-        let step = a.get(i).withDefault(0) * b.get(k - i).withDefault(0);
-        diagonal(a, b, k, i + 1, acc + step)
+    match ((a.get(i), b.get(k - i))) {
+        (.Some(x), .Some(y)) => diagonal(a, b, k, i + 1, acc + x * y),
+        _ => acc,
     }
 }
 
@@ -583,18 +581,19 @@ fn downFrom<C: Allocator>(
     carried: Int,
     acc: [Int],
 ): ([Int], Int) {
-    if (at < 0) {
-        (acc, carried)
-    } else {
-        let here = carried * BASE + limbs.get(at).withDefault(0);
-        downFrom(
-            ctx,
-            limbs,
-            divisor,
-            at - 1,
-            here % divisor,
-            acc.push(ctx, here / divisor),
-        )
+    match (limbs.get(at)) {
+        .None => (acc, carried),
+        .Some(limb) => {
+            let here = carried * BASE + limb;
+            downFrom(
+                ctx,
+                limbs,
+                divisor,
+                at - 1,
+                here % divisor,
+                acc.push(ctx, here / divisor),
+            )
+        },
     }
 }
 
@@ -608,13 +607,21 @@ fn divide<C: Allocator>(
     remainder: [Int],
     quotient: [Int],
 ): ([Int], [Int]) {
-    if (at < 0) {
-        (trim(ctx, quotient.reverse(ctx)), remainder)
-    } else {
-        let brought = trim(ctx, [a.get(at).withDefault(0)].concat(ctx, remainder));
-        let digit = searchDigit(ctx, brought, b, 0, BASE - 1);
-        let left = subLimbs(ctx, brought, smallStep(ctx, b, digit, 0, 0, []), 0, 0, []);
-        divide(ctx, a, b, at - 1, left, quotient.push(ctx, digit))
+    match (a.get(at)) {
+        .None => (trim(ctx, quotient.reverse(ctx)), remainder),
+        .Some(limb) => {
+            let brought = trim(ctx, [limb].concat(ctx, remainder));
+            let digit = searchDigit(ctx, brought, b, 0, BASE - 1);
+            let left = subLimbs(
+                ctx,
+                brought,
+                smallStep(ctx, b, digit, 0, 0, []),
+                0,
+                0,
+                [],
+            );
+            divide(ctx, a, b, at - 1, left, quotient.push(ctx, digit))
+        },
     }
 }
 
@@ -643,12 +650,9 @@ fn trim<C: Allocator>(ctx: C, limbs: [Int]): [Int] {
 }
 
 fn topNonZero(limbs: [Int], at: Int): Int {
-    if (at < 0) {
-        -1
-    } else if (limbs.get(at).withDefault(0) != 0) {
-        at
-    } else {
-        topNonZero(limbs, at - 1)
+    match (limbs.get(at)) {
+        .None => -1,
+        .Some(limb) => if (limb != 0) { at } else { topNonZero(limbs, at - 1) },
     }
 }
 
@@ -672,12 +676,11 @@ fn squaring<C: Allocator>(ctx: C, base: BigInt, exponent: Int, acc: BigInt): Big
 /// `base` to a negative power, truncated: zero, except where the base is `1` or
 /// `-1` and the fraction is one of those.
 fn reciprocal(base: BigInt, exponent: Int): BigInt {
-    if (base.limbs.length() != 1 || base.limbs.get(0).withDefault(0) != 1) {
-        zero()
-    } else if (base.negative && exponent % 2 != 0) {
-        of(-1)
-    } else {
-        of(1)
+    match ((base.limbs.length(), base.limbs.get(0))) {
+        (1, .Some(1)) => {
+            if (base.negative && exponent % 2 != 0) { of(-1) } else { of(1) }
+        },
+        _ => zero(),
     }
 }
 
@@ -716,26 +719,32 @@ fn climb<C: Allocator>(
 }
 
 /// `value` reduced into `0` to `|modulus| - 1`.
+///
+/// `modularPower` has already refused a zero modulus, so this divides the limbs
+/// directly rather than asking `quotientRemainder` for an answer it always has.
 fn residueOf<C: Allocator>(ctx: C, value: BigInt, modulus: BigInt): BigInt {
-    let size = build(false, modulus.limbs);
-    match (value.quotientRemainder(ctx, size)) {
-        .None => zero(),
-        .Some(both) => {
-            let (_, r) = both;
-            if (r.negative) { r.add(ctx, size) } else { r }
-        },
-    }
+    let (_, limbs) = divide(
+        ctx,
+        value.limbs,
+        modulus.limbs,
+        value.limbs.length() - 1,
+        [],
+        [],
+    );
+    let r = build(value.negative, limbs);
+    if (r.negative) { r.add(ctx, build(false, modulus.limbs)) } else { r }
 }
 
 /// The limbs folded into an `Int` below zero, or `.None` when they do not fit.
 fn fold(limbs: [Int], at: Int, acc: Int): Option<Int> {
-    if (at < 0) {
-        .Some(acc)
-    } else {
-        acc
-            .checkedMultiply(BASE)
-            .andThen(fn(scaled) => scaled.checkedSubtract(limbs.get(at).withDefault(0)))
-            .andThen(fn(next) => fold(limbs, at - 1, next))
+    match (limbs.get(at)) {
+        .None => .Some(acc),
+        .Some(limb) => {
+            acc
+                .checkedMultiply(BASE)
+                .andThen(fn(scaled) => scaled.checkedSubtract(limb))
+                .andThen(fn(next) => fold(limbs, at - 1, next))
+        },
     }
 }
 
