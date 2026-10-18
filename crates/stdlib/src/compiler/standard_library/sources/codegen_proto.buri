@@ -3818,9 +3818,9 @@ export fn generate<C: Allocator>(
 
 /// The module name a schema path implies: the file's own name, which the
 /// package it belongs to qualifies.
-fn baseName<C: Allocator>(ctx: C, path: Str): Str {
-    match (path.split(ctx, "/").last()) {
-        .Some(n) => n,
+fn baseName(path: Str): Str {
+    match (path.lastIndexOf("/")) {
+        .Some(at) => path.slice(at + 1, path.length()),
         .None => path,
     }
 }
@@ -3918,7 +3918,7 @@ export fn emit<C: Allocator>(ctx: C, request: Request): Response {
             let resolved = resolveImports(c, available, parsed.schema.imports);
             let out = generate(c, path, parsed.schema, resolved.deps);
             (
-                modules.push(c, (baseName(c, path), out.tree)),
+                modules.push(c, (baseName(path), out.tree)),
                 diagnostics
                     .concat(c, parsed.errors)
                     .concat(c, resolved.diagnostics)

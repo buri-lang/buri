@@ -51,7 +51,6 @@
 //! number. `of` and `parse` are what establish it, so build a `Decimal` through
 //! one of them rather than writing the literal out.
 
-from "core/character" import * as character;
 from "core/math" import * as math;
 from "core/number" import * as number;
 from "core/order" import { Equal, Hash, Order, Ordered, Show };
@@ -274,12 +273,15 @@ impl Decimal {
         if (self.scale <= 0) {
             str.fromInt(ctx, self.units)
         } else {
-            // Counted from below zero, because `minValue`'s magnitude is not an
-            // `Int` and its digits still are.
-            let below = if (self.units < 0) { self.units } else { 0 - self.units };
-            let digits = str
-                .fromChars(ctx, countDown(ctx, below, []))
-                .padStart(ctx, self.scale + 1, '0');
+            // The digits after the sign `fromInt` writes, because `minValue`'s
+            // magnitude is not an `Int` and its digits still are.
+            let written = str.fromInt(ctx, self.units);
+            let magnitude = if (self.units < 0) {
+                written.slice(1, written.length())
+            } else {
+                written
+            };
+            let digits = magnitude.padStart(ctx, self.scale + 1, '0');
             let whole = digits.slice(0, digits.length() - self.scale);
             let fraction = digits.slice(digits.length() - self.scale, digits.length());
             let sign = if (self.units < 0) { "-" } else { "" };
@@ -463,12 +465,4 @@ fn scan(text: Str, at: Int, acc: Int, places: Int, digits: Int): Option<(Int, In
             }
         },
     }
-}
-
-/// The digits of a number at or below zero, most significant first.
-fn countDown<C: Allocator>(ctx: C, n: Int, acc: [Char]): [Char] {
-    let digit = character.fromDigit(0 - n % 10, 10).withDefault('0');
-    let rest = n / 10;
-    let next = [digit].concat(ctx, acc);
-    if (rest == 0) { next } else { countDown(ctx, rest, next) }
 }

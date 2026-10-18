@@ -366,13 +366,19 @@ enum Selection<C> {
 enum Token {
     /// A flag: how it was written, which spelling it used, and the value `=`
     /// attached to it, if any.
-    Named { display: Str, long: Option<Str>, short: Option<Char>, value: Option<Str> },
+    Named { display: Str, name: Spelling, value: Option<Str> },
     /// `--`, after which nothing is a flag.
     Terminator,
     /// A command name, or a positional.
     Plain(Str),
     /// Shaped like a flag and spelled like nothing — `-ab`, `-ab=c`.
     Bad(Str),
+}
+
+/// The name a flag token used: `--name` or `-n`. A token has exactly one.
+enum Spelling {
+    Long(Str),
+    Short(Char),
 }
 
 /// A flag applied, and where the walk continues from.
@@ -466,8 +472,8 @@ fn globals<C: Allocator, X>(
                 .Terminator => chosen(ctx, spec, argv, at + 1, acc),
                 .Plain(_) => chosen(ctx, spec, argv, at, acc),
                 .Bad(bad) => .Err(.UnknownFlag(bad)),
-                .Named { display, long, short, value } => {
-                    match (reserved(long)) {
+                .Named { display, name, value } => {
+                    match (reserved(name)) {
                         .Some(text) => answer(ctx, spec, text),
                         .None => {
                             match (
@@ -475,8 +481,7 @@ fn globals<C: Allocator, X>(
                                     ctx,
                                     flagsOf(spec.flags),
                                     display,
-                                    long,
-                                    short,
+                                    name,
                                     value,
                                     argv,
                                     at,
@@ -562,8 +567,8 @@ fn tail<C: Allocator, X>(
                             )
                         },
                         .Bad(bad) => .Err(.UnknownFlag(bad)),
-                        .Named { display, long, short, value } => {
-                            match (reserved(long)) {
+                        .Named { display, name, value } => {
+                            match (reserved(name)) {
                                 .Some(which) => {
                                     match (which == "version") {
                                         true => .Ok(.Print(spec.version)),
@@ -578,8 +583,7 @@ fn tail<C: Allocator, X>(
                                             ctx,
                                             flagsOf(command.flags),
                                             display,
-                                            long,
-                                            short,
+                                            name,
                                             value,
                                             argv,
                                             at,
@@ -612,10 +616,10 @@ fn tail<C: Allocator, X>(
 /// `--help` and `--version` are the two long names a spec cannot take. This
 /// reads the name alone, so `--help=x` is still `--help` rather than
 /// `UnexpectedValue`, and a short flag is never one of them.
-fn reserved(long: Option<Str>): Option<Str> {
-    match (long) {
-        .None => .None,
-        .Some(name) => {
+fn reserved(spelling: Spelling): Option<Str> {
+    match (spelling) {
+        .Short(_letter) => .None,
+        .Long(name) => {
             match (name == "help") {
                 true => .Some("help"),
                 false => {
@@ -645,21 +649,15 @@ fn apply<C: Allocator>(
     ctx: C,
     flags: [Flag],
     display: Str,
-    long: Option<Str>,
-    short: Option<Char>,
+    spelling: Spelling,
     value: Option<Str>,
     argv: [Str],
     at: Int,
     acc: Arguments,
 ): Result<Step, ParseError> {
-    let found = match (long) {
-        .Some(name) => longNamed(flags, 0, name),
-        .None => {
-            match (short) {
-                .Some(letter) => shortNamed(flags, 0, letter),
-                .None => .None,
-            }
-        },
+    let found = match (spelling) {
+        .Long(name) => longNamed(flags, 0, name),
+        .Short(letter) => shortNamed(flags, 0, letter),
     };
     match (found) {
         .None => .Err(.UnknownFlag(display)),
@@ -813,16 +811,13 @@ fn longToken(token: Str): Token {
                 false => {
                     .Named {
                         display: token.slice(0, name.length() + 2),
-                        long: .Some(name),
-                        short: .None,
+                        name: .Long(name),
                         value: .Some(value),
                     }
                 },
             }
         },
-        .None => {
-            .Named { display: token, long: .Some(rest), short: .None, value: .None }
-        },
+        .None => .Named { display: token, name: .Long(rest), value: .None },
     }
 }
 
@@ -831,39 +826,24 @@ fn shortToken(token: Str): Token {
     match (rest.splitOnce("=")) {
         .Some(split) => {
             let (name, value) = split;
-            match (name.charAt(0)) {
-                .Some(letter) => {
-                    match (name.length() == 1) {
-                        true => {
-                            .Named {
-                                display: token.slice(0, 2),
-                                long: .None,
-                                short: .Some(letter),
-                                value: .Some(value),
-                            }
-                        },
-                        false => .Bad(token),
+            // One letter: a first character and no second.
+            match ((name.charAt(0), name.charAt(1))) {
+                (.Some(letter), .None) => {
+                    .Named {
+                        display: token.slice(0, 2),
+                        name: .Short(letter),
+                        value: .Some(value),
                     }
                 },
-                .None => .Bad(token),
+                _ => .Bad(token),
             }
         },
         .None => {
-            match (rest.length() == 1) {
-                true => {
-                    match (rest.charAt(0)) {
-                        .Some(letter) => {
-                            .Named {
-                                display: token,
-                                long: .None,
-                                short: .Some(letter),
-                                value: .None,
-                            }
-                        },
-                        .None => .Bad(token),
-                    }
+            match ((rest.charAt(0), rest.charAt(1))) {
+                (.Some(letter), .None) => {
+                    .Named { display: token, name: .Short(letter), value: .None }
                 },
-                false => .Bad(token),
+                _ => .Bad(token),
             }
         },
     }

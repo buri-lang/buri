@@ -8,7 +8,6 @@
 //! same idea get different names: `splitOnce` returns two slices and is pure;
 //! `split` returns `[Str]` and allocates.
 
-from "core/character" import * as character;
 from "core/list" import * as list;
 from "core/order" import { Order };
 from "platform/effect" import { Allocator };
@@ -327,16 +326,14 @@ fn leadingAny(text: Str, chars: Str, at: Int): Int {
     }
 }
 
+/// `at` is where the scan stands: the character before it is the next one
+/// looked at, and there is none before the start.
 fn trailingAny(text: Str, chars: Str, at: Int): Int {
-    if (at <= 0) {
-        0
-    } else {
-        match (text.charAt(at - 1)) {
-            .None => at,
-            .Some(c) => {
-                if (holds(chars, c, 0)) { trailingAny(text, chars, at - 1) } else { at }
-            },
-        }
+    match (text.charAt(at - 1)) {
+        .None => at,
+        .Some(c) => {
+            if (holds(chars, c, 0)) { trailingAny(text, chars, at - 1) } else { at }
+        },
     }
 }
 
@@ -728,42 +725,42 @@ fn significand<C: Allocator>(ctx: C, text: Str): (Str, Int) {
 
 /// `digits` cut to `keep` of them, rounded half up on the first one dropped.
 /// A carry off the front makes the answer one longer than `keep`.
+/// Nothing is dropped when there is no digit at `keep`, the first one that
+/// would be.
 fn roundTo<C: Allocator>(ctx: C, digits: Str, keep: Int): Str {
-    if (keep >= digits.length()) {
-        digits
-    } else {
-        let head = if (keep <= 0) { "" } else { digits.slice(0, keep) };
-        let at = if (keep < 0) { 0 } else { keep };
-        let up = match (digits.charAt(at)) {
-            .None => false,
-            .Some(c) => c >= '5',
-        };
-        if (up && keep >= 0) { carry(ctx, head, head.length() - 1) } else { head }
-    }
-}
-
-/// `digits` with one added to its last digit, carrying leftwards.
-fn carry<C: Allocator>(ctx: C, digits: Str, at: Int): Str {
-    if (at < 0) {
-        "1".concat(ctx, digits)
-    } else {
-        let value = digits.charAt(at).andThen(fn(c) => c.toDigit(10)).withDefault(0);
-        if (value == 9) {
-            carry(ctx, writeAt(ctx, digits, at, '0'), at - 1)
-        } else {
-            match (character.fromDigit(value + 1, 10)) {
-                .None => digits,
-                .Some(c) => writeAt(ctx, digits, at, c),
+    let at = if (keep < 0) { 0 } else { keep };
+    match (digits.charAt(at)) {
+        .None => digits,
+        .Some(first) => {
+            let head = if (keep <= 0) { "" } else { digits.slice(0, keep) };
+            if (first >= '5' && keep >= 0) {
+                carry(ctx, head, head.length() - 1)
+            } else {
+                head
             }
-        }
+        },
     }
 }
 
-fn writeAt<C: Allocator>(ctx: C, text: Str, at: Int, c: Char): Str {
-    text
-        .slice(0, at)
-        .concat(ctx, fromChars(ctx, [c]))
-        .concat(ctx, text.slice(at + 1, text.length()))
+/// `digits` with one added to its last digit, carrying leftwards. Past the
+/// front there is no digit at `at`, and the carry is a new leading `1`.
+fn carry<C: Allocator>(ctx: C, digits: Str, at: Int): Str {
+    match (digits.charAt(at)) {
+        .None => "1".concat(ctx, digits),
+        .Some('9') => carry(ctx, writeAt(ctx, digits, at, "0"), at - 1),
+        .Some(c) => {
+            // A decimal digit below 9, so its successor is the next one in
+            // `DECIMAL`.
+            let next = c.toU32().toI64() - 0x30 + 1;
+            writeAt(ctx, digits, at, DECIMAL.slice(next, next + 1))
+        },
+    }
+}
+
+let DECIMAL: Str = "0123456789";
+
+fn writeAt<C: Allocator>(ctx: C, text: Str, at: Int, digit: Str): Str {
+    text.slice(0, at).concat(ctx, digit).concat(ctx, text.slice(at + 1, text.length()))
 }
 
 /// `0.<digits>` times ten to the `point`, as a plain decimal with `places`
@@ -849,11 +846,12 @@ impl Str {
     /// ```
     export fn graphemes<C: Allocator>(self, ctx: C): [Str] {
         let cs = self.chars(ctx);
-        if (cs.isEmpty()) {
-            list.empty<Str>()
-        } else {
-            let first = advance(freshBoundary(), classOf(codePoint(cs, 0)), true);
-            clustersFrom(ctx, self, cs, 1, 0, first, list.empty<Str>())
+        match (cs.get(0)) {
+            .None => list.empty<Str>(),
+            .Some(c) => {
+                let first = advance(freshBoundary(), classOf(c.toU32().toI64()), true);
+                clustersFrom(ctx, self, cs, 1, 0, first, list.empty<Str>())
+            },
         }
     }
 
@@ -861,11 +859,12 @@ impl Str {
     ///
     /// The same count `graphemes(ctx).length()` gives.
     export fn graphemeCount(self): Int {
-        if (self.isEmpty()) {
-            0
-        } else {
-            let first = advance(freshBoundary(), classOf(charCode(self, 0)), true);
-            clusterCount(self, 1, 1, first)
+        match (self.charAt(0)) {
+            .None => 0,
+            .Some(c) => {
+                let first = advance(freshBoundary(), classOf(c.toU32().toI64()), true);
+                clusterCount(self, 1, 1, first)
+            },
         }
     }
 
@@ -938,7 +937,7 @@ fn normalized<C: Allocator>(ctx: C, cs: [Char], form: Normalization): Str {
         _ => false,
     };
     let pulled = decomposeFrom(ctx, cs, table, 0, list.empty<Char>());
-    let sorted = reorder(ctx, pulled, pulled.length());
+    let sorted = reorder(ctx, pulled);
     if (composing) {
         let joined = composeFrom(ctx, sorted, 0, list.empty<Char>(), -1, 0);
         fromChars(ctx, joined)
@@ -1110,45 +1109,45 @@ fn clustersFrom<C: Allocator>(
     state: Boundary,
     acc: [Str],
 ): [Str] {
-    if (at >= cs.length()) {
-        acc.push(ctx, text.slice(start, at))
-    } else {
-        let next = classOf(codePoint(cs, at));
-        let broke = breaksBefore(state, next);
-        let pieces = if (broke) { acc.push(ctx, text.slice(start, at)) } else { acc };
-        let begin = if (broke) { at } else { start };
-        clustersFrom(ctx, text, cs, at + 1, begin, advance(state, next, broke), pieces)
+    match (cs.get(at)) {
+        .None => acc.push(ctx, text.slice(start, at)),
+        .Some(c) => {
+            let next = classOf(c.toU32().toI64());
+            let broke = breaksBefore(state, next);
+            let pieces = if (broke) {
+                acc.push(ctx, text.slice(start, at))
+            } else {
+                acc
+            };
+            let begin = if (broke) { at } else { start };
+            clustersFrom(
+                ctx,
+                text,
+                cs,
+                at + 1,
+                begin,
+                advance(state, next, broke),
+                pieces,
+            )
+        },
     }
 }
 
 fn clusterCount(text: Str, at: Int, seen: Int, state: Boundary): Int {
-    if (at >= text.length()) {
-        seen
-    } else {
-        let next = classOf(charCode(text, at));
-        let broke = breaksBefore(state, next);
-        let total = if (broke) { seen + 1 } else { seen };
-        clusterCount(text, at + 1, total, advance(state, next, broke))
+    match (text.charAt(at)) {
+        .None => seen,
+        .Some(c) => {
+            let next = classOf(c.toU32().toI64());
+            let broke = breaksBefore(state, next);
+            let total = if (broke) { seen + 1 } else { seen };
+            clusterCount(text, at + 1, total, advance(state, next, broke))
+        },
     }
 }
 
 /// Whether every scalar is below `bound`.
 fn allBelow(cs: [Char], bound: Int): Bool {
     cs.all(fn(c) => c.toU32().toI64() < bound)
-}
-
-fn codePoint(cs: [Char], at: Int): Int {
-    match (cs.get(at)) {
-        .Some(c) => c.toU32().toI64(),
-        .None => 0,
-    }
-}
-
-fn charCode(text: Str, at: Int): Int {
-    match (text.charAt(at)) {
-        .Some(c) => c.toU32().toI64(),
-        .None => 0,
-    }
 }
 
 /// The packed grapheme class of the first 128 scalars, which the table never
@@ -1170,7 +1169,7 @@ fn asciiClass(cp: Int): Option<Int> {
 fn classOf(cp: Int): Int {
     match (asciiClass(cp)) {
         .Some(known) => known,
-        .None => rangeValue(GRAPHEME_CLASS, cp, 0, GRAPHEME_CLASS.length() / 10),
+        .None => rangeValue(GRAPHEME_CLASS, cp, 1, GRAPHEME_CLASS.length() / 10),
     }
 }
 
@@ -1181,7 +1180,7 @@ fn combiningClass(c: Char): Int {
     if (cp < 0x300) {
         0
     } else {
-        rangeValue(COMBINING_CLASS, cp, 0, COMBINING_CLASS.length() / 10)
+        rangeValue(COMBINING_CLASS, cp, 1, COMBINING_CLASS.length() / 10)
     }
 }
 
@@ -1190,6 +1189,10 @@ fn combiningClass(c: Char): Int {
 ///
 /// It reads only each range's *first* code point while halving, and looks at a
 /// last one once.
+///
+/// The search starts with `lo` at 1, not 0: each caller asks only about a code
+/// point at or past its table's first range. `GRAPHEME_CLASS` starts at U+0000,
+/// and `COMBINING_CLASS` at U+0300, below which `combiningClass` doesn't ask.
 fn rangeValue(table: Str, cp: Int, lo: Int, hi: Int): Int {
     if (lo < hi) {
         let mid = lo + (hi - lo) / 2;
@@ -1198,8 +1201,6 @@ fn rangeValue(table: Str, cp: Int, lo: Int, hi: Int): Int {
         } else {
             rangeValue(table, cp, mid + 1, hi)
         }
-    } else if (lo == 0) {
-        0
     } else {
         // `lo` counts the ranges beginning at or below `cp`, so the last of
         // them is the only one that can hold it.
@@ -1370,13 +1371,13 @@ fn hangulParts<C: Allocator>(ctx: C, acc: [Char], syllable: Char, index: Int): [
 ///
 /// Adjacent swaps until nothing moves, which is O(n²) on the run — and a run is
 /// two or three marks in real text.
-fn reorder<C: Allocator>(ctx: C, cs: [Char], fuel: Int): [Char] {
-    if (fuel <= 0) {
-        cs
-    } else {
-        let once = swapPass(ctx, cs, 0);
-        if (once == cs) { cs } else { reorder(ctx, once, fuel - 1) }
-    }
+///
+/// It ends: a swap only ever puts a pair of non-starters in order, and starters
+/// never move, so each pass that moves anything leaves fewer pairs out of
+/// order.
+fn reorder<C: Allocator>(ctx: C, cs: [Char]): [Char] {
+    let once = swapPass(ctx, cs, 0);
+    if (once == cs) { cs } else { reorder(ctx, once) }
 }
 
 fn swapPass<C: Allocator>(ctx: C, cs: [Char], at: Int): [Char] {

@@ -45,7 +45,6 @@
 //! ```
 
 from "core/bits" import * as bits;
-from "core/character" import * as character;
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "platform/effect" import { Allocator };
@@ -213,17 +212,17 @@ fn continuations(bytes: [U8], i: Int, width: Int, low: Int, high: Int, at: Int):
 
 /// Lowercase, two characters per byte, no separator.
 export fn toHex<C: Allocator>(ctx: C, bytes: [U8]): Str {
-    str.fromChars(
-        ctx,
-        list
-            .range(ctx, 0, bytes.length() * 2)
-            .map(ctx, fn(i) => {
-                let octet = bytes.get(i / 2).withDefault(0).toI64();
-                let nibble = if (i % 2 == 0) { octet / 16 } else { octet % 16 };
-                character.fromDigit(nibble, 16).withDefault('0')
-            }),
-    )
+    bytes
+        .mapCtx(ctx, fn(c, octet) => {
+            let n = octet.toI64();
+            HEX.slice(n / 16, n / 16 + 1).concat(c, HEX.slice(n % 16, n % 16 + 1))
+        })
+        .join(ctx, "")
 }
+
+/// The sixteen digits, which `toHex` slices rather than converting a nibble to
+/// a `Char` that might not be one.
+let HEX: Str = "0123456789abcdef";
 
 /// Reads either case. An odd number of digits, or a character that is not one,
 /// is an error at the offending index.
@@ -232,24 +231,41 @@ export fn fromHex<C: Allocator>(ctx: C, text: Str): Result<[U8], DecodeError> {
     if (cs.length() % 2 != 0) {
         .Err(DecodeError(cs.length()))
     } else {
-        list
-            .range(ctx, 0, cs.length() / 2)
-            .foldResultCtx(
-                ctx,
-                fn(c, acc: [U8], i) => {
-                    let hi = cs.get(i * 2).andThen(fn(ch) => ch.toDigit(16));
-                    let lo = cs.get(i * 2 + 1).andThen(fn(ch) => ch.toDigit(16));
-                    match ((hi, lo)) {
-                        (.Some(h), .Some(l)) => {
-                            .Ok(acc.push(c, (h * 16 + l).wrapToU8()))
+        hexFrom(ctx, cs, 0, .None, list.empty<U8>())
+    }
+}
+
+/// The octets from `at` on, one digit at a time: `high` holds the first digit
+/// of a pair until the second arrives. An error is the index of the character
+/// that failed, not of the whole string.
+fn hexFrom<C: Allocator>(
+    ctx: C,
+    cs: [Char],
+    at: Int,
+    high: Option<Int>,
+    acc: [U8],
+): Result<[U8], DecodeError> {
+    match (cs.get(at)) {
+        .None => .Ok(acc),
+        .Some(ch) => {
+            match (ch.toDigit(16)) {
+                .None => .Err(DecodeError(at)),
+                .Some(d) => {
+                    match (high) {
+                        .None => hexFrom(ctx, cs, at + 1, .Some(d), acc),
+                        .Some(h) => {
+                            hexFrom(
+                                ctx,
+                                cs,
+                                at + 1,
+                                .None,
+                                acc.push(ctx, (h * 16 + d).wrapToU8()),
+                            )
                         },
-                        // The index of the character that failed, not of the whole string.
-                        (.None, _) => .Err(DecodeError(i * 2)),
-                        _ => .Err(DecodeError(i * 2 + 1)),
                     }
                 },
-                list.empty<U8>(),
-            )
+            }
+        },
     }
 }
 
@@ -298,31 +314,55 @@ export fn toBase64Url<C: Allocator>(ctx: C, bytes: [U8]): Str {
 }
 
 fn encode64<C: Allocator>(ctx: C, bytes: [U8], alphabet: Str): Str {
-    let n = bytes.length();
-    list
-        .range(ctx, 0, (n + 2) / 3)
-        .mapCtx(ctx, fn(c, g) => {
-            let i = g * 3;
-            let b0 = bytes.get(i).withDefault(0).toI64();
-            let b1 = bytes.get(i + 1).withDefault(0).toI64();
-            let b2 = bytes.get(i + 2).withDefault(0).toI64();
-            let left = n - i;
-            str.fromChars(c, [
-                alphabet.charAt(b0 / 4).withDefault('A'),
-                alphabet.charAt(b0 % 4 * 16 + b1 / 16).withDefault('A'),
-                if (left > 1) {
-                    alphabet.charAt(b1 % 16 * 4 + b2 / 64).withDefault('A')
-                } else {
-                    '='
-                },
-                if (left > 2) {
-                    alphabet.charAt(b2 % 64).withDefault('A')
-                } else {
-                    '='
-                },
-            ])
-        })
-        .join(ctx, "")
+    groupsFrom(ctx, bytes, alphabet, 0, list.empty<Str>()).join(ctx, "")
+}
+
+/// Each group of three octets from `at` on as four characters, the last group
+/// padded with `=` for each octet it lacks.
+fn groupsFrom<C: Allocator>(
+    ctx: C,
+    bytes: [U8],
+    alphabet: Str,
+    at: Int,
+    acc: [Str],
+): [Str] {
+    match (bytes.get(at)) {
+        .Some(b0) => {
+            let group = quad(ctx, alphabet, b0, bytes.get(at + 1), bytes.get(at + 2));
+            groupsFrom(ctx, bytes, alphabet, at + 3, acc.push(ctx, group))
+        },
+        .None => acc,
+    }
+}
+
+/// The four characters of one group: one for each sextet the octets reach
+/// into, and `=` for each octet missing.
+fn quad<C: Allocator>(
+    ctx: C,
+    alphabet: Str,
+    b0: U8,
+    b1: Option<U8>,
+    b2: Option<U8>,
+): Str {
+    let x = b0.toI64();
+    let y = b1.withDefault(0).toI64();
+    let z = b2.withDefault(0).toI64();
+    let first = sextetText(alphabet, x / 4);
+    let second = sextetText(alphabet, x % 4 * 16 + y / 16);
+    let third = match (b1) {
+        .Some(_octet) => sextetText(alphabet, y % 16 * 4 + z / 64),
+        .None => "=",
+    };
+    let fourth = match (b2) {
+        .Some(_octet) => sextetText(alphabet, z % 64),
+        .None => "=",
+    };
+    str.format(ctx, "${first}${second}${third}${fourth}")
+}
+
+/// The alphabet's character for a sextet, as text.
+fn sextetText(alphabet: Str, sextet: Int): Str {
+    alphabet.slice(sextet, sextet + 1)
 }
 
 /// Pure: `slice` is a view, so this walks back over the `=`s without copying.
@@ -363,23 +403,8 @@ fn decode64<C: Allocator>(ctx: C, text: Str, alphabet: Str): Result<[U8], Decode
         match (firstNonBase64(cs, alphabet, 0, cs.length())) {
             .Some(i) => .Err(DecodeError(i)),
             .None => {
-                let groups = cs.length() / 4;
                 let pad = padding(cs);
-                let bytes = list
-                    .range(ctx, 0, groups)
-                    .map(ctx, fn(g) => {
-                        let i = g * 4;
-                        let a = sextet(cs.get(i), alphabet);
-                        let b = sextet(cs.get(i + 1), alphabet);
-                        let c = sextet(cs.get(i + 2), alphabet);
-                        let d = sextet(cs.get(i + 3), alphabet);
-                        [
-                            (a * 4 + b / 16).wrapToU8(),
-                            (b % 16 * 16 + c / 4).wrapToU8(),
-                            (c % 4 * 64 + d).wrapToU8(),
-                        ]
-                    })
-                    .flatten(ctx);
+                let bytes = decodeFrom(ctx, cs, alphabet, 0, list.empty<U8>());
                 .Ok(bytes.take(ctx, bytes.length() - pad))
             },
         }
@@ -396,13 +421,35 @@ fn padding(cs: [Char]): Int {
     }
 }
 
-/// The alphabet position of a character, or 0 — the caller has already checked
-/// that every character is in the alphabet.
-fn sextet(c: Option<Char>, alphabet: Str): Int {
-    match (c) {
-        .None => 0,
-        .Some(ch) => if (ch == '=') { 0 } else { alphabetIndex(ch, alphabet, 0) },
+/// The octets of each group of four from `at` on. Every character is already
+/// known to be in the alphabet or padding, and the length a multiple of four.
+fn decodeFrom<C: Allocator>(
+    ctx: C,
+    cs: [Char],
+    alphabet: Str,
+    at: Int,
+    acc: [U8],
+): [U8] {
+    match ((cs.get(at), cs.get(at + 1), cs.get(at + 2), cs.get(at + 3))) {
+        (.Some(w), .Some(x), .Some(y), .Some(z)) => {
+            let a = sextet(w, alphabet);
+            let b = sextet(x, alphabet);
+            let c = sextet(y, alphabet);
+            let d = sextet(z, alphabet);
+            let grown = acc
+                .push(ctx, (a * 4 + b / 16).wrapToU8())
+                .push(ctx, (b % 16 * 16 + c / 4).wrapToU8())
+                .push(ctx, (c % 4 * 64 + d).wrapToU8());
+            decodeFrom(ctx, cs, alphabet, at + 4, grown)
+        },
+        _ => acc,
     }
+}
+
+/// The alphabet position of a character, or 0 for padding — the caller has
+/// already checked that every character is in the alphabet.
+fn sextet(ch: Char, alphabet: Str): Int {
+    if (ch == '=') { 0 } else { alphabetIndex(ch, alphabet, 0) }
 }
 
 fn alphabetIndex(ch: Char, alphabet: Str, i: Int): Int {
@@ -533,13 +580,7 @@ fn splitFrom<C: Allocator>(
 /// The parts with `separator` between each pair — `split`'s inverse when no part
 /// holds the separator.
 export fn join<C: Allocator>(ctx: C, parts: [[U8]], separator: [U8]): [U8] {
-    list
-        .range(ctx, 0, parts.length())
-        .mapCtx(ctx, fn(c, i) => {
-            let part = parts.get(i).withDefault(list.empty<U8>());
-            if (i == 0) { part } else { separator.concat(c, part) }
-        })
-        .flatten(ctx)
+    parts.intersperse(ctx, separator).flatten(ctx)
 }
 
 // --- Varints -----------------------------------------------------------------------

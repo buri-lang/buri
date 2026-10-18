@@ -480,33 +480,22 @@ fn hourMinuteSecond<C: Allocator>(
     millisecond: Option<Int>,
 ): Option<Time> {
     let parts = clock.split(ctx, ":");
-    if (parts.length() != 3) {
-        .None
-    } else {
-        match ((twoDigits(parts.get(0)), twoDigits(parts.get(1)))) {
-            (.Some(h), .Some(m)) => {
-                match ((twoDigits(parts.get(2)), millisecond)) {
-                    (.Some(s), .Some(ms)) => time(h, m, s, ms),
-                    _ => .None,
-                }
-            },
-            _ => .None,
-        }
+    match ((parts.get(0), parts.get(1), parts.get(2), parts.get(3))) {
+        (.Some(hour), .Some(minute), .Some(second), .None) => {
+            match (
+                (twoDigits(hour), twoDigits(minute), twoDigits(second), millisecond)
+            ) {
+                (.Some(h), .Some(m), .Some(s), .Some(ms)) => time(h, m, s, ms),
+                _ => .None,
+            }
+        },
+        _ => .None,
     }
 }
 
 /// Exactly two digits, as a number. `9` and `009` are not `09`.
-fn twoDigits(part: Option<Str>): Option<Int> {
-    match (part) {
-        .None => .None,
-        .Some(text) => {
-            if (text.length() != 2 || !allDigits(text, 0)) {
-                .None
-            } else {
-                text.toInt()
-            }
-        },
-    }
+fn twoDigits(text: Str): Option<Int> {
+    if (text.length() != 2 || !allDigits(text, 0)) { .None } else { text.toInt() }
 }
 
 fn allDigits(text: Str, i: Int): Bool {
@@ -620,15 +609,16 @@ fn at(d: Date, t: Time, offsetMinutes: Int): Zoned {
 /// is not an offset.
 fn offsetOf<C: Allocator>(ctx: C, text: Str): Option<Int> {
     let parts = text.split(ctx, ":");
-    if (parts.length() != 2) {
-        .None
-    } else {
-        match ((twoDigits(parts.get(0)), twoDigits(parts.get(1)))) {
-            (.Some(h), .Some(m)) => {
-                if (h > 23 || m > 59) { .None } else { .Some(h * 60 + m) }
-            },
-            _ => .None,
-        }
+    match ((parts.get(0), parts.get(1), parts.get(2))) {
+        (.Some(hour), .Some(minute), .None) => {
+            match ((twoDigits(hour), twoDigits(minute))) {
+                (.Some(h), .Some(m)) => {
+                    if (h > 23 || m > 59) { .None } else { .Some(h * 60 + m) }
+                },
+                _ => .None,
+            }
+        },
+        _ => .None,
     }
 }
 
@@ -729,62 +719,81 @@ export fn formatHttpDate<C: Allocator>(ctx: C, dateTime: DateTime): Str {
 /// 9110 asks for "more than fifty years in the future" measured against now, and
 /// now is a clock reading this cannot take.
 export fn parseHttpDate<C: Allocator>(ctx: C, text: Str): Option<DateTime> {
-    let fields = text.trim().splitAny(ctx, " ").filter(ctx, fn(f) => !f.isEmpty());
-    if (fields.length() == 6) {
-        imfFixdate(ctx, fields)
-    } else if (fields.length() == 4) {
-        rfc850(ctx, fields)
-    } else if (fields.length() == 5) {
-        asctime(ctx, fields)
-    } else {
-        .None
+    // `splitAny` drops the empty pieces, so the two spaces before a one-digit
+    // asctime day are one separator. The form is told by the number of fields.
+    let f = text.trim().splitAny(ctx, " ");
+    match ((f.get(0), f.get(1), f.get(2), f.get(3), f.get(4), f.get(5), f.get(6))) {
+        (.Some(a), .Some(b), .Some(c), .Some(d), .Some(e), .Some(g), .None) => {
+            imfFixdate(ctx, a, b, c, d, e, g)
+        },
+        (.Some(_weekday), .Some(b), .Some(c), .Some(d), .Some(e), .None, _) => {
+            asctime(ctx, b, c, d, e)
+        },
+        (.Some(a), .Some(b), .Some(c), .Some(d), .None, _, _) => {
+            rfc850(ctx, a, b, c, d)
+        },
+        _ => .None,
     }
 }
 
 /// `Sun, 06 Nov 1994 08:49:37 GMT`.
-fn imfFixdate<C: Allocator>(ctx: C, fields: [Str]): Option<DateTime> {
-    if (!endsGmt(fields, 5) || !isDayComma(fields.get(0))) {
+fn imfFixdate<C: Allocator>(
+    ctx: C,
+    weekday: Str,
+    day: Str,
+    month: Str,
+    year: Str,
+    clock: Str,
+    zone: Str,
+): Option<DateTime> {
+    if (zone != "GMT" || !isDayComma(weekday)) {
         .None
     } else {
-        let day = twoDigits(fields.get(1));
-        let month = fields.get(2).andThen(fn(name) => monthNumber(name));
-        let year = fields.get(3).andThen(fn(text) => fourDigits(text));
-        civil(ctx, year, month, day, fields.get(4))
+        civil(ctx, fourDigits(year), monthNumber(month), twoDigits(day), clock)
     }
 }
 
 /// `Sunday, 06-Nov-94 08:49:37 GMT`.
-fn rfc850<C: Allocator>(ctx: C, fields: [Str]): Option<DateTime> {
-    let parts = fields.get(1).withDefault("").split(ctx, "-");
-    if (!endsGmt(fields, 3) || !isDayComma(fields.get(0)) || parts.length() != 3) {
-        .None
-    } else {
-        let day = twoDigits(parts.get(0));
-        let month = parts.get(1).andThen(fn(name) => monthNumber(name));
-        let year = twoDigits(parts.get(2)).map(fn(y) => {
-            if (y < 69) { 2000 + y } else { 1900 + y }
-        });
-        civil(ctx, year, month, day, fields.get(2))
+fn rfc850<C: Allocator>(
+    ctx: C,
+    weekday: Str,
+    dayMonthYear: Str,
+    clock: Str,
+    zone: Str,
+): Option<DateTime> {
+    let parts = dayMonthYear.split(ctx, "-");
+    match ((parts.get(0), parts.get(1), parts.get(2), parts.get(3))) {
+        (.Some(day), .Some(month), .Some(year), .None) => {
+            if (zone != "GMT" || !isDayComma(weekday)) {
+                .None
+            } else {
+                let full = twoDigits(year).map(fn(y) => {
+                    if (y < 69) { 2000 + y } else { 1900 + y }
+                });
+                civil(ctx, full, monthNumber(month), twoDigits(day), clock)
+            }
+        },
+        _ => .None,
     }
 }
 
 /// `Sun Nov  6 08:49:37 1994`. The day is one or two digits and there is no
 /// `GMT` on the end — asctime has no timezone at all, and RFC 9110 reads it as
 /// UTC.
-fn asctime<C: Allocator>(ctx: C, fields: [Str]): Option<DateTime> {
-    let month = fields.get(1).andThen(fn(name) => monthNumber(name));
-    let day = fields
-        .get(2)
-        .andThen(fn(text) => {
-            // Never empty: `parseHttpDate` drops the empty fields.
-            if (text.length() > 2 || !allDigits(text, 0)) {
-                .None
-            } else {
-                text.toInt()
-            }
-        });
-    let year = fields.get(4).andThen(fn(text) => fourDigits(text));
-    civil(ctx, year, month, day, fields.get(3))
+fn asctime<C: Allocator>(
+    ctx: C,
+    month: Str,
+    day: Str,
+    clock: Str,
+    year: Str,
+): Option<DateTime> {
+    // Never empty: `parseHttpDate` drops the empty fields.
+    let dayNumber: Option<Int> = if (day.length() > 2 || !allDigits(day, 0)) {
+        .None
+    } else {
+        day.toInt()
+    };
+    civil(ctx, fourDigits(year), monthNumber(month), dayNumber, clock)
 }
 
 /// The three numbers and the clock, if every one of them is there.
@@ -793,39 +802,27 @@ fn civil<C: Allocator>(
     year: Option<Int>,
     month: Option<Int>,
     day: Option<Int>,
-    clock: Option<Str>,
+    clock: Str,
 ): Option<DateTime> {
-    match ((year, month)) {
-        (.Some(y), .Some(m)) => {
-            match ((day, clock)) {
-                (.Some(d), .Some(text)) => {
-                    match (date(y, m, d)) {
-                        .Some(theDate) => {
-                            parseTime(ctx, text).map(fn(t) => {
-                                DateTime { date: theDate, time: t }
-                            })
-                        },
-                        .None => .None,
-                    }
+    match ((year, month, day)) {
+        (.Some(y), .Some(m), .Some(d)) => {
+            match (date(y, m, d)) {
+                .Some(theDate) => {
+                    parseTime(ctx, clock).map(fn(t) => {
+                        DateTime { date: theDate, time: t }
+                    })
                 },
-                _ => .None,
+                .None => .None,
             }
         },
         _ => .None,
     }
 }
 
-fn endsGmt(fields: [Str], index: Int): Bool {
-    fields.get(index).withDefault("") == "GMT"
-}
-
 /// A weekday name with the comma RFC 9110's two dated forms put after it. The
 /// name itself is not checked: the standard calls it redundant with the date.
-fn isDayComma(field: Option<Str>): Bool {
-    match (field) {
-        .Some(text) => text.endsWith(",") && text.length() > 3,
-        .None => false,
-    }
+fn isDayComma(text: Str): Bool {
+    text.endsWith(",") && text.length() > 3
 }
 
 fn fourDigits(text: Str): Option<Int> {
