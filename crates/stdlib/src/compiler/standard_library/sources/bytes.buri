@@ -100,13 +100,17 @@ export fn fromUtf8<C: Allocator>(ctx: C, bytes: [U8]): Result<Str, Utf8Error>;
 /// hi� 3
 /// ```
 export fn fromUtf8Lossy<C: Allocator>(ctx: C, bytes: [U8]): Str {
-    // The substitution happens in the *octets*, and `fromUtf8` then reads them.
-    // What `cleaned` answers is valid UTF-8 by construction, so the decoder
-    // cannot refuse it and the fallback is unreachable. Building the octets
-    // rather than a `[Char]` keeps one decoder in the module: this walk decides
-    // what is a sequence, and the intrinsic decides what the string is.
-    fromUtf8(ctx, cleaned(ctx, bytes, 0, list.empty<U8>())).withDefault("")
+    // The substitution happens in the *octets*, and `fromUtf8Trusted` then
+    // reads them. Building the octets rather than a `[Char]` keeps one decoder
+    // in the module: this walk decides what is a sequence, and the intrinsic
+    // decides what the string is.
+    fromUtf8Trusted(ctx, cleaned(ctx, bytes, 0, list.empty<U8>()))
 }
+
+/// The string valid UTF-8 encodes: `fromUtf8` with nothing to refuse.
+///
+/// Private: only `cleaned`'s octets are valid by construction.
+fn fromUtf8Trusted<C: Allocator>(ctx: C, octets: [U8]): Str;
 
 /// U+FFFD's own UTF-8 encoding, which is what a bad sequence becomes.
 let REPLACEMENT: [U8] = [0xef, 0xbf, 0xbd];

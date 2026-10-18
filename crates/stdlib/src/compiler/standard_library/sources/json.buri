@@ -294,6 +294,9 @@ fn stringBody<C: Allocator>(
 
 /// The character a `\uXXXX` escape at `i` denotes, and the index just past it.
 /// `i` points at the backslash.
+///
+/// Four hex digits are at most U+FFFF and a surrogate pair at most U+10FFFF, so
+/// once the surrogates are refused every code point here is a `Char`.
 fn unicodeEscape(cs: [Char], i: Int): Result<(Char, Int), JsonError> {
     let hi = hex4(cs, i + 2)?;
     if (hi < 55296 || hi > 56319) {
@@ -301,10 +304,7 @@ fn unicodeEscape(cs: [Char], i: Int): Result<(Char, Int), JsonError> {
         if (hi >= 56320 && hi <= 57343) {
             .Err(.BadEscape(i + 2))
         } else {
-            match (hi.wrapToU32().toChar()) {
-                .Ok(c) => .Ok((c, i + 6)),
-                .Err(_e) => .Err(.BadEscape(i + 2)),
-            }
+            .Ok((charOf(hi.wrapToU32()), i + 6))
         }
     } else {
         match ((cs.get(i + 6), cs.get(i + 7))) {
@@ -314,16 +314,18 @@ fn unicodeEscape(cs: [Char], i: Int): Result<(Char, Int), JsonError> {
                     .Err(.BadEscape(i + 8))
                 } else {
                     let code = 65536 + (hi - 55296) * 1024 + (lo - 56320);
-                    match (code.wrapToU32().toChar()) {
-                        .Ok(c) => .Ok((c, i + 12)),
-                        .Err(_e) => .Err(.BadEscape(i + 2)),
-                    }
+                    .Ok((charOf(code.wrapToU32()), i + 12))
                 }
             },
             _ => .Err(.BadEscape(i + 2)),
         }
     }
 }
+
+/// A code point as a `Char`, unchecked.
+///
+/// Private: `unicodeEscape` hands it only scalar values.
+fn charOf(code: U32): Char;
 
 /// Four hexadecimal digits, either case, as a number.
 fn hex4(cs: [Char], i: Int): Result<Int, JsonError> {

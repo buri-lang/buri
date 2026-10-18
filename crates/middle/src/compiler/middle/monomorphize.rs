@@ -3169,12 +3169,13 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // because rendering allocates. The type is in the key already.
     "bool.show",
     "bool.toJson",
-    // `core/bytes`: four `C: Allocator` conversions. Every one of them answers a
+    // `core/bytes`: five `C: Allocator` conversions. Every one of them answers a
     // `[U8]` or takes one, and the element type is fixed at `U8` — which is
     // why `runtime_table` gives them `Extra::None` and the stride is known.
     "bytes.f32ToBytes",
     "bytes.f64ToBytes",
     "bytes.fromUtf8",
+    "bytes.fromUtf8Trusted",
     "bytes.toUtf8",
     "character.show",
     "character.toJson",
@@ -3850,7 +3851,7 @@ mod tests {
         actor.statePut actor.stateTake \
         alloc.copyOut \
         bool.show bool.toJson \
-        bytes.f32ToBytes bytes.f64ToBytes bytes.fromUtf8 bytes.toUtf8 \
+        bytes.f32ToBytes bytes.f64ToBytes bytes.fromUtf8 bytes.fromUtf8Trusted bytes.toUtf8 \
         character.show character.toJson \
         crypto.chacha20Poly1305Open crypto.chacha20Poly1305Seal \
         effect.Scope.read \

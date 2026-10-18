@@ -627,11 +627,12 @@ pub const ENTRIES: &[Entry] = &[
     ),
     // -- core/bytes ---------------------------------------------------------
     //
-    // Six of `bytes.buri`'s surface, and the rest of that module is Buri:
+    // Seven of `bytes.buri`'s surface, and the rest of that module is Buri:
     // hexadecimal, base64, varints and zigzag are arithmetic over a `[U8]`.
-    // These six are the two conversions whose answer is the platform's
+    // Six are the two conversions whose answer is the platform's
     // representation — the UTF-8 encoding of a string, and the IEEE 754 byte
-    // pattern of a `Float`.
+    // pattern of a `Float`. The seventh is the private `fromUtf8Trusted`:
+    // `fromUtf8` without the checks, on octets `fromUtf8Lossy` made valid.
     //
     // `Extra::None` at every one of them, including the three answering a
     // `[U8]`: the element type is fixed at `U8`, so there is no `T` for the
@@ -642,6 +643,7 @@ pub const ENTRIES: &[Entry] = &[
     // is a struct, so there is no variant index to name it with and the value
     // crosses through its own out-pointer.
     e("bytes.fromUtf8", &[Dropped, List], Ret::Res),
+    e("bytes.fromUtf8Trusted", &[Dropped, List], Ret::Out),
     e("bytes.f64ToBytes", &[Dropped, Scalar], Ret::Out),
     e("bytes.f64FromBytes", &[List, Scalar], Ret::Sum),
     e("bytes.f32ToBytes", &[Dropped, Scalar], Ret::Out),
@@ -2553,7 +2555,7 @@ mod tests {
             checked > 140,
             "only {checked} rows were read against a declaration"
         );
-        assert_eq!(contexts, 56);
+        assert_eq!(contexts, 57);
     }
 
     /// The two places a context sits, by example, so that the indices are

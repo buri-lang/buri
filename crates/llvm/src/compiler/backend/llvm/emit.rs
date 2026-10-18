@@ -78,8 +78,8 @@ use inkwell::{FloatPredicate, IntPredicate};
 
 use super::route::{self, Route};
 use crate::compiler::backend::intrinsic_keys::{
-    checked_kind, conversion_target, json_arm, json_variant, native_body, prim_trait_op, step_call,
-    CheckedKind, JsonArm, Leaf,
+    char_of, checked_kind, conversion_target, json_arm, json_variant, native_body, prim_trait_op,
+    step_call, CheckedKind, JsonArm, Leaf,
 };
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::task_thread;
@@ -6603,8 +6603,9 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) -> bool {
         let b = state.b;
         match (key, args) {
-            // `character.toU32()` is the identity: both sides are an `i32`.
-            ("character.toU32", &[x, ..]) => {
+            // `character.toU32()` is the identity: both sides are an `i32`. So
+            // is a `charOf`, the other way.
+            (k, &[x, ..]) if k == "character.toU32" || char_of(k) => {
                 let value = self.get(state, x);
                 self.set(state, dest, value);
                 true
@@ -8396,7 +8397,7 @@ pub(super) fn open_coded_key(key: &str) -> bool {
             // table is what made the absence reachable — `data/strings.buri`
             // and `text/json.buri` both call it right beside a classifier.
             | "character.toU32"
-    )
+    ) || char_of(key)
 }
 
 // ---------------------------------------------------------------------------
