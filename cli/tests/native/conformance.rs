@@ -314,6 +314,7 @@ const PACKAGES: &[Case] = &[
     included("buri_ast/parsing.buri"),
     included("buri_ast/edges.buri"),
     included("buri_ast/reading.buri"),
+    included("buri_ast/lexing.buri"),
     included("generators/wire.buri"),
     included("generators/failure.buri"),
     //
