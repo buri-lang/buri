@@ -61,10 +61,7 @@ fn copy_assets(
     diagnostics: &mut Diagnostics,
 ) -> bool {
     let rule = platform_rule(session, output);
-    let path = artifact_path(session, target, output);
-    let into = path
-        .parent()
-        .or_ice("an artifact's path is a file in its output's directory");
+    let into = artifact_dir(session, target, output);
     for asset in &rule.assets {
         let destination = into.join(&asset.value);
         crate::build::create_parent(&destination);
@@ -74,10 +71,10 @@ fn copy_assets(
                 let source = session.workspace.package(pid).dir.join(&asset.value);
                 std::fs::copy(source, &destination).map(|_| ())
             }
-            None => match crate::build::platforms::file(output.platform().slug(), &asset.value) {
-                Some(text) => std::fs::write(&destination, text),
-                None => Ok(()),
-            },
+            None => std::fs::write(
+                &destination,
+                crate::build::platforms::file(output.platform().bundled(), &asset.value),
+            ),
         };
         if let Err(e) = copied {
             diagnostics.push(
@@ -97,8 +94,7 @@ fn copy_assets(
 pub fn platform_rule<'s>(session: &'s Session, output: &Output) -> &'s PlatformRule {
     match &output.custom {
         Some(custom) => session.workspace.platform_rule(&custom.label.value).1,
-        None => crate::build::platforms::bundled(output.platform().slug())
-            .or_ice("each bundled platform's build file holds a `platform` rule"),
+        None => crate::build::platforms::bundled(output.platform().bundled()),
     }
 }
 
@@ -400,14 +396,11 @@ fn needed_structs(
     use crate::build::hosted::{Method, Needed};
     use crate::compiler::semantics::resolve::{declared_host, js_structs, own_fn};
     let tables = &analysis.checked.tables;
-    // The entry takes the platform's host, so its module is loaded.
-    let platform = analysis
-        .loaded
-        .find(module)
-        .or_ice("an output's platform module is loaded");
+    // An entry with no host, or a platform module nobody loaded, needs none.
     let decl = own_fn(&analysis.loaded, &analysis.checked.scopes, module, point);
-    let Some(host) = decl.and_then(|d| declared_host(tables, platform, &tables.fn_info(d).params))
-    else {
+    let Some((platform, host)) = analysis.loaded.find(module).zip(decl).and_then(|(p, d)| {
+        declared_host(tables, p, &tables.fn_info(d).params).map(|host| (p, host))
+    }) else {
         return Vec::new();
     };
     let structs = js_structs(tables, &analysis.checked.bodies, platform, host);
@@ -452,11 +445,13 @@ fn host_file(
             custom.js.clone(),
         ),
         None => {
-            let name = output.platform().slug();
+            let name = output.platform().bundled();
             let js = crate::build::platforms::bundled(name)
-                .and_then(|rule| rule.entries.iter().find(|e| e.name.value == point))
+                .entries
+                .iter()
+                .find(|e| e.name.value == point)
                 .and_then(|e| e.js.as_ref().map(|js| js.value.clone()));
-            (name.to_string(), js)
+            (name.name().to_string(), js)
         }
     };
     let needed = needed_structs(analysis, &module, point);
@@ -488,10 +483,9 @@ fn host_file(
             }
         }
         None => {
-            let name = output.platform().slug();
-            let text = crate::build::platforms::file(name, &js)
-                .or_ice("a bundled platform's `js` file is embedded with its build file");
-            session.map.embedded(&format!("{name}/{js}"), text)
+            let name = output.platform().bundled();
+            let text = crate::build::platforms::file(name, &js);
+            session.map.embedded(&format!("{}/{js}", name.name()), text)
         }
     };
     let text = session.map.text(file).to_string();
@@ -1197,25 +1191,28 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
             sources.iter().map(move |rel| (dir, rel.as_str()))
         })
         .collect();
-    let read = |i: usize| -> Option<std::sync::Arc<Vec<u8>>> {
-        let (dir, rel) = *files.get(i)?;
+    let read = |&(dir, rel): &(&std::path::Path, &str)| -> Option<std::sync::Arc<Vec<u8>>> {
         let bytes = crate::build::read_source(&dir.join(rel)).ok()?;
         Some(std::sync::Arc::new(match content {
             Content::Bytes => bytes,
             Content::Program => read_as(rel, bytes),
         }))
     };
-    let path = |i: usize| files.get(i).map(|(dir, rel)| (dir.join(rel), content));
+    let path = |(dir, rel): &(&std::path::Path, &str)| (dir.join(rel), content);
     let mut contents: Vec<Option<Option<std::sync::Arc<Vec<u8>>>>> = {
         let memo = READS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        (0..files.len())
-            .map(|i| memo.as_ref().and_then(|m| m.get(&path(i)?).cloned()))
+        files
+            .iter()
+            .map(|file| memo.as_ref().and_then(|m| m.get(&path(file)).cloned()))
             .collect()
     };
-    let missing: Vec<usize> = (0..files.len())
-        .filter(|&i| contents.get(i).is_some_and(Option::is_none))
+    let missing: Vec<&(&std::path::Path, &str)> = files
+        .iter()
+        .zip(&contents)
+        .filter(|(_, known)| known.is_none())
+        .map(|(file, _)| file)
         .collect();
     // Read in parallel, hashed in order. A key is a fold over the sources in
     // sorted order and that fold stays exactly where it was, on this thread; a
@@ -1225,21 +1222,22 @@ fn contribute_all(session: &Session, members: &[TargetId], k: &mut KeyBuilder, c
     // builder in the order `sources` is in. A few files cost less to read than
     // the threads would to start.
     let fresh: Vec<Option<std::sync::Arc<Vec<u8>>>> = if missing.len() < SERIAL_READS {
-        missing.iter().map(|&i| read(i)).collect()
+        missing.iter().map(|file| read(file)).collect()
     } else {
-        crate::parallel::map_items(&missing, |_, &i| read(i))
+        crate::parallel::map_items(&missing, |_, file| read(file))
     };
     {
         let mut memo = READS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        for (&i, bytes) in missing.iter().zip(fresh) {
-            if let (Some(memo), Some(at)) = (memo.as_mut(), path(i)) {
-                memo.insert(at, bytes.clone());
+        if let Some(memo) = memo.as_mut() {
+            for (file, bytes) in missing.iter().zip(&fresh) {
+                memo.insert(path(file), bytes.clone());
             }
-            *contents
-                .get_mut(i)
-                .or_ice("`missing` holds positions in `contents`") = Some(bytes);
+        }
+        let unknown = contents.iter_mut().filter(|known| known.is_none());
+        for (known, bytes) in unknown.zip(fresh) {
+            *known = Some(bytes);
         }
     }
     let contents: Vec<Option<std::sync::Arc<Vec<u8>>>> =
@@ -1391,8 +1389,14 @@ fn explain_closure(session: &Session, target: TargetId, output: &Output, flags: 
 /// Each test dependency contributes its own production closure, because that is
 /// what compiling it involves — the helper's own `dependencies` are as much part
 /// of the suite as the helper is.
-pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
-    let mut k = suite_key(session, target, output, flags, Action::Test);
+pub fn test_key(
+    session: &Session,
+    target: TargetId,
+    suite: &crate::build::buildfile::TestSuite,
+    output: &Output,
+    flags: &Flags,
+) -> ActionKey {
+    let mut k = suite_key(session, target, suite, output, flags, Action::Test);
     goldens(&session.workspace.package(target.package).dir, &mut k);
     // A recording run and a comparing run are two kinds of result and must not
     // share a cache entry. `--update` paints goldens and never compares, so its
@@ -1436,11 +1440,12 @@ pub fn test_key(session: &Session, target: TargetId, output: &Output, flags: &Fl
 pub fn test_build_key(
     session: &Session,
     target: TargetId,
+    suite: &crate::build::buildfile::TestSuite,
     output: &Output,
     flags: &Flags,
     graph: &ActionKey,
 ) -> ActionKey {
-    let mut k = suite_key(session, target, output, flags, Action::Build);
+    let mut k = suite_key(session, target, suite, output, flags, Action::Build);
     k.dependency(graph);
     if let Some(filter) = &flags.filter {
         k.input("filter", filter.as_bytes());
@@ -1490,6 +1495,7 @@ pub fn graph_key(session: &Session, flags: &Flags) -> ActionKey {
 fn suite_key(
     session: &Session,
     target: TargetId,
+    suite: &crate::build::buildfile::TestSuite,
     output: &Output,
     flags: &Flags,
     action: Action,
@@ -1524,9 +1530,6 @@ fn suite_key(
         contribute_as(session, member, &mut k, content);
     }
     let package = session.workspace.package(target.package);
-    let suite = package
-        .test_suite(target.kind)
-        .or_ice("`buri test` keys only a target with a `test` block");
     let mut files: Vec<String> = suite.sources.iter().map(|x| x.value.clone()).collect();
     files.sort();
     k.rule_identity(&package.label(), "test", &files);
@@ -2363,31 +2366,42 @@ fn codegen_units_for<F>(
 where
     F: FnMut(&[u32]) -> Result<Vec<Emitted>, Diagnostics>,
 {
-    let mut hits: Vec<Option<Vec<u8>>> = keys
+    let hits: Vec<Option<Vec<u8>>> = keys
         .iter()
         .map(|(_, k)| if force { None } else { cache.get_checked(k) })
         .collect();
-    let mut fresh = vec![false; keys.len()];
     // `keys` is in unit order, because `unit_hashes` walks `Program::units`, so
     // a position in it is the `Func::unit` the backend selects on.
-    let missing: Vec<usize> = (0..keys.len())
-        .filter(|&i| hits.get(i).is_some_and(Option::is_none))
+    let missing: Vec<Coded<'_>> = keys
+        .iter()
+        .enumerate()
+        .zip(&hits)
+        .filter(|(_, hit)| hit.is_none())
+        .map(|((i, (name, key)), _)| (i, (name, key)))
         .collect();
-    let (mine, theirs) = Flights::claim(cache, keys, &missing);
-    emit_into(cache, keys, &mine.units, &mut emit, &mut hits, &mut fresh)?;
+    // Each missing unit's bytes, and whether this build emitted them.
+    let mut got: std::collections::HashMap<usize, (Vec<u8>, bool)> =
+        std::collections::HashMap::new();
+    let (mine, theirs) = Flights::claim(cache, &missing);
+    emit_into(cache, &mine.units, &mut emit, &mut got)?;
     drop(mine);
     let mut failed = Vec::new();
-    for (i, flight) in theirs {
+    for ((i, (name, key)), flight) in theirs {
         flight.wait();
-        match keys.get(i).and_then(|(_, key)| cache.get_checked(key)) {
-            Some(bytes) => *hits.get_mut(i).or_ice("`hits` has a slot per key") = Some(bytes),
-            None => failed.push(i),
+        match cache.get_checked(key) {
+            Some(bytes) => {
+                got.insert(i, (bytes, false));
+            }
+            None => failed.push((i, (name, key))),
         }
     }
-    emit_into(cache, keys, &failed, &mut emit, &mut hits, &mut fresh)?;
+    emit_into(cache, &failed, &mut emit, &mut got)?;
     let mut out = Vec::with_capacity(keys.len());
-    for (((name, key), bytes), fresh) in keys.iter().zip(hits).zip(fresh) {
-        let bytes = bytes.unwrap_or_default();
+    for (i, ((name, key), hit)) in keys.iter().zip(hits).enumerate() {
+        let (bytes, fresh) = match hit {
+            Some(bytes) => (bytes, false),
+            None => got.remove(&i).unwrap_or_default(),
+        };
         out.push((
             Emitted {
                 name: object_name(name),
@@ -2400,15 +2414,16 @@ where
     Ok(out)
 }
 
-/// Emits the units at `wanted` and puts each in the cache and in `hits`, marked
-/// `fresh`. Asks `emit` nothing when `wanted` is empty.
+/// A unit: its position in the program's units, and its name and key.
+type Coded<'a> = (usize, (&'a String, &'a ActionKey));
+
+/// Emits the `wanted` units and puts each in the cache and in `got`, marked
+/// emitted here. Asks `emit` nothing when `wanted` is empty.
 fn emit_into<F>(
     cache: &Cache,
-    keys: &[(String, ActionKey)],
-    wanted: &[usize],
+    wanted: &[Coded<'_>],
     emit: &mut F,
-    hits: &mut [Option<Vec<u8>>],
-    fresh: &mut [bool],
+    got: &mut std::collections::HashMap<usize, (Vec<u8>, bool)>,
 ) -> Result<(), Diagnostics>
 where
     F: FnMut(&[u32]) -> Result<Vec<Emitted>, Diagnostics>,
@@ -2418,19 +2433,17 @@ where
     }
     let units: Vec<u32> = wanted
         .iter()
-        .filter_map(|&i| u32::try_from(i).ok())
+        .filter_map(|&(i, _)| u32::try_from(i).ok())
         .collect();
     let emitted = emit(&units)?;
-    for &i in wanted {
-        let (name, key) = keys.get(i).or_ice("a wanted unit is a position in `keys`");
+    for &(i, (name, key)) in wanted {
         let object = object_name(name);
         let unit = emitted
             .iter()
             .find(|e| e.name == object || e.name == *name)
             .or_ice("a backend emits an object for every unit it is asked for");
         cache.put_checked(key, &unit.bytes);
-        *hits.get_mut(i).or_ice("`hits` has a slot per key") = Some(unit.bytes.clone());
-        *fresh.get_mut(i).or_ice("`fresh` has a slot per key") = true;
+        got.insert(i, (unit.bytes.clone(), true));
     }
     Ok(())
 }
@@ -2465,8 +2478,8 @@ impl Flight {
 }
 
 /// The units one build claimed. Dropping it releases them, emitted or not.
-struct Claimed {
-    units: Vec<usize>,
+struct Claimed<'a> {
+    units: Vec<Coded<'a>>,
     names: Vec<PathBuf>,
     flights: Vec<std::sync::Arc<Flight>>,
 }
@@ -2484,11 +2497,10 @@ impl Flights {
     }
 
     /// The units of `missing` this build emits, and the ones it waits for.
-    fn claim(
+    fn claim<'a>(
         cache: &Cache,
-        keys: &[(String, ActionKey)],
-        missing: &[usize],
-    ) -> (Claimed, Vec<(usize, std::sync::Arc<Flight>)>) {
+        missing: &[Coded<'a>],
+    ) -> (Claimed<'a>, Vec<(Coded<'a>, std::sync::Arc<Flight>)>) {
         let mut mine = Claimed {
             units: Vec::new(),
             names: Vec::new(),
@@ -2496,18 +2508,18 @@ impl Flights {
         };
         let mut theirs = Vec::new();
         let mut flights = Flights::map();
-        for &i in missing {
-            let (_, key) = keys.get(i).or_ice("a missing unit is a position in `keys`");
+        for &unit in missing {
+            let (_, (_, key)) = unit;
             let name = cache.path(key);
             match flights.get(&name) {
-                Some(flight) => theirs.push((i, std::sync::Arc::clone(flight))),
+                Some(flight) => theirs.push((unit, std::sync::Arc::clone(flight))),
                 None => {
                     let flight = std::sync::Arc::new(Flight {
                         done: std::sync::Mutex::new(false),
                         ended: std::sync::Condvar::new(),
                     });
                     flights.insert(name.clone(), std::sync::Arc::clone(&flight));
-                    mine.units.push(i);
+                    mine.units.push(unit);
                     mine.names.push(name);
                     mine.flights.push(flight);
                 }
@@ -2517,7 +2529,7 @@ impl Flights {
     }
 }
 
-impl Drop for Claimed {
+impl Drop for Claimed<'_> {
     fn drop(&mut self) {
         let mut flights = Flights::map();
         for name in &self.names {
@@ -3547,6 +3559,17 @@ pub fn artifact_path(session: &Session, target: TargetId, output: &Output) -> Pa
         .join(artifact_relative(&session.root, &package.path, output))
 }
 
+/// The directory an output's artifact lands in, beside its platform's assets.
+fn artifact_dir(session: &Session, target: TargetId, output: &Output) -> PathBuf {
+    let package = session.workspace.package(target.package);
+    session.root.join(out_dir(&package.path, output))
+}
+
+/// [`artifact_dir`], relative to the repository root.
+fn out_dir(package_path: &str, output: &Output) -> PathBuf {
+    Path::new(".buri/out").join(output.dir()).join(package_path)
+}
+
 /// Where an output's artifact lands, relative to the repository `root`, for
 /// the binary in the package at `package_path`.
 pub fn artifact_relative(root: &Path, package_path: &str, output: &Output) -> PathBuf {
@@ -3572,8 +3595,10 @@ pub fn artifact_relative(root: &Path, package_path: &str, output: &Output) -> Pa
     // So is a bundled platform's entry with a `js` file of its own, such as
     // `web`'s `main.mjs`: the files the platform ships beside it name it.
     let adapted = output.custom.is_none()
-        && crate::build::platforms::bundled(output.platform().slug())
-            .is_some_and(|rule| rule.entries.iter().any(|e| e.js.is_some()));
+        && crate::build::platforms::bundled(output.platform().bundled())
+            .entries
+            .iter()
+            .any(|e| e.js.is_some());
     let default = match (&output.custom, output.entry_name()) {
         (Some(custom), _) => custom.point.clone(),
         (None, _) if adapted => output.entry_point().to_string(),
@@ -3593,10 +3618,7 @@ pub fn artifact_relative(root: &Path, package_path: &str, output: &Output) -> Pa
     } else {
         base
     };
-    Path::new(".buri/out")
-        .join(output.dir())
-        .join(package_path)
-        .join(name)
+    out_dir(package_path, output).join(name)
 }
 
 /// Where chunk `n` of a module sits: `<artifact>.<n>.mjs`, beside it.
@@ -3776,11 +3798,11 @@ fn check_platform_visibility(
     }
     members.sort();
     members.dedup();
+    // An edge with no span is a target's own library, which its package always
+    // sees.
     for member in members {
-        for (dep, span) in ws.dep_edges(member) {
-            let span = span.or_ice("a library's every edge is one its rule declares");
-            edges.push((member.package, dep, span));
-        }
+        let declared = ws.dep_edges(member).into_iter();
+        edges.extend(declared.filter_map(|(dep, span)| Some((member.package, dep, span?))));
     }
     for (from, dep, span) in edges {
         // A library the platform brings in is shared code, and reaches no
@@ -3982,10 +4004,11 @@ pub fn check_platform(
     diagnostics: &mut Diagnostics,
 ) {
     let members = session.workspace.policy_members(target, platform);
-    let allowed = session.workspace.platforms_of(&members);
-    if allowed.contains(platform) {
+    // A member that rules the platform out, read off the rules
+    // [`Workspace::platforms_of`] reads.
+    let Some(found) = session.workspace.platform_blocker_of(&members, platform) else {
         return;
-    }
+    };
     let label = session.workspace.label(target);
     let span = session
         .workspace
@@ -4003,12 +4026,6 @@ pub fn check_platform(
     let mut d = Diagnostic::templated("platform-violation", span)
         .with_bind("target", label.as_str())
         .with_bind("platform", platform.name());
-    // `allowed` and the blocker are read off the same members by the same
-    // rules, so a platform `allowed` lacks always has one.
-    let found = session
-        .workspace
-        .platform_blocker_of(&members, platform)
-        .or_ice("a platform the closure does not admit has a member that rules it out");
     let blocker = found.member;
     d = d.with_note(found.why);
     if let Some(word) = found.forbidden {
@@ -4035,19 +4052,23 @@ pub fn check_platform(
     diagnostics.push(d);
 }
 
-/// The outputs a `build` invocation should produce for one binary. Every
-/// caller skips libraries and tools, which have none.
+/// The outputs a `build` invocation should produce for one binary. A library
+/// or a tool has none.
 pub fn selected_outputs(session: &Session, target: TargetId, flags: &Flags) -> Vec<Output> {
-    let bin = (target.kind == RuleKind::Binary)
-        .then_some(&session.workspace.package(target.package).build.binary)
-        .and_then(Option::as_ref)
-        .or_ice("only a binary has outputs, and every caller passes one");
-    let mut outputs = bin.outputs.clone();
-    if outputs.is_empty() {
-        // A binary with no declared output still builds for the host, which is
-        // what `buri run` needs.
-        outputs.push(Output::js(Span::NONE));
-    }
+    let binary = &session.workspace.package(target.package).build.binary;
+    let outputs: Vec<Output> = binary
+        .iter()
+        .filter(|_| target.kind == RuleKind::Binary)
+        .flat_map(|bin| {
+            let mut outputs = bin.outputs.clone();
+            if outputs.is_empty() {
+                // A binary with no declared output still builds for the host,
+                // which is what `buri run` needs.
+                outputs.push(Output::js(Span::NONE));
+            }
+            outputs
+        })
+        .collect();
     match &flags.output {
         Some(selector) => outputs
             .into_iter()

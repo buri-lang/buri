@@ -44,7 +44,6 @@
               binary; the subtractions are saturating"
 )]
 
-use buri::diagnostics::Invariant as _;
 use std::collections::{HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
@@ -473,7 +472,7 @@ pub fn parse(src: &str) -> Result<Ebnf, String> {
         lines
             .get(k)
             .copied()
-            .or_ice("`lex` pushes one line number per token")
+            .expect("`lex` pushes one line number per token")
     };
     let mut out = Ebnf {
         grammar_name: String::new(),
@@ -1200,7 +1199,7 @@ impl Gen<'_> {
     fn prod(&self, name: &str) -> &Production {
         self.ebnf
             .find(name)
-            .or_ice("`emit` rejects the grammar before generating if any reference dangles")
+            .expect("`emit` rejects the grammar before generating if any reference dangles")
     }
 
     /// What a `@conflicts` group's member refers to. The cascade's operand
@@ -1216,7 +1215,7 @@ impl Gen<'_> {
     fn node_of(&self, name: &str) -> &str {
         self.names
             .get(name)
-            .or_ice("`emit` gives every production a node name before building this table")
+            .expect("`emit` gives every production a node name before building this table")
     }
 
     // -- the operator cascade ----------------------------------------------

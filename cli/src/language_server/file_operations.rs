@@ -50,12 +50,12 @@ pub const WATCHED: &str = "**/*";
 
 /// The `sources`-family fields a rule can hold, in the order they are searched
 /// for an entry.
-const FIELDS: [(&str, &[&str]); 5] = [
-    ("library", &["sources"]),
-    ("library", &["test", "sources"]),
-    ("library", &["testing", "sources"]),
-    ("binary", &["sources"]),
-    ("binary", &["test", "sources"]),
+const FIELDS: [(&str, regenerate::FieldPath<'static>); 5] = [
+    ("library", (&[], "sources")),
+    ("library", (&["test"], "sources")),
+    ("library", (&["testing"], "sources")),
+    ("binary", (&[], "sources")),
+    ("binary", (&["test"], "sources")),
 ];
 
 /// The three files a rule names by a field of its own rather than in a list.
@@ -306,7 +306,7 @@ fn placement(session: &Session, path: &Path) -> Option<Placement> {
 /// A generator's input is `None` too. `generators` is hand-authored — nothing
 /// can work out which entry owns a new file — so a `.proto` that appears is
 /// left for whoever writes the entry.
-fn destination(place: &Placement) -> Option<(&'static str, &'static [&'static str])> {
+fn destination(place: &Placement) -> Option<(&'static str, regenerate::FieldPath<'static>)> {
     let field = listed_in(place)?;
     let rule = match (
         place.rel.starts_with("testing/"),
@@ -326,16 +326,16 @@ fn destination(place: &Placement) -> Option<(&'static str, &'static [&'static st
 /// Which list holds a file, by the same reading of its path `buri gen` uses.
 /// `None` when no list does: an entry point is named by its rule, and only a
 /// `.buri` module is a source.
-fn listed_in(place: &Placement) -> Option<&'static [&'static str]> {
+fn listed_in(place: &Placement) -> Option<regenerate::FieldPath<'static>> {
     let rel = place.rel.as_str();
     if ENTRY_POINTS.contains(&rel) || !rel.ends_with(".buri") {
         None
     } else if rel.starts_with("testing/") {
-        Some(&["testing", "sources"])
+        Some((&["testing"], "sources"))
     } else if rel.starts_with("test/") {
-        Some(&["test", "sources"])
+        Some((&["test"], "sources"))
     } else {
-        Some(&["sources"])
+        Some((&[], "sources"))
     }
 }
 
@@ -347,7 +347,7 @@ fn listed_in(place: &Placement) -> Option<&'static [&'static str]> {
 enum Change {
     Added {
         rule: &'static str,
-        field: &'static [&'static str],
+        field: regenerate::FieldPath<'static>,
         rel: String,
     },
     Renamed {
@@ -431,7 +431,7 @@ fn rewrite(text: &str, change: &Change) -> Option<String> {
     let mut document = parsed.document;
     let touched = match change {
         Change::Added { rule, field, rel } => {
-            set(&mut document, rule, field, |list| list.insert(rel.clone()))
+            set(&mut document, rule, *field, |list| list.insert(rel.clone()))
         }
         Change::Renamed { from, to } => match holder(&document, from) {
             // Onto a name the list already has, the old entry still goes.
@@ -454,10 +454,13 @@ fn rewrite(text: &str, change: &Change) -> Option<String> {
 }
 
 /// The rule and field that already list `rel`, if any do.
-fn holder(document: &Document, rel: &str) -> Option<(&'static str, &'static [&'static str])> {
+fn holder(
+    document: &Document,
+    rel: &str,
+) -> Option<(&'static str, regenerate::FieldPath<'static>)> {
     FIELDS
         .into_iter()
-        .find(|(rule, field)| regenerate::listed_at(document, rule, field).contains(rel))
+        .find(|&(rule, field)| regenerate::listed_at(document, rule, field).contains(rel))
 }
 
 /// Reads one managed list, lets the caller change it, and writes it back
@@ -466,7 +469,7 @@ fn holder(document: &Document, rel: &str) -> Option<(&'static str, &'static [&'s
 fn set(
     document: &mut Document,
     rule: &str,
-    field: &[&str],
+    field: regenerate::FieldPath<'_>,
     change: impl FnOnce(&mut BTreeSet<String>) -> bool,
 ) -> bool {
     if document.get(rule).is_none() {
@@ -598,7 +601,7 @@ mod tests {
         assert!(destination(&place("lib.buri", true, false)).is_none());
         assert_eq!(
             destination(&place("testing/help.buri", true, true)).map(|(_, f)| f),
-            Some(&["testing", "sources"][..])
+            Some((&["testing"][..], "sources"))
         );
         // A schema is a generator's input, and `generators` is hand-authored.
         assert!(destination(&place("shop.proto", true, false)).is_none());

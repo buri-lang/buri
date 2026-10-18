@@ -42,7 +42,6 @@ pub mod version;
 pub mod watch;
 
 use crate::commands::arguments::{Args, Flags};
-use crate::diagnostics::Invariant as _;
 use std::fmt::Write as _;
 
 /// What a flag does with its `=value`.
@@ -496,16 +495,7 @@ pub const COMMANDS: &[Command] = &[
         subcommands: &[],
         hidden: false,
     },
-    Command {
-        name: "add",
-        args: "<subcommand>",
-        blurb: "write what this toolchain ships into an existing repository",
-        doc: crate::documentation::embedded::cli::ADD,
-        flags: &[],
-        run: add::command_add,
-        subcommands: add::SUBCOMMANDS,
-        hidden: false,
-    },
+    add::COMMAND,
     Command {
         name: "lsp",
         args: "",
@@ -591,11 +581,12 @@ fn counted(args: &Args, command: fn(&Args) -> i32) -> i32 {
     clippy::print_stderr,
     reason = "a malformed invocation is reported by the CLI itself, before there is a session"
 )]
-pub fn dispatch(command: &'static str, subcommands: &'static [Subcommand], args: &Args) -> i32 {
+pub fn dispatch(namespace: &Command, args: &Args) -> i32 {
+    let (command, subcommands) = (namespace.name, namespace.subcommands);
     let Some((asked, rest)) = args.targets.split_first() else {
         eprintln!("error: `buri {command}` needs a subcommand");
         eprintln!();
-        eprint!("{}", subcommand_usage(command));
+        eprint!("{}", subcommand_usage(namespace));
         return 2;
     };
     let Some(sub) = subcommands.iter().find(|s| s.name == asked) else {
@@ -605,7 +596,7 @@ pub fn dispatch(command: &'static str, subcommands: &'static [Subcommand], args:
             eprintln!("  = did you mean `buri {command} {near}`?");
         }
         eprintln!();
-        eprint!("{}", subcommand_usage(command));
+        eprint!("{}", subcommand_usage(namespace));
         return 2;
     };
     // The subcommand is handed the arguments *after* its own name, so a
@@ -646,8 +637,7 @@ fn rows() -> Vec<(String, &'static str, &'static str)> {
 
 /// The help for one namespace: what `buri add` alone prints, and what its two
 /// refusals print under them. Generated from the same table that dispatches.
-pub fn subcommand_usage(name: &str) -> String {
-    let c = find(name).or_ice("`subcommand_usage` is asked about a command in the table");
+pub fn subcommand_usage(c: &Command) -> String {
     let mut out = format!("buri {} — {}\n\n", c.name, c.blurb);
     let name_width = c
         .subcommands
@@ -882,7 +872,7 @@ mod tests {
     /// `buri add` alone, and both of its refusals, print this list.
     #[test]
     fn a_namespace_prints_what_it_can_be_asked_for() {
-        let text = subcommand_usage("add");
+        let text = subcommand_usage(&add::COMMAND);
         assert!(
             text.contains("buri add skills"),
             "the list omits the one subcommand there is"
@@ -904,8 +894,8 @@ mod tests {
             flags: Flags::default(),
             passthrough: Vec::new(),
         };
-        assert_eq!(dispatch("add", add::SUBCOMMANDS, &args(&[])), 2);
-        assert_eq!(dispatch("add", add::SUBCOMMANDS, &args(&["nonesuch"])), 2);
+        assert_eq!(dispatch(&add::COMMAND, &args(&[])), 2);
+        assert_eq!(dispatch(&add::COMMAND, &args(&["nonesuch"])), 2);
     }
 
     #[test]

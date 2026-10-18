@@ -73,6 +73,14 @@ file {
   contains: "/main.mjs"
 }
 
+# `--output` selects the worker alone by its directory under `.buri/out`, as
+# it does by its platform's label.
+run {
+  args: ["build", "//cmd/site", "--output=platform/cloudflare_worker"]
+  exit: 0
+  golden: "worker_by_directory.txt"
+}
+
 # Built twice from two fresh sessions with the cache off. Two entries out of one
 # set of sources is two monomorphizations, and both have to be functions of
 # their inputs alone.

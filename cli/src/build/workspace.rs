@@ -179,7 +179,7 @@ impl Workspace {
         let repo = read.value;
 
         let mut dirs = Vec::new();
-        collect_packages(root, root, &mut dirs);
+        collect_packages(root, "", &mut dirs);
         dirs.sort();
 
         let mut packages = Vec::new();
@@ -1177,11 +1177,7 @@ impl Workspace {
     /// block names: the host for `NATIVE`, and for `JS` the first bundled
     /// JavaScript platform the target's outputs name, or else admits. Empty
     /// when the block names no backend.
-    pub fn suite_platforms(&self, target: TargetId) -> Vec<Platform> {
-        let suite = self
-            .package(target.package)
-            .test_suite(target.kind)
-            .or_ice("`buri test` runs only a target with a `test` block");
+    pub fn suite_platforms(&self, target: TargetId, suite: &buildfile::TestSuite) -> Vec<Platform> {
         let allowed = self.platforms(target);
         let admits = |p: &Platform| allowed.contains(&OutputPlatform::Bundled(*p));
         let declared: Vec<Platform> =
@@ -1519,7 +1515,9 @@ fn ships_assets(packages: &[Package], output: &buildfile::Output) -> bool {
             .iter()
             .find(|p| p.path == custom.package_path())
             .and_then(|p| p.build.platform.as_ref()),
-        None => crate::build::platforms::bundled(output.platform().slug()),
+        None => Some(crate::build::platforms::bundled(
+            output.platform().bundled(),
+        )),
     };
     rule.is_some_and(|r| !r.assets.is_empty())
 }
@@ -1688,8 +1686,10 @@ fn check_platform_reach(workspace: &Workspace) -> Vec<Diagnostic> {
     out
 }
 
-/// Walks the tree collecting every directory that holds a `BUILD.buri`.
-fn collect_packages(root: &Path, dir: &Path, out: &mut Vec<String>) {
+/// Walks the tree collecting every directory that holds a `BUILD.buri`, each
+/// named by its path under the root: `prefix` is `dir`'s, with a `/` after it
+/// unless `dir` is the root.
+fn collect_packages(dir: &Path, prefix: &str, out: &mut Vec<String>) {
     let entries = std::fs::read_dir(dir)
         .ok()
         .map(|e| e.filter_map(Result::ok).collect::<Vec<_>>());
@@ -1719,28 +1719,22 @@ fn collect_packages(root: &Path, dir: &Path, out: &mut Vec<String>) {
         None => dir.join("BUILD.buri").is_file(),
     };
     if has_build_file {
-        let rel = dir
-            .strip_prefix(root)
-            .or_ice("this walk started at `root` and only ever descends, so every path is under it")
-            .display()
-            .to_string()
-            .replace('\\', "/");
-        out.push(rel);
+        out.push(prefix.trim_end_matches('/').to_string());
     }
     let Some(entries) = entries else { return };
-    let mut subdirs: Vec<PathBuf> = entries
+    let mut subdirs: Vec<(PathBuf, String)> = entries
         .iter()
-        .filter(|e| {
-            let name = e.file_name().to_string_lossy().to_string();
+        .map(|e| (e, e.file_name().to_string_lossy().to_string()))
+        .filter(|(_, name)| {
             // `.buri` holds the cache and the outputs; nothing there is source.
             !name.starts_with('.') && name != "target" && name != "node_modules"
         })
-        .filter(|e| is(e, true))
-        .map(std::fs::DirEntry::path)
+        .filter(|(e, _)| is(e, true))
+        .map(|(e, name)| (e.path(), name))
         .collect();
     subdirs.sort();
-    for sub in subdirs {
-        collect_packages(root, &sub, out);
+    for (sub, name) in subdirs {
+        collect_packages(&sub, &format!("{prefix}{name}/"), out);
     }
 }
 

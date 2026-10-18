@@ -21,7 +21,7 @@ use super::convert::{self, Position};
 use super::features::Markup;
 use crate::build::session::Session;
 use crate::build::textproto::{self, Field, Value as Node};
-use crate::diagnostics::{invariant, FileId, Invariant, Span};
+use crate::diagnostics::{FileId, Span};
 use crate::json::Value;
 use std::path::{Path, PathBuf};
 
@@ -189,11 +189,8 @@ fn file_path(build_file: &Path, entry: &str) -> Option<PathBuf> {
 /// This is the one jump that lands on a name rather than on a file, because a
 /// tag block is a name.
 fn tag_target(session: &Session, build_file: &Path, name: &str) -> Option<Value> {
-    let span = session.workspace.repo.tag(name)?.name.span;
-    invariant(
-        !span.is_none(),
-        "a tag's name is read from `REPO.buri`, so it has a span",
-    );
+    // A tag's name is read from `REPO.buri`, so it has a span.
+    let span = Some(session.workspace.repo.tag(name)?.name.span).filter(|s| !s.is_none())?;
     let file = session.map.get(span.file);
     Some(Value::object(vec![
         (
@@ -234,24 +231,21 @@ struct Cursor {
     from: u32,
 }
 
-/// Why the block stack is never empty.
-const OUTERMOST: &str = "the file's own block is never popped";
-
 /// Reads the file up to `offset`.
 fn cursor_at(text: &str, offset: u32) -> Cursor {
-    let bytes = text.as_bytes();
-    let end = (offset as usize).min(bytes.len());
-    // Innermost last. The file itself is the outermost block, and it is never
-    // popped.
-    let mut blocks: Vec<(String, Vec<String>)> = vec![(String::new(), Vec::new())];
+    let end = (offset as usize).min(text.len());
+    let bytes = text.as_bytes().get(..end).unwrap_or_default();
+    // The file itself is the outermost block, and is never popped; the ones
+    // inside it are innermost last.
+    let mut file: (String, Vec<String>) = Default::default();
+    let mut blocks: Vec<(String, Vec<String>)> = Vec::new();
     let mut word: Option<String> = None;
     let mut field: Option<String> = None;
     let mut quoted_from: Option<usize> = None;
     let mut lists: usize = 0;
     let mut commented = false;
     let mut i = 0;
-    while i < end {
-        let c = bytes.get(i).copied().or_ice("`end` is clamped to the text");
+    while let Some(&c) = bytes.get(i) {
         if quoted_from.is_some() {
             match c {
                 b'\\' => i = i.saturating_add(1),
@@ -278,15 +272,13 @@ fn cursor_at(text: &str, offset: u32) -> Cursor {
                 // `library {` names the block with the word before it, and
                 // `outputs: [{` with the field, the `:` having taken that word.
                 let name = word.take().or_else(|| field.take()).unwrap_or_default();
-                blocks.last_mut().or_ice(OUTERMOST).1.push(name.clone());
+                blocks.last_mut().unwrap_or(&mut file).1.push(name.clone());
                 blocks.push((name, Vec::new()));
                 field = None;
                 i = i.saturating_add(1);
             }
             b'}' => {
-                if blocks.len() > 1 {
-                    blocks.pop();
-                }
+                blocks.pop();
                 field = None;
                 word = None;
                 i = i.saturating_add(1);
@@ -303,7 +295,7 @@ fn cursor_at(text: &str, offset: u32) -> Cursor {
             }
             b':' => {
                 if let Some(name) = word.take() {
-                    blocks.last_mut().or_ice(OUTERMOST).1.push(name.clone());
+                    blocks.last_mut().unwrap_or(&mut file).1.push(name.clone());
                     field = Some(name);
                 }
                 i = i.saturating_add(1);
@@ -342,7 +334,7 @@ fn cursor_at(text: &str, offset: u32) -> Cursor {
             (before.get(start..).unwrap_or("").to_string(), start as u32)
         }
     };
-    let (block, written) = blocks.pop().unwrap_or_default();
+    let (block, written) = blocks.pop().unwrap_or(file);
     Cursor {
         block,
         written,
@@ -542,12 +534,12 @@ fn visibilities(session: &Session) -> Vec<Entry> {
 /// left out: those two are a rule's surface and are never written in
 /// `sources`.
 fn files(build_file: &Path, text: &str) -> Vec<Entry> {
-    let dir = build_file
-        .parent()
-        .or_ice("a build file is named `BUILD.buri`, in a directory");
+    // A build file is named `BUILD.buri`, in a directory; were it not, the
+    // empty path names no directory, and lists nothing.
+    let dir = build_file.parent().unwrap_or(Path::new(""));
     let mut sources = Vec::new();
     let mut schemas = Vec::new();
-    crate::build::regenerate::collect(dir, dir, &mut sources, &mut schemas);
+    crate::build::regenerate::collect(dir, "", &mut sources, &mut schemas);
     sources
         .into_iter()
         .filter(|name| !matches!(name.as_str(), "lib.buri" | "main.buri"))

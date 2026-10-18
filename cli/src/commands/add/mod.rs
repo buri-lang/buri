@@ -10,7 +10,19 @@
 pub mod skills;
 
 use crate::commands::arguments::Args;
-use crate::commands::Subcommand;
+use crate::commands::{Command, Subcommand};
+
+/// `buri add`'s line in `commands::COMMANDS`, which it dispatches through.
+pub const COMMAND: Command = Command {
+    name: "add",
+    args: "<subcommand>",
+    blurb: "write what this toolchain ships into an existing repository",
+    doc: crate::documentation::embedded::cli::ADD,
+    flags: &[],
+    run: command_add,
+    subcommands: SUBCOMMANDS,
+    hidden: false,
+};
 
 /// The one table `buri add` dispatches through, and the one the help text and
 /// the reference page are generated from — the same arrangement as
@@ -23,5 +35,5 @@ pub const SUBCOMMANDS: &[Subcommand] = &[Subcommand {
 }];
 
 pub fn command_add(args: &Args) -> i32 {
-    crate::commands::dispatch("add", SUBCOMMANDS, args)
+    crate::commands::dispatch(&COMMAND, args)
 }

@@ -42,7 +42,6 @@ pub use buri_docs::documentation::{
 
 use crate::commands::arguments;
 use crate::commands::arguments::Format;
-use crate::diagnostics::Invariant as _;
 use crate::documentation::topics::{Kind, Topic};
 use std::fmt::Write as _;
 
@@ -1457,10 +1456,7 @@ fn manifest() -> String {
 /// Appends a slot and hands back a writer for it, so the loop above can use
 /// `write!` without building an intermediate `String` per page.
 fn pages_push(pages: &mut Vec<String>) -> &mut String {
-    pages.push(String::new());
-    pages
-        .last_mut()
-        .or_ice("a vector has a last element on the line after a push")
+    crate::parsing::pushed(pages, String::new())
 }
 
 /// Compiles every fenced example in the named markdown files — or, with no

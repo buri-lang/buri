@@ -3,34 +3,48 @@
 //! Each is an ordinary `platform` rule, embedded as source by `buri-stdlib`
 //! and read by the same reader a repository's build files go through.
 
-use crate::build::buildfile::{read_build_file, PlatformRule};
+use crate::build::buildfile::{read_build_file, PlatformName, PlatformRule};
 use crate::diagnostics::FileId;
 
 /// Every bundled platform's name and `BUILD.buri`, and every other file a
 /// bundled platform's rule names: `(platform, path, text)`.
 pub use buri_stdlib::platforms::{BUNDLED, FILES};
 
-/// The file at `path` in the bundled platform called `platform`.
-pub fn file(platform: &str, path: &str) -> Option<&'static str> {
+/// A file a bundled platform's rule names. Each one is embedded, which
+/// `every_file_a_bundled_platform_names_is_embedded` checks.
+pub fn file(platform: PlatformName, path: &str) -> &'static str {
     FILES
         .iter()
-        .find(|(p, at, _)| *p == platform && *at == path)
-        .map(|(_, _, text)| *text)
+        .find(|(p, at, _)| *p == platform.name() && *at == path)
+        .map_or("", |(_, _, text)| *text)
 }
 
-/// The bundled platform called `name`, read once per process.
-pub fn bundled(name: &str) -> Option<&'static PlatformRule> {
-    static RULES: std::sync::OnceLock<Vec<(&'static str, PlatformRule)>> =
-        std::sync::OnceLock::new();
+/// A bundled platform's rule, read once per process. Every bundled build file
+/// holds one, which `every_bundled_platform_reads_cleanly` checks.
+pub fn bundled(name: PlatformName) -> &'static PlatformRule {
+    static RULES: std::sync::OnceLock<[PlatformRule; 3]> = std::sync::OnceLock::new();
     let rules = RULES.get_or_init(|| {
-        BUNDLED
-            .iter()
-            .filter_map(|(name, text)| {
-                Some((*name, read_build_file(text, FileId(0)).value.platform?))
-            })
-            .collect()
+        PlatformName::BUNDLED.map(|name| {
+            read_build_file(build_file(name), FileId(0))
+                .value
+                .platform
+                .unwrap_or_default()
+        })
     });
-    rules.iter().find(|(n, _)| *n == name).map(|(_, rule)| rule)
+    let [native, node, web] = rules;
+    match name {
+        PlatformName::Native => native,
+        PlatformName::Node => node,
+        PlatformName::Web => web,
+    }
+}
+
+/// A bundled platform's `BUILD.buri`.
+fn build_file(name: PlatformName) -> &'static str {
+    BUNDLED
+        .iter()
+        .find(|(n, _)| *n == name.name())
+        .map_or("", |(_, text)| *text)
 }
 
 #[cfg(test)]
@@ -41,24 +55,28 @@ mod tests {
     /// entries, failing every output that names it.
     #[test]
     fn every_bundled_platform_reads_cleanly() {
-        for (name, text) in BUNDLED {
-            let read = read_build_file(text, FileId(0));
-            assert!(read.errors.is_empty(), "{name}: {:#?}", read.errors);
-            let rule = bundled(name).unwrap_or_else(|| panic!("{name} has no `platform` rule"));
-            assert_eq!(rule.entries.len(), 1, "{name}");
-            assert_eq!(rule.entries[0].name.value, "main", "{name}");
+        assert_eq!(BUNDLED.len(), PlatformName::BUNDLED.len());
+        for name in PlatformName::BUNDLED {
+            let read = read_build_file(build_file(name), FileId(0));
+            assert!(read.errors.is_empty(), "{name:?}: {:#?}", read.errors);
+            assert!(
+                read.value.platform.is_some(),
+                "{name:?} has no `platform` rule"
+            );
+            let rule = bundled(name);
+            assert_eq!(rule.entries.len(), 1, "{name:?}");
+            assert_eq!(rule.entries[0].name.value, "main", "{name:?}");
         }
-        let native =
-            bundled("native").map(|r| (r.entries[0].variants.len(), r.entries[0].variant_required));
-        assert_eq!(native, Some((4, false)));
+        let native = &bundled(PlatformName::Native).entries[0];
+        assert_eq!((native.variants.len(), native.variant_required), (4, false));
     }
 
     /// A `js` file or an asset a bundled rule names and the toolchain does not
     /// embed would fail every output of the platform.
     #[test]
     fn every_file_a_bundled_platform_names_is_embedded() {
-        for (name, _) in BUNDLED {
-            let rule = bundled(name).unwrap_or_else(|| panic!("{name} has no `platform` rule"));
+        for name in PlatformName::BUNDLED {
+            let rule = bundled(name);
             let named = rule
                 .entries
                 .iter()
@@ -66,8 +84,10 @@ mod tests {
                 .chain(&rule.assets);
             for path in named {
                 assert!(
-                    file(name, &path.value).is_some(),
-                    "{name}'s `{}` is not embedded",
+                    FILES
+                        .iter()
+                        .any(|(p, at, _)| *p == name.name() && *at == path.value),
+                    "{name:?}'s `{}` is not embedded",
                     path.value
                 );
             }

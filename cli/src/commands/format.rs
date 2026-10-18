@@ -40,7 +40,6 @@ use crate::build::session;
 use crate::build::textproto;
 use crate::build::workspace::{PackageId, Workspace};
 use crate::commands::arguments;
-use crate::diagnostics::Invariant as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -243,11 +242,11 @@ struct Outcome {
 }
 
 /// One file's part in the command, worked out on any thread.
-enum Work {
+enum Work<'a> {
     Skip,
     /// A repository's own language, whose tool lays it out. Asked in order on
     /// this thread, because asking may build the tool.
-    Tool(String, String),
+    Tool(&'a crate::languages::Language, String, String),
     Done(String, Outcome),
     /// A file that is there and can't be read, and why.
     Unreadable(String),
@@ -291,9 +290,11 @@ fn format_all(args: &arguments::Args) -> i32 {
                 continue;
             }
             Work::Done(rel, outcome) => (rel, outcome),
-            Work::Tool(rel, text) => {
+            Work::Tool(language, rel, text) => {
                 use crate::build::tools::Formatted;
-                match crate::build::tools::format_file(&session, &rel, &text, &args.flags) {
+                let tool =
+                    crate::build::tools::format_file(&session, language, &rel, &text, &args.flags);
+                match tool {
                     Formatted::Refused => refused.push(rel),
                     Formatted::Text(out) if out != text => {
                         changed.push(rel);
@@ -390,13 +391,13 @@ fn format_all(args: &arguments::Args) -> i32 {
 }
 
 /// Lays out one source, build file or referenced file, or says why not.
-fn lay_out(
-    workspace: &Workspace,
+fn lay_out<'a>(
+    workspace: &'a Workspace,
     referenced: &[PathBuf],
     cache: &Cache,
     path: &Path,
     write: bool,
-) -> Work {
+) -> Work<'a> {
     let rel = workspace.rel_of(path);
     let language = workspace.repo.languages.of(&rel);
     if language.is_some() && !referenced.iter().any(|r| r == path) {
@@ -412,7 +413,7 @@ fn lay_out(
     };
     if let Some(language) = language {
         if matches!(language.kind, crate::languages::Kind::Custom(_)) {
-            return Work::Tool(rel, text);
+            return Work::Tool(language, rel, text);
         }
         let settings = format!("{:?}", language.kind);
         let outcome = remembered(cache, &settings, &rel, &text, write, || {
@@ -432,10 +433,9 @@ fn lay_out(
         });
         return Work::Done(rel, outcome);
     }
-    let name = path
-        .file_name()
-        .or_ice("a file that was just read has a name")
-        .to_string_lossy()
+    let name = rel
+        .rsplit_once('/')
+        .map_or(rel.as_str(), |(_, name)| name)
         .to_string();
     let outcome = remembered(cache, "buri", &rel, &text, write, || {
         let Some(out) = formatted(&name, &text) else {

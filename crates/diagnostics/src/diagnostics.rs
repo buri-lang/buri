@@ -955,20 +955,20 @@ impl SourceMap {
         self.by_name.get(name).copied()
     }
 
-    /// Puts new text under an id this map already minted, keeping the id.
+    /// Puts new text under ids this map already minted, keeping each id.
     ///
     /// The id is what everything downstream of a parse is keyed by, and it
     /// stands for a file rather than for a revision of one — so a map kept
     /// between analyses re-reads an edited file into the entry it already has.
     /// Maps cloned before this call keep the text they were cloned with, which
     /// is what lets an analysis already in hand go on rendering its own spans.
-    pub fn replace(&mut self, id: FileId, text: String) {
-        let slot = self
-            .files
-            .get_mut(id.0 as usize)
-            .or_ice("`replace` takes an id this map minted");
-        let (name, abs_path) = (slot.name.clone(), slot.abs_path.clone());
-        *slot = Arc::new(SourceFile::new(name, abs_path, text));
+    pub fn replace(&mut self, mut texts: HashMap<FileId, String>) {
+        for (i, slot) in self.files.iter_mut().enumerate() {
+            if let Some(text) = texts.remove(&FileId(i as u32)) {
+                let (name, abs_path) = (slot.name.clone(), slot.abs_path.clone());
+                *slot = Arc::new(SourceFile::new(name, abs_path, text));
+            }
+        }
         self.shared = None;
     }
 

@@ -1195,15 +1195,16 @@ pub fn format_in_process(kind: &Kind, text: &str) -> Option<Formatted> {
     }
 }
 
-/// Formats one file in a language, through whichever tool formats it.
-pub fn format_file(session: &Session, rel: &str, text: &str, flags: &Flags) -> Formatted {
+/// Formats one file in `language`, the one its path is in, through whichever
+/// tool formats it.
+pub fn format_file(
+    session: &Session,
+    language: &Language,
+    rel: &str,
+    text: &str,
+    flags: &Flags,
+) -> Formatted {
     let refused = |t: Option<String>| t.map_or(Formatted::Refused, Formatted::Text);
-    let language = session
-        .workspace
-        .repo
-        .languages
-        .of(rel)
-        .or_ice("`buri format` and the language server send a tool only a file in a language");
     let named = match &language.kind {
         Kind::Custom(tools) => match &tools.format {
             Some(named) => named,

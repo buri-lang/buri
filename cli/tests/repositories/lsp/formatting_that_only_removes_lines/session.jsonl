@@ -1,0 +1,10 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# The buffer is the file on disk with two more blank lines between the two
+# functions. The formatter keeps one, so all it does is take two out.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>"}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/gap/lib.buri", "languageId": "buri", "version": 1, "text": "export fn one(): Int {\n    1\n}\n\n\n\nexport fn two(): Int {\n    2\n}\n"}}}
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/rangeFormatting", "params": {"textDocument": {"uri": "file://<scratch>/lib/gap/lib.buri"}, "range": {"start": {"line": 3, "character": 0}, "end": {"line": 6, "character": 0}}, "options": {"tabSize": 4, "insertSpaces": true}}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

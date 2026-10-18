@@ -22,20 +22,12 @@ use crate::compiler::semantics::types::{
     self, AstRef, ConstId, ContextDeclId, FnId, MethodId, ModuleId, Tables, TraitId, Ty, TyConId,
     VariantId,
 };
-use crate::diagnostics::{FileId, Invariant as _, Span};
+use crate::diagnostics::{FileId, Span};
 use crate::formatting;
 use crate::parsing::flat::{self, ExprId, ExprView, Location, TypeId, TypeView};
 use crate::parsing::lexer::TokenKind;
 use crate::parsing::tree::{self, ImportClause, Item};
 use std::path::Path;
-
-/// Why a trait's declaration is always there: the checker adds a trait only
-/// for a `trait` or `effect` item, under that item's name span.
-const TRAIT: &str = "every trait is declared by an item named at its span";
-
-/// Why a field access names a field: the checker builds one only on a resolved
-/// struct type that has the field.
-const FIELD: &str = "a checked field access is on a struct that has the field";
 
 /// A declaration the source is able to name.
 #[derive(Clone)]
@@ -426,16 +418,20 @@ pub fn describe(analyzed: &Analyzed, symbol: &Symbol) -> (String, Vec<String>) {
         }
         Symbol::Trait(id) => {
             let info = tables.trait_(*id);
-            let (t, d) = trait_syntax(analyzed, info.module, info.span).or_ice(TRAIT);
-            (
-                format!(
-                    "{} {}{}",
-                    if d.is_effect { "effect" } else { "trait" },
-                    t.name(d.name),
-                    formatting::generics(t, t.list(d.generics))
+            // The checker adds a trait only for a `trait` or `effect` item,
+            // under that item's name span.
+            match trait_syntax(analyzed, info.module, info.span) {
+                Some((t, d)) => (
+                    format!(
+                        "{} {}{}",
+                        if d.is_effect { "effect" } else { "trait" },
+                        t.name(d.name),
+                        formatting::generics(t, t.list(d.generics))
+                    ),
+                    t.docs(d.docs),
                 ),
-                t.docs(d.docs),
-            )
+                None => (info.name.clone(), Vec::new()),
+            }
         }
         Symbol::TraitMethod { trait_id, method } => {
             let info = tables.trait_(*trait_id);
@@ -728,18 +724,21 @@ pub fn references(analyzed: &Analyzed, symbol: &Symbol) -> Vec<Span> {
     for body in checked.bodies.values() {
         body_names(analyzed, tables, &body.locals, &body.expr, &mut take);
     }
-    for (id, expr) in &checked.consts {
-        body_names(analyzed, tables, const_locals(checked, id), expr, &mut take);
+    for (_, expr, locals) in consts(checked) {
+        body_names(analyzed, tables, locals, expr, &mut take);
     }
     out
 }
 
-/// The locals a module-level `let` binds inside its value.
-pub(super) fn const_locals(checked: &Checked, id: ConstId) -> &typed::Locals {
+/// Every module-level `let`, with its value and the locals it binds inside
+/// it. Every constant was checked, and its locals kept with its value.
+pub(super) fn consts(
+    checked: &Checked,
+) -> impl Iterator<Item = (ConstId, &typed::Expr, &typed::Locals)> {
     checked
-        .const_locals
-        .get(&id)
-        .or_ice("every constant was checked, and its locals kept with its value")
+        .consts
+        .iter()
+        .filter_map(|(id, expr)| Some((id, expr, checked.const_locals.get(&id)?)))
 }
 
 /// Whether two symbols are the same declaration. A local is compared by its
@@ -1322,18 +1321,11 @@ fn in_a_body(analyzed: &Analyzed, file: FileId, text: &str, offset: u32) -> Opti
             return Some(found);
         }
     }
-    for (id, expr) in &checked.consts {
+    for (id, expr, locals) in consts(checked) {
         if checked.tables.const_(id).span.file != file {
             continue;
         }
-        if let Some(found) = narrowest(
-            analyzed,
-            const_locals(checked, id),
-            expr,
-            file,
-            text,
-            offset,
-        ) {
+        if let Some(found) = narrowest(analyzed, locals, expr, file, text, offset) {
             return Some(found);
         }
     }
@@ -1641,16 +1633,22 @@ fn expression_symbols(
             labelled_fields(tables, *con, Some(*variant), 0..args.len(), out);
         }
         ExprKind::Field { base, index } => {
-            let con = base.ty.head().or_ice(FIELD);
-            let info = field_info(tables, con, None, *index).or_ice(FIELD);
-            out(
-                info.name.clone(),
-                Symbol::Field {
-                    con,
-                    variant: None,
-                    index: *index,
-                },
-            );
+            // The checker builds a field access only on a resolved struct type
+            // that has the field.
+            let field = base
+                .ty
+                .head()
+                .and_then(|con| Some((con, field_info(tables, con, None, *index)?)));
+            field.into_iter().for_each(|(con, info)| {
+                out(
+                    info.name.clone(),
+                    Symbol::Field {
+                        con,
+                        variant: None,
+                        index: *index,
+                    },
+                )
+            });
         }
         ExprKind::CtxCall { decl } => {
             let info = tables.ctx_decl(*decl);

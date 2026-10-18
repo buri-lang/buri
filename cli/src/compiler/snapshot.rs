@@ -38,6 +38,9 @@ pub enum Opening {
 pub struct Snapshot {
     /// The modules, in the order a compilation loads them.
     pub modules: Modules,
+    /// Each module's position in the standard library's table, which names
+    /// its file.
+    pub standard: Vec<usize>,
     /// Every spelling that reaches one of them, as `Loaded::by_path` has it.
     pub by_path: HashMap<String, ModuleId>,
     /// What loading and checking them reported, which is nothing unless the
@@ -93,6 +96,11 @@ pub fn build(opening: Opening, bodies: bool) -> Snapshot {
             .base()
     };
     Snapshot {
+        standard: loaded
+            .modules
+            .iter()
+            .filter_map(|m| crate::compiler::standard_library::find_index(&m.path))
+            .collect(),
         modules: loaded.modules,
         by_path: loaded.by_path,
         diagnostics,

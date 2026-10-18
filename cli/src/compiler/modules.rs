@@ -12,7 +12,7 @@ use crate::build::workspace::{
 };
 use crate::compiler::semantics::types::ModuleId;
 use crate::compiler::standard_library;
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant as _, SourceMap, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, SourceMap, Span};
 use crate::hash::Map as HashMap;
 use crate::parsing::tree;
 use std::path::PathBuf;
@@ -91,11 +91,8 @@ impl<'a> Loader<'a> {
         snapshot: &crate::compiler::snapshot::Snapshot,
     ) -> Loader<'a> {
         let mut loader = Loader::new(ws, map, diags, cache);
-        for m in &snapshot.modules {
-            loader.map.standard(
-                standard_library::find_index(&m.path)
-                    .or_ice("a snapshot holds only standard library modules"),
-            );
+        for &index in &snapshot.standard {
+            loader.map.standard(index);
         }
         loader.modules = snapshot.modules.clone();
         loader.by_path = snapshot.by_path.clone();
@@ -139,11 +136,11 @@ impl<'a> Loader<'a> {
         let pkg = ws.package(target.package);
         match pkg.rule(target.kind) {
             Rule::Library(lib) => {
-                self.check_testing_surface_declared(target);
+                self.check_testing_surface_declared(ws, target);
                 self.load_path(&pkg.module_path("lib.buri"), Role::Source, Span::NONE);
-                self.load_closure_generators(target);
+                self.load_closure_generators(ws, target);
                 for src in &lib.sources {
-                    self.load_package_source(target, &src.value, Role::Source, src.span);
+                    self.load_package_source(ws, target, &src.value, Role::Source, src.span);
                 }
                 if let Some(testing) = &lib.testing {
                     self.load_path(
@@ -152,14 +149,18 @@ impl<'a> Loader<'a> {
                         Span::NONE,
                     );
                     for src in &testing.sources {
-                        self.load_package_source(target, &src.value, Role::TestOnly, src.span);
+                        self.load_package_source(ws, target, &src.value, Role::TestOnly, src.span);
                     }
                 }
                 if unit.with_tests {
                     for src in lib.test.iter().flat_map(|t| t.sources.iter()) {
-                        if let Some(id) =
-                            self.load_package_source(target, &src.value, Role::TestSource, src.span)
-                        {
+                        if let Some(id) = self.load_package_source(
+                            ws,
+                            target,
+                            &src.value,
+                            Role::TestSource,
+                            src.span,
+                        ) {
                             self.test_sources.push(id);
                         }
                     }
@@ -172,9 +173,9 @@ impl<'a> Loader<'a> {
                 // behalf — and only then, so a package with both rules is not
                 // told twice.
                 if !pkg.has_library() {
-                    self.check_testing_surface_declared(target);
+                    self.check_testing_surface_declared(ws, target);
                 }
-                self.load_closure_generators(target);
+                self.load_closure_generators(ws, target);
                 // The output being built, when it names a repository platform:
                 // its entry is checked against that platform's declaration.
                 if let (Some(platform), Some(entry), None) =
@@ -194,20 +195,24 @@ impl<'a> Loader<'a> {
                 }
                 self.load_path(&pkg.module_path("main.buri"), Role::Entry, Span::NONE);
                 for src in &bin.sources {
-                    self.load_package_source(target, &src.value, Role::Source, src.span);
+                    self.load_package_source(ws, target, &src.value, Role::Source, src.span);
                 }
                 if unit.with_tests {
                     for src in bin.test.iter().flat_map(|t| t.sources.iter()) {
-                        if let Some(id) =
-                            self.load_package_source(target, &src.value, Role::TestSource, src.span)
-                        {
+                        if let Some(id) = self.load_package_source(
+                            ws,
+                            target,
+                            &src.value,
+                            Role::TestSource,
+                            src.span,
+                        ) {
                             self.test_sources.push(id);
                         }
                     }
                 }
             }
             Rule::Tool(tool) => {
-                self.load_closure_generators(target);
+                self.load_closure_generators(ws, target);
                 // A source rather than an entry: `tool.buri` has no `main` and
                 // builds no context. The toolchain writes the `main` that calls
                 // it, when it runs the tool.
@@ -231,13 +236,17 @@ impl<'a> Loader<'a> {
                     }
                 }
                 for src in &tool.sources {
-                    self.load_package_source(target, &src.value, Role::Source, src.span);
+                    self.load_package_source(ws, target, &src.value, Role::Source, src.span);
                 }
                 if unit.with_tests {
                     for src in tool.test.iter().flat_map(|t| t.sources.iter()) {
-                        if let Some(id) =
-                            self.load_package_source(target, &src.value, Role::TestSource, src.span)
-                        {
+                        if let Some(id) = self.load_package_source(
+                            ws,
+                            target,
+                            &src.value,
+                            Role::TestSource,
+                            src.span,
+                        ) {
                             self.test_sources.push(id);
                         }
                     }
@@ -315,7 +324,8 @@ impl<'a> Loader<'a> {
         let file = match self.map.find(path) {
             Some(id) if self.map.text(id) == text => id,
             Some(id) => {
-                self.map.replace(id, text);
+                self.map
+                    .replace(std::collections::HashMap::from([(id, text)]));
                 self.cache.forget(id);
                 id
             }
@@ -347,8 +357,7 @@ impl<'a> Loader<'a> {
     /// directory holding nothing but its own entry point passed with no block
     /// at all. The surface was then invisible: no target compiled it, and
     /// `//pkg/testing` resolved to a file the build had never heard of.
-    fn check_testing_surface_declared(&mut self, target: TargetId) {
-        let ws = self.ws.or_ice("a target is checked in a repository");
+    fn check_testing_surface_declared(&mut self, ws: &Workspace, target: TargetId) {
         let pkg = ws.package(target.package);
         let dir = pkg.dir.join("testing");
         if !dir.is_dir() {
@@ -380,12 +389,12 @@ impl<'a> Loader<'a> {
     /// A source listed in a rule, named by its package-relative path.
     fn load_package_source(
         &mut self,
+        ws: &Workspace,
         target: TargetId,
         rel: &str,
         role: Role,
         span: Span,
     ) -> Option<ModuleId> {
-        let ws = self.ws?;
         let pkg = ws.package(target.package);
         // An entry point is named by the rule kind rather than listed
         // (BUILD-FILES.md:140-144, 194-196). Listing one says nothing the rule
@@ -418,12 +427,9 @@ impl<'a> Loader<'a> {
     /// generated modules are what the dependent is built from: a library whose
     /// generator failed has to say so wherever it is compiled into something,
     /// not only when that library is the target named on the command line.
-    fn load_closure_generators(&mut self, target: TargetId) {
-        let ws = self
-            .ws
-            .or_ice("a target's generators are loaded in a repository");
+    fn load_closure_generators(&mut self, ws: &Workspace, target: TargetId) {
         for member in ws.closure(target) {
-            self.load_generators(member);
+            self.load_generators(ws, member);
         }
     }
 
@@ -433,10 +439,7 @@ impl<'a> Loader<'a> {
     /// The work happened in the build layer — `generators::prepare`, at the one
     /// door every command opens a repository through — because the front end
     /// can neither build nor spawn a tool. What arrives here is data.
-    fn load_generators(&mut self, target: TargetId) {
-        let ws = self
-            .ws
-            .or_ice("a rule's generators are loaded in a repository");
+    fn load_generators(&mut self, ws: &Workspace, target: TargetId) {
         if crate::build::generators::declared(ws, target).is_empty()
             && !crate::build::generators::has_contracts(ws, target)
         {

@@ -39,7 +39,7 @@
 
 use crate::compiler::driver;
 use crate::compiler::modules::Role;
-use crate::diagnostics::{Invariant as _, SourceMap};
+use crate::diagnostics::SourceMap;
 use crate::documentation::markdown::{self, Fence, Info};
 use std::collections::HashMap;
 
@@ -135,8 +135,9 @@ pub struct Block {
     pub uses: Vec<String>,
     /// This block's own name, for a later block to `use=`.
     pub name: Option<String>,
-    /// Effects the synthetic `main` builds a context from.
-    pub effects: Vec<String>,
+    /// Effects the synthetic `main` builds a context from: each one's trait,
+    /// and the host value that performs it.
+    pub effects: Vec<(&'static str, &'static str)>,
     /// A repository to compile against, relative to the documentation root.
     /// Without one a snippet may not name a `//...` module.
     pub repo: Option<String>,
@@ -436,20 +437,22 @@ fn parse_block(
     let repo = info.get("repo").map(String::from);
     let package = info.get("package").map(String::from);
 
-    let effects = match info.get("ctx") {
+    let named = match info.get("ctx") {
         Some(_) => info.list("ctx"),
         // Enough to print and to allocate, which is what a fragment that names
         // `ctx` at all almost always wants.
         None => vec!["alloc".into(), "stdout".into()],
     };
-    for e in &effects {
-        if effect_binding(e).is_none() {
+    let mut effects = Vec::with_capacity(named.len());
+    for e in &named {
+        let Some(binding) = effect_binding(e) else {
             return Err(fail(
                 format!("`{e}` is not an effect this harness can build"),
                 "the effects are alloc, stdout, stderr, stdin, fsread, fswrite, net, clock, \
                  rand, entropy, env, proc, tasks, listen, sockets, websocketclient",
             ));
-        }
+        };
+        effects.push(binding);
     }
 
     let (source, original, errors) = strip_annotations(&fence.body);
@@ -888,9 +891,7 @@ pub fn assemble(
             body.push_str("from \"core/io\" import * as io;\n");
             body.push_str("export fn main(__host: __Host): Result<(), Str> {\n");
             body.push_str("  let ctx = context {\n");
-            for e in &block.effects {
-                let (trait_name, host_value) = effect_binding(e)
-                    .or_ice("`parse_block` refuses a block naming an effect with no binding");
+            for (trait_name, host_value) in &block.effects {
                 body.push_str(&format!("    {trait_name}: __host.{host_value},\n"));
             }
             body.push_str("  };\n");
@@ -1451,14 +1452,16 @@ fn run_proto(proto: &ProtoBlock) -> Vec<Failure> {
 /// on. The clean build comes first even for a page whose only fence fails:
 /// it is what says the code came from the fence and not the repository.
 fn run_repositories(root: &std::path::Path, files: &[RepoFile]) -> Vec<Failure> {
-    let mut repos: Vec<Option<&str>> = Vec::new();
+    // Each repository by the first of its files, which is what names it.
+    let mut firsts: Vec<&RepoFile> = Vec::new();
     for f in files {
-        if !repos.contains(&f.repo.as_deref()) {
-            repos.push(f.repo.as_deref());
+        if !firsts.iter().any(|r| r.repo == f.repo) {
+            firsts.push(f);
         }
     }
     let mut failures = Vec::new();
-    for repo in repos {
+    for first in firsts {
+        let repo = first.repo.as_deref();
         let mine: Vec<&RepoFile> = files.iter().filter(|f| f.repo.as_deref() == repo).collect();
         let mut seen: Vec<&str> = Vec::new();
         for f in &mine {
@@ -1477,9 +1480,6 @@ fn run_repositories(root: &std::path::Path, files: &[RepoFile]) -> Vec<Failure> 
             .copied()
             .filter(|f| f.fails_with.is_none())
             .collect();
-        let first = mine
-            .first()
-            .or_ice("every repository is named by one of the files in it");
         match build_with(root, repo, &clean) {
             Err(why) => {
                 failures.push(Failure {
@@ -1602,10 +1602,8 @@ fn write_and_build(
     }
     for f in files {
         let path = scratch.join(&f.path);
-        let parent = path
-            .parent()
-            .or_ice("a file joined onto the scratch directory is inside it");
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        // A file joined onto the scratch directory is inside it.
+        std::fs::create_dir_all(path.parent().unwrap_or(scratch)).map_err(|e| e.to_string())?;
         std::fs::write(&path, &f.text).map_err(|e| e.to_string())?;
     }
     build_repository(scratch)

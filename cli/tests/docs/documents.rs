@@ -1932,7 +1932,8 @@ fn codes_in(text: &str) -> Vec<String> {
 fn every_section_number_is_pinned() {
     for doc in assemble::DOCUMENTS {
         for s in doc.sections {
-            let headings = scanning::headings(s.topic().text);
+            let topic = buri::documentation::topics::find(s.topic).expect("a section is a topic");
+            let headings = scanning::headings(topic.text);
             let first = headings.first().expect("a topic has a heading");
             assert!(
                 first.title.starts_with(&format!("{}. ", s.number)),
