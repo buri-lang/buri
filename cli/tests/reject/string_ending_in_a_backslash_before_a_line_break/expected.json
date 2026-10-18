@@ -1,0 +1,1 @@
+{"severity":"error","message":"unterminated string literal","code":"unterminated-string","location":{"file":"cmd/string_ending_in_a_backslash_before_a_line_break/main.buri","line":4,"column":11,"endLine":5,"endColumn":1,"text":"    \"oops\\"},"fix":"close it with `\"`; a string literal does not span a line break","notes":[],"related":[]}

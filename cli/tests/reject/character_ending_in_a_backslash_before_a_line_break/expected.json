@@ -1,0 +1,1 @@
+{"severity":"error","message":"unterminated character literal","code":"unterminated-character","location":{"file":"cmd/character_ending_in_a_backslash_before_a_line_break/main.buri","line":4,"column":5,"endLine":4,"endColumn":7,"text":"    '\\"},"fix":"close it with `'`","notes":[],"related":[]}

@@ -1,0 +1,4 @@
+// EXPECT: unterminated character literal
+// A backslash with nothing after it escapes nothing: the literal is open.
+fn letter(): Char {
+    '\

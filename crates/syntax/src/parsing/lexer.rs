@@ -1640,8 +1640,13 @@ impl<'a> Lexer<'a> {
                     self.tokens.cooked.push_str(self.slice(chunk, self.pos));
                     let start = self.pos;
                     self.pos = self.pos.saturating_add(1);
-                    if let Some(c) = self.escape(start) {
-                        self.tokens.cooked.push(c);
+                    // A backslash with nothing after it on its line escapes
+                    // nothing: the string is open, and the next trip round
+                    // says so at the line break or the end of the file.
+                    if !self.at_line_end() {
+                        if let Some(c) = self.escape(start) {
+                            self.tokens.cooked.push(c);
+                        }
                     }
                     chunk = self.pos;
                 }
@@ -1762,17 +1767,27 @@ impl<'a> Lexer<'a> {
         self.tokens.unterminated.push(at);
     }
 
+    /// Whether `self.pos` is at a line break or the end of the file.
+    fn at_line_end(&self) -> bool {
+        self.pos >= self.src.len() || self.peek() == b'\n'
+    }
+
     fn char_literal(&mut self, start: usize) {
         self.pos = self.pos.saturating_add(1);
-        let c = if self.peek() == b'\\' {
-            let s = self.pos;
+        let escaped = self.peek() == b'\\';
+        if escaped {
             self.pos = self.pos.saturating_add(1);
-            self.escape(s).unwrap_or('\0')
-        } else if self.pos >= self.src.len() || self.peek() == b'\n' {
+        }
+        // A quote with nothing after it on its line is open, and so is one
+        // whose backslash has nothing after it to escape.
+        if self.at_line_end() {
             let span = self.span(start);
             self.templated("unterminated-character", span);
             self.push(TokenKind::Char, 0, start);
             return;
+        }
+        let c = if escaped {
+            self.escape(self.pos.saturating_sub(1)).unwrap_or('\0')
         } else {
             self.next_char()
         };

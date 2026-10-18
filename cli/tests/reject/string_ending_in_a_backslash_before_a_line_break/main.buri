@@ -1,0 +1,11 @@
+// EXPECT: unterminated string literal
+// A backslash before a line break escapes nothing: the string ends open there.
+fn label(): Str {
+    "oops\
+}
+
+from "node" import { NodeHost };
+
+export fn main(host: NodeHost): Result<(), Str> {
+    .Ok(())
+}
