@@ -48,6 +48,46 @@ test "a fresh double has recorded nothing" {
     assert.equal(tcp().calls(), list.empty<testing.TcpCall>());
 }
 
+// The double always connects. A program that has to handle a refused dial
+// writes its own `Tcp`, and `connect` hands back the error that effect answered.
+
+/// Connects only to `open.test`, as stream `handle`; any other host is refused.
+struct Gatekept {
+    handle: Int,
+}
+
+impl Tcp for Gatekept {
+    fn tcpConnect(self, host: Str, _port: Int): Result<Int, IoError> {
+        match (host == "open.test") {
+            true => .Ok(self.handle),
+            false => .Err(.PermissionDenied),
+        }
+    }
+
+    fn tcpRead(self, _handle: Int, _limit: Int): Result<[U8], IoError> {
+        .Err(.NotFound)
+    }
+
+    fn tcpWrite(self, _handle: Int, _body: [U8]): Result<(), IoError> {
+        .Err(.NotFound)
+    }
+
+    fn tcpClose(self, _handle: Int): () {
+        ()
+    }
+}
+
+test "a refused dial is the effect's error, and the same effect can still connect" {
+    let ctx = context {
+        Tcp: Gatekept { handle: 5 },
+    };
+    assert.equal(
+        assert.err(stream.connect(ctx, "closed.test", 6379)),
+        IoError.PermissionDenied,
+    );
+    assert.equal(assert.ok(stream.connect(ctx, "open.test", 6379)).0, 5);
+}
+
 // --- Reading ---------------------------------------------------------------------
 
 test "a read takes a prefix of the script, and the log says what was asked for" {

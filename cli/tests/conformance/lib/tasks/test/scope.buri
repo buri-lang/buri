@@ -205,30 +205,42 @@ enum Turn {
     Stop,
 }
 
-/// Says `Carry` for the first three asks and `Stop` after.
+/// Says `Carry` for the first `turns` asks and `Stop` after. `Within` calls
+/// what it carries and spends no turn.
 ///
 /// A socket would answer this question by being closed. The actor is the same
 /// answer with the network taken out of it, so the file holds both sides.
-fn gate<C: Allocator + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
+fn gate<C: Allocator + Tasks>(turns: Int): Actor<C, Int, Ask<C>, Turn> {
     Actor {
         state: turns,
         step: fn(c, left, message) => {
-            match (left > 0) {
-                true => Stepped { state: left - 1, answer: .Carry },
-                false => Stepped { state: left, answer: .Stop },
+            match (message) {
+                .MayI => {
+                    match (left > 0) {
+                        true => Stepped { state: left - 1, answer: .Carry },
+                        false => Stepped { state: left, answer: .Stop },
+                    }
+                },
+                .Within(f) => {
+                    let call = f;
+                    let _ = call(c);
+                    Stepped { state: left, answer: .Carry }
+                },
             }
         },
     }
 }
 
-enum Ask {
+enum Ask<C> {
     MayI,
+    /// Call this from inside the step.
+    Within(fn(C) => ()),
 }
 
 /// The long-lived loop: one frame per turn, and it ends when it is told to.
 fn frames<C: Allocator + Stdout + Tasks>(
     ctx: C,
-    keeper: Address<C, Int, Ask, Turn>,
+    keeper: Address<C, Int, Ask<C>, Turn>,
     n: Int,
 ): () {
     match (keeper.sendMessage(ctx, .MayI)) {
@@ -261,6 +273,39 @@ test "a spawned loop stops when the actor it asks says to" {
         out.captured(),
         "frame 0\nframe 1\nframe 2\nthe loop stopped\nthe loop stopped\n",
     );
+}
+
+test "a gate that asks itself from its own step is refused, and the ask spends a turn" {
+    let out = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: out,
+        Tasks: tasks(),
+    };
+    let keeper = actor.start(ctx, gate(3));
+    // The ask from inside the step is refused, since that step holds the
+    // state. It is still stepped once the step returns, so it spends one of
+    // the three turns and the loop gets two.
+    let inside = keeper.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            let asked = keeper.sendMessage(c, .MayI);
+            say(c, match (asked) {
+                .Err(.WouldDeadlock) => "refused",
+                _other => "answered",
+            })
+        }),
+    );
+    assert.isTrue(match (inside) {
+        .Ok(.Carry) => true,
+        _other => false,
+    });
+    let _ = tasks.scope(ctx, fn(c, here) => {
+        let _ = tasks.spawn(c, here, fn(c2) => frames(c2, keeper, 0));
+        ()
+    });
+    assert.equal(out.captured(), "refused\nframe 0\nframe 1\nthe loop stopped\n");
+    assert.equal(keeper.stop(ctx), .Ok(()));
 }
 
 /// The gated loop's whole life, through a context of its own: what it printed.

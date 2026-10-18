@@ -62,13 +62,15 @@ fn big<C: Allocator>(ctx: C, unit: Str): Str {
     unit.repeat(ctx, LOOSE)
 }
 
-enum Keep {
+enum Keep<C> {
     /// Replace the state with a string the *sender* built.
     Put(Str),
     /// Replace it with one the *step* builds, so the crossing under test is
     /// the one that puts a state back rather than the one that posts.
     Grow,
     Get,
+    /// Call this from inside the step.
+    Within(fn(C) => ()),
 }
 
 derive Equal, Show for Kept;
@@ -78,7 +80,7 @@ enum Kept {
 }
 
 /// An actor whose state is a `Str`, and whose protocol reaches each crossing.
-fn keeper<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Keep, Kept> {
+fn keeper<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Keep<C>, Kept> {
     Actor {
         state: initial,
         step: fn(c, held, message) => {
@@ -86,6 +88,11 @@ fn keeper<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Keep, Kept> {
                 .Put(next) => Stepped { state: next, answer: .Stored },
                 .Grow => Stepped { state: big(c, "g"), answer: .Stored },
                 .Get => Stepped { state: held, answer: .Held(held) },
+                .Within(f) => {
+                    let call = f;
+                    let _ = call(c);
+                    Stepped { state: held, answer: .Stored }
+                },
             }
         },
     }
@@ -98,7 +105,7 @@ fn keeper<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Keep, Kept> {
 /// `Scoped`'s own first field (SPEC 10.2).
 struct Escaped<C> {
     scope: Scoped<C>,
-    address: Address<Scoped<C>, Str, Keep, Kept>,
+    address: Address<Scoped<C>, Str, Keep<Scoped<C>>, Kept>,
 }
 
 /// Scopes that map and release pages of their own, so that an address which
@@ -149,6 +156,33 @@ test "a message sent inside a scope is stepped correctly" {
     });
     let _ = churn(ctx);
     assert.equal(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "m"))));
+    assert.equal(out.address.stop(out.scope), .Ok(()));
+}
+
+/// A send a step makes to its own actor is refused, and the message it posted
+/// waits in the runtime until the loop already running steps it. Here that
+/// message is built inside the scope, and read back after the scope has ended.
+test "a message a step sends its own actor inside a scope is stepped correctly" {
+    let ctx = context {
+        Allocator: testAlloc(),
+        Tasks: tasks(),
+    };
+    let out = alloc.scoped(ctx, fn(c) => {
+        let address = actor.start(c, keeper(""));
+        let refused = address.sendMessage(
+            c,
+            .Within(fn(k) => {
+                assert.equal(
+                    address.sendMessage(k, .Put(big(k, "r"))),
+                    .Err(.WouldDeadlock),
+                )
+            }),
+        );
+        assert.equal(refused, .Ok(.Stored));
+        Escaped { scope: c, address: address }
+    });
+    let _ = churn(ctx);
+    assert.equal(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "r"))));
     assert.equal(out.address.stop(out.scope), .Ok(()));
 }
 

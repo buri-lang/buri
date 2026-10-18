@@ -35,9 +35,11 @@ from "core/testing/assert" import * as assert;
 from "platform/effect" import { Allocator, Tasks };
 from "platform/effect/testing" import { alloc, tasks };
 
-enum Note {
+enum Note<C> {
     Saw(Int),
     Read,
+    /// Call this from inside the step.
+    Within(fn(C) => ()),
 }
 
 derive Equal, Show for Heard;
@@ -47,14 +49,20 @@ enum Heard {
 }
 
 /// The recorder. `Saw(n)` folds `n` into the state and answers `n` doubled;
-/// `Read` answers the state without changing it.
-fn recorder<C: Allocator + Tasks>(): Actor<C, Int, Note, Heard> {
+/// `Read` answers the state without changing it, and `Within` calls what it
+/// carries.
+fn recorder<C: Allocator + Tasks>(): Actor<C, Int, Note<C>, Heard> {
     Actor {
         state: 0,
         step: fn(c, seen, note) => {
             match (note) {
                 .Saw(n) => Stepped { state: seen * 10 + n, answer: .Noted(n * 2) },
                 .Read => Stepped { state: seen, answer: .Log(seen) },
+                .Within(f) => {
+                    let call = f;
+                    let _ = call(c);
+                    Stepped { state: seen, answer: .Log(seen) }
+                },
             }
         },
     }
@@ -65,6 +73,15 @@ fn noted(r: Result<Heard, SendError>): Int {
     match (r) {
         .Ok(.Noted(n)) => n,
         _otherwise => -1,
+    }
+}
+
+/// 1 for a send the actor refused because the sender's own step holds it, and 0
+/// for anything else.
+fn deadlocked(r: Result<Heard, SendError>): Int {
+    match (r) {
+        .Err(.WouldDeadlock) => 1,
+        _otherwise => 0,
     }
 }
 
@@ -459,6 +476,29 @@ test "a waiting mapCtx inside a parallel step runs before parallel answers" {
     });
     assert.equal(out, [2, 2]);
     assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 1122);
+    let _ = heard.stop(ctx).ignore();
+}
+
+test "a mapCtx inside the recorder's own step waits for each refused send" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let heard = actor.start(ctx, recorder());
+    // Each send is made from inside the recorder's own step, so each is refused
+    // rather than left waiting for itself, and the loop that holds the state
+    // steps all three, in order, once that step returns.
+    let inside = heard.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            let refused = [1, 2, 3].mapCtx(c, fn(d, x) => {
+                deadlocked(heard.sendMessage(d, .Saw(x)))
+            });
+            assert.equal(refused, [1, 1, 1])
+        }),
+    );
+    assert.equal(heardSoFar(inside), 0);
+    assert.equal(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
     let _ = heard.stop(ctx).ignore();
 }
 

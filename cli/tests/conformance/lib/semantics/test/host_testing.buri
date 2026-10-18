@@ -2484,17 +2484,19 @@ test "faults replaces, and a plan it replaced claims nothing" {
 ///
 /// Every message answers the room's size, and a `Publish` answers how many
 /// sockets it reached — so a publisher gets a receipt rather than a promise.
-enum Room {
+enum Room<C> {
     Joined(Socket),
     Left(Socket),
     Publish(Message),
+    /// Call this from inside the step.
+    Within(fn(C) => ()),
 }
 
 /// An actor holding everybody in the room, pushing to all of them on a publish.
 ///
 /// Bounded by `Sockets` and by nothing else beyond what an actor needs, which
 /// is the whole claim: this is a socket program with no server in it.
-fn room<C: Allocator + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {
+fn room<C: Allocator + Sockets + Tasks>(): Actor<C, [Socket], Room<C>, Int> {
     Actor {
         state: [],
         step: fn(c, members, message) => {
@@ -2513,6 +2515,11 @@ fn room<C: Allocator + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {
                         fn(inner, _sofar, socket) => socket.send(inner, m),
                         (),
                     );
+                    Stepped { state: members, answer: members.length() }
+                },
+                .Within(f) => {
+                    let call = f;
+                    let _ = call(c);
                     Stepped { state: members, answer: members.length() }
                 },
             }
@@ -2624,6 +2631,32 @@ test "a broadcast actor reaches every socket in the room, with no server at all"
     // A room that has stopped takes no more members and cannot stop again.
     assert.isTrue(assert.err(members.sendMessage(ctx, .Left(second))) == .Stopped);
     assert.equal(members.stop(ctx), .Err(.Stopped));
+}
+
+test "a join sent from inside the room's own step is refused, and still joins" {
+    let s = sockets();
+    let ctx = context {
+        Allocator: alloc(),
+        Sockets: s,
+        Tasks: tasks(),
+    };
+    let late = s.open();
+    let members = actor.start(ctx, room());
+    // The step holds the room while it runs, so a join it sends is refused
+    // rather than left waiting for itself. The join is stepped as soon as that
+    // step returns, so the publish after it reaches the socket.
+    let inside = members.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            assert.isTrue(
+                assert.err(members.sendMessage(c, .Joined(late))) == .WouldDeadlock,
+            )
+        }),
+    );
+    assert.equal(assert.ok(inside), 0);
+    assert.equal(assert.ok(members.sendMessage(ctx, .Publish(.Text("joined")))), 1);
+    assert.equal(s.sent(), [(late, Message.Text("joined"))]);
+    let _stopped = members.stop(ctx);
 }
 
 test "a socket the room closed is one a later broadcast does not reach" {

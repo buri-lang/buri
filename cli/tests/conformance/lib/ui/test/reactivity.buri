@@ -22,6 +22,7 @@
 from "core/alloc" import * as alloc;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
+from "core/time" import * as time;
 from "platform/effect" import { Allocator, Scope, Ui, Watch };
 from "platform/effect/testing" import {
     alloc as testAlloc, headless, observer, Recorder, recorder,
@@ -142,6 +143,24 @@ test "a watcher runs again when something it read changes" {
     let _ = n.set(ctx, 4);
     let _ = n.set(ctx, 5);
     assert.equal(log.noted(), [3, 4, 5]);
+}
+
+test "a watcher may format a duration it read, at every size" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let nanos = signal(ctx, 0);
+    // A `Scope` allocates, so a watcher can build the text it shows: here a
+    // countdown label, read in nanoseconds and shown in the largest unit it
+    // reaches.
+    let _ = watch(ctx, fn(s) => log.record(time.nanoseconds(nanos.get(s)).show(s)));
+    let _ = nanos.set(ctx, 1500000000);
+    let _ = nanos.set(ctx, 2000000);
+    let _ = nanos.set(ctx, 1500);
+    let _ = nanos.set(ctx, 7);
+    let _ = nanos.set(ctx, -250000000);
+    assert.equal(log.recorded(), ["0s", "1.5s", "2ms", "1.5us", "7ns", "-250ms"]);
 }
 
 test "writing the value already there is not a change" {

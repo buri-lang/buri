@@ -29,8 +29,10 @@ from "//lib/variants" import * as variants;
 // Nothing at all: `S` and `R` are both `()`
 // -----------------------------------------------------------------------------
 
-enum Ping {
+enum Ping<C> {
     Ping,
+    /// Call this from inside the step.
+    Within(fn(C) => ()),
 }
 
 /// An actor with nothing to remember and nothing to say.
@@ -39,10 +41,18 @@ enum Ping {
 /// whose element is only `Carried`'s own word. The hook is handed a state of
 /// `()` and has nothing to say about it, so what it prints is that it ran —
 /// which is the only way a unit state is visible at all.
-fn silent<C: Allocator + Stdout + Tasks>(): Actor<C, (), Ping, ()> {
+fn silent<C: Allocator + Stdout + Tasks>(): Actor<C, (), Ping<C>, ()> {
     Actor {
         state: (),
-        step: fn(c, held, message) => Stepped { state: (), answer: () },
+        step: fn(c, held, message) => {
+            match (message) {
+                .Ping => Stepped { state: (), answer: () },
+                .Within(f) => {
+                    let call = f;
+                    Stepped { state: call(c), answer: () }
+                },
+            }
+        },
         onStop: .Some(fn(c, last) => io.println(c, "quiet").ignore()),
     }
 }
@@ -69,13 +79,15 @@ test "an actor whose state and answer are both unit answers every message" {
 // A list, a string nobody can spell in ASCII, and a struct inside a struct
 // -----------------------------------------------------------------------------
 
-enum Bag {
+enum Bag<C> {
     /// Replaces the whole state with a list the sender built.
     Fill([Int]),
     /// Appends one, so the state the runtime handed back is the one the next
     /// message reads.
     Push(Int),
     Drain,
+    /// Call this from inside the step.
+    Within(fn(C) => ()),
 }
 
 derive Equal, Show for Bagged;
@@ -84,7 +96,7 @@ enum Bagged {
     Held([Int]),
 }
 
-fn bag<C: Allocator + Tasks>(): Actor<C, [Int], Bag, Bagged> {
+fn bag<C: Allocator + Tasks>(): Actor<C, [Int], Bag<C>, Bagged> {
     Actor {
         state: [],
         step: fn(c, held, message) => {
@@ -95,6 +107,11 @@ fn bag<C: Allocator + Tasks>(): Actor<C, [Int], Bag, Bagged> {
                     Stepped { state: grown, answer: .Kept(grown.length()) }
                 },
                 .Drain => Stepped { state: [], answer: .Held(held) },
+                .Within(f) => {
+                    let call = f;
+                    let _ = call(c);
+                    Stepped { state: held, answer: .Kept(held.length()) }
+                },
             }
         },
     }
@@ -120,9 +137,11 @@ test "a message, a state and an answer may each be a list" {
     assert.equal(assert.err(held.sendMessage(ctx, .Drain)), SendError.Stopped);
 }
 
-enum Say {
+enum Say<C> {
     Say(Str),
     Read,
+    /// Call this from inside the step.
+    Within(fn(C) => ()),
 }
 
 derive Equal, Show for Said;
@@ -131,13 +150,18 @@ enum Said {
     Text(Str),
 }
 
-fn scribe<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Say, Said> {
+fn scribe<C: Allocator + Tasks>(initial: Str): Actor<C, Str, Say<C>, Said> {
     Actor {
         state: initial,
         step: fn(c, held, message) => {
             match (message) {
                 .Say(next) => Stepped { state: next, answer: .Scalars(next.length()) },
                 .Read => Stepped { state: held, answer: .Text(held) },
+                .Within(f) => {
+                    let call = f;
+                    let _ = call(c);
+                    Stepped { state: held, answer: .Text(held) }
+                },
             }
         },
     }
@@ -176,9 +200,11 @@ struct Record {
     note: Option<Str>,
 }
 
-enum Filing {
+enum Filing<C> {
     File(Record),
     Look,
+    /// Call this from inside the step.
+    Within(fn(C) => ()),
 }
 
 derive Equal, Show for Filed;
@@ -186,13 +212,18 @@ enum Filed {
     Was(Record),
 }
 
-fn cabinet<C: Allocator + Tasks>(initial: Record): Actor<C, Record, Filing, Filed> {
+fn cabinet<C: Allocator + Tasks>(initial: Record): Actor<C, Record, Filing<C>, Filed> {
     Actor {
         state: initial,
         step: fn(c, held, message) => {
             match (message) {
                 .File(next) => Stepped { state: next, answer: .Was(held) },
                 .Look => Stepped { state: held, answer: .Was(held) },
+                .Within(f) => {
+                    let call = f;
+                    let _ = call(c);
+                    Stepped { state: held, answer: .Was(held) }
+                },
             }
         },
     }
@@ -238,9 +269,11 @@ test "a struct inside a struct crosses whole" {
 // what makes an address usable as another actor's state". This is that
 // sentence: a desk whose whole state is where to forward to.
 
-enum Tally {
+enum Tally<C> {
     Increment,
     Get,
+    /// Call this from inside the step.
+    Within(fn(C) => ()),
 }
 
 derive Equal, Show for Tallied;
@@ -249,21 +282,28 @@ enum Tallied {
     Count(Int),
 }
 
-fn tally<C: Allocator + Tasks>(): Actor<C, Int, Tally, Tallied> {
+fn tally<C: Allocator + Tasks>(): Actor<C, Int, Tally<C>, Tallied> {
     Actor {
         state: 0,
         step: fn(c, count, message) => {
             match (message) {
                 .Increment => Stepped { state: count + 1, answer: .Done },
                 .Get => Stepped { state: count, answer: .Count(count) },
+                .Within(f) => {
+                    let call = f;
+                    let _ = call(c);
+                    Stepped { state: count, answer: .Done }
+                },
             }
         },
     }
 }
 
-enum Desk {
+enum Desk<C> {
     Bump,
     Total,
+    /// Call this from inside the step.
+    Within(fn(C) => ()),
 }
 
 derive Equal, Show for Desked;
@@ -277,8 +317,8 @@ enum Desked {
 /// it takes up with that actor — so a `sendMessage` here is a step of one actor
 /// driving another's whole mailbox before it answers its own.
 fn desk<C: Allocator + Tasks>(
-    behind: Address<C, Int, Tally, Tallied>,
-): Actor<C, Address<C, Int, Tally, Tallied>, Desk, Desked> {
+    behind: Address<C, Int, Tally<C>, Tallied>,
+): Actor<C, Address<C, Int, Tally<C>, Tallied>, Desk<C>, Desked> {
     Actor {
         state: behind,
         step: fn(c, back, message) => {
@@ -295,6 +335,11 @@ fn desk<C: Allocator + Tasks>(
                         .Ok(_other) => Stepped { state: back, answer: .Gone },
                         .Err(_gone) => Stepped { state: back, answer: .Gone },
                     }
+                },
+                .Within(f) => {
+                    let call = f;
+                    let _ = call(c);
+                    Stepped { state: back, answer: .Noted }
                 },
             }
         },
@@ -350,9 +395,11 @@ test "a step that sends to an actor that has stopped is told so" {
 // state. That is the whole of what an actor needs to start background work:
 // there is no `Tasks` method to reach for, only the scope somebody handed it.
 
-enum Job {
+enum Job<C> {
     /// Start a job in the scope the sender is holding.
     Run(Scope),
+    /// Call this from inside the step.
+    Within(fn(C) => ()),
 }
 
 derive Equal, Show for Ran;
@@ -362,7 +409,7 @@ enum Ran {
 
 /// An actor that spawns rather than working: the step queues the task and
 /// answers how many jobs it has started.
-fn foreman<C: Allocator + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
+fn foreman<C: Allocator + Stdout + Tasks>(): Actor<C, Int, Job<C>, Ran> {
     Actor {
         state: 0,
         step: fn(c, started, message) => {
@@ -373,6 +420,11 @@ fn foreman<C: Allocator + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
                         ()
                     });
                     Stepped { state: started + 1, answer: .Started(started + 1) }
+                },
+                .Within(f) => {
+                    let call = f;
+                    let _ = call(c);
+                    Stepped { state: started, answer: .Started(started) }
                 },
             }
         },
@@ -410,6 +462,151 @@ test "each answer here, in a send's result, equals itself and not a failure" {
     assert.isTrue(variants.resultsCompare(Filed.Was(record("first", .None)), stopped));
     assert.isTrue(variants.resultsCompare(Said.Text("a"), stopped));
     assert.isTrue(variants.resultsCompare(Tallied.Done, stopped));
+}
+
+// -----------------------------------------------------------------------------
+// A step that sends to its own actor, whatever the payload
+// -----------------------------------------------------------------------------
+//
+// `counter.buri` shows the refusal with an `Int` message. Each actor above takes
+// it here with its own payload: the send made from inside the step is
+// `.Err(.WouldDeadlock)`, and the message it posted is stepped, whole, by the
+// loop that was already running before that loop puts the state back.
+
+test "a unit actor's step that sends to it is refused, and the message still arrives" {
+    let sink = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: sink,
+        Tasks: tasks(),
+    };
+    let quiet = actor.start(ctx, silent());
+    let refused = quiet.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            let late = quiet.sendMessage(
+                c,
+                .Within(fn(c2) => io.println(c2, "late").ignore()),
+            );
+            assert.equal(late, .Err(.WouldDeadlock))
+        }),
+    );
+    assert.equal(refused, .Ok(()));
+    // The refused message printed once, after the step that sent it.
+    assert.equal(sink.captured(), "late\n");
+    assert.equal(quiet.stop(ctx), .Ok(()));
+    assert.equal(sink.captured(), "late\nquiet\n");
+}
+
+test "a list sent from inside its own actor's step is refused, and still arrives" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let held = actor.start(ctx, bag());
+    let refused = held.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            assert.equal(held.sendMessage(c, .Fill([7, 8, 9])), .Err(.WouldDeadlock))
+        }),
+    );
+    assert.equal(refused, .Ok(.Kept(0)));
+    assert.equal(held.sendMessage(ctx, .Drain), .Ok(.Held([7, 8, 9])));
+    assert.equal(held.stop(ctx), .Ok(()));
+}
+
+test "text sent from inside its own actor's step is refused, and still arrives" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let told = actor.start(ctx, scribe("before"));
+    let refused = told.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            assert.equal(told.sendMessage(c, .Say("日😀é")), .Err(.WouldDeadlock))
+        }),
+    );
+    assert.equal(refused, .Ok(.Text("before")));
+    assert.equal(told.sendMessage(ctx, .Read), .Ok(.Text("日😀é")));
+    assert.equal(told.stop(ctx), .Ok(()));
+}
+
+test "a record sent from inside its own actor's step is refused, and still arrives" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let filed = actor.start(ctx, cabinet(record("first", .None)));
+    let refused = filed.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            let late = filed.sendMessage(c, .File(record("late", .Some("x"))));
+            assert.equal(late, .Err(.WouldDeadlock))
+        }),
+    );
+    assert.equal(refused, .Ok(.Was(record("first", .None))));
+    assert.equal(filed.sendMessage(ctx, .Look), .Ok(.Was(record("late", .Some("x")))));
+    assert.equal(filed.stop(ctx), .Ok(()));
+}
+
+test "a desk and the actor behind it each refuse a send from their own step" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, tally());
+    let front = actor.start(ctx, desk(counted));
+    let tallied = counted.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            assert.equal(counted.sendMessage(c, .Increment), .Err(.WouldDeadlock))
+        }),
+    );
+    assert.equal(tallied, .Ok(.Done));
+    let desked = front.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            assert.equal(front.sendMessage(c, .Bump), .Err(.WouldDeadlock))
+        }),
+    );
+    assert.equal(desked, .Ok(.Noted));
+    // One increment the tally refused and stepped, and one the desk's refused
+    // `Bump` forwarded once the desk's own loop reached it.
+    assert.equal(front.sendMessage(ctx, .Total), .Ok(.Total(2)));
+    assert.equal(front.stop(ctx), .Ok(()));
+    assert.equal(counted.stop(ctx), .Ok(()));
+}
+
+test "a job sent from inside its own actor's step is refused, and still runs" {
+    let out = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: out,
+        Tasks: tasks(),
+    };
+    let boss = actor.start(ctx, foreman());
+    let refused = tasks.scope(ctx, fn(c, here) => {
+        let within = boss.sendMessage(
+            c,
+            .Within(fn(c2) => {
+                assert.equal(boss.sendMessage(c2, .Run(here)), .Err(.WouldDeadlock))
+            }),
+        );
+        [within, boss.sendMessage(c, .Run(here))]
+    });
+    assert.equal(refused, [.Ok(.Started(0)), .Ok(.Started(2))]);
+    // A send that started a job is never the same as one that was refused,
+    // whichever way round the two are compared.
+    let started: Result<Ran, SendError> = .Ok(.Started(2));
+    let late: Result<Ran, SendError> = .Err(.WouldDeadlock);
+    assert.equal(started, .Ok(.Started(2)));
+    assert.notEqual(started, late);
+    assert.notEqual(late, started);
+    // The refused `Run` was stepped before the next send's, so two jobs were
+    // spawned and the scope waited for both.
+    assert.equal(out.captured(), "the job ran\nthe job ran\n");
+    assert.equal(boss.stop(ctx), .Ok(()));
 }
 
 // -----------------------------------------------------------------------------
@@ -497,7 +694,7 @@ fn forwarded(): [Result<Desked, SendError>] {
 /// The desk's hook: the actor behind it was bumped once.
 fn bumpedOnce<C: Allocator + Tasks>(
     ctx: C,
-    behind: Address<C, Int, Tally, Tallied>,
+    behind: Address<C, Int, Tally<C>, Tallied>,
 ): () {
     assert.equal(behind.sendMessage(ctx, .Get), .Ok(.Count(1)))
 }
