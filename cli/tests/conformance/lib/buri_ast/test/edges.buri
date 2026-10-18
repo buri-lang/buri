@@ -57,16 +57,14 @@ test "every punctuation character is one token" {
     assert.isTrue(found.all(fn(k) => k == TokenKind.Punctuation));
 }
 
-test "a hex literal takes both cases of digit, and stops at the first that is not one" {
+test "a hex literal takes both cases of digit, and runs on through a letter that is not one" {
     let ctx = context {
         Allocator: alloc(),
     };
     assert.equal(texts(ctx, "0xaF_09 0xfg 0xFG a_1"), [
         "0xaF_09",
-        "0xf",
-        "g",
-        "0xF",
-        "G",
+        "0xfg",
+        "0xFG",
         "a_1",
     ]);
 }

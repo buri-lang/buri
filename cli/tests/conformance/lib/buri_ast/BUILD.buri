@@ -8,6 +8,7 @@ library {
             "test/expressions.buri",
             "test/anchors.buri",
             "test/tokens.buri",
+            "test/lexing.buri",
             "test/parsing.buri",
             "test/edges.buri",
             "test/reading.buri",
