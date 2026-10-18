@@ -656,7 +656,9 @@ impl Jit<'_> {
         // of its `imm12` holes fit, so a single offset past 32 KiB would leave
         // the whole call materialising an offset per argument — worse than the
         // form it replaced. Asking here instead makes that case the array one.
-        let fits = |o: &u32| o.is_multiple_of(8) && u64::from(*o) / 8 < 4096;
+        // Only the reach is asked: every offset here is a frame word's, which
+        // is a multiple of eight, and `Jit::emit` checks the scale itself.
+        let fits = |o: &u32| u64::from(*o) / 8 < 4096;
         let dfits = kind == "v" || fits(&dslot);
         if dfits && iat.iter().chain(fat).all(fits) {
             for (src, at) in ints.iter().zip(iat).chain(floats.iter().zip(fat)) {
