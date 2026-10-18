@@ -1148,7 +1148,6 @@ impl Jit<'_> {
             region: Vec::new(),
             cur: 0,
             constants: Vec::new(),
-            folded: Vec::new(),
             uses: Vec::new(),
         }
     }

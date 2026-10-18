@@ -2169,18 +2169,15 @@ impl Monomorphizer<'_> {
                 prim,
                 arg: Box::new(self.rewrite(*arg, targs)),
             },
-            // Only `coverage::derived` builds one, after this pass.
-            ExprKind::StructuralEq { args } => ExprKind::StructuralEq {
-                args: self.rewrite_all(args, targs),
-            },
             ExprKind::Template { parts } => ExprKind::Template {
                 parts: parts
                     .into_iter()
                     .map(|p| match p {
                         typed::TemplatePart::Text(t) => typed::TemplatePart::Text(t),
-                        typed::TemplatePart::Hole(h) => {
+                        typed::TemplatePart::Hole(h)
+                        | typed::TemplatePart::Shown { value: h, .. } => {
                             let h = self.rewrite(h, targs);
-                            typed::TemplatePart::Hole(self.render_hole(h))
+                            self.render_hole(h)
                         }
                     })
                     .collect(),
@@ -2369,9 +2366,15 @@ impl Monomorphizer<'_> {
     /// replaces it with a call to the function it generated for the type. A
     /// primitive is left alone, because both ends render one from its static
     /// type with no descriptor and no call at all.
-    fn render_hole(&mut self, h: typed::Expr) -> typed::Expr {
-        if self.tables().as_prim(&h.ty).is_some() || h.ty.is_error() {
-            return h;
+    fn render_hole(&mut self, h: typed::Expr) -> typed::TemplatePart {
+        if let Some(prim) = self.tables().as_prim(&h.ty) {
+            return match prim {
+                Prim::Str | Prim::Template => typed::TemplatePart::Hole(h),
+                prim => typed::TemplatePart::Shown { prim, value: h },
+            };
+        }
+        if h.ty.is_error() {
+            return typed::TemplatePart::Hole(h);
         }
         let span = h.span;
         let desc = self.descriptor(&h.ty);
@@ -2381,7 +2384,7 @@ impl Monomorphizer<'_> {
             Ty::ERROR,
             span,
         );
-        typed::Expr::new(
+        typed::TemplatePart::Hole(typed::Expr::new(
             ExprKind::Intrinsic {
                 name: "structuralShow".into(),
                 targs: Vec::new(),
@@ -2389,7 +2392,7 @@ impl Monomorphizer<'_> {
             },
             str_ty,
             span,
-        )
+        ))
     }
 
     /// The structural implementations `derive` stands for. They are emitted as

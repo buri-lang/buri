@@ -1308,9 +1308,6 @@ impl FnLower<'_> {
                     arg,
                 })
             }
-            ExprKind::StructuralEq { .. } => {
-                crate::diagnostics::ice("`middle::derives` replaced every structural operation")
-            }
             ExprKind::Template { parts } => self.template(ty, parts),
 
             ExprKind::CtxLit { bindings, .. } => {
@@ -1638,23 +1635,16 @@ impl FnLower<'_> {
                 }
                 TemplatePart::Hole(h) => {
                     let v = self.expr(h);
-                    // `monomorphize` made a compound hole a `structuralShow`
-                    // call, which `derives` routed, so what is left is a `Str`
-                    // or another primitive.
-                    match self.tables.as_prim(&h.ty) {
-                        Some(Prim::Str | Prim::Template) => rendered.push((v, false)),
-                        Some(prim) => {
-                            let shown = self.emit(ty, |dest| Inst::ShowPrim {
-                                dest,
-                                prim,
-                                value: v,
-                            });
-                            rendered.push((shown, true));
-                        }
-                        None => crate::diagnostics::ice(
-                            "`middle::derives` replaced every structural operation",
-                        ),
-                    }
+                    rendered.push((v, false));
+                }
+                TemplatePart::Shown { prim, value } => {
+                    let v = self.expr(value);
+                    let shown = self.emit(ty, |dest| Inst::ShowPrim {
+                        dest,
+                        prim: *prim,
+                        value: v,
+                    });
+                    rendered.push((shown, true));
                 }
             }
         }

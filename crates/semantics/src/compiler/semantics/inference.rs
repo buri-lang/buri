@@ -761,9 +761,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 self.resolve_expr(base);
                 updates.iter_mut().for_each(|(_, e)| self.resolve_expr(e));
             }
-            typed::ExprKind::Tuple(args)
-            | typed::ExprKind::Array(args)
-            | typed::ExprKind::StructuralEq { args, .. } => {
+            typed::ExprKind::Tuple(args) | typed::ExprKind::Array(args) => {
                 args.iter_mut().for_each(|a| self.resolve_expr(a));
             }
             typed::ExprKind::Prim { args, .. } => {
@@ -815,7 +813,9 @@ impl<'a, 'b> Infer<'a, 'b> {
             }
             typed::ExprKind::Template { parts } => {
                 for p in parts {
-                    if let typed::TemplatePart::Hole(h) = p {
+                    if let typed::TemplatePart::Hole(h)
+                    | typed::TemplatePart::Shown { value: h, .. } = p
+                    {
                         self.resolve_expr(h);
                     }
                 }

@@ -131,19 +131,13 @@ fn stencil_op(op: &str) -> &str {
     }
 }
 
-// `Fn2::folded`, `Fn2::constants` and `Fn2::wt` are `Jit::plan`'s side tables
-// and carry one entry per value of the `ir::Code` being emitted, exactly as
-// `Fn2::slot` — which is why `Fn2::at` reads its own with the same fallback.
-// An index past the end would mean the IR disagreed with itself, so each of
-// these three answers what a value the three analyses never saw would mean
-// rather than panicking: not folded away, holding no immediate, and promoted
-// into a register that nothing reads out of the frame.
-
-/// Whether every use of `v` is an immediate operand, so that the `Const`
-/// defining it was never materialised.
-fn folded(st: &Fn2, v: ir::ValueId) -> bool {
-    st.folded.get(v.index()).copied().unwrap_or(false)
-}
+// `Fn2::constants` and `Fn2::wt` are `Jit::plan`'s side tables and carry one
+// entry per value of the `ir::Code` being emitted, exactly as `Fn2::slot` —
+// which is why `Fn2::at` reads its own with the same fallback. An index past
+// the end would mean the IR disagreed with itself, so each of these answers
+// what a value the analyses never saw would mean rather than panicking:
+// holding no immediate, and promoted into a register that nothing reads out of
+// the frame.
 
 /// The literal `v` holds when a stencil can take it as an immediate, or zero —
 /// which is the same zero the immediate hole is ignored at when it cannot.
@@ -1163,16 +1157,8 @@ impl<'a> Jit<'a> {
         // The paper's stencil configuration: which of constant, register and
         // stack each operand and the result is.
         let la = st.loc(lhs);
-        // `folded` and `constants` are `Jit::plan`'s side tables and have one
-        // entry per value of the `code` these operands came from, so the
-        // defaults are answers no operand here can actually ask for:
-        // "materialised" and "not an immediate", which is what a value with no
-        // `Const` definition is.
-        let lb = if folded(st, rhs) {
-            Loc::Imm
-        } else {
-            st.loc(rhs)
-        };
+        // A `Const` every use of which is an immediate lives at `Loc::Imm`.
+        let lb = st.loc(rhs);
         let ld = st.home(dest);
         let key = key![
             "bin/",
@@ -1662,11 +1648,7 @@ impl<'a> Jit<'a> {
         if let Some((op, prim, lhs, rhs)) = plan.cmpbr {
             let (tag, _, _) = prim_tag(prim)?;
             let la = st.loc(lhs).tag();
-            let lb = if folded(st, rhs) {
-                "i".into()
-            } else {
-                st.loc(rhs).tag()
-            };
+            let lb = st.loc(rhs).tag();
             let k = key!["brcmp/", op.name(), "/", tag, "/", la, lb];
             return self.has(&k).then_some(k);
         }

@@ -2727,24 +2727,6 @@ impl<'a> Gen<'a> {
                 let a = self.expr(arg, out);
                 self.prim_unary(*op, *prim, a)
             }
-            ExprKind::StructuralEq { args } => {
-                // Compiled at the type where the shape is known — which for a
-                // primitive is `===` and no call at all. `desc_index` misses
-                // only if nothing built a descriptor for this type, and then
-                // the generic walker is still exactly right.
-                let desc = args
-                    .first()
-                    .and_then(|a| self.program.desc_index.get(&a.ty).copied());
-                let a = self.exprs(args, out);
-                match desc {
-                    // Anything other than a pair is the generic walker's job.
-                    Some(d) => match <[Expr; 2]>::try_from(a) {
-                        Ok([lhs, rhs]) => self.eq_call(d, lhs, rhs),
-                        Err(a) => Expr::call(Expr::ident("$eq"), a),
-                    },
-                    None => Expr::call(Expr::ident("$eq"), a),
-                }
-            }
             ExprKind::Template { parts } => {
                 // Every part is rendered to a string from its static type, so
                 // the whole interpolation is a concatenation: no array to
@@ -2755,7 +2737,8 @@ impl<'a> Gen<'a> {
                 for p in parts {
                     match p {
                         typed::TemplatePart::Text(t) => items.push(Expr::Str(t.clone())),
-                        typed::TemplatePart::Hole(h) => {
+                        typed::TemplatePart::Hole(h)
+                        | typed::TemplatePart::Shown { value: h, .. } => {
                             let v = self.expr(h, out);
                             items.push(self.render_hole(v, &h.ty));
                         }

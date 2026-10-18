@@ -22,14 +22,12 @@
 //!   "structuralShow" | "structuralToJson" | "structuralHash", args }`, whose
 //!   **last argument is an `Int` literal naming a descriptor** — the shape the
 //!   run-time walker would have read;
-//! * `ExprKind::StructuralEq`, whose descriptor is `Program::desc_index` at the
-//!   first argument's type;
 //! * a `FuncKind::Intrinsic` with `Func::desc` set — `json.decode` (`FromJson`)
 //!   and the test runner's `report`, which are handed a descriptor rather than
 //!   a value.
 //!
-//! This pass replaces the first two with direct calls to generated functions
-//! and gives the third a body: `json.decode` calls a generated decoder
+//! This pass replaces the first with direct calls to generated functions and
+//! gives the second a body: `json.decode` calls a generated decoder
 //! (§ *Decoding*), and the test reporter calls a generated `Show`
 //! (§ *What is scaffolded*).
 //!
@@ -409,27 +407,19 @@ fn collect(program: &Program, out: &mut Derives) -> Vec<(Op, usize)> {
             }
         }
         let Some(body) = f.body() else { continue };
-        typed::walk(body, &mut |e| match &e.kind {
-            ExprKind::Intrinsic { name, args, .. } => {
-                let Some(op) = Op::all().into_iter().find(|o| o.intrinsic() == name) else {
-                    return;
-                };
-                // `monomorphize::structural_call` passes the descriptor last.
-                push(
-                    op,
-                    descriptor_arg(args).or_ice("a structural intrinsic names its descriptor"),
-                    &mut seen,
-                );
-            }
-            ExprKind::StructuralEq { args, .. } => {
-                let d = args.first().and_then(|a| program.desc_index.get(&a.ty));
-                push(
-                    Op::Eq,
-                    *d.or_ice("a structural equality is at a type with a descriptor"),
-                    &mut seen,
-                );
-            }
-            _ => {}
+        typed::walk(body, &mut |e| {
+            let ExprKind::Intrinsic { name, args, .. } = &e.kind else {
+                return;
+            };
+            let Some(op) = Op::all().into_iter().find(|o| o.intrinsic() == name) else {
+                return;
+            };
+            // `monomorphize::structural_call` passes the descriptor last.
+            push(
+                op,
+                descriptor_arg(args).or_ice("a structural intrinsic names its descriptor"),
+                &mut seen,
+            );
         });
     }
     seen
@@ -543,9 +533,6 @@ impl Env {
                     }
                     ExprKind::Unary { prim, arg: a, .. } => {
                         prim_of.entry(*prim).or_insert_with(|| a.ty);
-                    }
-                    ExprKind::StructuralEq { .. } => {
-                        result.entry(Op::Eq).or_insert_with(|| e.ty);
                     }
                     ExprKind::Intrinsic { name, .. } => {
                         if let Some(op) = Op::all().into_iter().find(|o| o.intrinsic() == name) {
@@ -689,13 +676,21 @@ fn children(d: &Desc) -> Vec<usize> {
 // Generation
 // ---------------------------------------------------------------------------
 
+/// One piece of a generated template: literal text, or an expression that is
+/// a `Str` already. Every hole a generated body writes is shown by the time it
+/// lands here, so none of them is a [`TemplatePart::Shown`].
+enum Part {
+    Text(String),
+    Str(Expr),
+}
+
 /// Adjacent literal text as one part: a field name and the separator before it
 /// are written separately and are one string.
-fn merge(parts: Vec<TemplatePart>) -> Vec<TemplatePart> {
-    let mut merged: Vec<TemplatePart> = Vec::new();
+fn merge(parts: Vec<Part>) -> Vec<Part> {
+    let mut merged: Vec<Part> = Vec::new();
     for p in parts {
         match (merged.last_mut(), p) {
-            (Some(TemplatePart::Text(prev)), TemplatePart::Text(next)) => prev.push_str(&next),
+            (Some(Part::Text(prev)), Part::Text(next)) => prev.push_str(&next),
             (_, p) => merged.push(p),
         }
     }
@@ -2016,22 +2011,20 @@ impl Generator {
                 } else {
                     format!("{name}(")
                 };
-                let mut parts: Vec<TemplatePart> = vec![TemplatePart::Text(open)];
+                let mut parts: Vec<Part> = vec![Part::Text(open)];
                 for (i, f) in fields.iter().enumerate() {
                     if i > 0 {
-                        parts.push(TemplatePart::Text(", ".into()));
+                        parts.push(Part::Text(", ".into()));
                     }
                     if *record {
-                        parts.push(TemplatePart::Text(format!("{}: ", f.name)));
+                        parts.push(Part::Text(format!("{}: ", f.name)));
                     }
                     let bit = word.bit(x.clone(), i);
                     let shown =
                         self.intrinsic("derivePrimShow", vec![word.bool_ty], vec![bit], str_ty);
-                    parts.push(TemplatePart::Hole(shown));
+                    parts.push(Part::Str(shown));
                 }
-                parts.push(TemplatePart::Text(
-                    if *record { " }" } else { ")" }.to_string(),
-                ));
+                parts.push(Part::Text(if *record { " }" } else { ")" }.to_string()));
                 Some(self.joined(parts))
             }
             Desc::Struct {
@@ -2079,9 +2072,9 @@ impl Generator {
                 let some = self.variant_pattern(&ty, OPTION_SOME, &[(0, v, inner_ty)])?;
                 let shown = self.at(Op::Show, *inner, vec![self.local_expr(v, &inner_ty)])?;
                 let body = self.joined(vec![
-                    TemplatePart::Text(".Some(".into()),
-                    TemplatePart::Hole(shown),
-                    TemplatePart::Text(")".into()),
+                    Part::Text(".Some(".into()),
+                    Part::Str(shown),
+                    Part::Text(")".into()),
                 ]);
                 Some(self.match_(
                     x,
@@ -2105,25 +2098,25 @@ impl Generator {
                     let body = if v.fields.is_empty() {
                         self.str_lit(&format!(".{}", v.name))
                     } else {
-                        let mut parts: Vec<TemplatePart> = Vec::new();
+                        let mut parts: Vec<Part> = Vec::new();
                         let open = if v.record {
                             format!(".{} {{ ", v.name)
                         } else {
                             format!(".{}(", v.name)
                         };
-                        parts.push(TemplatePart::Text(open));
+                        parts.push(Part::Text(open));
                         for (k, f) in v.fields.iter().enumerate() {
                             if k > 0 {
-                                parts.push(TemplatePart::Text(", ".into()));
+                                parts.push(Part::Text(", ".into()));
                             }
                             if v.record {
-                                parts.push(TemplatePart::Text(format!("{}: ", f.name)));
+                                parts.push(Part::Text(format!("{}: ", f.name)));
                             }
                             let (_, l, lt) = binds.get(k)?;
                             let shown = self.at(Op::Show, f.ty, vec![self.local_expr(*l, lt)])?;
-                            parts.push(TemplatePart::Hole(shown));
+                            parts.push(Part::Str(shown));
                         }
-                        parts.push(TemplatePart::Text(if v.record {
+                        parts.push(Part::Text(if v.record {
                             " }".to_string()
                         } else {
                             ")".to_string()
@@ -2159,7 +2152,7 @@ impl Generator {
     /// program, whose body is that same template, so the chain is emitted once
     /// per arity instead of once per variant. What is left at the site is one
     /// call with *k* string arguments, and no intermediate for anyone to drop.
-    fn joined(&mut self, parts: Vec<TemplatePart>) -> Expr {
+    fn joined(&mut self, parts: Vec<Part>) -> Expr {
         // Every caller opens and closes around at least one hole, so there
         // are three parts or more.
         let merged = merge(parts);
@@ -2175,8 +2168,8 @@ impl Generator {
         let args: Vec<Expr> = merged
             .into_iter()
             .map(|p| match p {
-                TemplatePart::Text(t) => self.str_lit(&t),
-                TemplatePart::Hole(e) => e,
+                Part::Text(t) => self.str_lit(&t),
+                Part::Str(e) => e,
             })
             .collect();
         let ret = self.str_ty();
@@ -2221,12 +2214,15 @@ impl Generator {
     ///
     /// Every hole in a generated template is already a `Str`, so a backend
     /// needs no per-type rendering to lower one: it is concatenation.
-    fn template_of(&self, merged: Vec<TemplatePart>) -> Expr {
-        Expr::new(
-            ExprKind::Template { parts: merged },
-            self.str_ty(),
-            Span::NONE,
-        )
+    fn template_of(&self, merged: Vec<Part>) -> Expr {
+        let parts = merged
+            .into_iter()
+            .map(|p| match p {
+                Part::Text(t) => TemplatePart::Text(t),
+                Part::Str(e) => TemplatePart::Hole(e),
+            })
+            .collect();
+        Expr::new(ExprKind::Template { parts }, self.str_ty(), Span::NONE)
     }
 
     fn show_fields(
@@ -2245,21 +2241,21 @@ impl Generator {
             format!("{name}(")
         };
         let close = if record { " }" } else { ")" };
-        let mut parts: Vec<TemplatePart> = vec![TemplatePart::Text(open)];
+        let mut parts: Vec<Part> = vec![Part::Text(open)];
         for (k, (fname, index, d)) in fields.iter().enumerate() {
             if k > 0 {
-                parts.push(TemplatePart::Text(", ".into()));
+                parts.push(Part::Text(", ".into()));
             }
             // A tuple is never a record.
             if record {
-                parts.push(TemplatePart::Text(format!("{fname}: ")));
+                parts.push(Part::Text(format!("{fname}: ")));
             }
             let fty = self.ty_of(*d);
             let proj = self.project(x.clone(), *index, tuple, fty);
             let shown = self.at(Op::Show, *d, vec![proj])?;
-            parts.push(TemplatePart::Hole(shown));
+            parts.push(Part::Str(shown));
         }
-        parts.push(TemplatePart::Text(close.to_string()));
+        parts.push(Part::Text(close.to_string()));
         Some(self.joined(parts))
     }
 
@@ -2505,10 +2501,7 @@ impl Generator {
 
     /// `p` with a literal suffix: `$.name`, `$[0]`.
     fn path(&self, p: Expr, suffix: &str) -> Expr {
-        self.template_of(vec![
-            TemplatePart::Hole(p),
-            TemplatePart::Text(suffix.to_string()),
-        ])
+        self.template_of(vec![Part::Str(p), Part::Text(suffix.to_string())])
     }
 
     /// `x?` on a `Result`, which leaves the decoder with the same error.
@@ -2904,10 +2897,10 @@ impl Generator {
         let some = self.variant_pattern(&opt, OPTION_SOME, &[(0, e, json)])?;
         let shown = self.intrinsic("derivePrimShow", vec![int], vec![ie.clone()], str_ty);
         let path = self.template_of(vec![
-            TemplatePart::Hole(pe.clone()),
-            TemplatePart::Text("[".into()),
-            TemplatePart::Hole(shown),
-            TemplatePart::Text("]".into()),
+            Part::Str(pe.clone()),
+            Part::Text("[".into()),
+            Part::Str(shown),
+            Part::Text("]".into()),
         ]);
         let mut stmts = Vec::new();
         let v = self.decode_into(
@@ -3142,11 +3135,8 @@ impl Generator {
                     Span::NONE,
                 );
                 let step = self.choose(same, here, again, ret);
-                let at_path = self.template_of(vec![
-                    TemplatePart::Hole(pe),
-                    TemplatePart::Text(".".into()),
-                    TemplatePart::Hole(keye),
-                ]);
+                let at_path =
+                    self.template_of(vec![Part::Str(pe), Part::Text(".".into()), Part::Str(keye)]);
                 let missing = self.enum_lit(&error, DECODE_MISSING, vec![at_path])?;
                 let none = self.fail(&json, missing)?;
                 let arms = vec![self.arm(some, step), self.arm(self.wild(&opt), none)];
@@ -3514,10 +3504,9 @@ const ORDER_GREATER: VariantId = VariantId::declared(2);
 /// Replaces every structural intrinsic that has a generated function with a
 /// direct call to it.
 fn rewrite(program: &mut Program, routed: &HashMap<(Op, usize), FuncIdx>, hash_ty: &Ty) {
-    let index = program.desc_index.clone();
     for f in &mut program.funcs {
         let Some(body) = f.body_mut() else { continue };
-        rewrite_expr(body, routed, &index, hash_ty);
+        rewrite_expr(body, routed, hash_ty);
     }
     // The descriptors a rewritten program still needs: exactly the ones an
     // intrinsic *function* was handed, since no expression reads one any more.
@@ -3661,14 +3650,9 @@ pub const REPORT_SHOWN: &str = "testing_assert.reportShown";
 /// not return.
 pub const EXPECTED_SHOWN: &str = "testing_assert.failExpectedShown";
 
-fn rewrite_expr(
-    e: &mut Expr,
-    routed: &HashMap<(Op, usize), FuncIdx>,
-    index: &HashMap<Ty, usize>,
-    hash_ty: &Ty,
-) {
+fn rewrite_expr(e: &mut Expr, routed: &HashMap<(Op, usize), FuncIdx>, hash_ty: &Ty) {
     // Children first: an argument may itself be a structural call.
-    typed::children_mut(e, &mut |c| rewrite_expr(c, routed, index, hash_ty));
+    typed::children_mut(e, &mut |c| rewrite_expr(c, routed, hash_ty));
     let replacement = match &e.kind {
         ExprKind::Intrinsic { name, args, .. } => {
             let op = Op::all().into_iter().find(|o| o.intrinsic() == name);
@@ -3692,14 +3676,6 @@ fn rewrite_expr(
                 }),
                 _ => None,
             }
-        }
-        ExprKind::StructuralEq { args } => {
-            let d = args.first().and_then(|a| index.get(&a.ty)).copied();
-            d.and_then(|d| routed.get(&(Op::Eq, d)))
-                .map(|f| ExprKind::CallFunc {
-                    func: *f,
-                    args: args.clone(),
-                })
         }
         _ => None,
     };
