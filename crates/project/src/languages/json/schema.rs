@@ -208,6 +208,15 @@ struct Resource<'r> {
     id: Option<String>,
 }
 
+/// A reference the registry resolved: what it says, and the schema it names
+/// with the resource that schema is in.
+#[derive(Clone, Copy)]
+pub struct Reference<'r> {
+    pub written: &'r str,
+    pub resource: usize,
+    pub target: &'r Node,
+}
+
 /// The resource the main file's root is: [`Registry::new`] adds it first.
 const MAIN: usize = 0;
 
@@ -227,6 +236,8 @@ pub struct Registry<'r> {
     /// Where each schema node sits: its file, its JSON pointer, and the
     /// resource it is in.
     location: HashMap<*const Node, (usize, String, usize)>,
+    /// What each reference resolved to, by the string node that writes it.
+    targets: HashMap<*const Node, Reference<'r>>,
     regexes: HashMap<String, Regex>,
     problems: Vec<Finding>,
 }
@@ -312,6 +323,7 @@ impl<'r> Registry<'r> {
             by_file: HashMap::new(),
             root_of: HashMap::new(),
             location: HashMap::new(),
+            targets: HashMap::new(),
             regexes: HashMap::new(),
             problems: Vec::new(),
         };
@@ -329,10 +341,18 @@ impl<'r> Registry<'r> {
         }
         // Every reference resolves, and whatever it lands on is a schema too.
         let mut at = 0usize;
-        while let Some((file, span, reference, resource)) = refs.get(at).cloned() {
+        while let Some((file, span, reference, node, resource)) = refs.get(at).copied() {
             at = at.saturating_add(1);
-            match reg.resolve(&reference, resource) {
+            match reg.resolve(reference, resource) {
                 Ok((target_resource, target)) => {
+                    reg.targets.insert(
+                        node,
+                        Reference {
+                            written: reference,
+                            resource: target_resource,
+                            target,
+                        },
+                    );
                     if !reg.location.contains_key(&(target as *const Node)) {
                         let pointer = reference
                             .split_once('#')
@@ -343,7 +363,7 @@ impl<'r> Registry<'r> {
                         reg.walk(target, target_file, pointer, target_resource, &mut refs);
                     }
                 }
-                Err(e) => reg.unresolved(file, span, &reference, e),
+                Err(e) => reg.unresolved(file, span, reference, e),
             }
         }
         reg
@@ -366,9 +386,12 @@ impl<'r> Registry<'r> {
             .unwrap_or(current)
     }
 
-    /// The schema a `$ref` names from inside `resource`, and its resource.
-    pub fn target(&self, reference: &str, resource: usize) -> Option<(usize, &'r Node)> {
-        self.resolve(reference, resource).ok()
+    /// What the `$ref` in `schema` names, when it has one.
+    pub fn reference(&self, schema: &Node) -> Option<Reference<'r>> {
+        schema
+            .get("$ref")
+            .and_then(|written| self.targets.get(&(written as *const Node)))
+            .copied()
     }
 
     /// The repository path of the file a resource is in.
@@ -466,7 +489,7 @@ impl<'r> Registry<'r> {
         file: usize,
         pointer: String,
         resource: usize,
-        refs: &mut Vec<(usize, Range, String, usize)>,
+        refs: &mut Vec<(usize, Range, &'r str, *const Node, usize)>,
     ) {
         if self.location.contains_key(&(node as *const Node)) {
             return;
@@ -548,7 +571,7 @@ impl<'r> Registry<'r> {
         file: usize,
         pointer: &str,
         resource: usize,
-        refs: &mut Vec<(usize, Range, String, usize)>,
+        refs: &mut Vec<(usize, Range, &'r str, *const Node, usize)>,
     ) {
         let v = &m.value;
         let here = format!("{pointer}/{}", escape_pointer(&m.key));
@@ -576,7 +599,7 @@ impl<'r> Registry<'r> {
                 }
             }
             "$ref" | "$dynamicRef" => match v.as_str() {
-                Some(s) => refs.push((file, v.span, s.to_string(), resource)),
+                Some(s) => refs.push((file, v.span, s, v as *const Node, resource)),
                 None => self.problem(
                     file,
                     v.span,
