@@ -23,7 +23,7 @@
 //! (`json-untyped-keyword`).
 
 use super::number::Number;
-use super::schema::{Registry, SchemaSet};
+use super::schema::{Reference, Registry, SchemaSet};
 use super::syntax::{Node, Range, Value};
 use crate::diagnostics::Invariant;
 use crate::languages::Finding;
@@ -43,7 +43,7 @@ enum Ty {
     Option(Box<Ty>),
     /// An object of `additionalProperties` alone, as its entries in order.
     Map(Box<Ty>),
-    Named(String),
+    Named(Named),
 }
 
 impl Ty {
@@ -65,7 +65,7 @@ impl Ty {
             Ty::List(t) => format!("[{}]", t.spelled()),
             Ty::Option(t) => format!("Option<{}>", t.spelled()),
             Ty::Map(t) => format!("[(Str, {})]", t.spelled()),
-            Ty::Named(n) => n.clone(),
+            Ty::Named(n) => n.name.clone(),
         }
     }
 
@@ -91,7 +91,7 @@ struct Variant {
     /// The string the document writes.
     value: String,
     name: String,
-    payload: Option<String>,
+    payload: Option<Named>,
 }
 
 enum Shape {
@@ -106,6 +106,82 @@ struct Decl {
     shape: Shape,
     docs: Vec<String>,
     at: (String, Range),
+}
+
+/// A declaration's place in [`Decls`]. Only [`Decls::reserve`] makes one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct DeclId(usize);
+
+/// A type the module declares: where its declaration is, and its name.
+#[derive(Clone, Debug, PartialEq)]
+struct Named {
+    id: DeclId,
+    name: String,
+}
+
+/// The module's declarations, in the order they are written.
+///
+/// A declaration is reserved when its name is taken, before its shape is
+/// known, so a type can name itself and its fields come after it. Until
+/// [`Decls::shape`] sets its shape it is an empty struct.
+#[derive(Default)]
+struct Decls {
+    rows: Vec<Decl>,
+    /// The order they are written in: the order they were reserved in, but
+    /// for the root's alias, which comes first.
+    order: Vec<DeclId>,
+}
+
+impl Decls {
+    fn reserve(&mut self, name: String, docs: Vec<String>, at: (String, Range)) -> Named {
+        let named = self.add(Decl {
+            name,
+            shape: Shape::Struct(Vec::new()),
+            docs,
+            at,
+        });
+        self.order.push(named.id);
+        named
+    }
+
+    /// The root, when its type declares nothing of its own: written first.
+    fn alias(&mut self, name: String, ty: Ty, docs: Vec<String>, at: (String, Range)) -> Named {
+        let named = self.add(Decl {
+            name,
+            shape: Shape::Alias(ty),
+            docs,
+            at,
+        });
+        self.order.insert(0, named.id);
+        named
+    }
+
+    fn add(&mut self, decl: Decl) -> Named {
+        let id = DeclId(self.rows.len());
+        let name = decl.name.clone();
+        self.rows.push(decl);
+        Named { id, name }
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "only `reserve` makes an id, below the length, and nothing removes a row"
+    )]
+    fn get(&self, id: DeclId) -> &Decl {
+        &self.rows[id.0]
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "only `reserve` makes an id, below the length, and nothing removes a row"
+    )]
+    fn shape(&mut self, id: DeclId, shape: Shape) {
+        self.rows[id.0].shape = shape;
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &Decl> {
+        self.order.iter().map(|id| self.get(*id))
+    }
 }
 
 /// A generated module: its text, and which region of it came from which span
@@ -194,8 +270,8 @@ const MAX_DEPTH: usize = 64;
 
 struct Gen<'a, 'r> {
     reg: &'a Registry<'r>,
-    decls: Vec<Decl>,
-    named: HashMap<*const Node, String>,
+    decls: Decls,
+    named: HashMap<*const Node, Named>,
     taken: BTreeSet<String>,
     refused: Vec<Finding>,
     depth: usize,
@@ -310,6 +386,17 @@ impl<'a, 'r> Gen<'a, 'r> {
         name
     }
 
+    /// A declaration for the schema `node`, named by its `title` or else
+    /// `hint`, whose shape is set once it is known.
+    fn declare(&mut self, node: &Node, hint: &str, file: &str) -> Named {
+        let name = self.fresh(node.get("title").and_then(Node::as_str).unwrap_or(hint));
+        let named = self
+            .decls
+            .reserve(name, docs_of(node), (file.to_string(), node.span));
+        self.named.insert(node as *const Node, named.clone());
+        named
+    }
+
     fn ty(&mut self, node: &'r Node, resource: usize, hint: &str) -> Ty {
         let resource = self.reg.enter(node, resource);
         let file = self.reg.file_of(resource);
@@ -351,11 +438,12 @@ impl<'a, 'r> Gen<'a, 'r> {
                 return Ty::Any;
             }
         }
-        if let Some(reference) = node.get("$ref").and_then(Node::as_str) {
-            let (target_resource, target) = self
-                .reg
-                .target(reference, resource)
-                .or_ice("the check resolved every `$ref` before anything generates");
+        if let Some(Reference {
+            written: reference,
+            resource: target_resource,
+            target,
+        }) = self.reg.reference(node)
+        {
             if self.depth >= MAX_DEPTH {
                 self.refuse(
                     &file,
@@ -422,8 +510,7 @@ impl<'a, 'r> Gen<'a, 'r> {
                 );
                 return Ty::Any;
             }
-            let name = self.fresh(node.get("title").and_then(Node::as_str).unwrap_or(hint));
-            self.named.insert(node as *const Node, name.clone());
+            let named = self.declare(node, hint, &file);
             let mut seen = BTreeSet::new();
             let mut variants = Vec::new();
             for s in strings {
@@ -443,13 +530,8 @@ impl<'a, 'r> Gen<'a, 'r> {
                     payload: None,
                 });
             }
-            self.decls.push(Decl {
-                name: name.clone(),
-                shape: Shape::Strings(variants),
-                docs: docs_of(node),
-                at: (file, node.span),
-            });
-            let ty = Ty::Named(name);
+            self.decls.shape(named.id, Shape::Strings(variants));
+            let ty = Ty::Named(named);
             return if nullable { ty.optional() } else { ty };
         }
         if let Some(c) = node.get("const") {
@@ -519,10 +601,9 @@ impl<'a, 'r> Gen<'a, 'r> {
                 _ => Ty::Any,
             };
         };
-        let name = self.fresh(node.get("title").and_then(Node::as_str).unwrap_or(hint));
-        self.named.insert(node as *const Node, name.clone());
         // Placed before the types its fields declare, so the root comes first.
-        let index = self.decls.len();
+        let named = self.declare(node, hint, &file);
+        let name = &named.name;
         let required: BTreeSet<&str> = match node.get("required").map(|r| &r.value) {
             Some(Value::Array(items, _)) => items.iter().filter_map(Node::as_str).collect(),
             _ => BTreeSet::new(),
@@ -564,14 +645,8 @@ impl<'a, 'r> Gen<'a, 'r> {
                 at: (file.clone(), m.key_span),
             });
         }
-        let decl = Decl {
-            name: name.clone(),
-            shape: Shape::Struct(fields),
-            docs: docs_of(node),
-            at: (file, node.span),
-        };
-        self.decls.insert(index, decl);
-        Ty::Named(name)
+        self.decls.shape(named.id, Shape::Struct(fields));
+        Ty::Named(named)
     }
 
     /// A `oneOf` whose branches are objects told apart by one required
@@ -586,9 +661,12 @@ impl<'a, 'r> Gen<'a, 'r> {
         let mut branches: Vec<(&'r Node, usize, Option<String>)> = Vec::new();
         for item in items {
             let r = self.reg.enter(item, resource);
-            match item.get("$ref").and_then(Node::as_str) {
-                Some(reference) => {
-                    let (tr, target) = self.reg.target(reference, r)?;
+            match self.reg.reference(item) {
+                Some(Reference {
+                    written: reference,
+                    resource: tr,
+                    target,
+                }) => {
                     let fragment = reference
                         .split_once('#')
                         .map(|(_, f)| f)
@@ -622,10 +700,9 @@ impl<'a, 'r> Gen<'a, 'r> {
             values.iter().all(Option::is_some) && unique.len() == values.len()
         })?;
         let file = self.reg.file_of(resource);
-        let name = self.fresh(node.get("title").and_then(Node::as_str).unwrap_or(hint));
-        self.named.insert(node as *const Node, name.clone());
         // Placed before the types its branches declare.
-        let index = self.decls.len();
+        let named = self.declare(node, hint, &file);
+        let name = &named.name;
         let mut variants = Vec::new();
         let mut seen = BTreeSet::new();
         for (branch, r, ref_name) in branches {
@@ -662,18 +739,8 @@ impl<'a, 'r> Gen<'a, 'r> {
                 payload,
             });
         }
-        let decl = Decl {
-            name: name.clone(),
-            shape: Shape::Tagged { tag, variants },
-            docs: docs_of(node),
-            at: (file, node.span),
-        };
-        self.decls.insert(index, decl);
-        Some(Ty::Named(name))
-    }
-
-    fn decl(&self, name: &str) -> Option<&Decl> {
-        self.decls.iter().find(|d| d.name == name)
+        self.decls.shape(named.id, Shape::Tagged { tag, variants });
+        Some(Ty::Named(named))
     }
 }
 
@@ -735,7 +802,7 @@ impl Writer {
 }
 
 fn types(gen: &Gen, w: &mut Writer) {
-    for decl in &gen.decls {
+    for decl in gen.decls.iter() {
         let start = w.text.len();
         match &decl.shape {
             Shape::Alias(ty) => {
@@ -765,7 +832,7 @@ fn types(gen: &Gen, w: &mut Writer) {
                 w.line(&format!("export enum {} {{", decl.name));
                 for v in variants {
                     match &v.payload {
-                        Some(p) => w.line(&format!("    {}({p}),", v.name)),
+                        Some(p) => w.line(&format!("    {}({}),", v.name, p.name)),
                         None => w.line(&format!("    {},", v.name)),
                     }
                 }
@@ -791,7 +858,7 @@ fn uses_json(gen: &Gen) -> bool {
 fn generator<'a, 'r>(reg: &'a Registry<'r>) -> Gen<'a, 'r> {
     Gen {
         reg,
-        decls: Vec::new(),
+        decls: Decls::default(),
         named: HashMap::new(),
         taken: BTreeSet::new(),
         refused: Vec::new(),
@@ -800,7 +867,7 @@ fn generator<'a, 'r>(reg: &'a Registry<'r>) -> Gen<'a, 'r> {
 }
 
 /// The root type of the registry's main file, declared.
-fn root(gen: &mut Gen<'_, '_>) -> String {
+fn root(gen: &mut Gen<'_, '_>) -> Named {
     let (resource, file) = gen.reg.main();
     let path = file.path.as_str();
     let hint = file
@@ -810,17 +877,15 @@ fn root(gen: &mut Gen<'_, '_>) -> String {
         .unwrap_or(stem(path))
         .to_string();
     match gen.ty(&file.root, resource, &hint) {
-        Ty::Named(name) => name,
+        Ty::Named(named) => named,
         other => {
             let name = gen.fresh(&hint);
-            let decl = Decl {
-                name: name.clone(),
-                shape: Shape::Alias(other),
-                docs: docs_of(&file.root),
-                at: (path.to_string(), file.root.span),
-            };
-            gen.decls.insert(0, decl);
-            name
+            gen.decls.alias(
+                name,
+                other,
+                docs_of(&file.root),
+                (path.to_string(), file.root.span),
+            )
         }
     }
 }
@@ -836,7 +901,7 @@ pub fn schema_module(set: &SchemaSet) -> Result<Module, Vec<Finding>> {
     let path = set.main.path.as_str();
     let reg = Registry::new(set);
     let mut gen = generator(&reg);
-    let root = root(&mut gen);
+    let root = root(&mut gen).name;
     if !gen.refused.is_empty() {
         return Err(gen.refused);
     }
@@ -869,8 +934,9 @@ pub fn data_module(set: &SchemaSet, path: &str, data: &Node) -> Result<Module, V
     let start = w.text.len();
     let value = literal(&gen, data, &Ty::Named(root.clone()), 0);
     w.line(&format!(
-        "export let {}: {root} = {value};",
-        lower_camel(stem(path))
+        "export let {}: {} = {value};",
+        lower_camel(stem(path)),
+        root.name
     ));
     w.anchors.push((
         start,
@@ -878,7 +944,7 @@ pub fn data_module(set: &SchemaSet, path: &str, data: &Node) -> Result<Module, V
         path.to_string(),
         data.span,
     ));
-    Ok(finish(w, root))
+    Ok(finish(w, root.name))
 }
 
 /// The types, and `decode`, which reads what [`strict`] writes as the root.
@@ -886,7 +952,7 @@ pub fn contract_module(set: &SchemaSet) -> Result<Module, Vec<Finding>> {
     let path = set.main.path.as_str();
     let reg = Registry::new(set);
     let mut gen = generator(&reg);
-    let root = root(&mut gen);
+    let root = root(&mut gen).name;
     if !gen.refused.is_empty() {
         return Err(gen.refused);
     }
@@ -907,7 +973,7 @@ pub fn contract_module(set: &SchemaSet) -> Result<Module, Vec<Finding>> {
     w.line("    let value = json.parse(ctx, text).mapErr(fn(_e) => \"the value is not JSON\")?;");
     w.line(&format!("    decode{root}(ctx, value)"));
     w.line("}");
-    for decl in &gen.decls {
+    for decl in gen.decls.iter() {
         w.line("");
         decoder(decl, &mut helpers, &mut w);
     }
@@ -955,7 +1021,7 @@ fn read(
         Ty::Bool => simple("readBool", json, helpers),
         Ty::Unit => simple("readUnit", json, helpers),
         Ty::Any => format!(".Ok({json})"),
-        Ty::Named(n) => format!("decode{n}({ctx}, {json})"),
+        Ty::Named(n) => format!("decode{}({ctx}, {json})", n.name),
         Ty::List(t) => nested("readList", t, helpers),
         Ty::Option(t) => nested("readOption", t, helpers),
         Ty::Map(t) => nested("readMap", t, helpers),
@@ -1013,7 +1079,7 @@ fn decoder(decl: &Decl, helpers: &mut BTreeSet<&'static str>, w: &mut Writer) {
             ));
             for v in variants {
                 let made = match &v.payload {
-                    Some(p) => format!("{name}.{}(decode{p}(ctx, value)?)", v.name),
+                    Some(p) => format!("{name}.{}(decode{}(ctx, value)?)", v.name, p.name),
                     None => format!("{name}.{}", v.name),
                 };
                 body.push_str(&format!("        {} => .Ok({made}),\n", quote(&v.value)));
@@ -1179,16 +1245,14 @@ fn literal(gen: &Gen, node: &Node, ty: &Ty, indent: usize) -> String {
                 .collect(),
             indent,
         ),
-        (Ty::Named(name), _) => named(gen, node, name, indent),
+        (Ty::Named(n), _) => named(gen, node, n, indent),
         (_, _) => json_literal(node, indent),
     }
 }
 
-fn named(gen: &Gen, node: &Node, name: &str, indent: usize) -> String {
-    let decl = gen
-        .decl(name)
-        .or_ice("every type a value names was declared");
-    match &decl.shape {
+fn named(gen: &Gen, node: &Node, n: &Named, indent: usize) -> String {
+    let name = n.name.as_str();
+    match &gen.decls.get(n.id).shape {
         Shape::Alias(ty) => literal(gen, node, ty, indent),
         Shape::Struct(fields) => struct_literal(gen, node, name, fields, indent),
         Shape::Strings(variants) => {
