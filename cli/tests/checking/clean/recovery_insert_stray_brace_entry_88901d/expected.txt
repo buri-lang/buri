@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:58:5
+   |
+58 |     , assert.equal(assert.some(out.modules.first()).0, "old.proto");
+   |     ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
