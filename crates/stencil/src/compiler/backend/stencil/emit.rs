@@ -42,7 +42,7 @@ use super::rtcall::{source_ty, Src, EQUAL, GREATER, LESS};
 use super::runtime;
 use crate::compiler::backend::counts::{Field, Glue, Op, Site};
 use crate::compiler::middle::ir::{self, BinOp, Const, Inst, Target, Term, UnOp};
-use crate::compiler::middle::layout::{EnumRepr, Repr};
+use crate::compiler::middle::layout::{At, EnumRepr, Repr};
 use crate::compiler::semantics::types::{FuncIdx, IntPrim, Prim, Ty, TyKind};
 use crate::diagnostics::Invariant;
 
@@ -403,7 +403,7 @@ impl<'a> Jit<'a> {
                 let off = l.variant(*variant as usize).get(*index as usize).copied();
                 match off {
                     Some(o) => {
-                        let src = st.at(*agg) + o;
+                        let src = st.at(*agg) + o.bytes();
                         let fty = self.field_ty(owner, Some(*variant as usize), *index as usize);
                         if fty.is_some_and(|t| self.boxes(owner, &t)) {
                             self.unbox_from(st, st.at(*dest), src, w);
@@ -609,7 +609,7 @@ impl<'a> Jit<'a> {
         let ftys = variant_types(self.tables, owner, variant as usize);
         let d = st.at(dest);
         let repr = &l.repr;
-        let offs: &[u32] = l.variants.get(variant as usize).map_or(&[], Vec::as_slice);
+        let offs: &[At] = l.variants.get(variant as usize).map_or(&[], Vec::as_slice);
         match repr {
             EnumRepr::Bare { tag } => self.imm_w(d, tag.size(), variant as u64),
             EnumRepr::Tagged { tag, .. } => {
@@ -619,7 +619,7 @@ impl<'a> Jit<'a> {
             EnumRepr::Niche { null_at } => {
                 if offs.is_empty() {
                     // The null variant: VALUE-MODEL.md §6's second niche.
-                    self.imm_to(d + null_at, 0);
+                    self.imm_to(d + null_at.bytes(), 0);
                 } else {
                     self.store_variant(prog, code, st, d, fields, offs, owner, &ftys);
                 }
@@ -640,17 +640,17 @@ impl<'a> Jit<'a> {
         st: &mut Fn2,
         d: u32,
         fields: &[ir::ValueId],
-        offs: &[u32],
+        offs: &[At],
         owner: &Ty,
         ftys: &[Ty],
     ) {
         for (i, (f, o)) in fields.iter().zip(offs.iter().copied()).enumerate() {
             let w = self.width_of(prog, code.ty_of(*f));
             if ftys.get(i).is_some_and(|t| self.boxes(owner, t)) {
-                self.box_into(st, d + o, st.at(*f), w);
+                self.box_into(st, d + o.bytes(), st.at(*f), w);
                 continue;
             }
-            self.store_w(d + o, st.at(*f), w);
+            self.store_w(d + o.bytes(), st.at(*f), w);
         }
     }
 
@@ -700,7 +700,7 @@ impl<'a> Jit<'a> {
         match arm {
             JsonArm::Bool => {
                 let w = self.width_of(prog, code.ty_of(arg));
-                self.store_w(d + off, a, w);
+                self.store_w(d + off.bytes(), a, w);
             }
             // JSON's one number type is a double, so every numeric primitive
             // widens to `F64` — the same narrowing `$json_of` does with
@@ -708,13 +708,13 @@ impl<'a> Jit<'a> {
             JsonArm::Num => {
                 let scratch = st.scratch;
                 self.convert(st, prim, Prim::F64, a, scratch);
-                self.store_w(d + off, scratch, 8);
+                self.store_w(d + off.bytes(), scratch, 8);
             }
             JsonArm::Str => match prim {
                 Prim::Str | Prim::Template => {
                     self.rc(prog, code, st, arg, Op::Retain);
                     let w = self.width_of(prog, code.ty_of(arg));
-                    self.mv(d + off, a, w);
+                    self.mv(d + off.bytes(), a, w);
                 }
                 // A `Char` is a one-scalar string, and the runtime already
                 // builds it: `buri_rt_char_to_str` is the unquoted half of
@@ -724,9 +724,9 @@ impl<'a> Jit<'a> {
                     self.c_call(
                         runtime::CHAR_TO_STR,
                         st,
-                        &[Src::Word(a), Src::Addr(d + off)],
+                        &[Src::Word(a), Src::Addr(d + off.bytes())],
                         &[],
-                        d + off,
+                        d + off.bytes(),
                         "v",
                     );
                 }
@@ -798,7 +798,7 @@ impl<'a> Jit<'a> {
                     "niche_tag",
                     &[
                         Lit::D.of(d as u64),
-                        Lit::A.of((a + null_at) as u64),
+                        Lit::A.of((a + null_at.bytes()) as u64),
                         Lit::N.of(null_variant),
                         Lit::P.of(other),
                         Jump::Cont.to(V::Fall),
@@ -873,7 +873,7 @@ impl<'a> Jit<'a> {
         let sites = self.rc_sites(ty);
         for site in sites.iter() {
             match site {
-                Site::Block { offset, glue } => self.block_op(st, at + offset, glue, op),
+                Site::Block { offset, glue } => self.block_op(st, at + offset.bytes(), glue, op),
                 Site::Field(f) => self.walk_field(st, f, at, op, depth),
                 // One arm per variant that owns something, dispatched on the
                 // tag the same way a `match` is.
@@ -941,7 +941,7 @@ impl<'a> Jit<'a> {
                     self.emit(
                         key,
                         &[
-                            Lit::A.of(u64::from(at + null_at)),
+                            Lit::A.of(u64::from(at + null_at.bytes())),
                             Word::K.lit(0),
                             Jump::T.to(V::Blk(skip)),
                             Jump::F.to(V::Fall),
@@ -969,7 +969,7 @@ impl<'a> Jit<'a> {
     /// field. A `Str`, a `[T]` and a closure never go out of line: the call
     /// would cost more than the instruction it replaced.
     pub(crate) fn walk_field(&mut self, st: &mut Fn2, f: &Field, at: u32, op: Op, depth: u32) {
-        let at = at + f.offset;
+        let at = at + f.offset.bytes();
         if f.boxed {
             let glue = (op != Op::Retain && self.rc_counted(&f.ty))
                 .then(|| self.helper(Helper::Walk { ty: f.ty, op }));
@@ -1698,7 +1698,7 @@ impl<'a> Jit<'a> {
         match repr {
             EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => (base, tag.size(), false),
             EnumRepr::Niche { null_at } => (
-                base + null_at,
+                base + null_at.bytes(),
                 variants.iter().position(|v| v.is_empty()).unwrap_or(1) as u32,
                 true,
             ),
@@ -2551,8 +2551,8 @@ impl Jit<'_> {
 
         let here = self.region.code_addr();
         st.place(err, here);
-        self.show_prim(st, from, src, dest + err_at + error.field(0), false);
-        self.str_literal(dest + err_at + error.field(1), to.name().as_bytes());
+        self.show_prim(st, from, src, dest + err_at.bytes() + error.field(0), false);
+        self.str_literal(dest + err_at.bytes() + error.field(1), to.name().as_bytes());
         self.store_disc(&result, dest, 1);
         let here = self.region.code_addr();
         st.place(done, here);

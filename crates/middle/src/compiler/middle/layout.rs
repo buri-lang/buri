@@ -21,7 +21,7 @@
 //!     pub size: u32,      // bytes the value occupies
 //!     pub align: u32,     // power of two
 //!     pub stride: u32,    // size rounded up to align; what `[T]` indexes by
-//!     pub fields: Vec<u32>,  // byte offset per field, declaration order
+//!     pub fields: Vec<At>,   // byte offset per field, declaration order
 //! }
 //!
 //! pub struct Layouts { .. }   // the memo table, one per compilation
@@ -194,6 +194,115 @@ pub const CLOSURE_ENV: usize = 1;
 /// A pointer, on every target this compiles for.
 const POINTER: u32 = 8;
 
+/// A byte offset that is a whole number of words: where a pointer can sit, and
+/// so where anything holding one can.
+///
+/// The reference-count walks read their pointers and tags at these offsets
+/// (`backend::counts`). A word offset is a multiple of every load width, so a
+/// walk needs no case for an unaligned one.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Words(u32);
+
+impl Words {
+    pub const ZERO: Words = Words(0);
+
+    /// Word `index` of a record of words: a `Str`, a `[T]` or a closure.
+    pub const fn nth(index: usize) -> Words {
+        Words(index as u32)
+    }
+
+    /// The fewest words that hold `bytes`.
+    pub const fn covering(bytes: u32) -> Words {
+        Words(bytes.div_ceil(POINTER))
+    }
+
+    pub const fn plus(self, other: Words) -> Words {
+        Words(self.0.saturating_add(other.0))
+    }
+
+    pub const fn bytes(self) -> u32 {
+        self.0.saturating_mul(POINTER)
+    }
+}
+
+/// In bytes, the way an offset reads everywhere else.
+impl std::fmt::Debug for Words {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.bytes().fmt(f)
+    }
+}
+
+/// A field's byte offset, and whether its alignment makes it a word one.
+///
+/// Every type that holds a pointer is word-aligned, so a field placed at a
+/// [`At::Byte`] offset holds no pointer and no count.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum At {
+    /// A field aligned to a word or more.
+    Word(Words),
+    /// A field aligned to less than a word.
+    Byte(u32),
+}
+
+impl At {
+    pub const ZERO: At = At::Word(Words::ZERO);
+
+    /// Where a field of alignment `align` goes once `end` bytes are used.
+    fn place(end: u32, align: u32) -> At {
+        let at = align_up(end, align);
+        if align >= POINTER {
+            At::Word(Words(at / POINTER))
+        } else {
+            At::Byte(at)
+        }
+    }
+
+    pub fn bytes(self) -> u32 {
+        match self {
+            At::Word(w) => w.bytes(),
+            At::Byte(b) => b,
+        }
+    }
+
+    /// The offset as words, for a word-aligned field.
+    pub fn words(self) -> Option<Words> {
+        match self {
+            At::Word(w) => Some(w),
+            At::Byte(_) => None,
+        }
+    }
+
+    /// This offset, from a start `by` bytes in. Word-aligned only when both
+    /// are.
+    fn shift(self, by: At) -> At {
+        match (self, by) {
+            (At::Word(a), At::Word(b)) => At::Word(a.plus(b)),
+            _ => At::Byte(self.bytes().saturating_add(by.bytes())),
+        }
+    }
+}
+
+/// In bytes, the way an offset reads everywhere else.
+impl std::fmt::Debug for At {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.bytes().fmt(f)
+    }
+}
+
+#[cfg(test)]
+impl PartialEq<u32> for At {
+    fn eq(&self, other: &u32) -> bool {
+        self.bytes() == *other
+    }
+}
+
+#[cfg(test)]
+impl PartialEq<u32> for Words {
+    fn eq(&self, other: &u32) -> bool {
+        self.bytes() == *other
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Layouts
 // ---------------------------------------------------------------------------
@@ -258,8 +367,8 @@ pub enum EnumRepr {
     Bare { tag: Scalar },
     /// `Option<T>` where `T` carries a pointer that is never null: the value
     /// is a `T`, and `.None` is that pointer set to null (§6, second niche).
-    /// `null_at` is its byte offset.
-    Niche { null_at: u32 },
+    /// `null_at` is its offset.
+    Niche { null_at: Words },
     /// `tag ++ payload`. The tag is at offset 0 and holds the variant's index
     /// in declaration order; the payload area starts at `payload`.
     Tagged { tag: Scalar, payload: u32 },
@@ -284,7 +393,7 @@ pub struct EnumLayout {
     pub stride: u32,
     pub repr: EnumRepr,
     /// Each variant's field offsets, absolute, as in [`Repr::Enum`].
-    pub variants: Vec<Vec<u32>>,
+    pub variants: Vec<Vec<At>>,
 }
 
 /// What shape a [`Layout`]'s numbers describe.
@@ -308,7 +417,7 @@ pub enum Repr {
     /// second addition.
     Enum {
         repr: EnumRepr,
-        variants: Vec<Vec<u32>>,
+        variants: Vec<Vec<At>>,
     },
 }
 
@@ -323,7 +432,7 @@ pub struct Layout {
     pub stride: u32,
     /// Byte offset per field, in declaration order. Empty for a scalar and for
     /// an enum, whose offsets are per variant and live in [`Repr::Enum`].
-    pub fields: Vec<u32>,
+    pub fields: Vec<At>,
     pub repr: Repr,
 }
 
@@ -338,14 +447,14 @@ impl Layout {
     /// a panic: a backend asking for field 3 of a two-field struct has already
     /// gone wrong somewhere the index would not explain.
     pub fn field(&self, index: usize) -> u32 {
-        *self
-            .fields
+        self.fields
             .get(index)
             .or_ice("a field index came from the type this layout is of")
+            .bytes()
     }
 
     /// The offsets of one variant's fields, absolute.
-    pub fn variant(&self, index: usize) -> &[u32] {
+    pub fn variant(&self, index: usize) -> &[At] {
         match &self.repr {
             Repr::Enum { variants, .. } => variants
                 .get(index)
@@ -377,13 +486,13 @@ impl Layout {
 
     /// The three fixed shapes: `Str`, `[T]` and a closure. Each is a record of
     /// pointer-sized words, so one constructor covers all three.
-    fn words(count: u32, fields: Vec<u32>, repr: Repr) -> Layout {
+    fn words(count: u32, repr: Repr) -> Layout {
         let size = POINTER.saturating_mul(count);
         Layout {
             size,
             align: POINTER,
             stride: size,
-            fields,
+            fields: (0..count).map(|i| At::Word(Words(i))).collect(),
             repr,
         }
     }
@@ -650,8 +759,8 @@ impl<'a> Layouts<'a> {
         match ty.kind() {
             // `[T]` and a closure are the two places the element type is not
             // consulted, which is exactly why they are where recursion stops.
-            TyKind::Array(_) => Layout::words(2, vec![0, POINTER], Repr::List),
-            TyKind::Fn(_, _) => Layout::words(2, vec![0, POINTER], Repr::Closure),
+            TyKind::Array(_) => Layout::words(2, Repr::List),
+            TyKind::Fn(_, _) => Layout::words(2, Repr::Closure),
             TyKind::Tuple(elements) => {
                 let elements: &[Ty] = elements;
                 let (size, align, fields) = self.record(None, elements);
@@ -696,7 +805,7 @@ impl<'a> Layouts<'a> {
                 TyDef::Prim(p) => match scalar_of(*p) {
                     Some(s) => Layout::scalar(s),
                     // `Str`, and `Template`, which is `Str` (§3.3).
-                    None => Layout::words(3, vec![0, POINTER, 16], Repr::Str),
+                    None => Layout::words(3, Repr::Str),
                 },
                 // `derive Flags`: one word, a bit per field (`middle::flags`).
                 TyDef::Struct { .. } if tables.flags_word(*id).is_some() => Layout::scalar(
@@ -766,7 +875,7 @@ impl<'a> Layouts<'a> {
     /// nominal type and so neither of which can be the head of a recursion
     /// group. A tuple inside a recursive type is boxed whole, by the field
     /// that holds it.
-    fn record(&mut self, owner: Option<&Ty>, fields: &[Ty]) -> (u32, u32, Vec<u32>) {
+    fn record(&mut self, owner: Option<&Ty>, fields: &[Ty]) -> (u32, u32, Vec<At>) {
         let mut end = 0u32;
         let mut align = 1u32;
         let mut offsets = Vec::with_capacity(fields.len());
@@ -777,9 +886,9 @@ impl<'a> Layouts<'a> {
                 let l = self.compute(field);
                 (l.size, l.align)
             };
-            let at = align_up(end, field_align);
+            let at = At::place(end, field_align);
             offsets.push(at);
-            end = at.saturating_add(size);
+            end = at.bytes().saturating_add(size);
             align = align.max(field_align);
         }
         (align_up(end, align), align, offsets)
@@ -806,7 +915,7 @@ impl<'a> Layouts<'a> {
                         repr: EnumRepr::Niche { null_at },
                         // `.Some`'s payload is the whole value; `.None` has
                         // none.
-                        variants: vec![vec![0], Vec::new()],
+                        variants: vec![vec![At::ZERO], Vec::new()],
                     };
                 }
             }
@@ -820,7 +929,7 @@ impl<'a> Layouts<'a> {
         // payload area (§6).
         let mut payload_size = 0u32;
         let mut payload_align = 1u32;
-        let mut relative: Vec<Vec<u32>> = Vec::with_capacity(variants.len());
+        let mut relative: Vec<Vec<At>> = Vec::with_capacity(variants.len());
         for variant in &variants {
             let tys: Vec<Ty> = variant
                 .fields
@@ -852,17 +961,13 @@ impl<'a> Layouts<'a> {
             };
         }
 
-        let payload = align_up(tag.size(), payload_align);
+        let start = At::place(tag.size(), payload_align);
+        let payload = start.bytes();
         let align = tag.align().max(payload_align);
         let size = align_up(payload.saturating_add(payload_size), align);
         let absolute = relative
             .into_iter()
-            .map(|offsets| {
-                offsets
-                    .into_iter()
-                    .map(|o| o.saturating_add(payload))
-                    .collect()
-            })
+            .map(|offsets| offsets.into_iter().map(|o| o.shift(start)).collect())
             .collect();
         EnumLayout {
             size,
@@ -873,7 +978,7 @@ impl<'a> Layouts<'a> {
         }
     }
 
-    /// The byte offset of a pointer inside `ty` that is never null, if there
+    /// The offset of a pointer inside `ty` that is never null, if there
     /// is one — the invariant the `Option<T>` niche spends.
     ///
     /// Two shapes carry one directly: a `Str`'s `ptr` (non-null even for the
@@ -899,11 +1004,11 @@ impl<'a> Layouts<'a> {
     /// An enum is not searched. Which of its pointers exist depends on the
     /// tag, so none of them is unconditionally there; general niche discovery
     /// is deferred (§6).
-    fn niche(&mut self, ty: &Ty) -> Option<u32> {
+    fn niche(&mut self, ty: &Ty) -> Option<Words> {
         let tables = self.tables;
         match ty.kind() {
             TyKind::Array(_) => None,
-            TyKind::Fn(_, _) => Some(offset_of(CLOSURE_CODE)),
+            TyKind::Fn(_, _) => Some(Words::nth(CLOSURE_CODE)),
             TyKind::Tuple(elements) => {
                 let elements: &[Ty] = elements;
                 self.niche_in(ty, elements)
@@ -918,7 +1023,7 @@ impl<'a> Layouts<'a> {
                 self.niche_in(ty, &bindings)
             }
             TyKind::Con(id, args) => match &tables.tycon(*id).def {
-                TyDef::Prim(Prim::Str | Prim::Template) => Some(offset_of(STR_PTR)),
+                TyDef::Prim(Prim::Str | Prim::Template) => Some(Words::nth(STR_PTR)),
                 TyDef::Prim(_) | TyDef::Enum { .. } => None,
                 TyDef::Struct { fields, .. } => {
                     let tys: Vec<Ty> = fields
@@ -934,14 +1039,16 @@ impl<'a> Layouts<'a> {
         }
     }
 
-    fn niche_in(&mut self, owner: &Ty, fields: &[Ty]) -> Option<u32> {
+    /// A field that holds a pointer is word-aligned, so its offset is in
+    /// words.
+    fn niche_in(&mut self, owner: &Ty, fields: &[Ty]) -> Option<Words> {
         let offsets = self.compute(owner).fields.clone();
         for (field, offset) in fields.iter().zip(offsets) {
             if self.boxes(owner, field) {
-                return Some(offset);
+                return offset.words();
             }
             if let Some(inner) = self.niche(field) {
-                return Some(offset.saturating_add(inner));
+                return offset.words().map(|o| o.plus(inner));
             }
         }
         None
@@ -1121,11 +1228,6 @@ fn align_up(offset: u32, align: u32) -> u32 {
     }
 }
 
-/// The byte offset of a word-sized field, by index.
-fn offset_of(index: usize) -> u32 {
-    POINTER.saturating_mul(u32::try_from(index).unwrap_or(0))
-}
-
 /// The smallest of `i8`/`i16`/`i32` that holds a discriminant for `count`
 /// variants (VALUE-MODEL.md §6). Tags are `0..count`, so 256 variants fit in a
 /// byte.
@@ -1239,7 +1341,7 @@ mod tests {
                         } else {
                             ""
                         };
-                        let _ = write!(body, "{label} {boxed}@{offset}");
+                        let _ = write!(body, "{label} {boxed}@{}", offset.bytes());
                     }
                     let _ = writeln!(out, "  {kind} {{ {body} }}");
                 }
@@ -1249,8 +1351,11 @@ mod tests {
                             let _ = writeln!(out, "  enum bare tag {}", tag.name());
                         }
                         EnumRepr::Niche { null_at } => {
-                            let _ =
-                                writeln!(out, "  enum niche, .None is a null pointer @{null_at}");
+                            let _ = writeln!(
+                                out,
+                                "  enum niche, .None is a null pointer @{}",
+                                null_at.bytes()
+                            );
                         }
                         EnumRepr::Tagged { tag, payload } => {
                             let _ =
@@ -1273,7 +1378,7 @@ mod tests {
                             } else {
                                 ""
                             };
-                            let _ = write!(body, "{star}@{offset}");
+                            let _ = write!(body, "{star}@{}", offset.bytes());
                         }
                         if offsets.is_empty() {
                             let _ = writeln!(out, "    .{label}");
@@ -1994,7 +2099,9 @@ mod tests {
         assert!(matches!(
             layout.repr,
             Repr::Enum {
-                repr: EnumRepr::Niche { null_at: 0 },
+                repr: EnumRepr::Niche {
+                    null_at: Words::ZERO
+                },
                 ..
             }
         ));
@@ -2017,9 +2124,9 @@ mod tests {
         assert!(matches!(
             layout.repr,
             Repr::Enum {
-                repr: EnumRepr::Niche { null_at: 16 },
+                repr: EnumRepr::Niche { null_at },
                 ..
-            }
+            } if null_at == 16
         ));
     }
 
@@ -2448,7 +2555,9 @@ mod tests {
         assert!(matches!(
             layout.repr,
             Repr::Enum {
-                repr: EnumRepr::Niche { null_at: 0 },
+                repr: EnumRepr::Niche {
+                    null_at: Words::ZERO
+                },
                 ..
             }
         ));
@@ -2558,6 +2667,7 @@ mod tests {
             let mut sum = 0u32;
             for (member, offset) in chosen.iter().zip(&layout.fields) {
                 let m = l.of(*member);
+                let offset = offset.bytes();
                 assert_eq!(offset % m.align, 0, "{member:?} at {offset} is misaligned");
                 assert!(
                     offset + m.size <= layout.size,

@@ -53,7 +53,7 @@ use super::jit::{agg_of, enum_ty, Bind, Fn2, Jit, V};
 use super::runtime::{self, Entry, Extra, OptRepr, Ret, BURI_OK};
 use crate::compiler::backend::counts::Op;
 use crate::compiler::middle::ir;
-use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
+use crate::compiler::middle::layout::{EnumRepr, Layout, Repr, Words};
 use crate::compiler::semantics::types::{self as types, Ty, TyKind};
 use crate::diagnostics::{invariant_with, Invariant};
 
@@ -842,7 +842,7 @@ impl Jit<'_> {
         // context moves nothing.
         let [ctx_width, _, _] = widths;
         for off in ctx_at {
-            self.mv(st.frame.size + off, st.at(p.ctx), round8(ctx_width));
+            self.mv(st.frame.size + off.bytes(), st.at(p.ctx), round8(ctx_width));
         }
         let state = st.frame.size;
         self.mv(state, st.at(p.step), 16);
@@ -904,9 +904,9 @@ impl Jit<'_> {
     /// function that owns it, so the bytes must be a value. Zero is one that
     /// holds no count. The context is always the closure's first parameter, so
     /// `ctx_at`'s offsets pair with `widths` from the front.
-    fn clear_ctx(&mut self, state: u32, ctx_at: &[u32], widths: &[u32]) {
+    fn clear_ctx(&mut self, state: u32, ctx_at: &[Words], widths: &[u32]) {
         for (off, w) in ctx_at.iter().copied().zip(widths.iter().copied()) {
-            self.clear_slot(state + off, round8(w));
+            self.clear_slot(state + off.bytes(), round8(w));
         }
     }
 
@@ -1022,7 +1022,7 @@ impl Jit<'_> {
         let [cty, _, _] = params;
         let [cwidth, _, _] = widths;
         if let Some(((from, _), off)) = kept {
-            self.mv(state + off, from, round8(cwidth));
+            self.mv(state + off.bytes(), from, round8(cwidth));
         }
         let thunk = self.helper(super::glue::Helper::Entry {
             params: params.to_vec(),
@@ -1038,7 +1038,7 @@ impl Jit<'_> {
         // And where it is, how wide, and the glue that takes and gives back its
         // count.
         if let Some((_, off)) = kept {
-            ints.push(Src::Imm(u64::from(off)));
+            ints.push(Src::Imm(u64::from(off.bytes())));
             ints.push(Src::Imm(u64::from(cwidth)));
             for glue in [self.element_glue(cty), self.value_release(cty)] {
                 match glue {
@@ -1088,9 +1088,9 @@ impl Jit<'_> {
         if let (Some(i), Some(off)) = (dropped, ctx_at.first().copied()) {
             let [w, _] = widths;
             if let Some((from, _)) = args.get(i).copied().filter(|_| w > 0) {
-                self.mv(st.frame.size + off, from, round8(w));
+                self.mv(st.frame.size + off.bytes(), from, round8(w));
                 if self.rc_counted(&cty) {
-                    self.walk_rc(st, &cty, st.frame.size + off, Op::Retain, 0);
+                    self.walk_rc(st, &cty, st.frame.size + off.bytes(), Op::Retain, 0);
                     kept = Some((cty, off));
                 }
             }
