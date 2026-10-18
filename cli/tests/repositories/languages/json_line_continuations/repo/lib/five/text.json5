@@ -1,0 +1,8 @@
+// JSON5: a backslash before a line break continues the string on the next line.
+{
+    $schema: 'text.schema.json',
+    lf: 'line \
+feed',
+    ls: 'line \ separator',
+    ps: 'paragraph \ separator',
+}

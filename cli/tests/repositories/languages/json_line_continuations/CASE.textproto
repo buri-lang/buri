@@ -1,0 +1,18 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a JSON5 string continues on the next line after a backslash and a line feed, a line separator or a paragraph separator, which stand for no character; JSON has no such escape"
+
+# Each value equals its `const` only if the backslash and the line break
+# between its words are left out of the string.
+run {
+  args: ["build", "//lib/five"]
+  exit: 0
+}
+
+# The same three breaks in `.json` files: each is refused where it is written.
+run {
+  args: ["build", "//lib/plain"]
+  exit: 1
+  golden: "plain.txt"
+}
