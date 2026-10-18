@@ -2877,8 +2877,8 @@ impl Scan<'_> {
     }
 
     /// Scans the branches of an `if` or a `match`, each from what is
-    /// live after the construct, which is `live` on the way in. `sizes` are
-    /// the branches' subtree sizes and `scan` scans one by its index.
+    /// live after the construct, which is `live` on the way in. `rows` hold
+    /// each branch's subtree size beside what `scan` needs to scan it.
     ///
     /// The largest branch is scanned last and left in `live`. Every other one
     /// is scanned and taken back out, keeping only what it added, so a long
@@ -2886,33 +2886,41 @@ impl Scan<'_> {
     /// carries past them. That leans on a branch never taking away what was
     /// live after it, and only a `Continue` does: under one, every branch is
     /// kept whole, in order. A jump is in tail position, where little is live.
-    fn branches(
+    fn branches<R>(
         &mut self,
         id: NodeId,
         live: &mut Live,
-        sizes: &[u32],
-        scan: &mut dyn FnMut(&mut Self, usize, &mut Live),
+        rows: &mut [(u32, R)],
+        scan: &mut dyn FnMut(&mut Self, &mut R, &mut Live),
     ) -> Branches {
         if self.jumps_within(id) {
-            let mut wholes = Vec::with_capacity(sizes.len());
-            for i in 0..sizes.len() {
+            let mut wholes = Vec::with_capacity(rows.len());
+            for (_, row) in rows.iter_mut() {
                 let mark = live.mark();
-                scan(self, i, live);
+                scan(self, row, live);
                 wholes.push(live.iter().collect());
                 live.undo(mark);
             }
             return Branches::Whole(wholes);
         }
-        let last = (0..sizes.len()).max_by_key(|&i| sizes.get(i).copied().unwrap_or(0));
-        let mut left: Vec<Left> = (0..sizes.len()).map(|_| Left::Kept).collect();
-        for i in (0..sizes.len()).filter(|i| Some(*i) != last).chain(last) {
-            if Some(i) == last {
-                scan(self, i, live);
-                continue;
-            }
+        let last = rows
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, (size, _))| *size)
+            .map(|(i, _)| i);
+        let mut left: Vec<Left> = rows.iter().map(|_| Left::Kept).collect();
+        let (others, kept): (Vec<_>, Vec<_>) = left
+            .iter_mut()
+            .zip(rows.iter_mut())
+            .enumerate()
+            .partition(|(i, _)| Some(*i) != last);
+        for (_, (slot, (_, row))) in others {
             let mark = live.mark();
-            scan(self, i, live);
-            *left.get_mut(i).or_ice("`left` has a row per branch") = Left::Added(live.undo(mark));
+            scan(self, row, live);
+            *slot = Left::Added(live.undo(mark));
+        }
+        for (_, (_, (_, row))) in kept {
+            scan(self, row, live);
         }
         Branches::Split(left)
     }
@@ -3267,7 +3275,10 @@ impl Scan<'_> {
                 let then_id = self.child(id, 1);
                 let else_id = self.child(id, 2);
                 let ids = [then_id, else_id];
-                let sizes = [self.size(then_id), self.size(else_id)];
+                let mut rows: [(u32, (&Expr, NodeId)); 2] = [
+                    (self.size(then_id), (then, then_id)),
+                    (self.size(else_id), (else_, else_id)),
+                ];
                 let tick = live.tick();
                 // Both branches have to jump for the `if` to, so each is asked
                 // on its own: a jump in one left `diverged` set across the
@@ -3275,12 +3286,7 @@ impl Scan<'_> {
                 // jumps alone.
                 let mut every = true;
                 let (left, jumps, _) = self.scoped(|me| {
-                    me.branches(id, live, &sizes, &mut |me, i, live| {
-                        let (branch, bid): (&Expr, NodeId) = if i == 0 {
-                            (then, then_id)
-                        } else {
-                            (else_, else_id)
-                        };
+                    me.branches(id, live, &mut rows, &mut |me, &mut (branch, bid), live| {
                         me.diverged = false;
                         me.expr(branch, bid, live, mode);
                         me.flush(bid);
@@ -3578,27 +3584,36 @@ impl Scan<'_> {
             ids.push(next());
             gids.push(gid);
         }
-        let sizes: Vec<u32> = ids
-            .iter()
-            .zip(&gids)
-            .map(|(b, g)| self.size(*b) + g.map_or(0, |g| self.size(g)))
-            .collect();
         // The back edges each arm takes, kept per arm rather than in one list:
         // a drop the arms disagree about belongs on the paths of the arm that
         // wanted it, and a jump in the arm beside it is a different path.
-        let mut arm_edges: Vec<Vec<(NodeId, Position)>> = vec![Vec::new(); arms.len()];
+        let mut rows: Vec<_> = arms
+            .iter()
+            .zip(ids.iter().zip(&gids))
+            .map(|(a, (&b, &g))| {
+                (
+                    self.size(b) + g.map_or(0, |g| self.size(g)),
+                    (a, b, g, Vec::new()),
+                )
+            })
+            .collect();
         let outer_jumps = std::mem::take(&mut self.jumps);
         let outer_diverged = std::mem::replace(&mut self.diverged, true);
         let tick = live.tick();
-        let left = self.branches(id, live, &sizes, &mut |me, i, live| {
-            let a = arms.get(i).or_ice("a branch is an arm");
-            let bid = ids.get(i).or_ice("every arm has a body node");
-            let gid = gids.get(i).copied().flatten();
-            let edges_before = me.jumps.len();
-            me.arm(a, gid, *bid, live, mode, token);
-            *arm_edges.get_mut(i).or_ice("`arm_edges` has a row per arm") =
-                me.jumps.get(edges_before..).unwrap_or_default().to_vec();
-        });
+        let left = self.branches(
+            id,
+            live,
+            &mut rows,
+            &mut |me, (a, bid, gid, edges), live| {
+                let edges_before = me.jumps.len();
+                me.arm(a, *gid, *bid, live, mode, token);
+                *edges = me.jumps.get(edges_before..).unwrap_or_default().to_vec();
+            },
+        );
+        let arm_edges: Vec<Vec<(NodeId, Position)>> = rows
+            .into_iter()
+            .map(|(_, (_, _, _, edges))| edges)
+            .collect();
         let arm_jumps = std::mem::replace(&mut self.jumps, outer_jumps);
         self.jumps.extend(arm_jumps.iter().copied());
         let arms_diverged = std::mem::replace(&mut self.diverged, outer_diverged);
