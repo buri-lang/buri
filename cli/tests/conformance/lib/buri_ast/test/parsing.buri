@@ -287,6 +287,60 @@ test "every declaration that failed is reported, not only the first" {
     ]);
 }
 
+test "a unicode escape that names no scalar value is refused, in the compiler's words" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(errorsOf(ctx, "let C: Char = '\\u{D800}';\n"), [
+        "`\\u{D800}` is not a Unicode scalar value",
+    ]);
+    assert.equal(errorsOf(ctx, "let C: Char = '\\u{dfff}';\n"), [
+        "`\\u{dfff}` is not a Unicode scalar value",
+    ]);
+    assert.equal(errorsOf(ctx, "let S: Str = \"a\\u{110000}b\";\n"), [
+        "`\\u{110000}` is not a Unicode scalar value",
+    ]);
+    // Too many digits for any scalar, even where the low bits would name one.
+    assert.equal(errorsOf(ctx, "let S: Str = \"\\u{100000041}\";\n"), [
+        "`\\u{100000041}` is not a Unicode scalar value",
+    ]);
+    assert.equal(errorsOf(ctx, "let S: Str = \"\\u{}\";\n"), [
+        "`\\u{}` is not a Unicode scalar value",
+    ]);
+    // In a pattern, a template and an import path too, and each one is reported.
+    assert.equal(
+        errorsOf(
+            ctx,
+            "fn f(c: Char): Str {\n    match (c) {\n        '\\u{D800}' => \"x\${c}\\u{DFFF}\",\n        _ => \"\",\n    }\n}\n",
+        ),
+        [
+            "`\\u{D800}` is not a Unicode scalar value",
+            "`\\u{DFFF}` is not a Unicode scalar value",
+        ],
+    );
+    assert.equal(errorsOf(ctx, "from \"\\u{D800}\" import * as x;\n"), [
+        "`\\u{D800}` is not a Unicode scalar value",
+    ]);
+    // The edges of the valid range, and an escaped backslash, still read.
+    same(ctx, "let C: Char = '\\u{d7ff}';\n");
+    same(ctx, "let S: Str = \"\\u{e000}\\u{10ffff}\\\\u{D800}\";\n");
+}
+
+test "an invalid unicode escape's error carries the literal's span" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    match (ast.parse(ctx, "probe.buri", "let C: Char = '\\u{D800}';\n")) {
+        .Ok(_tree) => assert.isTrue(false),
+        .Err(errors) => {
+            assert.equal(assert.some(errors.first()).span, ast.Span {
+                start: 14,
+                end: 24,
+            });
+        },
+    }
+}
+
 test "an error carries the span of the token it is about" {
     let ctx = context {
         Allocator: alloc(),
