@@ -3497,25 +3497,25 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 Some(b.load(ty, p, align, "rc.v"))
             }
             Place::Registers { slots, pieces } => {
-                for (i, slot) in slots.iter().enumerate() {
+                for (slot, piece) in slots.iter().zip(pieces) {
                     if slot.offset == at && slot.ty == want {
-                        return pieces.get(i).copied();
+                        return Some(*piece);
                     }
                 }
-                for (i, slot) in slots.iter().enumerate() {
+                for (slot, piece) in slots.iter().zip(pieces) {
                     let end = slot.offset.saturating_add(slot.ty.size());
                     if !matches!(slot.ty, SlotTy::Blob(_)) || !(slot.offset..end).contains(&at) {
                         continue;
                     }
                     let within = at.saturating_sub(slot.offset);
-                    if let Some(BasicValueEnum::ArrayValue(blob)) = pieces.get(i).copied() {
+                    if let BasicValueEnum::ArrayValue(blob) = *piece {
                         let want = Slot {
                             offset: at,
                             ty: want,
                         };
                         return Some(repr::take_from_blob(self.ctx, b, blob, within, want));
                     }
-                    let blob = int(*pieces.get(i).or_ice("a slot has its piece"));
+                    let blob = int(*piece);
                     let shift = u64::from(within).saturating_mul(8);
                     let moved = b.lshr(blob, blob.get_type().const_int(shift, false), "rc.sh");
                     let narrow = repr::int_type(self.ctx, want.size());
