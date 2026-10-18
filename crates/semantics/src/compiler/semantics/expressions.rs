@@ -296,13 +296,12 @@ impl<'a, 'b> Infer<'a, 'b> {
 
     /// Whether `ty` is the `Result` the prelude registered under that name.
     ///
-    /// Nominal, not structural: `Checker::result_con` holds the id
-    /// `register_known_names` recorded, so a user type spelled `Result` in
-    /// another module is not this one. The same-named [`Tables::is_option`]
+    /// Nominal, not structural: [`TyConId::RESULT`] is the prelude's, so a
+    /// user type spelled `Result` in another module is not this one. The same-named [`Tables::is_option`]
     /// answers the *shape* question instead — a deliberately different
     /// question, which is why these four say `known`.
     fn is_known_result(&self, ty: &Ty) -> bool {
-        matches!(self.resolve(ty).kind(), TyKind::Con(id, _) if self.c.result_con.as_ref() == Some(id))
+        matches!(self.resolve(ty).kind(), TyKind::Con(id, _) if *id == TyConId::RESULT)
     }
 
     /// Whether a lambda body of type `body` may stand where `want` is the
@@ -329,7 +328,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// Whether `ty` is the `Option` the prelude registered under that name —
     /// nominal, for the reason [`Infer::is_known_result`] gives.
     fn is_known_option(&self, ty: &Ty) -> bool {
-        matches!(self.resolve(ty).kind(), TyKind::Con(id, _) if self.c.option_con.as_ref() == Some(id))
+        matches!(self.resolve(ty).kind(), TyKind::Con(id, _) if *id == TyConId::OPTION)
     }
 
     /// `T`, when `ty` is the registered `Option<T>`. Asking the question and
@@ -337,7 +336,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// place and relied on in another.
     fn known_option_payload(&self, ty: &Ty) -> Option<&'static Ty> {
         match ty.kind() {
-            TyKind::Con(id, [inner]) if self.c.option_con.as_ref() == Some(id) => Some(inner),
+            TyKind::Con(id, [inner]) if *id == TyConId::OPTION => Some(inner),
             _ => None,
         }
     }
@@ -345,7 +344,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// `(T, E)`, when `ty` is the registered `Result<T, E>`.
     fn known_result_payload(&self, ty: &Ty) -> Option<(&'static Ty, &'static Ty)> {
         match ty.kind() {
-            TyKind::Con(id, [ok, err]) if self.c.result_con.as_ref() == Some(id) => Some((ok, err)),
+            TyKind::Con(id, [ok, err]) if *id == TyConId::RESULT => Some((ok, err)),
             _ => None,
         }
     }
@@ -650,10 +649,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     fn option_of(&self, t: Ty) -> Ty {
-        match self.c.option_con {
-            Some(id) => Ty::con(id, [t]),
-            None => Ty::ERROR,
-        }
+        Ty::con(TyConId::OPTION, [t])
     }
 
     // -----------------------------------------------------------------------
@@ -2725,10 +2721,10 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// instantiation of it.
     fn elided_none(&self, declared: &Ty, want: &Ty, span: Span) -> Option<typed::Expr> {
         let con = match declared.kind() {
-            TyKind::Con(id, _) if self.c.option_con == Some(*id) => *id,
+            TyKind::Con(id, _) if *id == TyConId::OPTION => *id,
             _ => return None,
         };
-        let variant = self.c.tables.tycon(con).variant_index("None")?;
+        let variant = VariantId::NONE;
         let targs = match want.kind() {
             TyKind::Con(_, args) => args.to_vec(),
             _ => return None,
@@ -3039,7 +3035,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         span,
                     )
                 } else {
-                    self.operator_trait_call("Negate", "negate", e, None, span)
+                    self.operator_trait_call(TraitId::NEGATE, e, None, span)
                 }
             }
             tree::UnOp::BitNot => {
@@ -3160,7 +3156,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 );
             }
             // Only the bitwise operators have no trait behind them.
-            let Some((tr, method)) = op.trait_method() else {
+            let Some(tr) = arithmetic_trait(op) else {
                 if !ty.is_error() {
                     let shown = self.show_ty(&ty);
                     self.templated("bitwise-non-integer", op_span)
@@ -3170,7 +3166,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 }
                 return self.error_expr(span);
             };
-            return self.operator_trait_call(tr, method, l, Some(r), span);
+            return self.operator_trait_call(tr, l, Some(r), span);
         }
 
         // Comparison.
@@ -3193,7 +3189,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         span,
                     );
                 }
-                let call = self.operator_trait_call("Equal", "equal", l, Some(r), span);
+                let call = self.operator_trait_call(TraitId::EQUAL, l, Some(r), span);
                 if op == B::Eq {
                     call
                 } else {
@@ -3227,7 +3223,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     );
                 }
                 // `a < b` is `a.compare(b)` tested against an `Order`.
-                let cmp = self.operator_trait_call("Ordered", "compare", l, Some(r), span);
+                let cmp = self.operator_trait_call(TraitId::ORDERED, l, Some(r), span);
                 self.order_test(cmp, op, span)
             }
             // `&&`, `||` and the arithmetic and bitwise operators all
@@ -3236,16 +3232,16 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
     }
 
-    /// Operators are trait methods, which is what makes newtypes usable.
+    /// Operators are trait methods, which is what makes newtypes usable. An
+    /// operator's trait has the one method, so it is the first.
     fn operator_trait_call(
         &mut self,
-        trait_name: &str,
-        method: &str,
+        tid: TraitId,
         lhs: typed::Expr,
         rhs: Option<typed::Expr>,
         span: Span,
     ) -> typed::Expr {
-        let tid = self.c.known_trait(trait_name);
+        let trait_name = self.c.tables.trait_(tid).name.as_str();
         let ty = self.resolve(&lhs.ty);
         if ty.is_error() {
             return self.error_expr(span);
@@ -3274,11 +3270,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         }
         // A literal in `ty` settles later, and may settle outside the `impl`'s head.
         self.obligations.push((ty, tid, span));
-        let info = self.c.tables.trait_(tid);
-        let index = info
-            .method_index(method)
-            .or_ice("an operator trait is one the prelude declares, with its method");
-        let sig = info.methods.get(index).clone();
+        let index = MethodId::FIRST;
+        let sig = self.c.tables.trait_(tid).methods.get(index).clone();
         let ret = substitute(&sig.ret, &[], Some(&ty));
         let mut args = vec![lhs];
         if let Some(r) = rhs {
@@ -3305,7 +3298,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// IEEE's operator where `T` is a float.
     fn order_test(&mut self, cmp: typed::Expr, op: tree::BinOp, span: Span) -> typed::Expr {
         use tree::BinOp as B;
-        let order = self.c.order_con.or_ice("`Order` is in the prelude");
+        let order = TyConId::ORDER;
         let bool_ty = self.prim(Prim::Bool);
         let (index, when_match) = match op {
             B::Lt => (VariantId::LESS, true),
@@ -3848,6 +3841,20 @@ impl<'a, 'b> Infer<'a, 'b> {
 /// spells a parameter the way the source does — `Int` rather than the `I64` the
 /// table holds. A declaration nobody wrote — a primitive's method — is rendered
 /// from the table instead.
+/// The trait an arithmetic operator calls where its operands aren't numbers.
+/// The bitwise operators have none.
+fn arithmetic_trait(op: tree::BinOp) -> Option<TraitId> {
+    use tree::BinOp as B;
+    Some(match op {
+        B::Add => TraitId::ADD,
+        B::Sub => TraitId::SUBTRACT,
+        B::Mul => TraitId::MULTIPLY,
+        B::Div => TraitId::DIVIDE,
+        B::Rem => TraitId::REMAINDER,
+        _ => return None,
+    })
+}
+
 fn signature_of_fn(c: &Checker, id: FnId) -> String {
     let info = c.tables.fn_info(id);
     let written = info.ast.item().and_then(|(module, item)| {

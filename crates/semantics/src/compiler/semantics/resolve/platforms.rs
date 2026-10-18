@@ -384,7 +384,7 @@ impl<'a> Checker<'a> {
     pub(super) fn is_program_answer(&self, ty: &Ty) -> bool {
         let str_ty = self.tables.prim(Prim::Str);
         matches!(ty.kind(), TyKind::Con(id, [ok, err])
-            if self.result_con.as_ref() == Some(id) && *ok == Ty::UNIT && *err == str_ty)
+            if *id == TyConId::RESULT && *ok == Ty::UNIT && *err == str_ty)
     }
 
     /// Every field of a host type is a production struct its backend has: the
@@ -482,8 +482,8 @@ impl<'a> Checker<'a> {
     /// `js` file meets, against the crossing table.
     fn check_crossing_of(&mut self, info: &FnInfo, skip: usize, what: &str) {
         let known = Known {
-            request: self.known_types.get("Request").copied(),
-            response: self.known_types.get("Response").copied(),
+            request: Some(TyConId::REQUEST),
+            response: Some(TyConId::RESPONSE),
         };
         for p in info.params.iter().skip(skip) {
             if let Err(bad) = crossing::classify(&self.tables, known, &p.ty, false) {

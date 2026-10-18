@@ -250,6 +250,16 @@ pub const DERIVABLE: &[&str] = &[
     "Index",
 ];
 
+/// `core/json`'s declarations the checker names. The module loads on import,
+/// so where they are differs between compilations.
+#[derive(Clone, Copy)]
+pub(crate) struct KnownJson {
+    pub to_json: TraitId,
+    pub from_json: TraitId,
+    pub json: TyConId,
+    pub decode_error: TyConId,
+}
+
 /// The module `Flags` is declared in. A `derive Flags` changes how the type is
 /// stored, so only that trait, and not one a program happens to call `Flags`,
 /// may be derived under the name.
@@ -311,17 +321,11 @@ pub struct Checker<'a> {
     pub testing_surfaces: HashMap<PackageId, HashSet<String>>,
     /// See [`Checked::ctx_rebindings`].
     pub ctx_rebindings: Vec<Span>,
-    /// Traits by well-known name, for operators and `derive`.
-    pub known_traits: HashMap<String, TraitId>,
-    /// Enums by well-known name.
+    /// Types by well-known name, for the passes after checking. See
+    /// [`Checked::known_types`].
     pub known_types: HashMap<String, TyConId>,
-    /// The three of those the body checker asks about by name on hot paths —
-    /// `?` and every comparison. They are settled by
-    /// `register_known_names` before any body is looked at, so asking the map
-    /// again was a string hash and a probe per `let` and per operator.
-    pub option_con: Option<TyConId>,
-    pub result_con: Option<TyConId>,
-    pub order_con: Option<TyConId>,
+    /// `core/json`'s declarations, when this compilation loaded it.
+    pub(crate) json: Option<KnownJson>,
     /// The signatures whose `ctx` rule is still to be checked, in declaration
     /// order — which is the order the check used to run in, so the diagnostics
     /// are the same ones in the same sequence. Held rather than checked in
@@ -402,8 +406,8 @@ pub struct Base {
     bodies: BodyMap,
     const_values: ConstMap,
     const_locals: ConstLocals,
-    known_traits: HashMap<String, TraitId>,
     known_types: HashMap<String, TyConId>,
+    json: Option<KnownJson>,
     /// What every prelude name refers to, which is the same in every module
     /// and is found in these modules' scopes.
     prelude: std::sync::Arc<Prelude>,
@@ -526,11 +530,8 @@ impl<'a> Checker<'a> {
             surfaces: HashMap::default(),
             testing_surfaces: HashMap::default(),
             ctx_rebindings: Vec::new(),
-            known_traits: HashMap::default(),
             known_types: HashMap::default(),
-            option_con: None,
-            result_con: None,
-            order_con: None,
+            json: None,
             pending_ctx_rules: Vec::new(),
             resolving: Vec::new(),
             expanding: Vec::new(),
@@ -565,8 +566,8 @@ impl<'a> Checker<'a> {
         c.bodies = base.bodies.layer();
         c.const_values = base.const_values.layer();
         c.const_locals = base.const_locals.layer();
-        c.known_traits = base.known_traits.clone();
         c.known_types = base.known_types.clone();
+        c.json = base.json;
         c.ctx_rebindings = base.ctx_rebindings.clone();
         c.ctx_decls_reached = base.ctx_decls_reached.clone();
         c.base = Some(base);
@@ -632,8 +633,8 @@ impl<'a> Checker<'a> {
             const_values: self.const_values,
             const_locals: self.const_locals,
             prelude,
-            known_traits: self.known_traits,
             known_types: self.known_types,
+            json: self.json,
             ctx_rebindings: self.ctx_rebindings,
             ctx_decls_reached: self.ctx_decls_reached,
         }
@@ -657,9 +658,9 @@ impl<'a> Checker<'a> {
         (fid.index() < base.tables.fns.len()).then_some(base.bodies_checked)
     }
 
-    /// The well-known names the base registered, when there is one.
-    pub(crate) fn base_known_traits(&self) -> Option<&'a HashMap<String, TraitId>> {
-        self.base.map(|b| &b.known_traits)
+    /// What the base found of `core/json`, when there is a base.
+    pub(crate) fn base_json(&self) -> Option<Option<KnownJson>> {
+        self.base.map(|b| b.json)
     }
 
     /// How many constants and `context` declarations the base checked: the
@@ -2741,16 +2742,13 @@ impl<'a> Checker<'a> {
     /// that export them.
     fn prelude(&self) -> std::sync::Arc<Prelude> {
         let mut out = Prelude::default();
-        for (path, name) in standard_library::prelude() {
-            let from = self
-                .loaded
-                .find(path)
-                .or_ice("every loader loads the prelude's modules");
-            let sym = self
-                .scope(from)
-                .exports
-                .get(name)
-                .or_ice("a prelude module exports its prelude names");
+        // Every loader loads the prelude's modules, and each exports its
+        // prelude names: `cli/src/compiler/tests/known.rs` holds both.
+        let found = standard_library::prelude().filter_map(|(path, name)| {
+            let from = self.loaded.find(path)?;
+            Some((name, self.scope(from).exports.get(name)?))
+        });
+        for (name, sym) in found {
             // The first of two prelude entries of one name is the one seen.
             out.entry(name.to_string()).or_insert_with(|| sym.clone());
         }
@@ -2758,62 +2756,50 @@ impl<'a> Checker<'a> {
     }
 
     fn register_known_names(&mut self) {
-        for (path, name) in standard_library::prelude() {
-            let m = self
-                .loaded
-                .find(path)
-                .or_ice("every loader loads the prelude's modules");
-            self.know(m, name);
+        // The prelude's are at the ids `TyConId::OPTION` names. These three
+        // are in the table for `middle::monomorphize`, which reads them by
+        // name.
+        for (name, id) in [
+            ("Option", TyConId::OPTION),
+            ("Request", TyConId::REQUEST),
+            ("Response", TyConId::RESPONSE),
+        ] {
+            self.known_types.insert(name.to_string(), id);
         }
         // `core/json` is loaded on import rather than eagerly, so these are
         // known exactly when a program could name them — which is the only
         // time a primitive needs an implementation of either to be found.
-        if let Some(m) = self.loaded.find("core/json") {
-            for name in ["ToJson", "FromJson", "DecodeError", "Json"] {
-                self.know(m, name);
+        let json = self.json.or_else(|| self.known_json());
+        self.json = json;
+        // A derived `ToJson` or `FromJson` at an `IndexSet` reads its
+        // members, so whether it has one is a question about `K`.
+        let index_set = self.loaded.find(INDEX_MODULE).and_then(|m| {
+            match self.scope(m).exports.get("IndexSet") {
+                Some(&Sym::Ty(c)) => Some(c),
+                _ => None,
             }
-        }
-        if let Some(m) = self.loaded.find(INDEX_MODULE) {
-            // A derived `ToJson` or `FromJson` at an `IndexSet` reads its
-            // members, so whether it has one is a question about `K`.
-            self.know(m, "IndexSet");
-        }
-        // `Request` and `Response` are here for the entry check: a platform
-        // that calls its entry fixes those two types, and the check is a
-        // comparison against the ids rather than against a spelling a program
-        // could shadow. `Scope` is the allocator that charges nothing, which a
-        // test report renders a hand-written `Show` with.
-        let m = self
-            .loaded
-            .find("platform/effect")
-            .or_ice("every loader loads `platform/effect`");
-        for name in [
-            "Allocator",
-            "IoError",
-            "Region",
-            "Request",
-            "Response",
-            "Scope",
-        ] {
-            self.know(m, name);
-        }
-        self.option_con = self.known_types.get("Option").copied();
-        self.result_con = self.known_types.get("Result").copied();
-        self.order_con = self.known_types.get("Order").copied();
+        });
+        self.known_types
+            .extend(index_set.map(|c| ("IndexSet".to_string(), c)));
     }
 
-    /// Records `module`'s export `name` as a well-known trait or type, when it
-    /// is one. A name a base already recorded is left as it is.
-    fn know(&mut self, module: ModuleId, name: &str) {
-        match self.scope(module).exports.get(name) {
-            Some(&Sym::Trait(t)) if self.known_traits.get(name) != Some(&t) => {
-                self.known_traits.insert(name.to_string(), t);
-            }
-            Some(&Sym::Ty(c)) if self.known_types.get(name) != Some(&c) => {
-                self.known_types.insert(name.to_string(), c);
-            }
-            _ => {}
-        }
+    /// `core/json`'s declarations, when this compilation loaded it.
+    fn known_json(&self) -> Option<KnownJson> {
+        let exports = &self.scope(self.loaded.find("core/json")?).exports;
+        let ty = |name: &str| match exports.get(name) {
+            Some(&Sym::Ty(c)) => Some(c),
+            _ => None,
+        };
+        let trait_ = |name: &str| match exports.get(name) {
+            Some(&Sym::Trait(t)) => Some(t),
+            _ => None,
+        };
+        Some(KnownJson {
+            to_json: trait_("ToJson")?,
+            from_json: trait_("FromJson")?,
+            json: ty("Json")?,
+            decode_error: ty("DecodeError")?,
+        })
     }
 
     /// Registers the methods of every `impl` block, and every `derive`.

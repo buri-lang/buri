@@ -1667,16 +1667,16 @@ impl<'a, 'b> Infer<'a, 'b> {
             let shown = show(&self.c.tables, Some(&self.subst), &self.generics, &resolved);
             let mut d =
                 Diagnostic::templated("not-interpolatable", span).with_bind("type", shown.clone());
-            let show_tid = self.c.known_traits.get("Show").copied();
+            let show_tid = TraitId::SHOW;
             // Whether writing `derive Show` on *this* type would be the edit.
             // Not "does not satisfy `Show`", which a type whose components fall
             // short also fails — the derive belongs on the component then — and
             // never a primitive, since `Template` is the one that lands here
             // and there is no deriving `Show` for it.
-            let undeclared = match (resolved.head(), show_tid) {
-                (Some(con), Some(tr)) => {
+            let undeclared = match resolved.head() {
+                Some(con) => {
                     self.c.tables.as_prim(&resolved).is_none()
-                        && !self.c.tables.impls.contains_key(&(tr, con))
+                        && !self.c.tables.impls.contains_key(&(show_tid, con))
                 }
                 _ => false,
             };
@@ -1694,7 +1694,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                     d = d.with_fix("call it in the hole, as in `${x.show(ctx)}`");
                 }
             } else if matches!(resolved.kind(), TyKind::Param(_))
-                && show_tid.is_some_and(|tr| self.satisfies(&resolved, tr))
+                && self.satisfies(&resolved, show_tid)
             {
                 d = d
                     .with_note(format!(
@@ -1728,7 +1728,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// The first type in this shape whose `Show` is an `impl` rather than a
     /// `derive`, which is the one that keeps the whole hole out.
     fn hand_written_show(&self, ty: &Ty, seen: &mut Vec<TyConId>) -> Option<String> {
-        let tr = self.c.known_traits.get("Show").copied()?;
+        let tr = TraitId::SHOW;
         match ty.kind() {
             TyKind::Array(e) => self.hand_written_show(e, seen),
             TyKind::Tuple(es) => es.iter().find_map(|e| self.hand_written_show(e, seen)),
@@ -1779,7 +1779,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         || p.is_float()
                         || matches!(p, Prim::Bool | Prim::Char | Prim::Str);
                 }
-                let tr = self.c.known_trait("Show");
+                let tr = TraitId::SHOW;
                 let Some(imp) = self.c.tables.impls.get(&(tr, *id)) else {
                     return false;
                 };
@@ -1987,9 +1987,7 @@ pub(crate) fn head_covers(head: &Ty, ty: &Ty, generics: usize, open: bool) -> bo
                 None => false,
             },
             (TyKind::Con(x, xs), TyKind::Con(y, ys)) => {
-                x == y
-                    && xs.len() == ys.len()
-                    && xs.iter().zip(ys.iter()).all(|(h, t)| go(h, t, bound, open))
+                x == y && xs.iter().zip(ys.iter()).all(|(h, t)| go(h, t, bound, open))
             }
             (TyKind::Tuple(xs), TyKind::Tuple(ys)) => {
                 xs.len() == ys.len() && xs.iter().zip(ys.iter()).all(|(h, t)| go(h, t, bound, open))
