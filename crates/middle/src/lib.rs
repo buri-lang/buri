@@ -8,6 +8,8 @@
 pub mod compiler {
     pub mod backend {
         pub mod intrinsic_keys;
+        pub mod runtime_symbol;
+        pub mod runtime_table;
     }
     pub mod middle;
 

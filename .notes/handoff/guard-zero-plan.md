@@ -119,6 +119,53 @@ Wave 3 is one chain, because every phase edits `ir.rs` and both native backends.
 
 Phase 23 can run beside wave 3 if it leaves `monomorphize.rs` until phase 24 has merged.
 
+# Guard phase 55
+
+## What landed
+
+- `ArraySet` carries the `ListTy` of its `ArrayAlloc`. The llvm `array_set` and the stencil `ArraySet` arm read the element from it, not from `list_ty(code.ty_of(array))`.
+- `Program::roots` is a typed `ir::Roots`: `Main(ir::Main { func, ret: EnumTy })` or `Tests(Vec<FuncIdx>)`. llvm's `entry_point` and stencil's `main_result` read `main.ret`, so they drop `enum_ty(sig.ret)` and `jit::enum_ty`. Stencil's local `Root` enum is gone.
+- llvm's `Boxes` reads the owner from the `ty` of `MakeStruct`, `MakeEnum`, `GetField` and `GetPayload`. `Boxes::owner` and its `agg(code.ty_of(v))` are gone. `boxed_fields` takes a `RecTy`. A projection records its type id, so `holds_only` and `cancelled_counts` no longer need `code`.
+- `MakeClosure` carries `env: Option<ir::Env { value, ty: RecTy }>`. The llvm thunk is keyed and built from that `RecTy`, which drops one `agg(first)` and one `agg_ty`.
+
+Debug native and JS output is byte-identical to base. Only the random JS test seed and the hashed `.mjs` tool filenames differ, and their contents are the same. Release native is identical too. Conformance passes 4760 in `test` and `test --release`; the example passes 51/51.
+
+## Not done, and why
+
+- `ArrayLen` typed id: neither backend reads a type for `ArrayLen`. Adding one is yagni.
+- `MakeArray` and `ArraySlice`: left alone, as scoped. They need an element type on typed `ExprKind::Array` and on `..rest`, which crates/js matches.
+- Typed intrinsic answers (item 2). This is the next phase. Any design where the backend's `entry.ret` and the IR's type are separate facts keeps a guard. The fix is for middle to know each row's `Ret`:
+  1. Move `runtime_table.rs` and `runtime_native::symbol_for`, a pure string function, into `crates/middle/src/compiler/backend/`. Re-export them from backend so paths keep working. The test that uses `backend::task_thread` stays in backend.
+  2. Lowering attaches a typed answer to each `CallIntrinsic` and `Body::Runtime`: `ir::Answer { Void, Scalar, NoReturn, Int(u32), Out, Sum(EnumTy), Res(EnumTy), ResMsg(EnumTy) }`, built with `Types::enum_of`.
+  3. Backends match on the answer in place of `entry.ret`. That removes llvm `enum_ty` in `call_sum`, `call_result`, `option_value` and `convert_checked`, and `agg` through `result_shape`. In stencil it removes `agg_of` in `ret_agg` and in rtcall's `Res`, and `jit::enum_ty` in rtcall's `Sum`.
+  4. The open-coded intrinsics (checked numeric ops, conversions, json) need the same typed answer: `json_prim` in both backends, and `convert_checked`.
+- llvm `agg_ty`, for the borrowed thunk parameter: "only an aggregate is borrowed" is a fact about ownership and type together. Removing it needs `Ownership::Borrow` to carry the parameter's aggregate id. That is a separate, small phase.
+- llvm `list_ty`, for `generic_element` and `open_coded`: it follows the intrinsic answers, because both read the list type of an intrinsic argument.
+- A typed `Function::values` table (item 4): not started.
+
+## Guards
+
+The plan-rule count (`invariant(`, `invariant_with(` and `.or_ice(` under crates, cli and tools) stays at 79. This phase removed callers of the `agg`, `enum_ty`, `list_ty` and `jit::enum_ty` helpers. Every helper still has callers, so none of their `ice` arms could go yet.
+
+## Coverage
+
+Branches, measured locally on macOS. The local numbers match phase 54's local run exactly: the removed decisions were `match` arms, which aren't counted, or became an equal `if let`. So the CI estimate is unchanged from what staging's baseline gives.
+
+| Area | Local base and new | CI baseline | CI estimate |
+| --- | --- | --- | --- |
+| middle | 1839/1872 (98.24%) | 1842/1878 (98.08%) | unchanged, passes |
+| llvm | 531/532 | 580/580 | unchanged, passes |
+| stencil | 1039/1079 | 1069/1078 | unchanged |
+| backend | 66/66 | 68/68 | unchanged |
+| semantics | 2154/2154 | 2158/2158 | unchanged |
+| total | 14803/15042 | 14879/15043 (98.91%) | unchanged |
+
+## Validation and landing
+
+- `cargo fmt --all --check` and CI's clippy commands (plus `-p buri --features backend-llvm --all-targets`) report 0 warnings.
+- The full suite with `--features buri/backend-llvm` passes at 929a2ff44, taking 5.8 minutes including the build.
+- Landed on staging as eead2b7ec and 929a2ff44, on top of 72efa4519.
+
 # Guard plan, phase 54
 
 ## Review of 36e7641eb

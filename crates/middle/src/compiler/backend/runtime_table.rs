@@ -52,7 +52,7 @@
 //! `list.map`, which does not exist, and a program that used it would get a
 //! link error naming a symbol instead of `Backend::missing_intrinsics` naming
 //! the operation. So the table decides which keys exist, and the mangler
-//! (`runtime_native::symbol_for`) only names the symbol of a key the table
+//! (`runtime_symbol::symbol_for`) only names the symbol of a key the table
 //! has ([`Entry::symbol`]).
 
 use crate::compiler::backend::intrinsic_keys::{ComputeRow, Handoff, PressRow, Tasks, WalkRow};
@@ -395,7 +395,7 @@ pub struct Entry {
 impl Entry {
     /// The exported symbol, per `cli/runtime/lib.rs` §1.
     pub fn symbol(&self) -> String {
-        crate::compiler::backend::runtime_native::symbol_for(self.runs)
+        crate::compiler::backend::runtime_symbol::symbol_for(self.runs)
     }
 
     /// The shapes of the Buri arguments, one per argument.
@@ -2264,7 +2264,7 @@ pub const HASH_STR: &str = "buri_rt_hash_str";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compiler::backend::runtime_native::symbol_for;
+    use crate::compiler::backend::runtime_symbol::symbol_for;
 
     /// The examples `cli/runtime/lib.rs` §1 and VALUE-MODEL.md §10 spell out,
     /// checked directly against the rule [`Entry::symbol`] applies.
@@ -2289,34 +2289,6 @@ mod tests {
             symbol_for("host.HostAllocator.allocate"),
             "buri_rt_host_allocator_allocate"
         );
-    }
-
-    /// **The thread-stack entries are symbols with no row, and that is the
-    /// answer rather than an omission.**
-    ///
-    /// The frame-threaded backend's thread door and step thunks call them by
-    /// name, out of hand-written shims (`stencil/asm.rs`, `stencil/glue.rs`),
-    /// and the LLVM backend, whose frames are machine frames, never does.
-    /// [`ENTRIES`] is keyed by *intrinsic key*, and these have none — no Buri
-    /// expression names them and none should.
-    #[test]
-    fn the_thread_stack_entries_have_symbols_and_no_row() {
-        use crate::compiler::backend::task_thread;
-        for symbol in [
-            task_thread::STACK_ACQUIRE,
-            task_thread::STACK_RELEASE,
-            task_thread::STEP_STACK_ACQUIRE,
-            task_thread::STEP_STACK_RELEASE,
-        ] {
-            assert!(
-                symbol.starts_with("buri_rt_"),
-                "{symbol} is not a runtime symbol"
-            );
-            assert!(
-                !ENTRIES.iter().any(|e| e.symbol() == symbol),
-                "{symbol} gained a row: neither backend's door reaches it through the table"
-            );
-        }
     }
 
     /// A key the archive has no body for must not be in the table. If one of
