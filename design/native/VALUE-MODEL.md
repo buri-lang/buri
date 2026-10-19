@@ -512,12 +512,11 @@ Monomorphization resolves every effect call to a direct call and
 statically known answer and the only question is whether the *implementation
 value* carries data.
 
-Every `context { … }` expression has a type of its own in the checker, but two
-with the same bindings in the same order have the same layout and resolve every
-effect call the same way. So monomorphization rewrites each context type to the
-first one minted with equal bindings (`canonical_contexts`), and a generic over
-`C: Allocator` is instantiated once per list of bindings rather than once per
-test. Symbols spell a context by its bindings rather than its `CtxTypeId`, so
+Two `context { … }` expressions with the same bindings in the same order have
+the same layout and resolve every effect call the same way. So the checker gives
+them one type (`Tables::intern_ctx_type`), and a generic over `C: Allocator` is
+instantiated once per list of bindings rather than once per test. A binding that
+still holds an inference variable keeps its context a type of its own. Symbols spell a context by its bindings rather than its `CtxTypeId`, so
 adding a context renames nothing. Binding order stays part of the identity
 because it is the layout's order.
 

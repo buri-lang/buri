@@ -577,8 +577,6 @@ pub struct Monomorphizer<'a> {
     desc_modules: Vec<Option<String>>,
     desc_index: HashMap<Ty, usize>,
     ctx_layouts: HashMap<CtxTypeId, Vec<TraitId>>,
-    /// See [`canonical_contexts`].
-    ctx_canon: Vec<CtxTypeId>,
     module_paths: Vec<String>,
     /// Every instantiation symbol minted so far, against the type arguments
     /// that minted it. See [`Monomorphizer::instantiation`]: it is what makes
@@ -629,7 +627,6 @@ pub fn run(
         desc_modules: Vec::new(),
         desc_index: HashMap::default(),
         ctx_layouts: HashMap::default(),
-        ctx_canon: moving_contexts(canonical_contexts(&checked.tables)),
         module_paths,
         taken: HashMap::default(),
         locals: typed::Locals::new(),
@@ -1602,12 +1599,10 @@ impl Monomorphizer<'_> {
     /// `Self` *correction* on the way out — see
     /// [`Monomorphizer::rewrite_call_args`] for what replaced it and why.
     ///
-    /// It also replaces each context type with its canonical one
-    /// ([`canonical_contexts`]), so every type the pass writes, and every
-    /// instance key built from them, names one context type per list of
-    /// bindings.
+    /// The checker already gives contexts with the same settled bindings one
+    /// type (`Tables::intern_ctx_type`), so context types pass through as they are.
     fn sub(&self, ty: &Ty, targs: &[Ty]) -> Ty {
-        canonical_ty(&self.ctx_canon, &substitute(ty, targs, None))
+        substitute(ty, targs, None)
     }
 
     /// Appends a local to the table of the body being rewritten and answers
@@ -3468,107 +3463,6 @@ pub fn runtime_module_key(module: &str) -> String {
             .strip_prefix("core/")
             .unwrap_or(module)
             .replace('/', "_"),
-    }
-}
-
-/// Each context type's canonical id: the first one minted with the same
-/// bindings, compared in order with their bound types.
-///
-/// The checker merges contexts whose bindings were settled when it built them
-/// (`Tables::intern_ctx_type`). One whose bindings still held an inference
-/// variable kept its own `CtxTypeId`, and is merged here once they are
-/// resolved. Two contexts with equal
-/// bindings have the same layout and resolve every effect call to the same
-/// method, so an instance at one is the same code as an instance at the other.
-/// [`Monomorphizer::sub`] rewrites every context type to its canonical one, and
-/// a generic that takes a context is then instantiated once per list of
-/// bindings rather than once per test.
-///
-/// Binding order is part of the identity: a context's slots are laid out in
-/// the order the bindings were written, so `{ Allocator, Clock }` and
-/// `{ Clock, Allocator }` are two layouts.
-///
-/// A context minted before its bindings were resolved keeps its own id. An
-/// inference variable is local to the body that holds it, so two equal ones in
-/// two bodies are not one type.
-fn canonical_contexts(tables: &Tables) -> Vec<CtxTypeId> {
-    let mut first: HashMap<Vec<(TraitId, Ty)>, CtxTypeId> = HashMap::default();
-    let mut canon: Vec<CtxTypeId> = Vec::with_capacity(tables.ctx_types.len());
-    for (id, c) in tables.ctx_types.entries() {
-        // A context's bindings were resolved before its id was minted, so any
-        // context type they name has a smaller id and is already in `canon`.
-        let bindings: Vec<(TraitId, Ty)> = c
-            .bindings
-            .iter()
-            .map(|(t, ty)| (*t, canonical_ty(&canon, ty)))
-            .collect();
-        let canonical = if bindings.iter().all(|(_, ty)| closed(ty)) {
-            *first.entry(bindings).or_insert(id)
-        } else {
-            id
-        };
-        canon.push(canonical);
-    }
-    canon
-}
-
-/// `ty` with every context type replaced by its canonical one.
-///
-/// Read first and rebuilt only where a context moves: rebuilding interns every
-/// level, and most types name no context that moves.
-fn canonical_ty(canon: &[CtxTypeId], ty: &Ty) -> Ty {
-    if canon.is_empty() || moves_no_context(canon, ty) {
-        *ty
-    } else {
-        rebuild_canonical(canon, ty)
-    }
-}
-
-/// `canon`, or nothing where it maps every context to itself, which
-/// [`canonical_ty`] reads the same way and answers without a walk.
-fn moving_contexts(canon: Vec<CtxTypeId>) -> Vec<CtxTypeId> {
-    if canon.iter().enumerate().all(|(i, c)| c.index() == i) {
-        Vec::new()
-    } else {
-        canon
-    }
-}
-
-/// Whether [`canonical_ty`] would hand `ty` back unchanged.
-fn moves_no_context(canon: &[CtxTypeId], ty: &Ty) -> bool {
-    match ty.kind() {
-        TyKind::Ctx(id) => canon.get(id.index()).is_none_or(|c| c == id),
-        TyKind::Con(_, xs) | TyKind::Tuple(xs) => xs.iter().all(|x| moves_no_context(canon, x)),
-        TyKind::Array(e) => moves_no_context(canon, e),
-        TyKind::Fn(ps, r) => {
-            ps.iter().all(|p| moves_no_context(canon, p)) && moves_no_context(canon, r)
-        }
-        TyKind::Var(_) | TyKind::Param(_) | TyKind::Unit | TyKind::SelfTy | TyKind::Error => true,
-    }
-}
-
-fn rebuild_canonical(canon: &[CtxTypeId], ty: &Ty) -> Ty {
-    match ty.kind() {
-        TyKind::Ctx(id) => Ty::ctx(canon.get(id.index()).copied().unwrap_or(*id)),
-        TyKind::Con(id, xs) => Ty::con(*id, xs.iter().map(|x| canonical_ty(canon, x))),
-        TyKind::Array(e) => Ty::array(canonical_ty(canon, e)),
-        TyKind::Tuple(es) => Ty::tuple(es.iter().map(|e| canonical_ty(canon, e))),
-        TyKind::Fn(ps, r) => Ty::func(
-            ps.iter().map(|p| canonical_ty(canon, p)),
-            canonical_ty(canon, r),
-        ),
-        TyKind::Var(_) | TyKind::Param(_) | TyKind::Unit | TyKind::SelfTy | TyKind::Error => *ty,
-    }
-}
-
-/// Whether `ty` names no inference variable, generic parameter or `Self`.
-fn closed(ty: &Ty) -> bool {
-    match ty.kind() {
-        TyKind::Var(_) | TyKind::Param(_) | TyKind::SelfTy => false,
-        TyKind::Con(_, xs) | TyKind::Tuple(xs) => xs.iter().all(closed),
-        TyKind::Array(e) => closed(e),
-        TyKind::Fn(ps, r) => ps.iter().all(closed) && closed(r),
-        TyKind::Ctx(_) | TyKind::Unit | TyKind::Error => true,
     }
 }
 
