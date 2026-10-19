@@ -110,7 +110,8 @@ whether to carry on. An abort is a write to standard error and an exit
 ([effects](../language/effects.md)), never something a second task survives.
 
 In a native program a spawned task starts at once, on a thread of its own,
-while the body keeps running. On JavaScript and in tests the body runs first,
+while the body keeps running. On JavaScript, and in a test that uses the
+`TestTasks` double, the body runs first,
 then the scope runs what was spawned in rounds, one round for whatever the last
 one spawned, until nothing is waiting. A task spawned *after* the body has
 returned — which on a page is what a handler does — runs on the task that

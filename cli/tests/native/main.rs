@@ -283,6 +283,10 @@ mod test_processes;
 // backend built in and on JavaScript.
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod headless_timers;
+// A scope in a test that binds its own `Tasks` runs as its program does, on
+// every native backend built in, under the heap check.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod own_scheduler;
 // A failing assertion's report and a signal's write, through a type's own
 // `Show` and `Equal`, under the heap check, on every backend built in and on
 // JavaScript.

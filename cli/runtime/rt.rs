@@ -2756,13 +2756,13 @@ pub extern "C" fn buri_rt_tasks_scope_enter(handle: i64) -> u8 {
 /// tasks beside its body, and if so, counts the body as running.
 ///
 /// Yes only where [`buri_rt_host_tasks_parallel`] fans out — both of §2's
-/// statements made — and outside a test binary, whose `TestTasks` double
-/// promises that nothing runs at once. Everywhere else a scope's tasks run
-/// after its body.
+/// statements made — and outside a `test` block that has made a `TestTasks`
+/// double, which promises that nothing runs at once. Everywhere else a
+/// scope's tasks run after its body.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_tasks_scope_beside(handle: i64) -> u8 {
     if !(crate::frames_are_per_thread() && crate::memory::values_may_cross_tasks())
-        || crate::testing::in_a_test()
+        || crate::testing::a_double_schedules()
     {
         return 0;
     }

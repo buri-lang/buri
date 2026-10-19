@@ -118,7 +118,9 @@
 //! its own, while the body keeps running.
 //!
 //! Everywhere else the body runs first: under `buri run`, on JavaScript, and in
-//! a test on every backend, so a `TestTasks` double still decides the order.
+//! a test block that makes a `TestTasks` double, so the double still decides
+//! the order. A test block that schedules through a `Tasks` of its own runs a
+//! scope as its program would.
 //! Then the scope runs what was spawned in rounds through `parallel`, one round
 //! for whatever the last one spawned, until nothing is waiting. On JavaScript
 //! the tasks of a round overlap. Under `buri run` they run one after another,
@@ -472,8 +474,9 @@ fn scopeTaskAt<C: Tasks, T>(ctx: C, handle: Int, index: Int): Option<[Carried<T>
 /// already is, and that somebody will pick up what this caller queued.
 fn scopeEnter<C: Tasks>(ctx: C, handle: Int): Bool;
 
-/// Whether this scope's tasks run beside its body. `true` only in a native
-/// `--release` program, and then the body counts as running until `scopeRan`.
+/// Whether this scope's tasks run beside its body. `true` only natively where
+/// `parallel` fans out, outside a test block that made a `TestTasks` double.
+/// The body then counts as running until `scopeRan`.
 fn scopeBeside<C: Tasks>(ctx: C, handle: Int): Bool;
 
 /// The next task for a worker, as an index `scopeTaskAt` takes, or `-1` once

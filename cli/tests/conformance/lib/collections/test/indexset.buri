@@ -748,6 +748,31 @@ test "captured by a closure and answered by a task" {
     assert.equal(tasks.scope(ctx, fn(c, here) => slots(c, [5])), slots(ctx, [5]));
 }
 
+/// Every step in program order, for up to three steps: a scheduler of the
+/// test's own. A block that schedules through one rather than `TestTasks` runs
+/// a scope as its program would, so natively a scope's tasks run beside its
+/// body. Every step runs in order, so what is answered is the same either way.
+struct InOrder {}
+
+impl Tasks for InOrder {
+    fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B] {
+        match (items) {
+            [] => [],
+            [a] => [f(ctx, 0, a)],
+            [a, b] => [f(ctx, 0, a), f(ctx, 1, b)],
+            [a, b, c, ..] => [f(ctx, 0, a), f(ctx, 1, b), f(ctx, 2, c)],
+        }
+    }
+}
+
+test "answered by a scope under the test's own scheduler" {
+    let ctx = context {
+        Allocator: alloc(),
+        Tasks: InOrder {},
+    };
+    assert.equal(tasks.scope(ctx, fn(c, here) => slots(c, [5])), slots(ctx, [5]));
+}
+
 test "a member, in an option, equals itself and not None" {
     assert.isTrue(variants.optionsCompare(Octet(1)));
     assert.isTrue(variants.optionsCompare(Row(1)));
