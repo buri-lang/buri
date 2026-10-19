@@ -4057,14 +4057,21 @@ fn ask_for_a_block(input: &mut std::io::StdinLock<'_>) -> i64 {
 /// Set by the first `test` block this process enters, and never cleared.
 static IN_A_TEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Whether this process is a test binary running its blocks.
+/// Whether the `test` block being run has made a `TestTasks` double.
 ///
-/// `core/tasks` asks, because a test's `TestTasks` double promises that nothing
-/// runs concurrently: a scope in a test runs its tasks after its body, as a
-/// development build does, whatever backend built it.
+/// `core/tasks` asks, because the double promises that nothing runs
+/// concurrently: a scope in such a block runs its tasks after its body, as a
+/// development build does, whatever backend built it. A block that schedules
+/// only through a `Tasks` of its own runs its scopes as its program would.
+///
+/// The block's doubles are the slots after [`WATERMARK`], so one that an
+/// earlier block made doesn't count.
 #[cfg_attr(not(feature = "net"), allow(dead_code))]
-pub(crate) fn in_a_test() -> bool {
-    IN_A_TEST.load(std::sync::atomic::Ordering::Acquire)
+pub(crate) fn a_double_schedules() -> bool {
+    let from = WATERMARK.load(std::sync::atomic::Ordering::Relaxed);
+    lock()
+        .get(from..)
+        .is_some_and(|slots| slots.iter().any(|slot| matches!(slot, Slot::Tasks { .. })))
 }
 
 /// Whether to run the `test` block at `index`, and a note of which one it is.
