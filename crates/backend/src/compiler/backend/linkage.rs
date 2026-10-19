@@ -91,6 +91,7 @@ mod tests {
                 purity: Purity::Pure,
                 can_abort: false,
             },
+            env: false,
             unit,
             body: Body::Code(code),
             span: Span::NONE,

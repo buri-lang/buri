@@ -367,6 +367,7 @@ fn merge_group(program: &mut Program, group_index: usize, group: Vec<Member>) {
         kind: FuncKind::Body(Expr::new(ExprKind::Loop { entries }, ret_ty, span)),
         ret,
         desc: None,
+        env: false,
         span,
     });
 
@@ -716,6 +717,7 @@ mod tests {
             kind: FuncKind::Body(body),
             ret: Ty::UNIT,
             desc: None,
+            env: false,
             span: Span::default(),
         }
     }

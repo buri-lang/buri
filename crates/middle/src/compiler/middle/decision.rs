@@ -526,6 +526,7 @@ mod tests {
                 kind: FuncKind::Body(body),
                 ret: Ty::UNIT,
                 desc: None,
+                env: false,
                 span: Span::default(),
             }]
             .into_iter()

@@ -301,6 +301,7 @@ impl Shadows<'_> {
             kind: FuncKind::Unbuilt,
             ret,
             desc: None,
+            env: false,
             span: Span::NONE,
         });
         self.made.insert((op, ty), Some((idx, ret)));

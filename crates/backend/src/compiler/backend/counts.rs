@@ -207,7 +207,7 @@ impl Counts {
                 // `Option<T>`'s `.Some`, read as the arm below reads a variant.
                 // Not asked whether it is counted: a niche is a pointer to
                 // something counted, a `Str`'s, a closure's, or a box's.
-                EnumRepr::Niche { null_at } => variant_types(tables, ty, 0)
+                EnumRepr::Niche { null_at, .. } => variant_types(tables, ty, 0)
                     .into_iter()
                     .map(|payload| Site::Guarded {
                         null_at,

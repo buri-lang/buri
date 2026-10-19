@@ -228,6 +228,7 @@ mod tests {
             },
             ret: Ty::UNIT,
             desc: None,
+            env: false,
             span: Span::default(),
         }
     }

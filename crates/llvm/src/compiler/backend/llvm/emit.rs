@@ -1618,19 +1618,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     ) {
         let e = enum_ty(code.ty_of(of));
         let id = e.id();
-        // The niche spends one variant's *absence* of fields: `.None` is the
-        // pointer set to null and `.Some` is everything else.
-        let (some_variant, none_variant) = self.option_variants(e);
-        let slots = self.reprs.of(self.program, id).slots.clone();
-        let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
         let whole = self.get(state, of);
         let b = state.b;
-        let tag = if repr::in_memory(&slots) {
-            self.tag_of(b, &slots, &enum_repr, none_variant, some_variant, whole)
+        let tag = if repr::in_memory(&self.reprs.of(self.program, id).slots) {
+            self.tag_of(b, e, whole)
         } else {
-            self.read_once(state, whole, Read::Tag(id), |this| {
-                this.tag_of(b, &slots, &enum_repr, none_variant, some_variant, whole)
-            })
+            self.read_once(state, whole, Read::Tag(id), |this| this.tag_of(b, e, whole))
         };
         self.set(state, dest, tag);
     }
@@ -1655,14 +1648,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     fn tag_of(
         &mut self,
         b: At<'ctx>,
-        slots: &[Slot],
-        enum_repr: &EnumRepr,
-        none_variant: usize,
-        some_variant: usize,
+        e: ir::EnumTy,
         whole: BasicValueEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let i32t = self.ctx.i32_type();
-        match *enum_repr {
+        let r = self.reprs.of(self.program, e.id());
+        let slots = r.slots.clone();
+        match self.reprs.of_enum(self.program, e).repr {
             // The value *is* the tag; widen it to the `i32` the IR says a tag
             // is (`ir::Inst::GetTag`), and the width it is *stored* at stays
             // the layout table's answer.
@@ -1671,13 +1663,17 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     offset: 0,
                     ty: SlotTy::Scalar(tag),
                 };
-                let tag = int(self.piece(b, slots, whole, 0, slot));
+                let tag = int(self.piece(b, &slots, whole, 0, slot));
                 b.zext(tag, i32t, "tag").into()
             }
             // The niche: `.None` is the pointer at `null_at` set to null, so
             // the tag is a null test and a `select` between the two variant
             // indices (VALUE-MODEL.md §6).
-            EnumRepr::Niche { null_at } => {
+            //
+            // The niche spends one variant's *absence* of fields: `.None` is
+            // the pointer set to null and `.Some` is everything else.
+            EnumRepr::Niche { null_at, .. } => {
+                let (some_variant, none_variant) = self.option_variants(e);
                 let i = slots
                     .iter()
                     .position(|s| s.offset == null_at.bytes() && s.ty.is_pointer())
@@ -1686,7 +1682,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     offset: null_at.bytes(),
                     ty: SlotTy::Scalar(Scalar::Ptr),
                 };
-                let p = ptr(self.piece(b, slots, whole, i as u32, slot));
+                let p = ptr(self.piece(b, &slots, whole, i as u32, slot));
                 let is_null = b.is_null(p, "isnone");
                 let some = i32t.const_int(some_variant as u64, false);
                 let none = i32t.const_int(none_variant as u64, false);
@@ -5846,7 +5842,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let payload = payload_at(enum_repr, *tag);
                 self.store_discriminant(b, buf, 0, *tag, payload, align, value);
             }
-            EnumRepr::Niche { null_at } => {
+            EnumRepr::Niche { null_at, .. } => {
                 let slot = Slot {
                     offset: null_at.bytes(),
                     ty: SlotTy::Scalar(Scalar::Ptr),
@@ -8466,20 +8462,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // moves this with it.
         let returned = self.declare_rt(runtime::RETURNED, &[], None);
         let e = enum_ty(func.sig.ret);
-        let (slots, err_offsets) = {
-            let r = self.reprs.of(self.program, e.id());
-            (
-                r.slots.clone(),
-                r.layout
-                    .variant(1)
-                    .iter()
-                    .map(|a| a.bytes())
-                    .collect::<Vec<u32>>(),
-            )
-        };
+        let err_offsets = self
+            .reprs
+            .of(self.program, e.id())
+            .layout
+            .variant(1)
+            .iter()
+            .map(|a| a.bytes())
+            .collect::<Vec<u32>>();
         let enum_repr = self.reprs.of_enum(self.program, e).repr.clone();
-        let (some_variant, none_variant) = self.option_variants(e);
-        let tag = int(self.tag_of(b, &slots, &enum_repr, none_variant, some_variant, result));
+        let tag = int(self.tag_of(b, e, result));
         let ok = self.ctx.append_basic_block(shim, "ok");
         let err = self.ctx.append_basic_block(shim, "err");
         let is_ok = b.icmp(IntPredicate::EQ, tag, i32t.const_zero(), "isok");
@@ -9256,6 +9248,7 @@ mod cycles {
                         purity: ir::Purity::Pure,
                         can_abort: false,
                     },
+                    env: false,
                     unit: 0,
                     body: ir::Body::Code(code),
                     span: Span::default(),

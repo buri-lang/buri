@@ -889,6 +889,7 @@ impl Generator {
             kind: FuncKind::Unbuilt,
             ret,
             desc: None,
+            env: false,
             span: Span::NONE,
         });
         self.shared.insert(shape.clone(), idx);
@@ -2204,6 +2205,7 @@ impl Generator {
             kind: FuncKind::Body(body),
             ret: str_ty,
             desc: None,
+            env: false,
             span: Span::NONE,
         });
         self.joiners.insert(n, idx);
@@ -3191,6 +3193,7 @@ impl Generator {
             kind: FuncKind::Intrinsic(key.to_string()),
             ret,
             desc: None,
+            env: false,
             span: Span::NONE,
         });
         self.runtime.insert(slot, idx);
@@ -3208,6 +3211,7 @@ impl Generator {
             kind: FuncKind::Body(body),
             ret,
             desc: None,
+            env: false,
             span: Span::NONE,
         })
     }

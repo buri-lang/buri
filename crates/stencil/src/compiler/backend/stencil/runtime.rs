@@ -98,7 +98,7 @@ impl OptRepr {
                 some,
                 none,
             },
-            EnumRepr::Niche { null_at } => OptRepr {
+            EnumRepr::Niche { null_at, .. } => OptRepr {
                 tag: (null_at.bytes(), 8),
                 niche: true,
                 payload,

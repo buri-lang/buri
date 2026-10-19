@@ -1293,7 +1293,7 @@ fn main_result(program: &ir::Program, tables: &Tables, idx: FuncIdx) -> asm::Mai
             niche: None,
             message,
         },
-        EnumRepr::Niche { null_at } => asm::MainResult {
+        EnumRepr::Niche { null_at, .. } => asm::MainResult {
             tag: (null_at.bytes(), 8),
             niche: Some(null_at.bytes()),
             message,
