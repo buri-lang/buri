@@ -769,12 +769,23 @@ jobs:
         with:
           path: formal/.lake
           key: lake-${{ runner.os }}-${{ hashFiles('formal/lean-toolchain', 'formal/lakefile.toml') }}
+      # `shell: bash` adds pipefail, so a Lean error in the audit fails the step
+      # rather than being hidden by `tee`. Each check exits on its own: under
+      # `bash -e` a `!`-negated command never stops the script.
       - working-directory: formal
+        shell: bash
         run: |
           lake build
           lake env lean Audit.lean | tee audit.out
-          ! grep -q sorryAx audit.out
-          ! grep -rn 'sorry\|admit' Buri/
+          if grep -q sorryAx audit.out; then
+            echo "::error::a proof depends on sorryAx:"
+            grep sorryAx audit.out
+            exit 1
+          fi
+          if grep -rn 'sorry\|admit' Buri/; then
+            echo "::error::sorry or admit appears in formal/Buri/ (listed above)"
+            exit 1
+          fi
 
   # The editor grammars: the generated grammar compiles, every highlight query
   # compiles, and the tree-sitter parse of every test source agrees with the
