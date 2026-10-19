@@ -6060,7 +6060,8 @@ mod tests {
         let third = carried(3);
         let mut depth = 0i64;
         // SAFETY: a live one-element block, and a writable `i64`.
-        let ok = unsafe { push_within(actor, third.ptr, third.len, &raw mut depth, Duration::ZERO) };
+        let ok =
+            unsafe { push_within(actor, third.ptr, third.len, &raw mut depth, Duration::ZERO) };
         assert_eq!(ok, crate::BURI_OK, "the rest's room was not given back");
         assert_eq!(depth, 1);
         drop_ref(&third);
