@@ -1,6 +1,8 @@
 export fn f(): Int {
-    g(1, 2)
-    // two
+    g(
+        1,
+        2, // two
+    )
 }
 
 export fn g(): [Int] [ {1, 2 // two

@@ -573,6 +573,52 @@ fn bracketed<'s>(open: &'static str, items: Vec<Doc<'s>>, close: &'static str) -
     ]))
 }
 
+/// The elements of a comma-separated list, with the comments written among
+/// them: above an element, beside it, and after the last one.
+struct Listed<'s> {
+    /// Each element with the comment written above it, if any.
+    items: Vec<Doc<'s>>,
+    /// What was written beside each element, after its comma.
+    besides: Vec<Doc<'s>>,
+    /// A comment on a line of its own after the last element.
+    after: Option<Doc<'s>>,
+    /// Whether any comment was written among the elements — not inside one,
+    /// which is that element's own business.
+    commented: bool,
+}
+
+/// [`bracketed`], with each comment kept beside the element it was written
+/// beside, between an `open` and a `close` that may be more than a bracket. A
+/// comment is a line of its own or the end of one, so a list with one in it is
+/// one element to a line.
+fn listed<'s>(open: Doc<'s>, l: Listed<'s>, close: Doc<'s>) -> Doc<'s> {
+    let last = l.items.len().saturating_sub(1);
+    let mut inner = vec![Doc::SoftLine];
+    for (i, (item, beside)) in l.items.into_iter().zip(l.besides).enumerate() {
+        // The comma belongs to the list and the comment to the line, so the
+        // comment comes after the comma: written before it, the next read of
+        // the file would take it as ending the element.
+        let comma = if i == last {
+            if_break(text(","), Doc::Nil)
+        } else {
+            text(",")
+        };
+        if i > 0 {
+            inner.push(Doc::Line);
+        }
+        inner.push(cat(vec![item, comma, beside]));
+    }
+    if let Some(c) = l.after {
+        inner.push(cat(vec![Doc::HardLine, c]));
+    }
+    let list = group(cat(vec![open, nest(cat(inner)), Doc::SoftLine, close]));
+    if l.commented {
+        force(list)
+    } else {
+        list
+    }
+}
+
 /// A list item with the comment written above it, if there is one, pinned on
 /// the line before it. The break is a `HardLine` so the run cannot collapse the
 /// two back onto one line, and the `BreakParent` the comment carries breaks the
@@ -2050,37 +2096,43 @@ impl<'t> Build<'t> {
         // broken signature has a line for it to sit on. Its `BreakParent` is
         // what breaks the signature: a comment cannot share a line with the
         // list it is annotating, so a flat signature is not on offer.
+        // One written beside a parameter stays beside it, after its comma, and
+        // one written under the last stays inside the parentheses.
         let t = self.tree();
-        let params: Vec<Doc<'t>> = t
-            .list(d.params)
-            .iter()
-            .map(|p| {
-                let c = self.flush(d.span.start, p.span.start);
-                with_comment(c, text(param_text(t, p)))
-            })
-            .collect();
+        let ps = t.list(d.params);
+        let ret = t.type_span(d.ret).start;
+        let mut l = Listed {
+            items: Vec::new(),
+            besides: Vec::new(),
+            after: None,
+            commented: false,
+        };
+        for (i, p) in ps.iter().enumerate() {
+            let c = self.flush(d.span.start, p.span.start);
+            let next = ps.get(i.saturating_add(1)).map_or(ret, |n| n.span.start);
+            let beside = self.trailing(p.span.end, next);
+            l.commented |= c.is_some() || !matches!(beside, Doc::Nil);
+            l.items.push(with_comment(c, text(param_text(t, p))));
+            l.besides.push(beside);
+        }
+        if let Some(p) = ps.last() {
+            l.after = self.flush(p.span.end, ret.saturating_sub(1));
+            l.commented |= l.after.is_some();
+        }
         let close = format!("): {}{tail}", type_text(t, d.ret));
-        if params.is_empty() {
+        if ps.is_empty() {
             return text(format!(
                 "{lead}fn {}{}({close}",
                 t.name(d.name),
                 generics(t, t.list(d.generics))
             ));
         }
-        group(cat(vec![
-            text(format!(
-                "{lead}fn {}{}(",
-                t.name(d.name),
-                generics(t, t.list(d.generics))
-            )),
-            nest(cat(vec![
-                Doc::SoftLine,
-                join(cat(vec![text(","), Doc::Line]), params),
-                if_break(text(","), Doc::Nil),
-            ])),
-            Doc::SoftLine,
-            text(close),
-        ]))
+        let open = text(format!(
+            "{lead}fn {}{}(",
+            t.name(d.name),
+            generics(t, t.list(d.generics))
+        ));
+        listed(open, l, text(close))
     }
 
     /// A function, whose body is always on lines of its own.
@@ -2336,7 +2388,7 @@ impl<'t> Build<'t> {
                 v.push(text("\""));
                 cat(v)
             }
-            ExprView::Array { elems, .. } => {
+            ExprView::Array { elems, span } => {
                 if elems.is_empty() {
                     return text("[]");
                 }
@@ -2345,12 +2397,12 @@ impl<'t> Build<'t> {
                 // reflow the ones after it; a list that reads down does not.
                 // The clause of an import is the exception, and it is one
                 // because a name there is not an element of anything.
-                let items: Vec<Doc<'t>> = elems.iter().map(|x| self.expr(*x)).collect();
-                bracketed("[", items, "]")
+                let l = self.expr_list(elems, span.start, span.end);
+                listed(text("["), l, text("]"))
             }
-            ExprView::Tuple { elems, .. } => {
-                let items: Vec<Doc<'t>> = elems.iter().map(|x| self.expr(*x)).collect();
-                bracketed("(", items, ")")
+            ExprView::Tuple { elems, span } => {
+                let l = self.expr_list(elems, span.start, span.end);
+                listed(text("("), l, text(")"))
             }
             ExprView::Block { block, .. } => {
                 let inner = self.block_lines(block);
@@ -2550,6 +2602,42 @@ impl<'t> Build<'t> {
         }
     }
 
+    /// The elements of a list written between `lo` and `hi`, each with the
+    /// comments written above and beside it, and whatever was written after
+    /// the last one. Claiming them here, element by element, is what keeps them
+    /// in the list: left for the enclosing block to sweep up, they came back
+    /// after the whole statement. An empty list claims nothing.
+    fn expr_list(&mut self, xs: &[ExprId], lo: u32, hi: u32) -> Listed<'t> {
+        let mut l = Listed {
+            items: Vec::new(),
+            besides: Vec::new(),
+            after: None,
+            commented: false,
+        };
+        // Only what was written *between* elements: one stranded inside an
+        // element is no more about the element after it than about any other,
+        // and keeps the place it had.
+        let mut from = lo;
+        for (i, &x) in xs.iter().enumerate() {
+            let at = self.tree().span(x);
+            let lead = self.flush(from, at.start);
+            from = at.end;
+            let d = self.expr(x);
+            let next = xs
+                .get(i.saturating_add(1))
+                .map_or(hi, |n| self.tree().span(*n).start);
+            let beside = self.trailing(at.end, next);
+            l.commented |= lead.is_some() || !matches!(beside, Doc::Nil);
+            l.items.push(with_lead(lead, d));
+            l.besides.push(beside);
+        }
+        if !xs.is_empty() {
+            l.after = self.flush(from, hi.saturating_sub(1));
+            l.commented |= l.after.is_some();
+        }
+        l
+    }
+
     /// Parenthesizes only where precedence requires it.
     fn at(&mut self, e: ExprId, parent: u8) -> Doc<'t> {
         let d = self.expr(e);
@@ -2730,10 +2818,10 @@ impl<'t> Build<'t> {
         for l in &links {
             match *l {
                 Link::Field(name) => assembled.push(text(format!(".{name}"))),
-                Link::Call(xs) => {
-                    let ds: Vec<Doc<'t>> = xs.iter().map(|x| self.expr(*x)).collect();
+                Link::Call(xs, lo, hi) => {
+                    let l = self.expr_list(xs, lo, hi);
                     let hug = xs.last().is_some_and(|x| huggable(self.tree(), *x));
-                    assembled.push(args_doc(ds, hug));
+                    assembled.push(args_doc(l, hug));
                 }
                 Link::Index(x) => {
                     let d = self.expr(x);
@@ -2788,7 +2876,13 @@ impl<'t> Build<'t> {
 /// its own to spill into — all on one line, **hugging** so that the head of the
 /// call stays on its line while that argument breaks, or one argument to a
 /// line — and the plain bracketed form otherwise.
-fn args_doc<'s>(ds: Vec<Doc<'s>>, hug: bool) -> Doc<'s> {
+fn args_doc<'s>(l: Listed<'s>, hug: bool) -> Doc<'s> {
+    // A comment among the arguments puts each on a line of its own, so there
+    // is no head line left to hug on.
+    if l.commented {
+        return listed(text("("), l, text(")"));
+    }
+    let ds = l.items;
     // The earlier arguments have to fit on the head line for a hug to mean
     // anything, so one that breaks rules it out. An empty list has no last
     // argument to hug either.
@@ -2997,7 +3091,9 @@ fn block_doc<'s>(inner: Doc<'s>) -> Doc<'s> {
 #[derive(Clone, Copy)]
 enum Link<'t> {
     Field(&'t str),
-    Call(&'t [ExprId]),
+    /// The arguments, and the span they were written in: from the end of
+    /// the callee to the end of the call.
+    Call(&'t [ExprId], u32, u32),
     Index(ExprId),
     Try,
     TypeArgs(&'t [TypeId]),
@@ -3016,9 +3112,9 @@ fn chain<'t>(t: &'t Tree, e: ExprId, links: &mut Vec<Link<'t>>) -> ExprId {
             links.push(Link::Field(name));
             b
         }
-        ExprView::Call { callee, args, .. } => {
+        ExprView::Call { callee, args, span } => {
             let b = chain(t, callee, links);
-            links.push(Link::Call(args));
+            links.push(Link::Call(args, t.span(callee).end, span.end));
             b
         }
         ExprView::Index { base, index, .. } => {
@@ -3068,7 +3164,7 @@ fn breakable(t: &Tree, e: ExprId) -> bool {
             links.iter().filter(|l| matches!(l, Link::Field(_))).count() >= 2
                 || links
                     .iter()
-                    .any(|l| matches!(l, Link::Call(a) if !a.is_empty()))
+                    .any(|l| matches!(l, Link::Call(a, ..) if !a.is_empty()))
                 || breakable(t, base)
         }
         ExprView::TupleIndex { base, .. } | ExprView::Unary { operand: base, .. } => {

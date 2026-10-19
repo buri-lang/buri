@@ -1,0 +1,10 @@
+let ys: List<Int> = [
+    1,
+    2, // the last
+];
+
+zs let: List<Int> = [
+    1,
+    2,
+    // after everything
+];

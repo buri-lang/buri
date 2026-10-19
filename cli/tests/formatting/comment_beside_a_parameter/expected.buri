@@ -1,0 +1,13 @@
+export fn f(
+    a: Int, // the first
+    b: Int, // the second
+): Int {
+    a + b
+}
+
+export fn g(
+    a: Int,
+    // after the last parameter
+): Int {
+    a
+}

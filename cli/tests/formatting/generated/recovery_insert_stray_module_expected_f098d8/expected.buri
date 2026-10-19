@@ -1,0 +1,6 @@
+let ys: List<Int> = [
+    // the first
+    1,
+    // the second
+    2,
+? ];

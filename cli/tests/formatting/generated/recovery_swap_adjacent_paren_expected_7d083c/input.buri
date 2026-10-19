@@ -1,4 +1,0 @@
-export fn first(t: (IntInt ,)): Int {
-    let (a,) = t;
-    a
-}
