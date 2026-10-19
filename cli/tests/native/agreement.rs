@@ -126,6 +126,7 @@
 //!   `#[ignore]`d agreement test that runs the day the gap closes, and a test
 //!   asserting the gap is *still there*, so the ignore cannot rot into a lie.
 //!   That is `native/conformance.rs`'s pattern, for its reason.
+use crate::hang::Capped;
 use buri::build::actions;
 use buri::build::buildfile::{Arch, Platform};
 use buri::compiler::backend::{self, Backend, Options, Profile, Target};
@@ -430,7 +431,10 @@ fn messages(diagnostics: &Diagnostics) -> String {
 pub(crate) fn run_js(row: &str, checked: &Checked, paths: &[String]) -> Ran {
     let artifact = emit_js(row, checked, paths);
     let engine = engine().expect("a JavaScript engine");
-    let out = Command::new(&engine).arg(&artifact).output().unwrap();
+    let out = Command::new(&engine)
+        .arg(&artifact)
+        .capped_output()
+        .unwrap();
     Ran {
         status: out.status.code().unwrap_or(-1),
         stdout: String::from_utf8_lossy(&out.stdout).to_string(),

@@ -811,6 +811,67 @@ fn the_reading_tells_a_spinning_child_from_a_sleeping_one() {
     println!("a spinner reads {busy:?}; a sleeper reads {idle:?}");
 }
 
+/// **A process is working when any of its threads is**, not only its first.
+///
+/// A compiler that hands its work to a pool and joins it is asleep on its main
+/// thread for the whole build. Linux's `/proc/<pid>/stat` letter is that main
+/// thread's alone, so a reading that stopped there called such a process
+/// stuck, however hard its pool was spinning.
+///
+/// The child is this test binary run again with [`SPIN_OFF_MAIN`] set: one
+/// thread spinning and the main one asleep. It says when both are in place,
+/// and from then on every reading must say runnable. Twenty in a row, because
+/// a main thread that has only just printed may not be asleep yet; the
+/// spinner is runnable at every instant, so the count is not a timing guess.
+#[test]
+fn the_reading_counts_every_thread_of_a_process() {
+    use std::io::BufRead;
+    use std::time::Duration;
+
+    if std::env::var_os(SPIN_OFF_MAIN).is_some() {
+        std::thread::spawn(|| loop {
+            std::hint::spin_loop();
+        });
+        println!("{SPIN_OFF_MAIN}");
+        std::thread::sleep(Duration::from_secs(600));
+        return;
+    }
+    let mut child = std::process::Command::new(std::env::current_exe().expect("this test's path"))
+        .args([
+            "--exact",
+            "the_reading_counts_every_thread_of_a_process",
+            "--test-threads=1",
+            "--nocapture",
+        ])
+        .env(SPIN_OFF_MAIN, "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("this test can run itself");
+    let pid = child.id();
+    let mut lines = std::io::BufReader::new(child.stdout.take().expect("piped")).lines();
+    // `contains`: libtest has already written `test <name> ... ` on this line.
+    let ready = lines.any(|line| line.is_ok_and(|l| l.contains(SPIN_OFF_MAIN)));
+    let looks: Vec<_> = (0..20)
+        .map(|_| {
+            std::thread::sleep(Duration::from_millis(20));
+            hang::look(pid).expect("this host reports what a process is doing")
+        })
+        .collect();
+    let _ = child.kill();
+    let _ = child.capped_wait();
+    assert!(ready, "the child never said its spinner was running");
+    assert!(
+        looks.iter().all(|look| look.runnable),
+        "a process with a spinning thread and a sleeping main one read as not runnable: \
+         {looks:?}. The hang cap would call a compiler joining its own pool stuck."
+    );
+}
+
+/// What tells [`the_reading_counts_every_thread_of_a_process`]'s run of itself
+/// that it is the child.
+const SPIN_OFF_MAIN: &str = "BURI_TEST_SPIN_OFF_MAIN";
+
 /// **A child that is working is not killed for being quiet**, however little of
 /// the machine it is getting.
 ///
