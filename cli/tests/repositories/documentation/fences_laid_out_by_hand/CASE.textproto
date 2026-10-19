@@ -1,0 +1,25 @@
+# Two fences `buri format` can't rewrite, because which of their laid-out
+# lines are the hidden ones can't be told: one whose hidden line the layout
+# drops, and one whose hidden lines fold into fewer lines than they were.
+# `buri format` leaves both as they are, and `buri docs test` says to lay
+# them out by hand rather than to run `buri format`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a fence buri format can't hide the lines of again is left to lay out by hand"
+
+run {
+  args: ["format"]
+  exit: 0
+}
+
+file {
+  path: "README.md"
+  golden: "README.md"
+}
+
+run {
+  args: ["docs", "test"]
+  exit: 1
+  golden: "test.txt"
+}

@@ -1,0 +1,29 @@
+README.md:6: this example is not laid out the way `buri format` lays out source
+    what a reader copies out of a page is the house style, so it is the house style that is printed there.
+    `buri format` can't tell which of the laid-out lines are the hidden ones, so it leaves this fence alone. Lay it out by hand.
+    expected:
+      | export fn trailing(): [Int] {
+      |     [1]
+      | }
+      actual:
+      | export fn trailing(): [Int] {
+      |     [
+      |         1
+      | ,
+      |     ]
+      | }
+
+README.md:17: this example is not laid out the way `buri format` lays out source
+    what a reader copies out of a page is the house style, so it is the house style that is printed there.
+    `buri format` can't tell which of the laid-out lines are the hidden ones, so it leaves this fence alone. Lay it out by hand.
+    expected:
+      | export fn folded(): [Int] {
+      |     [1]
+      | }
+      actual:
+      | export fn folded(): [Int] {
+      |     [
+      |         1
+      |     ]
+      | }
+2 example(s) do not do what the documentation says

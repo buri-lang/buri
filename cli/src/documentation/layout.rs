@@ -160,14 +160,24 @@ pub fn check(block: &Block) -> Option<Failure> {
     let Verdict::Drifted(canonical) = verdict(block) else {
         return None;
     };
+    // `buri format` leaves a fence it can't hide the lines of again, so the
+    // fix it would be is no fix for that one.
+    let fix = match hide_again(block, &canonical) {
+        Some(_) => {
+            "Run `buri format` over the documentation, which rewrites the fence and \
+             nothing else around it."
+        }
+        None => {
+            "`buri format` can't tell which of the laid-out lines are the hidden \
+             ones, so it leaves this fence alone. Lay it out by hand."
+        }
+    };
     Some(Failure {
         origin: block.origin.clone(),
         what: "this example is not laid out the way `buri format` lays out source".into(),
         detail: format!(
             "what a reader copies out of a page is the house style, so it is the house \
-             style that is printed there.\nRun `buri format` over the \
-             documentation, which rewrites the fence and nothing else around \
-             it.\nexpected:\n{}\n  actual:\n{}",
+             style that is printed there.\n{fix}\nexpected:\n{}\n  actual:\n{}",
             indent(&canonical),
             indent(&unmarked(&block.body))
         ),
