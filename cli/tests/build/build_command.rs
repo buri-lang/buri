@@ -1,6 +1,7 @@
 //! What `buri build` itself answers: `--check-reproducible` with nowhere to
 //! write its rounds, beside a broken build file, on a library alone and over a
 //! linker that writes something new each time, and two pages built in one run.
+#[cfg(target_os = "macos")]
 use crate::harness::hang::Capped;
 use crate::harness::*;
 

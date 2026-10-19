@@ -752,6 +752,13 @@ const TREE_LIMIT: usize = 4096;
 /// broken kernel or a broken mount rather than a stuck toolchain, and the job's
 /// `timeout-minutes` is what answers for that.
 ///
+/// **The state letter is the main thread's alone.** The times in
+/// `/proc/<pid>/stat` add up every thread of the process, but the letter is
+/// the first thread's — so a compiler that hands its work to a pool and joins
+/// it reads `S` however hard the pool is working. A process whose own letter
+/// is neither `R` nor `D` is asked again thread by thread, under
+/// `/proc/<pid>/task`, which is what macOS's `pti_numrunning` already counts.
+///
 /// `cutime`/`cstime` are in the sum as well as `utime`/`stime`, so the time of
 /// a child that has already been reaped stays counted where it landed: without
 /// them the sum would *fall* every time a build finished a subprocess.
@@ -778,11 +785,35 @@ fn reading(pid: u32) -> Option<Look> {
         pages = pages.saturating_add(row.pages);
         runnable |= row.runnable;
     }
+    // Only when no main thread said so: one directory per process, read on a
+    // tree that is otherwise about to be called asleep.
+    runnable = runnable || members.iter().any(|&id| a_thread_runs(id));
     Some(Look {
         runnable,
         spent: scaled(total, 1_000_000_000, hz)?,
         memory: pages.saturating_mul(page),
     })
+}
+
+/// Whether any thread of `pid` is `R` or `D`, from `/proc/<pid>/task/*/stat`.
+/// A process that has gone, or a thread that exits mid-walk, is no evidence.
+#[cfg(target_os = "linux")]
+fn a_thread_runs(pid: u32) -> bool {
+    let Ok(threads) = std::fs::read_dir(format!("/proc/{pid}/task")) else {
+        return false;
+    };
+    threads.flatten().any(|thread| {
+        std::fs::read_to_string(thread.path().join("stat")).is_ok_and(|text| {
+            text.rsplit_once(')')
+                .is_some_and(|(_, after)| running(after))
+        })
+    })
+}
+
+/// Whether the fields after `stat`'s closing `)` start with a running state.
+#[cfg(target_os = "linux")]
+fn running(after: &str) -> bool {
+    matches!(after.split_whitespace().next(), Some("R" | "D"))
 }
 
 /// Every process `/proc` lists, in one pass.
@@ -864,7 +895,7 @@ fn stat_row(id: u32, text: &str) -> Option<Row> {
             .and_then(|f| f.parse::<i64>().ok())
             .map(|n| u64::try_from(n).unwrap_or(0))
     };
-    let runnable = matches!(fields.first(), Some(&"R") | Some(&"D"));
+    let runnable = running(after);
     let parent = u32::try_from(number(1)?).ok()?;
     let spent = number(11)?
         .checked_add(number(12)?)?
