@@ -39,7 +39,7 @@
 use crate::compiler::semantics::resolve::{BodyMap, ConstMap};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp, Stmt, UnaryOp};
 use crate::compiler::semantics::types::{
-    ConstId, FnId, LocalId, ParamRole, Prim, Tables, VariantId,
+    ConstId, FnId, LocalId, ParamRole, Prim, Scalar, Tables, VariantId,
 };
 use crate::hash::Map as HashMap;
 
@@ -575,7 +575,8 @@ fn prim_op(op: PrimOp, prim: Prim, a: &Value, b: &Value) -> Option<Value> {
 }
 
 /// [`prim_op`]'s one-operand operations.
-fn unary_op(op: UnaryOp, prim: Prim, a: &Value) -> Option<Value> {
+fn unary_op(op: UnaryOp, prim: Scalar, a: &Value) -> Option<Value> {
+    let prim = prim.prim();
     match (op, a) {
         (UnaryOp::Not, Value::Bool(b)) => Some(Value::Bool(!b)),
         (UnaryOp::Neg, a) if prim.is_float() => narrow(prim, -a.as_float()?),

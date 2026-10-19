@@ -14,7 +14,7 @@
 //! instructions. `core/list`'s closure keys are no backend's at all —
 //! `middle::lower` builds them as loops (`lower/lists.rs`).
 
-use crate::compiler::semantics::types::{IntPrim, Prim, VariantId};
+use crate::compiler::semantics::types::{IntPrim, Prim, Scalar, VariantId};
 
 /// The `Equal`/`Ordered`/`Hash`/`Show` leaves at `Bool` and `Char`, plus
 /// `Char::toU32`, and `Str`'s `show`.
@@ -109,10 +109,14 @@ impl Num {
     ];
 
     pub fn prim(self) -> Prim {
+        self.scalar().prim()
+    }
+
+    pub fn scalar(self) -> Scalar {
         match self {
-            Num::Int(int) => int.prim(),
-            Num::F32 => Prim::F32,
-            Num::F64 => Prim::F64,
+            Num::Int(int) => int.scalar(),
+            Num::F32 => Scalar::F32,
+            Num::F64 => Scalar::F64,
         }
     }
 }
@@ -231,17 +235,18 @@ pub enum JsonArm {
     Bool,
     /// `.Num(Float)`. Every numeric primitive widens to the double JSON has,
     /// which rounds above 2^53 — and rounds in the same place on JavaScript,
-    /// which is what `json.buri`'s header says a JSON number is.
-    Num,
+    /// which is what `json.buri`'s header says a JSON number is. Carries
+    /// the number it widens from.
+    Num(Scalar),
     Str,
 }
 
 /// The arm a primitive encodes to. Total: every primitive is one of the three.
 pub fn json_arm(prim: Prim) -> JsonArm {
-    match prim {
-        Prim::Bool => JsonArm::Bool,
-        Prim::Str | Prim::Template | Prim::Char => JsonArm::Str,
-        _ => JsonArm::Num,
+    match prim.scalar() {
+        Some(Scalar::Bool) => JsonArm::Bool,
+        None | Some(Scalar::Char) => JsonArm::Str,
+        Some(number) => JsonArm::Num(number),
     }
 }
 
@@ -257,7 +262,7 @@ impl JsonArm {
     pub fn variant(self) -> VariantId {
         match self {
             JsonArm::Bool => VariantId::JSON_BOOL,
-            JsonArm::Num => VariantId::JSON_NUM,
+            JsonArm::Num(_) => VariantId::JSON_NUM,
             JsonArm::Str => VariantId::JSON_STR,
         }
     }
@@ -266,7 +271,7 @@ impl JsonArm {
     pub fn payload(self) -> Prim {
         match self {
             JsonArm::Bool => Prim::Bool,
-            JsonArm::Num => Prim::F64,
+            JsonArm::Num(_) => Prim::F64,
             JsonArm::Str => Prim::Str,
         }
     }
@@ -274,19 +279,16 @@ impl JsonArm {
 
 /// The target of a numeric conversion's operation name: `toI64`, `wrapToU8`.
 ///
-/// `Char`, `Str`, `Bool` and `Template` are excluded as targets even though
-/// `Prim::all` lists them: `U32.toChar` answers a `Result` because not every
+/// A [`Num`], so `Char`, `Str`, `Bool` and `Template` are not targets:
+/// `U32.toChar` answers a `Result` because not every
 /// `U32` is a Unicode scalar, and `conversion_is_exact` — which classifies by
 /// `is_integer`/`is_float` — would call it exact by falling into its
 /// integer-to-float arm. Each backend asks for `toChar` by name.
-pub fn conversion_target(op: &str) -> Option<Prim> {
+pub fn conversion_target(op: &str) -> Option<Num> {
     let name = op
         .strip_prefix("wrapTo")
         .or_else(|| op.strip_prefix("to"))?;
-    Prim::all()
-        .iter()
-        .copied()
-        .find(|p| p.name() == name && (p.is_integer() || p.is_float()))
+    Num::ALL.into_iter().find(|n| n.prim().name() == name)
 }
 
 /// The shapes a fallible `toT()` conversion comes in.
@@ -685,7 +687,11 @@ mod tests {
             if matches!(*prim, Prim::Bool | Prim::Str | Prim::Char | Prim::Template) {
                 continue;
             }
-            assert_eq!(json_arm(*prim), JsonArm::Num, "{}", prim.name());
+            assert!(
+                matches!(json_arm(*prim), JsonArm::Num(_)),
+                "{}",
+                prim.name()
+            );
         }
     }
 

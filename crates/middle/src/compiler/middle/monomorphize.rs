@@ -2719,7 +2719,7 @@ impl Monomorphizer<'_> {
         // the wrapped value, so the wrapped value has to *be* a primitive.
         // Without this the backend used to default the missing type to `I64`
         // and emit integer arithmetic on whatever was inside.
-        let Some(prim) = self.tables().as_prim(&inner) else {
+        let Some(prim) = self.tables().as_prim(&inner).and_then(Prim::scalar) else {
             let shown = crate::compiler::semantics::types::show(self.tables(), None, &[], &inner);
             self.diags.push(
                 Diagnostic::templated("derive-operator-not-numeric", span)
@@ -2751,7 +2751,7 @@ impl Monomorphizer<'_> {
                 .reduce(|a, b| {
                     at(ExprKind::Prim {
                         op,
-                        prim,
+                        prim: prim.prim(),
                         args: Box::new([a, b]),
                     })
                 })

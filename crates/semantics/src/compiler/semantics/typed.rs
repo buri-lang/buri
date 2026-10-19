@@ -9,7 +9,7 @@
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::types::{
-    CtxTypeId, FnId, FuncIdx, LocalId, MethodId, Prim, TraitId, Ty, TyConId, VariantId,
+    CtxTypeId, FnId, FuncIdx, LocalId, MethodId, Prim, Scalar, TraitId, Ty, TyConId, VariantId,
 };
 use crate::diagnostics::Span;
 
@@ -362,10 +362,11 @@ pub enum ExprKind {
         prim: Prim,
         args: Box<[Expr; 2]>,
     },
-    /// [`ExprKind::Prim`]'s one-operand operations.
+    /// [`ExprKind::Prim`]'s one-operand operations, none of which is at a
+    /// string.
     Unary {
         op: UnaryOp,
-        prim: Prim,
+        prim: Scalar,
         arg: Box<Expr>,
     },
 

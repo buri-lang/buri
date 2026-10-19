@@ -386,7 +386,7 @@ fn constant(e: &Expr, consts: Option<&ConstMap>) -> Option<i128> {
             op: UnaryOp::Neg,
             prim,
             arg,
-        } => in_range(*prim, constant(arg, consts)?.checked_neg()?),
+        } => in_range(prim.prim(), constant(arg, consts)?.checked_neg()?),
         ExprKind::Prim { op, prim, args } => {
             let [a, b] = &**args;
             let (a, b) = (constant(a, consts)?, constant(b, consts)?);

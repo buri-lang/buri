@@ -62,7 +62,7 @@ use crate::compiler::middle::ir::{
 use crate::compiler::middle::monomorphize::{FuncKind, Program};
 use crate::compiler::middle::rc;
 use crate::compiler::semantics::typed::{Expr, ExprKind};
-use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Ty, TyConId, TyKind};
+use crate::compiler::semantics::types::{FuncIdx, LocalId, Prim, Scalar, Ty, TyConId, TyKind};
 
 /// Whether `key` is lowered here: as a loop, or as the [`Inst::Parallel`] or
 /// [`Inst::Handover`] a runtime-driven key is.
@@ -561,7 +561,7 @@ impl FnLower<'_> {
                 let one = self.emit(Type::I64, |dest| Inst::Unary {
                     dest,
                     op: UnOp::FromBool,
-                    prim: Prim::Bool,
+                    prim: Scalar::Bool,
                     arg: b,
                 });
                 let c1 = self.emit(Type::I64, |dest| Inst::Binary {

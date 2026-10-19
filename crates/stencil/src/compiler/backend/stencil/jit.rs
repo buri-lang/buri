@@ -1984,10 +1984,10 @@ impl<'a> Jit<'a> {
 /// What a block's terminator may absorb from the block's tail.
 pub(crate) struct Plan {
     pub skip: Vec<bool>,
-    /// The comparison the branch will do itself: `(op, prim, lhs, rhs)`.
+    /// The comparison the branch will do itself: `(op, scalar, lhs, rhs)`.
     pub cmpbr: Option<(
         ir::BinOp,
-        crate::compiler::semantics::types::Prim,
+        crate::compiler::semantics::types::Scalar,
         ir::ValueId,
         ir::ValueId,
     )>,
@@ -3186,16 +3186,9 @@ impl<'a> Jit<'a> {
                         (f, *dest)
                     }
                     ir::Inst::Unary { dest, prim, op, .. }
-                        if !wide(prim) && *op != ir::UnOp::FromBool =>
+                        if !wide(&prim.prim()) && *op != ir::UnOp::FromBool =>
                     {
-                        (
-                            matches!(
-                                prim,
-                                crate::compiler::semantics::types::Prim::F32
-                                    | crate::compiler::semantics::types::Prim::F64
-                            ),
-                            *dest,
-                        )
+                        (prim.is_float(), *dest)
                     }
                     _ => continue,
                 };
@@ -3277,8 +3270,12 @@ impl<'a> Jit<'a> {
         for block in code.blocks() {
             for i in &block.insts {
                 if let ir::Inst::Binary { op, prim, rhs, .. } = i {
+                    // A `Str` comparison has no immediate form.
+                    let Some(scalar) = prim.scalar() else {
+                        continue;
+                    };
                     if let Some(k) = ent(constants, rhs.index(), None) {
-                        let (tag, _, _) = super::emit::num_tag(*prim);
+                        let (tag, _, _) = super::emit::prim_tag(scalar);
                         let name = op.name();
                         let key = key!["bin/", name, "/", tag, "/fi/f"];
                         if self.has(&key) && !zero_divisor(name, tag, k) {
@@ -3338,14 +3335,15 @@ impl<'a> Jit<'a> {
                         let b = st.loc(*rhs).tag();
                         // Fused where the library has the supernode: `sources`
                         // builds one for every operand shape of every
-                        // comparison of every type `prim_tag` names, and none
-                        // for an operator that is not a comparison.
-                        let fused = super::emit::prim_tag(*prim)
-                            .map(|(tag, _, _)| key!["brcmp/", op.name(), "/", tag, "/", a, b])
-                            .filter(|key| self.has(key));
-                        if fused.is_some() {
+                        // comparison of every scalar type, and none for an
+                        // operator that is not a comparison or for a `Str`.
+                        let fused = prim.scalar().filter(|s| {
+                            let (tag, _, _) = super::emit::prim_tag(*s);
+                            self.has(&key!["brcmp/", op.name(), "/", tag, "/", a, b])
+                        });
+                        if let Some(scalar) = fused {
                             put(&mut p.skip, k, true);
-                            p.cmpbr = Some((*op, *prim, *lhs, *rhs));
+                            p.cmpbr = Some((*op, scalar, *lhs, *rhs));
                         }
                     }
                 }
