@@ -312,7 +312,7 @@ fn root_of(lowered: &ir::Program) -> Option<Root> {
 /// only one of them exists in any program.
 enum Root {
     Main(ir::Main),
-    Tests(Vec<FuncIdx>),
+    Tests(Vec<ir::Root>),
 }
 
 /// Whether `unit` is the one the entry point belongs in.
@@ -322,8 +322,8 @@ fn owns(program: &ir::Program, root: &Root, unit: u32) -> bool {
         x.unit == unit && x.code().is_some()
     };
     match root {
-        Root::Main(e) => here(e.func),
-        Root::Tests(tests) => tests.first().copied().is_some_and(here),
+        Root::Main(e) => here(e.root.func()),
+        Root::Tests(tests) => tests.first().is_some_and(|t| here(t.func())),
     }
 }
 
@@ -471,13 +471,13 @@ fn emit_selected(
         let layouts = layout::Layouts::with_cycles(tables, cycles.clone());
         emit::observe(program, &emit::Boxes::new(program, tables, &layouts))
     };
-    let roots = match &root {
-        Some(Root::Main(e)) => std::slice::from_ref(&e.func),
-        Some(Root::Tests(tests)) => tests.as_slice(),
-        None => &[],
+    let roots: Vec<FuncIdx> = match &root {
+        Some(Root::Main(e)) => vec![e.root.func()],
+        Some(Root::Tests(tests)) => tests.iter().map(|t| t.func()).collect(),
+        None => Vec::new(),
     };
     let with_roots = |mut named: Dense<FuncIdx, bool>| {
-        for r in roots {
+        for r in &roots {
             *named.get_mut(*r) = true;
         }
         named
@@ -628,7 +628,7 @@ fn emit_unit(
                 // for the same reason the stencil backend puts it there:
                 // they are the two ways into this program's Buri code and
                 // they name the same root.
-                emitter.thread_door(e.func, task_thread::MAIN_ENTRY);
+                emitter.thread_door(e.root, task_thread::MAIN_ENTRY);
             }
             Some(Root::Tests(tests)) => {
                 emitter.test_entry_point(tests);

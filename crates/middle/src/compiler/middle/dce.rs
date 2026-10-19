@@ -107,12 +107,16 @@ fn disambiguate_unreached_symbols(program: &mut Program, reached: &Dense<FuncIdx
     }
 }
 
-/// The slots this program starts at: its entry, or every one of its tests.
+/// The slots this program starts at: its entry, or every one of its tests,
+/// and the entry it hands a `js` file.
 pub fn program_roots(program: &Program) -> Vec<FuncIdx> {
     let mut roots: Vec<FuncIdx> = match &program.roots {
-        ProgramRoots::Main(entry) => vec![*entry],
-        ProgramRoots::Tests(tests) => tests.iter().map(|t| t.func).collect(),
+        ProgramRoots::Main(entry) => vec![entry.func()],
+        ProgramRoots::Tests(tests) => tests.iter().map(|t| t.func.func()).collect(),
     };
+    if let Some(export) = &program.hosted.export {
+        roots.push(export.func);
+    }
     // A reactive cell's comparison is named by no call: a write is handed it.
     let mut cells: Vec<FuncIdx> = program.cell_equal.values().copied().collect();
     cells.sort_unstable();
@@ -210,7 +214,7 @@ fn is_chunk(e: &typed::Expr) -> bool {
 mod tests {
     use super::run;
     use crate::compiler::middle::func_id;
-    use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
+    use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots, Root};
     use crate::compiler::semantics::typed::{Expr, ExprKind};
     use crate::compiler::semantics::types::Ty;
     use crate::diagnostics::Span;
@@ -253,7 +257,7 @@ mod tests {
     fn program(funcs: Vec<Func>) -> Program {
         Program {
             funcs: funcs.into_iter().collect(),
-            roots: ProgramRoots::Main(func_id(0)),
+            roots: ProgramRoots::Main(Root::assumed(func_id(0))),
             descriptors: Vec::new(),
             desc_modules: Vec::new(),
             desc_index: HashMap::default(),

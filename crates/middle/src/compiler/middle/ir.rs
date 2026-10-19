@@ -71,6 +71,7 @@ use std::fmt::{self, Write as _};
 
 use crate::compiler::backend::intrinsic_keys::{ComputeRow, Handoff, PressRow, Tasks, WalkRow};
 use crate::compiler::middle::layout::EnumHead;
+pub use crate::compiler::middle::monomorphize::Root;
 use crate::compiler::semantics::layered::{Dense, DenseId, Mint};
 use crate::compiler::semantics::typed::Magnitude;
 use crate::compiler::semantics::types::{
@@ -1180,6 +1181,7 @@ pub struct Block {
 /// The flattened signature. Aggregates are one entry each here and are
 /// flattened into scalar leaves by the backend, from the layout table — see
 /// the module header.
+#[derive(Clone)]
 pub struct Signature {
     pub params: Vec<Type>,
     /// `()` included — a zero-sized result is dropped where the machine
@@ -1645,17 +1647,17 @@ pub struct Program {
 }
 
 /// Where a program starts: a binary's `main`, or a test binary's `test`
-/// blocks. Only one of them exists in any program.
+/// blocks. Only one of them exists in any program, and each takes nothing.
 #[derive(Clone, Debug)]
 pub enum Roots {
     Main(Main),
-    Tests(Vec<FuncIdx>),
+    Tests(Vec<Root>),
 }
 
 /// A binary's `main`, and the `Result<(), Str>` it answers.
 #[derive(Clone, Copy, Debug)]
 pub struct Main {
-    pub func: FuncIdx,
+    pub root: Root,
     pub ret: EnumTy,
 }
 

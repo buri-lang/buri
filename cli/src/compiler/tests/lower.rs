@@ -54,7 +54,12 @@ fn compiled(text: &str, inline: bool) -> (Program, driver::Analysis) {
         !analysis.diagnostics.has_errors(),
         "snippet did not compile: {complaints:?}"
     );
-    let entry = analysis.checked.entry.expect("the snippet exports `main`");
+    let entry = analysis
+        .checked
+        .started
+        .get("main")
+        .copied()
+        .expect("the snippet exports `main`");
     let module_paths: Vec<String> = analysis
         .loaded
         .modules

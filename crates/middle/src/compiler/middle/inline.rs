@@ -645,7 +645,9 @@ mod tests {
     fn program(funcs: Vec<Func>) -> Program {
         Program {
             funcs: funcs.into_iter().collect(),
-            roots: crate::compiler::middle::monomorphize::ProgramRoots::Main(func_id(0)),
+            roots: crate::compiler::middle::monomorphize::ProgramRoots::Main(
+                crate::compiler::middle::monomorphize::Root::assumed(func_id(0)),
+            ),
             descriptors: Vec::new(),
             desc_modules: Vec::new(),
             desc_index: Default::default(),
@@ -785,7 +787,7 @@ mod tests {
         assert_eq!(before, after);
         assert!(matches!(
             p.roots,
-            crate::compiler::middle::monomorphize::ProgramRoots::Main(f) if f == func_id(0)
+            crate::compiler::middle::monomorphize::ProgramRoots::Main(f) if f.func() == func_id(0)
         ));
     }
 

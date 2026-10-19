@@ -403,7 +403,11 @@ fn prepared(
     paths: &[String],
     target: Target,
 ) -> monomorphize::Program {
-    let entry = checked.entry.expect("the program exports `main`");
+    let entry = checked
+        .started
+        .get("main")
+        .copied()
+        .expect("the program exports `main`");
     let mut diagnostics = Diagnostics::new();
     let mut program = monomorphize::run(
         checked,

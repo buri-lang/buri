@@ -182,6 +182,8 @@ pub struct Checked {
     /// `fetch` produces two artifacts, each holding only what its own entry
     /// reaches.
     pub entries: HashMap<String, FnId>,
+    /// The entries a program starts at by itself, by name: see [`Started`].
+    pub started: HashMap<String, Started>,
     pub tests: Vec<TestCase>,
     /// The stylesheet rules this compilation's static `ui/style` literals
     /// extracted to, in walk order.
@@ -280,6 +282,34 @@ fn compiler_trait_home(name: &str) -> Option<&'static str> {
     }
 }
 
+/// An entry the backend starts with nothing but its host: `main(host:
+/// NativeHost)`, or a repository platform's entry with no `js` file.
+///
+/// Minted wherever an entry's first parameter is accepted as its host, so the
+/// host's type is the one the check read. The rest of the signature is held by
+/// the same check: an entry that takes anything else, or answers anything but
+/// `Result<(), Str>`, is an error, and a program with an error is never
+/// monomorphized. So a program built from one calls its entry with the host
+/// alone. An entry a `js` file calls is minted too, and its build never asks:
+/// it looks the entry up in [`Checked::entries`] instead.
+#[derive(Clone, Copy, Debug)]
+pub struct Started {
+    func: FnId,
+    host: TyConId,
+}
+
+impl Started {
+    /// The entry itself.
+    pub fn func(self) -> FnId {
+        self.func
+    }
+
+    /// The host the entry takes.
+    pub fn host(self) -> TyConId {
+        self.host
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct TestCase {
     pub name: String,
@@ -301,6 +331,8 @@ pub struct Checker<'a> {
     pub entry: Option<FnId>,
     /// See [`Checked::entries`].
     pub entries: HashMap<String, FnId>,
+    /// See [`Checked::started`].
+    pub started: HashMap<String, Started>,
     /// Which of those an output actually enters through — plus `main`, which
     /// every analysis treats as one whether or not a build file was read.
     ///
@@ -522,6 +554,7 @@ impl<'a> Checker<'a> {
             const_locals: IdMap::default(),
             entry: None,
             entries: HashMap::default(),
+            started: HashMap::default(),
             entry_points: HashSet::default(),
             module_entries: HashMap::default(),
             tests: Vec::new(),
@@ -736,6 +769,7 @@ impl<'a> Checker<'a> {
             const_locals: self.const_locals,
             entry: self.entry,
             entries: self.entries,
+            started: self.started,
             tests: self.tests,
             styles,
             style_sources,
@@ -2096,7 +2130,7 @@ impl<'a> Checker<'a> {
                 match (taken, expected) {
                     // Unresolved already, and reported where it was written.
                     _ if param.ty.is_error() => {}
-                    (Some(taken), Some((_, wanted))) if taken.1 != wanted => {
+                    (Some((_, taken)), Some((_, wanted))) if taken.1 != wanted => {
                         let platform = platform.map_or("this", Platform::slug);
                         self.templated("entry-host-mismatch", param.span)
                             .bind("entry", name.to_string())
@@ -2110,7 +2144,10 @@ impl<'a> Checker<'a> {
                                 taken.0
                             ));
                     }
-                    (Some(_), _) => {}
+                    (Some((host, _)), _) => {
+                        self.started
+                            .insert(name.to_string(), Started { func: fid, host });
+                    }
                     (None, _) => {
                         self.templated("entry-signature-mismatch", param.span)
                             .bind("entry", name.to_string())
@@ -2143,9 +2180,9 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// The bundled platform and host type `ty` is, when it is one of the three
-    /// hosts the bundled platforms declare.
-    fn bundled_host(&self, ty: &Ty) -> Option<(&'static str, &'static str)> {
+    /// The host type `ty` is, with its bundled platform's name and its own,
+    /// when it is one of the three hosts the bundled platforms declare.
+    fn bundled_host(&self, ty: &Ty) -> Option<(TyConId, (&'static str, &'static str))> {
         let TyKind::Con(con, args) = ty.kind() else {
             return None;
         };
@@ -2155,7 +2192,8 @@ impl<'a> Checker<'a> {
         let tycon = self.tables.tycon(*con);
         // A built-in type has no module, and is no host.
         let module = self.loaded.modules.owner(tycon.module)?.path.as_str();
-        standard_library::host_type_of(module).filter(|(_, host)| *host == tycon.name)
+        let named = standard_library::host_type_of(module).filter(|(_, host)| *host == tycon.name);
+        named.map(|named| (*con, named))
     }
 
     fn record_intrinsic(&mut self, fid: FnId, module: ModuleId, d: &tree::FnDecl) {

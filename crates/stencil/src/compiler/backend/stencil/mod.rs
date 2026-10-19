@@ -165,7 +165,7 @@ use crate::compiler::middle::monomorphize::Program;
 use crate::compiler::middle::{ir, lower};
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::types::{FieldId, FuncIdx, Tables, VariantId};
-use crate::diagnostics::{Diagnostic, Diagnostics, Invariant, Span};
+use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 use std::sync::OnceLock;
 
 /// The stencil libraries, built by `cli/build.rs` — one per
@@ -585,18 +585,15 @@ const ENTRY_SYMBOL: &str = "main";
 
 /// The C door into one root.
 ///
-/// **Nullary only.** `task_thread.rs`'s `state` is passed and not read, and
-/// every Buri root takes no arguments (`main(): Result<(), Str>` and a `test`
-/// block both), so there is no record of arguments to read.
+/// `task_thread.rs`'s `state` is passed and not read: a root takes nothing
+/// ([`ir::Root`]), so there is no record of arguments to read.
 fn thread_door(
     target: abi::StencilTarget,
     frames: &Dense<FuncIdx, jit::FrameSig>,
-    idx: FuncIdx,
+    root: ir::Root,
     sym: &str,
 ) -> asm::Shim {
-    let frame = Some(frames.get(idx)).filter(|f| f.params.is_empty());
-    let frame = frame.or_ice("a root has a frame and takes no arguments");
-    asm::thread_entry(target, sym, frame.ret_size)
+    asm::thread_entry(target, sym, frames.get(root.func()).ret_size)
 }
 
 /// One codegen unit, from IR to object bytes.
@@ -826,21 +823,21 @@ fn assemble_unit(
     // The one fact an entry point states that no `Func` in it carries.
     let marking = asm::Marking::of(shares);
     match root {
-        ir::Roots::Main(main) if members.contains(&main.func) => {
-            let sym = jit::symbol_of(program, main.func);
+        ir::Roots::Main(main) if members.contains(&main.root.func()) => {
+            let sym = jit::symbol_of(program, main.root.func());
             shims.push((
                 String::from(ENTRY_SYMBOL),
                 asm::program_entry(target, sym, main_result(program, tables, main.ret), marking),
             ));
             shims.push((
                 String::from(task_thread::MAIN_ENTRY),
-                thread_door(target, frames, main.func, sym),
+                thread_door(target, frames, main.root, sym),
             ));
         }
-        ir::Roots::Tests(tests) if tests.first().is_some_and(|i| members.contains(i)) => {
+        ir::Roots::Tests(tests) if tests.first().is_some_and(|t| members.contains(&t.func())) => {
             let names: Vec<String> = tests
                 .iter()
-                .map(|i| String::from(jit::symbol_of(program, *i)))
+                .map(|t| String::from(jit::symbol_of(program, t.func())))
                 .collect();
             shims.push((
                 String::from(ENTRY_SYMBOL),

@@ -168,9 +168,27 @@ fn calls(to: &[u32]) -> Expr {
 }
 
 fn hand_built(funcs: Vec<Func>) -> Program {
+    let mut funcs = funcs.into_iter();
+    let main = funcs.next().expect("a hand-built program has a `main`");
+    assert!(main.params.is_empty(), "a root takes nothing");
+    let mut table = crate::compiler::semantics::layered::Dense::new();
+    let root = monomorphize::Root::push(
+        &mut table,
+        monomorphize::Nullary {
+            symbol: main.symbol,
+            debug_name: main.debug_name,
+            locals: main.locals,
+            kind: main.kind,
+            ret: main.ret,
+            span: main.span,
+        },
+    );
+    for f in funcs {
+        table.push(f);
+    }
     Program {
-        funcs: funcs.into_iter().collect(),
-        roots: monomorphize::ProgramRoots::Main(super::func_id(0)),
+        funcs: table,
+        roots: monomorphize::ProgramRoots::Main(root),
         descriptors: Vec::new(),
         desc_modules: Vec::new(),
         desc_index: HashMap::default(),

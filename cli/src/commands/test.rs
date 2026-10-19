@@ -5544,7 +5544,7 @@ fn selected_of(program: &mut monomorphize::Program, info: &BatchInfo) -> Vec<Sel
                     owner,
                     name: test.name.clone(),
                     module: test.module.clone(),
-                    func: test.func,
+                    func: test.func.func(),
                 });
             })
             .is_some()

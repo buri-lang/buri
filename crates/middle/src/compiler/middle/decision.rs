@@ -455,7 +455,7 @@ mod tests {
     use super::run;
     use crate::compiler::middle::func_id;
     use crate::compiler::middle::local_id;
-    use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
+    use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots, Root};
     use crate::compiler::semantics::name::Name;
     use crate::compiler::semantics::typed::{
         Arm, Expr, ExprKind, FieldPat, Local, Magnitude, NumberLit, PatKind, Pattern,
@@ -531,7 +531,7 @@ mod tests {
             }]
             .into_iter()
             .collect(),
-            roots: ProgramRoots::Main(func_id(0)),
+            roots: ProgramRoots::Main(Root::assumed(func_id(0))),
             descriptors: Vec::new(),
             desc_modules: Vec::new(),
             desc_index: HashMap::default(),

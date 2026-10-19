@@ -268,10 +268,15 @@ pub struct Compiled {
 /// `middle::dce` walks from the root; so a binary whose page enters at `main`
 /// and whose worker enters at `fetch` produces two artifacts, and neither holds
 /// what only the other reaches.
+///
+/// `handed` is whether a `js` file calls the entry ([`entry_js`]), which only a
+/// `JS` output's can: then the program hands the entry over rather than
+/// starting it.
 fn monomorphized_entry(
     session: &mut Session,
     target: TargetId,
     output: &Output,
+    handed: bool,
     diagnostics: &mut Diagnostics,
 ) -> Result<(crate::compiler::driver::Analysis, monomorphize::Program), Diagnostics> {
     let platform = output.platform();
@@ -294,7 +299,19 @@ fn monomorphized_entry(
     }
     diagnostics.extend(std::mem::take(&mut analysis.diagnostics.items));
 
-    let Some(entry) = analysis.checked.entries.get(&name).copied() else {
+    let checked = &analysis.checked;
+    let roots = if handed {
+        let point = output.entry_point();
+        let entry = checked.entries.get(&name).copied();
+        entry.map(|entry| monomorphize::Roots::Handed { entry, name: point })
+    } else {
+        checked
+            .started
+            .get(&name)
+            .copied()
+            .map(monomorphize::Roots::Main)
+    };
+    let Some(roots) = roots else {
         diagnostics.push(missing_main(session, target, output));
         return Err(std::mem::take(diagnostics));
     };
@@ -305,12 +322,7 @@ fn monomorphized_entry(
         .iter()
         .map(|m| m.path.clone())
         .collect();
-    let program = monomorphize::run(
-        &analysis.checked,
-        module_paths,
-        diagnostics,
-        monomorphize::Roots::Main(entry),
-    );
+    let program = monomorphize::run(&analysis.checked, module_paths, diagnostics, roots);
     if diagnostics.has_errors() {
         return Err(std::mem::take(diagnostics));
     }
@@ -334,13 +346,15 @@ pub fn compile_artifact(
     diagnostics: &mut Diagnostics,
 ) -> Result<Compiled, Diagnostics> {
     let platform = output.platform();
-    let (analysis, mut program) = monomorphized_entry(session, target, output, diagnostics)?;
+    let (module, js) = entry_js(output);
+    let handed = js.is_some();
+    let (analysis, mut program) =
+        monomorphized_entry(session, target, output, handed, diagnostics)?;
     let unkeyed = unkeyed_reads(session, target, &analysis.loaded, &mut RulePaths::new());
     // An entry with a `js` file hands itself to the file, which is read and
     // checked here and bundled with the program below.
-    let host_file = host_file(session, output, &analysis, diagnostics)?;
+    let host_file = host_file(session, output, &analysis, module, js, diagnostics)?;
     if let Some(file) = &host_file {
-        program.hosted.export = Some(output.entry_point().to_string());
         program.hosted.ui = file.exports.ui;
     }
     // The arch is `None` until a native backend has one to vary on: every
@@ -425,21 +439,11 @@ fn needed_structs(
         .collect()
 }
 
-/// Reads and checks an entry's `js` file: every production struct the entry's
-/// host holds of the platform's own is exported with every method, at the
-/// right number of parameters. `None` for an entry with no `js` file and no
-/// such struct, which starts itself.
-///
-/// A bundled platform's file is embedded in the toolchain, as its build file
-/// is; a repository platform's is read from its package.
-fn host_file(
-    session: &mut Session,
-    output: &Output,
-    analysis: &crate::compiler::driver::Analysis,
-    diagnostics: &mut Diagnostics,
-) -> Result<Option<HostFile>, Diagnostics> {
+/// The `platform.buri` an output's entry is declared in, and the `js` file its
+/// platform gives that entry, if any.
+fn entry_js(output: &Output) -> (String, Option<String>) {
     let point = output.entry_point();
-    let (module, js) = match &output.custom {
+    match &output.custom {
         Some(custom) => (
             format!("//{}/platform.buri", custom.package_path()),
             custom.js.clone(),
@@ -453,7 +457,27 @@ fn host_file(
                 .and_then(|e| e.js.as_ref().map(|js| js.value.clone()));
             (name.name().to_string(), js)
         }
-    };
+    }
+}
+
+/// Reads and checks an entry's `js` file: every production struct the entry's
+/// host holds of the platform's own is exported with every method, at the
+/// right number of parameters. `None` for an entry with no `js` file and no
+/// such struct, which starts itself.
+///
+/// A bundled platform's file is embedded in the toolchain, as its build file
+/// is; a repository platform's is read from its package.
+///
+/// `module` and `js` are [`entry_js`]'s.
+fn host_file(
+    session: &mut Session,
+    output: &Output,
+    analysis: &crate::compiler::driver::Analysis,
+    module: String,
+    js: Option<String>,
+    diagnostics: &mut Diagnostics,
+) -> Result<Option<HostFile>, Diagnostics> {
+    let point = output.entry_point();
     let needed = needed_structs(analysis, &module, point);
     let Some(js) = js else {
         if let Some(first) = needed.first() {
@@ -2269,7 +2293,7 @@ fn test_entry_signature(
     let monomorphize::ProgramRoots::Tests(tests) = &program.roots else {
         return None;
     };
-    let unit = lowered.funcs.get(tests.first()?.func).unit as usize;
+    let unit = lowered.funcs.get(tests.first()?.func.func()).unit as usize;
     let mut sig = String::new();
     for t in tests {
         sig.push_str(&t.module);
@@ -2573,7 +2597,7 @@ pub fn compile_objects(
     flags: &Flags,
     diagnostics: &mut Diagnostics,
 ) -> Result<Objects, Diagnostics> {
-    let (analysis, mut program) = monomorphized_entry(session, target, output, diagnostics)?;
+    let (analysis, mut program) = monomorphized_entry(session, target, output, false, diagnostics)?;
     objects_of(
         session,
         target,
@@ -2846,7 +2870,8 @@ fn build_native(
             });
         }
     }
-    let (analysis, mut program) = monomorphized_entry(session, target, output, &mut diagnostics)?;
+    let (analysis, mut program) =
+        monomorphized_entry(session, target, output, false, &mut diagnostics)?;
     let reads = encode_reads(
         session,
         &unkeyed_reads(session, target, &analysis.loaded, &mut RulePaths::new()),

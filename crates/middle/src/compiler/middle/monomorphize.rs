@@ -25,7 +25,7 @@
 
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::name::Name;
-use crate::compiler::semantics::resolve::{Checked, TestCase};
+use crate::compiler::semantics::resolve::{Checked, Started, TestCase};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind};
 use crate::compiler::semantics::types::*;
 use crate::diagnostics::{invariant_with, Diagnostic, Diagnostics, Invariant as _, Span};
@@ -126,9 +126,56 @@ impl Func {
     }
 }
 
+/// A function a program starts at, which takes nothing.
+///
+/// Only this module mints one, and only for a function it built with no
+/// parameters: a started entry's wrapper ([`Root::push`]) and a `test` block,
+/// whose body is never given any. A backend's thread door calls a root with no
+/// arguments, and this type is why it may.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct Root(FuncIdx);
+
+impl Root {
+    pub fn func(self) -> FuncIdx {
+        self.0
+    }
+
+    /// Adds a function of no parameters to `funcs`, as a root.
+    pub fn push(funcs: &mut Dense<FuncIdx, Func>, f: Nullary) -> Root {
+        Root(funcs.push(Func {
+            symbol: f.symbol,
+            debug_name: f.debug_name,
+            params: Vec::new(),
+            locals: f.locals,
+            kind: f.kind,
+            ret: f.ret,
+            desc: None,
+            env: false,
+            span: f.span,
+        }))
+    }
+
+    /// A root at a slot a unit test's hand-built program says takes nothing.
+    #[cfg(test)]
+    pub(crate) fn assumed(func: FuncIdx) -> Root {
+        Root(func)
+    }
+}
+
+/// A [`Func`] with no parameters, and so no environment or descriptor: what
+/// [`Root::push`] adds.
+pub struct Nullary {
+    pub symbol: String,
+    pub debug_name: String,
+    pub locals: typed::Locals,
+    pub kind: FuncKind,
+    pub ret: Ty,
+    pub span: Span,
+}
+
 pub struct TestEntry {
     pub name: String,
-    pub func: FuncIdx,
+    pub func: Root,
     pub module: String,
     pub span: Span,
 }
@@ -216,8 +263,12 @@ pub struct DescVariant {
 /// was an artifact with no roots at all, which the minifier then deleted
 /// entirely. `Roots` already said there were exactly two cases; this is the
 /// output side of the same statement.
+///
+/// Both are what the program starts by itself. An entry a `js` file calls
+/// starts nothing, so its program's roots are no tests, and the entry is
+/// [`Hosted::export`]'s.
 pub enum ProgramRoots {
-    Main(FuncIdx),
+    Main(Root),
     Tests(Vec<TestEntry>),
 }
 
@@ -345,12 +396,19 @@ pub struct Hosted {
     /// standard's.
     pub request: Option<TyConId>,
     pub response: Option<TyConId>,
-    /// The name the artifact hands its entry to the `js` file under, in place
-    /// of starting itself. Set by the build for an entry with a `js` file.
-    pub export: Option<String>,
+    /// The entry the artifact hands to its `js` file, in place of starting
+    /// itself: [`Roots::Handed`]'s.
+    pub export: Option<Export>,
     /// Whether that file imports `buri:ui`, so the artifact hands it the
     /// reactive graph too.
     pub ui: bool,
+}
+
+/// An entry a `js` file calls, and the name the file imports it under.
+#[derive(Clone, Debug)]
+pub struct Export {
+    pub name: String,
+    pub func: FuncIdx,
 }
 
 /// One lazily loaded chunk: the function `core/lazy`'s `load` was handed, and
@@ -633,8 +691,17 @@ pub fn run(
         cell_equal: HashMap::default(),
     };
 
+    let mut export = None;
     let program_roots = match roots {
-        Roots::Main(f) => ProgramRoots::Main(m.entry(f)),
+        Roots::Main(entry) => ProgramRoots::Main(m.started(entry)),
+        Roots::Handed { entry, name } => {
+            let func = m.handed(entry);
+            export = Some(Export {
+                name: name.to_string(),
+                func,
+            });
+            ProgramRoots::Tests(Vec::new())
+        }
         Roots::Tests | Roots::TestsIn(_) => {
             let mut tests = Vec::new();
             for (i, case) in m.checked.tests.iter().enumerate() {
@@ -648,7 +715,8 @@ pub fn run(
                         continue;
                     }
                 }
-                let func = m.request(Key::Test(i, Box::new(case.clone())));
+                // Built with no parameters: see `Key::Test` in `build`.
+                let func = Root(m.request(Key::Test(i, Box::new(case.clone()))));
                 tests.push(TestEntry {
                     name: case.name.clone(),
                     func,
@@ -718,7 +786,7 @@ pub fn run(
         // Only a test checks that the stylesheet holds every class `classify`
         // finds a name for.
         let unchecked = match roots {
-            Roots::Main(_) => classifiers,
+            Roots::Main(_) | Roots::Handed { .. } => classifiers,
             Roots::Tests | Roots::TestsIn(_) => Vec::new(),
         };
         for (slot, f) in funcs.entries_mut() {
@@ -796,7 +864,7 @@ pub fn run(
             request: checked.known_types.get("Request").copied(),
             response: checked.known_types.get("Response").copied(),
             js_implemented: m.js_implemented,
-            export: None,
+            export,
             ui: false,
         },
     }
@@ -862,7 +930,13 @@ fn one_symbol_per_function(funcs: &[Func]) -> Option<SymbolClash<'_>> {
 
 #[derive(Clone, Copy)]
 pub enum Roots<'a> {
-    Main(FnId),
+    /// An entry the program starts by itself, handing it its host.
+    Main(Started),
+    /// An entry a `js` file calls, under `name`, with its own arguments.
+    Handed {
+        entry: FnId,
+        name: &'a str,
+    },
     Tests,
     /// The tests declared in these modules only. `buri test` monomorphizes each
     /// binary a batch of suites is divided into from the batch's one type check.
@@ -889,23 +963,46 @@ impl<'a> Monomorphizer<'a> {
     /// backend supplies. A field the program never binds is a value nothing
     /// calls, so none of its methods is ever requested.
     ///
-    /// An entry with no host parameter is the root itself, as every entry was
-    /// before hosts.
-    fn entry(&mut self, f: FnId) -> FuncIdx {
-        let key = Key::Fn(f, Vec::new());
+    /// The wrapper is a [`Root`]: it takes nothing, because a [`Started`] entry
+    /// takes its host alone.
+    fn started(&mut self, entry: Started) -> Root {
+        let (inner, symbol, debug_name) = self.wrapped(entry.func());
+        let info = self.tables().fn_info(entry.func());
+        let (span, ret) = (info.span, info.ret);
+        let host = self.host_value(entry.host(), span);
+        let call = typed::Expr::new(
+            ExprKind::CallFunc {
+                func: inner,
+                args: vec![host],
+            },
+            ret,
+            span,
+        );
+        Root::push(
+            &mut self.funcs,
+            Nullary {
+                symbol,
+                debug_name: format!("{debug_name}, building its host"),
+                locals: typed::Locals::new(),
+                kind: FuncKind::Body(call),
+                ret,
+                span,
+            },
+        )
+    }
+
+    /// The function a `js` file calls: [`Monomorphizer::started`]'s wrapper,
+    /// taking the parameters after the host as its own. A worker's
+    /// `fetch(host, request)` is entered as `fetch(request)`.
+    ///
+    /// An entry with no host parameter is the function itself.
+    fn handed(&mut self, f: FnId) -> FuncIdx {
         let Some(host) = self.host_parameter(f) else {
-            return self.request(key);
+            return self.request(Key::Fn(f, Vec::new()));
         };
-        // The entry is the first function requested, so it is not in `index`.
-        let mut entry = self.head(&key);
-        let symbol = entry.symbol.clone();
-        let debug_name = entry.debug_name.clone();
-        entry.symbol = format!("{symbol}$withHost");
-        let inner = self.enqueue(key, entry);
+        let (inner, symbol, debug_name) = self.wrapped(f);
         let info = self.tables().fn_info(f).clone();
         let span = info.span;
-        // The parameters after the host are the wrapper's own: a worker's
-        // `fetch(host, request)` is entered as `fetch(request)`.
         let rest: typed::Locals = info
             .params
             .iter()
@@ -920,6 +1017,37 @@ impl<'a> Monomorphizer<'a> {
             .entries()
             .map(|(i, l)| typed::Expr::new(ExprKind::Local(i), l.ty, span))
             .collect();
+        let mut args = vec![self.host_value(host, span)];
+        args.extend(forwarded);
+        let call = typed::Expr::new(ExprKind::CallFunc { func: inner, args }, info.ret, span);
+        self.funcs.push(Func {
+            symbol,
+            debug_name: format!("{debug_name}, building its host"),
+            params: rest.ids().collect(),
+            locals: rest,
+            kind: FuncKind::Body(call),
+            ret: info.ret,
+            desc: None,
+            env: false,
+            span,
+        })
+    }
+
+    /// Queues entry `f` under its symbol with `$withHost` after it, and answers
+    /// it with the symbol and debug name its wrapper takes.
+    fn wrapped(&mut self, f: FnId) -> (FuncIdx, String, String) {
+        let key = Key::Fn(f, Vec::new());
+        // The entry is the first function requested, so it is not in `index`.
+        let mut entry = self.head(&key);
+        let symbol = entry.symbol.clone();
+        let debug_name = entry.debug_name.clone();
+        entry.symbol = format!("{symbol}$withHost");
+        (self.enqueue(key, entry), symbol, debug_name)
+    }
+
+    /// A value of host type `host`: each field a production struct, built
+    /// with no fields.
+    fn host_value(&self, host: TyConId, span: Span) -> typed::Expr {
         let fields: Vec<typed::Expr> = self
             .tables()
             .tycon(host)
@@ -935,12 +1063,12 @@ impl<'a> Monomorphizer<'a> {
                     field.ty,
                     span,
                 ),
-                // `host_parameter` admits only a type whose every field is a
-                // production struct, so there is nothing else to build.
+                // A host's every field is a production struct, checked where
+                // the host was accepted, so there is nothing else to build.
                 _ => typed::Expr::new(ExprKind::Error, field.ty, span),
             })
             .collect();
-        let value = typed::Expr::new(
+        typed::Expr::new(
             ExprKind::StructLit {
                 con: host,
                 targs: Vec::new(),
@@ -948,21 +1076,7 @@ impl<'a> Monomorphizer<'a> {
             },
             Ty::con(host, []),
             span,
-        );
-        let mut args = vec![value];
-        args.extend(forwarded);
-        let call = typed::Expr::new(ExprKind::CallFunc { func: inner, args }, info.ret, span);
-        self.funcs.push(Func {
-            symbol,
-            debug_name: format!("{debug_name}, building its host"),
-            params: rest.ids().collect(),
-            locals: rest,
-            kind: FuncKind::Body(call),
-            ret: info.ret,
-            desc: None,
-            env: false,
-            span,
-        })
+        )
     }
 
     /// The host type an entry takes, when it takes one: its first parameter is
@@ -1304,7 +1418,8 @@ impl Monomorphizer<'_> {
                 let rewritten = self.rewrite(b.expr, &[]);
                 b.expr = self.leaving(i, slot, rewritten);
                 b.locals = std::mem::take(&mut self.locals);
-                f.params = b.params;
+                // No parameters, which is what makes a test a `Root`: a
+                // `test` block declares none, so its body binds none.
                 f.locals = b.locals;
                 f.set_body(b.expr);
             }

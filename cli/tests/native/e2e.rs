@@ -2334,7 +2334,12 @@ fn compiled(source: &str) -> buri::compiler::middle::monomorphize::Program {
             .map(|d| d.message.clone())
             .collect::<Vec<_>>()
     );
-    let entry = analysis.checked.entry.expect("the source exports `main`");
+    let entry = analysis
+        .checked
+        .started
+        .get("main")
+        .copied()
+        .expect("the source exports `main`");
     let paths: Vec<String> = analysis
         .loaded
         .modules

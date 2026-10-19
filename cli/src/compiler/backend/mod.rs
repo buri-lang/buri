@@ -529,24 +529,25 @@ mod tests {
 
     /// A program holding one intrinsic key, and nothing else.
     fn program_using(keys: &[&str]) -> Program {
-        use crate::compiler::middle::monomorphize::{Func, FuncKind, ProgramRoots};
+        use crate::compiler::middle::monomorphize::{FuncKind, Nullary, ProgramRoots, Root};
         use crate::compiler::semantics::types::Ty;
         use crate::diagnostics::Span;
-        let funcs = keys
+        let mut funcs = crate::compiler::semantics::layered::Dense::new();
+        let roots: Vec<Root> = keys
             .iter()
-            .map(|key| Func {
-                symbol: key.to_string(),
-                debug_name: key.to_string(),
-                params: Vec::new(),
-                locals: Default::default(),
-                kind: FuncKind::Intrinsic(key.to_string()),
-                ret: Ty::UNIT,
-                desc: None,
-                env: false,
-                span: Span::default(),
+            .map(|key| {
+                let f = Nullary {
+                    symbol: key.to_string(),
+                    debug_name: key.to_string(),
+                    locals: Default::default(),
+                    kind: FuncKind::Intrinsic(key.to_string()),
+                    ret: Ty::UNIT,
+                    span: Span::default(),
+                };
+                Root::push(&mut funcs, f)
             })
-            .collect::<crate::compiler::semantics::layered::Dense<_, _>>();
-        let first = funcs.ids().next().expect("the program holds a key");
+            .collect();
+        let first = *roots.first().expect("the program holds a key");
         Program {
             funcs,
             roots: ProgramRoots::Main(first),
