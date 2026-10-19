@@ -1,0 +1,12 @@
+# A page deep enough in its repository that its path is longer than a
+# file name may be. Its example runs all the same: the file it runs from
+# is named for the example, not spelled from its path.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "an example on a page with a long path runs"
+
+run {
+  args: ["docs", "test"]
+  exit: 0
+}

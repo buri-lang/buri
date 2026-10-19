@@ -885,11 +885,10 @@ fn execute(name: &str, source: &str, chunks: &[String]) -> Result<String, Diagno
     }
     // The file name has to be unique across concurrently running tests, and
     // derived from the snippet so a rerun overwrites rather than accumulates.
-    let stem: String = name
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
-        .collect();
-    let path = dir.join(format!("{stem}.mjs"));
+    // A digest of the name rather than the name: a page deep in a repository
+    // has an origin longer than a file name may be.
+    let stem = crate::build::cache::ActionKey::of(name.as_bytes());
+    let path = dir.join(format!("{}.mjs", stem.as_str()));
     if let Err(e) = std::fs::write(&path, source) {
         return Err(fail(
             format!("cannot write {}: {e}", path.display()),
