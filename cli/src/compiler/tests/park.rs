@@ -304,11 +304,12 @@ fn the_seed_list_is_the_blocking_host_calls_and_nothing_else() {
         "host_testing.TestWebSocketClient.connectSocket",
         "host_testing.TestWebSocketClient.connectReceive",
         "derivePrimHash",
-        // The other six `actor.*` keys. Listing them is the half a
+        // The other seven `actor.*` keys. Listing them is the half a
         // prefix rule would have got wrong: none of them waits for
         // anything, so none of them makes its caller `async`.
         "actor.mailboxOpen",
         "actor.mailboxPop",
+        "actor.mailboxRest",
         "actor.statePut",
         "actor.replyOpen",
         "actor.replyPut",

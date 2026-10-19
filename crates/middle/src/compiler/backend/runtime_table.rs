@@ -1270,6 +1270,10 @@ pub const ENTRIES: &[Entry] = &[
     ),
     e("actor.mailboxPush", &[Dropped, Scalar, List], Ret::Res),
     e("actor.mailboxPop", &[Dropped, Scalar], Ret::Sum),
+    // Every block still waiting, as a `[[Carried<M>]]`: a block of `{ ptr,
+    // len }` descriptors, which is two words whatever `M` is, so nothing
+    // about `M` crosses here either.
+    e("actor.mailboxRest", &[Dropped, Scalar], Ret::Out),
     e("actor.mailboxClose", &[Dropped, Scalar], Ret::Sum),
     e("actor.stateTake", &[Dropped, Scalar], Ret::Res),
     e("actor.statePut", &[Dropped, Scalar, List], Ret::Sum),

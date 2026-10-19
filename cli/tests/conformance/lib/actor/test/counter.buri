@@ -232,6 +232,30 @@ test "a stop discards nothing, because every send already ran" {
     assert.equal(sink.captured(), "final 123\n");
 }
 
+test "a stop after a step's own sends finds each of them stepped, in order" {
+    let sink = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: sink,
+        Tasks: tasks(),
+    };
+    // Each send the step makes says why it has no answer, and the loop steps
+    // both messages before the outer send answers. So the stop that follows
+    // finds nothing left, and the hook sees both.
+    let counted = actor.start(ctx, logged());
+    let inside = counted.sendMessage(
+        ctx,
+        .Within(fn(c) => {
+            assert.equal(counted.sendMessage(c, .Add(1)), .Err(.WouldDeadlock));
+            assert.equal(counted.sendMessage(c, .Add(2)), .Err(.WouldDeadlock))
+        }),
+    );
+    assert.equal(inside, .Ok(.Done));
+    assert.equal(counted.stop(ctx), .Ok(()));
+    assert.equal(sink.captured(), "final 12\n");
+    assert.equal(counted.sendMessage(ctx, .Get), .Err(.Stopped));
+}
+
 // -----------------------------------------------------------------------------
 // A step that sends to the actor that is running it
 // -----------------------------------------------------------------------------

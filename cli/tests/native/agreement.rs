@@ -5138,6 +5138,90 @@ fn gone2(r: Result<CounterAnswer, SendError>): Str {
     );
 }
 
+/// **A stop racing sends lets go of every message it finds waiting.**
+///
+/// The sends and the stop are items of one `parallel`. A send whose message
+/// was posted before the stop and whose drive came after it is answered
+/// `.Err(.Stopped)`, and its message is still in the mailbox when the stop
+/// takes the rest. JavaScript reaches that order every time: `parallel` starts
+/// each item, and every item runs to its first wait before any resumes. The
+/// native backends reach it when the threads interleave that way.
+///
+/// What's printed is the same in every order: each send is answered or
+/// stopped, the stop runs once, and so does the hook. The heap check is the
+/// rest of the claim, because each message holds a `Str` of its own.
+#[test]
+fn a_stop_racing_sends_lets_go_of_what_it_finds_waiting() {
+    rows_or_skip!();
+    agree(
+        "actor stop racing sends",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, SendError, Stepped, Stopped };
+from "core/tasks" import * as tasks;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+enum Note {
+  Note(Str),
+}
+
+enum Item {
+  Send(Int),
+  Stop,
+}
+
+fn noted<C: Allocator + Stdout + Tasks>(): Actor<C, Int, Note, Int> {
+  Actor {
+    state: 0,
+    step: fn(c, total, message) => {
+      match (message) {
+        .Note(text) => Stepped { state: total + text.length(), answer: text.length() },
+      }
+    },
+    onStop: .Some(fn(c, last) => io.println(c, "hook ran").ignore()),
+  }
+}
+
+fn sent(r: Result<Int, SendError>): Str {
+  match (r) {
+    .Ok(_n) => "answered or stopped",
+    .Err(.Stopped) => "answered or stopped",
+    .Err(_other) => "lost",
+  }
+}
+
+fn stopped(r: Result<(), Stopped>): Str {
+  match (r) {
+    .Ok(()) => "stopped",
+    .Err(_e) => "stopped twice",
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context {
+    Allocator: host.alloc,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  };
+  let noting = actor.start(ctx, noted());
+  let items = [Item.Send(1), Item.Send(22), Item.Stop, Item.Send(333), Item.Send(4444)];
+  let said = tasks.parallel(ctx, items, fn(c, i, item) => {
+    match (item) {
+      .Send(n) => sent(noting.sendMessage(c, .Note("note".repeat(c, n)))),
+      .Stop => stopped(noting.stop(c)),
+    }
+  });
+  let _ = io.println(ctx, said.join(ctx, "\n")).ignore();
+  .Ok(())
+}
+"#,
+        "hook ran\nanswered or stopped\nanswered or stopped\nstopped\n\
+         answered or stopped\nanswered or stopped\n",
+    );
+}
+
 /// **A step that sends to the actor running it, on every backend.**
 ///
 /// Taking the state is non-blocking, so a send made from inside a step finds

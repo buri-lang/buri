@@ -1846,7 +1846,7 @@ pub fn crosses_tasks(key: &str) -> bool {
     // any task that later drives the actor, and the state can be threaded by a
     // different one every time. That is exactly "a block the caller made may
     // be counted, read and released by a thread that is not this one", and it
-    // is true of all nine keys — a `replyPut` on one thread and the
+    // is true of all ten keys — a `replyPut` on one thread and the
     // `replyTake` that reads it on another is the same hand-off as the queue's.
     // `core/tasks`'s scopes, by prefix and for the mailbox's reason exactly: a
     // spawned task **waits** in a scope until a round picks it up, and the

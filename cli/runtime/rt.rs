@@ -2241,6 +2241,38 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_pop(handle: i64, out: *mut BuriLi
     crate::BURI_OK
 }
 
+/// `actor.mailboxRest(ctx, handle) -> [[Carried<M>]]` — every message still
+/// waiting, oldest first, as one block of the descriptors `mailboxPush` took.
+///
+/// The references the queue held are given away in the block, so dropping it
+/// releases every message. Each one's room is given back, as `mailboxPop`
+/// does.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_actor_mailbox_rest(handle: i64, out: *mut BuriList) {
+    let rest: Vec<BuriList> = {
+        let mut table = actors();
+        match at(&mut table, handle) {
+            None => Vec::new(),
+            Some(mailbox) => {
+                let rest: Vec<BuriList> = mailbox.queue.drain(..).map(Held::give).collect();
+                mailbox.room.add_permits(rest.len());
+                rest
+            }
+        }
+    };
+    let list = crate::list::block(rest.len(), std::mem::size_of::<BuriList>());
+    for (i, held) in rest.into_iter().enumerate() {
+        // SAFETY: slot `i` is inside the block just allocated, and its payload
+        // is 16-aligned, so every descriptor is aligned.
+        unsafe { list.ptr.cast::<BuriList>().add(i).write(held) };
+    }
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(list) }
+}
+
 /// `actor.mailboxClose(ctx, handle) -> Option<[Carried<S>]>` — closes, once,
 /// and answers the final state.
 ///
@@ -5988,6 +6020,74 @@ mod tests {
         let ok = unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) };
         assert_eq!(ok, crate::BURI_OK);
         drop_ref(&out);
+    }
+
+    /// A `stop` that lands after a send posted and before that send's drive
+    /// finds the message still waiting. `mailboxRest` hands every such message
+    /// back in one list, oldest first, and gives each one's room back.
+    ///
+    /// In a program only a race between two threads gets here, so this drives
+    /// the order directly.
+    #[test]
+    fn a_stop_before_a_drive_takes_every_message_still_waiting() {
+        let state = carried(0);
+        // SAFETY: a live one-element block.
+        let actor = unsafe { opened(&state, 2) };
+        drop_ref(&state);
+        for mark in 1..=2u64 {
+            let message = carried(mark);
+            let mut depth = 0i64;
+            // SAFETY: a live one-element block, and a writable `i64`.
+            let ok = unsafe {
+                buri_rt_actor_mailbox_push(actor, message.ptr, message.len, &raw mut depth)
+            };
+            assert_eq!(ok, crate::BURI_OK);
+            drop_ref(&message);
+        }
+        // The mailbox is full, and taking the rest makes room again.
+        let mut rest = nothing();
+        // SAFETY: a writable, aligned destination.
+        unsafe { buri_rt_actor_mailbox_rest(actor, &raw mut rest) };
+        assert_eq!(rest.len, 2);
+        for (i, mark) in (1..=2u64).enumerate() {
+            // SAFETY: the block holds `rest.len` descriptors.
+            let message = unsafe { rest.ptr.cast::<BuriList>().add(i).read() };
+            // SAFETY: a block the runtime handed back, still counted.
+            assert_eq!(unsafe { mark_of(&message) }, mark, "out of order");
+            drop_ref(&message);
+        }
+        drop_ref(&rest);
+        let third = carried(3);
+        let mut depth = 0i64;
+        // SAFETY: a live one-element block, and a writable `i64`.
+        let ok = unsafe { push_within(actor, third.ptr, third.len, &raw mut depth, Duration::ZERO) };
+        assert_eq!(ok, crate::BURI_OK, "the rest's room was not given back");
+        assert_eq!(depth, 1);
+        drop_ref(&third);
+
+        let mut out = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(
+            unsafe { buri_rt_actor_mailbox_close(actor, &raw mut out) },
+            crate::BURI_OK
+        );
+        drop_ref(&out);
+        // A closed mailbox still hands back what is in it, and then nothing.
+        let mut rest = nothing();
+        // SAFETY: a writable, aligned destination.
+        unsafe { buri_rt_actor_mailbox_rest(actor, &raw mut rest) };
+        assert_eq!(rest.len, 1);
+        // SAFETY: the block holds one descriptor.
+        let message = unsafe { rest.ptr.cast::<BuriList>().read() };
+        // SAFETY: a block the runtime handed back, still counted.
+        assert_eq!(unsafe { mark_of(&message) }, 3);
+        drop_ref(&message);
+        drop_ref(&rest);
+        let mut empty = nothing();
+        // SAFETY: a writable, aligned destination.
+        unsafe { buri_rt_actor_mailbox_rest(actor, &raw mut empty) };
+        assert_eq!(empty.len, 0);
+        assert!(empty.ptr.is_null());
     }
 
     /// **A bounded mailbox actually blocks.**

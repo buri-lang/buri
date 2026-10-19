@@ -3236,7 +3236,7 @@ pub const CELL_VALUE_KEYS: &[&str] = &[
 pub const CELL_WRITE_KEYS: &[&str] = &["host.HostUi.write", "host_testing.Headless.write"];
 
 const GENERIC_INTRINSICS: &[&str] = &[
-    // `core/actor`'s nine, and between them they are a **fifth** carrier
+    // `core/actor`'s ten, and between them they are a **fifth** carrier
     // rather than a use of the four above: *the block itself*.
     //
     // Every value these move is a one-element `[T]` — a message, a state, an
@@ -3258,6 +3258,7 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "actor.mailboxOpen",
     "actor.mailboxPop",
     "actor.mailboxPush",
+    "actor.mailboxRest",
     "actor.replyOpen",
     "actor.replyPut",
     "actor.replyTake",
@@ -3853,7 +3854,7 @@ mod tests {
     /// look like the constant and might not be it.
     const PINNED: &str = "\
         actor.mailboxClose actor.mailboxOpen actor.mailboxPop \
-        actor.mailboxPush actor.replyOpen actor.replyPut actor.replyTake \
+        actor.mailboxPush actor.mailboxRest actor.replyOpen actor.replyPut actor.replyTake \
         actor.statePut actor.stateTake \
         alloc.copyOut \
         bool.show bool.toJson \
