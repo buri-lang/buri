@@ -103,3 +103,25 @@ test "a functional update whose replacement can leave early" {
     assert.equal(late(ctx, bag(), 0).isOk(), true);
     assert.equal(late(ctx, bag(), 3).isOk(), false);
 }
+
+struct Tally {
+    count: Int,
+    items: [Int],
+}
+
+// The replaced field holds no count, so there is nothing to move out of the
+// base, though it is read before the replacement can leave early.
+fn tallied(t: Tally, k: Int): Result<Tally, Str> {
+    .Ok(Tally { ..t, count: t.count + 1 + half(k)? })
+}
+
+test "a functional update of a field with no count can leave early" {
+    match (tallied(Tally { count: 1, items: [3] }, 4)) {
+        .Ok(t) => {
+            assert.equal(t.count, 4);
+            assert.equal(t.items, [3]);
+        },
+        .Err(_) => assert.equal(true, false),
+    };
+    assert.equal(tallied(Tally { count: 1, items: [3] }, 3).isOk(), false);
+}
