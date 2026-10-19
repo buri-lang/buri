@@ -546,14 +546,14 @@ enum Key {
     /// `unbounded` walks a type with no `impl` of the trait too, for a `T` that
     /// carries no bound (`hand_written::Deriving::unbounded`).
     Derived {
-        trait_id: TraitId,
+        derive: hand_written::Derivable,
         ty: Ty,
         ctx: Option<Ty>,
         unbounded: bool,
     },
     /// The rest of a list after its first element, for `Derived` at `[elem]`.
     DerivedItems {
-        trait_id: TraitId,
+        derive: hand_written::Derivable,
         elem: Ty,
         ctx: Option<Ty>,
         unbounded: bool,
@@ -1120,17 +1120,17 @@ impl<'a> Monomorphizer<'a> {
                 )
             }
             Key::Derived {
-                trait_id,
+                derive,
                 ty,
                 ctx,
                 unbounded,
-            } => self.derived_name(*trait_id, *ty, *ctx, false, *unbounded),
+            } => self.derived_name(*derive, *ty, *ctx, false, *unbounded),
             Key::DerivedItems {
-                trait_id,
+                derive,
                 elem,
                 ctx,
                 unbounded,
-            } => self.derived_name(*trait_id, *elem, *ctx, true, *unbounded),
+            } => self.derived_name(*derive, *elem, *ctx, true, *unbounded),
         }
     }
 
@@ -1316,17 +1316,17 @@ impl Monomorphizer<'_> {
                 f.set_body(b.expr);
             }
             Key::Derived {
-                trait_id,
+                derive,
                 ty,
                 ctx,
                 unbounded,
-            } => self.build_derived(trait_id, ty, ctx, unbounded, slot, f),
+            } => self.build_derived(derive, ty, ctx, unbounded, slot, f),
             Key::DerivedItems {
-                trait_id,
+                derive,
                 elem,
                 ctx,
                 unbounded,
-            } => self.build_derived_items(trait_id, elem, ctx, unbounded, slot, f),
+            } => self.build_derived_items(derive, elem, ctx, unbounded, slot, f),
         }
     }
 

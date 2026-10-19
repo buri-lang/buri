@@ -257,7 +257,7 @@
 
 use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::{self, Func, FuncKind, Program};
-use crate::compiler::semantics::layered::Dense;
+use crate::compiler::semantics::layered::{Dense, DenseId, Mint};
 use crate::compiler::semantics::name::Name;
 use crate::compiler::semantics::typed::{
     self, Expr, ExprKind, OptionOrResult, PatKind, Pattern, Stmt,
@@ -274,6 +274,28 @@ use std::collections::BTreeMap;
 /// An expression's index in `typed::walk`'s pre-order over one function body.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct NodeId(pub u32);
+
+/// A node's place in a pre-order walk while the walk numbers it. Only the
+/// walk's own table mints one, so writing a subtree's size back on the way out
+/// is a lookup that can't miss.
+#[derive(Clone, Copy)]
+struct Pre(usize);
+
+impl DenseId for Pre {
+    fn from_index(i: usize, _: Mint) -> Self {
+        Pre(i)
+    }
+
+    fn to_index(self) -> usize {
+        self.0
+    }
+}
+
+impl Pre {
+    fn id(self) -> u32 {
+        u32::try_from(self.0).unwrap_or(u32::MAX)
+    }
+}
 
 impl NodeId {
     pub fn index(self) -> usize {
@@ -917,6 +939,7 @@ fn scan_func(
                 binders,
                 let_bound: bound,
             } = BodyIndex::of(body, &f.locals);
+            let sizes: Vec<u32> = sizes.iter().copied().collect();
             let (child_at, child_ids) = child_index(&sizes);
             // Each row becomes the number of jumps before it.
             let mut running = 0;
@@ -1998,11 +2021,17 @@ fn child_index(sizes: &[u32]) -> (Vec<u32>, Vec<u32>) {
 }
 
 pub fn subtree_sizes(e: &Expr, out: &mut Vec<u32>) -> u32 {
-    let me = out.len();
-    out.push(0);
+    let mut sizes = Dense::new();
+    let total = sizes_into(e, &mut sizes);
+    out.extend(sizes.iter().copied());
+    total
+}
+
+fn sizes_into(e: &Expr, out: &mut Dense<Pre, u32>) -> u32 {
+    let me = out.push(0);
     let mut total = 1u32;
-    typed::children(e, &mut |k| total += subtree_sizes(k, out));
-    *out.get_mut(me).or_ice("`me` was pushed above") = total;
+    typed::children(e, &mut |k| total += sizes_into(k, out));
+    *out.get_mut(me) = total;
     total
 }
 
@@ -4393,7 +4422,7 @@ impl Scan<'_> {
 /// What [`scan_func`] reads about a body before it scans it, from one walk.
 struct BodyIndex {
     /// [`subtree_sizes`].
-    sizes: Vec<u32>,
+    sizes: Dense<Pre, u32>,
     /// A 1 just past every `Continue`, by pre-order id; [`scan_func`] sums it.
     jumps_before: Vec<u32>,
     /// Where each local is named and bound, for [`Scan::names`]: every `Local`
@@ -4409,30 +4438,25 @@ struct BodyIndex {
 impl BodyIndex {
     fn of(body: &Expr, locals: &typed::Locals) -> BodyIndex {
         let mut ix = BodyIndex {
-            sizes: Vec::new(),
-            jumps_before: Vec::new(),
+            sizes: Dense::new(),
+            // Nothing is before the first node; each node's row follows.
+            jumps_before: vec![0],
             mentions: locals.map(|_| Vec::new()),
             binders: locals.map(|_| None),
             let_bound: Vec::new(),
         };
-        let mut continues: Vec<u32> = Vec::new();
         // The lambdas around the node being visited, innermost last.
         let mut lambdas: Vec<u32> = Vec::new();
-        ix.go(body, &mut continues, &mut lambdas);
-        ix.jumps_before = vec![0; ix.sizes.len().saturating_add(1)];
-        for id in continues {
-            *ix.jumps_before
-                .get_mut(id as usize + 1)
-                .or_ice("a `Continue` is a node of the body") = 1;
-        }
+        ix.go(body, &mut lambdas);
         ix
     }
 
-    fn go(&mut self, e: &Expr, continues: &mut Vec<u32>, lambdas: &mut Vec<u32>) -> u32 {
-        let id = u32::try_from(self.sizes.len()).unwrap_or(u32::MAX);
-        self.sizes.push(0);
+    fn go(&mut self, e: &Expr, lambdas: &mut Vec<u32>) -> u32 {
+        let pre = self.sizes.push(0);
+        let id = pre.id();
         let inside = lambdas.last().copied();
         let mut lambda = false;
+        let mut jump = 0;
         match &e.kind {
             ExprKind::Local(l) => self.mention(*l, (id, inside)),
             ExprKind::Lambda { captures, .. } => {
@@ -4462,23 +4486,21 @@ impl BodyIndex {
                     self.bind(b, (id, inside));
                 }
             }
-            ExprKind::Continue { .. } => continues.push(id),
+            ExprKind::Continue { .. } => jump = 1,
             _ => {}
         }
+        self.jumps_before.push(jump);
         if lambda {
             lambdas.push(id);
         }
         let mut total = 1u32;
         typed::children(e, &mut |k| {
-            total = total.saturating_add(self.go(k, continues, lambdas))
+            total = total.saturating_add(self.go(k, lambdas))
         });
         if lambda {
             lambdas.pop();
         }
-        *self
-            .sizes
-            .get_mut(id as usize)
-            .or_ice("`id` was pushed on the way in") = total;
+        *self.sizes.get_mut(pre) = total;
         total
     }
 
