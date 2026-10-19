@@ -2201,3 +2201,28 @@ test "a list put in an ordered map is not grown through its own name or a lookup
     assert.equal(assert.some(m.values(ctx).get(0)).reverse(ctx), [2, 1]);
     assert.equal(m.get(1), .Some([1, 2]));
 }
+
+test "an ordered map of lists that grows a level keeps every list" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let n = 64;
+    let m = list
+        .range(ctx, 0, n)
+        .foldCtx(
+            ctx,
+            fn(c, acc: OrderedMap<Int, [Int]>, i) => acc.insert(c, i, [i]),
+            orderedmap.empty<Int, [Int]>(),
+        );
+    let replaced = m.insert(ctx, 5, [50]);
+    assert.equal(replaced.length(), n);
+    assert.equal(
+        (replaced.get(5), m.get(5), replaced.get(63)),
+        (.Some([50]), .Some([5]), .Some([63])),
+    );
+    let values = replaced.values(ctx);
+    assert.equal(
+        (values.length(), values.get(5), values.get(40)),
+        (n, .Some([50]), .Some([40])),
+    );
+}
