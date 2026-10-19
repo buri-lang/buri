@@ -98,6 +98,8 @@ test "an exponent needs a digit after its e" {
     };
     assert.equal(json.parse(ctx, "1e"), .Err(JsonError.BadNumber(0)));
     assert.equal(json.parse(ctx, "1e+"), .Err(JsonError.BadNumber(0)));
+    assert.equal(json.parse(ctx, "[2.5E-]"), .Err(JsonError.BadNumber(1)));
+    assert.equal(json.parse(ctx, "0E"), .Err(JsonError.BadNumber(0)));
 }
 
 test "a carriage return and a tab are written as their escapes" {

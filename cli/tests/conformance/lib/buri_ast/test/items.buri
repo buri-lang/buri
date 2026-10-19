@@ -468,6 +468,34 @@ test "a derive sits on the declaration it is about" {
     );
 }
 
+test "a derive about a type that isn't a bare name stays where it was written" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let decl = ast.Item {
+        kind: .TypeAlias(ast.TypeAliasDecl {
+            name: n("Id"),
+            generics: [],
+            ty: ty("Int"),
+            exported: true,
+            docs: [],
+        }),
+        origin: ast.nowhere(),
+    };
+    let derived = ast.Item {
+        kind: .Derive(ast.DeriveDecl {
+            traits: [ty("Equal")],
+            selfTy: ast.Type { kind: .Array([ty("Id")]), origin: ast.nowhere() },
+        }),
+        origin: ast.nowhere(),
+    };
+    let m = ast.Module { items: [decl, derived], docs: [] };
+    assert.equal(
+        ast.print(ctx, m).text,
+        "export type Id = Int;\n\nderive Equal for [Id];\n",
+    );
+}
+
 // --- the module itself -----------------------------------------------------------
 
 test "module documentation leads, with a blank line under it" {

@@ -32,7 +32,7 @@ from "platform/effect" import {
 };
 from "platform/effect/testing" import {
     alloc, clock, env, fs, net, rand, readFileBytes, renameFile, stderr, stdin, stdout,
-    syncFile, TestFileSystem, TestStdout, writeFileBytes,
+    syncFile, tasks as testTasks, TestFileSystem, TestStdout, writeFileBytes,
 };
 from "//lib/semantics" import {
     EchoEnv, elapsed, fetchBody, FrozenClock, greet, guarded, joinedWith, loadText,
@@ -2184,6 +2184,26 @@ test "run starts one worker per handler the listener says it will host" {
     );
     // Below one is one: a server with no workers is a port nobody answers.
     assert.equal(many.captured(), "worked 10.0.0.1\n");
+
+    // And above the most it can host is that most, 1024 workers.
+    let crowd = stdout();
+    let flooded = context {
+        Allocator: alloc(),
+        Listen: PoolListen { bindsTo: "10.0.0.1", handlers: 5000 },
+        Stdout: crowd,
+        // `SerialTasks` runs three items at most, so this one runs them all.
+        Tasks: testTasks(),
+    };
+    assert.ok(
+        server.serve(flooded, server.Server {
+            port: 0,
+            onRequest: fn(c, _request) => {
+                io.print(c, "w").ignore();
+                Response { status: 200, headers: [], body: [] }
+            },
+        }),
+    );
+    assert.equal(crowd.captured().length(), 1024);
 }
 
 test "a bind that fails is an error with the platform's own words on it" {

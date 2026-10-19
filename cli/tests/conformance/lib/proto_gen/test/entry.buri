@@ -40,6 +40,29 @@ test "one module per input, named after the schema, reaching the others" {
     assert.contains(text, "    export home: Option<Address>,");
 }
 
+test "a schema at the repository's root is named after itself" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    let request = Request {
+        inputs: [
+            ("top.proto", "edition = \"2026\";\nmessage Top { string name = 1; }\n"),
+        ],
+        dependencies: [],
+    };
+    let out = proto.emit(ctx, request);
+    assert.isEmpty(out.diagnostics);
+    assert.equal(out.modules.map(ctx, fn(m) => m.0), ["top.proto"]);
+}
+
+test "upperFirst capitalizes the first letter, and an empty name stays empty" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    assert.equal(proto.upperFirst(ctx, "pick"), "Pick");
+    assert.equal(proto.upperFirst(ctx, ""), "");
+}
+
 test "a schema the reader refuses answers its diagnostics and no module" {
     let ctx = context {
         Allocator: alloc(),
