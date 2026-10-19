@@ -708,11 +708,14 @@ fn utf16_len(text: &str) -> u32 {
 /// [`at`]'s third source is the declaration, and it is deliberately not here:
 /// [`declaration`] already knows where a symbol was declared, and the protocol
 /// asks for it separately.
+///
+/// Every caller drops a span with no file on its way to a location, so one is
+/// not filtered here as well.
 pub fn references(analyzed: &Analyzed, symbol: &Symbol) -> Vec<Span> {
     let tables = &analyzed.analysis.checked.tables;
     let mut out: Vec<Span> = Vec::new();
     let mut take = |span: Span, found: Symbol| {
-        if !span.is_none() && same(&found, symbol) {
+        if same(&found, symbol) {
             out.push(span);
         }
     };
