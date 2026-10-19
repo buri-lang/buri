@@ -1,0 +1,22 @@
+error: there is no type `extra` [unknown-type]
+ --> main.buri:1:17
+  |
+1 | export fn f(): (extra Int, Int) {
+  |                 ^^^^^
+  |
+  = fix: declare it, import it, or correct the spelling
+error: a tuple type element ends with `,` [missing-comma]
+ --> main.buri:1:22
+  |
+1 | export fn f(): (extra Int, Int) {
+  |                      ^
+  |
+  = fix: write `,` here
+error: expected `(<error>, I64, I64)`, found `(Int, Int)` [type-mismatch]
+ --> main.buri:1:33
+  |
+1 | export fn f(): (extra Int, Int) {
+  |                                 ^ the declared return type is `(<error>, I64, I64)`
+  |
+  = expected: `(<error>, I64, I64)`
+  = actual: `(Int, Int)`

@@ -1,0 +1,6 @@
+export fn f(): (IntInt ,) {
+    (
+        1, // one
+        2,
+    )
+}

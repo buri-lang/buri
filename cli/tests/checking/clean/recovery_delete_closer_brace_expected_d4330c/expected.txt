@@ -1,0 +1,21 @@
+error: expected an expression, found `}` [unexpected-token]
+ --> main.buri:6:1
+  |
+6 | }
+  | ^
+  |
+  = expected: an expression
+  = actual: `}`
+  = fix: write a value here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:7:1
+  |
+7 | 
+  | ^
+  |
+ --> main.buri:1:27
+  |
+1 | export fn f(): (Int, Int) {
+  |                           ^ opened here
+  |
+  = fix: write `}` here

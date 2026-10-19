@@ -1,0 +1,22 @@
+error: expected `(I64, I64)`, found `(Int, <error>, Int)` [type-mismatch]
+ --> main.buri:1:27
+  |
+1 | export fn f(): (Int, Int) {
+  |                           ^ the declared return type is `(I64, I64)`
+  |
+  = expected: `(I64, I64)`
+  = actual: `(Int, <error>, Int)`
+error: there is nothing named `extra` in scope [unknown-name]
+ --> main.buri:4:9
+  |
+4 |         extra 2,
+  |         ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a tuple element ends with `,` [missing-comma]
+ --> main.buri:4:14
+  |
+4 |         extra 2,
+  |              ^
+  |
+  = fix: write `,` here

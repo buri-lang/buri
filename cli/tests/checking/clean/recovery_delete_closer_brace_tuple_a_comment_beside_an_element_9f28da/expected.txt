@@ -1,0 +1,12 @@
+error: this tuple is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:4:1
+  |
+4 | }
+  | ^
+  |
+ --> main.buri:2:3
+  |
+2 |   (1, // one
+  |   ^ opened here
+  |
+  = fix: write `)` here
