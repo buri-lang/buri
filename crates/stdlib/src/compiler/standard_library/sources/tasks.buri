@@ -125,6 +125,9 @@
 //! the tasks of a round overlap. Under a `TestTasks` double they run one after
 //! another, in the order the double chooses.
 //!
+//! A `Tasks` of your own may run only part of a round. The scope runs the rest
+//! itself, in order, so every spawned task still runs, on every backend.
+//!
 //! On either, a spawned task that never ends starves the ones behind it,
 //! because they wait for a round that never finishes
 //! (`design/native/DECISIONS.md`).
@@ -379,6 +382,10 @@ fn ran<C: Allocator + Tasks>(ctx: C, scope: Scope, at: Int): Bool {
 /// spawned is the next round. So a task spawned by a task is waited for, and
 /// the overlap inside a round is `parallel`'s.
 ///
+/// A scheduler of the program's own may leave some of a round unrun. Those run
+/// here, in order, after `parallel` returns, so the scope still waits for
+/// every task.
+///
 /// The empty round that ends this also gives the drain up, in the same call
 /// that found nothing waiting. So a task spawned as the drain ends was either
 /// in that round or finds no drain, and runs on the task that spawned it.
@@ -388,6 +395,7 @@ fn draining<C: Allocator + Tasks>(ctx: C, scope: Scope): () {
         true => (),
         false => {
             let _ = parallel(ctx, round, fn(c, i, at) => running(c, scope, at));
+            let _ = round.foldCtx(ctx, fn(c, _ran, at) => running(c, scope, at), false);
             draining(ctx, scope)
         },
     }

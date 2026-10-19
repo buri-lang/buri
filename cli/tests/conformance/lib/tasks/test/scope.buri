@@ -178,8 +178,9 @@ fn spawnThree<C: Allocator + Stdout + Tasks>(ctx: C, here: Scope): () {
 // blocks make no `TestTasks`. `InOrder` runs every step in order, so what is
 // printed is the same either way.
 
-/// Every step in program order, for up to three steps. A `[B]` longer than a
-/// literal would need an `Allocator`, and `C` here has no bounds.
+/// Every step in program order, for up to three steps, and none past the
+/// third. A `[B]` longer than a literal would need an `Allocator`, and `C` here
+/// has no bounds.
 struct InOrder {}
 
 impl Tasks for InOrder {
@@ -272,6 +273,35 @@ fn chain<C: Allocator + Stdout + Tasks>(
     }
 }
 
+/// Says `t<n>`, then spawns its two children, down to `t14`: fifteen tasks.
+fn tree<C: Allocator + Stdout + Tasks>(ctx: C, here: Scope, n: Int): () {
+    let _ = say(ctx, str.format(ctx, "t${n}"));
+    if (2 * n + 1 < 15) {
+        let _ = tasks.spawn(ctx, here, fn(c) => tree(c, here, 2 * n + 1));
+        tasks.spawn(ctx, here, fn(c) => tree(c, here, 2 * n + 2))
+    } else {
+        ()
+    }
+}
+
+// A round of four is a step past what `InOrder` runs, and the scope still owes
+// it every task.
+test "a scope runs every task when its scheduler runs only three of a round" {
+    let out = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: out,
+        Tasks: InOrder {},
+    };
+    let _ = tasks.scope(ctx, fn(c, here) => {
+        tasks.spawn(c, here, fn(c2) => tree(c2, here, 0))
+    });
+    assert.equal(
+        out.captured(),
+        "t0\nt1\nt2\nt3\nt4\nt5\nt6\nt7\nt8\nt9\nt10\nt11\nt12\nt13\nt14\n",
+    );
+}
+
 // Three chains keep each round to the three steps `InOrder` runs.
 test "tasks that spawn tasks under the test's own scheduler each run once, in order" {
     let out = stdout();
@@ -335,6 +365,20 @@ test "a scope under a scheduler that runs nothing still runs its body once" {
     });
     assert.equal(answer, 42);
     assert.equal(out.captured(), "body\n");
+}
+
+test "a scope under a scheduler that runs nothing still runs every task, in order" {
+    let out = stdout();
+    let ctx = context {
+        Allocator: alloc(),
+        Stdout: out,
+        Tasks: Idle {},
+    };
+    let _ = tasks.scope(ctx, fn(c, here) => {
+        let _ = say(c, "body");
+        spawnThree(c, here)
+    });
+    assert.equal(out.captured(), "body\na\nb\nc\n");
 }
 
 test "a scope under a scheduler that runs nothing still answers a handler" {
