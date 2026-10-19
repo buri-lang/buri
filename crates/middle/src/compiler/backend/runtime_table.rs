@@ -58,9 +58,10 @@
 use crate::compiler::backend::intrinsic_keys::{ComputeRow, Handoff, PressRow, Tasks, WalkRow};
 use crate::compiler::middle::ir;
 use Arg::{
-    Bytes, Compute, Dropped, Elems, Equal, List, Press, Release, Retain, Scalar, Spilled, Step,
+    Compute, Dropped, Elems, Equal, Float, List, Press, Release, Retain, Scalar, Spilled, Step,
     Str, Stride, Walk,
 };
+use CScalar::{F64, U32, U64, U8};
 
 /// The discriminant a fallible runtime entry returns for its success arm.
 ///
@@ -89,13 +90,12 @@ pub const BURI_OK: i32 = -1;
 pub enum Arg {
     /// `base`, `ptr`, `len` — three parameters.
     Str,
-    /// `ptr`, `len` — two. `writeBytes` and `abort` take a byte range without
-    /// the owning block, because neither can retain it.
-    Bytes,
     /// `ptr`, `len` — two.
     List,
-    /// One.
+    /// One integer: an `Int`, a `Bool`, a `Char` or a one-word handle.
     Scalar,
+    /// One `double`: a `Float`.
+    Float,
     /// Zero: a zero-sized `self`, or the operation's **context**, dropped from
     /// the signature (VALUE-MODEL.md §8).
     ///
@@ -253,15 +253,16 @@ pub enum Arg {
 }
 
 impl Arg {
-    /// How many C parameters this shape emits.
-    pub fn leaves(self) -> usize {
+    /// How many C parameters this shape emits. A walk that keeps a context
+    /// emits four more ([`Arg::Walk`]).
+    pub const fn leaves(self) -> usize {
         match self {
             Compute => 7,
             Press => 5,
             Step => 4,
             Str | Walk => 3,
-            Bytes | List | Elems => 2,
-            Scalar | Spilled | Stride | Retain | Release | Equal => 1,
+            List | Elems => 2,
+            Scalar | Float | Spilled | Stride | Retain | Release | Equal => 1,
             Dropped => 0,
         }
     }
@@ -278,12 +279,13 @@ impl Arg {
 pub enum Ret {
     /// Nothing, and the Buri result is `()`.
     Void,
-    /// One scalar, at the Buri result's own register shape.
-    Scalar,
+    /// One scalar of this C type, which is the Buri result's own register
+    /// shape.
+    Scalar(CScalar),
     /// Nothing, and the call does not come back (SPEC 6.9).
     NoReturn,
-    /// One integer of exactly this many bits, which is **not** the
-    /// destination's register shape and is narrowed to it at the call site.
+    /// One integer of exactly this width, which is **not** the destination's
+    /// register shape and is narrowed to it at the call site.
     ///
     /// The C boundary has no `i1` and no `i8` enum tag: `buri_rt_str_equal`
     /// returns `u8` and `buri_rt_str_compare` returns `i32`, while `Bool` is an
@@ -292,7 +294,7 @@ pub enum Ret {
     /// work on both supported platforms by accident — the low byte of `eax` is
     /// the low byte of the value — and would be wrong the first time a target
     /// returned a narrow integer unextended.
-    Int(u32),
+    Int(Narrow),
     /// An aggregate written through a trailing out-pointer (§2 rule 2).
     ///
     /// The pointer is the destination's own slot, so the call writes the value
@@ -348,6 +350,42 @@ pub enum Ret {
     /// (`TestFileSystem.writeFile`'s `Result<(), IoError>`), for the reason
     /// [`Ret::Out`] omits it.
     Res,
+}
+
+/// The C type a [`Ret::Scalar`] entry returns: the archive function's own,
+/// which a backend declares the call at.
+///
+/// Every scalar a row answers is one of these, so there is no result a C
+/// signature can't spell: an `F32`, an `I128` or a two-word value isn't one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CScalar {
+    /// A `Bool`.
+    U8,
+    /// A `Char`.
+    U32,
+    /// An `Int`, or a one-word handle.
+    U64,
+    /// A `Float`.
+    F64,
+}
+
+/// The integer a [`Ret::Int`] entry returns.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Narrow {
+    /// A `u8`, for a `Bool`.
+    U8,
+    /// An `i32`, for a bare enum tag.
+    I32,
+}
+
+impl Narrow {
+    /// The width C gives it.
+    pub fn bits(self) -> u32 {
+        match self {
+            Narrow::U8 => 8,
+            Narrow::I32 => 32,
+        }
+    }
 }
 
 /// What the frame-threaded backend appends after the flattened Buri
@@ -483,11 +521,15 @@ pub fn parallel(tasks: Tasks) -> &'static Entry {
 const HEADLESS_MEMO: Entry = e(
     "host_testing.Headless.memo",
     &[Scalar, Compute],
-    Ret::Scalar,
+    Ret::Scalar(U64),
 );
 const HEADLESS_WATCH: Entry = e("host_testing.Headless.watch", &[Scalar, Compute], Ret::Void);
 const REACTIVE: Entry = e("ui_node.reactive", &[Compute], Ret::Void);
-const MOUNT: Entry = e("host_testing.mount", &[Dropped, Spilled, Walk], Ret::Scalar);
+const MOUNT: Entry = e(
+    "host_testing.mount",
+    &[Dropped, Spilled, Walk],
+    Ret::Scalar(U64),
+);
 const REBUILD_REGION: Entry = e(
     "ui_node.rebuildRegion",
     &[Scalar, Scalar, Spilled, Walk],
@@ -498,11 +540,15 @@ const RECONCILE: Entry = e(
     &[Scalar, Scalar, List, Walk],
     Ret::Void,
 );
-const TIMER_START: Entry = e("tasks.timerStart", &[Dropped, Scalar, Press], Ret::Scalar);
+const TIMER_START: Entry = e(
+    "tasks.timerStart",
+    &[Dropped, Scalar, Press],
+    Ret::Scalar(U64),
+);
 const HEADLESS_TIMER_START: Entry = e(
     "host_testing.headlessTimerStart",
     &[Dropped, Scalar, Press],
-    Ret::Scalar,
+    Ret::Scalar(U64),
 );
 const REGISTER_PRESS: Entry = e("ui_node.registerPress", &[Scalar, Press], Ret::Void);
 const REGISTER_OUTSIDE: Entry = e("ui_node.registerOutside", &[Scalar, Press], Ret::Void);
@@ -569,17 +615,17 @@ pub const ENTRIES: &[Entry] = &[
     e("str.trim", &[Str], Ret::Out),
     e("str.trimStart", &[Str], Ret::Out),
     e("str.trimEnd", &[Str], Ret::Out),
-    e("str.startsWith", &[Str, Str], Ret::Int(8)),
-    e("str.endsWith", &[Str, Str], Ret::Int(8)),
-    e("str.contains", &[Str, Str], Ret::Int(8)),
+    e("str.startsWith", &[Str, Str], Ret::Int(Narrow::U8)),
+    e("str.endsWith", &[Str, Str], Ret::Int(Narrow::U8)),
+    e("str.contains", &[Str, Str], Ret::Int(Narrow::U8)),
     e("str.indexOf", &[Str, Str], Ret::Sum),
     e("str.splitOnce", &[Str, Str], Ret::Sum),
-    e("str.compare", &[Str, Str], Ret::Int(32)),
-    e("str.equal", &[Str, Str], Ret::Int(8)),
-    e("str.hash", &[Str], Ret::Scalar),
+    e("str.compare", &[Str, Str], Ret::Int(Narrow::I32)),
+    e("str.equal", &[Str, Str], Ret::Int(Narrow::U8)),
+    e("str.hash", &[Str], Ret::Scalar(U64)),
     e("str.toInt", &[Str], Ret::Sum),
     e("str.toFloat", &[Str], Ret::Sum),
-    e("str.utf8Length", &[Str], Ret::Scalar),
+    e("str.utf8Length", &[Str], Ret::Scalar(U64)),
     // -- core/str, `Allocator`-bounded ------------------------------------------
     e("str.split", &[Str, Dropped, Str], Ret::Out),
     e("str.splitAny", &[Str, Dropped, Str], Ret::Out),
@@ -591,7 +637,7 @@ pub const ENTRIES: &[Entry] = &[
     e("str.chars", &[Str, Dropped], Ret::Out),
     e("str.fromChars", &[Dropped, List], Ret::Out),
     e("str.fromInt", &[Dropped, Scalar], Ret::Out),
-    e("str.fromFloat", &[Dropped, Scalar], Ret::Out),
+    e("str.fromFloat", &[Dropped, Float], Ret::Out),
     e("str.padStart", &[Str, Dropped, Scalar, Scalar], Ret::Out),
     e("str.padEnd", &[Str, Dropped, Scalar, Scalar], Ret::Out),
     // -- core/list ----------------------------------------------------------
@@ -712,9 +758,9 @@ pub const ENTRIES: &[Entry] = &[
     // crosses through its own out-pointer.
     e("bytes.fromUtf8", &[Dropped, List], Ret::Res),
     e("bytes.fromUtf8Trusted", &[Dropped, List], Ret::Out),
-    e("bytes.f64ToBytes", &[Dropped, Scalar], Ret::Out),
+    e("bytes.f64ToBytes", &[Dropped, Float], Ret::Out),
     e("bytes.f64FromBytes", &[List, Scalar], Ret::Sum),
-    e("bytes.f32ToBytes", &[Dropped, Scalar], Ret::Out),
+    e("bytes.f32ToBytes", &[Dropped, Float], Ret::Out),
     e("bytes.f32FromBytes", &[List, Scalar], Ret::Sum),
     // -- core/character -----------------------------------------------------
     //
@@ -730,13 +776,13 @@ pub const ENTRIES: &[Entry] = &[
     // drift. So all eight go through the archive together rather than four of
     // them here and four there, and `cli/runtime/character.rs` is the one
     // place the answers live.
-    e("character.isDigit", &[Scalar], Ret::Int(8)),
-    e("character.isAlpha", &[Scalar], Ret::Int(8)),
-    e("character.isSpace", &[Scalar], Ret::Int(8)),
-    e("character.isUpper", &[Scalar], Ret::Int(8)),
-    e("character.isLower", &[Scalar], Ret::Int(8)),
-    e("character.toUpper", &[Scalar], Ret::Scalar),
-    e("character.toLower", &[Scalar], Ret::Scalar),
+    e("character.isDigit", &[Scalar], Ret::Int(Narrow::U8)),
+    e("character.isAlpha", &[Scalar], Ret::Int(Narrow::U8)),
+    e("character.isSpace", &[Scalar], Ret::Int(Narrow::U8)),
+    e("character.isUpper", &[Scalar], Ret::Int(Narrow::U8)),
+    e("character.isLower", &[Scalar], Ret::Int(Narrow::U8)),
+    e("character.toUpper", &[Scalar], Ret::Scalar(U32)),
+    e("character.toLower", &[Scalar], Ret::Scalar(U32)),
     e("character.toDigit", &[Scalar, Scalar], Ret::Sum),
     // -- core/crypto --------------------------------------------------------
     //
@@ -756,13 +802,17 @@ pub const ENTRIES: &[Entry] = &[
     e(
         "crypto.ecdsaP256Sha256Verify",
         &[List, List, List],
-        Ret::Int(8),
+        Ret::Int(Narrow::U8),
     ),
-    e("crypto.ed25519Verify", &[List, List, List], Ret::Int(8)),
+    e(
+        "crypto.ed25519Verify",
+        &[List, List, List],
+        Ret::Int(Narrow::U8),
+    ),
     e(
         "crypto.rsaPkcs1Sha256Verify",
         &[List, List, List, List],
-        Ret::Int(8),
+        Ret::Int(Narrow::U8),
     ),
     // -- core/math, the exactly-specified half --------------------------------
     //
@@ -770,15 +820,15 @@ pub const ENTRIES: &[Entry] = &[
     // not here, and the short version is that IEEE 754 does not fix a
     // transcendental's answer, so V8 and the platform libm differ in the last
     // bit — which a rendered `Float` shows.
-    e("math.squareRoot", &[Scalar], Ret::Scalar),
-    e("math.absoluteFloat", &[Scalar], Ret::Scalar),
-    e("math.floor", &[Scalar], Ret::Scalar),
-    e("math.ceiling", &[Scalar], Ret::Scalar),
-    e("math.truncate", &[Scalar], Ret::Scalar),
-    e("math.round", &[Scalar], Ret::Scalar),
-    e("math.isNan", &[Scalar], Ret::Int(8)),
-    e("math.isInfinite", &[Scalar], Ret::Int(8)),
-    e("math.isFinite", &[Scalar], Ret::Int(8)),
+    e("math.squareRoot", &[Float], Ret::Scalar(F64)),
+    e("math.absoluteFloat", &[Float], Ret::Scalar(F64)),
+    e("math.floor", &[Float], Ret::Scalar(F64)),
+    e("math.ceiling", &[Float], Ret::Scalar(F64)),
+    e("math.truncate", &[Float], Ret::Scalar(F64)),
+    e("math.round", &[Float], Ret::Scalar(F64)),
+    e("math.isNan", &[Float], Ret::Int(Narrow::U8)),
+    e("math.isInfinite", &[Float], Ret::Int(Narrow::U8)),
+    e("math.isFinite", &[Float], Ret::Int(Narrow::U8)),
     // -- the text streams ---------------------------------------------------
     //
     // `Result<(), IoError>` on all five, which is [`Ret::Res`] with the
@@ -934,7 +984,11 @@ pub const ENTRIES: &[Entry] = &[
         &[Dropped, List, List, Scalar, List],
         Ret::ResMsg,
     ),
-    e("host.HostSpawn.processId", &[Dropped, Scalar], Ret::Scalar),
+    e(
+        "host.HostSpawn.processId",
+        &[Dropped, Scalar],
+        Ret::Scalar(U64),
+    ),
     e(
         "host.HostSpawn.signalProcess",
         &[Dropped, Scalar, Scalar],
@@ -943,7 +997,7 @@ pub const ENTRIES: &[Entry] = &[
     e(
         "host.HostSpawn.pollProcess",
         &[Dropped, Scalar],
-        Ret::Int(8),
+        Ret::Int(Narrow::U8),
     ),
     e(
         "host.HostSpawn.waitProcess",
@@ -982,9 +1036,13 @@ pub const ENTRIES: &[Entry] = &[
     e(
         "host.HostFileSystem.fileExists",
         &[Dropped, Str],
-        Ret::Int(8),
+        Ret::Int(Narrow::U8),
     ),
-    e("host.HostClock.nowMilliseconds", &[Dropped], Ret::Scalar),
+    e(
+        "host.HostClock.nowMilliseconds",
+        &[Dropped],
+        Ret::Scalar(U64),
+    ),
     e(
         "host.HostClock.sleepMilliseconds",
         &[Dropped, Scalar],
@@ -996,14 +1054,14 @@ pub const ENTRIES: &[Entry] = &[
     e(
         "host.HostClock.monotonicNanoseconds",
         &[Dropped],
-        Ret::Scalar,
+        Ret::Scalar(U64),
     ),
     e(
         "host.HostRandom.nextInt",
         &[Dropped, Scalar, Scalar],
-        Ret::Scalar,
+        Ret::Scalar(U64),
     ),
-    e("host.HostRandom.nextFloat", &[Dropped], Ret::Scalar),
+    e("host.HostRandom.nextFloat", &[Dropped], Ret::Scalar(F64)),
     // The one row here whose symbol may not be in the archive: it is behind the
     // runtime's `crypto` feature, and `runtime_native::crypto_intrinsic` is
     // what turns a toolchain built without it into a refusal naming the
@@ -1034,7 +1092,7 @@ pub const ENTRIES: &[Entry] = &[
     e(
         "host.HostAllocator.allocate",
         &[Dropped, Scalar],
-        Ret::Scalar,
+        Ret::Scalar(U64),
     ),
     // -- Tasks --------------------------------------------------------------
     //
@@ -1177,10 +1235,10 @@ pub const ENTRIES: &[Entry] = &[
     // `charge` is the one that can end the process, and it is `Ret::Scalar`
     // rather than `Ret::NoReturn` because it returns on every request that
     // fits.
-    e("alloc.newCounter", &[Scalar], Ret::Scalar),
-    e("alloc.charge", &[Scalar, Scalar], Ret::Scalar),
-    e("alloc.count", &[Scalar], Ret::Scalar),
-    e("alloc.total", &[Scalar], Ret::Scalar),
+    e("alloc.newCounter", &[Scalar], Ret::Scalar(U64)),
+    e("alloc.charge", &[Scalar, Scalar], Ret::Scalar(U64)),
+    e("alloc.count", &[Scalar], Ret::Scalar(U64)),
+    e("alloc.total", &[Scalar], Ret::Scalar(U64)),
     // -- `core/alloc`'s scope (G4) ------------------------------------------
     //
     // The same shape as the four counters above and for the same reason: the
@@ -1188,17 +1246,17 @@ pub const ENTRIES: &[Entry] = &[
     // for this ABI to drop. `arenaRelease` answers the bytes it gave back
     // rather than `()`, because a scalar out is the row this table has and
     // `scoped` discards it.
-    e("alloc.arenaCreate", &[], Ret::Scalar),
-    e("alloc.arenaAllocate", &[Scalar, Scalar], Ret::Scalar),
-    e("alloc.arenaRelease", &[Scalar], Ret::Scalar),
-    e("alloc.arenaCount", &[Scalar], Ret::Scalar),
-    e("alloc.arenaTotal", &[Scalar], Ret::Scalar),
+    e("alloc.arenaCreate", &[], Ret::Scalar(U64)),
+    e("alloc.arenaAllocate", &[Scalar, Scalar], Ret::Scalar(U64)),
+    e("alloc.arenaRelease", &[Scalar], Ret::Scalar(U64)),
+    e("alloc.arenaCount", &[Scalar], Ret::Scalar(U64)),
+    e("alloc.arenaTotal", &[Scalar], Ret::Scalar(U64)),
     // G5's pair: the arena the platform allocator serves out of, for this
     // thread and for the dynamic extent of `scoped`'s body. `arenaEnter`
     // answers the arena that was active before, so nesting is the caller's
     // local and not a stack in the runtime.
-    e("alloc.arenaEnter", &[Scalar], Ret::Scalar),
-    e("alloc.arenaLeave", &[Scalar], Ret::Scalar),
+    e("alloc.arenaEnter", &[Scalar], Ret::Scalar(U64)),
+    e("alloc.arenaLeave", &[Scalar], Ret::Scalar(U64)),
     // -- core/actor's mailbox, state and reply slots (F6) --------------------
     //
     // Nine rows, and not one of them carries a stride, a glue or a descriptor
@@ -1237,19 +1295,19 @@ pub const ENTRIES: &[Entry] = &[
     e(
         "actor.mailboxOpen",
         &[Dropped, Elems, Scalar, Stride, Retain, Release, Equal],
-        Ret::Scalar,
+        Ret::Scalar(U64),
     ),
     e("actor.mailboxPush", &[Dropped, Scalar, List], Ret::Res),
     e("actor.mailboxPop", &[Dropped, Scalar], Ret::Sum),
     e("actor.mailboxClose", &[Dropped, Scalar], Ret::Sum),
     e("actor.stateTake", &[Dropped, Scalar], Ret::Res),
     e("actor.statePut", &[Dropped, Scalar, List], Ret::Sum),
-    e("actor.replyOpen", &[Dropped], Ret::Scalar),
+    e("actor.replyOpen", &[Dropped], Ret::Scalar(U64)),
     e("actor.replyPut", &[Dropped, Scalar, List], Ret::Sum),
     e("actor.replyTake", &[Dropped, Scalar], Ret::Sum),
     // Takes no context: whether any arena holds pages is a fact about the
     // process, and `core/actor` asks it before skipping a copy.
-    e("actor.scopesLive", &[], Ret::Scalar),
+    e("actor.scopesLive", &[], Ret::Scalar(U8)),
     // -- core/tasks's scopes (F8) --------------------------------------------
     //
     // Ten rows, the nine above read a second time: a spawned task crosses as a
@@ -1272,15 +1330,15 @@ pub const ENTRIES: &[Entry] = &[
     //
     // The bodies are in `cli/runtime/rt.rs` behind feature `net`, so
     // `runtime_native::net_intrinsic` names this family too.
-    e("tasks.scopeOpen", &[Dropped], Ret::Scalar),
+    e("tasks.scopeOpen", &[Dropped], Ret::Scalar(U64)),
     e("tasks.scopePush", &[Dropped, Scalar, List], Ret::Sum),
     e("tasks.scopeRound", &[Dropped, Scalar], Ret::Out),
     e("tasks.scopeTaskAt", &[Dropped, Scalar, Scalar], Ret::Sum),
-    e("tasks.scopeEnter", &[Dropped, Scalar], Ret::Scalar),
-    e("tasks.scopeBeside", &[Dropped, Scalar], Ret::Scalar),
-    e("tasks.scopeClaim", &[Dropped, Scalar], Ret::Scalar),
-    e("tasks.scopeSpare", &[Dropped, Scalar], Ret::Scalar),
-    e("tasks.scopeRan", &[Dropped, Scalar], Ret::Scalar),
+    e("tasks.scopeEnter", &[Dropped, Scalar], Ret::Scalar(U8)),
+    e("tasks.scopeBeside", &[Dropped, Scalar], Ret::Scalar(U8)),
+    e("tasks.scopeClaim", &[Dropped, Scalar], Ret::Scalar(U64)),
+    e("tasks.scopeSpare", &[Dropped, Scalar], Ret::Scalar(U8)),
+    e("tasks.scopeRan", &[Dropped, Scalar], Ret::Scalar(U8)),
     // `core/tasks`'s timers. Unlike a spawned task, a timer's body is the
     // runtime's to call, so it crosses as a kept handler ([`Arg::Press`]):
     // `fn(C, Int) => ()`, with the context written into the record beside the
@@ -1357,16 +1415,24 @@ pub const ENTRIES: &[Entry] = &[
     // out-pointer, one element wide. The three builders and `newFs` answer an
     // `I64` and so are `Ret::Scalar`, `newNet`'s shape rather than `clock`'s:
     // what they answer is the handle, and the value around it is built in Buri.
-    e("host_testing.newFs", &[], Ret::Scalar),
-    e("host_testing.fsFiles", &[Scalar, List], Ret::Scalar),
-    e("host_testing.fsFilesBytes", &[Scalar, List], Ret::Scalar),
-    e("host_testing.fsReadOnly", &[Scalar], Ret::Scalar),
+    e("host_testing.newFs", &[], Ret::Scalar(U64)),
+    e("host_testing.fsFiles", &[Scalar, List], Ret::Scalar(U64)),
+    e(
+        "host_testing.fsFilesBytes",
+        &[Scalar, List],
+        Ret::Scalar(U64),
+    ),
+    e("host_testing.fsReadOnly", &[Scalar], Ret::Scalar(U64)),
     e("host_testing.fsRead", &[Scalar, Str], Ret::Res),
     e("host_testing.fsSnapshot", &[Scalar], Ret::Out),
     e("host_testing.fsCalls", &[Scalar], Ret::Out),
     e("host_testing.fsReadFile", &[Scalar, Str], Ret::Res),
     e("host_testing.fsWriteFile", &[Scalar, Str, Str], Ret::Res),
-    e("host_testing.fsFileExists", &[Scalar, Str], Ret::Int(8)),
+    e(
+        "host_testing.fsFileExists",
+        &[Scalar, Str],
+        Ret::Int(Narrow::U8),
+    ),
     e("host_testing.fsReadDir", &[Scalar, Str], Ret::Res),
     e("host_testing.fsReadFileBytes", &[Scalar, Str], Ret::Res),
     e(
@@ -1406,7 +1472,7 @@ pub const ENTRIES: &[Entry] = &[
     // that one fired, and `test.leave` below reports the rest. `noteFsCall` is
     // the twelfth way into a log: a call the plan failed never reaches the row
     // that would have recorded it, and it is still a call.
-    e("host_testing.fsWithPlan", &[Scalar], Ret::Scalar),
+    e("host_testing.fsWithPlan", &[Scalar], Ret::Scalar(U64)),
     e(
         "host_testing.addFsFault",
         &[Scalar, Str, Str, Str],
@@ -1424,8 +1490,8 @@ pub const ENTRIES: &[Entry] = &[
         &[Scalar, Str, Str, Str],
         Ret::Void,
     ),
-    e("host_testing.netRebind", &[Scalar], Ret::Scalar),
-    e("host_testing.netWithPlan", &[Scalar], Ret::Scalar),
+    e("host_testing.netRebind", &[Scalar], Ret::Scalar(U64)),
+    e("host_testing.netWithPlan", &[Scalar], Ret::Scalar(U64)),
     // -- the call log's remaining four --------------------------------------
     //
     // `spelled` is an `FsCall` constructor's decode and not a filesystem
@@ -1442,7 +1508,7 @@ pub const ENTRIES: &[Entry] = &[
     // because that value carries the responder too and an argument crosses as
     // its leaves.
     e("host_testing.spelled", &[List], Ret::Out),
-    e("host_testing.newNet", &[], Ret::Scalar),
+    e("host_testing.newNet", &[], Ret::Scalar(U64)),
     e(
         "host_testing.recordFetch",
         &[Scalar, Scalar, Str, List, List, Scalar],
@@ -1455,12 +1521,12 @@ pub const ENTRIES: &[Entry] = &[
     // it and nothing here needs a plan. `recordTcpRead` is `Ret::Opt` because
     // the one failure the double has is a stream it never minted, which carries
     // nothing.
-    e("host_testing.newTcp", &[], Ret::Scalar),
-    e("host_testing.tcpStream", &[Scalar, List], Ret::Scalar),
+    e("host_testing.newTcp", &[], Ret::Scalar(U64)),
+    e("host_testing.tcpStream", &[Scalar, List], Ret::Scalar(U64)),
     e(
         "host_testing.recordTcpConnect",
         &[Scalar, Str, Scalar],
-        Ret::Scalar,
+        Ret::Scalar(U64),
     ),
     e(
         "host_testing.recordTcpRead",
@@ -1470,7 +1536,7 @@ pub const ENTRIES: &[Entry] = &[
     e(
         "host_testing.recordTcpWrite",
         &[Scalar, Scalar, List],
-        Ret::Int(8),
+        Ret::Int(Narrow::U8),
     ),
     e("host_testing.recordTcpClose", &[Scalar, Scalar], Ret::Void),
     e("host_testing.tcpCalls", &[Scalar], Ret::Out),
@@ -1490,8 +1556,8 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.TestTasks.everyOrder", &[Scalar], Ret::Out),
     e("host_testing.TestTasks.seed", &[Scalar, Scalar], Ret::Out),
     e("host_testing.TestTasks.calls", &[Scalar], Ret::Out),
-    e("host_testing.TestTasks.runs", &[Scalar], Ret::Scalar),
-    e("host_testing.TestTasks.orders", &[Scalar], Ret::Scalar),
+    e("host_testing.TestTasks.runs", &[Scalar], Ret::Scalar(U64)),
+    e("host_testing.TestTasks.orders", &[Scalar], Ret::Scalar(U64)),
     e("host_testing.TestTasks.replan", &[Scalar], Ret::Out),
     e(
         "host_testing.TestTasks.addFault",
@@ -1503,7 +1569,7 @@ pub const ENTRIES: &[Entry] = &[
     e(
         "host_testing.TestClock.nowMilliseconds",
         &[Scalar],
-        Ret::Scalar,
+        Ret::Scalar(U64),
     ),
     e(
         "host_testing.TestClock.sleepMilliseconds",
@@ -1513,16 +1579,20 @@ pub const ENTRIES: &[Entry] = &[
     e(
         "host_testing.TestClock.monotonicNanoseconds",
         &[Scalar],
-        Ret::Scalar,
+        Ret::Scalar(U64),
     ),
     e("host_testing.rand", &[], Ret::Out),
     e("host_testing.TestRandom.seed", &[Scalar, Scalar], Ret::Out),
     e(
         "host_testing.TestRandom.nextInt",
         &[Scalar, Scalar, Scalar],
-        Ret::Scalar,
+        Ret::Scalar(U64),
     ),
-    e("host_testing.TestRandom.nextFloat", &[Scalar], Ret::Scalar),
+    e(
+        "host_testing.TestRandom.nextFloat",
+        &[Scalar],
+        Ret::Scalar(F64),
+    ),
     e("host_testing.entropy", &[], Ret::Out),
     e("host_testing.TestEntropy.seed", &[Scalar, Scalar], Ret::Out),
     e(
@@ -1569,19 +1639,31 @@ pub const ENTRIES: &[Entry] = &[
     // The spawn double is a log and nothing else — the scripted answer holds an
     // `IoError`, which §2.1 cannot hand back across a row, so it stays in the
     // program and `spawnProcess` is a Buri body. `TestNetwork`'s arrangement.
-    e("host_testing.newSpawn", &[], Ret::Scalar),
+    e("host_testing.newSpawn", &[], Ret::Scalar(U64)),
     e("host_testing.recordSpawn", &[Scalar, List], Ret::Void),
     e("host_testing.spawnCalls", &[Scalar], Ret::Out),
     // Its started children: the state a signal changes, which an immutable
     // `self` cannot hold.
-    e("host_testing.spawnStart", &[Scalar, Scalar], Ret::Scalar),
+    e(
+        "host_testing.spawnStart",
+        &[Scalar, Scalar],
+        Ret::Scalar(U64),
+    ),
     e(
         "host_testing.spawnSignal",
         &[Scalar, Scalar, Scalar],
         Ret::Void,
     ),
-    e("host_testing.spawnExited", &[Scalar, Scalar], Ret::Int(8)),
-    e("host_testing.spawnWait", &[Scalar, Scalar], Ret::Scalar),
+    e(
+        "host_testing.spawnExited",
+        &[Scalar, Scalar],
+        Ret::Int(Narrow::U8),
+    ),
+    e(
+        "host_testing.spawnWait",
+        &[Scalar, Scalar],
+        Ret::Scalar(U64),
+    ),
     e("host_testing.spawnSignals", &[Scalar], Ret::Out),
     // `sockets()` — a socket with no network behind it. Seven rows: the double,
     // the mint, the three `Sockets` methods and the two readers. `sent` and
@@ -1592,9 +1674,13 @@ pub const ENTRIES: &[Entry] = &[
     // a runtime writes a struct and the program builds the enum — is the same
     // one `Received` is on.
     e("host_testing.sockets", &[], Ret::Out),
-    e("host_testing.socketsOpen", &[Scalar], Ret::Scalar),
+    e("host_testing.socketsOpen", &[Scalar], Ret::Scalar(U64)),
     e("host_testing.socketsSent", &[Scalar], Ret::Out),
-    e("host_testing.socketsIsOpen", &[Scalar, Scalar], Ret::Scalar),
+    e(
+        "host_testing.socketsIsOpen",
+        &[Scalar, Scalar],
+        Ret::Scalar(U8),
+    ),
     e(
         "host_testing.TestSockets.socketSendText",
         &[Scalar, Scalar, Str],
@@ -1619,7 +1705,11 @@ pub const ENTRIES: &[Entry] = &[
     // program's `socket.send` is recorded by `sent()` and its `close` shows up
     // in `isOpen`. One double writes and one double reads, which is the same
     // division `effect Sockets`' header draws.
-    e("host_testing.socketsDialling", &[Scalar, List], Ret::Scalar),
+    e(
+        "host_testing.socketsDialling",
+        &[Scalar, List],
+        Ret::Scalar(U64),
+    ),
     e(
         "host_testing.TestWebSocketClient.connectSocket",
         &[Scalar, Str],
@@ -1643,7 +1733,7 @@ pub const ENTRIES: &[Entry] = &[
     // order, and answering yes here is how — the body calls itself, so the
     // reruns are one tree on all three backends rather than a loop in each of
     // three entry points.
-    e("test.replay", &[Scalar], Ret::Scalar),
+    e("test.replay", &[Scalar], Ret::Scalar(U8)),
     // `buri test --coverage`'s probe, which `middle::coverage` puts in front of
     // every line it counts. No declaration produces it either.
     e("coverage.hit", &[Scalar], Ret::Void),
@@ -1725,7 +1815,7 @@ pub const ENTRIES: &[Entry] = &[
     v(e(
         "host_testing.Headless.signal",
         &[Scalar, Spilled, Stride, Retain, Release, Equal],
-        Ret::Scalar,
+        Ret::Scalar(U64),
     )),
     v(e(
         "host_testing.Headless.read",
@@ -1765,7 +1855,7 @@ pub const ENTRIES: &[Entry] = &[
     v(e(
         "platforms_testing_state.stateNew",
         &[Spilled, Stride, Retain, Release, Equal],
-        Ret::Scalar,
+        Ret::Scalar(U64),
     )),
     v(e(
         "platforms_testing_state.stateRead",
@@ -1795,7 +1885,11 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.recorder", &[], Ret::Out),
     e("host_testing.Recorder.record", &[Scalar, Str], Ret::Void),
     e("host_testing.Recorder.recorded", &[Scalar], Ret::Out),
-    e("host_testing.Recorder.note", &[Scalar, Scalar], Ret::Scalar),
+    e(
+        "host_testing.Recorder.note",
+        &[Scalar, Scalar],
+        Ret::Scalar(U64),
+    ),
     e("host_testing.Recorder.noted", &[Scalar], Ret::Out),
     // -- the renderer, and the document it builds (issue #53) ----------------
     //
@@ -1829,15 +1923,15 @@ pub const ENTRIES: &[Entry] = &[
     // address. `reactive` is the renderer's own `watch`: the same deferred body
     // [`Arg::Compute`] carries for `Ui.watch`, registered with no `Ui` in hand
     // because the runtime owns the graph.
-    e("ui_node.openText", &[Scalar], Ret::Scalar),
+    e("ui_node.openText", &[Scalar], Ret::Scalar(U64)),
     e("ui_node.patchText", &[Scalar, Scalar, Str], Ret::Void),
     // `openElement` emits-and-enters like `emitElement` but answers the index a
     // reactive style patches its body by; `patchBody` writes over that body,
     // the element kept — together a `$tree_styles` bind for the scene.
-    e("ui_node.openElement", &[Scalar, Str, Str], Ret::Scalar),
+    e("ui_node.openElement", &[Scalar, Str, Str], Ret::Scalar(U64)),
     e("ui_node.patchBody", &[Scalar, Scalar, Str], Ret::Void),
     REACTIVE,
-    e("ui_node.enterDynamic", &[Scalar], Ret::Scalar),
+    e("ui_node.enterDynamic", &[Scalar], Ret::Scalar(U64)),
     // `beginRegion` clears a region and points the builder at its gap and
     // `endRegion` restores it — `rebuildRegion` split open, for a reactive
     // widget that emits inline under its own watcher rather than walking a node.
@@ -1849,7 +1943,7 @@ pub const ENTRIES: &[Entry] = &[
     // watcher computed and the row body last, an [`Arg::Walk`] like a region
     // rebuild's — but with nothing spilled, because the body builds its own node
     // from `rowAt` rather than being handed one.
-    e("ui_node.enterEach", &[Scalar], Ret::Scalar),
+    e("ui_node.enterEach", &[Scalar], Ret::Scalar(U64)),
     RECONCILE,
     // The event arms (#53 phase 4). `registerPress` keeps a button's or a form's
     // `fn(C, Event) => ()` on the open element — an [`Arg::Press`], the kept
@@ -1883,7 +1977,7 @@ pub const ENTRIES: &[Entry] = &[
     // hears with the trigger. `registerKey` keeps an `onKey` the way
     // `registerPointer` keeps a pointer handler; the handler reads its key with
     // `keyPressed` and says it claimed it with `claimKey`.
-    e("ui_node.openTip", &[Scalar], Ret::Scalar),
+    e("ui_node.openTip", &[Scalar], Ret::Scalar(U64)),
     e("ui_node.describeTip", &[Scalar, Scalar, Str], Ret::Void),
     REGISTER_KEY,
     e("ui_node.keyPressed", &[Scalar], Ret::Out),
@@ -1893,7 +1987,7 @@ pub const ENTRIES: &[Entry] = &[
     // rebuild keeps it. `setFocusOrder` and `bindFocusSignal` keep what the
     // program said, and `requestFocus` is its signal written. `relabel` is a
     // button's changing name.
-    e("ui_node.focusKey", &[Scalar], Ret::Scalar),
+    e("ui_node.focusKey", &[Scalar], Ret::Scalar(U64)),
     e("ui_node.attachFocus", &[Scalar, Scalar, Scalar], Ret::Void),
     e(
         "ui_node.setFocusOrder",
@@ -1930,7 +2024,7 @@ pub const ENTRIES: &[Entry] = &[
     e(
         "host_testing.Rendered.isCurrent",
         &[Scalar, Str],
-        Ret::Scalar,
+        Ret::Scalar(U8),
     ),
     e(
         "host_testing.Rendered.description",
@@ -1942,11 +2036,15 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.Rendered.focused", &[Scalar], Ret::Out),
     e("host_testing.Rendered.tab", &[Scalar], Ret::Void),
     e("host_testing.Rendered.shiftTab", &[Scalar], Ret::Void),
-    e("host_testing.Rendered.count", &[Scalar, Str], Ret::Scalar),
+    e(
+        "host_testing.Rendered.count",
+        &[Scalar, Str],
+        Ret::Scalar(U64),
+    ),
     e(
         "host_testing.Rendered.identity",
         &[Scalar, Str, Scalar],
-        Ret::Scalar,
+        Ret::Scalar(U64),
     ),
     // The event dispatch (#53 phase 4), each addressing the reconciled document
     // by label or index and mutating a signal a watcher then sees: `press` fires
@@ -1969,23 +2067,23 @@ pub const ENTRIES: &[Entry] = &[
     // readers answer the `PointerAt` the dispatch in flight set, and
     // `pointerDown`/`pointerMove`/`pointerUp` are that dispatch.
     REGISTER_POINTER,
-    e("ui_node.pointerX", &[Scalar], Ret::Scalar),
-    e("ui_node.pointerY", &[Scalar], Ret::Scalar),
-    e("ui_node.pointerOverRow", &[Scalar], Ret::Scalar),
+    e("ui_node.pointerX", &[Scalar], Ret::Scalar(F64)),
+    e("ui_node.pointerY", &[Scalar], Ret::Scalar(F64)),
+    e("ui_node.pointerOverRow", &[Scalar], Ret::Scalar(U8)),
     e("ui_node.pointerRow", &[Scalar], Ret::Out),
     e(
         "host_testing.Rendered.pointerDown",
-        &[Scalar, Str, Scalar, Scalar],
+        &[Scalar, Str, Float, Float],
         Ret::Void,
     ),
     e(
         "host_testing.Rendered.pointerMove",
-        &[Scalar, Str, Scalar, Scalar],
+        &[Scalar, Str, Float, Float],
         Ret::Void,
     ),
     e(
         "host_testing.Rendered.pointerUp",
-        &[Scalar, Str, Scalar, Scalar],
+        &[Scalar, Str, Float, Float],
         Ret::Void,
     ),
 ];
@@ -2367,7 +2465,7 @@ mod tests {
     #[test]
     fn only_the_generic_extras_consume_no_argument() {
         for shape in [
-            Str, Bytes, List, Scalar, Dropped, Elems, Spilled, Step, Compute, Walk, Press,
+            Str, List, Scalar, Float, Dropped, Elems, Spilled, Step, Compute, Walk, Press,
         ] {
             assert!(shape.consumes(), "{shape:?}");
         }
@@ -2466,7 +2564,25 @@ mod tests {
         ("math", "core/math"),
         ("str", "core/str"),
         ("tasks", "core/tasks"),
+        ("ui_node", "ui/node"),
     ];
+
+    /// One `fn` declaration: its parameters as written (`name: Type`, or a
+    /// bare `self`) and its return type, `()` where it spells none.
+    struct Declared {
+        params: Vec<String>,
+        ret: String,
+    }
+
+    impl Declared {
+        /// The type parameter `i` is declared at, `""` for a bare `self`.
+        fn param_ty(&self, i: usize) -> &str {
+            self.params
+                .get(i)
+                .and_then(|p| p.split_once(':'))
+                .map_or("", |(_, ty)| ty.trim())
+        }
+    }
 
     /// Every `fn <name>` in `source`, answered as the index of its `ctx`
     /// parameter — `None` where it has none.
@@ -2476,6 +2592,18 @@ mod tests {
     /// and they are in two modules, so within one module the answers agree or
     /// the lookup was not specific enough to assert on. The caller checks that.
     fn declared_ctx(source: &str, name: &str) -> Vec<Option<usize>> {
+        declarations(source, name)
+            .iter()
+            .map(|d| {
+                d.params
+                    .iter()
+                    .position(|p| p.split(':').next().is_some_and(|n| n.trim() == "ctx"))
+            })
+            .collect()
+    }
+
+    /// Every `fn <name>` in `source`, read as far as its return type.
+    fn declarations(source: &str, name: &str) -> Vec<Declared> {
         let mut out = Vec::new();
         for (at, _) in source.match_indices("fn ") {
             // `asfn foo` is not a declaration of `foo`.
@@ -2515,7 +2643,8 @@ mod tests {
             let mut depth = 0usize;
             let mut params: Vec<String> = Vec::new();
             let mut piece = String::new();
-            for c in after.chars() {
+            let mut close = after.len();
+            for (i, c) in after.char_indices() {
                 match c {
                     // `>` closes a generic argument list and also ends the `=>`
                     // of a function type; the saturating decrement is what lets
@@ -2524,7 +2653,10 @@ mod tests {
                         depth = depth.saturating_add(1);
                         piece.push(c);
                     }
-                    ')' if depth == 0 => break,
+                    ')' if depth == 0 => {
+                        close = i;
+                        break;
+                    }
                     ')' | ']' | '>' => {
                         depth = depth.saturating_sub(1);
                         piece.push(c);
@@ -2536,11 +2668,16 @@ mod tests {
             if !piece.trim().is_empty() {
                 params.push(piece);
             }
-            out.push(
-                params
-                    .iter()
-                    .position(|p| p.split(':').next().is_some_and(|n| n.trim() == "ctx")),
-            );
+            // `): Type {`, `): Type` at the end of an effect's line, or no
+            // `:` at all for a function that answers `()`.
+            let rest = after.get(close.saturating_add(1)..).unwrap_or("");
+            let ret = rest
+                .trim_start()
+                .strip_prefix(':')
+                .and_then(|r| r.split(['{', ';', '\n']).next())
+                .map_or("()", str::trim)
+                .to_string();
+            out.push(Declared { params, ret });
         }
         out
     }
@@ -2599,6 +2736,62 @@ mod tests {
             "only {checked} rows were read against a declaration"
         );
         assert_eq!(contexts, 56);
+    }
+
+    /// Every row's C scalars agree with the declaration: a `Float` parameter
+    /// is an [`Arg::Float`] and nothing else is, and a [`Ret::Scalar`] row
+    /// answers the C type its declared result crosses as.
+    ///
+    /// These are what let a backend build the call from the row alone, without
+    /// asking the arguments' types which register file a word goes in or how
+    /// wide the answer is.
+    #[test]
+    fn every_declared_scalar_is_typed() {
+        let mut params = 0usize;
+        let mut floats = 0usize;
+        let mut answers = 0usize;
+        for entry in ENTRIES {
+            let Some((_, path)) = DECLARED_IN
+                .iter()
+                .find(|(prefix, _)| entry.key.split('.').next() == Some(prefix))
+            else {
+                continue;
+            };
+            let name = entry.key.rsplit('.').next().unwrap_or(entry.key);
+            let consumed: Vec<Arg> = entry.consumed().collect();
+            // An effect declares its methods without `self`, and the row has
+            // one, so only a declaration of the row's own arity is the row's.
+            for d in declarations(module_source(path), name)
+                .into_iter()
+                .filter(|d| d.params.len() == consumed.len())
+            {
+                for (i, arg) in consumed.iter().enumerate() {
+                    assert_eq!(
+                        d.param_ty(i) == "Float",
+                        *arg == Float,
+                        "{}: argument {i} is `{}`",
+                        entry.key,
+                        d.param_ty(i)
+                    );
+                    floats += usize::from(*arg == Float);
+                    params += 1;
+                }
+                if let Ret::Scalar(c) = entry.ret {
+                    let want = match d.ret.as_str() {
+                        "Float" => F64,
+                        "Bool" => U8,
+                        "Char" => U32,
+                        _ => U64,
+                    };
+                    assert_eq!(c, want, "{}: answers `{}`", entry.key, d.ret);
+                    answers += 1;
+                }
+            }
+        }
+        // A scan that matched nothing would pass every assertion above.
+        assert!(params > 300, "only {params} parameters were read");
+        assert_eq!(floats, 18);
+        assert!(answers > 70, "only {answers} answers were read");
     }
 
     /// The two places a context sits, by example, so that the indices are

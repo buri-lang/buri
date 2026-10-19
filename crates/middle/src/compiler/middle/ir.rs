@@ -863,12 +863,12 @@ pub struct Env {
 pub enum Answer {
     /// `Ret::Void`.
     Void,
-    /// `Ret::Scalar`.
-    Scalar,
+    /// `Ret::Scalar`: the one C scalar the row answers.
+    Scalar(crate::compiler::backend::runtime_table::CScalar),
     /// `Ret::NoReturn`.
     NoReturn,
-    /// `Ret::Int`: an integer of this many bits, narrowed to the destination.
-    Int(u32),
+    /// `Ret::Int`: a narrow integer, widened or narrowed to the destination.
+    Int(crate::compiler::backend::runtime_table::Narrow),
     /// `Ret::Out`.
     Out,
     /// `Ret::Sum`: the `Option` the destination is.

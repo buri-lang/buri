@@ -192,9 +192,9 @@ const _: () = assert!(MAX_INT_ARGS <= 10 && MAX_FLOAT_ARGS <= 2);
 /// bits of a narrower integer return **unspecified**, so `uint64_t` against a
 /// `u8` reads whatever was in the register. AAPCS64 happened to hide it — Rust's
 /// arm64 codegen zeroes the register on the way out — and SysV does not, which
-/// is where it was found. `rtcall::scalar_kind` picks the letter from the
-/// destination's own width, which is the same fact the other two backends build
-/// their call signature from.
+/// is where it was found. `rtcall.rs` picks the letter from the C type the
+/// runtime row names (`runtime_table::CScalar`), which is the same fact the
+/// LLVM backend builds its call signature from.
 ///
 /// `w` is the odd one and stays: it is the **signed** 32-bit shape a fallible
 /// entry's `BURI_*` discriminant comes back in (`cli/runtime/lib.rs` §2), not a
