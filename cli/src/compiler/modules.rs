@@ -297,6 +297,9 @@ impl<'a> Loader<'a> {
     /// document can show a signature without inventing an implementation for
     /// it.
     pub fn load_source(&mut self, path: &str, role: Role, text: String) -> Option<ModuleId> {
+        if let Some(id) = self.by_path.get(path) {
+            return Some(*id);
+        }
         self.load_source_in(path, role, text, None)
     }
 
@@ -306,6 +309,10 @@ impl<'a> Loader<'a> {
     /// `cents.buri` importing its neighbour — and those imports are legal only
     /// from inside the package. Saying which package the example belongs to is
     /// what lets such a block be compiled rather than merely displayed.
+    ///
+    /// `path` is one nothing has loaded yet: a generated module's is looked up
+    /// before it gets here, a snippet's is its origin and a tool's `main` is
+    /// `(tool main)`, which no import names.
     pub fn load_source_in(
         &mut self,
         path: &str,
@@ -313,9 +320,6 @@ impl<'a> Loader<'a> {
         text: String,
         pkg: Option<crate::build::workspace::PackageId>,
     ) -> Option<ModuleId> {
-        if let Some(id) = self.by_path.get(path) {
-            return Some(*id);
-        }
         // Generated text has no file on disk, so the module path is its whole
         // identity — and a map kept between compilations (`build::sources`)
         // already holds the last one. Adding unconditionally minted a fresh id
@@ -1049,7 +1053,7 @@ impl<'a> Loader<'a> {
         // compiled independently — one test binary each — so there is nothing
         // for an import to resolve to, whoever writes it (TESTING.md, "What a
         // test can reach").
-        if is_declared_test_source(ws, Some(loc.package), &loc.path) {
+        if is_declared_test_source(ws, loc.package, &loc.path) {
             self.diags
                 .push(Diagnostic::templated("test-source-import", span).with_bind("path", path));
             return false;
@@ -1114,8 +1118,9 @@ impl<'a> Loader<'a> {
                 // Inside the package, every other module may reach it — but a
                 // test source may not. A test reaches its library the way a
                 // dependent does, and that is the rule that confines a suite to
-                // the public surface (TESTING.md:105-130).
-                if is_declared_test_source(ws, importer_pkg, importer_path) {
+                // the public surface (TESTING.md:105-130). The importer is in
+                // `loc.package`: the check above returned otherwise.
+                if is_declared_test_source(ws, loc.package, importer_path) {
                     let owner = ws.package(loc.package).label();
                     // The names the import asked for, already spelled as a
                     // phrase — the page has no way to list them.
@@ -1223,10 +1228,9 @@ fn source_file_of(path: &str) -> String {
 /// documented example of a library's own internals compilable.
 fn is_declared_test_source(
     ws: &Workspace,
-    pkg: Option<crate::build::workspace::PackageId>,
+    pkg_id: crate::build::workspace::PackageId,
     path: &str,
 ) -> bool {
-    let Some(pkg_id) = pkg else { return false };
     let Some(rel) = ws.package_relative(pkg_id, path) else {
         return false;
     };
