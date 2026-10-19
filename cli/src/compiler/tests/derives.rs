@@ -112,7 +112,7 @@ fn sexp(p: &Program, e: &Expr) -> String {
         ExprKind::Bool(b) => format!("{b}"),
         ExprKind::Unit => "()".into(),
         ExprKind::Field { base, index } | ExprKind::TupleIndex { base, index } => {
-            format!("{}.{index}", sexp(p, base))
+            format!("{}.{}", sexp(p, base), index.index())
         }
         ExprKind::CallFunc { func, args } => format!("{}({})", name_of(p, *func), list(args)),
         ExprKind::FuncRef(f) => format!("&{}", name_of(p, *f)),

@@ -24,6 +24,7 @@
 
 use super::{Func, Key, Monomorphizer};
 use crate::compiler::middle::derives::{EXPECTED_SHOWN, REPORT_SHOWN};
+use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::typed::{
     self, ArrayRest, ExprKind, FieldPat, PatKind, Pattern, TemplatePart,
 };
@@ -140,7 +141,7 @@ fn call(slot: FuncIdx, args: Vec<Expr>, ret: Ty) -> Expr {
     Expr::new(ExprKind::CallFunc { func: slot, args }, ret, Span::NONE)
 }
 
-fn project(base: Expr, index: usize, tuple: bool, ty: Ty) -> Expr {
+fn project(base: Expr, index: FieldId, tuple: bool, ty: Ty) -> Expr {
     let kind = if tuple {
         ExprKind::TupleIndex {
             base: Box::new(base),
@@ -839,15 +840,15 @@ impl Monomorphizer<'_> {
         a: Expr,
         b: Option<Expr>,
     ) -> Expr {
-        let a_parts: Vec<Expr> = parts
-            .iter()
-            .enumerate()
+        // A struct's parts are its fields and a tuple's its elements, in
+        // order, so they take the field ids in order.
+        let ids: Dense<FieldId, &Part> = parts.iter().collect();
+        let a_parts: Vec<Expr> = ids
+            .entries()
             .map(|(i, p)| project(a.clone(), i, tuple, p.ty))
             .collect();
         let b_parts: Option<Vec<Expr>> = b.map(|b| {
-            parts
-                .iter()
-                .enumerate()
+            ids.entries()
                 .map(|(i, p)| project(b.clone(), i, tuple, p.ty))
                 .collect()
         });

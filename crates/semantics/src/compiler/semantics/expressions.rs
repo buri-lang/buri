@@ -532,11 +532,12 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let b = self.check_expr(base, None);
                 let bty = self.resolve(&b.ty);
                 match bty.kind() {
-                    TyKind::Tuple(elems) => match elems.get(index as usize) {
-                        Some(t) => typed::Expr::new(
+                    TyKind::Tuple(elems) => match tuple_fields(elems).entries().nth(index as usize)
+                    {
+                        Some((field, t)) => typed::Expr::new(
                             typed::ExprKind::TupleIndex {
                                 base: Box::new(b),
-                                index: index as usize,
+                                index: field,
                             },
                             *t,
                             span,
@@ -552,15 +553,16 @@ impl<'a, 'b> Infer<'a, 'b> {
                     },
                     // A tuple struct's fields are `.0`, `.1`, ...
                     TyKind::Con(con, args) => {
-                        let fields = self.c.tables.tycon(*con).fields().as_slice().to_vec();
-                        match fields.get(index as usize) {
-                            Some(f) => {
+                        let fields = self.c.tables.tycon(*con).fields().clone();
+                        let nth = fields.entries().nth(index as usize);
+                        match nth {
+                            Some((field, f)) => {
                                 self.check_field_visible(*con, f, index_span);
                                 let ty = substitute(&f.ty, args, None);
                                 typed::Expr::new(
                                     typed::ExprKind::Field {
                                         base: Box::new(b),
-                                        index: index as usize,
+                                        index: field,
                                     },
                                     ty,
                                     span,
@@ -1490,15 +1492,11 @@ impl<'a, 'b> Infer<'a, 'b> {
 
         // A field of function type is called as `(x.f)(...)`.
         if let TyKind::Con(con, targs) = recv_ty.kind() {
-            let found = self.c.tables.field_index(*con, name).and_then(|i| {
-                self.c
-                    .tables
-                    .tycon(*con)
-                    .fields()
-                    .as_slice()
-                    .get(i)
-                    .map(|f| (i, f.clone()))
-            });
+            let found = self
+                .c
+                .tables
+                .field_index(*con, name)
+                .map(|i| (i, self.c.tables.tycon(*con).fields().get(i).clone()));
             if let Some((i, f)) = found {
                 self.check_field_visible(*con, &f, name_span);
                 let decl_ty = f.ty;
@@ -2202,15 +2200,11 @@ impl<'a, 'b> Infer<'a, 'b> {
         let bty = self.resolve(&b.ty);
         match bty.kind() {
             TyKind::Con(con, targs) => {
-                let found = self.c.tables.field_index(*con, name).and_then(|i| {
-                    self.c
-                        .tables
-                        .tycon(*con)
-                        .fields()
-                        .as_slice()
-                        .get(i)
-                        .map(|f| (i, f.clone()))
-                });
+                let found = self
+                    .c
+                    .tables
+                    .field_index(*con, name)
+                    .map(|i| (i, self.c.tables.tycon(*con).fields().get(i).clone()));
                 if let Some((i, f)) = found {
                     self.check_field_visible(*con, &f, name_span);
                     let decl_ty = f.ty;
@@ -2620,7 +2614,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
     ) -> typed::Expr {
         let ty = Ty::con(con, targs.clone());
-        let decl_fields = self.c.tables.tycon(con).fields().as_slice().to_vec();
+        let decl_fields = self.c.tables.tycon(con).fields().clone();
 
         let mut values: Vec<Option<typed::Expr>> = vec![None; decl_fields.len()];
         let mut seen: Vec<&str> = Vec::new();
@@ -2670,9 +2664,9 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let b = self.check_expr(base, Some(&ty));
                 let base_span = self.tree().span(base);
                 self.unify_at(base_span, &b.ty, &ty, "the base of the update");
-                let updates: Vec<(usize, typed::Expr)> = values
-                    .into_iter()
-                    .enumerate()
+                let updates: Vec<(FieldId, typed::Expr)> = decl_fields
+                    .ids()
+                    .zip(values)
                     .filter_map(|(i, v)| v.map(|e| (i, e)))
                     .collect();
                 typed::Expr::new(

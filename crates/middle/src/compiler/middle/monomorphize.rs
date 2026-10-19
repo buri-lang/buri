@@ -154,7 +154,7 @@ pub enum Desc {
     Struct {
         name: String,
         record: bool,
-        fields: Vec<DescField>,
+        fields: Dense<FieldId, DescField>,
     },
     /// A `derive Flags` struct, stored as the word `prim`: compared, ordered
     /// and hashed as that word, and shown and encoded as the struct of `Bool`s
@@ -162,7 +162,7 @@ pub enum Desc {
     Flags {
         name: String,
         record: bool,
-        fields: Vec<DescField>,
+        fields: Dense<FieldId, DescField>,
         prim: Prim,
     },
     Enum {
@@ -179,7 +179,7 @@ pub enum Desc {
         from: FuncIdx,
     },
     Array(usize),
-    Tuple(Vec<usize>),
+    Tuple(Dense<FieldId, usize>),
     /// `Option<T>`, whose value is the payload itself.
     Option(usize),
     /// A type with no structural rendering.
@@ -263,7 +263,7 @@ pub struct Program {
     /// would be nothing for the pass to generate from.
     pub cell_equal: HashMap<Ty, FuncIdx>,
     /// Number of effect slots each context type carries, in binding order.
-    pub ctx_layouts: HashMap<CtxTypeId, Vec<TraitId>>,
+    pub ctx_layouts: HashMap<CtxTypeId, Dense<FieldId, TraitId>>,
     /// What every declared type is made of. See [`Shapes`].
     pub shapes: Shapes,
     /// The stylesheet the static `ui/style` literals in this program extracted
@@ -576,7 +576,7 @@ pub struct Monomorphizer<'a> {
     descriptors: std::collections::BTreeMap<usize, Desc>,
     desc_modules: Vec<Option<String>>,
     desc_index: HashMap<Ty, usize>,
-    ctx_layouts: HashMap<CtxTypeId, Vec<TraitId>>,
+    ctx_layouts: HashMap<CtxTypeId, Dense<FieldId, TraitId>>,
     module_paths: Vec<String>,
     /// Every instantiation symbol minted so far, against the type arguments
     /// that minted it. See [`Monomorphizer::instantiation`]: it is what makes
@@ -2024,7 +2024,7 @@ impl Monomorphizer<'_> {
                 }
             }
             ExprKind::CtxLit { bindings, ctx } => {
-                let layout: Vec<TraitId> = bindings.iter().map(|(t, _)| *t).collect();
+                let layout: Dense<FieldId, TraitId> = bindings.iter().map(|(t, _)| *t).collect();
                 self.ctx_layouts.insert(ctx, layout);
                 ExprKind::CtxLit {
                     bindings: bindings
@@ -2059,12 +2059,13 @@ impl Monomorphizer<'_> {
             }
             ExprKind::StructUpdate { con, base, updates } => {
                 let base = self.rewrite(*base, targs);
-                let updates: Vec<(usize, typed::Expr)> = updates
+                let updates: Vec<(FieldId, typed::Expr)> = updates
                     .into_iter()
                     .map(|(i, v)| (i, self.rewrite(v, targs)))
                     .collect();
                 if let Some(word) = self.flags_word(&e.ty, e.span) {
-                    return word.update(base, updates);
+                    let bits = updates.into_iter().map(|(i, v)| (i.index(), v));
+                    return word.update(base, bits.collect());
                 }
                 ExprKind::StructUpdate {
                     con,
@@ -2091,7 +2092,7 @@ impl Monomorphizer<'_> {
             ExprKind::Field { base, index } => {
                 let base = self.rewrite(*base, targs);
                 if let Some(word) = self.flags_word(&base.ty, e.span) {
-                    return word.bit(base, index);
+                    return word.bit(base, index.index());
                 }
                 ExprKind::Field {
                     base: Box::new(base),
@@ -2581,7 +2582,7 @@ impl Monomorphizer<'_> {
             "position" => {
                 let field = ExprKind::Field {
                     base: Box::new(arg),
-                    index: 0,
+                    index: FieldId::FIRST,
                 };
                 convert(
                     typed::Expr::new(field, self.tables().prim(prim), span),
@@ -2741,7 +2742,7 @@ impl Monomorphizer<'_> {
         let unwrapped = args.into_iter().map(|a| {
             at(ExprKind::Field {
                 base: Box::new(a),
-                index: 0,
+                index: FieldId::FIRST,
             })
         });
         // A binary operator folds the receiver and the other operand into one
@@ -2818,9 +2819,7 @@ impl Monomorphizer<'_> {
         let desc = match ty.kind() {
             TyKind::Unit => Desc::Unit,
             TyKind::Array(e) => Desc::Array(self.descriptor(e)),
-            TyKind::Tuple(es) => {
-                Desc::Tuple(es.iter().map(|e| self.descriptor(e)).collect::<Vec<_>>())
-            }
+            TyKind::Tuple(es) => Desc::Tuple(es.iter().map(|e| self.descriptor(e)).collect()),
             TyKind::Con(con, args) => {
                 let checked = self.checked;
                 let tycon = checked.tables.tycon(*con);
@@ -2846,7 +2845,7 @@ impl Monomorphizer<'_> {
                             self.members(*con, args.first().copied().unwrap_or(Ty::ERROR))
                         }
                         None => {
-                            let described: Vec<DescField> = fields
+                            let described: Dense<FieldId, DescField> = fields
                                 .iter()
                                 .map(|f| {
                                     let t = substitute(&f.ty, args, None);

@@ -215,17 +215,17 @@ impl<'a> Folder<'a> {
                     return None;
                 };
                 for (index, value) in updates {
-                    *fields.get_mut(*index)? = self.eval(value, env)?;
+                    *fields.get_mut(index.index())? = self.eval(value, env)?;
                 }
                 Some(Value::Struct(fields))
             }
 
             ExprKind::Field { base, index } => match self.eval(base, env)? {
-                Value::Struct(fields) => fields.get(*index).cloned(),
+                Value::Struct(fields) => fields.get(index.index()).cloned(),
                 _ => None,
             },
             ExprKind::TupleIndex { base, index } => match self.eval(base, env)? {
-                Value::Tuple(items) => items.get(*index).cloned(),
+                Value::Tuple(items) => items.get(index.index()).cloned(),
                 _ => None,
             },
             ExprKind::Index { base, index, .. } => {

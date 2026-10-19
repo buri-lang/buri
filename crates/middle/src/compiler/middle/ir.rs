@@ -689,12 +689,13 @@ pub enum Inst {
         func: FuncIdx,
         env: Option<Env>,
     },
-    /// A field of a struct, tuple or context, by declaration index.
+    /// A field of a struct, tuple or context. A tuple's elements and a
+    /// context's bindings have field ids of their own, in order.
     GetField {
         dest: ValueId,
         agg: ValueId,
         ty: RecTy,
-        index: u32,
+        field: FieldId,
     },
     /// A field of the payload of a *known* variant. Reaching one whose tag is
     /// something else is a lowering bug, not a run-time condition: a payload
@@ -2208,12 +2209,12 @@ impl Program {
             Inst::GetField {
                 dest: d,
                 agg,
-                index,
+                field,
                 ..
             } => {
                 dest(out, d);
                 out.push_str("field.");
-                num(out, u64::from(*index));
+                num(out, field.index() as u64);
                 out.push(' ');
                 value(out, *agg);
             }

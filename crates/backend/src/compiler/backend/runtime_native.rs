@@ -270,6 +270,7 @@ mod tests {
     // ties the rule to that type.
 
     use crate::compiler::middle::layout::{Scalar, Words};
+    use crate::compiler::semantics::layered::Dense;
 
     /// The payload area's start, a word in.
     const WORD: At = At::Word(Words::nth(1));
@@ -281,7 +282,7 @@ mod tests {
             size,
             align: 8,
             stride: size,
-            fields: Vec::new(),
+            fields: Dense::new(),
             repr: Repr::Enum {
                 repr: EnumRepr::Tagged {
                     tag: Scalar::I8,
@@ -318,7 +319,7 @@ mod tests {
             size: 1,
             align: 1,
             stride: 1,
-            fields: Vec::new(),
+            fields: Dense::new(),
             repr: Repr::Enum {
                 repr: EnumRepr::Bare { tag: Scalar::I8 },
                 variants: vec![vec![], vec![], vec![]],
@@ -332,7 +333,7 @@ mod tests {
             size: 8,
             align: 8,
             stride: 8,
-            fields: vec![At::ZERO],
+            fields: [At::ZERO].into_iter().collect(),
             repr: Repr::Aggregate,
         };
         assert_eq!(error_message_offset(&utf8_error), None);

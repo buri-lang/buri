@@ -15,9 +15,6 @@
 use super::abi::{Jump, Lit, Word};
 use super::jit::{Jit, V};
 use crate::compiler::middle::ir;
-use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
-use crate::compiler::semantics::types::VariantId;
-use crate::diagnostics::Invariant;
 
 impl Jit<'_> {
     /// A `[T]`'s stride, element width and whether the element is counted,
@@ -142,24 +139,5 @@ impl Jit<'_> {
                 Jump::Cont.to(V::Fall),
             ],
         );
-    }
-}
-
-impl Jit<'_> {
-    /// Store variant `v`'s discriminant at `at`, leaving any payload alone.
-    ///
-    /// Every caller builds a `Result`, or an `Option` of a number, and
-    /// `middle/layout.rs` gives a niche only to an `Option` of a pointer, so
-    /// the layout always has a tag.
-    pub(crate) fn store_disc(&mut self, l: &Layout, at: u32, v: VariantId) {
-        let tag = match &l.repr {
-            Repr::Enum {
-                repr: EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. },
-                ..
-            } => Some(tag),
-            _ => None,
-        }
-        .or_ice("a `Result` or an `Option` of a number has a tag");
-        self.imm_w(at, tag.size(), v.index() as u64);
     }
 }

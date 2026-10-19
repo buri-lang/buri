@@ -27,7 +27,7 @@ use crate::compiler::modules::Loaded;
 use crate::compiler::semantics::consteval::{Env, Folder, Value};
 use crate::compiler::semantics::resolve::{own_type, BodyMap, ConstMap, Scopes, Walked};
 use crate::compiler::semantics::typed::{self, ExprKind};
-use crate::compiler::semantics::types::{Tables, TyConId};
+use crate::compiler::semantics::types::{FieldId, Tables, TyConId};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
 
 /// The elements an icon may hold: a coordinate system, a group, and the shapes
@@ -74,8 +74,8 @@ const DRAWING: [&str; 26] = [
 /// literal stores them in, whatever order the call site wrote them. The two
 /// this pass reads are the source it may have to validate and the `alt` that
 /// says whether it must.
-const IMAGE_SOURCE: usize = 0;
-const IMAGE_ALT: usize = 1;
+const IMAGE_SOURCE: FieldId = FieldId::declared(0);
+const IMAGE_ALT: FieldId = FieldId::declared(1);
 
 /// `Alt::Decorative`, the variant that inlines an `<svg>` this pass reads. Its
 /// sibling `AccessibilityText` is a fetched address, so it is left alone.

@@ -742,7 +742,7 @@ struct Sites {
     ids: HashMap<*const Expr, rc::NodeId>,
     /// [`rc::FuncPlan::moved`]: the replaced fields whose old value an update
     /// does not release, because the one read of it took the base's count.
-    moved: Vec<(rc::NodeId, usize)>,
+    moved: Vec<(rc::NodeId, FieldId)>,
 }
 
 impl Sites {
@@ -794,7 +794,7 @@ impl Sites {
     }
 
     /// Whether the update at `node` moved field `index` out of its base.
-    fn moved(&self, node: Option<rc::NodeId>, index: usize) -> bool {
+    fn moved(&self, node: Option<rc::NodeId>, index: FieldId) -> bool {
         node.is_some_and(|n| self.moved.binary_search(&(n, index)).is_ok())
     }
 
@@ -1232,9 +1232,9 @@ impl FnLower<'_> {
     fn release_except(&mut self, l: LocalId, moved: u64) {
         let agg = (*self.env.get(l)).or_ice("a local `rc` releases is bound");
         let ty = self.locals.get(l).ty;
-        let arity = ty.head().map_or(0, |c| self.tables.tycon(c).fields().len());
-        for i in 0..arity {
-            if i < 64 && moved & (1u64 << i) != 0 {
+        let ids = ty.head().map(|c| self.tables.tycon(c).fields().ids());
+        for i in ids.into_iter().flatten() {
+            if i.index() < 64 && moved & (1u64 << i.index()) != 0 {
                 continue;
             }
             let f = self.field_type(&ty, i);
@@ -1243,7 +1243,7 @@ impl FnLower<'_> {
                 dest,
                 agg,
                 ty: rec,
-                index: i as u32,
+                field: i,
             });
             self.push(Inst::DecRef { value });
         }
@@ -1397,11 +1397,11 @@ impl FnLower<'_> {
                 // run in field order — which is what the struct literal this
                 // is shorthand for would have done.
                 let b = self.expr(base);
-                let arity = self.tables.tycon(*con).fields().len();
-                if self.has_boxed_field(&base.ty, arity) {
-                    return self.boxed_update(e, b, arity, updates, ty);
+                let ids = self.tables.tycon(*con).fields().ids();
+                if self.has_boxed_field(&base.ty) {
+                    return self.boxed_update(e, b, ids, updates, ty);
                 }
-                let mut fields = Vec::with_capacity(arity);
+                let mut fields = Vec::new();
                 // The old value of every field this update *replaces*.
                 //
                 // `middle::rc` takes `..base` as a whole (`child_modes`, a
@@ -1441,10 +1441,10 @@ impl FnLower<'_> {
                         dest,
                         agg: b,
                         ty: rec,
-                        index: *i as u32,
+                        field: *i,
                     }));
                 }
-                for i in 0..arity {
+                for i in ids {
                     match updates.iter().find(|(j, _)| *j == i) {
                         Some((_, v)) => {
                             let v = self.expr(v);
@@ -1457,7 +1457,7 @@ impl FnLower<'_> {
                                 dest,
                                 agg: b,
                                 ty: rec,
-                                index: i as u32,
+                                field: i,
                             }));
                         }
                     }
@@ -1506,13 +1506,13 @@ impl FnLower<'_> {
 
             ExprKind::Field { base, index } | ExprKind::TupleIndex { base, index } => {
                 let b = self.expr(base);
-                let index = *index as u32;
+                let field = *index;
                 let rec = self.record_of(&base.ty);
                 self.emit(ty, |dest| Inst::GetField {
                     dest,
                     agg: b,
                     ty: rec,
-                    index,
+                    field,
                 })
             }
             ExprKind::Index { base, index, elem } => self.index(ty, &e.ty, base, index, elem),
@@ -1607,22 +1607,21 @@ impl FnLower<'_> {
             }
             ExprKind::CtxGet { base, trait_id } => {
                 let b = self.expr(base);
-                let slot = match base.ty.kind() {
+                let field = match base.ty.kind() {
                     TyKind::Ctx(id) => self
                         .program
                         .ctx_layouts
                         .get(id)
-                        .and_then(|l| l.iter().position(|t| t == trait_id))
-                        .unwrap_or(0),
-                    _ => 0,
+                        .and_then(|l| l.position(|t| t == trait_id))
+                        .unwrap_or(FieldId::FIRST),
+                    _ => FieldId::FIRST,
                 };
-                let index = slot as u32;
                 let rec = self.record_of(&base.ty);
                 self.emit(ty, |dest| Inst::GetField {
                     dest,
                     agg: b,
                     ty: rec,
-                    index,
+                    field,
                 })
             }
 
@@ -2388,14 +2387,15 @@ impl FnLower<'_> {
                 self.test_eq(val, c, Prim::Bool, fail);
             }
             PatKind::Tuple(ps) => {
-                for (i, p) in ps.iter().enumerate() {
+                let elements: Dense<FieldId, &Pattern> = ps.iter().collect();
+                for (i, p) in elements.entries() {
                     let ty = self.type_of(&p.ty);
                     let rec = self.record_of(&pat.ty);
                     let f = self.emit(ty, |dest| Inst::GetField {
                         dest,
                         agg: val,
                         ty: rec,
-                        index: i as u32,
+                        field: i,
                     });
                     self.pattern(f, p, fail);
                 }
@@ -2412,7 +2412,7 @@ impl FnLower<'_> {
                                 dest,
                                 agg: val,
                                 ty: rec,
-                                index: f.index.index() as u32,
+                                field: f.index,
                             })
                         }
                     };
@@ -2583,20 +2583,13 @@ impl FnLower<'_> {
     }
 
     /// Whether any field of this struct is behind a box (`Layouts::boxes`).
-    fn has_boxed_field(&self, owner: &Ty, arity: usize) -> bool {
-        (0..arity).any(|i| {
-            let field = owner
-                .head()
-                .and_then(|c| {
-                    self.tables
-                        .tycon(c)
-                        .fields()
-                        .as_slice()
-                        .get(i)
-                        .map(|f| f.ty)
-                })
-                .unwrap_or(Ty::UNIT);
-            self.cycles.boxes(owner, &self.substituted(owner, field))
+    fn has_boxed_field(&self, owner: &Ty) -> bool {
+        owner.head().is_some_and(|c| {
+            self.tables
+                .tycon(c)
+                .fields()
+                .iter()
+                .any(|f| self.cycles.boxes(owner, &self.substituted(owner, f.ty)))
         })
     }
 
@@ -2614,8 +2607,8 @@ impl FnLower<'_> {
         &mut self,
         e: &Expr,
         b: ValueId,
-        arity: usize,
-        updates: &[(usize, Expr)],
+        ids: impl Iterator<Item = FieldId>,
+        updates: &[(FieldId, Expr)],
         ty: Type,
     ) -> ValueId {
         let base_ty = match &e.kind {
@@ -2631,13 +2624,13 @@ impl FnLower<'_> {
                     dest,
                     agg: b,
                     ty: rec,
-                    index: *i as u32,
+                    field: *i,
                 });
                 self.push(Inst::IncRef { value: old });
             }
         }
-        let mut fields = Vec::with_capacity(arity);
-        for i in 0..arity {
+        let mut fields = Vec::new();
+        for i in ids {
             match updates.iter().find(|(j, _)| *j == i) {
                 Some((_, v)) => {
                     let v = self.expr(v);
@@ -2650,7 +2643,7 @@ impl FnLower<'_> {
                         dest,
                         agg: b,
                         ty: rec,
-                        index: i as u32,
+                        field: i,
                     });
                     self.push(Inst::IncRef { value: kept });
                     fields.push(kept);
@@ -2667,18 +2660,10 @@ impl FnLower<'_> {
         out
     }
 
-    fn field_type(&mut self, ty: &Ty, index: usize) -> Type {
+    fn field_type(&mut self, ty: &Ty, index: FieldId) -> Type {
         let field = ty
             .head()
-            .and_then(|c| {
-                self.tables
-                    .tycon(c)
-                    .fields()
-                    .as_slice()
-                    .get(index)
-                    .map(|f| f.ty)
-            })
-            .unwrap_or(Ty::UNIT);
+            .map_or(Ty::UNIT, |c| self.tables.tycon(c).fields().get(index).ty);
         let field = self.substituted(ty, field);
         self.type_of(&field)
     }

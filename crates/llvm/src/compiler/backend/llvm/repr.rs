@@ -61,7 +61,8 @@ use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{
     Cycles, EnumLayout, EnumRepr, Layout, Layouts, Repr as LayoutRepr, Scalar,
 };
-use crate::compiler::semantics::types::{Tables, Ty};
+use crate::compiler::semantics::layered::Dense;
+use crate::compiler::semantics::types::{FieldId, Tables, Ty};
 use crate::hash::Map;
 
 /// What one machine-sized piece of an aggregate is.
@@ -110,7 +111,7 @@ pub struct Repr {
     pub slots: Vec<Slot>,
     /// The slot range `[start, end)` of each field, in declaration order.
     /// Empty for an enum and for a scalar.
-    pub fields: Vec<(usize, usize)>,
+    pub fields: Dense<FieldId, (usize, usize)>,
     /// For each slot, whether a reference count lives behind it.
     pub counted: Vec<Option<Counted>>,
     /// The source type, kept so that an enum's variants and a list's element
@@ -119,8 +120,8 @@ pub struct Repr {
 }
 
 impl Repr {
-    pub fn field_range(&self, index: usize) -> (usize, usize) {
-        self.fields.get(index).copied().unwrap_or((0, 0))
+    pub fn field_range(&self, field: FieldId) -> (usize, usize) {
+        *self.fields.get(field)
     }
 }
 
@@ -179,11 +180,11 @@ impl<'a> Reprs<'a> {
                     size: 0,
                     align: 1,
                     stride: 0,
-                    fields: Vec::new(),
+                    fields: Dense::new(),
                     repr: LayoutRepr::Zero,
                 },
                 slots: Vec::new(),
-                fields: Vec::new(),
+                fields: Dense::new(),
                 counted: Vec::new(),
                 ty: Ty::UNIT,
             },
@@ -223,9 +224,11 @@ impl<'a> Reprs<'a> {
         let layout = self.layouts.of(*ty);
         let mut slots = Vec::new();
         let mut counted = Vec::new();
-        let mut fields = Vec::new();
+        let mut fields = Dense::new();
         match &layout.repr {
-            LayoutRepr::Zero => {}
+            // A zero-sized struct, tuple or context still has fields, each
+            // with no slots.
+            LayoutRepr::Zero => fields = layout.fields.map(|_| (0, 0)),
             LayoutRepr::Scalar(s) => {
                 slots.push(Slot {
                     offset: 0,
@@ -239,7 +242,7 @@ impl<'a> Reprs<'a> {
             LayoutRepr::Str => {
                 slots.extend(STR);
                 counted.extend([Some(Counted::Nullable), None, None]);
-                fields.extend([(0, 1), (1, 2), (2, 3)]);
+                fields = [(0, 1), (1, 2), (2, 3)].into_iter().collect();
             }
             // `{ ptr, len }`. A list is never a view, so `ptr` is a payload
             // start and the header is at `ptr - 16` (§4).
@@ -265,19 +268,19 @@ impl<'a> Reprs<'a> {
             LayoutRepr::List => {
                 slots.extend(LIST);
                 counted.extend([Some(Counted::Nullable), None]);
-                fields.extend([(0, 1), (1, 2)]);
+                fields = [(0, 1), (1, 2)].into_iter().collect();
             }
             // `{ code, env }`. `code` is a function pointer and never counted;
             // `env` is null when nothing was captured (§7).
             LayoutRepr::Closure => {
                 slots.extend(CLOSURE);
                 counted.extend([None, Some(Counted::Nullable)]);
-                fields.extend([(0, 1), (1, 2)]);
+                fields = [(0, 1), (1, 2)].into_iter().collect();
             }
             LayoutRepr::Aggregate => {
                 let members = self.members(ty);
-                for (index, member) in members.iter().enumerate() {
-                    let at = layout.field(index);
+                for (member, at) in members.iter().zip(layout.fields.iter()) {
+                    let at = at.bytes();
                     let start = slots.len();
                     self.place(ty, member, at, &mut slots, &mut counted);
                     fields.push((start, slots.len()));

@@ -175,7 +175,7 @@ fn fold_expr(e: &mut Expr) -> usize {
     let replacement = match &mut e.kind {
         // `S { a: x, b: y }.a` is `x`, as long as `y` had nothing to do.
         ExprKind::Field { base, index } | ExprKind::TupleIndex { base, index } => {
-            let index = *index;
+            let index = index.index();
             let fields = match &mut base.kind {
                 ExprKind::StructLit { fields, .. } | ExprKind::Tuple(fields) => fields,
                 _ => return n,
@@ -198,7 +198,7 @@ fn fold_expr(e: &mut Expr) -> usize {
             };
             if !updates
                 .iter()
-                .all(|(i, _)| fields.get(*i).is_some_and(discardable))
+                .all(|(i, _)| fields.get(i.index()).is_some_and(discardable))
             {
                 return n;
             }
@@ -211,7 +211,7 @@ fn fold_expr(e: &mut Expr) -> usize {
                     clippy::indexing_slicing,
                     reason = "checked against `fields` just above"
                 )]
-                let slot = &mut fields[i];
+                let slot = &mut fields[i.index()];
                 *slot = v;
             }
             Expr::new(ExprKind::StructLit { con, targs, fields }, e.ty, e.span)
@@ -599,7 +599,7 @@ mod tests {
     use crate::compiler::middle::func_id;
     use crate::compiler::middle::local_id;
     use crate::compiler::semantics::name::Name;
-    use crate::compiler::semantics::types::Ty;
+    use crate::compiler::semantics::types::{FieldId, Ty};
     use crate::diagnostics::{FileId, Span};
     use std::collections::HashSet;
 
@@ -803,7 +803,7 @@ mod tests {
     fn a_field_read_out_of_the_value_being_built_is_that_field() {
         let mut x = e(ExprKind::TupleIndex {
             base: Box::new(tuple(vec![int(1), int(2)])),
-            index: 1,
+            index: FieldId::declared(1),
         });
         assert_eq!(fold_expr(&mut x), 1);
         assert!(
@@ -819,7 +819,7 @@ mod tests {
     fn a_field_read_past_a_call_is_left_alone() {
         let mut x = e(ExprKind::TupleIndex {
             base: Box::new(tuple(vec![call(1, vec![]), int(2)])),
-            index: 1,
+            index: FieldId::declared(1),
         });
         assert_eq!(fold_expr(&mut x), 0);
         assert!(matches!(x.kind, ExprKind::TupleIndex { .. }));

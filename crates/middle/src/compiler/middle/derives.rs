@@ -670,7 +670,7 @@ fn children(d: &Desc) -> Vec<usize> {
             .flat_map(|v| v.fields.iter().map(|f| f.ty))
             .collect(),
         Desc::Array(e) | Desc::Option(e) | Desc::Members { list: e, .. } => vec![*e],
-        Desc::Tuple(es) => es.clone(),
+        Desc::Tuple(es) => es.as_slice().to_vec(),
     }
 }
 
@@ -1163,7 +1163,7 @@ impl Generator {
 
     /// `x.i`, by index — a struct field or a tuple element, whichever the
     /// descriptor says.
-    fn project(&self, base: Expr, index: usize, tuple: bool, ty: Ty) -> Expr {
+    fn project(&self, base: Expr, index: FieldId, tuple: bool, ty: Ty) -> Expr {
         let kind = if tuple {
             ExprKind::TupleIndex {
                 base: Box::new(base),
@@ -1338,13 +1338,12 @@ impl Generator {
             Desc::Flags { prim, .. } => Some(self.prim_test(PrimOp::Eq, *prim, a, b)),
             Desc::Unit => Some(Expr::new(ExprKind::Bool(true), bool_ty, Span::NONE)),
             Desc::Struct { fields, .. } => {
-                let parts: Vec<(usize, usize)> =
-                    fields.iter().enumerate().map(|(i, f)| (i, f.ty)).collect();
+                let parts: Vec<(FieldId, usize)> =
+                    fields.entries().map(|(i, f)| (i, f.ty)).collect();
                 self.eq_fields(&parts, a, b, false)
             }
             Desc::Tuple(es) => {
-                let parts: Vec<(usize, usize)> =
-                    es.iter().enumerate().map(|(i, d)| (i, *d)).collect();
+                let parts: Vec<(FieldId, usize)> = es.entries().map(|(i, d)| (i, *d)).collect();
                 self.eq_fields(&parts, a, b, true)
             }
             Desc::Array(elem) => {
@@ -1365,7 +1364,7 @@ impl Generator {
     /// the walk.
     fn eq_fields(
         &mut self,
-        fields: &[(usize, usize)],
+        fields: &[(FieldId, usize)],
         a: Expr,
         b: Expr,
         tuple: bool,
@@ -1553,13 +1552,12 @@ impl Generator {
             }
             Desc::Unit => self.order_lit(ORDER_EQUAL),
             Desc::Struct { fields, .. } => {
-                let parts: Vec<(usize, usize)> =
-                    fields.iter().enumerate().map(|(i, f)| (i, f.ty)).collect();
+                let parts: Vec<(FieldId, usize)> =
+                    fields.entries().map(|(i, f)| (i, f.ty)).collect();
                 self.compare_fields(&parts, a, b, false, frame)
             }
             Desc::Tuple(es) => {
-                let parts: Vec<(usize, usize)> =
-                    es.iter().enumerate().map(|(i, d)| (i, *d)).collect();
+                let parts: Vec<(FieldId, usize)> = es.entries().map(|(i, d)| (i, *d)).collect();
                 self.compare_fields(&parts, a, b, true, frame)
             }
             Desc::Array(elem) => {
@@ -1580,7 +1578,7 @@ impl Generator {
     /// lexicographic order VALUE-MODEL.md and `$cmp` both give.
     fn compare_fields(
         &mut self,
-        fields: &[(usize, usize)],
+        fields: &[(FieldId, usize)],
         a: Expr,
         b: Expr,
         tuple: bool,
@@ -2051,19 +2049,15 @@ impl Generator {
                     };
                     return Some(self.str_lit(&shown));
                 }
-                let parts: Vec<(String, usize, usize)> = fields
-                    .iter()
-                    .enumerate()
+                let parts: Vec<(String, FieldId, usize)> = fields
+                    .entries()
                     .map(|(i, f)| (f.name.clone(), i, f.ty))
                     .collect();
                 self.show_fields(name, *record, &parts, x, false)
             }
             Desc::Tuple(es) => {
-                let parts: Vec<(String, usize, usize)> = es
-                    .iter()
-                    .enumerate()
-                    .map(|(i, d)| (String::new(), i, *d))
-                    .collect();
+                let parts: Vec<(String, FieldId, usize)> =
+                    es.entries().map(|(i, d)| (String::new(), i, *d)).collect();
                 self.show_fields("", false, &parts, x, true)
             }
             Desc::Array(elem) => {
@@ -2238,7 +2232,7 @@ impl Generator {
         &mut self,
         name: &str,
         record: bool,
-        fields: &[(String, usize, usize)],
+        fields: &[(String, FieldId, usize)],
         x: Expr,
         tuple: bool,
     ) -> Option<Expr> {
@@ -2344,7 +2338,7 @@ impl Generator {
             Desc::Struct { record, fields, .. } => {
                 let mut members: Vec<(String, Expr)> = Vec::new();
                 let mut items: Vec<Expr> = Vec::new();
-                for (i, f) in fields.iter().enumerate() {
+                for (i, f) in fields.entries() {
                     let fty = self.ty_of(f.ty);
                     let proj = self.project(x.clone(), i, false, fty);
                     let v = self.at(Op::ToJson, f.ty, vec![proj])?;
@@ -2364,7 +2358,7 @@ impl Generator {
             }
             Desc::Tuple(es) => {
                 let mut items: Vec<Expr> = Vec::new();
-                for (i, d) in es.iter().enumerate() {
+                for (i, d) in es.entries() {
                     let fty = self.ty_of(*d);
                     let proj = self.project(x.clone(), i, true, fty);
                     items.push(self.at(Op::ToJson, *d, vec![proj])?);
@@ -2666,7 +2660,9 @@ impl Generator {
                     self.decode_array(&ty, je, pe, &items, build, frame)
                 }
             }
-            Desc::Tuple(es) => self.decode_array(&ty, je, pe, es, Build::Tuple(ty), frame),
+            Desc::Tuple(es) => {
+                self.decode_array(&ty, je, pe, es.as_slice(), Build::Tuple(ty), frame)
+            }
             Desc::Array(elem) => self.decode_list(&ty, *elem, je, pe, frame),
             Desc::Enum { variants, .. } => self.decode_enum(&ty, variants, je, pe, frame),
             // The members' list, then the set `indexset.of` builds from it.
@@ -3048,8 +3044,12 @@ impl Generator {
         let by_name = self.match_(name_e, arms, ret);
         let one = self.block(
             vec![
-                self.let_(name, str_ty, self.project(pair_e.clone(), 0, true, str_ty)),
-                self.let_(inner, json, self.project(pair_e, 1, true, json)),
+                self.let_(
+                    name,
+                    str_ty,
+                    self.project(pair_e.clone(), MEMBER_NAME, true, str_ty),
+                ),
+                self.let_(inner, json, self.project(pair_e, MEMBER_VALUE, true, json)),
             ],
             by_name,
         );
@@ -3148,9 +3148,9 @@ impl Generator {
                 let pair_e = self.local_expr(pair, &pair_ty);
                 let some =
                     self.variant_pattern(&opt, OPTION_SOME, &[(FieldId::FIRST, pair, pair_ty)])?;
-                let k = self.project(pair_e.clone(), 0, true, str_ty);
+                let k = self.project(pair_e.clone(), MEMBER_NAME, true, str_ty);
                 let same = self.prim_test(PrimOp::Eq, Prim::Str, k, keye.clone());
-                let here = self.ok(&json, self.project(pair_e, 1, true, json))?;
+                let here = self.ok(&json, self.project(pair_e, MEMBER_VALUE, true, json))?;
                 let args = vec![ese, keye.clone(), pe.clone(), self.plus_one(ie)];
                 let again = Expr::new(
                     ExprKind::Continue {
@@ -3280,13 +3280,12 @@ impl Generator {
             // the two backends' `hash()` the same number.
             Desc::Unit => Some(self.mix(h, 0)),
             Desc::Struct { fields, .. } => {
-                let parts: Vec<(usize, usize)> =
-                    fields.iter().enumerate().map(|(i, f)| (i, f.ty)).collect();
+                let parts: Vec<(FieldId, usize)> =
+                    fields.entries().map(|(i, f)| (i, f.ty)).collect();
                 self.hash_fields(&parts, h, x, false)
             }
             Desc::Tuple(es) => {
-                let parts: Vec<(usize, usize)> =
-                    es.iter().enumerate().map(|(i, d)| (i, *d)).collect();
+                let parts: Vec<(FieldId, usize)> = es.entries().map(|(i, d)| (i, *d)).collect();
                 self.hash_fields(&parts, h, x, true)
             }
             Desc::Array(elem) => {
@@ -3400,7 +3399,7 @@ impl Generator {
 
     fn hash_fields(
         &mut self,
-        fields: &[(usize, usize)],
+        fields: &[(FieldId, usize)],
         h: Expr,
         x: Expr,
         tuple: bool,
@@ -3510,6 +3509,10 @@ const RESULT_ERR: VariantId = VariantId::declared(1);
 const DECODE_MISSING: VariantId = VariantId::declared(0);
 const DECODE_WRONG_TYPE: VariantId = VariantId::declared(1);
 const DECODE_UNKNOWN_VARIANT: VariantId = VariantId::declared(2);
+
+/// The two elements of a `Json.Object` member, `(Str, Json)` in `core/json`.
+const MEMBER_NAME: FieldId = FieldId::declared(0);
+const MEMBER_VALUE: FieldId = FieldId::declared(1);
 
 /// What a decoder builds from the parts it decoded.
 #[derive(Clone, Copy)]

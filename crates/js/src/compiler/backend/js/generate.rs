@@ -27,7 +27,7 @@ use crate::compiler::middle::rc;
 use crate::compiler::semantics::layered::Dense;
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp, UnaryOp};
 use crate::compiler::semantics::types::{
-    field_types, FuncIdx, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
+    field_types, FieldId, FuncIdx, LocalId, Prim, Tables, Ty, TyConId, TyDef, TyKind, VariantId,
 };
 use crate::hash::{Map as HashMap, Set as HashSet};
 use std::sync::OnceLock;
@@ -2434,7 +2434,7 @@ impl<'a> Gen<'a> {
                 let a = self.exprs(fields, out);
                 self.intern(a)
             }
-            ExprKind::StructUpdate { con, base, updates } => {
+            ExprKind::StructUpdate { base, updates, .. } => {
                 // A functional update names the fields it changes; the type
                 // says what the rest are. So the result is written out in
                 // full, reading the untouched fields from the base — no copy,
@@ -2450,14 +2450,11 @@ impl<'a> Gen<'a> {
                 // list wrote through the original's. A number or a string
                 // holds nothing a push writes.
                 let b = self.expr(base, out);
-                let arity = self.tables.tycon(*con).fields().len();
-                let carried: Vec<bool> = field_types(self.tables, &e.ty)
+                let carried: Dense<FieldId, bool> = field_types(self.tables, &e.ty)
                     .iter()
                     .map(|ty| self.tables.as_prim(ty).is_none())
                     .collect();
-                let carries = |i: usize| {
-                    carried.get(i).copied().unwrap_or(true) && !updates.iter().any(|(j, _)| *j == i)
-                };
+                let carries = |i: FieldId| *carried.get(i) && !updates.iter().any(|(j, _)| *j == i);
                 let name = self.fresh();
                 out.push(Stmt::Var {
                     kind: VarKind::Const,
@@ -2465,15 +2462,15 @@ impl<'a> Gen<'a> {
                     init: Some(b),
                 });
                 let read_base = || Expr::ident(name.clone());
-                let read = |i: usize| Expr::index(read_base(), Expr::Num(i as f64));
+                let read = |i: FieldId| Expr::index(read_base(), Expr::Num(i.index() as f64));
                 let shared =
-                    |i: usize| Expr::call(Expr::ident("$fromShared"), vec![read_base(), read(i)]);
+                    |i: FieldId| Expr::call(Expr::ident("$fromShared"), vec![read_base(), read(i)]);
 
                 // Past a certain width, naming every field costs more than a
                 // bulk copy does, in output and in work — so a wide struct is
                 // still copied and patched.
-                if arity > MAX_SPELLED_UPDATE {
-                    for i in (0..arity).filter(|i| carries(*i)) {
+                if carried.len() > MAX_SPELLED_UPDATE {
+                    for i in carried.ids().filter(|i| carries(*i)) {
                         out.push(Stmt::Expr(shared(i)));
                     }
                     let copy = self.fresh();
@@ -2487,7 +2484,7 @@ impl<'a> Gen<'a> {
                         out.push(Stmt::Expr(Expr::Assign {
                             target: Box::new(Expr::index(
                                 Expr::ident(copy.clone()),
-                                Expr::Num(*i as f64),
+                                Expr::Num(i.index() as f64),
                             )),
                             value: Box::new(value),
                         }));
@@ -2499,8 +2496,8 @@ impl<'a> Gen<'a> {
                 // runs in field order rather than in the order it was written
                 // — which is what `StructLit` does, and what the update is
                 // shorthand for.
-                let mut fields: Vec<Expr> = Vec::with_capacity(arity);
-                for i in 0..arity {
+                let mut fields: Vec<Expr> = Vec::with_capacity(carried.len());
+                for i in carried.ids() {
                     match updates.iter().find(|(j, _)| *j == i) {
                         Some((_, v)) => {
                             let value = self.expr(v, out);
@@ -2542,7 +2539,7 @@ impl<'a> Gen<'a> {
             }
             ExprKind::Field { base, index } | ExprKind::TupleIndex { base, index } => {
                 let b = self.expr(base, out);
-                Expr::index(b, Expr::Num(*index as f64))
+                Expr::index(b, Expr::Num(index.index() as f64))
             }
             ExprKind::Index { base, index, .. } => {
                 let b = self.expr(base, out);
@@ -2782,8 +2779,8 @@ impl<'a> Gen<'a> {
                         .program
                         .ctx_layouts
                         .get(id)
-                        .and_then(|l| l.iter().position(|t| t == trait_id))
-                        .unwrap_or(0),
+                        .and_then(|l| l.position(|t| t == trait_id))
+                        .map_or(0, FieldId::index),
                     _ => 0,
                 };
                 Expr::index(b, Expr::Num(slot as f64))
@@ -3374,7 +3371,7 @@ impl<'a> Gen<'a> {
                 body.push(Stmt::Return(Some(fields(&types, 0))));
             }
             Desc::Tuple(types) => {
-                body.push(Stmt::Return(Some(fields(types, 0))));
+                body.push(Stmt::Return(Some(fields(types.as_slice(), 0))));
             }
             Desc::Array(inner) => {
                 let len = |e: Expr| Expr::member(e, "length");

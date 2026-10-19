@@ -2252,7 +2252,7 @@ impl<'a> Jit<'a> {
                 let offs: &[At] = match variant {
                     None => {
                         l = self.layout_of(prog, id);
-                        &l.fields
+                        l.fields.as_slice()
                     }
                     Some((ty, v)) => {
                         e = self.enum_layout(prog, ty);
@@ -2394,21 +2394,21 @@ impl<'a> Jit<'a> {
                     dest,
                     agg,
                     ty,
-                    index,
+                    field,
                 } = i
                 else {
                     continue;
                 };
                 let id = ty.id();
                 let l = self.layout_of(prog, id);
-                let off = l.field(*index as usize);
+                let off = l.fields.get(*field).bytes();
                 let w = self.width(prog, code.ty_of(*dest));
                 let owner = prog.type_info(id).ty;
                 if w == 0
                     || !w.is_multiple_of(8)
                     || !alone(*dest)
                     || self
-                        .field_ty(&owner, None, *index as usize)
+                        .field_ty(&owner, None, field.index())
                         .is_some_and(|t| self.boxes(&owner, &t))
                 {
                     continue;
