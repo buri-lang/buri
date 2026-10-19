@@ -1749,3 +1749,53 @@ fn quoted(text: &str) -> String {
     out.push('"');
     out
 }
+
+/// A server started in a directory that is deleted before the client names a
+/// folder serves no repository, and still answers everything it is asked.
+///
+/// The directory goes after the process has started in it and before the
+/// `initialize` that would fall back to it, so which side of the deletion the
+/// fallback lands on is the test's decision rather than the scheduler's.
+#[test]
+fn a_server_whose_directory_is_gone_serves_nothing_and_still_answers() {
+    use std::io::{Read, Write};
+    let scratch = Scratch::empty("lsp-directory-gone");
+    let mut process = buri_command()
+        .arg("lsp")
+        .env("BURI_LSP_ANALYSIS", "synchronous")
+        .current_dir(&scratch.root)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("the language server did not start");
+    std::fs::remove_dir_all(&scratch.root).unwrap();
+    let mut input = process.stdin.take().unwrap();
+    for message in [
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        r#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#,
+        r#"{"jsonrpc":"2.0","id":2,"method":"workspace/diagnostic","params":{"previousResultIds":[]}}"#,
+        r#"{"jsonrpc":"2.0","id":3,"method":"shutdown"}"#,
+        r#"{"jsonrpc":"2.0","method":"exit"}"#,
+    ] {
+        write!(input, "Content-Length: {}\r\n\r\n{message}", message.len()).unwrap();
+    }
+    drop(input);
+    let mut out = String::new();
+    process
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut out)
+        .unwrap();
+    let status = process.wait().unwrap();
+    assert!(status.success(), "the server exited {status}:\n{out}");
+    assert!(
+        out.contains(r#"{"id":2,"jsonrpc":"2.0","result":{"items":[]}}"#),
+        "the workspace report names a repository:\n{out}"
+    );
+    assert!(
+        out.contains(r#"{"id":3,"jsonrpc":"2.0","result":null}"#),
+        "the shutdown went unanswered:\n{out}"
+    );
+}
