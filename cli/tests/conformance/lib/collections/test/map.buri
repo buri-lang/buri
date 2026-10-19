@@ -1385,6 +1385,18 @@ test "pairs that share a hash are kept apart" {
     let _ = inserted(ctx, ((0, 0), (1, 16779155), (2, 33555290), (5, 31)), ());
 }
 
+test "lists that share a hash are kept apart" {
+    let ctx = context {
+        Allocator: alloc(),
+    };
+    // A list mixes its length and then each element, as a tuple does.
+    let keys = ([0, 0], [1, 16779155], [2, 33555290], [5, 31]);
+    // `[0]` sits in a slot of its own, and as a set's item or a map's key it
+    // is missed without visiting theirs.
+    assert.isFalse(found(ctx, keys, ()).has([0]));
+    assert.isFalse(found(ctx, keys, 1).has([0]));
+}
+
 // --- a large map --------------------------------------------------------------
 //
 // The size the interface's complexity promise is about. Building ten thousand

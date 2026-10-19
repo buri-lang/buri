@@ -86,6 +86,8 @@ enum Bag<C> {
     /// message reads.
     Push(Int),
     Drain,
+    /// Answers the state and keeps it.
+    Look,
     /// Call this from inside the step.
     Within(fn(C) => ()),
 }
@@ -97,8 +99,12 @@ enum Bagged {
 }
 
 fn bag<C: Allocator + Tasks>(): Actor<C, [Int], Bag<C>, Bagged> {
+    bagOf([])
+}
+
+fn bagOf<C: Allocator + Tasks>(initial: [Int]): Actor<C, [Int], Bag<C>, Bagged> {
     Actor {
-        state: [],
+        state: initial,
         step: fn(c, held, message) => {
             match (message) {
                 .Fill(next) => Stepped { state: next, answer: .Kept(next.length()) },
@@ -107,6 +113,7 @@ fn bag<C: Allocator + Tasks>(): Actor<C, [Int], Bag<C>, Bagged> {
                     Stepped { state: grown, answer: .Kept(grown.length()) }
                 },
                 .Drain => Stepped { state: [], answer: .Held(held) },
+                .Look => Stepped { state: held, answer: .Held(held) },
                 .Within(f) => {
                     let call = f;
                     let _ = call(c);
@@ -140,38 +147,19 @@ test "a message, a state and an answer may each be a list" {
 // The actor holds what it was started with and what it was sent, and the
 // sender holds it too, so a list grown through either name is a new list.
 
-enum Shelf {
-    Put([Int]),
-    Add(Int),
-    Look,
-}
-
-fn shelf<C: Allocator + Tasks>(initial: [Int]): Actor<C, [Int], Shelf, [Int]> {
-    Actor {
-        state: initial,
-        step: fn(c, held, message) => {
-            match (message) {
-                .Put(next) => Stepped { state: next, answer: [] },
-                .Add(n) => Stepped { state: held.push(c, n), answer: [] },
-                .Look => Stepped { state: held, answer: held },
-            }
-        },
-    }
-}
-
 test "a list an actor was started with or sent is not grown through the sender's name" {
     let ctx = context {
         Allocator: alloc(),
         Tasks: tasks(),
     };
     let first = [1].concat(ctx, [2]);
-    let held = actor.start(ctx, shelf(first));
+    let held = actor.start(ctx, bagOf(first));
     assert.equal(first.push(ctx, 3), [1, 2, 3]);
-    assert.equal(held.sendMessage(ctx, .Look), .Ok([1, 2]));
+    assert.equal(held.sendMessage(ctx, .Look), .Ok(.Held([1, 2])));
     let second = [4].concat(ctx, [5]);
-    assert.equal(held.sendMessage(ctx, .Put(second)), .Ok([]));
+    assert.equal(held.sendMessage(ctx, .Fill(second)), .Ok(.Kept(2)));
     assert.equal(second.reverse(ctx), [5, 4]);
-    assert.equal(held.sendMessage(ctx, .Look), .Ok([4, 5]));
+    assert.equal(held.sendMessage(ctx, .Look), .Ok(.Held([4, 5])));
     assert.equal(held.stop(ctx), .Ok(()));
 }
 
@@ -180,11 +168,14 @@ test "an answer that is the actor's state is grown through neither" {
         Allocator: alloc(),
         Tasks: tasks(),
     };
-    let held = actor.start(ctx, shelf([1].concat(ctx, [2])));
-    let seen = assert.ok(held.sendMessage(ctx, .Look));
+    let held = actor.start(ctx, bagOf([1].concat(ctx, [2])));
+    let seen = match (held.sendMessage(ctx, .Look)) {
+        .Ok(.Held(xs)) => xs,
+        _ => [],
+    };
     assert.equal(seen.push(ctx, 9), [1, 2, 9]);
-    assert.equal(held.sendMessage(ctx, .Add(3)), .Ok([]));
-    assert.equal(held.sendMessage(ctx, .Look), .Ok([1, 2, 3]));
+    assert.equal(held.sendMessage(ctx, .Push(3)), .Ok(.Kept(3)));
+    assert.equal(held.sendMessage(ctx, .Look), .Ok(.Held([1, 2, 3])));
     assert.equal(seen, [1, 2]);
     assert.equal(held.stop(ctx), .Ok(()));
 }
