@@ -28,7 +28,9 @@ pub fn check_all(c: &mut Checker) {
     }
     check_const_cycles(c, consts);
     for id in c.tables.ctx_decls.ids().skip(ctx_decls) {
-        check_context_decl(c, id);
+        if c.tables.ctx_decl(id).checked.is_none() {
+            check_context_decl(c, id, None);
+        }
     }
     // Function bodies check independently and in any order
     // (guides/compile-speed.md), which is what lets a scoped analysis check
@@ -299,27 +301,70 @@ fn const_cycles_from(
     *state.get_or_default(at) = Visit::Done;
 }
 
-/// Checks one `context` declaration, once.
+/// The checked form of the `context` declaration a use at `at` names, checking
+/// it first if checking has not reached it.
 ///
-/// Called both from the loop above, in the order the ids were minted, and from
-/// a *use* of the declaration that found it unchecked
-/// (`expressions.rs`'s `Static::Context`). The second caller is what makes the
-/// order the ids were minted in stop mattering: a declaration built from
-/// another reads the base's recorded type, and the minting order is the order
-/// the modules were discovered in — so `context Fixture { ..Base() }` in a file
-/// that is the first in its package to import the module `Base` comes from used
-/// to be checked *before* `Base` was, and quietly kept only the bindings it
-/// wrote itself. Every use of it then failed `missing-impl` for an effect
-/// the spread was supposed to supply.
+/// That is what makes the order the ids were minted in stop mattering: a
+/// declaration built from another reads the base's recorded type, and the
+/// minting order is the order the modules were discovered in — so
+/// `context Fixture { ..Base() }` in a file that is the first in its package to
+/// import the module `Base` comes from used to be checked *before* `Base` was,
+/// and quietly kept only the bindings it wrote itself. Every use of it then
+/// failed `missing-impl` for an effect the spread was supposed to supply.
 ///
-/// [`Checker::ctx_decls_reached`] is what keeps this to once each: a second
-/// call returns, and so does a call that arrives round a cycle
-/// (`context A { ..A() }`), which leaves `checked` at `None` and the use at
-/// `Ty::Error` exactly as before.
-pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
-    if !c.ctx_decls_reached.insert(id) {
-        return;
+/// `None` when the declaration is still being checked: the use is inside its
+/// own construction, directly (`context A { ..A() }`) or through others, and
+/// this reports the cycle.
+pub(super) fn context_checked(
+    c: &mut Checker,
+    id: ContextDeclId,
+    at: Span,
+) -> Option<CheckedContext> {
+    if let Some(done) = c.tables.ctx_decl(id).checked {
+        return Some(done);
     }
+    match c.ctx_decls_open.iter().position(|(open, _)| *open == id) {
+        Some(from) => {
+            report_context_cycle(c, from, at);
+            None
+        }
+        None => Some(check_context_decl(c, id, Some(at))),
+    }
+}
+
+/// Reports the use at `at`, inside the innermost declaration being checked,
+/// that names `ctx_decls_open[from]`. The cycle starts at the declaration the
+/// use is in, since that is where the diagnostic points. Every other use on
+/// the cycle gets a secondary span.
+fn report_context_cycle(c: &mut Checker, from: usize, at: Span) {
+    let open = c.ctx_decls_open.get(from..).unwrap_or_default();
+    let name = |id: ContextDeclId| format!("`{}`", c.tables.ctx_decl(id).name);
+    let cycle: Vec<String> = open
+        .last()
+        .into_iter()
+        .chain(open)
+        .map(|(id, _)| name(*id))
+        .collect();
+    // The first declaration on the stack is the only one no use there asked
+    // for, so every other one carries the use, in the one before it.
+    let uses: Vec<(Span, String)> = open
+        .iter()
+        .skip(1)
+        .filter_map(|(id, used)| used.map(|span| (span, name(*id))))
+        .map(|(span, n)| (span, format!("{n}, next on the cycle, is built here")))
+        .collect();
+    let d = c
+        .templated("circular-context", at)
+        .bind("cycle", cycle.join(" -> "));
+    for (span, label) in uses {
+        d.secondary_span(span, label);
+    }
+}
+
+/// Checks one `context` declaration nothing has checked yet, asked for by the
+/// use at `from` or, for `None`, by the loop in [`check_all`].
+fn check_context_decl(c: &mut Checker, id: ContextDeclId, from: Option<Span>) -> CheckedContext {
+    c.ctx_decls_open.push((id, from));
     let info = c.tables.ctx_decl(id).clone();
     let mut inf = Infer::new(c, info.module, Default::default(), Ty::UNIT);
     inf.in_main = true;
@@ -343,8 +388,11 @@ pub(super) fn check_context_decl(c: &mut Checker, id: ContextDeclId) {
         ast: AstRef::Builtin,
         intrinsic: false,
     });
-    c.tables.ctx_decl_mut(id).checked = Some(CheckedContext { ty, ctor });
+    let checked = CheckedContext { ty, ctor };
+    c.tables.ctx_decl_mut(id).checked = Some(checked);
     c.bodies.insert(ctor, std::sync::Arc::new(body));
+    c.ctx_decls_open.pop();
+    checked
 }
 
 fn check_tests(c: &mut Checker) {

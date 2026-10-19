@@ -1659,7 +1659,7 @@ fn expression_symbols(
                 )
             });
         }
-        ExprKind::CtxCall { decl } => {
+        ExprKind::CtxCall { decl, .. } => {
             let info = tables.ctx_decl(*decl);
             out(info.name.clone(), Symbol::Context(*decl));
         }

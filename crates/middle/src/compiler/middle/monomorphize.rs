@@ -537,8 +537,8 @@ fn shapes_of(tables: &Tables) -> Shapes {
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 enum Key {
     Fn(FnId, Vec<Ty>),
-    /// A named `context` declaration's constructor.
-    CtxCtor(ContextDeclId),
+    /// A named `context` declaration and its constructor.
+    CtxCtor(ContextDeclId, FnId),
     /// A test body, and where it sits in `checked.tests`.
     Test(usize, Box<TestCase>),
     /// A derive at a type whose shape reaches a hand-written `impl` of the same
@@ -1052,7 +1052,7 @@ impl<'a> Monomorphizer<'a> {
                 };
                 (symbol, debug, span)
             }
-            Key::CtxCtor(c) => {
+            Key::CtxCtor(c, _) => {
                 let info = self.tables().ctx_decl(*c);
                 // Qualified with the declaring module, for the reason the arm
                 // above is: a `context` name is a *module-local* name, so two
@@ -1273,14 +1273,7 @@ impl Monomorphizer<'_> {
     fn build(&mut self, key: Key, slot: FuncIdx, f: &mut Func) {
         match key {
             Key::Fn(id, targs) => self.build_fn(id, targs, f),
-            Key::CtxCtor(c) => {
-                // Only a checked context declaration is requested.
-                let ctor = self
-                    .tables()
-                    .ctx_decl(c)
-                    .checked
-                    .or_ice("a requested context was checked")
-                    .ctor;
+            Key::CtxCtor(_, ctor) => {
                 let body = self
                     .checked
                     .bodies
@@ -2000,8 +1993,8 @@ impl Monomorphizer<'_> {
                 let slot = self.request(Key::Fn(id, resolved));
                 ExprKind::FuncRef(slot)
             }
-            ExprKind::CtxCall { decl } => {
-                let slot = self.request(Key::CtxCtor(decl));
+            ExprKind::CtxCall { decl, ctor } => {
+                let slot = self.request(Key::CtxCtor(decl, ctor));
                 ExprKind::CallFunc {
                     func: slot,
                     args: Vec::new(),

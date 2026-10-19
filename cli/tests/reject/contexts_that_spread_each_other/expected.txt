@@ -1,0 +1,18 @@
+error: circular context: `Base` -> `Program` -> `Base` [circular-context]
+  --> cmd/contexts_that_spread_each_other/main.buri:27:5
+   |
+27 |   ..Program(),
+   |     ^^^^^^^^^
+   |
+  --> cmd/contexts_that_spread_each_other/main.buri:22:5
+   |
+22 |   ..Base(),
+   |     ^^^^^^ `Base`, next on the cycle, is built here
+   |
+   = building a context runs every call in its body, so one that reaches itself never finishes building
+   = fix: break the cycle: spread or call a context that is not on the chain, or write its bindings out
+
+     Fixture() builds a fresh context each time it's called. A body that calls
+     Fixture(), directly or through other contexts, never finishes. The
+     diagnostic prints the whole chain, since changing any name on it fixes it.
+

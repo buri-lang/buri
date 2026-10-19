@@ -363,18 +363,16 @@ pub struct Checker<'a> {
     /// Which bodies step 5 is asked for. [`Bodies::All`] unless a caller said
     /// otherwise.
     pub wanted: Bodies,
-    /// The `context` declarations checking has already reached, whether it
-    /// finished them or not.
+    /// The `context` declarations being checked, outermost first, each with
+    /// the use that asked for it (`None` for the loop in `check_all`).
     ///
     /// A declaration built from another (`context Deep { ..Base() }`) reads
     /// the base's *recorded* type, so the base has to have been checked first
     /// — and the order the ids were minted in is the order the modules were
     /// discovered in, which is not that order. So a use checks its declaration
-    /// on demand (`expressions.rs`, `Static::Context`), and this is what keeps
-    /// that from doing the work twice or from following a cycle round for
-    /// ever: a declaration already in here answers with what it has, which for
-    /// one still in progress is nothing.
-    pub ctx_decls_reached: HashSet<ContextDeclId>,
+    /// on demand (`inference.rs`, `context_checked`). A use of one still in
+    /// here closes a cycle, and this is the cycle it reports.
+    pub ctx_decls_open: Vec<(ContextDeclId, Option<Span>)>,
     /// What checking the compilation's leading standard library modules
     /// already settled, when this analysis starts from it. See [`Base`].
     base: Option<&'a Base>,
@@ -413,7 +411,6 @@ pub struct Base {
     /// and is found in these modules' scopes.
     prelude: std::sync::Arc<Prelude>,
     ctx_rebindings: Vec<Span>,
-    ctx_decls_reached: HashSet<ContextDeclId>,
     /// Whether every function body of these modules was checked, or only the
     /// ones a scoped analysis must have whatever it asked for.
     ///
@@ -540,7 +537,7 @@ impl<'a> Checker<'a> {
             valueless: HashSet::default(),
             self_scope: None,
             wanted: Bodies::All,
-            ctx_decls_reached: HashSet::default(),
+            ctx_decls_open: Vec::new(),
             base: None,
             scratch: Default::default(),
         }
@@ -570,7 +567,6 @@ impl<'a> Checker<'a> {
         c.known_types = base.known_types.clone();
         c.json = base.json;
         c.ctx_rebindings = base.ctx_rebindings.clone();
-        c.ctx_decls_reached = base.ctx_decls_reached.clone();
         c.base = Some(base);
         c
     }
@@ -637,7 +633,6 @@ impl<'a> Checker<'a> {
             known_types: self.known_types,
             json: self.json,
             ctx_rebindings: self.ctx_rebindings,
-            ctx_decls_reached: self.ctx_decls_reached,
         }
     }
 
