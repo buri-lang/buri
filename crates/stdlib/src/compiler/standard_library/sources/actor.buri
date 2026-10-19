@@ -119,6 +119,10 @@
 //! doesn't wait at all. The message is not lost: the loop already running steps
 //! it before it puts the state back.
 //!
+//! A step that stops the actor running it gets `.Ok(())` at once, and so does
+//! a task that step fanned out. The mailbox closes then, and `onStop` runs
+//! with the state the step leaves behind once the step is done.
+//!
 //! That is also the only way to fill the mailbox, which holds sixty-four:
 //! nothing drains while a step holds the state. A step that posts a
 //! sixty-fifth message waits there for room nobody is coming to make, and gets
@@ -456,6 +460,9 @@ fn drive<C: Allocator + Tasks, S, M, R>(
 }
 
 /// Runs the mailbox down from `state` and puts what that leaves back.
+///
+/// Where the actor was stopped from inside this drive, nothing takes the state
+/// back, so `onStop` runs here with it.
 fn putting<C: Allocator + Tasks, S, M, R>(
     ctx: C,
     before: (Address<C, S, M, R>, SendError),
@@ -463,7 +470,14 @@ fn putting<C: Allocator + Tasks, S, M, R>(
 ): (Address<C, S, M, R>, SendError) {
     let (address, unput) = before;
     let ended = draining(ctx, address, state);
-    let _ = statePut(ctx, address.handle, across([carried(ended)]));
+    let hook = address.onStop;
+    let _ = statePut(ctx, address.handle, across([carried(ended)]))
+        .foldCtx(
+            ctx,
+            fn(c, _none: Result<(), Stopped>, last) => ending(c, hook, last.value),
+            .Ok(()),
+        )
+        .ignore();
     (address, unput)
 }
 
@@ -604,6 +618,8 @@ fn mailboxRest<C: Tasks, M>(ctx: C, handle: Int): [[Carried<M>]];
 /// that was already closed.
 ///
 /// **Waits for the state**, so a `stop` racing a step lets that step finish.
+/// Never for itself: where the caller's own step holds the state, it answers
+/// an empty list at once, and that step's `statePut` leaves the state with it.
 fn mailboxClose<C: Tasks, S>(ctx: C, handle: Int): Option<[Carried<S>]>;
 
 /// Takes the state out. `.Stopped` for a closed actor, `.WouldDeadlock` for one
@@ -613,9 +629,10 @@ fn mailboxClose<C: Tasks, S>(ctx: C, handle: Int): Option<[Carried<S>]>;
 /// mid-step gets its answer once that step is done.
 fn stateTake<C: Tasks, S>(ctx: C, handle: Int): Result<[Carried<S>], SendError>;
 
-/// Puts a state back, and answers how many messages are waiting. `.None` for a
-/// closed actor, and the block is not taken on that path.
-fn statePut<C: Tasks, S>(ctx: C, handle: Int, state: [Carried<S>]): Option<Int>;
+/// Puts a state back, and answers an empty list. Where the actor was stopped
+/// while this caller held the state, nothing will take it back, so it comes
+/// straight back instead.
+fn statePut<C: Tasks, S>(ctx: C, handle: Int, state: [Carried<S>]): [Carried<S>];
 
 /// A fresh reply slot, and its handle.
 fn replyOpen<C: Tasks>(ctx: C): Int;

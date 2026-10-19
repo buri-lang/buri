@@ -5541,6 +5541,111 @@ export fn main(host: NativeHost): Result<(), Str> {
     );
 }
 
+/// **A step that stops the actor running it, on every backend.**
+///
+/// The stop can't wait for the state, because its caller holds it, so it
+/// doesn't wait: it answers `.Ok(())` at once and closes the mailbox, and the
+/// loop running the step calls `onStop` with the state that step leaves
+/// behind, once the step is done. The same goes for a task that step started.
+/// Every send and stop after that answers `.Err(.Stopped)`.
+#[test]
+fn a_step_that_stops_its_own_actor_stops_it_at_once_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "actor stops itself",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, SendError, Stepped, Stopped };
+from "core/tasks" import * as tasks;
+from "platform/effect" import { Allocator, Stdout, Tasks };
+from "native" import { NativeHost };
+from "core/io" import * as io;
+
+enum Order<C> {
+  Run(fn(C) => ()),
+  Tick,
+}
+
+fn ending<C: Allocator + Stdout + Tasks>(): Actor<C, Int, Order<C>, Int> {
+  Actor {
+    state: 0,
+    step: fn(c, count, message) => {
+      match (message) {
+        .Run(f) => {
+          let call = f;
+          let _ = call(c);
+          let _ = io.println(c, "step done").ignore();
+          Stepped { state: count + 10, answer: count + 10 }
+        },
+        .Tick => Stepped { state: count + 1, answer: count + 1 },
+      }
+    },
+    onStop: .Some(fn(c, last) => io.println(c, "hook ran with ${last}").ignore()),
+  }
+}
+
+fn stopped(r: Result<(), Stopped>): Str {
+  match (r) {
+    .Ok(()) => "stopped",
+    .Err(.Stopped) => "already stopped",
+  }
+}
+
+/// The answer, or which `SendError` it was as a negative number.
+fn sent(r: Result<Int, SendError>): Int {
+  match (r) {
+    .Ok(n) => n,
+    .Err(.Stopped) => -1,
+    .Err(.TimedOut) => -2,
+    .Err(.WouldDeadlock) => -3,
+  }
+}
+
+export fn main(host: NativeHost): Result<(), Str> {
+  let ctx = context {
+    Allocator: host.alloc,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  };
+
+  let direct = actor.start(ctx, ending());
+  let _ = io.println(ctx, "tick: ${sent(direct.sendMessage(ctx, .Tick))}").ignore();
+  let ran = direct.sendMessage(ctx, .Run(fn(c) => {
+    let _ = io.println(c, "first stop: ${stopped(direct.stop(c))}").ignore();
+    let _ = io.println(c, "second stop: ${stopped(direct.stop(c))}").ignore();
+    let _ = io.println(c, "send inside: ${sent(direct.sendMessage(c, .Tick))}").ignore();
+  }));
+  let _ = io.println(ctx, "run: ${sent(ran)}").ignore();
+  let _ = io.println(ctx, "late: ${sent(direct.sendMessage(ctx, .Tick))}").ignore();
+  let _ = io.println(ctx, "stop after: ${stopped(direct.stop(ctx))}").ignore();
+
+  let fanned = actor.start(ctx, ending());
+  let started = fanned.sendMessage(ctx, .Run(fn(c) => {
+    let said = tasks.parallel(c, [0], fn(c2, i, n) => stopped(fanned.stop(c2)));
+    let _ = io.println(c, "fanned stop: ${said.join(c, ",")}").ignore();
+  }));
+  let _ = io.println(ctx, "run: ${sent(started)}").ignore();
+  let _ = io.println(ctx, "late: ${sent(fanned.sendMessage(ctx, .Tick))}").ignore();
+  .Ok(())
+}
+"#,
+        "tick: 1\n\
+         first stop: stopped\n\
+         second stop: already stopped\n\
+         send inside: -1\n\
+         step done\n\
+         hook ran with 11\n\
+         run: 11\n\
+         late: -1\n\
+         stop after: already stopped\n\
+         fanned stop: stopped\n\
+         step done\n\
+         hook ran with 10\n\
+         run: 10\n\
+         late: -1\n",
+    );
+}
+
 /// **What a message, a state and an answer may carry, on every backend.**
 ///
 /// The rows above drive the protocol with `Int` states and `Int` answers, which

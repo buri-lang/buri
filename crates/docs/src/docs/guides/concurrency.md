@@ -299,6 +299,10 @@ so does a task that step started. The state is already out, and waiting for it
 would be waiting for itself, so the send doesn't wait. The message is posted all
 the same, and the loop already running steps it before it puts the state back.
 
+A step that stops the actor running it gets `.Ok(())` at once, and so does a
+task that step started. The mailbox closes then, and `onStop` runs with the
+state the step leaves behind once the step is done.
+
 ## Why the state goes behind a mailbox
 
 State threaded through arguments works for as long as there is one call to

@@ -1276,7 +1276,8 @@ pub const ENTRIES: &[Entry] = &[
     e("actor.mailboxRest", &[Dropped, Scalar], Ret::Out),
     e("actor.mailboxClose", &[Dropped, Scalar], Ret::Sum),
     e("actor.stateTake", &[Dropped, Scalar], Ret::Res),
-    e("actor.statePut", &[Dropped, Scalar, List], Ret::Sum),
+    // The state back where nothing will take it, else an empty list.
+    e("actor.statePut", &[Dropped, Scalar, List], Ret::Out),
     e("actor.replyOpen", &[Dropped], Ret::Scalar(U64)),
     e("actor.replyPut", &[Dropped, Scalar, List], Ret::Sum),
     e("actor.replyTake", &[Dropped, Scalar], Ret::Sum),
