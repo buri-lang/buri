@@ -1,0 +1,6 @@
+export fn f(): Int {
+    total([
+        1 // one
+        2,
+    ])
+}
