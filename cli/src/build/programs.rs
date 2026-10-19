@@ -132,14 +132,16 @@ fn sweep(store: &Path) {
 }
 
 /// Takes every entry nothing has used for `stale`, each under its lock held
-/// exclusively, so an entry [`settle_in`] is handing out is never taken.
+/// exclusively, so an entry [`settle_in`] is handing out is never taken. Its
+/// age is read once, under that lock, so one handed out since the sweep
+/// listed it is kept.
 fn sweep_older_than(store: &Path, stale: Duration) {
     let Ok(entries) = std::fs::read_dir(store) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if !entry.file_type().is_ok_and(|t| t.is_dir()) || !older_than(&path, stale) {
+        if !entry.file_type().is_ok_and(|t| t.is_dir()) {
             continue;
         }
         match File::options().append(true).open(path.join("lock")) {
@@ -148,9 +150,12 @@ fn sweep_older_than(store: &Path, stale: Duration) {
                     let _ = std::fs::remove_dir_all(&path);
                 }
             }
-            // A partial entry from a process that died while building it.
+            // A partial entry: one a process is building, or one from a
+            // process that died while building it.
             Err(_) => {
-                let _ = std::fs::remove_dir_all(&path);
+                if older_than(&path, stale) {
+                    let _ = std::fs::remove_dir_all(&path);
+                }
             }
         }
     }
