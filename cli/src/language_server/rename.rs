@@ -174,21 +174,18 @@ fn renameable(analyzed: &Analyzed, symbol: &Symbol) -> Result<String, Refusal> {
 ///
 /// This is the alias rule, and it is also what keeps a reference the scan
 /// found by resolving rather than by spelling — an operator, a leading-dot
-/// variant — out of the edit.
+/// variant — out of the edit. A span with no location reads the empty stand-in
+/// file, which spells no name.
 fn spells(analyzed: &Analyzed, span: Span, name: &str) -> bool {
-    if span.is_none() {
-        return false;
-    }
     let text = &analyzed.session.map.get(span.file).text;
     text.get(span.start as usize..span.end as usize) == Some(name)
 }
 
 /// The file a span is in, or nothing for a span with no file and for the
-/// embedded standard library.
+/// embedded standard library. A span with no file reads the stand-in
+/// [`SourceMap::get`](crate::diagnostics::SourceMap::get) answers for it, whose
+/// path is empty too.
 fn file_uri(analyzed: &Analyzed, span: Span) -> Option<String> {
-    if span.is_none() {
-        return None;
-    }
     let file = analyzed.session.map.get(span.file);
     if file.abs_path.as_os_str().is_empty() {
         return None;
