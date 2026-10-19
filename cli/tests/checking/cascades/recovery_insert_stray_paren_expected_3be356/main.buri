@@ -1,0 +1,12 @@
+export fn f(): Int {
+    g(
+        // the arguments
+        1extra , // one
+        // above two
+        2, // two
+    )
+}
+
+export fn g(a: Int, b: Int): Int {
+    a + b
+}

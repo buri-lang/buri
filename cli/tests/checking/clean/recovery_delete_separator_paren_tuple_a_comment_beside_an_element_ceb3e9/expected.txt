@@ -1,0 +1,7 @@
+error: a tuple element ends with `,` [missing-comma]
+ --> main.buri:2:5
+  |
+2 |   (1 // one
+  |     ^
+  |
+  = fix: write `,` here

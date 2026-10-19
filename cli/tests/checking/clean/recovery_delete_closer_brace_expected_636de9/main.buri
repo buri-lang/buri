@@ -1,7 +1,0 @@
-fn f(n: Int): () {
-    let unit = {};
-    match (n) {
-        1 => {},
-        _ => unit,
-    
-}

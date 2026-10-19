@@ -1,0 +1,23 @@
+error: `g` takes 2 arguments, but 3 were given [argument-count]
+ --> main.buri:2:5
+  |
+2 |     g(
+  |     ^^
+  |
+  = expected: 2
+  = actual: 3
+  = fix: pass `g` the following arguments: g(a: Int, b: Int)
+error: a call argument ends with `,` [missing-comma]
+ --> main.buri:4:10
+  |
+4 |         1extra , // one
+  |          ^
+  |
+  = fix: write `,` here
+error: there is nothing named `extra` in scope [unknown-name]
+ --> main.buri:4:10
+  |
+4 |         1extra , // one
+  |          ^^^^^
+  |
+  = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

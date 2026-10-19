@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-comma]
+ --> main.buri:4:10
+  |
+4 |         1 // one
+  |          ^
+  |
+  = fix: write `,` here

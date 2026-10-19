@@ -1,0 +1,24 @@
+error: a tuple type has two elements or more [tuple-element-count]
+ --> main.buri:1:16
+  |
+1 | export fn f(): (IntInt ,) {
+  |                ^^^^^^^^^^
+  |
+  = `(x)` is grouping and `()` is unit
+  = fix: drop the parentheses for one element, or write `()` for none
+error: there is no type `IntInt` [unknown-type]
+ --> main.buri:1:17
+  |
+1 | export fn f(): (IntInt ,) {
+  |                 ^^^^^^
+  |
+  = did you mean `Int`?
+  = fix: if you meant `Int`, use that; if not, a name is in scope only from this module's own declarations and its imports
+error: expected `(<error>)`, found `(Int, Int)` [type-mismatch]
+ --> main.buri:1:27
+  |
+1 | export fn f(): (IntInt ,) {
+  |                           ^ the declared return type is `(<error>)`
+  |
+  = expected: `(<error>)`
+  = actual: `(Int, Int)`
