@@ -2130,7 +2130,6 @@ pub const FANS_OUT: [&str; 2] = ["host.HostTasks.parallel", "tasks.scopeBeside"]
 /// end emits an `Inst::CallIntrinsic` only for its own operations: derives,
 /// joins, test hooks, lazy chunks and coverage counts.
 pub fn shares_counts(program: &ir::Program) -> bool {
-    let fans_out = |key: &Box<str>| FANS_OUT.contains(&&**key);
     let host = |inst: &ir::Inst| matches!(inst, ir::Inst::Parallel(p) if p.tasks == Tasks::Host);
     let parallel = || {
         program
@@ -2139,7 +2138,12 @@ pub fn shares_counts(program: &ir::Program) -> bool {
             .filter_map(ir::Func::code)
             .any(|code| code.blocks().iter().any(|b| b.insts.iter().any(host)))
     };
-    program.crosses_tasks && (program.runtimes.iter().any(fans_out) || parallel())
+    program.crosses_tasks
+        && (program
+            .runtimes
+            .iter()
+            .any(|key| FANS_OUT.contains(&&**key))
+            || parallel())
 }
 
 /// `void *buri_rt_copy_block(void *p, void (*glue)(void *))` — a fresh block

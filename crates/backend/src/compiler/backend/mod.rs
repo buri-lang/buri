@@ -321,6 +321,9 @@ pub fn no_implementation(backend: &str, keys: &[String]) -> Diagnostic {
     .with_fix("report it: this is a toolchain bug, not a problem with your program")
 }
 
+/// A lowered program's two key tables, each key resolved.
+type Resolved<C, B> = (Dense<ir::IntrinsicId, C>, Dense<ir::RuntimeId, B>);
+
 /// Both of a lowered program's key tables resolved, one key at a time — the
 /// calls by `call` and the runtime bodies by `body` — or every key either has
 /// no route for, sorted and each once.
@@ -328,7 +331,7 @@ pub fn resolve_program<'p, C, B>(
     lowered: &'p ir::Program,
     call: impl Fn(&'p str) -> Option<C>,
     body: impl Fn(&'p str) -> Option<B>,
-) -> Result<(Dense<ir::IntrinsicId, C>, Dense<ir::RuntimeId, B>), Vec<String>> {
+) -> Result<Resolved<C, B>, Vec<String>> {
     let (calls, mut missing) = resolve_keys(&lowered.intrinsics, call);
     let (bodies, more) = resolve_keys(&lowered.runtimes, body);
     missing.extend(more);

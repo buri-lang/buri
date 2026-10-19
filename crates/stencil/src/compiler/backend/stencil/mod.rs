@@ -1307,14 +1307,14 @@ mod tests {
 
     #[test]
     fn the_backend_is_named_in_every_key_it_produces() {
-        assert_eq!(Stencil::default().name(), "stencil");
+        assert_eq!(Stencil.name(), "stencil");
     }
 
     /// The identity has to move when the stencils do, because the stencils are
     /// most of what the emitted bytes are.
     #[test]
     fn the_identity_is_the_librarys_hash() {
-        let id = Stencil::default().identity();
+        let id = Stencil.identity();
         assert!(id.starts_with("stencil "), "{id}");
         // One digest per target, space-separated after the name.
         assert_eq!(
