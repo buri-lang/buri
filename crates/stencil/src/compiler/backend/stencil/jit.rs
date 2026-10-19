@@ -815,7 +815,7 @@ impl<'a> Jit<'a> {
     }
 
     /// Where `key` is in the library.
-    pub(crate) fn index_of(&mut self, key: KeyArg<'_>) -> Option<usize> {
+    fn index_of(&mut self, key: KeyArg<'_>) -> Option<usize> {
         match key {
             KeyArg::Literal(k) => self.bufs.literals.at(self.lib, k),
             KeyArg::Spelled(k) => self.lib.at(k).map(|(i, _)| i),
@@ -825,6 +825,11 @@ impl<'a> Jit<'a> {
 
     pub(crate) fn has(&self, key: &str) -> bool {
         self.lib.get(key).is_some()
+    }
+
+    /// [`Jit::has`], answered as the stencil's index.
+    pub(crate) fn at(&self, key: &str) -> Option<usize> {
+        self.lib.at(key).map(|(i, _)| i)
     }
 
     /// The name of the hole whose branch is the **last** instruction of the

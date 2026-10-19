@@ -489,7 +489,7 @@ impl Jit<'_> {
         let done = st.label();
         // `BURI_OK` is `-1` as an `i32`, and the `w` result shape put it in the
         // slot zero-extended, so the comparison is against its unsigned form.
-        let key = self.arm_key("brcmp/eq/u64/fi", Jump::F);
+        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::F);
         self.emit(
             key,
             &[
@@ -751,7 +751,7 @@ impl Jit<'_> {
         let done = st.label();
         // `BURI_OK` is `-1` as an `i32`, and the `w` result shape put it in the
         // slot zero-extended, so the comparison is against its unsigned form.
-        let key = self.arm_key("brcmp/eq/u64/fi", Jump::F);
+        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::F);
         self.emit(
             key,
             &[
@@ -1438,7 +1438,7 @@ impl Jit<'_> {
     fn show_bool(&mut self, st: &mut Fn2, src: u32, dest: u32) {
         let yes = st.label();
         let done = st.label();
-        let key = self.arm_key("br/f", Jump::F);
+        let key = self.arm_key(self.lib.known.br_f, Jump::F);
         self.emit(
             key,
             &[

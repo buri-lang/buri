@@ -866,13 +866,13 @@ impl<'a> Jit<'a> {
                 // and an enum's walk runs on every retain and release of it.
                 Site::Tagged { tag, arms } => {
                     let done = st.label();
+                    let known = self.lib.known;
                     let fused = match tag.size() {
-                        1 => Some("tagbr/eq8"),
-                        4 => Some("tagbr/eq32"),
-                        8 => Some("tagbr/eq"),
+                        1 => Some(known.tag_eq8),
+                        4 => Some(known.tag_eq32),
+                        8 => Some(known.tag_eq),
                         _ => None,
-                    }
-                    .filter(|k| self.has(k));
+                    };
                     for (i, arm) in arms.iter().enumerate() {
                         let next = st.label();
                         if let Some(base) = fused {
@@ -889,7 +889,7 @@ impl<'a> Jit<'a> {
                         } else {
                             let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
                             self.load_w(scr, at, tag.size());
-                            let key = self.arm_key("brcmp/eq/u64/fi", Jump::T);
+                            let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::T);
                             self.emit(
                                 key,
                                 &[
@@ -919,7 +919,7 @@ impl<'a> Jit<'a> {
                 // whatever the frame last held and the walk is behind the test.
                 Site::Guarded { null_at, ty } => {
                     let skip = st.label();
-                    let key = self.arm_key("brcmp/eq/u64/fi", Jump::T);
+                    let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::T);
                     self.emit(
                         key,
                         &[
@@ -1424,7 +1424,7 @@ impl<'a> Jit<'a> {
                     } else {
                         V::Blk(b.out.index() as u32)
                     };
-                    let key = self.arm_key("incbr/lt", Jump::F);
+                    let key = self.arm_key(self.lib.known.inc_lt, Jump::F);
                     self.emit(
                         key,
                         &[
@@ -1511,7 +1511,7 @@ impl<'a> Jit<'a> {
                 // tag is a *test* rather than a field, so it is materialised
                 // into scratch and the fusion does not apply.
                 let mut src = st.at(*on);
-                let mut fusedw: Option<&'static str> = None;
+                let mut fusedw: Option<usize> = None;
                 if let Some((agg, e)) = plan.tagsw {
                     let (off, w, niche) = self.tag_field(prog, st, agg, e);
                     let s0 = st.scratch + 24;
@@ -1529,9 +1529,9 @@ impl<'a> Jit<'a> {
                         src = s0;
                     } else {
                         match w {
-                            1 => fusedw = Some("tagbr/eq8"),
-                            4 => fusedw = Some("tagbr/eq32"),
-                            8 => fusedw = Some("tagbr/eq"),
+                            1 => fusedw = Some(self.lib.known.tag_eq8),
+                            4 => fusedw = Some(self.lib.known.tag_eq32),
+                            8 => fusedw = Some(self.lib.known.tag_eq),
                             _ => {}
                         }
                         match fusedw {
@@ -1565,7 +1565,7 @@ impl<'a> Jit<'a> {
                     let lnext = st.label();
                     // (g) The case body falls through, so the test's `JIT_T`
                     // arm is the one that has to be the elidable one.
-                    let key = self.arm_key(fusedw.unwrap_or("brcmp/eq/u64/fi"), Jump::T);
+                    let key = self.arm_key(fusedw.unwrap_or(self.lib.known.eq_u64_fi), Jump::T);
                     // (2) The census says `tagbr + jump` is the commonest
                     // adjacent pair in the corpus after the constant
                     // stores: every `match` arm is a tag test followed by a
@@ -1605,17 +1605,15 @@ impl<'a> Jit<'a> {
     /// A branch on a condition: either the `br` stencil reading a materialised
     /// boolean, or — from [`Level::CmpBr`] — the comparison and the branch as
     /// one stencil, which is the paper's Figure 11b supernode.
-    /// The stencil key this terminator's test wants.
-    fn cond_key(&self, st: &Fn2, cond: ir::ValueId, plan: &Plan) -> Option<super::jit::Key> {
+    /// The stencil this terminator's test wants, by its index.
+    fn cond_key(&self, st: &Fn2, cond: ir::ValueId, plan: &Plan) -> Option<usize> {
         if let Some((op, prim, lhs, rhs)) = plan.cmpbr {
             let (tag, _, _) = prim_tag(prim);
             let la = st.loc(lhs).tag();
             let lb = st.loc(rhs).tag();
-            let k = key!["brcmp/", op.name(), "/", tag, "/", la, lb];
-            return self.has(&k).then_some(k);
+            return self.at(&key!["brcmp/", op.name(), "/", tag, "/", la, lb]);
         }
-        let k = key!["br/", st.loc(cond).tag()];
-        self.has(&k).then_some(k)
+        self.at(&key!["br/", st.loc(cond).tag()])
     }
 
     /// The twin of a two-target stencil whose **last** branch is the arm named
@@ -1623,17 +1621,11 @@ impl<'a> Jit<'a> {
     /// `extract::swap_arms` for why this is a choice the library has to offer
     /// rather than one the emitter can make by negating the test.
     ///
-    /// Answered as an index into the library, which `emit` then copies
-    /// without looking the name up again: this is asked once per conditional
-    /// branch, and the twin is found by index rather than by building its
-    /// name.
-    pub(crate) fn arm_key<'k>(&mut self, base: impl Into<KeyArg<'k>>, fall: Jump) -> KeyArg<'k> {
-        self.arm_key_of(base.into(), fall)
-    }
-
-    /// [`Jit::arm_key`], once for every spelling of a key.
-    fn arm_key_of<'k>(&mut self, base: KeyArg<'k>, fall: Jump) -> KeyArg<'k> {
-        let at = self.index_of(base).or_ice("an arm key names a stencil");
+    /// Asked and answered by index into the library, which `emit` then
+    /// copies without looking the name up again: this is asked once per
+    /// conditional branch, and the twin is found by index rather than by
+    /// building its name.
+    pub(crate) fn arm_key(&self, at: usize, fall: Jump) -> KeyArg<'static> {
         if self.elidable_at(at) == Some(fall) {
             return KeyArg::At(at);
         }
@@ -1652,7 +1644,7 @@ impl<'a> Jit<'a> {
         let key = self
             .cond_key(st, cond, plan)
             .or_ice("stencil: the level has a branch stencil");
-        let key = self.arm_key(&key, fall);
+        let key = self.arm_key(key, fall);
         if let Some((_, _, lhs, rhs)) = plan.cmpbr {
             let k = constant(st, rhs);
             self.emit(
@@ -2234,7 +2226,7 @@ impl Jit<'_> {
                         ],
                     );
                     let skip = st.label();
-                    let brkey = self.arm_key("br/f", Jump::T);
+                    let brkey = self.arm_key(self.lib.known.br_f, Jump::T);
                     self.emit(
                         brkey,
                         &[
@@ -2343,7 +2335,7 @@ impl Jit<'_> {
             .bytes();
         let some = st.label();
         let done = st.label();
-        let key = self.arm_key("brcmp/eq/u64/fi", Jump::T);
+        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::T);
         self.emit(
             key,
             &[
@@ -2556,7 +2548,7 @@ impl Jit<'_> {
                 Jump::Cont.to(V::Fall),
             ],
         );
-        let brkey = self.arm_key("br/f", Jump::F);
+        let brkey = self.arm_key(self.lib.known.br_f, Jump::F);
         self.emit(
             brkey,
             &[
@@ -2635,7 +2627,7 @@ impl Jit<'_> {
         let (lo, hi) = (int_pattern(int, true), int_pattern(int, false));
         let ok = st.label();
         let done = st.label();
-        let key = self.arm_key("brcmp/eq/u64/fi", Jump::T);
+        let key = self.arm_key(self.lib.known.eq_u64_fi, Jump::T);
         self.emit(
             key,
             &[
@@ -2681,7 +2673,7 @@ impl Jit<'_> {
                 );
             }
             let top = st.label();
-            let brkey = self.arm_key("br/f", Jump::T);
+            let brkey = self.arm_key(self.lib.known.br_f, Jump::T);
             self.emit(
                 brkey,
                 &[
@@ -2794,7 +2786,7 @@ impl Jit<'_> {
             let scr = st.scratch + super::rtcall::SPARE_WORD * 8;
             self.lt_zero(scr, a, tag);
             let skip = st.label();
-            let brkey = self.arm_key("br/f", Jump::T);
+            let brkey = self.arm_key(self.lib.known.br_f, Jump::T);
             self.emit(
                 brkey,
                 &[
@@ -2866,7 +2858,7 @@ impl Jit<'_> {
                 ],
             );
             let skip = st.label();
-            let brkey = self.arm_key("br/f", Jump::T);
+            let brkey = self.arm_key(self.lib.known.br_f, Jump::T);
             self.emit(
                 brkey,
                 &[
@@ -2908,7 +2900,7 @@ impl Jit<'_> {
                 ],
             );
             let skip = st.label();
-            let brkey = self.arm_key("br/f", Jump::T);
+            let brkey = self.arm_key(self.lib.known.br_f, Jump::T);
             self.emit(
                 brkey,
                 &[
@@ -2981,7 +2973,7 @@ impl Jit<'_> {
                         Jump::Cont.to(V::Fall),
                     ],
                 );
-                let brkey = self.arm_key("br/f", Jump::T);
+                let brkey = self.arm_key(self.lib.known.br_f, Jump::T);
                 self.emit(
                     brkey,
                     &[
@@ -3274,7 +3266,7 @@ impl Jit<'_> {
                 Jump::Cont.to(V::Fall),
             ],
         );
-        let brkey = self.arm_key("br/f", Jump::T);
+        let brkey = self.arm_key(self.lib.known.br_f, Jump::T);
         self.emit(
             brkey,
             &[
