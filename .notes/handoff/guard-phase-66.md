@@ -19,7 +19,7 @@ Search for the message; line numbers drift.
 
 ## Notes
 
-- `cli/src/build/programs.rs:147` is a racy branch: `try_lock` succeeds but the entry is no longer stale. Base covered it on one local run and head didn't, with no change to that file, so `cli/build` can move by one branch from run to run. Rerun coverage before you blame a change for it.
+- `cli/src/build/programs.rs`'s sweep no longer races (4cdbfd84b): `cli/build` measures 1626/1683 on aarch64-apple-darwin on every run.
 - No stencil branch below 100% is known to be unreachable, so a phase that removes covered stencil branches must also cover a real case. `jit.rs` `copyless_test`'s `!frame(*p)` never fires, including on the conformance corpus run through stencil, because no promoted header reaches it. Proving that needs `promote`'s header shape.
 - Run conformance through stencil: copy `cli/tests/conformance` without `.buri` and delete each `backends: [JS]`. Four packages don't compile, because stencil lacks `math.sin` and a few others.
 - Removing covered branches lowers an area's fraction. Compare exact fractions, not percentages.
