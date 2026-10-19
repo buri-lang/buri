@@ -114,12 +114,8 @@ pub(crate) enum Src {
 const STR_PTR: u32 = 8;
 const STR_LEN: u32 = 16;
 
-/// Every runtime row fits a `crt` stencil, checked as this crate builds: the
-/// words its shapes flatten to and its answer's out-pointers are at most
-/// `MAX_INT` integers and `MAX_FLOAT` floats. A wide value crosses `Spilled`.
-///
-/// A bound rather than the exact count: a `Ret::Res` row is given both of its
-/// pointers whether or not `T` and `E` have the bytes to need them.
+/// Every runtime row fits a `crt` stencil, checked as this crate builds. A
+/// `Ret::Res` row counts both out-pointers, whether or not it needs them.
 const _: () = {
     let mut rows = runtime::ENTRIES;
     while let [row, rest @ ..] = rows {
@@ -174,9 +170,7 @@ impl Jit<'_> {
         let extra = entry.extra();
         let by_ref = entry.by_ref();
 
-        // Each Buri argument flattens as **its row says**, not as its type
-        // does: the row is the C signature, so it is what decides which words
-        // cross and in which register file.
+        // Each Buri argument flattens as its row says, not as its type does.
         //
         // A **context argument is dropped** ([`Arg::Dropped`]), whatever it
         // weighs and whatever type it turned out to be. The runtime allocates
@@ -193,9 +187,7 @@ impl Jit<'_> {
         // after it one register down: `push` reached `buri_rt_list_push` with
         // the handle where the pointer belongs and died in `memmove` before
         // the first test block.
-        //
-        // A closure's words are not its argument's: they are `tail`, and the
-        // shapes that consume no argument are the extras below.
+        // A closure's words are `tail`, and the extras come below.
         let shapes = entry.args.iter().copied().filter(|a| a.consumes());
         for (shape, (slot, _)) in shapes.zip(args.iter().copied()) {
             match shape {
@@ -423,12 +415,8 @@ impl Jit<'_> {
             // word, and one that is written into an aggregate needs the narrow
             // store below.
             Answer::Sum(_) | Answer::Int(Narrow::I32) | Answer::Res(_) | Answer::ResMsg(_) => "w",
-            // The C return type's own width (`abi::RETURN_SHAPES`), which the
-            // row names. Both psABIs leave the upper bits of a narrower integer
-            // return **unspecified**, so a stencil that declared `uint64_t`
-            // for a `u8` reads whatever was in the register — which AAPCS64
-            // hid, because Rust's arm64 codegen zeroes it on the way out, and
-            // SysV did not. A frame slot holds the result zero-extended.
+            // The C return type's own width (`abi::RETURN_SHAPES`): a `u8`
+            // read as `uint64_t` has unspecified upper bits.
             Answer::Int(Narrow::U8) | Answer::Scalar(CScalar::U8) => "b",
             Answer::Scalar(CScalar::U32) => "u",
             Answer::Scalar(CScalar::U64) => "i",
