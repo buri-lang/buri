@@ -1,0 +1,1 @@
+error: `lib/rate/clock/lib/tick/tick.buri` is in the repository at `lib/rate/clock`, not this one; run `buri format` from there

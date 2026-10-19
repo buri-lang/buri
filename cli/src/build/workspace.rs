@@ -167,6 +167,18 @@ pub fn find_root(start: &Path) -> Option<PathBuf> {
     }
 }
 
+/// The repository nested below `root` that `path` is in, when it is in one.
+///
+/// A command given a path walks no further than a command given `//...`
+/// does: a path into a nested repository is that repository's, and the one
+/// around it refuses it rather than reading it under its own settings.
+pub fn nested_root(root: &Path, path: &Path) -> Option<PathBuf> {
+    path.ancestors()
+        .take_while(|dir| *dir != root)
+        .find(|dir| is_root(dir))
+        .map(Path::to_path_buf)
+}
+
 /// A build file that could not be read, named: the error alone says what went
 /// wrong and not where.
 fn unreadable(rel: &str, e: &std::io::Error) -> std::io::Error {

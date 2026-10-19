@@ -1,0 +1,1 @@
+error: `lib/rate/clock/README.md` is in the repository at `lib/rate/clock`, not this one; run `buri docs test` from there
